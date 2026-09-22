@@ -207,4 +207,48 @@ Progress on lanes 2-5 is appended here as it lands, so the PR is the record.
   user-visible web commit has no assertion — is being extended to the four new lane ledgers. From
   then on a commit that no lane covers fails the guard instead of quietly eroding the
   "every commit since 2026-08-01" guarantee.
+- **Coverage is now self-updating for lanes 2-5, and the count is pinned.** `sync-coverage.mjs` has
+  a lanes-2-5 half beside lane 1's, running inside `make dashboard-automation-guard`. It fails on:
+  an uncovered commit; a sha in two lane ledgers; a `checkId` with no check behind it; a row in the
+  wrong lane file; parked work with no reason; a row naming a commit outside the window; a lane 2
+  SQL that stops being a single read-only `SELECT` with a `LIMIT`; a lane 3 check that stops being
+  `GET`; a lane 4 check that stops naming its tables; and a failure sentence that picks up SQL, a
+  selector, a check code or a stack trace. `--write` parks new work as `needs-lane` — counted for
+  the reconciliation, covered by no check. Tests: `lane-coverage.test.mjs` (23 cases) plus the
+  existing 14 in `sync-coverage.test.mjs`, both wired into `make dashboard-automation-self-test`,
+  and verified live by deleting a ledger row and watching the guard name the exact sha.
+
+  Reconciled against main `faa622283`: lane 1 1023, lane 2 170, lane 3 609, lane 4 426, lane 5 1051,
+  parked 829 — **4108 accounted for exactly once, none uncovered, 194 checks**, in 1.1s.
+
+- **A defect in lane 1's coverage window, found while pinning ours.** The ledger behind PR #350's
+  919 assertions uses `git log --since=2026-08-01` with no time. That is a git *approxidate*: git
+  fills in the **current time of day**, so the window start slides forward as the day goes on. At
+  03:46 IST the bare form returns 4104 commits and `--since=2026-08-01T00:00:00+05:30` returns 4108.
+  The four it silently drops are user-visible work reported as covered when nothing covers it:
+
+      1c71909f9  2026-08-01 01:58  feat: weighing leadership surface -- task list, task detail, create wizard
+      9380f3a8f  2026-08-01 00:27  fix: unbreak leadership videos and put the planner on the planner surface
+      5702801fe  2026-08-01 00:19  fix: resume the existing root entry on bottom-nav tab switch
+      d07ab1e24  2026-08-01 00:04  feat: widen phone-QA fixture and share the weighing park chips
+
+  Verified independently against `faa622283`. Lanes 2-5 pin their window in code as
+  `COVERAGE_WINDOW`, with a test that the constant is a timestamp and not a bare date. **The lane 1
+  side is PR #350's to fix** and has been reported to the session landing it; these files were left
+  untouched.
+
+- **Two further traps found and closed.** `readLedger()` globbed *every* `.jsonl` under
+  `commit-classification/`, so the moment lanes 2-5 ledgers landed beside lane 1's, lane 1 would
+  have silently believed it already covered every Android commit — now an explicit file list with a
+  regression test. And the guard could never have gone green, because writing the ledger makes a
+  commit that is itself for ever uncovered; bookkeeping-only commits are now auto-parked with a
+  reason. The second was caught by the *pre-existing* end-to-end test in `sync-coverage.test.mjs`.
+
+- **Path-only ties are reported, not hidden.** 496 of the routed commits are tied to their check by
+  file path alone — lane 2 44, lane 3 193, lane 4 43, lane 5 216. The guard reports these per lane
+  without failing, so the weaker links stay visible instead of being counted as proof.
+
+- **Known red:** the full guard currently fails on lane 1's side — 7 admin-web commits from the
+  350/363 CI work need `needs-assertion` entries in `feature-assertions.json`. That file belongs to
+  PR #350 and was left alone.
 
