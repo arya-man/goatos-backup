@@ -26,7 +26,7 @@ test("all feed item chart series use the shared non-repeating colour helper", ()
 
 test("execution variance table defaults to today's packing day read", () => {
   assert.match(source, /const variancePackingDay = favDay \|\| todayIso\(\);/);
-  assert.match(source, /const \[locations, directed, execution, experiment, stock, shedFeed, loads\] = await Promise\.all\(\[/);
+  assert.match(source, /const \[locations, directed, execution, experiment, stock, shedFeed, loads, followUp\] = await Promise\.all\(\[/);
   assert.match(source, /const executionDay =\s*tab === "execution"\s*\?\s*await getFeedAnalyticsExecution\(\{/s);
   assert.match(source, /tab === "execution"\s*\?\s*await getFeedAnalyticsExecution\(\{/s);
   assert.match(source, /date_from: istDayPlus\(variancePackingDay, 1\),/);
@@ -103,8 +103,11 @@ test("stock-only feed analytics hides full controls and item graphs", () => {
   assert.match(source, /const stockOnly = !allowedTabs\.includes\("overview"\);/);
   assert.match(source, /const wantDirected = !stockOnly && \(tab === "overview" \|\| tab === "items" \|\| tab === "peranimal"\);/);
   assert.match(source, /\{!stockOnly \? \(\s*<>\s*<p className="muted small"[\s\S]*?<SegmentedLinks[\s\S]*?<SegmentedLinks[\s\S]*?<\/>\s*\) : null\}/);
-  assert.match(source, /const nonNull = \[directed, execution, experiment, stock, shedFeed, executionDay, loads\]\.filter/s);
-  assert.match(source, /const gated = \[directed, execution, experiment, shedFeed, loads, tab === "execution" \? executionDay : null, stockOnly \? stock : null\];/s);
+  assert.match(source, /const nonNull = \[directed, execution, experiment, stock, shedFeed, executionDay, loads, followUp\]\.filter/s);
+  assert.match(source, /const gated = \[directed, execution, experiment, shedFeed, loads, followUp, tab === "execution" \? executionDay : null, stockOnly \? stock : null\];/s);
+  // Feed follow-up reads the herd register's purchases, sales and deaths, so it rides the FULL
+  // feed gate: a stock-only reader must never fetch it.
+  assert.match(source, /const wantFollowUp = !stockOnly && tab === "followup";/);
   assert.match(source, /\{stockOnly && tab === "items" && !failed \? \(\s*<StockCards stock=\{stock\?\.ok \? stock\.data : null\} pageContract=\{pageContract\} \/>/s);
   // The per-feed money cards moved to the Consumption tab (maintainer request 2026-09-04). A
   // stock-only reader's contract offers no such tab, so the Stock tab carries the stock table alone.

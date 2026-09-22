@@ -521,6 +521,12 @@ func (transportFilterService) ShedFeedAnalytics(
 	return domain.ShedFeedAnalytics{}, nil
 }
 
+func (transportFilterService) FeedFollowUp(
+	context.Context, app.DirectedAnalyticsInput,
+) (domain.FeedFollowUp, error) {
+	return domain.FeedFollowUp{}, nil
+}
+
 // TestPostCompleteDistributionCardShapedRequestSkipsTheLegacyPreCheck pins the FEED SOP rule
 // (2026-09-16): a request that carries the card's `proofs` map is judged against the sheet's
 // PINNED card by the service, so the handler's legacy "every seeded proof present" pre-check must

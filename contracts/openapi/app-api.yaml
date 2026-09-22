@@ -6032,6 +6032,85 @@ paths:
           description: Malformed date or park id.
         "403":
           description: Caller lacks feed direction read for the requested scope.
+  /feed-analytics/follow-up:
+    get:
+      tags:
+        - Feed Direction
+      operationId: getFeedAnalyticsFollowUp
+      summary: Did the feed sheet react when animals were purchased, sold or died?
+      description: >-
+        For every pen that gained or lost animals inside the window, what the frozen sheet fed
+        before and after each event day, and whether the pen's head count moved at all. The
+        question the farm asks after a death or a sale: was the feed reduced for that pen the next
+        day, or is the crew still packing for an animal that is not there?
+
+
+        BOTH SIDES ARE STORED FACTS. The head counts and kg come from the FROZEN sheet
+        (`feed_direction_issue_rows`, the same membership and pen grain as
+        `/feed-analytics/shed-feed`), so a pen's figures here and on the overview table agree. The
+        causes come from the herd register's own exits and intakes. Nothing is re-planned.
+
+
+        THREE CAUSES, and only three: `purchased` (accepted off a procurement load), `sold`
+        (tagged to a sale) and `died`. Animals SHIFTED between pens are deliberately not counted;
+        a shift surfaces in `unexplained` instead, which carries the part of a head-count move
+        these three causes do not account for. `unexplained` is REPORTED, never forced to zero,
+        so the walk `start_animals + purchased - sold - died` need not equal `end_animals`.
+
+
+        VERDICTS. `followed` — the pen's head count moved on the next issued sheet. `not_followed`
+        — animals entered or left and the next sheet fed the pen for exactly as many mouths as
+        before; this is the only state anyone has to act on. `pending` — no sheet has been issued
+        since the event, so there is no verdict yet (absence of one, never a pass). A pen's status
+        is its worst day. "The next day" means the next issued SHEET, not the next calendar date:
+        a day the farm issued nothing has no head count to read.
+
+
+        Rows are ordered `not_followed` first, then `pending`, then `followed`, each by farm and
+        pen — the pens to act on lead. A pen with no cause in the window is ABSENT: this read
+        answers for the pens where animals moved. Identifiers on the expanded events are RFID /
+        tag values, capped at 12 per cause per day with `tags_total` carrying the true count.
+
+
+        `operational_location_display` is backend-composed per the operational-location
+        convention ("Castro 1", "Godel 1 - Part 3"); clients render it verbatim.
+      parameters:
+        - name: park_id
+          in: query
+          required: false
+          description: >-
+            Narrow to one park. Absent means every park the caller is authorized for — a
+            park-scoped principal can never widen past their grant.
+          schema:
+            type: string
+            format: uuid
+        - name: date_from
+          in: query
+          required: false
+          description: >-
+            Inclusive window start (Asia/Kolkata business date). Defaults to 29 days before
+            `date_to`. Capped at 92 days, keeping the most recent days.
+          schema:
+            type: string
+            format: date
+        - name: date_to
+          in: query
+          required: false
+          description: Inclusive window end, defaulting to yesterday; window capped at 92 days.
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: One row per pen that gained or lost animals, worst verdict first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedAnalyticsFollowUpResponse"
+        "400":
+          description: Malformed date or park id.
+        "403":
+          description: Caller lacks feed direction read for the requested scope.
   /feed-direction/preview:
     get:
       tags:
@@ -24246,6 +24325,237 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/FeedAnalyticsShedFeedRow"
+    FeedAnalyticsFollowUpResponse:
+      type: object
+      description: >-
+        Pens that gained or lost animals in the window, and whether the feed sheet moved with
+        them. Head counts and kg are the FROZEN sheet's own; causes are the herd register's.
+      required: [date_from, date_to, totals, rows]
+      properties:
+        date_from:
+          type: string
+          format: date
+        date_to:
+          type: string
+          format: date
+        totals:
+          $ref: "#/components/schemas/FeedAnalyticsFollowUpTotals"
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/FeedAnalyticsFollowUpRow"
+    FeedAnalyticsFollowUpTotals:
+      type: object
+      additionalProperties: false
+      description: >-
+        The window's walk from the mouths the sheet started feeding to the mouths it ended
+        feeding, by cause, plus the pen verdict counts.
+
+
+        THE WALK NEED NOT CLOSE. `start_animals` and `end_animals` are sheet head counts while
+        the causes are register events, so a shift between pens moves one without the other.
+        `unexplained` carries that difference openly:
+        `end_animals - (start_animals + purchased - sold - died)`.
+      required:
+        - start_animals
+        - purchased
+        - sold
+        - died
+        - end_animals
+        - unexplained
+        - start_kg
+        - end_kg
+        - followed
+        - not_followed
+        - pending
+      properties:
+        start_animals:
+          type: integer
+          description: Mouths the sheet fed on each pen's FIRST day in the window, summed.
+        purchased:
+          type: integer
+        sold:
+          type: integer
+        died:
+          type: integer
+        end_animals:
+          type: integer
+          description: Mouths the sheet fed on each pen's LAST day in the window, summed.
+        unexplained:
+          type: integer
+          description: >-
+            The head-count move the three causes do not account for — shifts between pens,
+            births, corrections. Reported, never forced to zero.
+        start_kg:
+          type: string
+          description: Directed kg on those same first days, summed. Empty when no pen had a reading.
+        end_kg:
+          type: string
+          description: Directed kg on those same last days, summed. Empty when no pen had a reading.
+        followed:
+          type: integer
+          description: Pens whose sheet moved after every event day.
+        not_followed:
+          type: integer
+          description: Pens where animals entered or left and the next sheet fed the same mouths.
+        pending:
+          type: integer
+          description: Pens still waiting for the next sheet after an event. Not a pass.
+    FeedAnalyticsFollowUpRow:
+      type: object
+      additionalProperties: false
+      description: One pen's window — what entered and left, what the sheet fed at each end, and its verdict.
+      required:
+        - park_id
+        - park_label
+        - shed_id
+        - shed_label
+        - partition_label
+        - operational_location_display
+        - purchased
+        - sold
+        - died
+        - first_day
+        - last_day
+        - head_before
+        - head_after
+        - kg_before
+        - kg_after
+        - status
+        - days
+      properties:
+        park_id:
+          type: string
+          format: uuid
+        park_label:
+          type: string
+        shed_id:
+          type: string
+          format: uuid
+        shed_label:
+          type: string
+        partition_label:
+          type: string
+          description: Human label ("Part 3", "2"); empty for an undivided shed. Never the matching key.
+        operational_location_display:
+          type: string
+          description: Backend-composed pen name; render verbatim.
+        purchased:
+          type: integer
+        sold:
+          type: integer
+        died:
+          type: integer
+        first_day:
+          type: string
+          description: The pen's first sheet day in the window; empty when the sheet never reached it.
+        last_day:
+          type: string
+          description: The pen's last sheet day in the window.
+        head_before:
+          type: integer
+        head_after:
+          type: integer
+        kg_before:
+          type: string
+        kg_after:
+          type: string
+        status:
+          type: string
+          enum: [followed, not_followed, pending]
+          description: The pen's WORST event day.
+        days:
+          type: array
+          description: The pen's event days, ascending. A day with no cause is absent.
+          items:
+            $ref: "#/components/schemas/FeedAnalyticsFollowUpDay"
+    FeedAnalyticsFollowUpDay:
+      type: object
+      additionalProperties: false
+      description: >-
+        One event day in one pen, with the sheet on either side of it. `before_day` is the last
+        sheet day on or before the event; `after_day` is the first sheet day strictly after it —
+        the next issued SHEET, which is not always the next calendar date.
+      required:
+        - event_date
+        - purchased
+        - sold
+        - died
+        - net_animals
+        - before_day
+        - after_day
+        - head_before
+        - head_after
+        - kg_before
+        - kg_after
+        - head_delta
+        - unexplained
+        - status
+        - events
+      properties:
+        event_date:
+          type: string
+          format: date
+        purchased:
+          type: integer
+        sold:
+          type: integer
+        died:
+          type: integer
+        net_animals:
+          type: integer
+          description: purchased - sold - died. Mouths the causes say the pen gained.
+        before_day:
+          type: string
+          description: Sheet day the before reading comes from; empty when the pen had no earlier sheet.
+        after_day:
+          type: string
+          description: Sheet day the after reading comes from; empty while the verdict is pending.
+        head_before:
+          type: integer
+        head_after:
+          type: integer
+        kg_before:
+          type: string
+        kg_after:
+          type: string
+        head_delta:
+          type: integer
+          description: head_after - head_before. What the sheet actually did.
+        unexplained:
+          type: integer
+          description: head_delta - net_animals. Non-zero means a move these causes do not explain.
+        status:
+          type: string
+          enum: [followed, not_followed, pending]
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/FeedAnalyticsFollowUpEvent"
+    FeedAnalyticsFollowUpEvent:
+      type: object
+      additionalProperties: false
+      description: One cause on one day in one pen, with the animals it moved.
+      required: [kind, event_date, animals, tags, tags_total]
+      properties:
+        kind:
+          type: string
+          enum: [purchased, sold, died]
+        event_date:
+          type: string
+          format: date
+        animals:
+          type: integer
+        tags:
+          type: array
+          description: >-
+            RFID / tag numbers, at most 12 — never internal goat ids. A sale of eighty animals
+            does not need eighty strings on screen to make its point.
+          items:
+            type: string
+        tags_total:
+          type: integer
+          description: How many animals there really were, so a truncated list can say so.
     FeedDirectionRow:
       type: object
       additionalProperties: false

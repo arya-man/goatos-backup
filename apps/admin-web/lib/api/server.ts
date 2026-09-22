@@ -1668,6 +1668,12 @@ export type FeedAnalyticsStockResponse =
   AppApiComponents["schemas"]["FeedAnalyticsStockResponse"];
 export type FeedAnalyticsShedFeedResponse =
   AppApiComponents["schemas"]["FeedAnalyticsShedFeedResponse"];
+export type FeedAnalyticsFollowUpResponse =
+  AppApiComponents["schemas"]["FeedAnalyticsFollowUpResponse"];
+export type FeedAnalyticsFollowUpRow =
+  AppApiComponents["schemas"]["FeedAnalyticsFollowUpRow"];
+export type FeedAnalyticsFollowUpDay =
+  AppApiComponents["schemas"]["FeedAnalyticsFollowUpDay"];
 
 export type FeedAnalyticsParams = {
   /** Optional: absent means every authorized park. */
@@ -1785,6 +1791,20 @@ export async function getFeedAnalyticsStockLoads(
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
     client.request<FeedAnalyticsStockLoadsResponse>("/feed-analytics/stock-loads", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
+export async function getFeedAnalyticsFollowUp(
+  params: FeedAnalyticsParams,
+): Promise<ApiResult<FeedAnalyticsFollowUpResponse>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<FeedAnalyticsFollowUpResponse>("/feed-analytics/follow-up", {
       cache: "no-store",
       query: compactQuery(params),
     }),

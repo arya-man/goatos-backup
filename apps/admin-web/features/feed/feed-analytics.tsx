@@ -8,6 +8,7 @@ import {
   getFeedAnalyticsExperiment,
   getFeedAnalyticsStock,
   getFeedAnalyticsStockLoads,
+  getFeedAnalyticsFollowUp,
   getFeedAnalyticsShedFeed,
   type ApiResult,
   type FeedAnalyticsDirectedResponse,
@@ -15,6 +16,7 @@ import {
   type FeedAnalyticsExperimentResponse,
   type FeedAnalyticsStockResponse,
   type FeedAnalyticsStockLoadsResponse,
+  type FeedAnalyticsFollowUpResponse,
   type FeedAnalyticsShedFeedResponse,
 } from "@/lib/api/server";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
@@ -27,6 +29,7 @@ import { getCensusLocations } from "@/lib/api/herd-locations";
 import { FeedFilters, type FeedFilterField } from "./feed-filters";
 import { FeedPager } from "./feed-pager";
 import { FeedCompletionTable } from "./feed-completion-table";
+import { FeedFollowUpTab } from "./feed-follow-up";
 import { FeedStockLoadsTable } from "./feed-stock-loads-table";
 import { FeedShedFeedCharts } from "./feed-shed-feed-charts";
 import { feedHref, feedLimit, feedOffset } from "./feed-scope";
@@ -72,7 +75,7 @@ function dedupeOptions(options: { value: string; label: string }[]): { value: st
   }
   return [...seen.entries()].map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label));
 }
-const TABS = ["overview", "items", "peranimal", "experiment", "execution"] as const;
+const TABS = ["overview", "followup", "items", "peranimal", "experiment", "execution"] as const;
 type Tab = (typeof TABS)[number];
 // The Consumption tab's two readings (maintainer request 2026-09-17): General is everything the tab
 // already showed; Status-wise is the average directed feed one animal gets per day, per pen tag.
@@ -382,10 +385,13 @@ export async function FeedAnalyticsPage({
   // chips — the maintainer asked for 7 days there while the charts above
   // default to 30. Its farm/pen-name filters run client-side over the served
   // bounded pen set, like the completion table's narrowing.
+  // Feed follow-up reads its own endpoint and nothing else; it keeps the page's
+  // range chips, because "did the sheet react" is asked over a period.
+  const wantFollowUp = !stockOnly && tab === "followup";
   const wantShedFeed = tab === "overview" && !statusWise;
   const shedFeedTo = istDayPlus(todayIso(), -1);
   const shedFeedWindow = { date_from: istDayPlus(shedFeedTo, -6), date_to: shedFeedTo };
-  const [locations, directed, execution, experiment, stock, shedFeed, loads] = await Promise.all([
+  const [locations, directed, execution, experiment, stock, shedFeed, loads, followUp] = await Promise.all([
     wantExperiment ? getCensusLocations() : Promise.resolve({ parks: [] as { id: string; name: string }[], sheds: [] }),
     wantDirected
       ? getFeedAnalyticsDirected({ ...chartParams, sections: directedSections })
@@ -427,6 +433,9 @@ export async function FeedAnalyticsPage({
           offset: String(loadsOffset),
         })
       : Promise.resolve<ApiResult<FeedAnalyticsStockLoadsResponse> | null>(null),
+    wantFollowUp
+      ? getFeedAnalyticsFollowUp(chartParams)
+      : Promise.resolve<ApiResult<FeedAnalyticsFollowUpResponse> | null>(null),
   ]);
   const executionDay =
     tab === "execution"
@@ -448,12 +457,14 @@ export async function FeedAnalyticsPage({
   // browses by): a packer works day P on the sheet the animals eat on P+1, so a reader asking for
   // "yesterday's packing" means the feed day after it. The endpoint still keys on the feed day --
   // this is a relabel of the axis, not a second grain.
-  const nonNull = [directed, execution, experiment, stock, shedFeed, executionDay, loads].filter((r) => r !== null);
+  const nonNull = [directed, execution, experiment, stock, shedFeed, executionDay, loads, followUp].filter((r) => r !== null);
   if (firstAuthRequiredError(...nonNull)) redirect(INTERNAL_LOGIN_PATH);
 
   // For the full feed analytics page, stock is supporting context and should not blank the
   // charts. For a stock-only page, it is the page, so failures must be visible.
-  const gated = [directed, execution, experiment, shedFeed, loads, tab === "execution" ? executionDay : null, stockOnly ? stock : null];
+  // Follow-up IS the tab it serves, so its failure must blank the tab rather
+  // than leave an empty page reading as "nothing happened".
+  const gated = [directed, execution, experiment, shedFeed, loads, followUp, tab === "execution" ? executionDay : null, stockOnly ? stock : null];
   const failed = gated.some((r) => r !== null && !r.ok);
   const failedError = gated.find((r) => r !== null && !r.ok)?.error;
 
@@ -525,6 +536,10 @@ export async function FeedAnalyticsPage({
 
       {stockOnly && tab === "items" && !failed ? (
         <StockCards stock={stock?.ok ? stock.data : null} pageContract={pageContract} />
+      ) : null}
+
+      {!stockOnly && tab === "followup" && followUp?.ok ? (
+        <FeedFollowUpTab data={followUp.data} pageContract={pageContract} />
       ) : null}
 
       {!stockOnly && statusWise && directed?.ok ? (

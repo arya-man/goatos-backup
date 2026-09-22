@@ -6685,3 +6685,53 @@ aside.drawer.ltd-drawer{width:min(720px,94vw);overflow-y:auto;overscroll-behavio
   .wt-feedband-cards .wt-feedband-gone{display:inline-flex;align-items:center;min-height:40px;padding:0 6px;font-size:12px}
   .wt-feedband-cardempty{padding:14px 4px}
 }
+
+/* Feed follow-up (2026-09-22): did the sheet react when animals were bought,
+   sold or lost? The verdict strip leads, the walk explains the range, and the
+   table names the pen -- see features/feed/feed-follow-up.tsx. */
+.ffu-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:10px}
+.ffu-tile{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left;
+  background:var(--panel);border:1px solid var(--line);border-left-width:3px;border-radius:var(--r);
+  padding:12px 14px;box-shadow:var(--shadow);cursor:pointer;min-width:0}
+.ffu-tile:hover{background:var(--panel-2)}
+.ffu-tile.on{background:var(--panel-2);box-shadow:0 0 0 1px var(--line) inset}
+.ffu-tile-n{font-size:24px;font-weight:800;line-height:1.1;font-variant-numeric:tabular-nums}
+.ffu-tile-l{font-size:12.5px;font-weight:700}
+.ffu-tile-s{font-size:11.5px}
+/* The tone lives on the left rule and the number, never on the whole tile: a
+   fully red card reads as an outage, and "2 pens to check" is not one. */
+.ffu-tile.ffu-dng{border-left-color:var(--danger)}
+.ffu-tile.ffu-dng .ffu-tile-n{color:var(--danger)}
+.ffu-tile.ffu-warn{border-left-color:var(--warn)}
+.ffu-tile.ffu-warn .ffu-tile-n{color:var(--warn)}
+.ffu-tile.ffu-ok{border-left-color:var(--ok)}
+.ffu-tile.ffu-ok .ffu-tile-n{color:var(--ok)}
+
+.ffu-walk{width:100%;height:auto;display:block;margin-top:8px}
+.ffu-walk-v{font-size:11px;font-weight:700;fill:var(--text);font-variant-numeric:tabular-nums}
+.ffu-walk-l{font-size:10.5px;fill:var(--muted)}
+
+.ffu-table td{vertical-align:middle}
+.ffu-row{cursor:pointer}
+.ffu-row:hover{background:var(--panel-2)}
+.ffu-row.on{background:var(--panel-2)}
+.ffu-expand{background:none;border:0;color:var(--muted);cursor:pointer;padding:0 6px 0 0;font-size:11px}
+.ffu-chips{display:inline-flex;flex-wrap:wrap;gap:5px}
+.ffu-move{display:inline-flex;align-items:baseline;gap:6px;font-variant-numeric:tabular-nums;justify-content:flex-end}
+/* An unchanged pair is the finding on a not-followed row, so the "from" is
+   never struck through or dimmed into looking superseded when it is not. */
+.ffu-move .ffu-from{color:var(--muted)}
+.ffu-move .ffu-arrow{color:var(--muted);font-size:11px}
+.ffu-move.changed .ffu-to{font-weight:700}
+.ffu-detail>td{background:var(--panel-2);padding:0}
+.ffu-days{display:grid;gap:10px;padding:12px 14px}
+.ffu-day{border-left:3px solid var(--line);padding:2px 0 2px 10px}
+.ffu-day.ffu-dng{border-left-color:var(--danger)}
+.ffu-day.ffu-warn{border-left-color:var(--warn)}
+.ffu-day.ffu-ok{border-left-color:var(--ok)}
+.ffu-day-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:5px}
+.ffu-events{list-style:none;margin:0;padding:0;display:grid;gap:4px}
+.ffu-events li{font-size:12px}
+.ffu-tags{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;color:var(--muted);overflow-wrap:anywhere}
+.ffu-sheets{margin:6px 0 0}
+@media(max-width:600px){.ffu-strip{grid-template-columns:1fr}}

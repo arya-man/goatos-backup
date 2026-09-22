@@ -965,3 +965,138 @@ func (h *Handler) GetShedFeedAnalytics(w http.ResponseWriter, r *http.Request) {
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, dto)
 }
+
+// ---------------------------------------------------------------------------
+// Feed follow-up
+// ---------------------------------------------------------------------------
+
+type feedFollowUpEventDTO struct {
+	Kind      string `json:"kind"`
+	EventDate string `json:"event_date"`
+	Animals   int    `json:"animals"`
+	// Tags are RFID / tag numbers, capped; TagsTotal is how many there really
+	// were, so the client can say "12 of 80" instead of reading as the whole.
+	Tags      []string `json:"tags"`
+	TagsTotal int      `json:"tags_total"`
+}
+
+type feedFollowUpDayDTO struct {
+	EventDate  string `json:"event_date"`
+	Purchased  int    `json:"purchased"`
+	Sold       int    `json:"sold"`
+	Died       int    `json:"died"`
+	NetAnimals int    `json:"net_animals"`
+	BeforeDay  string `json:"before_day"`
+	AfterDay   string `json:"after_day"`
+	HeadBefore int    `json:"head_before"`
+	HeadAfter  int    `json:"head_after"`
+	KgBefore   string `json:"kg_before"`
+	KgAfter    string `json:"kg_after"`
+	HeadDelta  int    `json:"head_delta"`
+	// Unexplained is the head-count move these three causes do not account
+	// for. Carried openly rather than forced to zero.
+	Unexplained int                    `json:"unexplained"`
+	Status      string                 `json:"status"`
+	Events      []feedFollowUpEventDTO `json:"events"`
+}
+
+type feedFollowUpPenRowDTO struct {
+	ParkID    string `json:"park_id"`
+	ParkLabel string `json:"park_label"`
+	ShedID    string `json:"shed_id"`
+	ShedLabel string `json:"shed_label"`
+	// PartitionLabel is the human label; empty for an undivided shed. The
+	// display below is backend-composed (oploc) and rendered verbatim.
+	PartitionLabel             string               `json:"partition_label"`
+	OperationalLocationDisplay string               `json:"operational_location_display"`
+	Purchased                  int                  `json:"purchased"`
+	Sold                       int                  `json:"sold"`
+	Died                       int                  `json:"died"`
+	FirstDay                   string               `json:"first_day"`
+	LastDay                    string               `json:"last_day"`
+	HeadBefore                 int                  `json:"head_before"`
+	HeadAfter                  int                  `json:"head_after"`
+	KgBefore                   string               `json:"kg_before"`
+	KgAfter                    string               `json:"kg_after"`
+	Status                     string               `json:"status"`
+	Days                       []feedFollowUpDayDTO `json:"days"`
+}
+
+type feedFollowUpTotalsDTO struct {
+	StartAnimals int    `json:"start_animals"`
+	Purchased    int    `json:"purchased"`
+	Sold         int    `json:"sold"`
+	Died         int    `json:"died"`
+	EndAnimals   int    `json:"end_animals"`
+	Unexplained  int    `json:"unexplained"`
+	StartKg      string `json:"start_kg"`
+	EndKg        string `json:"end_kg"`
+	Followed     int    `json:"followed"`
+	NotFollowed  int    `json:"not_followed"`
+	Pending      int    `json:"pending"`
+}
+
+type feedFollowUpDTO struct {
+	DateFrom string                  `json:"date_from"`
+	DateTo   string                  `json:"date_to"`
+	Totals   feedFollowUpTotalsDTO   `json:"totals"`
+	Rows     []feedFollowUpPenRowDTO `json:"rows"`
+}
+
+// GetFeedFollowUp serves GET /feed-analytics/follow-up: for every pen that
+// gained or lost animals in the window, what the sheet fed on either side of
+// each event day and whether it moved.
+func (h *Handler) GetFeedFollowUp(w http.ResponseWriter, r *http.Request) {
+	in, ok := h.analyticsInput(w, r)
+	if !ok {
+		return
+	}
+	result, err := h.service.FeedFollowUp(r.Context(), in)
+	if err != nil {
+		h.writeServiceError(w, r, "feed follow-up", err)
+		return
+	}
+	from, to := domain.ClampAnalyticsWindow(in.DateFrom, in.DateTo)
+	dto := feedFollowUpDTO{
+		DateFrom: from.Format("2006-01-02"),
+		DateTo:   to.Format("2006-01-02"),
+		Totals:   feedFollowUpTotalsDTO(result.Totals),
+		Rows:     make([]feedFollowUpPenRowDTO, 0, len(result.Rows)),
+	}
+	for _, row := range result.Rows {
+		days := make([]feedFollowUpDayDTO, 0, len(row.Days))
+		for _, d := range row.Days {
+			events := make([]feedFollowUpEventDTO, 0, len(d.Events))
+			for _, e := range d.Events {
+				tags := e.Tags
+				if tags == nil {
+					tags = []string{}
+				}
+				events = append(events, feedFollowUpEventDTO{
+					Kind: e.Kind, EventDate: e.EventDate, Animals: e.Animals,
+					Tags: tags, TagsTotal: e.TagsTotal,
+				})
+			}
+			days = append(days, feedFollowUpDayDTO{
+				EventDate: d.EventDate, Purchased: d.Purchased, Sold: d.Sold, Died: d.Died,
+				NetAnimals: d.NetAnimals, BeforeDay: d.BeforeDay, AfterDay: d.AfterDay,
+				HeadBefore: d.HeadBefore, HeadAfter: d.HeadAfter,
+				KgBefore: d.KgBefore, KgAfter: d.KgAfter,
+				HeadDelta: d.HeadDelta, Unexplained: d.Unexplained,
+				Status: d.Status, Events: events,
+			})
+		}
+		dto.Rows = append(dto.Rows, feedFollowUpPenRowDTO{
+			ParkID: row.ParkID, ParkLabel: row.ParkLabel,
+			ShedID: row.ShedID, ShedLabel: row.ShedLabel,
+			PartitionLabel:             row.PartitionLabel,
+			OperationalLocationDisplay: row.OperationalLocationDisplay,
+			Purchased:                  row.Purchased, Sold: row.Sold, Died: row.Died,
+			FirstDay: row.FirstDay, LastDay: row.LastDay,
+			HeadBefore: row.HeadBefore, HeadAfter: row.HeadAfter,
+			KgBefore: row.KgBefore, KgAfter: row.KgAfter,
+			Status: row.Status, Days: days,
+		})
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, dto)
+}

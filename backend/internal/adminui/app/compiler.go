@@ -2015,6 +2015,10 @@ func compileFeedAnalyticsOptionGroups(groups []domain.OptionGroup, input Bootstr
 	if mayReadFullFeed {
 		tabs = []domain.Option{
 			option("overview", "Consumption", "", ""),
+			// Feed follow-up rides the FULL feed gate, never the stock-only one:
+			// it reads the herd register's purchases, sales and deaths, which a
+			// stock-scoped reader has no business seeing.
+			option("followup", "Feed follow-up", "", ""),
 			option("items", "Stock", "", ""),
 			option("peranimal", "Per Animal", "", ""),
 			option("experiment", "Experiment", "", ""),
