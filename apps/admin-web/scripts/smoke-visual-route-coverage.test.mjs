@@ -277,35 +277,8 @@ test("visual smoke keeps mobile WebView layout regression checks wired", () => {
   assert.match(smokeSource, /await assertMobileWideTableGestures\(page, route\.name, viewport\.label, screenshotDir\);/);
   assert.match(smokeSource, /await assertA11y\(page, route\.name, viewport\.label\);/);
   assert.match(smokeSource, /await assertTruncationContracts\(page, route\.name, viewport\.label\);/);
+  assert.doesNotMatch(smokeSource, /function isAllowed(ClippedControl|SmallTarget|MobileScrollProblem|A11yFinding)/, "smoke must not waive real UI failures");
   assert.match(smokeSource, /await assertCoreInteractions\(page, route\.name, viewport\.label\);/);
-  assert.match(smokeSource, /function isAllowedMobileScrollProblem\(routeName, viewportLabel, problem\)/);
-  assert.match(smokeSource, /function isAllowedSmallTarget\(routeName, viewportLabel, target\)/);
-  assert.match(smokeSource, /function isAllowedClippedControl\(routeName, viewportLabel, control\)/);
-  assert.match(smokeSource, /routeName === "procurement" \|\| routeName\.startsWith\("procurement-source-entry"\)/);
-  assert.match(smokeSource, /control\?\.text !== "Accepted intake"/);
-  assert.match(smokeSource, /source-entry status column must fit Accepted intake/);
-  assert.match(smokeSource, /routeName !== "sales-config"/);
-  assert.match(smokeSource, /target\?\.tag !== "input" \|\| target\?\.ariaLabel !== "Unit"/);
-  assert.match(smokeSource, /min-width:\\s\*104px/);
-  assert.match(smokeSource, /duration control width should stay tappable/);
-  assert.match(smokeSource, /viewportLabel !== "mobile" \|\| problem\?\.kind !== "missing-scroll-owner"/);
-  assert.match(smokeSource, /routeName === "vaccination-schedule" && problem\?\.table\?\.className === "full-vaccine-schedule-table"/);
-  assert.match(smokeSource, /className="bd tablewrap vaccination-schedule-tablewrap"/);
-  assert.match(smokeSource, /routeName === "feed-config" && problem\?\.table\?\.className === "feed-table"/);
-  assert.match(smokeSource, /"Experiment pen rows", "Session template rows", "Feeding schedule rows"/);
-  assert.match(smokeSource, /routeName === "feed-direction" && problem\?\.table\?\.className === "feed-table" && problem\?\.table\?\.ariaLabel === "Feed direction rows"/);
-  assert.match(smokeSource, /routeName === "feed-packing" && problem\?\.table\?\.className === "feed-table" && problem\?\.table\?\.ariaLabel === "Feed packing lines"/);
-  assert.match(smokeSource, /className="bd tablewrap feed-stock-tablewrap feed-scroll"/);
-  assert.match(smokeSource, /routeName === "sales-config" && problem\?\.table\?\.className === "tbl"/);
-  assert.match(smokeSource, /AnimalsWeight used \(kg\)Price/);
-  assert.match(smokeSource, /className="tablewrap sales-valuation-tablewrap"/);
-  assert.match(smokeSource, /routeName === "procurement-load-detail"/);
-  assert.match(smokeSource, /Animal IDsSelectionCurrent stageSource entryOwnershipHealthWarmupDownstream/);
-  assert.match(smokeSource, /procurement-load-goats-table/);
-  assert.match(smokeSource, /routeName === "feed-analytics"/);
-  assert.match(smokeSource, /violation\.id !== "scrollable-region-focusable"/);
-  assert.match(smokeSource, /penbars\(\?::nth-child/);
-  assert.match(smokeSource, /className="penbars"\[\\s\\S\]\*\?role="group"\[\\s\\S\]\*\?tabIndex=\\\{0\\\}/);
   for (const requiredCheck of [
     "has horizontal overflow",
     "has cards/panels cut at the viewport edge",

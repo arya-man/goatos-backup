@@ -353,7 +353,7 @@ function runInDir(cwd, command, args, env = process.env) {
 function truncateRunOutput(value, max = 1800) {
   const text = String(value ?? "").trim();
   if (text.length <= max) return text;
-  return `${text.slice(0, max)}…`;
+  return `…${text.slice(-max)}`;
 }
 
 function writeReceipt(file, value) {
