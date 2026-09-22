@@ -337,6 +337,18 @@ OCI database. A normal request to "make OCI match STG" means: run a diff, captur
 the mismatched table/row delta, apply the smallest targeted SQL or copy for that
 delta, then re-run parity.
 
+## Manual DB Writes Must Carry Actor + Reason (Claude AND Codex)
+
+Every direct write to goatos-stg (or OCI) from psql, psycopg2, or a script is
+recorded in `audit.db_changes` by triggers (migration `000387`). Wrap every such
+write in one transaction that starts with
+`SELECT audit.begin_change('<person> via <claude|codex|psql>', '<purpose + link>');`,
+and connect with a non-`goatos-` application name (`PGAPPNAME=claude`,
+`application_name="codex"`). Never use a `goatos-*` application name, never set
+`session_replication_role`, and never disable, drop, or edit the audit triggers or
+`audit.db_changes`. After the write, show the maintainer the resulting
+`audit.db_changes` rows as proof. Details: `docs/runbooks/manual-db-change-audit.md`.
+
 ## Legacy Local Stack Canonical Ports
 
 For local Goat OS browser/debug work, use one shared local stack unless the user

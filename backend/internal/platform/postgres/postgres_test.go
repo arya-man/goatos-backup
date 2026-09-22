@@ -35,3 +35,21 @@ func TestConfigFromEnvIncludesBoundedMinConns(t *testing.T) {
 		t.Fatalf("negative MinConns=%d want 0", got)
 	}
 }
+
+func TestConfigureOLTPRuntimeTagsServiceApplicationName(t *testing.T) {
+	cases := map[string]string{
+		"postgres://u@h/db":                                   "goatos-backend",
+		"postgres://u@h/db?application_name=psql":             "goatos-backend",
+		"postgres://u@h/db?application_name=goatos-analytics": "goatos-analytics",
+	}
+	for dsn, want := range cases {
+		cfg, err := pgxpool.ParseConfig(dsn)
+		if err != nil {
+			t.Fatalf("parse %q: %v", dsn, err)
+		}
+		configureOLTPRuntime(cfg)
+		if got := cfg.ConnConfig.RuntimeParams["application_name"]; got != want {
+			t.Fatalf("%q: application_name = %q, want %q", dsn, got, want)
+		}
+	}
+}

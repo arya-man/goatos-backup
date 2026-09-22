@@ -307,6 +307,10 @@ read-only and do not ask for or use Ravi's Secret Manager credentials.
 In another shell, read the secret-backed DSN without printing it, override the
 host/port to the local proxy, and run read-only SQL. `psql` may not be installed
 on every Codex host; Python with `psycopg2` is an acceptable local client.
+Any **write** through this DSN must follow
+[manual-db-change-audit.md](manual-db-change-audit.md): pass
+`application_name="codex"` (or `claude`) to `psycopg2.connect` and start the
+transaction with `SELECT audit.begin_change('<who>', '<why>')`.
 
 ```bash
 DB_URL="$(gcloud secrets versions access latest \

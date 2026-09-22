@@ -311,6 +311,30 @@ CREATE TABLE IF NOT EXISTS public.goatos_schema_migrations (
 			return fmt.Errorf("commit migration %s: %w", migration.Version, err)
 		}
 	}
+	if dryRun {
+		return nil
+	}
+	return attachManualChangeAudit(ctx, conn, log)
+}
+
+// attachManualChangeAudit covers tables created by migrations after 000387 with the
+// manual DB change audit triggers (docs/runbooks/manual-db-change-audit.md). It is a
+// no-op before 000387 has been applied.
+func attachManualChangeAudit(ctx context.Context, conn *pgxpool.Conn, log *slog.Logger) error {
+	var present bool
+	if err := conn.QueryRow(ctx, `SELECT to_regproc('audit.attach_all') IS NOT NULL`).Scan(&present); err != nil {
+		return fmt.Errorf("check manual change audit: %w", err)
+	}
+	if !present {
+		return nil
+	}
+	var attached int
+	if err := conn.QueryRow(ctx, `SELECT audit.attach_all()`).Scan(&attached); err != nil {
+		return fmt.Errorf("attach manual change audit triggers: %w", err)
+	}
+	if attached > 0 {
+		log.Info("manual_change_audit_attached", slog.Int("tables", attached))
+	}
 	return nil
 }
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/exaring/otelpgx"
@@ -97,6 +98,21 @@ func configureOLTPRuntime(poolCfg *pgxpool.Config) {
 		poolCfg.ConnConfig.RuntimeParams = map[string]string{}
 	}
 	poolCfg.ConnConfig.RuntimeParams["jit"] = "off"
+	tagServiceApplicationName(poolCfg)
+}
+
+// ServiceApplicationNamePrefix marks a connection as Goat OS service traffic. The
+// manual DB change audit triggers (migration 000387) skip sessions whose
+// application_name starts with this prefix and record every other session, so
+// psql / agent / one-off script writes are audited while API writes are not.
+// See docs/runbooks/manual-db-change-audit.md.
+const ServiceApplicationNamePrefix = "goatos-"
+
+func tagServiceApplicationName(poolCfg *pgxpool.Config) {
+	if strings.HasPrefix(poolCfg.ConnConfig.RuntimeParams["application_name"], ServiceApplicationNamePrefix) {
+		return
+	}
+	poolCfg.ConnConfig.RuntimeParams["application_name"] = ServiceApplicationNamePrefix + "backend"
 }
 
 // Ping verifies database readiness within the provided timeout.
