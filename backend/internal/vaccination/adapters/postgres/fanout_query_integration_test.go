@@ -396,6 +396,13 @@ INSERT INTO proof_artifacts (
 		impTenant, goatID, obA, obB); got != 2 {
 		t.Fatalf("completion rows after replay = %d, want still 2", got)
 	}
+	ids, err := vacc.ListRecordedCompletionsByTask(ctx, impTenant, taskID)
+	if err != nil {
+		t.Fatalf("ListRecordedCompletionsByTask() after proof reconcile error = %v", err)
+	}
+	if len(ids) != 2 {
+		t.Fatalf("recorded completions visible to task verify fanout = %d, want 2; ids=%v", len(ids), ids)
+	}
 }
 
 func TestRecordCompletionsFromSubmissionSkipsTerminalObligation(t *testing.T) {

@@ -26,16 +26,23 @@ ORDER BY vc.administered_at DESC
 LIMIT @row_limit;
 
 -- name: ListRecordedCompletionsByTask :many
--- SOP verify fan-out: the still-recorded vaccination completions captured under a SOP task's
--- submissions, so a task-level verify/rework can be applied per completion. Drives from the task's
--- submissions (sop_submissions_task_history_idx) -> items (sop_submission_items_submission_idx) ->
--- completions (vaccination_completions_submission_item_idx).
-SELECT c.completion_id::text AS completion_id
+-- SOP verify fan-out: the still-recorded vaccination completions captured under a SOP task. Normal
+-- submission fan-out reaches completions through submission items. Live proof-upload reconciliation
+-- can create the same recorded completion before a submission-item row exists, so it must still fan
+-- out through the obligation's task/batch binding or the verifier sees "video exists" while the task
+-- review misses the animal.
+SELECT DISTINCT c.completion_id::text AS completion_id
 FROM vaccination_completions c
-JOIN sop_submission_items i ON i.tenant_id = c.tenant_id AND i.item_id = c.sop_submission_item_id
-JOIN sop_submissions s ON s.tenant_id = i.tenant_id AND s.submission_id = i.submission_id
-WHERE c.tenant_id = @tenant_id AND s.task_id = @task_id AND c.status = 'recorded'
-  AND c.sop_submission_item_id IS NOT NULL
+LEFT JOIN sop_submission_items i ON i.tenant_id = c.tenant_id AND i.item_id = c.sop_submission_item_id
+LEFT JOIN sop_submissions s ON s.tenant_id = i.tenant_id AND s.submission_id = i.submission_id
+LEFT JOIN obligation_instances oi ON oi.tenant_id = c.tenant_id AND oi.obligation_id = c.obligation_id
+LEFT JOIN obligation_batches ob ON ob.tenant_id = c.tenant_id AND ob.batch_id = c.batch_id
+WHERE c.tenant_id = @tenant_id AND c.status = 'recorded'
+  AND (
+    s.task_id = @task_id
+    OR oi.sop_task_id = @task_id
+    OR ob.sop_task_id = @task_id
+  )
 ORDER BY c.completion_id;
 
 -- name: CountRecordedCompletions :one
