@@ -18,6 +18,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.common.DefaultDispatchers
@@ -593,6 +594,9 @@ interface ProofCaptureRepository {
         mimeType: String,
         caption: String?,
         rfidTag: String? = null,
+        obligationId: String? = null,
+        obligationRowVersion: Int = 0,
+        obligationCyclesJson: String? = null,
         scopeType: String,
         scopeId: String,
         /** Device-clock record start/stop (Camera-only capture freshness metadata — see
@@ -829,6 +833,9 @@ class DefaultProofCaptureRepository(
         mimeType: String,
         caption: String?,
         rfidTag: String?,
+        obligationId: String?,
+        obligationRowVersion: Int,
+        obligationCyclesJson: String?,
         scopeType: String,
         scopeId: String,
         capturedStartMs: Long,
@@ -848,6 +855,9 @@ class DefaultProofCaptureRepository(
         mimeType = mimeType,
         caption = caption,
         rfidTag = rfidTag,
+        obligationId = obligationId,
+        obligationRowVersion = obligationRowVersion,
+        obligationCyclesJson = obligationCyclesJson,
         scopeType = scopeType,
         scopeId = scopeId,
         capturedStartMs = capturedStartMs,
@@ -877,6 +887,9 @@ class DefaultProofCaptureRepository(
         mimeType: String,
         caption: String?,
         rfidTag: String?,
+        obligationId: String?,
+        obligationRowVersion: Int,
+        obligationCyclesJson: String?,
         scopeType: String,
         scopeId: String,
         capturedStartMs: Long,
@@ -954,6 +967,9 @@ class DefaultProofCaptureRepository(
             mimeType = mimeType,
             caption = caption,
             rfidTag = rfidTag?.takeIf { it.isNotBlank() },
+            obligationId = obligationId?.takeIf { it.isNotBlank() },
+            obligationRowVersion = obligationRowVersion,
+            obligationCyclesJson = obligationCyclesJson?.takeIf { it.isNotBlank() },
             capturedAtMs = clock(),
             capturedStartMs = capturedStartMs,
             capturedEndMs = capturedEndMs,
@@ -1289,6 +1305,9 @@ class DefaultProofCaptureRepository(
                 mimeType = mimeType,
                 caption = caption,
                 rfidTag = rfidTag,
+                obligationId = null,
+                obligationRowVersion = 0,
+                obligationCyclesJson = null,
                 scopeType = scopeType,
                 scopeId = scopeId,
                 capturedStartMs = capturedStartMs,
@@ -1364,6 +1383,9 @@ class DefaultProofCaptureRepository(
                 mimeType = mimeType,
                 caption = caption,
                 rfidTag = rfidTag,
+                obligationId = null,
+                obligationRowVersion = 0,
+                obligationCyclesJson = null,
                 scopeType = scopeType,
                 scopeId = scopeId,
                 capturedStartMs = capturedStartMs,
@@ -1531,6 +1553,15 @@ class DefaultProofCaptureRepository(
                 uploadEntity.geocodedAddress?.takeIf { it.isNotBlank() }
                     ?.let { put("geocoded_address", JsonPrimitive(it)) }
                 humanRfidTag(uploadEntity)?.let { put("rfid_tag", JsonPrimitive(it)) }
+                uploadEntity.obligationId?.takeIf { it.isNotBlank() }?.let {
+                    put("obligation_id", JsonPrimitive(it))
+                    put("obligation_row_version", JsonPrimitive(uploadEntity.obligationRowVersion))
+                }
+                uploadEntity.obligationCyclesJson?.takeIf { it.isNotBlank() }?.let { raw ->
+                    runCatching { syncJson.decodeFromString<JsonElement>(raw) }
+                        .getOrNull()
+                        ?.let { put("obligation_cycles", it) }
+                }
                 uploadEntity.capturedByPrincipalId?.takeIf { it.isNotBlank() }
                     ?.let { put("captured_by_principal_id", JsonPrimitive(it)) }
             },
@@ -2334,6 +2365,11 @@ private fun proofAnalyticsProps(
     put("proof_subject", entity.proofSubject)
     entity.subjectId?.takeIf { it.isNotBlank() }?.let { put("subject_id", it) }
     humanRfidTag(entity)?.let { put("rfid_tag", it) }
+    entity.obligationId?.takeIf { it.isNotBlank() }?.let {
+        put("obligation_id", it)
+        put("obligation_row_version", entity.obligationRowVersion.toString())
+    }
+    entity.obligationCyclesJson?.takeIf { it.isNotBlank() }?.let { put("obligation_cycles", it.take(512)) }
     entity.featureSurface?.takeIf { it.isNotBlank() }?.let { put("feature_surface", it) }
     entity.featureCategory?.takeIf { it.isNotBlank() }?.let { put("feature_category", it) }
     entity.proofMode?.takeIf { it.isNotBlank() }?.let { put("proof_mode", it) }

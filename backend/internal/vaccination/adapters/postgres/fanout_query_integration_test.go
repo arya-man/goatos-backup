@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -356,19 +357,20 @@ func TestRecordCompletionsFromCompletedProofClosesComboObligationsIdempotently(t
 	obB := mkObligation(ruleB, "proof-reconcile-b", 2)
 
 	proofID := "10000000-0000-4000-8000-0000000000d8"
+	metadata := fmt.Sprintf(`{"field_key":"vaccination_goat_proof","obligation_cycles":[{"obligation_id":%q,"obligation_row_version":1},{"obligation_id":%q,"obligation_row_version":1}]}`, obA, obB)
 	if _, err := pool.Exec(ctx, `
-INSERT INTO proof_artifacts (
-  proof_id, tenant_id, storage_provider, object_key, content_hash, mime_type, size_bytes,
-  upload_state, scope_type, scope_id, subject_type, subject_id, proof_type, uploaded_by,
-  metadata, created_at, uploaded_at, updated_at
-) VALUES (
-  $1, $2, 'gcs', 'tests/vaccination/proof-reconcile.mp4', 'sha256:proof', 'video/mp4', 123,
-  'completed', 'task', $3, 'goat', $4, 'video', $5,
-  '{"field_key":"vaccination_goat_proof"}'::jsonb,
-  TIMESTAMPTZ '2026-09-22 08:00:00+00',
-  TIMESTAMPTZ '2026-09-22 08:00:05+00',
-  TIMESTAMPTZ '2026-09-22 08:00:05+00'
-)`, proofID, impTenant, taskID, goatID, impParty); err != nil {
+	INSERT INTO proof_artifacts (
+	  proof_id, tenant_id, storage_provider, object_key, content_hash, mime_type, size_bytes,
+	  upload_state, scope_type, scope_id, subject_type, subject_id, proof_type, uploaded_by,
+	  metadata, created_at, uploaded_at, updated_at
+	) VALUES (
+	  $1, $2, 'gcs', 'tests/vaccination/proof-reconcile.mp4', 'sha256:proof', 'video/mp4', 123,
+	  'completed', 'task', $3, 'goat', $4, 'video', $5,
+	  $6::jsonb,
+	  TIMESTAMPTZ '2026-09-22 08:00:00+00',
+	  TIMESTAMPTZ '2026-09-22 08:00:05+00',
+	  TIMESTAMPTZ '2026-09-22 08:00:05+00'
+	)`, proofID, impTenant, taskID, goatID, impParty, metadata); err != nil {
 		t.Fatalf("proof: %v", err)
 	}
 
@@ -402,6 +404,103 @@ INSERT INTO proof_artifacts (
 	}
 	if len(ids) != 2 {
 		t.Fatalf("recorded completions visible to task verify fanout = %d, want 2; ids=%v", len(ids), ids)
+	}
+}
+
+func TestRecordCompletionsFromCompletedProofRejectsStaleObligationCycle(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	proto := protopg.NewRepository(pool, 5*time.Second)
+	obl := oblpg.NewRepository(pool, 5*time.Second)
+	vacc := NewRepository(pool, 5*time.Second)
+
+	protoID, err := proto.CreateDefinition(ctx, protodomain.NewDefinition{
+		TenantID: impTenant, Code: "vaccination.proof.stale", Name: "Proof Stale", Category: "vaccination", Status: "draft",
+	})
+	if err != nil {
+		t.Fatalf("definition: %v", err)
+	}
+	versionID, err := proto.CreateVersion(ctx, protodomain.NewVersion{
+		TenantID: impTenant, ProtocolID: protoID, ScopeType: "tenant", Version: 1, Status: "draft",
+		EffectiveFrom: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), RuleDsl: []byte(`{}`), ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("version: %v", err)
+	}
+	ruleID, err := proto.CreateRule(ctx, protodomain.NewRule{
+		TenantID: impTenant, ProtocolVersionID: versionID, DoseCode: "et_tt_kid_w4", Sequence: 1,
+		TriggerType: "birth_age", Repeat: "none", CatchUp: "pc_approval",
+		EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("rule: %v", err)
+	}
+
+	const goatID = "30000000-0000-4000-8000-0000000000e8"
+	seedGenGoat(t, ctx, pool, goatID, "alive")
+	sopID := scanText(t, ctx, pool,
+		`INSERT INTO sop_definitions (tenant_id, code, name, description, status)
+		 VALUES ($1, 'vaccination.session', 'Vaccination Session', 'Proof stale regression', 'active')
+		 RETURNING sop_id::text`, impTenant)
+	sopVersionID := scanText(t, ctx, pool,
+		`INSERT INTO sop_versions (tenant_id, sop_id, version, version_label, status, form_dsl, proof_policy, validation_report)
+		 VALUES ($1, $2, 1, 'proof stale v1', 'published',
+		   '{"schema_version":"goatos.sop-form.v1","fields":[]}'::jsonb,
+		   '{"required":true,"subject_scope":"goat","types":["video"],"minimum_count_per_subject":1}'::jsonb,
+		   '{"valid":true,"errors":[],"warnings":[]}'::jsonb)
+		 RETURNING sop_version_id::text`, impTenant, sopID)
+	taskID := scanText(t, ctx, pool,
+		`INSERT INTO sop_tasks (tenant_id, sop_id, sop_version_id, task_type, title, scope_type, scope_id)
+		 VALUES ($1, $2, $3, 'vaccination_session', 'Proof stale', 'park', $4)
+		 RETURNING task_id::text`, impTenant, sopID, sopVersionID, impCbe)
+
+	obID, applied, err := obl.InsertObligation(ctx, obldomain.NewObligation{
+		TenantID: impTenant, ProtocolVersionID: versionID, RuleID: ruleID,
+		TargetType: "goat", TargetID: goatID, ScopeType: "tenant", ScopeID: impTenant,
+		DueAt: time.Date(2026, 9, 22, 0, 0, 0, 0, time.UTC), Status: "scheduled",
+		IdempotencyKey: "proof-stale-obligation", Sequence: 1,
+	})
+	if err != nil || !applied {
+		t.Fatalf("obligation: applied=%v err=%v", applied, err)
+	}
+	if _, err := pool.Exec(ctx,
+		`UPDATE obligation_instances SET sop_task_id=$1, row_version=2 WHERE tenant_id=$2 AND obligation_id=$3`,
+		taskID, impTenant, obID); err != nil {
+		t.Fatalf("reopen obligation cycle: %v", err)
+	}
+
+	proofID := "10000000-0000-4000-8000-0000000000e8"
+	metadata := fmt.Sprintf(`{"field_key":"vaccination_goat_proof","obligation_cycles":[{"obligation_id":%q,"obligation_row_version":1}]}`, obID)
+	if _, err := pool.Exec(ctx, `
+	INSERT INTO proof_artifacts (
+	  proof_id, tenant_id, storage_provider, object_key, content_hash, mime_type, size_bytes,
+	  upload_state, scope_type, scope_id, subject_type, subject_id, proof_type, uploaded_by,
+	  metadata, created_at, uploaded_at, updated_at
+	) VALUES (
+	  $1, $2, 'gcs', 'tests/vaccination/proof-stale.mp4', 'sha256:proof-stale', 'video/mp4', 123,
+	  'completed', 'task', $3, 'goat', $4, 'video', $5,
+	  $6::jsonb,
+	  TIMESTAMPTZ '2026-09-22 08:00:00+00',
+	  TIMESTAMPTZ '2026-09-22 08:00:05+00',
+	  TIMESTAMPTZ '2026-09-22 08:00:05+00'
+	)`, proofID, impTenant, taskID, goatID, impParty, metadata); err != nil {
+		t.Fatalf("proof: %v", err)
+	}
+
+	completions, err := vacc.RecordCompletionsFromCompletedProof(ctx, impTenant, proofID)
+	if err == nil {
+		t.Fatalf("RecordCompletionsFromCompletedProof() err = nil, want stale proof rejection")
+	}
+	if len(completions) != 0 {
+		t.Fatalf("stale completions = %d, want 0", len(completions))
+	}
+	if got := countRowsVacc(t, ctx, pool,
+		`SELECT count(*) FROM vaccination_completions WHERE tenant_id=$1 AND goat_id=$2 AND obligation_id=$3`,
+		impTenant, goatID, obID); got != 0 {
+		t.Fatalf("stale completion rows = %d, want 0", got)
 	}
 }
 

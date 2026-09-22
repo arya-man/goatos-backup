@@ -1889,3 +1889,16 @@ val MIGRATION_66_67: Migration = object : Migration(66, 67) {
         )
     }
 }
+
+/**
+ * v67 -> v68: persists the vaccination proof's obligation cycle on the durable proof row.
+ * Upload/retry metadata can then prove it belongs to the same open obligation row version instead
+ * of letting an older proof upload close a newer verifier-reopened obligation.
+ */
+val MIGRATION_67_68: Migration = object : Migration(67, 68) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `obligationId` TEXT")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `obligationRowVersion` INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `obligationCyclesJson` TEXT")
+    }
+}

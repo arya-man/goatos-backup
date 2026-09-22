@@ -1851,6 +1851,9 @@ WITH proof AS (
          p.scope_id AS task_id,
          p.subject_id AS goat_id,
          p.uploaded_by,
+         NULLIF(p.metadata ->> 'obligation_id', '')::uuid AS proof_obligation_id,
+         NULLIF(p.metadata ->> 'obligation_row_version', '')::integer AS proof_obligation_row_version,
+         p.metadata -> 'obligation_cycles' AS proof_obligation_cycles,
          COALESCE(p.uploaded_at, p.updated_at, p.created_at, now()) AS administered_at
   FROM proof_artifacts p
   WHERE p.tenant_id = $1
@@ -1861,6 +1864,13 @@ WITH proof AS (
     AND p.subject_id IS NOT NULL
     AND p.proof_type = 'video'
     AND p.metadata ->> 'field_key' = 'vaccination_goat_proof'
+    AND (
+      (
+        NULLIF(p.metadata ->> 'obligation_id', '') IS NOT NULL
+        AND NULLIF(p.metadata ->> 'obligation_row_version', '') IS NOT NULL
+      )
+      OR jsonb_typeof(p.metadata -> 'obligation_cycles') = 'array'
+    )
 ),
 task_ctx AS (
   SELECT proof.*, st.task_type, sd.code AS sop_code, ob.batch_id AS task_batch_id, ob.primary_inventory_lot_id
@@ -1908,6 +1918,20 @@ eligible AS (
    AND (
         oi.sop_task_id = tc.task_id
         OR (tc.task_batch_id IS NOT NULL AND oi.batch_id = tc.task_batch_id)
+   )
+   AND (
+        (
+          tc.proof_obligation_id IS NOT NULL
+          AND oi.obligation_id = tc.proof_obligation_id
+          AND oi.row_version = tc.proof_obligation_row_version
+        )
+        OR EXISTS (
+          SELECT 1
+          FROM jsonb_array_elements(COALESCE(tc.proof_obligation_cycles, '[]'::jsonb)) cycle
+          WHERE NULLIF(cycle ->> 'obligation_id', '')::uuid = oi.obligation_id
+            AND (cycle ->> 'obligation_row_version') ~ '^[0-9]+$'
+            AND (cycle ->> 'obligation_row_version')::integer = oi.row_version
+        )
    )
   JOIN protocol_rules pr
     ON pr.tenant_id = oi.tenant_id

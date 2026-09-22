@@ -450,7 +450,8 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
     // and `workflow_step_draft_answer` (a death workflow's draft answers held until the one Submit).
     // v67 (see [MIGRATION_66_67]) adds the three Pen Routines read-model tables: paged routine
     // rows, their per-filter cursor, and the task-detail JSON cache.
-    version = 67,
+    // v68 (see [MIGRATION_67_68]) persists vaccination proof obligation-cycle metadata.
+    version = 68,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema
