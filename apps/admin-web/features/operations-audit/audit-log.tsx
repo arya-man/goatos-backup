@@ -78,12 +78,12 @@ export async function OperationsAuditPage({
   const page = boundedInt(one(sp, "page"), 1, 1, 1_000_000);
   const filters = parseFilters(sp);
   const actorQ = one(sp, "actor_q")?.trim().toLowerCase() ?? "";
-  const [listResult, summaryResult] = await Promise.all([
+  // One parallel round: the per-family summary reads do not depend on the list, so awaiting them
+  // after it doubled server render latency (list+summary, THEN ten family summaries).
+  const [listResult, summaryResult, ...familySummaryResults] = await Promise.all([
     listOperationsAudit({ ...filters, limit: PAGE_SIZE, cursor: one(sp, "cursor") }),
     getOperationsAuditSummary(filters),
-  ]);
-  const familySummaryResults = await Promise.all(
-    OPERATION_FAMILIES.map((family) =>
+    ...OPERATION_FAMILIES.map((family) =>
       getOperationsAuditSummary({
         ...filters,
         domain: family.domain ?? undefined,
@@ -91,7 +91,7 @@ export async function OperationsAuditPage({
         category: undefined,
       }),
     ),
-  );
+  ]);
   const authError = firstAuthRequiredError(listResult, summaryResult, ...familySummaryResults);
   if (authError) redirect(INTERNAL_LOGIN_PATH);
 
