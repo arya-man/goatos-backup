@@ -35,15 +35,18 @@ const receipt = {
 };
 
 try {
+  const isProductionSmoke = mode === "production-smoke";
   const staticOk = layer("static", "deterministic", () => runNode(["tools/dashboard-automation/check-static-inventory.mjs"]));
-  const fullParityReceiptOk = config.businessDataParity.latestFullParityReceiptRequired === true
-    ? layer("latest-full-parity-receipt", "deterministic", () => runLatestFullParityReceipt())
-    : true;
-  const dataParityOk = fullParityReceiptOk && (
+  const fullParityReceiptOk = isProductionSmoke
+    ? true
+    : (config.businessDataParity.latestFullParityReceiptRequired === true
+      ? layer("latest-full-parity-receipt", "deterministic", () => runLatestFullParityReceipt())
+      : true);
+  const dataParityOk = isProductionSmoke || (fullParityReceiptOk && (
     enabled("GOATOS_DASHBOARD_DATA_PARITY", config.businessDataParity.enabledByDefault)
       ? layer("business-data-parity", "deterministic", () => runBusinessDataParity(outDir))
       : true
-  );
+  ));
   const ociFreeOk = layer("oci-free-preflight", "deterministic", () => assertOciAlwaysFree());
   const strictPrereqOk = staticOk && fullParityReceiptOk && dataParityOk && ociFreeOk;
   const runtimePrereqOk = staticOk && ociFreeOk && (receipt.runtimePolicy.dataParityRequiredBeforeBrowser === false || (fullParityReceiptOk && dataParityOk));
@@ -51,7 +54,9 @@ try {
     receipt.runtimePolicy.browserSmoke = "not_run";
     throw new Error("stopping before runtime automation because a required deterministic layer failed");
   }
-  if (!strictPrereqOk && receipt.runtimePolicy.dataParityRequiredBeforeBrowser === false) {
+  if (isProductionSmoke) {
+    receipt.runtimePolicy.dataTrust = "not_checked_read_only_smoke";
+  } else if (!strictPrereqOk && receipt.runtimePolicy.dataParityRequiredBeforeBrowser === false) {
     receipt.runtimePolicy.dataTrust = "degraded";
     receipt.degraded.push({
       layer: "business-data-parity",
@@ -73,10 +78,11 @@ try {
   }
   layer("vaccination-lifecycle", "deterministic", () => runVaccinationLifecycleTests());
   if (mode === "post-main-certification") {
-    if (!strictPrereqOk) throw new Error("post-main certification requires fresh STG-to-OCI READBACK_PASS parity before preview Playwright");
     layer("postgresql-integration", "deterministic", () => assertPostgresIntegrationConfigured());
     const playwrightOk = layer("playwright-module-journeys", "deterministic", () => runPreviewPlaywright(outDir));
-    receipt.runtimePolicy.browserSmoke = playwrightOk ? "ran_certified" : "ran_failed";
+    receipt.runtimePolicy.browserSmoke = playwrightOk
+      ? (receipt.runtimePolicy.dataTrust === "degraded" ? "ran_degraded" : "ran_certified")
+      : "ran_failed";
   } else if (mode === "production-smoke") {
     const productionSmokeOk = layer("production-module-journeys", "deterministic", () => runProductionSmoke(outDir));
     if (productionSmokeOk) {
@@ -370,10 +376,10 @@ function runtimePolicyForMode(value) {
     };
   }
   return {
-    dataParityRequiredBeforeBrowser: true,
+    dataParityRequiredBeforeBrowser: false,
     browserSmoke: "pending",
     dataTrust: "pending",
-    reason: "post-main certification must prove fresh STG-to-OCI parity before preview Playwright"
+    reason: "post-main certification must still collect read-only browser evidence when OCI parity is degraded; full success still requires fresh STG-to-OCI parity"
   };
 }
 
@@ -386,7 +392,7 @@ function selfTest() {
   if (config.apiLatencyPolicy.normalDashboardApisMustStayUnderMs !== 500) throw new Error("self-test: dashboard API latency policy drifted");
   if (!config.selfHealing.checksBeforePr.includes("apiLatencyPolicy")) throw new Error("self-test: self-healing must include API latency checks");
   if (!config.selfHealing.checksBeforePr.includes("vaccinationLifecycle")) throw new Error("self-test: self-healing must include vaccination lifecycle checks");
-  if (config.businessDataParity.enabledByDefault !== true) throw new Error("self-test: business data parity must be default-on for OCI automation");
+  if (config.businessDataParity.enabledByDefault !== false) throw new Error("self-test: live STG-to-OCI equality must be explicit-only because STG continuously moves");
   if (config.businessDataParity.latestFullParityReceiptRequired !== true) throw new Error("self-test: latest full STG-to-OCI parity receipt must be required");
   if (config.businessDataParity.latestFullParityReceiptIncludedTableCount !== 293) throw new Error("self-test: full parity receipt must require 293 included tables");
   if (config.businessDataParity.latestFullParityReceiptStatus !== "READBACK_PASS") throw new Error("self-test: full parity receipt must require READBACK_PASS");
@@ -408,8 +414,11 @@ function selfTest() {
   if (!runnerSource.includes("degraded production smoke only failed parity prerequisites") || !runnerSource.includes('receipt.status === "fail" && enabled("GOATOS_DASHBOARD_SELF_HEALING"')) {
     throw new Error("self-test: degraded parity-only browser smoke must not spend agent/self-heal PR budget");
   }
-  if (!runnerSource.includes("post-main certification requires fresh STG-to-OCI READBACK_PASS parity")) {
-    throw new Error("self-test: post-main certification must remain strict on STG-to-OCI parity");
+  if (!runnerSource.includes("not_checked_read_only_smoke")) {
+    throw new Error("self-test: production smoke must not wait for STG-to-OCI parity");
+  }
+  if (!runnerSource.includes("post-main certification must still collect read-only browser evidence")) {
+    throw new Error("self-test: post-main certification must not skip browser smoke only because parity is degraded");
   }
   if (!runnerSource.includes("GOATOS_DASHBOARD_REQUIRE_API_SHA") || !runnerSource.includes("--allow-deployed-build")) {
     throw new Error("self-test: production API latency must test deployed prod without requiring latest main SHA unless explicitly requested");
