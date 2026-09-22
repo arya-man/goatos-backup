@@ -142,6 +142,18 @@ that never sends it, both keep behaving as they did against the seeded document.
 `pcsop.*` namespace, which starts from `weighingSOPEditorCopy()` so the shared slot and question
 rows read identically on every SOP page.
 
+One trap, paid for on 2026-09-22 and now guarded. `copy()` throws on the PAGE contract, and each
+SOP page merges its OWN editor map -- so a key declared somewhere in `service.go` is not a key this
+page serves. The editor renders the SHARED capture card (`features/sops/feed-editor.tsx`
+`SlotCard`), which names `fsop.proof.title` / `.hint` / `.remove` by their original Feed prefix.
+They were declared, in `feedSOPEditorCopy()`, which this page does not merge; the whole editor
+rendered the error boundary, and the repo-wide `copy-keys` test stayed green the entire time
+because it only asks whether a key exists anywhere. The three keys are now in this page's map (the
+prefix is historical, the copy is this page's), the Flow view's node chrome moved onto `pcsop.*`
+rather than borrowing Feed's words, and rule 8 of the guard resolves what the contract actually
+merges and checks it against every literal key the pc-care screens read -- following each shared
+card they import into its own function body.
+
 ## Phone
 
 The planner catalog carries the PUBLISHED rules and the task read carries the PINNED ones, both
@@ -158,11 +170,17 @@ Answers ride the submit through the outbox and survive process death.
   `TestRemovalDecisionFollowsTheMode` (the full required/optional/off × listed/unlisted matrix),
   `TestValidatePCCareSOPNamesEveryProblemByPath`, `TestUnknownPCCareSOPKeysAreNamedByPath`,
   `TestCaptureSlotRoundTripsMinSeconds`, `TestServedRulesFillEveryList`.
-- `make pc-care-sop-guard` — seven rules with adversarial fixtures: the seed embedded verbatim, no
+- `pccare/adapters/boardsource`:
+  `TestPCCareBoardSlotReadinessMultipleDimensionsParkScopePaginationStatusBucketsFailClosed` — the
+  board counts an animal done only when it carries every compulsory key of ITS task's pinned card,
+  and a task stating NO requirement counts nobody, because `sop_proofs ?& '{}'` is vacuously true
+  and would otherwise report a pen nobody worked as finished.
+- `make pc-care-sop-guard` — eight rules with adversarial fixtures: the seed embedded verbatim, no
   runtime read of the legacy slot table for an authored category, no SOP table inside
   `backend/internal/pccare`, no category literal deciding the removal, no readiness check on the
-  legacy proof columns, no category-built slot list on the phone, and `/pc-care/sops` registered end
-  to end in the adminui contract.
+  legacy proof columns, no category-built slot list on the phone, `/pc-care/sops` registered end
+  to end in the adminui contract, and every copy key the page's screens read served by the page's
+  own merged map.
 
 ## Not here (phase 2)
 
