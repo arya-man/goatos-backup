@@ -1804,6 +1804,16 @@ WITH target AS (
   WHERE tenant_id = $1
     AND idempotency_key = $2
     AND status IN ('scheduled', 'due', 'in_progress', 'deferred')
+    AND NOT EXISTS (
+      SELECT 1
+      FROM vaccination_drive_assignment_members vdam
+      JOIN vaccination_drive_assignments vda
+        ON vda.tenant_id = vdam.tenant_id
+       AND vda.assignment_id = vdam.assignment_id
+      WHERE vdam.tenant_id = obligation_instances.tenant_id
+        AND vdam.obligation_id = obligation_instances.obligation_id
+        AND vda.planned_date <= ($3::timestamptz AT TIME ZONE 'Asia/Kolkata')::date
+    )
   FOR UPDATE
 ),
 batch_lock AS (
@@ -1821,7 +1831,7 @@ SET status = 'canceled',
 FROM target
 WHERE oi.tenant_id = $1
   AND oi.obligation_id = target.obligation_id
-RETURNING oi.obligation_id::text, COALESCE(target.batch_id::text, ''), target.target_id::text`, tenant, idempotencyKey).Scan(&obligationID, &oldBatchID, &targetID)
+RETURNING oi.obligation_id::text, COALESCE(target.batch_id::text, ''), target.target_id::text`, tenant, idempotencyKey, occurredAt).Scan(&obligationID, &oldBatchID, &targetID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		if cerr := tx.Commit(ctx); cerr != nil {
 			return "", false, fmt.Errorf("obligation: commit key cancel noop: %w", cerr)
@@ -2049,6 +2059,16 @@ WITH open_goat_obligations AS MATERIALIZED (
    AND pr.rule_id = oi.rule_id
   WHERE lower(pr.dose_code) = lower($3::text)
     AND pd.category = 'vaccination'
+    AND NOT EXISTS (
+      SELECT 1
+      FROM vaccination_drive_assignment_members vdam
+      JOIN vaccination_drive_assignments vda
+        ON vda.tenant_id = vdam.tenant_id
+       AND vda.assignment_id = vdam.assignment_id
+      WHERE vdam.tenant_id = oi.tenant_id
+        AND vdam.obligation_id = oi.obligation_id
+        AND vda.planned_date <= ($4::timestamptz AT TIME ZONE 'Asia/Kolkata')::date
+    )
 )
 UPDATE obligation_instances oi
 SET status = 'canceled',
@@ -2057,7 +2077,7 @@ SET status = 'canceled',
     updated_at = now()
 FROM target
 WHERE oi.obligation_id = target.obligation_id
-RETURNING oi.obligation_id::text, COALESCE(target.batch_id::text, '')`, tenantID, goatID, doseCode)
+RETURNING oi.obligation_id::text, COALESCE(target.batch_id::text, '')`, tenantID, goatID, doseCode, occurredAt)
 	if err != nil {
 		return 0, fmt.Errorf("obligation: cancel vaccination goat dose obligations: %w", err)
 	}
@@ -3184,7 +3204,17 @@ WHERE oi.tenant_id = $1::uuid
   AND pv.protocol_version_id = oi.protocol_version_id
   AND pd.category = 'vaccination'
   AND NOT (oi.protocol_version_id = ANY($3::uuid[]))
-RETURNING oi.obligation_id::text, COALESCE(oi.batch_id::text, '')`, tenantID, goatID, effectiveVersionIDs)
+  AND NOT EXISTS (
+    SELECT 1
+    FROM vaccination_drive_assignment_members vdam
+    JOIN vaccination_drive_assignments vda
+      ON vda.tenant_id = vdam.tenant_id
+     AND vda.assignment_id = vdam.assignment_id
+    WHERE vdam.tenant_id = oi.tenant_id
+      AND vdam.obligation_id = oi.obligation_id
+      AND vda.planned_date <= ($4::timestamptz AT TIME ZONE 'Asia/Kolkata')::date
+  )
+RETURNING oi.obligation_id::text, COALESCE(oi.batch_id::text, '')`, tenantID, goatID, effectiveVersionIDs, occurredAt)
 	if err != nil {
 		return 0, fmt.Errorf("obligation: cancel non-effective vaccination obligations: %w", err)
 	}
@@ -3310,7 +3340,17 @@ WHERE oi.tenant_id = $1::uuid
   AND pv.tenant_id = oi.tenant_id
   AND pv.protocol_version_id = oi.protocol_version_id
   AND pd.category = 'vaccination'
-RETURNING oi.obligation_id::text, COALESCE(oi.batch_id::text, '')`, tenantID, goatID, protocolVersionID)
+  AND NOT EXISTS (
+    SELECT 1
+    FROM vaccination_drive_assignment_members vdam
+    JOIN vaccination_drive_assignments vda
+      ON vda.tenant_id = vdam.tenant_id
+     AND vda.assignment_id = vdam.assignment_id
+    WHERE vdam.tenant_id = oi.tenant_id
+      AND vdam.obligation_id = oi.obligation_id
+      AND vda.planned_date <= ($4::timestamptz AT TIME ZONE 'Asia/Kolkata')::date
+  )
+RETURNING oi.obligation_id::text, COALESCE(oi.batch_id::text, '')`, tenantID, goatID, protocolVersionID, occurredAt)
 	if err != nil {
 		return 0, fmt.Errorf("obligation: cancel ineligible vaccination obligations: %w", err)
 	}

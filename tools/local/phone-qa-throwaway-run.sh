@@ -16,6 +16,7 @@ launch_domain="gui/$(id -u)"
 tenant_id="${GOATOS_TENANT_ID:-00000000-0000-4000-8000-000000000001}"
 user_id="${GOATOS_LOCAL_USER_ID:-90000000-0000-4000-8000-000000000202}"
 allowed_user_id="90000000-0000-4000-8000-000000000202"
+allowed_amit_user_id="90000000-0000-4000-8000-000000000201"
 adb_serial=""
 allowed_serial="${GOATOS_PHONE_QA_ALLOWED_SERIAL:-143382555G111292}"
 allowed_android_user="${GOATOS_PHONE_QA_ALLOWED_ANDROID_USER:-10}"
@@ -36,7 +37,10 @@ die() { echo "phone-qa-throwaway-run: $*" >&2; exit 1; }
 log() { printf '[phone-qa] %s\n' "$*"; }
 
 [ -n "${DATABASE_URL:-}" ] || die "DATABASE_URL is required"
-[ "$user_id" = "$allowed_user_id" ] || die "refusing phone E2E app user '$user_id'; expected Pramod $allowed_user_id"
+case "$user_id" in
+  "$allowed_user_id"|"$allowed_amit_user_id") ;;
+  *) die "refusing phone E2E app user '$user_id'; expected Pramod $allowed_user_id or Amit $allowed_amit_user_id" ;;
+esac
 [ "$adb_serial" = "$allowed_serial" ] || die "refusing phone E2E serial '${adb_serial:-<missing>}'; expected $allowed_serial"
 foreground_user="$(adb -s "$adb_serial" shell am get-current-user 2>/dev/null | tr -d '\r' | head -1 || true)"
 [ "$foreground_user" = "$allowed_android_user" ] || die "refusing Android user '${foreground_user:-<unknown>}' on $adb_serial; expected $allowed_android_user"
