@@ -40,8 +40,13 @@ var (
 // answer was labelled with the right cohort. That is the exact failure the class split
 // exists to prevent, and it is invisible unless you read the version.
 type DiagnosisService struct {
-	repo      ports.DiagnosisRepository
-	registers map[string]*diagnosis.Register
+	repo              ports.DiagnosisRepository
+	registers         map[string]*diagnosis.Register
+	publishedRegister publishedRegisterSource
+}
+
+type publishedRegisterSource interface {
+	PublishedRegister(ctx context.Context, tenantID, animalClass string) (domain.RegisterDetail, error)
 }
 
 // NewDiagnosisService wires the service to every class register. It fails closed: a
@@ -51,7 +56,7 @@ type DiagnosisService struct {
 // All four are resolved up front rather than on first use, so a malformed rule table is
 // a startup failure the deploy surfaces, never a 500 the first manager to check a
 // weaning kid discovers in a shed.
-func NewDiagnosisService(repo ports.DiagnosisRepository, _ *diagnosis.Register) (*DiagnosisService, error) {
+func NewDiagnosisService(repo ports.DiagnosisRepository, _ *diagnosis.Register, publishedRegister ...ports.RegisterAuthoring) (*DiagnosisService, error) {
 	if repo == nil {
 		return nil, errors.New("health: diagnosis repository is required")
 	}
@@ -63,7 +68,11 @@ func NewDiagnosisService(repo ports.DiagnosisRepository, _ *diagnosis.Register) 
 		}
 		registers[class] = reg
 	}
-	return &DiagnosisService{repo: repo, registers: registers}, nil
+	var source ports.RegisterAuthoring
+	if len(publishedRegister) > 0 {
+		source = publishedRegister[0]
+	}
+	return &DiagnosisService{repo: repo, registers: registers, publishedRegister: source}, nil
 }
 
 // SubmitObservation evaluates one form and stores the proposal.
@@ -91,7 +100,9 @@ func (s *DiagnosisService) SubmitObservation(ctx context.Context, in domain.Subm
 	// The engine is pure, but it needs the animal. The repository resolves the
 	// animal, runs the closure below inside its transaction, and persists the
 	// result atomically with the audit and outbox rows.
-	return s.repo.SubmitObservation(ctx, in, s.evaluate)
+	return s.repo.SubmitObservation(ctx, in, func(animal diagnosis.Animal, f diagnosis.Findings, dctx diagnosis.Context) (diagnosis.Proposal, []domain.ConfirmableProblem) {
+		return s.evaluate(ctx, in.TenantID, animal, f, dctx)
+	})
 }
 
 // evaluate is the pure step the repository calls once it has resolved the
@@ -101,17 +112,34 @@ func (s *DiagnosisService) SubmitObservation(ctx context.Context, in domain.Subm
 // already refused anything it could not class, so an unknown class here means the two
 // have drifted apart -- and the safe answer is to diagnose NOTHING rather than to fall
 // back to adult, which would hand a kid the adult table under a kid label.
-func (s *DiagnosisService) evaluate(animal diagnosis.Animal, f diagnosis.Findings, dctx diagnosis.Context) (diagnosis.Proposal, []domain.ConfirmableProblem) {
-	reg, ok := s.registers[animal.Class]
-	if !ok {
+func (s *DiagnosisService) evaluate(ctx context.Context, tenantID string, animal diagnosis.Animal, f diagnosis.Findings, dctx diagnosis.Context) (diagnosis.Proposal, []domain.ConfirmableProblem) {
+	reg, err := s.registerFor(ctx, tenantID, animal.Class)
+	if err != nil {
 		return diagnosis.Proposal{
 			Valid:        false,
-			RejectReason: fmt.Sprintf("no rule table for animal class %q", animal.Class),
+			RejectReason: err.Error(),
 			Scope:        diagnosis.ScopeOutOfScope,
 		}, nil
 	}
 	proposal := reg.Evaluate(animal, f, dctx)
 	return proposal, s.confirmableFrom(proposal)
+}
+
+func (s *DiagnosisService) registerFor(ctx context.Context, tenantID, class string) (*diagnosis.Register, error) {
+	if s.publishedRegister != nil {
+		detail, err := s.publishedRegister.PublishedRegister(ctx, tenantID, class)
+		if err == nil {
+			return detail.Document.EngineRegister(class)
+		}
+		if !errors.Is(err, ports.ErrRegisterNotFound) {
+			return nil, fmt.Errorf("health: read published diagnosis register for %s: %w", class, err)
+		}
+	}
+	reg, ok := s.registers[class]
+	if !ok {
+		return nil, fmt.Errorf("no rule table for animal class %q", class)
+	}
+	return reg, nil
 }
 
 // confirmableFrom turns the proposal's problems into the Director's decision

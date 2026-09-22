@@ -253,7 +253,10 @@ func Load(src []byte) (*Register, error) {
 	if len(reg.Rules) == 0 {
 		return nil, fmt.Errorf("register %s has no rules", reg.Version)
 	}
+	return finishRegister(reg)
+}
 
+func finishRegister(reg Register) (*Register, error) {
 	reg.byID = make(map[string]*Rule, len(reg.Rules))
 	reg.quarantine = make(map[string]bool)
 	for i := range reg.Rules {
@@ -273,6 +276,37 @@ func Load(src []byte) (*Register, error) {
 	reg.nonSpecific = toSet(reg.NonSpecific)
 	reg.vocabulary = toSet(reg.Vocabulary)
 	return &reg, nil
+}
+
+// EngineRegister turns an authored document into the same immutable rule table
+// the diagnosis engine has always evaluated. The authored form/questions feed a
+// future dynamic observation form; today's phone still submits Findings, so the
+// serving bridge is the rule half of the document plus the existing engine.
+func (a AuthoredRegister) EngineRegister(boundClass string) (*Register, error) {
+	if strings.TrimSpace(a.RegisterVersion) == "" {
+		return nil, fmt.Errorf("authored register has no register_version")
+	}
+	if len(a.Rules) == 0 {
+		return nil, fmt.Errorf("authored register %s has no rules", a.RegisterVersion)
+	}
+	reg, err := finishRegister(Register{
+		Version:      a.RegisterVersion,
+		AppliesClass: append([]string{}, a.AppliesClass...),
+		NonSpecific:  append([]string{}, a.NonSpecific...),
+		Vocabulary:   append([]string{}, a.Vocabulary...),
+		Rules:        append([]Rule{}, a.Rules...),
+		boundClass:   boundClass,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(reg.AppliesClass) > 0 && !containsString(reg.AppliesClass, boundClass) {
+		return nil, fmt.Errorf("authored register applies_class=%v does not claim class %s", reg.AppliesClass, boundClass)
+	}
+	if errs := reg.Validate(); len(errs) > 0 {
+		return nil, fmt.Errorf("authored register %s failed validation: %w", boundClass, errs[0])
+	}
+	return reg, nil
 }
 
 func applyRuleDefaults(r *Rule) {

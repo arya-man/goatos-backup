@@ -723,7 +723,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		pool.Close()
 		return nil, err
 	}
-	healthDiagnosisService, err := healthapp.NewDiagnosisService(healthpg.NewDiagnosisRepository(healthRepo), healthRegister)
+	healthDiagnosisService, err := healthapp.NewDiagnosisService(healthpg.NewDiagnosisRepository(healthRepo), healthRegister, healthRepo)
 	if err != nil {
 		pool.Close()
 		return nil, err

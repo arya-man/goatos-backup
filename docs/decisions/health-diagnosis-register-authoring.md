@@ -140,7 +140,7 @@ rulebook unpublishable on day one, which is not a safety gate but a lockout.
 So the two cases are separated by what they mean rather than by how they look:
 
 ```text
-treats names no disease in the catalog     FATAL     a typo; the course can never exist
+treats names no disease in the catalog     WARNING   possible typo, or a disease not authored yet
 treats names a disease with no live card   WARNING   the card has not been written yet
 ```
 
