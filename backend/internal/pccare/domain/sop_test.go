@@ -61,10 +61,10 @@ func TestSeededPCCareSOPIsThePreSOPBehaviour(t *testing.T) {
 	}
 }
 
-// TestMigrationEmbedsTheSeededPCCareSOP pins the seed verbatim inside migration 000385, so the
+// TestMigrationEmbedsTheSeededPCCareSOP pins the seed verbatim inside migration 000386, so the
 // document a tenant gets on deploy IS the document the code compiles as version 0.
 func TestMigrationEmbedsTheSeededPCCareSOP(t *testing.T) {
-	migration, err := os.ReadFile(filepath.Join("..", "..", "..", "migrations", "postgres", "000385_pc_care_sop.sql"))
+	migration, err := os.ReadFile(filepath.Join("..", "..", "..", "migrations", "postgres", "000386_pc_care_sop.sql"))
 	if err != nil {
 		t.Fatalf("read migration: %v", err)
 	}

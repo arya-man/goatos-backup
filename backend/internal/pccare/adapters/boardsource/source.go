@@ -99,7 +99,7 @@ LEFT JOIN LATERAL (
   SELECT count(*)::int AS scanned,
          -- FAIL CLOSED on a row that states no requirement: the has-all-keys test is vacuously
          -- TRUE against an EMPTY key list, so an unfilmed animal would read as done. Every row
-         -- the module writes carries its pinned card's keys (000385 backfilled the rest).
+         -- the module writes carries its pinned card's keys (000386 backfilled the rest).
          count(*) FILTER (WHERE cardinality(t.required_slot_keys) > 0 AND an.sop_proofs ?& t.required_slot_keys)::int AS slots_done
   FROM pc_care_task_animals an
   WHERE an.tenant_id = t.tenant_id AND an.task_id = t.task_id

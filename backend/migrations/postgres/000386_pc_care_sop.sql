@@ -1,5 +1,5 @@
 -- +goose Up
--- 000385_pc_care_sop.sql
+-- 000386_pc_care_sop.sql
 --
 -- PC CARE SOP (maintainer decision 2026-09-22, docs/decisions/pc-care-sop.md).
 -- The five hands-on-the-animal PC Care categories (deworming, anti protozoan, ticks removal,
