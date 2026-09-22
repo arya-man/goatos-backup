@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/vgoats/goatos/backend/internal/counts/domain"
+	"github.com/vgoats/goatos/backend/internal/platform/herdstage"
 )
 
 // Adversarial coverage for the Counts Breakdown census aggregate. Every test here targets a way
@@ -2444,31 +2445,54 @@ ON CONFLICT (tenant_id, stage_code) DO NOTHING`, countsTenant); err != nil {
 	}
 	wantCount := map[string]int64{"F2-Male": 2, "F2-Female": 1, "K3": 1, "Mother": 1, "F2-Trial": 1}
 
-	for _, series := range []struct {
-		name   string
-		points []domain.CountsBreakdownSeriesPoint
-	}{
-		{"facets.stages", got.Facets.Stages},
-		{"charts.stage", got.Charts.Stage},
-	} {
-		seen := map[string]bool{}
-		for _, point := range series.points {
-			want, known := wantLabel[point.Key]
-			if !known {
-				continue // the facet branch ignores the lifecycle filter for other statuses
-			}
-			seen[point.Key] = true
-			if point.Label != want {
-				t.Errorf("%s[%q].Label = %q, want %q", series.name, point.Key, point.Label, want)
-			}
-			if series.name == "charts.stage" && point.Count != wantCount[point.Key] {
-				t.Errorf("%s[%q].Count = %d, want %d", series.name, point.Key, point.Count, wantCount[point.Key])
-			}
+	// The CHART still draws the cohort's sexes apart -- the fold is the FILTER's, and a reader who
+	// wants to know how fattening splits by sex can still see it.
+	seen := map[string]bool{}
+	for _, point := range got.Charts.Stage {
+		want, known := wantLabel[point.Key]
+		if !known {
+			continue
 		}
-		for key := range wantLabel {
-			if !seen[key] {
-				t.Errorf("%s is missing stage %q", series.name, key)
-			}
+		seen[point.Key] = true
+		if point.Label != want {
+			t.Errorf("charts.stage[%q].Label = %q, want %q", point.Key, point.Label, want)
+		}
+		if point.Count != wantCount[point.Key] {
+			t.Errorf("charts.stage[%q].Count = %d, want %d", point.Key, point.Count, wantCount[point.Key])
+		}
+	}
+	for key := range wantLabel {
+		if !seen[key] {
+			t.Errorf("charts.stage is missing stage %q", key)
+		}
+	}
+
+	// The FILTER folds the fattening pair into one option. F2-Trial is the control: it is NOT a
+	// fattening code (the membership is matched whole, never on an "F2" prefix), so it keeps its
+	// own option. No lookup row names the cohort here, so the folded option falls back to its CODE
+	// rather than borrowing "Fattening male" from a member.
+	facetLabel := map[string]string{}
+	for _, point := range got.Facets.Stages {
+		facetLabel[point.Key] = point.Label
+	}
+	for _, key := range []string{"F2-Male", "F2-Female"} {
+		if _, present := facetLabel[key]; present {
+			t.Errorf("facets.stages still offers %q; the fattening pair must fold into one option", key)
+		}
+	}
+	for key, want := range map[string]string{
+		herdstage.FatteningKey: herdstage.FatteningKey,
+		"K3":                   "K3",
+		"Mother":               "Mother",
+		"F2-Trial":             "F2-Trial",
+	} {
+		got, present := facetLabel[key]
+		if !present {
+			t.Errorf("facets.stages is missing stage %q", key)
+			continue
+		}
+		if got != want {
+			t.Errorf("facets.stages[%q].Label = %q, want %q", key, got, want)
 		}
 	}
 
@@ -2805,4 +2829,74 @@ VALUES ($1::uuid, $2::uuid, 'sold', 2)`, countsTenant, loadA); err != nil {
 			t.Errorf("alive %d + dead %d on load A, want the 4 tracked animals partitioned exactly", a.OnFarm, da.OnFarm)
 		}
 	})
+}
+
+// The three stored fattening values reach the stage dropdown as ONE option carrying the whole
+// cohort's head count, and ticking it returns every one of those animals. This is a RECORDED fold
+// of three exact, known values (maintainer decision 2026-09-22) and is the opposite of the
+// near-duplicate case above: the sexed pair is answered better by this page's gender filter, while
+// `ICU-Kid`/`ICU-Kids`/`Icu- Kid` are a data-quality problem that must stay visible.
+func TestFatteningStagesReachTheFilterAsOneOption(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newBreakdownRepo(t, ctx)
+
+	for i, stage := range []string{"F2", "F2-Male", "F2-Female", "K2"} {
+		insertBreakdownGoat(t, ctx, pool, goatUUID(i), goatDisplayID(i),
+			"female", "Beetal", "alive", stage, strp(countsPark), strp(countsShedA), nil)
+	}
+	// OneToMany across the stage lookup: a row per member, joined through the folded code. The
+	// authored names the farm really carries, and the folded option must be labelled from the
+	// COHORT's row, not from whichever member the read happened to see first -- labelling the whole
+	// cohort "Fattening female" is the exact way this fold goes wrong.
+	for _, row := range [][2]string{{"F2", "Fattening"}, {"F2-Male", "Fattening male"}, {"F2-Female", "Fattening female"}} {
+		if _, err := pool.Exec(ctx, `
+INSERT INTO animal_stage_lookup (tenant_id, stage_code, name, age_band, status, sort_order)
+VALUES ($1::uuid, $2, $3, 'kid', 'active', 1)
+ON CONFLICT (tenant_id, stage_code) DO NOTHING`, countsTenant, row[0], row[1]); err != nil {
+			t.Fatalf("seed stage lookup %s: %v", row[0], err)
+		}
+	}
+
+	got, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, Limit: 50})
+	if err != nil {
+		t.Fatalf("GetCountsBreakdown: %v", err)
+	}
+	stages := map[string]domain.CountsBreakdownSeriesPoint{}
+	for _, point := range got.Facets.Stages {
+		stages[point.Key] = point
+	}
+	if len(stages) != 2 {
+		t.Fatalf("facets.stages=%+v, want 2 options (the folded fattening one, and K2)", got.Facets.Stages)
+	}
+	folded := stages[herdstage.FatteningKey]
+	if folded.Count != 3 {
+		t.Fatalf("facets.stages[%s]=%d, want 3 — the folded option carries the whole cohort",
+			herdstage.FatteningKey, folded.Count)
+	}
+	if folded.Label != "Fattening" {
+		t.Fatalf("folded option label = %q, want the cohort's own authored name %q", folded.Label, "Fattening")
+	}
+
+	// Ticking that one option must reach all three animals, not only the one on the bare tag.
+	filtered, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{
+		TenantID: countsTenant, ManagementStages: []string{herdstage.FatteningKey}, Limit: 50,
+	})
+	if err != nil {
+		t.Fatalf("filtered: %v", err)
+	}
+	if filtered.TotalCount != 3 {
+		t.Fatalf("total_count=%d, want 3 — the fattening option must match every stored value it stands for", filtered.TotalCount)
+	}
+
+	// The fold is FILTER-OPTIONS-ONLY: the grain rows still print the value each animal carries,
+	// so nothing downstream of this page starts reading a stage the herd register never recorded.
+	seen := map[string]bool{}
+	for _, row := range filtered.Items {
+		seen[row.ManagementStage] = true
+	}
+	for _, stage := range []string{"F2", "F2-Male", "F2-Female"} {
+		if !seen[stage] {
+			t.Fatalf("grain rows = %+v, want the stored stage %q still on its own row", filtered.Items, stage)
+		}
+	}
 }
