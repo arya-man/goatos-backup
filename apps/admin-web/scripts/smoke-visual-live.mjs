@@ -1028,7 +1028,12 @@ async function assertLayoutHealthy(page, routeName, viewportLabel) {
       .filter((element) => element.getBoundingClientRect().width > 120)
       .filter((element) => {
         const rect = element.getBoundingClientRect();
-        return rect.left < -1 || rect.right > root.clientWidth + 1;
+        if (!(rect.left < -1 || rect.right > root.clientWidth + 1)) return false;
+        // Columns inside a deliberate sideways scroller (e.g. the phone Tasks board) are not cut off.
+        for (let p = element.parentElement; p && p !== document.body; p = p.parentElement) {
+          if (/auto|scroll/.test(getComputedStyle(p).overflowX)) return false;
+        }
+        return true;
       })
       .slice(0, 5)
       .map(describeElement);
