@@ -403,6 +403,12 @@ func insertPendingVerificationOutbox(ctx context.Context, tx pgx.Tx, o pendingVe
 	if len(removalPens) > 0 {
 		payload["removal_pens"] = removalPens
 	}
+	// The operators' answers to the pinned card's questions, in farm words, so the verifier
+	// reads them beside the captures they explain. Absent on a card that asks none, which keeps
+	// the payload byte-identical to what it was before the SOP existed.
+	if len(answerRows) > 0 {
+		payload["context_rows"] = answerRows
+	}
 	envelope := pcCareEventEnvelope{
 		EventID:        eventID,
 		EventType:      pcCarePendingVerificationEventType,
