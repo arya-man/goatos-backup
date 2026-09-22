@@ -486,7 +486,7 @@ try {
         await check(() => assertCoreInteractions(page, route.name, viewport.label));
         await check(() => exerciseManifestSafeClicks(page, route.name, viewport.label));
         await check(() => exerciseOverlays(page, { routeName: route.name, viewportLabel: viewport.label, screenshotDir, relativeToRepo }));
-        await check(() => assertFeaturesPresent(page, { routeName: route.name, viewportLabel: viewport.label, screenshotDir, relativeToRepo, reload: () => gotoWithRetry(page, url) }));
+        await check(() => assertFeaturesPresent(page, { routeName: route.name, viewportLabel: viewport.label, screenshotDir, relativeToRepo, reload: () => gotoWithRetry(page, url), deployedSha: observedApiVersion.build_sha }));
         if (routeErrors.length) throw new Error(routeErrors.map((error) => String(error?.message ?? error).split("\n")[0]).join(" || "));
         if (baselineDir) {
           compareOrUpdateBaseline(screenshotName, screenshotPath);

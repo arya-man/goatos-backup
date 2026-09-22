@@ -1,6 +1,7 @@
 // Per-commit feature assertions: one read-only check for every user-visible web
 // feature or fix shipped since 2026-08-01, so a feature that silently disappears
 // from production is reported with a red-boxed screenshot.
+import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17,6 +18,21 @@ export function loadFeatureAssertions(path = manifestPath) {
   return all
     .filter((entry) => ["assert", "data-dependent", "mobile-only"].includes(entry.status))
     .map((entry) => (entry.status === "mobile-only" ? { ...entry, status: "assert", viewports: ["mobile"] } : entry));
+}
+
+// A feature merged after the deployed build simply is not on production yet:
+// that is "awaiting deploy", not a broken feature, and must never page anyone.
+const deployedCache = new Map();
+export function isAwaitingDeploy(sha, deployedSha, repoRoot = join(here, "../../../..")) {
+  if (!sha || !deployedSha) return false;
+  const key = `${sha}|${deployedSha}`;
+  if (deployedCache.has(key)) return deployedCache.get(key);
+  const run = (args) => spawnSync("git", ["-C", repoRoot, ...args], { encoding: "utf8" });
+  const known = run(["cat-file", "-e", `${sha}^{commit}`]).status === 0 && run(["cat-file", "-e", `${deployedSha}^{commit}`]).status === 0;
+  // Unknown commits (shallow clone, unfetched build) must not be treated as awaiting deploy.
+  const answer = known ? run(["merge-base", "--is-ancestor", sha, deployedSha]).status !== 0 : false;
+  deployedCache.set(key, answer);
+  return answer;
 }
 
 function locatorFor(page, target) {
@@ -65,13 +81,15 @@ async function checkExpect(page, expect) {
 }
 
 // Returns nothing when all pass; throws one readable error listing every missing feature.
-export async function assertFeaturesPresent(page, { routeName, viewportLabel, screenshotDir, relativeToRepo = (p) => p, reload }) {
+export async function assertFeaturesPresent(page, { routeName, viewportLabel, screenshotDir, relativeToRepo = (p) => p, reload, deployedSha }) {
   const entries = loadFeatureAssertions().filter((e) => e.route === routeName && (e.viewports ?? ["laptop", "mobile"]).includes(viewportLabel));
   if (entries.length === 0) return;
   const missing = [];
+  const awaiting = [];
   // Order no-click checks first, then reload before each clicking check so every check starts clean.
   entries.sort((a, b) => (a.steps?.length ? 1 : 0) - (b.steps?.length ? 1 : 0));
   for (const entry of entries) {
+    if (deployedSha && isAwaitingDeploy(entry.sha, deployedSha)) { awaiting.push(entry); continue; }
     try {
       if (entry.steps?.length && reload) await reload();
       for (const step of entry.steps ?? []) await runStep(page, step);
@@ -91,7 +109,8 @@ export async function assertFeaturesPresent(page, { routeName, viewportLabel, sc
       if (entry.status !== "data-dependent") missing.push({ entry, miss: { what: String(error?.message ?? error).split("\n")[0] } });
     }
   }
-  console.log(`feature_assertions=${routeName}:${viewportLabel}:${entries.length - missing.length}/${entries.length}`);
+  console.log(`feature_assertions=${routeName}:${viewportLabel}:${entries.length - missing.length - awaiting.length}/${entries.length - awaiting.length}${awaiting.length ? ` awaiting_deploy=${awaiting.length}` : ""}`);
+  for (const entry of awaiting) console.log(`feature_awaiting_deploy=${viewportLabel}:${routeName}|${entry.sha}|${entry.title}`);
   for (const m of missing) console.log(`feature_missing=${viewportLabel}:${routeName}|${m.entry.sha}|${m.entry.title}|${m.miss.what}`);
   if (missing.length === 0) return;
   await page.addStyleTag({ content: "[data-smoke-issue]{outline:3px solid #e11d48 !important;outline-offset:1px}" }).catch(() => {});
