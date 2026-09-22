@@ -191,6 +191,7 @@ candidate_obligations AS (
   JOIN vaccination_drive_assignment_members m
     ON m.tenant_id = a.tenant_id
    AND m.assignment_id = a.assignment_id
+   AND m.canceled_at IS NULL
   WHERE a.tenant_id = $1::uuid
     AND a.planned_date = $2::date
 
@@ -203,6 +204,7 @@ candidate_obligations AS (
   LEFT JOIN vaccination_drive_assignment_members m
     ON m.tenant_id = oi.tenant_id
    AND m.obligation_id = oi.obligation_id
+   AND m.canceled_at IS NULL
   WHERE oi.tenant_id = $1::uuid
     AND oi.target_type = 'goat'
     AND oi.status NOT IN ('canceled', 'superseded', 'waived', 'missed', 'deferred')
@@ -462,7 +464,7 @@ combo_goats AS (
   SELECT goat_id
   FROM scoped_enriched
   GROUP BY goat_id
-  HAVING count(DISTINCT rule_id) > 1
+  HAVING count(DISTINCT vaccine_family) > 1
 ),
 combo_total AS (SELECT count(*)::int AS animal_count FROM combo_goats),
 combo_page AS (SELECT goat_id FROM combo_goats ORDER BY goat_id LIMIT $9::int)
@@ -1274,6 +1276,7 @@ func (r *Repository) liveTrackerCombo(ctx context.Context, base []any) (domain.L
 	combo := domain.LiveTrackerCombo{Rows: []domain.LiveTrackerComboRow{}, VaccineLabels: []string{}}
 	byGoat := map[string]int{}
 	labelSeen := map[string]bool{}
+	doseSeenByGoat := map[string]map[string]bool{}
 	for rows.Next() {
 		var (
 			animalCount                                  int
@@ -1305,6 +1308,16 @@ func (r *Repository) liveTrackerCombo(ctx context.Context, base []any) (domain.L
 			byGoat[goatID] = idx
 		}
 		label := vaccinatdomain.DoseDisplayLabel(protocolName, doseCode)
+		goatDoseSeen := doseSeenByGoat[goatID]
+		if goatDoseSeen == nil {
+			goatDoseSeen = map[string]bool{}
+			doseSeenByGoat[goatID] = goatDoseSeen
+		}
+		doseKey := family + "\x1f" + label
+		if goatDoseSeen[doseKey] {
+			continue
+		}
+		goatDoseSeen[doseKey] = true
 		if !labelSeen[label] {
 			labelSeen[label] = true
 			combo.VaccineLabels = append(combo.VaccineLabels, label)

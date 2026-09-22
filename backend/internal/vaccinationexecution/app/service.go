@@ -115,25 +115,39 @@ func (s *Service) VaccinationExecutionPage(ctx context.Context, q domain.Executi
 			if err != nil || len(carryLines) == 0 {
 				return
 			}
-			carryByDate := make(map[string][]domain.VaccineCarrySummary)
+			carryByDateLabel := make(map[string]map[string]*domain.VaccineCarrySummary)
 			dayTotals := make(map[string]int64)
+			dateOrder := make([]string, 0, len(carryLines))
 			for _, line := range carryLines {
-				carryByDate[line.Date] = append(carryByDate[line.Date], domain.VaccineCarrySummary{
-					VaccineLabel:   line.VaccineLabel,
-					RemainingDoses: line.RemainingDoses,
-					TotalDoses:     line.TotalDoses,
-				})
+				if _, ok := carryByDateLabel[line.Date]; !ok {
+					carryByDateLabel[line.Date] = make(map[string]*domain.VaccineCarrySummary)
+					dateOrder = append(dateOrder, line.Date)
+				}
+				summary := carryByDateLabel[line.Date][line.VaccineLabel]
+				if summary == nil {
+					summary = &domain.VaccineCarrySummary{VaccineLabel: line.VaccineLabel}
+					carryByDateLabel[line.Date][line.VaccineLabel] = summary
+				}
+				summary.RemainingDoses += line.RemainingDoses
+				summary.TotalDoses += line.TotalDoses
 				dayTotals[line.Date] += line.RemainingDoses
 			}
-			carryDays := make([]domain.CarryDay, 0, len(carryByDate))
-			for _, line := range carryLines {
-				if len(carryDays) > 0 && carryDays[len(carryDays)-1].Date == line.Date {
-					continue
+			carryDays := make([]domain.CarryDay, 0, len(carryByDateLabel))
+			for _, date := range dateOrder {
+				breakdownByLabel := carryByDateLabel[date]
+				labels := make([]string, 0, len(breakdownByLabel))
+				for label := range breakdownByLabel {
+					labels = append(labels, label)
+				}
+				sort.Strings(labels)
+				breakdown := make([]domain.VaccineCarrySummary, 0, len(labels))
+				for _, label := range labels {
+					breakdown = append(breakdown, *breakdownByLabel[label])
 				}
 				carryDays = append(carryDays, domain.CarryDay{
-					Date:             line.Date,
-					VaccineBreakdown: carryByDate[line.Date],
-					TotalRemaining:   dayTotals[line.Date],
+					Date:             date,
+					VaccineBreakdown: breakdown,
+					TotalRemaining:   dayTotals[date],
 				})
 			}
 			carrySummary = &domain.CarrySummary{CarryByDay: carryDays}

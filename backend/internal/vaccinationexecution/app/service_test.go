@@ -996,6 +996,50 @@ func TestVaccinationExecutionCarrySummaryPageIndependentOneToManyExecutionDatePa
 	}
 }
 
+func TestVaccinationExecutionCarrySummaryCollapsesSameVaccineDoseRules(t *testing.T) {
+	repo := &fakeRepo{
+		carryLines: []domain.VaccineCarryLine{
+			{
+				Date:           "2026-09-22",
+				VaccineLabel:   "ET+TT",
+				RemainingDoses: 1,
+				TotalDoses:     1,
+			},
+			{
+				Date:           "2026-09-22",
+				VaccineLabel:   "ET+TT",
+				RemainingDoses: 1,
+				TotalDoses:     1,
+			},
+		},
+	}
+	svc := NewService(repo)
+	resp, err := svc.VaccinationExecutionPage(context.Background(), domain.ExecutionQuery{
+		TenantID:             "tenant-cpt",
+		OperatorScopeActorID: "amit-kumar",
+		AsOf:                 time.Date(2026, 9, 22, 0, 0, 0, 0, time.UTC),
+		DueBefore:            time.Date(2026, 9, 22, 23, 59, 59, 0, time.UTC),
+		Limit:                20,
+	})
+	if err != nil {
+		t.Fatalf("VaccinationExecutionPage failed: %v", err)
+	}
+	if resp.CarrySummary == nil || len(resp.CarrySummary.CarryByDay) != 1 {
+		t.Fatalf("carry summary = %#v, want one day", resp.CarrySummary)
+	}
+	day := resp.CarrySummary.CarryByDay[0]
+	if day.TotalRemaining != 2 {
+		t.Fatalf("TotalRemaining = %d, want 2", day.TotalRemaining)
+	}
+	if len(day.VaccineBreakdown) != 1 {
+		t.Fatalf("vaccine breakdown = %#v, want one collapsed ET+TT group", day.VaccineBreakdown)
+	}
+	got := day.VaccineBreakdown[0]
+	if got.VaccineLabel != "ET+TT" || got.RemainingDoses != 2 || got.TotalDoses != 2 {
+		t.Fatalf("collapsed carry = %#v, want ET+TT 2/2", got)
+	}
+}
+
 // TestExecutionDisplayCountsTreatsRejectedAsOpenNotDone is the completionEvidence fix (required
 // scenario 4's counting half): a rejected animal is outstanding work, so it must land in `open`,
 // not be folded into `done`. A shed of 5 with 1 rejection must report done=4, open=1 -- never
