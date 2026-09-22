@@ -303,3 +303,37 @@ Progress on lanes 2-5 is appended here as it lands, so the PR is the record.
   they are the sweep working, not a new regression. `notify-slack.mjs` mutes an identical signature
   for 240 minutes, so the 10-minute post-main cadence should not flood the channel.
 
+### Enabling the timers: what it exposed
+
+Enabling **both** timers was a mistake and `goatos-dashboard-post-main.timer` was disabled again
+within minutes. Two real defects surfaced because of it, so the record is worth keeping.
+
+- **`post-main-certification` is the wrong mode for this box.** It gates on the STG-to-OCI parity
+  receipt, Lighthouse, Grafana and the Go vaccination lifecycle tests. The box has neither `gcloud`
+  nor `go` installed, and no `GOATOS_DASHBOARD_PREVIEW_DATABASE_URL` or
+  `GOATOS_ADMIN_WEB_BASE_URL`, so it failed 8 of 11 layers and posted "STG-to-OCI parity receipt
+  invalid… Lighthouse… Grafana…" every 10 minutes. That is exactly the parity noise this document
+  says made the old alerts useless. **Only `goatos-dashboard-automation.timer` (daily 04:00 IST,
+  `production-smoke`) should run here** — its env sets none of the extras flags, so it runs the
+  static guards plus the 146-route browser sweep and nothing else. Post-main needs `gcloud`, `go`
+  and the two preview env vars on the box before it is switched on again.
+
+- **Every live Slack alert was posting with no screenshots attached.** `postSlack`'s final bundle
+  upload read `inline.length`; the parameter is `inlineShots`. In production the message posts,
+  dedupe state is written, the per-issue replies upload, and then the bundle upload throws
+  `ReferenceError: inline is not defined` — so the alert arrives without the HTML report and
+  without the screenshots, which is the part anyone acts on. It shipped because
+  `GOATOS_DASHBOARD_SLACK_DRY_RUN=1` returns before any upload, so `--self-test` and every dry run
+  pass straight over that line. Fixed in **PR #367**: the caption is extracted into
+  `evidenceComment()` so it is reachable from `--self-test`, both branches are asserted, and a
+  guard reads the `postSlack` source and refuses any identifier not in scope there. Verified by
+  reintroducing the bug — `--self-test` throws where it previously passed clean. The one-word fix is
+  also applied directly to the box's checkout so tonight's sweep carries screenshots; that drift
+  resolves on the next pull.
+
+  **The general lesson, which applies to all four lanes:** `--self-test` passing says nothing about
+  code that dry-run returns before reaching. The entire upload path — threaded replies, file
+  uploads, captions, `thread_ts` — is untested by construction, and every lane's
+  "renders byte-identically" proof is a proof about block JSON, not about anything that happens
+  after `chat.postMessage`.
+
