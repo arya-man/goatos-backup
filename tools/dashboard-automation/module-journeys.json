@@ -38,7 +38,9 @@
         "weighing-analytics-time",
         "weighing-analytics-load",
         "weighing-analytics-fcr",
-        "weighing-sops"
+        "weighing-sops",
+        "weighing-analytics-time-month",
+        "weighing-weights-metric-weight"
       ],
       "assertText": [
         "Weighing",
@@ -116,7 +118,10 @@
         "feed-analytics-stock-only",
         "feed-direction",
         "feed-packing",
-        "feed-sops"
+        "feed-sops",
+        "feed-analytics-consumption-status",
+        "feed-analytics-consumption-general",
+        "feed-analytics-spend-per-animal"
       ],
       "assertText": [
         "Feed",
@@ -165,6 +170,10 @@
         "Sold"
       ],
       "safeClicks": [
+        {
+          "css": "table .thsort",
+          "optional": true
+        },
         {
           "role": "button",
           "name": "Filters",
@@ -283,7 +292,9 @@
         "health-analytics-mortality",
         "health-analytics-treatment",
         "health-analytics-engine",
-        "health-config"
+        "health-config",
+        "health-analytics-problems",
+        "health-analytics-overview"
       ],
       "assertText": [
         "Health",
@@ -334,7 +345,8 @@
         "verify-toxin",
         "verification",
         "actions",
-        "control-tower"
+        "control-tower",
+        "verify-video-log-open"
       ],
       "assertText": [
         "Action Center",
@@ -453,7 +465,9 @@
         "tasks",
         "ceo-ai-admin",
         "configuration-items",
-        "configuration-work-instructions"
+        "configuration-work-instructions",
+        "tasks-list",
+        "tasks-overdue"
       ],
       "assertText": [
         "Operations",
