@@ -561,21 +561,23 @@ paired AS (
 -- One gain per ANIMAL whose latest pair lands in the selected period. The previous
 -- weigh can come from the same 90-day lookback the headline uses, so the page's
 -- breed/sex/stage ADG and headline talk about the same same-animal population.
+-- Total grams over total days, matching growth.go's animal_gain exactly -- the 2026-08-26 lock
+-- requires this number and the headline to be the same statistic. A median of per-pair RATES until
+-- 2026-09-22; the worked case is in growth.go's animal_gain comment.
 animal_gain AS (
-  SELECT tag, percentile_cont(0.5) WITHIN GROUP (
-           ORDER BY (weight_kg - prev_w) * 1000.0 / (d - prev_d)) AS g
+  SELECT tag,
+         sum((weight_kg - prev_w) * 1000.0)::float8 / NULLIF(sum(d - prev_d), 0) AS g
   FROM paired WHERE $28::bool AND prev_d IS NOT NULL AND d > prev_d AND accepted_at >= $3::timestamptz GROUP BY tag
 ),
 -- The same gain, cut by CALENDAR WEEK, for the breed trend on the Time-wise tab. One value per
 -- (animal, week): a pair is bucketed by its LATER weigh, which is the week the movement was
--- observed in, and an animal weighed several times inside one week contributes the MEDIAN of those
--- pairs rather than each of them -- the same once-per-animal rule animal_gain above applies over
--- the whole window.
+-- observed in, and an animal weighed several times inside one week contributes its total grams over
+-- the days those legs span rather than each pair -- the same once-per-animal rule animal_gain above
+-- applies over the whole window, and the same sum/sum shape.
 animal_gain_week AS (
   SELECT tag,
          {{BUCKET_ACCEPTED_AT}} AS week_start,
-         percentile_cont(0.5) WITHIN GROUP (
-           ORDER BY (weight_kg - prev_w) * 1000.0 / (d - prev_d)) AS g
+         sum((weight_kg - prev_w) * 1000.0)::float8 / NULLIF(sum(d - prev_d), 0) AS g
   FROM paired
   WHERE $30::bool AND prev_d IS NOT NULL AND d > prev_d AND accepted_at >= $3::timestamptz
   GROUP BY tag, week_start

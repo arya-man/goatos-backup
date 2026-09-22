@@ -629,12 +629,21 @@ inperiod AS (
 -- kept the headline disagreeing with the by-sex chart even after whole-shed pens were added -- 197
 -- male pairs against the chart's 141 male animals.
 --
--- The animal's own gain is the MEDIAN of its in-period pairs, matching weight_demographics.go's
--- animal_gain exactly; a single-pair animal is simply that pair. Median rather than latest, because
--- one bad scan among three weighs should not become the animal's whole growth story.
+-- The animal's own gain is its TOTAL GRAMS over its TOTAL DAYS across those pairs -- the same
+-- sum(movement)/sum(days) shape the whole-shed arm uses, and the same one
+-- weight_demographics.go's animal_gain uses. A single-pair animal is simply that pair.
+--
+-- NOT the median of its per-pair RATES, which is what this was until 2026-09-22. A rate median
+-- weights every leg equally however long it was, so one short leg decides the animal: a kid weighed
+-- 27.5 kg on 24 Aug, 28.4 on 31 Aug and 29.8 on 1 Sep has a 7-day leg at 129 g/day beside a 1-day
+-- leg at 1400 g/day, and the median of two values IS their mean -- 764 g/day reported for an animal
+-- that gained 2.3 kg in 8 days, which is 287. A 1-day leg is the shortest the same-day filter lets
+-- through (see qualifying), and over one day ordinary scale noise IS the whole rate. Summing the
+-- movement and dividing by the days it spans weights each leg by its own length, so a short leg
+-- contributes its grams and not a rate.
 animal_gain AS (
   SELECT animal_key,
-         percentile_cont(0.5) WITHIN GROUP (ORDER BY adg_g_per_day) AS g
+         sum((weight_kg - prev_weight) * 1000.0)::float8 / NULLIF(sum(days_between), 0) AS g
   FROM inperiod GROUP BY animal_key
 ),
 endpoint_ids AS (
@@ -906,12 +915,16 @@ inperiod AS (
     -- because the rows stop carrying a pen the moment they are grouped by bucket.
     AND ($13::text = '' OR (location_id::text = $13::text AND partition_label = $14::text))
 ),
--- Arm (a): ONE GAIN PER ANIMAL PER WEEK, at the median of that animal's pairs landing in the week.
--- Grouping by pairs instead would count the most-handled kids twice, which is the defect the
--- headline's own animal_gain comment records.
+-- Arm (a): ONE GAIN PER ANIMAL PER BUCKET, over ALL the movement inside it -- the animal's total
+-- grams divided by the days those legs span. Grouping by pairs instead would count the
+-- most-handled kids twice, which is the defect the headline's own animal_gain comment records.
+--
+-- The SAME shape as arm (b) below, deliberately: a bucket holding two legs must report the movement
+-- across both, not one leg or an unweighted average of their rates. It was a median of rates until
+-- 2026-09-22 -- see the headline's animal_gain for the worked case the maintainer reported.
 animal_gain AS (
   SELECT week_start, animal_key,
-         percentile_cont(0.5) WITHIN GROUP (ORDER BY adg_g_per_day) AS g
+         sum((weight_kg - prev_weight) * 1000.0)::float8 / NULLIF(sum(days_between), 0) AS g
   FROM inperiod GROUP BY week_start, animal_key
 ),
 -- Arm (b): whole-shed pens. Every live pen weigh in the window, scoped exactly as the headline
@@ -1439,9 +1452,11 @@ inperiod AS (
   WHERE accepted_at >= $5::timestamptz
     AND ($12::text = '' OR weighing_category = $12::text)
 ),
+-- Total grams over total days per animal, the same statistic the headline and the bucketed series
+-- report; see the headline's animal_gain for why a median of leg RATES was wrong.
 animal_gain AS (
   SELECT park_id, animal_key,
-         percentile_cont(0.5) WITHIN GROUP (ORDER BY adg_g_per_day) AS g
+         sum((weight_kg - prev_weight) * 1000.0)::float8 / NULLIF(sum(days_between), 0) AS g
   FROM inperiod GROUP BY park_id, animal_key
 ),
 shed_span AS (

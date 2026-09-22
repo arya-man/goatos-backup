@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"math"
 	"testing"
 	"time"
 
@@ -378,5 +379,117 @@ func TestGrowthLosingAnimalsOneToManyDateShiftStatusMatrix(t *testing.T) {
 				seen[animal.ScannedIdentifier] = true
 			}
 		})
+	}
+}
+
+// TestAnimalGainIsTotalMovementNotAMedianOfLegRates is the regression test for the defect the
+// maintainer caught on the Time-wise tab on 2026-09-22: one kid's weekly row read 764 g/day.
+//
+// The kid was weighed three times in eight days -- 27.5 kg on Mon 24 Aug, 28.4 on Mon 31 Aug,
+// 29.8 on Tue 1 Sep. Both 31 Aug and 1 Sep fall in the ISO week beginning 31 Aug, and a pair is
+// bucketed by its LATER weigh, so that ONE weekly bucket held TWO legs:
+//
+//	24 Aug -> 31 Aug   0.9 kg over 7 days =  129 g/day
+//	31 Aug ->  1 Sep   1.4 kg over 1 day  = 1400 g/day
+//
+// animal_gain took the MEDIAN of those two RATES, and the median of two values is their mean:
+// 764 g/day, for an animal that actually gained 2.3 kg in 8 days -- 287 g/day. A rate median
+// weights a 1-day leg exactly as heavily as a 7-day one, and over a single day ordinary scale
+// noise IS the entire rate. The whole-shed arm beside it never had this problem: it has always
+// divided total grams by total days.
+//
+// All three reads are asserted together because the 2026-08-26 lock requires them to be the same
+// statistic, and the existing parity test cannot catch this one -- its fixture is whole-shed pens
+// only, so both sides of that comparison have an EMPTY animal arm and agree while drifting.
+//
+// MUTATION TEST when this was written: restoring percentile_cont(0.5) in any one of the four
+// animal_gain CTEs turns this red at 764.29 against 287.5.
+func TestAnimalGainIsTotalMovementNotAMedianOfLegRates(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	const tag = "three-weigh-kid"
+	const goatID = "00000000-0000-4000-8000-000000009401"
+	// Resolved to a real animal so the breed reads below have a bucket to report in; the growth
+	// reads never look at this row.
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO goats (goat_id, tenant_id, display_id, breed, sex, age_band, lifecycle_status, management_stage, custodian_party_id, current_location_id, park_id, shed_id)
+VALUES ($1::uuid, $2::uuid, 'G-990940', 'Three Weigh Breed', 'female', 'kid', 'alive', 'kid', $3::uuid, $4::uuid, $5::uuid, $4::uuid)
+ON CONFLICT (goat_id) DO UPDATE SET breed=EXCLUDED.breed, shed_id=EXCLUDED.shed_id`,
+		goatID, repoTenant, repoParty, repoExpectedShed, repoPark)
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO goat_identifiers (tenant_id, goat_id, identifier_type, identifier_value, normalized_value, scope_key, is_primary_for_goat, status, valid_from, normalizer_version)
+VALUES ($1::uuid, $2::uuid, 'animal_identifier_1', $3, $3, 'global', true, 'active', now(), 'test')
+ON CONFLICT (tenant_id, normalized_value) DO UPDATE SET goat_id=EXCLUDED.goat_id, status='active'`,
+		repoTenant, goatID, tag)
+
+	// 06:00 UTC is 11:30 IST, so each instant lands on the intended business date.
+	seedGrowthObservation(t, ctx, pool, tag, 27.5, time.Date(2026, 8, 24, 6, 0, 0, 0, time.UTC))
+	seedGrowthObservation(t, ctx, pool, tag, 28.4, time.Date(2026, 8, 31, 6, 0, 0, 0, time.UTC))
+	seedGrowthObservation(t, ctx, pool, tag, 29.8, time.Date(2026, 9, 1, 6, 0, 0, 0, time.UTC))
+
+	start := time.Date(2026, 8, 17, 0, 0, 0, 0, time.UTC)
+	end := time.Date(2026, 9, 7, 0, 0, 0, 0, time.UTC)
+	// 2.3 kg over the 8 days those two legs span. The retired rate median reported 764.29.
+	const want = 287.5
+
+	adg, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, start, end, "", "", "", "", domain.TimeScope{})
+	if err != nil {
+		t.Fatalf("GetLeadershipGrowthADG: %v", err)
+	}
+	if adg.Headline.AverageADGGPerDay == nil {
+		t.Fatalf("headline reported no gain for a kid weighed three times: %#v", adg.Headline)
+	}
+	if got := *adg.Headline.AverageADGGPerDay; math.Abs(got-want) > 0.01 {
+		t.Fatalf("headline = %.2f g/day, want %.2f -- the animal gained 2.3 kg in 8 days", got, want)
+	}
+
+	var weekly *domain.GrowthWeeklyGainPoint
+	for i := range adg.WeeklyGain {
+		if adg.WeeklyGain[i].WeekStart == "2026-08-31" {
+			weekly = &adg.WeeklyGain[i]
+		}
+	}
+	if weekly == nil {
+		t.Fatalf("no weekly point for the week holding both legs; got %#v", adg.WeeklyGain)
+	}
+	if math.Abs(weekly.AverageADGGPerDay-want) > 0.01 {
+		t.Fatalf("week 2026-08-31 = %.2f g/day, want %.2f -- this is the 764 g/day the maintainer reported",
+			weekly.AverageADGGPerDay, want)
+	}
+
+	demo, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, start, end, "", "", "", "", nil, domain.TimeScope{})
+	if err != nil {
+		t.Fatalf("GetWeightDemographics: %v", err)
+	}
+	var breed *domain.WeightGainBucket
+	for i := range demo.GainByBreed {
+		if demo.GainByBreed[i].Label == "Three Weigh Breed" {
+			breed = &demo.GainByBreed[i]
+		}
+	}
+	if breed == nil {
+		t.Fatalf("no breed gain bucket for the kid; got %#v", demo.GainByBreed)
+	}
+	if math.Abs(breed.MedianGainGPerDay-want) > 0.01 {
+		t.Fatalf("gain-by-breed = %.2f g/day, want %.2f -- the breed chart must report the same statistic as the headline",
+			breed.MedianGainGPerDay, want)
+	}
+
+	var breedWeek *domain.WeightGainBreedWeekBucket
+	for i := range demo.GainByBreedWeek {
+		if demo.GainByBreedWeek[i].Label == "Three Weigh Breed" && demo.GainByBreedWeek[i].WeekStart == "2026-08-31" {
+			breedWeek = &demo.GainByBreedWeek[i]
+		}
+	}
+	if breedWeek == nil {
+		t.Fatalf("no breed/week gain bucket for the week holding both legs; got %#v", demo.GainByBreedWeek)
+	}
+	if math.Abs(breedWeek.AverageGainGPerDay-want) > 0.01 {
+		t.Fatalf("gain-by-breed week 2026-08-31 = %.2f g/day, want %.2f", breedWeek.AverageGainGPerDay, want)
 	}
 }
