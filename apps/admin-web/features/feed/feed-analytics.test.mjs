@@ -199,6 +199,19 @@ test("the Consumption tab requests every stock arm it renders, item money includ
   }
 });
 
+// A load fed past its own kilograms is still the load the store is drawing on, so it reads "In
+// use" and its negative kg carries the finding (maintainer instruction, 2026-09-22). A status of
+// its own said the opposite -- that the load was somewhere else in the queue.
+test("no load status claims the farm fed more than it bought", () => {
+  const contract = readFileSync(
+    new URL("../../../../backend/internal/adminui/app/service.go", import.meta.url),
+    "utf8",
+  );
+  assert.ok(!/"loads\.status\.overrun"/.test(contract), "the overrun status copy is retired");
+  assert.ok(!/\boverrun\b/.test(stockLoadsSource), "the table renders no overrun tone or branch");
+  assert.match(stockLoadsSource, /in_use: "ok",/);
+});
+
 test("stock load check signs match the days arithmetic", () => {
   const contract = readFileSync(
     new URL("../../../../backend/internal/adminui/app/service.go", import.meta.url),

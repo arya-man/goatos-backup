@@ -25,18 +25,6 @@ import "errors"
 // never zero, when the buyer stated no figure or when nothing has been fed recently enough to
 // project days left: a check nobody could make is not a check that passed.
 
-// StockLoadExcludedFeedItemKeys are the feeds this tab does not answer for (maintainer
-// instruction, 2026-09-21).
-//
-// UHT milk is not drawn off the ration sheet the way a bulk feed is -- it is consumed by milk
-// PREPARATION batches, which depletes it on submit. "How many days of stock did this load cover"
-// is a bulk-feed question, so a milk load is left out of the table and out of the feed-item
-// filter rather than answered with a figure that means something else.
-//
-// This is a REPORTING exclusion only: milk purchases, milk stock and the milk consumption series
-// are untouched everywhere else, and the excluded keys never reach a write path.
-var StockLoadExcludedFeedItemKeys = []string{"uht_milk"}
-
 // StockLoadStatus names where one load stands in the FIFO queue.
 type StockLoadStatus string
 
@@ -47,12 +35,10 @@ const (
 	StockLoadNotStarted StockLoadStatus = "not_started"
 	// StockLoadInUse is the load currently being drawn on.
 	StockLoadInUse StockLoadStatus = "in_use"
-	// StockLoadFinished is a load whose every kilogram has been directed.
+	// StockLoadFinished is a load whose every kilogram has been directed. Finished loads are
+	// HISTORY and the table does not list them (maintainer instruction 2026-09-22): it answers
+	// what is in the store now. The status is kept because it is what hides them.
 	StockLoadFinished StockLoadStatus = "finished"
-	// StockLoadOverrun is the LAST load of its feed with MORE directed against it than it held:
-	// the farm fed feed the ledger never bought, so a load is missing from the ledger. Never
-	// clamped away -- the negative kg left is the finding.
-	StockLoadOverrun StockLoadStatus = "overrun"
 )
 
 // StockLoadRow is one purchased load with its FIFO consumption position.
@@ -74,7 +60,9 @@ type StockLoadRow struct {
 
 	// Kilograms. PurchasedKg is what the load is worth in the store (received weight once entered,
 	// else the buying weight, net of consumption the sheet had already recorded at import).
-	// ConsumedKg and LeftKg split it FIFO; LeftKg can be NEGATIVE on an overrun last load.
+	// ConsumedKg and LeftKg split it FIFO; LeftKg can be NEGATIVE when the farm fed more than the
+	// ledger bought. That load is still the one being fed from, so it reads as in use and the
+	// negative figure is left standing rather than given a status of its own.
 	PurchasedKg string
 	ConsumedKg  string
 	LeftKg      string
@@ -87,7 +75,8 @@ type StockLoadRow struct {
 	DaysConsumed int64
 	DaysLeft     *int64
 	GapDays      *int64
-	// AvgDailyKg is the feed's recent burn rate the days-left figure divides by; empty when none.
+	// AvgDailyKg is the feed FAMILY's recent burn rate the days-left figure divides by -- the same
+	// divisor, pinned overrides and all, the stock card uses; empty when none.
 	AvgDailyKg string
 }
 

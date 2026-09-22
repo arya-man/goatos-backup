@@ -21,10 +21,13 @@ import (
 // The adversarial fixture: ONE feed at ONE farm with THREE loads -- two reached (so FIFO has an
 // order to honour) and one still in transit -- fed over FOUR locked days so that the first load
 // FINISHES on a day that also starts the second (a straddling day must count for both), plus a
-// SECOND farm holding the same feed with more directed against it than it ever bought (an
-// overrun the newest load must carry as negative kg, never clamped), and a load with NO stated
-// days (the check must be absent, not zero). Park scope and the farm/feed filters are proved on
-// the same data, as is the whole-filter negative count under a page boundary.
+// SECOND farm holding the same feed with more directed against it than it ever bought (the
+// newest load must carry that as negative kg, never clamped, and still read as IN USE because it
+// is the load the store is drawing on), and a load with NO stated days (the check must be absent,
+// not zero). The FINISHED load proves the other half of the maintainer's 2026-09-22 instruction:
+// it is computed, it moves the FIFO queue, and it is NOT SERVED -- the table answers what is in
+// the store now. Park scope and the farm/feed filters are proved on the same data, as is the
+// whole-filter count under a page boundary.
 func TestStockLoadsFifoOneToManyStatusBucketsParkScopePageBoundary(t *testing.T) {
 	ctx := context.Background()
 	repo, pool := setupIssueDB(t, ctx)
@@ -96,8 +99,10 @@ VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 40, 1000, 0, $8::date, 'Naval
 	if err != nil {
 		t.Fatalf("StockLoads: %v", err)
 	}
-	if page.Total != 4 || len(page.Rows) != 4 {
-		t.Fatalf("want every load (4), got total %d rows %d: %+v", page.Total, len(page.Rows), page.Rows)
+	// Four loads exist; the FINISHED one is history and is not served, so three rows and a
+	// whole-filter total of three.
+	if page.Total != 3 || len(page.Rows) != 3 {
+		t.Fatalf("want the three loads still in the store, got total %d rows %d: %+v", page.Total, len(page.Rows), page.Rows)
 	}
 	byKey := map[string]domain.StockLoadRow{}
 	for _, row := range page.Rows {
@@ -110,16 +115,10 @@ VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 40, 1000, 0, $8::date, 'Naval
 		return itoa(*v)
 	}
 
-	// Load 1: fully consumed over four days, said four -- the check comes out at zero.
-	l1 := byKey["CBE#1"]
-	if l1.Status != domain.StockLoadFinished || l1.ConsumedKg != "100.0" || l1.LeftKg != "0.0" {
-		t.Errorf("load 1 must be finished, 100 consumed, 0 left: %+v", l1)
-	}
-	if l1.ConsumptionFrom != "2026-08-11" || l1.FinishedOn != "2026-08-14" || l1.DaysConsumed != 4 {
-		t.Errorf("load 1 used 11-14 Aug (4 days), finishing on the 14th: %+v", l1)
-	}
-	if str(l1.DaysSaid) != "4" || str(l1.DaysLeft) != "0" || str(l1.GapDays) != "0" {
-		t.Errorf("load 1 said 4, consumed 4, 0 left -> gap 0: said %s left %s gap %s", str(l1.DaysSaid), str(l1.DaysLeft), str(l1.GapDays))
+	// Load 1: fully consumed over four days. It is FINISHED, so it is not on the table at all --
+	// and its 100 kg still moved the queue, which is what load 2 below proves.
+	if _, listed := byKey["CBE#1"]; listed {
+		t.Errorf("a finished load is history and must not be listed: %+v", byKey["CBE#1"])
 	}
 	// Load 2: took the 20 kg remainder on the 14th (the straddling day counts for it too), 80 kg
 	// left over a 30 kg/day rate = 2 days; said 2, consumed 1, left 2 -> gap -1, the highlighted case.
@@ -141,10 +140,11 @@ VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 40, 1000, 0, $8::date, 'Naval
 	if l3.DaysSaid != nil || l3.DaysLeft != nil || l3.GapDays != nil {
 		t.Errorf("no figure stated and no rate: every day field absent, got said %s left %s gap %s", str(l3.DaysSaid), str(l3.DaysLeft), str(l3.GapDays))
 	}
-	// CPT: 60 directed against 50 bought. The newest (only) load carries the -10, and reads overrun.
+	// CPT: 60 directed against 50 bought. The newest (only) load carries the -10 and stays IN USE:
+	// it is the load the store is drawing on, and the negative kg is the finding.
 	cpt := byKey["CPT#1"]
-	if cpt.Status != domain.StockLoadOverrun || cpt.ConsumedKg != "60.0" || cpt.LeftKg != "-10.0" {
-		t.Errorf("overrun must show negative kg left, never clamped: %+v", cpt)
+	if cpt.Status != domain.StockLoadInUse || cpt.ConsumedKg != "60.0" || cpt.LeftKg != "-10.0" {
+		t.Errorf("feeding past the ledger stays in use with negative kg left, never clamped: %+v", cpt)
 	}
 	if str(cpt.DaysLeft) != "0" || str(cpt.GapDays) != "2" {
 		// Said 3, consumed 1, nothing left: gap 2 -- the load lasted less time than said, but that is
@@ -175,8 +175,8 @@ VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 40, 1000, 0, $8::date, 'Naval
 		if err != nil {
 			t.Fatalf("farm page: %v", err)
 		}
-		if farm.Total != 3 || len(farm.Rows) != 1 {
-			t.Fatalf("page of one must still carry the whole-filter total (3): %+v", farm)
+		if farm.Total != 2 || len(farm.Rows) != 1 {
+			t.Fatalf("page of one must still carry the whole-filter total (2, the finished load aside): %+v", farm)
 		}
 		// Newest purchase first: the in-transit 20 Aug load.
 		if farm.Rows[0].BatchNo != 3 {
@@ -325,8 +325,15 @@ VALUES ($1, $2, 'CBE', $3, $4, $5::date, $6::numeric, 40, 1000, 0, $7::date, 'Na
 	for _, row := range page.Rows {
 		rows[row.FeedItemKey+"#"+itoa(row.BatchNo)] = row
 	}
-	if len(rows) != 12 {
-		t.Fatalf("want all twelve loads, got %d: %+v", len(rows), page.Rows)
+	// Twelve loads, three of them FINISHED and therefore not served: the queue still ran through
+	// them, which is exactly what their successors' figures below prove.
+	if len(rows) != 9 {
+		t.Fatalf("want the nine loads still in the store, got %d: %+v", len(rows), page.Rows)
+	}
+	for _, gone := range []string{"overlap#1", "exact#1", "weighed#1"} {
+		if _, listed := rows[gone]; listed {
+			t.Errorf("%s is finished and must not be listed: %+v", gone, rows[gone])
+		}
 	}
 	num := func(v *int64) string {
 		if v == nil {
@@ -352,10 +359,6 @@ VALUES ($1, $2, 'CBE', $3, $4, $5::date, $6::numeric, 40, 1000, 0, $7::date, 'Na
 	// THE HEADLINE. Load 2 arrived on the 3rd and its first drawn day is the 5th -- the day the
 	// running total (125 kg) first passes load 1's 100 kg. The two days in between fed load 1,
 	// which finishes on the 4th. Nothing is consumed twice and no day is lost between them.
-	check("overlap load 1 (fed 1-4 Sep, finishes as the total reaches 100)",
-		domain.StockLoadRow{Status: domain.StockLoadFinished, PurchasedKg: "100.0", ConsumedKg: "100.0", LeftKg: "0.0",
-			ConsumptionFrom: "2026-09-01", FinishedOn: "2026-09-04", DaysConsumed: 4, DaysLeft: n(0), GapDays: n(0)},
-		rows["overlap#1"])
 	check("overlap load 2 (arrived 3 Sep, first drawn on the 5th)",
 		domain.StockLoadRow{Status: domain.StockLoadInUse, PurchasedKg: "100.0", ConsumedKg: "50.0", LeftKg: "50.0",
 			ConsumptionFrom: "2026-09-05", FinishedOn: "", DaysConsumed: 2, DaysLeft: n(2), GapDays: n(-1)},
@@ -363,10 +366,6 @@ VALUES ($1, $2, 'CBE', $3, $4, $5::date, $6::numeric, 40, 1000, 0, $7::date, 'Na
 
 	// Strict boundary: the day the total lands EXACTLY on load 1's last kilogram is load 1's day
 	// only. A `>=` here would hand that day to both loads and double-count it.
-	check("exact load 1 (lands on zero on the 2nd, which is its own day)",
-		domain.StockLoadRow{Status: domain.StockLoadFinished, PurchasedKg: "60.0", ConsumedKg: "60.0", LeftKg: "0.0",
-			ConsumptionFrom: "2026-10-01", FinishedOn: "2026-10-02", DaysConsumed: 2, DaysLeft: n(0), GapDays: nil},
-		rows["exact#1"])
 	check("exact load 2 (starts clean on the 3rd)",
 		domain.StockLoadRow{Status: domain.StockLoadInUse, PurchasedKg: "60.0", ConsumedKg: "30.0", LeftKg: "30.0",
 			ConsumptionFrom: "2026-10-03", FinishedOn: "", DaysConsumed: 1, DaysLeft: n(1), GapDays: nil},
@@ -374,10 +373,6 @@ VALUES ($1, $2, 'CBE', $3, $4, $5::date, $6::numeric, 40, 1000, 0, $7::date, 'Na
 
 	// The weighbridge figure, not the invoice, moves the queue: load 1 hands over after 80 kg, so
 	// the third day's 40 kg belongs to load 2.
-	check("weighed load 1 (80 received against 100 bought)",
-		domain.StockLoadRow{Status: domain.StockLoadFinished, PurchasedKg: "80.0", ConsumedKg: "80.0", LeftKg: "0.0",
-			ConsumptionFrom: "2026-12-01", FinishedOn: "2026-12-02", DaysConsumed: 2, DaysLeft: n(0), GapDays: nil},
-		rows["weighed#1"])
 	check("weighed load 2 (takes over at 80 kg, not 100)",
 		domain.StockLoadRow{Status: domain.StockLoadInUse, PurchasedKg: "100.0", ConsumedKg: "40.0", LeftKg: "60.0",
 			ConsumptionFrom: "2026-12-03", FinishedOn: "", DaysConsumed: 1, DaysLeft: n(1), GapDays: nil},
@@ -397,15 +392,18 @@ VALUES ($1, $2, 'CBE', $3, $4, $5::date, $6::numeric, 40, 1000, 0, $7::date, 'Na
 	// Recorded second, arrived first: batch 1 leads the queue. Batch order and entry order are
 	// both irrelevant -- only the arrival day counts.
 	check("backdate load 1 (bought later but arrived first, so it owns the pre-arrival overrun)",
-		domain.StockLoadRow{Status: domain.StockLoadOverrun, PurchasedKg: "100.0", ConsumedKg: "200.0", LeftKg: "-100.0",
+		domain.StockLoadRow{Status: domain.StockLoadInUse, PurchasedKg: "100.0", ConsumedKg: "200.0", LeftKg: "-100.0",
 			ConsumptionFrom: "2027-02-01", FinishedOn: "2027-02-02", DaysConsumed: 4, DaysLeft: n(0), GapDays: nil},
 		rows["backdate#1"])
 	// Batch 2 arrived on the 5th, after every locked day. It cannot have served any of those days, so
 	// it stays untouched: the overrun, if any, belongs to the load that was available when the feed
 	// went out.
+	// ...and its DAYS LEFT is 0, not 2. The store is already 100 kg in deficit, so this load's
+	// 100 kg carries the farm back to zero and no further: days left is the RUNWAY up to and
+	// including the load, which is the figure the stock card quotes for the whole feed.
 	check("backdate load 2 (arrived after every locked day, so it is untouched)",
 		domain.StockLoadRow{Status: domain.StockLoadNotStarted, PurchasedKg: "100.0", ConsumedKg: "0.0", LeftKg: "100.0",
-			ConsumptionFrom: "", FinishedOn: "", DaysConsumed: 0, DaysLeft: n(2), GapDays: nil},
+			ConsumptionFrom: "", FinishedOn: "", DaysConsumed: 0, DaysLeft: n(0), GapDays: nil},
 		rows["backdate#2"])
 
 	// THE GAP. The farm fed 100 kg against a 50 kg load, then the next load did not land for another
@@ -415,22 +413,24 @@ VALUES ($1, $2, 'CBE', $3, $4, $5::date, $6::numeric, 40, 1000, 0, $7::date, 'Na
 	// The tell is the first load's negative kg left. That is the missing-ledger finding this table
 	// exists to expose; the future load remains a future load.
 	check("gap load 1 (ran out on the 2nd, said three days)",
-		domain.StockLoadRow{Status: domain.StockLoadOverrun, PurchasedKg: "50.0", ConsumedKg: "100.0", LeftKg: "-50.0",
+		domain.StockLoadRow{Status: domain.StockLoadInUse, PurchasedKg: "50.0", ConsumedKg: "100.0", LeftKg: "-50.0",
 			ConsumptionFrom: "2026-11-01", FinishedOn: "2026-11-02", DaysConsumed: 4, DaysLeft: n(0), GapDays: n(-1)},
 		rows["gap#1"])
+	// Days left is 2, not 4: the 50 kg deficit ahead of it eats half of this load before the
+	// store is back at zero, and the card for this feed says two days as well.
 	check("gap load 2 (arrived 10 Nov, after every locked day)",
 		domain.StockLoadRow{Status: domain.StockLoadNotStarted, PurchasedKg: "100.0", ConsumedKg: "0.0", LeftKg: "100.0",
-			ConsumptionFrom: "", FinishedOn: "", DaysConsumed: 0, DaysLeft: n(4), GapDays: nil},
+			ConsumptionFrom: "", FinishedOn: "", DaysConsumed: 0, DaysLeft: n(2), GapDays: nil},
 		rows["gap#2"])
 }
 
-// Milk is left out of this tab entirely (maintainer instruction, 2026-09-21): it is drawn by
-// preparation batches rather than the ration sheet, so "how many days of stock did this load
-// cover" is not a question about it. The exclusion must reach the FILTER FACET too -- a feed
-// offered in the select that can never produce a row is a dead option -- and it must not disturb
-// the FIFO of the feeds that remain, which is why the milk load here sits at the same farm as a
-// real one.
-func TestStockLoadsLeavesMilkOutOfTheTableAndOutOfTheFeedFilter(t *testing.T) {
+// MILK IS IN (maintainer instruction, 2026-09-22, replacing the 2026-09-21 exclusion). Milk is
+// drawn by preparation batches rather than the ration sheet, which is why it was left out; the
+// maintainer asked for it back, and the arithmetic needs no special case because externally
+// tracked consumption already reaches this read through the same union the stock cards use. The
+// milk load here sits at the same farm as a bulk one so the FIFO of the feeds beside it is proved
+// undisturbed.
+func TestStockLoadsListsMilkBesideTheBulkFeeds(t *testing.T) {
 	ctx := context.Background()
 	repo, pool := setupIssueDB(t, ctx)
 
@@ -454,23 +454,268 @@ VALUES ($1, $2, 'CBE', $3, $4, DATE '2026-08-01', $5::numeric, 40, 1000, 0, DATE
 	if err != nil {
 		t.Fatalf("StockLoads: %v", err)
 	}
-	if page.Total != 1 || len(page.Rows) != 1 {
-		t.Fatalf("the milk load must not be counted or listed, only the concentrate: total %d rows %+v", page.Total, page.Rows)
+	if page.Total != 2 || len(page.Rows) != 2 {
+		t.Fatalf("both loads are in the store and both are listed: total %d rows %+v", page.Total, page.Rows)
 	}
-	if page.Rows[0].FeedItemKey != "mesha_kids_goat_concentrate" {
-		t.Errorf("the one row is the concentrate: %+v", page.Rows[0])
+	if len(page.FeedItems) != 2 {
+		t.Errorf("the feed filter offers both feeds: %+v", page.FeedItems)
 	}
-	if len(page.FeedItems) != 1 || page.FeedItems[0].Key != "mesha_kids_goat_concentrate" {
-		t.Errorf("the feed filter must not offer milk -- an option that can never produce a row: %+v", page.FeedItems)
-	}
-	// Asking for milk by key is honest emptiness, never a leak around the exclusion.
 	milk, err := repo.StockLoads(ctx, fdiTenant, nil, domain.StockLoadsQuery{FeedItemKey: "uht_milk"})
 	if err != nil {
 		t.Fatalf("milk filter: %v", err)
 	}
-	if milk.Total != 0 || len(milk.Rows) != 0 {
-		t.Errorf("naming milk explicitly still returns nothing: %+v", milk)
+	if milk.Total != 1 || len(milk.Rows) != 1 || milk.Rows[0].FeedItemKey != "uht_milk" {
+		t.Fatalf("asking for milk by key returns the milk load: %+v", milk)
 	}
+	// No preparation batch has drawn on it, so there is no rate to divide by: days left is ABSENT,
+	// never zero, exactly as it is for an untouched bulk load.
+	if milk.Rows[0].DaysLeft != nil || milk.Rows[0].AvgDailyKg != "" {
+		t.Errorf("an undrawn milk load has no rate and no days left: %+v", milk.Rows[0])
+	}
+}
+
+// THE TABLE AND THE CARD ABOVE IT MUST AGREE ON THE RUNWAY (maintainer instruction 2026-09-22:
+// "days are not matching with above, it should match").
+//
+// The card answers a FEED: everything in the store over that feed's daily rate. The table answered
+// a LOAD: that load's own kg over the same rate -- so a feed with one load read one day more than
+// its card, and a feed with two read neither. Days left on a load is now the RUNWAY to the end of
+// that load, which makes the NEWEST load of a feed the card's own figure by construction.
+//
+// The fixture is the case that made the two disagree on the live farm: a RETIRED split concentrate
+// with leftover stock folded into its successor (domain.StockFamilyMerge). The retired feed's loads
+// are not listed -- the farm does not buy it any more -- while its kg still count toward the
+// runway, which is precisely what the card does with them.
+func TestStockLoadsDaysLeftEqualsTheStockCardForTheSameFeed(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupIssueDB(t, ctx)
+
+	const (
+		retiredLabel = "Mesha Kids Goat Concentrate"
+		retiredKey   = "mesha_kids_goat_concentrate"
+		familyLabel  = "Mesha Kids Concentrate"
+		familyKey    = "mesha_kids_concentrate"
+	)
+	catalog := func(label, status string) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, `
+INSERT INTO feed_item_catalog (tenant_id, feed_item_label, status) VALUES ($1::uuid, $2, $3)
+ON CONFLICT (tenant_id, feed_item_key) DO UPDATE SET status = EXCLUDED.status`,
+			fdiTenant, label, status); err != nil {
+			t.Fatalf("catalog %s: %v", label, err)
+		}
+	}
+	catalog(retiredLabel, "retired")
+	catalog(familyLabel, "active")
+
+	const park2 = "fd100000-0000-4000-8000-000000003002"
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
+VALUES ($2::uuid, $1::uuid, 'park', 'CPT', 'CPT', 'active')
+ON CONFLICT (location_id) DO NOTHING`, fdiTenant, park2); err != nil {
+		t.Fatalf("seed second park: %v", err)
+	}
+	purchase := func(park, farm, label string, batch int64, day, qty, delivery string) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, `
+INSERT INTO feed_purchases (tenant_id, park_id, farm_label, feed_item_label, batch_no,
+                            purchase_date, quantity_kg, per_kg_cost, total_cost,
+                            consumed_at_import_kg, depletes_from, vendor, payment_status,
+                            delivery_status, reached_on)
+VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 40, 1000, 0, $6::date, 'Navaladi', 'Paid',
+        $8, CASE WHEN $8 = 'reached' THEN $6::date END)`,
+			fdiTenant, park, farm, label, batch, day, qty, delivery); err != nil {
+			t.Fatalf("purchase %s#%d: %v", label, batch, err)
+		}
+	}
+	// 100 kg of the retired feed, then two loads of the successor: one older, one newest.
+	purchase(fdiPark, "CBE", retiredLabel, 1, "2026-08-01", "100.000", "reached")
+	purchase(fdiPark, "CBE", familyLabel, 2, "2026-08-02", "100.000", "reached")
+	purchase(fdiPark, "CBE", familyLabel, 3, "2026-08-03", "200.000", "reached")
+	// The OTHER park holds the SAME family at a different size and a different rate, so a runway
+	// that fanned out across farms -- or a rate that did -- reads as a wrong number here rather
+	// than as a missing row. Its in-transit load proves stock-to-be still holds no place.
+	purchase(park2, "CPT", familyLabel, 10, "2026-08-02", "300.000", "reached")
+	purchase(park2, "CPT", familyLabel, 11, "2026-08-20", "100.000", "purchased")
+
+	feed := func(park, parkLabel, shed, day, label, key, qty string) {
+		t.Helper()
+		at := time.Date(2026, 8, 20, 9, 0, 0, 0, biztime.DefaultLocation())
+		if _, err := repo.PersistIssue(ctx, ports.PersistIssueCommand{
+			TenantID: fdiTenant, ParkID: park, FeedDay: day, Workflow: domain.WorkflowNormal,
+			IssuedAt: at, Fingerprint: "parity" + park + day,
+			IdempotencyKey: "issue:" + fdiTenant + ":" + park + ":" + day + ":parity",
+			GeneratedBy:    "test",
+			Cells: []domain.StoredCell{{
+				ParkID: park, ParkLabel: parkLabel, ShedID: shed, ShedLabel: "Castro",
+				PartitionLabel: "1", ShedTag: "Non-Pregnant", Breed: "Beetal",
+				RationGroup: "Beetal/Sirohi", SessionNo: 1, SessionLabel: "Morning",
+				HeadCount: 10, Workflow: domain.WorkflowNormal,
+				FeedItemLabel: label, FeedItemKey: key, QuantityKg: kg(qty), SessionTotalKg: qty,
+			}},
+		}); err != nil {
+			t.Fatalf("persist %s: %v", day, err)
+		}
+		if lock, err := repo.LockIssue(ctx, ports.LockIssueCommand{
+			TenantID: fdiTenant, ParkID: park, FeedDay: day,
+			Workflow: domain.WorkflowNormal, LockedAt: at,
+		}); err != nil || lock.Outcome != "locked" {
+			t.Fatalf("lock %s %s = (%v, %v)", parkLabel, day, lock.Outcome, err)
+		}
+	}
+	// One day fed off the retired sacks, the next off the successor: SUBSTITUTION, which is why the
+	// rate has to be the family's own kg per day rather than a sum of the members' rates. 50 kg a
+	// day, so the family rate is 50 and every figure below is hand-checkable -- and the retired feed
+	// KEEPS 50 kg, which is the half that decides whether the table counts what the card counts.
+	feed(fdiPark, "CBE", fdiShedA, "2026-08-10", retiredLabel, retiredKey, "50.000")
+	feed(fdiPark, "CBE", fdiShedA, "2026-08-11", familyLabel, familyKey, "50.000")
+	// CPT eats twice as fast off a bigger load: 200 kg left at 100 kg/day is two days there.
+	feed(park2, "CPT", fdiShedB, "2026-08-11", familyLabel, familyKey, "100.000")
+
+	cards, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{})
+	if err != nil {
+		t.Fatalf("StockAnalytics: %v", err)
+	}
+	var card *domain.StockItem
+	for i := range cards.Items {
+		if cards.Items[i].FarmLabel == "CBE" && cards.Items[i].FeedItemKey == familyKey {
+			card = &cards.Items[i]
+		}
+		if cards.Items[i].FeedItemKey == retiredKey {
+			t.Errorf("a retired feed has no card of its own: %+v", cards.Items[i])
+		}
+	}
+	if card == nil {
+		t.Fatalf("the family card must exist: %+v", cards.Items)
+	}
+
+	page, err := repo.StockLoads(ctx, fdiTenant, nil, domain.StockLoadsQuery{FarmLabel: "CBE"})
+	if err != nil {
+		t.Fatalf("StockLoads: %v", err)
+	}
+	for _, row := range page.Rows {
+		if row.FeedItemKey == retiredKey {
+			t.Errorf("the farm does not buy the retired feed any more, so its loads are not listed: %+v", row)
+		}
+	}
+	if len(page.Rows) != 2 {
+		t.Fatalf("the two successor loads are the table: %+v", page.Rows)
+	}
+	// Newest purchase first, and that row IS the card: same rate, same days left.
+	newest := page.Rows[0]
+	if newest.BatchNo != 3 {
+		t.Fatalf("newest bought first: %+v", newest)
+	}
+	if newest.AvgDailyKg != card.AvgDailyKg {
+		t.Errorf("the table divides by the card's own rate: table %q card %q", newest.AvgDailyKg, card.AvgDailyKg)
+	}
+	days := func(v *int64) string {
+		if v == nil {
+			return "nil"
+		}
+		return itoa(*v)
+	}
+	if days(newest.DaysLeft) != days(card.DaysLeft) {
+		t.Fatalf("the newest load carries the card's days left: table %s card %s (card %s kg at %s kg/day)",
+			days(newest.DaysLeft), days(card.DaysLeft), card.BalanceKg, card.AvgDailyKg)
+	}
+	// And the load behind it reads the runway up to ITSELF: 50 kg still on the retired sacks ahead
+	// of it plus its own 50 kg, at 50 kg/day -- two days, not the one its own kg alone would give.
+	older := page.Rows[1]
+	if older.BatchNo != 2 || days(older.DaysLeft) != "2" {
+		t.Errorf("the earlier load's days left is the runway to the end of it, 100 kg at 50 kg/day: %+v", older)
+	}
+
+	// MultipleDimensions: the same family at the other farm, with its own kg and its own rate. A
+	// runway or a rate that ranged over the wrong key set shows up here as CBE's number.
+	t.Run("MultipleDimensionsOneToManyAcrossFarms", func(t *testing.T) {
+		cpt, err := repo.StockLoads(ctx, fdiTenant, nil, domain.StockLoadsQuery{FarmLabel: "CPT"})
+		if err != nil {
+			t.Fatalf("CPT: %v", err)
+		}
+		var cptCard *domain.StockItem
+		for i := range cards.Items {
+			if cards.Items[i].FarmLabel == "CPT" && cards.Items[i].FeedItemKey == familyKey {
+				cptCard = &cards.Items[i]
+			}
+		}
+		if cptCard == nil {
+			t.Fatalf("CPT card must exist: %+v", cards.Items)
+		}
+		var reached *domain.StockLoadRow
+		for i := range cpt.Rows {
+			if cpt.Rows[i].BatchNo == 10 {
+				reached = &cpt.Rows[i]
+			}
+		}
+		if reached == nil {
+			t.Fatalf("CPT's reached load must be listed: %+v", cpt.Rows)
+		}
+		if reached.AvgDailyKg != cptCard.AvgDailyKg || days(reached.DaysLeft) != days(cptCard.DaysLeft) {
+			t.Errorf("CPT's load carries CPT's card, not CBE's: load rate %q days %s / card rate %q days %s",
+				reached.AvgDailyKg, days(reached.DaysLeft), cptCard.AvgDailyKg, days(cptCard.DaysLeft))
+		}
+		if days(reached.DaysLeft) == days(newest.DaysLeft) && reached.AvgDailyKg == newest.AvgDailyKg {
+			t.Errorf("the two farms were deliberately given different figures: both read %s days at %s kg/day",
+				days(reached.DaysLeft), reached.AvgDailyKg)
+		}
+	})
+
+	// StatusBuckets: every status the table can serve, and the two it must never serve.
+	t.Run("StatusBucketsServeNoFinishedAndNoRetiredLoad", func(t *testing.T) {
+		all, err := repo.StockLoads(ctx, fdiTenant, nil, domain.StockLoadsQuery{Limit: 100})
+		if err != nil {
+			t.Fatalf("all: %v", err)
+		}
+		seen := map[domain.StockLoadStatus]int{}
+		for _, row := range all.Rows {
+			seen[row.Status]++
+			if row.Status == domain.StockLoadFinished {
+				t.Errorf("a finished load is history and is never served: %+v", row)
+			}
+			if row.FeedItemKey == retiredKey {
+				t.Errorf("a retired feed's load is never served: %+v", row)
+			}
+		}
+		for _, want := range []domain.StockLoadStatus{domain.StockLoadInUse, domain.StockLoadNotStarted, domain.StockLoadInTransit} {
+			if seen[want] == 0 {
+				t.Errorf("the fixture holds a %s load and the table must serve it: %+v", want, all.Rows)
+			}
+		}
+		if int(all.Total) != len(all.Rows) {
+			t.Errorf("whole-filter total must count what it serves: total %d rows %d", all.Total, len(all.Rows))
+		}
+	})
+
+	// ParkScope: a scoped caller sees one park's loads, and the runway is that park's own.
+	t.Run("ParkScopeKeepsEachParksOwnRunway", func(t *testing.T) {
+		scoped, err := repo.StockLoads(ctx, fdiTenant, []uuid.UUID{uuid.MustParse(park2)}, domain.StockLoadsQuery{})
+		if err != nil {
+			t.Fatalf("scoped: %v", err)
+		}
+		for _, row := range scoped.Rows {
+			if row.FarmLabel != "CPT" {
+				t.Fatalf("park scope must serve CPT alone: %+v", row)
+			}
+			if row.BatchNo == 10 && days(row.DaysLeft) != "2" {
+				t.Errorf("CPT's runway is unchanged by the scope: %+v", row)
+			}
+		}
+		if len(scoped.FeedItems) != 1 || scoped.FeedItems[0].Key != familyKey {
+			t.Errorf("the facet is scoped too, and never offers the retired feed: %+v", scoped.FeedItems)
+		}
+	})
+
+	// PageBoundary: a page of one still carries the whole-filter count.
+	t.Run("PageBoundaryKeepsWholeFilterCounts", func(t *testing.T) {
+		first, err := repo.StockLoads(ctx, fdiTenant, nil, domain.StockLoadsQuery{FarmLabel: "CBE", Limit: 1})
+		if err != nil {
+			t.Fatalf("page: %v", err)
+		}
+		if first.Total != 2 || len(first.Rows) != 1 || first.Rows[0].BatchNo != 3 {
+			t.Fatalf("one row, the newest, and the whole-filter total of two: %+v", first)
+		}
+	})
 }
 
 // END TO END, through the real write paths on both sides (maintainer questions, 2026-09-21):
