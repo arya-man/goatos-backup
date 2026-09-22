@@ -211,9 +211,11 @@ function slowPagesLine(slow) {
 function formatVisualIssuesMessage(value, issues, slow = { pages: [] }) {
   const shown = issues.slice(0, 20);
   const lines = shown.map((issue, i) => `*${i + 1}. ${issue.page}*${issue.views > 1 ? ` (${issue.views} views)` : ""}  ${issue.deviceLabel}\n      ${issue.what}${issue.example}`);
-  const title = `:rotating_light: ${issues.length} visible issue${issues.length === 1 ? "" : "s"} on production`;
+  const title = issues.length
+    ? `:rotating_light: ${issues.length} visible issue${issues.length === 1 ? "" : "s"} on production`
+    : `:hourglass_flowing_sand: ${slow.pages.length} page${slow.pages.length === 1 ? "" : "s"} slow on production`;
   const blocks = [
-    { type: "header", text: { type: "plain_text", text: title.replace(":rotating_light: ", "🚨 "), emoji: true } },
+    { type: "header", text: { type: "plain_text", text: title.replace(":rotating_light: ", "🚨 ").replace(":hourglass_flowing_sand: ", "⏳ "), emoji: true } },
   ];
   if (lines.length) blocks.push({ type: "section", text: { type: "mrkdwn", text: lines.join("\n") } });
   if (issues.length > shown.length) blocks.push({ type: "context", elements: [{ type: "mrkdwn", text: `+${issues.length - shown.length} more in the report` }] });
