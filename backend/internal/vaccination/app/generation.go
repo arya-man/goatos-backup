@@ -2650,6 +2650,10 @@ func (s *GenerationService) recoveryRescheduleForRule(ctx context.Context, tenan
 	}
 	due, reason := recoveryRescheduleDue(asOf, recovery, nearby)
 	due = applyCrossVaccineGapFloorFromHistory(due, vaccineHistory, ruleVaccine, compatibility)
+	if floor, ok := recoveryRuleDueFloorForRule(rule, ruleVaccine, g, vaccineHistory); ok && due.Before(floor) {
+		due = floor
+		reason = recoveryRuleDueFloor
+	}
 	windowStart, windowEnd := recoveryDueWindows(due, rule.DueWindowDays)
 	return &obldomain.RecoveryReschedule{
 		DueAt:       due,
@@ -2657,6 +2661,26 @@ func (s *GenerationService) recoveryRescheduleForRule(ctx context.Context, tenan
 		WindowEnd:   windowEnd,
 		AlignReason: reason,
 	}, nil
+}
+
+func recoveryRuleDueFloorForRule(rule protodomain.Rule, ruleVaccine vaccineProfile, g domain.EligibleGoat, vaccineHistory []domain.RecentVaccineAdministration) (time.Time, bool) {
+	switch strings.TrimSpace(rule.TriggerType) {
+	case "birth_age":
+		if g.DOB == nil {
+			return time.Time{}, false
+		}
+		return businessDayStart(*g.DOB).AddDate(0, 0, int(rule.OffsetDays)), true
+	case "post_arrival":
+		anchor := warmingEntryAt(g)
+		if anchor == nil {
+			return time.Time{}, false
+		}
+		return businessDayStart(*anchor).AddDate(0, 0, int(rule.OffsetDays)), true
+	case "after_previous_completion":
+		return dueAfterPreviousCompletion(rule, ruleVaccine, vaccineHistory)
+	default:
+		return time.Time{}, false
+	}
 }
 
 func (s *GenerationService) nearbyMissedDoseDriveDate(ctx context.Context, tenantID, versionID string, rule protodomain.Rule, ruleVaccine vaccineProfile, g domain.EligibleGoat, due, asOf time.Time, policy genMissedDosePolicy) (*time.Time, error) {
