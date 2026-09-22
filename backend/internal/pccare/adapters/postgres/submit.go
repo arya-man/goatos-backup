@@ -16,6 +16,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	platformoutbox "github.com/vgoats/goatos/backend/internal/platform/outbox"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 	"github.com/vgoats/goatos/backend/internal/sop/authored"
 )
 
@@ -74,7 +75,8 @@ FOR UPDATE`, p.TenantID, p.TaskID).Scan(
 	// shed; its verifier subject is the vaccine label instead.
 	var shedLocation oploc.OperationalLocation
 	if shedID != "" {
-		shedLocation, err = oploc.ResolveShedLocation(ctx, tx.QueryRow(ctx, oploc.ShedScopedLocationSQL, p.TenantID, shedID))
+		boundShed := sqlbind.MustBind(oploc.ShedScopedLocationSQL, p.TenantID, shedID)
+		shedLocation, err = oploc.ResolveShedLocation(ctx, tx.QueryRow(ctx, boundShed.SQL(), boundShed.Args()...))
 		if err != nil {
 			return ports.SubmitTaskResult{}, fmt.Errorf("pccare: resolve submit shed location: %w", err)
 		}

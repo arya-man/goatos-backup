@@ -15,6 +15,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/pccare/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 	"github.com/vgoats/goatos/backend/internal/sop/authored"
 )
 
@@ -73,7 +74,8 @@ func (r *Repository) CreateRound(ctx context.Context, p ports.CreateRoundParams)
 	everyone := append(append([]string{}, p.AssigneeUserIDs...), p.RemovalOperatorUserIDs...)
 	distinct := distinctIDs(everyone)
 	var activeCount int
-	if err := tx.QueryRow(ctx, activeMembersCountSQL, p.TenantID, distinct).Scan(&activeCount); err != nil {
+	boundActive := sqlbind.MustBind(activeMembersCountSQL, p.TenantID, distinct)
+	if err := tx.QueryRow(ctx, boundActive.SQL(), boundActive.Args()...).Scan(&activeCount); err != nil {
 		return ports.RoundRow{}, fmt.Errorf("pccare: verify round assignees: %w", err)
 	}
 	if activeCount != len(distinct) {
@@ -246,7 +248,8 @@ func createRoundRemoval(
 		return fmt.Errorf("pccare: insert round removal task: %w", err)
 	}
 
-	if _, err := tx.Exec(ctx, removalAssigneesInsertSQL, p.TenantID, removalTaskID, p.RemovalOperatorUserIDs); err != nil {
+	boundRemovalAssignees := sqlbind.MustBind(removalAssigneesInsertSQL, p.TenantID, removalTaskID, p.RemovalOperatorUserIDs)
+	if _, err := tx.Exec(ctx, boundRemovalAssignees.SQL(), boundRemovalAssignees.Args()...); err != nil {
 		return fmt.Errorf("pccare: insert round removal assignees: %w", err)
 	}
 
@@ -592,10 +595,11 @@ func (r *Repository) GetRound(ctx context.Context, tenantID, roundID string, aut
 	}
 
 	// scale-guard:ignore: one round's pen buckets, covered by pc_care_tasks_round_idx (tenant_id, round_id, task_id) and bounded by domain.MaxPensPerRound.
-	rows, err := r.pool.Query(ctx, getRoundPensSQL+taskSelectColumns+taskFromJoins+`
+	boundPens := sqlbind.MustBind(getRoundPensSQL+taskSelectColumns+taskFromJoins+`
 WHERE t.tenant_id = $1::uuid AND t.round_id = $2::uuid
 ORDER BY shed.name, t.partition_label NULLS FIRST, t.task_id`,
 		tenantID, roundID)
+	rows, err := r.pool.Query(ctx, boundPens.SQL(), boundPens.Args()...)
 	if err != nil {
 		return ports.RoundRow{}, fmt.Errorf("pccare: list round pens: %w", err)
 	}

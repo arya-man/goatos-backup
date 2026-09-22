@@ -15,6 +15,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/pccare/domain"
 	"github.com/vgoats/goatos/backend/internal/pccare/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 	"github.com/vgoats/goatos/backend/internal/sop/authored"
 )
 
@@ -262,8 +263,9 @@ SET sop_proofs = sop_proofs || jsonb_build_object($4::text, $5::text),
 		}
 		updateSQL += `
 WHERE tenant_id = $1::uuid AND task_id = $2::uuid AND animal_row_id = $3::uuid`
-		if _, err := tx.Exec(ctx, updateSQL,
-			p.TenantID, p.TaskID, p.AnimalRowID, p.SlotFieldKey, p.ProofRef, p.CapturedBy, kind); err != nil {
+		bound := sqlbind.MustBind(updateSQL,
+			p.TenantID, p.TaskID, p.AnimalRowID, p.SlotFieldKey, p.ProofRef, p.CapturedBy, kind)
+		if _, err := tx.Exec(ctx, bound.SQL(), bound.Args()...); err != nil {
 			return fmt.Errorf("pccare: register slot proof: %w", err)
 		}
 		actorType := strings.TrimSpace(p.ActorType)
