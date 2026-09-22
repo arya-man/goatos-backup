@@ -10,6 +10,7 @@ import org.junit.Test
 import sg.mesha.goatos.core.designsystem.locale.ProvideAppLocale
 import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
+import sg.mesha.goatos.core.ui.sop.SopQuestionUi
 import sg.mesha.goatos.feature.pccare.PcCarePlanOption
 import sg.mesha.goatos.feature.pccare.PcCarePlanStep
 import sg.mesha.goatos.feature.pccare.PcCarePlanUiState
@@ -99,8 +100,62 @@ class PcCareFeedWaterRemovalScreenshotTest {
                                         description = "Show the water being taken out of this pen",
                                         canRecord = true,
                                     ),
+                                    // Authored as a PHOTO: the row must offer the photo verb, not
+                                    // "Record video" (PR 349 review finding 2).
+                                    PcCareSlotChipUi(
+                                        fieldKey = "trough_photo",
+                                        label = "Empty trough photo",
+                                        state = PcCareSlotState.EMPTY,
+                                        statusLabel = "Not recorded",
+                                        description = "Show the trough with nothing left in it",
+                                        kind = "photo",
+                                        canRecord = true,
+                                    ),
                                 ),
                                 submitEnabled = false,
+                            ),
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    /** A care card that ASKS: the questions must be on the screen, above the submit. */
+    @Test
+    fun theCareCardAsksTheQuestionsItAuthors() {
+        paparazzi.snapshot(name = "pc_care_task_questions") {
+            GoatOsTheme {
+                ProvideAppLocale {
+                    Box(androidx.compose.ui.Modifier.fillMaxSize().background(MeshaColors.Bg)) {
+                        PcCareTaskScreen(
+                            state = PcCareTaskUiState(
+                                title = "Deworming · Castro 1",
+                                locationDisplay = "Castro 1",
+                                parkLabel = "Channapatna",
+                                dateLabel = "2026-10-01",
+                                assigneeLine = "Assigned to Amit Kumar",
+                                animalCountLabel = "1 animal",
+                                questions = listOf(
+                                    SopQuestionUi(
+                                        id = "dose_taken",
+                                        kind = "choice",
+                                        title = "Did the animal take the full dose?",
+                                        required = true,
+                                        options = listOf("yes" to "Yes", "no" to "No"),
+                                    ),
+                                    SopQuestionUi(
+                                        id = "why_not",
+                                        kind = "text",
+                                        title = "Why not?",
+                                        required = true,
+                                        onlyIfQuestion = "dose_taken",
+                                        onlyIfValue = "no",
+                                    ),
+                                ),
+                                answers = mapOf("dose_taken" to "no"),
+                                submitEnabled = false,
+                                submitBlockedReason = "Enter: Why not?",
                             ),
                         )
                     }
