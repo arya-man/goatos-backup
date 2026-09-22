@@ -1030,7 +1030,7 @@ function BirthTab({ pageContract, demo }: { pageContract: AdminUiPageContract; d
 }
 
 /**
- * SHED-WISE — elevated shed against ground shed, per breed.
+ * PEN-WISE — elevated pen against non-elevated pen, per breed.
  */
 function ShedTab({
   pageContract,
@@ -1041,12 +1041,12 @@ function ShedTab({
 }) {
   const buckets = demo?.gain_by_breed_shed_type ?? [];
   const elevated = new Map(buckets.filter((b) => b.shed_type === "elevated").map((b) => [b.label, b]));
-  const ground = new Map(buckets.filter((b) => b.shed_type === "ground").map((b) => [b.label, b]));
-  const breeds = [...new Set([...elevated.keys(), ...ground.keys()])].sort((a, b) =>
+  const nonElevated = new Map(buckets.filter((b) => b.shed_type === "non_elevated").map((b) => [b.label, b]));
+  const breeds = [...new Set([...elevated.keys(), ...nonElevated.keys()])].sort((a, b) =>
     a.localeCompare(b, undefined, { numeric: true }),
   );
-  // WHICH SHEDS ARE BEHIND THIS BAR. The elevated/ground split comes from shed metadata and, for
-  // the sheds named in review, from the shed's own name -- a rule the chart cannot show, so the
+  // WHICH PENS ARE BEHIND THIS BAR. The elevated/non-elevated split is configured per pen on
+  // Configuration -> Items and settings -> Pens -- a setting the chart cannot show, so the
   // reader was being asked to accept two bars on trust. The backend sends the pens each bar
   // actually counted, already composed and already in natural order, and each bar carries them
   // behind a small `i`.
@@ -1061,7 +1061,7 @@ function ShedTab({
   // tell the two pens apart. With a park selected there is one group and no heading, so the
   // ordinary case stays a plain list. Park names, like the shed names, arrive from the backend.
   const members = demo?.shed_type_members ?? [];
-  const hintFor = (breed: string, shedType: "elevated" | "ground") => {
+  const hintFor = (breed: string, shedType: "elevated" | "non_elevated") => {
     const mine = members.filter((m) => m.label === breed && m.shed_type === shedType);
     const parks: string[] = [];
     for (const member of mine) {
@@ -1087,7 +1087,7 @@ function ShedTab({
   const groups: BarGroup[] = breeds.map((breed) => {
     const bars: GroupedBar[] = [];
     const elevatedBucket = elevated.get(breed);
-    const groundBucket = ground.get(breed);
+    const nonElevatedBucket = nonElevated.get(breed);
     if (elevatedBucket) {
       bars.push({
         key: `${breed}-elevated`,
@@ -1098,14 +1098,14 @@ function ShedTab({
         hint: hintFor(breed, "elevated"),
       });
     }
-    if (groundBucket) {
+    if (nonElevatedBucket) {
       bars.push({
-        key: `${breed}-ground`,
-        label: copy(pageContract, "view.shed_type.ground"),
-        value: Math.round(groundBucket.average_gain_g_per_day),
-        seriesKey: "ground",
-        noteLabel: `${groundBucket.animals.toLocaleString("en-IN")} ${copy(pageContract, "value.time.animals")}`,
-        hint: hintFor(breed, "ground"),
+        key: `${breed}-non-elevated`,
+        label: copy(pageContract, "view.shed_type.non_elevated"),
+        value: Math.round(nonElevatedBucket.average_gain_g_per_day),
+        seriesKey: "non_elevated",
+        noteLabel: `${nonElevatedBucket.animals.toLocaleString("en-IN")} ${copy(pageContract, "value.time.animals")}`,
+        hint: hintFor(breed, "non_elevated"),
       });
     }
     return { key: breed, heading: breed, bars };
@@ -1121,7 +1121,7 @@ function ShedTab({
         groups={groups}
         series={[
           { key: "elevated", scaleKey: "gain", label: copy(pageContract, "view.shed_type.elevated"), unit: "g", fractionDigits: 0 },
-          { key: "ground", scaleKey: "gain", label: copy(pageContract, "view.shed_type.ground"), unit: "g", fractionDigits: 0 },
+          { key: "non_elevated", scaleKey: "gain", label: copy(pageContract, "view.shed_type.non_elevated"), unit: "g", fractionDigits: 0 },
         ]}
         emptyLabel={copy(pageContract, "empty.shed.body")}
         chartLabel={copy(pageContract, "section.shed.aria")}

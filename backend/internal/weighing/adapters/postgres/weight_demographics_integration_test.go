@@ -1524,7 +1524,7 @@ SET shed_id=EXCLUDED.shed_id, partition_label=EXCLUDED.partition_label`,
 	}
 	parksOfGroundCastro := map[string]int{}
 	for _, member := range out.ShedTypeMembers {
-		if member.Label == "Shed Type Breed" && member.ShedType == "ground" {
+		if member.Label == "Shed Type Breed" && member.ShedType == "non_elevated" {
 			parksOfGroundCastro[member.ParkName]++
 		}
 	}

@@ -260,6 +260,7 @@ type HealthAnalytics struct {
 	Adherence   HealthAnalyticsAdherence  `json:"adherence"`
 	Medicines   []HealthAnalyticsMedicine `json:"medicines"`
 	Engine      HealthAnalyticsEngine     `json:"engine"`
+	Problems    HealthAnalyticsProblems   `json:"problems"`
 	Deaths      []HealthAnalyticsDeath    `json:"deaths"`
 	GeneratedAt time.Time                 `json:"generated_at"`
 }
@@ -319,6 +320,124 @@ const (
 	// proposed first.
 	HealthAnalyticsEngineRuleLimit = 12
 )
+
+// ---------------------------------------------------------------------------
+// Health problems -- the count, and the four ways the farm reads it
+// ---------------------------------------------------------------------------
+
+// HealthAnalyticsProblemBucket is one bar of one health-problem breakdown.
+//
+// GRAIN IS THE CASE, the same grain as Totals.NewCases and the disease board:
+// one episode of one illness in one animal. An animal treated twice is two
+// problems, because a relapse is a problem the farm had twice.
+type HealthAnalyticsProblemBucket struct {
+	// Key is the stable machine key the client groups and colours on, never copy.
+	Key string `json:"key"`
+	// Label is the farm-readable name, composed server-side.
+	Label string `json:"label"`
+	Cases int64  `json:"cases"`
+}
+
+// HealthAnalyticsProblems is the total number of health problems opened in the
+// window, and that same total cut four ways (maintainer instruction
+// 2026-09-22): by month, by breed, by pen type and by age.
+//
+// EVERY BREAKDOWN SUMS TO Total, AND THAT IS THE POINT. Each carries an
+// explicit bucket for the rows whose dimension is not known -- a breed nobody
+// recorded, a pen nobody has typed, an animal with no date of birth. Dropping
+// those rows would make four charts that each quietly answer a smaller question
+// than the headline above them, and a reader comparing two bars would be
+// comparing them inside a total that is not the total on screen. Named absence
+// is honest; a silently shorter bar is not.
+//
+// The MONTH breakdown is not repeated here: Months already carries new cases
+// per IST calendar month over the same window, on a generated spine so a quiet
+// month is a real zero. A second copy of it could disagree with the first.
+type HealthAnalyticsProblems struct {
+	// Total is every case opened in the window -- the same number as
+	// Totals.NewCases, computed by the same predicate over the same rows, and
+	// carried here so the section has its own headline without a client adding
+	// up bars to find one.
+	Total int64 `json:"total"`
+	// ByBreed is ordered most problems first, then by label.
+	ByBreed []HealthAnalyticsProblemBucket `json:"by_breed"`
+	// ByPenType is ELEVATED, NON-ELEVATED and unclassified, always in that
+	// order and always all three, so the two real bars never swap places
+	// between windows and an empty side reads as a zero rather than vanishing.
+	ByPenType []HealthAnalyticsProblemBucket `json:"by_pen_type"`
+	// ByAge is ordered youngest band first, with the unknown band last.
+	ByAge []HealthAnalyticsProblemBucket `json:"by_age"`
+}
+
+// Pen-type bucket keys. The first two match shed_profiles.shed_type exactly;
+// the third is this read's own name for "nobody has typed this pen yet".
+const (
+	HealthPenTypeElevated     = "elevated"
+	HealthPenTypeNonElevated  = "non_elevated"
+	HealthPenTypeUnclassified = "unclassified"
+)
+
+// HealthPenTypeOrder is the fixed display order. It is FIXED rather than
+// sorted by size because these two bars are read against each other: a chart
+// whose sides swap when one window has more elevated cases than the other
+// invites exactly the misreading it exists to prevent.
+var HealthPenTypeOrder = []string{HealthPenTypeElevated, HealthPenTypeNonElevated, HealthPenTypeUnclassified}
+
+var healthPenTypeLabels = map[string]string{
+	HealthPenTypeElevated:     "Elevated pen",
+	HealthPenTypeNonElevated:  "Non-elevated pen",
+	HealthPenTypeUnclassified: "Pen type not set",
+}
+
+// HealthPenTypeLabel resolves a pen-type key to farm copy.
+func HealthPenTypeLabel(key string) string {
+	if label, ok := healthPenTypeLabels[key]; ok {
+		return label
+	}
+	return key
+}
+
+// HealthProblemAgeBandOrder is the age-at-diagnosis spine, youngest first.
+//
+// THE BANDS ARE DELIBERATELY THE SAME AS MORTALITY'S
+// (counts/domain.MortalityAgeBandOrder): a farm that reads "1-3 months" on the
+// mortality board and "1-3 months" here is entitled to assume the two mean the
+// same animals. Pinned by TestHealthProblemAgeBandsMatchMortality, which fails
+// if either side is edited alone.
+//
+// The age is taken AT THE START OF THE CASE, not today -- the question is how
+// old the animal was when it fell ill, and an animal's age today says nothing
+// about a case opened last winter.
+var HealthProblemAgeBandOrder = []string{"d0_7", "d8_30", "d31_90", "d91_180", "d181_365", "over_1y", "unknown"}
+
+var healthProblemAgeBandLabels = map[string]string{
+	"d0_7":     "0–7 days",
+	"d8_30":    "8–30 days",
+	"d31_90":   "1–3 months",
+	"d91_180":  "3–6 months",
+	"d181_365": "6–12 months",
+	"over_1y":  "Over 1 year",
+	"unknown":  "Age not recorded",
+}
+
+// HealthProblemAgeBandLabel resolves an age-band key to farm copy.
+func HealthProblemAgeBandLabel(key string) string {
+	if label, ok := healthProblemAgeBandLabels[key]; ok {
+		return label
+	}
+	return key
+}
+
+// HealthProblemBreedUnknown is the bucket a case lands in when the animal
+// carries no breed. It is counted and named, never dropped.
+const HealthProblemBreedUnknown = "unknown"
+
+// HealthProblemBreedUnknownLabel is its farm copy.
+const HealthProblemBreedUnknownLabel = "Breed not recorded"
+
+// HealthAnalyticsBreedLimit bounds the breed breakdown, most problems first.
+// A farm with more breeds than this reads the busiest; the page says so.
+const HealthAnalyticsBreedLimit = 15
 
 // ParseHealthAnalyticsDate parses an inclusive "YYYY-MM-DD" bound into the first
 // instant of that IST day.

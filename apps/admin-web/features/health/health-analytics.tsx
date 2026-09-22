@@ -60,7 +60,7 @@ import { HealthAnalyticsTelemetry } from "./health-analytics-telemetry";
 
 const PAGE_PATH = "/health/analytics";
 const TAB_PARAM = "tab";
-const TABS = ["overview", "diseases", "mortality", "treatment", "engine"] as const;
+const TABS = ["overview", "problems", "diseases", "mortality", "treatment", "engine"] as const;
 type Tab = (typeof TABS)[number];
 
 /** Mirrors health/domain.HealthAnalyticsMaxDays — the widest window the read serves. */
@@ -120,6 +120,36 @@ function defaultWindow(): { from: string; to: string } {
   const fromMonth = (zeroBased % 12) + 1;
   const from = `${String(fromYear).padStart(4, "0")}-${String(fromMonth).padStart(2, "0")}-01`;
   return { from: from < FLOOR_DATE ? FLOOR_DATE : from, to: today };
+}
+
+/**
+ * The four windows the farm reads health problems by (maintainer instruction 2026-09-22):
+ * the last 30, 90 or 120 days, or everything since the reforms began.
+ *
+ * A preset is just a from/to pair written into the URL, NOT a mode the page remembers: the
+ * calendar beside the chips writes the same two parameters, so a preset and a hand-picked range
+ * are the same state and the page cannot end up showing one while the chips claim the other.
+ * Whichever chip matches the served window is the one that reads as selected; when none does,
+ * the reader picked their own dates and "Custom" is shown as selected instead.
+ *
+ * "Since the reforms" opens on FLOOR_DATE, the first day the Health module recorded anything.
+ * A longer window would only pad the charts with empty months that read as a herd with nothing
+ * wrong with it, and the read refuses anything wider than MAX_WINDOW_DAYS anyway.
+ *
+ * The bounds are INCLUSIVE, so "last 30 days" is today and the 29 days before it.
+ */
+const WINDOW_PRESETS = [
+  { key: "30", days: 30 },
+  { key: "90", days: 90 },
+  { key: "120", days: 120 },
+  { key: "all", days: 0 },
+] as const;
+
+function presetWindow(preset: (typeof WINDOW_PRESETS)[number], today: string): { from: string; to: string } {
+  if (preset.days === 0) return { from: FLOOR_DATE, to: today };
+  const end = Date.parse(`${today}T00:00:00Z`);
+  const start = new Date(end - (preset.days - 1) * 86_400_000);
+  return { from: start.toISOString().slice(0, 10), to: today };
 }
 
 /**
@@ -284,7 +314,27 @@ export async function HealthAnalyticsPage({
     rangeEndHint: ha(pageContract, "filter.date.range_end_hint"),
     rangeSeparator: ha(pageContract, "filter.date.range_separator"),
   };
+  // THE FOUR BREAKDOWNS, rendered exactly as the backend ordered them. The page does no
+  // sorting, no capping and no relabelling of its own: the fixed pen-type and age spines carry
+  // meaning in their order (two sides that must not swap, bands that must stay youngest-first),
+  // and re-sorting them by size here would destroy it.
+  const problems = data.problems;
+  const toBars = (buckets: typeof problems.by_breed): SvgBarDatum[] =>
+    buckets.map((bucket) => ({ key: bucket.key, label: bucket.label, value: bucket.cases }));
+  const breedBars = toBars(problems.by_breed);
+  const penTypeBars = toBars(problems.by_pen_type);
+  const ageBars = toBars(problems.by_age);
+
   const fallback = defaultWindow();
+  const today = todayIso();
+  // Which chip reads as selected: the one whose dates ARE the served window. Derived from what
+  // the backend answered with, never from what the URL asked for, so a window the read clamped
+  // or defaulted can never leave a chip highlighted that does not describe the chart below it.
+  const selectedPreset =
+    WINDOW_PRESETS.find((preset) => {
+      const window = presetWindow(preset, today);
+      return window.from === data.window_from && window.to === data.window_to;
+    })?.key ?? "custom";
 
   const nothingRecorded =
     totals.open_cases === 0 &&
@@ -316,6 +366,29 @@ export async function HealthAnalyticsPage({
           today={todayIso()}
           defaultFrom={fallback.from}
           defaultTo={fallback.to}
+        />
+        <SegmentedLinks
+          ariaLabel={ha(pageContract, "filter.window.aria")}
+          current={selectedPreset}
+          options={[
+            ...WINDOW_PRESETS.map((preset) => {
+              const window = presetWindow(preset, today);
+              return {
+                value: preset.key,
+                label: ha(pageContract, `filter.window.${preset.key}`),
+                href: hrefWith(sp, { from: window.from, to: window.to }),
+              };
+            }),
+            // Custom is a STATE, never a destination: there is no window it could send the
+            // reader to that is not one of the four above. It appears selected when the served
+            // window matches none of them, and clicking it returns the default view rather
+            // than pretending to open a picker the calendar already is.
+            {
+              value: "custom",
+              label: ha(pageContract, "filter.window.custom"),
+              href: hrefWith(sp, { from: null, to: null }),
+            },
+          ]}
         />
         <span className="muted small ha-filter-hint">{ha(pageContract, "filter.scope_readonly")}</span>
       </div>
@@ -403,6 +476,85 @@ export async function HealthAnalyticsPage({
                 textScale={BAR_TEXT_SCALE}
                 valueNoun={casesNoun}
                 chartLabel={ha(pageContract, "chart.diseases.title")}
+                emptyLabel={emptyChart}
+              />
+            </ChartHover>
+          </section>
+        </>
+      ) : null}
+
+      {tab === "problems" ? (
+        <>
+          {/* THE HEADLINE THE FOUR CHARTS CUT. It is the backend's own `problems.total`, not a
+              sum of any chart's bars: the breed chart is capped at the busiest 15, so adding its
+              bars up would quietly report a smaller farm than the one above it. */}
+          <section className="grid g3 kpi-row" style={{ gap: 14 }} aria-label={ha(pageContract, "problems.total.label")}>
+            <Kpi
+              accent="var(--brand)"
+              label={ha(pageContract, "problems.total.label")}
+              value={nf(problems.total)}
+              sub={ha(pageContract, "problems.total.sub")}
+            />
+          </section>
+          <p className="muted small" style={{ margin: "0 0 4px" }}>
+            {ha(pageContract, "problems.note")}
+          </p>
+
+          <section className="card wchart" aria-label={ha(pageContract, "problems.chart.month.title")}>
+            <h2 className="h">{ha(pageContract, "problems.chart.month.title")}</h2>
+            <p className="muted small">{ha(pageContract, "problems.chart.month.hint")}</p>
+            <ChartHover>
+              <SeriesLines
+                series={newCaseSeries}
+                dayLabels={monthLabels}
+                valueNoun={casesNoun}
+                chartLabel={ha(pageContract, "problems.chart.month.title")}
+                emptyLabel={emptyChart}
+              />
+            </ChartHover>
+          </section>
+
+          <section className="card wchart" aria-label={ha(pageContract, "problems.chart.breed.title")}>
+            <h2 className="h">{ha(pageContract, "problems.chart.breed.title")}</h2>
+            <p className="muted small">{ha(pageContract, "problems.chart.breed.hint")}</p>
+            <ChartHover>
+              <SvgBars
+                data={breedBars}
+                maxBars={breedBars.length}
+                textScale={BAR_TEXT_SCALE}
+                valueNoun={casesNoun}
+                chartLabel={ha(pageContract, "problems.chart.breed.title")}
+                emptyLabel={emptyChart}
+              />
+            </ChartHover>
+            <p className="muted small">{ha(pageContract, "problems.capped_breeds")}</p>
+          </section>
+
+          <section className="card wchart" aria-label={ha(pageContract, "problems.chart.pen_type.title")}>
+            <h2 className="h">{ha(pageContract, "problems.chart.pen_type.title")}</h2>
+            <p className="muted small">{ha(pageContract, "problems.chart.pen_type.hint")}</p>
+            <ChartHover>
+              <SvgBars
+                data={penTypeBars}
+                maxBars={penTypeBars.length}
+                textScale={BAR_TEXT_SCALE}
+                valueNoun={casesNoun}
+                chartLabel={ha(pageContract, "problems.chart.pen_type.title")}
+                emptyLabel={emptyChart}
+              />
+            </ChartHover>
+          </section>
+
+          <section className="card wchart" aria-label={ha(pageContract, "problems.chart.age.title")}>
+            <h2 className="h">{ha(pageContract, "problems.chart.age.title")}</h2>
+            <p className="muted small">{ha(pageContract, "problems.chart.age.hint")}</p>
+            <ChartHover>
+              <SvgBars
+                data={ageBars}
+                maxBars={ageBars.length}
+                textScale={BAR_TEXT_SCALE}
+                valueNoun={casesNoun}
+                chartLabel={ha(pageContract, "problems.chart.age.title")}
                 emptyLabel={emptyChart}
               />
             </ChartHover>

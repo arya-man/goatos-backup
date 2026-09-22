@@ -257,13 +257,20 @@ var Registers = []Register{
 	{
 		Key: RegPens, Label: "Pens", One: "Pen", Group: GroupFarmPlaces,
 		Hint:    "A pen is a building in a park. Split it into partitions below when animals are kept apart inside it.",
-		Filters: []string{"park_id"},
+		Filters: []string{"park_id", "shed_type"},
 		Columns: []Column{
 			{Key: "park_id", Label: "Park", Type: TypeRef, Ref: RegParks, Required: true},
 			{Key: "name", Label: "Name", Type: TypeText, Required: true},
 			{Key: "capacity", Label: "Capacity", Type: TypeNumber, Min: zero(), Integer: true},
 			{Key: "stage_id", Label: "Stage", Type: TypeRef, Ref: RegStages, Hint: "The lifecycle stage the pen is kept for, when it has one."},
 			{Key: "sex", Label: "Gender", Type: TypeEnum, Options: []Option{{Value: "mixed", Label: "Mixed"}, {Value: "female", Label: "Female"}, {Value: "male", Label: "Male"}}},
+			// Pen type is set ONE PEN AT A TIME and nowhere else (maintainer instruction
+			// 2026-09-22): the farm mixes both kinds inside one park, so there is no park-wide
+			// or farm-wide switch. Leaving it unset is a real answer -- the pen is reported as
+			// unclassified rather than counted into either half of a comparison.
+			{Key: "shed_type", Label: "Pen type", Type: TypeEnum,
+				Options: []Option{{Value: "elevated", Label: "Elevated"}, {Value: "non_elevated", Label: "Non-elevated"}},
+				Hint:    "Elevated pens keep the animals off the ground. Weighing and Health Analytics compare the two kinds."},
 			{Key: "has_icu", Label: "ICU", Type: TypeBool},
 			{Key: "notes", Label: "Notes", Type: TypeNotes, ListHidden: true},
 		},

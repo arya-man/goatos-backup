@@ -5551,12 +5551,12 @@ func pageSpecificCopy(id string) map[string]string {
 
 			// Pen-wise. Exactly the comparison requested in the voice note: elevated pens
 			// against ground pens within every breed.
-			"section.shed.title":      "Elevated vs ground pens",
-			"section.shed.caption":    "Daily gain for each breed, split by physical pen type: elevated pen against ground pen. A pen without that profile is left out rather than guessed.",
-			"section.shed.aria":       "Daily gain by breed and pen type",
-			"empty.shed.body":         "No pen-type profile has daily gain in this period. Add elevated or ground pen profiles, then weigh twice.",
-			"view.shed_type.elevated": "Elevated pen",
-			"view.shed_type.ground":   "Ground pen",
+			"section.shed.title":          "Elevated vs ground pens",
+			"section.shed.caption":        "Daily gain for each breed, split by physical pen type: elevated pen against ground pen. A pen without that profile is left out rather than guessed.",
+			"section.shed.aria":           "Daily gain by breed and pen type",
+			"empty.shed.body":             "No pen-type profile has daily gain in this period. Add elevated or ground pen profiles, then weigh twice.",
+			"view.shed_type.elevated":     "Elevated pen",
+			"view.shed_type.non_elevated": "Non-elevated pen",
 			// The two bars come out of a classification the reader cannot see on the chart, so each
 			// legend entry carries an info affordance naming the pens behind it. Backend-owned
 			// copy, rendered verbatim -- the client composes no part of this sentence.
@@ -6212,11 +6212,44 @@ func pageSpecificCopy(id string) map[string]string {
 			"filter.scope_readonly":        "Park scope is set in the top bar.",
 
 			"tab.overview":   "Overview",
+			"tab.problems":   "Health problems",
 			"tab.diseases":   "Diseases",
 			"tab.mortality":  "Mortality",
 			"tab.treatment":  "Treatment",
 			"tab.engine":     "Diagnosis engine",
 			"tab.group.aria": "Health analytics sections",
+
+			// WINDOW PRESETS. The four the farm reads by (maintainer instruction 2026-09-22).
+			// "Since the reforms" opens on the first day the Health module recorded anything,
+			// so it is genuinely all-time for this data rather than an arbitrary long window
+			// padded with empty months.
+			"filter.window.aria":        "How far back to count health problems",
+			"filter.window.30":          "Last 30 days",
+			"filter.window.90":          "Last 90 days",
+			"filter.window.120":         "Last 120 days",
+			"filter.window.all":         "Since the reforms",
+			"filter.window.custom":      "Custom",
+			"filter.window.custom_hint": "Pick any two dates in the calendar beside these.",
+
+			"problems.total.label": "Health problems",
+			"problems.total.sub":   "Cases opened in this window, counted once per episode",
+			"problems.note": "One problem is one episode of one illness in one animal. An animal treated twice is " +
+				"counted twice, because a relapse is a problem the farm had twice. Every chart below cuts this same " +
+				"total, so each one adds back up to it.",
+			"problems.chart.month.title": "Health problems by month",
+			"problems.chart.month.hint": "One column per India calendar month, so a rise or fall is read against whole " +
+				"months. A window starting or ending mid-month leaves that column covering only the days inside it.",
+			"problems.chart.breed.title": "Health problems by breed",
+			"problems.chart.breed.hint": "Which breeds the farm is treating most. Read it against how many of each breed " +
+				"the farm keeps: a breed with twice the animals will show more problems without being less healthy.",
+			"problems.chart.pen_type.title": "Health problems by pen type",
+			"problems.chart.pen_type.hint": "Elevated pens against non-elevated ones. A pen's type is set on its own row " +
+				"in Configuration, Items and settings, Pens; problems in a pen nobody has typed are shown separately " +
+				"rather than counted into either side.",
+			"problems.chart.age.title": "Health problems by age",
+			"problems.chart.age.hint": "How old each animal was when the case was opened, not how old it is today. " +
+				"Animals with no date of birth on record are shown in their own band.",
+			"problems.capped_breeds": "Busiest 15 breeds",
 
 			"kpi.open.label":         "Open cases now",
 			"kpi.open.sub":           "Being treated today, not a window figure",

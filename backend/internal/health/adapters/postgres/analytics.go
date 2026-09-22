@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -484,6 +485,75 @@ ORDER BY d.business_date DESC, d.goat_id
 `
 
 // GetHealthAnalytics serves the Health -> Health Analytics page.
+// healthAnalyticsProblemsSQL is the Health problems section: every case opened
+// in the window, cut three ways at once -- by breed, by pen type and by the
+// animal's age when the case was opened. The fourth cut, by month, is already
+// healthAnalyticsMonthsSQL and is not recomputed here.
+//
+// ONE QUERY FOR THREE BREAKDOWNS, on purpose: they must agree with each other
+// and with the headline, and three separate queries could not be made to. The
+// three are stacked with UNION ALL over the SAME scoped CTE and told apart by a
+// `dimension` column, so the client receives one row set and the totals of the
+// three groups are arithmetically identical by construction.
+//
+// projection-review: membership=health_cases opened inside the window for the tenant, optionally narrowed to one park -- the identical predicate healthAnalyticsCaseTotalsSQL counts as new_cases; group_key=(dimension, bucket key) where the key is the breed, the pen type or the age band of the case's OWN row; join_cardinality=goats is joined on (tenant_id, goat_id) which is its primary key so 1:1, and shed_profiles on (tenant_id, location_id) which is unique per pen so 1:{0,1} -- neither can multiply a case; pagination=none, the breed arm is capped in Go after the whole window is aggregated so the cap never changes the total; scope=tenant_id plus one optional park equality predicate inside scoped, applied once and inherited by all three arms.
+//
+// Expanded rationale:
+//
+//	producer key = health_cases (tenant_id, health_case_id). One row per episode.
+//	ratio keys   = all three arms range over the IDENTICAL scoped set, so each
+//	               sums to the same total, and that total equals Totals.NewCases
+//	               because scoped repeats that query's predicate exactly. Pinned
+//	               by TestHealthProblemBreakdownsEachSumToTheTotal.
+//	unknowns     = a case whose animal has no breed, whose pen is untyped, or
+//	               whose animal has no date of birth is BUCKETED, never dropped:
+//	               COALESCE to an explicit key on every arm. A dropped row would
+//	               make a breakdown answer a smaller question than its headline.
+//	pen type     = the pen's own configured shed_profiles.shed_type, falling
+//	               back to its parent pen's for a partition that has not been
+//	               typed itself -- the same resolution the weighing comparison
+//	               uses, and never a guess from the pen's name.
+//	age          = COALESCE(dob, approx_dob) to the case's START date, so it is
+//	               how old the animal was when it fell ill. approx_dob is an
+//	               estimate and is used because the alternative is throwing a
+//	               real case into "not recorded" over a birthday nobody wrote
+//	               down; the bands are months wide, which an estimate carries.
+const healthAnalyticsProblemsSQL = `
+WITH bounds AS (
+  SELECT $2::date AS from_date, $3::date AS to_date
+),
+scoped AS (
+  SELECT hc.health_case_id,
+         COALESCE(NULLIF(btrim(g.breed), ''), 'unknown') AS breed,
+         COALESCE(sp.shed_type, parent_sp.shed_type, 'unclassified') AS pen_type,
+         CASE
+           WHEN COALESCE(g.dob, g.approx_dob) IS NULL THEN 'unknown'
+           WHEN hc.start_date - COALESCE(g.dob, g.approx_dob) < 0 THEN 'unknown'
+           WHEN hc.start_date - COALESCE(g.dob, g.approx_dob) <= 7 THEN 'd0_7'
+           WHEN hc.start_date - COALESCE(g.dob, g.approx_dob) <= 30 THEN 'd8_30'
+           WHEN hc.start_date - COALESCE(g.dob, g.approx_dob) <= 90 THEN 'd31_90'
+           WHEN hc.start_date - COALESCE(g.dob, g.approx_dob) <= 180 THEN 'd91_180'
+           WHEN hc.start_date - COALESCE(g.dob, g.approx_dob) <= 365 THEN 'd181_365'
+           ELSE 'over_1y'
+         END AS age_band
+  FROM health_cases hc
+  JOIN goats g ON g.tenant_id = hc.tenant_id AND g.goat_id = hc.goat_id
+  LEFT JOIN locations pen ON pen.tenant_id = hc.tenant_id AND pen.location_id = hc.shed_id
+  LEFT JOIN shed_profiles sp ON sp.tenant_id = hc.tenant_id AND sp.location_id = hc.shed_id
+  LEFT JOIN shed_profiles parent_sp
+    ON parent_sp.tenant_id = hc.tenant_id AND parent_sp.location_id = pen.parent_location_id
+  CROSS JOIN bounds b
+  WHERE hc.tenant_id = $1::uuid
+    AND ($4 = '' OR hc.park_id = NULLIF($4, '')::uuid)
+    AND hc.start_date BETWEEN b.from_date AND b.to_date
+)
+SELECT 'breed' AS dimension, breed AS bucket, count(*)::bigint FROM scoped GROUP BY breed
+UNION ALL
+SELECT 'pen_type', pen_type, count(*)::bigint FROM scoped GROUP BY pen_type
+UNION ALL
+SELECT 'age', age_band, count(*)::bigint FROM scoped GROUP BY age_band
+`
+
 func (r *Repository) GetHealthAnalytics(ctx context.Context, req domain.HealthAnalyticsQuery) (domain.HealthAnalytics, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
@@ -519,6 +589,11 @@ func (r *Repository) GetHealthAnalytics(ctx context.Context, req domain.HealthAn
 		GeneratedAt: r.now().In(biztime.DefaultLocation()),
 	}
 	out.Engine.Rules = []domain.HealthAnalyticsEngineRule{}
+	out.Problems = domain.HealthAnalyticsProblems{
+		ByBreed:   []domain.HealthAnalyticsProblemBucket{},
+		ByPenType: []domain.HealthAnalyticsProblemBucket{},
+		ByAge:     []domain.HealthAnalyticsProblemBucket{},
+	}
 
 	batch := &pgx.Batch{}
 	batch.Queue(healthAnalyticsCaseTotalsSQL, req.TenantID, from, to, parkID)
@@ -530,6 +605,7 @@ func (r *Repository) GetHealthAnalytics(ctx context.Context, req domain.HealthAn
 	batch.Queue(healthAnalyticsEngineRulesSQL, req.TenantID, from, to, parkID, domain.HealthAnalyticsEngineRuleLimit)
 	batch.Queue(healthAnalyticsDeathsSQL, req.TenantID, from, to, parkID, domain.HealthAnalyticsDeathListLimit)
 	batch.Queue(healthAnalyticsNeverDiagnosedSQL, req.TenantID, from, to, parkID)
+	batch.Queue(healthAnalyticsProblemsSQL, req.TenantID, from, to, parkID)
 
 	results := r.pool.SendBatch(ctx, batch)
 
@@ -553,8 +629,10 @@ func (r *Repository) GetHealthAnalytics(ctx context.Context, req domain.HealthAn
 	return out, nil
 }
 
-// scanHealthAnalyticsBatch reads the eight queued results in order and returns
-// the distinct shed ids the death list needs pen names for.
+// scanHealthAnalyticsBatch reads the queued results IN THE ORDER THEY WERE QUEUED and returns
+// the distinct shed ids the death list needs pen names for. A new query is appended at the end
+// of both lists rather than inserted, because pgx hands results back positionally and an
+// insertion in one place silently shifts every scan after it onto the wrong result set.
 func (r *Repository) scanHealthAnalyticsBatch(results pgx.BatchResults, out *domain.HealthAnalytics) ([]string, error) {
 	if err := results.QueryRow().Scan(
 		&out.Totals.OpenCases,
@@ -763,7 +841,96 @@ func (r *Repository) scanHealthAnalyticsBatch(results pgx.BatchResults, out *dom
 		return nil, fmt.Errorf("health analytics: never-diagnosed deaths: %w", err)
 	}
 
+	// HEALTH PROBLEMS -- three breakdowns arrive as one row set, told apart by the
+	// dimension column, and are ordered here rather than in SQL because two of the
+	// three spines are FIXED (pen type, age) and one is by size (breed).
+	problemRows, err := results.Query()
+	if err != nil {
+		return nil, fmt.Errorf("health analytics: problems query: %w", err)
+	}
+	byBreed := map[string]int64{}
+	byPenType := map[string]int64{}
+	byAge := map[string]int64{}
+	for problemRows.Next() {
+		var dimension, bucket string
+		var cases int64
+		if err := problemRows.Scan(&dimension, &bucket, &cases); err != nil {
+			problemRows.Close()
+			return nil, fmt.Errorf("health analytics: problems scan: %w", err)
+		}
+		switch dimension {
+		case "breed":
+			byBreed[bucket] += cases
+		case "pen_type":
+			byPenType[bucket] += cases
+		case "age":
+			byAge[bucket] += cases
+		}
+	}
+	problemRows.Close()
+	if err := problemRows.Err(); err != nil {
+		return nil, fmt.Errorf("health analytics: problems rows: %w", err)
+	}
+	out.Problems = buildHealthProblems(byBreed, byPenType, byAge)
+
 	return shedIDs, nil
+}
+
+// buildHealthProblems orders the three breakdowns and takes the section's total from the
+// PEN-TYPE arm, which is complete by construction: every case has exactly one pen-type
+// bucket including the unclassified one, so summing it cannot under-count the way summing
+// a CAPPED list would.
+//
+// The BREED arm is the only one capped, and it is capped AFTER the total is taken. A farm
+// with more breeds than the cap sees the busiest ones; the page's own copy says so, and the
+// headline stays the whole window's count rather than the sum of the bars under it.
+func buildHealthProblems(byBreed, byPenType, byAge map[string]int64) domain.HealthAnalyticsProblems {
+	out := domain.HealthAnalyticsProblems{
+		ByBreed:   []domain.HealthAnalyticsProblemBucket{},
+		ByPenType: []domain.HealthAnalyticsProblemBucket{},
+		ByAge:     []domain.HealthAnalyticsProblemBucket{},
+	}
+
+	// Pen type: the fixed three-bar spine, always all three, so a side with no cases
+	// reads as a zero rather than disappearing and making the chart look like one kind
+	// of pen is all the farm has.
+	for _, key := range domain.HealthPenTypeOrder {
+		count := byPenType[key]
+		out.Total += count
+		out.ByPenType = append(out.ByPenType, domain.HealthAnalyticsProblemBucket{
+			Key: key, Label: domain.HealthPenTypeLabel(key), Cases: count,
+		})
+	}
+
+	// Age: the fixed band spine, youngest first, unknown last. A band with no cases is
+	// kept for the same reason -- the gap between bands is the shape being read.
+	for _, key := range domain.HealthProblemAgeBandOrder {
+		out.ByAge = append(out.ByAge, domain.HealthAnalyticsProblemBucket{
+			Key: key, Label: domain.HealthProblemAgeBandLabel(key), Cases: byAge[key],
+		})
+	}
+
+	// Breed: by size, then by label so two breeds on the same count keep a stable order
+	// between requests. "Breed not recorded" sorts with the rest rather than being pinned
+	// last: if it is the biggest bar, that IS the finding.
+	for key, count := range byBreed {
+		label := key
+		if key == domain.HealthProblemBreedUnknown {
+			label = domain.HealthProblemBreedUnknownLabel
+		}
+		out.ByBreed = append(out.ByBreed, domain.HealthAnalyticsProblemBucket{Key: key, Label: label, Cases: count})
+	}
+	sort.Slice(out.ByBreed, func(i, j int) bool {
+		if out.ByBreed[i].Cases != out.ByBreed[j].Cases {
+			return out.ByBreed[i].Cases > out.ByBreed[j].Cases
+		}
+		return out.ByBreed[i].Label < out.ByBreed[j].Label
+	})
+	if len(out.ByBreed) > domain.HealthAnalyticsBreedLimit {
+		out.ByBreed = out.ByBreed[:domain.HealthAnalyticsBreedLimit]
+	}
+
+	return out
 }
 
 // healthAnalyticsNeverDiagnosedSQL counts, over the WHOLE window, the deaths of

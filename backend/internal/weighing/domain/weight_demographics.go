@@ -106,9 +106,12 @@ type WeightGainOriginBucket struct {
 
 // WeightGainShedTypeBucket is one breed's daily gain for one physical shed class.
 //
-// The farm wants this as Elevated shed versus Crown/Ground shed. Unlike the per-shed
-// leaderboard, this is not a list of pens: it is an aggregate by breed and shed class. The
-// class must come from explicit shed metadata; an unclassified shed is not guessed from its name.
+// The farm wants this as ELEVATED pen versus NON-ELEVATED pen. Unlike the per-shed
+// leaderboard, this is not a list of pens: it is an aggregate by breed and pen class.
+//
+// The class is CONFIGURED per pen on Configuration -> Items and settings -> Pens and is read
+// from shed_profiles.shed_type. It is never guessed from the pen's name or notes: a pen nobody
+// has typed is unclassified, is absent from both bars, and is never folded into one of them.
 type WeightGainShedTypeBucket struct {
 	Label              string  `json:"label"`
 	ShedType           string  `json:"shed_type"`
@@ -119,9 +122,8 @@ type WeightGainShedTypeBucket struct {
 // ShedTypeMember is one operational shed (pen) behind ONE BAR of the Shed-wise comparison, named
 // so a reader can see which sheds that bar actually counted.
 //
-// The classification is read from shed metadata and, for the sheds the farm named in review, from
-// the shed's own name -- neither of which is visible on the chart, so the two bars ask the reader
-// to trust a rule they cannot see. This is that rule, enumerated.
+// The classification is configured per pen and is not visible on the chart itself, so the two
+// bars ask the reader to trust a setting they cannot see. This is that setting, enumerated.
 //
 // It lists the sheds that CONTRIBUTED, not every shed carrying the profile: a classified pen that
 // was weighed once, or whose cohort is too mixed to claim for a breed, is absent from the bars and
@@ -133,7 +135,7 @@ type ShedTypeMember struct {
 	// naming every elevated pen beside one breed's elevated bar would name mostly other breeds'
 	// pens.
 	Label string `json:"label"`
-	// ShedType is the stable key the bars are grouped by: "elevated" or "ground". Never copy.
+	// ShedType is the stable key the bars are grouped by: "elevated" or "non_elevated". Never copy.
 	ShedType string `json:"shed_type"`
 	// LocationID and PartitionLabel are the weighing bucket's own grain, carried so a client can
 	// key on identity rather than on the composed name.

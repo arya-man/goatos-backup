@@ -1000,23 +1000,19 @@ lump_composition AS (
   GROUP BY l.location_id, l.partition_label
 ),
 shed_type AS (
+  -- CONFIGURED, NEVER GUESSED (maintainer instruction 2026-09-22). The pen's own
+  -- shed_profiles.shed_type, set on Configuration -> Items and settings -> Pens, and the
+  -- parent pen's only when a partition has not been typed itself.
+  --
+  -- This replaced an in-query inference that read the words elevated / crown / ground out of
+  -- free-text notes and then fell back to a hardcoded list of pen names. Migration 000385 wrote
+  -- that inference's answers into the column once, so no chart moved, and the guess is not kept
+  -- as a fallback on purpose: a pen the farm deliberately CLEARS must go back to unclassified,
+  -- and a fallback would quietly re-assert the old answer and make the screen look broken.
+  --
+  -- NULL stays NULL and every consumer drops it: an untyped pen is never counted into a side.
   SELECT DISTINCT src.location_id, src.partition_label,
-         CASE
-           WHEN lower(coalesce(loc.operational_notes, '') || ' ' || coalesce(parent_loc.operational_notes, '') || ' ' ||
-                      coalesce(sp.notes, '') || ' ' || coalesce(sp.context::text, '') || ' ' ||
-                      coalesce(parent_sp.notes, '') || ' ' || coalesce(parent_sp.context::text, '')) ~ '\m(elevated|elevate)\M'
-             THEN 'elevated'
-           WHEN lower(coalesce(loc.operational_notes, '') || ' ' || coalesce(parent_loc.operational_notes, '') || ' ' ||
-                      coalesce(sp.notes, '') || ' ' || coalesce(sp.context::text, '') || ' ' ||
-                      coalesce(parent_sp.notes, '') || ' ' || coalesce(parent_sp.context::text, '')) ~ '\m(crown|crowned|ground)\M'
-             THEN 'ground'
-           WHEN lower(loc.name) ~ '\m(gandhi|castro|ho chi minh|old yashoda|yashoda old)\M'
-             OR lower(coalesce(parent_loc.name, '')) ~ '\m(gandhi|castro|ho chi minh|old yashoda|yashoda old)\M'
-             THEN 'ground'
-           WHEN lower(loc.name) ~ '\m(mandela|godel|sumathi|new yashoda|yashoda new|yashoda)\M'
-             OR lower(coalesce(parent_loc.name, '')) ~ '\m(mandela|godel|sumathi|new yashoda|yashoda new|yashoda)\M'
-             THEN 'elevated'
-         END AS shed_type
+         COALESCE(sp.shed_type, parent_sp.shed_type) AS shed_type
   FROM shed_targets src
   JOIN locations loc ON loc.location_id = src.location_id AND loc.tenant_id = $1::uuid
   LEFT JOIN locations parent_loc ON parent_loc.location_id = src.resolved_id AND parent_loc.tenant_id = $1::uuid
@@ -1707,23 +1703,19 @@ pen_week AS (
   ) ranked WHERE rn = 1
 ),
 shed_type AS (
+  -- CONFIGURED, NEVER GUESSED (maintainer instruction 2026-09-22). The pen's own
+  -- shed_profiles.shed_type, set on Configuration -> Items and settings -> Pens, and the
+  -- parent pen's only when a partition has not been typed itself.
+  --
+  -- This replaced an in-query inference that read the words elevated / crown / ground out of
+  -- free-text notes and then fell back to a hardcoded list of pen names. Migration 000385 wrote
+  -- that inference's answers into the column once, so no chart moved, and the guess is not kept
+  -- as a fallback on purpose: a pen the farm deliberately CLEARS must go back to unclassified,
+  -- and a fallback would quietly re-assert the old answer and make the screen look broken.
+  --
+  -- NULL stays NULL and every consumer drops it: an untyped pen is never counted into a side.
   SELECT DISTINCT src.location_id, src.partition_label,
-         CASE
-           WHEN lower(coalesce(loc.operational_notes, '') || ' ' || coalesce(parent_loc.operational_notes, '') || ' ' ||
-                      coalesce(sp.notes, '') || ' ' || coalesce(sp.context::text, '') || ' ' ||
-                      coalesce(parent_sp.notes, '') || ' ' || coalesce(parent_sp.context::text, '')) ~ '\m(elevated|elevate)\M'
-             THEN 'elevated'
-           WHEN lower(coalesce(loc.operational_notes, '') || ' ' || coalesce(parent_loc.operational_notes, '') || ' ' ||
-                      coalesce(sp.notes, '') || ' ' || coalesce(sp.context::text, '') || ' ' ||
-                      coalesce(parent_sp.notes, '') || ' ' || coalesce(parent_sp.context::text, '')) ~ '\m(crown|crowned|ground)\M'
-             THEN 'ground'
-           WHEN lower(loc.name) ~ '\m(gandhi|castro|ho chi minh|old yashoda|yashoda old)\M'
-             OR lower(coalesce(parent_loc.name, '')) ~ '\m(gandhi|castro|ho chi minh|old yashoda|yashoda old)\M'
-             THEN 'ground'
-           WHEN lower(loc.name) ~ '\m(mandela|godel|sumathi|new yashoda|yashoda new|yashoda)\M'
-             OR lower(coalesce(parent_loc.name, '')) ~ '\m(mandela|godel|sumathi|new yashoda|yashoda new|yashoda)\M'
-             THEN 'elevated'
-         END AS shed_type
+         COALESCE(sp.shed_type, parent_sp.shed_type) AS shed_type
   FROM shed_targets src
   JOIN locations loc ON loc.location_id = src.location_id AND loc.tenant_id = $1::uuid
   LEFT JOIN locations parent_loc ON parent_loc.location_id = src.resolved_id AND parent_loc.tenant_id = $1::uuid
@@ -2077,7 +2069,7 @@ func decodeWeightGainShedTypeBuckets(raw []byte) ([]domain.WeightGainShedTypeBuc
 		if json.Unmarshal(row[0], &label) != nil || label == "" {
 			continue
 		}
-		if json.Unmarshal(row[1], &shedType) != nil || (shedType != "elevated" && shedType != "ground") {
+		if json.Unmarshal(row[1], &shedType) != nil || (shedType != "elevated" && shedType != "non_elevated") {
 			continue
 		}
 		if json.Unmarshal(row[2], &animals) != nil || json.Unmarshal(row[3], &gain) != nil {
@@ -2126,7 +2118,7 @@ func decodeShedTypeMembers(raw []byte) ([]domain.ShedTypeMember, error) {
 		if json.Unmarshal(row[0], &label) != nil || label == "" {
 			continue
 		}
-		if json.Unmarshal(row[1], &shedType) != nil || (shedType != "elevated" && shedType != "ground") {
+		if json.Unmarshal(row[1], &shedType) != nil || (shedType != "elevated" && shedType != "non_elevated") {
 			continue
 		}
 		if json.Unmarshal(row[2], &locationID) != nil || locationID == "" {

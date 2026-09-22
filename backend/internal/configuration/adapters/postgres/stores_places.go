@@ -121,7 +121,8 @@ SELECT l.location_id::text AS id,
        l.row_version,
        false AS is_builtin,
        jsonb_build_object('park_id', l.parent_location_id::text, 'name', l.name, 'capacity', sp.capacity,
-                          'stage_id', sp.animal_stage_id::text, 'sex', sp.sex, 'has_icu', COALESCE(sp.has_icu, false), 'notes', NULLIF(sp.notes, '')) AS fields,
+                          'stage_id', sp.animal_stage_id::text, 'sex', sp.sex, 'shed_type', sp.shed_type,
+                          'has_icu', COALESCE(sp.has_icu, false), 'notes', NULLIF(sp.notes, '')) AS fields,
        jsonb_strip_nulls(jsonb_build_object('park_id', p.name, 'stage_id', st.name)) AS labels,
        jsonb_build_object(
          'partitions', (SELECT count(*) FROM shed_partitions x WHERE x.tenant_id = l.tenant_id AND x.shed_id = l.location_id AND x.status = 'active'),
@@ -179,7 +180,8 @@ func (penStore) insert(ctx context.Context, tx pgx.Tx, t string, f map[string]an
 		return "", locationWriteError(err, "pen")
 	}
 	if _, err := tx.Exec(ctx, sqlPlaces7,
-		id, t, nullText(f, "stage_id"), nullText(f, "sex"), nullInt(f, "capacity"), domain.FieldBool(f, "has_icu"), nullText(f, "notes")); err != nil {
+		id, t, nullText(f, "stage_id"), nullText(f, "sex"), nullInt(f, "capacity"), domain.FieldBool(f, "has_icu"), nullText(f, "notes"),
+		nullText(f, "shed_type")); err != nil {
 		return "", err
 	}
 	return id, nil
@@ -239,6 +241,9 @@ func (penStore) update(ctx context.Context, tx pgx.Tx, t, id string, f map[strin
 	set, args := setClause(f, []colBind{
 		{"stage_id", "animal_stage_id", func(m map[string]any) any { return nullText(m, "stage_id") }},
 		{"sex", "sex", textArg("sex")},
+		// A cleared Pen type writes NULL, which is "nobody has said": the reports drop the pen
+		// from both sides rather than keeping the answer it used to give.
+		{"shed_type", "shed_type", func(m map[string]any) any { return nullText(m, "shed_type") }},
 		{"capacity", "capacity", intArg("capacity")},
 		{"has_icu", "has_icu", boolArg("has_icu")},
 		{"notes", "notes", textOrEmpty("notes")},
@@ -556,8 +561,8 @@ INSERT INTO locations (tenant_id, location_type, location_code, name, parent_loc
 VALUES ($1, 'shed', $2, $3, $4::uuid, 'active')
 RETURNING location_id::text`
 	sqlPlaces7 = `
-INSERT INTO shed_profiles (location_id, tenant_id, animal_stage_id, sex, capacity, has_icu, notes)
-VALUES ($1::uuid, $2, $3::uuid, $4, $5, $6, COALESCE($7, ''))`
+INSERT INTO shed_profiles (location_id, tenant_id, animal_stage_id, sex, capacity, has_icu, notes, shed_type)
+VALUES ($1::uuid, $2, $3::uuid, $4, $5, $6, COALESCE($7, ''), $8)`
 	sqlPlaces8 = `
 SELECT count(*) FROM goat_shed_partitions gp
 JOIN goats g ON g.tenant_id = gp.tenant_id AND g.goat_id = gp.goat_id

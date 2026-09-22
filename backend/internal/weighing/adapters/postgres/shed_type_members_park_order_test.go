@@ -17,8 +17,8 @@ func TestDecodeShedTypeMembersKeepsTheServedParkOrderNotTheNameOrder(t *testing.
 	  ["Beetal","elevated","aaaaaaaa-0000-4000-8000-000000000001",null,"Godel 2","p-cbe","Coimbatore"],
 	  ["Beetal","elevated","aaaaaaaa-0000-4000-8000-000000000002",null,"Yashoda","p-cbe","Coimbatore"],
 	  ["Beetal","elevated","aaaaaaaa-0000-4000-8000-000000000003",null,"Castro","p-cpt","Channapatna"],
-	  ["Beetal","ground","aaaaaaaa-0000-4000-8000-000000000004",null,"Castro","p-cbe","Coimbatore"],
-	  ["Beetal","ground","aaaaaaaa-0000-4000-8000-000000000005",null,"Gandhi","p-cpt","Channapatna"]
+	  ["Beetal","non_elevated","aaaaaaaa-0000-4000-8000-000000000004",null,"Castro","p-cbe","Coimbatore"],
+	  ["Beetal","non_elevated","aaaaaaaa-0000-4000-8000-000000000005",null,"Gandhi","p-cpt","Channapatna"]
 	]`)
 	got, err := decodeShedTypeMembers(raw)
 	if err != nil {
@@ -48,14 +48,14 @@ func parkNames(members []domain.ShedTypeMember) []string {
 func TestDecodeShedTypeMembersParkOrderIsScopedToEachGroup(t *testing.T) {
 	for _, tc := range []struct{ name, firstLabel, firstType string }{
 		{"different shed type", "Beetal", "elevated"},
-		{"different breed", "Barbari", "ground"},
+		{"different breed", "Barbari", "non_elevated"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			raw, err := json.Marshal([][]any{
 				{tc.firstLabel, tc.firstType, "shed1", nil, "Castro", "cpt", "Channapatna"},
-				{"Beetal", "ground", "shed2", nil, "Yashoda 10", "cbe", "Coimbatore"},
-				{"Beetal", "ground", "shed3", nil, "Yashoda 2", "cbe", "Coimbatore"},
-				{"Beetal", "ground", "shed4", nil, "Gandhi", "cpt", "Channapatna"},
+				{"Beetal", "non_elevated", "shed2", nil, "Yashoda 10", "cbe", "Coimbatore"},
+				{"Beetal", "non_elevated", "shed3", nil, "Yashoda 2", "cbe", "Coimbatore"},
+				{"Beetal", "non_elevated", "shed4", nil, "Gandhi", "cpt", "Channapatna"},
 			})
 			if err != nil {
 				t.Fatal(err)

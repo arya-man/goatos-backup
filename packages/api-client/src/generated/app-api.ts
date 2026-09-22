@@ -7497,6 +7497,29 @@ export interface components {
              */
             days_under_treatment: number | null;
         };
+        /** @description One bar of one health-problem breakdown. GRAIN IS THE CASE -- one episode of one illness in one animal, the same grain as totals.new_cases -- so an animal treated twice is two problems, because a relapse is a problem the farm had twice. */
+        HealthAnalyticsProblemBucket: {
+            /** @description The stable machine key to group and colour on. Never rendered as copy. */
+            key: string;
+            /** @description The farm-readable name, composed server-side. Render verbatim. */
+            label: string;
+            /** Format: int64 */
+            cases: number;
+        };
+        /** @description The number of health problems opened in the window and that same total cut four ways. EVERY BREAKDOWN SUMS TO `total`: each carries an explicit bucket for the rows whose dimension is not known -- a breed nobody recorded, a pen nobody has typed, an animal with no date of birth -- because dropping them would leave four charts each quietly answering a smaller question than the headline above them. The fourth cut, by month, is `months` and is not repeated here so the two cannot disagree. */
+        HealthAnalyticsProblems: {
+            /**
+             * Format: int64
+             * @description Every case opened in the window; the same number as `totals.new_cases`, from the same predicate over the same rows.
+             */
+            total: number;
+            /** @description Most problems first, then by label. Capped at the busiest 15 breeds, AFTER `total` is taken, so the cap never moves the headline. */
+            by_breed: components["schemas"]["HealthAnalyticsProblemBucket"][];
+            /** @description Always exactly three buckets in a FIXED order -- elevated, non-elevated, pen type not set -- so the two sides never swap places between windows and an empty side reads as a zero rather than vanishing. The class is configured per pen on Configuration -> Items and settings -> Pens, never guessed from the pen's name. */
+            by_pen_type: components["schemas"]["HealthAnalyticsProblemBucket"][];
+            /** @description The animal's age WHEN THE CASE WAS OPENED, in the same bands the mortality board uses, youngest first and "Age not recorded" last. Always the full spine, including empty bands, because the gap between bands is the shape being read. */
+            by_age: components["schemas"]["HealthAnalyticsProblemBucket"][];
+        };
         HealthAnalyticsResponse: {
             /** Format: date */
             window_from: string;
@@ -7510,6 +7533,7 @@ export interface components {
             /** @description Top 15 medicines by doses given. */
             medicines: components["schemas"]["HealthAnalyticsMedicine"][];
             engine: components["schemas"]["HealthAnalyticsEngine"];
+            problems: components["schemas"]["HealthAnalyticsProblems"];
             /** @description The latest 50 deaths in the window, most recent first. A BOUNDED evidence list beside the counts; `totals` covers the whole window and does not move with it. */
             deaths: components["schemas"]["HealthAnalyticsDeath"][];
             /** Format: date-time */
@@ -16540,23 +16564,23 @@ export interface components {
              */
             median_gain_g_per_day: number;
         };
-        /** @description One breed's daily gain for ONE physical shed type, for the Shed-wise comparison Manju asked for. It compares elevated sheds against ground sheds; unclassified sheds are omitted rather than guessed from the pen name. */
+        /** @description One breed's daily gain for ONE physical pen type, for the Pen-wise comparison Manju asked for. It compares elevated pens against non-elevated pens. The class is CONFIGURED per pen on Configuration -> Items and settings -> Pens; a pen nobody has typed is omitted from both sides rather than guessed from its name. */
         WeighingWeightGainShedTypeBucket: {
             /** @description The breed */
             label: string;
             /** @enum {string} */
-            shed_type: "elevated" | "ground";
+            shed_type: "elevated" | "non_elevated";
             /** @description Kids with computable gain in this breed and shed type, including whole-shed pen head counts when the pen is single-breed. */
             animals: number;
             /** Format: double */
             average_gain_g_per_day: number;
         };
-        /** @description One operational shed (pen) behind ONE BAR of the Shed-wise comparison, listed so a reader can see which sheds that bar actually counted. Grain is per breed AND class, not per class: a pen holds one breed, so naming every elevated pen beside one breed's elevated bar would name mostly other breeds' pens. The classification is read from shed metadata and, for the sheds named in review, from the shed's own name -- neither visible on the chart, so the rule is enumerated beside it. Only CONTRIBUTING sheds appear: a classified pen weighed once, or whose cohort is too mixed to claim for a breed, is absent here for the same reason it is absent from the bars. Ordered by breed, then class, then park, then shed name in NATURAL order ("Part 2" before "Part 7", "Yashoda 2" before "Yashoda 10"). */
+        /** @description One operational shed (pen) behind ONE BAR of the Shed-wise comparison, listed so a reader can see which sheds that bar actually counted. Grain is per breed AND class, not per class: a pen holds one breed, so naming every elevated pen beside one breed's elevated bar would name mostly other breeds' pens. The classification is configured per pen and is not visible on the chart, so the pens behind each bar are enumerated beside it. Only CONTRIBUTING sheds appear: a classified pen weighed once, or whose cohort is too mixed to claim for a breed, is absent here for the same reason it is absent from the bars. Ordered by breed, then class, then park, then shed name in NATURAL order ("Part 2" before "Part 7", "Yashoda 2" before "Yashoda 10"). */
         WeighingShedTypeMember: {
             /** @description The breed whose bar this pen sits behind; matches WeighingWeightGainShedTypeBucket.label. */
             label: string;
             /** @enum {string} */
-            shed_type: "elevated" | "ground";
+            shed_type: "elevated" | "non_elevated";
             /** Format: uuid */
             location_id: string;
             /** @description Empty for an undivided shed. */
@@ -16681,7 +16705,7 @@ export interface components {
             gain_by_stage: components["schemas"]["WeighingWeightGainBucket"][];
             /** @description Daily gain per breed split by farm born vs purchased. The two sides need not add up to gain_by_breed -- an animal whose load is not recorded is claimed by neither. */
             gain_by_breed_origin: components["schemas"]["WeighingWeightGainOriginBucket"][];
-            /** @description Daily gain per breed split by elevated vs ground shed type. Unclassified sheds are omitted rather than guessed. */
+            /** @description Daily gain per breed split by elevated vs non-elevated pen type, as configured per pen. Unclassified pens are omitted rather than guessed. */
             gain_by_breed_shed_type: components["schemas"]["WeighingWeightGainShedTypeBucket"][];
             /** @description Which sheds each BAR counted, so the classification behind it is inspectable. Ordered by breed, then class, then park, then shed name in natural order. */
             shed_type_members: components["schemas"]["WeighingShedTypeMember"][];
