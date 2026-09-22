@@ -704,6 +704,98 @@ func TestReconcileLeavesInFlightWorkOnItsDateButStillClaimsIt(t *testing.T) {
 	}
 }
 
+// Scheduled work already attached to a drive assignment is also in the operator board's hands.
+// Rule-identity reconcile can refresh the row's address, but it must not move the date/window and
+// silently contradict a manual drive date.
+func TestReconcileLeavesAssignedDriveWorkOnItsDateButStillClaimsIt(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo, v1, v2, before := seedCarryOverFixture(t, ctx, pool, fiveVaccines())
+	identity := "3:fmd|11:fmd_primary|1:1"
+	original := before["fmd_primary"]
+	if _, err := pool.Exec(ctx,
+		`UPDATE obligation_instances SET rule_identity_key = $3 WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`,
+		tenantID, original.id, identity); err != nil {
+		t.Fatalf("stamp: %v", err)
+	}
+	var v2Rule string
+	if err := pool.QueryRow(ctx,
+		`SELECT rule_id::text FROM protocol_rules WHERE tenant_id = $1::uuid AND protocol_version_id = $2::uuid AND dose_code = 'fmd_primary'`,
+		tenantID, v2).Scan(&v2Rule); err != nil {
+		t.Fatalf("find rule: %v", err)
+	}
+
+	const shedID = "10000000-0000-4000-8000-0000000000e1"
+	seedDriveMembershipLocations(t, ctx, pool, cbePark, shedID)
+	batchID := seedDriveMembershipBatch(t, ctx, pool, v1, cbePark, original.dueAt)
+	var assignmentID string
+	if err := pool.QueryRow(ctx, `
+INSERT INTO vaccination_drive_assignments (
+  tenant_id, batch_id, planned_date, park_id, shed_id, physical_shed,
+  partition_label, animal_count, vaccine_rule_ids, total_doses
+)
+VALUES ($1::uuid, $2::uuid, $3::date, $4::uuid, $5::uuid, 'Yashoda 3',
+        'Part 3', 1, ARRAY[$6::uuid], 1)
+RETURNING assignment_id::text`,
+		tenantID, batchID, original.dueAt, cbePark, shedID, original.ruleID).Scan(&assignmentID); err != nil {
+		t.Fatalf("seed drive assignment: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO vaccination_drive_assignment_members (tenant_id, assignment_id, obligation_id, goat_id)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid)`,
+		tenantID, assignmentID, original.id, carryOverGoat); err != nil {
+		t.Fatalf("seed drive member: %v", err)
+	}
+
+	requestedDue := original.dueAt.AddDate(0, 0, -2)
+	ref, found, err := repo.ReconcileOpenObligationForRuleIdentity(ctx, tenantID, domain.NewObligation{
+		TenantID: tenantID, ProtocolVersionID: v2, RuleID: v2Rule,
+		TargetType: "goat", TargetID: carryOverGoat, ScopeType: "park", ScopeID: cbePark,
+		DueAt: requestedDue, Status: "scheduled", IdempotencyKey: "assigned-drive-key",
+		Sequence: 1, RuleIdentityKey: identity,
+	}, requestedDue)
+	if err != nil {
+		t.Fatalf("reconcile assigned drive work: %v", err)
+	}
+	if !found {
+		t.Fatal("assigned drive work was not claimed, so generation would book the dose a second time")
+	}
+	if !ref.DateBlocked {
+		t.Fatal("assigned drive reconcile should report DateBlocked so callers know the manual drive date won")
+	}
+
+	var (
+		due     time.Time
+		key     string
+		version string
+		events  int
+	)
+	if err := pool.QueryRow(ctx, `
+SELECT due_at, idempotency_key, protocol_version_id::text,
+       (SELECT count(*) FROM obligation_status_events e
+         WHERE e.tenant_id = $1::uuid AND e.obligation_id = $2::uuid
+           AND e.payload->>'reason' = 'rule_identity_reconciled')
+FROM obligation_instances WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`,
+		tenantID, original.id).Scan(&due, &key, &version, &events); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if !due.Equal(original.dueAt) {
+		t.Fatalf("assigned drive due moved from %s to %s after reconcile requested %s", original.dueAt, due, requestedDue)
+	}
+	if key != "assigned-drive-key" {
+		t.Fatalf("idempotency key = %q, want generation's address", key)
+	}
+	if version != v2 {
+		t.Fatalf("assigned drive row did not follow the live version")
+	}
+	if events != 0 {
+		t.Fatalf("date-blocked assigned reconcile wrote %d rule_identity_reconciled events", events)
+	}
+}
+
 // An in-flight dose keeps its DATE but must still take the new ADDRESS. Everything generation does
 // after reconciling -- defer, reopen, realign, cancel-by-key -- addresses the row by the key it
 // just computed, so a row still holding the key it was minted under is unreachable and those

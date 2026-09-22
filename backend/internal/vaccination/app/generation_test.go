@@ -2297,6 +2297,40 @@ func TestGoatRecheckRecoveryRescheduleKeepsBirthAgeFloor(t *testing.T) {
 	}
 }
 
+func TestGoatRecheckRecoveryRescheduleKeepsPostArrivalFloor(t *testing.T) {
+	ctx := context.Background()
+	entry := time.Date(2026, time.September, 20, 0, 0, 0, 0, biztime.DefaultLocation())
+	rule := protodomain.Rule{RuleID: "rule-1", DoseCode: "et_tt_arrival", Sequence: 1, TriggerType: "post_arrival", OffsetDays: 14, DueWindowDays: 7}
+	goat := domain.EligibleGoat{GoatID: "goat-1", LifecycleStatus: "alive", HealthStatus: "healthy", Species: "goat", Stage: "adult", OriginType: "procured", EntryDate: &entry, ShedID: "shed-1", ParkID: "park-1"}
+	nearby := time.Date(2026, time.September, 24, 0, 0, 0, 0, biztime.DefaultLocation())
+	obl := &generationObligationFake{seen: map[string]bool{}, nearbyDrive: &nearby}
+	gen := NewGenerationService(&generationProtoFake{}, &generationGoatFake{}, obl)
+
+	reschedule, err := gen.recoveryRescheduleForRule(
+		ctx,
+		"tenant-1",
+		"version-1",
+		rule,
+		vaccineProfile{Code: "ET_TT", Type: "killed", PathogenClass: "bacterial"},
+		goat,
+		time.Date(2026, time.September, 23, 1, 0, 0, 0, biztime.DefaultLocation()),
+		genRecoveryPolicy{MaxNearbyDriveAlignDays: 7},
+		genCompatibilityPolicy{},
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("recovery reschedule: %v", err)
+	}
+
+	wantDue := businessDayStart(entry).AddDate(0, 0, 14)
+	if !reschedule.DueAt.Equal(wantDue) {
+		t.Fatalf("recovered due=%v, want post-arrival floor %v instead of nearby drive %v", reschedule.DueAt, wantDue, nearby)
+	}
+	if reschedule.AlignReason != recoveryRuleDueFloor {
+		t.Fatalf("align reason=%q, want %q", reschedule.AlignReason, recoveryRuleDueFloor)
+	}
+}
+
 func TestGoatRecheckRecoveryRescheduleKeepsAfterPreviousCompletionFloor(t *testing.T) {
 	ctx := context.Background()
 	lastETTT := time.Date(2026, time.September, 1, 0, 0, 0, 0, biztime.DefaultLocation())
