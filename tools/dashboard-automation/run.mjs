@@ -36,6 +36,7 @@ const receipt = {
 
 try {
   const isProductionSmoke = mode === "production-smoke";
+  const runCertificationExtras = mode !== "production-smoke" || enabled("GOATOS_DASHBOARD_CERTIFICATION_EXTRAS", false);
   const staticOk = layer("static", "deterministic", () => runNode(["tools/dashboard-automation/check-static-inventory.mjs"]));
   const fullParityReceiptOk = isProductionSmoke
     ? true
@@ -67,16 +68,18 @@ try {
     receipt.runtimePolicy.dataTrust = "certified";
   }
   layer("firebase-analytics-guard", "deterministic", () => runNode(["tools/agent-hooks/check-firebase-analytics-param-budget.mjs"]));
-  if (enabled("GOATOS_DASHBOARD_API_LATENCY", true)) {
+  if (runCertificationExtras && enabled("GOATOS_DASHBOARD_API_LATENCY", true)) {
     layer("api-latency", "deterministic", () => runApiLatency(outDir));
   }
-  if (process.env.GOATOS_DASHBOARD_LIGHTHOUSE === "1") {
+  if (runCertificationExtras && enabled("GOATOS_DASHBOARD_LIGHTHOUSE", false)) {
     layer("lighthouse", "deterministic", () => runLighthouse(outDir));
   }
-  if (process.env.GOATOS_DASHBOARD_GRAFANA_SMOKE === "1") {
+  if (runCertificationExtras && enabled("GOATOS_DASHBOARD_GRAFANA_SMOKE", false)) {
     layer("grafana-smoke", "deterministic", () => runNode(["tools/deploy/smoke-stg-grafana-dashboards.mjs"]));
   }
-  layer("vaccination-lifecycle", "deterministic", () => runVaccinationLifecycleTests());
+  if (runCertificationExtras && enabled("GOATOS_DASHBOARD_VACCINATION_LIFECYCLE", true)) {
+    layer("vaccination-lifecycle", "deterministic", () => runVaccinationLifecycleTests());
+  }
   if (mode === "post-main-certification") {
     layer("postgresql-integration", "deterministic", () => assertPostgresIntegrationConfigured());
     const playwrightOk = layer("playwright-module-journeys", "deterministic", () => runPreviewPlaywright(outDir));
@@ -423,13 +426,16 @@ function selfTest() {
   if (!runnerSource.includes("GOATOS_DASHBOARD_REQUIRE_API_SHA") || !runnerSource.includes("--allow-deployed-build")) {
     throw new Error("self-test: production API latency must test deployed prod without requiring latest main SHA unless explicitly requested");
   }
+  if (!runnerSource.includes("GOATOS_DASHBOARD_CERTIFICATION_EXTRAS") || !runnerSource.includes('mode !== "production-smoke" || enabled("GOATOS_DASHBOARD_CERTIFICATION_EXTRAS", false)')) {
+    throw new Error("self-test: production smoke must keep broad certification extras explicit-only");
+  }
   if (!readFileSync(fileURLToPath(import.meta.url), "utf8").includes("runVaccinationLifecycleTests")) {
     throw new Error("self-test: runner must invoke deep vaccination lifecycle tests");
   }
   if (!runnerSource.includes('runInDir(path.join(repo, "backend"), "go"')) {
     throw new Error("self-test: backend Go lifecycle tests must run from the backend module");
   }
-  for (const key of ["GOATOS_DASHBOARD_DATA_PARITY", "GOATOS_DASHBOARD_API_LATENCY", "GOATOS_DASHBOARD_LIGHTHOUSE", "GOATOS_DASHBOARD_GRAFANA_SMOKE"]) {
+  for (const key of ["GOATOS_DASHBOARD_DATA_PARITY", "GOATOS_DASHBOARD_CERTIFICATION_EXTRAS", "GOATOS_DASHBOARD_API_LATENCY", "GOATOS_DASHBOARD_LIGHTHOUSE", "GOATOS_DASHBOARD_GRAFANA_SMOKE", "GOATOS_DASHBOARD_VACCINATION_LIFECYCLE"]) {
     if (!readFileSync(fileURLToPath(import.meta.url), "utf8").includes(key)) {
       throw new Error(`self-test: runner no longer wires ${key}`);
     }

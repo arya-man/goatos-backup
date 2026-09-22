@@ -19,13 +19,20 @@ evidence.
   STG-to-OCI parity repair.
 - Updated `tools/agent-hooks/check-dashboard-automation-guard.mjs` so local CI
   enforces the new nonblocking parity policy instead of the old strict policy.
+- Verified the PR code on OCI: STG-to-OCI parity no longer blocks
+  `production-smoke`; browser smoke ran and surfaced real follow-up failures.
+- Scoped `production-smoke` to the live dashboard browser sweep by default;
+  API latency, Lighthouse, Grafana, and vaccination lifecycle checks remain
+  available behind `GOATOS_DASHBOARD_CERTIFICATION_EXTRAS=1` for OCI smoke and
+  stay default-on for post-main certification.
+- Fixed the Weighing FCR KPI unit contrast issue exposed by the OCI browser
+  accessibility pass.
 
 ## Pending
 
-- Commit the scoped fix.
-- Run local landing gate before any main promotion.
-- If landed, refresh the OCI runner checkout and rerun automation to verify the
-  Slack card reports browser evidence instead of stopping on parity.
+- Rerun focused checks and full local CI after the production-smoke scoping fix.
+- Push the updated PR branch.
+- Refresh the OCI PR worktree and rerun the real production-smoke receipt.
 
 ## Tests
 
@@ -47,7 +54,7 @@ Result: focused checks green.
 
 - Base: `origin/main` at `7772c2e92`
 - PR branch: `codex/dashboard-parity-nonblocking-pr`
-- Latest local commit before guard update: `c356ff8cc`
+- Latest local commit: `c3c50c568`
 
 ## Deployment State
 

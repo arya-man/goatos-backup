@@ -3353,6 +3353,7 @@ select:disabled { opacity: .45; }
    slab; these are separate figures and want visible air between them. */
 .kpi-row{gap:16px}
 .kpi-row .kpi{padding:14px 16px}
+.kpi-row .kpi .val small.fcr-kpi-unit{color:color-mix(in srgb,var(--muted) 54%,var(--ink))}
 @media(max-width:1080px){.kpi-row{gap:12px}}
 .feed-analytics-kpis{grid-template-columns:repeat(auto-fit,minmax(180px,1fr))}
 .feed-analytics-kpis .kpi .val{overflow-wrap:normal;word-break:normal;line-height:1.08}
