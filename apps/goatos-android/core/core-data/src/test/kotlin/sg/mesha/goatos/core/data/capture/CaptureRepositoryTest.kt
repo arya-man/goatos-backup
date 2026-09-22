@@ -113,6 +113,17 @@ class CaptureRepositoryTest {
         }
     }
 
+    private suspend fun awaitTelemetryEvent(
+        events: List<Pair<String, Map<String, String>>>,
+        eventName: String,
+    ): Map<String, String> {
+        repeat(20) {
+            events.lastOrNull { it.first == eventName }?.let { return it.second }
+            delay(10)
+        }
+        return events.last { it.first == eventName }.second
+    }
+
     // WEIGHING SOP whole pen (Realme, 2026-09-17): two group videos then the pen's authored scale
     // photo slot. The photo slot's own max (1) passed as the PER-SUBJECT cap counted the pen's two
     // videos and refused the photo ("Maximum 1 ..."). The slot cap is per FIELD; the pen cap is the
@@ -806,7 +817,7 @@ class CaptureRepositoryTest {
             row = repo.observeProofs("task-5").first().first { it.id == captured.id }
             assertEquals(CaptureSyncStatus.SYNCED, row.syncStatus)
             assertEquals("server-proof-123", row.serverProofId)
-            val completed = telemetryEvents.last { it.first == "proof_upload_completed" }.second
+            val completed = awaitTelemetryEvent(telemetryEvents, "proof_upload_completed")
             assertEquals(captured.id, completed["local_proof_row_id"])
             assertEquals(itemId, completed["proof_outbox_item_id"])
             assertEquals("server-proof-123", completed["server_proof_id"])
@@ -3186,11 +3197,16 @@ class CaptureRepositoryTest {
             )
             assertTrue("Second capture fails", second is AppResult.Err)
 
-            // Verify first row is untouched
+            // Verify first row is untouched, and the failed replacement remains visible/retryable
+            // instead of disappearing when the operator navigates back to this shed.
             val remaining = proofs.observeProofs(taskId).first()
-            assertEquals("One proof still in slot", 1, remaining.size)
-            assertEquals("Old proof survived failed replacement", firstId, remaining[0].id)
-            assertEquals("Old proof path unchanged", "file:///first.mp4", remaining[0].localUri)
+            assertEquals("Old proof plus failed replacement row", 2, remaining.size)
+            val old = remaining.single { it.id == firstId }
+            val failed = remaining.single { it.id != firstId }
+            assertEquals("Old proof path unchanged", "file:///first.mp4", old.localUri)
+            assertEquals("Failed replacement remains tied to the attempted clip", "", failed.localUri)
+            assertEquals(CaptureSyncStatus.FAILED, failed.syncStatus)
+            assertEquals(ProofProcessingState.PROCESSING_FAILED_AWAITING_RETRY.name, failed.processingState)
         } finally {
             closeDb(db)
         }
@@ -3925,8 +3941,16 @@ class CaptureRepositoryTest {
                     "Recording has no valid duration.",
                     (garbageCapture as AppResult.Err).message,
                 )
-                // Verify it was never enqueued -- validation runs before the outbox write
+                // Verify it was never enqueued, but the local failure row remains visible for
+                // retry/re-record instead of disappearing from the operator's shed card.
                 assertEquals("Rejected garbage file produces no enqueue call", 0, sync.enqueueCalls.size)
+                val failedRows = proofs.observeProofs("vacc-task-2").first()
+                    .filter { it.syncStatus == CaptureSyncStatus.FAILED }
+                assertEquals("Both rejected local clips stay as failed proof rows", 2, failedRows.size)
+                assertTrue(
+                    "Rejected garbage row records the validation failure",
+                    failedRows.any { it.lastError == "Recording has no valid duration." },
+                )
             } finally {
                 tempGarbageFile.delete()
             }

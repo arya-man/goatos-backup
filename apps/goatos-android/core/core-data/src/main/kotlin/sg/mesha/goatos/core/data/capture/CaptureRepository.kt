@@ -937,7 +937,14 @@ class DefaultProofCaptureRepository(
             // must remain stable even when a flow intentionally gives uploads slot-specific groups.
             clientTaskKey = taskId,
         )
-        // Gate 3: Backstop validation — file must exist && length > 0 before Room insert.
+        // Room FIRST: once the camera returned a clip URI, the operator's proof attempt must be
+        // durable before any validation, processing, network, or GCS work starts. If validation
+        // fails below, keep a FAILED row so the animal remains visible/retryable instead of the
+        // in-screen "processing" card vanishing on refresh/navigation.
+        dao.insert(entity)
+        telemetry.track(proofCaptureCompletedEvent, proofAnalyticsProps(entity))
+
+        // Gate 3: Backstop validation — file must exist && length > 0 before upload enqueue.
         // Mime-aware: a JPEG must never be judged by the video duration probe (OEMs that report
         // duration=0 for images would reject every valid photo at this gate).
         val validationResult = when {
@@ -946,15 +953,35 @@ class DefaultProofCaptureRepository(
             else -> proofArtifactValidator.validateVideoFile(localUri)
         }
         if (!validationResult.isValid) {
+            val reason = validationResult.reason ?: "Proof file is invalid. Please re-record."
+            dao.updateProcessingState(
+                id = entity.id,
+                processingState = ProofProcessingState.PROCESSING_FAILED_AWAITING_RETRY.name,
+                attempt = entity.stateAttempt,
+                processingAttempted = true,
+                uploadOriginal = false,
+                lastErrorStage = "local_artifact_validation_failed",
+                lastErrorClass = "ProofArtifactValidation",
+                lastErrorRetryable = true,
+                lastErrorMessageHash = reason.hashCode().toString(),
+                updatedAtMs = clock(),
+            )
+            dao.updateStatus(entity.id, EntitySyncStatus.FAILED.name, null, reason)
+            recordProofEvent(
+                entity,
+                "local_artifact_validation_failed",
+                ProofProcessingState.PROCESSING_FAILED_AWAITING_RETRY.name,
+                entity.stateAttempt,
+                bytesIn = localFileBytes(localUri),
+                errorClass = "ProofArtifactValidation",
+                retryable = true,
+            )
             telemetry.track(
                 proofCaptureValidationFailedEvent,
                 proofCaptureValidationFailureProps(entity, validationResult),
             )
-            return@withContext AppResult.Err(validationResult.reason ?: "Proof file is invalid. Please re-record.")
+            return@withContext AppResult.Err(reason)
         }
-        // Room FIRST — the capture is durable before any network call is even attempted.
-        dao.insert(entity)
-        telemetry.track(proofCaptureCompletedEvent, proofAnalyticsProps(entity))
         if (awaitUploadEnqueue) {
             enqueueRegistrationNow(entity, scopeType, scopeId, uploadGroupKey)
             val latest = dao.findById(id) ?: entity
