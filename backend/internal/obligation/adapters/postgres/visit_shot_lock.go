@@ -108,6 +108,15 @@ func (r *Repository) ReplaceVaccinationDriveAssignmentsForBatch(ctx context.Cont
 			_ = tx.Rollback(ctx)
 		}
 	}()
+	if len(assignments) == 0 {
+		protected, err := vaccinationDriveBatchHasProofOrCompletionProgress(ctx, tx, tenant, batch)
+		if err != nil {
+			return err
+		}
+		if protected {
+			return fmt.Errorf("obligation: refusing empty vaccination drive assignment replacement for batch %s because proof or completion progress already exists", batchID)
+		}
+	}
 	if _, err := tx.Exec(ctx, `
 DELETE FROM vaccination_drive_assignments
 WHERE tenant_id = $1 AND batch_id = $2`, tenant, batch); err != nil {
@@ -123,6 +132,52 @@ WHERE tenant_id = $1 AND batch_id = $2`, tenant, batch); err != nil {
 	}
 	committed = true
 	return nil
+}
+
+func vaccinationDriveBatchHasProofOrCompletionProgress(ctx context.Context, tx pgx.Tx, tenant, batch pgtype.UUID) (bool, error) {
+	var protected bool
+	if err := tx.QueryRow(ctx, `
+WITH existing_members AS (
+  SELECT m.goat_id,
+         m.obligation_id,
+         vda.planned_date
+  FROM vaccination_drive_assignments vda
+  JOIN vaccination_drive_assignment_members m
+    ON m.tenant_id = vda.tenant_id
+   AND m.assignment_id = vda.assignment_id
+  WHERE vda.tenant_id = $1
+    AND vda.batch_id = $2
+)
+SELECT EXISTS (
+  SELECT 1
+  FROM existing_members em
+  JOIN obligation_instances oi
+    ON oi.tenant_id = $1
+   AND oi.obligation_id = em.obligation_id
+  WHERE oi.status IN ('completed', 'in_progress')
+  UNION ALL
+  SELECT 1
+  FROM existing_members em
+  JOIN vaccination_completions vc
+    ON vc.tenant_id = $1
+   AND vc.obligation_id = em.obligation_id
+   AND vc.goat_id = em.goat_id
+   AND vc.status IN ('recorded', 'accepted')
+  UNION ALL
+  SELECT 1
+  FROM existing_members em
+  JOIN proof_artifacts pa
+    ON pa.tenant_id = $1
+   AND pa.subject_type = 'goat'
+   AND pa.subject_id = em.goat_id
+   AND pa.proof_type = 'video'
+   AND pa.upload_state = 'completed'
+   AND COALESCE(pa.uploaded_at, pa.created_at) >= em.planned_date::timestamp
+   AND COALESCE(pa.uploaded_at, pa.created_at) < (em.planned_date::timestamp + interval '1 day')
+)`, tenant, batch).Scan(&protected); err != nil {
+		return false, fmt.Errorf("obligation: check vaccination drive assignment replacement progress guard: %w", err)
+	}
+	return protected, nil
 }
 
 func upsertVaccinationDriveAssignmentsTx(ctx context.Context, tx pgx.Tx, tenant pgtype.UUID, assignments []domain.DriveAssignment) error {
