@@ -1,0 +1,6 @@
+{
+  "lastSyncedSha": "f30769625",
+  "lastSyncedAt": null,
+  "ref": "origin/main",
+  "note": "seeded from newest sha in tools/dashboard-automation/commit-classification; bumped by sync-coverage.mjs --write"
+}

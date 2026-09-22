@@ -123,6 +123,8 @@ function issueRules() {
   [/overlay .*off-screen|outside the viewport|translate/, "Drawer/popup opens off-screen"],
   [/page load \d+ms exceeded/, "Page slow to load"],
   [/accessibility violations/, null],
+  [/new commit\(s\) need smoke coverage/, "New work shipped with no smoke check covering it"],
+  [/assertion\(s\) need review/, "Some smoke checks point at screen text that no longer exists"],
   ];
 }
 
@@ -357,6 +359,7 @@ function layerText(layer) {
     "playwright-module-journeys": "Preview browser module journeys",
     "firebase-analytics-guard": "Firebase analytics guard",
     "oci-free-preflight": "OCI Always Free/storage preflight",
+    "coverage-sync": "Smoke coverage vs origin/main",
     static: "Static automation inventory"
   };
   const label = labelByLayer[name] ?? name;
@@ -366,6 +369,7 @@ function layerText(layer) {
 function friendlyLayerMessage(layer) {
   const name = String(layer.name ?? "");
   const message = String(layer.message ?? layer.status ?? "");
+  if (name === "coverage-sync") return coverageSyncMessage(message);
   if (name === "business-data-parity") return "OCI data does not currently match the required STG business snapshot.";
   if (name === "api-latency") return "At least one normal dashboard API exceeded the latency policy.";
   if (name === "lighthouse") return "Frontend page performance check failed.";
@@ -380,6 +384,18 @@ function friendlyLayerMessage(layer) {
   }
   if (/required deterministic layer failed/i.test(message)) return "A prerequisite gate failed before this layer could run cleanly.";
   return truncate(redactText(message), 140);
+}
+
+// Plain English for the operator: how many commits shipped with no smoke check, and what to do.
+export function coverageSyncMessage(message) {
+  const text = String(message ?? "");
+  const commits = Number(text.match(/(\d+) new commit\(s\) need smoke coverage/)?.[1] ?? 0);
+  const stale = Number(text.match(/(\d+) assertion\(s\) need review/)?.[1] ?? 0);
+  const parts = [];
+  if (commits) parts.push(commits === 1 ? "1 new commit needs smoke coverage" : `${commits} new commits need smoke coverage`);
+  if (stale) parts.push(stale === 1 ? "1 existing check points at screen text or elements that no longer exist" : `${stale} existing checks point at screen text or elements that no longer exist`);
+  if (!parts.length) return "Smoke coverage could not be compared against the latest main.";
+  return `${parts.join(", and ")}. Run \`node tools/dashboard-automation/sync-coverage.mjs --write\` and fill in the new entries.`;
 }
 
 function blockerText(blocker) {
@@ -710,6 +726,20 @@ function selfTest() {
   }, "failure", path.join(repo, "receipt.json"));
   if (!JSON.stringify(skipped).includes("not_run") || !JSON.stringify(skipped).includes("Browser smoke did not run")) {
     throw new Error("self-test: skipped browser smoke Slack wording missing");
+  }
+  const coverage = formatSlackMessage({
+    ...sample,
+    layers: [{ name: "coverage-sync", status: "fail", message: "coverage-sync: 7 new commit(s) need smoke coverage, 2 assertion(s) need review (since f30769625)" }],
+    blockers: [{ layer: "coverage-sync", message: "coverage-sync: 7 new commit(s) need smoke coverage, 2 assertion(s) need review" }]
+  }, "failure", path.join(repo, "receipt.json"));
+  const coverageText = JSON.stringify(coverage);
+  for (const expected of ["Smoke coverage vs origin/main", "7 new commits need smoke coverage", "no longer exist", "sync-coverage.mjs --write"]) {
+    if (!coverageText.includes(expected)) throw new Error(`self-test: coverage-sync Slack wording missing ${expected}`);
+  }
+  if (coverageText.includes("needs-assertion")) throw new Error("self-test: coverage-sync Slack wording must stay plain English, not manifest jargon");
+  const singular = coverageSyncMessage("coverage-sync: 1 new commit(s) need smoke coverage, 1 assertion(s) need review");
+  if (!singular.includes("1 new commit needs smoke coverage") || !singular.includes("1 existing check points at")) {
+    throw new Error("self-test: coverage-sync wording must read naturally for a single commit/check");
   }
   if (!Array.isArray(message.blocks) || !message.blocks.some((block) => block.type === "header")) {
     throw new Error("self-test: Slack message must use block layout");

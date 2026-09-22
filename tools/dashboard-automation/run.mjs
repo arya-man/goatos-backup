@@ -81,6 +81,9 @@ try {
     layer("vaccination-lifecycle", "deterministic", () => runVaccinationLifecycleTests());
   }
   if (mode === "post-main-certification") {
+    // Coverage must stay self-updating: new user-visible admin-web commits and assertions whose
+    // selectors were renamed away are reported here, not discovered months later.
+    layer("coverage-sync", "deterministic", () => runNode(["tools/dashboard-automation/sync-coverage.mjs", "--check"]));
     layer("postgresql-integration", "deterministic", () => assertPostgresIntegrationConfigured());
     const playwrightOk = layer("playwright-module-journeys", "deterministic", () => runPreviewPlaywright(outDir));
     receipt.runtimePolicy.browserSmoke = playwrightOk
@@ -448,6 +451,9 @@ function selfTest() {
     if (!readFileSync(fileURLToPath(import.meta.url), "utf8").includes(key)) {
       throw new Error(`self-test: runner no longer wires ${key}`);
     }
+  }
+  if (!runnerSource.includes('layer("coverage-sync"') || !runnerSource.includes("sync-coverage.mjs")) {
+    throw new Error("self-test: post-main certification must run the coverage-sync layer so new commits cannot fall out of smoke coverage");
   }
   runNode(["tools/dashboard-automation/check-module-journeys.mjs", "--self-test"]);
   runNode(["tools/dashboard-automation/run-module-journeys.mjs", "--self-test"]);
