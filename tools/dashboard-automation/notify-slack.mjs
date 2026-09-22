@@ -34,12 +34,16 @@ if (state.lastSignature === signature && now - Number(state.lastPostedAtMs ?? 0)
   process.exit(0);
 }
 
-const message = formatSlackMessage(receipt, decision.kind, receiptPath);
+const visualIssues = moduleFailures(receiptPath).map(humanIssue).filter(Boolean);
+const message = visualIssues.length && decision.kind === "failure"
+  ? formatVisualIssuesMessage(receipt, visualIssues)
+  : formatSlackMessage(receipt, decision.kind, receiptPath);
 if (containsUnredactedSecret(JSON.stringify(message))) fail("refusing to send Slack message that appears to contain an unredacted secret");
 
 const screenshotFiles = screenshotPaths(receipt, receiptPath);
 const reportFile = writeHtmlReport(receipt, receiptPath, decision.kind, screenshotFiles);
-await postSlack(message, [reportFile, ...screenshotFiles], statePath, { lastSignature: signature, lastPostedAtMs: now, lastStatus: receipt.status ?? "unknown" });
+const inlineShots = visualIssues.filter((issue) => issue.screenshot).map((issue) => ({ file: issue.screenshot, title: issue.caption }));
+await postSlack(message, inlineShots.length ? [reportFile] : [reportFile, ...screenshotFiles], statePath, { lastSignature: signature, lastPostedAtMs: now, lastStatus: receipt.status ?? "unknown" }, inlineShots);
 console.log(`dashboard Slack notify: posted ${decision.kind}`);
 
 function notificationDecision(value) {
@@ -67,6 +71,57 @@ function isParityOnlyNoBrowserFailure(value) {
   const failingLayers = (value.layers ?? []).filter((layer) => layer.status !== "pass").map((layer) => layer.name);
   if (failingLayers.length === 0) return false;
   return failingLayers.every((name) => ["latest-full-parity-receipt", "business-data-parity"].includes(name));
+}
+
+// Turn a raw check failure into something a person reads in two seconds:
+// page, device, what is wrong, and the example text straight from the screen.
+const ISSUE_RULES = [
+  [/A-svg-text-tiny|renders at ~/, "Chart text too small to read"],
+  [/A-chart-label-column-narrow|A-chart-label-ellipsised|A-chart-label-collapsed|A-chart-label-clipped|A-chart-label-overlap|A-svg-text-(overlap|clipped)|A-chart-value-missing|A-chart-empty/, "Chart labels squashed, cut off or missing"],
+  [/text-overlap|overlaps /, "Text drawn on top of other text"],
+  [/chip-crushed/, "Label crushed / cut off"],
+  [/C-cell-mid-word-wrap|split over \d+ lines/, "Word broken across two lines"],
+  [/C-cell-overpaint/, "Table text spilling into the next column"],
+  [/ISO date/, "Date shown as YYYY-MM-DD (farm reads DD/MM/YYYY)"],
+  [/snake_case code|copy key|raw value "NaN|raw value/, "Internal code shown to users"],
+  [/doubled label/, "Label repeated twice"],
+  [/B-container-overflow|past \.card|cut at the viewport edge|panels cut/, "Content spilling out of its card"],
+  [/D-page-overflow|horizontal overflow|scrolls sideways/, "Page scrolls sideways on the phone"],
+  [/cannot be horizontally scrolled/, "Wide table cut off with no sideways scroll"],
+  [/interactive targets below 40px/, "Buttons too small to tap"],
+  [/clipped button\/link text/, "Button text cut off"],
+  [/text-cut-off|text hidden/, "Text cut off"],
+  [/overlay .*did not open|never mounted/, "Clicking it did not open"],
+  [/overlay .*off-screen|outside the viewport|translate/, "Drawer/popup opens off-screen"],
+  [/page load \d+ms exceeded/, "Page slow to load"],
+  [/accessibility violations/, null],
+];
+
+function humanIssue(failure) {
+  const raw = String(failure.error ?? "");
+  const rule = ISSUE_RULES.find(([re]) => re.test(raw));
+  if (rule && rule[1] === null) return null;
+  const what = rule ? rule[1] : raw.replace(/\[[A-Za-z-]+\]\s*/g, "").slice(0, 120);
+  const [device, routeName] = String(failure.route ?? "").includes(":") ? failure.route.split(":") : ["", failure.route ?? failure.module];
+  const quoted = [...raw.matchAll(/"([^"]{1,60})"/g)].map((m) => m[1]).filter((t) => !/^\w+-\w+-/.test(t));
+  const example = quoted[0] ? ` — "${quoted[0]}"` : (raw.match(/(\d+px[^;|]*)/)?.[1] ? ` — ${raw.match(/(\d+px[^;|]*)/)[1].slice(0, 60)}` : "");
+  const page = String(routeName ?? "").replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  const deviceLabel = device === "mobile" ? "📱 Phone" : device === "laptop" ? "💻 Laptop" : "";
+  const screenshot = (failure.screenshots ?? []).filter((file) => existsSync(file)).pop() ?? null;
+  return { page, deviceLabel, what, example, screenshot, caption: `${page} · ${deviceLabel.replace(/^\S+ /, "")} — ${what}${example}`.slice(0, 250) };
+}
+
+function formatVisualIssuesMessage(value, issues) {
+  const shown = issues.slice(0, 20);
+  const lines = shown.map((issue, i) => `*${i + 1}. ${issue.page}* ${issue.deviceLabel}\n      ${issue.what}${issue.example}`);
+  const title = `:rotating_light: ${issues.length} visible issue${issues.length === 1 ? "" : "s"} on production`;
+  const blocks = [
+    { type: "header", text: { type: "plain_text", text: title.replace(":rotating_light: ", "🚨 "), emoji: true } },
+    { type: "section", text: { type: "mrkdwn", text: lines.join("\n") } },
+  ];
+  if (issues.length > shown.length) blocks.push({ type: "context", elements: [{ type: "mrkdwn", text: `+${issues.length - shown.length} more in the report` }] });
+  blocks.push({ type: "context", elements: [{ type: "mrkdwn", text: `Screenshots below, problem boxed in red · checked on laptop and phone · build \`${String(value.repoSha ?? "").slice(0, 9)}\` · full report in thread` }] });
+  return { text: `${title}\n${shown.map((issue) => `• ${issue.caption}`).join("\n")}`, blocks };
 }
 
 function formatSlackMessage(value, kind, receiptFile) {
@@ -317,11 +372,12 @@ function screenshotPaths(value, receiptFile) {
   return found.slice(-4);
 }
 
-async function postSlack(payload, attachments, statePath, nextState) {
+async function postSlack(payload, attachments, statePath, nextState, inlineShots = []) {
   if (process.env.GOATOS_DASHBOARD_SLACK_DRY_RUN === "1") {
     console.log(payload.text);
     console.log(JSON.stringify(payload.blocks, null, 2));
     for (const file of attachments) console.log(`dashboard Slack notify: would upload ${path.relative(repo, file)}`);
+    for (const shot of inlineShots) console.log(`dashboard Slack notify: would show inline ${path.basename(shot.file)} — ${shot.title}`);
     return;
   }
   const token = process.env.SLACK_BOT_TOKEN?.trim() || process.env.GOATOS_DASHBOARD_SLACK_BOT_TOKEN?.trim();
@@ -342,6 +398,18 @@ async function postSlack(payload, attachments, statePath, nextState) {
   const body = await slackApi(token, "chat.postMessage", { channel, text: payload.text, blocks: payload.blocks, unfurl_links: false, unfurl_media: false });
   // Persist dedupe state as soon as the alert is posted so a failed upload can never cause repeat spam.
   writeState(statePath, nextState);
+  // Screenshots go straight into the channel (not hidden in a thread), each captioned with its issue.
+  const inline = [];
+  for (const shot of inlineShots) {
+    try {
+      inline.push({ id: await uploadSlackFile(token, shot.file), title: shot.title });
+    } catch (error) {
+      console.error(`dashboard Slack notify: upload failed for ${path.basename(shot.file)}: ${redactText(error.message)}`);
+    }
+  }
+  for (let i = 0; i < inline.length; i += 10) {
+    await slackApi(token, "files.completeUploadExternal", { files: inline.slice(i, i + 10), channel_id: channel }).catch((error) => console.error(`dashboard Slack notify: inline screenshots failed: ${redactText(error.message)}`));
+  }
   const uploaded = [];
   for (const file of attachments) {
     try {
@@ -355,7 +423,7 @@ async function postSlack(payload, attachments, statePath, nextState) {
     files: uploaded,
     channel_id: channel,
     thread_ts: body.ts,
-    initial_comment: `Evidence: HTML report + ${uploaded.length - 1} failure screenshot(s)`
+    initial_comment: inline.length ? "Full report (every check, every page)" : `Evidence: HTML report + ${uploaded.length - 1} failure screenshot(s)`
   });
 }
 
