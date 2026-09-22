@@ -251,4 +251,43 @@ Progress on lanes 2-5 is appended here as it lands, so the PR is the record.
 - **Known red:** the full guard currently fails on lane 1's side — 7 admin-web commits from the
   350/363 CI work need `needs-assertion` entries in `feature-assertions.json`. That file belongs to
   PR #350 and was left alone.
+- **PR #350 is on main.** It landed rebased, so its head sha is not an ancestor of `main`, but its
+  commits are (`232cae667`, `b87508928`, `f560f6eac` and the rest) and lane 1's files are present on
+  `origin/main`. Lane 1 is therefore **landed but not running**: both
+  `goatos-dashboard-automation.timer` and `goatos-dashboard-post-main.timer` are still `disabled` on
+  the OCI box. Nothing is being swept and the ~48 issues from the last production run are not being
+  re-checked. Enabling them is the last item on lane 1's own "remaining" list.
+
+- **Correction to the window defect above.** `sync-coverage.mjs` has no `--since` at all — it syncs
+  `state.lastSyncedSha -> origin/main`. The four-commit hole is baked into the committed `.jsonl`
+  data by whatever built the ledger offline, so there is no constant in that file to pin and the
+  retroactive fix is a backfill, not a code change. The lanes 2-5 classifier does pin its own window
+  (`COVERAGE_WINDOW`, tested as a timestamp rather than a bare date), and **all four commits are
+  covered in `lane5-android.jsonl`** — they are missing only from lane 1's ledger. They are stored
+  as short shas, which is why a full-sha grep reports them absent; sha length is being normalised
+  across the ledgers so that trap does not catch the next reader.
+
+- **Lane statuses after the first judge pass.** A three-way collision on `notify-slack.mjs` was
+  caught before it landed: all three lanes had independently written their own `FINDING_KINDS`
+  registry with incompatible signatures, which is a guaranteed `SyntaxError`, not a merge risk.
+  Lane 4's registry survives as the single design — purely additive (+85/-0), `collectFindingKinds`
+  running before `issueRules()`, and a `hasOwnIssues` guard; lanes 2, 3 and 5 take it verbatim and
+  add one import and one registry entry each. Lane 4's golden-file test is the acceptance gate, and
+  the judge regenerated that golden from a pristine tree rather than trusting the committed one.
+  A lane-1-only receipt was proved to render **byte-identically** through all three lanes.
+
+  A near-miss worth recording: lane 4's first registry spliced every lane's `issueRules()` into the
+  shared matcher unconditionally, so a lane with **zero** findings silently relabelled a real lane-1
+  issue. That reproduction is now a permanent self-test.
+
+  Open and being fixed: lane 2's `LIMIT` guard passes when only a CTE is capped, so an uncapped
+  query could reach the production-backed replica — being fixed structurally at the runner rather
+  than with a smarter regex. Lane 3 has zero tests, so its redirect guard protecting the production
+  bearer token is proved only by hand. Lane 4's `collectFindingKinds` has no try/catch, so one
+  broken module silences **every** alert including lane 1's — the worst failure mode available,
+  since the automation would go quiet exactly when something is wrong.
+
+- **Lane 5 started**, branch `auto/lane5-20260923`, built from the miner's 47 specs. Free tier only
+  (10 tests/day, 60 device-minutes/day on `goatos-stg`); no agent may incur billable device time.
+  The five physical-device checks are never claimed as covered by a virtual run.
 
