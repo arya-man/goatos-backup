@@ -193,6 +193,21 @@ func (a *Assistant) ask(ctx context.Context, q domain.Question, opts askOptions)
 		}
 	}
 
+	// A question that NAMES another tenant/organisation (or carries an
+	// identifier that is not this session's tenant) is refused, never silently
+	// re-scoped: answering it with OUR number reads to the asker as the other
+	// organisation's number, which is a disclosure they can act on even though
+	// the tenant binding held and no foreign row was ever read.
+	if foreign, why := guard.ForeignScopeReference(q.Text, q.Actor.TenantID); foreign {
+		if a.telemetry != nil {
+			a.telemetry.InjectionBlocked(ctx)
+		}
+		a.log.WarnContext(ctx, "ceoai refused a foreign-scope question",
+			"reason", why, "request_id", requestID, "tenant_id", q.Actor.TenantID)
+		return a.refusal(requestID, q.ConversationID,
+			"I can only answer for your own organization, and I can't answer a question that names another tenant or an identifier from outside your session — even to say what your own figure is. Ask it without that scope and I'll answer for your organization."), nil
+	}
+
 	scan := guard.Scan(q.Text)
 	if scan.ScopeEscalation {
 		if a.telemetry != nil {
@@ -338,6 +353,16 @@ func (a *Assistant) ask(ctx context.Context, q domain.Question, opts askOptions)
 				}
 			}
 		}
+	}
+	// A read that ERRORED is not a read that found nothing. When every read
+	// failed there is no evidence at all, so the answer must say that plainly
+	// instead of composing a "partial" around failure lines — and the audit
+	// records it, rather than the empty fit issue being dropped silently below.
+	if allReadsFailed(results) {
+		a.recordAudit(ctx, q, requestID, q.ConversationID, domain.ModePartial, results, traces,
+			domain.ReviewVerdict{ScopeSafe: true, FailReasons: append([]string{"all_reads_failed"}, fitAudit...)}, start)
+		return a.plainAnswer(requestID, q.ConversationID, domain.ModePartial,
+			"I couldn't read the data this question needs right now, so I have no figure to give you. Please try again shortly, or check the source screen directly."), nil
 	}
 	// An empty read earns the re-plan above, but "nothing found" is itself an
 	// honest answer, so it is never flagged as a shape mismatch.
@@ -728,11 +753,12 @@ func (a *Assistant) strictRecompose(results []domain.ToolResult) string {
 	var lines []string
 	for _, r := range results {
 		if r.Err != nil {
-			lines = append(lines, fmt.Sprintf("%s: could not be retrieved.", surfaceOrRoute(r)))
+			lines = append(lines, readFailureLine(r))
 			continue
 		}
+		r = withGroundedFacts(r)
 		if len(r.Facts) == 0 {
-			lines = append(lines, fmt.Sprintf("%s: no records found.", surfaceOrRoute(r)))
+			lines = append(lines, emptyReadLine(r))
 			continue
 		}
 		lines = append(lines, renderAnswerBlock(r))

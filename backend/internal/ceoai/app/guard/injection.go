@@ -33,6 +33,47 @@ var scopeEscalationPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)ignore my role`),
 }
 
+// foreignOrgPatterns name a tenant/organisation OTHER than the caller's. The
+// farm's own two parks are routinely called "the other farm", so a bare
+// farm/park word is NOT one of these: only an explicit second TENANT/company/
+// organisation/account/client counts.
+var foreignOrgPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)\b(another|other|different|second|someone else'?s|somebody else'?s|their)\s+(tenant|organisation|organization|company|business|client|account|customer'?s? (?:tenant|account))\b`),
+	regexp.MustCompile(`(?i)\b(tenant|organisation|organization|company|account)\s*(id)?\s*[:=]\s*\S+`),
+	regexp.MustCompile(`(?i)\bswitch (to|into) (the )?(tenant|organisation|organization|company|account)\b`),
+	regexp.MustCompile(`(?i)\bcross[- ]tenant\b`),
+}
+
+// uuidPattern matches any RFC-4122-shaped identifier in free text.
+var uuidPattern = regexp.MustCompile(`(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b`)
+
+// ForeignScopeReference reports a question that names a tenant/organisation
+// scope other than the caller's own session scope, and why.
+//
+// Two shapes, both of which must be REFUSED rather than silently answered for
+// the caller's own tenant (which reads to the asker as the other tenant's
+// number):
+//
+//  1. an explicit second organisation ("the other tenant", "tenant_id = …");
+//  2. ANY identifier (UUID) in the question that is not the caller's own
+//     tenant id — leadership names parks, pens and people by label, never by
+//     UUID, so a UUID in the text is either a foreign scope or an attempt to
+//     steer the read by identifier. The caller's OWN tenant id is allowed
+//     (it changes nothing).
+func ForeignScopeReference(text, sessionTenantID string) (bool, string) {
+	for _, re := range foreignOrgPatterns {
+		if re.MatchString(text) {
+			return true, "names an organisation other than the caller's session tenant"
+		}
+	}
+	for _, id := range uuidPattern.FindAllString(text, -1) {
+		if !strings.EqualFold(strings.TrimSpace(id), strings.TrimSpace(sessionTenantID)) {
+			return true, "carries an identifier that is not the caller's session tenant"
+		}
+	}
+	return false, ""
+}
+
 // Result reports the injection-scan outcome for a piece of untrusted text.
 type Result struct {
 	Detected        bool

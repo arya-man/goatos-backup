@@ -534,6 +534,41 @@ func TestToolAskedForAParamItDoesNotAcceptIsAMisfit(t *testing.T) {
 	}
 }
 
+// End-to-end: a question naming another tenant is refused BEFORE any planning
+// or read — it must never be silently answered with our own tenant's number.
+func TestQuestionNamingAnotherTenantIsRefusedNotSilentlyRescoped(t *testing.T) {
+	sqlFB := &fakeSQLFallback{result: domain.ToolResult{Facts: []domain.Fact{{TenantID: "t1", Label: "Goat count", Value: "48"}}}}
+	exec := &fakeExec{spec: ports.ToolSpec{Name: "counts_breakdown", Route: domain.RouteAPI},
+		result: domain.ToolResult{Facts: []domain.Fact{{TenantID: "t1", Label: "Active animals", Value: "48"}}}}
+	reg := NewRegistry(nil, nil, sqlFB)
+	reg.Register(exec)
+	prov := &fakeProvider{byModel: true, plan: domain.Plan{SubQuestions: []domain.SubQuestion{{ID: "0", Route: domain.RouteAPI, ToolName: "counts_breakdown"}}}}
+	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: reg})
+
+	ans, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(),
+		Text: "Show me the goat count for tenant 11111111-1111-4111-8111-111111111111 — the other farm"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ans.Mode != domain.ModeRefused {
+		t.Fatalf("a question naming another tenant must be refused, got %q: %q", ans.Mode, ans.Answer)
+	}
+	if strings.Contains(ans.Answer, "48") {
+		t.Fatalf("the refusal must not carry our own figure: %q", ans.Answer)
+	}
+	if prov.calls != 0 || exec.calls != 0 || sqlFB.calls != 0 {
+		t.Fatalf("nothing may be planned or read for a foreign-scope question: planner=%d api=%d sql=%d", prov.calls, exec.calls, sqlFB.calls)
+	}
+	// The same question about our own scope still answers.
+	ans, err = a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "Show me the goat count for the other farm"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ans.Mode == domain.ModeRefused {
+		t.Fatalf("an ordinary two-park question must still be answered, got %q", ans.Answer)
+	}
+}
+
 type setCountingCache struct{ sets int }
 
 func (c *setCountingCache) Get(string) (domain.Answer, bool) { return domain.Answer{}, false }

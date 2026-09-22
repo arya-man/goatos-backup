@@ -267,8 +267,15 @@ func monthMatchIsPeriod(norm string, m phraseMatch) bool {
 // namedDayIsPeriod applies the same "may" caution to a named day: "12 may be
 // sick" is not the 12th of May unless a year follows or a date preposition
 // precedes it.
+// Compiled once: namedDayIsPeriod runs per phrase match on every question, and
+// regexp.MustCompile inside it recompiled both patterns on each call.
+var (
+	reBareMay       = regexp.MustCompile(`\bmay\b`)
+	reFourDigitYear = regexp.MustCompile(`\d{4}`)
+)
+
 func namedDayIsPeriod(norm string, m phraseMatch) bool {
-	if !regexp.MustCompile(`\bmay\b`).MatchString(m.text) || regexp.MustCompile(`\d{4}`).MatchString(m.text) {
+	if !reBareMay.MatchString(m.text) || reFourDigitYear.MatchString(m.text) {
 		return true
 	}
 	before := strings.Fields(norm[:m.start])

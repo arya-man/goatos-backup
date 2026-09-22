@@ -118,7 +118,15 @@ func (a *Assistant) probeFilterValues(ctx context.Context, actor domain.Actor, s
 			continue
 		}
 		values, err := a.distinctValues(ctx, actor, card.Name, col)
-		if err != nil || len(values) == 0 {
+		if err != nil {
+			// The probe is best-effort — it only explains an empty read — but a
+			// silent skip made a repeatedly failing probe indistinguishable from a
+			// column with no stored values, so it is logged rather than swallowed.
+			a.log.WarnContext(ctx, "ceoai filter-value probe failed",
+				"error", err, "view", card.Name, "column", col, "tenant_id", actor.TenantID)
+			continue
+		}
+		if len(values) == 0 {
 			continue
 		}
 		for _, lit := range lits[col] {

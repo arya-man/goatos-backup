@@ -297,6 +297,22 @@ func truncateText(s string, n int) string {
 }
 
 // hasUsableResult reports whether any sub-question returned grounding facts.
+// allReadsFailed reports that the plan ran at least one read and every one of
+// them errored. It is deliberately distinct from "no usable result": a plan
+// whose reads all returned ZERO ROWS answered the question honestly (nothing
+// found), while a plan whose reads all FAILED answered nothing at all.
+func allReadsFailed(results []domain.ToolResult) bool {
+	if len(results) == 0 {
+		return false
+	}
+	for _, r := range results {
+		if r.Err == nil {
+			return false
+		}
+	}
+	return true
+}
+
 func hasUsableResult(results []domain.ToolResult) bool {
 	for _, r := range results {
 		if r.Err == nil && len(r.Facts) > 0 {

@@ -421,6 +421,12 @@ func windowResult(actor domain.Actor, subs []domain.SubQuestion, results []domai
 		value = describeExecutedWindows(w, boundPrimary, boundCompare)
 	case asOf != "":
 		value = "as of " + biztime.FarmDateFromBusinessDate(asOf)
+		// The question named a period but the source that answered it records a
+		// CURRENT STATE, so the read bound a single day. Saying only "as of
+		// <today>" silently re-labels the answer's period; name both.
+		if !w.IsZero() {
+			value += " (current state — the source does not record the " + describeExecutedWindows(w, true, false) + " period you asked about)"
+		}
 	default:
 		return nil
 	}

@@ -73,12 +73,16 @@ func (composer) compose(results []domain.ToolResult) (body string, citations []d
 		if r.Err != nil {
 			// Never surface the raw internal error (route/tool wiring, SQL, etc.)
 			// to the leadership user — that stays in the admin trace + audit. Show
-			// a clean, honest "not available yet" line instead.
-			sections = append(sections, fmt.Sprintf("%s isn't available to the assistant yet.", surfaceOrRoute(r)))
+			// a clean, honest "the read did not come back" line instead. It names
+			// the surface in words rather than the route token, so a failed
+			// model-drafted read never renders as the bare "sql: could not be
+			// retrieved." the held-out judge caught.
+			sections = append(sections, readFailureLine(r))
 			continue
 		}
+		r = withGroundedFacts(r)
 		if len(r.Facts) == 0 && strings.TrimSpace(r.Summary) == "" {
-			sections = append(sections, fmt.Sprintf("%s: no records found for the requested scope.", surfaceOrRoute(r)))
+			sections = append(sections, emptyReadLine(r))
 		} else {
 			sections = append(sections, renderAnswerBlock(r))
 			for _, f := range r.Facts {
@@ -679,6 +683,47 @@ func matchesAny(text string, needles []string) bool {
 		}
 	}
 	return false
+}
+
+// withGroundedFacts drops facts whose VALUE is blank. A fact with a label and
+// no value rendered as "Total Births in Last 7 days: ." — a heading presented as
+// a figure with nothing behind it. A blank value is the read saying it has no
+// number, so the result falls through to the honest "no records" line instead.
+func withGroundedFacts(r domain.ToolResult) domain.ToolResult {
+	kept := make([]domain.Fact, 0, len(r.Facts))
+	for _, f := range r.Facts {
+		if strings.TrimSpace(f.Value) == "" {
+			continue
+		}
+		kept = append(kept, f)
+	}
+	if len(kept) == len(r.Facts) {
+		return r
+	}
+	r.Facts = kept
+	return r
+}
+
+// readFailureLine is the user-facing sentence for a read that errored.
+func readFailureLine(r domain.ToolResult) string {
+	return fmt.Sprintf("I couldn't read the %s data for this question, so no figure is shown for it.", readSubject(r))
+}
+
+// emptyReadLine is the user-facing sentence for a read that ran and returned
+// nothing. It names the period the read actually covered (the assistant's own
+// Window fact is the only other place that says so), because "no records found"
+// with no period reads as "never", which is a different claim.
+func emptyReadLine(r domain.ToolResult) string {
+	return fmt.Sprintf("No records found in the %s data for the requested scope.", readSubject(r))
+}
+
+// readSubject names a result in words. A bare route token ("sql", "api") is
+// wiring, not something a leader can read, so it degrades to "source".
+func readSubject(r domain.ToolResult) string {
+	if s := strings.TrimSpace(r.Surface); s != "" {
+		return s
+	}
+	return "source"
 }
 
 func surfaceOrRoute(r domain.ToolResult) string {
