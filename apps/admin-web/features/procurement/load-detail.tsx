@@ -186,8 +186,8 @@ function GoatRows({ goats, pageContract }: { goats: ProcurementLoadGoat[]; pageC
         <div className="sp" style={{ flex: 1 }} />
         <span className="muted small">{copy(pageContract, "section.goats.note")}</span>
       </div>
-      <div style={{ overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "section.goats.title")}>
-        <table>
+      <div className="twrap" tabIndex={0} role="group" aria-label={copy(pageContract, "section.goats.title")}>
+        <table className="procurement-load-goats-table">
           <thead>
             <tr>
               {goatCols.map((c) => (

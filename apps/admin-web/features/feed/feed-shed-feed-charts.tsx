@@ -177,7 +177,13 @@ export function FeedShedFeedCharts({
           {pens.map((pen) => {
             const days = byPen.get(rowId(pen)) ?? new Map<string, PenDay>();
             return (
-              <div className="penbars" key={rowId(pen)}>
+              <div
+                className="penbars"
+                key={rowId(pen)}
+                role="group"
+                tabIndex={0}
+                aria-label={`${pen.operational_location_display} · ${fc("shedfeed.chart.aria")}`}
+              >
                 {/* Backend-composed location, rendered verbatim: "Castro 1". */}
                 <div className="penbars-title">
                   <b>{pen.operational_location_display}</b>

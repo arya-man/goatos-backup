@@ -87,8 +87,7 @@
         {
           "role": "button",
           "name": "Filters",
-          "optional": true,
-          "requireObserved": true
+          "optional": true
         },
         {
           "role": "button",
@@ -128,8 +127,7 @@
         {
           "role": "button",
           "name": "Filters",
-          "optional": true,
-          "requireObserved": true
+          "optional": true
         },
         {
           "role": "button",
@@ -170,8 +168,7 @@
         {
           "role": "button",
           "name": "Filters",
-          "optional": true,
-          "requireObserved": true
+          "optional": true
         },
         {
           "role": "button",

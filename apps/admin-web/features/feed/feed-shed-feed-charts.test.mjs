@@ -67,3 +67,8 @@ test("the verified bar is the backend's figure on the same scale, and a blank fi
     assert.ok(source.includes(`"${key}"`), `charts must read backend copy key ${key}`);
   }
 });
+
+test("mobile pen bar scroll regions are keyboard focusable and labelled", () => {
+  assert.match(source, /className="penbars"[\s\S]*?role="group"[\s\S]*?tabIndex=\{0\}/);
+  assert.match(source, /aria-label=\{\`\$\{pen\.operational_location_display\} · \$\{fc\("shedfeed\.chart\.aria"\)\}`\}/);
+});

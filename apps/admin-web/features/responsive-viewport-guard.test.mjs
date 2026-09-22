@@ -127,6 +127,13 @@ test("vaccination dropdown values and duration popover stay inside laptop and mo
         ".vplan .seg",
         ".vplan .vp-seg",
       ]);
+      const durationTargets = await page.$$eval(".vplan .durrow input, .vplan .durunit", (els) =>
+        els.map((el) => ({ width: el.getBoundingClientRect().width, height: el.getBoundingClientRect().height })),
+      );
+      for (const target of durationTargets) {
+        assert.ok(target.width >= 40, `duration control width should stay tappable, got ${target.width}`);
+        assert.ok(target.height >= 40, `duration control height should stay tappable, got ${target.height}`);
+      }
     });
   }
 });

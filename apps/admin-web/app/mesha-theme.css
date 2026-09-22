@@ -1172,6 +1172,14 @@
      the moment the table held five rows), the .twrap wrapper owns the horizontal scroll. */
   .main table.animal-purchase-loads-table th,.main table.animal-purchase-loads-table td,.main table.animal-purchase-loads-table td .celllink{white-space:nowrap;overflow-wrap:normal;word-break:normal}
   .main table.animal-purchase-loads-table td .celllink{max-width:none;min-width:max-content}
+  .main table.source-loads-table{min-width:1180px}
+  .main table.source-loads-table th,.main table.source-loads-table td,.main table.source-loads-table td .celllink{white-space:nowrap;overflow-wrap:normal;word-break:normal}
+  .main table.source-loads-table td .celllink{max-width:none;min-width:max-content}
+  .main table.source-loads-table th:nth-child(9),.main table.source-loads-table td:nth-child(9){min-width:172px}
+  .main table.procurement-load-goats-table{min-width:1280px}
+  .main table.procurement-load-goats-table th,.main table.procurement-load-goats-table td{white-space:nowrap;overflow-wrap:normal;word-break:normal}
+  .main table.procurement-load-goats-table th:nth-child(1),.main table.procurement-load-goats-table td:nth-child(1){min-width:240px}
+  .main table.procurement-load-goats-table th:nth-child(2),.main table.procurement-load-goats-table td:nth-child(2),.main table.procurement-load-goats-table th:nth-child(3),.main table.procurement-load-goats-table td:nth-child(3),.main table.procurement-load-goats-table th:nth-child(4),.main table.procurement-load-goats-table td:nth-child(4){min-width:160px}
   .main table.feed-purchases-table td .celllink{max-width:none;min-width:max-content}
   .main table.feed-purchases-table th:nth-child(3),.main table.feed-purchases-table td:nth-child(3),.main table.feed-purchases-table td:nth-child(3) .celllink,
   .main table.feed-purchases-table th:nth-child(8),.main table.feed-purchases-table td:nth-child(8),.main table.feed-purchases-table td:nth-child(8) .celllink{white-space:normal;overflow-wrap:normal;word-break:normal}
@@ -1809,6 +1817,7 @@
   .schedule-dot.state-scheduled,.schedule-cell.state-scheduled{background:var(--infox);color:var(--info)}
   .schedule-dot.state-up_to_date,.schedule-cell.state-up_to_date{background:var(--okx);color:var(--brand-d)}
   .schedule-dot.state-no_record,.schedule-cell.state-no_record{background:var(--bg);color:var(--faint)}
+  .vaccination-schedule-tablewrap{padding:0;max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-gutter:stable}
   .main table.full-vaccine-schedule-table{table-layout:fixed;min-width:1220px;width:100%}
   .main table.full-vaccine-schedule-table th,.main table.full-vaccine-schedule-table td{white-space:nowrap;overflow-wrap:normal;word-break:normal}
   .main table.full-vaccine-schedule-table th{padding:9px 12px}
@@ -2913,6 +2922,7 @@
      scalar figures as stacked label / input / hint blocks. */
   .valuation-form .tbl input{width:100%;max-width:220px;background:var(--panel-2,var(--panel));border:1px solid var(--line);border-radius:8px;padding:6px 10px;color:var(--ink);font:inherit}
   .valuation-form .tbl input:disabled{opacity:.7}
+  .sales-valuation-tablewrap{max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-gutter:stable}
   .valuation-form label.market-config-column{display:flex;flex-direction:column;gap:6px}
   .valuation-form label.market-config-column input{max-width:220px;background:var(--panel-2,var(--panel));border:1px solid var(--line);border-radius:8px;padding:6px 10px;color:var(--ink);font:inherit}
 .market-config-column{min-width:0}
@@ -5724,7 +5734,9 @@ aside.drawer.wt-feedband-drawer{width:94vw;max-width:960px}
     min-width: 0;
     max-width: 100%;
   }
-  .vplan .durrow { grid-template-columns: minmax(72px, 1fr) minmax(96px, 1fr); }
+  .vplan .durrow { grid-template-columns: minmax(72px, 1fr) minmax(104px, 1fr); }
+  .vplan .durrow input { min-width: 72px; }
+  .vplan .durunit { min-width: 104px; }
   .vplan .pop {
     position: fixed;
     left: 16px;

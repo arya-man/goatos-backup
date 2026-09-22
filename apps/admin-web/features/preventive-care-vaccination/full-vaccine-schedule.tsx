@@ -540,7 +540,7 @@ export async function VaccinationFullSchedule({
           </div>
         </div>
       ) : (
-        <div className="bd" style={{ padding: 0, overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "section.full_schedule.operator_title")}>
+        <div className="bd tablewrap vaccination-schedule-tablewrap" tabIndex={0} role="group" aria-label={copy(pageContract, "section.full_schedule.operator_title")}>
           <table className="full-vaccine-schedule-table">
             <thead>
               <tr>
