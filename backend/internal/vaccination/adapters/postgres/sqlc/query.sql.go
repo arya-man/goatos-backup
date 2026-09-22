@@ -794,12 +794,18 @@ func (q *Queries) ListRecordedCompletions(ctx context.Context, arg ListRecordedC
 }
 
 const listRecordedCompletionsByTask = `-- name: ListRecordedCompletionsByTask :many
-SELECT c.completion_id::text AS completion_id
+SELECT DISTINCT c.completion_id::text AS completion_id
 FROM vaccination_completions c
-JOIN sop_submission_items i ON i.tenant_id = c.tenant_id AND i.item_id = c.sop_submission_item_id
-JOIN sop_submissions s ON s.tenant_id = i.tenant_id AND s.submission_id = i.submission_id
-WHERE c.tenant_id = $1 AND s.task_id = $2 AND c.status = 'recorded'
-  AND c.sop_submission_item_id IS NOT NULL
+LEFT JOIN sop_submission_items i ON i.tenant_id = c.tenant_id AND i.item_id = c.sop_submission_item_id
+LEFT JOIN sop_submissions s ON s.tenant_id = i.tenant_id AND s.submission_id = i.submission_id
+LEFT JOIN obligation_instances oi ON oi.tenant_id = c.tenant_id AND oi.obligation_id = c.obligation_id
+LEFT JOIN obligation_batches ob ON ob.tenant_id = c.tenant_id AND ob.batch_id = c.batch_id
+WHERE c.tenant_id = $1 AND c.status = 'recorded'
+  AND (
+    s.task_id = $2
+    OR oi.sop_task_id = $2
+    OR ob.sop_task_id = $2
+  )
 ORDER BY c.completion_id
 `
 
@@ -808,10 +814,11 @@ type ListRecordedCompletionsByTaskParams struct {
 	TaskID   pgtype.UUID
 }
 
-// SOP verify fan-out: the still-recorded vaccination completions captured under a SOP task's
-// submissions, so a task-level verify/rework can be applied per completion. Drives from the task's
-// submissions (sop_submissions_task_history_idx) -> items (sop_submission_items_submission_idx) ->
-// completions (vaccination_completions_submission_item_idx).
+// SOP verify fan-out: the still-recorded vaccination completions captured under a SOP task. Normal
+// submission fan-out reaches completions through submission items. Live proof-upload reconciliation
+// can create the same recorded completion before a submission-item row exists, so it must still fan
+// out through the obligation's task/batch binding or the verifier sees "video exists" while the task
+// review misses the animal.
 func (q *Queries) ListRecordedCompletionsByTask(ctx context.Context, arg ListRecordedCompletionsByTaskParams) ([]string, error) {
 	rows, err := q.db.Query(ctx, listRecordedCompletionsByTask, arg.TenantID, arg.TaskID)
 	if err != nil {
