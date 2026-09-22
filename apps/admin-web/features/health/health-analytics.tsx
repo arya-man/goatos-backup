@@ -501,17 +501,12 @@ export async function HealthAnalyticsPage({
 
       {tab === "problems" ? (
         <>
-          {/* THE HEADLINE THE FOUR CHARTS CUT. It is the backend's own `problems.total`, not a
-              sum of any chart's bars: the breed chart is capped at the busiest 15, so adding its
-              bars up would quietly report a smaller farm than the one above it. */}
-          <section className="grid g3 kpi-row" style={{ gap: 14 }} aria-label={ha(pageContract, "problems.total.label")}>
-            <Kpi
-              accent="var(--brand)"
-              label={ha(pageContract, "problems.total.label")}
-              value={nf(problems.total)}
-              sub={ha(pageContract, "problems.total.sub")}
-            />
-          </section>
+          {/* NO HEADLINE TILE HERE (maintainer, 2026-09-22). The number the four charts cut is
+              already on this page: `problems.total` and `totals.new_cases` count the same rows
+              with the same predicate -- TestHealthProblemsOneToManyCountsEachEpisodeOnceAcrossEveryBreakdown
+              asserts they are equal -- so the KPI strip above the tabs is showing it as "New
+              cases". A second tile would be the same figure twice under two names, which is the
+              cross-surface disagreement this repo bans, one card apart. */}
           <p className="muted small" style={{ margin: "0 0 4px" }}>
             {ha(pageContract, "problems.note")}
           </p>

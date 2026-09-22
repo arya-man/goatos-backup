@@ -6231,8 +6231,6 @@ func pageSpecificCopy(id string) map[string]string {
 			"filter.window.custom":      "Custom",
 			"filter.window.custom_hint": "Pick any two dates in the calendar beside these.",
 
-			"problems.total.label": "Health problems",
-			"problems.total.sub":   "Cases opened in this window, counted once per episode",
 			"problems.note": "One problem is one episode of one illness in one animal. An animal treated twice is " +
 				"counted twice, because a relapse is a problem the farm had twice. Every chart below cuts this same " +
 				"total, so each one adds back up to it.",
