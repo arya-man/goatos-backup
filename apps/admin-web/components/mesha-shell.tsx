@@ -351,6 +351,7 @@ export function MeshaShell({
     "/sales/vendors",
     "/tasks",
     "/vaccination/plan",
+    "/vaccination/live-tracker",
   ];
   const ROUTE_FAMILIES_WITH_LOCAL_OR_NO_PARK_SCOPE = [
     "/calendar/drive",

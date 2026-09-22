@@ -171,9 +171,8 @@ export async function LiveTrackerBoard({
   const asOfDate = /^\d{4}-\d{2}-\d{2}/.test(params.scope.asOf ?? "") ? params.scope.asOf!.slice(0, 10) : null;
   const resetHref = liveTrackerResetHref(params);
   const filters = buildFilters(params, data, pageContract);
-  // hasFilter deliberately excludes the top-bar park scope, and liveTrackerResetHref re-emits that
-  // scope, so offering "clear all" for a bare park selection produced a button that navigated to the
-  // identical URL and changed nothing.
+  // hasFilter deliberately excludes the page's park scope, and liveTrackerResetHref re-emits that
+  // scope, so offering "clear all" for a bare park selection would navigate to the identical URL.
   const clearAllHref = params.hasFilter ? resetHref : null;
   const passportHref = (goatId: string) => `${liveTrackerHref(params, { goat_passport: goatId })}#lt-combo`;
   const closePassportHref = `${liveTrackerHref(params)}#lt-combo`;
@@ -379,8 +378,8 @@ function buildFilters(
       allLabel: copy(pageContract, "filter.all_parks"),
       icon: "layers",
       selected: params.parkId ?? "",
-      // Park writes the SHARED top-bar scope key, not a second page-local park filter, so the shell
-      // selector and this control can never disagree about which park is in view.
+      // Park is authoritative for this page's backend read. The shell hides its duplicate selector
+      // on this route, so users do not have to change global scope before this filter works.
       choices: data.filter_options.parks.map((option) => ({
         value: option.id,
         label: option.label,
