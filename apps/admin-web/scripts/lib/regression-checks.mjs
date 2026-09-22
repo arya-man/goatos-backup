@@ -93,6 +93,24 @@ export function collectRegressionFindings({ mobile = false, limit = 40 } = {}) {
     for (const r of range.getClientRects()) if (r.width > 0.5) tops.add(Math.round(r.top));
     return tops.size;
   };
+  // A single word (no spaces) that the browser split across lines: "Warmu/p", "C/B/E", a hash on 2 lines.
+  const brokenToken = (el) => {
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const text = node.textContent;
+      const re = /\S{2,}/g;
+      for (let m = re.exec(text); m; m = re.exec(text)) {
+        const range = document.createRange();
+        range.setStart(node, m.index);
+        range.setEnd(node, m.index + m[0].length);
+        const tops = new Set();
+        for (const r of range.getClientRects()) if (r.width > 0.5) tops.add(Math.round(r.top));
+        if (tops.size >= 2) return { token: m[0], lines: tops.size };
+      }
+    }
+    return null;
+  };
+  const clipsAny = (p) => { const s = getComputedStyle(p); return s.overflowX !== "visible" || s.overflowY !== "visible"; };
   const truncatedWithEllipsis = (el) => {
     const s = getComputedStyle(el);
     return s.textOverflow === "ellipsis" && el.scrollWidth > el.clientWidth + 1;
@@ -128,7 +146,10 @@ export function collectRegressionFindings({ mobile = false, limit = 40 } = {}) {
       if (r.height < 0.8 * fs) add("A-chart-label-collapsed", el, `height ${Math.round(r.height)}px for ${Math.round(fs)}px text`);
       const cut = clippedNoEllipsis(el);
       if (cut) add("A-chart-label-clipped", el, cut);
-      const out = Math.max(box.left - r.left, r.right - box.right, box.top - r.top, r.bottom - box.bottom);
+      const boxEl = chart.closest(".card, .kpi, [role=dialog], .drawer, .modal") ?? chart;
+      let inScroller = false;
+      for (let q = el.parentElement; q && q !== boxEl; q = q.parentElement) if (clipsAny(q)) { inScroller = true; break; }
+      const out = inScroller ? 0 : Math.max(box.left - r.left, r.right - box.right, box.top - r.top, r.bottom - box.bottom);
       if (out > 1) add("A-chart-label-clipped", el, `${Math.round(out)}px outside its card`);
       if (el.matches(".wbl") && r.width < 80) add("A-chart-label-column-narrow", el, `label column ${Math.round(r.width)}px (<80px)`);
       if (truncatedWithEllipsis(el)) ellipsised += 1;
@@ -202,8 +223,8 @@ export function collectRegressionFindings({ mobile = false, limit = 40 } = {}) {
     for (const el of [td, ...td.querySelectorAll(".celllink")]) {
       const t = txt(el);
       if (!t || el.querySelector("td, table")) continue;
-      const lines = lineCount(el);
-      if (lines >= 3 && (t.length <= 6 || !/\s/.test(t))) { add("C-cell-mid-token-wrap", el, `"${t.slice(0, 20)}" broken over ${lines} lines`); break; }
+      const broken = brokenToken(el);
+      if (broken) { add("C-cell-mid-token-wrap", el, `"${broken.token.slice(0, 24)}" split over ${broken.lines} lines`); break; }
     }
     const s = getComputedStyle(td);
     if (s.overflowX === "visible" && td.scrollWidth > td.clientWidth + 1 && !td.querySelector("[style*=absolute], .dot")) add("C-cell-overpaint", td, `text ${td.scrollWidth - td.clientWidth}px wider than the cell`);
@@ -212,15 +233,14 @@ export function collectRegressionFindings({ mobile = false, limit = 40 } = {}) {
   // ---------- chips / badges ----------
   for (const chip of root.querySelectorAll(".tag, .chip, .pill, .ec, .badge, [class*=chip], [class*=tag]")) {
     const t = txt(chip);
-    if (!t || !painted(chip) || chip.querySelector(".tag, .chip, .pill, .badge, [class*=chip]")) continue;
+    if (!t || !painted(chip) || chip.querySelector(".tag, .chip, .pill, .badge, [class*=chip], button, a") || chip.children.length > 2) continue;
     const s = getComputedStyle(chip);
     if (!/inline|flex/.test(s.display)) continue;
     const cut = clippedNoEllipsis(chip);
     if (cut) { add("chip-crushed", chip, `"${t.slice(0, 24)}" clipped (${cut})`); continue; }
     if (truncatedWithEllipsis(chip) && t.length <= 12) { add("chip-crushed", chip, `short chip "${t}" ellipsised to ${chip.clientWidth}px`); continue; }
-    const words = t.split(" ");
-    const lines = lineCount(chip);
-    if (lines > words.length) add("chip-crushed", chip, `"${t.slice(0, 24)}" wraps mid-word over ${lines} lines`);
+    const broken = brokenToken(chip);
+    if (broken) add("chip-crushed", chip, `"${broken.token.slice(0, 24)}" split over ${broken.lines} lines`);
   }
 
   // ---------- J: raw text ----------
