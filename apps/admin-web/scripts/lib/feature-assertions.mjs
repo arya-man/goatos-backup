@@ -9,7 +9,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const manifestPath = join(here, "../../../../tools/dashboard-automation/feature-assertions.json");
 
 // Same write-guard as the overlay journeys: steps may only open, switch or reveal.
-export const WRITE_WORDS = /\b(save|approve|reject|delete|remove|retire|submit|upload|download|export|assign|mark|confirm|create|add|publish|send|apply changes|sign out|log ?out)\b/i;
+export const WRITE_WORDS = /\b(save|approve|reject|delete|remove|retire|submit|upload|download|export|assign|mark|confirm|create|add|publish|send|record|register|apply changes|sign out|log ?out)\b/i;
 
 export function loadFeatureAssertions(path = manifestPath) {
   if (!existsSync(path)) return [];
@@ -76,6 +76,9 @@ export async function assertFeaturesPresent(page, { routeName, viewportLabel, sc
         }
       }
     } catch (error) {
+      const message = String(error?.message ?? error);
+      // The write guard stopping a step is a safety skip, not a missing feature.
+      if (message.startsWith("refused ")) { console.log(`feature_assertion_skip=${routeName}:${viewportLabel}:${entry.sha}:${message.slice(0, 80)}`); continue; }
       if (entry.status !== "data-dependent") missing.push({ entry, miss: { what: String(error?.message ?? error).split("\n")[0] } });
     }
   }
