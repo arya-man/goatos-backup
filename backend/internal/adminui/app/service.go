@@ -5716,7 +5716,14 @@ func pageSpecificCopy(id string) map[string]string {
 			"section.time.caption":       "Daily gain by week inside the selected period under the selected weighing mode. The default period starts on 03/08/2026, where the reliable weighing run begins. Park, sex and origin filters still apply.",
 			"section.time.aria":          "Daily gain by week",
 			"empty.time.body":            "No week in this period has a kid or a pen weighed twice.",
-			"value.time.animals":         "kids",
+			// The chip beside every bar on these charts counts ANIMALS, not kids. Nothing in
+			// weight_demographics.go filters by age: management_stage is a reporting dimension
+			// there, never a predicate, so a scanned weigh counts whatever the tag resolves to and
+			// a whole-pen weigh counts every resident it holds. On 2026-09-22 that was F2 animals
+			// up to 519 days old on the scanned side, and 59 Non-Pregnant females up to 855 days
+			// plus a Buck on the whole-pen side -- all labelled "kids". The number is honest and
+			// free-flow weighing cannot ask an animal its age; the word was the defect.
+			"value.time.animals":         "animals",
 			"section.time.breed.title":   "Weekly growth by breed",
 			"section.time.breed.caption": "The same selected period and weighing mode, one row per breed. A pen holding more than one breed is counted in the overall trend above but in no breed here, so the breed rows need not add up to it.",
 			"section.time.breed.aria":    "Daily gain by breed and week",
