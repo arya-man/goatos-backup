@@ -102,6 +102,8 @@ func buildDomainBusOn(bus eventbus.Bus, pool *pgxpool.Pool, queryTimeout time.Du
 	// panics when used, so that test keeps the bare roster.
 	var browsers interface {
 		ResolveBrowserRecipients(context.Context, string, string) ([]browserpush.Recipient, error)
+		ResolveModuleDutyBrowserRecipients(context.Context, string, string, string, string, string, time.Time) ([]browserpush.Recipient, error)
+		ResolvePositionBrowserRecipients(context.Context, string, string, string, string, time.Time) ([]browserpush.Recipient, error)
 	} = notificationbridge.NoBrowsers{}
 	if pool != nil {
 		browsers = browserpush.NewService(browserpushpg.NewRepository(pool, queryTimeout))

@@ -57,6 +57,22 @@ func (f *fakeRepo) ResolveMemberRecipients(_ context.Context, _, _ string) ([]Re
 	return f.resolveResult, nil
 }
 
+func (f *fakeRepo) ResolveModuleDutyRecipients(context.Context, string, string, string, string, string, time.Time) ([]Recipient, error) {
+	return f.resolveResult, nil
+}
+
+func (f *fakeRepo) ResolvePositionRecipients(context.Context, string, string, string, string, time.Time) ([]Recipient, error) {
+	return f.resolveResult, nil
+}
+
+func (f *fakeRepo) ResolveModuleDutyRecipientsBatch(context.Context, string, string, []string, string, []string, time.Time) (map[string][]Recipient, error) {
+	return map[string][]Recipient{"park-1|seat": f.resolveResult}, nil
+}
+
+func (f *fakeRepo) ResolvePositionRecipientsBatch(context.Context, string, string, []string, []string, time.Time) (map[string][]Recipient, error) {
+	return map[string][]Recipient{"park-1|seat": f.resolveResult}, nil
+}
+
 func (f *fakeRepo) MarkTokenStale(_ context.Context, _, token, reason string, _ time.Time) (int, error) {
 	f.staleToken = token
 	f.staleReason = reason

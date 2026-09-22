@@ -3,6 +3,7 @@ package notificationbridge
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	"github.com/vgoats/goatos/backend/internal/browserpush"
 	workforcedomain "github.com/vgoats/goatos/backend/internal/workforce/domain"
@@ -40,14 +41,14 @@ import (
 //     collision is impossible and no FK is implied.
 //
 // WHAT IT DOES NOT COVER, and this is the honest limit: the POSITION and MODULE-DUTY paths
-// (ResolvePositionRecipients, ResolveModuleDutyRecipients) resolve a desk, not a person, and
-// their SQL returns devices without ever naming the member set it drew them from. There is no
-// member list to re-ask the browser registry with, so those paths are passed through UNCHANGED
-// and a position-addressed alert still reaches phones only. The leadership-task pushes -- the
-// ones the CEOs actually care about, and the ones this change exists for -- are addressed by
-// person and go through ResolveMemberRecipients, which IS covered.
+// used to cover only ResolveMemberRecipients. That left leadership and park-desk alerts visible in
+// the dashboard drawer but silent in Chrome, because those paths are addressed by position or
+// module duty. The browser registry now mirrors the same audience reads, so all three resolver
+// shapes can add browser addresses without each notifier learning about browsers.
 type browserRecipientSource interface {
 	ResolveBrowserRecipients(ctx context.Context, tenantID, memberOrUserID string) ([]browserpush.Recipient, error)
+	ResolveModuleDutyBrowserRecipients(ctx context.Context, tenantID, scopeType, scopeID, moduleCode, dutyType string, at time.Time) ([]browserpush.Recipient, error)
+	ResolvePositionBrowserRecipients(ctx context.Context, tenantID, scopeType, scopeID, positionCode string, at time.Time) ([]browserpush.Recipient, error)
 }
 
 // NoBrowsers is the browser source for a process that has no database to read registrations
@@ -58,6 +59,14 @@ type browserRecipientSource interface {
 type NoBrowsers struct{}
 
 func (NoBrowsers) ResolveBrowserRecipients(context.Context, string, string) ([]browserpush.Recipient, error) {
+	return nil, nil
+}
+
+func (NoBrowsers) ResolveModuleDutyBrowserRecipients(context.Context, string, string, string, string, string, time.Time) ([]browserpush.Recipient, error) {
+	return nil, nil
+}
+
+func (NoBrowsers) ResolvePositionBrowserRecipients(context.Context, string, string, string, string, time.Time) ([]browserpush.Recipient, error) {
 	return nil, nil
 }
 
@@ -98,8 +107,52 @@ func (r *BrowserAwareRecipients) ResolveMemberRecipients(ctx context.Context, te
 		}
 		return devices, nil
 	}
-	if len(browsers) == 0 {
+	return mergeBrowserRecipients(devices, browsers), nil
+}
+
+// ResolveModuleDutyRecipients returns module-duty phones plus subscribed browsers for the same
+// duty audience.
+func (r *BrowserAwareRecipients) ResolveModuleDutyRecipients(ctx context.Context, tenantID, scopeType, scopeID, moduleCode, dutyType string) ([]workforcedomain.NotificationRecipient, error) {
+	devices, err := r.RecipientResolver.ResolveModuleDutyRecipients(ctx, tenantID, scopeType, scopeID, moduleCode, dutyType)
+	if err != nil {
+		return nil, err
+	}
+	browsers, browserErr := r.browsers.ResolveModuleDutyBrowserRecipients(ctx, tenantID, scopeType, scopeID, moduleCode, dutyType, time.Now().UTC())
+	if browserErr != nil {
+		r.logBrowserError(ctx, tenantID, browserErr)
 		return devices, nil
+	}
+	return mergeBrowserRecipients(devices, browsers), nil
+}
+
+// ResolvePositionRecipients returns position phones plus subscribed browsers for the same position
+// or role-grant audience.
+func (r *BrowserAwareRecipients) ResolvePositionRecipients(ctx context.Context, tenantID, scopeType, scopeID, positionCode string) ([]workforcedomain.NotificationRecipient, error) {
+	devices, err := r.RecipientResolver.ResolvePositionRecipients(ctx, tenantID, scopeType, scopeID, positionCode)
+	if err != nil {
+		return nil, err
+	}
+	browsers, browserErr := r.browsers.ResolvePositionBrowserRecipients(ctx, tenantID, scopeType, scopeID, positionCode, time.Now().UTC())
+	if browserErr != nil {
+		r.logBrowserError(ctx, tenantID, browserErr)
+		return devices, nil
+	}
+	return mergeBrowserRecipients(devices, browsers), nil
+}
+
+func (r *BrowserAwareRecipients) logBrowserError(ctx context.Context, tenantID string, err error) {
+	if r.logger == nil {
+		return
+	}
+	r.logger.WarnContext(ctx, "browser_push_recipients_unavailable",
+		slog.String("tenant_id", tenantID),
+		slog.String("error", err.Error()),
+	)
+}
+
+func mergeBrowserRecipients(devices []workforcedomain.NotificationRecipient, browsers []browserpush.Recipient) []workforcedomain.NotificationRecipient {
+	if len(browsers) == 0 {
+		return devices
 	}
 	combined := make([]workforcedomain.NotificationRecipient, 0, len(devices)+len(browsers))
 	combined = append(combined, devices...)
@@ -124,5 +177,5 @@ func (r *BrowserAwareRecipients) ResolveMemberRecipients(ctx context.Context, te
 			FCMToken:          browser.Token,
 		})
 	}
-	return combined, nil
+	return combined
 }

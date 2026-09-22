@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/vgoats/goatos/backend/internal/browserpush"
 	workforcedomain "github.com/vgoats/goatos/backend/internal/workforce/domain"
@@ -33,14 +34,28 @@ func (f *fakePhoneRecipients) ResolvePositionRecipients(_ context.Context, _, _,
 }
 
 type fakeBrowserRecipients struct {
-	recipients []browserpush.Recipient
-	err        error
-	calls      int
+	recipients    []browserpush.Recipient
+	position      []browserpush.Recipient
+	duty          []browserpush.Recipient
+	err           error
+	calls         int
+	positionCalls int
+	dutyCalls     int
 }
 
 func (f *fakeBrowserRecipients) ResolveBrowserRecipients(_ context.Context, _, _ string) ([]browserpush.Recipient, error) {
 	f.calls++
 	return f.recipients, f.err
+}
+
+func (f *fakeBrowserRecipients) ResolveModuleDutyBrowserRecipients(context.Context, string, string, string, string, string, time.Time) ([]browserpush.Recipient, error) {
+	f.dutyCalls++
+	return f.duty, f.err
+}
+
+func (f *fakeBrowserRecipients) ResolvePositionBrowserRecipients(context.Context, string, string, string, string, time.Time) ([]browserpush.Recipient, error) {
+	f.positionCalls++
+	return f.position, f.err
 }
 
 // A browser is a delivery address beside the phone, not instead of it. This is the whole point of
@@ -181,37 +196,34 @@ func TestAMissingBrowserSourceLeavesTheResolverUntouched(t *testing.T) {
 	}
 }
 
-// THE STATED LIMIT, PINNED. The position and module-duty paths resolve a DESK, and their SQL
-// returns devices without ever naming the member set it drew them from -- there is no member list
-// to re-ask the browser registry with. They pass through unchanged, and this test exists so a
-// future reader finds the boundary asserted rather than inferring it was an oversight.
-func TestThePositionAndDutyPathsArePassedThroughUnchanged(t *testing.T) {
+func TestThePositionAndDutyPathsIncludeBrowsers(t *testing.T) {
 	phones := &fakePhoneRecipients{
 		position: []workforcedomain.NotificationRecipient{{WorkforceMemberID: "m", DeviceID: "d", FCMToken: "phone-a"}},
 		duty:     []workforcedomain.NotificationRecipient{{WorkforceMemberID: "m", DeviceID: "d", FCMToken: "phone-b"}},
 	}
-	browsers := &fakeBrowserRecipients{recipients: []browserpush.Recipient{
-		{WorkforceMemberID: "m", BrowserRegistrationID: "reg-1", Token: "chrome-token"},
-	}}
+	browsers := &fakeBrowserRecipients{
+		position: []browserpush.Recipient{{WorkforceMemberID: "m", BrowserRegistrationID: "reg-position", Token: "chrome-position"}},
+		duty:     []browserpush.Recipient{{WorkforceMemberID: "m", BrowserRegistrationID: "reg-duty", Token: "chrome-duty"}},
+	}
 	resolver := WithBrowserRecipients(phones, browsers, nil)
 
 	position, err := resolver.ResolvePositionRecipients(context.Background(), "t", "park", "p1", "park_head")
 	if err != nil {
 		t.Fatalf("position: %v", err)
 	}
-	if len(position) != 1 || position[0].FCMToken != "phone-a" {
-		t.Fatalf("want the position recipients unchanged, got %+v", position)
+	if len(position) != 2 || position[0].FCMToken != "phone-a" || position[1].FCMToken != "chrome-position" {
+		t.Fatalf("want phone plus Chrome position recipients, got %+v", position)
 	}
 
 	duty, err := resolver.ResolveModuleDutyRecipients(context.Background(), "t", "park", "p1", "feed", "verify")
 	if err != nil {
 		t.Fatalf("duty: %v", err)
 	}
-	if len(duty) != 1 || duty[0].FCMToken != "phone-b" {
-		t.Fatalf("want the duty recipients unchanged, got %+v", duty)
+	if len(duty) != 2 || duty[0].FCMToken != "phone-b" || duty[1].FCMToken != "chrome-duty" {
+		t.Fatalf("want phone plus Chrome duty recipients, got %+v", duty)
 	}
 
-	if browsers.calls != 0 {
-		t.Fatalf("the browser registry must not be consulted on the desk paths, got %d calls", browsers.calls)
+	if browsers.positionCalls != 1 || browsers.dutyCalls != 1 {
+		t.Fatalf("browser registry calls position=%d duty=%d, want 1/1", browsers.positionCalls, browsers.dutyCalls)
 	}
 }

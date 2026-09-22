@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/browserpush"
 	calendarports "github.com/vgoats/goatos/backend/internal/calendar/ports"
 	workforcedomain "github.com/vgoats/goatos/backend/internal/workforce/domain"
 )
@@ -87,6 +88,18 @@ func newRosterSeatFake() *rosterSeatFake {
 	}
 }
 
+type browserSeatFake struct {
+	byDuty map[string][]browserpush.Recipient
+}
+
+func (f browserSeatFake) ResolveModuleDutyBrowserRecipientsBatch(context.Context, string, string, []string, string, []string, time.Time) (map[string][]browserpush.Recipient, error) {
+	return f.byDuty, nil
+}
+
+func (f browserSeatFake) ResolvePositionBrowserRecipientsBatch(context.Context, string, string, []string, []string, time.Time) (map[string][]browserpush.Recipient, error) {
+	return map[string][]browserpush.Recipient{}, nil
+}
+
 // TestReminderCadenceAudienceResolvesEveryVaccinationDutyHolder is the BLOCKER-2 guard.
 //
 // The reminder ladder used to address a literal position-code list
@@ -120,6 +133,35 @@ func TestReminderCadenceAudienceResolvesEveryVaccinationDutyHolder(t *testing.T)
 	wantLeadership := []string{"fcm-ceo", "fcm-director"}
 	if !equalStrings(gotLeadership, wantLeadership) {
 		t.Fatalf("leadership audience = %v, want %v", gotLeadership, wantLeadership)
+	}
+}
+
+func TestReminderCadenceAudienceAddsBrowserRecipientsToDutyBatch(t *testing.T) {
+	roster := newRosterSeatFake()
+	stage := &ReminderCadenceStage{
+		tenantID: "tenant-1",
+		roster: &browserAwareCadenceAudience{
+			roster: roster,
+			browsers: browserSeatFake{byDuty: map[string][]browserpush.Recipient{
+				"park-1|vaccination_operator_amit": {
+					{WorkforceMemberID: "m-operator", BrowserRegistrationID: "web-reg-operator", Token: "web-operator"},
+				},
+				"park-1|park_head": {
+					{WorkforceMemberID: "m-parkhead", BrowserRegistrationID: "web-reg-parkhead", Token: "web-parkhead"},
+				},
+			}},
+		},
+	}
+
+	byPark, _, err := stage.resolveCadenceAudience(context.Background(), []string{"park-1"}, time.Now())
+	if err != nil {
+		t.Fatalf("resolve audience: %v", err)
+	}
+
+	gotTokens := tokensOfRecipients(byPark["park-1"])
+	wantTokens := []string{"fcm-manager", "fcm-operator", "fcm-parkhead", "web-operator", "web-parkhead"}
+	if !equalStrings(gotTokens, wantTokens) {
+		t.Fatalf("park audience = %v, want phone plus Chrome recipients %v", gotTokens, wantTokens)
 	}
 }
 

@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/browserpush"
+	browserpushpg "github.com/vgoats/goatos/backend/internal/browserpush/adapters/postgres"
 	calendarpg "github.com/vgoats/goatos/backend/internal/calendar/adapters/postgres"
 	calendarapp "github.com/vgoats/goatos/backend/internal/calendar/app"
 	calendarports "github.com/vgoats/goatos/backend/internal/calendar/ports"
@@ -30,6 +32,11 @@ type cadenceAudienceResolver interface {
 	// ResolvePositionRecipientsBatch resolves the tenant leadership audience, which is role-grant
 	// truth (ceo_internal / pc_director), not a module duty.
 	ResolvePositionRecipientsBatch(ctx context.Context, tenantID, scopeType string, scopeIDs, positionCodes []string, at time.Time) (map[string][]workforcedomain.NotificationRecipient, error)
+}
+
+type cadenceBrowserResolver interface {
+	ResolveModuleDutyBrowserRecipientsBatch(ctx context.Context, tenantID, scopeType string, scopeIDs []string, moduleCode string, dutyTypes []string, at time.Time) (map[string][]browserpush.Recipient, error)
+	ResolvePositionBrowserRecipientsBatch(ctx context.Context, tenantID, scopeType string, scopeIDs, positionCodes []string, at time.Time) (map[string][]browserpush.Recipient, error)
 }
 
 // ReminderCadenceStage materializes the vaccination reminder cadence ladder
@@ -82,16 +89,111 @@ func NewReminderCadenceStage(deps Deps, tenantID string) *ReminderCadenceStage {
 	calendarRepo := calendarpg.NewRepository(deps.Pool, deps.PgCfg.QueryTimeout)
 	workforceRepo := workforcepg.NewRepository(deps.Pool, deps.PgCfg.QueryTimeout)
 	rosterService := workforceapp.NewRosterService(workforceRepo, workforceRepo)
+	notifyRoster := notifyRecipients(deps, rosterService, deps.Logger)
 	return &ReminderCadenceStage{
 		deps:     deps,
 		calendar: calendarapp.NewService(calendarRepo),
-		roster:   rosterService,
-		leadership: notificationbridge.NewStoredAudience(rosterService,
+		roster:   withBrowserCadenceAudience(deps, rosterService, deps.Logger),
+		leadership: notificationbridge.NewStoredAudience(notifyRoster,
 			notificationaudiencepg.NewRepository(deps.Pool, deps.PgCfg.QueryTimeout), deps.Logger),
 		tenantID: tenantID,
 		logger:   deps.Logger,
 		now:      func() time.Time { return time.Now().In(biztime.DefaultLocation()) },
 	}
+}
+
+type browserAwareCadenceAudience struct {
+	roster   cadenceAudienceResolver
+	browsers cadenceBrowserResolver
+	logger   *slog.Logger
+}
+
+func withBrowserCadenceAudience(deps Deps, roster cadenceAudienceResolver, logger *slog.Logger) cadenceAudienceResolver {
+	if roster == nil || deps.Pool == nil {
+		return roster
+	}
+	return &browserAwareCadenceAudience{
+		roster:   roster,
+		browsers: browserpush.NewService(browserpushpg.NewRepository(deps.Pool, deps.PgCfg.QueryTimeout)),
+		logger:   logger,
+	}
+}
+
+func (a *browserAwareCadenceAudience) ResolveModuleDutyRecipientsBatch(ctx context.Context, tenantID, scopeType string, scopeIDs []string, moduleCode string, dutyTypes []string, at time.Time) (map[string][]workforcedomain.NotificationRecipient, error) {
+	devices, err := a.roster.ResolveModuleDutyRecipientsBatch(ctx, tenantID, scopeType, scopeIDs, moduleCode, dutyTypes, at)
+	if err != nil {
+		return nil, err
+	}
+	browsers, browserErr := a.browsers.ResolveModuleDutyBrowserRecipientsBatch(ctx, tenantID, scopeType, scopeIDs, moduleCode, dutyTypes, at)
+	if browserErr != nil {
+		a.logBrowserError(ctx, tenantID, browserErr)
+		return devices, nil
+	}
+	return mergeBrowserBatches(devices, browsers), nil
+}
+
+func (a *browserAwareCadenceAudience) ResolvePositionRecipientsBatch(ctx context.Context, tenantID, scopeType string, scopeIDs, positionCodes []string, at time.Time) (map[string][]workforcedomain.NotificationRecipient, error) {
+	devices, err := a.roster.ResolvePositionRecipientsBatch(ctx, tenantID, scopeType, scopeIDs, positionCodes, at)
+	if err != nil {
+		return nil, err
+	}
+	browsers, browserErr := a.browsers.ResolvePositionBrowserRecipientsBatch(ctx, tenantID, scopeType, scopeIDs, positionCodes, at)
+	if browserErr != nil {
+		a.logBrowserError(ctx, tenantID, browserErr)
+		return devices, nil
+	}
+	return mergeBrowserBatches(devices, browsers), nil
+}
+
+func (a *browserAwareCadenceAudience) logBrowserError(ctx context.Context, tenantID string, err error) {
+	if a.logger == nil {
+		return
+	}
+	a.logger.WarnContext(ctx, "browser_push_recipients_unavailable",
+		slog.String("tenant_id", tenantID),
+		slog.String("error", err.Error()),
+	)
+}
+
+func mergeBrowserBatches(devices map[string][]workforcedomain.NotificationRecipient, browsers map[string][]browserpush.Recipient) map[string][]workforcedomain.NotificationRecipient {
+	if len(browsers) == 0 {
+		return devices
+	}
+	out := make(map[string][]workforcedomain.NotificationRecipient, len(devices)+len(browsers))
+	for key, list := range devices {
+		out[key] = append([]workforcedomain.NotificationRecipient(nil), list...)
+	}
+	for key, list := range browsers {
+		out[key] = mergeBrowserRecipients(out[key], list)
+	}
+	return out
+}
+
+func mergeBrowserRecipients(devices []workforcedomain.NotificationRecipient, browsers []browserpush.Recipient) []workforcedomain.NotificationRecipient {
+	if len(browsers) == 0 {
+		return devices
+	}
+	combined := make([]workforcedomain.NotificationRecipient, 0, len(devices)+len(browsers))
+	combined = append(combined, devices...)
+	seen := make(map[string]struct{}, len(devices))
+	for _, device := range devices {
+		seen[device.FCMToken] = struct{}{}
+	}
+	for _, browser := range browsers {
+		if browser.Token == "" {
+			continue
+		}
+		if _, duplicate := seen[browser.Token]; duplicate {
+			continue
+		}
+		seen[browser.Token] = struct{}{}
+		combined = append(combined, workforcedomain.NotificationRecipient{
+			WorkforceMemberID: browser.WorkforceMemberID,
+			DeviceID:          browser.BrowserRegistrationID,
+			FCMToken:          browser.Token,
+		})
+	}
+	return combined
 }
 
 // withClock overrides the stage clock. Test-only seam: the production constructor always installs the

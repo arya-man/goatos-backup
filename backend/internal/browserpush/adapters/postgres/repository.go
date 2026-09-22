@@ -194,6 +194,239 @@ SELECT DISTINCT ON (reg.fcm_token)
  ORDER BY reg.fcm_token, reg.browser_registration_id
  LIMIT 50`
 
+// resolveModuleDutyRecipientsSQL returns reachable browsers for the same module-duty audience
+// workforce's phone resolver uses. Params: $1 tenant, $2 scope type, $3 scope id, $4 at,
+// $5 module code, $6 duty type, $7 at.
+const resolveModuleDutyRecipientsSQL = `
+WITH duty_members AS (
+SELECT DISTINCT p.workforce_member_id
+FROM workforce_positions p
+JOIN position_module_duties pmd
+  ON pmd.tenant_id = p.tenant_id
+ AND pmd.position_code = p.position_code
+ AND pmd.module_code = $5
+ AND pmd.duty_type = $6
+ AND pmd.status = 'active'
+ AND pmd.effective_from <= $7::timestamptz
+ AND (pmd.effective_to IS NULL OR pmd.effective_to > $7::timestamptz)
+JOIN workforce_members m
+  ON m.tenant_id = p.tenant_id
+ AND m.workforce_member_id = p.workforce_member_id
+ AND m.status = 'active'
+WHERE p.tenant_id = $1::uuid
+  AND p.scope_type = $2
+  AND p.scope_id = $3::uuid
+  AND p.status = 'active'
+  AND p.valid_from <= $4::timestamptz
+  AND (p.valid_to IS NULL OR p.valid_to > $4::timestamptz)
+), grant_members AS (
+SELECT DISTINCT m.workforce_member_id
+FROM user_scope_grants g
+JOIN workforce_members m
+  ON m.tenant_id = g.tenant_id
+ AND m.user_id = g.user_id
+ AND m.status = 'active'
+WHERE $6 = 'verify'
+  AND g.tenant_id = $1::uuid
+  AND g.scope_type = 'tenant'
+  AND g.scope_id = $1::uuid
+  AND g.role = 'verifier'
+  AND g.status = 'active'
+  AND g.valid_from <= $7::timestamptz
+  AND (g.valid_to IS NULL OR g.valid_to > $7::timestamptz)
+), target_members AS (
+  SELECT workforce_member_id FROM duty_members
+  UNION
+  SELECT workforce_member_id FROM grant_members
+)
+SELECT DISTINCT ON (reg.fcm_token)
+       reg.workforce_member_id::text,
+       reg.browser_registration_id::text,
+       reg.fcm_token
+  FROM workforce_member_browser_push_registrations reg
+  JOIN target_members tm ON tm.workforce_member_id = reg.workforce_member_id
+ WHERE reg.tenant_id = $1::uuid
+   AND reg.status = 'active'
+ ORDER BY reg.fcm_token, reg.browser_registration_id
+ LIMIT 1000`
+
+// resolvePositionRecipientsSQL returns reachable browsers for the same position/role-grant
+// audience workforce's phone resolver uses. Params: $1 tenant, $2 scope type, $3 scope id,
+// $4 position code, $5 at.
+const resolvePositionRecipientsSQL = `
+WITH position_members AS (
+SELECT DISTINCT p.workforce_member_id
+FROM workforce_positions p
+JOIN workforce_members m
+  ON m.tenant_id = p.tenant_id
+ AND m.workforce_member_id = p.workforce_member_id
+ AND m.status = 'active'
+WHERE p.tenant_id = $1::uuid
+  AND p.scope_type = $2
+  AND p.scope_id = $3::uuid
+  AND p.position_code = $4
+  AND p.status = 'active'
+  AND p.valid_from <= $5::timestamptz
+  AND (p.valid_to IS NULL OR p.valid_to > $5::timestamptz)
+), grant_members AS (
+SELECT DISTINCT m.workforce_member_id
+FROM user_scope_grants g
+JOIN workforce_members m
+  ON m.tenant_id = g.tenant_id
+ AND m.user_id = g.user_id
+ AND m.status = 'active'
+WHERE $2 = 'tenant'
+  AND g.tenant_id = $1::uuid
+  AND g.scope_type = 'tenant'
+  AND g.scope_id = $3::uuid
+  AND g.role = $4
+  AND g.role = ANY(ARRAY['ceo_internal','pc_director','growth_director','feed_director','health_director','procurement_director','breeding_director','verifier'])
+  AND g.status = 'active'
+  AND g.valid_from <= $5::timestamptz
+  AND (g.valid_to IS NULL OR g.valid_to > $5::timestamptz)
+), park_grant_members AS (
+SELECT DISTINCT m.workforce_member_id
+FROM user_scope_grants g
+JOIN workforce_members m
+  ON m.tenant_id = g.tenant_id
+ AND m.user_id = g.user_id
+ AND m.status = 'active'
+WHERE $2 = 'center'
+  AND g.tenant_id = $1::uuid
+  AND g.scope_type = 'park'
+  AND g.scope_id = $3::uuid
+  AND g.role = $4
+  AND g.role = ANY(ARRAY['park_head','procurement_manager'])
+  AND g.status = 'active'
+  AND g.valid_from <= $5::timestamptz
+  AND (g.valid_to IS NULL OR g.valid_to > $5::timestamptz)
+), target_members AS (
+  SELECT workforce_member_id FROM position_members
+  UNION
+  SELECT workforce_member_id FROM grant_members
+  UNION
+  SELECT workforce_member_id FROM park_grant_members
+)
+SELECT DISTINCT ON (reg.fcm_token)
+       reg.workforce_member_id::text,
+       reg.browser_registration_id::text,
+       reg.fcm_token
+  FROM workforce_member_browser_push_registrations reg
+  JOIN target_members tm ON tm.workforce_member_id = reg.workforce_member_id
+ WHERE reg.tenant_id = $1::uuid
+   AND reg.status = 'active'
+ ORDER BY reg.fcm_token, reg.browser_registration_id
+ LIMIT 1000`
+
+// resolveModuleDutyRecipientsBatchSQL is the batched form of resolveModuleDutyRecipientsSQL.
+// Params: $1 tenant, $2 scope type, $3 scope ids, $4 module code, $5 duty types, $6 at.
+const resolveModuleDutyRecipientsBatchSQL = `
+WITH duty_members AS (
+SELECT DISTINCT p.scope_id::text, p.position_code, p.workforce_member_id
+FROM workforce_positions p
+JOIN position_module_duties pmd
+  ON pmd.tenant_id = p.tenant_id
+ AND pmd.position_code = p.position_code
+ AND pmd.module_code = $4
+ AND pmd.duty_type = ANY($5::text[])
+ AND pmd.status = 'active'
+ AND pmd.effective_from <= $6::timestamptz
+ AND (pmd.effective_to IS NULL OR pmd.effective_to > $6::timestamptz)
+JOIN workforce_members m
+  ON m.tenant_id = p.tenant_id
+ AND m.workforce_member_id = p.workforce_member_id
+ AND m.status = 'active'
+WHERE p.tenant_id = $1::uuid
+  AND p.scope_type = $2
+  AND p.scope_id = ANY($3::uuid[])
+  AND p.status = 'active'
+  AND p.valid_from <= $6::timestamptz
+  AND (p.valid_to IS NULL OR p.valid_to > $6::timestamptz)
+)
+SELECT DISTINCT ON (dm.scope_id, dm.position_code, reg.fcm_token)
+       dm.scope_id,
+       dm.position_code,
+       reg.workforce_member_id::text,
+       reg.browser_registration_id::text,
+       reg.fcm_token
+  FROM duty_members dm
+  JOIN workforce_member_browser_push_registrations reg
+    ON reg.tenant_id = $1::uuid
+   AND reg.workforce_member_id = dm.workforce_member_id
+   AND reg.status = 'active'
+ ORDER BY dm.scope_id, dm.position_code, reg.fcm_token, reg.browser_registration_id
+ LIMIT 5000`
+
+// resolvePositionRecipientsBatchSQL is the batched form of resolvePositionRecipientsSQL.
+// Params: $1 tenant, $2 scope type, $3 scope ids, $4 position codes, $5 at.
+const resolvePositionRecipientsBatchSQL = `
+WITH position_members AS (
+SELECT DISTINCT p.scope_id::text, p.position_code, p.workforce_member_id
+FROM workforce_positions p
+JOIN workforce_members m
+  ON m.tenant_id = p.tenant_id
+ AND m.workforce_member_id = p.workforce_member_id
+ AND m.status = 'active'
+WHERE p.tenant_id = $1::uuid
+  AND p.scope_type = $2
+  AND p.scope_id = ANY($3::uuid[])
+  AND p.position_code = ANY($4::text[])
+  AND p.status = 'active'
+  AND p.valid_from <= $5::timestamptz
+  AND (p.valid_to IS NULL OR p.valid_to > $5::timestamptz)
+), grant_members AS (
+SELECT DISTINCT g.scope_id::text, g.role AS position_code, m.workforce_member_id
+FROM user_scope_grants g
+JOIN workforce_members m
+  ON m.tenant_id = g.tenant_id
+ AND m.user_id = g.user_id
+ AND m.status = 'active'
+WHERE $2 = 'tenant'
+  AND g.tenant_id = $1::uuid
+  AND g.scope_type = 'tenant'
+  AND g.scope_id = ANY($3::uuid[])
+  AND g.role = ANY($4::text[])
+  AND g.role = ANY(ARRAY['ceo_internal','pc_director','growth_director','feed_director','health_director','procurement_director','breeding_director','verifier'])
+  AND g.status = 'active'
+  AND g.valid_from <= $5::timestamptz
+  AND (g.valid_to IS NULL OR g.valid_to > $5::timestamptz)
+), park_grant_members AS (
+SELECT DISTINCT g.scope_id::text, g.role AS position_code, m.workforce_member_id
+FROM user_scope_grants g
+JOIN workforce_members m
+  ON m.tenant_id = g.tenant_id
+ AND m.user_id = g.user_id
+ AND m.status = 'active'
+WHERE $2 = 'center'
+  AND g.tenant_id = $1::uuid
+  AND g.scope_type = 'park'
+  AND g.scope_id = ANY($3::uuid[])
+  AND g.role = ANY($4::text[])
+  AND g.role = ANY(ARRAY['park_head','procurement_manager'])
+  AND g.status = 'active'
+  AND g.valid_from <= $5::timestamptz
+  AND (g.valid_to IS NULL OR g.valid_to > $5::timestamptz)
+), target_members AS (
+  SELECT scope_id, position_code, workforce_member_id FROM position_members
+  UNION
+  SELECT scope_id, position_code, workforce_member_id FROM grant_members
+  UNION
+  SELECT scope_id, position_code, workforce_member_id FROM park_grant_members
+)
+SELECT DISTINCT ON (tm.scope_id, tm.position_code, reg.fcm_token)
+       tm.scope_id,
+       tm.position_code,
+       reg.workforce_member_id::text,
+       reg.browser_registration_id::text,
+       reg.fcm_token
+  FROM target_members tm
+  JOIN workforce_member_browser_push_registrations reg
+    ON reg.tenant_id = $1::uuid
+   AND reg.workforce_member_id = tm.workforce_member_id
+   AND reg.status = 'active'
+ ORDER BY tm.scope_id, tm.position_code, reg.fcm_token, reg.browser_registration_id
+ LIMIT 5000`
+
 // markTokenStaleSQL is the PRUNE: retire every active registration holding a provider-confirmed
 // dead token. Addressed BY TOKEN because that is all a delivery failure knows.
 // Params: $1 tenant, $2 token, $3 reason, $4 now.
@@ -337,19 +570,73 @@ func (r *Repository) ResolveMemberRecipients(ctx context.Context, tenantID, memb
 	if err != nil {
 		return nil, fmt.Errorf("browser push: resolve recipients: %w", err)
 	}
-	defer rows.Close()
-	recipients := make([]browserpush.Recipient, 0, 4)
-	for rows.Next() {
-		var recipient browserpush.Recipient
-		if err := rows.Scan(&recipient.WorkforceMemberID, &recipient.BrowserRegistrationID, &recipient.Token); err != nil {
-			return nil, fmt.Errorf("browser push: scan recipient: %w", err)
-		}
-		recipients = append(recipients, recipient)
+	return scanRecipients(rows, "browser push: resolve recipients")
+}
+
+// ResolveModuleDutyRecipients returns reachable browsers for a module-duty audience.
+//
+// This is the browser twin of workforce.ResolveModuleDutyRecipients. The member selection is the
+// same, but the address table is workforce_member_browser_push_registrations instead of Android
+// devices, so a CXO with Chrome enabled and no phone token still receives the push.
+// scale-guard: bounded recipient fan-out LIMIT 1000 mirrors the phone resolver.
+func (r *Repository) ResolveModuleDutyRecipients(ctx context.Context, tenantID, scopeType, scopeID, moduleCode, dutyType string, at time.Time) ([]browserpush.Recipient, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, resolveModuleDutyRecipientsSQL, tenantID, scopeType, scopeID, at, moduleCode, dutyType, at)
+	if err != nil {
+		return nil, fmt.Errorf("browser push: resolve module-duty recipients: %w", err)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("browser push: resolve recipients: %w", err)
+	return scanRecipients(rows, "browser push: resolve module-duty recipients")
+}
+
+// ResolvePositionRecipients returns reachable browsers for a fixed-position audience.
+//
+// This is the browser twin of workforce.ResolvePositionRecipients, including the tenant leadership
+// and park-role grant fallbacks. Without it, in-app notification rows can appear for leadership
+// and park desks while Chrome stays silent.
+// scale-guard: bounded recipient fan-out LIMIT 1000 mirrors the phone resolver.
+func (r *Repository) ResolvePositionRecipients(ctx context.Context, tenantID, scopeType, scopeID, positionCode string, at time.Time) ([]browserpush.Recipient, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, resolvePositionRecipientsSQL, tenantID, scopeType, scopeID, positionCode, at)
+	if err != nil {
+		return nil, fmt.Errorf("browser push: resolve position recipients: %w", err)
 	}
-	return recipients, nil
+	return scanRecipients(rows, "browser push: resolve position recipients")
+}
+
+// ResolveModuleDutyRecipientsBatch returns reachable browsers for module-duty audiences in one
+// set-based read. The result key is "<scopeID>|<positionCode>", matching workforce's batch resolver.
+// scale-guard: bounded recipient fan-out LIMIT 5000 mirrors the phone resolver.
+func (r *Repository) ResolveModuleDutyRecipientsBatch(ctx context.Context, tenantID, scopeType string, scopeIDs []string, moduleCode string, dutyTypes []string, at time.Time) (map[string][]browserpush.Recipient, error) {
+	out := map[string][]browserpush.Recipient{}
+	if len(scopeIDs) == 0 || len(dutyTypes) == 0 {
+		return out, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, resolveModuleDutyRecipientsBatchSQL, tenantID, scopeType, scopeIDs, moduleCode, dutyTypes, at)
+	if err != nil {
+		return nil, fmt.Errorf("browser push: resolve module-duty recipients batch: %w", err)
+	}
+	return scanRecipientsByKey(rows, "browser push: resolve module-duty recipients batch")
+}
+
+// ResolvePositionRecipientsBatch returns reachable browsers for position audiences in one set-based
+// read. The result key is "<scopeID>|<positionCode>", matching workforce's batch resolver.
+// scale-guard: bounded recipient fan-out LIMIT 5000 mirrors the phone resolver.
+func (r *Repository) ResolvePositionRecipientsBatch(ctx context.Context, tenantID, scopeType string, scopeIDs, positionCodes []string, at time.Time) (map[string][]browserpush.Recipient, error) {
+	out := map[string][]browserpush.Recipient{}
+	if len(scopeIDs) == 0 || len(positionCodes) == 0 {
+		return out, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, resolvePositionRecipientsBatchSQL, tenantID, scopeType, scopeIDs, positionCodes, at)
+	if err != nil {
+		return nil, fmt.Errorf("browser push: resolve position recipients batch: %w", err)
+	}
+	return scanRecipientsByKey(rows, "browser push: resolve position recipients batch")
 }
 
 // MarkTokenStale retires every active registration holding a provider-confirmed dead token.
@@ -371,6 +658,46 @@ func (r *Repository) MarkTokenStale(ctx context.Context, tenantID, token, reason
 // scanner is the shared shape of pgx.Row and pgx.Rows for the registration projection.
 type scanner interface {
 	Scan(dest ...any) error
+}
+
+type recipientRows interface {
+	Close()
+	Err() error
+	Next() bool
+	Scan(dest ...any) error
+}
+
+func scanRecipients(rows recipientRows, errPrefix string) ([]browserpush.Recipient, error) {
+	defer rows.Close()
+	recipients := make([]browserpush.Recipient, 0, 4)
+	for rows.Next() {
+		var recipient browserpush.Recipient
+		if err := rows.Scan(&recipient.WorkforceMemberID, &recipient.BrowserRegistrationID, &recipient.Token); err != nil {
+			return nil, fmt.Errorf("%s: scan recipient: %w", errPrefix, err)
+		}
+		recipients = append(recipients, recipient)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("%s: %w", errPrefix, err)
+	}
+	return recipients, nil
+}
+
+func scanRecipientsByKey(rows recipientRows, errPrefix string) (map[string][]browserpush.Recipient, error) {
+	defer rows.Close()
+	out := map[string][]browserpush.Recipient{}
+	for rows.Next() {
+		var scopeID, positionCode string
+		var recipient browserpush.Recipient
+		if err := rows.Scan(&scopeID, &positionCode, &recipient.WorkforceMemberID, &recipient.BrowserRegistrationID, &recipient.Token); err != nil {
+			return nil, fmt.Errorf("%s: scan recipient: %w", errPrefix, err)
+		}
+		out[scopeID+"|"+positionCode] = append(out[scopeID+"|"+positionCode], recipient)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("%s: %w", errPrefix, err)
+	}
+	return out, nil
 }
 
 func scanRegistration(src scanner, out *browserpush.Registration, created *bool) error {

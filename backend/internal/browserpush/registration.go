@@ -163,6 +163,16 @@ type Repository interface {
 	// predicate: 'stale' and 'unsubscribed' rows are addresses we already know are dead or
 	// declined, and addressing them would burn the retry schedule and count a drop as a delivery.
 	ResolveMemberRecipients(ctx context.Context, tenantID, memberOrUserID string) ([]Recipient, error)
+	// ResolveModuleDutyRecipients returns ACTIVE browsers held by members whose position carries
+	// (moduleCode, dutyType) in the given scope, mirroring workforce's phone resolver.
+	ResolveModuleDutyRecipients(ctx context.Context, tenantID, scopeType, scopeID, moduleCode, dutyType string, at time.Time) ([]Recipient, error)
+	// ResolvePositionRecipients returns ACTIVE browsers for whoever holds positionCode in scope,
+	// mirroring workforce's phone resolver including role-grant fallbacks.
+	ResolvePositionRecipients(ctx context.Context, tenantID, scopeType, scopeID, positionCode string, at time.Time) ([]Recipient, error)
+	// ResolveModuleDutyRecipientsBatch is the batched form of ResolveModuleDutyRecipients.
+	ResolveModuleDutyRecipientsBatch(ctx context.Context, tenantID, scopeType string, scopeIDs []string, moduleCode string, dutyTypes []string, at time.Time) (map[string][]Recipient, error)
+	// ResolvePositionRecipientsBatch is the batched form of ResolvePositionRecipients.
+	ResolvePositionRecipientsBatch(ctx context.Context, tenantID, scopeType string, scopeIDs, positionCodes []string, at time.Time) (map[string][]Recipient, error)
 	// MarkTokenStale is the PRUNE. It is addressed by token because that is all a delivery
 	// failure knows. Reports how many registrations it retired.
 	MarkTokenStale(ctx context.Context, tenantID, token, reason string, now time.Time) (int, error)
@@ -250,6 +260,52 @@ func (s *Service) ResolveBrowserRecipients(ctx context.Context, tenantID, member
 		return nil, nil
 	}
 	return s.repo.ResolveMemberRecipients(ctx, tenantID, memberOrUserID)
+}
+
+// ResolveModuleDutyBrowserRecipients returns reachable browsers for a module-duty audience.
+func (s *Service) ResolveModuleDutyBrowserRecipients(ctx context.Context, tenantID, scopeType, scopeID, moduleCode, dutyType string, at time.Time) ([]Recipient, error) {
+	tenantID = strings.TrimSpace(tenantID)
+	scopeType = strings.TrimSpace(scopeType)
+	scopeID = strings.TrimSpace(scopeID)
+	moduleCode = strings.TrimSpace(moduleCode)
+	dutyType = strings.TrimSpace(dutyType)
+	if tenantID == "" || scopeType == "" || scopeID == "" || moduleCode == "" || dutyType == "" {
+		return nil, nil
+	}
+	return s.repo.ResolveModuleDutyRecipients(ctx, tenantID, scopeType, scopeID, moduleCode, dutyType, at)
+}
+
+// ResolvePositionBrowserRecipients returns reachable browsers for a fixed-position audience.
+func (s *Service) ResolvePositionBrowserRecipients(ctx context.Context, tenantID, scopeType, scopeID, positionCode string, at time.Time) ([]Recipient, error) {
+	tenantID = strings.TrimSpace(tenantID)
+	scopeType = strings.TrimSpace(scopeType)
+	scopeID = strings.TrimSpace(scopeID)
+	positionCode = strings.TrimSpace(positionCode)
+	if tenantID == "" || scopeType == "" || scopeID == "" || positionCode == "" {
+		return nil, nil
+	}
+	return s.repo.ResolvePositionRecipients(ctx, tenantID, scopeType, scopeID, positionCode, at)
+}
+
+// ResolveModuleDutyBrowserRecipientsBatch returns reachable browsers for a module-duty audience.
+func (s *Service) ResolveModuleDutyBrowserRecipientsBatch(ctx context.Context, tenantID, scopeType string, scopeIDs []string, moduleCode string, dutyTypes []string, at time.Time) (map[string][]Recipient, error) {
+	tenantID = strings.TrimSpace(tenantID)
+	scopeType = strings.TrimSpace(scopeType)
+	moduleCode = strings.TrimSpace(moduleCode)
+	if tenantID == "" || scopeType == "" || len(scopeIDs) == 0 || moduleCode == "" || len(dutyTypes) == 0 {
+		return map[string][]Recipient{}, nil
+	}
+	return s.repo.ResolveModuleDutyRecipientsBatch(ctx, tenantID, scopeType, scopeIDs, moduleCode, dutyTypes, at)
+}
+
+// ResolvePositionBrowserRecipientsBatch returns reachable browsers for fixed-position audiences.
+func (s *Service) ResolvePositionBrowserRecipientsBatch(ctx context.Context, tenantID, scopeType string, scopeIDs, positionCodes []string, at time.Time) (map[string][]Recipient, error) {
+	tenantID = strings.TrimSpace(tenantID)
+	scopeType = strings.TrimSpace(scopeType)
+	if tenantID == "" || scopeType == "" || len(scopeIDs) == 0 || len(positionCodes) == 0 {
+		return map[string][]Recipient{}, nil
+	}
+	return s.repo.ResolvePositionRecipientsBatch(ctx, tenantID, scopeType, scopeIDs, positionCodes, at)
 }
 
 // PruneToken retires every registration holding a provider-confirmed dead token.
