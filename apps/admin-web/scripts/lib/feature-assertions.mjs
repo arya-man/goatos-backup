@@ -92,6 +92,7 @@ export async function assertFeaturesPresent(page, { routeName, viewportLabel, sc
     }
   }
   console.log(`feature_assertions=${routeName}:${viewportLabel}:${entries.length - missing.length}/${entries.length}`);
+  for (const m of missing) console.log(`feature_missing=${viewportLabel}:${routeName}|${m.entry.sha}|${m.entry.title}|${m.miss.what}`);
   if (missing.length === 0) return;
   await page.addStyleTag({ content: "[data-smoke-issue]{outline:3px solid #e11d48 !important;outline-offset:1px}" }).catch(() => {});
   const shot = join(screenshotDir, `${viewportLabel}-${routeName}-feature-missing.png`);
