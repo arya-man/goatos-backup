@@ -8,25 +8,28 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 )
 
-// FARM BORN SALES (maintainer request 2026-09-18): the animals the farm did NOT buy on a load --
-// what is on the farm now, what sold in a window, which breed / sex / stage / pen the sold ones
-// came from, and what they brought in. The counterpart of Load wise, which reconciles every
-// PURCHASED load: the two pages partition the herd, so an animal is on exactly one of them.
+// FARM BORN SALES (maintainer request 2026-09-18): the animals BORN ON THIS FARM -- what is on
+// the farm now, what sold in a window, which breed / sex / stage / pen the sold ones came from,
+// and what they brought in. The counterpart of Load wise, which reconciles every PURCHASED load.
 //
 // RECORDED CROSS-MODULE REPORTING READ, the load-wise shape (docs/decisions/sales-loadwise.md).
-// Procurement owns procurement_load_goats -- the only table that says which animal came off which
-// load, and therefore the only table that can say which did NOT -- and joins OUT to goats (breed,
-// sex, stage, pen, terminal outcome) and to goat_sale_allocations + sales_deals (the sale date and
-// the revenue a sold animal's deal brought in). Read-only over those tables and reporting grain
-// only: nothing here gates a sale, an exit or a pipeline step, and the sales module's own lock
-// (migration 000173: sales reads nothing from herd/procurement) is untouched because the
-// dependency points the other way.
+// Procurement reads OUT to goats (origin, breed, sex, stage, pen, terminal outcome) and to
+// goat_sale_allocations + sales_deals (the sale date and the revenue a sold animal's deal brought
+// in). Read-only over those tables and reporting grain only: nothing here gates a sale, an exit or
+// a pipeline step, and the sales module's own lock (migration 000173: sales reads nothing from
+// herd/procurement) is untouched because the dependency points the other way.
 //
-// WHICH ANIMALS (maintainer instruction 2026-09-19): every animal NOT on an accepted purchase
-// load -- the exact complement of the load-wise membership -- whatever the register's origin
-// field says. That field is under-filled (264 of the 2026 kids and 272 older adults carry none),
-// so a reading keyed on it undercounted the farm's own animals; the load table is the one fact
-// that is complete, and "not bought on a load" is what the farm means by its own stock.
+// WHICH ANIMALS (maintainer decision 2026-09-22, SUPERSEDING the 2026-09-19 not-on-a-load rule):
+// exactly the animals the register marks goats.origin_type = 'birth'. A blank origin is NOT
+// treated as born here -- the page answers what the register actually says, and guessing on its
+// behalf is how a bought animal ends up counted as the farm's own.
+//
+// THE TWO PAGES NO LONGER PARTITION THE HERD, and that is accepted rather than overlooked. The
+// origin field is under-filled (on the live herd 536 alive animals carry none, 264 of them this
+// year's kids, and 392 more are marked 'procured' while sitting on no purchase load), so those
+// animals appear on NEITHER Farm born nor Load wise. Closing that gap is a register job, not a
+// reporting one; a reading that swallowed the unknowns to make the two halves add up would be
+// inventing origins nobody recorded.
 //
 // THE WINDOW BINDS THE SOLD SIDE ONLY (maintainer decision 2026-09-18). "How many do I have" is
 // answered live, today, whatever the window; "how many did I sell, of what, for how much" is
@@ -272,7 +275,7 @@ func FarmBornSpeciesLabel(species string) string {
 // exactly the facts it was handed.
 //
 // projection-review: membership=FarmBornAnimalFact rows, one per ANIMAL (the repository's own
-// predicate: tenant, not on a load, the herd dimensions; on-farm animals live
+// predicate: tenant, origin_type = 'birth', the herd dimensions; on-farm animals live
 // today, sold animals with a sale date inside the window), each carrying ONE bucket;
 // group_key=the bucket key (breed / sex / stage / pen key) on both the breakdown rows and the
 // summary, which range over the identical fact slice, so every breakdown's OnFarm sums to

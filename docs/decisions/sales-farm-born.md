@@ -1,4 +1,4 @@
-# Sales > Farm born: the not-on-a-load half of the herd
+# Sales > Farm born: the animals born on this farm
 
 Maintainer request 2026-09-18. Status: built; page `/sales/farm-born`, read
 `GET /procurement/farm-born-sales`, migration `000357`.
@@ -7,23 +7,36 @@ Maintainer request 2026-09-18. Status: built; page `/sales/farm-born`, read
 
 Load wise (`/sales/loads`) reconciles every PURCHASED load: bought, sold, died,
 still on farm, and the money. Nothing answered the same questions for the
-animals the farm did not buy on a load — the kids born here. "How many do I
+animals born here — the kids the farm bred itself. "How many do I
 have, how many did I sell, of which breed / pen / stage / sex, and what did I
 earn" had no screen.
 
 ## Decisions
 
-1. **Its own page under Sales, beside Load wise.** The two pages partition the
-   herd: an animal is on exactly one of them. Membership is the exact complement
-   of the load-wise membership (accepted rows on `procurement_load_goats`).
-2. **Population = every animal not on an accepted purchase load — the register's
-   origin field is ignored** (maintainer instruction 2026-09-19, replacing two
-   earlier readings the same day). On the live herd 536 alive animals carry no
-   `origin_type` (264 of them this year's kids) and 392 are marked `procured`
-   while on no load; keyed on that field, "on the farm now" read 248 against a
-   herd the farm knows is larger. The load table is the one complete fact, and
-   "not bought on a load" is what the farm means by its own stock. On farm today:
-   1,176; with Load wise's "still on farm" (397) that is the whole live herd.
+1. **Its own page under Sales, beside Load wise.** Load wise reconciles every
+   purchased load; this page answers the same questions for the farm's own
+   animals. (Its original "the two pages partition the herd" clause is retired
+   by decision 2 below.)
+2. **Population = exactly `goats.origin_type = 'birth'`** (maintainer decision
+   2026-09-22, SUPERSEDING the 2026-09-19 not-on-a-load rule quoted below). The
+   page answers what the register actually says about where an animal came from.
+   A blank origin is NOT read as born here: that is the register saying nothing,
+   and guessing on its behalf is how a bought animal ends up counted as the
+   farm's own.
+
+   **The two pages no longer partition the herd, and that is accepted rather
+   than overlooked.** The retired rule was chosen precisely because the origin
+   field is under-filled — on the live herd 536 alive animals carry no
+   `origin_type` (264 of them this year's kids) and 392 more are marked
+   `procured` while sitting on no purchase load — so "on the farm now" read 248
+   against the 1,176 the complement rule produced. Those animals now appear on
+   NEITHER Farm born nor Load wise. Closing that gap is a REGISTER job: fill in
+   the origins. A reporting read that swallowed the unknowns to make the two
+   halves add up would be inventing origins nobody recorded.
+
+   Decision 1's "an animal is on exactly one of them" therefore no longer holds
+   in either direction: an animal marked `birth` that also sits on an accepted
+   load reads on both pages, and an animal with no origin reads on neither.
 3. **The period binds the SOLD side only.** "How many do I have" is answered
    live, today, whatever the period. "How many did I sell, of what, for how
    much" is answered for the sales whose date falls in the period. Default

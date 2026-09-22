@@ -305,10 +305,12 @@ function FarmBornSections({
 }
 
 /**
- * Farm born (maintainer request 2026-09-18): every animal the farm did NOT buy on a load,
- * whatever the register's origin field says -- the counterpart of Load wise. How many are on the farm today, how many sold in the chosen period,
- * which breed / sex / stage / pen the sold ones came from, and what they earned, behind a filter
- * bar (period, park, pen, species, breed, sex, stage) that governs the whole page.
+ * Farm born (maintainer request 2026-09-18): every animal the register marks born on this farm
+ * (goats.origin_type = 'birth'; maintainer decision 2026-09-22, superseding the 2026-09-19
+ * not-on-a-load rule) -- the counterpart of Load wise. How many are on the farm today, how many
+ * sold in the chosen period, which breed / sex / stage / pen the sold ones came from, and what
+ * they earned, behind a filter bar (period, park, pen, species, breed, sex, stage) that governs
+ * the whole page.
  *
  * The period binds the SOLD side only (maintainer decision, same day): the on-farm count is
  * today's whatever the period. Read-only by contract, the /sales/sold shape: the page declares

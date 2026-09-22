@@ -12,8 +12,8 @@ import (
 	"github.com/vgoats/goatos/backend/internal/procurement/ports"
 )
 
-// FarmBornSalesService serves the Sales > Farm born page: the animals the farm did not buy on a
-// load -- on farm today, sold in a window, and what the sold ones were.
+// FarmBornSalesService serves the Sales > Farm born page: the animals the register marks born
+// here -- on farm today, sold in a window, and what the sold ones were.
 //
 // Thin like LoadwiseService: the repository resolves each animal's pen, outcome and deal share,
 // the domain groups and pages, and the service only validates the filter and pins the clock.
