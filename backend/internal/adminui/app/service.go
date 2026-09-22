@@ -11968,19 +11968,34 @@ func pcCareSOPEditorCopy() map[string]string {
 		"pcsop.summary.removal.optional":    "Planner decides",
 		"pcsop.summary.removal.off":         "Never",
 		"pcsop.footer.ready":                "Ready to publish.",
-		"pcsop.flow.start":                  "Task planned",
-		"pcsop.flow.start_hint":             "The CEO picks the work, the pens, the day and the operators.",
-		"pcsop.flow.removal":                "Feed & water removed",
-		"pcsop.flow.removal_hint":           "The evening before, pen by pen.",
-		"pcsop.flow.removal_off":            "No feed & water removal",
-		"pcsop.flow.decision":               "Which work",
-		"pcsop.flow.reach":                  "Reach the animal",
-		"pcsop.flow.reach_scan":             "Scan the tag; the recorder opens.",
-		"pcsop.flow.reach_roster":           "Tap the animal on the pen roster.",
-		"pcsop.flow.submit":                 "Submit the task",
-		"pcsop.flow.submit_hint":            "Every animal carries every compulsory capture.",
-		"pcsop.flow.verify":                 "Verifier reviews",
-		"pcsop.flow.verify_hint":            "One item per task, carrying every animal's captures.",
+		// The Flow view's node chrome. Generic words, kept under this page's own prefix so the
+		// Preventive Care contract never depends on the Feed page's copy being compiled.
+		"pcsop.flow.card":        "Card",
+		"pcsop.flow.capture":     "Capture",
+		"pcsop.flow.question":    "Question",
+		"pcsop.flow.compulsory":  "compulsory",
+		"pcsop.flow.optional":    "optional",
+		"pcsop.flow.hint":        "Click a capture or question to edit it. Click + on a line to insert one there, on that card.",
+		"pcsop.summary.optional": "optional",
+		// The capture card is the SHARED SlotCard (features/sops/feed-editor.tsx), which names
+		// these three keys by their original Feed prefix. Every page that renders it must carry
+		// them; the prefix is historical, the copy is this page's.
+		"fsop.proof.title":        "Capture name",
+		"fsop.proof.hint":         "Hint for the operator",
+		"fsop.proof.remove":       "Remove this capture",
+		"pcsop.flow.start":        "Task planned",
+		"pcsop.flow.start_hint":   "The CEO picks the work, the pens, the day and the operators.",
+		"pcsop.flow.removal":      "Feed & water removed",
+		"pcsop.flow.removal_hint": "The evening before, pen by pen.",
+		"pcsop.flow.removal_off":  "No feed & water removal",
+		"pcsop.flow.decision":     "Which work",
+		"pcsop.flow.reach":        "Reach the animal",
+		"pcsop.flow.reach_scan":   "Scan the tag; the recorder opens.",
+		"pcsop.flow.reach_roster": "Tap the animal on the pen roster.",
+		"pcsop.flow.submit":       "Submit the task",
+		"pcsop.flow.submit_hint":  "Every animal carries every compulsory capture.",
+		"pcsop.flow.verify":       "Verifier reviews",
+		"pcsop.flow.verify_hint":  "One item per task, carrying every animal's captures.",
 	} {
 		m[k] = v
 	}

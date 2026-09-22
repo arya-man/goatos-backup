@@ -36,7 +36,7 @@ export function PcCareSummary({ pageContract: pc, formDsl }: { pageContract: Adm
             </div>
             {rows.removal.mode === "off" ? null : (
               <div className="hmeta muted small">
-                {rows.removal.proofs.map((p) => `${p.title} (${copy(pc, `wsop.proof.kind.${p.kind}`)}${p.required ? "" : `, ${copy(pc, "fsop.summary.optional")}`})`).join(" + ")}
+                {rows.removal.proofs.map((p) => `${p.title} (${copy(pc, `wsop.proof.kind.${p.kind}`)}${p.required ? "" : `, ${copy(pc, "pcsop.summary.optional")}`})`).join(" + ")}
                 {rows.removal.questions.length > 0 ? ` · ${questions(rows.removal.questions.length)}` : ""}
               </div>
             )}
@@ -51,7 +51,7 @@ export function PcCareSummary({ pageContract: pc, formDsl }: { pageContract: Adm
                 <div className="hmeta muted small">
                   {block.proofs.length === 0
                     ? captures(0)
-                    : block.proofs.map((p) => `${p.title} (${copy(pc, `wsop.proof.kind.${p.kind}`)}${p.required ? "" : `, ${copy(pc, "fsop.summary.optional")}`})`).join(" + ")}
+                    : block.proofs.map((p) => `${p.title} (${copy(pc, `wsop.proof.kind.${p.kind}`)}${p.required ? "" : `, ${copy(pc, "pcsop.summary.optional")}`})`).join(" + ")}
                   {block.questions.length > 0 ? ` · ${questions(block.questions.length)}` : ""}
                 </div>
                 {block.instruction ? <div className="muted small">{block.instruction}</div> : null}

@@ -226,19 +226,19 @@ export function PcCareFlow({
       const q = block.questions.find((x) => x.id === ref.id) as WeighingQuestionRow | undefined;
       return (
         <>
-          <span className="studio-node-kind">{copy(pc, "fsop.flow.question")}</span>
+          <span className="studio-node-kind">{copy(pc, "pcsop.flow.question")}</span>
           <b>{q?.title || copy(pc, "wsop.question.title")}</b>
-          <span className="muted small">{q?.required ? copy(pc, "fsop.flow.compulsory") : copy(pc, "fsop.flow.optional")}</span>
+          <span className="muted small">{q?.required ? copy(pc, "pcsop.flow.compulsory") : copy(pc, "pcsop.flow.optional")}</span>
         </>
       );
     }
     const p = block.proofs.find((x) => x.id === ref.id)!;
     return (
       <>
-        <span className="studio-node-kind">{copy(pc, "fsop.flow.capture")}</span>
+        <span className="studio-node-kind">{copy(pc, "pcsop.flow.capture")}</span>
         <b>{p.title || proofKindLabels[p.kind] || p.kind}</b>
         <span className="muted small">
-          {proofKindLabels[p.kind] ?? p.kind} · {p.required ? copy(pc, "fsop.flow.compulsory") : copy(pc, "fsop.flow.optional")}
+          {proofKindLabels[p.kind] ?? p.kind} · {p.required ? copy(pc, "pcsop.flow.compulsory") : copy(pc, "pcsop.flow.optional")}
         </span>
       </>
     );
@@ -246,7 +246,7 @@ export function PcCareFlow({
 
   return (
     <div className="studio-flow" data-testid="flow-view">
-      <FlowCanvas pc={pc} layout={layout} selectedId={selectedId} onSelect={(n) => n.data?.ref && onSelect(n.data.ref)} onInsert={(insert) => onInsert(insert)} renderNode={renderNode} hint={copy(pc, "fsop.flow.hint")} />
+      <FlowCanvas pc={pc} layout={layout} selectedId={selectedId} onSelect={(n) => n.data?.ref && onSelect(n.data.ref)} onInsert={(insert) => onInsert(insert)} renderNode={renderNode} hint={copy(pc, "pcsop.flow.hint")} />
       <aside className="studio-flow-props card" data-testid="flow-props">
         <div className="hd">
           <h3>{copy(pc, "studio.flow.properties")}</h3>
