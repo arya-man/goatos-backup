@@ -23,6 +23,7 @@ let activeFindingKinds = [];
 // finding of its own -- silence is the worst outcome, because the automation would go quiet
 // exactly when something is wrong. The module's name and error go to the log, never to Slack.
 const BROKEN_KIND_SEVERITY = 5;
+const BROKEN_KIND_SENTENCE = "One of the checks could not run at all, so whatever it looks after was not checked this time.";
 const brokenFindingKind = {
   id: "finding-kind-failed",
   severity: BROKEN_KIND_SEVERITY,
@@ -44,7 +45,7 @@ function collectFindingKinds(value, receiptFile) {
       if (findings.length) collected.push({ kind, findings, severity: Number(kind.severity ?? 100) });
     } catch (error) {
       console.error(`dashboard Slack notify: finding kind ${kind?.id ?? "unknown"} failed and was dropped: ${redactText(String(error?.message ?? error))}`);
-      broken.push({ what: "One of the checks could not run at all, so whatever it looks after was not checked this time." });
+      broken.push({ what: BROKEN_KIND_SENTENCE });
     }
   }
   if (broken.length) collected.push({ kind: brokenFindingKind, findings: broken, severity: BROKEN_KIND_SEVERITY });
@@ -60,21 +61,42 @@ function applyFindingKinds(message, collected, context = {}) {
   if (!collected.length) return message;
   const headerAt = message.blocks.findIndex((block) => block.type === "header");
   let insertAt = headerAt + 1;
+  let headline = null;
+  const dropped = [];
   for (const { kind, findings } of collected) {
+    let blocks;
+    let summary;
+    let ownHeadline = null;
     try {
-      const blocks = kind.renderSection?.(findings) ?? [];
-      message.blocks.splice(insertAt, 0, ...blocks);
-      insertAt += blocks.length;
-      const summary = kind.summaryText?.(findings) ?? "";
-      if (summary) message.text = `${message.text}\n${summary}`;
+      // Everything this kind contributes is resolved BEFORE a single block is spliced, the
+      // headline included. A kind whose headline() throws then drops exactly like one whose
+      // renderSection() throws, instead of killing the notifier after the message is half built
+      // — which is what happened when headline() was called on its own at the tail.
+      blocks = kind.renderSection?.(findings) ?? [];
+      summary = kind.summaryText?.(findings) ?? "";
+      if (!context.hasOwnIssues && typeof kind.headline === "function") ownHeadline = kind.headline(findings);
     } catch (error) {
       console.error(`dashboard Slack notify: finding kind ${kind?.id ?? "unknown"} could not render and was dropped: ${redactText(String(error?.message ?? error))}`);
+      if (kind?.id !== brokenFindingKind.id) dropped.push({ what: BROKEN_KIND_SENTENCE });
+      continue;
+    }
+    message.blocks.splice(insertAt, 0, ...blocks);
+    insertAt += blocks.length;
+    if (summary) message.text = `${message.text}\n${summary}`;
+    if (headline === null && ownHeadline !== null) headline = ownHeadline;
+  }
+  // A lane dropped while rendering must still be visible, in plain English, or a crash has only
+  // been traded for a silent gap.
+  if (dropped.length) {
+    try {
+      const blocks = brokenFindingKind.renderSection(dropped);
+      message.blocks.splice(insertAt, 0, ...blocks);
+      message.text = `${message.text}\n${brokenFindingKind.summaryText(dropped)}`;
+    } catch {
+      // Never let the note about a dropped lane become the thing that drops the message.
     }
   }
-  if (!context.hasOwnIssues && headerAt >= 0) {
-    const owner = collected.find(({ kind }) => typeof kind.headline === "function");
-    if (owner) message.blocks[headerAt].text.text = owner.kind.headline(owner.findings);
-  }
+  if (headline !== null && headerAt >= 0) message.blocks[headerAt].text.text = headline;
   return message;
 }
 function findingKindReplies(collected) {
@@ -132,11 +154,61 @@ function selfTestBrokenKindDoesNotSilenceTheAlert() {
       throw new Error("self-test: the healthy lane's section must still be in the message");
     }
     if (!message.text.includes("lane one text")) throw new Error("self-test: lane 1's fallback text must survive");
-    // And a kind that throws while RENDERING is dropped without damaging what is already there.
+    // A kind that throws while RENDERING is dropped, lane 1's header survives, and the drop is
+    // said out loud rather than becoming a silent gap.
     const second = { text: "t", blocks: [{ type: "header", text: { type: "plain_text", text: "h" } }] };
     applyFindingKinds(second, [{ kind: broken, findings: [{}], severity: 0 }], { hasOwnIssues: true });
-    if (second.blocks.length !== 1 || second.text !== "t") {
-      throw new Error("self-test: a kind that throws while rendering must not damage the message");
+    if (JSON.stringify(second.blocks[0]) !== JSON.stringify({ type: "header", text: { type: "plain_text", text: "h" } })) {
+      throw new Error("self-test: a kind that throws while rendering must not damage lane 1's header");
+    }
+    if (!JSON.stringify(second).includes("Something could not be checked") || !second.text.startsWith("t")) {
+      throw new Error("self-test: a kind dropped while rendering must still be reported in plain words");
+    }
+    if (JSON.stringify(second).includes("fake-broken") || JSON.stringify(second).includes("boom")) {
+      throw new Error("self-test: a dropped kind's module name and error must stay out of Slack");
+    }
+
+    // The judge's reproduction: a kind whose headline() throws, on a receipt where lane 1 found
+    // nothing (so hasOwnIssues is false and the headline is actually asked for). This used to kill
+    // the whole notifier AFTER blocks had been spliced, which is the failure isolation exists for.
+    const headlineThrows = {
+      id: "fake-headline-explodes",
+      severity: 1,
+      toFindings: () => [{ what: "x" }],
+      renderSection: () => [{ type: "section", text: { type: "mrkdwn", text: "*Exploding lane section*" } }],
+      summaryText: () => "exploding lane summary",
+      headline() { throw new Error("headline blew up"); },
+      renderReplies: () => []
+    };
+    const third = {
+      text: "lane one text",
+      blocks: [
+        { type: "header", text: { type: "plain_text", text: "Dashboard automation failed" } },
+        { type: "section", text: { type: "mrkdwn", text: "*What is wrong*\n• 1 x Chart labels squashed, cut off or missing" } }
+      ]
+    };
+    applyFindingKinds(third, [
+      { kind: headlineThrows, findings: [{ what: "x" }], severity: 1 },
+      { kind: healthy, findings: [{ what: "y" }], severity: 50 }
+    ], { hasOwnIssues: false });
+    const thirdText = JSON.stringify(third);
+    if (third.blocks[0].text.text !== "Dashboard automation failed") {
+      throw new Error("self-test: a kind whose headline throws must not be allowed to rewrite the header");
+    }
+    if (thirdText.includes("Exploding lane section")) {
+      throw new Error("self-test: a kind whose headline throws must lose its own section too");
+    }
+    if (!thirdText.includes("Healthy lane still reported")) {
+      throw new Error("self-test: a healthy lane must still be delivered when another lane's headline throws");
+    }
+    if (!thirdText.includes("*What is wrong*") || !third.text.includes("lane one text")) {
+      throw new Error("self-test: lane 1's own content must survive a lane whose headline throws");
+    }
+    if (!thirdText.includes("Something could not be checked")) {
+      throw new Error("self-test: a lane dropped because its headline threw must still be reported");
+    }
+    if (thirdText.includes("headline blew up") || thirdText.includes("fake-headline-explodes")) {
+      throw new Error("self-test: the error and the module name must stay out of Slack");
     }
   } finally {
     FINDING_KINDS.splice(0, FINDING_KINDS.length, ...saved);

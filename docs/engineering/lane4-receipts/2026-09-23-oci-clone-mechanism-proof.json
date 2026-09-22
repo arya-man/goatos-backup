@@ -1,0 +1,31 @@
+{
+  "target": "127.0.0.1:5432/goatos",
+  "ranAt": "2026-09-22T22:13:13.900Z",
+  "proofs": [
+    {
+      "proof": "a write to a table the journey never declared is detected on the real clone",
+      "declared": [
+        "feed_ration_rates"
+      ],
+      "alsoWritten": "one undeclared table",
+      "offendersFound": [
+        "feed_item_catalog"
+      ],
+      "verifyRestoreSaysVerified": false,
+      "reason": "the run changed data it did not declare, and that data was not put back"
+    },
+    {
+      "proof": "the restore proof catches a row that was not put back, on the real clone",
+      "snapshotRowCount": 17,
+      "rowCountAfterALossyRestore": 16,
+      "verifyRestoreSaysVerified": false,
+      "reason": "1 row(s) missing after the restore"
+    },
+    {
+      "proof": "and a correct restore is then proved",
+      "strategy": "replica-role",
+      "verified": true
+    }
+  ],
+  "cloneLeftClean": true
+}

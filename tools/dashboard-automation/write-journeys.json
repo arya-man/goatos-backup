@@ -1,0 +1,1213 @@
+{
+  "lane": "write-journeys",
+  "target": "the writable OCI clone, or a disposable preview database. Never production, never STG.",
+  "tokenPlaceholder": "{{token}}",
+  "notes": [
+    "Every journey declares the tables it writes. The harness snapshots exactly those before the journey and restores them after, then proves the restore by row count and content fingerprint.",
+    "generatedTables are rows the product creates as a consequence of the journey's own write (publishing a plan version generates the work it implies). They are snapshotted and restored with the rest, because leaving them behind would poison the clone. This lane never refreshes any table from STG.",
+    "humanFailure is the sentence a farm manager reads in Slack. It never contains SQL, a table name, a column, a selector or a check code.",
+    "simulatedWrite is the write the journey's screen makes, expressed directly. It is used only by --simulate-write, for proving the snapshot/assert/restore machinery against a real clone when no browser stack is up. A run that used it records screenDriven: false and never claims the screen was proved."
+  ],
+  "journeys": [
+    {
+      "name": "publish-vaccination-plan-version",
+      "story": "A manager publishes a new vaccination plan version.",
+      "route": "vaccination-plan-edit",
+      "url": "/vaccination/plan/edit?scope_mode=company",
+      "steps": [
+        {
+          "do": "open the vaccination plan editor"
+        },
+        {
+          "do": "start a new version",
+          "click": {
+            "text": "New version"
+          }
+        },
+        {
+          "do": "name the version",
+          "fill": {
+            "label": "Version name",
+            "value": "Automation check {{token}}"
+          }
+        },
+        {
+          "do": "publish it",
+          "click": {
+            "text": "Publish"
+          },
+          "confirm": true
+        }
+      ],
+      "screenAssertion": {
+        "description": "the plan editor shows the new version as published",
+        "visible": [
+          {
+            "text": "Automation check {{token}}"
+          },
+          {
+            "text": "Published"
+          }
+        ]
+      },
+      "dbAssertion": {
+        "description": "the published version exists, is marked published, and carries at least one dose rule",
+        "sql": "select v.protocol_version_id::text from protocol_versions v join protocol_rules r on r.protocol_version_id = v.protocol_version_id where v.version_label = 'Automation check {{token}}' and v.status = 'published' limit 1",
+        "expect": "at-least-one-row"
+      },
+      "writesTables": [
+        "protocol_versions",
+        "protocol_rules",
+        "protocol_rule_dimensions"
+      ],
+      "generatedTables": [
+        "obligation_batches",
+        "obligation_instances",
+        "obligation_status_events",
+        "outbox_messages"
+      ],
+      "humanFailure": "Publishing a new vaccination plan version did not save. A manager who publishes a plan would be told it worked and find nothing there.",
+      "sourceCommits": [
+        "d3944496f",
+        "f30f484af",
+        "e11284a70"
+      ],
+      "history": {
+        "laneCheckId": "lane4.publish-vaccination-plan-version",
+        "repeatCount": 0,
+        "priorityFromHistory": "low",
+        "topPatterns": [],
+        "sourceShas": [],
+        "commitsLinkedBySubject": 0,
+        "commitsLinkedByFilePathOnly": 0,
+        "note": "Derived from every commit since 2026-08-01 by the history miner. sourceCommits above were read by hand; sourceShas here were routed automatically and a file-path-only link is a weak link."
+      }
+    },
+    {
+      "name": "change-a-feed-rate",
+      "story": "A manager changes the feed rate on a ration and the sheet picks it up.",
+      "route": "feed-config",
+      "url": "/feed/config?scope_mode=company",
+      "steps": [
+        {
+          "do": "open feed configuration"
+        },
+        {
+          "do": "open the rations tab",
+          "click": {
+            "text": "Rations"
+          }
+        },
+        {
+          "do": "edit the first ration's rate",
+          "fill": {
+            "label": "Rate per animal",
+            "value": "{{numericToken}}"
+          }
+        },
+        {
+          "do": "save the change",
+          "click": {
+            "text": "Save"
+          }
+        }
+      ],
+      "screenAssertion": {
+        "description": "the rations table shows the new rate",
+        "visible": [
+          {
+            "text": "{{numericToken}}"
+          }
+        ]
+      },
+      "dbAssertion": {
+        "description": "the rate now stored for the ration is the one typed on screen",
+        "sql": "select ration_rate_id::text from feed_ration_rates where grams_per_head::numeric = {{numericToken}}::numeric and valid_to is null limit 1",
+        "expect": "at-least-one-row"
+      },
+      "writesTables": [
+        "feed_ration_rates"
+      ],
+      "generatedTables": [],
+      "humanFailure": "Changing a feed rate did not save. The sheet the team feeds from would keep the old amount.",
+      "sourceCommits": [
+        "5090bf8cb",
+        "48a32c6a5"
+      ],
+      "simulatedWrite": {
+        "description": "set the first open ration rate to the number the screen would have typed",
+        "sql": "update feed_ration_rates set grams_per_head = {{numericToken}}, updated_at = now() where ration_rate_id = (select ration_rate_id from feed_ration_rates where valid_to is null order by ration_rate_id limit 1)"
+      },
+      "history": {
+        "laneCheckId": "lane4.change-a-feed-rate",
+        "repeatCount": 6,
+        "priorityFromHistory": "low",
+        "topPatterns": [
+          {
+            "pattern": "P-proof-media-missing",
+            "count": 2
+          },
+          {
+            "pattern": "P-published-version-not-locked",
+            "count": 1
+          }
+        ],
+        "sourceShas": [
+          "67ae22795",
+          "3ea178618",
+          "d68dfe2ed",
+          "e1f5e462d",
+          "4faeb4831",
+          "7d5a4f18b"
+        ],
+        "commitsLinkedBySubject": 1,
+        "commitsLinkedByFilePathOnly": 5,
+        "note": "Derived from every commit since 2026-08-01 by the history miner. sourceCommits above were read by hand; sourceShas here were routed automatically and a file-path-only link is a weak link."
+      }
+    },
+    {
+      "name": "publish-an-sop",
+      "story": "A manager publishes an SOP so the phone shows the new card.",
+      "route": "procurement-sops",
+      "url": "/procurement/sops?scope_mode=company",
+      "steps": [
+        {
+          "do": "open the SOP list"
+        },
+        {
+          "do": "start a new SOP",
+          "click": {
+            "text": "New SOP"
+          }
+        },
+        {
+          "do": "name it",
+          "fill": {
+            "label": "Title",
+            "value": "Automation check {{token}}"
+          }
+        },
+        {
+          "do": "publish it",
+          "click": {
+            "text": "Publish"
+          },
+          "confirm": true
+        }
+      ],
+      "screenAssertion": {
+        "description": "the SOP list shows the new SOP as published",
+        "visible": [
+          {
+            "text": "Automation check {{token}}"
+          },
+          {
+            "text": "Published"
+          }
+        ]
+      },
+      "dbAssertion": {
+        "description": "a published version of the new SOP exists",
+        "sql": "select v.sop_version_id::text from sop_versions v join sop_definitions d on d.sop_id = v.sop_id where d.name = 'Automation check {{token}}' and v.status = 'published' limit 1",
+        "expect": "at-least-one-row"
+      },
+      "writesTables": [
+        "sop_definitions",
+        "sop_versions"
+      ],
+      "generatedTables": [],
+      "humanFailure": "Publishing an SOP did not save. The team's phones would keep showing the old card.",
+      "sourceCommits": [
+        "f1ed1bb7f",
+        "435325f12",
+        "3b31be477"
+      ],
+      "history": {
+        "laneCheckId": "lane4.publish-an-sop",
+        "repeatCount": 23,
+        "priorityFromHistory": "medium",
+        "topPatterns": [
+          {
+            "pattern": "P-proof-media-missing",
+            "count": 10
+          },
+          {
+            "pattern": "P-published-version-not-locked",
+            "count": 5
+          },
+          {
+            "pattern": "P-null-empty-leak",
+            "count": 4
+          },
+          {
+            "pattern": "P-verification-gate",
+            "count": 3
+          }
+        ],
+        "sourceShas": [
+          "2cd72378c",
+          "ac67ae9fe",
+          "1b96fceda",
+          "50f6d5508",
+          "23c0a8a73",
+          "46d4bad50",
+          "7df072a81",
+          "869ecc3d0",
+          "6a8e674b5",
+          "846c4e16c",
+          "9e2cd8978",
+          "af7413e1d",
+          "e99a8aabc",
+          "4375378ce",
+          "af5a94359",
+          "0a3edb77c",
+          "860a14628",
+          "934c73d4f",
+          "7c233cf2c",
+          "4d5bf212c",
+          "2886e8a3c",
+          "7844ccfcb",
+          "5aa34caa7"
+        ],
+        "commitsLinkedBySubject": 23,
+        "commitsLinkedByFilePathOnly": 0,
+        "note": "Derived from every commit since 2026-08-01 by the history miner. sourceCommits above were read by hand; sourceShas here were routed automatically and a file-path-only link is a weak link."
+      }
+    },
+    {
+      "name": "create-and-move-a-task",
+      "story": "A manager creates a task and drags it to another column.",
+      "route": "tasks",
+      "url": "/tasks?scope_mode=company",
+      "steps": [
+        {
+          "do": "open the tasks board"
+        },
+        {
+          "do": "start a new task",
+          "click": {
+            "text": "New task"
+          }
+        },
+        {
+          "do": "name it",
+          "fill": {
+            "label": "Title",
+            "value": "Automation check {{token}}"
+          }
+        },
+        {
+          "do": "create it",
+          "click": {
+            "text": "Create"
+          }
+        },
+        {
+          "do": "move it to the next column",
+          "dragTo": {
+            "column": "In progress"
+          }
+        }
+      ],
+      "screenAssertion": {
+        "description": "the task sits in the column it was moved to",
+        "visible": [
+          {
+            "text": "Automation check {{token}}"
+          }
+        ],
+        "inColumn": "In progress"
+      },
+      "dbAssertion": {
+        "description": "the task exists and the status it is stored with is the column it was moved to",
+        "sql": "select task_id::text from leadership_tasks where title = 'Automation check {{token}}' and status = 'in_progress' limit 1",
+        "expect": "at-least-one-row"
+      },
+      "writesTables": [
+        "leadership_tasks",
+        "leadership_task_events"
+      ],
+      "generatedTables": [
+        "notification_requests"
+      ],
+      "humanFailure": "Creating a task and moving it to another column did not stick. The board would show it back where it started after a refresh.",
+      "sourceCommits": [
+        "c36cba73c",
+        "69bc12be6"
+      ],
+      "history": {
+        "laneCheckId": "lane4.create-and-move-a-task",
+        "repeatCount": 4,
+        "priorityFromHistory": "low",
+        "topPatterns": [],
+        "sourceShas": [
+          "2cacb4c44",
+          "65ab7eb6e",
+          "c59257646",
+          "f81763f55"
+        ],
+        "commitsLinkedBySubject": 2,
+        "commitsLinkedByFilePathOnly": 2,
+        "note": "Derived from every commit since 2026-08-01 by the history miner. sourceCommits above were read by hand; sourceShas here were routed automatically and a file-path-only link is a weak link."
+      }
+    },
+    {
+      "name": "record-a-sale",
+      "story": "A manager records a sale against a load.",
+      "route": "sales-loads",
+      "url": "/sales/loads?scope_mode=company",
+      "steps": [
+        {
+          "do": "open the sales loads screen"
+        },
+        {
+          "do": "start a new deal",
+          "click": {
+            "text": "New deal"
+          }
+        },
+        {
+          "do": "name the buyer",
+          "fill": {
+            "label": "Buyer",
+            "value": "Automation check {{token}}"
+          }
+        },
+        {
+          "do": "record it",
+          "click": {
+            "text": "Record sale"
+          },
+          "confirm": true
+        }
+      ],
+      "screenAssertion": {
+        "description": "the sale appears on the loads screen",
+        "visible": [
+          {
+            "text": "Automation check {{token}}"
+          }
+        ]
+      },
+      "dbAssertion": {
+        "description": "the deal exists with at least one line",
+        "sql": "select d.id::text from sales_deals d join sales_deal_lines l on l.deal_id = d.id where d.buyer_name = 'Automation check {{token}}' limit 1",
+        "expect": "at-least-one-row"
+      },
+      "writesTables": [
+        "sales_deals",
+        "sales_deal_lines"
+      ],
+      "generatedTables": [],
+      "humanFailure": "Recording a sale did not save. The sale would be missing from the day's numbers.",
+      "sourceCommits": [
+        "7f7ec470c",
+        "5dbc73ced"
+      ],
+      "history": {
+        "laneCheckId": "lane4.record-a-sale",
+        "repeatCount": 3,
+        "priorityFromHistory": "low",
+        "topPatterns": [
+          {
+            "pattern": "P-idempotency-outbox-replay",
+            "count": 1
+          }
+        ],
+        "sourceShas": [
+          "817d7e5d9",
+          "43bef4dab",
+          "c1ae3079a"
+        ],
+        "commitsLinkedBySubject": 2,
+        "commitsLinkedByFilePathOnly": 1,
+        "note": "Derived from every commit since 2026-08-01 by the history miner. sourceCommits above were read by hand; sourceShas here were routed automatically and a file-path-only link is a weak link."
+      }
+    },
+    {
+      "name": "approve-a-verification",
+      "story": "A verifier approves a pending item.",
+      "route": "verify",
+      "url": "/verify?scope_mode=company",
+      "steps": [
+        {
+          "do": "open the verification queue"
+        },
+        {
+          "do": "open the first pending item",
+          "click": {
+            "firstRow": true
+          }
+        },
+        {
+          "do": "approve it",
+          "click": {
+            "text": "Approve"
+          },
+          "confirm": true
+        }
+      ],
+      "screenAssertion": {
+        "description": "the item leaves the pending queue and shows as approved",
+        "visible": [
+          {
+            "text": "Approved"
+          }
+        ]
+      },
+      "dbAssertion": {
+        "description": "the item is stored as approved and the verdict is recorded against it",
+        "sql": "select i.item_id::text from verification_items i join verification_review_events e on e.item_id = i.item_id where i.status = 'approved' and i.verified_at > now() - interval '10 minutes' and e.event_type = 'verdict_recorded' limit 1",
+        "expect": "at-least-one-row"
+      },
+      "writesTables": [
+        "verification_items",
+        "verification_review_events"
+      ],
+      "generatedTables": [
+        "notification_requests"
+      ],
+      "humanFailure": "Approving an item in the verification queue did not go through. The item would sit in the queue as if nobody had looked at it.",
+      "sourceCommits": [
+        "c1668f798",
+        "86a9d912c"
+      ],
+      "history": {
+        "laneCheckId": "lane4.approve-a-verification",
+        "repeatCount": 33,
+        "priorityFromHistory": "high",
+        "topPatterns": [
+          {
+            "pattern": "P-verification-gate",
+            "count": 30
+          },
+          {
+            "pattern": "P-proof-media-missing",
+            "count": 20
+          },
+          {
+            "pattern": "P-offline-sync-queue",
+            "count": 6
+          },
+          {
+            "pattern": "P-permission-or-access-drift",
+            "count": 4
+          }
+        ],
+        "sourceShas": [
+          "01f76dbad",
+          "07b84b07e",
+          "621ec4b4e",
+          "be435c036",
+          "6eb2ee573",
+          "1a52a3bb2",
+          "91c2ae549",
+          "39857e0d2",
+          "e352d6a8b",
+          "68a09f644",
+          "0d9abcc0c",
+          "f52300ee2",
+          "83301b8bb",
+          "f8730a1c6",
+          "252de20ff",
+          "9b4836fb0",
+          "0a98c826f",
+          "1795131d1",
+          "b2ac3e168",
+          "970f412da",
+          "9a4ab308d",
+          "dd4e5e4f6",
+          "93d6d0c1d",
+          "2cbd541dd",
+          "503bbdbeb",
+          "a732f1b1d",
+          "5076a5446",
+          "f5ed23a1e",
+          "eb019bde6",
+          "9e3ecee3f",
+          "57c750a25",
+          "98f37ec42",
+          "5fb2a71e7"
+        ],
+        "commitsLinkedBySubject": 8,
+        "commitsLinkedByFilePathOnly": 25,
+        "note": "Derived from every commit since 2026-08-01 by the history miner. sourceCommits above were read by hand; sourceShas here were routed automatically and a file-path-only link is a weak link."
+      }
+    },
+    {
+      "name": "feed-item-in-use-cannot-be-deleted",
+      "rule": true,
+      "story": "A feed item that a ration names cannot be deleted; the screen says why.",
+      "route": "feed-config",
+      "url": "/feed/config?scope_mode=company",
+      "steps": [
+        {
+          "do": "open feed configuration"
+        },
+        {
+          "do": "open the items tab",
+          "click": {
+            "text": "Items"
+          }
+        },
+        {
+          "do": "try to delete an item a ration uses",
+          "click": {
+            "text": "Delete",
+            "onRow": "in-use"
+          },
+          "expectRefusal": true
+        }
+      ],
+      "screenAssertion": {
+        "description": "the screen refuses and names the ration that uses it",
+        "visible": [
+          {
+            "text": "in use"
+          }
+        ],
+        "absent": [
+          {
+            "text": "Deleted"
+          }
+        ]
+      },
+      "dbAssertion": {
+        "description": "the item a ration names is still there, and the ration still points at it",
+        "sql": "select c.feed_item_id::text from feed_item_catalog c join feed_ration_rates r on r.feed_item_key = c.feed_item_key where c.status <> 'deleted' limit 1",
+        "expect": "at-least-one-row"
+      },
+      "writesTables": [
+        "feed_item_catalog",
+        "feed_ration_rates"
+      ],
+      "generatedTables": [],
+      "humanFailure": "The screen let someone delete a feed item that a ration still uses. The next feed sheet would ask for an item that no longer exists.",
+      "sourceCommits": [
+        "aa429412c",
+        "58836fa4f"
+      ],
+      "history": {
+        "laneCheckId": "lane4.feed-item-in-use-cannot-be-deleted",
+        "repeatCount": 13,
+        "priorityFromHistory": "medium",
+        "topPatterns": [
+          {
+            "pattern": "P-totals-do-not-reconcile",
+            "count": 1
+          },
+          {
+            "pattern": "P-verification-gate",
+            "count": 1
+          },
+          {
+            "pattern": "P-latency-regression",
+            "count": 1
+          },
+          {
+            "pattern": "P-idempotency-outbox-replay",
+            "count": 1
+          }
+        ],
+        "sourceShas": [
+          "f1e72e5a0",
+          "fc1522a7f",
+          "8a6e7edcc",
+          "00f6f709b",
+          "671a59eec",
+          "7b12504f2",
+          "9ffac8598",
+          "58750dfbb",
+          "58fd38764",
+          "af780d900",
+          "cc347a6e9",
+          "a985f5822",
+          "e49c0ea67"
+        ],
+        "commitsLinkedBySubject": 14,
+        "commitsLinkedByFilePathOnly": 0,
+        "note": "Derived from every commit since 2026-08-01 by the history miner. sourceCommits above were read by hand; sourceShas here were routed automatically and a file-path-only link is a weak link."
+      }
+    },
+    {
+      "name": "published-plan-version-stays-locked",
+      "rule": true,
+      "story": "Once a vaccination plan version is published it cannot be edited in place; changes need a new version.",
+      "route": "vaccination-plan-edit",
+      "url": "/vaccination/plan/edit?scope_mode=company",
+      "steps": [
+        {
+          "do": "open the vaccination plan editor"
+        },
+        {
+          "do": "open the published version",
+          "click": {
+            "text": "Published"
+          }
+        },
+        {
+          "do": "try to change a dose on it",
+          "click": {
+            "text": "Edit"
+          },
+          "expectRefusal": true
+        }
+      ],
+      "screenAssertion": {
+        "description": "the published version is read-only and offers a new version instead",
+        "visible": [
+          {
+            "text": "New version"
+          }
+        ],
+        "absent": [
+          {
+            "text": "Saved"
+          }
+        ]
+      },
+      "dbAssertion": {
+        "description": "no dose on an already-published version was written during the attempt",
+        "sql": "select count(*)::text from protocol_rules r join protocol_versions v on v.protocol_version_id = r.protocol_version_id where v.status = 'published' and r.created_at > now() - interval '10 minutes'",
+        "expect": "zero-count"
+      },
+      "writesTables": [
+        "protocol_versions",
+        "protocol_rules"
+      ],
+      "generatedTables": [],
+      "humanFailure": "A vaccination plan version that had already been published could still be changed underneath the team. The doses people were given could change without anyone publishing anything.",
+      "sourceCommits": [
+        "d3944496f",
+        "f6e75b236"
+      ],
+      "history": {
+        "laneCheckId": "lane4.published-version-stays-locked",
+        "repeatCount": 24,
+        "priorityFromHistory": "medium",
+        "topPatterns": [
+          {
+            "pattern": "P-published-version-not-locked",
+            "count": 24
+          },
+          {
+            "pattern": "P-proof-media-missing",
+            "count": 2
+          },
+          {
+            "pattern": "P-verification-gate",
+            "count": 2
+          },
+          {
+            "pattern": "P-latency-regression",
+            "count": 2
+          }
+        ],
+        "sourceShas": [
+          "72303d0ee",
+          "f4c5f422f",
+          "066bc08c6",
+          "43e6df6dc",
+          "ea0bff2ef",
+          "b22bc186c",
+          "3ab0ad5c4",
+          "97dd33cfd",
+          "21112c2ce",
+          "aeed4a36c",
+          "e0d137a48",
+          "369562026",
+          "408bb0063",
+          "c44abe7e3",
+          "afc6a5876",
+          "47f8ecba0",
+          "cdaa30723",
+          "b50ef91f3",
+          "a22d17d5a",
+          "c2fed1453",
+          "c54f07da4",
+          "6044fd007",
+          "59a5a45dd",
+          "4df308114"
+        ],
+        "commitsLinkedBySubject": 24,
+        "commitsLinkedByFilePathOnly": 0,
+        "note": "Derived from every commit since 2026-08-01 by the history miner. sourceCommits above were read by hand; sourceShas here were routed automatically and a file-path-only link is a weak link."
+      }
+    },
+    {
+      "name": "partition-label-survives-a-move",
+      "rule": true,
+      "story": "Moving animals between pens keeps each pen's label exactly as the farm wrote it.",
+      "route": "counts-breakdown",
+      "url": "/counts/breakdown?scope_mode=company",
+      "steps": [
+        {
+          "do": "open the counts breakdown"
+        },
+        {
+          "do": "move animals from one pen to another",
+          "click": {
+            "text": "Move"
+          },
+          "confirm": true
+        }
+      ],
+      "screenAssertion": {
+        "description": "both pens still read exactly as before the move, with no doubled words",
+        "visible": [
+          {
+            "text": "{{penLabelBefore}}"
+          }
+        ],
+        "absent": [
+          {
+            "doubledWord": true
+          }
+        ]
+      },
+      "dbAssertion": {
+        "description": "no pen label was rewritten by the move, and no label reads with a doubled word",
+        "sql": "select count(*)::text from shed_partitions where partition_label ~* '\\m(\\w+)\\s+\\1\\M' or updated_at > now() - interval '10 minutes'",
+        "expect": "zero-count"
+      },
+      "writesTables": [
+        "goat_shed_partitions",
+        "shed_partitions"
+      ],
+      "generatedTables": [],
+      "humanFailure": "Moving animals between pens changed a pen's name. The team would look for a pen that no longer reads the way the board does.",
+      "sourceCommits": [
+        "475312f5d",
+        "1a256a225",
+        "409925cad"
+      ],
+      "history": {
+        "laneCheckId": "lane4.move-an-animal-keeps-one-pen-and-its-label",
+        "repeatCount": 59,
+        "priorityFromHistory": "high",
+        "topPatterns": [
+          {
+            "pattern": "P-verification-gate",
+            "count": 20
+          },
+          {
+            "pattern": "P-proof-media-missing",
+            "count": 11
+          },
+          {
+            "pattern": "P-partition-pen-label",
+            "count": 6
+          },
+          {
+            "pattern": "P-offline-sync-queue",
+            "count": 4
+          }
+        ],
+        "sourceShas": [
+          "277567343",
+          "e9ac3aef4",
+          "b8660f908",
+          "ccb1bd82c",
+          "165821bdf",
+          "999bd97ba",
+          "e7be753ef",
+          "4d1a15b06",
+          "93af9abb5",
+          "01b65f4f0",
+          "e6deef08e",
+          "cd07e6584",
+          "665eb1724",
+          "0fa9b05ff",
+          "3d7c893ef",
+          "5f55f302e",
+          "45180440b",
+          "eb9e4ede3",
+          "8d028cabe",
+          "25d921ae8",
+          "ea1be6a8f",
+          "5da90b04c",
+          "e7b116c4e",
+          "97b33c743",
+          "af7a4fc08",
+          "4a04a872d",
+          "80b5509e4",
+          "f9cc5e1c1",
+          "4623d0c60",
+          "9e277ae2f",
+          "bfeb34bba",
+          "70a7e7c5c",
+          "ae93fcb8b",
+          "6eccf8eaf",
+          "4d8c07982",
+          "996142036",
+          "0a76f587a",
+          "e42b2f2b6",
+          "be22f3bf3",
+          "39638dd8a",
+          "ab367f203",
+          "d223a2b78",
+          "80ee8426a",
+          "55b4e7061",
+          "648f95bf1",
+          "69234e4ad",
+          "fca0d4bd3",
+          "be0220276",
+          "71b3c197e",
+          "118a16fd1",
+          "6bcdedf54",
+          "e175ed5e5",
+          "a10a57f7f",
+          "a96246e46",
+          "fffae1bb9",
+          "ecd028418",
+          "6034ebe70",
+          "de45e1f8e",
+          "bad08cf0c"
+        ],
+        "commitsLinkedBySubject": 59,
+        "commitsLinkedByFilePathOnly": 0,
+        "note": "Derived from every commit since 2026-08-01 by the history miner. sourceCommits above were read by hand; sourceShas here were routed automatically and a file-path-only link is a weak link."
+      }
+    }
+  ],
+  "backlog": {
+    "why": "The history miner derived 35 journeys for this lane from 423 commits since 2026-08-01. Nine are built above. The rest are listed so the gap is visible and coverage is never overstated.",
+    "notBuiltYet": [
+      {
+        "laneCheckId": "lane4.weighing-plan-publish-and-capture",
+        "name": "Publishing a weighing plan, capturing a weight and seeing it on the shed table",
+        "repeatCount": 69,
+        "priorityFromHistory": "high",
+        "writesTables": [
+          "weighing_campaigns",
+          "weighing_campaign_sheds",
+          "weighing_work_items",
+          "weighing_observations",
+          "weighing_expected_animals"
+        ],
+        "status": "needs-journey"
+      },
+      {
+        "laneCheckId": "lane4.record-a-vaccination",
+        "name": "Recording a vaccination fills the due dose once and moves coverage",
+        "repeatCount": 35,
+        "priorityFromHistory": "high",
+        "writesTables": [
+          "vaccination_completions",
+          "obligation_instances",
+          "vaccination_eligibility_rollups",
+          "verification_items"
+        ],
+        "status": "needs-journey"
+      },
+      {
+        "laneCheckId": "lane4.reject-a-verification-queues-rework",
+        "name": "Rejecting a check with a reason sends the job back for rework",
+        "repeatCount": 17,
+        "priorityFromHistory": "medium",
+        "writesTables": [
+          "verification_items",
+          "sop_tasks",
+          "sop_submissions",
+          "verification_review_events"
+        ],
+        "status": "needs-journey"
+      },
+      {
+        "laneCheckId": "lane4.sop-answers-reach-the-verifier",
+        "name": "The answers and photos captured against an SOP reach the verifier unchanged",
+        "repeatCount": 13,
+        "priorityFromHistory": "medium",
+        "writesTables": [
+          "sop_submissions",
+          "sop_submission_items",
+          "verification_items",
+          "proof_artifacts"
+        ],
+        "status": "needs-journey"
+      },
+      {
+        "laneCheckId": "lane4.grant-and-revoke-module-access",
+        "name": "Granting and removing a person's access takes effect on their next screen",
+        "repeatCount": 13,
+        "priorityFromHistory": "medium",
+        "writesTables": [
+          "person_module_access",
+          "department_module_grants",
+          "user_scope_grants"
+        ],
+        "status": "needs-journey"
+      },
+      {
+        "laneCheckId": "lane4.blind-verification-hides-the-operator-weight",
+        "name": "The verifier records their own weight and never sees the operator's",
+        "repeatCount": 10,
+        "priorityFromHistory": "medium",
+        "writesTables": [
+          "weighing_observations",
+          "verification_items",
+          "weighing_shed_observations"
+        ],
+        "status": "needs-journey"
+      },
+      {
+        "laneCheckId": "lane4.configuration-import-bundle",
+        "name": "A configuration import does what its preview said and can be rolled back",
+        "repeatCount": 10,
+        "priorityFromHistory": "medium",
+        "writesTables": [
+          "configuration_import_bundles",
+          "configuration_import_jobs",
+          "configuration_import_rows",
+          "admin_ui_config_entries"
+        ],
+        "status": "needs-journey"
+      },
+      {
+        "laneCheckId": "lane4.feed-packing-and-carrying-gate",
+        "name": "Feed packing and carrying cannot be signed off without their photo",
+        "repeatCount": 9,
+        "priorityFromHistory": "medium",
+        "writesTables": [
+          "feed_packing_completions",
+          "feed_distribution_completions",
+          "verification_items",
+          "proof_artifacts"
+        ],
+        "status": "needs-journey"
+      },
+      {
+        "laneCheckId": "lane4.bulk-status-preview-matches-commit",
+        "name": "A bulk status change does exactly what its preview promised",
+        "repeatCount": 8,
+        "priorityFromHistory": "medium",
+        "writesTables": [
+          "bulk_status_job",
+          "bulk_status_job_row",
+          "goats",
+          "herd_register_goat_projection"
+        ],
+        "status": "needs-journey"
+      },
+      {
+        "laneCheckId": "lane4.add-a-birth",
+        "name": "Adding a birth creates the kid, the mother link and the colostrum steps",
+        "repeatCount": 8,
+        "priorityFromHistory": "medium",
+        "writesTables": [
+          "goats",
+          "goat_births",
+          "workflow_instances",
+          "workflow_actions",
+          "goat_shed_partitions",
+          "proof_artifacts"
+        ],
+        "status": "needs-journey"
+      },
+      {
+        "laneCheckId": "lane4.procurement-load-through-to-intake",
+        "name": "A procurement load can be created, filled, dispatched and taken in",
+        "repeatCount": 8,
+        "priorityFromHistory": "medium",
+        "writesTables": [
+          "procurement_loads",
+          "procurement_load_goats",
+          "source_entry_decisions",
+          "goats",
+          "goat_shed_partitions"
+        ],
+        "status": "needs-journey"
+      },
+      {
+        "laneCheckId": "lane4.task-assignment-sends-a-notification",
+        "name": "Assigning work sends the notification and it arrives once",
+        "repeatCount": 8,
+        "priorityFromHistory": "medium",
+        "writesTables": [
+          "notification_requests",
+          "notification_delivery_attempts",
+          "notification_alert_audiences"
+        ],
+        "status": "needs-journey"
+      },
+      {
+        "laneCheckId": "lane4.restore-proves-itself",
+        "name": "The lane restores every table it touched and proves the restore",
+        "repeatCount": 8,
+        "priorityFromHistory": "medium",
+        "writesTables": [
+          "(all tables named by lane 4 journeys)"
+        ],
+        "status": "needs-journey"
+      },
+      {
+        "laneCheckId": "lane4.preventive-care-round",
+        "name": "A preventive care round records its animals, its answers and its verification",
+        "repeatCount": 7,
+        "priorityFromHistory": "low",
+        "writesTables": [
+          "pc_care_tasks",
+          "pc_care_task_animals",
+          "pc_care_task_proofs",
+          "pc_care_task_assignees",
+          "inventory_stock_movements"
+        ],
+        "status": "needs-journey"
+      },
+      {
+        "laneCheckId": "lane4.feed-purchase-raises-a-toxin-test",
+        "name": "Recording a feed purchase raises its toxin test and the test closes it out",
+        "repeatCount": 7,
+        "priorityFromHistory": "low",
+        "writesTables": [
+          "feed_purchases",
+          "toxin_test_tasks",
+          "toxin_test_step_completions",
+          "proof_artifacts"
+        ],
+        "status": "needs-journey"
+      },
+      {
+        "laneCheckId": "lane4.add-a-death",
+        "name": "Adding a death takes the animal off the register and queues the check",
+        "repeatCount": 5,
+        "priorityFromHistory": "low",
+        "writesTables": [
+          "goats",
+          "goat_shed_partitions",
+          "health_death_causes",
+          "workflow_instances",
+          "verification_items"
+        ],
+        "status": "needs-journey"
+      },
+      {
+        "laneCheckId": "lane4.diagnose-and-treat",
+        "name": "Diagnosing an animal opens its course of treatment and records the medicine",
+        "repeatCount": 5,
+        "priorityFromHistory": "low",
+        "writesTables": [
+          "health_cases",
+          "health_treatment_sessions",
+          "health_session_steps",
+          "health_medicine_administrations"
+        ],
+        "status": "needs-journey"
+      },
+      {
+        "laneCheckId": "lane4.authorise-a-shifting-event",
+        "name": "A shifting event needs an authoriser before it moves animals",
+        "repeatCount": 5,
+        "priorityFromHistory": "low",
+        "writesTables": [
+          "shifting_events",
+          "shifting_event_impacts",
+          "goat_shed_partitions",
+          "goat_location_history"
+        ],
+        "status": "needs-journey"
+      },
+      {
+        "laneCheckId": "lane4.create-and-move-a-pen-round",
+        "name": "A pen round can be started, submitted and verified, and its pen label survives",
+        "repeatCount": 3,
+        "priorityFromHistory": "low",
+        "writesTables": [
+          "pen_routine_tasks",
+          "pen_routine_task_presence",
+          "verification_items",
+          "proof_artifacts"
+        ],
+        "status": "needs-journey"
+      },
+      {
+        "laneCheckId": "lane4.re-answering-a-question-takes-back-its-branch",
+        "name": "Re-answering a question takes back the steps the old answer had skipped",
+        "repeatCount": 3,
+        "priorityFromHistory": "low",
+        "writesTables": [
+          "sop_submissions",
+          "sop_submission_items",
+          "sop_tasks",
+          "workflow_actions"
+        ],
+        "status": "needs-journey"
+      },
+      {
+        "laneCheckId": "lane4.clock-in-out-and-leave",
+        "name": "Clocking in and out, and asking for leave, record correctly",
+        "repeatCount": 2,
+        "priorityFromHistory": "low",
+        "writesTables": [
+          "workforce_clock_events",
+          "workforce_clock_entries",
+          "workforce_absences",
+          "workforce_roster_assignments"
+        ],
+        "status": "needs-journey"
+      },
+      {
+        "laneCheckId": "lane4.a-workflow-refuses-to-open-without-its-subject",
+        "name": "A workflow will not open without the animal it is about",
+        "repeatCount": 2,
+        "priorityFromHistory": "low",
+        "writesTables": [
+          "workflow_instances",
+          "workflow_actions"
+        ],
+        "status": "needs-journey"
+      },
+      {
+        "laneCheckId": "lane4.release-a-sale-allocation",
+        "name": "Taking an animal back off a sale puts it back in its pen",
+        "repeatCount": 1,
+        "priorityFromHistory": "low",
+        "writesTables": [
+          "goat_sale_allocations",
+          "goats",
+          "goat_shed_partitions",
+          "goat_location_history"
+        ],
+        "status": "needs-journey"
+      },
+      {
+        "laneCheckId": "lane4.milk-preparation-and-feeding",
+        "name": "Milk preparation and feeding record their heads, their proof and their verification",
+        "repeatCount": 1,
+        "priorityFromHistory": "low",
+        "writesTables": [
+          "milk_preparation_completions",
+          "milk_feeding_tasks",
+          "milk_feeding_attempts",
+          "verification_items"
+        ],
+        "status": "needs-journey"
+      },
+      {
+        "laneCheckId": "lane4.identity-merge-keeps-one-animal",
+        "name": "Merging two records for the same animal leaves one animal and one live tag",
+        "repeatCount": 1,
+        "priorityFromHistory": "low",
+        "writesTables": [
+          "goats",
+          "goat_merge_links",
+          "goat_identifiers",
+          "identity_decisions",
+          "herd_register_goat_projection"
+        ],
+        "status": "needs-journey"
+      },
+      {
+        "laneCheckId": "lane4.a-workflow-is-gated-by-its-own-module",
+        "name": "A shared workflow is only open to people who have that module",
+        "repeatCount": 0,
+        "priorityFromHistory": "low",
+        "writesTables": [
+          "person_module_access",
+          "workflow_instances"
+        ],
+        "status": "needs-journey"
+      }
+    ]
+  }
+}

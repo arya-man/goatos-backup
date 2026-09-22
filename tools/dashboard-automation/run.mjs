@@ -4,6 +4,8 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { containsUnredactedSecret, redactText } from "./lib/redact.mjs";
+import { classifyWriteTarget } from "./lib/table-snapshot.mjs";
+import { modeFlags } from "./lib/run-modes.mjs";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const config = JSON.parse(readFileSync(path.join(repo, "tools/dashboard-automation/config.json"), "utf8"));
@@ -35,15 +37,16 @@ const receipt = {
 };
 
 try {
-  const isProductionSmoke = mode === "production-smoke";
-  const runCertificationExtras = mode !== "production-smoke" || enabled("GOATOS_DASHBOARD_CERTIFICATION_EXTRAS", false);
+  // lib/run-modes.mjs, so the two pre-existing modes can be PROVED unchanged by a unit test.
+  const { isProductionSmoke, isWriteJourneys, parityIsNeverAGate, runCertificationExtras, dataTrustWhenUnchecked } =
+    modeFlags(mode, enabled("GOATOS_DASHBOARD_CERTIFICATION_EXTRAS", false));
   const staticOk = layer("static", "deterministic", () => runNode(["tools/dashboard-automation/check-static-inventory.mjs"]));
-  const fullParityReceiptOk = isProductionSmoke
+  const fullParityReceiptOk = parityIsNeverAGate
     ? true
     : (config.businessDataParity.latestFullParityReceiptRequired === true
       ? layer("latest-full-parity-receipt", "deterministic", () => runLatestFullParityReceipt())
       : true);
-  const dataParityOk = isProductionSmoke || (fullParityReceiptOk && (
+  const dataParityOk = parityIsNeverAGate || (fullParityReceiptOk && (
     enabled("GOATOS_DASHBOARD_DATA_PARITY", config.businessDataParity.enabledByDefault)
       ? layer("business-data-parity", "deterministic", () => runBusinessDataParity(outDir))
       : true
@@ -55,8 +58,8 @@ try {
     receipt.runtimePolicy.browserSmoke = "not_run";
     throw new Error("stopping before runtime automation because a required deterministic layer failed");
   }
-  if (isProductionSmoke) {
-    receipt.runtimePolicy.dataTrust = "not_checked_read_only_smoke";
+  if (isWriteJourneys || isProductionSmoke) {
+    receipt.runtimePolicy.dataTrust = dataTrustWhenUnchecked;
   } else if (!strictPrereqOk && receipt.runtimePolicy.dataParityRequiredBeforeBrowser === false) {
     receipt.runtimePolicy.dataTrust = "degraded";
     receipt.degraded.push({
@@ -102,6 +105,17 @@ try {
     receipt.runtimePolicy.browserSmoke = playwrightOk
       ? (receipt.runtimePolicy.dataTrust === "degraded" ? "ran_degraded" : "ran_certified")
       : "ran_failed";
+    // Lane 4: write-path journeys on the writable OCI clone. Default OFF, nightly and on demand
+    // only, and never in production-smoke. Production and STG are read-only for this automation.
+    if (enabled("GOATOS_DASHBOARD_WRITE_JOURNEYS", false)) {
+      layer("write-journeys", "deterministic", () => runWriteJourneys(outDir));
+    }
+  } else if (mode === "write-journeys") {
+    if (!enabled("GOATOS_DASHBOARD_WRITE_JOURNEYS", false)) {
+      throw new Error("write journeys are off by default; set GOATOS_DASHBOARD_WRITE_JOURNEYS=1 for a nightly or on-demand run");
+    }
+    const writeOk = layer("write-journeys", "deterministic", () => runWriteJourneys(outDir));
+    receipt.runtimePolicy.browserSmoke = writeOk ? "ran_certified" : "ran_failed";
   } else if (mode === "production-smoke") {
     const productionSmokeOk = layer("production-module-journeys", "deterministic", () => runProductionSmoke(outDir));
     if (productionSmokeOk) {
@@ -270,6 +284,19 @@ function runProductionSmoke(targetDir) {
   });
 }
 
+// Lane 4 write-path journeys. The layer refuses to start before the target database has been
+// classified, so a production or STG DSN fails here rather than inside the journey runner.
+function runWriteJourneys(targetDir) {
+  if (mode === "production-smoke") throw new Error("write journeys never run in the production smoke; production is read-only for this automation");
+  const databaseUrl = process.env.GOATOS_WRITE_JOURNEY_DATABASE_URL;
+  if (!databaseUrl) throw new Error("GOATOS_WRITE_JOURNEY_DATABASE_URL is required; write journeys run only against the OCI clone or a disposable preview database");
+  const verdict = classifyWriteTarget(databaseUrl, process.env);
+  if (!verdict.allowed) throw new Error(`write journeys refuse ${verdict.target}: ${verdict.reason}`);
+  const output = path.join(targetDir, "write-journeys", "write-journeys-receipt.json");
+  runNode(["tools/dashboard-automation/run-write-journeys.mjs", "--out", output]);
+  receipt.artifacts.push({ kind: "write-journeys-report", target: verdict.target, targetKind: verdict.kind, path: output });
+}
+
 function runApiLatency(targetDir) {
   const manifests = readdirSync(path.join(repo, "tools/perf"))
     .filter((name) => /^hot-paths\..*\.json$/.test(name))
@@ -436,6 +463,14 @@ function parseArgs(raw) {
 }
 
 function runtimePolicyForMode(value) {
+  if (value === "write-journeys") {
+    return {
+      dataParityRequiredBeforeBrowser: false,
+      browserSmoke: "pending",
+      dataTrust: "not_checked_write_clone",
+      reason: "write-path journeys run against the writable OCI clone and restore what they touch; STG-to-OCI parity is never a gate for them"
+    };
+  }
   if (value === "production-smoke") {
     return {
       dataParityRequiredBeforeBrowser: false,
@@ -537,6 +572,40 @@ function selfTest() {
     throw new Error("self-test: data sanity must never be treated as a degradable prerequisite");
   }
   runNode(["tools/dashboard-automation/check-data-sanity.mjs", "--self-test"]);
+  if (modeFlags("write-journeys").parityIsNeverAGate !== true) {
+    throw new Error("self-test: parity must never gate the write-path lane; it restores what it touched and proves it");
+  }
+  if (modeFlags("post-main-certification").parityIsNeverAGate !== false || modeFlags("production-smoke").parityIsNeverAGate !== true) {
+    throw new Error("self-test: the pre-existing modes' parity behaviour must not have changed");
+  }
+  if (!runnerSource.includes('layer("write-journeys"') || !runnerSource.includes('enabled("GOATOS_DASHBOARD_WRITE_JOURNEYS", false)')) {
+    throw new Error("self-test: write-path journeys must be a gated layer that is OFF by default");
+  }
+  const productionSmokeBranch = runnerSource.slice(
+    runnerSource.indexOf('} else if (mode === "production-smoke") {'),
+    runnerSource.indexOf('    throw new Error(`unknown mode: ${mode}`);')
+  );
+  if (productionSmokeBranch.includes("write-journeys")) {
+    throw new Error("self-test: write-path journeys must never run in the production smoke");
+  }
+  if (!runnerSource.includes('write journeys never run in the production smoke')) {
+    throw new Error("self-test: the write-journey layer must refuse production-smoke explicitly, not only by where it is called");
+  }
+  // This lane can never point at production or STG, whatever the environment says.
+  for (const url of [
+    "postgres://app:pw@10.20.30.40:5432/goatos",
+    "postgres://app@api.goatos.mesha.sg:5432/goatos_dashboard_automation",
+    "postgres://app@127.0.0.1:5455/goatos",
+    "postgres://app@127.0.0.1:5432/goatos"
+  ]) {
+    if (classifyWriteTarget(url, { GOATOS_STG_READONLY_DATABASE_URL: "postgres://r@127.0.0.1:5455/goatos" }).allowed) {
+      throw new Error("self-test: write journeys must never be pointable at production or STG");
+    }
+  }
+  if (!classifyWriteTarget("postgres://p@127.0.0.1:5999/goatos_dashboard_automation_tmp", {}).allowed) {
+    throw new Error("self-test: write journeys must still run against a disposable automation database");
+  }
+  runNode(["tools/dashboard-automation/run-write-journeys.mjs", "--self-test"]);
   runNode(["tools/dashboard-automation/check-module-journeys.mjs", "--self-test"]);
   runNode(["tools/dashboard-automation/run-module-journeys.mjs", "--self-test"]);
   runNode(["tools/dashboard-automation/self-heal-pr.mjs", "--self-test"]);

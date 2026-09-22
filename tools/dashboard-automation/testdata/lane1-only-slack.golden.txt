@@ -1,0 +1,37 @@
+:rotating_light: 1 visible issue on production
+• 1 × Chart labels squashed, cut off or missing
+Slow pages: 1 page slower than 8s — worst: Goat Passport 14.8s (laptop+phone)
+[
+  {
+    "type": "header",
+    "text": {
+      "type": "plain_text",
+      "text": "🚨 1 visible issue on production",
+      "emoji": true
+    }
+  },
+  {
+    "type": "section",
+    "text": {
+      "type": "mrkdwn",
+      "text": "*What is wrong*\n• 1 × Chart labels squashed, cut off or missing"
+    }
+  },
+  {
+    "type": "section",
+    "text": {
+      "type": "mrkdwn",
+      "text": "*Slow pages* (budget 8s)\n• Goat Passport — *14.8s* · slowest /api/goat-passport 9.2s"
+    }
+  },
+  {
+    "type": "context",
+    "elements": [
+      {
+        "type": "mrkdwn",
+        "text": "Every issue below in this thread, one screenshot each · laptop 1440 + Android phone 390 · build `4aeb8264b` · full report in thread"
+      }
+    ]
+  }
+]
+dashboard Slack notify: posted failure

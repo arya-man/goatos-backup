@@ -1,0 +1,62 @@
+{
+  "startedAt": "2026-09-22T22:12:42.697Z",
+  "target": "127.0.0.1:5432/goatos",
+  "targetKind": "oci-clone",
+  "screenDriven": false,
+  "screenParkedReason": "the write each journey's screen makes was applied directly; the screen itself was not proved in this run",
+  "journeys": [
+    {
+      "name": "change-a-feed-rate",
+      "story": "A manager changes the feed rate on a ration and the sheet picks it up.",
+      "page": "Feed Config",
+      "url": "/feed/config?scope_mode=company",
+      "status": "pass",
+      "humanFailure": null,
+      "failedStep": null,
+      "screenshot": null,
+      "writesTables": [
+        "feed_ration_rates"
+      ],
+      "generatedTables": [],
+      "sourceCommits": [
+        "5090bf8cb",
+        "48a32c6a5"
+      ],
+      "screen": {
+        "status": "parked",
+        "reason": "the screen was not driven; set the first open ration rate to the number the screen would have typed"
+      },
+      "database": {
+        "status": "pass",
+        "reason": null
+      },
+      "undeclaredTables": [],
+      "restore": {
+        "attempted": true,
+        "restored": true,
+        "verified": true,
+        "strategy": "replica-role",
+        "tables": [
+          {
+            "table": "feed_ration_rates",
+            "rowCount": 2656,
+            "actualRowCount": 2656,
+            "fingerprint": "82a5394c01ff7a22f269334f8e1a2176",
+            "actualFingerprint": "82a5394c01ff7a22f269334f8e1a2176",
+            "ok": true,
+            "reason": null
+          }
+        ],
+        "humanRestore": null
+      }
+    }
+  ],
+  "finishedAt": "2026-09-22T22:12:45.012Z",
+  "status": "pass",
+  "summary": {
+    "total": 1,
+    "failed": 0,
+    "restoreProblems": 0,
+    "status": "pass"
+  }
+}
