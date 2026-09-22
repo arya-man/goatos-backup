@@ -106,6 +106,8 @@ function issueRules() {
   [/clipped button\/link text/, "Button text cut off"],
   [/text-cut-off|text hidden/, "Text cut off"],
   [/overlay .*did not open|never mounted/, "Clicking it did not open"],
+  [/header not visible at the top/, "Drawer opens with its title bar scrolled out of view"],
+  [/overlapping interactive elements/, "Buttons overlapping each other"],
   [/anchored to ancestor|backdrop-f/, "Popup opens in the wrong place (pinned to the header, not the screen)"],
   [/locator\.click: Timeout/, "A button on the page could not be clicked"],
   [/Smoke route redirected/, null],
@@ -123,8 +125,11 @@ function humanIssue(failure) {
   const [device, routeName] = String(failure.route ?? "").includes(":") ? failure.route.split(":") : ["", failure.route ?? failure.module];
   const quoted = [...raw.matchAll(/"([^"]{1,60})"(?!\s*:)/g)].map((m) => m[1]).filter((t) => t.trim().length > 1 && !/^[:;,.\s]+$/.test(t) && !/^\w+-\w+-/.test(t) && !/^(tag|kind|className|ariaLabel|text|table|missing-scroll-owner|button|input|a|span|div|td)$/.test(t));
   // Checks that dump element JSON: name the thing by its label or visible text.
-  const named = raw.match(/"ariaLabel":"([^"]{2,60})"/)?.[1] || raw.match(/"text":"([^"]{2,60})"/)?.[1];
-  if (named) quoted.unshift(named.trim());
+  // Raw-code findings: show the code itself. Element-dump findings: name the element by label/text.
+  const code = raw.match(/(?:snake_case code|copy key|raw value) "([^"]{1,60})"/)?.[1];
+  const named = /^\s*[\w-]+ \w+ (has|overlay)/.test(raw) ? (raw.match(/"ariaLabel":"([^"]{2,60})"/)?.[1] || raw.match(/"text":"([^"]{2,60})"/)?.[1] || raw.match(/"className":"([^"]{2,40})"/)?.[1]) : null;
+  if (code) quoted.unshift(code);
+  else if (named) quoted.unshift(named.trim());
   const example = quoted[0] ? ` — "${quoted[0]}"` : (raw.match(/(\d+px[^;|]*)/)?.[1] ? ` — ${raw.match(/(\d+px[^;|]*)/)[1].slice(0, 60)}` : "");
   const page = String(routeName ?? "").replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
   const deviceLabel = device === "mobile" ? "📱 Phone" : device === "laptop" ? "💻 Laptop" : "";
