@@ -111,7 +111,7 @@ var modulePages = []ModulePage{
 	// READ is the same commercial fact the board carries, so it ticks with the sales module; the
 	// load-cost write on it is gated separately on LoadCostWrite.
 	{Key: "sales-loads", Module: "sales", Label: "Load wise", Href: "/sales/loads", Permissions: []string{SalesRead}},
-	// Farm born (maintainer request 2026-09-18): the not-on-a-load half of the herd -- on farm,
+	// Farm born (maintainer request 2026-09-18): the animals born on this farm -- on farm,
 	// sold in a period, by breed / sex / stage / pen, and the money. Sales money, so it ticks
 	// with the sales module on SalesRead, the Load wise shape.
 	{Key: "sales-farm-born", Module: "sales", Label: "Farm born", Href: "/sales/farm-born", Permissions: []string{SalesRead}},

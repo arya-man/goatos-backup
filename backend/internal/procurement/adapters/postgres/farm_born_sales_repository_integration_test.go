@@ -89,12 +89,18 @@ VALUES ($1::uuid, $2::uuid, 'animal_identifier_1', $3, lower($3), $3, true, 'act
 	goat("dead", "birth", "goat", "Malai", "male", "F2-Male", "dead", "died", fx.cbePark, fx.cbeShed, "Part 3", "2026-09-02T04:00:00Z")
 	// Merged: excluded outright.
 	goat("merged", "birth", "goat", "Malai", "male", "F2-Male", "merged", "", fx.cbePark, fx.cbeShed, "Part 3", "")
-	// Not on a load, whatever the origin field says: both are the page's animals.
-	goat("procured-noload", "procured", "goat", "Beetal", "female", "Non-Pregnant", "alive", "", fx.cbePark, fx.cbeShed, "", "")
+	// On farm, farm born, in the undivided part of a partitioned shed: the whole-pen filter must
+	// find this one and none of the Part 3 / Part 5 animals.
+	goat("alive-cbe-whole", "birth", "goat", "Beetal", "female", "Non-Pregnant", "alive", "", fx.cbePark, fx.cbeShed, "", "")
+	// The register does NOT mark these born here (maintainer decision 2026-09-22): one says
+	// procured, one says nothing at all. Neither is the page's animal, and neither is on a load --
+	// they simply fall between the two pages, which is the register's gap to close.
+	goat("procured-noload", "procured", "goat", "Kanni", "female", "Non-Pregnant", "alive", "", fx.cbePark, fx.cbeShed, "", "")
 	goat("origin-null", "", "sheep", "Anantapur Sheep", "female", "Non-Pregnant", "alive", "", fx.cptPark, fx.cptShed, "", "")
-	// On a load, marked birth by mistake: belongs to Load wise, excluded here.
+	// Marked birth AND sitting on an accepted load. The origin field is now the only question the
+	// page asks, so this animal reads here as well as on Load wise.
 	onLoad := goat("on-load", "birth", "goat", "Malai", "male", "F2-Male", "alive", "", fx.cbePark, fx.cbeShed, "Part 3", "")
-	// On a load but NEVER accepted: not on Load wise, so it stays here.
+	// On a load but NEVER accepted, and marked birth: the page's animal.
 	rejected := goat("load-rejected", "birth", "goat", "Malai", "male", "F2-Male", "alive", "", fx.cbePark, fx.cbeShed, "Part 3", "")
 
 	var load string
@@ -166,7 +172,7 @@ func farmBornByName(fx farmBornFixture, facts []domain.FarmBornAnimalFact) map[s
 // rejected load row and a second identifier can never fan an animal out, the deal share divides
 // over the TAGGED animals only, the deal's date beats the exit day, an exit stamped at 01:00 IST
 // lands on its IST calendar day, the pen reads back as the farm spells it, and a merged animal,
-// an accepted load member and a dead animal are absent.
+// a dead animal and an animal the register does not mark born here are absent.
 func TestFarmBornAnimalsOneToManyLoadsDealsAndTagsResolveToOneFactPerAnimal(t *testing.T) {
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -181,7 +187,7 @@ func TestFarmBornAnimalsOneToManyLoadsDealsAndTagsResolveToOneFactPerAnimal(t *t
 	want := map[string]string{
 		"alive-cbe-p3-a": domain.FarmBornOnFarm, "alive-cbe-p3-b": domain.FarmBornOnFarm, "alive-cbe-p5": domain.FarmBornOnFarm,
 		"alive-cpt": domain.FarmBornOnFarm, "load-rejected": domain.FarmBornOnFarm,
-		"procured-noload": domain.FarmBornOnFarm, "origin-null": domain.FarmBornOnFarm,
+		"alive-cbe-whole": domain.FarmBornOnFarm, "on-load": domain.FarmBornOnFarm,
 		"sold-deal-a": domain.FarmBornSold, "sold-deal-b": domain.FarmBornSold, "sold-nodeal": domain.FarmBornSold,
 	}
 	if len(facts) != len(want) {
@@ -196,14 +202,15 @@ func TestFarmBornAnimalsOneToManyLoadsDealsAndTagsResolveToOneFactPerAnimal(t *t
 			t.Fatalf("%s bucket = %q, want %q", name, got[name].Bucket, bucket)
 		}
 	}
-	// OneToMany across the origin field (maintainer instruction 2026-09-19): an animal marked
-	// procured with no load row and one with no origin at all are each exactly ONE on-farm fact
-	// -- the origin column neither drops them nor duplicates them.
+	// OneToMany across the load table (maintainer decision 2026-09-22): an animal marked birth
+	// that ALSO sits on an accepted load, and one carrying a rejected load row, are each exactly
+	// ONE on-farm fact -- the page no longer reads that table, so neither a load membership nor a
+	// second load row can drop or duplicate an animal.
 	seen := map[string]int{}
 	for _, f := range facts {
 		seen[f.GoatID]++
 	}
-	for _, name := range []string{"procured-noload", "origin-null"} {
+	for _, name := range []string{"on-load", "load-rejected"} {
 		if seen[fx.facts[name]] != 1 || got[name].Bucket != domain.FarmBornOnFarm {
 			t.Fatalf("OneToMany: %s must be exactly one on-farm fact, got %d / %+v", name, seen[fx.facts[name]], got[name])
 		}
@@ -233,18 +240,18 @@ func TestFarmBornAnimalsOneToManyLoadsDealsAndTagsResolveToOneFactPerAnimal(t *t
 		t.Fatalf("summary = %+v", page.Summary)
 	}
 	malai := page.ByBreed[0]
-	if malai.Label != "Malai" || malai.Sold != 2 || malai.Revenue != 20000 {
+	if malai.Label != "Malai" || malai.OnFarm != 4 || malai.Sold != 2 || malai.Revenue != 20000 {
 		t.Fatalf("by breed[0] = %+v", malai)
 	}
 }
 
-// TestFarmBornAnimalsStatusMatrixAndOriginBuckets pins every lifecycle bucket: sold is lifecycle
+// TestFarmBornAnimalsStatusMatrixAndOriginDecidesMembership pins every lifecycle bucket: sold is lifecycle
 // OR exit reason, the live set is alive + clinical, dead / merged are absent, a sale outside the
 // window is absent while its animal is still absent from on-farm, and the register's origin
-// field is IGNORED (maintainer instruction 2026-09-19) -- an animal marked procured with no load
-// and one with no origin at all are both the page's animals, because "not bought on a load" is
-// the one complete fact.
-func TestFarmBornAnimalsStatusMatrixAndOriginBuckets(t *testing.T) {
+// field DECIDES the page (maintainer decision 2026-09-22) -- an animal marked procured and one
+// carrying no origin at all are both absent however clearly they sit on no purchase load, while a
+// birth-marked animal is present however it got here.
+func TestFarmBornAnimalsStatusMatrixAndOriginDecidesMembership(t *testing.T) {
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
 	fx := seedFarmBornFixture(t, ctx, pool)
@@ -259,7 +266,7 @@ func TestFarmBornAnimalsStatusMatrixAndOriginBuckets(t *testing.T) {
 		return farmBornByName(fx, facts)
 	}
 	birth := read("2026-08-18", "2026-09-18")
-	for _, absent := range []string{"dead", "merged", "on-load", "sold-old", "sold-advance-open"} {
+	for _, absent := range []string{"dead", "merged", "sold-old", "sold-advance-open", "procured-noload", "origin-null"} {
 		if _, ok := birth[absent]; ok {
 			t.Fatalf("%s must be absent from the farm-born read", absent)
 		}
@@ -282,8 +289,13 @@ func TestFarmBornAnimalsStatusMatrixAndOriginBuckets(t *testing.T) {
 			t.Fatalf("empty window must carry no sold fact: %+v", f)
 		}
 	}
-	if birth["procured-noload"].Bucket != domain.FarmBornOnFarm || birth["origin-null"].Bucket != domain.FarmBornOnFarm {
-		t.Fatalf("origin must not narrow the page: procured-noload = %+v, origin-null = %+v", birth["procured-noload"], birth["origin-null"])
+	// A blank origin is NOT read as born here: it is the register saying nothing, and guessing on
+	// its behalf is how a bought animal is counted as the farm's own.
+	if _, ok := birth["origin-null"]; ok {
+		t.Fatal("an animal with no recorded origin must not be read as farm born")
+	}
+	if birth["on-load"].Bucket != domain.FarmBornOnFarm {
+		t.Fatalf("a birth-marked animal is the page's animal whatever load it sits on: %+v", birth["on-load"])
 	}
 
 	// Options: parks CBE before CPT, the undivided Godel 1 then its two pens, then the undivided
@@ -353,21 +365,22 @@ func TestFarmBornAnimalsParkScopeAndPenPredicates(t *testing.T) {
 			}
 		}
 	}
-	assertExactly("park CPT", read(domain.FarmBornFilter{ParkID: fx.cptPark}), "alive-cpt", "origin-null")
+	assertExactly("park CPT", read(domain.FarmBornFilter{ParkID: fx.cptPark}), "alive-cpt")
 	assertExactly("pen Part 3 via normalized key", read(domain.FarmBornFilter{ShedID: fx.cbeShed, Partition: "3"}),
-		"alive-cbe-p3-a", "alive-cbe-p3-b", "load-rejected", "sold-deal-a", "sold-deal-b")
+		"alive-cbe-p3-a", "alive-cbe-p3-b", "load-rejected", "on-load", "sold-deal-a", "sold-deal-b")
 	assertExactly("pen Part 5", read(domain.FarmBornFilter{ShedID: fx.cbeShed, Partition: "Part 5"}), "alive-cbe-p5", "sold-nodeal")
-	assertExactly("undivided pen", read(domain.FarmBornFilter{ShedID: fx.cptShed}), "alive-cpt", "origin-null")
-	assertExactly("undivided pen beside partitions", read(domain.FarmBornFilter{ShedID: fx.cbeShed}), "procured-noload")
-	assertExactly("species sheep", read(domain.FarmBornFilter{Species: "sheep"}), "alive-cbe-p5", "origin-null")
-	assertExactly("breed MALAI", read(domain.FarmBornFilter{Breed: "MALAI"}), "alive-cbe-p3-a", "alive-cbe-p3-b", "load-rejected", "sold-deal-a", "sold-deal-b")
-	assertExactly("sex female", read(domain.FarmBornFilter{Sex: "female"}), "alive-cbe-p3-a", "alive-cbe-p5", "sold-deal-b", "sold-nodeal", "procured-noload", "origin-null")
-	assertExactly("stage f2-male", read(domain.FarmBornFilter{Stage: "f2-male"}), "alive-cbe-p3-b", "alive-cpt", "load-rejected", "sold-deal-a")
-	assertExactly("park CBE + sex male", read(domain.FarmBornFilter{ParkID: fx.cbePark, Sex: "male"}), "alive-cbe-p3-b", "load-rejected", "sold-deal-a")
-	// ParkScope ignores the origin field: CBE + female admits the procured-no-load animal beside
-	// the birth-recorded ones, and CPT + Non-Pregnant admits the one with no origin at all.
-	assertExactly("ParkScope CBE + female", read(domain.FarmBornFilter{ParkID: fx.cbePark, Sex: "female"}), "alive-cbe-p3-a", "alive-cbe-p5", "sold-deal-b", "sold-nodeal", "procured-noload")
-	assertExactly("ParkScope CPT + stage", read(domain.FarmBornFilter{ParkID: fx.cptPark, Stage: "non-pregnant"}), "origin-null")
+	assertExactly("undivided pen", read(domain.FarmBornFilter{ShedID: fx.cptShed}), "alive-cpt")
+	assertExactly("undivided pen beside partitions", read(domain.FarmBornFilter{ShedID: fx.cbeShed}), "alive-cbe-whole")
+	assertExactly("species sheep", read(domain.FarmBornFilter{Species: "sheep"}), "alive-cbe-p5")
+	assertExactly("breed MALAI", read(domain.FarmBornFilter{Breed: "MALAI"}), "alive-cbe-p3-a", "alive-cbe-p3-b", "load-rejected", "on-load", "sold-deal-a", "sold-deal-b")
+	assertExactly("sex female", read(domain.FarmBornFilter{Sex: "female"}), "alive-cbe-p3-a", "alive-cbe-p5", "alive-cbe-whole", "sold-deal-b", "sold-nodeal")
+	assertExactly("stage f2-male", read(domain.FarmBornFilter{Stage: "f2-male"}), "alive-cbe-p3-b", "alive-cpt", "load-rejected", "on-load", "sold-deal-a")
+	assertExactly("park CBE + sex male", read(domain.FarmBornFilter{ParkID: fx.cbePark, Sex: "male"}), "alive-cbe-p3-b", "load-rejected", "on-load", "sold-deal-a")
+	// The origin field narrows every predicate, not only the unfiltered read: the CBE females and
+	// the CPT Non-Pregnant animals each include one the register does not mark born here
+	// (procured-noload, origin-null), and neither appears.
+	assertExactly("ParkScope CBE + female", read(domain.FarmBornFilter{ParkID: fx.cbePark, Sex: "female"}), "alive-cbe-p3-a", "alive-cbe-p5", "alive-cbe-whole", "sold-deal-b", "sold-nodeal")
+	assertExactly("ParkScope CPT + stage", read(domain.FarmBornFilter{ParkID: fx.cptPark, Stage: "non-pregnant"}))
 }
 
 // TestFarmBornSalesPaginationSlicesTheLedgerOnly pins that the page boundary applies to the sold
@@ -392,8 +405,7 @@ func TestFarmBornSalesPaginationSlicesTheLedgerOnly(t *testing.T) {
 	if first.Summary != second.Summary {
 		t.Fatalf("summary must not move across pages: %+v vs %+v", first.Summary, second.Summary)
 	}
-	// Pagination never touches the on-farm side, and that side counts the origin-less animals:
-	// 7 on every page (5 birth-recorded + procured-no-load + origin-null).
+	// Pagination never touches the on-farm side: the same 7 birth-marked animals on every page.
 	if first.Summary.OnFarm != 7 || second.Summary.OnFarm != 7 {
 		t.Fatalf("Pagination: on-farm must read 7 on every page, got %d / %d", first.Summary.OnFarm, second.Summary.OnFarm)
 	}

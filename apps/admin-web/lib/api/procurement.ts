@@ -34,7 +34,7 @@ export type BuyerAnalytics = AppApiComponents["schemas"]["BuyerAnalytics"];
 export type BuyerAnalyticsRow = AppApiComponents["schemas"]["BuyerAnalyticsRow"];
 export type BuyerAnalyticsSummary = AppApiComponents["schemas"]["BuyerAnalyticsSummary"];
 
-// Farm born — the not-on-a-load half of the herd (/procurement/farm-born-sales).
+// Farm born — the animals the register marks born here (/procurement/farm-born-sales).
 export type FarmBornSales = AppApiComponents["schemas"]["FarmBornSales"];
 export type FarmBornBucket = AppApiComponents["schemas"]["FarmBornBucket"];
 export type FarmBornSoldRow = AppApiComponents["schemas"]["FarmBornSoldRow"];

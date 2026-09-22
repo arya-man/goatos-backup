@@ -143,7 +143,7 @@ func TestSalesPageContractAndNavigation(t *testing.T) {
 	// with the read leaves, before Vendors.
 	// Seven leaves since 2026-09-15: Buyer analytics (who the farm sells to, read back per
 	// buyer) sits with the read leaves, after Market analytics and before Vendors.
-	// Eight leaves since 2026-09-18: Farm born (the not-on-a-load half of the herd) sits
+	// Eight leaves since 2026-09-18: Farm born (the animals born on this farm) sits
 	// directly after Load wise, because the two pages partition the herd.
 	// Nine leaves since 2026-09-19: Sales SOP (what a recorded sale owes and who does each
 	// step) closes the group after Sales Config, the /counts/sops shape.

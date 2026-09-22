@@ -4241,8 +4241,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * The not-on-a-load half of the herd — on farm, sold in a period, by breed / sex / stage / pen, and the money — for the Sales > Farm born page.
-         * @description The counterpart of load-wise: every animal on NO accepted purchase load, whatever the register's origin field says, served by the procurement read that joins the herd register to the sales ledger (the load-wise shape). The two pages partition the herd.
+         * The animals born on this farm — on farm, sold in a period, by breed / sex / stage / pen, and the money — for the Sales > Farm born page.
+         * @description The counterpart of load-wise: exactly the animals the register marks born here (`goats.origin_type = 'birth'`; maintainer decision 2026-09-22, superseding the 2026-09-19 not-on-a-load rule), served by the procurement read that joins the herd register to the sales ledger (the load-wise shape). A blank origin is NOT read as born here, so this page and load-wise no longer partition the herd: an animal the register has not classified appears on neither, and one marked `birth` that also sits on an accepted load appears on both.
          *
          *     THE WINDOW BINDS THE SOLD SIDE ONLY (maintainer decision 2026-09-18). `summary.on_farm` and every breakdown's `on_farm` are TODAY's live counts whatever the window; `sold`, `sold_priced`, `revenue` and the `sold` ledger cover animals whose sale date (the deal's sale date, else the exit date) falls inside `from`..`to` inclusive. Absent dates mean the last calendar month ending today, in IST business dates.
          *

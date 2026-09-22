@@ -4,7 +4,7 @@ import type { RouteSearchParams } from "@/lib/search-params";
 
 export const dynamic = "force-dynamic";
 
-// Farm born — the animals the farm did not buy on a load (maintainer request 2026-09-18): on the
+// Farm born — the animals born on this farm (maintainer request 2026-09-18): on the
 // farm today, sold in the chosen period, by breed / sex / stage / pen, and what they earned.
 // Read-only; entry is Sales Config.
 export default async function Page({ searchParams }: { searchParams: Promise<RouteSearchParams> }) {

@@ -13,22 +13,23 @@ import (
 
 // FARM BORN SALES read (maintainer request 2026-09-18, docs/decisions/sales-farm-born.md).
 //
-// RECORDED CROSS-MODULE REPORTING READ, the load-wise shape. Procurement owns
-// procurement_load_goats and joins OUT to goats (breed, sex, stage, park, terminal outcome),
-// goat_identifiers (the tag), goat_shed_partitions + locations (the pen) and
-// goat_sale_allocations + sales_deals (sale date, buyer, the deal share). Read-only over every one
-// of those tables and reporting grain only: nothing here gates a sale, an exit or any write; the
-// sales module's own lock (migration 000173) is untouched because the dependency points the
-// other way.
+// RECORDED CROSS-MODULE REPORTING READ, the load-wise shape. Procurement reads OUT to goats
+// (origin, breed, sex, stage, park, terminal outcome), goat_identifiers (the tag),
+// goat_shed_partitions + locations (the pen) and goat_sale_allocations + sales_deals (sale date,
+// buyer, the deal share). Read-only over every one of those tables and reporting grain only:
+// nothing here gates a sale, an exit or any write; the sales module's own lock (migration 000173)
+// is untouched because the dependency points the other way.
 
 var _ ports.FarmBornSalesRepository = (*Repository)(nil)
 
-// farmBornPopulationSQL is the shared front of both reads: every not-on-a-load animal, whatever
-// the register's origin field says (maintainer instruction 2026-09-19), with its register facts
-// and its pen resolved ONCE.
+// farmBornPopulationSQL is the shared front of both reads: every animal the register marks
+// BORN HERE (goats.origin_type = 'birth'), with its register facts and its pen resolved ONCE.
 //
-// The population is the exact complement of the load-wise membership (accepted rows on
-// procurement_load_goats), so an animal is on exactly one of the two pages.
+// The population is the register's own origin field and nothing else (maintainer decision
+// 2026-09-22, SUPERSEDING the 2026-09-19 not-on-a-load rule). It is therefore NOT the complement
+// of the load-wise membership any more: an animal whose origin is blank or 'procured' while it
+// sits on no purchase load appears on NEITHER page. That gap is the register's to close, and it
+// is visible rather than papered over -- the alternative counted bought animals as farm born.
 //
 // The pen is the animal's own goat_shed_partitions row over goats.shed_id. ExitGoat never touches
 // shed_id and the partition row outlives the exit, so a sold animal still reads back the pen it
@@ -36,12 +37,7 @@ var _ ports.FarmBornSalesRepository = (*Repository)(nil)
 // for a sold animal when present -- it is where the animal was SOLD from, which is the question
 // the pen breakdown answers.
 const farmBornPopulationSQL = `
-WITH on_load AS (
-    SELECT DISTINCT plg.goat_id
-    FROM public.procurement_load_goats plg
-    WHERE plg.tenant_id = $1 AND plg.current_state = 'accepted_herd_intake'
-),
-ident AS (
+WITH ident AS (
     -- One tag per animal: the primary tag first, else the secondary, newest first. The same
     -- animal_identifier_1 / _2 rule the register uses; other identifier types are not tags.
     SELECT DISTINCT ON (gi.goat_id) gi.goat_id, gi.identifier_value
@@ -89,7 +85,7 @@ pop AS (
     LEFT JOIN deal_share ds ON ds.goat_id = g.goat_id
     WHERE g.tenant_id = $1
       AND g.merged_into_goat_id IS NULL
-      AND NOT EXISTS (SELECT 1 FROM on_load ol WHERE ol.goat_id = g.goat_id)
+      AND g.origin_type = 'birth'
 ),
 located AS (
     SELECT p.*,
@@ -105,10 +101,10 @@ located AS (
 // farmBornAnimalsSQL serves the page's facts: on-farm animals, and animals sold inside the window,
 // both narrowed by the herd-dimension predicates. Blank predicate parameters mean no filter.
 //
-// projection-review: membership=goats at ROW grain (one animal), narrowed to the tenant, NOT on an
-// accepted load row (a semi-join, so a two-load animal cannot fan out), the optional park / pen /
-// species / breed / sex / stage predicates, and EITHER on farm today OR sold with a sale date
-// inside [$2, $3]; group_key=goat_id -- every CTE it joins is 1:{0,1} per animal
+// projection-review: membership=goats at ROW grain (one animal), narrowed to the tenant, to
+// origin_type = 'birth' (a column predicate on the animal's own row, so nothing can fan out), the
+// optional park / pen / species / breed / sex / stage predicates, and EITHER on farm today OR sold
+// with a sale date inside [$2, $3]; group_key=goat_id -- every CTE it joins is 1:{0,1} per animal
 // (ident DISTINCT ON goat_id, goat_shed_partitions PK (tenant, goat), deal_share through the
 // tagged partial unique index, locations on PK), so the read returns exactly one row per admitted
 // animal and the domain's counts are counts of animals; join_cardinality=1:{0,1} on every branch,
@@ -118,8 +114,7 @@ located AS (
 //
 // scale-guard:ignore: whole-filter reporting read over the herd register at the 5k-50k envelope,
 // aggregated once per request in one set-based statement over the tenant indexes (goats PK and
-// tenant scan, procurement_load_goats_goat_state_idx, goat_identifiers goat index, the
-// goat_sale_allocations live-uniqueness index). The same shape and reasoning as the load-wise
+// tenant scan, goat_identifiers goat index, the goat_sale_allocations live-uniqueness index). The same shape and reasoning as the load-wise
 // member scan, which reads the other half of the same herd.
 const farmBornAnimalsSQL = farmBornPopulationSQL + `
 SELECT l.goat_id::text, l.display_id, l.tag, l.species, l.breed, l.sex, l.stage,
@@ -142,8 +137,8 @@ ORDER BY l.sale_date DESC NULLS LAST, l.tag, l.goat_id`
 // choices that match something. One row per distinct combination; the Go side splits them into
 // the six lists.
 //
-// projection-review: membership=the same located population as the facts read (tenant, not on a
-// load), restricted to animals on farm or sold; group_key=the distinct
+// projection-review: membership=the same located population as the facts read (tenant,
+// origin_type = 'birth'), restricted to animals on farm or sold; group_key=the distinct
 // (park, shed, partition_key, species, breed, sex, stage) tuple -- a vocabulary, not a count, so no
 // figure is derived from it; join_cardinality=1:{0,1} per animal on every branch as above;
 // pagination=none; scope=tenant_id on every branch.
