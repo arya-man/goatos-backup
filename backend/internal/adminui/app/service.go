@@ -6713,7 +6713,7 @@ func pageSpecificCopy(id string) map[string]string {
 			// within one farm and feed, off the locked sheets -- the same FIFO the Stock tab's
 			// "Consumption from" already uses for the latest load.
 			"loads.title":                  "Purchased vs consumed, load by load",
-			"loads.hint":                   "Every load still in the store, for the feeds the farm buys today. Each load is used up in the order it arrived, per farm and feed, from what the sheet DIRECTED after lock. Days left is the runway to the end of that load, so the newest load of a feed carries the same days left as its stock card. Days said is what the buyer entered when the load was recorded; the check is days said minus days used minus that load's own days left, and zero means the figure held.",
+			"loads.hint":                   "Every load still in the store, used oldest first per farm and feed. Days left runs to the end of that load, so a feed's newest load matches its stock card. The check is days said minus days used minus that load's own days left.",
 			"loads.empty":                  "No loads in the store.",
 			"loads.col.purchase_date":      "Bought",
 			"loads.col.feed_item":          "Feed item",
