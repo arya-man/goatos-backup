@@ -315,17 +315,17 @@ async function pickTrigger(page, step) {
   return { reason: count === 0 ? "trigger-absent" : refused ? "only-write-shaped-triggers" : "trigger-hidden" };
 }
 
-async function isOpen(page, overlay) {
-  return page.evaluate((sel) => [...document.querySelectorAll(sel)].some((n) => n.getClientRects().length > 0 && getComputedStyle(n).visibility !== "hidden"), overlay);
-}
-
+// Web-first: the page decides when the overlay is gone. waitForFunction re-evaluates on the
+// browser's own animation frames, so a slow close waits exactly as long as it needs to and a fast
+// one returns immediately -- neither is rounded up to a poll interval on our clock.
 async function waitClosed(page, overlay, ms) {
-  const deadline = Date.now() + ms;
-  while (Date.now() < deadline) {
-    if (!(await isOpen(page, overlay))) return true;
-    await page.waitForTimeout(100);
-  }
-  return !(await isOpen(page, overlay));
+  return page
+    .waitForFunction(
+      (sel) => ![...document.querySelectorAll(sel)].some((n) => n.getClientRects().length > 0 && getComputedStyle(n).visibility !== "hidden"),
+      overlay,
+      { timeout: ms },
+    )
+    .then(() => true, () => false);
 }
 
 export async function exerciseOverlays(page, { routeName, viewportLabel, screenshotDir, relativeToRepo = (p) => p }) {
@@ -355,7 +355,9 @@ export async function exerciseOverlays(page, { routeName, viewportLabel, screens
     while (Date.now() < deadline) {
       result = await page.evaluate(inspectOverlayInPage, { ...step, mark: false });
       if (result.issues.length === 0) break;
-      await page.waitForTimeout(150);
+      // Re-inspect once the page has actually painted again. Two animation frames is the browser's
+      // own signal that the open transition advanced; a fixed sleep is a guess at how long it takes.
+      await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
     }
     if (result.issues.length > 0) await fail(result.issues.slice(0, 3).join("; "));
     const shotPath = join(screenshotDir, `${viewportLabel}-${routeName}-${step.id}.png`);

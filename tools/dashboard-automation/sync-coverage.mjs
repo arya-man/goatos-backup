@@ -51,6 +51,31 @@ export function guessKind(subject) {
   return "unknown";
 }
 
+// Commit subjects are repo history verbatim, and history occasionally names a symbol whose spelling
+// collides with a cross-organization/project name that tools/agent-hooks/check-org-boundary.mjs
+// blocks on sight. That guard reads ADDED LINES, so an unscrubbed subject landing in this ledger
+// fails the next ci-local run for a commit nobody is editing. Terms are base64 here for the same
+// reason they are base64 in the guard: writing them plainly would trip it on this file. Keep this
+// list in step with the guard's.
+const BLOCKED_ORG_TERMS = [
+  { value: "SGV2YQ==", caseSensitive: false },
+  { value: "U2xpY2U=", caseSensitive: true },
+  { value: "aGV2YXBsYXRmb3Jt", caseSensitive: false },
+].map((entry) => ({
+  term: Buffer.from(entry.value, "base64").toString("utf8"),
+  caseSensitive: entry.caseSensitive,
+}));
+
+// Redacts rather than rewrites: "[redacted]" reads as a deliberate elision, where substituting a
+// near-synonym would leave a subject that looks like real history and is not.
+export function scrubOrgNames(text) {
+  let out = String(text ?? "");
+  for (const { term, caseSensitive } of BLOCKED_ORG_TERMS) {
+    out = out.replace(new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), caseSensitive ? "g" : "gi"), "[redacted]");
+  }
+  return out;
+}
+
 // Commit subjects carry a conventional-commit prefix and often a trailing issue ref.
 export function cleanTitle(subject) {
   return String(subject ?? "")
@@ -258,7 +283,7 @@ export function newLedgerRow(commit) {
   return {
     sha: commit.sha,
     date: commit.date,
-    subject: commit.subject,
+    subject: scrubOrgNames(commit.subject),
     files: commit.files.slice(0, 40),
     kind: commit.kind,
     userVisible: commit.webFiles.length > 0,
@@ -269,7 +294,7 @@ export function newLedgerRow(commit) {
 export function newAssertionEntry(commit) {
   return {
     sha: commit.sha,
-    title: cleanTitle(commit.subject),
+    title: scrubOrgNames(cleanTitle(commit.subject)),
     route: commit.route,
     viewports: ["laptop", "mobile"],
     steps: [],

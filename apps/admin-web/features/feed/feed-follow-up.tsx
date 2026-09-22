@@ -2,6 +2,7 @@
 
 import { Tag } from "@/components/ui-primitives";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { fmtDate } from "@/lib/format";
 import type { FeedAnalyticsFollowUpResponse, FeedAnalyticsFollowUpRow } from "@/lib/api/server";
 
 // ---------------------------------------------------------------------------
@@ -136,7 +137,7 @@ function FollowUpLine({
         {/* The day the animals moved. Only the DAY -- the recorded time of day
             is a batch data-entry stamp, so printing it would invite a reader to
             reason from a clock that means nothing. */}
-        <div className="muted small">{check.event_date}</div>
+        <div className="muted small">{fmtDate(check.event_date)}</div>
       </td>
       <td className="muted small">
         {/* The two sheets compared. Naming them is what keeps a negative

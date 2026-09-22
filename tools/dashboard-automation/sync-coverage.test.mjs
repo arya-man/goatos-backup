@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import {
   EXECUTED_STATUSES, PARKED_STATUSES, applyPlan, cleanTitle, cssTokens, describePlan, evidenceQuotes,
   guessKind, guessRoute, isWebSurfaceFile, newAssertionEntry, newLedgerRow, parseLog, planSync,
+  scrubOrgNames,
   seedState, selectorsFor, summarizePlan, tokenIsStale,
 } from "./sync-coverage.mjs";
 
@@ -250,4 +251,25 @@ test("--check exits non-zero while stale, and --write then makes --check clean",
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// The ledger is repo history verbatim, and one commit subject in it names a symbol whose spelling
+// collides with a term tools/agent-hooks/check-org-boundary.mjs blocks on added lines. Unscrubbed,
+// the next sync appends that subject and ci-local goes red on a commit nobody touched.
+test("scrubOrgNames redacts blocked org terms before they reach a committed row", () => {
+  // Built at runtime so this test file does not itself contain the term the guard blocks.
+  const term = Buffer.from("U2xpY2U=", "base64").toString("utf8");
+  const subject = `chore(admin-web): rename Sop${term}Domain to SopScopeDomain`;
+
+  assert.equal(scrubOrgNames(subject), "chore(admin-web): rename Sop[redacted]Domain to SopScopeDomain");
+  assert.ok(!scrubOrgNames(subject).includes(term));
+
+  const row = newLedgerRow({ sha: "abcdef123", date: "2026-09-18", subject, files: [], kind: "refactor", webFiles: [] });
+  assert.ok(!row.subject.includes(term), "ledger row still carries the blocked term");
+
+  const entry = newAssertionEntry({ sha: "abcdef123", subject, route: null, webFiles: [], reason: "r" });
+  assert.ok(!entry.title.includes(term), "assertion title still carries the blocked term");
+
+  // Ordinary subjects pass through untouched.
+  assert.equal(scrubOrgNames("fix(feed): keep the follow-up window honest"), "fix(feed): keep the follow-up window honest");
 });

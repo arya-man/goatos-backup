@@ -80,6 +80,7 @@ export async function OperationsAuditPage({
   const actorQ = one(sp, "actor_q")?.trim().toLowerCase() ?? "";
   // One parallel round: the per-family summary reads do not depend on the list, so awaiting them
   // after it doubled server render latency (list+summary, THEN ten family summaries).
+  // request-plan:ignore owner=ravi@mesha.sg issue=PR-350 expires=2026-12-31 reason=deliberate bounded fan-out (1 summary + a fixed 10-family list) in ONE parallel round; splitting it into two rounds is what doubled server render latency. The real fix is a per-domain breakdown on /operations/audit/summary so one request feeds every family tile.
   const [listResult, summaryResult, ...familySummaryResults] = await Promise.all([
     listOperationsAudit({ ...filters, limit: PAGE_SIZE, cursor: one(sp, "cursor") }),
     getOperationsAuditSummary(filters),

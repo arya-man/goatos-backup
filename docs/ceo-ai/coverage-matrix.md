@@ -660,6 +660,25 @@ coverage. Explicit documented exclusion — no coverage-matrix mapping required.
 
 | feed_direction_frozen_row_identity | func:RowKey | Explicit exclusion: internal feed-direction row reconstruction helper only; existing feed completion and verification reads remain the leadership assistant coverage source. |
 
+## Explicit exclusion: feed follow-up day-window helpers (2026-09-23)
+
+`func:ResolveFeedFollowUpDay` and `func:AddBusinessDays`
+(`backend/internal/feeddirection/domain/feed_follow_up.go`) are internal
+domain helpers behind the already-covered Feed follow-up read. The first folds
+a day's purchase/sale/death causes into one check and picks the two feed
+directions to compare -- the last one ON OR BEFORE the event day against the
+first one after it -- because the sale stamp is a batch data-entry clock, not
+the hour the animals left. The second is calendar-day arithmetic used to span
+that window. Neither reads or writes a herd fact of its own: they decide which
+two already-issued directions a verdict is computed from. They add NO new
+leadership KPI, table, read API route, Cube metric, `ceo_ai.*` view, MCP
+Toolbox tool, or read-only SQL fallback surface. Leadership assistant coverage
+remains the existing feed direction reporting coverage (Feed > Direction row,
+`feed_direction_today` reader). Explicit documented exclusion -- no
+coverage-matrix mapping required.
+
+| feed_follow_up_day_window | func:ResolveFeedFollowUpDay, func:AddBusinessDays | Explicit exclusion: internal feed follow-up day-window helpers only; the existing feed direction reads remain the leadership assistant coverage source. |
+
 ## Explicit exclusion: vaccination submit write helpers (2026-09-05)
 
 `func:AssignmentMatchesActor` and `func:ListScanCaptures` are internal SOP
