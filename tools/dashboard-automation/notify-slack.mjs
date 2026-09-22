@@ -74,9 +74,9 @@ const inlineShots = [...visualIssues.filter((issue) => issue.screenshot).slice(0
   file: issue.screenshot,
   title: `${issue.page} — ${issue.what}`.slice(0, 250),
   comment: [
-    `*${i + 1}. ${issue.page}*  ${issue.deviceLabel}${issue.views > 1 ? `  ·  seen on ${issue.views} views` : ""}`,
+    `*${i + 1}. ${issue.url ? `<${issue.url}|${issue.page}>` : issue.page}*  ${issue.deviceLabel}${issue.views > 1 ? `  ·  seen on ${issue.views} views` : ""}`,
     `${issue.what}${issue.example}`,
-    issue.url ? `<${issue.url}|Open the page>` : null
+    null
   ].filter(Boolean).join("\n")
 }));
 await postSlack(message, inlineShots.length ? [reportFile] : [reportFile, ...screenshotFiles], statePath, { lastSignature: signature, lastPostedAtMs: now, lastStatus: receipt.status ?? "unknown" }, inlineShots);
@@ -256,7 +256,10 @@ function formatVisualIssuesMessage(value, issues, slow = { pages: [] }) {
   const byKind = new Map();
   for (const issue of issues) byKind.set(issue.what.replace(/ —.*$/, ""), (byKind.get(issue.what.replace(/ —.*$/, "")) ?? 0) + 1);
   const kindLines = [...byKind.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10).map(([what, n]) => `• ${n} × ${what}`);
-  const slowLines = slow.pages.slice(0, 8).map((p) => `• ${p.page} — ${seconds(p.loadMs)}${p.cause ? ` · slowest: ${p.cause}` : ""}${p.url ? ` · <${p.url}|open>` : ""}`);
+  const slowLines = slow.pages.slice(0, 5).map((p) => {
+    const cause = (p.cause ?? "").split(",")[0].trim();
+    return `• ${p.url ? `<${p.url}|${p.page}>` : p.page} — *${seconds(p.loadMs)}*${cause ? ` · slowest ${cause}` : ""}`;
+  });
   const title = issues.length
     ? `:rotating_light: ${issues.length} visible issue${issues.length === 1 ? "" : "s"} on production`
     : `:hourglass_flowing_sand: ${slow.pages.length} page${slow.pages.length === 1 ? "" : "s"} slow on production`;
@@ -265,7 +268,7 @@ function formatVisualIssuesMessage(value, issues, slow = { pages: [] }) {
   ];
   if (kindLines.length) blocks.push({ type: "section", text: { type: "mrkdwn", text: `*What is wrong*\n${kindLines.join("\n")}` } });
   if (slowLines.length) {
-    blocks.push({ type: "section", text: { type: "mrkdwn", text: `*Slow pages*${slow.budgetMs ? ` (budget ${seconds(slow.budgetMs)})` : ""}\n${slowLines.join("\n")}${slow.pages.length > slowLines.length ? `\n• +${slow.pages.length - slowLines.length} more` : ""}` } });
+    blocks.push({ type: "section", text: { type: "mrkdwn", text: `*Slow pages*${slow.budgetMs ? ` (budget ${seconds(slow.budgetMs)})` : ""}\n${slowLines.join("\n")}${slow.pages.length > slowLines.length ? `\n• +${slow.pages.length - slowLines.length} more pages — full list in the report` : ""}` } });
   }
   const part = runPartSummary(issues.length);
   if (part) blocks.push({ type: "context", elements: [{ type: "mrkdwn", text: part }] });
