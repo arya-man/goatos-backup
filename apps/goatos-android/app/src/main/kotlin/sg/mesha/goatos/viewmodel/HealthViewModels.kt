@@ -44,6 +44,7 @@ import sg.mesha.goatos.core.data.forms.ProofPolicy
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.sync.PendingHealthCaseOpen
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
+import sg.mesha.goatos.core.data.sync.SyncQueueItem
 import sg.mesha.goatos.core.network.dto.HealthWorkItemDetailDto
 import sg.mesha.goatos.core.network.dto.HealthSummaryDto
 import sg.mesha.goatos.core.network.dto.HealthTreatmentStepDto
@@ -346,6 +347,7 @@ class HealthDetailViewModel @Inject constructor(
      *  "recorded" instead of asking for the camera again. */
     private var draft = CaptureDraft()
     private var proofStatusJob: Job? = null
+    private var completionJob: Job? = null
 
     val state: StateFlow<HealthDetailUiState> = combine(
         repo.observeDetail(sessionId), ops, message, video, stepProofs,
@@ -601,6 +603,40 @@ class HealthDetailViewModel @Inject constructor(
         }
     }
 
+    /**
+     * A SUBMIT THE SERVER REFUSED IS NOT A SUBMIT, and the operator has to be told.
+     *
+     * The card marks itself completed the moment the write is queued, which is right: the work
+     * really was done and the phone may be offline for hours. But a REFUSAL is terminal -- the
+     * server will not change its mind on retry -- so an optimistic "completed" left standing is a
+     * session the operator believes is closed and the farm still has open. That is the shape the
+     * proof business-ack contract exists to prevent, one write further along than the uploads it
+     * usually names.
+     *
+     * So a dead row surfaces the server's OWN sentence ("Morning work opens at 08:00.") and the
+     * card is re-read from the server, which puts it back in the work list where it belongs.
+     */
+    private fun observeCompletion(itemId: String) {
+        completionJob?.cancel()
+        completionJob = viewModelScope.launch {
+            syncRepository.observeItem(itemId)
+                .filterNotNull()
+                .distinctUntilChanged()
+                .collect { item ->
+                    val notice = refusedCompletionNotice(item) ?: return@collect
+                    message.value = notice
+                    analytics.track(
+                        AnalyticsEvents.HEALTH_WRITE_FAILURE,
+                        mapOf(
+                            AnalyticsEvents.Params.KIND to "work_item",
+                            AnalyticsEvents.Params.REASON to (item.lastErrorCode ?: "refused"),
+                        ),
+                    )
+                    refresh()
+                }
+        }
+    }
+
     private fun observeProofItem(itemId: String) {
         proofStatusJob?.cancel()
         proofStatusJob = viewModelScope.launch {
@@ -688,6 +724,7 @@ class HealthDetailViewModel @Inject constructor(
                 repo.markCompleted(sessionId)
                 analytics.track(AnalyticsEvents.HEALTH_TREATMENT_SUBMITTED)
                 message.value = "Saved offline. Sync will finish automatically."
+                observeCompletion(result.value)
             }
             is AppResult.Err -> {
                 analytics.track(
@@ -874,4 +911,22 @@ private fun HealthTreatmentStepDto.toUi(): HealthStepUi {
         instruction?.takeIf(String::isNotBlank),
     ).joinToString(" · ")
     return HealthStepUi(stepId.ifBlank { "$dayNo-$session-$seq" }, title, details, criticalActionType != null, status)
+}
+
+/**
+ * What the operator must be told about a completion write that has stopped moving.
+ *
+ * null means say nothing: the row is still travelling (queued, in flight, backing off), or it
+ * landed. A sentence means the server REFUSED it and will not change its mind on a retry -- "the
+ * morning visit opens at 08:00", "this session is already complete" -- and the card's optimistic
+ * "completed" is a lie the operator is entitled to have corrected.
+ *
+ * The sentence is the SERVER'S, rendered verbatim, because the backend owns operator-facing copy
+ * and it is the only side that knows WHY. The fallback exists for a transport death that named no
+ * reason; it says the work is not done rather than inventing a cause.
+ */
+internal fun refusedCompletionNotice(item: SyncQueueItem): String? {
+    if (item.isActive || item.status != SyncItemStatus.FAILED) return null
+    return item.lastError?.takeIf { it.isNotBlank() }
+        ?: "This session could not be completed. Please try again."
 }
