@@ -54,6 +54,16 @@ func TestSQLRowValuesNeverRenderAsAGoStruct(t *testing.T) {
 		{"label": "Shed", "value": "Castro 1", "scope": "Channapatna"},
 		// A NULL numeric is absence, not a struct and not a zero.
 		{"label": "Not recorded", "value": pgtype.Numeric{}},
+		// THE SAME FIGURE, HANDED OVER AS TEXT. A model-drafted read casts the
+		// column on some routes and not others, so MG-100001's weight read
+		// "22.9" or "22.900" depending on which plan the model happened to
+		// plan. The scale must not show through by that door either.
+		{"label": "Cast weight", "value": "22.900"},
+		// ... while a LABEL is a GROUP KEY and is left exactly as the database
+		// spelled it, even when it is entirely numeric. A weight-band key of
+		// "25.00" must come back as "25.00", or two adjacent bands stop being
+		// distinguishable from each other by name.
+		{"label": "25.00", "value": "3"},
 	}
 
 	// Which labels carry a FIGURE, and what the reader must be shown.
@@ -65,12 +75,15 @@ func TestSQLRowValuesNeverRenderAsAGoStruct(t *testing.T) {
 		"Coverage":       "0.875",
 		"Shortfall":      "-35",
 		"Not recorded":   "",
+		"Cast weight":    "22.9",
+		"25.00":          "3",
 	}
 
 	res := rowsToToolResult("tenant-a", rows, "SELECT label, value FROM ceo_ai.feed_adherence WHERE tenant_id = 'tenant-a' LIMIT 10")
 	if len(res.Facts) != len(rows) {
 		t.Fatalf("got %d facts for %d rows", len(res.Facts), len(rows))
 	}
+	seenLabels := map[string]bool{}
 	for _, f := range res.Facts {
 		// The blanket rule, applied to EVERY rendered string a reader sees:
 		// label, value, scope and unit alike.
@@ -79,6 +92,7 @@ func TestSQLRowValuesNeverRenderAsAGoStruct(t *testing.T) {
 				t.Errorf("fact %q %s rendered as a Go struct: %q", f.Label, field, got)
 			}
 		}
+		seenLabels[f.Label] = true
 		want, isFigure := wantFigures[f.Label]
 		if !isFigure {
 			continue
@@ -95,6 +109,12 @@ func TestSQLRowValuesNeverRenderAsAGoStruct(t *testing.T) {
 		if _, err := strconv.ParseFloat(f.Value, 64); err != nil {
 			t.Errorf("fact %q value %q does not parse as a number: %v", f.Label, f.Value, err)
 		}
+	}
+	// A LABEL is a name and is never reformatted, however numeric it looks:
+	// the farm really does have pens whose names end in a number, and only the
+	// value column is a figure.
+	if !seenLabels["25.00"] {
+		t.Errorf("a numeric-looking label was rewritten; labels seen: %v", seenLabels)
 	}
 }
 

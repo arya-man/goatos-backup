@@ -16,6 +16,7 @@ import (
 	"log/slog"
 	"math"
 	"os"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -439,6 +440,31 @@ func scalarStringSlow(v any) string {
 	return fmt.Sprintf("%v", v)
 }
 
+// decimalText matches a plain decimal figure and nothing else -- no exponent,
+// no unit, no thousands separator, no leading plus.
+var decimalText = regexp.MustCompile(`^-?\d+\.\d+$`)
+
+// factValueString renders the fact contract's `value` column, which is the one
+// column of a ceo_ai read that is always a FIGURE.
+//
+// It exists because a model-drafted read may hand the same numeric over in
+// either of two shapes: as a `numeric`, which pgx decodes into a
+// pgtype.Numeric, or as text, when the draft writes `CAST(weight_kg AS text)`
+// -- and it really does, on some routes and not others. The same animal's
+// weight then read `22.9` or `22.900` depending on which plan the model
+// happened to plan, which is the scale showing through again by another door.
+//
+// Only a string that is ENTIRELY a decimal figure is trimmed, and only in this
+// column. A label, a scope and a unit are left exactly as the database spelled
+// them: a pen called `Castro 1.10` is a name, not a number.
+func factValueString(v any) string {
+	s := scalarString(v)
+	if _, isText := v.(string); isText && decimalText.MatchString(s) {
+		return trimDecimalZeros(s)
+	}
+	return s
+}
+
 // trimDecimalZeros drops the trailing zeros Postgres carries in a numeric's
 // scale, so a price that divides out to 596.71800000000000000000 is shown as
 // 596.718. It only ever removes zeros AFTER a decimal point: no value is
@@ -544,7 +570,7 @@ func rowsToToolResult(tenantID string, rows []sqlguard.Row, sql string) domain.T
 		}
 		if hasLabel {
 			if hasValue {
-				fact := domain.Fact{TenantID: tenantID, Label: scalarString(label), Value: scalarString(value)}
+				fact := domain.Fact{TenantID: tenantID, Label: scalarString(label), Value: factValueString(value)}
 				if scope, hasScope := row["scope"]; hasScope {
 					fact.Scope = scalarString(scope)
 				}
