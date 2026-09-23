@@ -17,7 +17,7 @@ export PATH := $(HOME)/.local/bin:$(PATH)
 .PHONY: release-tag release-tag-contract-guard restore-stg-android-release-env stg-zero-downtime-migration-audit
 .PHONY: e2e-image-build e2e-parity e2e-smoke e2e-business-chain scale-cert
 .PHONY: org-boundary-guard
-.PHONY: guard-integrity-guard dashboard-automation-guard dashboard-automation-self-test dashboard-automation-data-parity dashboard-automation-production-smoke dashboard-automation-post-main-certification
+.PHONY: commit-ledger-guard commit-ledger-regenerate commit-ledger-prove guard-integrity-guard dashboard-automation-guard dashboard-automation-self-test dashboard-automation-data-parity dashboard-automation-production-smoke dashboard-automation-post-main-certification
 setup-crg: ai-setup
 
 ai-setup:
@@ -100,6 +100,20 @@ update-docs-graph:
 stg-zero-downtime-migration-audit:
 	node tools/deploy/audit-stg-zero-downtime-migrations.mjs --enforce
 
+commit-ledger-guard:
+	node tools/agent-hooks/check-commit-ledger.mjs --self-test
+	node tools/agent-hooks/check-commit-ledger.mjs
+
+commit-ledger-regenerate:
+	node tools/dashboard-automation/build-commit-ledger.mjs
+
+# Turns `claimed` rows into `covered` ones, a sample at a time: reverts each
+# commit's non-test files and requires a NAMED test to go red. Not in CI - it
+# checks commits out and runs Go tests, which is minutes, not milliseconds.
+commit-ledger-prove:
+	node tools/dashboard-automation/prove-commit-ledger-reverts.mjs --self-test
+	node tools/dashboard-automation/prove-commit-ledger-reverts.mjs --sample $${SAMPLE:-25}
+
 dashboard-automation-self-test:
 	node tools/dashboard-automation/run.mjs --self-test
 	node tools/dashboard-automation/preflight-oci-free.mjs --self-test
@@ -148,6 +162,7 @@ ai-telemetry-ui:
 
 guardrails:
 	$(MAKE) additive-publish-guard
+	$(MAKE) commit-ledger-guard
 	$(MAKE) domain-event-envelope-enum-guard
 	$(MAKE) design-system-guard
 	$(MAKE) git-identity-guard

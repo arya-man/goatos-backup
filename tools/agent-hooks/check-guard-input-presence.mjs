@@ -44,7 +44,7 @@ const GUARD_DIRS = ["tools/agent-hooks", "tools/ci"];
 // known extension. Deliberately narrow — a bare "foo.json" with no directory is
 // usually a basename being composed at runtime, not a fixed input.
 const PATH_LITERAL_RE =
-  /["'`]((?:apps|backend|contracts|docs|tools|context|infra|deploy|fixtures|packages|analytics|\.agents|\.agent|\.github|scripts|load-tests|mock)\/[A-Za-z0-9_@./-]+\.(?:json|txt|md|ya?ml|sql|kt|kts|tsx?|jsx?|mjs|go|py|sh))["'`]/g;
+  /["'`]((?:apps|backend|contracts|docs|tools|context|infra|deploy|fixtures|packages|analytics|\.agents|\.agent|\.github|scripts|load-tests|mock)\/[A-Za-z0-9_@./-]+\.(?:jsonl|json|txt|md|ya?ml|sql|kt|kts|tsx?|jsx?|mjs|go|py|sh))["'`]/g;
 
 // Repo-root files a guard can depend on by bare name. Without these, four of the
 // 87 measured "input went missing and the guard said ok" pairs were outside the

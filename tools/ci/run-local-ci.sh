@@ -437,6 +437,11 @@ run_common() {
   step "leadership-verifier-surface-separation-guard" make leadership-verifier-surface-separation-guard
   step "role-scoped-ui-contract-guard" make role-scoped-ui-contract-guard
   step "dashboard-automation-guard" make dashboard-automation-guard
+  # The commit ledger's denominator comes from git, not from a hand-written
+  # list, so a user-visible commit that lands with no row fails here. NOT
+  # diff-scoped: a commit adds a row requirement by EXISTING, not by touching
+  # tools/. ~200ms (one `git log --format=%h`, no tree walk, no --name-only).
+  step "commit-ledger-guard" make commit-ledger-guard
   step "assistant-route-closure-guard" make assistant-route-closure-guard
   step "telemetry-guard"           make telemetry-guard
   # Token-saving/index tooling should stay visible, but stale local AI indexes
