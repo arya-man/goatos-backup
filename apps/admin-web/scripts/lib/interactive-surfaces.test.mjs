@@ -15,6 +15,7 @@ import {
   routeOfPageFile,
   routesOwningFiles,
   gradeReading,
+  ledgerDrift,
   presenceProbe,
   rootLabels,
   scanInteractiveSurfaces,
@@ -444,4 +445,43 @@ test("a component name is never used as a selector, because nothing renders one"
   // The shared drawer renders aside.drawer.on; its component name is not in the DOM.
   assert.deepEqual(presenceProbe("<LocalOverlayDrawer items={x} />", 0), { css: "aside.drawer.on", min: 1 });
   assert.equal(presenceProbe("<SomeOtherComponent foo={1}>", 0), null, "a component name leaked in as a selector");
+});
+
+// ---------------------------------------------- blanking must not swallow a real component
+test("a single-line exported component is a surface, not an import statement", () => {
+  // The first blanking rule matched any `export ...;` on one line and swallowed this whole,
+  // so the surface was never inventoried, the ledger never had to decide about it, and the gate
+  // stayed happy. An under-count that looks clean — pushing toward silence.
+  const found = scanInteractiveSurfaces([
+    file("features/a/one-liner.tsx", 'export const Panel = () => <div role="dialog" className="p" />;'),
+    file("features/a/form.tsx", 'export const F = () => <form className="cfg-form" />;'),
+  ]);
+  assert.deepEqual(found.map((s) => s.kind).sort(), ["edit-form", "modal"]);
+});
+
+test("statements that only name another module are still blanked", () => {
+  for (const line of [
+    'import { X } from "./x";',
+    'import "./styles.css";',
+    'export { PeoplePage } from "./people-board";',
+    "export { a, b };",
+  ]) {
+    assert.equal(blankNonMarkup(line).trim(), "", `${line} was kept`);
+  }
+});
+
+// ---------------------------------------------- the fourth input: a ledger stale against source
+test("a ledger that no longer describes the source is drift, in both directions", () => {
+  const surfaces = scanInteractiveSurfaces([file("features/a/m.tsx", '<div role="dialog" className="m">')]);
+  const key = surfaces[0].key;
+  assert.deepEqual(ledgerDrift(surfaces, [{ key, where: "features/a/m.tsx:1" }]), []);
+  // moved
+  assert.match(
+    ledgerDrift(surfaces, [{ key, where: "features/a/m.tsx:99" }]).join(" "),
+    /was written for features\/a\/m\.tsx:99 and now sits at features\/a\/m\.tsx:1/,
+  );
+  // in the ledger, gone from the source
+  assert.match(ledgerDrift([], [{ key, where: "x" }]).join(" "), /no longer in the source/);
+  // in the source, absent from the ledger
+  assert.match(ledgerDrift(surfaces, []).join(" "), /in the source but not in the ledger/);
 });
