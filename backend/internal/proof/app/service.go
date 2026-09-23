@@ -142,6 +142,9 @@ func (s *Service) StoreUpload(ctx context.Context, tenantID, proofID, mimeType s
 		return domain.Artifact{}, err
 	}
 	if proof.UploadState == "completed" {
+		if err := s.observeCompletedProof(ctx, proof); err != nil {
+			return domain.Artifact{}, err
+		}
 		return proof, nil
 	}
 	stored, err := s.storage.Store(ctx, proof, body, strings.TrimSpace(mimeType))

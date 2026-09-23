@@ -828,6 +828,55 @@ class CaptureRepositoryTest {
     }
 
     @Test
+    fun `observeProofs repairs failed proof row when outbox already succeeded`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val repo = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = backgroundScope,
+                reconcileOnStartup = false,
+                dispatchers = unconfinedDispatchers,
+                mediaProcessor = IdentityProofMediaProcessor(),
+            )
+
+            val captured = (
+                repo.capture(
+                    taskId = "task-failed-local-succeeded-outbox",
+                    fieldKey = "vaccination_goat_video",
+                    subject = ProofSubject.GOAT,
+                    subjectId = "goat-1",
+                    localUri = "file://vaccination-goat-1.mp4",
+                    mimeType = "video/mp4",
+                    caption = null,
+                    scopeType = "task",
+                    scopeId = "task-failed-local-succeeded-outbox",
+                    capturedStartMs = 1_000L,
+                    capturedEndMs = 4_000L,
+                    capturedByPrincipalId = "operator-1",
+                    proofPolicy = ProofPolicy.Default,
+                    awaitUploadEnqueue = true,
+                ) as AppResult.Ok
+                ).value
+
+            val itemId = db.proofCaptureDao().findById(captured.id)?.outboxItemId
+            assertTrue("Proof should have an outbox item ID", !itemId.isNullOrBlank())
+            db.proofCaptureDao().updateStatus(captured.id, CaptureSyncStatus.FAILED.name, null, "stale local upload error")
+
+            val response = ProofUploadResponseDto(proof = ProofReferenceDto(proofId = "server-proof-recovered"))
+            sync.emit(itemId!!, SyncItemStatus.SUCCEEDED, resultJson = syncJson.encodeToString(response))
+
+            val row = repo.observeProofs("task-failed-local-succeeded-outbox").first().single()
+            assertEquals(CaptureSyncStatus.SYNCED, row.syncStatus)
+            assertEquals("server-proof-recovered", row.serverProofId)
+            assertEquals(null, row.lastError)
+        } finally {
+            closeDb(db)
+        }
+    }
+
+    @Test
     fun `proof upload success retains app private preview files until row cleanup`() = runTest {
         val db = newDb()
         val originalFile = Files.createTempFile("goatos-proof-original-", ".mp4").toFile()

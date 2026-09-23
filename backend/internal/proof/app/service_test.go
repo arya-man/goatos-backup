@@ -97,7 +97,8 @@ func TestStoreUploadIsIdempotentForAlreadyCompletedProof(t *testing.T) {
 	proof := baseProof()
 	proof.UploadState = "completed"
 	proof.MimeType = "video/mp4"
-	service := NewService(&fakeProofRepo{proof: proof}, &fakeProofStorage{})
+	observer := &fakeCompletedProofObserver{}
+	service := NewService(&fakeProofRepo{proof: proof}, &fakeProofStorage{}).WithCompletedProofObserver(observer)
 
 	stored, err := service.StoreUpload(context.Background(), proofTestTenant, proofTestID, "video/mp4", strings.NewReader("again"))
 	if err != nil {
@@ -105,6 +106,9 @@ func TestStoreUploadIsIdempotentForAlreadyCompletedProof(t *testing.T) {
 	}
 	if stored.ProofID != proofTestID || stored.UploadState != "completed" {
 		t.Fatalf("stored = %#v, want completed proof", stored)
+	}
+	if observer.calls != 1 || observer.proof.ProofID != proofTestID {
+		t.Fatalf("observer = calls %d proof %#v, want completed proof replay notification", observer.calls, observer.proof)
 	}
 }
 
