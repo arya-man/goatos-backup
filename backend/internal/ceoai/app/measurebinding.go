@@ -149,13 +149,23 @@ func measureUnmodelled(questionText string, cards []reporting.SchemaCard, catalo
 	if len(catalog) == 0 {
 		return false, nil
 	}
-	// Last check, and the one that keeps this narrow: the coverage matcher
-	// scores a whole question against every view and tool, so a subject the
-	// farm records under words the question did not use is still nominated.
-	// Only a question NOTHING nominates is refused.
-	if len(coveringSources(questionText, cards, catalog)) > 0 {
-		return false, nil
-	}
+	// THE COVERAGE MATCHER IS DELIBERATELY NOT CONSULTED HERE, and removing it
+	// broke a circle. The refusal override in the orchestrator fires only when
+	// coveringSources(...) is NON-EMPTY, and this check returned "not
+	// unmodelled" on that SAME predicate over the SAME inputs -- so on every
+	// path where a planner refusal was overridden, this gate was switched off by
+	// construction, leaving only subjectSubstitution, which itself no-ops on a
+	// read with no SourceView and on a compound whose both words are unmodelled.
+	// A gate the caller disables by calling it is not a gate.
+	//
+	// Dropping it FAILS CLOSED, and adds nothing the checks above did not
+	// already do: they require that NOTHING in the catalogue -- no view name, no
+	// view column, no tool name, description or param -- models ANY of the
+	// question's measure terms, and coveringSources scores over those same
+	// strings. A source that genuinely covered the measure would have made
+	// modelledTerms non-empty and returned above. What this call added was a
+	// nomination scored on dimension-column noise, which is exactly the
+	// laundering path the override was being used for.
 	return true, terms
 }
 

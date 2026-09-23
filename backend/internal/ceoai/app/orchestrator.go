@@ -369,30 +369,42 @@ func (a *Assistant) ask(ctx context.Context, q domain.Question, opts askOptions)
 		return domain.Answer{}, ctxErr
 	}
 
-	// Fail closed on a measure NOTHING models, judged after the reads ran so
-	// the decision rests on evidence rather than on a guess about the question.
-	// The failure mode this prevents is not an empty answer -- it is the
-	// nearest number, confidently relabelled (a milk question answered "CBE 24,
-	// CPT 24" from the animal-scope view). A leader cannot catch that.
-	unmodelled, terms := measureUnmodelled(q.Text, reporting.Cards(), catalog)
-	if unmodelled && someReadNamesACard(plan.SubQuestions, results) {
-		fitAudit = append(fitAudit, "refused_unmodelled_measure:"+strings.Join(terms, ","))
-		a.log.InfoContext(ctx, "ceoai refusing a measure nothing models",
-			"terms", terms, "tenant_id", q.Actor.TenantID)
-		return a.refusal(requestID, q.ConversationID, unmodelledRefusal(terms)), nil
+	// THE POST-READ HONESTY GATES. Both are fail-closed refusals judged after
+	// the reads ran, so the decision rests on evidence rather than on a guess
+	// about the question. They are collected into ONE function deliberately:
+	// they must run over WHATEVER RESULTS ACTUALLY ANSWER, and the fit re-plan
+	// below REPLACES the results. Running them only on the first plan is how
+	// "how many kids are on milk feeding, by park" could misfit on shape,
+	// re-plan onto animal_current_scope, and ship the 48-goat park split as the
+	// milk answer — the exact substitution these gates exist to refuse.
+	// Every caller of executePlan must run this before composing.
+	postReadHonesty := func(subs []domain.SubQuestion, rs []domain.ToolResult) (string, string, bool) {
+		// Fail closed on a measure NOTHING models. The failure mode this
+		// prevents is not an empty answer -- it is the nearest number,
+		// confidently relabelled (a milk question answered "CBE 24, CPT 24"
+		// from the animal-scope view). A leader cannot catch that.
+		if unmodelled, terms := measureUnmodelled(q.Text, reporting.Cards(), catalog); unmodelled && someReadNamesACard(subs, rs) {
+			a.log.InfoContext(ctx, "ceoai refusing a measure nothing models",
+				"terms", terms, "tenant_id", q.Actor.TenantID)
+			return unmodelledRefusal(terms), "refused_unmodelled_measure:" + strings.Join(terms, ","), true
+		}
+		// Fail closed on a SUBSTITUTED subject: the question named a compound
+		// subject ("milk feeding") whose one word nothing in the catalogue
+		// models, and the read that returned these rows does not report it
+		// either. The number is real and belongs to something else, which is
+		// the one failure a leader cannot catch. See subjectSubstitution for
+		// why the binding gate and measureUnmodelled both structurally miss
+		// this shape.
+		if substituted, subject, view := subjectSubstitution(q.Text, subs, rs, reporting.Cards(), catalog); substituted {
+			a.log.InfoContext(ctx, "ceoai refusing a subject the read that ran does not model",
+				"subject", subject, "source_view", view, "tenant_id", q.Actor.TenantID)
+			return substitutedSubjectRefusal(subject, view), "refused_substituted_subject:" + subject, true
+		}
+		return "", "", false
 	}
-
-	// Fail closed on a SUBSTITUTED subject: the question named a compound
-	// subject ("milk feeding") whose one word nothing in the catalogue models,
-	// and the read that returned these rows does not report it either. The
-	// number is real and belongs to something else, which is the one failure a
-	// leader cannot catch. See subjectSubstitution for why the binding gate and
-	// measureUnmodelled both structurally miss this shape.
-	if substituted, subject, view := subjectSubstitution(q.Text, plan.SubQuestions, results, reporting.Cards(), catalog); substituted {
-		fitAudit = append(fitAudit, "refused_substituted_subject:"+subject)
-		a.log.InfoContext(ctx, "ceoai refusing a subject the read that ran does not model",
-			"subject", subject, "source_view", view, "tenant_id", q.Actor.TenantID)
-		return a.refusal(requestID, q.ConversationID, substitutedSubjectRefusal(subject, view)), nil
+	if reason, audit, refuse := postReadHonesty(plan.SubQuestions, results); refuse {
+		fitAudit = append(fitAudit, audit)
+		return a.refusal(requestID, q.ConversationID, reason), nil
 	}
 
 	// Answer fit (planned path): the measure, grouping, unit and period the
@@ -449,6 +461,15 @@ func (a *Assistant) ask(ctx context.Context, q domain.Question, opts askOptions)
 					// round trip, and there is no re-plan left to spend it on.
 					fitIssues, _ = deterministicFitIssues(q, requested, plan.SubQuestions, results, catalog)
 					fitAudit = append(fitAudit, "replanned_for_fit")
+					// ...and the same POST-READ HONESTY GATES. A re-plan that
+					// binds a different view is exactly where a substituted
+					// subject appears: the first read misfits on shape, the
+					// re-plan lands on a neighbouring view that returns rows,
+					// and hasUsableResult above would otherwise let it ship.
+					if reason, audit, refuse := postReadHonesty(plan.SubQuestions, results); refuse {
+						fitAudit = append(fitAudit, audit)
+						return a.refusal(requestID, q.ConversationID, reason), nil
+					}
 				}
 			}
 		}

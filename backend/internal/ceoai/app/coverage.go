@@ -57,7 +57,7 @@ func coveringSources(questionText string, cards []reporting.SchemaCard, catalog 
 
 // coveringTools scores catalogue tools the same way the views are scored.
 func coveringTools(questionText string, catalog []ports.ToolSpec) []string {
-	words := questionWords(questionText)
+	words := coverageWords(questionText)
 	if len(words) == 0 {
 		return nil
 	}
@@ -91,7 +91,7 @@ func coveringTools(questionText string, catalog []ports.ToolSpec) []string {
 // question's words, best first. It is a CAPABILITY check over the catalog, not
 // a per-topic list: a view added tomorrow participates without a code change.
 func coveringViews(questionText string, cards []reporting.SchemaCard) []reporting.SchemaCard {
-	words := questionWords(questionText)
+	words := coverageWords(questionText)
 	if len(words) == 0 {
 		return nil
 	}
@@ -135,14 +135,73 @@ func coveringViews(questionText string, cards []reporting.SchemaCard) []reportin
 // disarmed the refusal for a subject the farm's read models do not carry at all.
 // Counting by stem restores what the rule always meant.
 func distinctStemHits(words map[string]bool, haystack string) int {
+	have := haystackStems(haystack)
 	seen := map[string]bool{}
 	for w := range words {
-		if !strings.Contains(haystack, w) {
+		if !have[wordStem(w)] {
 			continue
 		}
 		seen[wordStem(w)] = true
 	}
 	return len(seen)
+}
+
+// haystackStems is the source's own vocabulary, one stem per identifier word.
+//
+// THE MATCH IS ANCHORED, and that is the whole point of this function. The bar
+// was an unanchored strings.Contains over `name + column names`, so a question
+// word scored on any SUBSTRING of any identifier: "session" landed inside
+// `session_no`, "shed" inside `shed_label`, and two such incidental hits WERE
+// the "two independent words" rule. "which sheds missed their milking session
+// yesterday" then nominated feed_direction_current on two DIMENSION columns --
+// with neither "milking" nor "missed" participating -- and coverageFeedback
+// told the planner to read it and never say the farm does not record it.
+// Matching whole identifier words on their stems nominates a source only for
+// words it actually names.
+func haystackStems(haystack string) map[string]bool {
+	stems := map[string]bool{}
+	for _, w := range strings.Fields(haystack) {
+		w = strings.Trim(w, ".,;:?!()/-\"'")
+		if len(w) < 4 {
+			continue
+		}
+		stems[wordStem(w)] = true
+	}
+	return stems
+}
+
+// coverageWords is what a source is scored against: the question's SUBJECT
+// words only. It drops the dimension vocabulary (park, shed, session, status,
+// item, day...) and the period/quantifier words, for the same reason
+// measureTerms does -- a question is answered BY a measure and broken down BY a
+// dimension, and EVERY view carries dimension columns, so scoring on them
+// nominates the whole catalogue on noise alone.
+//
+// It also drops the structural column nouns that are neither dimensions nor
+// subjects: a `*_label`, a `reason`, a `workflow`, a `blocked` flag and a bare
+// `name` sit on views about entirely different subjects.
+func coverageWords(questionText string) map[string]bool {
+	out := map[string]bool{}
+	for _, t := range measureTerms(questionText) {
+		if coverageNoiseWords[t] {
+			continue
+		}
+		out[t] = true
+	}
+	return out
+}
+
+// coverageNoiseWords are column-shaped words that say nothing about WHAT a
+// question is about. They are deliberately a COVERAGE-ONLY list: the honesty
+// gates still read these words, because "treatment sessions" is a compound
+// subject even where "session" may not nominate a view on its own.
+var coverageNoiseWords = map[string]bool{
+	"label": true, "labels": true, "name": true, "names": true,
+	"workflow": true, "workflows": true, "blocked": true, "block": true,
+	"reason": true, "reasons": true, "note": true, "notes": true,
+	"scope": true, "scopes": true, "detail": true, "details": true,
+	"entry": true, "entries": true, "record": true, "records": true,
+	"row": true, "rows": true, "data": true, "info": true, "information": true,
 }
 
 // wordStem folds a plural onto its singular so the two forms of one word count

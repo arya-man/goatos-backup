@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -48,7 +49,14 @@ func (f *fakeMetrics) Query(_ context.Context, _ domain.Actor, req ports.MetricQ
 	return r, nil
 }
 
+// fakeExec is the package's most reused test double, and the orchestrator now
+// executes a plan's steps CONCURRENTLY (loop.go fan-out), so every field it
+// writes is written from several goroutines at once. Without this mutex
+// `go test -race` is reliably red and the ~20 assertions on `calls` below are
+// nondeterministic. Tests read the fields after Ask returns, which happens
+// after the fan-out has joined, so plain reads stay safe.
 type fakeExec struct {
+	mu     sync.Mutex
 	spec   ports.ToolSpec
 	result domain.ToolResult
 	calls  int
@@ -57,8 +65,10 @@ type fakeExec struct {
 
 func (f *fakeExec) Spec() ports.ToolSpec { return f.spec }
 func (f *fakeExec) Execute(_ context.Context, _ domain.Actor, sub domain.SubQuestion) (domain.ToolResult, error) {
+	f.mu.Lock()
 	f.calls++
 	f.last = sub
+	f.mu.Unlock()
 	r := f.result
 	r.Route = domain.RouteAPI
 	r.ToolName = sub.ToolName
@@ -66,6 +76,7 @@ func (f *fakeExec) Execute(_ context.Context, _ domain.Actor, sub domain.SubQues
 }
 
 type fakeSQLFallback struct {
+	mu           sync.Mutex
 	calls        int
 	trustedCalls int
 	lastSQL      string
@@ -74,8 +85,10 @@ type fakeSQLFallback struct {
 }
 
 func (f *fakeSQLFallback) Execute(_ context.Context, _ domain.Actor, sql string, _ []any) (domain.ToolResult, error) {
+	f.mu.Lock()
 	f.calls++
 	f.lastSQL = sql
+	f.mu.Unlock()
 	r := f.result
 	r.Route = domain.RouteSQL
 	r.ToolName = "sql_fallback"
@@ -86,9 +99,11 @@ func (f *fakeSQLFallback) Execute(_ context.Context, _ domain.Actor, sql string,
 }
 
 func (f *fakeSQLFallback) ExecuteTrusted(_ context.Context, _ domain.Actor, sql string, args []any) (domain.ToolResult, error) {
+	f.mu.Lock()
 	f.trustedCalls++
 	f.lastSQL = sql
 	f.lastArgs = args
+	f.mu.Unlock()
 	r := f.result
 	r.Route = domain.RouteSQL
 	r.ToolName = "sql_fallback"

@@ -1,5 +1,5 @@
 // sales_growth_views_test.go holds the adversarial grain/identity proofs for the
-// four coverage views added by migrations 000392 (sales) and 000393 (weighing
+// four coverage views added by migrations 000393 (sales) and 000394 (weighing
 // growth):
 //
 //	ceo_ai.sales_deal_lines_closed          one row per line of a closed deal
@@ -535,7 +535,7 @@ func TestSaleReadinessFlagsUseStrictlyGreaterThan(t *testing.T) {
 }
 
 // The scope proof: one tenant's sales and weighs are invisible to another, on
-// every one of the four views. Each join in 000392/000393 is keyed on tenant_id
+// every one of the four views. Each join in 000393/000394 is keyed on tenant_id
 // as well as its own key, and this is what proves it.
 func TestTheFourCoverageViewsAreTenantScoped(t *testing.T) {
 	ctx := context.Background()

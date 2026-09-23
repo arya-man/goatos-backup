@@ -98,7 +98,7 @@
     "id": "sales-revenue-month-vs-last",
     "class": "sales_revenue_month_vs_last",
     "question": "How does this month's sales revenue compare to last month?",
-    "notes": "Revenue by IST month over ceo_ai.sales_deal_lines_closed (migration 000392): line values sum to the deal rollup 000296 maintains, so a two-line deal is counted once. Two period labels -> delta abs + % (D4 derived). Oracle: this month's closed-deal sales_value in whole rupees on public.sales_deals. Grouped bar or kpi with delta chip.",
+    "notes": "Revenue by IST month over ceo_ai.sales_deal_lines_closed (migration 000393): line values sum to the deal rollup 000296 maintains, so a two-line deal is counted once. Two period labels -> delta abs + % (D4 derived). Oracle: this month's closed-deal sales_value in whole rupees on public.sales_deals. Grouped bar or kpi with delta chip.",
     "expect": {
       "grounded": true,
       "tiers_any_of": ["api", "sql"],
@@ -113,7 +113,7 @@
     "id": "sales-price-per-kg-by-breed",
     "class": "sales_price_per_kg_by_breed",
     "question": "What price per kg did we get by breed this year?",
-    "notes": "sum(sales_value) / sum(total_weight_kg) per breed over ceo_ai.sales_deal_lines_closed (migration 000392), filtered to is_animal_line so manure tonnage cannot dilute a per-kg figure. price_per_kg is already a ratio and must not be averaged across lines. Oracle: number of breeds sold this year.",
+    "notes": "sum(sales_value) / sum(total_weight_kg) per breed over ceo_ai.sales_deal_lines_closed (migration 000393), filtered to is_animal_line so manure tonnage cannot dilute a per-kg figure. price_per_kg is already a ratio and must not be averaged across lines. Oracle: number of breeds sold this year.",
     "expect": {
       "grounded": true,
       "tiers_any_of": ["api", "sql"],
@@ -128,7 +128,7 @@
     "id": "sales-outstanding",
     "class": "sales_outstanding_receivables",
     "question": "How much do buyers still owe us?",
-    "notes": "ceo_ai.sales_buyer_summary.outstanding_rupees (migration 000392): closed-deal sales_value minus the running payment_received total, clamped PER DEAL so an overpayment is a credit and never nets off another deal's arrears. Oracle: number of closed deals with a positive balance. Answer: total plus a per-buyer table, no advice.",
+    "notes": "ceo_ai.sales_buyer_summary.outstanding_rupees (migration 000393): closed-deal sales_value minus the running payment_received total, clamped PER DEAL so an overpayment is a credit and never nets off another deal's arrears. Oracle: number of closed deals with a positive balance. Answer: total plus a per-buyer table, no advice.",
     "expect": {
       "grounded": true,
       "tiers_any_of": ["api", "sql"],
