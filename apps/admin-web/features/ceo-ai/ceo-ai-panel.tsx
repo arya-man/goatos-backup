@@ -309,7 +309,18 @@ export function CeoAiPanel({
   // Window state: "normal" floating panel, "max" fills the viewport, "min" docks
   // to a header-only bar. Conversation state survives every transition.
   const [view, setView] = useState<"normal" | "max" | "min">("normal");
+  // Thread list starts open on desktop, closed on phones (it overlays the chat there).
   const [showThreads, setShowThreads] = useState(true);
+  const isNarrow = () => typeof window !== "undefined" && window.matchMedia("(max-width:620px)").matches;
+  const [narrow, setNarrow] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width:620px)");
+    const sync = () => setNarrow(mq.matches);
+    sync();
+    if (mq.matches) setShowThreads(false);
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [conversationId, setConversationId] = useState<string | undefined>(
     undefined,
@@ -589,6 +600,7 @@ export function CeoAiPanel({
 
   const resumeThread = useCallback(
     async (id: string) => {
+      if (isNarrow()) setShowThreads(false);
       if (id === conversationId) return;
       stopGenerating();
       setConversationId(id);
@@ -770,6 +782,9 @@ export function CeoAiPanel({
           </div>
 
           <div className="mzai-body">
+            {showThreads ? (
+              <button type="button" className="mzai-scrim" aria-label="Close chats" onClick={() => setShowThreads(false)} />
+            ) : null}
             <aside className={`mzai-side${showThreads ? "" : " mzai-hide"}`}>
               <div className="mzai-side-head">
                 <span>{CHROME.threads}</span>
@@ -1039,7 +1054,7 @@ export function CeoAiPanel({
                     }
                   }}
                   rows={1}
-                  placeholder={listening ? "Listening…" : copy.placeholder}
+                  placeholder={listening ? "Listening…" : narrow ? "Ask Mesha…" : copy.placeholder}
                 />
                 {speechSupported ? (
                   <button
