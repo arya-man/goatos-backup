@@ -280,6 +280,64 @@ function fileToAttachment(
   });
 }
 
+// Smooth, ChatGPT-style reveal: tokens arrive in bursts; show them a few characters
+// per animation frame. The step grows with the backlog so it never lags far behind.
+function createTypewriter(render: (shown: string) => void) {
+  let shown = "";
+  let pending = "";
+  let raf = 0;
+  let waiters: (() => void)[] = [];
+  let guard: ReturnType<typeof setTimeout> | undefined;
+  const settle = () => {
+    if (guard) clearTimeout(guard);
+    guard = undefined;
+    const w = waiters;
+    waiters = [];
+    w.forEach((fn) => fn());
+  };
+  const tick = () => {
+    raf = 0;
+    if (!pending) return settle();
+    const step = Math.max(2, Math.ceil(pending.length / 18));
+    shown += pending.slice(0, step);
+    pending = pending.slice(step);
+    render(shown);
+    raf = requestAnimationFrame(tick);
+  };
+  const kick = () => {
+    if (!raf) raf = requestAnimationFrame(tick);
+  };
+  const api = {
+    push(text: string) {
+      pending += text;
+      kick();
+    },
+    reset() {
+      shown = "";
+      pending = "";
+      render("");
+    },
+    flush() {
+      if (raf) cancelAnimationFrame(raf);
+      raf = 0;
+      shown += pending;
+      pending = "";
+      render(shown);
+      settle();
+    },
+    shown: () => shown.trim(),
+    drain() {
+      if (!pending && !raf) return Promise.resolve();
+      // Background tabs don't run rAF: never wait more than 1.5s.
+      return new Promise<void>((resolve) => {
+        waiters.push(resolve);
+        if (!guard) guard = setTimeout(() => api.flush(), 1500);
+      });
+    },
+  };
+  return api;
+}
+
 const BUBBLE_POS_KEY = "mzai-bubble-pos";
 const clamp = (v: number, lo: number, hi: number) =>
   Math.max(lo, Math.min(hi, v));
@@ -479,7 +537,9 @@ export function CeoAiPanel({
 
   const shown = messages;
 
+  const typerRef = useRef<ReturnType<typeof createTypewriter> | null>(null);
   const stopGenerating = useCallback(() => {
+    typerRef.current?.flush();
     abortRef.current?.abort();
     abortRef.current = null;
     setPending(false);
@@ -524,6 +584,21 @@ export function CeoAiPanel({
         );
 
       try {
+        const typer = createTypewriter((shown) =>
+          setMessages((prev) =>
+            prev.map((m) =>
+              // First revealed text clears the coarse progress status.
+              m.id === assistantId
+                ? {
+                    ...m,
+                    text: shown,
+                    progress: shown ? undefined : m.progress,
+                  }
+                : m,
+            ),
+          ),
+        );
+        typerRef.current = typer;
         const final = await readCeoAiStream(
           {
             question,
@@ -533,15 +608,8 @@ export function CeoAiPanel({
             signal: controller.signal,
           },
           {
-            onToken: (text) =>
-              setMessages((prev) =>
-                prev.map((m) =>
-                  // First token clears the coarse progress status; the answer body takes over.
-                  m.id === assistantId
-                    ? { ...m, text: m.text + text, progress: undefined }
-                    : m,
-                ),
-              ),
+            onToken: (text) => typer.push(text),
+            onReset: () => typer.reset(),
             onProgress: (progress) =>
               setMessages((prev) =>
                 prev.map((m) =>
@@ -577,6 +645,9 @@ export function CeoAiPanel({
           },
         );
 
+        // Let the typewriter finish revealing what already streamed before the
+        // final metadata lands, so the answer never jumps.
+        await typer.drain();
         if (final) {
           if (
             final.conversation_id &&
@@ -585,8 +656,9 @@ export function CeoAiPanel({
             setConversationId(final.conversation_id);
             refreshThreads();
           }
+          const answer = final.answer || copy.noAnswer;
           patch({
-            text: final.answer || copy.noAnswer,
+            text: typer.shown() === answer.trim() ? typer.shown() : answer,
             state: "complete",
             source: final.source ?? copy.sourceFallback,
             mode: final.mode,

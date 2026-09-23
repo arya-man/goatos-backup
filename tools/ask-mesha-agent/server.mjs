@@ -30,6 +30,8 @@ const READONLY = process.env.ASK_MESHA_READONLY !== "0";
 // 1st, UTC). Per answer: the SDK aborts a single run that would exceed it.
 const MONTHLY_BUDGET_USD = Number(process.env.ASK_MESHA_MONTHLY_BUDGET_USD || 100);
 const PER_ANSWER_BUDGET_USD = Number(process.env.ASK_MESHA_PER_ANSWER_BUDGET_USD || 1);
+const DEEP_ANSWER_BUDGET_USD = Number(process.env.ASK_MESHA_DEEP_ANSWER_BUDGET_USD || 5);
+const DEEP_HINT = /\b(verify|check|why|bug|wrong|explain|investigate|compare|mismatch|doesn'?t match|is this (right|correct)|how is .* calculated)\b/i;
 const monthStart = () => {
   const d = new Date();
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)).toISOString();
@@ -74,9 +76,15 @@ You have the full goatos codebase (current working directory, the live commit) a
 access to the goatos-stg Postgres database. ${READONLY
   ? "Read code with Read/Grep/Glob. Query data ONLY with the run_sql tool (one SELECT per call over ceo_ai.* with an explicit tenant_id filter). You cannot edit files or run shell commands."
   : "Query with `psql -c \"...\"` (connection env vars are set). You may read code and run tests."}
-Answer style: lead with the direct answer in 1-2 sentences, then at most one compact table
-(<= 12 rows) and at most 3 short bullets of context. No preamble, no narration of what you are
-about to do, no restating the question. Go straight to the one query the data map points to.
+Answer style for quick lookups (how many / when / which): lead with the direct answer in 1-2
+sentences, then at most one compact table (<= 12 rows) and at most 3 short bullets. No preamble,
+no narration, no restating the question. Go straight to the one query the data map points to.
+Investigations (a screenshot, or verify / check / why / bug / wrong / explain): do the full job
+before answering. Find how the number is calculated in the code, pull the underlying rows, and
+recompute it. Then explain in plain words for a farm CEO with a worked example: the actual
+readings (dates, kg, head counts), the arithmetic step by step, the verdict (correct / misleading
+/ bug) and why, and what should change. Never stop at "I couldn't check" if another query or file
+would answer it; if the read-only data truly lacks what's needed, say exactly what is missing.
 Never merge to main, deploy, or push to main. Code changes stay on this chat's branch.
 When a chart would help, add exactly one fenced block at the end of your answer:
 \`\`\`chart
@@ -452,7 +460,12 @@ async function ask(req, res, user) {
   const requestId = crypto.randomUUID();
   const userMsg = { id: crypto.randomUUID(), role: "user", content: question, created_at: new Date().toISOString() };
   const t0 = Date.now();
-  const deep = /^deep:\s*/i.test(question);
+  // Investigations (screenshots, "verify/why/bug…") get the deep model, high effort and
+  // a larger per-answer budget; quick lookups stay fast and cheap.
+  const deep =
+    /^deep:\s*/i.test(question) ||
+    (Array.isArray(body.attachments) && body.attachments.length > 0) ||
+    DEEP_HINT.test(question);
   let prompt = question.replace(/^deep:\s*/i, "");
   const scope = body.page_scope && typeof body.page_scope === "object" ? body.page_scope : {};
   const pageScope = {
@@ -474,12 +487,16 @@ async function ask(req, res, user) {
   };
   const since = () => Date.now() - t0;
   let full = "";
+  // Only the answer should stay on screen: text streamed before a tool call is
+  // narration ("let me check…"), so the client is told to clear it ("reset").
+  let turnVisible = false;
   const emitVisible = (t) => {
     if (!t) return;
     if (metric.first_token_ms === null) metric.first_token_ms = since();
+    turnVisible = true;
     send({ type: "token", text: t });
   };
-  const filter = makeChartFilter(emitVisible);
+  let filter = makeChartFilter(emitVisible);
   let lastTurnText = "";
 
   try {
@@ -514,7 +531,7 @@ async function ask(req, res, user) {
       options: {
         cwd,
         model: metric.model,
-        maxBudgetUsd: PER_ANSWER_BUDGET_USD,
+        maxBudgetUsd: deep ? DEEP_ANSWER_BUDGET_USD : PER_ANSWER_BUDGET_USD,
         effort: metric.effort,
         resume,
         ...(store.sessionStore ? { sessionStore: store.sessionStore } : {}),
@@ -553,10 +570,12 @@ async function ask(req, res, user) {
       } else if (msg.type === "stream_event") {
         const ev = msg.event;
         if (ev.type === "message_start") {
-          // A new assistant turn: only the final turn's text is "the answer",
-          // but intermediate narration still streams so the user sees progress.
-          if (lastTurnText) { filter("\n\n"); full += "\n\n"; }
+          if (lastTurnText) full += "\n\n";
           lastTurnText = "";
+        } else if (ev.type === "content_block_start" && ev.content_block?.type === "tool_use") {
+          if (turnVisible) send({ type: "reset" });
+          turnVisible = false;
+          filter = makeChartFilter(emitVisible);
         } else if (ev.type === "content_block_delta" && ev.delta?.type === "text_delta") {
           full += ev.delta.text;
           lastTurnText += ev.delta.text;
