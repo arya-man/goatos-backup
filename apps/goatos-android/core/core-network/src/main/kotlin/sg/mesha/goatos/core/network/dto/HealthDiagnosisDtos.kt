@@ -296,3 +296,90 @@ data class HealthDiagnosisQueuePageDto(
     /** Whether this device's user may decide any of it. Defaults false — fail closed. */
     @SerialName("may_confirm") val mayConfirm: Boolean = false,
 )
+
+// =================================================================================================
+// THE AUTHORED OBSERVATION FORM
+//
+// Maintainer, 2026-09-23: nothing on the observation form should be hard-coded, and a question
+// added on Health Config for a type must reach the phone on a refresh.
+//
+// The form used to be a third copy of itself -- a Go struct, the typed DTO above, and a thousand
+// lines of Compose walked in a four-value enum -- so a question moved between pages was a release.
+// These types carry what the SERVER publishes: the pages, in authored order, and the questions on
+// each. The phone draws them and knows nothing about which question exists.
+// =================================================================================================
+
+/** One answer option of an authored question. `emits` is the server's business, never the phone's. */
+@Serializable
+data class HealthFormOptionDto(
+    val value: String = "",
+    val label: String = "",
+    @SerialName("conflicts_with") val conflictsWith: List<String> = emptyList(),
+)
+
+/** A numeric band. Carried so the phone can bound a measurement field, never to classify anything. */
+@Serializable
+data class HealthFormBandDto(
+    val gt: Double? = null,
+    val gte: Double? = null,
+    val lt: Double? = null,
+    val lte: Double? = null,
+)
+
+/** Hides a question unless an earlier one holds one of these answers. */
+@Serializable
+data class HealthFormConditionDto(
+    @SerialName("question_id") val questionId: String = "",
+    @SerialName("in") val inValues: List<String> = emptyList(),
+)
+
+/**
+ * One authored question.
+ *
+ * `kind` is the server's vocabulary -- choice, multi, number -- and the phone maps it to a control.
+ * An UNKNOWN kind is rendered as free text rather than skipped: a question the operator cannot
+ * answer is better than a question they are never asked, because the second is invisible.
+ */
+@Serializable
+data class HealthFormQuestionDto(
+    val id: String = "",
+    val kind: String = "",
+    val title: String = "",
+    val hint: String = "",
+    val section: String = "",
+    val options: List<HealthFormOptionDto> = emptyList(),
+    val bands: List<HealthFormBandDto> = emptyList(),
+    val unit: String = "",
+    val min: Double? = null,
+    val max: Double? = null,
+    @SerialName("only_if_sex") val onlyIfSex: String = "",
+    @SerialName("only_if_stage") val onlyIfStage: List<String> = emptyList(),
+    @SerialName("only_if") val onlyIf: HealthFormConditionDto? = null,
+)
+
+/** One page of the form, as the operator walks it. */
+@Serializable
+data class HealthFormPageDto(
+    val id: String = "",
+    val title: String = "",
+    val hint: String = "",
+    val questions: List<HealthFormQuestionDto> = emptyList(),
+)
+
+/**
+ * The form for ONE animal.
+ *
+ * [registerVersion] pins the version these questions came from; the submit carries it back so a
+ * publish between fetching and submitting is detectable rather than silently mixing one version's
+ * answers into another's rules.
+ */
+@Serializable
+data class HealthObservationFormDto(
+    @SerialName("goat_id") val goatId: String = "",
+    @SerialName("display_id") val displayId: String = "",
+    val tag: String = "",
+    @SerialName("type_key") val typeKey: String = "",
+    @SerialName("type_label") val typeLabel: String = "",
+    @SerialName("register_version") val registerVersion: String = "",
+    val pages: List<HealthFormPageDto> = emptyList(),
+)

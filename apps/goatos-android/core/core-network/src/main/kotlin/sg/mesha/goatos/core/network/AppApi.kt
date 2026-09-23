@@ -26,6 +26,7 @@ import sg.mesha.goatos.core.network.dto.ConfirmHealthDiagnosisResponseDto
 import sg.mesha.goatos.core.network.dto.HealthDiagnosisProposalResponseDto
 import sg.mesha.goatos.core.network.dto.HealthDiagnosisQueuePageDto
 import sg.mesha.goatos.core.network.dto.HealthDiagnosisRunDto
+import sg.mesha.goatos.core.network.dto.HealthObservationFormDto
 import sg.mesha.goatos.core.network.dto.SubmitHealthObservationRequestDto
 import sg.mesha.goatos.core.network.dto.HealthCloseCaseRequestDto
 import sg.mesha.goatos.core.network.dto.HealthCloseCaseResponseDto
@@ -2158,6 +2159,14 @@ interface AppApi {
 
     suspend fun getHealthWorkItem(healthSessionId: String): HealthWorkItemDetailDto
 
+    /**
+     * GET /app/health/observation-form/{goatId} — the questions THIS animal's type asks.
+     *
+     * Called before the operator starts, so an animal whose stage no diagnosis type covers is
+     * turned away while it is still in front of them rather than after the whole form is walked.
+     */
+    suspend fun getHealthObservationForm(goatId: String): HealthObservationFormDto
+
     /** POST /app/health/observations — record one observation and receive a PROPOSAL. Opens nothing. */
     suspend fun submitHealthObservation(
         idempotencyKey: String,
@@ -3037,6 +3046,9 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
 
     override suspend fun getHealthWorkItem(healthSessionId: String): HealthWorkItemDetailDto =
         HealthWorkItemDetailDto(healthSessionId = healthSessionId)
+
+    override suspend fun getHealthObservationForm(goatId: String): HealthObservationFormDto =
+        HealthObservationFormDto(goatId = goatId)
 
     override suspend fun submitHealthObservation(
         idempotencyKey: String,

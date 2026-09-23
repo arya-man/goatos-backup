@@ -40,6 +40,7 @@ import sg.mesha.goatos.core.network.dto.ConfirmHealthDiagnosisResponseDto
 import sg.mesha.goatos.core.network.dto.HealthDiagnosisProposalResponseDto
 import sg.mesha.goatos.core.network.dto.HealthDiagnosisQueuePageDto
 import sg.mesha.goatos.core.network.dto.HealthDiagnosisRunDto
+import sg.mesha.goatos.core.network.dto.HealthObservationFormDto
 import sg.mesha.goatos.core.network.dto.SubmitHealthObservationRequestDto
 import sg.mesha.goatos.core.network.dto.HealthCloseCaseRequestDto
 import sg.mesha.goatos.core.network.dto.HealthCloseCaseResponseDto
@@ -1584,6 +1585,13 @@ interface AppApiService {
         @Body request: HealthCompleteRequestDto,
     ): HealthCompleteResponseDto
 
+    // The authored form for ONE animal: the questions its diagnosis type asks, in authored pages.
+    // The phone draws what this returns and knows nothing about which question exists.
+    @GET("app/health/observation-form/{goat_id}")
+    suspend fun getHealthObservationForm(
+        @Path("goat_id") goatId: String,
+    ): HealthObservationFormDto
+
     // The diagnosis engine. Submit PROPOSES; only confirm opens a treatment course,
     // and the two carry different permissions server-side.
     @POST("app/health/observations")
@@ -2833,6 +2841,9 @@ class RetrofitAppApi(
 
     override suspend fun getHealthWorkItem(healthSessionId: String): HealthWorkItemDetailDto =
         service.getHealthWorkItem(healthSessionId)
+
+    override suspend fun getHealthObservationForm(goatId: String): HealthObservationFormDto =
+        service.getHealthObservationForm(goatId)
 
     override suspend fun submitHealthObservation(
         idempotencyKey: String,

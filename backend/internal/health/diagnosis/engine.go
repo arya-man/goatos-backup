@@ -259,10 +259,28 @@ func (r *Register) EvaluateAuthored(doc *AuthoredRegister, animal Animal, f Find
 		p.RejectReason = problems.Error()
 		return p
 	}
-	if reason := validateForm(animal, f); reason != "" {
-		p.Valid = false
-		p.RejectReason = reason
-		return p
+	// THE TYPED FORM CHECK IS THE LEGACY PATH'S, and is skipped once answers are authored.
+	//
+	// validateForm catches clinical contradictions -- "not eating" ticked beside a feed, "no
+	// wounds" beside a wound, a CMT result with no milk -- but it catches them BY NAME against the
+	// compiled field list (`f.eating()`, `f.Lactation`, `f.CMT`). An authored register need not
+	// have those fields at all, so running it over a form the farm wrote would either reject
+	// questions it has never heard of or pass vacuously because the fields it reads are empty.
+	//
+	// Nothing is dropped: the authored document expresses the same contradictions and
+	// ValidateAnswers above enforces them -- `conflicts_with` refuses the ticked pair, and the
+	// cross-question cases are gated by `only_if` / `only_if_sex`, so a question that cannot apply
+	// is never asked and therefore never answered contradictorily. The check moved to where the
+	// rules live.
+	//
+	// An older APK sends typed findings and NO answers, so it falls through to Evaluate below and
+	// is checked exactly as it was.
+	if len(answers) == 0 {
+		if reason := validateForm(animal, f); reason != "" {
+			p.Valid = false
+			p.RejectReason = reason
+			return p
+		}
 	}
 	d := deriveTokens(animal, f)
 	p.Emergencies = detectEmergencies(animal, f, d)
