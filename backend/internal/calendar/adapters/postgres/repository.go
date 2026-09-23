@@ -1744,12 +1744,13 @@ func (r *Repository) QueueRoleNotifications(ctx context.Context, in ports.QueueR
 		deviceIDs[i] = recipient.DeviceID
 		fcmTokens[i] = recipient.FCMToken
 		contextData := map[string]any{
-			"priority":  in.Priority,
-			"role":      recipient.RoleLabel,
-			"member_id": recipient.MemberID,
-			"event_key": in.EventKey,
-			"channel":   in.Channel,
-			"source":    "notificationbridge.verification",
+			"priority":            in.Priority,
+			"role":                recipient.RoleLabel,
+			"member_id":           recipient.MemberID,
+			"recipient_device_id": recipient.DeviceID,
+			"event_key":           in.EventKey,
+			"channel":             in.Channel,
+			"source":              "notificationbridge.verification",
 		}
 		// Merge any optional context fields from the caller (e.g., type, obligation_id, park_id for FCM).
 		if in.Context != nil {

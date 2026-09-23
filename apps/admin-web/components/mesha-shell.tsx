@@ -39,6 +39,7 @@ import { CEOAIChat, type CEOAIChatCopy } from "@/components/ceo-ai-chat";
 import { NotificationBell } from "@/features/notifications";
 import {
   PushPermissionPromptLazy,
+  PushReceiptSync,
   PushRegistrationSync,
 } from "@/components/push-permission-prompt-lazy";
 import { preloadFirebasePerformance, startFirebasePerformanceTrace } from "@/lib/firebase-performance";
@@ -898,6 +899,7 @@ export function MeshaShell({
             `Notification.permission` and imports the push client only when it is "granted", so a
             browser that never granted loads no firebase. See push-permission-prompt-lazy.tsx. */}
         <PushRegistrationSync />
+        <PushReceiptSync />
         <div className="userpick" data-menu-root>
           <button
             type="button"

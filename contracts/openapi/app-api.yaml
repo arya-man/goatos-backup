@@ -10779,6 +10779,51 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "500":
           $ref: "#/components/responses/ServerError"
+  /admin/notifications/browser-events:
+    post:
+      tags:
+        - Notifications
+      operationId: recordBrowserPushEvent
+      summary: Record displayed/opened telemetry for THIS browser notification.
+      description: >-
+        Records a best-effort receipt from the caller's own browser push registration for one
+        notification request. The tenant and member come from the authenticated session; the body
+        may name only the notification request, this browser profile's install id, and the event
+        type.
+
+
+        The backend joins the request to the caller's active browser registration before writing,
+        so a page cannot forge receipt/open events for another member or another browser profile.
+        Duplicate events for the same notification, browser registration and event type are
+        idempotently ignored.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BrowserPushEventRequest"
+      responses:
+        "200":
+          description: Whether a new receipt row was inserted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrowserPushEventResponse"
+        "400":
+          description: >-
+            `browser_push_invalid_request` -- notification_request_id or browser_install_id is
+            missing, or event_type is not `displayed` or `opened`. `invalid_request_body` for
+            malformed JSON or an unknown field.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /procurement/feed-purchases/{purchase_id}/payments:
     post:
       tags:
@@ -22937,6 +22982,36 @@ components:
           description: >-
             False when nothing active matched. Not an error -- unregister is idempotent, because
             the client calls it on revocations it may already have reported.
+    BrowserPushEventRequest:
+      type: object
+      additionalProperties: false
+      required: [notification_request_id, browser_install_id, event_type]
+      properties:
+        notification_request_id:
+          type: string
+          format: uuid
+          description: The notification request id carried in FCM data.
+        browser_install_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: The browser profile that displayed or opened the push.
+        event_type:
+          type: string
+          enum: [displayed, opened]
+          description: The browser-side receipt type.
+        trace_id:
+          type: string
+          maxLength: 128
+          description: Optional send trace copied from FCM data for support correlation.
+    BrowserPushEventResponse:
+      type: object
+      additionalProperties: false
+      required: [recorded]
+      properties:
+        recorded:
+          type: boolean
+          description: False when the same browser already reported this event or the request does not belong to it.
     LeadershipTaskPage:
       type: object
       required: [title, rows, scopes, filters, unseen_count, can_raise, trace_id]

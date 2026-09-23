@@ -32,6 +32,7 @@
  */
 
 import { Suspense, lazy, useEffect } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 const PushPermissionPrompt = lazy(async () => {
   const mod = await import("./push-permission-prompt");
@@ -85,5 +86,45 @@ export function PushRegistrationSync() {
       cancelled = true;
     };
   }, []);
+  return null;
+}
+
+export function PushReceiptSync() {
+  const pathname = usePathname() ?? "/";
+  const searchParams = useSearchParams();
+  const router = useRouter();
+
+  useEffect(() => {
+    let cancelled = false;
+    let unsubscribe: (() => void) | undefined;
+    void (async () => {
+      try {
+        const { listenForPushReceipts } = await import("@/lib/web-push");
+        if (cancelled) return;
+        unsubscribe = listenForPushReceipts();
+      } catch {
+        // Silent: receipt telemetry must never destabilise the shell.
+      }
+      if (cancelled && unsubscribe) unsubscribe();
+    })();
+    return () => {
+      cancelled = true;
+      if (unsubscribe) unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    const notificationRequestId = searchParams?.get("push_open") ?? "";
+    if (!notificationRequestId) return;
+    void (async () => {
+      const { recordCurrentBrowserPushEvent } = await import("@/lib/web-push");
+      await recordCurrentBrowserPushEvent({ notificationRequestId, eventType: "opened" });
+      const next = new URLSearchParams(searchParams.toString());
+      next.delete("push_open");
+      const query = next.toString();
+      router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+    })().catch(() => undefined);
+  }, [pathname, router, searchParams]);
+
   return null;
 }

@@ -114,24 +114,73 @@ self.addEventListener("push", (event) => {
   // collapsing two DIFFERENT tasks into one notification would hide work.
   const tag = pickString(data.task_id, data.calendar_event_id, data.group_key, data.notification_type) || "mesha";
   event.waitUntil(
-    self.registration.showNotification(title, {
-      body,
-      tag,
-      // The tray entry is replaced silently only when it is genuinely the same subject; a new
-      // subject re-alerts. renotify requires a tag, which is why it is set unconditionally above.
-      renotify: true,
-      icon: "/data/logo.png",
-      badge: "/data/logo.png",
-      data: { link, notificationType: data.notification_type || "", traceId: data.trace_id || "" },
-    })
+    self.registration
+      .showNotification(title, {
+        body,
+        tag,
+        // The tray entry is replaced silently only when it is genuinely the same subject; a new
+        // subject re-alerts. renotify requires a tag, which is why it is set unconditionally above.
+        renotify: true,
+        icon: "/data/logo.png",
+        badge: "/data/logo.png",
+        data: {
+          link,
+          notificationRequestId: data.notification_request_id || "",
+          notificationType: data.notification_type || "",
+          traceId: data.trace_id || "",
+        },
+      })
+      .then(() => notifyOpenClients("displayed", data.notification_request_id || "", data.trace_id || ""))
   );
 });
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   const link = event.notification.data && typeof event.notification.data.link === "string" ? event.notification.data.link : "/";
-  event.waitUntil(focusOrOpen(link));
+  const notificationRequestId =
+    event.notification.data && typeof event.notification.data.notificationRequestId === "string"
+      ? event.notification.data.notificationRequestId
+      : "";
+  const traceId =
+    event.notification.data && typeof event.notification.data.traceId === "string" ? event.notification.data.traceId : "";
+  event.waitUntil(
+    notifyOpenClients("opened", notificationRequestId, traceId).then(() => focusOrOpen(addOpenReceipt(link, notificationRequestId)))
+  );
 });
+
+function addOpenReceipt(link, notificationRequestId) {
+  if (!notificationRequestId) return link;
+  try {
+    const target = new URL(link, self.location.origin);
+    target.searchParams.set("push_open", notificationRequestId);
+    return target.pathname + target.search;
+  } catch {
+    return link;
+  }
+}
+
+async function notifyOpenClients(eventType, notificationRequestId, traceId) {
+  if (!notificationRequestId) return;
+  let clients = [];
+  try {
+    clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+  } catch {
+    clients = [];
+  }
+  for (const client of clients) {
+    try {
+      if (new URL(client.url).origin !== self.location.origin) continue;
+      client.postMessage({
+        type: "mesha-push-receipt",
+        eventType,
+        notificationRequestId,
+        traceId,
+      });
+    } catch {
+      // Ignore an unreachable client; the click path also carries push_open in the URL.
+    }
+  }
+}
 
 /*
  * A CEO almost always already has the dashboard open, so the default must be to REUSE that tab,
