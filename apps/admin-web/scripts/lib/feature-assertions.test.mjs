@@ -493,3 +493,37 @@ test("all three new shapes count as references that can fail", () => {
   assert.equal(isValueExpect({ visible: {} }), false, "presence is still smoke");
   assert.equal(isValueExpect({ count: { css: ".x", min: 1 } }), false, "and so is a floor of one");
 });
+
+test("a percentage is checked against the numbers it is derived from", async () => {
+  // The vaccination drive ring, its percentage and its "N of M" sentence are one
+  // backend-owned number rendered three ways; they must agree on one page.
+  const screen = { ".rtx": [vCell("64%")], ".done": [vCell("160")], ".total": [vCell("250")] };
+  const agreeing = await vRun(screen, [{
+    compare: { left: { css: ".rtx" }, right: { ratio: { part: { css: ".done" }, whole: { css: ".total" } }, times: 100 }, tolerance: 1 },
+  }]);
+  assert.deepEqual(agreeing, [], "160 of 250 is 64%");
+
+  const ringHeldBack = await vRun({ ...screen, ".rtx": [vCell("0%")] }, [{
+    compare: { left: { css: ".rtx" }, right: { ratio: { part: { css: ".done" }, whole: { css: ".total" } }, times: 100 }, tolerance: 1 },
+  }]);
+  assert.equal(ringHeldBack.length, 1, "a ring held at 0 while the work is done is the recorded defect");
+  assert.match(ringHeldBack[0], /0 must equal 64/);
+});
+
+test("nothing out of nothing is not zero per cent, it is not a question", async () => {
+  // A drive with no animals must not be accused of a wrong percentage.
+  const errors = await vRun({ ".rtx": [vCell("0%")], ".done": [vCell("0")], ".total": [vCell("0")] }, [{
+    compare: { left: { css: ".rtx" }, right: { ratio: { part: { css: ".done" }, whole: { css: ".total" } }, times: 100 } },
+  }]);
+  assert.equal(errors.length, 1);
+  assert.match(errors[0], /is not on the page/, "it reads as unjudgeable, never as a disagreement");
+});
+
+test("a rounded percentage is not a disagreement", async () => {
+  // 1 of 3 renders as 33%, not 33.333. A tolerance of one point is the rounding,
+  // not a threshold raised to silence a finding.
+  const errors = await vRun({ ".rtx": [vCell("33%")], ".done": [vCell("1")], ".total": [vCell("3")] }, [{
+    compare: { left: { css: ".rtx" }, right: { ratio: { part: { css: ".done" }, whole: { css: ".total" } }, times: 100 }, tolerance: 1 },
+  }]);
+  assert.deepEqual(errors, [], "rounding must not fire");
+});

@@ -101,6 +101,19 @@ async function readCell(page, target) {
  * rows yet must never be accused of disagreeing with itself.
  */
 async function readSide(page, target) {
+  // A side may be a RATIO of two other sides — "the ring says 64%, and 64% is
+  // what 160 out of 250 is". Percentages are the commonest figure on these
+  // screens and none of them could be checked against the numbers they are
+  // derived from, because a side could only ever be one cell.
+  if (target?.ratio) {
+    const part = await readSide(page, target.ratio.part);
+    const whole = await readSide(page, target.ratio.whole);
+    if (part.number === null || whole.number === null) return { number: null, how: "ratio" };
+    // Nothing out of nothing is not zero per cent, it is not a question. A page
+    // with no animals in the drive must not be accused of a wrong percentage.
+    if (whole.number === 0) return { number: null, how: "ratio", why: "there is nothing to take a share of" };
+    return { number: (part.number / whole.number) * (target.times ?? 1), how: "ratio" };
+  }
   if (target?.all === "count") {
     const loc = locatorFor(page, target);
     const total = await loc.count().catch(() => null);
