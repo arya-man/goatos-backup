@@ -56,7 +56,18 @@ internal object GoatOsJourney {
     fun launchApp() {
         // `monkey -p <pkg> 1` is the launcher-intent equivalent that needs no
         // knowledge of the activity name, and it survives the activity being renamed.
-        shell("monkey -p $TARGET_PACKAGE -c android.intent.category.LAUNCHER 1")
+        //
+        // --pct-syskeys 0 is NOT a tuning knob, it is what makes this work at all on a
+        // device with no hardware keys. monkey validates its event mix before it
+        // launches anything, and the system-keys factor is non-zero by default; on a
+        // device that reports no physical keys that check fails, monkey prints
+        // "SYS_KEYS has no physical keys but with factor 2.0%" and exits -5 WITHOUT
+        // EVER STARTING THE APP. Every virtual device is such a device — the local
+        // emulator and Firebase Test Lab's virtual devices alike — so without this the
+        // whole suite launches nothing, reads the launcher's home screen instead of the
+        // app, and reports "the app closes itself as soon as it is opened" about an app
+        // that never started. Zeroing the factor removes the events that fail the check.
+        shell("monkey -p $TARGET_PACKAGE -c android.intent.category.LAUNCHER --pct-syskeys 0 1")
         device.wait(Until.hasObject(By.pkg(TARGET_PACKAGE).depth(0)), UI_TIMEOUT_MS)
         device.waitForIdle()
     }
@@ -214,6 +225,57 @@ internal object GoatOsJourney {
      * Without one the journey reports SKIPPED. It must never report passed: a green
      * that only means "we could not try" is the thing this lane exists to prevent.
      */
+    /**
+     * The app's OWN "the startup call failed" screen
+     * (app/src/main/res/values/strings.xml → bootstrap_error_connectivity + the Retry
+     * beside it), which is what it shows when its boot-time call to the backend does
+     * not answer.
+     *
+     * Matching the app's real string, not a guess: "connection" on its own also appears
+     * in the sign-in screen's own network error, and telling those two apart is the
+     * whole point of this check.
+     */
+    fun stoppedAtStartupCheck(): Boolean =
+        device.hasObject(By.textContains("Couldn't reach the server")) &&
+            device.hasObject(By.textContains("Retry"))
+
+    /**
+     * Learned on the first real run of this suite, on a local emulator.
+     *
+     * The app does not open on its sign-in screen. It makes a call to its backend
+     * FIRST, and while that call is failing it shows its own "Couldn't reach the
+     * server … Retry" screen and nothing else. So on a device with no reachable
+     * backend the sign-in screen is not merely unsigned-in, it is UNREACHABLE — and
+     * every journey whose subject is that screen has not been tried at all.
+     *
+     * That has to be a SKIP, and it has to be a skip for a stated reason:
+     *  * reporting it as a PASS is the false green this lane exists to prevent — it
+     *    is exactly what happened before this check existed, when a journey walked
+     *    the startup-error screen and reported the sign-in screen as covered;
+     *  * reporting it as a FAILURE blames the app for a backend that was never
+     *    started, which is the mirror-image dishonesty the runner's own
+     *    `reachedADevice` was added to stop.
+     *
+     * A crash, a dead app or a blank screen is NOT this. Those are still failures and
+     * are still asserted before this is ever reached.
+     */
+    fun requirePastStartupCheck(journeyName: String) {
+        val stopped = stoppedAtStartupCheck()
+        if (stopped) {
+            // Evidence FIRST, then the skip. A skip with nothing behind it is a claim
+            // the reader has to take on trust; the screenshot and the screen's own words
+            // are what let someone see that the app was stuck on its startup screen
+            // without opening a log.
+            captureEvidence(journeyName)
+            recordSeen(journeyName, visibleText())
+        }
+        assumeTrue(
+            "SKIPPED — the app never got past its own startup check because no backend answered, " +
+                "so the screen this journey is about was never reached and is not covered by this run.",
+            !stopped,
+        )
+    }
+
     fun requireSeededSession() {
         val seeded = InstrumentationRegistry.getArguments().getString("goatosSessionSeeded") == "true"
         assumeTrue(
