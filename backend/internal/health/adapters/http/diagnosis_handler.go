@@ -19,6 +19,7 @@ import (
 
 // DiagnosisService is the port this handler drives.
 type DiagnosisService interface {
+	ObservationForm(ctx context.Context, tenantID, goatID string) (domain.ObservationForm, error)
 	SubmitObservation(context.Context, domain.SubmitObservationInput) (domain.SubmitObservationResult, error)
 	ConfirmDiagnosis(context.Context, domain.ConfirmDiagnosisInput) (domain.ConfirmDiagnosisResult, error)
 	GetDiagnosisRun(context.Context, string, string) (domain.DiagnosisRun, error)
@@ -44,10 +45,26 @@ func NewDiagnosisHandler(svc DiagnosisService, log *slog.Logger) *DiagnosisHandl
 // and it carries a different permission so the two cannot be collapsed by a
 // client calling one endpoint.
 func RegisterDiagnosis(mux *http.ServeMux, h *DiagnosisHandler) {
+	mux.HandleFunc("GET /app/health/observation-form/{goat_id}", h.ObservationForm)
 	mux.HandleFunc("POST /app/health/observations", h.SubmitObservation)
 	mux.HandleFunc("GET /app/health/observations", h.ListDiagnosisRuns)
 	mux.HandleFunc("GET /app/health/observations/{health_diagnosis_run_id}", h.GetDiagnosisRun)
 	mux.HandleFunc("POST /app/health/observations/{health_diagnosis_run_id}/confirm", h.ConfirmDiagnosis)
+}
+
+// ObservationForm serves the questions THIS animal's type asks.
+//
+// The phone calls it after the operator has the animal and before they start answering, so a
+// stage no type covers is refused while the animal is still in front of them -- the old form was
+// compiled into the app, so the first anyone knew of a routing gap was a rejected submit.
+func (h *DiagnosisHandler) ObservationForm(w http.ResponseWriter, r *http.Request) {
+	out, err := h.svc.ObservationForm(r.Context(),
+		httpmiddleware.TenantIDFromContext(r.Context()), r.PathValue("goat_id"))
+	if err != nil {
+		h.writeDiagnosisError(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, out)
 }
 
 // submitObservationRequest is the completed form.
@@ -222,6 +239,13 @@ func (h *DiagnosisHandler) writeDiagnosisError(w http.ResponseWriter, r *http.Re
 		h.writeError(w, r, http.StatusNotFound, "not_found", err.Error(), err)
 	case errors.Is(err, ports.ErrGoatNotAlive):
 		h.writeError(w, r, http.StatusConflict, "goat_not_alive", err.Error(), err)
+	case errors.Is(err, ports.ErrRegisterNotFound):
+		// This animal's type exists and has no questions written yet -- the state a farm is in
+		// between creating a type on Health Config and authoring it. It is a 422 naming the gap,
+		// not a 500: nothing is broken, somebody has work to do, and the operator standing with
+		// the animal is owed that difference.
+		h.writeError(w, r, http.StatusUnprocessableEntity, "observation_form_not_authored",
+			"This animal's type has no questions written yet. Add them on Health Config, Diagnosis.", err)
 	case errors.Is(err, ports.ErrSOPNotAuthored):
 		h.writeError(w, r, http.StatusUnprocessableEntity, "treatment_plan_missing", err.Error(), err)
 	case errors.Is(err, ports.ErrDiagnosisNotProposed):

@@ -219,7 +219,15 @@ func (r *Repository) ObservationForm(ctx context.Context, tenantID, goatID strin
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
-	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	// NOT a read-only transaction, though it writes nothing.
+	//
+	// loadGoatFacts takes `FOR SHARE` -- it is the submit path's read, and the lock is what stops
+	// the animal's stage changing under a diagnosis mid-write -- and Postgres refuses a row lock in
+	// a read-only transaction (SQLSTATE 25006). The alternative was a second, lock-free facts read
+	// for this path, which is precisely the divergence this method exists to avoid: the form an
+	// operator is given and the rules their answers are judged against must come from one
+	// resolution, not two that can drift.
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return out, err
 	}
