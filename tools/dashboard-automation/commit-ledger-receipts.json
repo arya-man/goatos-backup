@@ -1,8 +1,8 @@
 {
  "_comment": "Revert receipts — the ONLY thing that makes a commit-ledger row `covered`. Each was produced by checking the commit out, confirming its package passed, restoring only its non-test files to the parent, and re-running the same tests until a NAMED test failed. `rejected` records candidates that did not prove: `disproved` means a test shipped beside a fix that does not notice the fix being undone, which is a finding rather than an absence.",
- "attempted": 220,
- "proved": 106,
- "rejectedCount": 142,
+ "attempted": 1,
+ "proved": 107,
+ "rejectedCount": 141,
  "receipts": [
   {
    "sha": "01b65f4f0",
@@ -535,6 +535,19 @@
    ],
    "packages": [
     "./internal/counts/app"
+   ],
+   "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
+   "recordedAt": "2026-09-23"
+  },
+  {
+   "sha": "468850379",
+   "check": "TestSameKeyLumpSumSubmitRacingReturnsTheOriginalToEveryCopy",
+   "allFailing": [
+    "TestSameKeyLumpSumSubmitRacingReturnsTheOriginalToEveryCopy",
+    "TestSameKeyScopeSubmitRacingReturnsTheOriginalToEveryCopy"
+   ],
+   "packages": [
+    "./internal/weighing/adapters/postgres"
    ],
    "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
    "recordedAt": "2026-09-23"
@@ -1733,14 +1746,6 @@
    "why": "the tests still pass with this commit's code removed — they do not notice it being undone",
    "packages": [
     "./internal/counts/adapters/postgres"
-   ]
-  },
-  {
-   "sha": "468850379",
-   "verdict": "disproved",
-   "why": "the tests still pass with this commit's code removed — they do not notice it being undone",
-   "packages": [
-    "./internal/weighing/adapters/postgres"
    ]
   },
   {
