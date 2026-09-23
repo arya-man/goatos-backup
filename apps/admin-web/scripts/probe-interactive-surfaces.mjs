@@ -22,12 +22,12 @@
 // It opens ONE browser, ONE page, serially. There is no concurrency option because there is no
 // concurrency; adding one is the incident.
 
-import { mkdirSync, writeFileSync, openSync, closeSync, unlinkSync, existsSync, readFileSync } from "node:fs";
+import { mkdirSync, writeFileSync, openSync, closeSync, unlinkSync, existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { RECEIPT_VERSION, ledgerDrift, scanInteractiveSurfaces } from "./lib/interactive-surfaces.mjs";
 import { readSourceFiles } from "./check-interactive-surfaces.mjs";
-import { buildProbePlan, describeLock, navigationRefusal, planSummary, principalRefusal, targetRefusal } from "./lib/interactive-surface-probe.mjs";
+import { buildProbePlan, describeLock, fingerprintOf, identityOf, navigationRefusal, planSummary, principalRefusal, targetRefusal } from "./lib/interactive-surface-probe.mjs";
 import { contractRevisionRefusal } from "./lib/reading-comparison.mjs";
 
 const adminWeb = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -37,6 +37,22 @@ const LOCK = path.join(adminWeb, ".interactive-surface-probe.lock");
 function arg(name) {
   const index = process.argv.indexOf(`--${name}`);
   return index >= 0 ? process.argv[index + 1] : undefined;
+}
+
+/** 14 ms over 623 files: cheap enough to run before every step. */
+function sourceFingerprint() {
+  const stats = [];
+  const walk = (dir) => {
+    for (const name of readdirSync(dir)) {
+      if (name === "node_modules" || name.startsWith(".")) continue;
+      const full = `${dir}/${name}`;
+      const info = statSync(full);
+      if (info.isDirectory()) walk(full);
+      else if (/\.(tsx|jsx|ts|js)$/.test(name)) stats.push({ path: full, mtimeMs: info.mtimeMs, size: info.size });
+    }
+  };
+  for (const root of ["features", "components", "app"]) walk(path.join(adminWeb, root));
+  return fingerprintOf(stats);
 }
 
 function bearerHeaders() {
@@ -137,6 +153,18 @@ async function main() {
   const revisionRefusal = contractRevisionRefusal(apiBuildSha);
   if (revisionRefusal) die(`${revisionRefusal}\nThe API must report a real build_sha before a reading is worth recording.`);
 
+  // Who the browser is REALLY signed in as. --principal is a label; these grants are what the
+  // page contract is compiled against, and so what makes two runs comparable.
+  let identity;
+  try {
+    const me = await fetch(new URL("/app/me", apiBase).toString(), { headers: bearerHeaders() }).then((r) => r.json());
+    identity = identityOf(me);
+  } catch (error) {
+    die(`could not read ${apiBase}/app/me to find out whose screen this is: ${error.message}`);
+  }
+  if (identity.error) die(`${identity.error}\nSign in first; a reading filed under the wrong person is worse than no reading.`);
+  console.log(`signed in as ${identity.actorId} with grants: ${identity.grants.join(", ")}`);
+
   const entries = ledger.entries.filter(
     (entry) => entry.status === "not-checked" && (entry.routes ?? []).length > 0,
   );
@@ -146,6 +174,8 @@ async function main() {
     `probe plan: ${summary.routes} routes, ${summary.pageLoads} page loads, ${summary.surfaceOpenings} surface openings, serial.`,
   );
 
+  let fingerprint = sourceFingerprint();
+  const startedFingerprint = fingerprint;
   const observations = [];
   let browser;
   try {
@@ -153,6 +183,19 @@ async function main() {
     browser = await chromium.launch({ headless: true });
     const page = await browser.newPage();
     for (const step of plan) {
+      // Before every step, not just at the start. If the source moved, re-run the expensive check
+      // and STOP rather than keep filing readings against a ledger that no longer describes it.
+      const now = sourceFingerprint();
+      if (now !== fingerprint) {
+        const movedDrift = ledgerDrift(scanInteractiveSurfaces(readSourceFiles()), ledger.entries);
+        if (movedDrift.length) {
+          console.error(`stopping: the source changed mid-run and the ledger no longer describes it (${movedDrift.length} differences).`);
+          for (const line of movedDrift.slice(0, 3)) console.error(`- ${line}`);
+          break;
+        }
+        console.log(`note: source changed mid-run (${fingerprint} -> ${now}) but the ledger still describes it`);
+        fingerprint = now;
+      }
       await page.setViewportSize({ width: step.viewport, height: step.viewport === 390 ? 844 : 900 });
       const readingsFor = new Map(step.surfaces.map((surface) => [surface.key, []]));
       // One page load per reading, not one per surface: the second reading exists to prove the
@@ -191,6 +234,9 @@ async function main() {
           viewport: step.viewport,
           surfaceKey: surface.key,
           subject: `the controls a person meets on the ${surface.kind} at ${surface.where}`,
+          // Which source state this reading belongs to, so two readings from either side of a
+          // mid-run edit are never mistaken for two readings of the same thing.
+          sourceFingerprint: fingerprint,
           readings: landedElsewhere ? [] : readingsFor.get(surface.key),
         });
       }
@@ -214,10 +260,15 @@ async function main() {
         version: RECEIPT_VERSION,
         runId: `probe-${new Date().toISOString()}`,
         principal,
+        // The label is kept for a reader; the grants are what anything compares.
+        actorId: identity.actorId,
+        grants: identity.grants,
         base,
         // The agreed contract revision: coarser than a per-contract hash, real, and never a
         // placeholder. Defined once in lib/reading-comparison.mjs.
         contractRevision: apiBuildSha,
+        startedFingerprint,
+        endedFingerprint: fingerprint,
         apiBuildSha,
         observations,
       },

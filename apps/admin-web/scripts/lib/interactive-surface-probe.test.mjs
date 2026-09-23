@@ -1,7 +1,7 @@
 // Everything the probe decides BEFORE it opens a browser, tested without one.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildProbePlan, describeLock, navigationRefusal, planSummary, principalRefusal, targetRefusal } from "./interactive-surface-probe.mjs";
+import { buildProbePlan, describeLock, fingerprintOf, identityOf, identityRefusal, navigationRefusal, planSummary, principalRefusal, targetRefusal } from "./interactive-surface-probe.mjs";
 import { deriveMeasured, routeOfPageFile, stableReading, RECEIPT_VERSION } from "./interactive-surfaces.mjs";
 
 test("every deployed host is refused, by name and by not being local", () => {
@@ -190,4 +190,64 @@ test("a leftover lock refuses either way, and says which kind it is", () => {
   assert.match(dead, /leftover from a killed run/);
   assert.match(dead, /stopping a parent does not stop them/);
   assert.match(describeLock("", () => false), /does not say which process made it/);
+});
+
+// ---------------------------------------------- the drift WINDOW during a run
+test("the fingerprint moves when any watched file does, and only then", () => {
+  const base = [
+    { path: "features/a.tsx", mtimeMs: 1000, size: 10 },
+    { path: "features/b.tsx", mtimeMs: 2000, size: 20 },
+  ];
+  assert.equal(fingerprintOf(base), fingerprintOf([...base].reverse()), "order must not matter");
+  assert.notEqual(fingerprintOf(base), fingerprintOf([{ ...base[0], mtimeMs: 1001 }, base[1]]), "a touched file");
+  assert.notEqual(fingerprintOf(base), fingerprintOf([{ ...base[0], size: 11 }, base[1]]), "a resized file");
+  assert.notEqual(fingerprintOf(base), fingerprintOf(base.slice(1)), "a deleted file");
+  assert.notEqual(fingerprintOf(base), fingerprintOf([...base, { path: "features/c.tsx", mtimeMs: 1, size: 1 }]), "a new file");
+});
+
+test("a reading taken after the source moved mid-run is not a reading of the same thing", () => {
+  const mixed = {
+    ...RECEIPT,
+    startedFingerprint: "aaaaaaaa",
+    observations: [{ id: "o1", sourceFingerprint: "bbbbbbbb", readings: [["Close"], ["Close"]] }],
+  };
+  const graded = deriveMeasured({ receipt: "r.json", runId: "probe-1", observation: "o1" }, () => mixed, "verifier");
+  // Two readings that AGREE, from either side of an edit. Agreement is exactly what would have
+  // promoted them, which is why this cannot be left to the stability check.
+  assert.match(graded.error, /read after the source changed mid-run/);
+
+  const same = { ...mixed, observations: [{ id: "o1", sourceFingerprint: "aaaaaaaa", readings: [["Close"], ["Close"]] }] };
+  assert.deepEqual(deriveMeasured({ receipt: "r.json", runId: "probe-1", observation: "o1" }, () => same, "verifier").value, ["Close"]);
+});
+
+// ---------------------------------------------- the wrong-but-plausible principal
+test("identity comes from the grants the API reports, not from the label someone typed", () => {
+  const me = {
+    actor_id: "a1",
+    grants: [
+      { role: "pc_director", scope_type: "tenant", scope_id: "t1", status: "active" },
+      { role: "operator", scope_type: "park", scope_id: "p2", status: "revoked" },
+    ],
+  };
+  const id = identityOf(me);
+  assert.equal(id.actorId, "a1");
+  assert.deepEqual(id.grants, ["pc_director@tenant:t1"], "a revoked grant is not a grant");
+  // Order must not matter: the same person read twice reduces to the same string.
+  const shuffled = identityOf({ ...me, grants: [...me.grants].reverse() });
+  assert.deepEqual(shuffled.grants, id.grants);
+});
+
+test("a caller with no identity, or no grants, is refused rather than recorded", () => {
+  assert.match(identityOf({}).error, /no actor_id/);
+  assert.match(identityOf({ actor_id: "a1", grants: [] }).error, /no active grants/);
+  assert.match(identityOf({ actor_id: "a1", grants: [{ role: "x", status: "revoked" }] }).error, /no active grants/);
+});
+
+test("two runs under different grants are different screens, whatever they called themselves", () => {
+  assert.equal(identityRefusal(["pc_director@tenant:t1"], ["pc_director@tenant:t1"]), null);
+  assert.equal(identityRefusal(["a@t:1", "b@p:2"], ["b@p:2", "a@t:1"]), null, "order must not matter");
+  assert.match(identityRefusal(["park_head@park:p1"], ["park_head@park:p2"]), /different grants/);
+  // The hole this closes: both runs claimed the same label and saw different screens.
+  assert.match(identityRefusal(["operator@park:p1"], ["pc_director@tenant:t1"]), /whatever the two runs called themselves/);
+  assert.ok(identityRefusal([], ["a@t:1"]), "a run with no grants cannot be compared");
 });

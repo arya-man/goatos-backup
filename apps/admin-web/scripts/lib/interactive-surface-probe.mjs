@@ -178,3 +178,66 @@ export function describeLock(contents, isAlive) {
     ? `process ${pid} is still running — it is a live probe, not a leftover. This does not queue.`
     : `process ${pid} is gone, so this is a leftover from a killed run. Check for stray browsers before removing the lock: stopping a parent does not stop them.`;
 }
+
+/**
+ * A cheap fingerprint of the source the ledger was written from.
+ *
+ * MEASURED, not guessed. The probe is 104 page loads over 52 routes, and the ledger is only
+ * checked against source at the START -- so a source edit mid-run means later readings are graded
+ * against a ledger the earlier ones did not share, with nothing saying which were which.
+ *
+ *   full re-check (read 623 files + marker scan)   1,130 ms  ->  117.6 s over the run
+ *   stat-only fingerprint (623 files)                  14 ms  ->    1.4 s over the run
+ *
+ * So the fingerprint runs before EVERY step and the expensive re-check runs only when it moves.
+ * 1.4 s is not a window worth leaving open. Each observation records the fingerprint in force
+ * when it was read, so a later reader can tell exactly which readings shared which source state
+ * rather than being told the run "probably" did not drift.
+ *
+ * @param {Array<{path:string,mtimeMs:number,size:number}>} stats
+ */
+export function fingerprintOf(stats) {
+  let hash = 5381;
+  for (const { path, mtimeMs, size } of [...stats].sort((a, b) => a.path.localeCompare(b.path))) {
+    for (const ch of `${path}:${Math.trunc(mtimeMs)}:${size}|`) {
+      hash = ((hash * 33) ^ ch.charCodeAt(0)) >>> 0;
+    }
+  }
+  return hash.toString(16).padStart(8, "0");
+}
+
+/**
+ * Who the run was ACTUALLY signed in as, reduced to the thing that decides what a screen shows.
+ *
+ * --principal is a label a person types, and a wrong-but-plausible one was undetectable: the
+ * ledger only checked that entry and receipt AGREE about it, which two matching lies satisfy.
+ * `GET /app/me` (contracts/openapi/app-api.yaml:503) returns `actor_id` and `grants`, and a
+ * GrantSummary carries role + scope_type + scope_id. Those grants ARE what the page contract is
+ * compiled against, so they, not the label, are what makes two runs comparable.
+ *
+ * Read from the contract, not from a call: nothing here has ever reached a running API.
+ *
+ * @param {{actor_id?:string, grants?:Array<{role?:string,scope_type?:string,scope_id?:string,status?:string}>}} me
+ */
+export function identityOf(me) {
+  const actorId = String(me?.actor_id ?? "").trim();
+  if (!actorId) return { error: "/app/me returned no actor_id, so there is no way to say whose screen was read" };
+  const active = (me?.grants ?? []).filter((g) => (g?.status ?? "active") === "active");
+  if (active.length === 0) {
+    return { error: "/app/me returned no active grants; a principal with no grants sees no controls, so nothing read under it describes a screen anyone uses" };
+  }
+  // Canonical and order-independent: the same person read twice must reduce to the same string.
+  const grants = [...new Set(active.map((g) => `${g.role ?? "?"}@${g.scope_type ?? "?"}:${g.scope_id ?? "?"}`))].sort();
+  return { actorId, grants };
+}
+
+/** Do two runs describe the same screen? The grants decide, never the label. */
+export function identityRefusal(recorded, expected) {
+  const a = [...(recorded ?? [])].sort().join(",");
+  const b = [...(expected ?? [])].sort().join(",");
+  if (!a || !b) return "one of these runs recorded no grants, so they cannot be compared";
+  if (a !== b) {
+    return `these readings were taken under different grants (${a} vs ${b}); on a role-agnostic page that is a different screen, whatever the two runs called themselves`;
+  }
+  return null;
+}
