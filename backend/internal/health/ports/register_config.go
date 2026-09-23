@@ -65,3 +65,26 @@ type RegisterAuthoring interface {
 	// falls back to the committed seed rather than diagnosing against nothing.
 	PublishedRegister(ctx context.Context, tenantID, animalClass string) (domain.RegisterDetail, error)
 }
+
+// DiagnosisTypeAuthoring is the ROUTING half of Health Config: which types exist, and which
+// animals reach each one (migration 000395).
+//
+// It is a separate interface from RegisterAuthoring because the two answer different questions
+// and a caller usually wants one of them: RegisterAuthoring edits a type's RULES, this decides
+// who those rules are applied to.
+type DiagnosisTypeAuthoring interface {
+	// DiagnosisRouting is the whole Types screen in one read: the types, the routes with their
+	// labels and live animal counts, and the stages that hold animals and reach no type.
+	DiagnosisRouting(ctx context.Context, tenantID string) (domain.DiagnosisRoutingView, error)
+
+	// SaveDiagnosisType creates a type or relabels/retires an existing one. The KEY is set on
+	// creation and never rewritten: a stored run names the type it was judged under.
+	SaveDiagnosisType(ctx context.Context, cmd domain.SaveDiagnosisTypeCommand) (domain.DiagnosisType, error)
+
+	// SaveStageRoute points one stage, or a whole age band, at a type.
+	SaveStageRoute(ctx context.Context, cmd domain.SaveStageRouteCommand) (domain.StageRouteRow, error)
+
+	// DeleteStageRoute removes one route. Removing a band wildcard makes that whole band
+	// fail-closed, which is a real choice a farm may make and not an error.
+	DeleteStageRoute(ctx context.Context, cmd domain.DeleteStageRouteCommand) error
+}

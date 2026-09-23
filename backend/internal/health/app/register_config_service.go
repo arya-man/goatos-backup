@@ -21,11 +21,26 @@ import (
 // That is the check that counts; this one exists so an author is told what is wrong
 // before a transaction is opened, and so both paths return the same field errors.
 type RegisterConfigService struct {
-	repo ports.RegisterAuthoring
+	repo  ports.RegisterAuthoring
+	types ports.DiagnosisTypeAuthoring
 }
 
+// NewRegisterConfigService wires the register editor.
+//
+// `types` may be nil, and a nil one falls back to the four SHIPPED classes. That is not a
+// convenience: several callers construct this service for the register half alone, and making
+// the type source mandatory would force them to carry a routing repository they never use. What
+// it must never become is a fallback on the SERVING path -- see validClass.
 func NewRegisterConfigService(repo ports.RegisterAuthoring) *RegisterConfigService {
 	return &RegisterConfigService{repo: repo}
+}
+
+// WithTypes lets the register editor author a register for any ACTIVE authored type, not just
+// the four the engine shipped with (migration 000395). Without it, creating a type on the
+// routing screen would produce one nobody could ever write rules for.
+func (s *RegisterConfigService) WithTypes(types ports.DiagnosisTypeAuthoring) *RegisterConfigService {
+	s.types = types
+	return s
 }
 
 func (s *RegisterConfigService) ListRegisters(ctx context.Context, tenantID string) ([]domain.RegisterSummary, error) {
@@ -38,7 +53,7 @@ func (s *RegisterConfigService) GetRegister(ctx context.Context, tenantID, versi
 
 func (s *RegisterConfigService) GetDraftForEdit(ctx context.Context, cmd domain.RegisterVersionCommand, animalClass string) (domain.RegisterDetail, error) {
 	animalClass = normalizeClass(animalClass)
-	if err := validClass(animalClass); err != nil {
+	if err := s.validClass(ctx, cmd.TenantID, animalClass); err != nil {
 		return domain.RegisterDetail{}, err
 	}
 	return s.repo.GetRegisterDraftForEdit(ctx, cmd, animalClass)
@@ -54,7 +69,7 @@ func (s *RegisterConfigService) GetDraftForEdit(ctx context.Context, cmd domain.
 // document that has moved on.
 func (s *RegisterConfigService) SaveDraft(ctx context.Context, cmd domain.SaveRegisterDraftCommand) (domain.RegisterAuthoringResult, error) {
 	cmd.AnimalClass = normalizeClass(cmd.AnimalClass)
-	if err := validClass(cmd.AnimalClass); err != nil {
+	if err := s.validClass(ctx, cmd.TenantID, cmd.AnimalClass); err != nil {
 		return domain.RegisterAuthoringResult{}, err
 	}
 	cmd.Document.RegisterVersion = strings.TrimSpace(cmd.Document.RegisterVersion)
@@ -108,15 +123,39 @@ func normalizeClass(c string) string {
 	return c
 }
 
-func validClass(c string) error {
-	for _, known := range diagnosis.Classes {
-		if known == c {
+// validClass accepts any type this farm actually diagnoses against.
+//
+// It used to compare against diagnosis.Classes -- the four compiled into the binary -- which
+// would make a type created on the routing screen un-authorable: the farm could point a stage at
+// it and then never write its rules. The authored list is read per tenant; the shipped four
+// remain the answer when no type source is wired, so a caller that only edits registers behaves
+// exactly as before.
+//
+// A RETIRED type is refused here even though routing already refuses it, because the two say
+// different things: routing declines to send animals to it, while this declines to let an author
+// spend an afternoon writing rules for a type the farm has put away.
+func (s *RegisterConfigService) validClass(ctx context.Context, tenantID, c string) error {
+	known := diagnosis.Classes
+	if s.types != nil {
+		view, err := s.types.DiagnosisRouting(ctx, tenantID)
+		if err != nil {
+			return err
+		}
+		known = known[:0:0]
+		for _, t := range view.Types {
+			if t.Status == "active" {
+				known = append(known, t.TypeKey)
+			}
+		}
+	}
+	for _, k := range known {
+		if k == c {
 			return nil
 		}
 	}
 	return &domain.ValidationError{Errors: []domain.FieldError{{
 		Field:   "animal_class",
-		Message: "Choose one of the animal classes this farm diagnoses.",
+		Message: "Choose one of the animal types this farm diagnoses.",
 	}}}
 }
 

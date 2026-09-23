@@ -16860,6 +16860,144 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "500": { $ref: "#/components/responses/ServerError" }
+  /health-config/diagnosis-types:
+    get:
+      tags: [Health Config]
+      operationId: getHealthConfigDiagnosisTypes
+      summary: The diagnosis types this farm has, and which animals reach each one.
+      description: >-
+        A diagnosis TYPE is a rulebook -- adults, kids on milk, or one the farm authors itself --
+        and a ROUTE says which animals are judged against it. Both were compiled into the binary
+        until migration 000395; adding a type, and pointing a stage at it, is now dashboard work.
+        The response also names every stage that HOLDS LIVE ANIMALS and reaches no type, because
+        that state is invisible otherwise: its only symptom is a manager being refused in a shed.
+      responses:
+        "200":
+          description: The types, their routes, and the stages nothing routes.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthDiagnosisRouting"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /health-config/diagnosis-types/save:
+    post:
+      tags: [Health Config]
+      operationId: saveHealthConfigDiagnosisType
+      summary: Create a diagnosis type, or relabel and retire one.
+      description: >-
+        The KEY is set once and never rewritten -- register versions and stored runs carry it, so
+        renaming it would make old proposals unreadable. The LABEL is the farm's own word and may
+        change freely. The four shipped types cannot be retired, and no type may be retired while
+        stages still route to it: those animals would start being refused with a message naming
+        the stage rather than the real cause.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type_key, label]
+              properties:
+                type_key:
+                  type: string
+                  description: Lower-case letters, digits and underscores, starting with a letter.
+                label: { type: string }
+                status: { type: string, enum: [active, retired] }
+                sort_order: { type: integer }
+      responses:
+        "200":
+          description: The saved type.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthDiagnosisType"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /health-config/diagnosis-routes/save:
+    post:
+      tags: [Health Config]
+      operationId: saveHealthConfigDiagnosisRoute
+      summary: Point one management stage, or a whole age band, at a diagnosis type.
+      description: >-
+        A route names a STAGE, or the wildcard `*` for every stage in the band. The exact stage
+        always beats the wildcard, which is what lets a farm peel one cohort off a broad rule
+        without moving anybody else. An animal no route reaches is REFUSED rather than defaulted:
+        the rulebooks disagree about the things most likely to kill an animal, so the wrong one is
+        worse than none.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [age_band, stage_code, type_key]
+              properties:
+                age_band: { type: string, enum: [adult, kid] }
+                stage_code:
+                  type: string
+                  description: A management stage code, or `*` for every stage in the band.
+                type_key: { type: string }
+                sub_stage:
+                  type: string
+                  description: >-
+                    The cohort the register reads INSIDE the type (K0/K1/K2 for kids on milk).
+                    Blank where the type has one cohort.
+      responses:
+        "200":
+          description: The saved route.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthDiagnosisStageRoute"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /health-config/diagnosis-routes/delete:
+    post:
+      tags: [Health Config]
+      operationId: deleteHealthConfigDiagnosisRoute
+      summary: Remove one stage route.
+      description: >-
+        Removing a band WILDCARD makes that whole age band fail-closed -- every animal in it is
+        refused until its stage is routed. That is a real choice a farm may make and not an error,
+        so it is not refused here; the screen is where the consequence is shown.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [age_band, stage_code]
+              properties:
+                age_band: { type: string, enum: [adult, kid] }
+                stage_code: { type: string }
+      responses:
+        "200":
+          description: The route is gone.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [deleted]
+                properties:
+                  deleted: { type: boolean }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundOrNotAllowed" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+        "500": { $ref: "#/components/responses/ServerError" }
   /health-config/registers:
     get:
       tags: [Health Config]
@@ -19964,6 +20102,79 @@ components:
         rules:
           type: array
           items: { $ref: "#/components/schemas/HealthRegisterRule" }
+    HealthDiagnosisType:
+      type: object
+      required: [type_key, label, status, sort_order, is_builtin, route_count, has_published_register]
+      properties:
+        type_key:
+          type: string
+          description: Immutable. Register versions and stored runs carry it.
+        label: { type: string }
+        status: { type: string, enum: [active, retired] }
+        sort_order: { type: integer }
+        is_builtin:
+          type: boolean
+          description: >-
+            One of the four the engine shipped with. They may be relabelled and re-routed, never
+            retired: their registers are the committed rulebook every other type is authored beside.
+        route_count:
+          type: integer
+          description: How many stages reach this type. A retire is refused while this is above zero.
+        has_published_register:
+          type: boolean
+          description: >-
+            Whether this type can diagnose anything yet. False is a real and expected state -- it is
+            what a farm has between creating a type and authoring its rules.
+        updated_at: { type: string, format: date-time }
+    HealthDiagnosisStageRoute:
+      type: object
+      required: [age_band, stage_code, type_key, sub_stage, is_wildcard]
+      properties:
+        age_band: { type: string, enum: [adult, kid] }
+        stage_code: { type: string }
+        type_key: { type: string }
+        sub_stage: { type: string }
+        stage_label:
+          type: string
+          description: >-
+            The farm's own name for the stage. Blank for the wildcard, and for a stage the catalog
+            no longer holds -- such a route stays visible so it can be removed.
+        type_label: { type: string }
+        is_wildcard:
+          type: boolean
+          description: The band-wide row. Deleting it makes that whole age band fail-closed.
+        live_animals:
+          type: integer
+          description: >-
+            Alive animals this route governs right now. It is what tells a director whether a
+            change touches five animals or seven hundred.
+    HealthUnroutedStage:
+      type: object
+      required: [age_band, stage_code, stage_label, live_animals, clinical_placement]
+      properties:
+        age_band: { type: string, enum: [adult, kid] }
+        stage_code: { type: string }
+        stage_label: { type: string }
+        live_animals: { type: integer }
+        clinical_placement:
+          type: boolean
+          description: >-
+            An ICU / Quarantine-style stage. It says WHERE an animal is rather than what it eats,
+            so it cannot choose a rulebook and is reported rather than presented as a gap to close.
+    HealthDiagnosisRouting:
+      type: object
+      required: [types, routes, unrouted_stages]
+      properties:
+        types:
+          type: array
+          items: { $ref: "#/components/schemas/HealthDiagnosisType" }
+        routes:
+          type: array
+          items: { $ref: "#/components/schemas/HealthDiagnosisStageRoute" }
+        unrouted_stages:
+          type: array
+          description: Stages that hold live animals and reach no active type.
+          items: { $ref: "#/components/schemas/HealthUnroutedStage" }
     HealthRegisterSummary:
       type: object
       additionalProperties: false
