@@ -20,8 +20,8 @@ func TestDealWriteBodyDecodesLinesAndLegacyShape(t *testing.T) {
 		]}`), &withLines); err != nil {
 		t.Fatal(err)
 	}
-	w := withLines.toDomain().Normalize()
-	if err := w.Validate(); err != nil {
+	w := withLines.toDomain().Normalize(builtinCatalog())
+	if err := w.Validate(builtinCatalog()); err != nil {
 		t.Fatalf("lines body rejected: %v", err)
 	}
 	if len(w.Lines) != 2 || w.ProductType != domain.ProductMixed || w.SalesValue != 165000 {
@@ -34,8 +34,8 @@ func TestDealWriteBodyDecodesLinesAndLegacyShape(t *testing.T) {
 		"product_type":"Goat","breed":"Sirohi","animal_count":4,"sales_value":45000}`), &legacy); err != nil {
 		t.Fatal(err)
 	}
-	l := legacy.toDomain().Normalize()
-	if err := l.Validate(); err != nil {
+	l := legacy.toDomain().Normalize(builtinCatalog())
+	if err := l.Validate(builtinCatalog()); err != nil {
 		t.Fatalf("legacy body rejected: %v", err)
 	}
 	if len(l.Lines) != 1 || l.Lines[0].Breed != "Sirohi" || l.ProductType != domain.ProductGoat {
@@ -66,4 +66,14 @@ func TestDealPayloadCarriesLinesNeverNull(t *testing.T) {
 	if len(decoded.Lines) != 1 || decoded.Lines[0].Breed != "Nipani" || decoded.Lines[0].LineNo != 1 {
 		t.Fatalf("lines round trip = %+v", decoded.Lines)
 	}
+}
+
+// builtinCatalog is the registry every tenant starts with (migration 000393): the three products
+// that used to be constants in the sales domain.
+func builtinCatalog() domain.ProductCatalog {
+	return domain.NewProductCatalog([]domain.Product{
+		{Code: domain.ProductCodeSheep, Name: domain.ProductSheep, Kind: domain.KindAnimal, Unit: "head", SpeciesCode: "sheep", SortOrder: 10},
+		{Code: domain.ProductCodeGoat, Name: domain.ProductGoat, Kind: domain.KindAnimal, Unit: "head", SpeciesCode: "goat", SortOrder: 20},
+		{Code: domain.ProductCodeManure, Name: domain.ProductManure, Kind: domain.KindOther, Unit: "kg", SortOrder: 30},
+	})
 }

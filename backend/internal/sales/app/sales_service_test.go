@@ -38,6 +38,16 @@ func (f *fakeRepo) GetOverview(_ context.Context, _ string, farm string) (domain
 	return domain.Overview{}, nil
 }
 
+// The three products every tenant starts with (migration 000393). The fake serves them so these
+// tests keep exercising exactly the sales they exercised before the registry existed.
+func (f *fakeRepo) ListSellableProducts(_ context.Context, _ string) ([]domain.Product, error) {
+	return []domain.Product{
+		{Code: domain.ProductCodeSheep, Name: domain.ProductSheep, Kind: domain.KindAnimal, Unit: "head", SpeciesCode: "sheep", SortOrder: 10},
+		{Code: domain.ProductCodeGoat, Name: domain.ProductGoat, Kind: domain.KindAnimal, Unit: "head", SpeciesCode: "goat", SortOrder: 20},
+		{Code: domain.ProductCodeManure, Name: domain.ProductManure, Kind: domain.KindOther, Unit: "kg", SortOrder: 30},
+	}, nil
+}
+
 func (f *fakeRepo) ListDeals(_ context.Context, _ string, farm string, limit, offset int) (ports.DealPage, error) {
 	f.listFarm, f.listLimit, f.listOffset = farm, limit, offset
 	return ports.DealPage{Total: 63}, nil

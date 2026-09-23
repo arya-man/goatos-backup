@@ -17,7 +17,7 @@ func f64(v float64) *float64 { return &v }
 
 func seedDeal(t *testing.T, repo *Repository, ctx context.Context, key string, w domain.DealWrite) domain.Deal {
 	t.Helper()
-	deal, err := repo.CreateDeal(ctx, salesTestTenant, w.Normalize(), "", key)
+	deal, err := repo.CreateDeal(ctx, salesTestTenant, w.Normalize(builtinCatalog()), "", key)
 	if err != nil {
 		t.Fatalf("seed deal %s: %v", key, err)
 	}
@@ -98,13 +98,13 @@ func TestSalesLedgerPostgresPaths(t *testing.T) {
 			SaleDate: "2025-05-01", Farm: "CBE", ProductType: "Goat", Breed: "Sojat",
 			BuyerName: "Irshad", SalesValue: 90000, TotalWeightKg: f64(200),
 		}
-		first, err := repo.CreateDeal(ctx, salesTestTenant, write.Normalize(), "", "key-goat")
+		first, err := repo.CreateDeal(ctx, salesTestTenant, write.Normalize(builtinCatalog()), "", "key-goat")
 		if err != nil {
 			t.Fatalf("first call: %v", err)
 		}
 
 		// Exact replay: the ORIGINAL row comes back and nothing new is written.
-		replay, err := repo.CreateDeal(ctx, salesTestTenant, write.Normalize(), "", "key-goat")
+		replay, err := repo.CreateDeal(ctx, salesTestTenant, write.Normalize(builtinCatalog()), "", "key-goat")
 		if err != nil {
 			t.Fatalf("exact replay: %v", err)
 		}
@@ -131,7 +131,7 @@ func TestSalesLedgerPostgresPaths(t *testing.T) {
 		// Same key, different payload: refused, and still nothing new written.
 		mutated := write
 		mutated.SalesValue = 95000
-		if _, err := repo.CreateDeal(ctx, salesTestTenant, mutated.Normalize(), "", "key-goat"); !errors.Is(err, ports.ErrIdempotencyConflict) {
+		if _, err := repo.CreateDeal(ctx, salesTestTenant, mutated.Normalize(builtinCatalog()), "", "key-goat"); !errors.Is(err, ports.ErrIdempotencyConflict) {
 			t.Fatalf("conflicting replay: want ErrIdempotencyConflict, got %v", err)
 		}
 		if err := pool.QueryRow(ctx, `SELECT count(*) FROM sales_deals WHERE tenant_id = $1 AND buyer_name = 'Irshad'`, salesTestTenant).Scan(&deals); err != nil {
@@ -638,4 +638,15 @@ func TestExpectedSaleAdvanceStory(t *testing.T) {
 	if _, err := repo.SetDealStatus(ctx, salesTestTenant, "00000000-0000-4000-8000-00000000dead", domain.StatusDealClosed, ""); !errors.Is(err, ports.ErrDealNotFound) {
 		t.Fatalf("unknown deal => %v want ErrDealNotFound", err)
 	}
+}
+
+// builtinCatalog is the registry every tenant starts with (migration 000393): the three products
+// that used to be constants in the sales domain. These tests record the same sales they always
+// recorded, now against the registry that carries them.
+func builtinCatalog() domain.ProductCatalog {
+	return domain.NewProductCatalog([]domain.Product{
+		{Code: domain.ProductCodeSheep, Name: domain.ProductSheep, Kind: domain.KindAnimal, Unit: "head", SpeciesCode: "sheep", SortOrder: 10},
+		{Code: domain.ProductCodeGoat, Name: domain.ProductGoat, Kind: domain.KindAnimal, Unit: "head", SpeciesCode: "goat", SortOrder: 20},
+		{Code: domain.ProductCodeManure, Name: domain.ProductManure, Kind: domain.KindOther, Unit: "kg", SortOrder: 30},
+	})
 }
