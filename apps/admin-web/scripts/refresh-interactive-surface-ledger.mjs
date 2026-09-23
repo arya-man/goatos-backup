@@ -35,8 +35,12 @@ export function labelsNear(text, index, limit = 4000) {
     // Copy that arrives from the page contract at runtime. The KEY is the offline-derivable
     // reference: the surface must render resolved copy for exactly these keys -- a blank panel
     // renders none of them, and missing copy renders the raw key instead of a sentence.
-    /\bt\(\s*"([A-Za-z0-9_.-]{2,60})"\s*\)/g,
-    /\bcopy\(\s*[A-Za-z0-9_$.]+\s*,\s*"([A-Za-z0-9_.-]{2,60})"\s*\)/g,
+    // Any copy helper, matched by its ARGUMENT rather than its name: t(), c(), fc(), fdc()...
+    // A DOTTED key is a copy key -- a class name or a selector never looks like this -- so this
+    // reads every helper the pages use without having to enumerate their names.
+    /\b[A-Za-z_$][A-Za-z0-9_$]{0,12}\(\s*"([A-Za-z0-9_-]{2,30}(?:\.[A-Za-z0-9_-]{1,30}){1,5})"/g,
+    // copy(pageContract, "key") and copy(pageContract, "key", "fallback").
+    /\bcopy\(\s*[A-Za-z0-9_$.]+\s*,\s*"([A-Za-z0-9_.-]{2,60})"/g,
     // Copy handed in as a prop object (features/configuration/row-actions.tsx renders every one of
     // its controls as labels.<slot>). The SLOT is the reference: a blank menu renders none of them.
     /\b(?:labels|copy|strings|text|[A-Za-z][A-Za-z0-9]*Copy|[A-Za-z][A-Za-z0-9]*Labels)\.([A-Za-z][A-Za-z0-9_]{1,29})\b/g,
@@ -59,16 +63,38 @@ export function labelsNear(text, index, limit = 4000) {
 function entryFor(surface, sourceText) {
   const labels = labelsNear(sourceText, surface.offset);
   const where = `${surface.path}:${surface.line}`;
-  if (labels.length < 2) {
+  // ONE label is already discriminating: a blank panel renders none of them, so [] never equals
+  // ["action.retag.cancel"]. Requiring two was an arbitrary threshold that pushed real references
+  // into the gap list.
+  if (labels.length < 1) {
+    // Say WHICH gap this is. A shell whose copy arrives as props and a table whose copy arrives
+    // as data are both unanchorable offline, but they are closed by different work, and one
+    // sentence covering both would hide that.
+    const window = blankNonMarkup(sourceText).slice(surface.offset, surface.offset + 4000);
+    const prop =
+      /(?:aria-label|title|label|ariaLabel|closeLabel)=\{[A-Za-z_$][A-Za-z0-9_$.]*\}/.test(window) ||
+      /\{\s*children\s*\}/.test(window);
+    // A surface whose only reference is a value created at run time -- the id of the row that
+    // opened it, a sentence the server composed for this one refusal. There IS a discriminating
+    // reference; it just cannot be written as a literal here.
+    const runtimeIdentity = /data-[a-z-]+=\{[A-Za-z_$][A-Za-z0-9_$.]*\}|role="(?:status|alert)"/.test(window);
     return {
       key: surface.key,
       kind: surface.kind,
       where,
       status: "not-checked",
-      notCheckedReason:
-        `every control on this ${surface.kind} is labelled from data, not from its own source, so no ` +
-        `expected value can be derived offline; it needs one run against a seeded throwaway dataset ` +
-        `to state a reference that could fail`,
+      notCheckedReason: runtimeIdentity && !prop
+        ? `the only reference this ${surface.kind} owns is a value made at run time -- the id of the ` +
+          `row that opened it, or the sentence the server composed for this one refusal -- so no ` +
+          `literal expected value can be written here; the sweep has to compare it against what it ` +
+          `clicked, which nothing runs today`
+        : prop
+        ? `this ${surface.kind} is a shell: every word on it arrives as a prop from whichever screen ` +
+          `renders it, so no expected value belongs here -- the reference belongs on each call site, ` +
+          `and those call sites are inventoried separately`
+        : `every control on this ${surface.kind} is labelled from data, not from its own source, so no ` +
+          `expected value can be derived offline; it needs one run against a seeded throwaway dataset ` +
+          `to state a reference that could fail`,
     };
   }
   return {
