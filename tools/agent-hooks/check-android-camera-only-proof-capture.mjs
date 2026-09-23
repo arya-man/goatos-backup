@@ -54,15 +54,25 @@ function walk(dir, acc = []) {
   return acc;
 }
 
+// WORKING TREE COUNTS. `<base>...HEAD` alone sees only COMMITTED history, so a
+// violation an agent just wrote — the exact state a PostToolUse/pre-commit hook
+// runs in — was invisible and this guard exited 0. Measured 2026-09-23.
+// Staged and unstaged diffs are unioned in, the same three sources
+// changed_since_base() uses in tools/ci/run-local-ci.sh. Two extra cheap git
+// calls; the scan stays diff-scoped and never walks the tree.
 function changedProductionSources() {
-  try {
-    return execSync(`git -C "${repo}" diff --name-only ${BASE}...HEAD`, { encoding: "utf8" })
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(isProductionAndroidSource);
-  } catch {
-    return [];
+  const out = new Set();
+  for (const args of [`diff --name-only ${BASE}...HEAD`, "diff --name-only --cached", "diff --name-only"]) {
+    try {
+      for (const line of execSync(`git -C "${repo}" ${args}`, { encoding: "utf8" }).split("\n")) {
+        const trimmed = line.trim();
+        if (trimmed) out.add(trimmed);
+      }
+    } catch {
+      /* a range that does not resolve contributes nothing; the others still count */
+    }
   }
+  return [...out].filter(isProductionAndroidSource);
 }
 
 function lineIsComment(line, inBlockComment) {

@@ -294,18 +294,40 @@ function walkTree(dir, keep) {
   return out;
 }
 
+// WORKING TREE COUNTS. `<base>...HEAD` alone sees only COMMITTED history, so a
+// violation an agent just wrote — the exact state a PostToolUse/pre-commit hook
+// runs in — was invisible and this guard exited 0. Measured 2026-09-23.
+// Staged and unstaged diffs are unioned in, the same three sources
+// changed_since_base() uses in tools/ci/run-local-ci.sh. Two extra cheap git
+// calls; the scan stays diff-scoped and never walks the tree.
 function changedFiles() {
   const base = process.env.ADMIN_WEB_GUARD_BASE || "origin/main";
+  const found = new Set();
+  let resolved = false;
   for (const range of [`${base}...HEAD`, "HEAD~1...HEAD"]) {
     try {
       execSync(`git rev-parse --verify --quiet ${range.split("...")[0]}^{commit}`, { cwd: repo, stdio: "ignore" });
-      const out = execSync(`git diff --name-only --diff-filter=d ${range}`, { cwd: repo, encoding: "utf8" });
-      return out.split("\n").map((s) => s.trim()).filter(Boolean).filter(isAdminWebTs);
+      for (const s of execSync(`git diff --name-only --diff-filter=d ${range}`, { cwd: repo, encoding: "utf8" }).split("\n")) {
+        if (s.trim()) found.add(s.trim());
+      }
+      resolved = true;
+      break;
     } catch {
       /* try the next range */
     }
   }
-  return null;
+  for (const args of ["diff --name-only --diff-filter=d --cached", "diff --name-only --diff-filter=d"]) {
+    try {
+      for (const s of execSync(`git ${args}`, { cwd: repo, encoding: "utf8" }).split("\n")) {
+        if (s.trim()) found.add(s.trim());
+      }
+      resolved = true;
+    } catch {
+      /* ignore */
+    }
+  }
+  if (!resolved) return null;
+  return [...found].filter(isAdminWebTs);
 }
 
 // A changed file is not the only way this defect appears: moving a helper INTO a `"use client"`
