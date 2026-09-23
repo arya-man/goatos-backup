@@ -1540,6 +1540,17 @@
       "owningDoc": "docs/decisions/scale-anti-patterns.md",
       "requiredInCI": true,
       "ciStep": "worker-stage-budgets-guard"
+    },
+    {
+      "id": "commit-ledger",
+      "script": "tools/agent-hooks/check-commit-ledger.mjs",
+      "makeTarget": "commit-ledger-guard",
+      "realCheck": "node tools/agent-hooks/check-commit-ledger.mjs",
+      "selfTest": "node tools/agent-hooks/check-commit-ledger.mjs --self-test",
+      "owningDoc": "docs/engineering/commit-coverage-ledger.md",
+      "requiredInCI": true,
+      "ciStep": "commit-ledger-guard",
+      "notes": "Every user-visible (feat/fix) commit on main since 2026-08-01 must have a row in commit-ledger.jsonl, which is DERIVED from git log rather than hand-written. Catches a new commit with no row, a hand-added row, a gap with no reason, `covered` claimed without a revert receipt, and a summary that disagrees with the rows counted while reading them. It cannot judge whether a `claimed` row's test actually bites - only a revert receipt does that."
     }
   ]
 }
