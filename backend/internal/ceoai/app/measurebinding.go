@@ -332,7 +332,37 @@ func cardModels(card reporting.SchemaCard, term string) bool {
 	if matchesTerm(term, card.Name) || matchesTerm(term, card.Purpose) {
 		return true
 	}
+	// THE LEADER FOLD IS DELIBERATELY *NOT* APPLIED HERE, and that asymmetry
+	// with termModelled is the decision rather than an omission.
+	//
+	// The live defect the fold fixes is in the MEASURE gate: "who owes us
+	// money" nominated sales_buyer_summary, the planner read it, and the
+	// answer died on `measureUnmodelled`. cardModels serves
+	// `subjectSubstitution`, a different gate answering a different question --
+	// does the read THAT RAN report the subject the question named. Folding
+	// here would widen the one gate that catches a real number wearing another
+	// subject's words ("kids on MILK FEEDING" answered from the animal-scope
+	// view), for no measured benefit: a first attempt did exactly that and its
+	// mutant SURVIVED, because nothing reaching this function needed it.
+	//
+	// If a leader-worded subject is ever measured dying here, close it with a
+	// test that reproduces it first.
 	return cardHasColumnFor(card, term)
+}
+
+// leaderFold returns the catalogue's word for a leader's word, or "" when the
+// term is already the catalogue's own vocabulary (or nothing folds it).
+//
+// It is coverageStem, the fold `nominates` already runs, and nothing more.
+// Returning "" for an unchanged word is what keeps every caller a RETRY rather
+// than a replacement: the literal term is always tested first, so this can only
+// ever add a match, never remove one.
+func leaderFold(term string) string {
+	folded := coverageStem(term)
+	if folded == "" || folded == term || folded == wordStem(term) {
+		return ""
+	}
+	return folded
 }
 
 // noSourceFor is the one sentence both refusals open with, and its exact claim
@@ -497,6 +527,34 @@ func modelledTerms(terms []string, cards []reporting.SchemaCard, catalog []ports
 }
 
 func termModelled(term string, cards []reporting.SchemaCard, catalog []ports.ToolSpec) bool {
+	if termNamedInCatalogue(term, cards, catalog) {
+		return true
+	}
+	// THE FARM'S WORDS REACH THIS GATE TOO, or closing the coverage gate on
+	// them bought nothing. Measured live on this branch AFTER leaderNouns
+	// landed: "who owes us money" nominated sales_buyer_summary correctly, the
+	// planner read it, and the answer was then refused HERE -- "I don't have a
+	// source for owes us money in the reads I can reach" -- while
+	// outstanding_rupees on that very card held 325,930. One gate had been
+	// taught the leader's spelling and the next had not, so the question died
+	// one step later than it used to.
+	//
+	// It is the SAME fold, not a second synonym list: coverageStem runs both
+	// sides and TestTheLeaderFoldOnlyEverMeetsAWordTheCatalogueNames already
+	// pins every leaderNouns entry to a word the live catalogue really
+	// carries. So this can only let a leader's word meet a column that exists.
+	// A subject the catalogue names nothing for -- "runway", "rent",
+	// "attrition" -- folds onto nothing and stays refused exactly as strictly
+	// as before, which is what the direction-B sweep measures.
+	if folded := leaderFold(term); folded != "" {
+		return termNamedInCatalogue(folded, cards, catalog)
+	}
+	return false
+}
+
+// termNamedInCatalogue is the literal match: a card's name, a card's column, or
+// a tool's name, description or parameter.
+func termNamedInCatalogue(term string, cards []reporting.SchemaCard, catalog []ports.ToolSpec) bool {
 	for _, card := range cards {
 		if matchesTerm(term, card.Name) {
 			return true

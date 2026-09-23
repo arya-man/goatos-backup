@@ -458,11 +458,36 @@ func fitNote(issues []FitIssue) string {
 	if len(issues) == 0 {
 		return ""
 	}
-	var parts []string
+	// A DETAIL IS EITHER AN ADVERB OR A NOUN, AND THE SENTENCE HAS TO KNOW
+	// WHICH. Every detail used to be dropped into one adverbial slot, which
+	// reads correctly for "by breed" and "in rupees" and collapses for a noun.
+	// Measured live on the corrected workforce answer: "I could not produce it
+	// the backup you asked about (the read that ran does not report it) as
+	// asked." A leader who cannot parse the caveat cannot act on it, and a
+	// caveat is the one sentence on the answer that has to be read.
+	//
+	// dimension and unit issues are adverbial by construction
+	// (dimensionPhrase/unitPhrase build them). Everything else — the measure,
+	// the period, and any free-form detail a model judge writes — names a
+	// THING, and gets a clause of its own.
+	var adverbial, nouns []string
 	for _, is := range issues {
-		parts = append(parts, is.Detail)
+		switch is.Kind {
+		case "dimension", "unit":
+			adverbial = append(adverbial, is.Detail)
+		default:
+			nouns = append(nouns, is.Detail)
+		}
 	}
-	return "Note: this answer may not match the question exactly — I could not produce it " + joinHuman(parts) + " as asked. Please rephrase or ask for that breakdown explicitly."
+	var clauses []string
+	if len(adverbial) > 0 {
+		clauses = append(clauses, "I could not produce it "+joinHuman(adverbial)+" as asked")
+	}
+	if len(nouns) > 0 {
+		clauses = append(clauses, "I could not reach "+joinHuman(nouns))
+	}
+	return "Note: this answer may not match the question exactly — " + strings.Join(clauses, "; ") +
+		". Please rephrase or ask for that breakdown explicitly."
 }
 
 func joinHuman(parts []string) string {

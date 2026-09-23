@@ -266,6 +266,17 @@ func monthlySalesFacts(month, animals, sheep, goats, revenue string) []ceodomain
 	}
 }
 
+// isYearMonth reports the "2006-01" shape ceo_ai's monthly sales rows are
+// keyed on. It is the only spelling of a period this read can match, so it is
+// the only one it accepts.
+func isYearMonth(s string) bool {
+	if len(s) != len("2006-01") || s[4] != '-' {
+		return false
+	}
+	_, err := time.Parse("2006-01", s)
+	return err == nil
+}
+
 func buildSalesOverviewReader(svc salesOverviewGetter) func(ctx context.Context, tenantID string, params map[string]any) ([]ceodomain.Fact, error) {
 	return func(ctx context.Context, tenantID string, params map[string]any) ([]ceodomain.Fact, error) {
 		farm := ""
@@ -288,6 +299,21 @@ func buildSalesOverviewReader(svc salesOverviewGetter) func(ctx context.Context,
 			}
 		}
 		if monthRequested && month != "" {
+			// A PERIOD THIS READ CANNOT BIND MUST BE REFUSED, NOT ZEROED.
+			// `month` is matched against row.Month, which is "2006-01". When
+			// it arrived as anything else -- live, the planner sent the
+			// English "August" -- no row could match, and the loop below fell
+			// through to a row of hard zeros. Those zeros then reached a
+			// composer that could find no month in them and introduced them
+			// as "Across all recorded sales, 0 animals were sold ... Sales
+			// revenue was 0", for an August that made 291,600. A fabricated
+			// zero under the wrong period is the worst answer this read can
+			// give, and it is indistinguishable from a real one. An error
+			// here is not: it is surfaced as a refusal that says what could
+			// not be reached.
+			if !isYearMonth(month) {
+				return nil, fmt.Errorf("sales overview: month %q is not a YYYY-MM period this read can bind", month)
+			}
 			for _, row := range overview.Monthly {
 				if row.Month != month {
 					continue

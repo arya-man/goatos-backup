@@ -3,6 +3,7 @@ package readtools
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -323,10 +324,28 @@ func (e *salesOverviewExecutor) Execute(ctx context.Context, actor domain.Actor,
 	}
 
 	params := sub.Params
-	if _, ok := params["month"]; !ok {
-		if month := monthFromBoundWindow(params); month != "" {
+	// A MONTH THE READER CANNOT BIND IS WORSE THAN NO MONTH AT ALL, because
+	// the read reports hard zeros for it and the sentence then loses the
+	// period and calls them "all recorded sales". Measured live on this
+	// branch: "how much revenue did we make in august" planned
+	// {month:"August", from:"2026-08-01", to:"2026-08-31"} and answered
+	// "Across all recorded sales, 0 animals were sold ... Sales revenue was
+	// 0" against an August that made 291,600. The month arrived in ENGLISH
+	// and the reader matches its rows on "2006-01", so nothing matched; the
+	// bound window said 2026-08 in the very same params and was never read,
+	// because the window was only consulted when `month` was ABSENT.
+	//
+	// The window the server resolved outranks the word the model typed: it is
+	// the period the rest of the answer is stated from. So the month is
+	// normalised first, and an unbindable one is REPLACED by the bound window
+	// rather than passed through.
+	bound := monthFromBoundWindow(params)
+	raw, present := params["month"].(string)
+	switch {
+	case !present || strings.TrimSpace(raw) == "":
+		if bound != "" {
 			params = cloneParams(params)
-			params["month"] = month
+			params["month"] = bound
 		} else if mentionsAMonth(sub.Text) {
 			// No resolved window to read: fall back to the calendar month the
 			// question is being asked in. This is the ONLY branch that may
@@ -334,6 +353,11 @@ func (e *salesOverviewExecutor) Execute(ctx context.Context, actor domain.Actor,
 			// resolved no period at all.
 			params = cloneParams(params)
 			params["month"] = "current"
+		}
+	default:
+		if normalized := normalizeMonthParam(raw, bound, params); normalized != raw {
+			params = cloneParams(params)
+			params["month"] = normalized
 		}
 	}
 	facts, err := e.salesDataReader(ctx, actor.TenantID, params)
@@ -386,6 +410,95 @@ func monthFromBoundWindow(params map[string]any) string {
 		return ""
 	}
 	return start.Format("2006-01")
+}
+
+// normalizeMonthParam turns whatever the planner put in `month` into the
+// "2006-01" the sales read matches its rows on, or into a sentinel the read
+// already understands.
+//
+// Order matters and is the point of the function: the window the SERVER
+// resolved wins over the model's word whenever the two can disagree, because
+// the window is what every other part of the answer is stated from. An English
+// month name is only resolved on its own when there is no bound window to
+// prefer, and it takes its year from the request rather than from a guess.
+//
+// A value it cannot bind at all is returned unchanged, so the read refuses it
+// rather than this function inventing a period for it.
+func normalizeMonthParam(raw, bound string, params map[string]any) string {
+	trimmed := strings.TrimSpace(raw)
+	if isMonthToken(trimmed) {
+		return trimmed
+	}
+	if bound != "" {
+		return bound
+	}
+	lower := strings.ToLower(trimmed)
+	if lower == "current" || lower == "this_month" || lower == "this month" {
+		return trimmed
+	}
+	if month := monthFromEnglish(trimmed, params); month != "" {
+		return month
+	}
+	return raw
+}
+
+// isMonthToken reports the "2006-01" shape the sales read matches on.
+func isMonthToken(s string) bool {
+	if len(s) != len("2006-01") || s[4] != '-' {
+		return false
+	}
+	if _, err := time.Parse("2006-01", s); err != nil {
+		return false
+	}
+	return true
+}
+
+// monthFromEnglish resolves "August", "aug", "August 2026" and "aug-2026" to
+// "2006-01". The year comes from the text when it names one, otherwise from
+// the as-of date the server threaded in -- never from time.Now(), so the
+// binding is reproducible from the request alone.
+func monthFromEnglish(text string, params map[string]any) string {
+	fields := strings.FieldsFunc(strings.ToLower(text), func(r rune) bool {
+		return r == ' ' || r == '-' || r == '_' || r == '/' || r == ',' || r == '.'
+	})
+	month := 0
+	year := 0
+	for _, f := range fields {
+		if m, ok := englishMonths[f]; ok && month == 0 {
+			month = m
+			continue
+		}
+		if len(f) == 4 {
+			if n, err := strconv.Atoi(f); err == nil && n >= 1000 {
+				year = n
+			}
+		}
+	}
+	if month == 0 {
+		return ""
+	}
+	if year == 0 {
+		asOf, _ := params["as_of"].(string)
+		if len(asOf) >= 4 {
+			if n, err := strconv.Atoi(asOf[:4]); err == nil && n >= 1000 {
+				year = n
+			}
+		}
+	}
+	if year == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%04d-%02d", year, month)
+}
+
+// englishMonths carries both the full name and the common abbreviations, which
+// is every spelling the planner has been measured producing for this
+// parameter.
+var englishMonths = map[string]int{
+	"january": 1, "jan": 1, "february": 2, "feb": 2, "march": 3, "mar": 3,
+	"april": 4, "apr": 4, "may": 5, "june": 6, "jun": 6, "july": 7, "jul": 7,
+	"august": 8, "aug": 8, "september": 9, "sep": 9, "sept": 9,
+	"october": 10, "oct": 10, "november": 11, "nov": 11, "december": 12, "dec": 12,
 }
 
 // mentionsAMonth reports that the question is asked in months at all.

@@ -688,6 +688,7 @@ func seriesFromFacts(r domain.ToolResult) (*numericSeries, []string) {
 	var labelLabels []string
 	commonLabel := ""
 	labelSeen := false
+	labelIsOwnScope := false
 	scopeUsable := true
 
 	for _, f := range r.Facts {
@@ -709,6 +710,14 @@ func seriesFromFacts(r domain.ToolResult) (*numericSeries, []string) {
 			commonLabel = ""
 		}
 		labelSeen = true
+		// A row whose label IS its scope carries no measure name at all: the
+		// read put the series KEY in both slots. renderFacts already collapses
+		// that row to one name; the chart has to do the same or the series is
+		// named after one of its own bars even when every row agrees, which is
+		// exactly the case a "common label" test cannot see.
+		if sameSlot(f.Label, f.Scope) && strings.TrimSpace(f.Scope) != "" {
+			labelIsOwnScope = true
+		}
 		if s := strings.TrimSpace(f.Scope); s != "" {
 			scopeVals = append(scopeVals, v)
 			scopeLabels = append(scopeLabels, s)
@@ -721,6 +730,9 @@ func seriesFromFacts(r domain.ToolResult) (*numericSeries, []string) {
 
 	// Prefer the scoped shape (a genuine dimension across rows) when every
 	// numeric fact carried a Scope.
+	if labelIsOwnScope {
+		commonLabel = ""
+	}
 	if scopeUsable && len(scopeVals) >= 2 {
 		return &numericSeries{name: seriesName(r, commonLabel), data: scopeVals, scoped: true}, scopeLabels
 	}
