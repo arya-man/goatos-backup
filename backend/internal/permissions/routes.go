@@ -791,6 +791,10 @@ var protectedRoutes = []Route{
 	// Collapsing submit and confirm onto one route would let whoever fills the
 	// form also authorise the treatment, which is exactly what the engine exists
 	// to prevent. Operators hold HealthReport and NOT HealthDiagnose.
+	// The FORM the phone draws, for one animal. Same permission as the submit: a principal who may
+	// record an observation is the principal who is shown what to record, and splitting them would
+	// invent a reader of the form who could never file one.
+	{OperationID: "getAppHealthObservationForm", Method: "GET", Pattern: "/app/health/observation-form/{goat_id}", Permissions: []string{HealthReport}},
 	{OperationID: "submitAppHealthObservation", Method: "POST", Pattern: "/app/health/observations", Permissions: []string{HealthReport}},
 	// The queue is a READ. A health manager may see that what they recorded is
 	// still waiting; only the confirm route below carries the decision authority.

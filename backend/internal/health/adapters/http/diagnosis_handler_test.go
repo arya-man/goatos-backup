@@ -24,6 +24,10 @@ type fakeDiagnosisService struct {
 	listErr error
 }
 
+func (f *fakeDiagnosisService) ObservationForm(_ context.Context, _, goatID string) (domain.ObservationForm, error) {
+	return domain.ObservationForm{GoatID: goatID}, nil
+}
+
 func (f *fakeDiagnosisService) SubmitObservation(_ context.Context, in domain.SubmitObservationInput) (domain.SubmitObservationResult, error) {
 	f.submitted = in
 	if f.submitErr != nil {
