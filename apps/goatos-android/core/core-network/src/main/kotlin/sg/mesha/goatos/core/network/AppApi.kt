@@ -916,6 +916,17 @@ interface AppApi {
         durationMs: Long?,
     ): ProofCompleteResponseDto
 
+    /**
+     * Replays only the completion/reconciliation step when [registerProof] returns a proof that is
+     * already completed server-side. The client must not PUT bytes again into a completed artifact:
+     * that leaves local retry state failed even though the backend already has the video.
+     */
+    suspend fun completeRegisteredProofUpload(
+        proofId: String,
+        mimeType: String,
+        durationMs: Long?,
+    ): ProofCompleteResponseDto
+
     /** DELETE /app/proofs/{proof_id} — removes a synced proof only while it is still unattached
      *  to any submitted record. Used by pre-submit X/remove so the local UI cannot hide a backend
      *  video that would still be eligible for submission. */
@@ -2643,6 +2654,14 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         chunkSizeBytes: Long?,
         mimeType: String,
         filePath: String,
+        durationMs: Long?,
+    ): ProofCompleteResponseDto = ProofCompleteResponseDto(
+        proof = ProofArtifactDto(proofId = proofId, uploadState = "completed", mimeType = mimeType, durationMs = durationMs),
+    )
+
+    override suspend fun completeRegisteredProofUpload(
+        proofId: String,
+        mimeType: String,
         durationMs: Long?,
     ): ProofCompleteResponseDto = ProofCompleteResponseDto(
         proof = ProofArtifactDto(proofId = proofId, uploadState = "completed", mimeType = mimeType, durationMs = durationMs),

@@ -947,6 +947,43 @@ class SyncEngineTest {
     }
 
     @Test
+    fun `PROOF_UPLOAD replays completion without reuploading bytes when registration is already completed`() = runBlocking {
+        val store = FakeOutboxStore()
+        store.insert(queuedProofUpload())
+        val api = ScriptedAppApi().apply {
+            registerProofFn = { _, request ->
+                ProofUploadResponseDto(
+                    proof = ProofReferenceDto(
+                        proofId = "server-proof-9",
+                        proofType = request.proofType,
+                        subjectType = request.subjectType,
+                        uploadState = "completed",
+                    ),
+                    uploadUrl = "",
+                    uploadMethod = "PUT",
+                )
+            }
+            completeRegisteredProofUploadFn = { proofId, mimeType, durationMs ->
+                assertEquals("server-proof-9", proofId)
+                assertEquals("video/mp4", mimeType)
+                assertEquals(4_500L, durationMs)
+                ProofCompleteResponseDto(proof = ProofArtifactDto(proofId = proofId, uploadState = "completed"))
+            }
+        }
+        val engine = SyncEngine(store, api, connectivityGate = { true }, clock = { 0L })
+
+        engine.drainOnce()
+
+        val row = store.findById("row-p1")!!
+        assertEquals(OutboxStatus.SUCCEEDED.name, row.status)
+        assertTrue("completed proof replay must not PUT video bytes again", api.uploadProofBlobCalls.isEmpty())
+        assertEquals(listOf("server-proof-9"), api.completeRegisteredProofUploadCalls)
+        val decoded = syncJson.decodeFromString<ProofUploadResponseDto>(row.resultJson!!)
+        assertEquals("server-proof-9", decoded.proof.proofId)
+        assertEquals("completed", decoded.proof.uploadState)
+    }
+
+    @Test
     fun `PC Care task proof registration resolves uploaded proof and uses stable idempotency key`() = runBlocking {
         val store = FakeOutboxStore()
         store.insert(

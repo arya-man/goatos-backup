@@ -1060,17 +1060,25 @@ class SyncEngine(
         if (proofId.isBlank()) {
             throw NonRetryableSyncException("Proof registration did not return a proof id.")
         }
-        val completed = api.uploadProofBlob(
-            proofId = proofId,
-            uploadUrl = registered.uploadUrl,
-            uploadMethod = registered.uploadMethod,
-            uploadHeaders = registered.headers,
-            uploadProtocol = registered.uploadProtocol,
-            chunkSizeBytes = registered.chunkSizeBytes,
-            mimeType = payload.request.mimeType,
-            filePath = payload.localFilePath,
-            durationMs = payload.durationMs,
-        )
+        val completed = if (registered.proof.uploadState.equals("completed", ignoreCase = true)) {
+            api.completeRegisteredProofUpload(
+                proofId = proofId,
+                mimeType = payload.request.mimeType,
+                durationMs = payload.durationMs,
+            )
+        } else {
+            api.uploadProofBlob(
+                proofId = proofId,
+                uploadUrl = registered.uploadUrl,
+                uploadMethod = registered.uploadMethod,
+                uploadHeaders = registered.headers,
+                uploadProtocol = registered.uploadProtocol,
+                chunkSizeBytes = registered.chunkSizeBytes,
+                mimeType = payload.request.mimeType,
+                filePath = payload.localFilePath,
+                durationMs = payload.durationMs,
+            )
+        }
         // Re-shaped into the SAME ProofUploadResponseDto/ProofReferenceDto envelope the metadata
         // registration step used to echo, so CaptureRepository's decodeServerProofId keeps
         // working unchanged — it only ever reads `.proof.proofId`.
