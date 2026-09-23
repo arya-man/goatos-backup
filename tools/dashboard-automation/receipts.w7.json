@@ -1,0 +1,345 @@
+{
+ "_comment": "Revert receipts — the ONLY thing that makes a commit-ledger row `covered`. Each was produced by checking the commit out, confirming its package passed, restoring only its non-test files to the parent, and re-running the same tests until a NAMED test failed. `rejected` records candidates that did not prove: `disproved` means a test shipped beside a fix that does not notice the fix being undone, which is a finding rather than an absence.",
+ "attempted": 31,
+ "proved": 15,
+ "rejectedCount": 16,
+ "receipts": [
+  {
+   "sha": "39ec65231",
+   "check": "TestGetBreakdownRejectsLegacyWholePartitionSentinel",
+   "allFailing": [
+    "TestGetBreakdownRejectsLegacyWholePartitionSentinel"
+   ],
+   "packages": [
+    "./internal/counts/adapters/http"
+   ],
+   "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
+   "recordedAt": "2026-09-23"
+  },
+  {
+   "sha": "4330589ac",
+   "check": "TestLeadershipTasksModuleIsOfferedToDirectorsAndCEO",
+   "allFailing": [
+    "TestLeadershipTasksModuleIsOfferedToDirectorsAndCEO",
+    "TestLeadershipTasksModuleIsOfferedToDirectorsAndCEO/ceo_internal_is_offered_Tasks",
+    "TestLeadershipTasksModuleIsOfferedToDirectorsAndCEO/pc_director_is_offered_Tasks",
+    "TestLeadershipTasksModuleIsOfferedToDirectorsAndCEO/growth_director_is_offered_Tasks",
+    "TestLeadershipTasksModuleIsOfferedToDirectorsAndCEO/feed_director_is_offered_Tasks",
+    "TestLeadershipTasksModuleIsOfferedToDirectorsAndCEO/health_director_is_offered_Tasks"
+   ],
+   "packages": [
+    "./internal/leadershiptasks/adapters/http",
+    "./internal/leadershiptasks/adapters/postgres",
+    "./internal/leadershiptasks/app",
+    "./internal/leadershiptasks/domain",
+    "./internal/notificationbridge",
+    "./internal/permissions",
+    "./internal/workforce/app"
+   ],
+   "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
+   "recordedAt": "2026-09-23"
+  },
+  {
+   "sha": "46ca2733b",
+   "check": "TestLiveTrackerCandidateObligationsScheduledDateOneToManyPageBoundaryParkScopeStatusMatrix",
+   "allFailing": [
+    "TestLiveTrackerCandidateObligationsScheduledDateOneToManyPageBoundaryParkScopeStatusMatrix"
+   ],
+   "packages": [
+    "./internal/vaccinationexecution/adapters/postgres"
+   ],
+   "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
+   "recordedAt": "2026-09-23"
+  },
+  {
+   "sha": "4851ef344",
+   "check": "TestHealthDeathCausesCatalogUsesEitherOrPermissions",
+   "allFailing": [
+    "TestHealthDeathCausesCatalogUsesEitherOrPermissions"
+   ],
+   "packages": [
+    "./internal/permissions"
+   ],
+   "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
+   "recordedAt": "2026-09-23"
+  },
+  {
+   "sha": "4bf08f155",
+   "check": "TestHealthAnalyticsPageIsAModuleSurface",
+   "allFailing": [
+    "TestHealthAnalyticsPageIsAModuleSurface",
+    "TestHealthAnalyticsBannerDeclaresThatCauseOfDeathIsNotRecorded",
+    "TestHealthAnalyticsCarriesCopyForTheUnattributedDeath",
+    "TestHealthAnalyticsDeclaresItsFourTables",
+    "TestHealthAnalyticsLeafSitsDirectlyAboveHealthConfig",
+    "TestHealthAnalyticsGateMatchesItsOwnDataRoute"
+   ],
+   "packages": [
+    "./internal/adminui/app",
+    "./internal/health/adapters/http",
+    "./internal/health/adapters/postgres",
+    "./internal/health/app",
+    "./internal/health/domain"
+   ],
+   "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
+   "recordedAt": "2026-09-23"
+  },
+  {
+   "sha": "5a0671754",
+   "check": "TestParkGainsIncludeScopedParksWithNoQualifyingGain",
+   "allFailing": [
+    "TestParkGainsIncludeScopedParksWithNoQualifyingGain"
+   ],
+   "packages": [
+    "./internal/weighing/adapters/postgres"
+   ],
+   "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
+   "recordedAt": "2026-09-23"
+  },
+  {
+   "sha": "648f95bf1",
+   "check": "TestGetBreakdownRejectsMalformedPenShedID",
+   "allFailing": [
+    "TestGetBreakdownRejectsMalformedPenShedID",
+    "TestGetBreakdownTrimsPenShedIDBeforeValidationAndDomainQuery",
+    "TestGetBreakdownRejectsMalformedParkID"
+   ],
+   "packages": [
+    "./internal/counts/adapters/http"
+   ],
+   "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
+   "recordedAt": "2026-09-23"
+  },
+  {
+   "sha": "6b8086169",
+   "check": "TestCommandBoardCachesUseExactAsOfSnapshots",
+   "allFailing": [
+    "TestCommandBoardCachesUseExactAsOfSnapshots"
+   ],
+   "packages": [
+    "./internal/feeddirection/adapters/postgres",
+    "./internal/vaccinationexecution/adapters/postgres"
+   ],
+   "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
+   "recordedAt": "2026-09-23"
+  },
+  {
+   "sha": "7c44f80f1",
+   "check": "TestResolveAuthorizedParkScopeHonoursPersonParkScope",
+   "allFailing": [
+    "TestResolveAuthorizedParkScopeHonoursPersonParkScope",
+    "TestSavePersonAccessRefusesTenantHomeParkThatIsNotAnActivePark",
+    "TestSavePersonAccessTenantModeIgnoresExpiredTenantOnlyRole",
+    "TestCreateGrantIgnoresExpiredActiveGrantWhenDerivingScope",
+    "TestCreateGrantValidToDoesNotExpireNonParkMembershipGrants",
+    "TestReconcileUserPromotesTenantOnlyRoleToTenantScope"
+   ],
+   "packages": [
+    "./internal/platform/httpmiddleware",
+    "./internal/workforce/adapters/postgres",
+    "./internal/workforce/app"
+   ],
+   "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
+   "recordedAt": "2026-09-23"
+  },
+  {
+   "sha": "86822bcee",
+   "check": "TestFeedAnalyticsCacheInvalidatesAfterMutableWrites",
+   "allFailing": [
+    "TestFeedAnalyticsCacheInvalidatesAfterMutableWrites"
+   ],
+   "packages": [
+    "./internal/feeddirection/adapters/postgres",
+    "./internal/permissions/adapters/postgres"
+   ],
+   "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
+   "recordedAt": "2026-09-23"
+  },
+  {
+   "sha": "8cd2a871c",
+   "check": "TestPrepareCriticalDeathExitCarriesDeathCause",
+   "allFailing": [
+    "TestPrepareCriticalDeathExitCarriesDeathCause"
+   ],
+   "packages": [
+    "./internal/identity/app"
+   ],
+   "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
+   "recordedAt": "2026-09-23"
+  },
+  {
+   "sha": "951465fb2",
+   "check": "TestSubmitAcceptsLinkedWorkforceAssignee",
+   "allFailing": [
+    "TestSubmitAcceptsLinkedWorkforceAssignee"
+   ],
+   "packages": [
+    "./internal/sop/app",
+    "./internal/vaccinationexecution/domain"
+   ],
+   "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
+   "recordedAt": "2026-09-23"
+  },
+  {
+   "sha": "b297c2db1",
+   "check": "TestVaccinationExecutionPageKeepsLegacyCardSummariesByDefault",
+   "allFailing": [
+    "TestVaccinationExecutionPageKeepsLegacyCardSummariesByDefault"
+   ],
+   "packages": [
+    "./internal/vaccinationexecution/app"
+   ],
+   "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
+   "recordedAt": "2026-09-23"
+  },
+  {
+   "sha": "e572a81a8",
+   "check": "TestLegacyOperatorPathsAcceptTheBreedingDirectorHint",
+   "allFailing": [
+    "TestLegacyOperatorPathsAcceptTheBreedingDirectorHint",
+    "TestEveryGrantableRoleIsAcceptedByTheGrantPreflight"
+   ],
+   "packages": [
+    "./internal/workforce/app"
+   ],
+   "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
+   "recordedAt": "2026-09-23"
+  },
+  {
+   "sha": "e7a288e88",
+   "check": "TestShedSummaryCachePreservesExactAsOfSnapshots",
+   "allFailing": [
+    "TestShedSummaryCachePreservesExactAsOfSnapshots"
+   ],
+   "packages": [
+    "./internal/vaccinationexecution/app"
+   ],
+   "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
+   "recordedAt": "2026-09-23"
+  }
+ ],
+ "rejected": [
+  {
+   "sha": "1409f8b4d",
+   "verdict": "inconclusive",
+   "why": "the package went red but no test name was printed (a build break, not a failing check)",
+   "packages": [
+    "./internal/health/adapters/postgres",
+    "./internal/health/app",
+    "./internal/health/domain"
+   ]
+  },
+  {
+   "sha": "1d8898c0c",
+   "verdict": "skipped",
+   "why": "no Go test file in this commit",
+   "packages": []
+  },
+  {
+   "sha": "25c218572",
+   "verdict": "inconclusive",
+   "why": "the package went red but no test name was printed (a build break, not a failing check)",
+   "packages": [
+    "./internal/pccare/adapters/http",
+    "./internal/pccare/app",
+    "./internal/pccare/domain"
+   ]
+  },
+  {
+   "sha": "4e2afd291",
+   "verdict": "inconclusive",
+   "why": "the package went red but no test name was printed (a build break, not a failing check)",
+   "packages": [
+    "./internal/leadershiptasks/app",
+    "./internal/permissions"
+   ]
+  },
+  {
+   "sha": "6b83514b1",
+   "verdict": "inconclusive",
+   "why": "the package went red but no test name was printed (a build break, not a failing check)",
+   "packages": [
+    "./internal/health/adapters/postgres"
+   ]
+  },
+  {
+   "sha": "92de46d07",
+   "verdict": "skipped",
+   "why": "the package did not pass at this commit, so a later failure would prove nothing",
+   "packages": []
+  },
+  {
+   "sha": "9f6341ce2",
+   "verdict": "skipped",
+   "why": "nothing to revert — the commit changed only tests",
+   "packages": []
+  },
+  {
+   "sha": "c7faf906c",
+   "verdict": "skipped",
+   "why": "no Go test file in this commit",
+   "packages": []
+  },
+  {
+   "sha": "d19325717",
+   "verdict": "skipped",
+   "why": "the package did not pass at this commit, so a later failure would prove nothing",
+   "packages": []
+  },
+  {
+   "sha": "d55392cc9",
+   "verdict": "skipped",
+   "why": "no Go test file in this commit",
+   "packages": []
+  },
+  {
+   "sha": "d6517049f",
+   "verdict": "inconclusive",
+   "why": "the package went red but no test name was printed (a build break, not a failing check)",
+   "packages": [
+    "./internal/pccare/app",
+    "./internal/pccare/domain"
+   ]
+  },
+  {
+   "sha": "e2d2d4871",
+   "verdict": "inconclusive",
+   "why": "the package went red but no test name was printed (a build break, not a failing check)",
+   "packages": [
+    "./internal/vaccinationexecution/adapters/postgres"
+   ]
+  },
+  {
+   "sha": "e7028d85b",
+   "verdict": "inconclusive",
+   "why": "the package went red but no test name was printed (a build break, not a failing check)",
+   "packages": [
+    "./internal/workforce/app"
+   ]
+  },
+  {
+   "sha": "e76d3a1da",
+   "verdict": "skipped",
+   "why": "no Go test file in this commit",
+   "packages": []
+  },
+  {
+   "sha": "ec49b66e1",
+   "verdict": "inconclusive",
+   "why": "the package went red but no test name was printed (a build break, not a failing check)",
+   "packages": [
+    "./internal/parkscope",
+    "./internal/workforce/adapters/postgres"
+   ]
+  },
+  {
+   "sha": "ef67dbba7",
+   "verdict": "inconclusive",
+   "why": "the package went red but no test name was printed (a build break, not a failing check)",
+   "packages": [
+    "./internal/health/adapters/postgres",
+    "./internal/health/app"
+   ]
+  }
+ ]
+}
