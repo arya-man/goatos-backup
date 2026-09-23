@@ -8201,6 +8201,8 @@ export interface components {
             type_label?: string;
             /** @description The band-wide row. Deleting it makes that whole age band fail-closed. */
             is_wildcard: boolean;
+            /** @description The stage is no longer in the farm's catalog, so this route matches nothing. It is reported rather than hidden, so it can be removed instead of puzzled over. */
+            stage_retired?: boolean;
             /** @description Alive animals this route governs right now. It is what tells a director whether a change touches five animals or seven hundred. */
             live_animals?: number;
         };
@@ -8213,11 +8215,23 @@ export interface components {
             /** @description An ICU / Quarantine-style stage. It says WHERE an animal is rather than what it eats, so it cannot choose a rulebook and is reported rather than presented as a gap to close. */
             clinical_placement: boolean;
         };
+        HealthAvailableStage: {
+            /** @enum {string} */
+            age_band: "adult" | "kid";
+            stage_code: string;
+            stage_label: string;
+            /** @description Animals on this stage right now. Zero is normal and routable -- Milking holds none this morning and will tomorrow -- so the list comes from the CATALOG, not from the animals. */
+            live_animals: number;
+            /** @description A route already names this stage. */
+            routed: boolean;
+        };
         HealthDiagnosisRouting: {
             types: components["schemas"]["HealthDiagnosisType"][];
             routes: components["schemas"]["HealthDiagnosisStageRoute"][];
             /** @description Stages that hold live animals and reach no active type. */
             unrouted_stages: components["schemas"]["HealthUnroutedStage"][];
+            /** @description The management stages this farm uses, so a route's stage is PICKED rather than typed. A typed code that matches no animal makes a route that can never fire, and its only symptom is a zero in a column. */
+            stages?: components["schemas"]["HealthAvailableStage"][];
         };
         HealthRegisterSummary: {
             /** Format: uuid */

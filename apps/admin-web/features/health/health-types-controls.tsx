@@ -5,7 +5,11 @@ import { useRef, useState, useTransition } from "react";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
-import type { HealthDiagnosisStageRoute, HealthDiagnosisType } from "@/lib/api/server";
+import type {
+  HealthAvailableStage,
+  HealthDiagnosisStageRoute,
+  HealthDiagnosisType,
+} from "@/lib/api/server";
 
 import { deleteDiagnosisRoute, saveDiagnosisRoute, saveDiagnosisType } from "./health-type-actions";
 import { mintKey } from "./health-register-keys";
@@ -190,6 +194,7 @@ export function RouteControls({
   mode,
   route,
   types,
+  stages,
   enabled,
   disabledReason,
 }: {
@@ -197,6 +202,7 @@ export function RouteControls({
   mode: "create" | "edit";
   route?: HealthDiagnosisStageRoute;
   types: HealthDiagnosisType[];
+  stages: HealthAvailableStage[];
   enabled: boolean;
   disabledReason: string;
 }) {
@@ -308,14 +314,28 @@ export function RouteControls({
           <option value="adult">{copy(pageContract, "label.band.adult")}</option>
           <option value="kid">{copy(pageContract, "label.band.kid")}</option>
         </select>
-        <input
+        {/* PICKED, NEVER TYPED. A typed stage code that matches no animal makes a route that can
+            never fire, and its only symptom is a zero in a column: on 2026-09-23 `mothers` was
+            typed where the farm's stage is `Mother`, the screen accepted it, and five does stayed
+            on the adult wildcard behind a rule that looked authored. The backend refuses an
+            unknown stage now too -- this is the half that stops it being typed at all. */}
+        <select
           className="input"
           value={stageCode}
           disabled={mode === "edit"}
-          placeholder={copy(pageContract, "label.stage")}
           onChange={(e) => setStageCode(e.target.value)}
           aria-label={copy(pageContract, "label.stage")}
-        />
+        >
+          <option value="">{copy(pageContract, "label.stage")}</option>
+          <option value="*">{copy(pageContract, "label.every_stage")}</option>
+          {stages
+            .filter((s) => s.age_band === ageBand)
+            .map((s) => (
+              <option key={s.stage_code} value={s.stage_code}>
+                {s.stage_label || s.stage_code} ({s.live_animals})
+              </option>
+            ))}
+        </select>
         <select
           className="input"
           value={typeKey}

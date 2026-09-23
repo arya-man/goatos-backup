@@ -45,6 +45,15 @@ var (
 
 	// ErrRouteNotFound is a delete addressing a route that is not there.
 	ErrRouteNotFound = errors.New("health: stage route not found")
+
+	// ErrStageUnknown is a route naming a management stage this farm does not have.
+	//
+	// It is refused rather than stored, because a route keyed on a stage no animal is ever on
+	// matches NOTHING, for ever, and says so only as a zero in a column. On 2026-09-23 the
+	// maintainer typed `mothers` where the farm's stage is `Mother`, and the screen accepted it,
+	// showed "0 animals", and left five does routed to the adult wildcard -- a dead rule that
+	// looked authored. A clinical routing table cannot have those in it.
+	ErrStageUnknown = errors.New("health: that management stage is not one this farm uses")
 )
 
 // typeKeyShape mirrors the CHECK on health_diagnosis_types.type_key. The key is written into
@@ -108,6 +117,27 @@ type StageRouteRow struct {
 	// makes a routing screen worth opening -- it tells a director whether a change touches five
 	// animals or seven hundred.
 	LiveAnimals int `json:"live_animals"`
+
+	// StageRetired marks a route whose stage the catalog no longer holds. Such a route matches
+	// nothing and is shown so it can be removed, rather than being hidden and left to puzzle
+	// somebody later.
+	StageRetired bool `json:"stage_retired"`
+}
+
+// AvailableStage is one management stage this farm actually uses, offered to the routing screen
+// so a stage code is PICKED rather than typed.
+//
+// The picker is the fix for a whole failure class, not a convenience: a typed stage code that
+// matches no animal produces a route that can never fire, and the only symptom is a zero in a
+// column nobody is watching.
+type AvailableStage struct {
+	AgeBand     string `json:"age_band"`
+	StageCode   string `json:"stage_code"`
+	StageLabel  string `json:"stage_label"`
+	LiveAnimals int    `json:"live_animals"`
+	// Routed says a route already names this stage, so the screen can show what is already
+	// covered without a second read.
+	Routed bool `json:"routed"`
 }
 
 // UnroutedStage is a stage that holds animals and reaches no type.
@@ -130,9 +160,10 @@ type UnroutedStage struct {
 
 // DiagnosisRoutingView is the whole Types screen in one read.
 type DiagnosisRoutingView struct {
-	Types          []DiagnosisType `json:"types"`
-	Routes         []StageRouteRow `json:"routes"`
-	UnroutedStages []UnroutedStage `json:"unrouted_stages"`
+	Types          []DiagnosisType  `json:"types"`
+	Routes         []StageRouteRow  `json:"routes"`
+	UnroutedStages []UnroutedStage  `json:"unrouted_stages"`
+	Stages         []AvailableStage `json:"stages"`
 }
 
 // SaveDiagnosisTypeCommand creates or relabels a type.

@@ -59,6 +59,7 @@ ORDER BY t.sort_order, t.type_key`
 	sqlDiagnosisRoutes = `
 SELECT r.age_band, r.stage_code, r.type_key, r.sub_stage,
        coalesce(s.name, ''), coalesce(t.label, r.type_key),
+       (r.stage_code <> '*' AND s.animal_stage_id IS NULL),
        CASE WHEN r.stage_code = '*'
             THEN (SELECT count(*) FROM goats g
                    WHERE g.tenant_id = r.tenant_id AND g.lifecycle_status = 'alive'
@@ -91,6 +92,33 @@ ORDER BY r.age_band, (r.stage_code = '*') DESC, r.stage_code`
 	// joined 1:0..1 on (tenant_id, lower(stage_code)) for the label only and cannot multiply a
 	// group; pagination=none, the result is bounded by the number of distinct stages on the farm;
 	// scope=tenant_id equality on both the goats scan and the NOT EXISTS probes.
+	// The farm's own stages, offered so a stage code is PICKED rather than typed. A typed code
+	// that matches no animal makes a route that can never fire, and its only symptom is a zero in
+	// a column -- which is exactly what happened on 2026-09-23 (`mothers` typed for `Mother`).
+	//
+	// Driven from the CATALOG rather than from the animals, because a stage with no animals today
+	// is still a legitimate thing to route -- Milking holds none this morning and will tomorrow.
+	// The live count rides along so the picker can say which stages actually hold animals.
+	//
+	// projection-review: membership=active animal_stage_lookup rows for the tenant whose age_band
+	// is adult or kid; group_key=(tenant_id, stage_code), that catalog's own key, so one row per
+	// stage; the live count and the routed flag are correlated subqueries over goats and
+	// health_diagnosis_stage_routes keyed on that same stage, so neither can multiply a stage;
+	// pagination=none, a farm has tens of stages; scope=tenant_id equality on every arm.
+	sqlAvailableStages = `
+SELECT lower(btrim(s.stage_code)), s.name, lower(coalesce(s.age_band, '')),
+       (SELECT count(*) FROM goats g
+         WHERE g.tenant_id = s.tenant_id AND g.lifecycle_status = 'alive'
+           AND lower(btrim(coalesce(g.management_stage, ''))) = lower(btrim(s.stage_code))),
+       EXISTS (SELECT 1 FROM health_diagnosis_stage_routes r
+                WHERE r.tenant_id = s.tenant_id
+                  AND r.age_band = lower(coalesce(s.age_band, ''))
+                  AND r.stage_code = lower(btrim(s.stage_code)))
+FROM animal_stage_lookup s
+WHERE s.tenant_id = $1::uuid AND s.status = 'active'
+  AND lower(coalesce(s.age_band, '')) IN ('adult', 'kid')
+ORDER BY lower(coalesce(s.age_band, '')), s.sort_order, s.stage_code`
+
 	sqlUnroutedStages = `
 SELECT lower(coalesce(g.age_band, '')) AS age_band,
        lower(btrim(coalesce(g.management_stage, ''))) AS stage_code,
@@ -142,6 +170,15 @@ SET label=$3, status=$4, sort_order=$5, updated_at=now()
 WHERE tenant_id=$1::uuid AND type_key=$2`
 
 	// sqlDiagnosisTypeStatus
+	// Does this farm actually have this stage? The write refuses one it does not, because a route
+	// on an unknown stage matches nothing for ever and reports it as a zero.
+	sqlStageExists = `
+SELECT EXISTS (
+  SELECT 1 FROM animal_stage_lookup
+   WHERE tenant_id=$1::uuid AND status='active'
+     AND lower(coalesce(age_band,''))=$2
+     AND lower(btrim(stage_code))=$3)`
+
 	sqlDiagnosisTypeStatus = `
 SELECT status FROM health_diagnosis_types
 WHERE tenant_id=$1::uuid AND type_key=$2`
@@ -183,6 +220,7 @@ func (r *Repository) DiagnosisRouting(ctx context.Context, tenantID string) (dom
 	out.Types = []domain.DiagnosisType{}
 	out.Routes = []domain.StageRouteRow{}
 	out.UnroutedStages = []domain.UnroutedStage{}
+	out.Stages = []domain.AvailableStage{}
 
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
@@ -214,7 +252,7 @@ func (r *Repository) DiagnosisRouting(ctx context.Context, tenantID string) (dom
 	for rrows.Next() {
 		var row domain.StageRouteRow
 		if err := rrows.Scan(&row.AgeBand, &row.StageCode, &row.TypeKey, &row.SubStage,
-			&row.StageLabel, &row.TypeLabel, &row.LiveAnimals); err != nil {
+			&row.StageLabel, &row.TypeLabel, &row.StageRetired, &row.LiveAnimals); err != nil {
 			rrows.Close()
 			return out, fmt.Errorf("health: scan diagnosis route: %w", err)
 		}
@@ -224,6 +262,24 @@ func (r *Repository) DiagnosisRouting(ctx context.Context, tenantID string) (dom
 	rrows.Close()
 	if err := rrows.Err(); err != nil {
 		return out, fmt.Errorf("health: read diagnosis routes: %w", err)
+	}
+
+	stageBound := sqlbind.MustBind(sqlAvailableStages, tenantID)
+	srows, err := r.pool.Query(ctx, stageBound.SQL(), stageBound.Args()...)
+	if err != nil {
+		return out, fmt.Errorf("health: read stages: %w", err)
+	}
+	for srows.Next() {
+		var a domain.AvailableStage
+		if err := srows.Scan(&a.StageCode, &a.StageLabel, &a.AgeBand, &a.LiveAnimals, &a.Routed); err != nil {
+			srows.Close()
+			return out, fmt.Errorf("health: scan stage: %w", err)
+		}
+		out.Stages = append(out.Stages, a)
+	}
+	srows.Close()
+	if err := srows.Err(); err != nil {
+		return out, fmt.Errorf("health: read stages: %w", err)
 	}
 
 	gapBound := sqlbind.MustBind(sqlUnroutedStages, tenantID)
@@ -351,6 +407,19 @@ func (r *Repository) SaveStageRoute(ctx context.Context, cmd domain.SaveStageRou
 			_ = tx.Rollback(ctx)
 		}
 	}()
+
+	// The STAGE must be one this farm actually uses. A route on a stage no animal is ever on
+	// matches nothing, for ever, and says so only as a zero in a column -- a dead rule that looks
+	// authored. The wildcard is exempt: it names no stage by design.
+	if cmd.StageCode != domain.StageWildcard {
+		var exists bool
+		if err := tx.QueryRow(ctx, sqlStageExists, cmd.TenantID, cmd.AgeBand, cmd.StageCode).Scan(&exists); err != nil {
+			return zero, fmt.Errorf("health: check stage: %w", err)
+		}
+		if !exists {
+			return zero, fmt.Errorf("%w: %q is not a stage this farm's %s are on", domain.ErrStageUnknown, cmd.StageCode, cmd.AgeBand)
+		}
+	}
 
 	// The type must exist AND be active. The table's foreign key already refuses an unknown key,
 	// but it cannot see status, and routing an animal at a retired type would refuse it with a

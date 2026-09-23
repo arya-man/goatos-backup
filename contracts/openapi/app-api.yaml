@@ -20260,6 +20260,11 @@ components:
         is_wildcard:
           type: boolean
           description: The band-wide row. Deleting it makes that whole age band fail-closed.
+        stage_retired:
+          type: boolean
+          description: >-
+            The stage is no longer in the farm's catalog, so this route matches nothing. It is
+            reported rather than hidden, so it can be removed instead of puzzled over.
         live_animals:
           type: integer
           description: >-
@@ -20278,6 +20283,19 @@ components:
           description: >-
             An ICU / Quarantine-style stage. It says WHERE an animal is rather than what it eats,
             so it cannot choose a rulebook and is reported rather than presented as a gap to close.
+    HealthAvailableStage:
+      type: object
+      required: [age_band, stage_code, stage_label, live_animals, routed]
+      properties:
+        age_band: { type: string, enum: [adult, kid] }
+        stage_code: { type: string }
+        stage_label: { type: string }
+        live_animals:
+          type: integer
+          description: >-
+            Animals on this stage right now. Zero is normal and routable -- Milking holds none this
+            morning and will tomorrow -- so the list comes from the CATALOG, not from the animals.
+        routed: { type: boolean, description: A route already names this stage. }
     HealthDiagnosisRouting:
       type: object
       required: [types, routes, unrouted_stages]
@@ -20292,6 +20310,13 @@ components:
           type: array
           description: Stages that hold live animals and reach no active type.
           items: { $ref: "#/components/schemas/HealthUnroutedStage" }
+        stages:
+          type: array
+          description: >-
+            The management stages this farm uses, so a route's stage is PICKED rather than typed.
+            A typed code that matches no animal makes a route that can never fire, and its only
+            symptom is a zero in a column.
+          items: { $ref: "#/components/schemas/HealthAvailableStage" }
     HealthRegisterSummary:
       type: object
       additionalProperties: false

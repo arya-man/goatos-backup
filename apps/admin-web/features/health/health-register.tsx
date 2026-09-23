@@ -229,11 +229,13 @@ export async function HealthRegisterSection({
                           enabled={mayWrite}
                           disabledReason={writeDisabledReason}
                           basePath={listHref}
-                          // A class with no live register has nothing to copy a draft from, so the
-                          // editor cannot be opened on it. The seed publishes version 1; until it
-                          // has run there is nothing to edit, and saying so beats a button that
-                          // fails when pressed.
-                          openable={Boolean(row.live || row.draft)}
+                          // Every ACTIVE type can be opened, including one whose rules nobody has
+                          // written: the draft starts empty and names itself. It used to require a
+                          // live register to copy from, which left a type created on the Types tab
+                          // with no way in at all -- the editor refused, and nothing said why.
+                          // An empty document is still fatally unpublishable, so the gate that
+                          // stops a blank register reaching animals is untouched.
+                          openable
                         />
                       </td>
                       <td>

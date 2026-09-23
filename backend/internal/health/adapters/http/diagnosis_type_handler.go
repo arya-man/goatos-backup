@@ -186,6 +186,11 @@ func (h *DiagnosisTypeHandler) writeTypeError(w http.ResponseWriter, r *http.Req
 		h.writeError(w, r, http.StatusConflict, "diagnosis_type_builtin", err.Error(), err)
 	case errors.Is(err, domain.ErrTypeStillRouted):
 		h.writeError(w, r, http.StatusConflict, "diagnosis_type_still_routed", err.Error(), err)
+	case errors.Is(err, domain.ErrStageUnknown):
+		// 422, not 500: the fix is in the request. A route on a stage the farm does not have can
+		// never fire, so it is refused -- and the message names the stage, because the author is
+		// usually one letter away (`mothers` for `Mother`).
+		h.writeError(w, r, http.StatusUnprocessableEntity, "diagnosis_stage_unknown", err.Error(), err)
 	case errors.Is(err, domain.ErrRouteTypeUnknown):
 		h.writeError(w, r, http.StatusUnprocessableEntity, "diagnosis_route_type_unknown", err.Error(), err)
 	case errors.Is(err, domain.ErrInvalidHealthConfig):

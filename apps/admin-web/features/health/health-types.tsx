@@ -42,6 +42,7 @@ export async function HealthTypesSection({
   const placements = (data?.unrouted_stages ?? []).filter((s) => s.clinical_placement);
 
   const activeTypes = types.filter((t) => t.status === "active");
+  const stages = data?.stages ?? [];
   const bandLabel = (band: string) =>
     band === "adult" ? copy(pageContract, "label.band.adult") : copy(pageContract, "label.band.kid");
 
@@ -191,6 +192,7 @@ export async function HealthTypesSection({
             pageContract={pageContract}
             mode="create"
             types={activeTypes}
+            stages={stages}
             enabled={mayWrite}
             disabledReason={writeDisabledReason}
           />
@@ -232,7 +234,16 @@ export async function HealthTypesSection({
                           </div>
                         </>
                       ) : (
-                        r.stage_label || r.stage_code
+                        <>
+                          {r.stage_label || r.stage_code}
+                          {/* A route whose stage the catalog no longer holds matches nothing. It
+                              is shown, and SAID, so it can be removed rather than puzzled over. */}
+                          {r.stage_retired ? (
+                            <div className="small" style={{ color: "var(--danger)", marginTop: 2 }}>
+                              {copy(pageContract, "warn.stage_retired")}
+                            </div>
+                          ) : null}
+                        </>
                       )}
                     </td>
                     <td>{r.type_label}</td>
@@ -244,6 +255,7 @@ export async function HealthTypesSection({
                         mode="edit"
                         route={r}
                         types={activeTypes}
+                        stages={stages}
                         enabled={mayWrite}
                         disabledReason={writeDisabledReason}
                       />
