@@ -100,7 +100,7 @@ test("an unstable observation cannot become an expectation", () => {
   const empty = { ...RECEIPT, observations: [{ id: "o1", readings: [[], []] }] };
   assert.match(
     deriveMeasured({ receipt: "r.json", runId: "probe-1", observation: "o1" }, () => empty, "verifier").error,
-    /"nothing" is not an expectation/,
+    /nothing is never an answer here/,
   );
 });
 
@@ -140,7 +140,7 @@ test("an observation the probe could not take reads as not-checked, never as a v
   };
   const graded = deriveMeasured({ receipt: "r.json", runId: "probe-1", observation: "o1" }, () => notReached, "verifier");
   assert.match(graded.error, /was not taken/);
-  assert.doesNotMatch(graded.error, /nothing" is not an expectation/, "the emptiness was reported instead of the reason for it");
+  assert.doesNotMatch(graded.error, /nothing is never an answer here/, "the emptiness was reported instead of the reason for it");
 });
 
 // ---------------------------------------------- the probe's own inputs, corrupted not just absent

@@ -1,7 +1,7 @@
 // The shared primitive: one comparison, two verdict vocabularies.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { compareReadings, contractRevisionRefusal } from "./reading-comparison.mjs";
+import { compareReadings, contractRevisionRefusal, isAbsentReading } from "./reading-comparison.mjs";
 
 test("same conditions: a disagreement is something the page VARIES, not a finding", () => {
   const verdict = compareReadings(41, 42, { conditions: "same", label: "the total" });
@@ -47,4 +47,35 @@ test("a placeholder contract revision is refused, never defaulted", () => {
     assert.ok(contractRevisionRefusal(sha), `${JSON.stringify(sha)} was accepted as a build identity`);
   }
   assert.equal(contractRevisionRefusal("9f3c1ab"), null);
+});
+
+// ---------------------------------------------- nothing never equals nothing (builder A's finding)
+test("two empty readings never agree, through every reducer", () => {
+  // A measured this: with the page drawing nothing at both readings, sum reported and a single
+  // cell reported, but COUNT PASSED — because count over an empty list is 0, and two zeroes agree.
+  // The check therefore runs on the RAW readings, before any reducer.
+  for (const all of [undefined, "sum", "count"]) {
+    for (const conditions of ["same", "deliberate-action"]) {
+      const verdict = compareReadings([], [], { conditions, all });
+      assert.equal(verdict.agreed, false, `[] vs [] agreed with all=${all} under ${conditions}`);
+      assert.match(verdict.verdict, /nothing is never an answer here/);
+    }
+  }
+  assert.equal(compareReadings("", "", { conditions: "same" }).agreed, false);
+  assert.equal(compareReadings({}, {}, { conditions: "same" }).agreed, false);
+});
+
+test("ZERO is not nothing — a real reading of zero still compares", () => {
+  // The line that keeps this fix from becoming its own defect: a total that reads 0, a count of
+  // 0 rows, or false are real readings and must keep comparing.
+  assert.equal(compareReadings(0, 0, { conditions: "same" }).agreed, true);
+  assert.equal(compareReadings(false, false, { conditions: "same" }).agreed, true);
+  assert.equal(compareReadings([0], [0], { conditions: "same", all: "count" }).agreed, true);
+  assert.equal(compareReadings([0], [0], { conditions: "same", all: "sum" }).agreed, true);
+  assert.equal(compareReadings(0, 1, { conditions: "deliberate-action" }).agreed, false, "0 must still be able to MOVE");
+});
+
+test("isAbsentReading draws the line in one place", () => {
+  for (const nothing of [null, undefined, "", "   ", [], {}]) assert.equal(isAbsentReading(nothing), true, `${JSON.stringify(nothing)}`);
+  for (const something of [0, false, "0", [0], [""], { a: 1 }, NaN]) assert.equal(isAbsentReading(something), false, `${JSON.stringify(something)}`);
 });
