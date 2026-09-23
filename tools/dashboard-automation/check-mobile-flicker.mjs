@@ -43,15 +43,94 @@ export const PHONE = Object.freeze({
   name: "an Android phone",
 });
 
-// Pages worth filming. Filming is seconds per route, so this is a short list of the
-// screens that carry a pinned-and-blurred element and that people are on all day —
-// not all 146 routes.
-export const FILMED_ROUTES = Object.freeze([
+// The screens carrying a pinned-and-blurred element that people are on all day.
+//
+// This list is NOT the scope of the live check any more. `--live` films the whole
+// resolved route table at both viewports; this subset is what `--focus` narrows to
+// when someone is chasing one screen. Keeping it as the default is what made the
+// live path "4 routes, phone-only" — an example standing in for the scope.
+export const DEEP_FILM_ROUTES = Object.freeze([
   { name: "tasks", path: "/tasks", pageName: "The Tasks page" },
   { name: "tasks-list", path: "/tasks?t_view=list", pageName: "The Tasks list" },
   { name: "herd-register", path: "/herd/register", pageName: "The herd register" },
   { name: "vaccination-plan", path: "/vaccination/plan", pageName: "The vaccination plan" },
 ]);
+/** @deprecated kept so an existing import does not break; the live path no longer uses it as its scope. */
+export const FILMED_ROUTES = DEEP_FILM_ROUTES;
+
+/**
+ * The fixture ids a sweep was given, from the environment.
+ *
+ * Offline by design: this reads a JSON blob someone hands the run, it never looks
+ * anything up. A missing id is a named gap in the receipt, not a live query.
+ */
+export function fixturesFromEnv(env = process.env) {
+  const raw = env.GOATOS_SMOKE_FIXTURES;
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch (error) {
+    throw new Error(`GOATOS_SMOKE_FIXTURES is not readable JSON, so the sweep would have silently fallen back to 136 routes: ${String(error?.message ?? error)}`);
+  }
+}
+
+/**
+ * The routes `--live` will film.
+ *
+ * This exists as a function, not as an expression inside the CLI block, for the
+ * reason §8 gives: a self-test that cannot reach the deciding line proves nothing
+ * about it. The scope decision is here so the self-test can hold it.
+ */
+export async function liveRoutes({ focus = false, fixtures = {}, root = repo } = {}) {
+  if (focus) return DEEP_FILM_ROUTES;
+  const { resolveRoutes } = await import("../../apps/admin-web/scripts/lib/smoke-route-catalogue.mjs");
+  return resolveRoutes(root, { fixtures }).resolved;
+}
+
+/**
+ * Coverage of a sweep, as a fraction with a reason on every gap.
+ *
+ * Pure, so the self-test can hold it to account without a browser. Nothing in here
+ * lists hits: the only outputs are the denominator, the numerator, and a sentence
+ * for each page that is in the first and not the second.
+ */
+export function sweepCoverage({ all, resolved, unresolved, viewports, rows }) {
+  const pagesNotJudged = [];
+  const judgedPages = [];
+  const seen = new Set();
+  for (const row of rows) {
+    seen.add(`${row.viewport}:${row.route}`);
+    const why = row.parked ?? row.error ?? null;
+    if (why) pagesNotJudged.push({ route: row.route, viewport: row.viewport, why });
+    else judgedPages.push(row);
+  }
+  // A page the sweep never reached at all is the most dangerous gap, because nothing
+  // in the run mentions it. Name every one.
+  for (const viewport of viewports) {
+    for (const route of resolved) {
+      if (!seen.has(`${viewport}:${route.name}`)) {
+        pagesNotJudged.push({ route: route.name, viewport, why: "the sweep stopped before it reached this page" });
+      }
+    }
+    for (const route of unresolved) {
+      for (const gap of route.gaps) pagesNotJudged.push({ route: route.name, viewport, why: gap.why });
+    }
+  }
+  const pagesExpected = all.length * viewports.length;
+  return {
+    routesInLaneOne: all.length,
+    routesResolved: resolved.length,
+    viewports: [...viewports],
+    pagesExpected,
+    pagesJudged: judgedPages.length,
+    pagesNotJudged,
+    // The one number a person should read. Never a list of hits.
+    fraction: `${judgedPages.length}/${pagesExpected} pages judged`,
+    overlaysJudged: judgedPages.reduce((n, r) => n + r.judged, 0),
+    overlaysNotJudged: rows.flatMap((r) => (r.skipped ?? []).map((s) => ({ route: r.route, viewport: r.viewport, overlay: s.id, why: s.why }))),
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Check A
@@ -167,18 +246,25 @@ async function runLive({ baseUrl, bearerToken, outDir, routes }) {
   // that lives under admin-web, so the browser work stays there and this runner only
   // asks for it.
   const { filmRoutes } = await import("../../apps/admin-web/scripts/lib/flicker-capture.mjs");
-  const runs = await filmRoutes({ baseUrl, bearerToken, outDir, routes, phone: PHONE });
-  return { source: "live", device: PHONE, baseUrl, runs };
+  const { SWEEP_VIEWPORTS } = await import("../../apps/admin-web/scripts/lib/flicker-capture.mjs");
+  const runs = [];
+  // Both viewports, always. Filming only the phone was the live path's other half of
+  // "4 routes, phone-only": flicker at 1440 is a viewport nobody was looking at.
+  for (const viewport of SWEEP_VIEWPORTS) {
+    const done = await filmRoutes({ baseUrl, bearerToken, outDir, routes, phone: { ...viewport, name: viewport.label === "mobile" ? "an Android phone" : "a laptop" } });
+    for (const run of done) runs.push({ ...run, viewport: viewport.label });
+  }
+  return { source: "live", viewports: SWEEP_VIEWPORTS.map((v) => v.label), baseUrl, runs };
 }
 
 // ---------------------------------------------------------------------------
 // The full surface: every route, every dialog, both viewports
 // ---------------------------------------------------------------------------
-async function runSweep({ baseUrl, bearerToken, outDir, limit }) {
-  const { reachableRoutes } = await import("../../apps/admin-web/scripts/lib/smoke-route-catalogue.mjs");
+async function runSweep({ baseUrl, bearerToken, outDir, limit, fixtures }) {
+  const { resolveRoutes } = await import("../../apps/admin-web/scripts/lib/smoke-route-catalogue.mjs");
   const { sweepViewport, SWEEP_VIEWPORTS } = await import("../../apps/admin-web/scripts/lib/flicker-capture.mjs");
-  const { all, reachable, needFixture } = reachableRoutes(repo);
-  const routes = limit ? reachable.slice(0, limit) : reachable;
+  const { all, resolved, unresolved } = resolveRoutes(repo, { fixtures });
+  const routes = limit ? resolved.slice(0, limit) : resolved;
   const rows = [];
   for (const viewport of SWEEP_VIEWPORTS) {
     const done = await sweepViewport({
@@ -190,23 +276,19 @@ async function runSweep({ baseUrl, bearerToken, outDir, limit }) {
     });
     rows.push(...done);
   }
+  const viewports = SWEEP_VIEWPORTS.map((v) => v.label);
   return {
     source: "sweep",
     baseUrl,
-    viewports: SWEEP_VIEWPORTS.map((v) => v.label),
-    // Coverage is a fraction with a reason on every gap, never a list of hits.
-    coverage: {
-      routesInLaneOne: all.length,
-      routesSwept: routes.length,
-      routesUnreachable: needFixture.length,
-      unreachableReason: "the path is built from a fixture looked up at run time, which this check does not resolve",
-      viewportsPerRoute: SWEEP_VIEWPORTS.length,
-      pagesAttempted: rows.length,
-      pagesParked: rows.filter((r) => r.parked).length,
-      pagesErrored: rows.filter((r) => r.error).length,
-      overlaysJudged: rows.reduce((n, r) => n + r.judged, 0),
-      overlaysSkipped: rows.reduce((n, r) => n + r.skipped.length, 0),
-    },
+    viewports,
+    // A fraction, with a sentence on every page that is not in the numerator.
+    coverage: sweepCoverage({
+      all,
+      resolved: limit ? routes : resolved,
+      unresolved: limit ? [...unresolved, ...resolved.slice(limit).map((r) => ({ ...r, gaps: [{ why: `--limit ${limit} stopped the sweep before this page` }] }))] : unresolved,
+      viewports,
+      rows,
+    }),
     rows,
   };
 }
@@ -227,6 +309,16 @@ export function buildReceipt({ statik, temporal, headless }) {
   // available: it goes green exactly when it is blind.
   const parked = runs.filter((r) => r.parked || r.error);
   const filmed = runs.filter((r) => r.result);
+  // A temporal run that judged nothing is NOT a clean screen. It used to fall through
+  // to "pass" because there were no findings — which is exactly the green a blind lane
+  // produces. Say "not checked" and refuse the pass.
+  const temporalAsked = Boolean(temporal);
+  const temporalJudged = filmed.length + (temporal?.coverage?.pagesJudged ?? 0);
+  const temporalVerdict = !temporalAsked
+    ? "not checked: no temporal run was asked for on this invocation"
+    : temporalJudged === 0
+      ? "not checked: the temporal run reached no page it could judge, so it proves nothing about flicker"
+      : "checked";
   return {
     lane: "mobile-flicker",
     generatedAt: new Date().toISOString(),
@@ -238,6 +330,8 @@ export function buildReceipt({ statik, temporal, headless }) {
     filmed: filmed.length,
     overlaysShowedThrough: showedThrough.length + sweepFindings.length,
     coverage: temporal?.coverage ?? null,
+    temporalVerdict,
+    coverageLine: temporal?.coverage?.fraction ?? "",
     parked: parked.map((r) => ({ route: r.route, why: r.parked ?? r.error })),
     // Said out loud in the receipt so nobody reads a green temporal result as proof
     // the screen is fine on a real phone. This is a GPU compositing artefact, and a
@@ -245,7 +339,17 @@ export function buildReceipt({ statik, temporal, headless }) {
     headlessCaveat: headless
       ? "Check B ran in headless Chromium on a laptop. Headless composites differently from a phone GPU, so a clean run here is not proof a real phone is clean. Check A is the one that holds on this evidence."
       : "",
-    status: statik?.ok && flickering.length === 0 && showedThrough.length === 0 && sweepFindings.length === 0 ? "pass" : "fail",
+    status: statik?.ok
+      && flickering.length === 0
+      && showedThrough.length === 0
+      && sweepFindings.length === 0
+      // A sweep that judged nothing may not report pass. §2: a check that did not run
+      // renders no verdict, in either direction.
+      && !(temporalAsked && temporalJudged === 0)
+      ? "pass"
+      : temporalAsked && temporalJudged === 0 && flickering.length === 0 && showedThrough.length === 0 && sweepFindings.length === 0
+        ? "not-checked"
+        : "fail",
   };
 }
 
@@ -258,13 +362,16 @@ function writeReceipt(receipt, runDir) {
 
 // ---------------------------------------------------------------------------
 function parseArgs(argv) {
-  const parsed = { selfTest: false, video: null, live: false, sweep: false, limit: 0, outDir: null, staticOnly: false };
+  const parsed = { selfTest: false, video: null, live: false, sweep: false, limit: 0, outDir: null, staticOnly: false, focus: false };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--self-test") parsed.selfTest = true;
     else if (arg === "--static") parsed.staticOnly = true;
     else if (arg === "--live") parsed.live = true;
     else if (arg === "--sweep") parsed.sweep = true;
+    // Narrow the live path to the handful of screens someone is chasing. Without it
+    // --live films the whole resolved table: the scope is every route, not an example.
+    else if (arg === "--focus") parsed.focus = true;
     else if (arg === "--limit") parsed.limit = Number(argv[++i]);
     else if (arg === "--video") parsed.video = argv[++i];
     else if (arg === "--out") parsed.outDir = argv[++i];
@@ -324,6 +431,70 @@ export function selfTest() {
   assert(seeThrough.overlaysShowedThrough === 1, "and be counted");
   assert(blind.parked.length === 2 && blind.parked.every((row) => row.why), "every parked run must carry a reason");
 
+  return assert;
+}
+
+export async function selfTestWide() {
+  const assert = (condition, message) => { if (!condition) throw new Error(`self-test: ${message}`); };
+  const { resolveRoutes } = await import("../../apps/admin-web/scripts/lib/smoke-route-catalogue.mjs");
+  const { SWEEP_VIEWPORTS } = await import("../../apps/admin-web/scripts/lib/flicker-capture.mjs");
+  const viewports = SWEEP_VIEWPORTS.map((v) => v.label);
+
+  // THE REAL DECISION, not a copy of it. `--live` with no --focus films the whole
+  // resolved table at both viewports; the 4-route phone-only list is what --focus
+  // narrows to. Asserted through the same function the CLI calls.
+  const wide = await liveRoutes({});
+  const narrow = await liveRoutes({ focus: true });
+  assert(wide.length >= 136, `--live must film the whole resolved table, it would film ${wide.length}`);
+  assert(narrow.length === DEEP_FILM_ROUTES.length, "--focus narrows to the deep-film subset");
+  assert(wide.length > narrow.length * 10, "the live path must not have quietly gone back to an example");
+  assert(viewports.includes("laptop") && viewports.includes("mobile"),
+    `both viewports must be swept, this sweeps ${viewports.join(", ")}`);
+
+  // Coverage is a fraction over the WHOLE table, and every page outside the numerator
+  // carries its own sentence.
+  const { all, resolved, unresolved } = resolveRoutes(repo, { fixtures: fixturesFromEnv() });
+  assert(resolved.length >= 136, `the sweep must resolve at least 136 of ${all.length} routes, it resolves ${resolved.length}`);
+  const rows = [
+    { route: resolved[0].name, viewport: "laptop", judged: 2, skipped: [], findings: [] },
+    { route: resolved[1].name, viewport: "laptop", judged: 0, skipped: [{ id: "opened-1", why: "nothing solid opened" }], findings: [], parked: "this page needs a signed-in session and the run did not have one" },
+  ];
+  const coverage = sweepCoverage({ all, resolved, unresolved, viewports, rows });
+  assert(coverage.pagesExpected === all.length * viewports.length,
+    `the denominator must be every route at every viewport, it is ${coverage.pagesExpected}`);
+  assert(coverage.pagesJudged === 1, "only a page that was actually judged counts");
+  assert(/^1\/\d+ pages judged$/.test(coverage.fraction), `coverage must read as a fraction, it reads "${coverage.fraction}"`);
+  assert(coverage.pagesNotJudged.length === coverage.pagesExpected - 1,
+    `every page outside the numerator must be named, ${coverage.pagesNotJudged.length} of ${coverage.pagesExpected - 1} were`);
+  assert(coverage.pagesNotJudged.every((g) => g.why && g.why.length > 15 && g.route && g.viewport),
+    "every gap names its page, its viewport and why in a sentence");
+  const reasons = new Set(coverage.pagesNotJudged.map((g) => g.why));
+  assert(reasons.size >= 3, `a bulk excuse is not acceptable; this sweep gives ${reasons.size} distinct reasons`);
+  assert([...reasons].some((r) => r.includes("signed-in session")), "a parked page keeps the reason it was parked for");
+  assert([...reasons].some((r) => r.includes("stopped before it reached")), "a page the sweep never reached is named, not omitted");
+  assert([...reasons].some((r) => r.includes("no `goatId`")), "a route missing an id says which id");
+  assert(coverage.overlaysNotJudged.some((o) => o.why === "nothing solid opened" && o.route && o.viewport),
+    "a dialog that was not judged is named with its page");
+
+  // A sweep that judged nothing renders NO verdict. This is the one that would have
+  // let a blind lane report green.
+  const blind = buildReceipt({
+    statik: { ok: true },
+    temporal: { runs: [], coverage: { ...coverage, pagesJudged: 0 }, rows: [] },
+    headless: true,
+  });
+  assert(blind.status === "not-checked", `a sweep that judged nothing must not pass, it said "${blind.status}"`);
+  assert(blind.temporalVerdict.startsWith("not checked"), "and must say so in words");
+  const some = buildReceipt({ statik: { ok: true }, temporal: { runs: [], coverage, rows: [] }, headless: true });
+  assert(some.status === "pass" && some.temporalVerdict === "checked", "a sweep that judged a page and found nothing is a pass");
+  assert(some.coverageLine === coverage.fraction, "the receipt carries the fraction, not a list of hits");
+  const noTemporal = buildReceipt({ statik: { ok: true }, temporal: null, headless: false });
+  assert(noTemporal.temporalVerdict.startsWith("not checked"), "a static-only run says the temporal check did not run");
+
+  console.log(`dashboard mobile flicker: wide self-test passed (${wide.length} routes x ${viewports.length} viewports resolvable, ${unresolved.length} routes named as gaps)`);
+}
+
+function selfTestDone() {
   console.log("dashboard mobile flicker: self-test passed");
 }
 
@@ -331,6 +502,8 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const args = parseArgs(process.argv.slice(2));
   if (args.selfTest) {
     selfTest();
+    await selfTestWide();
+    selfTestDone();
   } else {
     const runDir = args.outDir ?? path.join(repo, "outputs", "mobile-flicker", new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-"));
     const outDir = path.join(runDir, "mobile-flicker");
@@ -360,20 +533,25 @@ if (import.meta.url === `file://${process.argv[1]}`) {
         bearerToken: process.env.GOATOS_BEARER_TOKEN ?? "",
         outDir,
         limit: args.limit,
+        fixtures: fixturesFromEnv(),
       });
       const c = temporal.coverage;
-      console.log(`checked ${c.routesSwept} of ${c.routesInLaneOne} routes x ${c.viewportsPerRoute} viewports = ${c.pagesAttempted} pages; ${c.overlaysJudged} overlays judged, ${c.overlaysSkipped} skipped, ${c.pagesParked} pages parked, ${c.pagesErrored} errored; ${c.routesUnreachable} routes unreachable (${c.unreachableReason})`);
+      console.log(`${c.fraction} (${c.routesResolved} of ${c.routesInLaneOne} routes x ${c.viewports.join(" + ")}), ${c.overlaysJudged} overlays judged`);
+      // Every gap, with its own sentence. Grouped so a person reads reasons, not rows.
+      const byReason = new Map();
+      for (const gap of c.pagesNotJudged) byReason.set(gap.why, (byReason.get(gap.why) ?? 0) + 1);
+      for (const [why, n] of [...byReason].sort((a, b) => b[1] - a[1])) console.log(`  not judged x${n}: ${why}`);
     } else if (args.live && !args.staticOnly) {
       headless = true;
       temporal = await runLive({
         baseUrl: process.env.GOATOS_ADMIN_WEB_BASE_URL ?? "https://dashboard.mesha.sg",
         bearerToken: process.env.GOATOS_BEARER_TOKEN ?? "",
         outDir,
-        routes: FILMED_ROUTES,
+        routes: await liveRoutes({ focus: args.focus, fixtures: fixturesFromEnv() }),
       });
       for (const run of temporal.runs) {
-        if (run.error) { console.log(`${run.route}: could not be filmed — ${run.error}`); continue; }
-        console.log(`${run.route}: ${run.capturedFrames} frames at ${run.framesPerSecond}/s — ${run.result.flicker ? "FLICKER" : "no flicker"} (${run.result.reason})`);
+        if (run.error) { console.log(`${run.viewport}:${run.route}: could not be filmed — ${run.error}`); continue; }
+        console.log(`${run.viewport}:${run.route}: ${run.capturedFrames} frames at ${run.framesPerSecond}/s — ${run.result.flicker ? "FLICKER" : "no flicker"} (${run.result.reason})`);
       }
     }
 
