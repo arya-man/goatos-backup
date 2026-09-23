@@ -1,8 +1,8 @@
 {
  "_comment": "Revert receipts — the ONLY thing that makes a commit-ledger row `covered`. Each was produced by checking the commit out, confirming its package passed, restoring only its non-test files to the parent, and re-running the same tests until a NAMED test failed. `rejected` records candidates that did not prove: `disproved` means a test shipped beside a fix that does not notice the fix being undone, which is a finding rather than an absence.",
  "attempted": 1,
- "proved": 217,
- "rejectedCount": 422,
+ "proved": 248,
+ "rejectedCount": 522,
  "receipts": [
   {
    "sha": "005164205",
@@ -157,6 +157,18 @@
    "recordedAt": "2026-09-23"
   },
   {
+   "sha": "084d4e1ae",
+   "check": "TestDecideRefusesAnIdempotencyKeyTheEnvelopeSchemaWouldReject",
+   "allFailing": [
+    "TestDecideRefusesAnIdempotencyKeyTheEnvelopeSchemaWouldReject"
+   ],
+   "packages": [
+    "./internal/animalpurchase/app"
+   ],
+   "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
+   "recordedAt": "2026-09-23"
+  },
+  {
    "sha": "089887e43",
    "check": "TestValidRole",
    "allFailing": [
@@ -201,6 +213,18 @@
    ],
    "packages": [
     "./internal/counts/adapters/http"
+   ],
+   "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
+   "recordedAt": "2026-09-23"
+  },
+  {
+   "sha": "0cb2bb623",
+   "check": "TestBuyerPhoneColumnFollowsPersonSalesVendorsTick",
+   "allFailing": [
+    "TestBuyerPhoneColumnFollowsPersonSalesVendorsTick"
+   ],
+   "packages": [
+    "./internal/adminui/app"
    ],
    "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
    "recordedAt": "2026-09-23"
@@ -492,6 +516,18 @@
    "recordedAt": "2026-09-23"
   },
   {
+   "sha": "1b9f08d8d",
+   "check": "TestFeedActivityPenIdentityUsesPartitionKey",
+   "allFailing": [
+    "TestFeedActivityPenIdentityUsesPartitionKey"
+   ],
+   "packages": [
+    "./internal/feeddirection/adapters/boardsource"
+   ],
+   "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
+   "recordedAt": "2026-09-23"
+  },
+  {
    "sha": "1c65e7a94",
    "check": "TestHealthConfigRoutesCarryTheRightPermission",
    "allFailing": [
@@ -499,6 +535,24 @@
    ],
    "packages": [
     "./internal/permissions"
+   ],
+   "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
+   "recordedAt": "2026-09-23"
+  },
+  {
+   "sha": "1f406afcd",
+   "check": "TestQuestionnaireAcceptsACompleteInspection",
+   "allFailing": [
+    "TestQuestionnaireAcceptsACompleteInspection",
+    "TestQuestionnaireNamesTheMissingRequiredQuestion",
+    "TestQuestionnaireMediaRules",
+    "TestQuestionnaireConditionalQuestionsFollowTheSex",
+    "TestQuestionnaireRefusesBadValues",
+    "TestQuestionnaireOtherTextIsRequiredWhenChosen"
+   ],
+   "packages": [
+    "./internal/animalpurchase/adapters/postgres",
+    "./internal/animalpurchase/domain"
    ],
    "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
    "recordedAt": "2026-09-23"
@@ -783,6 +837,18 @@
    ],
    "packages": [
     "./internal/verification/app"
+   ],
+   "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
+   "recordedAt": "2026-09-23"
+  },
+  {
+   "sha": "3a358d986",
+   "check": "TestVerificationEventConsumer_PenVisitReworkTargetsVisitDetail",
+   "allFailing": [
+    "TestVerificationEventConsumer_PenVisitReworkTargetsVisitDetail"
+   ],
+   "packages": [
+    "./internal/notificationbridge"
    ],
    "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
    "recordedAt": "2026-09-23"
@@ -1399,6 +1465,23 @@
    "recordedAt": "2026-09-23"
   },
   {
+   "sha": "6eb2ee573",
+   "check": "TestResolveMediaReadsUnknownKindFromProofRegister",
+   "allFailing": [
+    "TestResolveMediaReadsUnknownKindFromProofRegister",
+    "TestResolveMediaAuthoredItemNeverTakesRegistryPositionalMime",
+    "TestResolveMediaBeyondExpectedMediaResolvesFromRegister",
+    "TestResolveMediaReadsRegisterOncePerPageOnlyForUnknownRefs",
+    "TestListQueueKindFallbackReadsOnlyTheSampledPage",
+    "TestListQueueNumbersRepeatedProducerLabels"
+   ],
+   "packages": [
+    "./internal/verification/app"
+   ],
+   "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
+   "recordedAt": "2026-09-23"
+  },
+  {
    "sha": "701ec5d59",
    "check": "TestQuestionEndingOtherIsARealQuestionWithItsOwnSidecar",
    "allFailing": [
@@ -1424,6 +1507,20 @@
     "./internal/protocol/app",
     "./internal/vaccination/app",
     "./tests/e2e"
+   ],
+   "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
+   "recordedAt": "2026-09-23"
+  },
+  {
+   "sha": "70a7e7c5c",
+   "check": "TestReworkAcceptsTheSameCaptureLikeTodayAndKeepsAnswers",
+   "allFailing": [
+    "TestReworkAcceptsTheSameCaptureLikeTodayAndKeepsAnswers"
+   ],
+   "packages": [
+    "./internal/counts/adapters/http",
+    "./internal/counts/adapters/postgres",
+    "./internal/counts/app"
    ],
    "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
    "recordedAt": "2026-09-23"
@@ -1504,6 +1601,22 @@
    "recordedAt": "2026-09-23"
   },
   {
+   "sha": "798fba6e7",
+   "check": "TestMarketConfigControlIsCapabilityGated",
+   "allFailing": [
+    "TestMarketConfigControlIsCapabilityGated"
+   ],
+   "packages": [
+    "./internal/adminui/app",
+    "./internal/market/adapters/postgres",
+    "./internal/market/domain",
+    "./internal/notificationbridge",
+    "./internal/permissions"
+   ],
+   "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
+   "recordedAt": "2026-09-23"
+  },
+  {
    "sha": "7a11309d9",
    "check": "TestParkScopedOperatorKeepsItsGrantOnTheFeedFieldRoutes",
    "allFailing": [
@@ -1523,6 +1636,20 @@
    ],
    "packages": [
     "./internal/permissions"
+   ],
+   "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
+   "recordedAt": "2026-09-23"
+  },
+  {
+   "sha": "7a9f15217",
+   "check": "TestFeedActivityCardsOnADatabaseRoundTrip",
+   "allFailing": [
+    "TestFeedActivityCardsOnADatabaseRoundTrip",
+    "TestFeedActivityScopeKeysetOwnerLens",
+    "TestFeedActivitySubtasksListPensWorstFirst"
+   ],
+   "packages": [
+    "./internal/feeddirection/adapters/boardsource"
    ],
    "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
    "recordedAt": "2026-09-23"
@@ -1548,6 +1675,18 @@
    ],
    "packages": [
     "./internal/permissions"
+   ],
+   "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
+   "recordedAt": "2026-09-23"
+  },
+  {
+   "sha": "7be3c4114",
+   "check": "TestFeedActivityPensComposePartitions",
+   "allFailing": [
+    "TestFeedActivityPensComposePartitions"
+   ],
+   "packages": [
+    "./internal/feeddirection/adapters/boardsource"
    ],
    "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
    "recordedAt": "2026-09-23"
@@ -1965,6 +2104,38 @@
    "recordedAt": "2026-09-23"
   },
   {
+   "sha": "9e2cd8978",
+   "check": "TestShiftingExecutionErrorMapsSOPRefusalsByName",
+   "allFailing": [
+    "TestShiftingExecutionErrorMapsSOPRefusalsByName",
+    "TestRecordShiftingEventPinsPublishedVersion",
+    "TestRecordShiftingEventPinsEchoedKnownVersion",
+    "TestRecordShiftingEventRefusesRequiredRaiseAnswerWritingNothing",
+    "TestIdenticalRaiseRetryReplaysAfterPublishAddedRequiredQuestion",
+    "TestLegacyRaiseAndCompleteFingerprintsUnchanged"
+   ],
+   "packages": [
+    "./internal/counts/adapters/http",
+    "./internal/countsbridge",
+    "./internal/shiftingsop/app",
+    "./internal/sop/app"
+   ],
+   "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
+   "recordedAt": "2026-09-23"
+  },
+  {
+   "sha": "9f570d4cc",
+   "check": "TestAnalyticsSiblingInstanceExpiresWithinThirtySeconds",
+   "allFailing": [
+    "TestAnalyticsSiblingInstanceExpiresWithinThirtySeconds"
+   ],
+   "packages": [
+    "./internal/weighing/adapters/postgres"
+   ],
+   "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
+   "recordedAt": "2026-09-23"
+  },
+  {
    "sha": "9f794a508",
    "check": "TestCommandBoardCohortPendingExcludesDueToday",
    "allFailing": [
@@ -1984,6 +2155,25 @@
    ],
    "packages": [
     "./internal/vaccinationexecution/app"
+   ],
+   "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
+   "recordedAt": "2026-09-23"
+  },
+  {
+   "sha": "a07ac7496",
+   "check": "TestHTTPDurationExportsSubsecondBucketsInSeconds",
+   "allFailing": [
+    "TestHTTPDurationExportsSubsecondBucketsInSeconds",
+    "TestSecondsHistogramExportsSubsecondResolution"
+   ],
+   "packages": [
+    "./cmd/analytics-rollup",
+    "./internal/domainconsumer/adapters/pubsub",
+    "./internal/kernelstages",
+    "./internal/platform/httpmiddleware",
+    "./internal/platform/kmetrics",
+    "./internal/platform/observability",
+    "./internal/sop/adapters/postgres"
    ],
    "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
    "recordedAt": "2026-09-23"
@@ -2030,6 +2220,23 @@
    "recordedAt": "2026-09-23"
   },
   {
+   "sha": "a8640d05a",
+   "check": "TestPenRoutinesModuleIsOfferedOnExecuteNeverToTheCEO",
+   "allFailing": [
+    "TestPenRoutinesModuleIsOfferedOnExecuteNeverToTheCEO",
+    "TestPenRoutinesModuleIsOfferedOnExecuteNeverToTheCEO/growth_director_is_offered_Routines",
+    "TestPenRoutinesModuleIsOfferedOnExecuteNeverToTheCEO/feed_director_is_offered_Routines",
+    "TestPenRoutinesModuleIsOfferedOnExecuteNeverToTheCEO/health_director_is_offered_Routines",
+    "TestPenRoutinesModuleIsOfferedOnExecuteNeverToTheCEO/breeding_director_is_offered_Routines",
+    "TestPenRoutinesModuleIsOfferedOnExecuteNeverToTheCEO/procurement_director_is_offered_Routines"
+   ],
+   "packages": [
+    "./internal/workforce/app"
+   ],
+   "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
+   "recordedAt": "2026-09-23"
+  },
+  {
    "sha": "a8e58fe2f",
    "check": "TestPublishVersionAnchorIdempotencyIncludesScope",
    "allFailing": [
@@ -2060,6 +2267,18 @@
    "recordedAt": "2026-09-23"
   },
   {
+   "sha": "aa9f68417",
+   "check": "TestListLiveMovementFilterUsesWholePenForGroupComparisons",
+   "allFailing": [
+    "TestListLiveMovementFilterUsesWholePenForGroupComparisons"
+   ],
+   "packages": [
+    "./internal/herdsignals/app"
+   ],
+   "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
+   "recordedAt": "2026-09-23"
+  },
+  {
    "sha": "ab464e315",
    "check": "TestAnswerBranchesUnskipWhenTheQuestionIsReAnswered",
    "allFailing": [
@@ -2079,6 +2298,31 @@
    ],
    "packages": [
     "./internal/tasks/adapters/postgres"
+   ],
+   "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
+   "recordedAt": "2026-09-23"
+  },
+  {
+   "sha": "ae93fcb8b",
+   "check": "TestExplicitSeededKeyNotOnPinnedCardIsRefusedNotRetargeted",
+   "allFailing": [
+    "TestExplicitSeededKeyNotOnPinnedCardIsRefusedNotRetargeted"
+   ],
+   "packages": [
+    "./internal/counts/adapters/postgres",
+    "./internal/counts/app"
+   ],
+   "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
+   "recordedAt": "2026-09-23"
+  },
+  {
+   "sha": "aeed4a36c",
+   "check": "TestSalesBuyerAnalyticsCopyKeepsTheRetiredRegisterKeysForOlderFrontends",
+   "allFailing": [
+    "TestSalesBuyerAnalyticsCopyKeepsTheRetiredRegisterKeysForOlderFrontends"
+   ],
+   "packages": [
+    "./internal/adminui/app"
    ],
    "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
    "recordedAt": "2026-09-23"
@@ -2104,6 +2348,19 @@
    ],
    "packages": [
     "./internal/counts/adapters/http"
+   ],
+   "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
+   "recordedAt": "2026-09-23"
+  },
+  {
+   "sha": "b12714710",
+   "check": "TestCanonicalBatchRepresentativeIsStableWhenTimestampsTie",
+   "allFailing": [
+    "TestCanonicalBatchRepresentativeIsStableWhenTimestampsTie"
+   ],
+   "packages": [
+    "./internal/processintegrity/adapters/postgres",
+    "./internal/weighing/adapters/postgres"
    ],
    "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
    "recordedAt": "2026-09-23"
@@ -2184,6 +2441,20 @@
    ],
    "packages": [
     "./internal/weighing/app"
+   ],
+   "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
+   "recordedAt": "2026-09-23"
+  },
+  {
+   "sha": "b57713920",
+   "check": "TestDecodeShedTypeMembersParkOrderIsScopedToEachGroup",
+   "allFailing": [
+    "TestDecodeShedTypeMembersParkOrderIsScopedToEachGroup",
+    "TestDecodeShedTypeMembersParkOrderIsScopedToEachGroup/different_shed_type",
+    "TestDecodeShedTypeMembersParkOrderIsScopedToEachGroup/different_breed"
+   ],
+   "packages": [
+    "./internal/weighing/adapters/postgres"
    ],
    "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
    "recordedAt": "2026-09-23"
@@ -2291,6 +2562,30 @@
    "recordedAt": "2026-09-23"
   },
   {
+   "sha": "be22f3bf3",
+   "check": "TestShiftingDestinationsNeverEmitsNullManagementStages",
+   "allFailing": [
+    "TestShiftingDestinationsNeverEmitsNullManagementStages"
+   ],
+   "packages": [
+    "./internal/counts/adapters/http"
+   ],
+   "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
+   "recordedAt": "2026-09-23"
+  },
+  {
+   "sha": "be435c036",
+   "check": "TestQueueItemContextRowGroupRidesTheWire",
+   "allFailing": [
+    "TestQueueItemContextRowGroupRidesTheWire"
+   ],
+   "packages": [
+    "./internal/verification/adapters/http"
+   ],
+   "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
+   "recordedAt": "2026-09-23"
+  },
+  {
    "sha": "bf5a0c54c",
    "check": "TestAnswerYesNoRefusesAnythingButYesOrNo",
    "allFailing": [
@@ -2324,6 +2619,20 @@
    "packages": [
     "./internal/bootstrap",
     "./internal/counts/adapters/postgres"
+   ],
+   "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
+   "recordedAt": "2026-09-23"
+  },
+  {
+   "sha": "c24f23f66",
+   "check": "TestNoCaptureCardSubmitsBehaveAsTodayPg",
+   "allFailing": [
+    "TestNoCaptureCardSubmitsBehaveAsTodayPg"
+   ],
+   "packages": [
+    "./internal/counts/adapters/postgres",
+    "./internal/counts/app",
+    "./internal/tasks/app"
    ],
    "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
    "recordedAt": "2026-09-23"
@@ -2517,6 +2826,19 @@
    "recordedAt": "2026-09-23"
   },
   {
+   "sha": "d68dfe2ed",
+   "check": "TestCompleteDistributionSecondOperatorOnAPartNPenReplays",
+   "allFailing": [
+    "TestCompleteDistributionSecondOperatorOnAPartNPenReplays",
+    "TestReopenPackingReachesAPartNPen"
+   ],
+   "packages": [
+    "./internal/feeddirection/adapters/postgres"
+   ],
+   "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
+   "recordedAt": "2026-09-23"
+  },
+  {
    "sha": "d74d8c658",
    "check": "TestFrozenPackingWorklistFiltersBySession",
    "allFailing": [
@@ -2569,6 +2891,18 @@
    "recordedAt": "2026-09-23"
   },
   {
+   "sha": "dbc94d66f",
+   "check": "TestListLiveRiskFilterPaginatesAfterFilteredRowsAndKeepsWholeSummary",
+   "allFailing": [
+    "TestListLiveRiskFilterPaginatesAfterFilteredRowsAndKeepsWholeSummary"
+   ],
+   "packages": [
+    "./internal/herdsignals/app"
+   ],
+   "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
+   "recordedAt": "2026-09-23"
+  },
+  {
    "sha": "dd4e5e4f6",
    "check": "TestVerifyPageOversightAnalyticsControlIsCapabilityGated",
    "allFailing": [
@@ -2608,6 +2942,19 @@
    ],
    "packages": [
     "./internal/ceoai/app"
+   ],
+   "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
+   "recordedAt": "2026-09-23"
+  },
+  {
+   "sha": "e1f5e462d",
+   "check": "TestCompleteDistributionSecondOperatorOnAPartNPenReplays",
+   "allFailing": [
+    "TestCompleteDistributionSecondOperatorOnAPartNPenReplays",
+    "TestReopenPackingReachesAPartNPen"
+   ],
+   "packages": [
+    "./internal/feeddirection/adapters/postgres"
    ],
    "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
    "recordedAt": "2026-09-23"
@@ -2670,6 +3017,21 @@
    "recordedAt": "2026-09-23"
   },
   {
+   "sha": "edf5f18c0",
+   "check": "TestFeedBridgesMapMediaMetaPositionallyForAllFourStages",
+   "allFailing": [
+    "TestFeedBridgesMapMediaMetaPositionallyForAllFourStages"
+   ],
+   "packages": [
+    "./cmd/import-feed-slack-legacy",
+    "./internal/feeddirection/adapters/postgres",
+    "./internal/feeddirection/adapters/verificationbridge",
+    "./internal/feeddirection/app"
+   ],
+   "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
+   "recordedAt": "2026-09-23"
+  },
+  {
    "sha": "ee3246d69",
    "check": "TestKernelWorkerSchedulesPenReconciliationEnqueueRecoveryOnOperationalCadence",
    "allFailing": [
@@ -2679,6 +3041,30 @@
     "./cmd/kernel-worker",
     "./internal/counts/app",
     "./internal/kernelstages"
+   ],
+   "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
+   "recordedAt": "2026-09-23"
+  },
+  {
+   "sha": "f01bc07f2",
+   "check": "TestApprovalListCarriesCaptureRowsAndMedia",
+   "allFailing": [
+    "TestApprovalListCarriesCaptureRowsAndMedia"
+   ],
+   "packages": [
+    "./internal/counts/adapters/http"
+   ],
+   "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
+   "recordedAt": "2026-09-23"
+  },
+  {
+   "sha": "f08fa0593",
+   "check": "TestFeedActivityCardRollsUpByAllOrAny",
+   "allFailing": [
+    "TestFeedActivityCardRollsUpByAllOrAny"
+   ],
+   "packages": [
+    "./internal/feeddirection/adapters/boardsource"
    ],
    "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
    "recordedAt": "2026-09-23"
@@ -2771,6 +3157,23 @@
    "recordedAt": "2026-09-23"
   },
   {
+   "sha": "f52300ee2",
+   "check": "TestResolveMediaReadsUnknownKindFromProofRegister",
+   "allFailing": [
+    "TestResolveMediaReadsUnknownKindFromProofRegister",
+    "TestResolveMediaAuthoredItemNeverTakesRegistryPositionalMime",
+    "TestResolveMediaBeyondExpectedMediaResolvesFromRegister",
+    "TestResolveMediaReadsRegisterOncePerPageOnlyForUnknownRefs",
+    "TestListQueueKindFallbackReadsOnlyTheSampledPage",
+    "TestListQueueNumbersRepeatedProducerLabels"
+   ],
+   "packages": [
+    "./internal/verification/app"
+   ],
+   "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
+   "recordedAt": "2026-09-23"
+  },
+  {
    "sha": "f654b4ad7",
    "check": "TestDeathEvidenceIncompleteCopyNamesEveryStep",
    "allFailing": [
@@ -2778,6 +3181,26 @@
    ],
    "packages": [
     "./internal/counts/adapters/http"
+   ],
+   "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
+   "recordedAt": "2026-09-23"
+  },
+  {
+   "sha": "f65aef5e8",
+   "check": "TestWeighingSOPCaptureDefaultsMatchTheEmbeddedSeed",
+   "allFailing": [
+    "TestWeighingSOPCaptureDefaultsMatchTheEmbeddedSeed",
+    "TestAnimalObservationStoresSlotProofsAndAnswers",
+    "TestAnimalRepostChangingOnlyASecondarySlotOpensANewRound",
+    "TestPhotoSlotAcceptedAndVideoSlotRefusesPhoto",
+    "TestShedObservationStoresSlotKeysAndSixProofs",
+    "TestScopeSubmitAcceptsPhotoPrimary"
+   ],
+   "packages": [
+    "./internal/adminui/app",
+    "./internal/weighing/adapters/postgres",
+    "./internal/weighing/app",
+    "./internal/weighingsop/app"
    ],
    "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
    "recordedAt": "2026-09-23"
@@ -2857,6 +3280,21 @@
    ],
    "packages": [
     "./internal/adminui/app"
+   ],
+   "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
+   "recordedAt": "2026-09-23"
+  },
+  {
+   "sha": "fcf14020b",
+   "check": "TestCampaignPageReadsFarmCutoffOncePerRequest",
+   "allFailing": [
+    "TestCampaignPageReadsFarmCutoffOncePerRequest",
+    "TestCampaignCutoffKeepsPinnedEveningAndDoesNotMutateCache",
+    "TestRemovalQuestionsRequireApplicableAncestors"
+   ],
+   "packages": [
+    "./internal/weighing/app",
+    "./internal/weighing/domain"
    ],
    "method": "reverted the commit's non-test files at its own tree and re-ran the package tests",
    "recordedAt": "2026-09-23"
@@ -2984,6 +3422,12 @@
    "packages": []
   },
   {
+   "sha": "07951a76b",
+   "verdict": "skipped",
+   "why": "no Go test file in this commit",
+   "packages": []
+  },
+  {
    "sha": "08439db7b",
    "verdict": "inconclusive",
    "why": "the package went red but no test name was printed (a build break, not a failing check)",
@@ -3031,6 +3475,18 @@
    "packages": []
   },
   {
+   "sha": "0add69933",
+   "verdict": "skipped",
+   "why": "no Go test file in this commit",
+   "packages": []
+  },
+  {
+   "sha": "0b0837560",
+   "verdict": "skipped",
+   "why": "no Go test file in this commit",
+   "packages": []
+  },
+  {
    "sha": "0b68d87e6",
    "verdict": "inconclusive",
    "why": "the package went red but no test name was printed (a build break, not a failing check)",
@@ -3072,6 +3528,18 @@
    "packages": []
   },
   {
+   "sha": "0ce44832d",
+   "verdict": "skipped",
+   "why": "no Go test file in this commit",
+   "packages": []
+  },
+  {
+   "sha": "0e0e18723",
+   "verdict": "skipped",
+   "why": "no Go test file in this commit",
+   "packages": []
+  },
+  {
    "sha": "0ec27074d",
    "verdict": "skipped",
    "why": "no Go test file in this commit",
@@ -3099,6 +3567,18 @@
    "sha": "0fa9b05ff",
    "verdict": "skipped",
    "why": "the package did not pass at this commit, so a later failure would prove nothing",
+   "packages": []
+  },
+  {
+   "sha": "0fc5bfc96",
+   "verdict": "skipped",
+   "why": "no Go test file in this commit",
+   "packages": []
+  },
+  {
+   "sha": "100494684",
+   "verdict": "skipped",
+   "why": "no Go test file in this commit",
    "packages": []
   },
   {
@@ -3191,12 +3671,30 @@
    ]
   },
   {
+   "sha": "17bc3b894",
+   "verdict": "skipped",
+   "why": "no Go test file in this commit",
+   "packages": []
+  },
+  {
+   "sha": "18203c877",
+   "verdict": "skipped",
+   "why": "no Go test file in this commit",
+   "packages": []
+  },
+  {
    "sha": "185e271b5",
    "verdict": "inconclusive",
    "why": "every test in the package skipped (Postgres tests are opt-in: set GOATOS_RUN_POSTGRES_TESTS=1 and GOATOS_PGTEST_ADMIN_DSN), so a green run proves nothing",
    "packages": [
     "./internal/weighing/adapters/postgres"
    ]
+  },
+  {
+   "sha": "18977393c",
+   "verdict": "skipped",
+   "why": "no Go test file in this commit",
+   "packages": []
   },
   {
    "sha": "1a52a3bb2",
@@ -3214,6 +3712,16 @@
     "./internal/alerts/adapters/postgres",
     "./internal/alerts/app",
     "./internal/alerts/domain"
+   ]
+  },
+  {
+   "sha": "1ab67a91f",
+   "verdict": "inconclusive",
+   "why": "the package went red but no test name was printed (a build break, not a failing check)",
+   "packages": [
+    "./internal/verification/adapters/postgres",
+    "./internal/verification/app",
+    "./internal/weighing/app"
    ]
   },
   {
@@ -3287,6 +3795,12 @@
    ]
   },
   {
+   "sha": "22357b367",
+   "verdict": "skipped",
+   "why": "no Go test file in this commit",
+   "packages": []
+  },
+  {
    "sha": "225f6aaf9",
    "verdict": "skipped",
    "why": "no Go test file in this commit",
@@ -3351,12 +3865,26 @@
    ]
   },
   {
+   "sha": "277567343",
+   "verdict": "skipped",
+   "why": "no Go test file in this commit",
+   "packages": []
+  },
+  {
    "sha": "27f403769",
    "verdict": "inconclusive",
    "why": "the package went red but no test name was printed (a build break, not a failing check)",
    "packages": [
     "./internal/notificationbridge",
     "./internal/procurement/adapters/postgres"
+   ]
+  },
+  {
+   "sha": "2886e8a3c",
+   "verdict": "inconclusive",
+   "why": "the package went red but no test name was printed (a build break, not a failing check)",
+   "packages": [
+    "./internal/tasks/domain"
    ]
   },
   {
@@ -3367,6 +3895,12 @@
     "./internal/protocol/adapters/http",
     "./internal/protocol/adapters/postgres"
    ]
+  },
+  {
+   "sha": "298fe02d2",
+   "verdict": "skipped",
+   "why": "no Go test file in this commit",
+   "packages": []
   },
   {
    "sha": "29ad856a1",
@@ -3477,6 +4011,15 @@
    ]
   },
   {
+   "sha": "2efb64397",
+   "verdict": "inconclusive",
+   "why": "the package went red but no test name was printed (a build break, not a failing check)",
+   "packages": [
+    "./internal/weighing/adapters/postgres",
+    "./internal/weighing/app"
+   ]
+  },
+  {
    "sha": "30cbd133e",
    "verdict": "skipped",
    "why": "no Go test file in this commit",
@@ -3484,6 +4027,18 @@
   },
   {
    "sha": "314e28a65",
+   "verdict": "skipped",
+   "why": "no Go test file in this commit",
+   "packages": []
+  },
+  {
+   "sha": "315a8fceb",
+   "verdict": "skipped",
+   "why": "no Go test file in this commit",
+   "packages": []
+  },
+  {
+   "sha": "31e3e30bf",
    "verdict": "skipped",
    "why": "no Go test file in this commit",
    "packages": []
@@ -3519,6 +4074,12 @@
    "packages": []
   },
   {
+   "sha": "38af7f604",
+   "verdict": "skipped",
+   "why": "no Go test file in this commit",
+   "packages": []
+  },
+  {
    "sha": "38ced8dab",
    "verdict": "inconclusive",
    "why": "the package went red but no test name was printed (a build break, not a failing check)",
@@ -3536,6 +4097,21 @@
    "sha": "39680048a",
    "verdict": "skipped",
    "why": "nothing to revert — the commit changed only tests",
+   "packages": []
+  },
+  {
+   "sha": "39e63287c",
+   "verdict": "inconclusive",
+   "why": "the package went red but no test name was printed (a build break, not a failing check)",
+   "packages": [
+    "./internal/weighing/app",
+    "./internal/weighing/domain"
+   ]
+  },
+  {
+   "sha": "3ab2cfc9d",
+   "verdict": "skipped",
+   "why": "no Go test file in this commit",
    "packages": []
   },
   {
@@ -3561,6 +4137,14 @@
    "packages": []
   },
   {
+   "sha": "3e4f1baba",
+   "verdict": "inconclusive",
+   "why": "the package went red but no test name was printed (a build break, not a failing check)",
+   "packages": [
+    "./internal/tasks/app"
+   ]
+  },
+  {
    "sha": "3f41674ea",
    "verdict": "inconclusive",
    "why": "the package went red but no test name was printed (a build break, not a failing check)",
@@ -3576,6 +4160,12 @@
     "./internal/weighing/adapters/verificationbridge",
     "./internal/weighing/app"
    ]
+  },
+  {
+   "sha": "426c11444",
+   "verdict": "skipped",
+   "why": "nothing to revert — the commit changed only tests",
+   "packages": []
   },
   {
    "sha": "435145511",
@@ -3600,6 +4190,12 @@
    "packages": [
     "./internal/counts/adapters/postgres"
    ]
+  },
+  {
+   "sha": "44d696ca8",
+   "verdict": "skipped",
+   "why": "no Go test file in this commit",
+   "packages": []
   },
   {
    "sha": "455bf3269",
@@ -3727,6 +4323,12 @@
    ]
   },
   {
+   "sha": "4d5bf212c",
+   "verdict": "skipped",
+   "why": "no Go test file in this commit",
+   "packages": []
+  },
+  {
    "sha": "4d6059479",
    "verdict": "inconclusive",
    "why": "the package went red but no test name was printed (a build break, not a failing check)",
@@ -3821,6 +4423,12 @@
    ]
   },
   {
+   "sha": "52b2bd492",
+   "verdict": "skipped",
+   "why": "no Go test file in this commit",
+   "packages": []
+  },
+  {
    "sha": "53158c33a",
    "verdict": "inconclusive",
    "why": "the package went red but no test name was printed (a build break, not a failing check)",
@@ -3828,6 +4436,12 @@
     "./internal/herdsignals/adapters/postgres",
     "./internal/herdsignals/domain"
    ]
+  },
+  {
+   "sha": "54c77fa54",
+   "verdict": "skipped",
+   "why": "no Go test file in this commit",
+   "packages": []
   },
   {
    "sha": "562bbf8e8",
@@ -3866,6 +4480,12 @@
   },
   {
    "sha": "57ba657be",
+   "verdict": "skipped",
+   "why": "no Go test file in this commit",
+   "packages": []
+  },
+  {
+   "sha": "5826de751",
    "verdict": "skipped",
    "why": "no Go test file in this commit",
    "packages": []
@@ -3931,6 +4551,12 @@
    ]
   },
   {
+   "sha": "5ae02c0c8",
+   "verdict": "skipped",
+   "why": "no Go test file in this commit",
+   "packages": []
+  },
+  {
    "sha": "5ae56e8c8",
    "verdict": "skipped",
    "why": "no Go test file in this commit",
@@ -3967,6 +4593,12 @@
   },
   {
    "sha": "5c29c9ef9",
+   "verdict": "skipped",
+   "why": "no Go test file in this commit",
+   "packages": []
+  },
+  {
+   "sha": "5c4c0eba6",
    "verdict": "skipped",
    "why": "no Go test file in this commit",
    "packages": []
@@ -4214,6 +4846,12 @@
    ]
   },
   {
+   "sha": "6d03a090a",
+   "verdict": "skipped",
+   "why": "no Go test file in this commit",
+   "packages": []
+  },
+  {
    "sha": "6e045500e",
    "verdict": "skipped",
    "why": "no Go test file in this commit",
@@ -4226,6 +4864,12 @@
    "packages": [
     "./internal/calendar/adapters/postgres"
    ]
+  },
+  {
+   "sha": "705236636",
+   "verdict": "skipped",
+   "why": "no Go test file in this commit",
+   "packages": []
   },
   {
    "sha": "706ae3dcf",
@@ -4266,10 +4910,27 @@
    "packages": []
   },
   {
+   "sha": "72303d0ee",
+   "verdict": "skipped",
+   "why": "no Go test file in this commit",
+   "packages": []
+  },
+  {
    "sha": "726662390",
    "verdict": "skipped",
    "why": "no Go test file in this commit",
    "packages": []
+  },
+  {
+   "sha": "750f29487",
+   "verdict": "inconclusive",
+   "why": "the package went red but no test name was printed (a build break, not a failing check)",
+   "packages": [
+    "./internal/animalpurchase/adapters/postgres",
+    "./internal/notificationaudience/domain",
+    "./internal/notificationbridge",
+    "./internal/workforce/app"
+   ]
   },
   {
    "sha": "75c25aa08",
@@ -4292,6 +4953,12 @@
    "packages": [
     "./internal/counts/adapters/postgres"
    ]
+  },
+  {
+   "sha": "7772c2e92",
+   "verdict": "skipped",
+   "why": "no Go test file in this commit",
+   "packages": []
   },
   {
    "sha": "778fd1163",
@@ -4347,6 +5014,15 @@
    "packages": []
   },
   {
+   "sha": "7c233cf2c",
+   "verdict": "inconclusive",
+   "why": "the package went red but no test name was printed (a build break, not a failing check)",
+   "packages": [
+    "./internal/feeddirection/app",
+    "./internal/feeddirection/domain"
+   ]
+  },
+  {
    "sha": "7c5805100",
    "verdict": "skipped",
    "why": "the package did not pass at this commit, so a later failure would prove nothing",
@@ -4382,6 +5058,22 @@
     "./internal/platform/httpmiddleware",
     "./internal/workforce/adapters/postgres",
     "./internal/workforce/app"
+   ]
+  },
+  {
+   "sha": "7dbbc777f",
+   "verdict": "skipped",
+   "why": "no Go test file in this commit",
+   "packages": []
+  },
+  {
+   "sha": "7ea2b43ac",
+   "verdict": "inconclusive",
+   "why": "the package went red but no test name was printed (a build break, not a failing check)",
+   "packages": [
+    "./internal/counts/app",
+    "./internal/counts/domain",
+    "./internal/countssop/app"
    ]
   },
   {
@@ -4428,6 +5120,12 @@
    ]
   },
   {
+   "sha": "81f8d5265",
+   "verdict": "skipped",
+   "why": "no Go test file in this commit",
+   "packages": []
+  },
+  {
    "sha": "8299ba8e7",
    "verdict": "disproved",
    "why": "the tests still pass with this commit's code removed — they do not notice it being undone",
@@ -4436,9 +5134,31 @@
    ]
   },
   {
+   "sha": "82d4bf4d9",
+   "verdict": "disproved",
+   "why": "the tests still pass with this commit's code removed — they do not notice it being undone",
+   "packages": [
+    "./internal/herdsignals/app"
+   ]
+  },
+  {
+   "sha": "83301b8bb",
+   "verdict": "inconclusive",
+   "why": "the package went red but no test name was printed (a build break, not a failing check)",
+   "packages": [
+    "./internal/verification/adapters/proofmedia"
+   ]
+  },
+  {
    "sha": "83e3fc0dc",
    "verdict": "skipped",
    "why": "no Go test file in this commit",
+   "packages": []
+  },
+  {
+   "sha": "846c4e16c",
+   "verdict": "skipped",
+   "why": "the package did not pass at this commit, so a later failure would prove nothing",
    "packages": []
   },
   {
@@ -4478,9 +5198,43 @@
    "packages": []
   },
   {
+   "sha": "85d94cae4",
+   "verdict": "inconclusive",
+   "why": "the package went red but no test name was printed (a build break, not a failing check)",
+   "packages": [
+    "./internal/animalpurchase/adapters/postgres",
+    "./internal/animalpurchase/domain"
+   ]
+  },
+  {
    "sha": "85f6fde17",
    "verdict": "skipped",
    "why": "the package did not pass at this commit, so a later failure would prove nothing",
+   "packages": []
+  },
+  {
+   "sha": "860a14628",
+   "verdict": "inconclusive",
+   "why": "the package went red but no test name was printed (a build break, not a failing check)",
+   "packages": [
+    "./internal/tasks/adapters/postgres",
+    "./internal/tasks/adapters/proofkinds",
+    "./internal/tasks/app",
+    "./internal/tasks/domain"
+   ]
+  },
+  {
+   "sha": "8613d51f3",
+   "verdict": "inconclusive",
+   "why": "the package went red but no test name was printed (a build break, not a failing check)",
+   "packages": [
+    "./internal/weighing/app"
+   ]
+  },
+  {
+   "sha": "86be0808d",
+   "verdict": "skipped",
+   "why": "no Go test file in this commit",
    "packages": []
   },
   {
@@ -4507,12 +5261,40 @@
    "packages": []
   },
   {
+   "sha": "88bd58c10",
+   "verdict": "skipped",
+   "why": "nothing to revert — the commit changed only tests",
+   "packages": []
+  },
+  {
+   "sha": "89228fa40",
+   "verdict": "inconclusive",
+   "why": "the package went red but no test name was printed (a build break, not a failing check)",
+   "packages": [
+    "./internal/adminui/app"
+   ]
+  },
+  {
+   "sha": "8c2bc1218",
+   "verdict": "skipped",
+   "why": "no Go test file in this commit",
+   "packages": []
+  },
+  {
    "sha": "8c3aa11f3",
    "verdict": "inconclusive",
    "why": "the package went red but no test name was printed (a build break, not a failing check)",
    "packages": [
     "./internal/health/adapters/postgres",
     "./internal/health/app"
+   ]
+  },
+  {
+   "sha": "8d028cabe",
+   "verdict": "inconclusive",
+   "why": "the package went red but no test name was printed (a build break, not a failing check)",
+   "packages": [
+    "./internal/counts/domain"
    ]
   },
   {
@@ -4535,6 +5317,15 @@
    "verdict": "skipped",
    "why": "no Go test file in this commit",
    "packages": []
+  },
+  {
+   "sha": "8eec65cd5",
+   "verdict": "inconclusive",
+   "why": "the package went red but no test name was printed (a build break, not a failing check)",
+   "packages": [
+    "./internal/weighing/app",
+    "./internal/weighing/domain"
+   ]
   },
   {
    "sha": "8f2c2742c",
@@ -4560,6 +5351,16 @@
    ]
   },
   {
+   "sha": "90b4c792e",
+   "verdict": "inconclusive",
+   "why": "the package went red but no test name was printed (a build break, not a failing check)",
+   "packages": [
+    "./internal/tasks/adapters/postgres",
+    "./internal/tasks/app",
+    "./internal/tasks/domain"
+   ]
+  },
+  {
    "sha": "90bf02af6",
    "verdict": "skipped",
    "why": "the package did not pass at this commit, so a later failure would prove nothing",
@@ -4571,6 +5372,23 @@
    "why": "the tests still pass with this commit's code removed — they do not notice it being undone",
    "packages": [
     "./internal/weighing/adapters/postgres"
+   ]
+  },
+  {
+   "sha": "91c2ae549",
+   "verdict": "inconclusive",
+   "why": "the package went red but no test name was printed (a build break, not a failing check)",
+   "packages": [
+    "./internal/verification/domain"
+   ]
+  },
+  {
+   "sha": "934c73d4f",
+   "verdict": "inconclusive",
+   "why": "the package went red but no test name was printed (a build break, not a failing check)",
+   "packages": [
+    "./internal/feeddirection/app",
+    "./internal/feeddirection/domain"
    ]
   },
   {
@@ -4680,6 +5498,14 @@
    "packages": []
   },
   {
+   "sha": "996142036",
+   "verdict": "inconclusive",
+   "why": "the package went red but no test name was printed (a build break, not a failing check)",
+   "packages": [
+    "./internal/counts/domain"
+   ]
+  },
+  {
    "sha": "999bd97ba",
    "verdict": "skipped",
    "why": "the package did not pass at this commit, so a later failure would prove nothing",
@@ -4711,6 +5537,17 @@
    ]
   },
   {
+   "sha": "9b4836fb0",
+   "verdict": "inconclusive",
+   "why": "the package went red but no test name was printed (a build break, not a failing check)",
+   "packages": [
+    "./internal/tasks/adapters/postgres",
+    "./internal/tasks/app",
+    "./internal/verification/adapters/postgres",
+    "./internal/verification/app"
+   ]
+  },
+  {
    "sha": "9b60f1544",
    "verdict": "skipped",
    "why": "no Go test file in this commit",
@@ -4735,12 +5572,24 @@
    "packages": []
   },
   {
+   "sha": "9d2a53e72",
+   "verdict": "skipped",
+   "why": "the package did not pass at this commit, so a later failure would prove nothing",
+   "packages": []
+  },
+  {
    "sha": "9d2bfdc67",
    "verdict": "inconclusive",
    "why": "every test in the package skipped (Postgres tests are opt-in: set GOATOS_RUN_POSTGRES_TESTS=1 and GOATOS_PGTEST_ADMIN_DSN), so a green run proves nothing",
    "packages": [
     "./internal/sop/adapters/postgres"
    ]
+  },
+  {
+   "sha": "9e84a1961",
+   "verdict": "skipped",
+   "why": "no Go test file in this commit",
+   "packages": []
   },
   {
    "sha": "9e9e2ecf0",
@@ -4800,6 +5649,18 @@
    ]
   },
   {
+   "sha": "a20064b17",
+   "verdict": "inconclusive",
+   "why": "the package went red but no test name was printed (a build break, not a failing check)",
+   "packages": [
+    "./internal/counts/adapters/postgres",
+    "./internal/counts/app",
+    "./internal/counts/domain",
+    "./internal/tasks/app",
+    "./internal/tasks/domain"
+   ]
+  },
+  {
    "sha": "a3bff01d4",
    "verdict": "inconclusive",
    "why": "every test in the package skipped (Postgres tests are opt-in: set GOATOS_RUN_POSTGRES_TESTS=1 and GOATOS_PGTEST_ADMIN_DSN), so a green run proves nothing",
@@ -4846,6 +5707,15 @@
    "packages": []
   },
   {
+   "sha": "a6f183f75",
+   "verdict": "inconclusive",
+   "why": "the package went red but no test name was printed (a build break, not a failing check)",
+   "packages": [
+    "./internal/counts/app",
+    "./internal/tasks/app"
+   ]
+  },
+  {
    "sha": "a732f1b1d",
    "verdict": "skipped",
    "why": "no Go test file in this commit",
@@ -4857,6 +5727,14 @@
    "why": "every test in the package skipped (Postgres tests are opt-in: set GOATOS_RUN_POSTGRES_TESTS=1 and GOATOS_PGTEST_ADMIN_DSN), so a green run proves nothing",
    "packages": [
     "./tests/e2e"
+   ]
+  },
+  {
+   "sha": "a7e828c8e",
+   "verdict": "inconclusive",
+   "why": "the package went red but no test name was printed (a build break, not a failing check)",
+   "packages": [
+    "./internal/weighing/domain"
    ]
   },
   {
@@ -4895,6 +5773,12 @@
    "packages": [
     "./internal/calendar/adapters/postgres"
    ]
+  },
+  {
+   "sha": "a9f7c7a7a",
+   "verdict": "skipped",
+   "why": "no Go test file in this commit",
+   "packages": []
   },
   {
    "sha": "aa429412c",
@@ -4937,6 +5821,12 @@
    "packages": []
   },
   {
+   "sha": "af5a94359",
+   "verdict": "skipped",
+   "why": "the package did not pass at this commit, so a later failure would prove nothing",
+   "packages": []
+  },
+  {
    "sha": "affdda261",
    "verdict": "inconclusive",
    "why": "the package went red but no test name was printed (a build break, not a failing check)",
@@ -4946,6 +5836,12 @@
   },
   {
    "sha": "b11c80517",
+   "verdict": "skipped",
+   "why": "no Go test file in this commit",
+   "packages": []
+  },
+  {
+   "sha": "b195865f2",
    "verdict": "skipped",
    "why": "no Go test file in this commit",
    "packages": []
@@ -4965,6 +5861,12 @@
    "packages": []
   },
   {
+   "sha": "b39919c52",
+   "verdict": "skipped",
+   "why": "the package did not pass at this commit, so a later failure would prove nothing",
+   "packages": []
+  },
+  {
    "sha": "b3ae6fe1f",
    "verdict": "inconclusive",
    "why": "the package went red but no test name was printed (a build break, not a failing check)",
@@ -4981,6 +5883,12 @@
    "packages": [
     "./internal/calendar/adapters/postgres"
    ]
+  },
+  {
+   "sha": "b456d6be7",
+   "verdict": "skipped",
+   "why": "no Go test file in this commit",
+   "packages": []
   },
   {
    "sha": "b4612e578",
@@ -5029,7 +5937,27 @@
    "packages": []
   },
   {
+   "sha": "b976a6b56",
+   "verdict": "skipped",
+   "why": "nothing to revert — the commit changed only tests",
+   "packages": []
+  },
+  {
    "sha": "b9d627e2d",
+   "verdict": "skipped",
+   "why": "no Go test file in this commit",
+   "packages": []
+  },
+  {
+   "sha": "bb5958b5c",
+   "verdict": "inconclusive",
+   "why": "the package went red but no test name was printed (a build break, not a failing check)",
+   "packages": [
+    "./internal/weighing/domain"
+   ]
+  },
+  {
+   "sha": "bb8e41d77",
    "verdict": "skipped",
    "why": "no Go test file in this commit",
    "packages": []
@@ -5067,6 +5995,15 @@
    "packages": []
   },
   {
+   "sha": "bd8bc9e94",
+   "verdict": "inconclusive",
+   "why": "the package went red but no test name was printed (a build break, not a failing check)",
+   "packages": [
+    "./internal/weighing/adapters/postgres",
+    "./internal/weighing/app"
+   ]
+  },
+  {
    "sha": "be0220276",
    "verdict": "inconclusive",
    "why": "every test in the package skipped (Postgres tests are opt-in: set GOATOS_RUN_POSTGRES_TESTS=1 and GOATOS_PGTEST_ADMIN_DSN), so a green run proves nothing",
@@ -5087,6 +6024,14 @@
    "verdict": "skipped",
    "why": "no Go test file in this commit",
    "packages": []
+  },
+  {
+   "sha": "bf9e416b6",
+   "verdict": "disproved",
+   "why": "the tests still pass with this commit's code removed — they do not notice it being undone",
+   "packages": [
+    "./internal/tasks/app"
+   ]
   },
   {
    "sha": "bfeb34bba",
@@ -5120,11 +6065,30 @@
    ]
   },
   {
+   "sha": "c297c2939",
+   "verdict": "inconclusive",
+   "why": "the package went red but no test name was printed (a build break, not a failing check)",
+   "packages": [
+    "./internal/counts/adapters/http"
+   ]
+  },
+  {
    "sha": "c2a6d8c54",
    "verdict": "disproved",
    "why": "the tests still pass with this commit's code removed — they do not notice it being undone",
    "packages": [
     "./internal/verification/adapters/postgres"
+   ]
+  },
+  {
+   "sha": "c2ad2d160",
+   "verdict": "inconclusive",
+   "why": "the package went red but no test name was printed (a build break, not a failing check)",
+   "packages": [
+    "./internal/domainconsumer/wiring",
+    "./internal/weighing/adapters/postgres",
+    "./internal/weighing/app",
+    "./internal/weighing/domain"
    ]
   },
   {
@@ -5162,9 +6126,21 @@
    "packages": []
   },
   {
+   "sha": "c5f43f84e",
+   "verdict": "skipped",
+   "why": "no Go test file in this commit",
+   "packages": []
+  },
+  {
    "sha": "c613f996c",
    "verdict": "skipped",
    "why": "no Go test file in this commit",
+   "packages": []
+  },
+  {
+   "sha": "c6241699b",
+   "verdict": "skipped",
+   "why": "the package did not pass at this commit, so a later failure would prove nothing",
    "packages": []
   },
   {
@@ -5181,6 +6157,14 @@
    "verdict": "skipped",
    "why": "the package did not pass at this commit, so a later failure would prove nothing",
    "packages": []
+  },
+  {
+   "sha": "c71731c49",
+   "verdict": "inconclusive",
+   "why": "the package went red but no test name was printed (a build break, not a failing check)",
+   "packages": [
+    "./internal/counts/app"
+   ]
   },
   {
    "sha": "c7d533587",
@@ -5233,6 +6217,18 @@
    "packages": []
   },
   {
+   "sha": "cbbef80a7",
+   "verdict": "skipped",
+   "why": "the package did not pass at this commit, so a later failure would prove nothing",
+   "packages": []
+  },
+  {
+   "sha": "cbc099b61",
+   "verdict": "skipped",
+   "why": "no Go test file in this commit",
+   "packages": []
+  },
+  {
    "sha": "cc2b0954e",
    "verdict": "inconclusive",
    "why": "the package went red but no test name was printed (a build break, not a failing check)",
@@ -5276,6 +6272,12 @@
   },
   {
    "sha": "cd99a7ec3",
+   "verdict": "skipped",
+   "why": "no Go test file in this commit",
+   "packages": []
+  },
+  {
+   "sha": "ce1f0d436",
    "verdict": "skipped",
    "why": "no Go test file in this commit",
    "packages": []
@@ -5332,6 +6334,12 @@
    "packages": []
   },
   {
+   "sha": "d24878465",
+   "verdict": "skipped",
+   "why": "nothing to revert — the commit changed only tests",
+   "packages": []
+  },
+  {
    "sha": "d32cdb2bf",
    "verdict": "inconclusive",
    "why": "the package went red but no test name was printed (a build break, not a failing check)",
@@ -5381,6 +6389,22 @@
    "packages": []
   },
   {
+   "sha": "d69f0e524",
+   "verdict": "disproved",
+   "why": "the tests still pass with this commit's code removed — they do not notice it being undone",
+   "packages": [
+    "./internal/weighing/adapters/http"
+   ]
+  },
+  {
+   "sha": "d6a1e2fc6",
+   "verdict": "inconclusive",
+   "why": "the package went red but no test name was printed (a build break, not a failing check)",
+   "packages": [
+    "./internal/platform/migrationguard"
+   ]
+  },
+  {
    "sha": "d7c2dd268",
    "verdict": "inconclusive",
    "why": "the package went red but no test name was printed (a build break, not a failing check)",
@@ -5403,6 +6427,16 @@
    "why": "every test in the package skipped (Postgres tests are opt-in: set GOATOS_RUN_POSTGRES_TESTS=1 and GOATOS_PGTEST_ADMIN_DSN), so a green run proves nothing",
    "packages": [
     "./internal/herdsignals/adapters/postgres"
+   ]
+  },
+  {
+   "sha": "d87c5b434",
+   "verdict": "inconclusive",
+   "why": "the package went red but no test name was printed (a build break, not a failing check)",
+   "packages": [
+    "./internal/counts/app",
+    "./internal/counts/domain",
+    "./internal/countssop/app"
    ]
   },
   {
@@ -5482,6 +6516,14 @@
    "why": "the tests still pass with this commit's code removed — they do not notice it being undone",
    "packages": [
     "./internal/weighing/adapters/postgres"
+   ]
+  },
+  {
+   "sha": "dd37e273d",
+   "verdict": "inconclusive",
+   "why": "the package went red but no test name was printed (a build break, not a failing check)",
+   "packages": [
+    "./internal/permissions"
    ]
   },
   {
@@ -5578,6 +6620,12 @@
    ]
   },
   {
+   "sha": "e0d137a48",
+   "verdict": "skipped",
+   "why": "no Go test file in this commit",
+   "packages": []
+  },
+  {
    "sha": "e10a26c95",
    "verdict": "disproved",
    "why": "the tests still pass with this commit's code removed — they do not notice it being undone",
@@ -5609,11 +6657,25 @@
    ]
   },
   {
+   "sha": "e23eb0864",
+   "verdict": "skipped",
+   "why": "no Go test file in this commit",
+   "packages": []
+  },
+  {
    "sha": "e2a70f3db",
    "verdict": "inconclusive",
    "why": "the package went red but no test name was printed (a build break, not a failing check)",
    "packages": [
     "./internal/platform/oploc"
+   ]
+  },
+  {
+   "sha": "e34e2e882",
+   "verdict": "disproved",
+   "why": "the tests still pass with this commit's code removed — they do not notice it being undone",
+   "packages": [
+    "./internal/tasks/app"
    ]
   },
   {
@@ -5627,6 +6689,20 @@
    "verdict": "skipped",
    "why": "no Go test file in this commit",
    "packages": []
+  },
+  {
+   "sha": "e41a95e93",
+   "verdict": "skipped",
+   "why": "no Go test file in this commit",
+   "packages": []
+  },
+  {
+   "sha": "e42b2f2b6",
+   "verdict": "inconclusive",
+   "why": "every test in the package skipped (Postgres tests are opt-in: set GOATOS_RUN_POSTGRES_TESTS=1 and GOATOS_PGTEST_ADMIN_DSN), so a green run proves nothing",
+   "packages": [
+    "./internal/counts/adapters/postgres"
+   ]
   },
   {
    "sha": "e55ad089f",
@@ -5759,6 +6835,12 @@
    ]
   },
   {
+   "sha": "e9ac3aef4",
+   "verdict": "skipped",
+   "why": "no Go test file in this commit",
+   "packages": []
+  },
+  {
    "sha": "ea0bff2ef",
    "verdict": "inconclusive",
    "why": "the package went red but no test name was printed (a build break, not a failing check)",
@@ -5826,12 +6908,41 @@
    ]
   },
   {
+   "sha": "eb9e4ede3",
+   "verdict": "inconclusive",
+   "why": "the package went red but no test name was printed (a build break, not a failing check)",
+   "packages": [
+    "./internal/counts/app"
+   ]
+  },
+  {
+   "sha": "eba69fc54",
+   "verdict": "skipped",
+   "why": "the package did not pass at this commit, so a later failure would prove nothing",
+   "packages": []
+  },
+  {
    "sha": "ec2d974df",
    "verdict": "inconclusive",
    "why": "every test in the package skipped (Postgres tests are opt-in: set GOATOS_RUN_POSTGRES_TESTS=1 and GOATOS_PGTEST_ADMIN_DSN), so a green run proves nothing",
    "packages": [
     "./internal/weighing/adapters/postgres"
    ]
+  },
+  {
+   "sha": "ec7ea5c2e",
+   "verdict": "inconclusive",
+   "why": "the package went red but no test name was printed (a build break, not a failing check)",
+   "packages": [
+    "./internal/permissions",
+    "./internal/workforce/app"
+   ]
+  },
+  {
+   "sha": "ec7fc66d0",
+   "verdict": "skipped",
+   "why": "no Go test file in this commit",
+   "packages": []
   },
   {
    "sha": "ec88a3f25",
@@ -6025,6 +7136,28 @@
    "packages": []
   },
   {
+   "sha": "f8730a1c6",
+   "verdict": "inconclusive",
+   "why": "the package went red but no test name was printed (a build break, not a failing check)",
+   "packages": [
+    "./internal/verification/domain"
+   ]
+  },
+  {
+   "sha": "f876817bd",
+   "verdict": "inconclusive",
+   "why": "every test in the package skipped (Postgres tests are opt-in: set GOATOS_RUN_POSTGRES_TESTS=1 and GOATOS_PGTEST_ADMIN_DSN), so a green run proves nothing",
+   "packages": [
+    "./internal/penroutines/adapters/postgres"
+   ]
+  },
+  {
+   "sha": "f8f49b726",
+   "verdict": "skipped",
+   "why": "the package did not pass at this commit, so a later failure would prove nothing",
+   "packages": []
+  },
+  {
    "sha": "f90c658be",
    "verdict": "inconclusive",
    "why": "the package went red but no test name was printed (a build break, not a failing check)",
@@ -6066,6 +7199,12 @@
    "packages": []
   },
   {
+   "sha": "fa4a110b7",
+   "verdict": "skipped",
+   "why": "no Go test file in this commit",
+   "packages": []
+  },
+  {
    "sha": "fab4a84c1",
    "verdict": "skipped",
    "why": "the package did not pass at this commit, so a later failure would prove nothing",
@@ -6090,6 +7229,21 @@
    "verdict": "skipped",
    "why": "no Go test file in this commit",
    "packages": []
+  },
+  {
+   "sha": "fd31061bd",
+   "verdict": "skipped",
+   "why": "no Go test file in this commit",
+   "packages": []
+  },
+  {
+   "sha": "febfa9ca7",
+   "verdict": "inconclusive",
+   "why": "the package went red but no test name was printed (a build break, not a failing check)",
+   "packages": [
+    "./internal/weighing/adapters/verificationbridge",
+    "./internal/weighing/app"
+   ]
   },
   {
    "sha": "fedfb9818",
