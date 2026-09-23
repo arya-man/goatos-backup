@@ -65,6 +65,9 @@ function run() {
   // The gate reads the real files so every expected value is re-derived, never trusted.
   const byPath = new Map(files.map((f) => [f.path, f.text]));
   const { problems, coverage } = validateLedger(surfaces, ledger, (p) => byPath.get(p));
+  // Reported from the bytes that actually arrived, never from the candidate list.
+  const bytesRead = files.reduce((n, f) => n + f.text.length, 0);
+  console.log(`read ${files.length} source files, ${bytesRead} characters, before counting anything`);
   if (problems.length) {
     console.error("interactive-surface coverage gate failed:");
     for (const problem of problems) console.error(`- ${problem}`);
