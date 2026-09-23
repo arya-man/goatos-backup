@@ -29,7 +29,6 @@ import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.network.dto.HealthDiagnosisProposalResponseDto
 import sg.mesha.goatos.core.network.dto.HealthObservationContextDto
 import sg.mesha.goatos.core.network.dto.HealthObservationFindingsDto
-import sg.mesha.goatos.feature.health.missing
 import sg.mesha.goatos.feature.health.AuthoredQuestion
 import sg.mesha.goatos.feature.health.AuthoredPage
 import sg.mesha.goatos.feature.health.AuthoredOption
@@ -276,9 +275,7 @@ class ObservationFormViewModel @Inject constructor(
         } else {
             // Every applicable question on every page. The screen gates each page's Next, so this
             // is the belt to that braces -- a submit reached any other way is still refused here.
-            authoredNow.pages.all {
-                it.missing(_answers.value, current.form.sex, current.form.kidStage).isEmpty()
-            }
+            authoredNow.pages.all { authoredNow.missing(it, _answers.value).isEmpty() }
         }
         if (!complete || current.submitting || goatId.isBlank()) return
         _state.value = current.copy(submitting = true, message = null)

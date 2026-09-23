@@ -24,6 +24,8 @@ data class DiagnosisQueueRow(
     val emergencyCount: Int,
     /** Abnormal findings no diagnosis accounts for. */
     val unexplainedCount: Int,
+    /** Whether the engine read this check at all. */
+    val accepted: Boolean = true,
 ) {
     /**
      * Whether the row needs to stand out.
@@ -56,7 +58,11 @@ sealed interface DiagnosisQueueEvent {
  * severity-first by the backend, so the front of it is what matters; printing all
  * of them turns a scannable queue into a wall of text.
  */
-fun problemHeadline(problems: List<String>): String = when {
+fun problemHeadline(problems: List<String>, accepted: Boolean = true): String = when {
+    // A refused check has no problems for the same reason a healthy one has none, and the row
+    // cannot tell them apart from the list alone. Saying "Nothing found" over a check nobody
+    // assessed is the queue telling a Director there is nothing to open.
+    !accepted -> "Not accepted"
     problems.isEmpty() -> "Nothing found"
     problems.size <= 2 -> problems.joinToString(", ")
     else -> problems.take(2).joinToString(", ") + " +${problems.size - 2} more"

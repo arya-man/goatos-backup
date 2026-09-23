@@ -151,7 +151,7 @@ private fun QueueRow(row: DiagnosisQueueRow, onOpen: () -> Unit) {
             }
 
             Text(
-                problemHeadline(row.problems),
+                problemHeadline(row.problems, row.accepted),
                 style = MeshaType.body,
                 modifier = Modifier.padding(top = 6.dp),
             )

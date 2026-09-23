@@ -86,6 +86,7 @@ internal fun HealthDiagnosisQueueItemDto.toQueueRow(): DiagnosisQueueRow = Diagn
     problems = problems.map { diagnosisLabel(it) },
     emergencyCount = emergencyCount,
     unexplainedCount = unexplainedCount,
+    accepted = accepted,
 )
 
 /**
