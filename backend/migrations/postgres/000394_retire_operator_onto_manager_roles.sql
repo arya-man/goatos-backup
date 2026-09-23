@@ -314,9 +314,15 @@ BEGIN
   --     tenants -- and the write below NARROWS each invite from tenant scope onto that person's
   --     own park.
   -- ---------------------------------------------------------------------
+  --     THE PARK IS AGGREGATED, NOT min()'d. PostgreSQL has no min(uuid) -- uuid carries the
+  --     comparison operators an ORDER BY needs but no ordering AGGREGATE -- so `min(g.scope_id)`
+  --     does not fail on a database that happens to have no pending rows: it fails at PARSE
+  --     time, unconditionally, on every environment including a fresh one. Ordering inside
+  --     array_agg is the uuid-safe form.
   CREATE TEMP TABLE _op_pending_targets ON COMMIT DROP AS
   SELECT p.tenant_id, p.pending_grant_id, p.role AS old_role, p.scope_type AS old_scope_type,
-         p.scope_id AS old_scope_id, t.new_role, min(g.scope_id) AS park_id
+         p.scope_id AS old_scope_id, t.new_role,
+         array_agg(DISTINCT g.scope_id) AS park_ids
   FROM auth_pending_email_grants p
   JOIN workforce_members wm ON p.tenant_id = wm.tenant_id AND lower(wm.email) = p.normalized_email
   JOIN _op_targets t ON t.tenant_id = wm.tenant_id AND t.workforce_member_id = wm.workforce_member_id
@@ -325,24 +331,27 @@ BEGIN
   WHERE p.role = 'operator' AND p.status = 'active'
   GROUP BY p.tenant_id, p.pending_grant_id, p.role, p.scope_type, p.scope_id, t.new_role;
 
-  IF EXISTS (
-    SELECT 1
-    FROM _op_pending_targets
-    GROUP BY tenant_id, pending_grant_id
-    HAVING count(*) > 1
-  ) THEN
-    RAISE EXCEPTION 'a pending operator grant resolved to more than one migrated person; refusing to guess which park invite to write';
+  --     AND THE AMBIGUITY THAT CAN ACTUALLY HAPPEN IS THE PARK, not the person. A pending row
+  --     joins to one member by email and a member carries one new_role, so the GROUP BY above
+  --     already yields exactly one row per pending_grant_id -- the previous
+  --     `HAVING count(*) > 1` over that same grouping could never fire, the same vacuous shape
+  --     the display-name check had. What genuinely has more than one value is the PARK: a
+  --     two-park person (Mithun holds CBE and CPT today) has two active park grants, and
+  --     silently taking the lower uuid would narrow their invite to one park and drop the
+  --     other. A pending invite carries ONE scope, so this refuses rather than guesses.
+  IF EXISTS (SELECT 1 FROM _op_pending_targets WHERE array_length(park_ids, 1) > 1) THEN
+    RAISE EXCEPTION 'a pending operator invite resolves to more than one park for the same person; refusing to guess which park to write into the invite';
   END IF;
 
   INSERT INTO public.operator_retirement_000394_pending_scope_undo
   SELECT tenant_id, pending_grant_id, old_role, old_scope_type, old_scope_id,
-         new_role, 'park', park_id
+         new_role, 'park', park_ids[1]
   FROM _op_pending_targets;
 
   UPDATE auth_pending_email_grants p
   SET role = t.new_role,
       scope_type = 'park',
-      scope_id = t.park_id,
+      scope_id = t.park_ids[1],
       updated_at = now()
   FROM _op_pending_targets t
   WHERE p.tenant_id = t.tenant_id
