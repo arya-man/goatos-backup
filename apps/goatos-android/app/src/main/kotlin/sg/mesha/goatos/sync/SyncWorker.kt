@@ -16,6 +16,7 @@ import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
+import sg.mesha.goatos.analytics.BackendAnalyticsAdapter
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.data.sync.SyncEngine
 import sg.mesha.goatos.core.data.sync.SyncJobsCanceller
@@ -41,6 +42,7 @@ class SyncWorker @AssistedInject constructor(
     private val syncEngine: SyncEngine,
     private val syncWorkScheduler: SyncWorkScheduler,
     private val crashReporter: CrashReporter,
+    private val backendAnalyticsAdapter: BackendAnalyticsAdapter,
 ) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result =
         try {
@@ -54,7 +56,12 @@ class SyncWorker @AssistedInject constructor(
             // retryScheduler.scheduleAt). Returning success here means backed-off rows are driven
             // by that explicit retry work — never ALSO by a worker Result.retry(), which
             // would double-schedule the same row (retry-churn).
-            if (syncEngine.drainOnce()) Result.success() else Result.retry()
+            val syncCompleted = syncEngine.drainOnce()
+            // Critical analytics uses its own bounded file queue, but shares this existing
+            // connectivity-gated WorkManager wakeup so proof failures drain after process death.
+            runCatching { backendAnalyticsAdapter.drainQueue() }
+                .onFailure { crashReporter.recordException(it, "analytics queue drain failed") }
+            if (syncCompleted) Result.success() else Result.retry()
         } catch (cancellation: CancellationException) {
             throw cancellation // honour WorkManager's own cancellation — never swallow it.
         } catch (error: Exception) {

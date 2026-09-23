@@ -42,7 +42,12 @@ func TestLiveTrackerOneToManyCannotFanOutAdministrations(t *testing.T) {
 		!strings.Contains(sql, "SELECT DISTINCT ON (a.shed_id,") {
 		t.Fatal("the drive assignment must be resolved ONCE per shed x partition, not per obligation")
 	}
-	if !strings.Contains(sql, "ORDER BY a.shed_id, ") || !strings.Contains(sql, ", a.assignment_id\n)") {
+	if !strings.Contains(sql, "DISTINCT ON (a.shed_id,") ||
+		!strings.Contains(sql, ", pr.rule_id)") ||
+		!strings.Contains(sql, "AND asg.rule_id = s.rule_id") {
+		t.Error("the pre-aggregated assignment fallback must preserve the vaccine-rule lane")
+	}
+	if !strings.Contains(sql, "ORDER BY a.shed_id, ") || !strings.Contains(sql, "(cardinality(a.vaccine_rule_ids) > 0) DESC, a.assignment_id") {
 		t.Error("the pre-aggregated assignment must keep the ORDER BY assignment_id tie-break the LATERAL had")
 	}
 	if strings.Contains(sql, "LEFT JOIN LATERAL (\n    SELECT a.operator_id") {
@@ -109,8 +114,8 @@ func TestDriveAssignmentsMergedBatchesParkScopeCannotMergeAcrossParks(t *testing
 	if end > 0 {
 		group = group[:end]
 	}
-	for _, key := range []string{"park_id", "shed_id", "physical_shed", "partition_key", "effective_planned_date"} {
-		if !strings.Contains(group, "GROUP BY effective_planned_date, operator_id, park_id, shed_id, physical_shed, partition_key") {
+	for _, key := range []string{"assignment_id", "park_id", "shed_id", "physical_shed", "partition_key", "effective_planned_date"} {
+		if !strings.Contains(group, "GROUP BY effective_planned_date, assignment_id, operator_id, park_id, shed_id, physical_shed, partition_key") {
 			t.Fatalf("the batch-id aggregate must be grouped by the full identity; %s is what stops a cross-park merge", key)
 		}
 	}

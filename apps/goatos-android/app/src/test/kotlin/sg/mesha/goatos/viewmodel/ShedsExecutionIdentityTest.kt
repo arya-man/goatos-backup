@@ -64,6 +64,33 @@ class ShedsExecutionIdentityTest {
     }
 
     @Test
+    fun `operator day card identity collapses date override rows from different batches and tasks`() {
+        val firstDose = VaccinationExecutionRowDto(
+            shedId = "shed-yashoda-3",
+            partitionLabel = "3",
+            batchId = "batch-old",
+            sopTaskId = "task-executable",
+            assignmentId = "assignment-current",
+        )
+        val secondDose = firstDose.copy(batchId = "batch-moved", sopTaskId = null)
+
+        assertEquals("shed:shed-yashoda-3|partition:3|assignment:assignment-current", firstDose.operatorDayCardId())
+        assertEquals(firstDose.operatorDayCardId(), secondDose.operatorDayCardId())
+    }
+
+    @Test
+    fun `operator day card identity separates assignments sharing one shed and partition`() {
+        val first = VaccinationExecutionRowDto(
+            shedId = "shed-yashoda-3",
+            partitionLabel = "3",
+            assignmentId = "assignment-a",
+        )
+        val second = first.copy(assignmentId = "assignment-b")
+
+        assertNotEquals(first.operatorDayCardId(), second.operatorDayCardId())
+    }
+
+    @Test
     fun `shed totals use backend animal counts instead of aggregated row count`() {
         val counts = executionCounts(
             listOf(

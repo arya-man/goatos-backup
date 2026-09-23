@@ -11,12 +11,16 @@ import java.net.URI
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 
-/** Best-effort operator convenience copy. Upload remains app-private/Room-first source of truth. */
+/** Returns the readable MediaStore URI, or null when this proof type does not belong in Gallery. */
 fun interface GalleryProofSaver {
-    suspend fun saveProofCopy(localFilePath: String, request: ProofUploadRequestDto, idempotencyKey: String)
+    suspend fun saveProofCopy(localFilePath: String, request: ProofUploadRequestDto, idempotencyKey: String): String?
 
     object Noop : GalleryProofSaver {
-        override suspend fun saveProofCopy(localFilePath: String, request: ProofUploadRequestDto, idempotencyKey: String) = Unit
+        override suspend fun saveProofCopy(
+            localFilePath: String,
+            request: ProofUploadRequestDto,
+            idempotencyKey: String,
+        ): String? = null
     }
 }
 
@@ -24,11 +28,15 @@ class MediaStoreGalleryProofSaver(
     private val context: Context,
     private val nowMs: () -> Long = System::currentTimeMillis,
 ) : GalleryProofSaver {
-    override suspend fun saveProofCopy(localFilePath: String, request: ProofUploadRequestDto, idempotencyKey: String) {
-        if (localFilePath.isBlank()) return
+    override suspend fun saveProofCopy(
+        localFilePath: String,
+        request: ProofUploadRequestDto,
+        idempotencyKey: String,
+    ): String? {
+        require(localFilePath.isNotBlank()) { "proof source unavailable" }
         val mimeType = request.mimeType.ifBlank { fallbackMimeType(localFilePath, request.proofType) }
         // An audio note is not evidence the operator needs in their gallery; it stays app-private.
-        if (mimeType.startsWith("audio/", ignoreCase = true) || request.proofType.equals("audio", ignoreCase = true)) return
+        if (mimeType.startsWith("audio/", ignoreCase = true) || request.proofType.equals("audio", ignoreCase = true)) return null
         val isImage = mimeType.startsWith("image/", ignoreCase = true) || request.proofType.equals("photo", ignoreCase = true)
         val relativePath = galleryRelativePath(isImage)
         val displayName = proofDisplayName(request.proofType, idempotencyKey, mimeType, request.uploadOriginal)
@@ -37,7 +45,10 @@ class MediaStoreGalleryProofSaver(
         } else {
             MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
         }
-        if (existingProofCopy(collection, displayName, relativePath) != null) return
+        existingProofCopy(collection, displayName, relativePath)?.let { existing ->
+            verifyReadable(existing)
+            return existing.toString()
+        }
         val target = context.contentResolver.insert(
             collection,
             ContentValues().apply {
@@ -46,23 +57,32 @@ class MediaStoreGalleryProofSaver(
                 put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
                 put(MediaStore.MediaColumns.IS_PENDING, 1)
             },
-        ) ?: return
+        ) ?: error("MediaStore insert returned null")
 
         try {
             context.contentResolver.openOutputStream(target)?.use { output ->
                 openInput(localFilePath)?.use { input -> input.copyTo(output) }
                     ?: error("proof source unavailable")
             } ?: error("gallery target unavailable")
-            context.contentResolver.update(
+            val updated = context.contentResolver.update(
                 target,
                 ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) },
                 null,
                 null,
             )
+            check(updated > 0) { "Gallery pending item could not be published" }
+            verifyReadable(target)
+            return target.toString()
         } catch (error: Throwable) {
             runCatching { context.contentResolver.delete(target, null, null) }
             throw error
         }
+    }
+
+    private fun verifyReadable(uri: Uri) {
+        context.contentResolver.openInputStream(uri)?.use { input ->
+            check(input.read() >= 0) { "Gallery copy is empty" }
+        } ?: error("Gallery copy is not readable")
     }
 
     private fun existingProofCopy(collection: Uri, displayName: String, relativePath: String): Uri? {

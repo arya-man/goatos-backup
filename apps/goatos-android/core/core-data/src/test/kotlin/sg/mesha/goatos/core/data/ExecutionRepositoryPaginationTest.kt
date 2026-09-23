@@ -43,6 +43,7 @@ class ExecutionRepositoryPaginationTest {
         val cursor: String?,
         val limit: Int?,
         val partitionLabel: String?,
+        val assignmentId: String? = null,
         val includeCardSummaries: Boolean? = null,
     )
 
@@ -64,6 +65,51 @@ class ExecutionRepositoryPaginationTest {
         assertEquals(listOf("shed-a", "shed-b", "shed-c"), merged.rows.map { it.shedId })
         assertEquals(3, merged.totalCount)
         assertNull(merged.nextCursor)
+    }
+
+    @Test
+    fun `assignment roster uses assignment scope and empty 200 preserves known rows`() = runTest {
+        withRepository { repository, backend, requests ->
+            backend.response = {
+                ScanRosterResponseDto(
+                    source = "api",
+                    rows = listOf(
+                        ScanRosterRowDto(goatId = "goat-1", primaryTag = "TAG-1", vaccineLabel = "ET+TT", status = "due", obligationId = "obl-1"),
+                        ScanRosterRowDto(goatId = "goat-2", primaryTag = "TAG-2", vaccineLabel = "ET+TT", status = "due", obligationId = "obl-2"),
+                    ),
+                )
+            }
+            repository.refreshAssignmentScanRoster(SHED_ID, TASK_ID, "assignment-1", PAGE_SIZE, "Part 3").getOrThrow()
+            assertEquals(2, repository.observeAssignmentScanRosterTotal(SHED_ID, TASK_ID, "assignment-1", "Part 3").first())
+            assertEquals("assignment-1", requests.single().assignmentId)
+
+            backend.response = { ScanRosterResponseDto(source = "api", rows = emptyList()) }
+            val result = repository.refreshAssignmentScanRoster(SHED_ID, TASK_ID, "assignment-1", PAGE_SIZE, "Part 3")
+
+            assertTrue(result.exceptionOrNull() is EmptyAssignmentRosterException)
+            assertEquals(2, repository.observeAssignmentScanRosterTotal(SHED_ID, TASK_ID, "assignment-1", "Part 3").first())
+        }
+    }
+
+    @Test
+    fun `assignment roster 404 never falls back to unscoped shed roster`() = runTest {
+        withRepository { repository, backend, requests ->
+            backend.taskScopedFailureStatus = 404
+            backend.response = ::numberedPage
+
+            val result = repository.refreshAssignmentScanRoster(
+                SHED_ID,
+                TASK_ID,
+                "assignment-1",
+                PAGE_SIZE,
+                "Part 3",
+            )
+
+            assertTrue(result.exceptionOrNull() is HttpException)
+            assertEquals(1, requests.size)
+            assertEquals("assignment-1", requests.single().assignmentId)
+            assertEquals(TASK_ID, requests.single().taskId)
+        }
     }
 
     @Test
@@ -544,6 +590,7 @@ class ExecutionRepositoryPaginationTest {
                             cursor = args[2] as String?,
                             limit = args[3] as Int?,
                             partitionLabel = args[4] as String?,
+                            assignmentId = args[5] as String?,
                         )
                         requests += request
                         if (backend.offlineCursor != null && backend.offlineCursor == request.cursor) {

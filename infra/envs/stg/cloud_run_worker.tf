@@ -1,7 +1,7 @@
 # Kernel worker — the single consolidated long-running service that replaces the
 # retired per-stage scheduled Cloud Run Jobs (see
 # docs/decisions/operational-kernel-5k-50k-scale-envelope.md). Deployed as a
-# Cloud Run SERVICE (not a Job) at min=2/max=2 with CPU always allocated so the
+# Cloud Run SERVICE (not a Job) at min=1/max=2 with CPU always allocated so the
 # supervisor's continuous domain-event consumer and every cadence stage run
 # without scale-to-zero. Health/lifecycle only on $PORT — /livez + /readyz never
 # trigger stage work (kernel-worker's own health listener). Advisory locks keep
@@ -18,10 +18,10 @@ resource "google_cloud_run_v2_service" "kernel_worker" {
   template {
     service_account = google_service_account.runtime["kernel_worker"].email
 
-    # HA pair. min == max == 2: exactly two always-warm instances, one active
-    # per stage (advisory-lock serialized) and one hot standby for failover.
+    # Keep one worker warm and allow a second during rolling deploy or burst.
+    # Stage advisory locks preserve singleton execution while both overlap.
     scaling {
-      min_instance_count = 2
+      min_instance_count = 1
       max_instance_count = 2
     }
 

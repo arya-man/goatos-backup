@@ -4122,7 +4122,7 @@ CREATE TABLE public.vaccination_capacity_config (
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     max_shots_per_animal_per_drive integer,
     CONSTRAINT vaccination_capacity_config_buffer_check CHECK ((max_buffer_days >= 0)),
-    CONSTRAINT vaccination_capacity_config_max_per_day_check CHECK ((max_per_day >= 1)),
+    CONSTRAINT vaccination_capacity_config_max_per_day_check CHECK (((max_per_day >= 1) AND (max_per_day <= 200))),
     CONSTRAINT vaccination_capacity_config_max_shots_check CHECK (((max_shots_per_animal_per_drive IS NULL) OR (max_shots_per_animal_per_drive >= 1))),
     CONSTRAINT vaccination_capacity_config_overflow_check CHECK ((overflow_policy = 'split_within_safe_window_last_safe_may_exceed_cap'::text)),
     CONSTRAINT vaccination_capacity_config_scope_check CHECK ((capacity_scope = ANY (ARRAY['tenant'::text, 'center'::text, 'shed'::text])))

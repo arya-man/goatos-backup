@@ -82,6 +82,7 @@ func TestCalendarPostgresListDetailActionsAndHistory(t *testing.T) {
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
 	protocolID := "86000000-0000-4000-8000-000000001101"
 	versionID := "86000000-0000-4000-8000-000000001102"
 	ruleID := "86000000-0000-4000-8000-000000001103"
@@ -102,7 +103,6 @@ func TestCalendarPostgresListDetailActionsAndHistory(t *testing.T) {
 	testCalendarEvent := parkDriveEventID(testParkA, dueAt)
 	testReminderEvent := parkDriveEventID(testParkB, reminderDueAt)
 
-	repo := NewRepository(pool, 5*time.Second)
 	from := time.Now().UTC().Add(-24 * time.Hour)
 	to := time.Now().UTC().Add(44 * 24 * time.Hour)
 	list, err := repo.ListEvents(ctx, domain.Query{
@@ -2834,10 +2834,11 @@ INSERT INTO protocol_rule_dimensions (
   selector_key, dose_code, source_dose_code, vaccine_code, vaccine_json
 ) VALUES (
   $1::uuid, $2::uuid, $3::uuid, 'vaccination', 'calendar-projection-test',
-  $3::text, 'first', 'first', lower(replace($4, ' ', '_')), jsonb_build_object('name', $4)
+  $3::text, 'first', 'first', $4::text, jsonb_build_object('code', $4::text)
 )
 ON CONFLICT (tenant_id, protocol_version_id, rule_id, selector_key) DO UPDATE
-SET vaccine_json = EXCLUDED.vaccine_json`, testTenantID, versionID, ruleID, vaccineName); err != nil {
+SET vaccine_code = EXCLUDED.vaccine_code,
+    vaccine_json = EXCLUDED.vaccine_json`, testTenantID, versionID, ruleID, vaccineName); err != nil {
 		t.Fatalf("seed protocol rule vaccine dimension: %v", err)
 	}
 }
@@ -4539,6 +4540,205 @@ INSERT INTO vaccination_drive_assignments (
 		if item.EventID == staleID {
 			t.Fatalf("stale batch-day drive %s leaked despite operator assignment on %s", staleID, assignmentKey)
 		}
+	}
+}
+
+func TestCalendarAssignmentDriveSeparatesSameDayWorkAndKeepsCrossBatchMembersForOneTwoThreeVaccines(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	const (
+		assignmentA = "86000000-0000-4000-8000-00000000ef01"
+		assignmentZ = "86000000-0000-4000-8000-00000000ef02"
+		animalA     = "86000000-0000-4000-8000-00000000ef11"
+		animalB     = "86000000-0000-4000-8000-00000000ef12"
+		animalZ     = "86000000-0000-4000-8000-00000000ef13"
+	)
+	day := stableSameLocalDayDueAt(time.Now().In(biztime.DefaultLocation()))
+
+	type vaccineSeed struct {
+		protocol string
+		version  string
+		rule     string
+		batchA   string
+		batchB   string
+		oblA     string
+		oblB     string
+		name     string
+	}
+	vaccines := []vaccineSeed{
+		{"86000000-0000-4000-8000-00000000e101", "86000000-0000-4000-8000-00000000e102", "86000000-0000-4000-8000-00000000e103", "86000000-0000-4000-8000-00000000e104", "86000000-0000-4000-8000-00000000e105", "86000000-0000-4000-8000-00000000e106", "86000000-0000-4000-8000-00000000e107", "ET+TT"},
+		{"86000000-0000-4000-8000-00000000e201", "86000000-0000-4000-8000-00000000e202", "86000000-0000-4000-8000-00000000e203", "86000000-0000-4000-8000-00000000e204", "86000000-0000-4000-8000-00000000e205", "86000000-0000-4000-8000-00000000e206", "86000000-0000-4000-8000-00000000e207", "PPR"},
+		{"86000000-0000-4000-8000-00000000e301", "86000000-0000-4000-8000-00000000e302", "86000000-0000-4000-8000-00000000e303", "86000000-0000-4000-8000-00000000e304", "86000000-0000-4000-8000-00000000e305", "86000000-0000-4000-8000-00000000e306", "86000000-0000-4000-8000-00000000e307", "BT"},
+	}
+
+	for index, vaccine := range vaccines {
+		seedVaccinationObligation(t, ctx, pool, vaccine.protocol, vaccine.version, vaccine.rule, vaccine.oblA, day)
+		seedAdditionalVaccinationObligation(t, ctx, pool, vaccine.version, vaccine.rule, vaccine.oblB, day)
+		seedProtocolRuleVaccineName(t, ctx, pool, vaccine.version, vaccine.rule, vaccine.name)
+		attachObligationToGoatScope(t, ctx, pool, vaccine.oblA, animalA, "shed", testShedA)
+		attachObligationToGoatScope(t, ctx, pool, vaccine.oblB, animalB, "shed", testShedA)
+		setCalendarGoatCurrentShed(t, ctx, pool, animalA, testParkA, testShedA)
+		setCalendarGoatCurrentShed(t, ctx, pool, animalB, testParkA, testShedA)
+		seedVaccinationBatchForShed(t, ctx, pool, vaccine.batchA, vaccine.version, testParkA, testShedA, day, vaccine.oblA)
+		// The second source batch is an earlier carry-over. The current-day assignment, not the
+		// source batch date, is the operational identity that joins both animals.
+		seedVaccinationBatchForShed(t, ctx, pool, vaccine.batchB, vaccine.version, testParkA, testShedA, day.Add(-24*time.Hour), vaccine.oblB)
+
+		if index == 0 {
+			if _, err := pool.Exec(ctx, `
+INSERT INTO vaccination_drive_assignments (
+  assignment_id, tenant_id, batch_id, planned_date, park_id, shed_id, physical_shed,
+  partition_label, animal_count, total_doses, vaccine_rule_ids
+) VALUES ($1::uuid, $2::uuid, $3::uuid, ($4::timestamptz AT TIME ZONE 'Asia/Kolkata')::date,
+          $5::uuid, $6::uuid, 'Yashoda 3', 'Part 3', 2, 2, ARRAY[$7::uuid])`,
+				assignmentA, testTenantID, vaccine.batchA, day, testParkA, testShedA, vaccine.rule); err != nil {
+				t.Fatalf("seed Amit assignment: %v", err)
+			}
+		} else if _, err := pool.Exec(ctx, `
+UPDATE vaccination_drive_assignments
+SET vaccine_rule_ids = array_append(vaccine_rule_ids, $3::uuid), total_doses = $4
+WHERE tenant_id = $1::uuid AND assignment_id = $2::uuid`, testTenantID, assignmentA, vaccine.rule, (index+1)*2); err != nil {
+			t.Fatalf("extend Amit assignment to %d vaccines: %v", index+1, err)
+		}
+
+		for _, member := range []struct{ obligation, animal string }{{vaccine.oblA, animalA}, {vaccine.oblB, animalB}} {
+			if _, err := pool.Exec(ctx, `
+INSERT INTO vaccination_drive_assignment_members (tenant_id, assignment_id, obligation_id, goat_id)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid)`, testTenantID, assignmentA, member.obligation, member.animal); err != nil {
+				t.Fatalf("seed Amit assignment member: %v", err)
+			}
+		}
+
+		// Build a fresh repository for each increment so the short list cache cannot hide
+		// the newly-added vaccine lane from this contract test.
+		repo := NewRepository(pool, 5*time.Second)
+		list, err := repo.ListEvents(ctx, domain.Query{
+			TenantID: testTenantID, OwnerKey: domain.OwnerAll,
+			DateFrom: biztime.BusinessDayStart(day), DateTo: day.Add(24 * time.Hour), Limit: 20,
+			Scope: domain.ScopeFilter{TenantWide: true}, IncludeDriveSummary: true,
+		})
+		if err != nil {
+			t.Fatalf("ListEvents with %d vaccines: %v", index+1, err)
+		}
+		wantID := domain.FormatAssignmentDriveEventID(assignmentA)
+		var got *domain.CalendarEvent
+		for i := range list.Items {
+			if list.Items[i].EventID == wantID {
+				got = &list.Items[i]
+			}
+		}
+		if got == nil || got.DriveSummary == nil {
+			t.Fatalf("assignment card %s missing with %d vaccines: %#v", wantID, index+1, list.Items)
+		}
+		if got.DriveSummary.TotalAnimals != 2 || got.VaccineCount != index+1 {
+			t.Fatalf("assignment card with %d vaccines=%#v, want 2 animals and %d vaccines", index+1, got, index+1)
+		}
+		wantVaccines := make([]string, 0, index+1)
+		for _, seeded := range vaccines[:index+1] {
+			wantVaccines = append(wantVaccines, seeded.name)
+		}
+		slices.Sort(wantVaccines)
+		if got.ShedCount != 1 ||
+			!slices.Equal(got.ShedLabels, []string{"Test Shed 0711"}) ||
+			!slices.Equal(got.ShedPartitionLabels, []string{"Part 3"}) ||
+			!slices.Equal(got.VaccineLabels, wantVaccines) {
+			t.Fatalf("assignment card labels with %d vaccines sheds=%v partitions=%v vaccines=%v, want one Part 3 shed and %v",
+				index+1, got.ShedLabels, got.ShedPartitionLabels, got.VaccineLabels, wantVaccines)
+		}
+		if got.DriveSummary.ShedCount != 1 || len(got.DriveSummary.Sheds) != 1 ||
+			got.DriveSummary.Sheds[0].PartitionLabel == nil ||
+			*got.DriveSummary.Sheds[0].PartitionLabel != "Part 3" ||
+			!slices.Equal(got.DriveSummary.VaccineLabels, wantVaccines) {
+			t.Fatalf("assignment drive summary with %d vaccines=%#v, want one Part 3 shed and vaccines %v",
+				index+1, got.DriveSummary, wantVaccines)
+		}
+	}
+
+	// Unrelated same-day Yashoda 1 Z1/Z3 work must be a different assignment card.
+	const (
+		zProtocol = "86000000-0000-4000-8000-00000000e401"
+		zVersion  = "86000000-0000-4000-8000-00000000e402"
+		zRule     = "86000000-0000-4000-8000-00000000e403"
+		zBatch    = "86000000-0000-4000-8000-00000000e404"
+		zObl      = "86000000-0000-4000-8000-00000000e405"
+	)
+	seedVaccinationObligation(t, ctx, pool, zProtocol, zVersion, zRule, zObl, day)
+	seedProtocolRuleVaccineName(t, ctx, pool, zVersion, zRule, "Z1 Z3")
+	attachObligationToGoatScope(t, ctx, pool, zObl, animalZ, "shed", testShedB)
+	setCalendarGoatCurrentShed(t, ctx, pool, animalZ, testParkA, testShedB)
+	seedVaccinationBatchForShed(t, ctx, pool, zBatch, zVersion, testParkA, testShedB, day, zObl)
+	if _, err := pool.Exec(ctx, `
+INSERT INTO vaccination_drive_assignments (
+  assignment_id, tenant_id, batch_id, planned_date, park_id, shed_id, physical_shed,
+  partition_label, animal_count, total_doses, vaccine_rule_ids
+) VALUES ($1::uuid, $2::uuid, $3::uuid, ($4::timestamptz AT TIME ZONE 'Asia/Kolkata')::date,
+          $5::uuid, $6::uuid, 'Yashoda 1', 'Part 1', 1, 1, ARRAY[$7::uuid])`, assignmentZ, testTenantID, zBatch, day, testParkA, testShedB, zRule); err != nil {
+		t.Fatalf("seed unrelated Z assignment: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO vaccination_drive_assignment_members (tenant_id, assignment_id, obligation_id, goat_id)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid)`, testTenantID, assignmentZ, zObl, animalZ); err != nil {
+		t.Fatalf("seed unrelated Z assignment member: %v", err)
+	}
+
+	repo := NewRepository(pool, 5*time.Second)
+	list, err := repo.ListEvents(ctx, domain.Query{
+		TenantID: testTenantID, OwnerKey: domain.OwnerAll,
+		DateFrom: biztime.BusinessDayStart(day), DateTo: day.Add(24 * time.Hour), Limit: 20,
+		Scope: domain.ScopeFilter{TenantWide: true}, IncludeDriveSummary: true,
+	})
+	if err != nil {
+		t.Fatalf("ListEvents same-day assignments: %v", err)
+	}
+	wantA := domain.FormatAssignmentDriveEventID(assignmentA)
+	wantZ := domain.FormatAssignmentDriveEventID(assignmentZ)
+	seen := map[string]domain.CalendarEvent{}
+	for _, item := range list.Items {
+		if item.EventID == wantA || item.EventID == wantZ {
+			seen[item.EventID] = item
+		}
+	}
+	if len(seen) != 2 || seen[wantA].VaccineCount != 3 || seen[wantZ].VaccineCount != 1 {
+		t.Fatalf("same-day assignment cards=%#v, want separate Amit(3 vaccines) and Z(1 vaccine)", seen)
+	}
+	if seen[wantA].ShedCount != 1 ||
+		!slices.Equal(seen[wantA].ShedLabels, []string{"Test Shed 0711"}) ||
+		!slices.Equal(seen[wantA].ShedPartitionLabels, []string{"Part 3"}) ||
+		!slices.Equal(seen[wantA].VaccineLabels, []string{"BT", "ET+TT", "PPR"}) {
+		t.Fatalf("Amit assignment leaked/miscounted card labels: %#v", seen[wantA])
+	}
+	if seen[wantZ].ShedCount != 1 ||
+		!slices.Equal(seen[wantZ].ShedLabels, []string{"Test Shed 0712"}) ||
+		!slices.Equal(seen[wantZ].ShedPartitionLabels, []string{"Part 1"}) ||
+		!slices.Equal(seen[wantZ].VaccineLabels, []string{"Z1 Z3"}) {
+		t.Fatalf("Z assignment leaked/miscounted card labels: %#v", seen[wantZ])
+	}
+	assertDriveTargets(t, ctx, repo, wantA, []string{animalA, animalB})
+	assertDriveTargets(t, ctx, repo, wantZ, []string{animalZ})
+
+	// Moving the assignment changes its calendar day, not its durable event identity.
+	movedDay := day.Add(24 * time.Hour)
+	if _, err := pool.Exec(ctx, `UPDATE vaccination_drive_assignments SET planned_date = ($3::timestamptz AT TIME ZONE 'Asia/Kolkata')::date WHERE tenant_id=$1::uuid AND assignment_id=$2::uuid`, testTenantID, assignmentA, movedDay); err != nil {
+		t.Fatalf("move assignment date: %v", err)
+	}
+	repo = NewRepository(pool, 5*time.Second)
+	moved, err := repo.ListEvents(ctx, domain.Query{
+		TenantID: testTenantID, OwnerKey: domain.OwnerAll,
+		DateFrom: biztime.BusinessDayStart(movedDay), DateTo: movedDay.Add(24 * time.Hour), Limit: 20,
+		Scope: domain.ScopeFilter{TenantWide: true}, IncludeDriveSummary: true,
+	})
+	if err != nil {
+		t.Fatalf("ListEvents moved assignment: %v", err)
+	}
+	var movedFound bool
+	for _, item := range moved.Items {
+		movedFound = movedFound || item.EventID == wantA
+	}
+	if !movedFound {
+		t.Fatalf("moved assignment lost stable event id %s: %#v", wantA, moved.Items)
 	}
 }
 

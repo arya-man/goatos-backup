@@ -407,7 +407,10 @@ catchup_drive_events AS (
 ),
 batch_events AS (
   SELECT
-    'batch:' || grouped.batch_id::text AS event_id,
+    CASE
+      WHEN grouped.assignment_id IS NOT NULL THEN 'vaccinationdrive:assignment:' || grouped.assignment_id::text
+      ELSE 'batch:' || grouped.batch_id::text
+    END AS event_id,
     'vaccination_drive'::text AS event_type,
     'pc'::text AS owner_key,
     CASE
@@ -449,8 +452,8 @@ batch_events AS (
     queue_meta.queue_preview AS dose_code,
     true AS source_backed,
     queue_meta.queue_summary AS source_label,
-    'batch'::text AS source_target_type,
-    grouped.batch_id AS source_target_id,
+    CASE WHEN grouped.assignment_id IS NOT NULL THEN 'assignment' ELSE 'batch' END::text AS source_target_type,
+    COALESCE(grouped.assignment_id, grouped.batch_id) AS source_target_id,
     COALESCE(NULLIF(grouped.operator_names, ''), 'PC drive team')::text AS assignee_label,
     'pc_vaccinator'::text AS executor_role,
     'PC verifier'::text AS verifier_label,
@@ -478,7 +481,7 @@ batch_events AS (
         'queue_count', grouped.queue_count,
         'queue_preview', queue_meta.queue_preview
       ),
-      'execution', jsonb_build_object('batch_id', grouped.batch_id, 'sop_task_id', grouped.sop_task_id, 'work_state', grouped.batch_status),
+      'execution', jsonb_build_object('assignment_id', grouped.assignment_id, 'batch_id', grouped.batch_id, 'sop_task_id', grouped.sop_task_id, 'work_state', grouped.batch_status),
       'stock', jsonb_build_object('reserved_qty', grouped.reserved_quantity, 'planned_qty', grouped.planned_quantity),
       'proof', jsonb_build_object(),
       'verification', jsonb_build_object('verifier', 'PC verifier'),
@@ -489,6 +492,7 @@ batch_events AS (
   FROM (
     SELECT
       ob.batch_id,
+      assignment_scope.assignment_id,
       ob.status AS batch_status,
       ob.scope_type AS batch_scope_type,
       COALESCE((assignment_scope.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata'), (ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata'), ob.window_start, ob.window_end) AS due_at,
@@ -594,6 +598,10 @@ batch_events AS (
       ON scope_loc.tenant_id = ob.tenant_id AND scope_loc.location_id = ob.scope_id
     LEFT JOIN locations scope_parent
       ON scope_parent.tenant_id = ob.tenant_id AND scope_parent.location_id = scope_loc.parent_location_id
+    LEFT JOIN vaccination_drive_assignment_members exact_member
+      ON exact_member.tenant_id = oi.tenant_id
+     AND exact_member.obligation_id = oi.obligation_id
+     AND exact_member.canceled_at IS NULL
     LEFT JOIN LATERAL (
       SELECT count(*) > 0 AS has_any_assignment
       FROM vaccination_drive_assignments vda
@@ -602,6 +610,7 @@ batch_events AS (
     ) assignment_presence ON true
     LEFT JOIN LATERAL (
       SELECT
+        CASE WHEN exact_member.assignment_id IS NOT NULL THEN vda.assignment_id END AS assignment_id,
         vda.planned_date,
         array_remove(array_agg(DISTINCT assignment_rule.rule_id), NULL)::uuid[] AS rule_ids,
         string_agg(DISTINCT NULLIF(wm.display_name, ''), ', ') AS operator_names
@@ -610,7 +619,10 @@ batch_events AS (
       LEFT JOIN workforce_members wm
         ON wm.workforce_member_id = vda.operator_id
       WHERE vda.tenant_id = ob.tenant_id
-        AND vda.batch_id = ob.batch_id
+        AND (
+          vda.assignment_id = exact_member.assignment_id
+          OR (exact_member.assignment_id IS NULL AND vda.batch_id = ob.batch_id)
+        )
         AND (vda.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') < $3::timestamptz
         -- P1 drive rollover: widen inclusion to a 45-day lookback ONLY for 'in_progress' batches
         -- (gated identically to the display-date rollover a few hundred lines below) -- these are
@@ -623,7 +635,7 @@ batch_events AS (
         -- TODAY, so a window that does not contain today has no business being handed one. Without
         -- that gate every future window inherited the rolled card (tomorrow showed today's drives).
         AND (vda.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') + interval '1 day' > $2::timestamptz - CASE WHEN ob.status = 'in_progress' AND ` + calendarTodayInRequestedWindow + ` THEN interval '45 days' ELSE interval '0 days' END
-      GROUP BY vda.planned_date
+      GROUP BY CASE WHEN exact_member.assignment_id IS NOT NULL THEN vda.assignment_id END, vda.planned_date
     ) assignment_scope ON true
     WHERE ob.tenant_id = $1::uuid
       AND ob.scope_type IN ('tenant', 'shed', 'park')
@@ -654,6 +666,7 @@ batch_events AS (
       )
     GROUP BY
       ob.batch_id,
+      assignment_scope.assignment_id,
       ob.status,
       ob.scope_type,
       COALESCE((assignment_scope.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata'), (ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata'), ob.window_start, ob.window_end),
@@ -729,13 +742,22 @@ batch_events AS (
   ) queue_meta
 ),
 drive_sources AS (
-  SELECT * FROM batch_events
-  UNION ALL
-  SELECT * FROM catchup_drive_events
+  SELECT source.*,
+         CASE
+           WHEN source.event_id LIKE 'vaccinationdrive:assignment:%' THEN source.event_id
+           WHEN source.event_id LIKE 'batch:%' THEN source.event_id
+           ELSE source.event_id
+         END AS execution_drive_key
+  FROM (
+    SELECT * FROM batch_events
+    UNION ALL
+    SELECT * FROM catchup_drive_events
+  ) source
 ),
 -- projection-review: membership=drive_sources (batch_events plus catchup_drive_events, one source event row per stable event_id); group_key=(park_id, due_day) where due_day is derived from the source event due_at in Asia/Kolkata and batched sources already prefer planned_date before window_start; join_cardinality=source rows are UNION ALL event facts, grouped once by park/day with count(DISTINCT shed_id) only for shed metadata and scheduled_count filtered to active scheduled/review batch statuses so completed/canceled batches cannot create scheduled work; pagination=calendar park-drive grouping is computed inside the bounded canonical list request before the event page is emitted, while month markers use their own whole-month aggregate; scope=park_id from the event source, shed only remains a display dimension and never narrows park-drive membership
 park_drive_groups AS (
   SELECT
+    execution_drive_key,
     park_id,
     max(park_code) AS park_code,
     to_char((due_at AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD') AS due_day,
@@ -769,7 +791,7 @@ park_drive_groups AS (
     NULLIF(min(shed_id::text) FILTER (WHERE shed_id IS NOT NULL), '')::uuid AS primary_shed_id,
     min(shed_name) FILTER (WHERE shed_name IS NOT NULL) AS primary_shed_name
   FROM drive_sources
-  GROUP BY park_id, to_char((due_at AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD')
+  GROUP BY execution_drive_key, park_id, to_char((due_at AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD')
 ),
 obligation_drive_membership AS (
   WITH obligation_membership_rows AS (
@@ -781,14 +803,14 @@ obligation_drive_membership AS (
     -- Unbatched window branch keeps 'completed' (membership needs it for the completed aggregates),
     -- hence idx_obligation_instances_calendar_window excludes only waived/canceled/superseded.
     -- Unbatched window (index: idx_obligation_instances_calendar_window)
-    SELECT oi0.*, NULL::timestamptz AS membership_at_override
+    SELECT oi0.*, NULL::timestamptz AS membership_at_override, NULL::uuid AS assignment_id
     FROM obligation_instances oi0
     WHERE tenant_id = $1::uuid AND batch_id IS NULL
       AND status NOT IN ('superseded', 'canceled', 'waived')
       AND due_at >= $2::timestamptz AND due_at < $3::timestamptz
     UNION
     -- Unbatched bounded exception catch-up (index: idx_obligation_instances_calendar_exceptions_due)
-    SELECT oi0.*, NULL::timestamptz AS membership_at_override
+    SELECT oi0.*, NULL::timestamptz AS membership_at_override, NULL::uuid AS assignment_id
     FROM obligation_instances oi0
     WHERE tenant_id = $1::uuid AND batch_id IS NULL
       AND status IN ('missed', 'in_progress', 'deferred')
@@ -796,7 +818,7 @@ obligation_drive_membership AS (
       AND due_at < $3::timestamptz
     UNION
     -- Unbatched overdue-by-due_at (index: idx_obligation_instances_calendar_overdue)
-    SELECT oi0.*, NULL::timestamptz AS membership_at_override
+    SELECT oi0.*, NULL::timestamptz AS membership_at_override, NULL::uuid AS assignment_id
     FROM obligation_instances oi0
     WHERE tenant_id = $1::uuid AND batch_id IS NULL
       AND status IN ('scheduled', 'due') AND due_at < now()
@@ -806,7 +828,8 @@ obligation_drive_membership AS (
     -- Operator-planned vaccination drives. Exact assignment membership is the source of truth for
     -- the execution day after operator-cap planning or admin date moves; do not join every
     -- obligation in a split batch to every assignment date for the same vaccine rule.
-    SELECT oi2.*, (vda.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS membership_at_override
+    SELECT oi2.*, (vda.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS membership_at_override,
+           vda.assignment_id
     FROM obligation_instances oi2
     JOIN obligation_batches ob2
       ON ob2.tenant_id = oi2.tenant_id AND ob2.batch_id = oi2.batch_id
@@ -816,7 +839,7 @@ obligation_drive_membership AS (
     JOIN vaccination_drive_assignments vda
       ON vda.tenant_id = vdam.tenant_id
      AND vda.assignment_id = vdam.assignment_id
-     AND vda.batch_id = oi2.batch_id
+     AND vdam.canceled_at IS NULL
      AND (
        cardinality(vda.vaccine_rule_ids) = 0
        OR oi2.rule_id = ANY(vda.vaccine_rule_ids)
@@ -831,7 +854,7 @@ obligation_drive_membership AS (
     -- historical split batches have assignment rows for the day-level cards but no member rows for
     -- already-completed animals. Keep those rows on their own obligation business day instead of
     -- fanning them out across every assignment date in the batch.
-    SELECT oi2.*, oi2.due_at AS membership_at_override
+    SELECT oi2.*, oi2.due_at AS membership_at_override, NULL::uuid AS assignment_id
     FROM obligation_instances oi2
     JOIN obligation_batches ob2
       ON ob2.tenant_id = oi2.tenant_id AND ob2.batch_id = oi2.batch_id
@@ -855,7 +878,7 @@ obligation_drive_membership AS (
     UNION
     -- Batched drives in-window (obligation_batches window joined to obligation_instances via
     -- obligation_instances_batch_idx). obligation_batches stays a cheap scan (low cardinality).
-    SELECT oi2.*, NULL::timestamptz AS membership_at_override FROM obligation_instances oi2
+    SELECT oi2.*, NULL::timestamptz AS membership_at_override, NULL::uuid AS assignment_id FROM obligation_instances oi2
     JOIN obligation_batches ob2
       ON ob2.tenant_id = oi2.tenant_id AND ob2.batch_id = oi2.batch_id
     LEFT JOIN LATERAL (
@@ -882,6 +905,13 @@ obligation_drive_membership AS (
       )
   )
   SELECT
+    CASE
+      WHEN oi.assignment_id IS NOT NULL THEN 'vaccinationdrive:assignment:' || oi.assignment_id::text
+      WHEN oi.batch_id IS NOT NULL THEN 'batch:' || oi.batch_id::text
+      WHEN loc.park_id IS NOT NULL THEN 'catchup:park:' || loc.park_id::text || ':due:' || to_char((member.membership_at AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD')
+      ELSE 'catchup:tenant:' || oi.tenant_id::text || ':due:' || to_char((member.membership_at AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD')
+    END AS execution_drive_key,
+    oi.assignment_id,
     oi.obligation_id,
     oi.status,
     oi.rule_id,
@@ -896,6 +926,10 @@ obligation_drive_membership AS (
       (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date
     ) AS logical_window_end,
     COALESCE(
+      NULLIF(prd.vaccine_json->>'name', ''),
+      NULLIF(prd.vaccine_json->>'display_name', ''),
+      NULLIF(prd.vaccine_json->>'code', ''),
+      NULLIF(prd.vaccine_code, ''),
       NULLIF(pr.eligibility_json->'vaccine'->>'display_name', ''),
       NULLIF(pr.eligibility_json->'vaccine'->>'name', ''),
       NULLIF(pr.eligibility_json->'vaccine'->>'code', ''),
@@ -907,14 +941,14 @@ obligation_drive_membership AS (
     loc.park_id,
     loc.park_code,
     loc.shed_id,
-    COALESCE(
-      CASE
-        WHEN LOWER(BTRIM(COALESCE(gsp.partition_label, ''))) NOT IN ('', 'whole') THEN BTRIM(gsp.partition_label)
-      END,
-      CASE
-        WHEN LOWER(BTRIM(COALESCE(exact_assignment.partition_label, ''))) NOT IN ('', 'whole') THEN BTRIM(exact_assignment.partition_label)
-      END
-    ) AS partition_label,
+    CASE
+      WHEN oi.assignment_id IS NOT NULL THEN
+        CASE
+          WHEN LOWER(BTRIM(COALESCE(exact_assignment.partition_label, ''))) NOT IN ('', 'whole')
+            THEN BTRIM(exact_assignment.partition_label)
+        END
+      WHEN LOWER(BTRIM(COALESCE(gsp.partition_label, ''))) NOT IN ('', 'whole') THEN BTRIM(gsp.partition_label)
+    END AS partition_label,
     (member.membership_at AT TIME ZONE 'Asia/Kolkata')::date AS due_date,
     -- The ORIGINAL scheduled business date, BEFORE the "keeps showing on the current date until
     -- CLOSED" rollover below rewrites membership_at to today. Grouping and display must use the
@@ -968,6 +1002,8 @@ obligation_drive_membership AS (
     ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
   JOIN protocol_rules pr
     ON pr.tenant_id = oi.tenant_id AND pr.rule_id = oi.rule_id
+  LEFT JOIN protocol_rule_dimensions prd
+    ON prd.tenant_id = pr.tenant_id AND prd.rule_id = pr.rule_id
   LEFT JOIN obligation_batches ob
     ON ob.tenant_id = oi.tenant_id AND ob.batch_id = oi.batch_id
   LEFT JOIN goats g
@@ -984,6 +1020,7 @@ obligation_drive_membership AS (
   LEFT JOIN vaccination_drive_assignment_members exact_member
     ON exact_member.tenant_id = oi.tenant_id
    AND exact_member.obligation_id = oi.obligation_id
+   AND exact_member.canceled_at IS NULL
   LEFT JOIN vaccination_drive_assignments exact_assignment
     ON exact_assignment.tenant_id = exact_member.tenant_id
    AND exact_assignment.assignment_id = exact_member.assignment_id
@@ -1072,6 +1109,7 @@ obligation_drive_membership AS (
 -- protocol and vaccine identity; verifier/director workflow timestamps never participate.
 obligation_logical_drive_keys AS (
   SELECT DISTINCT
+    m.execution_drive_key,
     m.park_id,
     m.park_code,
     m.due_date AS execution_date,
@@ -1087,6 +1125,7 @@ obligation_logical_drive_keys AS (
 ),
 obligation_logical_drive_full_membership AS (
   SELECT
+    k.execution_drive_key,
     k.park_id,
     k.park_code,
     k.execution_date,
@@ -1095,6 +1134,11 @@ obligation_logical_drive_full_membership AS (
     k.adult_drive,
     CASE WHEN all_oi.target_type = 'goat' THEN all_oi.target_id END AS animal_id
   FROM obligation_logical_drive_keys k
+  LEFT JOIN vaccination_drive_assignment_members all_member
+    ON k.execution_drive_key LIKE 'vaccinationdrive:assignment:%'
+   AND all_member.tenant_id = $1::uuid
+   AND all_member.assignment_id = substring(k.execution_drive_key FROM 'vaccinationdrive:assignment:(.*)')::uuid
+   AND all_member.canceled_at IS NULL
   JOIN obligation_batches all_ob
     ON all_ob.tenant_id = $1::uuid
    AND all_ob.protocol_version_id = k.protocol_version_id
@@ -1110,6 +1154,10 @@ obligation_logical_drive_full_membership AS (
   JOIN obligation_instances all_oi
     ON all_oi.tenant_id = all_ob.tenant_id
    AND all_oi.batch_id = all_ob.batch_id
+   AND (
+     k.execution_drive_key NOT LIKE 'vaccinationdrive:assignment:%'
+     OR all_oi.obligation_id = all_member.obligation_id
+   )
    AND all_oi.status NOT IN ('superseded', 'canceled', 'waived')
   JOIN protocol_rules all_pr
     ON all_pr.tenant_id = all_oi.tenant_id
@@ -1134,6 +1182,7 @@ obligation_logical_drive_full_membership AS (
 -- projection-review: membership=obligation_logical_drive_full_membership starts from the bounded executable-day keys, then expands through persisted batch membership to every animal in the same protocol+park+batch-window+vaccine cohort, including operator days outside the requested Calendar page/window; group_key=(park_id, protocol_version_id, logical_window_start, logical_window_end, logical_vaccine_label) identifies one persisted multi-day drive cohort, while execution_date keeps the emitted row at park/day grain; join_cardinality=protocol_rules is one row per rule and drive_total collapses batch members with COUNT(DISTINCT animal_id), with no protocol_rule_dimensions fan-out; pagination=the complete matching cohort is aggregated before the bounded Calendar event page is emitted, so Limit or a single-day request cannot change drive_total; scope=park is resolved explicitly from goat.park_id or its physical-shed parent and matched to the executable key
 obligation_logical_drive_rollup AS (
   SELECT
+    m.execution_drive_key,
     m.park_id,
     m.execution_date,
     COALESCE(NULLIF(max(m.park_code), ''), 'Park') ||
@@ -1142,25 +1191,33 @@ obligation_logical_drive_rollup AS (
       ' – ' || to_char(min(m.logical_window_start), 'Mon YYYY') AS drive_name,
     count(DISTINCT m.animal_id)::int AS drive_total
   FROM obligation_logical_drive_full_membership m
-  GROUP BY m.park_id, m.execution_date
+  GROUP BY m.execution_drive_key, m.park_id, m.execution_date
 ),
 obligation_drive_vaccine_labels AS (
   SELECT
+    m.execution_drive_key,
     m.park_id,
     m.due_date,
-    array_remove(array_agg(DISTINCT COALESCE(NULLIF(prd.vaccine_json->>'name', ''), m.protocol_name)), NULL)::text[] AS vaccine_labels
+    array_remove(array_agg(DISTINCT COALESCE(
+      NULLIF(prd.vaccine_json->>'name', ''),
+      NULLIF(prd.vaccine_json->>'display_name', ''),
+      NULLIF(prd.vaccine_json->>'code', ''),
+      NULLIF(prd.vaccine_code, ''),
+      NULLIF(m.logical_vaccine_label, ''),
+      m.protocol_name
+    )), NULL)::text[] AS vaccine_labels
   FROM obligation_drive_membership m
   LEFT JOIN protocol_rule_dimensions prd
     ON prd.tenant_id = $1::uuid AND prd.rule_id = m.rule_id
-  GROUP BY m.park_id, m.due_date
+  GROUP BY m.execution_drive_key, m.park_id, m.due_date
 ),
 obligation_drive_shed_complete AS (
-  SELECT park_id, due_date, count(*)::int AS sheds_completed
+  SELECT execution_drive_key, park_id, due_date, count(*)::int AS sheds_completed
   FROM (
-    SELECT park_id, due_date, shed_id, partition_label
+    SELECT execution_drive_key, park_id, due_date, shed_id, partition_label
     FROM obligation_drive_membership
     WHERE shed_id IS NOT NULL
-    GROUP BY park_id, due_date, shed_id, partition_label
+    GROUP BY execution_drive_key, park_id, due_date, shed_id, partition_label
     -- An operational location is DONE when the operator has finished every animal in it --
     -- completed OR submitted. Sibling partitions of one physical shed complete independently.
     -- for verification. Requiring status='completed' alone meant a shed whose every animal was
@@ -1172,10 +1229,10 @@ obligation_drive_shed_complete AS (
       WHERE status = 'completed' OR submitted_for_verification
     )
   ) done_sheds
-  GROUP BY park_id, due_date
+  GROUP BY execution_drive_key, park_id, due_date
 ),
 obligation_drive_animal_coverage AS (
-  SELECT park_id, due_date,
+  SELECT execution_drive_key, park_id, due_date,
          count(*)::int AS total_animals,
          count(*) FILTER (WHERE fully_completed)::int AS completed_animals,
          count(*) FILTER (WHERE submitted_for_verification)::int AS submitted_animals
@@ -1194,18 +1251,19 @@ obligation_drive_animal_coverage AS (
     -- finished case that is NOT fully completed, i.e. at least one dose is sitting in
     -- verification. An animal with any dose neither completed nor submitted falls into
     -- neither bucket and correctly holds the ring below 100%.
-    SELECT park_id, due_date, animal_id,
+    SELECT execution_drive_key, park_id, due_date, animal_id,
            bool_and(status = 'completed') AS fully_completed,
            bool_and(status = 'completed' OR submitted_for_verification)
              AND NOT bool_and(status = 'completed') AS submitted_for_verification
     FROM obligation_drive_membership
     WHERE animal_id IS NOT NULL
-    GROUP BY park_id, due_date, animal_id
+    GROUP BY execution_drive_key, park_id, due_date, animal_id
   ) per_animal
-  GROUP BY park_id, due_date
+  GROUP BY execution_drive_key, park_id, due_date
 ),
 obligation_drive_shed_animals AS (
   SELECT
+    per_shed.execution_drive_key,
     per_shed.park_id,
     per_shed.due_date,
     count(*)::int AS shed_count,
@@ -1222,6 +1280,7 @@ obligation_drive_shed_animals AS (
     ) AS sheds
   FROM (
     SELECT
+      m.execution_drive_key,
       m.park_id,
       m.due_date,
       m.shed_id,
@@ -1233,9 +1292,9 @@ obligation_drive_shed_animals AS (
       ON l.tenant_id = $1::uuid
      AND l.location_id = m.shed_id
     WHERE m.shed_id IS NOT NULL
-    GROUP BY m.park_id, m.due_date, m.shed_id, m.partition_label, COALESCE(NULLIF(l.name, ''), l.location_code, m.shed_id::text)
+    GROUP BY m.execution_drive_key, m.park_id, m.due_date, m.shed_id, m.partition_label, COALESCE(NULLIF(l.name, ''), l.location_code, m.shed_id::text)
   ) per_shed
-  GROUP BY per_shed.park_id, per_shed.due_date
+  GROUP BY per_shed.execution_drive_key, per_shed.park_id, per_shed.due_date
 ),
 -- projection-review: membership=obligation_drive_membership (one row per obligation_id); group_key=(park_id, due_date) from that same membership row; join_cardinality=count(DISTINCT obligation_id) FILTER per mutually-exclusive bucket (completed>submitted>overdue>due>deferred) so total_count=completed+submitted+due+overdue+deferred with no double-counting, PLUS new animal_grain aggregation (count DISTINCT target_id where target_type='goat') rolled up per animal's bool_and(status='completed') per (park_id, due_date), with a separate animal_coverage subquery (separate animal subquery 1:1 LEFT JOIN on (park_id, due_date) produces animal_total_count and animal_completed_count, no fan-out); pagination=computed inline per ListEvents request as a bounded, keyset-paginated canonical read (5k-50k envelope, no projector, no materialized temp table); scope=(park_id, due_date) identical to membership's scope matrix, no re-derivation (unchanged by animal coverage); date/status: all existing dimension semantics preserved (animal counts are independent new grain, do not affect obligation buckets or date-window/status-bucket logic)
 -- projection-review: membership=obligation_drive_membership (one row per obligation_id, the obligation grain); group_key=(park_id, due_date); join_cardinality=count(DISTINCT obligation_id) FILTER per bucket over that single membership row-set, no join fan-out (sc/ac/vl/sa are each exactly 1 row per (park_id, due_date) and are attached 1:1 AFTER grouping). Grain proof for the FIVE-bucket disjointness fix: the bucket key is the pair (status, submitted_for_verification), both columns of the SAME membership row, so bucketing is a pure per-row partition -- no cross-row/cross-grain dependency. Partition is now total and disjoint: completed = status='completed'; submitted = status<>'completed' AND submitted; deferred = status='deferred' AND NOT submitted; overdue = status IN ('overdue','missed') AND NOT submitted AND NOT deferred; due = the remaining open statuses AND NOT submitted. Every status in total_count's list appears in exactly one branch for each value of submitted_for_verification, hence total_count = completed+submitted+due+overdue+deferred exactly (previously an overdue-or-deferred row that was ALSO submitted was counted twice, in submitted_count and again in overdue_count/deferred_count). progress_* is derived at the SAME group grain from already-grouped scalars (animal grain when total_animals>0, else obligation grain) and adds no rows, no joins, and no new scan. pagination=unchanged (computed inline per ListEvents request, bounded keyset canonical read, 5k-50k envelope, no projector, no materialized table); scope=(park_id, due_date), unchanged, no re-derivation; date/status window semantics unchanged -- only the mutually-exclusive bucket predicates and the new derived progress scalars changed, no index or scan shape impact.
@@ -1287,6 +1346,7 @@ obligation_drive_summary AS (
   -- byte-for-byte identical (sc/ac/vl are exactly one row per (park_id, due_date), so no fan-out and
   -- the former max()/COALESCE picked that single value).
   SELECT
+    g.execution_drive_key,
     g.park_id,
     g.due_date,
     g.total_count,
@@ -1308,6 +1368,7 @@ obligation_drive_summary AS (
     g.park_code
   FROM (
     SELECT
+      m.execution_drive_key,
       m.park_id,
       m.due_date,
       count(DISTINCT m.obligation_id) FILTER (WHERE m.status IN (
@@ -1384,18 +1445,18 @@ obligation_drive_summary AS (
       max(m.park_code) AS park_code
     FROM obligation_drive_membership m
     WHERE current_setting('goatos.include_drive_summary', true) = 'true'
-    GROUP BY m.park_id, m.due_date
+    GROUP BY m.execution_drive_key, m.park_id, m.due_date
   ) g
   LEFT JOIN obligation_drive_shed_complete sc
-    ON sc.park_id IS NOT DISTINCT FROM g.park_id AND sc.due_date = g.due_date
+    ON sc.execution_drive_key = g.execution_drive_key AND sc.park_id IS NOT DISTINCT FROM g.park_id AND sc.due_date = g.due_date
   LEFT JOIN obligation_drive_animal_coverage ac
-    ON ac.park_id IS NOT DISTINCT FROM g.park_id AND ac.due_date = g.due_date
+    ON ac.execution_drive_key = g.execution_drive_key AND ac.park_id IS NOT DISTINCT FROM g.park_id AND ac.due_date = g.due_date
   LEFT JOIN obligation_drive_vaccine_labels vl
-    ON vl.park_id IS NOT DISTINCT FROM g.park_id AND vl.due_date = g.due_date
+    ON vl.execution_drive_key = g.execution_drive_key AND vl.park_id IS NOT DISTINCT FROM g.park_id AND vl.due_date = g.due_date
   LEFT JOIN obligation_drive_shed_animals sa
-    ON sa.park_id IS NOT DISTINCT FROM g.park_id AND sa.due_date = g.due_date
+    ON sa.execution_drive_key = g.execution_drive_key AND sa.park_id IS NOT DISTINCT FROM g.park_id AND sa.due_date = g.due_date
   LEFT JOIN obligation_logical_drive_rollup ld
-    ON ld.park_id IS NOT DISTINCT FROM g.park_id AND ld.execution_date = g.due_date
+    ON ld.execution_drive_key = g.execution_drive_key AND ld.park_id IS NOT DISTINCT FROM g.park_id AND ld.execution_date = g.due_date
 ),
 -- projection-review: membership=obligation_drive_membership (exactly one row per obligation_id, the obligation grain -- the SAME membership CTE the five-bucket obl_summary groups over, so headline and counts can never diverge on membership); group_key=(park_id, due_date) taken from that same membership row, never re-derived from a joined table; join_cardinality=NO JOIN -- this CTE reads the single membership row-set and collapses it with bool_or over three predicates, so it cannot fan out; each flag is a pure per-row predicate on columns of the SAME row (status, submitted_for_verification, due_date), making the grouping a total partition of the row-set; the result is attached to park_drive_events 1:1 on (park_id, due_date), the identical key, so it adds no rows; pagination=computed inline per ListEvents request inside the bounded keyset canonical read (5k-50k envelope, no projector, no materialized table); the flags are whole-filter aggregates over the group, NOT page-local, so Limit changes rows only and never the headline; scope=(park_id, due_date), identical to membership's scope matrix, shed remains a display dimension only and never narrows drive membership; date=due_date is already IST-normalized at membership build time ((membership_at AT TIME ZONE 'Asia/Kolkata')::date), so genuine_overdue compares IST date to IST date with no second conversion; status=genuine_missed/genuine_overdue are submission-aware (status AND submitted_for_verification together, never status alone), and genuine_overdue is READ-TIME over the open-status allow-list -- it never references a literal 'overdue' obligation status, which the baseline CHECK does not permit.
 obligation_drive_effective_state AS (
@@ -1410,6 +1471,7 @@ obligation_drive_effective_state AS (
   -- with IST business due_date in the past, AND NOT submitted (matching grouped.has_overdue logic
   -- which uses '(due_at AT TIME ZONE 'Asia/Kolkata')::date < (now())::date' on same membership).
   SELECT
+    m.execution_drive_key,
     m.park_id,
     m.due_date,
     bool_or(m.submitted_for_verification) AS has_submitted,
@@ -1452,7 +1514,7 @@ obligation_drive_effective_state AS (
       WHERE m.status = 'deferred' AND NOT m.submitted_for_verification
     )::int AS deferred_count
   FROM obligation_drive_membership m
-  GROUP BY m.park_id, m.due_date
+  GROUP BY m.execution_drive_key, m.park_id, m.due_date
 ),
 park_drive_events AS (
   -- CR-002/CR-003 (calendar-canonical-5k50k review): the event_id is the STABLE park+business-date
@@ -1480,6 +1542,7 @@ park_drive_events AS (
   --     into source_target_type/source_target_id for a drive_count = 1 row.
   SELECT
     CASE
+      WHEN grouped.execution_drive_key LIKE 'vaccinationdrive:assignment:%' THEN grouped.execution_drive_key
       WHEN grouped.park_id IS NOT NULL THEN 'parkdrive:park:' || grouped.park_id::text || ':date:' || grouped.due_day
       ELSE 'parkdrive:tenant:' || $1::text || ':date:' || grouped.due_day
     END AS event_id,
@@ -1488,8 +1551,8 @@ park_drive_events AS (
     CASE WHEN grouped.park_id IS NOT NULL THEN 'Park vaccination drive' ELSE 'Vaccination drive' END AS title,
     COALESCE(location_meta.shed_count, cardinality(shed_meta.labels))::text ||
       CASE WHEN COALESCE(location_meta.shed_count, cardinality(shed_meta.labels)) = 1 THEN ' pen · ' ELSE ' pens · ' END ||
-      cardinality(vaccine_meta.labels)::text ||
-      CASE WHEN cardinality(vaccine_meta.labels) = 1 THEN ' vaccine' ELSE ' vaccines' END AS subtitle,
+      cardinality(effective_vaccine_meta.labels)::text ||
+      CASE WHEN cardinality(effective_vaccine_meta.labels) = 1 THEN ' vaccine' ELSE ' vaccines' END AS subtitle,
     CASE
       -- projection-review: membership=obligation_drive_membership via obligation_drive_effective_state, one row per obligation collapsed to one row per (park_id, due_date); group_key=(park_id, due_date), the SAME key grouped.* already carries, joined with IS NOT DISTINCT FROM on park_id so a NULL-park tenant drive still matches instead of dropping out; join_cardinality=strictly 1:1, because eff_state is UNIQUE on (park_id, due_date) by construction (it is GROUP BY on exactly those two columns), so this LEFT JOIN adds no rows and cannot fan out the drive -- the COALESCE(..., false) wrappers cover ONLY the zero-obligation drive, where every flag is correctly false; pagination=headline and severity come from whole-filter group aggregates, never from the emitted page, so Limit changes which events appear but never what an event says about itself (asserted by the MultiPage/PageBoundary case); scope=(park_id, due_date) only, shed stays a display dimension and never narrows the headline, date=eff_state.due_date is IST-normalized at membership build time and compared against grouped.due_day::date so both sides are IST dates with no second conversion, status=precedence is a total ordering placing the three submission-aware flags first (genuine_missed, then genuine_overdue, then has_submitted/has_review) ahead of the legacy in_progress/completed/scheduled/deferred branches, so a mixed drive still reads missed/critical and past-due open work can never fall through to the false-green scheduled.
       -- grain proof: headline depends on OBLIGATION-grain effective state flags, ALWAYS computed
@@ -1551,14 +1614,14 @@ park_drive_events AS (
     NULL::uuid AS protocol_version_id,
     NULL::uuid AS rule_id,
     CASE
-      WHEN cardinality(vaccine_meta.labels) = 1 THEN vaccine_meta.labels[1]
-      ELSE cardinality(vaccine_meta.labels)::text || ' vaccines'
+      WHEN cardinality(effective_vaccine_meta.labels) = 1 THEN effective_vaccine_meta.labels[1]
+      ELSE cardinality(effective_vaccine_meta.labels)::text || ' vaccines'
     END AS vaccine_name,
     CASE
-      WHEN cardinality(vaccine_meta.labels) = 0 THEN NULL::text
-      WHEN cardinality(vaccine_meta.labels) = 1 THEN vaccine_meta.labels[1]
-      WHEN cardinality(vaccine_meta.labels) = 2 THEN vaccine_meta.labels[1] || ', ' || vaccine_meta.labels[2]
-      ELSE vaccine_meta.labels[1] || ', ' || vaccine_meta.labels[2] || ' +' || (cardinality(vaccine_meta.labels) - 2)::text || ' more'
+      WHEN cardinality(effective_vaccine_meta.labels) = 0 THEN NULL::text
+      WHEN cardinality(effective_vaccine_meta.labels) = 1 THEN effective_vaccine_meta.labels[1]
+      WHEN cardinality(effective_vaccine_meta.labels) = 2 THEN effective_vaccine_meta.labels[1] || ', ' || effective_vaccine_meta.labels[2]
+      ELSE effective_vaccine_meta.labels[1] || ', ' || effective_vaccine_meta.labels[2] || ' +' || (cardinality(effective_vaccine_meta.labels) - 2)::text || ' more'
     END AS dose_code,
     true AS source_backed,
     'Park/day vaccination drive projection'::text AS source_label,
@@ -1577,35 +1640,50 @@ park_drive_events AS (
       'summary', jsonb_build_object(
         'owner', 'PC',
         'target_count', grouped.target_count,
-        'summary_primary', COALESCE(eff_state.due_count, grouped.scheduled_count, 0)::text || CASE WHEN COALESCE(eff_state.due_count, grouped.scheduled_count, 0) = 1 THEN ' scheduled dose' ELSE ' scheduled doses' END,
+        'summary_primary', CASE
+          WHEN COALESCE(obl_summary.total_animals, 0) > 0 THEN
+            GREATEST(obl_summary.total_animals - obl_summary.completed_animals - obl_summary.submitted_animals, 0)::text ||
+              CASE WHEN GREATEST(obl_summary.total_animals - obl_summary.completed_animals - obl_summary.submitted_animals, 0) = 1 THEN ' animal due' ELSE ' animals due' END
+          ELSE COALESCE(eff_state.due_count, grouped.scheduled_count, 0)::text ||
+            CASE WHEN COALESCE(eff_state.due_count, grouped.scheduled_count, 0) = 1 THEN ' scheduled dose' ELSE ' scheduled doses' END
+        END,
         'summary_secondary', COALESCE(location_meta.shed_count, cardinality(shed_meta.labels))::text ||
           CASE WHEN COALESCE(location_meta.shed_count, cardinality(shed_meta.labels)) = 1 THEN ' pen · ' ELSE ' pens · ' END ||
-          cardinality(vaccine_meta.labels)::text ||
-          CASE WHEN cardinality(vaccine_meta.labels) = 1 THEN ' vaccine' ELSE ' vaccines' END,
+          cardinality(effective_vaccine_meta.labels)::text ||
+          CASE WHEN cardinality(effective_vaccine_meta.labels) = 1 THEN ' vaccine' ELSE ' vaccines' END,
         'summary_tertiary', CASE
-          WHEN cardinality(vaccine_meta.labels) = 0 THEN ''
-          WHEN cardinality(vaccine_meta.labels) = 1 THEN vaccine_meta.labels[1]
-          WHEN cardinality(vaccine_meta.labels) = 2 THEN vaccine_meta.labels[1] || ', ' || vaccine_meta.labels[2]
-          ELSE vaccine_meta.labels[1] || ', ' || vaccine_meta.labels[2] || ' +' || (cardinality(vaccine_meta.labels) - 2)::text || ' more'
+          WHEN cardinality(effective_vaccine_meta.labels) = 0 THEN ''
+          WHEN cardinality(effective_vaccine_meta.labels) = 1 THEN effective_vaccine_meta.labels[1]
+          WHEN cardinality(effective_vaccine_meta.labels) = 2 THEN effective_vaccine_meta.labels[1] || ', ' || effective_vaccine_meta.labels[2]
+          ELSE effective_vaccine_meta.labels[1] || ', ' || effective_vaccine_meta.labels[2] || ' +' || (cardinality(effective_vaccine_meta.labels) - 2)::text || ' more'
         END,
         'shed_count', COALESCE(location_meta.shed_count, cardinality(shed_meta.labels)),
-        'vaccine_count', cardinality(vaccine_meta.labels),
+        'vaccine_count', cardinality(effective_vaccine_meta.labels),
         'drive_count', grouped.drive_count,
         'catch_up_count', COALESCE(grouped.catch_up_count, 0),
-        'scheduled_count', COALESCE(eff_state.due_count, grouped.scheduled_count, 0),
+        'scheduled_count', CASE
+          WHEN COALESCE(obl_summary.total_animals, 0) > 0 THEN GREATEST(obl_summary.total_animals - obl_summary.completed_animals - obl_summary.submitted_animals, 0)
+          ELSE COALESCE(eff_state.due_count, grouped.scheduled_count, 0)
+        END,
+        'scheduled_dose_count', COALESCE(eff_state.due_count, grouped.scheduled_count, 0),
         'queue_count', grouped.queue_count,
         'deferred_count', COALESCE(eff_state.deferred_count, grouped.deferred_count, 0),
+        'deferred_dose_count', COALESCE(eff_state.deferred_count, grouped.deferred_count, 0),
         -- review_count is an OBLIGATION COUNT, not a boolean flag. It previously rendered
         -- CASE WHEN has_review THEN 1 ELSE 0 END -- grain-incompatible with its siblings
         -- target_count/scheduled_count/deferred_count, which are work counts, and sourced from
         -- the batch status rather than the submission truth the card's own status uses.
-        'review_count', COALESCE(eff_state.submitted_count, CASE WHEN grouped.has_review THEN grouped.target_count ELSE 0 END, 0),
+        'review_count', CASE
+          WHEN COALESCE(obl_summary.total_animals, 0) > 0 THEN obl_summary.submitted_animals
+          ELSE COALESCE(eff_state.submitted_count, CASE WHEN grouped.has_review THEN grouped.target_count ELSE 0 END, 0)
+        END,
+        'review_dose_count', COALESCE(eff_state.submitted_count, CASE WHEN grouped.has_review THEN grouped.target_count ELSE 0 END, 0),
         'shed_labels', to_jsonb(COALESCE(location_meta.shed_labels, shed_meta.labels)),
         'shed_partition_labels', to_jsonb(COALESCE(
           location_meta.shed_partition_labels,
           array_fill(''::text, ARRAY[cardinality(shed_meta.labels)])
         )),
-        'vaccine_labels', to_jsonb(vaccine_meta.labels)
+        'vaccine_labels', to_jsonb(effective_vaccine_meta.labels)
       ),
       'source_and_rule', jsonb_build_object('business_date', grouped.due_day, 'source_event_ids', grouped.source_event_ids),
       'execution', jsonb_build_object('work_state', CASE WHEN grouped.all_completed THEN 'completed' ELSE 'open' END, 'source_event_ids', grouped.source_event_ids),
@@ -1627,9 +1705,12 @@ park_drive_events AS (
         'sheds_completed', obl_summary.sheds_completed,
         'sheds', obl_summary.sheds,
         'vaccine_labels', to_jsonb(obl_summary.vaccine_labels),
-        'total_count', obl_summary.total_count,
-        'completed_count', obl_summary.completed_count,
-        'submitted_count', obl_summary.submitted_count,
+        'total_count', CASE WHEN obl_summary.total_animals > 0 THEN obl_summary.total_animals ELSE obl_summary.total_count END,
+        'completed_count', CASE WHEN obl_summary.total_animals > 0 THEN obl_summary.completed_animals ELSE obl_summary.completed_count END,
+        'submitted_count', CASE WHEN obl_summary.total_animals > 0 THEN obl_summary.submitted_animals ELSE obl_summary.submitted_count END,
+        'total_dose_count', obl_summary.total_count,
+        'completed_dose_count', obl_summary.completed_count,
+        'submitted_dose_count', obl_summary.submitted_count,
         -- remaining_count = WORK STILL OWED BY THE OPERATOR, summed from the three open buckets so
         -- it is the SAME arithmetic the card already ships beside it. It was
         -- total_count - completed_count, a numerator that excludes submitted work, while
@@ -1643,10 +1724,20 @@ park_drive_events AS (
         -- submitted_count and the verification_pending status, never by inflating "remaining".
         -- Identical to total_count - completed_count - submitted_count, because the five buckets are
         -- a disjoint, total partition (invariant asserted directly above in obligation_drive_summary).
-        'remaining_count', obl_summary.due_count + obl_summary.overdue_count + obl_summary.deferred_count,
-        'due_count', obl_summary.due_count,
+        'remaining_count', CASE
+          WHEN obl_summary.total_animals > 0 THEN GREATEST(obl_summary.total_animals - obl_summary.completed_animals - obl_summary.submitted_animals, 0)
+          ELSE obl_summary.due_count + obl_summary.overdue_count + obl_summary.deferred_count
+        END,
+        'due_count', CASE
+          WHEN obl_summary.total_animals > 0 THEN GREATEST(obl_summary.total_animals - obl_summary.completed_animals - obl_summary.submitted_animals, 0)
+          ELSE obl_summary.due_count
+        END,
         'overdue_count', obl_summary.overdue_count,
         'deferred_count', obl_summary.deferred_count,
+        'remaining_dose_count', obl_summary.due_count + obl_summary.overdue_count + obl_summary.deferred_count,
+        'due_dose_count', obl_summary.due_count,
+        'overdue_dose_count', obl_summary.overdue_count,
+        'deferred_dose_count', obl_summary.deferred_count,
         -- Informational subset of due_count/overdue_count (see obligation_drive_summary CTE) so
         -- the card can name why the progress numerator dropped, instead of leaving a silent gap.
         'rejected_count', obl_summary.rejected_count,
@@ -1682,19 +1773,27 @@ park_drive_events AS (
     ) AS detail
   FROM park_drive_groups grouped
   LEFT JOIN obligation_drive_effective_state eff_state
-    ON eff_state.park_id IS NOT DISTINCT FROM grouped.park_id
+    ON eff_state.execution_drive_key = grouped.execution_drive_key
+    AND eff_state.park_id IS NOT DISTINCT FROM grouped.park_id
     AND eff_state.due_date = grouped.due_day::date
   LEFT JOIN obligation_drive_summary obl_summary
-    ON obl_summary.park_id IS NOT DISTINCT FROM grouped.park_id
+    ON obl_summary.execution_drive_key = grouped.execution_drive_key
+    AND obl_summary.park_id IS NOT DISTINCT FROM grouped.park_id
     AND obl_summary.due_date = grouped.due_day::date
   LEFT JOIN obligation_drive_shed_animals location_meta
-    ON location_meta.park_id IS NOT DISTINCT FROM grouped.park_id
+    ON location_meta.execution_drive_key = grouped.execution_drive_key
+    AND location_meta.park_id IS NOT DISTINCT FROM grouped.park_id
     AND location_meta.due_date = grouped.due_day::date
+  LEFT JOIN obligation_drive_vaccine_labels canonical_vaccine_meta
+    ON canonical_vaccine_meta.execution_drive_key = grouped.execution_drive_key
+    AND canonical_vaccine_meta.park_id IS NOT DISTINCT FROM grouped.park_id
+    AND canonical_vaccine_meta.due_date = grouped.due_day::date
   CROSS JOIN LATERAL (
     SELECT COALESCE(array_agg(DISTINCT label ORDER BY label), ARRAY[]::text[]) AS labels
     FROM drive_sources source
     CROSS JOIN LATERAL jsonb_array_elements_text(CASE WHEN jsonb_typeof(source.detail->'summary'->'shed_labels') = 'array' THEN source.detail->'summary'->'shed_labels' ELSE '[]'::jsonb END) AS shed(label)
     WHERE source.park_id IS NOT DISTINCT FROM grouped.park_id
+      AND source.execution_drive_key = grouped.execution_drive_key
       AND (source.due_at AT TIME ZONE 'Asia/Kolkata')::date = grouped.due_day::date
   ) shed_meta
   CROSS JOIN LATERAL (
@@ -1702,8 +1801,18 @@ park_drive_events AS (
     FROM drive_sources source
     CROSS JOIN LATERAL jsonb_array_elements_text(CASE WHEN jsonb_typeof(source.detail->'summary'->'vaccine_labels') = 'array' THEN source.detail->'summary'->'vaccine_labels' ELSE '[]'::jsonb END) AS vaccine(label)
     WHERE source.park_id IS NOT DISTINCT FROM grouped.park_id
+      AND source.execution_drive_key = grouped.execution_drive_key
       AND (source.due_at AT TIME ZONE 'Asia/Kolkata')::date = grouped.due_day::date
   ) vaccine_meta
+  CROSS JOIN LATERAL (
+    SELECT CASE
+      WHEN cardinality(COALESCE(canonical_vaccine_meta.vaccine_labels, ARRAY[]::text[])) > 0
+        THEN canonical_vaccine_meta.vaccine_labels
+      WHEN cardinality(COALESCE(obl_summary.vaccine_labels, ARRAY[]::text[])) > 0
+        THEN obl_summary.vaccine_labels
+      ELSE vaccine_meta.labels
+    END AS labels
+  ) effective_vaccine_meta
 ),
 vaccination_history_events AS (
   -- Accepted vaccination administration history: completed doses from vaccination_completions table.

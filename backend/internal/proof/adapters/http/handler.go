@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -142,18 +143,18 @@ func (h *Handler) CreateUpload(w http.ResponseWriter, r *http.Request) {
 		IdempotencyKey: r.Header.Get("Idempotency-Key"),
 	})
 	if err != nil {
-		h.logProofFailure(r, "proof_upload_create_failed", err,
+		h.logProofFailure(r, "proof_upload_create_failed", err, append([]slog.Attr{
 			slog.String("proof_type", req.ProofType),
 			slog.String("mime_type", req.MimeType),
 			slog.String("scope_type", req.ScopeType),
 			slog.String("scope_id", req.ScopeID),
 			slog.String("subject_type", req.SubjectType),
-		)
+		}, proofCorrelationAttrs(req.Metadata)...)...)
 		h.respondErr(w, r, err)
 		return
 	}
 	h.log.LogAttrs(r.Context(), slog.LevelInfo, "proof_upload_created",
-		append(proofLogAttrs(r, target.Proof.ProofID),
+		append(append(proofLogAttrs(r, target.Proof.ProofID), proofCorrelationAttrs(req.Metadata)...),
 			slog.String("proof_type", target.Proof.ProofType),
 			slog.String("mime_type", target.Proof.MimeType),
 			slog.String("scope_type", target.Proof.ScopeType),
@@ -306,16 +307,16 @@ func (h *Handler) CompleteUpload(w http.ResponseWriter, r *http.Request) {
 		Metadata:    req.Metadata,
 	})
 	if err != nil {
-		h.logProofFailure(r, "proof_upload_complete_failed", err,
+		h.logProofFailure(r, "proof_upload_complete_failed", err, append([]slog.Attr{
 			slog.String("proof_id", r.PathValue("proof_id")),
 			slog.String("mime_type", req.MimeType),
 			slog.Int64("size_bytes", req.SizeBytes),
-		)
+		}, proofCorrelationAttrs(req.Metadata)...)...)
 		h.respondErr(w, r, err)
 		return
 	}
 	h.log.LogAttrs(r.Context(), slog.LevelInfo, "proof_upload_completed",
-		append(proofLogAttrs(r, proof.ProofID),
+		append(append(proofLogAttrs(r, proof.ProofID), proofCorrelationAttrs(proof.Metadata)...),
 			slog.String("mime_type", proof.MimeType),
 			slog.Int64("size_bytes", proof.SizeBytes),
 			slog.String("upload_state", proof.UploadState),
@@ -539,11 +540,78 @@ func (h *Handler) logProofFailure(r *http.Request, event string, err error, attr
 	h.log.LogAttrs(r.Context(), slog.LevelWarn, event,
 		append(proofLogAttrs(r, r.PathValue("proof_id")),
 			append(attrs,
-				slog.String("error", err.Error()),
+				slog.String("exception_class", boundedLogValue(reflect.TypeOf(err).String())),
+				slog.String("error", boundedLogValue(err.Error())),
 			)...,
 		)...,
 	)
 }
+
+// proofCorrelationAttrs exposes only the bounded, pre-approved fields needed to join a phone's
+// durable proof/outbox lifecycle to backend registration and completion logs. Arbitrary metadata
+// is deliberately excluded: proof metadata is client supplied and may contain high-cardinality or
+// sensitive values that do not belong in structured logs.
+func proofCorrelationAttrs(metadata map[string]any) []slog.Attr {
+	attrs := make([]slog.Attr, 0, len(proofCorrelationMetadataKeys)+2)
+	for _, key := range proofCorrelationMetadataKeys {
+		if value := metadataLogValue(metadata[key]); value != "" {
+			attrs = append(attrs, slog.String(key, value))
+		}
+	}
+	if cycles, ok := metadata["obligation_cycles"].([]any); ok && len(cycles) > 0 {
+		attrs = append(attrs, slog.Int("obligation_cycle_count", len(cycles)))
+		if first, ok := cycles[0].(map[string]any); ok {
+			if value := metadataLogValue(first["obligation_id"]); value != "" {
+				attrs = append(attrs, slog.String("obligation_id", value))
+			}
+			if value := metadataLogValue(first["obligation_row_version"]); value != "" {
+				attrs = append(attrs, slog.String("obligation_row_version", value))
+			}
+		}
+	}
+	return attrs
+}
+
+func metadataLogValue(value any) string {
+	switch typed := value.(type) {
+	case string:
+		return boundedLogValue(typed)
+	case bool:
+		return strconv.FormatBool(typed)
+	case float64:
+		return strconv.FormatFloat(typed, 'f', -1, 64)
+	case json.Number:
+		return boundedLogValue(typed.String())
+	default:
+		return ""
+	}
+}
+
+func boundedLogValue(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) > proofLogValueLimit {
+		return value[:proofLogValueLimit]
+	}
+	return value
+}
+
+var proofCorrelationMetadataKeys = []string{
+	"local_proof_id",
+	"outbox_item_id",
+	"client_task_key",
+	"field_key",
+	"obligation_id",
+	"obligation_row_version",
+	"attempt",
+	"proof_stage",
+	"exception_class",
+	"local_file_available",
+	"upload_original",
+	"client_trace_id",
+	"server_proof_id",
+}
+
+const proofLogValueLimit = 160
 
 func proofLogAttrs(r *http.Request, proofID string) []slog.Attr {
 	return proofLogAttrsForTenant(r, tenantID(r), proofID)

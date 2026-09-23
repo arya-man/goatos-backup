@@ -152,14 +152,16 @@ func TestCalendarBatchedDriveRosterAndTargetsUsePlannedDateScheduledDateParkScop
 
 func TestCalendarParkDriveTargetsUseOperatorAssignmentDateOneToManyPageBoundaryScheduledDateParkScopeStatusBuckets(t *testing.T) {
 	checks := map[string]string{
-		"assignment table membership": "LEFT JOIN vaccination_drive_assignments vda",
-		"assignment business date":    "vda.planned_date = $3::date",
-		"legacy batch fallback":       "NOT COALESCE(assignment_presence.has_any_assignment, false)",
-		"assignment park scope":       "vda.park_id = $4::uuid",
-		"display date tied to bucket": "AND assignment.planned_date = $3::date",
-		"hybrid member path":          "target_assignment.assignment_planned_at",
-		"hybrid guess fallback":       "target_assignment_guess.assignment_planned_at",
-		"target display date":         "COALESCE(target_assignment.assignment_planned_at, target_assignment_guess.assignment_planned_at, target_batch.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) AS scheduled_at",
+		"assignment table membership":        "LEFT JOIN vaccination_drive_assignments vda",
+		"assignment business date":           "vda.planned_date = $3::date",
+		"legacy batch fallback":              "NOT COALESCE(assignment_presence.has_any_assignment, false)",
+		"assignment park scope":              "vda.park_id = $4::uuid",
+		"assignment target auth park":        "assignment.park_id = ANY($10::uuid[])",
+		"assignment target auth shed":        "assignment.shed_id = ANY($11::uuid[])",
+		"legacy display date tied to bucket": "AND ($15::uuid IS NOT NULL OR assignment.planned_date = $3::date)",
+		"hybrid member path":                 "target_assignment.assignment_planned_at",
+		"hybrid guess fallback":              "target_assignment_guess.assignment_planned_at",
+		"target display date":                "COALESCE(target_assignment.assignment_planned_at, target_assignment_guess.assignment_planned_at, target_batch.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) AS scheduled_at",
 	}
 	for name, fragment := range checks {
 		if !strings.Contains(calendarDriveTargetsSQL, fragment) {

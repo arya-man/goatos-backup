@@ -783,6 +783,21 @@ interface ProofCaptureDao {
     )
     suspend fun markGallerySaved(id: String, gallerySavedUri: String, updatedAtMs: Long)
 
+    @Query(
+        "SELECT * FROM proof_capture WHERE gallerySavedUri IS NULL " +
+            "AND processingState IN ('PROCESSED', 'PROCESSING_FAILED_ORIGINAL_UPLOAD_QUEUED', " +
+            "'PROCESSING_FAILED_AWAITING_RETRY', 'REGISTERING_UPLOAD', 'UPLOADING', " +
+            "'UPLOAD_CONFIRMED', 'ATTACHED_TO_SUBMISSION', 'REGISTER_FAILED_RETRYING', " +
+            "'UPLOAD_FAILED_RETRYING', 'UPLOAD_ORIGINAL_FAILED_RETRYING') " +
+            "AND (capturedAtMs > :afterCapturedAtMs OR (capturedAtMs = :afterCapturedAtMs AND id > :afterId)) " +
+            "ORDER BY capturedAtMs ASC, id ASC LIMIT :limit",
+    )
+    suspend fun listPendingGalleryCopiesPage(
+        afterCapturedAtMs: Long,
+        afterId: String,
+        limit: Int = RECOVERABLE_UPLOADS_PAGE_SIZE,
+    ): List<ProofCaptureEntity>
+
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertStateEvent(entity: ProofCaptureStateEventEntity)
 

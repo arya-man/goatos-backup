@@ -21,6 +21,7 @@ type executionRows interface {
 type executionCardSummaryRecord struct {
 	ShedID             string   `json:"shed_uuid"`
 	PartitionLabel     *string  `json:"partition_label"`
+	AssignmentID       *string  `json:"assignment_id"`
 	TaskID             *string  `json:"sop_task_id"`
 	BatchID            *string  `json:"batch_id"`
 	DriveID            *string  `json:"drive_id"`
@@ -39,6 +40,7 @@ type executionCardSummaryRecord struct {
 func addExecutionCardSummary(summaries map[string]*domain.ShedCardSummary, record executionCardSummaryRecord) {
 	shedID := record.ShedID
 	partLabel := record.PartitionLabel
+	assignmentID := record.AssignmentID
 	taskID := record.TaskID
 	batchID := record.BatchID
 	driveID := record.DriveID
@@ -114,10 +116,13 @@ func addExecutionCardSummary(summaries map[string]*domain.ShedCardSummary, recor
 		})
 	}
 
-	cardID := domain.BuildCardID(shedID, domain.StringOrEmpty(partLabel), domain.StringOrEmpty(taskID), domain.StringOrEmpty(batchID), domain.StringOrEmpty(driveID))
+	// The operator-day card is an operational location, not a source task/batch. Date overrides
+	// may legitimately combine obligations from several source batches into one assignment.
+	cardID := domain.BuildAssignmentCardID(shedID, domain.StringOrEmpty(partLabel), domain.StringOrEmpty(assignmentID), "", "", "")
 	summaries[cardID] = &domain.ShedCardSummary{
 		ShedID:         shedID,
 		PartitionLabel: partLabel,
+		AssignmentID:   assignmentID,
 		TaskID:         taskID,
 		BatchID:        batchID,
 		DriveID:        driveID,

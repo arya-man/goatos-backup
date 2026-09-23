@@ -1113,6 +1113,7 @@ object Routes {
 
     const val SCAN_SHED_ARG = "shedId"
     const val EXECUTION_DRIVE_ARG = "driveId"
+    const val EXECUTION_ASSIGNMENT_ARG = "assignmentId"
     const val EXECUTION_BATCH_ARG = "batchId"
     const val EXECUTION_TASK_ARG = "taskId"
     const val EXECUTION_SOP_VERSION_ARG = "sopVersionId"
@@ -1152,24 +1153,26 @@ object Routes {
     fun scanRoute(
         shedId: String?,
         driveId: String? = null,
+        assignmentId: String? = null,
         batchId: String? = null,
         taskId: String? = null,
         sopVersionId: String? = null,
         taskRowVersion: Int? = null,
         scanTitle: String? = null,
         partitionLabel: String? = null,
-    ): String = executionRoute(SCAN, shedId, driveId, batchId, taskId, sopVersionId, taskRowVersion, scanTitle, partitionLabel)
+    ): String = executionRoute(SCAN, shedId, driveId, assignmentId, batchId, taskId, sopVersionId, taskRowVersion, scanTitle, partitionLabel)
 
     fun submitRoute(
         shedId: String?,
         driveId: String? = null,
+        assignmentId: String? = null,
         batchId: String? = null,
         taskId: String? = null,
         sopVersionId: String? = null,
         taskRowVersion: Int? = null,
         scanTitle: String? = null,
         partitionLabel: String? = null,
-    ): String = executionRoute(SUBMIT, shedId, driveId, batchId, taskId, sopVersionId, taskRowVersion, scanTitle, partitionLabel)
+    ): String = executionRoute(SUBMIT, shedId, driveId, assignmentId, batchId, taskId, sopVersionId, taskRowVersion, scanTitle, partitionLabel)
 
     /** Opens ONE weighing task. Pushed from the task list, which already holds the task. */
     fun weighingTaskRoute(campaignId: String): String =
@@ -1241,6 +1244,7 @@ object Routes {
         base: String,
         shedId: String?,
         driveId: String?,
+        assignmentId: String?,
         batchId: String?,
         taskId: String?,
         sopVersionId: String?,
@@ -1251,6 +1255,7 @@ object Routes {
         val args = buildList {
             shedId?.takeIf { it.isNotBlank() }?.let { add(SCAN_SHED_ARG to it) }
             driveId?.takeIf { it.isNotBlank() }?.let { add(EXECUTION_DRIVE_ARG to it) }
+            assignmentId?.takeIf { it.isNotBlank() }?.let { add(EXECUTION_ASSIGNMENT_ARG to it) }
             batchId?.takeIf { it.isNotBlank() }?.let { add(EXECUTION_BATCH_ARG to it) }
             taskId?.takeIf { it.isNotBlank() }?.let { add(EXECUTION_TASK_ARG to it) }
             sopVersionId?.takeIf { it.isNotBlank() }?.let { add(EXECUTION_SOP_VERSION_ARG to it) }
@@ -1353,6 +1358,7 @@ private fun workTargetRoute(target: String): String? {
         return Routes.scanRoute(
             shedId = id.ifBlank { null },
             driveId = uri.getQueryParameter("drive_id") ?: uri.getQueryParameter("driveId"),
+            assignmentId = uri.getQueryParameter("assignment_id") ?: uri.getQueryParameter("assignmentId"),
             batchId = uri.getQueryParameter("batch_id") ?: uri.getQueryParameter("batchId"),
             taskId = taskId,
             sopVersionId = uri.getQueryParameter("sop_version_id") ?: uri.getQueryParameter("sopVersionId"),
@@ -1399,13 +1405,14 @@ private fun shedIdFromTarget(target: String): String? {
     return null
 }
 
-private fun shedExecutionRoute(selected: ShedRow?, fallbackRoute: String): String = when {
+internal fun shedExecutionRoute(selected: ShedRow?, fallbackRoute: String): String = when {
     selected == null -> fallbackRoute
     selected.opensRecordOnly -> fallbackRoute
     selected.taskId.isNullOrBlank() -> Routes.recordRoute(selected.shedId, selected.partitionLabel)
     else -> Routes.scanRoute(
         shedId = selected.shedId,
         driveId = selected.driveId,
+        assignmentId = selected.assignmentId,
         batchId = selected.batchId,
         taskId = selected.taskId,
         sopVersionId = selected.sopVersionId,
@@ -2440,6 +2447,7 @@ fun AppNavHost(
                 buildString {
                     append("scan")
                     append(":shed=").append(entry.arguments?.getString(Routes.SCAN_SHED_ARG).orEmpty())
+                    append(":assignment=").append(entry.arguments?.getString(Routes.EXECUTION_ASSIGNMENT_ARG).orEmpty())
                     append(":task=").append(entry.arguments?.getString(Routes.EXECUTION_TASK_ARG).orEmpty())
                     append(":partition=").append(entry.arguments?.getString(Routes.EXECUTION_PARTITION_ARG).orEmpty())
                 }
@@ -2473,6 +2481,7 @@ fun AppNavHost(
                                         shedId = entry.arguments?.getString(Routes.SCAN_SHED_ARG)?.takeIf { it.isNotBlank() }
                                             ?: state.shedId,
                                         driveId = entry.arguments?.getString(Routes.EXECUTION_DRIVE_ARG),
+                                        assignmentId = entry.arguments?.getString(Routes.EXECUTION_ASSIGNMENT_ARG),
                                         batchId = entry.arguments?.getString(Routes.EXECUTION_BATCH_ARG),
                                         taskId = entry.arguments?.getString(Routes.EXECUTION_TASK_ARG)?.takeIf { it.isNotBlank() }
                                             ?: state.taskId,
@@ -5319,6 +5328,7 @@ internal fun NavState.grantsRootDestination(route: String): Boolean {
 private fun executionRoutePattern(base: String): String =
     "$base?${Routes.SCAN_SHED_ARG}={${Routes.SCAN_SHED_ARG}}" +
         "&${Routes.EXECUTION_DRIVE_ARG}={${Routes.EXECUTION_DRIVE_ARG}}" +
+        "&${Routes.EXECUTION_ASSIGNMENT_ARG}={${Routes.EXECUTION_ASSIGNMENT_ARG}}" +
         "&${Routes.EXECUTION_BATCH_ARG}={${Routes.EXECUTION_BATCH_ARG}}" +
         "&${Routes.EXECUTION_TASK_ARG}={${Routes.EXECUTION_TASK_ARG}}" +
         "&${Routes.EXECUTION_SOP_VERSION_ARG}={${Routes.EXECUTION_SOP_VERSION_ARG}}" +
@@ -5617,6 +5627,7 @@ private fun appVersionLabel(): String = "Version ${BuildConfig.VERSION_NAME} (co
 private fun executionNavArguments() = listOf(
     navArgument(Routes.SCAN_SHED_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
     navArgument(Routes.EXECUTION_DRIVE_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
+    navArgument(Routes.EXECUTION_ASSIGNMENT_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
     navArgument(Routes.EXECUTION_BATCH_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
     navArgument(Routes.EXECUTION_TASK_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
     navArgument(Routes.EXECUTION_SOP_VERSION_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },

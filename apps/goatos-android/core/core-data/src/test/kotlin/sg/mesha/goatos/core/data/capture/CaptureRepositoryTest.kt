@@ -1324,7 +1324,7 @@ class CaptureRepositoryTest {
 
             assertEquals(listOf("file://processed-proof.mp4"), gallery.paths)
             assertEquals("file://processed-proof.mp4", sync.enqueueCalls.single().localFilePath)
-            assertEquals("file://processed-proof.mp4", db.proofCaptureDao().findById(captured.id)?.gallerySavedUri)
+            assertEquals("content://media/goatos/1", db.proofCaptureDao().findById(captured.id)?.gallerySavedUri)
 
             db.proofCaptureDao().setOutboxItemId(captured.id, null)
             repo.reconcileRecoverableUploadsNow()
@@ -1338,7 +1338,73 @@ class CaptureRepositoryTest {
     }
 
     @Test
-    fun `gallery save event suppresses duplicate gallery copy when saved marker is stale`() = runTest {
+    fun `gallery failure stays durable and retries after repository restart without duplicate upload`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val gallery = RecordingGalleryProofSaver().apply {
+                failure = IllegalStateException("MediaStore insert returned null")
+            }
+            val firstRepository = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = backgroundScope,
+                reconcileOnStartup = false,
+                dispatchers = unconfinedDispatchers,
+                mediaProcessor = IdentityProofMediaProcessor(),
+                galleryProofSaver = gallery,
+            )
+
+            val captured = (
+                firstRepository.capture(
+                    taskId = "task-gallery-restart",
+                    fieldKey = "vaccination_goat_proof",
+                    subject = ProofSubject.GOAT,
+                    subjectId = "goat-gallery-restart",
+                    localUri = "file://gallery-restart.mp4",
+                    mimeType = "video/mp4",
+                    caption = "Vaccination proof",
+                    scopeType = "task",
+                    scopeId = "task-gallery-restart",
+                    capturedStartMs = 1_000L,
+                    capturedEndMs = 4_000L,
+                    capturedByPrincipalId = "operator-1",
+                    proofPolicy = ProofPolicy.Default,
+                    awaitUploadEnqueue = true,
+                ) as AppResult.Ok
+            ).value
+
+            assertEquals(null, db.proofCaptureDao().findById(captured.id)?.gallerySavedUri)
+            assertEquals(1, db.proofCaptureDao().countStateEvents(captured.id, "gallery_save_failed_retry_pending"))
+            assertEquals(1, sync.enqueueCalls.size)
+            val originalIdempotencyKey = sync.enqueueCalls.single().idempotencyKey
+
+            gallery.failure = null
+            val restartedRepository = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = backgroundScope,
+                reconcileOnStartup = false,
+                dispatchers = unconfinedDispatchers,
+                mediaProcessor = IdentityProofMediaProcessor(),
+                galleryProofSaver = gallery,
+            )
+            restartedRepository.reconcileRecoverableUploadsNow()
+            advanceUntilIdle()
+
+            val recovered = db.proofCaptureDao().findById(captured.id)
+            assertEquals("content://media/goatos/1", recovered?.gallerySavedUri)
+            assertEquals(captured.id, recovered?.id)
+            assertEquals(originalIdempotencyKey, recovered?.idempotencyKey)
+            assertEquals(1, sync.enqueueCalls.size)
+            assertEquals(1, db.proofCaptureDao().countStateEvents(captured.id, "gallery_save_completed"))
+        } finally {
+            closeDb(db)
+        }
+    }
+
+    @Test
+    fun `stale gallery event retries copy and persists actual MediaStore URI`() = runTest {
         val db = newDb()
         try {
             val sync = FakeSyncRepository()
@@ -1383,9 +1449,9 @@ class CaptureRepositoryTest {
             repo.reconcileRecoverableUploadsNow()
             advanceUntilIdle()
 
-            assertEquals(emptyList<String>(), gallery.paths)
-            assertEquals("file://processed-proof.mp4", db.proofCaptureDao().findById(entity.id)?.gallerySavedUri)
-            assertEquals(1, db.proofCaptureDao().countStateEvents(entity.id, "gallery_save_completed"))
+            assertEquals(listOf("file://processed-proof.mp4"), gallery.paths)
+            assertEquals("content://media/goatos/1", db.proofCaptureDao().findById(entity.id)?.gallerySavedUri)
+            assertEquals(2, db.proofCaptureDao().countStateEvents(entity.id, "gallery_save_completed"))
             assertEquals("file://processed-proof.mp4", sync.enqueueCalls.single().localFilePath)
         } finally {
             closeDb(db)
@@ -1452,7 +1518,7 @@ class CaptureRepositoryTest {
             )
             assertEquals("uploadOriginal must stay false — nothing is queued", false, row?.uploadOriginal)
             assertEquals("Original file path preserved (safety kept)", original.toURI().toString(), row?.localUri)
-            assertEquals("Gallery marker points at the saved original", original.toURI().toString(), row?.gallerySavedUri)
+            assertEquals("Gallery marker points at the saved original", "content://media/goatos/1", row?.gallerySavedUri)
             assertEquals("syncStatus stays PENDING — never FAILED for a processing failure", CaptureSyncStatus.PENDING.name, row?.syncStatus)
             val processingFailure = telemetryEvents.firstOrNull { it.first == "proof_processing_failed" }?.second
             assertTrue("processing failure must emit a durable forensic event", processingFailure != null)
@@ -4079,9 +4145,16 @@ private class IdentityProofMediaProcessor : ProofMediaProcessor {
 
 private class RecordingGalleryProofSaver : GalleryProofSaver {
     val paths = mutableListOf<String>()
+    var failure: Throwable? = null
 
-    override suspend fun saveProofCopy(localFilePath: String, request: ProofUploadRequestDto, idempotencyKey: String) {
+    override suspend fun saveProofCopy(
+        localFilePath: String,
+        request: ProofUploadRequestDto,
+        idempotencyKey: String,
+    ): String {
+        failure?.let { throw it }
         paths += localFilePath
+        return "content://media/goatos/${paths.size}"
     }
 }
 
@@ -4326,6 +4399,8 @@ private class CountingProofCaptureDao(private val delegate: ProofCaptureDao) : P
         delegate.listForTaskCleanupPage(taskId, afterCapturedAtMs, afterId, limit)
     override suspend fun listRecoverableUploadsPage(capturedBeforeMs: Long, afterCapturedAtMs: Long, afterId: String, limit: Int): List<ProofCaptureEntity> =
         delegate.listRecoverableUploadsPage(capturedBeforeMs, afterCapturedAtMs, afterId, limit)
+    override suspend fun listPendingGalleryCopiesPage(afterCapturedAtMs: Long, afterId: String, limit: Int): List<ProofCaptureEntity> =
+        delegate.listPendingGalleryCopiesPage(afterCapturedAtMs, afterId, limit)
     override suspend fun activeCountForSubject(taskId: String, partitionKey: String, subjectId: String): Int =
         delegate.activeCountForSubject(taskId, partitionKey, subjectId)
     override suspend fun activeCountForSubjectType(taskId: String, partitionKey: String, proofSubject: String): Int =

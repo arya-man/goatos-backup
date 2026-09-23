@@ -137,7 +137,7 @@ func TestCanonicalVaccinationReadsUseDriveAssignmentPlannedDateOneToManyPageBoun
 func TestDriveAssignmentsNormalizePartitionBeforeGrouping(t *testing.T) {
 	required := []string{
 		"AS partition_key",
-		"GROUP BY effective_planned_date, operator_id, park_id, shed_id, physical_shed, partition_key",
+		"GROUP BY effective_planned_date, assignment_id, operator_id, park_id, shed_id, physical_shed, partition_key",
 		"effective.partition_key = regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')",
 		"ORDER BY effective.planned_date, wm.display_name, effective.physical_shed, effective.partition_key",
 	}
@@ -147,7 +147,7 @@ func TestDriveAssignmentsNormalizePartitionBeforeGrouping(t *testing.T) {
 		}
 	}
 	if strings.Contains(driveAssignmentsSQL, "GROUP BY effective_planned_date, assignment_id, batch_id, operator_id, park_id, shed_id, physical_shed, partition_label") {
-		t.Fatal("drive assignments must not group by raw assignment id/partition label; duplicate labels like 3 and Part 3 would split one shed")
+		t.Fatal("drive assignments must not group by raw batch id/partition label; duplicate labels like 3 and Part 3 would split one shed")
 	}
 }
 
@@ -159,10 +159,10 @@ func TestCarrySummaryTotalExcludesTerminalObligations(t *testing.T) {
 }
 
 func TestDriveAssignmentCarryProjectionOneToManyPageBoundaryDateShiftParkScopeStatusMatrix(t *testing.T) {
-	t.Log("OneToMany PageBoundary DateShift ParkScope StatusMatrix: assignment groups collapse moved duplicate shed lanes before paging and carry totals exclude terminal statuses")
+	t.Log("OneToMany PageBoundary DateShift ParkScope StatusMatrix: assignment groups preserve explicit assignment lanes before paging and carry totals exclude terminal statuses")
 	requiredFragments := map[string]string{
-		"assignment regroup marker": "group_key=(effective_planned_date,operator_id,park_id,shed_id,physical_shed,partition_key)",
-		"assignment regroup grain":  "GROUP BY effective_planned_date, operator_id, park_id, shed_id, physical_shed, partition_key",
+		"assignment regroup marker": "group_key=(effective_planned_date,assignment_id,operator_id,park_id,shed_id,physical_shed,partition_key)",
+		"assignment regroup grain":  "GROUP BY effective_planned_date, assignment_id, operator_id, park_id, shed_id, physical_shed, partition_key",
 		"dose grain":                "SUM(COALESCE(dose_count, animal_count))",
 		"terminal excluded total":   "count(DISTINCT goat_id) FILTER (WHERE status IN ('scheduled','due','in_progress')) AS total",
 	}
@@ -1499,6 +1499,93 @@ VALUES (gen_random_uuid(),$1,$2,'animal_identifier_1','RFID-TWO','rfid-two','act
 	}
 	if sites == nil || len(sites.Options) != 1 || sites.Options[0].Value != "subcutaneous" {
 		t.Fatalf("sites=%#v", sites)
+	}
+}
+
+func TestScanRosterAssignmentIncludesActiveMembersAcrossSourceBatches(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedVaccinationExecutionProjection(t, ctx, pool)
+
+		const (
+			assignmentID = "70000000-0000-4000-8000-000000000090"
+			batchB       = "70000000-0000-4000-8000-000000000091"
+			goatA        = "70000000-0000-4000-8000-000000000092"
+			goatB        = "70000000-0000-4000-8000-000000000093"
+			goatCanceled = "70000000-0000-4000-8000-000000000094"
+			obligationA  = "70000000-0000-4000-8000-000000000095"
+			obligationB  = "70000000-0000-4000-8000-000000000096"
+			obligationC  = "70000000-0000-4000-8000-000000000097"
+			movedShed    = "70000000-0000-4000-8000-000000000098"
+		)
+
+		insertProjectionBatch(t, ctx, pool, batchB, "in_progress")
+		execProjectionSQL(t, ctx, pool, "moved current shed",
+			`INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
+			 VALUES ($1, $2, 'shed', 'SHED-MOVED-MEMBER', 'Moved Member Shed', $3, 'active')`,
+			movedShed, testTenant, testPark)
+		for _, goatID := range []string{goatA, goatB, goatCanceled} {
+			insertProjectionGoat(t, ctx, pool, goatID, testShed, testPark)
+		}
+		execProjectionSQL(t, ctx, pool, "move active member after assignment planning",
+			`UPDATE goats
+			 SET shed_id = $1, current_location_id = $1, updated_at = now()
+			 WHERE tenant_id = $2 AND goat_id = $3`,
+			movedShed, testTenant, goatB)
+		insertProjectionObligation(t, ctx, pool, obligationA, testBatch, goatA, "due", "2026-06-24 00:00:00+00", "assignment-roster-a")
+		insertProjectionObligation(t, ctx, pool, obligationB, batchB, goatB, "due", "2026-06-24 00:00:00+00", "assignment-roster-b")
+	insertProjectionObligation(t, ctx, pool, obligationC, batchB, goatCanceled, "due", "2026-06-24 00:00:00+00", "assignment-roster-canceled")
+	execProjectionSQL(t, ctx, pool, "source batch A task", `
+INSERT INTO sop_tasks (task_id, tenant_id, sop_id, sop_version_id, task_type, title, state,
+  assigned_to, scope_type, scope_id, context)
+VALUES ($1,$2,$3,$4,'vaccination_drive','Cross-batch drive','in_progress',$5,'shed',$6,
+  jsonb_build_object('obligation_batch_id',$7::text))`, testTask, testTenant, testVaccinationSOP, testVaccinationSOPVer, testOperator, testShed, testBatch)
+	execProjectionSQL(t, ctx, pool, "link source batch A task", `UPDATE obligation_batches SET sop_task_id=$1 WHERE tenant_id=$2 AND batch_id=$3`, testTask, testTenant, testBatch)
+	execProjectionSQL(t, ctx, pool, "link only member A to task", `UPDATE obligation_instances SET sop_task_id=$1 WHERE tenant_id=$2 AND obligation_id=$3`, testTask, testTenant, obligationA)
+	execProjectionSQL(t, ctx, pool, "assignment owned by batch B", `
+INSERT INTO vaccination_drive_assignments (
+  assignment_id, tenant_id, batch_id, planned_date, operator_id, park_id, shed_id,
+  physical_shed, partition_label, animal_count, vaccine_rule_ids, total_doses
+) VALUES ($1,$2,$3,DATE '2026-06-24',$4,$5,$6,'K1 Shed','whole',2,ARRAY[$7::uuid],2)`,
+		assignmentID, testTenant, batchB, testOperator, testPark, testShed, testRule)
+	execProjectionSQL(t, ctx, pool, "cross-batch assignment members", `
+INSERT INTO vaccination_drive_assignment_members (tenant_id, assignment_id, obligation_id, goat_id)
+VALUES ($1,$2,$3,$4),($1,$2,$5,$6)`, testTenant, assignmentID, obligationA, goatA, obligationB, goatB)
+	execProjectionSQL(t, ctx, pool, "canceled assignment member", `
+INSERT INTO vaccination_drive_assignment_members (tenant_id, assignment_id, obligation_id, goat_id, canceled_at)
+VALUES ($1,$2,$3,$4,now())`, testTenant, assignmentID, obligationC, goatCanceled)
+
+	repo := NewRepository(pool, 5*time.Second)
+	roster, err := repo.ScanRoster(ctx, domain.ScanRosterQuery{
+		TenantID:             testTenant,
+		ShedID:               testShed,
+		AssignmentID:         assignmentID,
+		TaskID:               testTask,
+		OperatorScopeActorID: testOperator,
+		Limit:                20,
+	})
+	if err != nil {
+		t.Fatalf("ScanRoster(assignment): %v", err)
+	}
+	if len(roster.Rows) != 2 {
+		t.Fatalf("assignment roster rows=%#v, want exactly two active cross-batch members", roster.Rows)
+	}
+	wantGoats := map[string]bool{goatA: false, goatB: false}
+	for _, row := range roster.Rows {
+		if row.AssignmentID == nil || *row.AssignmentID != assignmentID {
+			t.Fatalf("row assignment=%v want %s; row=%#v", row.AssignmentID, assignmentID, row)
+		}
+		if _, ok := wantGoats[row.GoatID]; !ok {
+			t.Fatalf("unexpected or canceled goat in roster: %#v", row)
+		}
+		wantGoats[row.GoatID] = true
+	}
+	for goatID, seen := range wantGoats {
+		if !seen {
+			t.Fatalf("active assignment member %s missing from roster: %#v", goatID, roster.Rows)
+		}
 	}
 }
 

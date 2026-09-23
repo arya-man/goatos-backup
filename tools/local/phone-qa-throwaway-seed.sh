@@ -1208,7 +1208,8 @@ CREATE TEMP TABLE qa_vaccine_rules (
 INSERT INTO qa_vaccine_rules VALUES
   ('91000000-0000-4000-8000-000000000503', 'ET_TT_QA', 'ET+TT', 1),
   ('91000000-0000-4000-8000-000000000505', 'ET_TT_QA_BOOSTER', 'ET+TT', 3),
-  ('91000000-0000-4000-8000-000000000504', 'PPR_QA', 'PPR', 2);
+  ('91000000-0000-4000-8000-000000000504', 'PPR_QA', 'PPR', 2),
+  ('91000000-0000-4000-8000-000000000506', 'BT_QA', 'BT', 4);
 
 ALTER TABLE protocol_rules DISABLE TRIGGER ALL;
 ALTER TABLE protocol_rule_dimensions DISABLE TRIGGER ALL;
@@ -1240,6 +1241,26 @@ SET dose_code = EXCLUDED.dose_code,
     sequence = EXCLUDED.sequence,
     trigger_type = EXCLUDED.trigger_type,
     proof_policy = EXCLUDED.proof_policy,
+    sort_order = EXCLUDED.sort_order;
+
+INSERT INTO protocol_rules (
+  rule_id, tenant_id, protocol_version_id, dose_code, sequence, trigger_type,
+  offset_days, due_window_days, min_gap_days, repeat, catch_up,
+  eligibility_json, sop_version_id, proof_policy, sort_order
+)
+VALUES (
+  '91000000-0000-4000-8000-000000000506',
+  '${tenant_id}'::uuid,
+  '91000000-0000-4000-8000-000000000502',
+  'BT_QA', 4, 'manual_campaign', 0, 3, 0, 'none', 'immediate',
+  '{"stage":"K2","lifecycle":"alive"}'::jsonb,
+  '91000000-0000-4000-8000-000000000402',
+  '{"types":["video"],"required":true,"proof_mode":"per_goat_video","subject_scope":"goat","expected_subjects":["goat"],"minimum_count":1,"minimum_count_per_subject":1,"maximum_count":1,"maximum_count_per_subject":1,"capture_source":"in_app_camera","allowed_capture_sources":["in_app_camera","gallery_picker"],"verify_capability":"proof.verify","verify_before_apply":true,"retention_policy":"operational_90d"}'::jsonb,
+  40
+)
+ON CONFLICT (rule_id) DO UPDATE
+SET dose_code = EXCLUDED.dose_code, sequence = EXCLUDED.sequence,
+    trigger_type = EXCLUDED.trigger_type, proof_policy = EXCLUDED.proof_policy,
     sort_order = EXCLUDED.sort_order;
 
 INSERT INTO protocol_rules (
@@ -1312,6 +1333,45 @@ VALUES (
   '{"stage":"K2","lifecycle":"alive"}'::jsonb,
   '{"code":"PPR"}'::jsonb,
   '{"dose_code":"PPR_QA"}'::jsonb
+)
+ON CONFLICT DO NOTHING;
+
+INSERT INTO protocol_rule_dimensions (
+  tenant_id, protocol_version_id, rule_id, category, ruleset_family, matrix_row_id,
+  selector_key, dose_code, source_dose_code, vaccine_code, vaccine_type,
+  pathogen_class, compatibility_group, species, animal_stage, sex, breed,
+  lifecycle, health, reproductive, min_age_days, max_age_days, trigger_type,
+  sequence, offset_days, due_window_days, min_gap_days, repeat, catch_up,
+  eligibility_json, vaccine_json, schedule_json
+)
+VALUES (
+  '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000502',
+  '91000000-0000-4000-8000-000000000505', 'vaccination', 'qa',
+  'qa-row-et-tt-booster', 'qa-selector-et-tt-booster',
+  'ET_TT_QA_BOOSTER', 'ET_TT_QA_BOOSTER', 'ET+TT', 'inactivated',
+  'bacterial', 'ET+TT', 'goat', 'K2', 'all', 'all', 'alive', 'any', 'any',
+  0, 180, 'manual_campaign', 3, 0, 3, 0, 'none', 'immediate',
+  '{"stage":"K2","lifecycle":"alive"}'::jsonb,
+  '{"code":"ET+TT"}'::jsonb, '{"dose_code":"ET_TT_QA_BOOSTER"}'::jsonb
+)
+ON CONFLICT DO NOTHING;
+
+INSERT INTO protocol_rule_dimensions (
+  tenant_id, protocol_version_id, rule_id, category, ruleset_family, matrix_row_id,
+  selector_key, dose_code, source_dose_code, vaccine_code, vaccine_type,
+  pathogen_class, compatibility_group, species, animal_stage, sex, breed,
+  lifecycle, health, reproductive, min_age_days, max_age_days, trigger_type,
+  sequence, offset_days, due_window_days, min_gap_days, repeat, catch_up,
+  eligibility_json, vaccine_json, schedule_json
+)
+VALUES (
+  '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000502',
+  '91000000-0000-4000-8000-000000000506', 'vaccination', 'qa',
+  'qa-row-bt', 'qa-selector-bt', 'BT_QA', 'BT_QA', 'BT', 'inactivated',
+  'bacterial', 'BT', 'goat', 'K2', 'all', 'all', 'alive', 'any', 'any',
+  0, 180, 'manual_campaign', 4, 0, 3, 0, 'none', 'immediate',
+  '{"stage":"K2","lifecycle":"alive"}'::jsonb,
+  '{"code":"BT"}'::jsonb, '{"dose_code":"BT_QA"}'::jsonb
 )
 ON CONFLICT DO NOTHING;
 
@@ -1522,6 +1582,16 @@ JOIN qa_tags t
  AND t.idx <= s.animal_count
 WHERE g.tenant_id = '${tenant_id}'::uuid;
 
+-- Exact Amit/STG shape: both animals belong to one concrete operator lane. Other broad QA sheds
+-- remain whole assignments so their deliberately varied Part 1..3 goats stay executable.
+UPDATE goat_shed_partitions p
+SET partition_label = 'Part 1', updated_at = now()
+FROM qa_due_goats d
+WHERE p.tenant_id = '${tenant_id}'::uuid
+  AND p.goat_id = d.goat_id
+  AND p.shed_id = d.shed_id
+  AND d.shed_seq = 5;
+
 -- ET+TT for every due QA goat; PPR is added too for selected sheds, so the phone
 -- can prove that two vaccine titles appear in the roster/overlay.
 INSERT INTO obligation_instances (
@@ -1530,7 +1600,12 @@ INSERT INTO obligation_instances (
   sop_task_id, idempotency_key, sequence
 )
 SELECT (
-         CASE WHEN r.sequence = 1 THEN '9d000000' ELSE '9d100000' END ||
+         CASE r.sequence
+           WHEN 1 THEN '9d000000'
+           WHEN 2 THEN '9d100000'
+           WHEN 4 THEN '9d200000'
+           ELSE '9d900000'
+         END ||
          '-0000-4000-8000-' ||
          lpad(d.shed_seq::text, 6, '0') ||
          lpad(row_number() OVER (PARTITION BY d.shed_seq, r.sequence ORDER BY d.goat_id)::text, 6, '0')
@@ -1554,6 +1629,7 @@ FROM qa_due_goats d
 JOIN qa_vaccine_rules r
   ON r.sequence = 1
   OR (r.sequence = 2 AND d.shed_seq IN (2, 6))
+  OR (r.sequence = 4 AND d.shed_seq = 6)
 ON CONFLICT (obligation_id) DO UPDATE
 SET batch_id = EXCLUDED.batch_id,
     rule_id = EXCLUDED.rule_id,
@@ -1585,6 +1661,24 @@ FROM mandela m
 WHERE oi.obligation_id = m.obligation_id
   AND m.rn = 2;
 
+-- Match the real Amit STG carry-over shape: one operational assignment owns both animals,
+-- while the second ET+TT obligation still points at a different source batch and has no task.
+WITH amit_second AS (
+  SELECT oi.obligation_id
+  FROM obligation_instances oi
+  JOIN qa_due_goats d ON d.goat_id = oi.target_id AND d.shed_seq = 5
+  WHERE oi.tenant_id = '${tenant_id}'::uuid
+    AND oi.rule_id = '91000000-0000-4000-8000-000000000505'
+  ORDER BY oi.target_id
+  LIMIT 1
+)
+UPDATE obligation_instances oi
+SET batch_id = (SELECT batch_id FROM qa_sheds WHERE seq = 1),
+    sop_task_id = NULL,
+    updated_at = now()
+FROM amit_second a
+WHERE oi.obligation_id = a.obligation_id;
+
 -- One drive assignment per shed, owned by that park's vaccination operator.
 INSERT INTO vaccination_drive_assignments (assignment_id, tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count, capacity_status, warnings, vaccine_rule_ids, total_doses)
 SELECT ('9e000000-0000-4000-8000-' || lpad(s.seq::text, 12, '0'))::uuid,
@@ -1592,15 +1686,18 @@ SELECT ('9e000000-0000-4000-8000-' || lpad(s.seq::text, 12, '0'))::uuid,
        CASE WHEN s.park_id = '91000000-0000-4000-8000-000000000101'
             THEN '93000000-0000-4000-8000-000000000202'::uuid
             ELSE '93000000-0000-4000-8000-000000000201'::uuid END,
-       s.park_id, s.shed_id, s.shed_name, 'whole',
+       s.park_id, s.shed_id, s.shed_name, CASE WHEN s.seq = 5 THEN s.partition_label ELSE 'whole' END,
        (SELECT count(DISTINCT d.goat_id) FROM qa_due_goats d WHERE d.shed_id = s.shed_id),
        'within_cap', '[]'::jsonb,
        CASE WHEN s.seq = 5
             THEN ARRAY['91000000-0000-4000-8000-000000000503','91000000-0000-4000-8000-000000000505']::uuid[]
             WHEN s.seq IN (2, 6)
-            THEN ARRAY['91000000-0000-4000-8000-000000000503','91000000-0000-4000-8000-000000000504']::uuid[]
+            THEN CASE WHEN s.seq = 6
+                      THEN ARRAY['91000000-0000-4000-8000-000000000503','91000000-0000-4000-8000-000000000504','91000000-0000-4000-8000-000000000506']::uuid[]
+                      ELSE ARRAY['91000000-0000-4000-8000-000000000503','91000000-0000-4000-8000-000000000504']::uuid[] END
             ELSE ARRAY['91000000-0000-4000-8000-000000000503']::uuid[] END,
-       (SELECT count(*) FROM obligation_instances oi WHERE oi.tenant_id = '${tenant_id}'::uuid AND oi.batch_id = s.batch_id AND oi.scope_id = s.shed_id AND oi.status = 'due')
+       CASE WHEN s.seq = 5 THEN 2
+            ELSE (SELECT count(*) FROM obligation_instances oi WHERE oi.tenant_id = '${tenant_id}'::uuid AND oi.batch_id = s.batch_id AND oi.scope_id = s.shed_id AND oi.status = 'due') END
 FROM qa_sheds s
 ON CONFLICT (assignment_id) DO UPDATE
 SET batch_id = EXCLUDED.batch_id, planned_date = EXCLUDED.planned_date, operator_id = EXCLUDED.operator_id,
@@ -1856,12 +1953,12 @@ WHERE tenant_id = '${tenant_id}'::uuid
 INSERT INTO feed_distribution_completions (
   completion_id, tenant_id, park_id, shed_id, partition_label, session_no,
   target_date, workflow, status, distribution_proof_ref, water_proof_ref,
-  feed_weight_proof_ref, completed_by, idempotency_key
+  feed_weight_proof_ref, completed_by, idempotency_key, sop_proofs
 ) VALUES
-  ('8d100000-0000-4000-8000-000000000001', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000101', '91000000-0000-4000-8000-000000000201', NULL, 1, current_date, 'normal', 'pending_verification', 'phone-qa-feed-video-pending-1', 'phone-qa-water-video-pending-1', 'phone-qa-weight-photo-pending-1', '90000000-0000-4000-8000-000000000202', 'phone-qa-feed-distribution-1'),
-  ('8d100000-0000-4000-8000-000000000002', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000101', '91000000-0000-4000-8000-000000000203', NULL, 1, current_date, 'normal', 'rework', NULL, NULL, NULL, '90000000-0000-4000-8000-000000000202', 'phone-qa-feed-distribution-2'),
-  ('8d100000-0000-4000-8000-000000000003', '${tenant_id}'::uuid, '92000000-0000-4000-8000-000000000101', '91000000-0000-4000-8000-000000000202', NULL, 1, current_date, 'normal', 'pending_verification', 'phone-qa-feed-video-pending-3', 'phone-qa-water-video-pending-3', 'phone-qa-weight-photo-pending-3', '90000000-0000-4000-8000-000000000201', 'phone-qa-feed-distribution-3'),
-  ('8d100000-0000-4000-8000-000000000004', '${tenant_id}'::uuid, '92000000-0000-4000-8000-000000000101', '92000000-0000-4000-8000-000000000203', NULL, 1, current_date, 'normal', 'completed', 'phone-qa-feed-video-completed-4', 'phone-qa-water-video-completed-4', 'phone-qa-weight-photo-completed-4', '90000000-0000-4000-8000-000000000201', 'phone-qa-feed-distribution-4');
+  ('8d100000-0000-4000-8000-000000000001', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000101', '91000000-0000-4000-8000-000000000201', NULL, 1, current_date, 'normal', 'pending_verification', 'phone-qa-feed-video-pending-1', 'phone-qa-water-video-pending-1', 'phone-qa-weight-photo-pending-1', '90000000-0000-4000-8000-000000000202', 'phone-qa-feed-distribution-1', '{"feed_distribution_video":"phone-qa-feed-video-pending-1","feed_distribution_water_video":"phone-qa-water-video-pending-1","feed_distribution_feed_weight_photo":"phone-qa-weight-photo-pending-1"}'::jsonb),
+  ('8d100000-0000-4000-8000-000000000002', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000101', '91000000-0000-4000-8000-000000000203', NULL, 1, current_date, 'normal', 'rework', NULL, NULL, NULL, '90000000-0000-4000-8000-000000000202', 'phone-qa-feed-distribution-2', '{}'::jsonb),
+  ('8d100000-0000-4000-8000-000000000003', '${tenant_id}'::uuid, '92000000-0000-4000-8000-000000000101', '91000000-0000-4000-8000-000000000202', NULL, 1, current_date, 'normal', 'pending_verification', 'phone-qa-feed-video-pending-3', 'phone-qa-water-video-pending-3', 'phone-qa-weight-photo-pending-3', '90000000-0000-4000-8000-000000000201', 'phone-qa-feed-distribution-3', '{"feed_distribution_video":"phone-qa-feed-video-pending-3","feed_distribution_water_video":"phone-qa-water-video-pending-3","feed_distribution_feed_weight_photo":"phone-qa-weight-photo-pending-3"}'::jsonb),
+  ('8d100000-0000-4000-8000-000000000004', '${tenant_id}'::uuid, '92000000-0000-4000-8000-000000000101', '92000000-0000-4000-8000-000000000203', NULL, 1, current_date, 'normal', 'completed', 'phone-qa-feed-video-completed-4', 'phone-qa-water-video-completed-4', 'phone-qa-weight-photo-completed-4', '90000000-0000-4000-8000-000000000201', 'phone-qa-feed-distribution-4', '{"feed_distribution_video":"phone-qa-feed-video-completed-4","feed_distribution_water_video":"phone-qa-water-video-completed-4","feed_distribution_feed_weight_photo":"phone-qa-weight-photo-completed-4"}'::jsonb);
 
 UPDATE feed_distribution_completions
 SET rework_reason = 'Phone QA seeded feed distribution retry state'
@@ -1871,11 +1968,11 @@ WHERE tenant_id = '${tenant_id}'::uuid
 INSERT INTO feed_wastage_completions (
   completion_id, tenant_id, park_id, shed_id, partition_label, target_date,
   workflow, status, wastage_proof_ref, completed_by, idempotency_key,
-  wastage_kg, wastage_recorded_by, wastage_recorded_at
+  wastage_kg, wastage_recorded_by, wastage_recorded_at, sop_proofs
 ) VALUES
-  ('8d200000-0000-4000-8000-000000000001', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000101', '91000000-0000-4000-8000-000000000201', 'Part 1', current_date, 'experiment', 'pending_verification', 'phone-qa-wastage-video-pending-1', '90000000-0000-4000-8000-000000000202', 'phone-qa-feed-wastage-1', 0.750, '90000000-0000-4000-8000-000000000202', now()),
-  ('8d200000-0000-4000-8000-000000000002', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000101', '91000000-0000-4000-8000-000000000201', 'Part 2', current_date, 'experiment', 'rework', NULL, '90000000-0000-4000-8000-000000000202', 'phone-qa-feed-wastage-2', NULL, NULL, NULL),
-  ('8d200000-0000-4000-8000-000000000003', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000101', '91000000-0000-4000-8000-000000000203', 'Part 1', current_date, 'experiment', 'completed', 'phone-qa-wastage-video-completed-3', '90000000-0000-4000-8000-000000000202', 'phone-qa-feed-wastage-3', 0.000, '90000000-0000-4000-8000-000000000202', now());
+  ('8d200000-0000-4000-8000-000000000001', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000101', '91000000-0000-4000-8000-000000000201', 'Part 1', current_date, 'experiment', 'pending_verification', 'phone-qa-wastage-video-pending-1', '90000000-0000-4000-8000-000000000202', 'phone-qa-feed-wastage-1', 0.750, '90000000-0000-4000-8000-000000000202', now(), '{"feed_wastage_video":"phone-qa-wastage-video-pending-1"}'::jsonb),
+  ('8d200000-0000-4000-8000-000000000002', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000101', '91000000-0000-4000-8000-000000000201', 'Part 2', current_date, 'experiment', 'rework', NULL, '90000000-0000-4000-8000-000000000202', 'phone-qa-feed-wastage-2', NULL, NULL, NULL, '{}'::jsonb),
+  ('8d200000-0000-4000-8000-000000000003', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000101', '91000000-0000-4000-8000-000000000203', 'Part 1', current_date, 'experiment', 'completed', 'phone-qa-wastage-video-completed-3', '90000000-0000-4000-8000-000000000202', 'phone-qa-feed-wastage-3', 0.000, '90000000-0000-4000-8000-000000000202', now(), '{"feed_wastage_video":"phone-qa-wastage-video-completed-3"}'::jsonb);
 
 UPDATE feed_wastage_completions
 SET rework_reason = 'Phone QA seeded feed wastage retry state'
@@ -1884,12 +1981,12 @@ WHERE tenant_id = '${tenant_id}'::uuid
 
 INSERT INTO feed_packing_completions (
   completion_id, tenant_id, park_id, shed_id, session_no, target_date, workflow, status,
-  packing_proof_ref, completed_by, idempotency_key
+  packing_proof_ref, completed_by, idempotency_key, sop_proofs
   ) VALUES
-  ('8e000000-0000-4000-8000-000000000001', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000101', '91000000-0000-4000-8000-000000000201', 1, current_date + 1, 'normal', 'pending_verification', 'phone-qa-pending-1', '90000000-0000-4000-8000-000000000202', 'phone-qa-feed-pack-1'),
-  ('8e000000-0000-4000-8000-000000000002', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000101', '91000000-0000-4000-8000-000000000203', 1, current_date + 1, 'normal', 'rework', NULL, '90000000-0000-4000-8000-000000000202', 'phone-qa-feed-pack-2'),
-  ('8e000000-0000-4000-8000-000000000003', '${tenant_id}'::uuid, '92000000-0000-4000-8000-000000000101', '91000000-0000-4000-8000-000000000202', 1, current_date + 1, 'normal', 'pending_verification', 'phone-qa-pending-3', '90000000-0000-4000-8000-000000000201', 'phone-qa-feed-pack-3'),
-  ('8e000000-0000-4000-8000-000000000004', '${tenant_id}'::uuid, '92000000-0000-4000-8000-000000000101', '92000000-0000-4000-8000-000000000203', 1, current_date + 1, 'normal', 'completed', 'phone-qa-proof-4', '90000000-0000-4000-8000-000000000201', 'phone-qa-feed-pack-4');
+  ('8e000000-0000-4000-8000-000000000001', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000101', '91000000-0000-4000-8000-000000000201', 1, current_date + 1, 'normal', 'pending_verification', 'phone-qa-pending-1', '90000000-0000-4000-8000-000000000202', 'phone-qa-feed-pack-1', '{"feed_packing_video":"phone-qa-pending-1"}'::jsonb),
+  ('8e000000-0000-4000-8000-000000000002', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000000101', '91000000-0000-4000-8000-000000000203', 1, current_date + 1, 'normal', 'rework', NULL, '90000000-0000-4000-8000-000000000202', 'phone-qa-feed-pack-2', '{}'::jsonb),
+  ('8e000000-0000-4000-8000-000000000003', '${tenant_id}'::uuid, '92000000-0000-4000-8000-000000000101', '91000000-0000-4000-8000-000000000202', 1, current_date + 1, 'normal', 'pending_verification', 'phone-qa-pending-3', '90000000-0000-4000-8000-000000000201', 'phone-qa-feed-pack-3', '{"feed_packing_video":"phone-qa-pending-3"}'::jsonb),
+  ('8e000000-0000-4000-8000-000000000004', '${tenant_id}'::uuid, '92000000-0000-4000-8000-000000000101', '92000000-0000-4000-8000-000000000203', 1, current_date + 1, 'normal', 'completed', 'phone-qa-proof-4', '90000000-0000-4000-8000-000000000201', 'phone-qa-feed-pack-4', '{"feed_packing_video":"phone-qa-proof-4"}'::jsonb);
 
 UPDATE feed_packing_completions
 SET rework_reason = 'Phone QA seeded feed packing retry state'
@@ -2160,8 +2257,42 @@ BEGIN
   SELECT count(*) INTO bad
   FROM vaccination_drive_assignment_members
   WHERE tenant_id = '${tenant_id}'::uuid;
-  IF bad <> 32 THEN
-    RAISE EXCEPTION 'phone-qa seed: % vaccination assignment members, want 32 vaccine obligations across sheds', bad;
+  IF bad <> 35 THEN
+    RAISE EXCEPTION 'phone-qa seed: % vaccination assignment members, want 35 vaccine obligations across sheds', bad;
+  END IF;
+
+  SELECT count(DISTINCT oi.batch_id) INTO bad
+  FROM vaccination_drive_assignment_members m
+  JOIN obligation_instances oi
+    ON oi.tenant_id = m.tenant_id AND oi.obligation_id = m.obligation_id
+  WHERE m.tenant_id = '${tenant_id}'::uuid
+    AND m.assignment_id = '9e000000-0000-4000-8000-000000000005'::uuid
+    AND m.canceled_at IS NULL;
+  IF bad <> 2 THEN
+    RAISE EXCEPTION 'phone-qa seed: Amit assignment spans % source batches, want exact STG-shaped 2', bad;
+  END IF;
+
+  SELECT count(*) INTO bad
+  FROM vaccination_drive_assignment_members m
+  JOIN obligation_instances oi
+    ON oi.tenant_id = m.tenant_id AND oi.obligation_id = m.obligation_id
+  WHERE m.tenant_id = '${tenant_id}'::uuid
+    AND m.assignment_id = '9e000000-0000-4000-8000-000000000005'::uuid
+    AND m.canceled_at IS NULL
+    AND oi.sop_task_id IS NULL;
+  IF bad <> 1 THEN
+    RAISE EXCEPTION 'phone-qa seed: Amit assignment has % taskless obligations, want 1', bad;
+  END IF;
+
+  SELECT count(DISTINCT oi.rule_id) INTO bad
+  FROM vaccination_drive_assignment_members m
+  JOIN obligation_instances oi
+    ON oi.tenant_id = m.tenant_id AND oi.obligation_id = m.obligation_id
+  WHERE m.tenant_id = '${tenant_id}'::uuid
+    AND m.assignment_id = '9e000000-0000-4000-8000-000000000006'::uuid
+    AND m.canceled_at IS NULL;
+  IF bad <> 3 THEN
+    RAISE EXCEPTION 'phone-qa seed: Castro 1 assignment has % vaccines, want 3', bad;
   END IF;
 
   SELECT count(*) INTO bad
@@ -2317,7 +2448,8 @@ SQL
 cat <<EOF
 
 Widened phone-QA fixture: 8 weighing sheds, vaccination due roster is 2,6,2,3,2,3,2,3 animals.
-Yashoda 1 and Castro 1 have TWO due vaccines per animal: ET+TT and PPR.
+Yashoda 1 has TWO due vaccines per animal: ET+TT and PPR.
+Castro 1 has THREE due vaccines per animal: ET+TT, PPR, and BT.
 Each shed still has up to ${animals_per_shed} seeded RFID identities; only due obligations show in the scan roster.
 
   Shed partition        Park  Due animals  Vaccines       Weighing assignee
@@ -2326,7 +2458,7 @@ Each shed still has up to ${animals_per_shed} seeded RFID identities; only due o
   Gandhi 1 - Part 1     CBE   2            ET+TT          Dinakar
   Gandhi 2 - Part 1     CBE   3            ET+TT          Dinakar
   Mandela 2 - Part 1    CPT   2            ET+TT          Amit
-  Castro 1 - Part 1     CPT   3            ET+TT, PPR     Amit
+  Castro 1 - Part 1     CPT   3            ET+TT, PPR, BT Amit
   Castro 2 - Part 1     CPT   2            ET+TT          Dinakar
   Castro 3 - Part 1     CPT   3            ET+TT          Dinakar (LUMP-SUM)
 

@@ -78,6 +78,8 @@ func vaccinationAntigenLabel(code string) string {
 		return "PPR"
 	case "FMD":
 		return "FMD"
+	case "BT":
+		return "BT"
 	case "ET_TT":
 		return "ET+TT"
 	case "ET+TT":
