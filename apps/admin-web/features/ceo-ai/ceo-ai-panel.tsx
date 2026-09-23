@@ -310,14 +310,14 @@ export function CeoAiPanel({
   // to a header-only bar. Conversation state survives every transition.
   const [view, setView] = useState<"normal" | "max" | "min">("normal");
   // Thread list starts open on desktop, closed on phones (it overlays the chat there).
-  const [showThreads, setShowThreads] = useState(true);
+  // The panel renders only after the client-side capability probe, so reading the
+  // viewport in the initializers is safe (no server render to mismatch).
   const isNarrow = () => typeof window !== "undefined" && window.matchMedia("(max-width:620px)").matches;
-  const [narrow, setNarrow] = useState(false);
+  const [showThreads, setShowThreads] = useState(() => !isNarrow());
+  const [narrow, setNarrow] = useState(isNarrow);
   useEffect(() => {
     const mq = window.matchMedia("(max-width:620px)");
     const sync = () => setNarrow(mq.matches);
-    sync();
-    if (mq.matches) setShowThreads(false);
     mq.addEventListener("change", sync);
     return () => mq.removeEventListener("change", sync);
   }, []);
