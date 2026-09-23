@@ -184,7 +184,12 @@ func TestFeedSOPCardsMigrationReplaysWhenSchemaOutranBookkeeping(t *testing.T) {
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
 
-	migrations, err := loadMigrations("migrations/postgres")
+	// The repo-root-relative form ("migrations/postgres") never resolved: `go test` runs a package
+	// with its own directory as the working directory, so this test failed at its FIRST step every
+	// time Postgres tests were enabled and had never once reached its assertion. Nothing noticed,
+	// because the flag is opt-in and the default suite skips the whole file.
+	// TestExtractConcurrentIndexNamesOnRealMigrations below already had the correct form.
+	migrations, err := loadMigrations(filepath.Join("..", "..", "migrations", "postgres"))
 	if err != nil {
 		t.Fatalf("load migrations: %v", err)
 	}
@@ -199,8 +204,20 @@ func TestFeedSOPCardsMigrationReplaysWhenSchemaOutranBookkeeping(t *testing.T) {
 		t.Fatal("000342_feed_sop_cards migration not found")
 	}
 
-	if _, err := pool.Exec(ctx, `DELETE FROM public.goatos_schema_migrations WHERE version = $1`, feedSOP.Version); err != nil {
-		t.Fatalf("delete 000342 migration row: %v", err)
+	// SCHEMA AHEAD OF BOOKKEEPING is exactly the harness's own state, and that is why this step has
+	// to be tolerant. pgtest builds its template by piping every migration's Up block through psql,
+	// so the objects all exist while public.goatos_schema_migrations was never created -- nothing
+	// records a row. Deleting from a table that does not exist is an error, not a no-op, so this
+	// asserted the bookkeeping table into existence and failed. applyMigrations creates the table
+	// itself, which is half of what the test is here to prove.
+	var bookkeepingExists bool
+	if err := pool.QueryRow(ctx, `SELECT to_regclass('public.goatos_schema_migrations') IS NOT NULL`).Scan(&bookkeepingExists); err != nil {
+		t.Fatalf("look for the bookkeeping table: %v", err)
+	}
+	if bookkeepingExists {
+		if _, err := pool.Exec(ctx, `DELETE FROM public.goatos_schema_migrations WHERE version = $1`, feedSOP.Version); err != nil {
+			t.Fatalf("delete 000342 migration row: %v", err)
+		}
 	}
 
 	if err := applyMigrations(ctx, pool, []migrationFile{feedSOP}, false, false, slog.New(slog.NewTextHandler(io.Discard, nil))); err != nil {
