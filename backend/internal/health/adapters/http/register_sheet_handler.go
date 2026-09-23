@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"encoding/csv"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -96,6 +97,20 @@ func (h *RegisterSheetHandler) Export(w http.ResponseWriter, r *http.Request) {
 		h.writeSheetError(w, r, err)
 		return
 	}
+	// THE DOCUMENT ITSELF, for a system that will read it back rather than a person who will
+	// scroll it -- and it round-trips with the JSON upload. A workbook is for a vet, a CSV for a
+	// script, this for a tool that already holds the structure and would only lose it by
+	// flattening into rows.
+	if strings.EqualFold(r.URL.Query().Get("format"), "json") {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Header().Set("Content-Disposition", `attachment; filename="diagnosis-register-`+class+`.json"`)
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(doc); err != nil {
+			h.log.Error("write register json", "error", err)
+		}
+		return
+	}
 	rows, err := diagnosis.EncodeSheet(doc)
 	if err != nil {
 		h.writeSheetError(w, r, err)
@@ -126,13 +141,29 @@ func (h *RegisterSheetHandler) Import(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	rows, err := readSheet(file, header.Filename)
-	if err != nil {
-		h.writeErr(w, r, http.StatusUnprocessableEntity, "sheet_unreadable", err.Error(), err)
-		return
+	// JSON IS THE REGISTER ITSELF, not a third spelling of the sheet.
+	//
+	// The three formats answer different jobs. A vet edits a workbook; a script writes a CSV; a
+	// SYSTEM -- another tool, an export from somewhere else, a generated 300-question draft --
+	// emits the document. Making the last one go through the row grammar would mean flattening a
+	// structure it already has, and flattening loses the very nesting the grammar exists to
+	// rebuild.
+	var doc *diagnosis.AuthoredRegister
+	var problems []string
+	if strings.HasSuffix(strings.ToLower(header.Filename), ".json") {
+		doc, err = readRegisterJSON(file)
+		if err != nil {
+			h.writeErr(w, r, http.StatusUnprocessableEntity, "sheet_unreadable", err.Error(), err)
+			return
+		}
+	} else {
+		rows, readErr := readSheet(file, header.Filename)
+		if readErr != nil {
+			h.writeErr(w, r, http.StatusUnprocessableEntity, "sheet_unreadable", readErr.Error(), readErr)
+			return
+		}
+		doc, problems = diagnosis.DecodeSheet(rows)
 	}
-
-	doc, problems := diagnosis.DecodeSheet(rows)
 	if len(problems) > 0 {
 		// Every problem at once. A person who has just filled three hundred rows and is told
 		// about one mistake per upload will be at it all afternoon.
@@ -178,6 +209,24 @@ func (h *RegisterSheetHandler) Import(w http.ResponseWriter, r *http.Request) {
 		// is telling them too late.
 		"warnings": doc.Validate(),
 	})
+}
+
+// readRegisterJSON reads the register document itself.
+//
+// UNKNOWN FIELDS ARE REFUSED. `encoding/json` drops what it does not recognise in silence, so a
+// misspelled key would upload a register missing a whole section of rules and report success --
+// the loader defect this repo has a standing rule about. A typo is named instead.
+func readRegisterJSON(file io.Reader) (*diagnosis.AuthoredRegister, error) {
+	dec := json.NewDecoder(io.LimitReader(file, maxSheetBytes))
+	dec.DisallowUnknownFields()
+	var doc diagnosis.AuthoredRegister
+	if err := dec.Decode(&doc); err != nil {
+		return nil, fmt.Errorf("that JSON could not be read: %v", err)
+	}
+	if len(doc.Questions) == 0 {
+		return nil, fmt.Errorf("that JSON has no questions in it")
+	}
+	return &doc, nil
 }
 
 // readSheet accepts CSV or XLSX, chosen by the file's own name.
