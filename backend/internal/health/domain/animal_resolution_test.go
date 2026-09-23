@@ -186,8 +186,18 @@ func TestMissingKiddingHistoryIsReportedNotFatal(t *testing.T) {
 // The cases are the ones the live catalog actually produces: no stage at all, and a clinical
 // placement. ICU-Kid is the one to keep: it is a real seeded stage on real animals, and it
 // describes WHERE the kid is rather than what it eats, so it can never pick a register.
+//
+// WARMUP WAS REMOVED FROM THIS LIST on 2026-09-23. It sat here beside the clinical placements,
+// but it is not one -- it is a real feeding stage between weaning and fattening, and the reason
+// it was refused is the one this file states: "until that mapping is a maintainer decision, a
+// kid is REFUSED". The decision was made that day (Warmup is fattening for now), which is
+// exactly the condition for it to leave. It cost 58 live kids who could not be observed at all.
+//
+// The refusals that REMAIN are the ones no decision can fix: a blank stage says nothing, a
+// clinical placement says where the animal is rather than what it eats, and an unknown code
+// (F3-Male) is the guard against a newly-seeded stage inheriting another cohort's medicine.
 func TestResolveAnimalRefusesAKidWhoseStageCannotChooseARegister(t *testing.T) {
-	for _, stage := range []string{"", "   ", "ICU-Kid", "Quarantine kids", "Warmup", "F3-Male"} {
+	for _, stage := range []string{"", "   ", "ICU-Kid", "Quarantine kids", "F3-Male"} {
 		t.Run("stage="+stage, func(t *testing.T) {
 			facts := adultDoe()
 			facts.AgeBand = AgeBandKid
@@ -225,6 +235,10 @@ func TestResolveAnimalMapsEachKidStageToItsOwnRegister(t *testing.T) {
 		{"F2", diagnosis.ClassKidFattening, ""},
 		{"F2-Male", diagnosis.ClassKidFattening, ""},
 		{"F2-Female", diagnosis.ClassKidFattening, ""},
+		// Warmup was unmapped and so refused outright -- 58 live kids nobody could observe
+		// (maintainer decision 2026-09-23: it is fattening for now).
+		{"Warmup", diagnosis.ClassKidFattening, ""},
+		{"warmup", diagnosis.ClassKidFattening, ""},
 		// The catalog holds the same codes in more than one casing across import runs.
 		{"k2", diagnosis.ClassKidMilk, "K2"},
 		{"f2-female", diagnosis.ClassKidFattening, ""},
