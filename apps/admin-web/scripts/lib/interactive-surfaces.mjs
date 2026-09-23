@@ -188,6 +188,34 @@ export function rootLabels(text, index) {
   return [...found].sort();
 }
 
+/**
+ * How to tell this surface is actually ON SCREEN, taken from its own opening tag.
+ *
+ * Without this, an assertion cannot tell "the panel opened and its heading is missing" (a bug)
+ * from "the panel never opened" (not a fact about headings at all), and reports the second as the
+ * first. Same shape as the feature-assertion engine's dataProbe, deliberately: a check that
+ * cannot tell answers "cannot tell", which is never a pass and never an accusation.
+ */
+export function presenceProbe(text, index) {
+  const window = blankNonMarkup(text).slice(index, index + 500);
+  const closing = window.indexOf(">");
+  const tag = window.slice(0, closing >= 0 ? closing + 1 : 500);
+  const role = tag.match(/role="(dialog|alertdialog|menu)"/);
+  if (role) return { css: `[role=${role[1]}]`, min: 1 };
+  // The shared URL-driven drawer renders `aside.drawer.on` when it is open
+  // (components/local-overlay-drawer.tsx:59). The component NAME is not in the DOM, so without
+  // this the probe would look for an element that can never be found and every reading would
+  // answer "not checked" -- quiet, but quietly useless.
+  if (/^<LocalOverlayDrawer\b/.test(window)) return { css: "aside.drawer.on", min: 1 };
+  const className = tag.match(/className=(?:"([^"{}]{1,60})"|\{"([^"{}]{1,60})"\})/);
+  const first = (className?.[1] ?? className?.[2] ?? "").trim().split(/\s+/)[0];
+  if (first) return { css: `.${first}`, min: 1 };
+  // A bare intrinsic element (form, div) only counts when it is really an HTML tag -- a React
+  // component name is not a selector, and guessing one would look for an element nothing renders.
+  const element = window.match(/^<(form|aside|dialog|section|nav|table)\b/);
+  return element ? { css: element[1].toLowerCase(), min: 1 } : null;
+}
+
 /** Count the times `pattern` appears in the window a surface owns. */
 export function countNear(text, index, pattern, limit = 4000) {
   const window = blankNonMarkup(text).slice(index, index + limit);
@@ -351,6 +379,34 @@ export function gradeAssertion(assertion, readFile = null, context = {}) {
   return { ok: reasons.length === 0, reasons };
 }
 
+/**
+ * The verdict for ONE reading at run time. The only place that decides it, so the executing side
+ * cannot answer this question differently.
+ *
+ * @param {{operator:string, expected:unknown}} assertion
+ * @param {unknown} reading what was read, or null when nothing was read
+ * @param {boolean|null} present did the presence probe find the surface? null = probe not run
+ */
+export function gradeReading(assertion, reading, present) {
+  if (present !== true) {
+    return {
+      verdict: "not-checked",
+      why:
+        present === null
+          ? "nothing looked for this surface on the screen, so there is no way to tell whether it was there"
+          : "this surface was not on the screen, so there was nothing to judge — that is not the same as its heading being wrong",
+    };
+  }
+  if (reading === null || reading === undefined) {
+    return { verdict: "not-checked", why: "the surface was on the screen but nothing could be read from it" };
+  }
+  const evaluate = VALUE_OPERATORS[assertion.operator];
+  if (!evaluate) return { verdict: "not-checked", why: `no operator named ${JSON.stringify(assertion.operator)}` };
+  return evaluate(reading, assertion.expected)
+    ? { verdict: "pass", why: "" }
+    : { verdict: "fail", why: `${JSON.stringify(reading)} does not satisfy ${assertion.operator} ${JSON.stringify(assertion.expected)}` };
+}
+
 // ---------------------------------------------------------------------------------------------
 // 3. Ledger validation + coverage
 // ---------------------------------------------------------------------------------------------
@@ -418,6 +474,19 @@ export function validateLedger(surfaces, ledger, readFile = null, readReceipt = 
         if (!graded.ok) {
           good = false;
           for (const reason of graded.reasons) problems.push(`${entry.key}: assertion ${reason}`);
+        }
+      }
+      // An assertion with no way to tell whether the surface was on screen reports "the heading
+      // is missing" for a panel that simply never opened -- a correct page, accused. A check that
+      // fires on a correct page is worse than no check.
+      for (const assertion of assertions) {
+        if (!assertion.presence?.css) {
+          good = false;
+          problems.push(
+            `${entry.key}: assertion gives no way to tell whether this surface was on the screen, so a ` +
+              `panel that never opened would be reported as a panel whose heading is wrong`,
+          );
+          break;
         }
       }
       // Judge B-1: an expectation with no principal is an expectation about nobody. Admin-web

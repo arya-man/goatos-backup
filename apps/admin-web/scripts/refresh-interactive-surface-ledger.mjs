@@ -12,7 +12,7 @@
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { blankNonMarkup, rootLabels, routesOwningFiles, scanInteractiveSurfaces } from "./lib/interactive-surfaces.mjs";
+import { blankNonMarkup, presenceProbe, rootLabels, routesOwningFiles, scanInteractiveSurfaces } from "./lib/interactive-surfaces.mjs";
 import { readSourceFiles } from "./check-interactive-surfaces.mjs";
 
 const adminWeb = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -20,7 +20,23 @@ const LEDGER = path.join(adminWeb, "scripts/interactive-surface-ledger.json");
 
 function entryFor(surface, sourceText) {
   const labels = rootLabels(sourceText, surface.offset);
+  const presence = presenceProbe(sourceText, surface.offset);
   const where = `${surface.path}:${surface.line}`;
+  if (labels.length > 0 && !presence) {
+    // Direction of failure: with no way to tell whether the surface was on screen, a panel that
+    // never opened reads as a panel whose heading is wrong. A correct page, accused. So an
+    // expectation we cannot precondition is not stated at all.
+    return {
+      key: surface.key,
+      kind: surface.kind,
+      where,
+      status: "not-checked",
+      notCheckedReason:
+        `this ${surface.kind} renders through a component whose root element cannot be named from ` +
+        `source, so nothing here could tell a panel that never opened from a panel whose heading is ` +
+        `missing -- and reporting the first as the second accuses a correct page`,
+    };
+  }
   if (labels.length === 0) {
     // Judge B-1. Everything else this surface renders sits on a CHILD control, and admin-web
     // compiles which children a person meets from a backend contract against their permissions.
@@ -65,6 +81,9 @@ function entryFor(surface, sourceText) {
         subject:
           `the words on the ${surface.kind}'s own heading when a person opens it (${where}) -- a panel ` +
           `that opened empty, or whose copy did not resolve, shows none of them`,
+        // Ask first whether the surface is there at all. Without it, a panel that never opened
+        // reads as a panel whose heading is wrong.
+        presence,
         operator: "field-set-contains-all",
         expected: labels,
         provenance: { kind: "source", path: surface.path, line: surface.line, extractor: "root-label" },

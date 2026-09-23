@@ -36,29 +36,8 @@
       "key": "features/alerts/alerts-configure.tsx::modal::unnamed",
       "kind": "modal",
       "where": "features/alerts/alerts-configure.tsx:67",
-      "status": "stated-not-executed",
-      "viewports": [
-        "1440",
-        "390"
-      ],
-      "principal": "any principal whose page contract lets them open this surface -- the expectation is only about the surface's own label, which does not vary with permissions",
-      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
-      "assertions": [
-        {
-          "subject": "the words on the modal's own heading when a person opens it (features/alerts/alerts-configure.tsx:67) -- a panel that opened empty, or whose copy did not resolve, shows none of them",
-          "operator": "field-set-contains-all",
-          "expected": [
-            "configure.close",
-            "configure.title"
-          ],
-          "provenance": {
-            "kind": "source",
-            "path": "features/alerts/alerts-configure.tsx",
-            "line": 67,
-            "extractor": "root-label"
-          }
-        }
-      ],
+      "status": "not-checked",
+      "notCheckedReason": "this modal renders through a component whose root element cannot be named from source, so nothing here could tell a panel that never opened from a panel whose heading is missing -- and reporting the first as the second accuses a correct page",
       "routes": [
         "/alerts"
       ]
@@ -130,6 +109,10 @@
       "assertions": [
         {
           "subject": "the words on the modal's own heading when a person opens it (features/calendar/calendar-event-drawer.tsx:356) -- a panel that opened empty, or whose copy did not resolve, shows none of them",
+          "presence": {
+            "css": "[role=dialog]",
+            "min": 1
+          },
           "operator": "field-set-contains-all",
           "expected": [
             "drawer.event.aria"
@@ -161,6 +144,10 @@
       "assertions": [
         {
           "subject": "the words on the modal's own heading when a person opens it (features/calendar/calendar-event-drawer.tsx:439) -- a panel that opened empty, or whose copy did not resolve, shows none of them",
+          "presence": {
+            "css": "[role=dialog]",
+            "min": 1
+          },
           "operator": "field-set-contains-all",
           "expected": [
             "drawer.event.aria"
@@ -213,28 +200,8 @@
       "key": "features/configuration/items-page.tsx::modal::unnamed",
       "kind": "modal",
       "where": "features/configuration/items-page.tsx:653",
-      "status": "stated-not-executed",
-      "viewports": [
-        "1440",
-        "390"
-      ],
-      "principal": "any principal whose page contract lets them open this surface -- the expectation is only about the surface's own label, which does not vary with permissions",
-      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
-      "assertions": [
-        {
-          "subject": "the words on the modal's own heading when a person opens it (features/configuration/items-page.tsx:653) -- a panel that opened empty, or whose copy did not resolve, shows none of them",
-          "operator": "field-set-contains-all",
-          "expected": [
-            "action.close"
-          ],
-          "provenance": {
-            "kind": "source",
-            "path": "features/configuration/items-page.tsx",
-            "line": 653,
-            "extractor": "root-label"
-          }
-        }
-      ],
+      "status": "not-checked",
+      "notCheckedReason": "this modal renders through a component whose root element cannot be named from source, so nothing here could tell a panel that never opened from a panel whose heading is missing -- and reporting the first as the second accuses a correct page",
       "routes": [
         "/configuration/items"
       ]
@@ -499,6 +466,10 @@
       "assertions": [
         {
           "subject": "the words on the modal's own heading when a person opens it (features/counts/herd-filters-modal.tsx:115) -- a panel that opened empty, or whose copy did not resolve, shows none of them",
+          "presence": {
+            "css": "[role=dialog]",
+            "min": 1
+          },
           "operator": "field-set-contains-all",
           "expected": [
             "filter.drawer.title"
@@ -759,6 +730,10 @@
       "assertions": [
         {
           "subject": "the words on the inline-editor's own heading when a person opens it (features/counts/inline-cell-editor.tsx:236) -- a panel that opened empty, or whose copy did not resolve, shows none of them",
+          "presence": {
+            "css": "[role=dialog]",
+            "min": 1
+          },
           "operator": "field-set-contains-all",
           "expected": [
             "action.retag.hint"
@@ -795,6 +770,10 @@
       "assertions": [
         {
           "subject": "the words on the modal's own heading when a person opens it (features/counts/inline-cell-editor.tsx:240) -- a panel that opened empty, or whose copy did not resolve, shows none of them",
+          "presence": {
+            "css": "[role=dialog]",
+            "min": 1
+          },
           "operator": "field-set-contains-all",
           "expected": [
             "action.retag.hint"
@@ -910,6 +889,10 @@
       "assertions": [
         {
           "subject": "the words on the edit-form's own heading when a person opens it (features/health/health-config.tsx:361) -- a panel that opened empty, or whose copy did not resolve, shows none of them",
+          "presence": {
+            "css": ".tsearch",
+            "min": 1
+          },
           "operator": "field-set-contains-all",
           "expected": [
             "filter.search_label"
@@ -941,6 +924,10 @@
       "assertions": [
         {
           "subject": "the words on the modal's own heading when a person opens it (features/herd-signals/herd-signals-history-fullscreen.tsx:241) -- a panel that opened empty, or whose copy did not resolve, shows none of them",
+          "presence": {
+            "css": "[role=dialog]",
+            "min": 1
+          },
           "operator": "field-set-contains-all",
           "expected": [
             "Full movement history"
@@ -1011,6 +998,10 @@
       "assertions": [
         {
           "subject": "the words on the row-action's own heading when a person opens it (features/leadership-tasks/task-status-menu.tsx:170) -- a panel that opened empty, or whose copy did not resolve, shows none of them",
+          "presence": {
+            "css": "[role=menu]",
+            "min": 1
+          },
           "operator": "field-set-contains-all",
           "expected": [
             "status.menu_aria"
@@ -1112,6 +1103,10 @@
       "assertions": [
         {
           "subject": "the words on the edit-form's own heading when a person opens it (features/operations-audit/audit-log.tsx:185) -- a panel that opened empty, or whose copy did not resolve, shows none of them",
+          "presence": {
+            "css": ".tsearch",
+            "min": 1
+          },
           "operator": "field-set-contains-all",
           "expected": [
             "filter.search_label"
@@ -1172,6 +1167,10 @@
       "assertions": [
         {
           "subject": "the words on the edit-form's own heading when a person opens it (features/operations-dlq/index.tsx:104) -- a panel that opened empty, or whose copy did not resolve, shows none of them",
+          "presence": {
+            "css": ".tsearch",
+            "min": 1
+          },
           "operator": "field-set-contains-all",
           "expected": [
             "filter.search_label"
@@ -1212,29 +1211,8 @@
       "key": "features/pen-routines/routines-page.tsx::modal::unnamed",
       "kind": "modal",
       "where": "features/pen-routines/routines-page.tsx:404",
-      "status": "stated-not-executed",
-      "viewports": [
-        "1440",
-        "390"
-      ],
-      "principal": "any principal whose page contract lets them open this surface -- the expectation is only about the surface's own label, which does not vary with permissions",
-      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
-      "assertions": [
-        {
-          "subject": "the words on the modal's own heading when a person opens it (features/pen-routines/routines-page.tsx:404) -- a panel that opened empty, or whose copy did not resolve, shows none of them",
-          "operator": "field-set-contains-all",
-          "expected": [
-            "action.close",
-            "drawer.routine.title"
-          ],
-          "provenance": {
-            "kind": "source",
-            "path": "features/pen-routines/routines-page.tsx",
-            "line": 404,
-            "extractor": "root-label"
-          }
-        }
-      ],
+      "status": "not-checked",
+      "notCheckedReason": "this modal renders through a component whose root element cannot be named from source, so nothing here could tell a panel that never opened from a panel whose heading is missing -- and reporting the first as the second accuses a correct page",
       "routes": [
         "/routines"
       ]
@@ -1343,6 +1321,10 @@
       "assertions": [
         {
           "subject": "the words on the modal's own heading when a person opens it (features/preventive-care-vaccination/command-board-view.tsx:1490) -- a panel that opened empty, or whose copy did not resolve, shows none of them",
+          "presence": {
+            "css": "[role=dialog]",
+            "min": 1
+          },
           "operator": "field-set-contains-all",
           "expected": [
             "command_board.shed_vaccine.title"
@@ -1403,6 +1385,10 @@
       "assertions": [
         {
           "subject": "the words on the modal's own heading when a person opens it (features/preventive-care-vaccination/command-board-view.tsx:1627) -- a panel that opened empty, or whose copy did not resolve, shows none of them",
+          "presence": {
+            "css": "[role=dialog]",
+            "min": 1
+          },
           "operator": "field-set-contains-all",
           "expected": [
             "command_board.kpi.closed_without_dose"
@@ -1463,6 +1449,10 @@
       "assertions": [
         {
           "subject": "the words on the modal's own heading when a person opens it (features/preventive-care-vaccination/command-board-view.tsx:1707) -- a panel that opened empty, or whose copy did not resolve, shows none of them",
+          "presence": {
+            "css": "[role=dialog]",
+            "min": 1
+          },
           "operator": "field-set-contains-all",
           "expected": [
             "command_board.cohort_matrix.no_farm"
@@ -1683,6 +1673,10 @@
       "assertions": [
         {
           "subject": "the words on the modal's own heading when a person opens it (features/preventive-care-vaccination/sop-quick-view.tsx:84) -- a panel that opened empty, or whose copy did not resolve, shows none of them",
+          "presence": {
+            "css": "[role=dialog]",
+            "min": 1
+          },
           "operator": "field-set-contains-all",
           "expected": [
             "drawer.sop.aria"
@@ -1851,6 +1845,10 @@
       "assertions": [
         {
           "subject": "the words on the edit-form's own heading when a person opens it (features/procurement/animal-purchases.tsx:362) -- a panel that opened empty, or whose copy did not resolve, shows none of them",
+          "presence": {
+            "css": ".ap-filter-bar",
+            "min": 1
+          },
           "operator": "field-set-contains-all",
           "expected": [
             "filter.load"
@@ -2279,6 +2277,10 @@
       "assertions": [
         {
           "subject": "the words on the modal's own heading when a person opens it (features/procurement/sale-allocation-drawer.tsx:255) -- a panel that opened empty, or whose copy did not resolve, shows none of them",
+          "presence": {
+            "css": "[role=dialog]",
+            "min": 1
+          },
           "operator": "field-set-contains-all",
           "expected": [
             "action.tag_animals.label"
@@ -2515,6 +2517,10 @@
       "assertions": [
         {
           "subject": "the words on the modal's own heading when a person opens it (features/sops/sop-builder.tsx:518) -- a panel that opened empty, or whose copy did not resolve, shows none of them",
+          "presence": {
+            "css": "[role=dialog]",
+            "min": 1
+          },
           "operator": "field-set-contains-all",
           "expected": [
             "builder.preview.title"
@@ -2552,6 +2558,10 @@
       "assertions": [
         {
           "subject": "the words on the modal's own heading when a person opens it (features/sops/sop-library.tsx:327) -- a panel that opened empty, or whose copy did not resolve, shows none of them",
+          "presence": {
+            "css": "[role=dialog]",
+            "min": 1
+          },
           "operator": "field-set-contains-all",
           "expected": [
             "modal.detail.aria"
@@ -2610,6 +2620,10 @@
       "assertions": [
         {
           "subject": "the words on the modal's own heading when a person opens it (features/vaccination-plan/plan-editor.tsx:730) -- a panel that opened empty, or whose copy did not resolve, shows none of them",
+          "presence": {
+            "css": "[role=dialog]",
+            "min": 1
+          },
           "operator": "field-set-contains-all",
           "expected": [
             "Add a vaccine to this plan"
@@ -2641,6 +2655,10 @@
       "assertions": [
         {
           "subject": "the words on the modal's own heading when a person opens it (features/vaccination-plan/version-sheet.tsx:49) -- a panel that opened empty, or whose copy did not resolve, shows none of them",
+          "presence": {
+            "css": "[role=dialog]",
+            "min": 1
+          },
           "operator": "field-set-contains-all",
           "expected": [
             "Version settings"
@@ -2732,6 +2750,10 @@
       "assertions": [
         {
           "subject": "the words on the modal's own heading when a person opens it (features/verification-review/toxin-review-list.tsx:206) -- a panel that opened empty, or whose copy did not resolve, shows none of them",
+          "presence": {
+            "css": "[role=dialog]",
+            "min": 1
+          },
           "operator": "field-set-contains-all",
           "expected": [
             "toxin.drawer.title"
