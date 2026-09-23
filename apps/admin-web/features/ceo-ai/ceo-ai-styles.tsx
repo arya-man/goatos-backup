@@ -105,8 +105,8 @@ export function MeshaLogo(props: { width?: number; height?: number; className?: 
         placeItems: "center",
         borderRadius: "50%",
         border: "1.5px solid var(--brand)",
-        background: "var(--brand-soft)",
-        color: "var(--brand)",
+        background: "var(--brand)",
+        color: "var(--on-brand, #fff)",
         fontWeight: 800,
         fontSize: Math.round(width * 0.47),
         lineHeight: 1,
@@ -447,6 +447,17 @@ export function CeoAiStyles(): ReactElement {
 /* draggable launcher: inline left/top win over the corner defaults */
 .mzai-root.mzai-closed.mzai-free{right:auto !important;bottom:auto !important;transition:none}
 .mzai-closed .mzai-bubble{touch-action:none;user-select:none;-webkit-user-select:none}
+.mzai-steps{margin:0 0 8px;font-size:12px;color:var(--muted);max-width:100%}
+.mzai-steps-head{display:inline-flex;align-items:center;gap:6px;border:0;background:transparent;color:var(--muted);
+  font:inherit;font-size:12px;padding:2px 0;cursor:pointer}
+.mzai-steps.live .mzai-steps-head{cursor:default}
+.mzai-steps-chev{font-size:13px}
+.mzai-steps ol{list-style:none;margin:4px 0 0;padding:0 0 0 2px;border-left:2px solid var(--line)}
+.mzai-steps li{position:relative;padding:3px 0 3px 14px;line-height:1.45}
+.mzai-steps li::before{content:"";position:absolute;left:-5px;top:9px;width:8px;height:8px;border-radius:50%;background:var(--line)}
+.mzai-steps li.done::before{background:var(--brand)}
+.mzai-steps li.now{color:var(--ink)}
+.mzai-steps li.now::before{background:var(--brand);animation:mzai-pulse 1.2s ease-in-out infinite}
 `}</style>
   );
 }

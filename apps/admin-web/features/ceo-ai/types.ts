@@ -24,6 +24,10 @@ export type ChatMessage = {
   // first answer token (planning / querying / synthesizing). Cleared once answer
   // text arrives. Never carries chain-of-thought — only a coarse route label.
   progress?: string;
+  // Coding-agent activity: step labels as they happen, and how long the run took.
+  steps?: string[];
+  startedAt?: number;
+  workedMs?: number;
 };
 
 // A conversation thread summary in the sidebar (backend-owned list).

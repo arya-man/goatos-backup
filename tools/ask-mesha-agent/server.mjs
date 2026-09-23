@@ -345,17 +345,39 @@ async function canUseTool(toolName, input) {
   return { behavior: "allow", updatedInput: input };
 }
 
+// Plain-English step labels for the CEO-facing activity trail (no file paths/SQL).
+const TOPIC_WORDS = [
+  [/weigh/i, "weighing"], [/sale|sold|animals_base|exit/i, "sales and exits"], [/feed/i, "feed"],
+  [/vacc/i, "vaccination"], [/mortal|death/i, "mortality"], [/procure|load/i, "procurement"],
+  [/verif/i, "verification"], [/workforce|task/i, "workforce"], [/count|movement|current_scope/i, "headcount"],
+  [/growth|adg|gain/i, "daily gain"],
+];
+function topicOf(text) {
+  const hit = TOPIC_WORDS.find(([re]) => re.test(text));
+  return hit ? hit[1] : null;
+}
 function toolLabel(name, input) {
-  if (name === "mcp__mesha__run_sql") return "Querying goatos-stg database";
-  if (name === "Bash") {
-    const cmd = String(input.command || "");
-    return /psql/.test(cmd) ? "Querying goatos-stg database" : `Running: ${cmd.slice(0, 60)}`;
+  if (name === "mcp__mesha__run_sql" || (name === "Bash" && /\bpsql\b/.test(String(input.command || "")))) {
+    const sql = String(input.sql || input.command || "");
+    const views = [...sql.matchAll(/ceo_ai\.(\w+)/g)].map((m) => m[1]);
+    const topic = topicOf(views.join(" ") || sql);
+    return topic ? `Checking ${topic} data` : "Checking the data";
   }
-  if (["Read", "Grep", "Glob"].includes(name)) return "Reading code";
-  if (["Edit", "Write"].includes(name)) return "Editing code";
-  if (name === "Task" || name === "Agent") return "Delegating to a sub-agent";
-  if (name === "Skill") return `Using skill ${input.skill || input.command || ""}`.trim();
-  return `Using ${name}`;
+  if (name === "Read") {
+    const f = String(input.file_path || "");
+    if (/uploads|ask-mesha\//.test(f)) return /\.(png|jpe?g|gif|webp)$/i.test(f) ? "Looking at your screenshot" : "Reading your file";
+    if (/mesha-data-map|data-map-core/.test(f)) return "Using the Mesha data map";
+    const topic = topicOf(f);
+    return topic ? `Reading how ${topic} is calculated` : "Reading the code";
+  }
+  if (name === "Grep" || name === "Glob") {
+    const topic = topicOf(String(input.pattern || "") + " " + String(input.path || ""));
+    return topic ? `Searching the code for ${topic}` : "Searching the code";
+  }
+  if (name === "Skill") return "Using the Mesha data map";
+  if (name === "TodoWrite") return "Planning the checks";
+  if (name === "Bash") return "Running a check";
+  return "Working";
 }
 
 // Streams text while hiding ```chart ... ``` fences from the visible tokens.
