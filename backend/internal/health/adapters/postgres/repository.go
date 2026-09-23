@@ -452,7 +452,17 @@ WHERE hs.tenant_id=$1::uuid AND hs.health_session_id=$2::uuid`, tenantID, sessio
 		}
 		d.StepCount++
 	}
-	return d, rows.Err()
+	if err := rows.Err(); err != nil {
+		return d, err
+	}
+	// What the server already holds, so a reopened card shows the steps a colleague filmed
+	// rather than asking for them again.
+	proofs, err := r.StepProofs(ctx, tenantID, sessionID)
+	if err != nil {
+		return d, err
+	}
+	d.StepProofs = proofs
+	return d, nil
 }
 
 func (r *Repository) CompleteWorkItem(ctx context.Context, in domain.CompleteInput) (domain.CompleteResult, error) {

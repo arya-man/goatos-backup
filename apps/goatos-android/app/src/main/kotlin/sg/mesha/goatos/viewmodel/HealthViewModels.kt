@@ -353,6 +353,23 @@ class HealthDetailViewModel @Inject constructor(
         val saving = opsState.submitting
         val closingCase = opsState.closing
         latestDetail = detail
+        // SEED FROM THE SERVER. A step the server already holds is recorded, whoever filmed it
+        // and whichever phone did -- a colleague's clip, or this operator's before the screen
+        // was closed. Local state still wins while a capture is in flight, because the server
+        // has not been told about it yet.
+        detail?.stepProofs.orEmpty().forEach { serverProof ->
+            val known = stepProofs.value.of(serverProof.stepId)
+            if (known.state != StepProofState.SENDING && !known.recorded) {
+                stepProofs.update {
+                    it.with(
+                        TreatmentStepProof(
+                            stepId = serverProof.stepId,
+                            state = StepProofState.RECORDED,
+                        ),
+                    )
+                }
+            }
+        }
         if (detail == null) HealthDetailUiState(loading = true, submitting = saving, message = notice)
         else HealthDetailUiState(
             loading = false,

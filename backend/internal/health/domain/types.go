@@ -165,6 +165,13 @@ type WorkItemPage struct {
 type WorkItemDetail struct {
 	WorkItem
 	Steps []ProtocolStep `json:"steps"`
+	// StepProofs is what the SERVER already holds for this session, per step.
+	//
+	// It rides the detail because the recorded state cannot live only on the phone that filmed
+	// it: DIFFERENT PEOPLE do different steps of one session (maintainer, 2026-09-23), and an
+	// operator reopening the card -- or picking up where a colleague stopped -- must see what is
+	// already recorded rather than refilm it.
+	StepProofs []StepProof `json:"step_proofs"`
 	// RegisterRuleID is the DIAGNOSIS RULE this case was opened under, and it is carried here so
 	// an operator standing on a treatment screen can record the animal's death against the exact
 	// disease it was being treated for, rather than searching a list for what is already on the
