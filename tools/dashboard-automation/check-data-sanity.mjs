@@ -13,6 +13,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { containsUnredactedSecret, redactText } from "./lib/redact.mjs";
+import { LANE_SHAPES, locateLaneRows, mismatchSentence } from "./lib/lane-rows.mjs";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const cataloguePath = path.join(repo, "tools/dashboard-automation/data-sanity-checks.json");
@@ -114,11 +115,26 @@ export function tablesReadByCatalogue(checks) {
   for (const check of checks) {
     const text = stripSqlNoise(check.sql);
     const cteNames = new Set([...text.matchAll(/\b([a-z_][a-z0-9_]*)\s+as\s*\(/gi)].map((m) => m[1].toLowerCase()));
-    // A trailing "." means the token was an alias ("is distinct from p.shed_id") and a trailing
-    // "(" means it was a function ("is distinct from count(...)"). Neither is a table.
-    for (const match of text.matchAll(/\b(?:from|join)\s+([a-z_][a-z0-9_]*)([.(]?)/gi)) {
-      if (match[2]) continue;
-      const name = match[1].toLowerCase();
+    // Three things look like "from <word>" and are not a table:
+    //   "count(" — a function, spotted by the trailing "(";
+    //   "is distinct from l.line_animals" — a column on an alias, spotted by the dot;
+    //   "from public.goats" — a real table wearing its schema, which IS a table named `goats`.
+    // Reading a dot as "always an alias" dropped every schema-qualified check's tables, so the
+    // role-grant proof covered nothing at all for exactly the derived rows, which are written as
+    // public.<table> to the last one. A dot is now an alias unless the prefix is a real schema.
+    const SCHEMAS = new Set(["public", "pg_catalog", "information_schema"]);
+    for (const match of text.matchAll(/\b(?:from|join)\s+([a-z_][a-z0-9_]*)(\.)?([a-z_][a-z0-9_]*)?(\(?)/gi)) {
+      if (match[4]) continue;
+      let name;
+      if (match[2]) {
+        if (!SCHEMAS.has(match[1].toLowerCase())) continue;
+        name = match[3]?.toLowerCase();
+      } else {
+        name = match[1].toLowerCase();
+      }
+      if (!name) continue;
+      // Syntax words that introduce a table without being one.
+      if (["lateral", "only"].includes(name)) continue;
       if (!cteNames.has(name)) tables.add(name);
     }
   }
@@ -145,13 +161,32 @@ export function capAndRedactRows(rows, columns, maxRows, maxCellChars) {
 // normalised is parked with a reason rather than allowed anywhere near Slack. In particular a
 // row never contributes Slack text unless it carries a human sentence, a screen and a unit.
 export function normaliseLaneCheck(row, existingNames) {
-  const name = typeof row?.name === "string" ? row.name : typeof row?.checkId === "string" ? row.checkId : null;
+  const name = typeof row?.name === "string" ? row.name : typeof row?.checkId === "string" ? row.checkId : typeof row?.id === "string" ? row.id : null;
   if (!name) return { parked: { name: "an unnamed derived check", reason: "the derived check file offered a check with no name" } };
   if (existingNames.has(name)) return { parked: { name, reason: "a check of this name is already in the catalogue" } };
-  const missing = ["sql", "humanFailure", "countUnit", "question"].filter((field) => typeof row?.[field] !== "string" || !row[field].trim());
+  // The miner writes the sentence as `failureSentence`; this lane calls it `humanFailure`. Map
+  // it here so a row parks for the reason that is actually true of it, not for a name mismatch.
+  // `countUnit` is the one field the runner already has a neutral default for, so a row is not
+  // held back for missing it — it is held back for the fields nobody can substitute: the read,
+  // the sentence a person reads, the question, and the screen it shows up on.
+  const row2 = {
+    ...row,
+    humanFailure: row?.humanFailure ?? row?.failureSentence,
+    countUnit: typeof row?.countUnit === "string" && row.countUnit.trim() ? row.countUnit : "rows that should not be there"
+  };
+  const missing = ["sql", "humanFailure", "question"].filter((field) => typeof row2?.[field] !== "string" || !row2[field].trim());
   if (missing.length) {
-    return { parked: { name, reason: "this derived check has no plain-English description yet, so it was not run" } };
+    // Named one by one. "It has no description" was the same sentence for a row missing its
+    // sentence and a row missing its unit, which hid which of the two was actually wrong.
+    const what = missing.map((field) => ({
+      sql: "the read it would run",
+      humanFailure: "the sentence a person would read",
+      countUnit: "what it would be counting",
+      question: "the question it asks of the data"
+    })[field]).join(", ");
+    return { parked: { name, reason: `this derived check is missing ${what}, so it was not run` } };
   }
+  row = row2;
   if (!row?.page?.path || typeof row.page.path !== "string" || !row.page.path.startsWith("/") || !row.page.title) {
     return { parked: { name, reason: "this derived check does not name the screen it would show up on, so it was not run" } };
   }
@@ -179,37 +214,139 @@ export function normaliseLaneCheck(row, existingNames) {
   };
 }
 
-export function loadCatalogue({ cataloguePath: cat = cataloguePath, lanePath: lane = lanePath } = {}) {
+// This lane's rows live at lanes.lane2.checks. Where they live is stated once, in
+// lib/lane-rows.mjs, so a future move is one edit there rather than four silent misses here.
+export const LANE2_SHAPES = LANE_SHAPES.lane2;
+
+// Derived checks are mined from commit text and have never been measured against real data, so
+// they stay off unless this is set — the same bargain lane 3 already makes with its own history
+// checks. Turning them on is a deliberate act, never a side effect of fixing a path.
+export const INCLUDE_DERIVED_ENV = "GOATOS_DASHBOARD_DATA_SANITY_INCLUDE_DERIVED";
+
+export function derivedChecksRequested(env = process.env) {
+  return ["1", "true", "yes"].includes(String(env?.[INCLUDE_DERIVED_ENV] ?? "").toLowerCase());
+}
+
+// Fifty parked lines that all say the same thing is noise in its own right, and it would turn
+// one line in tonight's post into fifty. The per-check detail is kept in full in the report; what
+// the layer sentence counts is one line per distinct reason, carrying the number.
+export function summariseParked(parked) {
+  const byReason = new Map();
+  for (const item of parked ?? []) {
+    // A row parked by a standing, evidenced decision is not news. It stays in the report in full
+    // and is left out of the sentence, so a night with nothing new to say still says nothing new.
+    if (item?.standing) continue;
+    const reason = String(item?.reason ?? "this check was not run");
+    if (!byReason.has(reason)) byReason.set(reason, []);
+    byReason.get(reason).push(item?.name);
+  }
+  return [...byReason.entries()].map(([reason, names]) => (names.length === 1
+    ? { name: names[0] ?? "a derived check", reason }
+    : { name: "derived checks", reason: `${names.length} derived checks were not run: ${reason.replace(/^this derived check /, "").replace(/, so it was not run$/, "")}`, checkCount: names.length }));
+}
+
+export function loadCatalogue({
+  cataloguePath: cat = cataloguePath,
+  lanePath: lane = lanePath,
+  includeDerived = derivedChecksRequested()
+} = {}) {
   const base = JSON.parse(readFileSync(cat, "utf8"));
   const checks = [...(base.checks ?? [])];
   const added = [];
   const parked = [];
+  const heldBack = [];
+  // Null means "no derived file at all", which is a different thing from "the file is there and
+  // this lane could not read it". Only the second one is a bug, and it says so.
+  let laneChecks = null;
   if (existsSync(lane)) {
-    let laneChecks = null;
+    laneChecks = { present: true, found: 0, loaded: 0, notLoaded: 0, shape: null, unreadable: null };
+    let parsed = null;
+    let parseError = null;
     try {
-      const extra = JSON.parse(readFileSync(lane, "utf8"));
-      laneChecks = extra.dataSanityChecks ?? extra.lane2 ?? extra.checks ?? null;
-    } catch {
-      laneChecks = null;
+      parsed = JSON.parse(readFileSync(lane, "utf8"));
+    } catch (error) {
+      parseError = String(error?.message ?? error);
     }
-    if (!Array.isArray(laneChecks)) {
-      // A malformed miner file must never stop the sweep; it is reported as parked, not fatal.
-      parked.push({ name: "derived checks", reason: "the derived check file could not be read, so only this lane's own checks were run" });
+    if (parseError !== null) {
+      laneChecks.unreadable = `the derived check file is present but is not valid JSON, so none of its checks could be loaded (${parseError.slice(0, 120)})`;
     } else {
-      const names = new Set(checks.map((check) => check.name));
-      for (const row of laneChecks) {
-        const result = normaliseLaneCheck(row, names);
-        if (result.check) {
+      const located = locateLaneRows(parsed, "lane2");
+      if (!Array.isArray(located.rows)) {
+        // The silence is the bug. A file this lane cannot read now says how many rows it was
+        // unable to load and which shapes it looked under, and the caller fails the layer.
+        laneChecks.found = located.rowsNotLoaded;
+        laneChecks.notLoaded = located.rowsNotLoaded;
+        laneChecks.unreadable = mismatchSentence(located.rowsNotLoaded);
+        laneChecks.shapesTried = located.shapesTried ?? LANE2_SHAPES.map((shape) => shape.at);
+      } else {
+        laneChecks.shape = located.at;
+        laneChecks.found = located.rows.length;
+        const names = new Set(checks.map((check) => check.name));
+        // A derived check that has already been lifted into this lane's own catalogue by hand is
+        // the SAME rule, under a different name. Matching on name alone would have let every one
+        // of them in a second time the moment the path was fixed — the same rule firing twice, in
+        // two voices, which is the noise this lane exists to prevent. The catalogue records which
+        // mined check each of its entries came from, so that record is what is matched on.
+        const absorbed = new Map();
+        for (const check of base.checks ?? []) {
+          for (const minerId of check.minerCheckIds ?? []) absorbed.set(minerId, check.name);
+        }
+        // Rows already condemned by measurement stay condemned, with the number that condemned
+        // them, rather than being re-run each night to produce the same flood.
+        const condemned = new Map((base.parkedChecks ?? []).map((item) => [item.minerCheckId, item.reason]));
+        for (const row of located.rows) {
+          const minerId = typeof row?.id === "string" ? row.id : null;
+          if (minerId && absorbed.has(minerId)) {
+            // A standing decision, already recorded and already evidenced. It is kept in the
+            // report so every mined row stays accounted for, but it is NOT re-announced nightly:
+            // a decision taken once is not an incident that recurs every evening.
+            parked.push({ name: minerId, standing: true, reason: "this rule is already covered by a check in this lane's own catalogue, which was measured against real data" });
+            continue;
+          }
+          if (minerId && condemned.has(minerId)) {
+            parked.push({ name: minerId, standing: true, reason: condemned.get(minerId) });
+            continue;
+          }
+          const result = normaliseLaneCheck(row, names);
+          if (!result.check) {
+            parked.push(result.parked);
+            continue;
+          }
           names.add(result.check.name);
+          if (!includeDerived) {
+            // Not run, and said so. It is neither a pass nor a finding: it is a check that was
+            // found, is loadable, and is deliberately waiting to be measured.
+            heldBack.push({ name: result.check.name, question: result.check.question, reason: `this derived check has not been measured against real data yet, so it was not run; set ${INCLUDE_DERIVED_ENV}=1 to run it anyway` });
+            continue;
+          }
           checks.push(result.check);
           added.push(result.check.name);
-        } else {
-          parked.push(result.parked);
         }
+        laneChecks.loaded = added.length + heldBack.length + parked.length;
       }
     }
+    if (laneChecks.unreadable) {
+      parked.push({ name: "derived checks", reason: laneChecks.unreadable });
+    } else if (heldBack.length) {
+      // One line, not one per check: the count is what a person needs, and 50 lines of
+      // "not run yet" is the noise this lane exists to avoid. The names are in the report.
+      parked.push({ name: "derived checks", reason: `${heldBack.length} derived check${heldBack.length === 1 ? " was" : "s were"} found and deliberately not run, because they have not been measured against real data yet` });
+    }
   }
-  return { ...base, checks, laneChecksAdded: added, laneChecksParked: parked };
+  return {
+    ...base,
+    checks,
+    laneChecksAdded: added,
+    // The full, per-check list — this is what the report carries and what a person reads when
+    // they want to know which derived check is waiting and why.
+    laneChecksParked: parked,
+    // One line per distinct reason — this is what the layer sentence counts, so a shape fix can
+    // never turn one parked line into fifty.
+    laneChecksParkedSummary: summariseParked(parked),
+    laneChecksHeldBack: heldBack,
+    laneChecks,
+    derivedChecksIncluded: includeDerived
+  };
 }
 
 // Plain English for Slack and for the runner's layer message. Deliberately free of SQL, table
@@ -239,7 +376,7 @@ if (isMain) {
 }
 
 function main() {
-  const catalogue = loadCatalogue();
+  const catalogue = loadCatalogue(args.laneChecks ? { lanePath: args.laneChecks } : {});
   const maxRows = Number(catalogue.maxSampleRows ?? 10);
   const maxOffendingRows = Number(catalogue.maxOffendingRows ?? 500);
   const maxCellChars = Number(catalogue.maxCellChars ?? 80);
@@ -256,9 +393,24 @@ function main() {
     findings: [],
     passed: [],
     parked: [],
-    laneChecksAdded: catalogue.laneChecksAdded ?? []
+    laneChecksAdded: catalogue.laneChecksAdded ?? [],
+    laneChecksHeldBack: catalogue.laneChecksHeldBack ?? [],
+    laneChecksParkedDetail: catalogue.laneChecksParked ?? [],
+    laneChecks: catalogue.laneChecks ?? null,
+    derivedChecksIncluded: Boolean(catalogue.derivedChecksIncluded)
   };
-  report.parked.push(...(catalogue.laneChecksParked ?? []));
+  report.parked.push(...(catalogue.laneChecksParkedSummary ?? []));
+
+  // A derived file this lane cannot read is a broken lane, not a quiet edge case. It used to be
+  // one vague parked line that read like a handled case while 50 checks sat unread behind it, so
+  // it now takes the layer down and says how many rows went unloaded.
+  if (catalogue.laneChecks?.unreadable) {
+    report.status = "fail";
+    report.slackLayerMessage = `The figures on the dashboard were not fully checked: ${catalogue.laneChecks.unreadable}.`;
+    writeJson(outPath, report);
+    console.error(`data-sanity fail: ${report.slackLayerMessage} (report ${path.relative(repo, outPath)})`);
+    return 1;
+  }
 
   const selected = catalogue.checks.filter((check) => !args.only || check.name === args.only);
   if (args.only && selected.length === 0) {
@@ -429,6 +581,9 @@ function parseArgs(raw) {
     if (arg === "--self-test") parsed.selfTest = true;
     else if (arg === "--out") parsed.out = raw[++i];
     else if (arg === "--only") parsed.only = raw[++i];
+    // Lets the shape-mismatch behaviour be proved end to end against a file on disk, rather
+    // than asserted on the loader alone. The default is the miner's real file.
+    else if (arg === "--lane-checks") parsed.laneChecks = raw[++i];
     else fail(`unknown argument: ${arg}`);
   }
   return parsed;
