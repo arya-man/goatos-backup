@@ -292,11 +292,19 @@
           "subject": "the labelled controls, copy slots and named fields a person meets on the edit-form \"flex flex-wrap items-end gap-3\" (features/ceo-ai-admin/trace-viewer.tsx:121)",
           "operator": "field-set-equals",
           "expected": [
+            "Actor role",
+            "Latency",
+            "Model",
+            "Prompt",
             "Question (redacted)",
             "Rejection reason",
             "Request ID",
             "Review verdict",
+            "Route tier",
+            "Rows",
             "Source views",
+            "Status",
+            "Tool",
             "e.g. 9f2c1b7a-..."
           ],
           "blankScreenValue": []
@@ -331,22 +339,73 @@
       "key": "features/configuration/items-page.tsx::edit-form::tsearch",
       "kind": "edit-form",
       "where": "features/configuration/items-page.tsx:528",
-      "status": "not-checked",
-      "notCheckedReason": "every control on this edit-form is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the labelled controls, copy slots and named fields a person meets on the edit-form \"tsearch\" (features/configuration/items-page.tsx:528)",
+          "operator": "field-set-equals",
+          "expected": [
+            "column.item",
+            "column.status",
+            "column.tracking",
+            "empty.rows",
+            "empty.search",
+            "filter.department.all",
+            "search.placeholder"
+          ],
+          "blankScreenValue": []
+        }
+      ]
     },
     {
       "key": "features/configuration/items-page.tsx::modal::unnamed",
       "kind": "modal",
       "where": "features/configuration/items-page.tsx:653",
-      "status": "not-checked",
-      "notCheckedReason": "every control on this modal is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the labelled controls, copy slots and named fields a person meets on the modal \"unnamed\" (features/configuration/items-page.tsx:653)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.close",
+            "crumb"
+          ],
+          "blankScreenValue": []
+        }
+      ]
     },
     {
       "key": "features/configuration/items-page.tsx::row-action::unnamed",
       "kind": "row-action",
       "where": "features/configuration/items-page.tsx:627",
-      "status": "not-checked",
-      "notCheckedReason": "every control on this row-action is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the labelled controls, copy slots and named fields a person meets on the row-action \"unnamed\" (features/configuration/items-page.tsx:627)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.close",
+            "crumb",
+            "pager.noun"
+          ],
+          "blankScreenValue": []
+        }
+      ]
     },
     {
       "key": "features/configuration/row-actions.tsx::edit-form::cfg-rowacts-confirm",
@@ -628,10 +687,12 @@
           "subject": "the labelled controls, copy slots and named fields a person meets on the edit-form \"cfg-form\" (features/configuration/row-drawer.tsx:152)",
           "operator": "field-set-equals",
           "expected": [
+            "drawer.builtin_hint",
             "fields_json",
             "register",
             "row_id",
-            "row_version"
+            "row_version",
+            "status.archived"
           ],
           "blankScreenValue": []
         }
@@ -652,6 +713,9 @@
           "subject": "the labelled controls, copy slots and named fields a person meets on the edit-form \"small\" (features/configuration/row-drawer.tsx:290)",
           "operator": "field-set-equals",
           "expected": [
+            "action.cancel",
+            "action.delete",
+            "drawer.delete_confirm",
             "register",
             "row_id",
             "row_version"
@@ -675,6 +739,12 @@
           "subject": "the labelled controls, copy slots and named fields a person meets on the edit-form \"statusFormAction\" (features/configuration/row-drawer.tsx:278)",
           "operator": "field-set-equals",
           "expected": [
+            "action.archive",
+            "action.cancel",
+            "action.delete",
+            "action.restore",
+            "drawer.archive_hint",
+            "drawer.delete_confirm",
             "register",
             "row_id",
             "row_version",
@@ -1730,6 +1800,7 @@
             "leave-reject-reason",
             "leave_request_id",
             "list.empty",
+            "map",
             "reason",
             "reject.reason",
             "reject.reason_hint",
@@ -1763,6 +1834,7 @@
             "leave-reject-reason",
             "leave_request_id",
             "list.empty",
+            "map",
             "reason",
             "reject.reason",
             "reject.reason_hint",
@@ -2062,8 +2134,23 @@
       "key": "features/pen-routines/routines-page.tsx::modal::unnamed",
       "kind": "modal",
       "where": "features/pen-routines/routines-page.tsx:404",
-      "status": "not-checked",
-      "notCheckedReason": "every control on this modal is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the labelled controls, copy slots and named fields a person meets on the modal \"unnamed\" (features/pen-routines/routines-page.tsx:404)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.close",
+            "drawer.routine.title"
+          ],
+          "blankScreenValue": []
+        }
+      ]
     },
     {
       "key": "features/people/clock-screen.tsx::edit-form::card",
