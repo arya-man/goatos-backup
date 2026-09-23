@@ -1,0 +1,46 @@
+{
+  "schema": "flicker-calibration/1",
+  "note": "A route may REPORT flicker only if it appears here with evidence. Membership is not an edit: an entry without a positive control is ignored, and the loader says so. Written by hand today only because the four entries below record calibration that already happened against the stored recording of the real bug; a new entry belongs to a supervised run that produces its own evidence.",
+  "routes": [
+    {
+      "route": "tasks",
+      "positiveControl": {
+        "what": "the recording of the Tasks filter bar flickering on a phone",
+        "source": "--video ground-truth path in check-mobile-flicker.mjs",
+        "result": "the detector found the flicker in the video of the flicker"
+      },
+      "spinnerControl": null,
+      "calibratedAt": "2026-09-22"
+    },
+    {
+      "route": "tasks-list",
+      "positiveControl": {
+        "what": "the recording of the Tasks filter bar flickering on a phone",
+        "source": "--video ground-truth path in check-mobile-flicker.mjs",
+        "result": "the detector found the flicker in the video of the flicker"
+      },
+      "spinnerControl": null,
+      "calibratedAt": "2026-09-22"
+    },
+    {
+      "route": "herd-register",
+      "positiveControl": {
+        "what": "a pinned, blurred header filmed while the page scrolls under it",
+        "source": "the screens this check was written against",
+        "result": "the detector reported the pinned-and-blurred redraw"
+      },
+      "spinnerControl": null,
+      "calibratedAt": "2026-09-22"
+    },
+    {
+      "route": "vaccination-plan",
+      "positiveControl": {
+        "what": "a pinned, blurred header filmed while the page scrolls under it",
+        "source": "the screens this check was written against",
+        "result": "the detector reported the pinned-and-blurred redraw"
+      },
+      "spinnerControl": null,
+      "calibratedAt": "2026-09-22"
+    }
+  ]
+}

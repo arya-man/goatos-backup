@@ -30,6 +30,7 @@ import { fileURLToPath } from "node:url";
 import { checkCompositingHazards, compositingSummary } from "../../apps/admin-web/scripts/lib/compositing-checks.mjs";
 import { detectFlicker } from "../../apps/admin-web/scripts/lib/flicker-detector.mjs";
 import { assertSweepPermitted } from "./sweep-safety.mjs";
+import { flickerReportable, loadCalibration, partitionFindings, uncalibratedPages } from "./flicker-calibration.mjs";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 export const RECEIPT_RELATIVE = "mobile-flicker/mobile-flicker-receipt.json";
@@ -120,7 +121,7 @@ export const CLOCK_HOLE_TEXT = /smokeWideWindow|getFullYear/;
 /** Sentences that explain a group instead of a page. None of these may reach a receipt. */
 export const BULK_EXCUSE = /^(unreachable|not covered|n\/a|unknown|skipped)\.?$|the path is built from a fixture looked up at run time/i;
 
-export function sweepCoverage({ all, resolved, assumed = [], unresolved, viewports, rows }) {
+export function sweepCoverage({ all, resolved, assumed = [], unresolved, viewports, rows, calibration }) {
   const pagesNotJudged = [];
   const judgedPages = [];
   const seen = new Set();
@@ -129,8 +130,12 @@ export function sweepCoverage({ all, resolved, assumed = [], unresolved, viewpor
     seen.add(`${row.viewport}:${row.route}`);
     if (assumedNames.has(row.route)) continue; // already named as not judged, above
     const why = row.parked ?? row.error ?? null;
-    if (why) pagesNotJudged.push({ route: row.route, viewport: row.viewport, why });
-    else judgedPages.push(row);
+    if (why) { pagesNotJudged.push({ route: row.route, viewport: row.viewport, why }); continue; }
+    // Filmed is not judged. A page the detector was never calibrated against
+    // cannot be counted as a clean page, any more than it may report a finding.
+    const verdict = calibration ? flickerReportable(row.route, calibration) : { report: true };
+    if (!verdict.report) { pagesNotJudged.push({ route: row.route, viewport: row.viewport, why: verdict.why }); continue; }
+    judgedPages.push(row);
   }
   // A page the sweep never reached at all is the most dangerous gap, because nothing
   // in the run mentions it. Name every one.
@@ -317,6 +322,7 @@ async function runSweep({ baseUrl, bearerToken, outDir, limit, fixtures }) {
     viewports,
     // A fraction, with a sentence on every page that is not in the numerator.
     coverage: sweepCoverage({
+      calibration: loadCalibration(),
       all,
       resolved: limit ? routes.filter((r) => !r.unverified) : resolved,
       assumed,
@@ -338,7 +344,15 @@ export function buildReceipt({ statik, temporal, headless }) {
   // the browser said the element is opaque, so one flash is already wrong. It does not
   // need the repetition the whole-screen shimmer detector insists on.
   const showedThrough = runs.filter((r) => (r.overlay?.findings ?? []).length);
-  const sweepFindings = (temporal?.rows ?? []).filter((row) => (row.findings ?? []).length);
+  // A page the detector was never calibrated against may be FILMED but may not
+  // report. Every read screen here shows a mandated rotating refresh mark, so a
+  // finding on an uncalibrated page would not be trusted — and §2 ranks
+  // no-false-positives above finding things. Nothing is discarded: the findings
+  // are kept and labelled so the supervised calibration run has a starting point.
+  const calibration = loadCalibration();
+  const rows = temporal?.rows ?? [];
+  const split = partitionFindings(rows, calibration);
+  const sweepFindings = split.reportable;
   // A page that loaded and drew nothing is a finding about the page, not a
   // clean result. Without this, filming a "something went wrong" fallback
   // produced identical frames and the same verdict a correct page gets.
@@ -369,6 +383,11 @@ export function buildReceipt({ statik, temporal, headless }) {
     filmed: filmed.length,
     overlaysShowedThrough: showedThrough.length + sweepFindings.length,
     blankPages: blankPages.map((row) => ({ route: row.route, viewport: row.viewport, why: row.parked })),
+    // Filmed, but the verdict is not trusted yet: never a finding, never a clean page.
+    notCalibrated: split.notCalibrated,
+    uncalibratedPages: uncalibratedPages(rows, calibration),
+    calibratedRoutes: [...calibration.calibrated.keys()],
+    calibrationIgnored: calibration.ignored,
     coverage: temporal?.coverage ?? null,
     temporalVerdict,
     coverageLine: temporal?.coverage?.fraction ?? "",
