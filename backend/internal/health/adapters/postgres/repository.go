@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
@@ -130,31 +129,22 @@ RETURNING health_case_id::text`, in.TenantID, in.GoatID, p.id, p.diseaseKey, p.d
 			steps = append(steps, domain.ProtocolStep{DayNo: day, Session: domain.SessionUnscheduled, Seq: day, RecordType: "action", Instruction: &instruction})
 		}
 	}
-	type sessionKey struct {
-		day     int
-		session string
-	}
-	grouped := map[sessionKey][]domain.ProtocolStep{}
-	for _, step := range steps {
-		grouped[sessionKey{step.DayNo, normalizeSession(step.Session)}] = append(grouped[sessionKey{step.DayNo, normalizeSession(step.Session)}], step)
-	}
-	keys := make([]sessionKey, 0, len(grouped))
-	for k := range grouped {
-		keys = append(keys, k)
-	}
-	sort.Slice(keys, func(i, j int) bool {
-		if keys[i].day != keys[j].day {
-			return keys[i].day < keys[j].day
-		}
-		return sessionRank(keys[i].session) < sessionRank(keys[j].session)
-	})
+	// ONE SCHEDULING RULE FOR BOTH WAYS OF OPENING A COURSE (2026-09-23).
+	//
+	// This path used to group the card's steps by (day, session) directly, which meant it and the
+	// diagnosis path disagreed about the same card -- and it made a VISIT CALLED "unscheduled",
+	// which is not a time of day and which no operator can be sent at. It now takes the same
+	// domain rule: the card earns its sessions, `unscheduled` rides the earliest visit of its
+	// day, and morning is the floor so an animal on a course is seen at least once a day.
+	visits := domain.ScheduleCourse(steps, p.duration, []string{domain.SessionMorning})
+
 	loc, _ := time.LoadLocation("Asia/Kolkata")
 	startY, startM, startD := in.StartDate.In(loc).Date()
 	firstSession := ""
 	var courseBatch pgx.Batch
-	for _, key := range keys {
-		date := time.Date(startY, startM, startD, 0, 0, 0, 0, loc).AddDate(0, 0, key.day-1)
-		hour := sessionHour(key.session)
+	for _, visit := range visits {
+		date := time.Date(startY, startM, startD, 0, 0, 0, 0, loc).AddDate(0, 0, visit.DayNo-1)
+		hour := sessionHour(visit.Session)
 		due := time.Date(date.Year(), date.Month(), date.Day(), hour, 0, 0, 0, loc)
 		status := "scheduled"
 		if !due.After(r.now()) {
@@ -164,11 +154,11 @@ RETURNING health_case_id::text`, in.TenantID, in.GoatID, p.id, p.diseaseKey, p.d
 		courseBatch.Queue(`
 INSERT INTO health_treatment_sessions
  (health_session_id,tenant_id,health_case_id,goat_id,day_no,business_date,session,due_at,status)
-VALUES ($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5,$6::date,$7,$8,$9)`, sessionID, in.TenantID, caseID, in.GoatID, key.day, date.Format("2006-01-02"), key.session, due, status)
+VALUES ($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5,$6::date,$7,$8,$9)`, sessionID, in.TenantID, caseID, in.GoatID, visit.DayNo, date.Format("2006-01-02"), visit.Session, due, status)
 		if firstSession == "" {
 			firstSession = sessionID
 		}
-		for _, step := range grouped[key] {
+		for _, step := range visit.Steps {
 			stepStatus := "pending"
 			if step.RecordType == "critical_action" {
 				stepStatus = "guarded"
@@ -187,18 +177,18 @@ INSERT INTO health_session_steps (
 	}
 	if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{TenantID: in.TenantID, ActorID: in.ActorID, ActorType: "operator",
 		Action: "health.case.opened", ResourceType: "health_case", ResourceID: caseID, ScopeType: "goat", ScopeID: in.GoatID,
-		AfterState: map[string]any{"disease_key": p.diseaseKey, "age_band": p.ageBand, "duration_days": p.duration, "session_count": len(keys)}, TraceID: in.TraceID}); err != nil {
+		AfterState: map[string]any{"disease_key": p.diseaseKey, "age_band": p.ageBand, "duration_days": p.duration, "session_count": len(visits)}, TraceID: in.TraceID}); err != nil {
 		return domain.OpenCaseResult{}, err
 	}
 	if err := insertHealthOutbox(ctx, tx, in.TenantID, in.ActorID, "health.case.opened", caseID, in.GoatID, in.TraceID,
-		map[string]any{"case_id": caseID, "goat_id": in.GoatID, "disease_key": p.diseaseKey, "age_band": p.ageBand, "duration_days": p.duration, "session_count": len(keys)}); err != nil {
+		map[string]any{"case_id": caseID, "goat_id": in.GoatID, "disease_key": p.diseaseKey, "age_band": p.ageBand, "duration_days": p.duration, "session_count": len(visits)}); err != nil {
 		return domain.OpenCaseResult{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return domain.OpenCaseResult{}, fmt.Errorf("health: commit case: %w", err)
 	}
 	committed = true
-	return domain.OpenCaseResult{CaseID: caseID, FirstSessionID: firstSession, SessionCount: len(keys), DurationDays: p.duration}, nil
+	return domain.OpenCaseResult{CaseID: caseID, FirstSessionID: firstSession, SessionCount: len(visits), DurationDays: p.duration}, nil
 }
 
 func loadPublishedProtocol(ctx context.Context, tx pgx.Tx, tenantID, diseaseKey, ageBand string) (protocolRow, error) {

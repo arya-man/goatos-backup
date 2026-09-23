@@ -84,61 +84,103 @@ type ScheduledSession struct {
 	Steps   []ProtocolStep
 }
 
-// ScheduleCourse maps authored protocol steps onto housing-driven visits.
+// ScheduleCourse turns an authored treatment card into the visits it actually needs.
 //
-// A step authored for a session the housing directive INCLUDES is performed at
-// that visit. A step authored for any other session -- an afternoon step on a
-// ward animal seen only in the morning, or an `unscheduled` step -- rolls into
-// the EARLIEST visit of its day.
+// THE CARD DECIDES HOW OFTEN THE ANIMAL IS SEEN (maintainer decision 2026-09-23). A card that
+// authors a morning, an afternoon and an evening dose earns THREE visits that day, and the
+// operator goes three times. The farm has the operators for it, and the alternative is what this
+// replaces: every one of that day's doses piled onto one morning card, so an evening dose was
+// handed to someone at 07:00 with nothing saying it was meant for 19:00.
 //
-// Rolling forward rather than dropping is the safe direction: a dropped step is
-// a medicine silently not given, while a step moved earlier in the same day is
-// still given on the day it was authored for. Rolling into the earliest visit
-// rather than the nearest one keeps a day's work front-loaded, which is what an
-// operator walking a shift list needs.
+// HOUSING IS A FLOOR, NOT A CEILING. An ICU animal is seen morning and evening whatever its card
+// authors, because being in ICU is itself a reason to look at it. So a day's visits are the
+// housing sessions UNION the sessions its own steps name -- never fewer than the clinical
+// minimum, never fewer than the card asks for.
 //
-// days bounds how many days of steps are snapshotted. Steps authored beyond it
-// are ignored, and a day inside it with no authored step still yields its visits
-// so the animal is seen.
+// `unscheduled` steps name no time, so they roll into the EARLIEST visit of their day: a medicine
+// with no hour on it is given at the first chance, not dropped and not deferred.
+//
+// A day with no authored step still earns its housing visits, so the animal is still seen. If
+// housing asks for no daily cycle at all -- treated in place at home, or out in the field -- then
+// a day whose card authors nothing earns no visit, which is the behaviour that shape always had.
+//
+// days bounds how many days are snapshotted; steps authored beyond it are ignored.
 func ScheduleCourse(steps []ProtocolStep, days int, sessions []string) []ScheduledSession {
 	if days <= 0 || len(sessions) == 0 {
+		// No daily cycle at all -- treated in place at home, or out in the field. The card's
+		// steps earn no visit, which is the behaviour that shape has always had and is NOT what
+		// the 2026-09-23 decision changed: that one is about a card that authors an evening dose
+		// for an animal the farm already visits.
 		return nil
 	}
-	allowed := make(map[string]bool, len(sessions))
-	for _, s := range sessions {
-		allowed[s] = true
-	}
-	earliest := sessions[0]
 
-	// bucket[day][session] preserves authored order within a visit, which is the
-	// order the operator performs them in.
+	// bucket[day][session] preserves authored order within a visit, which is the order the
+	// operator performs them in.
 	bucket := make(map[int]map[string][]ProtocolStep, days)
+	// authored[day] is the set of sessions that day's own steps name.
+	authored := make(map[int]map[string]bool, days)
 	for _, step := range steps {
 		if step.DayNo < 1 || step.DayNo > days {
 			continue
 		}
 		target := normalizeCourseSession(step.Session)
-		if !allowed[target] {
-			target = earliest
-		}
 		if bucket[step.DayNo] == nil {
 			bucket[step.DayNo] = map[string][]ProtocolStep{}
+			authored[step.DayNo] = map[string]bool{}
+		}
+		if target != SessionUnscheduled {
+			authored[step.DayNo][target] = true
 		}
 		bucket[step.DayNo][target] = append(bucket[step.DayNo][target], step)
 	}
 
-	out := make([]ScheduledSession, 0, days*len(sessions))
+	out := make([]ScheduledSession, 0, days*maxSessionsPerDay)
 	for day := 1; day <= days; day++ {
-		for _, session := range sessions {
+		visits := visitsForDay(sessions, authored[day])
+		if len(visits) == 0 {
+			continue
+		}
+		earliest := visits[0]
+		for _, session := range visits {
 			visit := ScheduledSession{DayNo: day, Session: session}
 			if bucket[day] != nil {
-				visit.Steps = bucket[day][session]
+				visit.Steps = append(visit.Steps, bucket[day][session]...)
+				// A step with no hour on it joins the first visit of its day.
+				if session == earliest {
+					visit.Steps = append(visit.Steps, bucket[day][SessionUnscheduled]...)
+				}
 			}
 			out = append(out, visit)
 		}
 	}
 	return out
 }
+
+// visitsForDay is the housing floor UNION what this day's card authored, in the order the visits
+// happen. Sorting by the working day rather than by either input keeps the operator's list in
+// clock order however the two were combined.
+func visitsForDay(housing []string, authored map[string]bool) []string {
+	seen := map[string]bool{}
+	for _, s := range housing {
+		seen[s] = true
+	}
+	for s := range authored {
+		seen[s] = true
+	}
+	out := make([]string, 0, len(seen))
+	for _, s := range orderedSessions {
+		if seen[s] {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// orderedSessions is the working day in clock order. `unscheduled` is deliberately absent: it is
+// not a time of day, it is the absence of one, and it never becomes a visit of its own.
+var orderedSessions = []string{SessionMorning, SessionAfternoon, SessionEvening}
+
+const maxSessionsPerDay = 3
 
 func normalizeCourseSession(v string) string {
 	switch strings.ToLower(strings.TrimSpace(v)) {

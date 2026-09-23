@@ -688,8 +688,10 @@ func (r *DiagnosisRepository) openCourseFromDiagnosis(
 		return domain.OpenedCase{}, err
 	}
 
-	// Maintainer decision F: housing decides the visits, the card supplies their
-	// content.
+	// Maintainer decision F, AMENDED 2026-09-23: housing is the FLOOR and the CARD earns the
+	// rest. A card authoring a morning, an afternoon and an evening dose gets three visits and
+	// the operator goes three times -- the farm has the people, and the alternative was every
+	// dose of the day piled onto one morning card with an evening dose handed over at 07:00.
 	sessions := domain.SessionsForHousing(proposal.Housing.Acuity, proposal.Housing.Containment)
 	visits := domain.ScheduleCourse(card.steps, horizonDays, sessions)
 	start := biztime.BusinessDayStart(r.now())
