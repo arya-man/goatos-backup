@@ -386,6 +386,10 @@ class HealthDetailViewModel @Inject constructor(
             // which illness was meant.
             registerRuleId = detail.registerRuleId,
             videoCaptured = videoState.captured,
+            stepProofs = stepProofState,
+            // A card whose steps carry ids records PER STEP. One that does not is a session from
+            // before per-step video and keeps the single clip it was built on.
+            perStepVideo = detail.steps.any { it.stepId.isNotBlank() },
             isCapturingVideo = videoState.capturing,
             videoMessage = videoState.message,
         )
