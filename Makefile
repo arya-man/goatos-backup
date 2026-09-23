@@ -114,7 +114,7 @@ dashboard-automation-self-test:
 	node --test tools/dashboard-automation/sweep-safety.test.mjs tools/dashboard-automation/flicker-calibration.test.mjs
 	node --test tools/dashboard-automation/sync-coverage.test.mjs
 	node --test tools/dashboard-automation/lane-coverage.test.mjs
-	node --test apps/admin-web/scripts/lib/compositing-checks.test.mjs apps/admin-web/scripts/lib/flicker-detector.test.mjs apps/admin-web/scripts/lib/overlay-paint-checks.test.mjs apps/admin-web/scripts/lib/smoke-route-catalogue.test.mjs apps/admin-web/scripts/lib/page-substance.test.mjs
+	node --test apps/admin-web/scripts/lib/compositing-checks.test.mjs apps/admin-web/scripts/lib/flicker-detector.test.mjs apps/admin-web/scripts/lib/overlay-paint-checks.test.mjs apps/admin-web/scripts/lib/smoke-route-catalogue.test.mjs apps/admin-web/scripts/lib/page-substance.test.mjs apps/admin-web/scripts/lib/viewport-pin-audit.test.mjs
 	node --test apps/admin-web/scripts/lib/feature-assertions.test.mjs
 	node tools/agent-hooks/check-dashboard-automation-guard.mjs --self-test
 	bash -n tools/dashboard-automation/run-oci.sh
