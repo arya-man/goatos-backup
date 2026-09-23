@@ -497,14 +497,23 @@ private fun HealthActionCard(item: HealthWorkItemUi, onClick: () -> Unit) {
                     }
                     Text(item.locationLabel, color = MeshaColors.Faint, fontSize = 11.sp)
                 }
+                // WHERE THE COURSE IS, and it says so.
+                //
+                // This read "1/3" beside a bar filled one third of the way, on a card where
+                // nothing had been done -- so it was read as "1 of 3 steps finished". It is the
+                // DAY: day 1 of a three-day course. The word is what stops the misreading, and
+                // the bar below it is the same fact, which is why the line underneath no longer
+                // repeats it.
                 Text(
-                    if (item.durationDays > 0) "${item.dayNo}/${item.durationDays}" else "Day ${item.dayNo}",
-                    color = MeshaColors.Ink,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.ExtraBold,
+                    if (item.durationDays > 0) "Day ${item.dayNo}/${item.durationDays}" else "Day ${item.dayNo}",
+                    color = MeshaColors.Muted,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
                 )
             }
             if (item.durationDays > 0) {
+                // How far through the COURSE this animal is -- not how much of this card is done.
+                // Nothing on a work list can show that: a card is done or it is not.
                 LinearProgressIndicator(
                     progress = { item.dayNo.toFloat() / item.durationDays },
                     modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(999.dp)),
@@ -515,7 +524,11 @@ private fun HealthActionCard(item: HealthWorkItemUi, onClick: () -> Unit) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("${item.sessionLabel} · ${item.medicineLabel}", color = MeshaColors.Ink, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                    Text(item.dayLabel, color = MeshaColors.Muted, fontSize = 11.sp)
+                    // Only when it says something the day counter above does not -- an open-ended
+                    // course has no day count, so it says "Ongoing until healed".
+                    if (item.durationDays <= 0) {
+                        Text(item.dayLabel, color = MeshaColors.Muted, fontSize = 11.sp)
+                    }
                 }
                 Text(
                     item.status.replace('_', ' '),
