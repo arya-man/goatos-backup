@@ -300,24 +300,9 @@ if (state.lastSignature === signature && now - Number(state.lastPostedAtMs ?? 0)
 // Slow page loads are a budget breach, not a visual break: they get collapsed into one
 // line of their own instead of flooding the numbered list (see groupSlowPages).
 const findingKinds = collectFindingKinds(receipt, receiptPath); // --- finding kinds (additive) ---
-const visualIssues = [];
-const slowIssues = [];
-for (const issue of moduleFailures(receiptPath).map(humanIssue).filter(Boolean)) {
-  if (issue.kind === "slow-page") {
-    slowIssues.push(issue);
-    continue;
-  }
-  // Group by page family (first two words: "Feed Analytics", "Weighing Weights") + problem.
-  const family = issue.page.split(" ").slice(0, 2).join(" ");
-  const key = `${issue.what}|${family}`;
-  const seen = visualIssues.find((existing) => existing.key === key);
-  if (seen) {
-    if (!seen.deviceLabel.includes(issue.deviceLabel)) seen.deviceLabel += ` ${issue.deviceLabel}`;
-    seen.views += 1;
-    continue;
-  }
-  visualIssues.push({ ...issue, page: family, key, views: 1 });
-}
+const humanIssues = moduleFailures(receiptPath).map(humanIssue).filter(Boolean);
+const slowIssues = humanIssues.filter((issue) => issue.kind === "slow-page");
+const visualIssues = groupVisualIssues(humanIssues.filter((issue) => issue.kind !== "slow-page"));
 const slowPages = groupSlowPages(slowIssues);
 const message = (visualIssues.length || slowPages.pages.length) && decision.kind === "failure"
   ? formatVisualIssuesMessage(receipt, visualIssues, slowPages)
@@ -391,7 +376,9 @@ function humanIssue(failure) {
   const raw = segments.find((segment) => issueRules().some(([re, label]) => label && re.test(segment))) ?? whole;
   const rule = issueRules().find(([re]) => re.test(raw));
   if (rule && rule[1] === null) return null;
-  const what = rule ? rule[1] : raw.replace(/\[[A-Za-z-]+\]\s*/g, "").slice(0, 120);
+  // A rule's label may be a function when one check covers several kinds of element and the
+  // sentence has to name the one that was measured (see tapTargetLabel).
+  const what = rule ? (typeof rule[1] === "function" ? rule[1](raw) : rule[1]) : raw.replace(/\[[A-Za-z-]+\]\s*/g, "").slice(0, 120);
   const [device, routeName] = String(failure.route ?? "").includes(":") ? failure.route.split(":") : ["", failure.route ?? failure.module];
   const quoted = [...raw.matchAll(/"([^"]{1,60})"(?!\s*:)/g)].map((m) => m[1]).filter((t) => t.trim().length > 1 && !/^[:;,.\s]+$/.test(t) && !/^\w+-\w+-/.test(t) && !/^(tag|kind|className|ariaLabel|text|table|missing-scroll-owner|button|input|a|span|div|td)$/.test(t));
   // Checks that dump element JSON: name the thing by its label or visible text.
@@ -415,6 +402,9 @@ function humanIssue(failure) {
   const kind = slow ? "slow-page" : "visual";
   return {
     page,
+    // The route NAME as the sweep knows it (`tasks-overdue`), kept beside the display name so
+    // grouping can work from the route and its URL instead of guessing from words on screen.
+    route: routeName ?? null,
     deviceLabel,
     what,
     example,
@@ -428,6 +418,58 @@ function humanIssue(failure) {
     budgetMs: slow ? Number(slow[2]) : null,
     caption: `${page} · ${deviceLabel.replace(/^\S+ /, "")} — ${what}${example}`.slice(0, 250)
   };
+}
+
+// The page a route belongs to, taken from the route's own URL PATH. The path is the only thing
+// that actually knows whether two routes are the same page; the display name does not. Guessing
+// from its first two words ("Feed Analytics", "Weighing Weights") read the second word as part of
+// the family, which is true for those two and false for `tasks`: `tasks`, `tasks-list`,
+// `tasks-overdue` and `tasks-search` are all `/tasks` with a different filter, so one button that
+// is too small to tap posted as findings 11, 12, 13 and 14. Paths merge those four and keep
+// `/feed/analytics` apart from `/feed/config`, which are genuinely different pages.
+// A failure with no link is never merged on a guess: it keeps its own route as its key.
+function pageFamilyKey(issue) {
+  if (!issue?.url) return `route:${issue?.route || issue?.page || ""}`;
+  try {
+    return new URL(issue.url, "https://dashboard.mesha.sg").pathname.replace(/(.)\/+$/, "$1");
+  } catch {
+    return `route:${issue.route || issue.page || ""}`;
+  }
+}
+
+// What to call a merged finding: the words the merged routes agree on. tasks-overdue +
+// tasks-search -> "Tasks"; feed-analytics-items + feed-analytics-peranimal -> "Feed Analytics".
+// One route keeps its own full name, so a lone `tasks-overdue` failure still says "Tasks Overdue".
+function pageLabel(routes, fallback) {
+  const parts = (routes ?? []).filter(Boolean).map((name) => String(name).split("-"));
+  if (parts.length === 0) return fallback;
+  let shared = parts[0];
+  for (const other of parts.slice(1)) {
+    let i = 0;
+    while (i < shared.length && i < other.length && shared[i] === other[i]) i += 1;
+    shared = shared.slice(0, i);
+  }
+  if (shared.length === 0) return fallback;
+  return shared.join(" ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+// One problem on one page is one finding, however many route variants and viewports saw it.
+// "seen on N views" keeps the count so the merge never hides how widespread it is.
+function groupVisualIssues(issues) {
+  const grouped = [];
+  for (const issue of issues) {
+    const key = `${issue.what}|${pageFamilyKey(issue)}`;
+    const seen = grouped.find((existing) => existing.key === key);
+    if (seen) {
+      if (!seen.deviceLabel.includes(issue.deviceLabel)) seen.deviceLabel += ` ${issue.deviceLabel}`;
+      seen.views += 1;
+      if (issue.route && !seen.routes.includes(issue.route)) seen.routes.push(issue.route);
+      seen.page = pageLabel(seen.routes, seen.page);
+      continue;
+    }
+    grouped.push({ ...issue, key, views: 1, routes: issue.route ? [issue.route] : [] });
+  }
+  return grouped;
 }
 
 // One slow page seen on laptop and phone is one slow page. Worst load time wins, and the
@@ -800,7 +842,12 @@ async function postSlack(payload, attachments, statePath, nextState, inlineShots
     console.log(payload.text);
     console.log(JSON.stringify(payload.blocks, null, 2));
     for (const file of attachments) console.log(`dashboard Slack notify: would upload ${path.relative(repo, file)}`);
-    for (const shot of inlineShots) console.log(`dashboard Slack notify: would show inline ${path.basename(shot.file)} — ${shot.title}`);
+    // The reply TEXT, not just the title: it is the line a person actually reads in the thread,
+    // and it is where "seen on N views" says how many places one merged finding came from.
+    // Flattened onto the one line so a dry run stays greppable line by line.
+    for (const shot of inlineShots) {
+      console.log(`dashboard Slack notify: would show inline ${path.basename(shot.file)} — ${shot.title} — reply: ${String(shot.comment ?? "").replace(/\n+/g, " ⏎ ").trim()}`);
+    }
     return;
   }
   const token = process.env.SLACK_BOT_TOKEN?.trim() || process.env.GOATOS_DASHBOARD_SLACK_BOT_TOKEN?.trim();
@@ -1093,6 +1140,8 @@ function selfTest() {
   selfTestShotFileDescription();
   selfTestEvidenceComment();
   selfTestSlowPageGrouping();
+  selfTestRouteVariantGrouping();
+  selfTestTapTargetWording();
   findingKindSelfTests(); // --- finding kinds (additive) ---
   console.log("dashboard Slack notify: self-test passed");
 }
@@ -1191,6 +1240,90 @@ function selfTestSlowPageGrouping() {
   if (slowOnly.blocks.some((block) => block.type === "section" && /\*1\./.test(block.text?.text ?? ""))) {
     throw new Error("self-test: slow-only runs must not emit an empty numbered list");
   }
+}
+
+// One problem on four route variants of /tasks is ONE finding; two genuinely different pages
+// that happen to share a first word stay two.
+function selfTestRouteVariantGrouping() {
+  const smallTarget = (route, query, device) => ({
+    module: "operations",
+    route: `${device}:${route}`,
+    url: `https://dashboard.mesha.sg/tasks?scope_mode=company${query}`,
+    error: `${route} ${device} has interactive targets below 40px: [{"tag":"input","className":"","ariaLabel":"Search by title, or type a task number","text":"","width":196,"height":18}]`
+  });
+  const tasks = groupVisualIssues([
+    smallTarget("tasks", "", "mobile"),
+    smallTarget("tasks-list", "&t_view=list", "mobile"),
+    smallTarget("tasks-overdue", "&filter=overdue", "mobile"),
+    smallTarget("tasks-search", "&t_q=pen", "mobile")
+  ].map(humanIssue).filter(Boolean));
+  if (tasks.length !== 1) {
+    throw new Error(`self-test: four /tasks route variants with one problem must post once, got ${tasks.length}`);
+  }
+  if (tasks[0].page !== "Tasks") throw new Error(`self-test: the merged finding must be called "Tasks", got "${tasks[0].page}"`);
+  if (tasks[0].views !== 4) throw new Error(`self-test: the merged finding must still say it was seen on 4 views, got ${tasks[0].views}`);
+
+  // A lone variant keeps its own name rather than being shortened to the page stem.
+  const lone = groupVisualIssues([smallTarget("tasks-overdue", "&filter=overdue", "mobile")].map(humanIssue).filter(Boolean));
+  if (lone[0].page !== "Tasks Overdue") throw new Error(`self-test: a single route keeps its own name, got "${lone[0].page}"`);
+
+  // Two pages under one module are two pages. This is the merge that must NEVER happen.
+  const clipped = (route, path) => ({
+    module: "feed",
+    route: `laptop:${route}`,
+    url: `https://dashboard.mesha.sg${path}?scope_mode=company`,
+    error: `${route} laptop A-chart-label-clipped: label "Warmup Ration" clipped`
+  });
+  const feed = groupVisualIssues([
+    clipped("feed-analytics", "/feed/analytics"),
+    clipped("feed-config", "/feed/config")
+  ].map(humanIssue).filter(Boolean));
+  if (feed.length !== 2) throw new Error("self-test: Feed Analytics and Feed Config are different pages and must stay separate");
+  if (feed.map((issue) => issue.page).join("|") !== "Feed Analytics|Feed Config") {
+    throw new Error(`self-test: separate feed pages must keep their own names, got ${feed.map((issue) => issue.page).join("|")}`);
+  }
+
+  // The same page on laptop and phone is still one finding with both devices named.
+  const bothDevices = groupVisualIssues([
+    clipped("feed-analytics", "/feed/analytics"),
+    { ...clipped("feed-analytics", "/feed/analytics"), route: "mobile:feed-analytics" }
+  ].map(humanIssue).filter(Boolean));
+  if (bothDevices.length !== 1 || !/Laptop/.test(bothDevices[0].deviceLabel) || !/Phone/.test(bothDevices[0].deviceLabel)) {
+    throw new Error("self-test: laptop + phone on one page must stay one finding naming both devices");
+  }
+
+  // Tab variants of one analytics page merge; a sibling page under the same prefix does not.
+  const weighing = groupVisualIssues([
+    { module: "weighing", route: "mobile:weighing-analytics-breed", url: "https://dashboard.mesha.sg/weighing/analytics?tab=breed", error: 'weighing-analytics-breed mobile has interactive targets below 40px: [{"tag":"button","text":"x","width":20,"height":20}]' },
+    { module: "weighing", route: "mobile:weighing-analytics-shed", url: "https://dashboard.mesha.sg/weighing/analytics?tab=shed", error: 'weighing-analytics-shed mobile has interactive targets below 40px: [{"tag":"button","text":"x","width":20,"height":20}]' },
+    { module: "weighing", route: "mobile:weighing-weights", url: "https://dashboard.mesha.sg/weighing/weights", error: 'weighing-weights mobile has interactive targets below 40px: [{"tag":"button","text":"x","width":20,"height":20}]' }
+  ].map(humanIssue).filter(Boolean));
+  if (weighing.length !== 2) throw new Error(`self-test: /weighing/analytics tabs merge but /weighing/weights is its own page, got ${weighing.length}`);
+  if (weighing[0].page !== "Weighing Analytics") throw new Error(`self-test: merged weighing tabs must read "Weighing Analytics", got "${weighing[0].page}"`);
+
+  // A failure with no link must never be merged on a guess about its name.
+  const unlinked = groupVisualIssues([
+    { module: "operations", route: "mobile:tasks-overdue", error: 'tasks-overdue mobile has interactive targets below 40px: [{"tag":"button","text":"x","width":20,"height":20}]' },
+    { module: "operations", route: "mobile:tasks-search", error: 'tasks-search mobile has interactive targets below 40px: [{"tag":"button","text":"x","width":20,"height":20}]' }
+  ].map(humanIssue).filter(Boolean));
+  if (unlinked.length !== 2) throw new Error("self-test: without a URL there is nothing to prove two routes are one page; they must not merge");
+}
+
+// The sentence must be true for the element that was measured.
+function selfTestTapTargetWording() {
+  const say = (tag) => humanIssue({
+    route: "mobile:tasks-search",
+    error: `tasks-search mobile has interactive targets below 40px: [{"tag":"${tag}","className":"","ariaLabel":"Search by title, or type a task number","text":"","width":196,"height":18}]`
+  }).what;
+  if (say("input") !== "Box you type in is too small to tap") throw new Error(`self-test: an <input> is not a button, got "${say("input")}"`);
+  if (say("a") !== "Links too small to tap") throw new Error(`self-test: an <a> must be called a link, got "${say("a")}"`);
+  if (say("button") !== "Buttons too small to tap") throw new Error(`self-test: a <button> must still read as a button, got "${say("button")}"`);
+  const mixed = humanIssue({
+    route: "mobile:tasks",
+    error: 'tasks mobile has interactive targets below 40px: [{"tag":"input","width":196,"height":18},{"tag":"button","width":20,"height":20}]'
+  }).what;
+  if (mixed !== "Too small to tap on a phone") throw new Error(`self-test: a mixed finding needs wording true for all of them, got "${mixed}"`);
+  if (/[Bb]utton/.test(say("input"))) throw new Error("self-test: the word button must not appear in a finding about a text field");
 }
 
 function fail(message) {

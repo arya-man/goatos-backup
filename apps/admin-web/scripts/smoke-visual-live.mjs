@@ -1142,20 +1142,20 @@ async function assertLayoutHealthy(page, routeName, viewportLabel) {
     // Control Tower.") are not standalone tap targets: they report a 0 content box and their wrapped-line
     // rects overlap. Exempt ONLY display:inline anchors from the small-target + overlap checks. Every real
     // control (buttons and .btn/.nav/.tab/.leaf/.lk.small links) renders inline-flex/block and stays checked.
-    const interactives = Array.from(document.querySelectorAll('a[href], button:not([disabled]), input:not([type="hidden"]), select, textarea, [role="button"], [tabindex]:not([tabindex="-1"])'))
+    const interactiveSelector = 'a[href], button:not([disabled]), input:not([type="hidden"]), select, textarea, [role="button"], [tabindex]:not([tabindex="-1"])';
+    const interactives = Array.from(document.querySelectorAll(interactiveSelector))
       .filter(isVisible)
       .filter((element) => !element.closest(".ceo-ai"))
       .filter((element) => !element.closest(".mzai-bubble"))
       .filter((element) => !(element.tagName === "A" && window.getComputedStyle(element).display === "inline"));
+    const smallTargetMin = root.clientWidth < 600 ? 40 : 28;
     const smallTargets = interactives
       .filter((element) => {
-        const rect = element.getBoundingClientRect();
-        const min = root.clientWidth < 600 ? 40 : 28;
         if (element instanceof HTMLInputElement && (element.type === "checkbox" || element.type === "radio")) {
           const label = element.closest("label");
           if (label) {
             const labelRect = label.getBoundingClientRect();
-            return labelRect.width < min || labelRect.height < min;
+            return labelRect.width < smallTargetMin || labelRect.height < smallTargetMin;
           }
         }
         if (root.clientWidth < 600 && reachableStackAvatar(element)) {
@@ -1163,10 +1163,88 @@ async function assertLayoutHealthy(page, routeName, viewportLabel) {
           if (halo.content !== 'none' && halo.position === 'absolute'
             && ['top', 'right', 'bottom', 'left'].every((side) => halo[side] === '-5px')) return false;
         }
-        return rect.width < min || rect.height < min;
+        const surface = tapSurface(element, smallTargetMin);
+        return surface.width < smallTargetMin || surface.height < smallTargetMin;
       })
       .slice(0, 5)
-      .map(describeElement);
+      .map((element) => {
+        const surface = tapSurface(element, smallTargetMin);
+        // Report the hit box as well as the element's own box, so a reader can see WHICH number
+        // failed instead of arguing with a screenshot that looks fine.
+        return { ...describeElement(element), hitWidth: Math.round(surface.width), hitHeight: Math.round(surface.height) };
+      });
+    // The tap target is the control box a finger lands on, not the bare field inside it.
+    // A native field is routinely a small <input> inside a padded, bordered wrapper that IS the
+    // visible control. Measured on production /tasks at 390px: the search <input> reports
+    // 118x18 while its `.lt-fsearch` box is 208x44, and a real touch tap at that box's top+8px,
+    // bottom-3px and centre each land in the input (Chromium resolves a touch to it). Measuring
+    // the bare rect called a normal-sized box a sub-40px failure and posted it to Slack.
+    // So grow the rect out to that box, under rules that keep the check honest:
+    //   - a side only grows into pixels elementFromPoint PROVES answer to this control; a strip
+    //     owned by a neighbour (the Clear button beside the search field) is never counted;
+    //   - the walk stops the moment the box reaches `min`, so it can never inflate a genuinely
+    //     tiny target past the threshold — a bare 20px icon button is still a bare 20px button.
+    function tapSurface(element, min) {
+      const own = element.getBoundingClientRect();
+      const surface = { top: own.top, right: own.right, bottom: own.bottom, left: own.left };
+      const size = () => ({ width: surface.right - surface.left, height: surface.bottom - surface.top });
+      for (let parent = element.parentElement, hop = 0; parent && parent !== document.body && hop < 3; parent = parent.parentElement, hop += 1) {
+        const now = size();
+        if (now.width >= min && now.height >= min) break;
+        const box = parent.getBoundingClientRect();
+        const style = getComputedStyle(parent);
+        // A <label> IS the tap target of the control it wraps: clicking its text activates the
+        // control, text and all. Anything else has to earn it on three counts, or the walk stops:
+        //   drawn  - it is painted as a control (its own border or fill), not a bare layout div;
+        //   quiet  - it carries no words of its own. Words inside the controls it holds are those
+        //            controls' business, but prose belonging to the box itself means the box is a
+        //            card, not a control: the /alerts "Retry" link is 37x20 inside a 336x69
+        //            `.alert` that also says "Alerts could not be loaded. Try again." Tapping that
+        //            sentence does nothing, so Retry stays the real 37x20 failure it is;
+        //   fills  - the control takes up most of one axis of it, so a lone icon button inside a
+        //            wide empty toolbar cannot claim the whole toolbar as its finger area.
+        const isLabel = parent.tagName === 'LABEL';
+        const drawn = parseFloat(style.borderTopWidth) > 0 || parseFloat(style.borderBottomWidth) > 0
+          || parseFloat(style.borderLeftWidth) > 0 || parseFloat(style.borderRightWidth) > 0
+          || (style.backgroundColor !== 'rgba(0, 0, 0, 0)' && style.backgroundColor !== 'transparent');
+        const quiet = !hasOwnWords(parent);
+        const fills = own.width >= (parent.clientWidth || box.width) * 0.4
+          || own.height >= (parent.clientHeight || box.height) * 0.4;
+        if (!isLabel && !(drawn && quiet && fills)) break;
+        let grew = false;
+        for (const side of ['top', 'bottom', 'left', 'right']) {
+          const edge = box[side];
+          const vertical = side === 'top' || side === 'bottom';
+          const outward = side === 'top' ? edge < surface.top - 0.5
+            : side === 'bottom' ? edge > surface.bottom + 0.5
+            : side === 'left' ? edge < surface.left - 0.5
+            : edge > surface.right + 0.5;
+          if (!outward) continue;
+          const x = vertical ? (surface.left + surface.right) / 2 : (edge + (side === 'left' ? surface.left : surface.right)) / 2;
+          const y = vertical ? (edge + (side === 'top' ? surface.top : surface.bottom)) / 2 : (surface.top + surface.bottom) / 2;
+          const hit = document.elementFromPoint(x, y);
+          if (!hit || !parent.contains(hit)) continue;
+          const owner = hit === parent || hit === element || element.contains(hit) ? null : hit.closest(interactiveSelector);
+          if (owner && owner !== element) continue;
+          surface[side] = edge;
+          grew = true;
+        }
+        if (!grew) break;
+      }
+      return size();
+    }
+    // Words the container itself is showing, as opposed to the labels on the controls inside it.
+    // A search box holding a "Clear" button is still a search box; a card that reads
+    // "Alerts could not be loaded" is a card, and tapping its sentence does nothing.
+    function hasOwnWords(container) {
+      const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        if (!node.textContent.trim()) continue;
+        if (node.parentElement?.closest(interactiveSelector)) continue;
+        return true;
+      }
+      return false;
+    }
     // Intentional Work Board assignee stack: only the designed 8px overlap is allowed,
     // and both independent button centers must still receive pointer hits.
     function reachableStackAvatar(element) {
