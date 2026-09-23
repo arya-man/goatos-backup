@@ -22419,125 +22419,65 @@
     "verdict": "pass"
   },
   {
-    "sha": "821bd1b25",
-    "title": "close the three review findings on #374",
-    "route": null,
-    "viewports": [
-      "laptop",
-      "mobile"
-    ],
-    "steps": [],
-    "expect": [],
-    "status": "needs-assertion",
-    "evidence": "",
-    "reason": "modifies a file an existing assertion relies on; needs a human-written read-only assertion (run sync-coverage.mjs --write, then fill steps/expect)"
-  },
-  {
-    "sha": "ac8157375",
-    "title": "scope the busy un-dimming to the sheet-hosting bar",
-    "route": null,
-    "viewports": [
-      "laptop",
-      "mobile"
-    ],
-    "steps": [],
-    "expect": [],
-    "status": "needs-assertion",
-    "evidence": "apps/admin-web/app/mesha-theme.css",
-    "reason": "new user-visible admin-web work; needs a human-written read-only assertion (run sync-coverage.mjs --write, then fill steps/expect)"
-  },
-  {
-    "sha": "8f452925a",
-    "title": "stop the filter sheet going see-through while a filter loads",
-    "route": null,
-    "viewports": [
-      "laptop",
-      "mobile"
-    ],
-    "steps": [],
-    "expect": [],
-    "status": "needs-assertion",
-    "evidence": "apps/admin-web/app/mesha-theme.css",
-    "reason": "new user-visible admin-web work; needs a human-written read-only assertion (run sync-coverage.mjs --write, then fill steps/expect)"
-  },
-  {
-    "sha": "2c6739d9a",
-    "title": "render the compared feed days as DD/MM/YYYY",
-    "route": null,
-    "viewports": [
-      "laptop",
-      "mobile"
-    ],
-    "steps": [],
-    "expect": [],
-    "status": "needs-assertion",
-    "evidence": "apps/admin-web/features/feed/feed-follow-up.tsx",
-    "reason": "new user-visible admin-web work; needs a human-written read-only assertion (run sync-coverage.mjs --write, then fill steps/expect)"
-  },
-  {
-    "sha": "62cfbf68a",
-    "title": "retire operator, move the farm onto manager roles",
-    "route": null,
-    "viewports": [
-      "laptop",
-      "mobile"
-    ],
-    "steps": [],
-    "expect": [],
-    "status": "needs-assertion",
-    "evidence": "",
-    "reason": "modifies a file an existing assertion relies on; needs a human-written read-only assertion (run sync-coverage.mjs --write, then fill steps/expect)"
-  },
-  {
-    "sha": "2a14571cd",
-    "title": "add ground-tier manager roles beside operator",
-    "route": null,
-    "viewports": [
-      "laptop",
-      "mobile"
-    ],
-    "steps": [],
-    "expect": [],
-    "status": "needs-assertion",
-    "evidence": "",
-    "reason": "modifies a file an existing assertion relies on; needs a human-written read-only assertion (run sync-coverage.mjs --write, then fill steps/expect)"
-  },
-  {
-    "sha": "e311ef24c",
-    "title": "stack wide bar rows on phones so FCR pen labels stay readable",
-    "route": "weighing-analytics-fcr",
-    "viewports": [
-      "mobile"
-    ],
+    "sha": "invariant-summary-whole-filter-milk",
+    "title": "Milk preparation summary describes the whole filter, not the rows on screen",
+    "route": "counts-milk-preparation",
+    "status": "data-dependent",
+    "group": "invariant",
+    "dataProbe": {
+      "css": ".pager2 > a.btn.sm:last-child",
+      "min": 1
+    },
     "expect": [
       {
-        "visible": {
-          "css": ".wbars-wide .wbar"
-        }
-      },
-      {
-        "count": {
-          "css": ".wbars-wide .wbar",
-          "min": 1
-        }
-      },
-      {
-        "visible": {
-          "css": ".wbars-wide .wbar .wbt"
-        }
-      },
-      {
-        "layout": {
-          "css": ".wbars-wide .wbar",
-          "mode": "track-below-label-full-width",
-          "labelCss": ".wbl",
-          "trackCss": ".wbt"
+        "stable": {
+          "target": {
+            "css": ".kpi .val",
+            "all": "sum"
+          },
+          "through": [
+            {
+              "click": {
+                "css": ".pager2 > a.btn.sm:last-child"
+              }
+            }
+          ],
+          "label": "the summary figures above the list"
         }
       }
     ],
-    "status": "assert",
-    "evidence": "apps/admin-web/app/mesha-theme.css",
-    "group": "A",
-    "verdict": "fix"
+    "evidence": "AGENTS.md, operational read-model contract: summaries are whole-filter aggregates unless explicitly named page_*; pagination changes rows only, never summary truth.",
+    "reason": "Needs a second page of results"
+  },
+  {
+    "sha": "invariant-summary-whole-filter-weights",
+    "title": "Weights summary describes the whole filter, not the rows on screen",
+    "route": "weighing-weights",
+    "status": "data-dependent",
+    "group": "invariant",
+    "dataProbe": {
+      "css": ".pager2 > a.btn.sm:last-child",
+      "min": 1
+    },
+    "expect": [
+      {
+        "stable": {
+          "target": {
+            "css": ".kpi .val",
+            "all": "sum"
+          },
+          "through": [
+            {
+              "click": {
+                "css": ".pager2 > a.btn.sm:last-child"
+              }
+            }
+          ],
+          "label": "the summary figures above the list"
+        }
+      }
+    ],
+    "evidence": "AGENTS.md, operational read-model contract: summaries are whole-filter aggregates unless explicitly named page_*; pagination changes rows only, never summary truth.",
+    "reason": "Needs a second page of results"
   }
 ]
