@@ -788,33 +788,49 @@ export async function overlayCandidates(page, { routeName, viewportLabel, maxDis
  */
 export async function sweepViewport({ baseUrl, bearerToken, outDir, routes, viewport, onRoute }) {
   const { chromium } = await import("@playwright/test");
-  const browser = await chromium.launch();
-  const context = await browser.newContext({
-    viewport: { width: viewport.width, height: viewport.height },
-    isMobile: Boolean(viewport.isMobile),
-    hasTouch: Boolean(viewport.isMobile),
-    deviceScaleFactor: viewport.deviceScaleFactor ?? 1,
-    userAgent: viewport.userAgent,
-  });
-  if (bearerToken) {
-    const cookieUrl = new URL(baseUrl);
-    await context.addCookies([{
-      name: "goatos_firebase_id_token",
-      value: bearerToken,
-      domain: cookieUrl.hostname,
-      path: "/",
-      httpOnly: true,
-      sameSite: "Lax",
-      expires: Math.floor(Date.now() / 1000) + 3600,
-    }]);
-  }
+  let browser = null;
+  let context = null;
+  // A sweep of 118 pages will lose a browser somewhere: a page crashes, a tab runs out
+  // of memory, a renderer dies. Losing the browser must cost one route, not the other
+  // 117 — the first run of this sweep died on page four and reported nothing at all.
+  const freshContext = async () => {
+    await context?.close().catch(() => {});
+    await browser?.close().catch(() => {});
+    browser = await chromium.launch();
+    context = await browser.newContext({
+      viewport: { width: viewport.width, height: viewport.height },
+      isMobile: Boolean(viewport.isMobile),
+      hasTouch: Boolean(viewport.isMobile),
+      deviceScaleFactor: viewport.deviceScaleFactor ?? 1,
+      userAgent: viewport.userAgent,
+    });
+    if (bearerToken) {
+      const cookieUrl = new URL(baseUrl);
+      await context.addCookies([{
+        name: "goatos_firebase_id_token",
+        value: bearerToken,
+        domain: cookieUrl.hostname,
+        path: "/",
+        httpOnly: true,
+        sameSite: "Lax",
+        expires: Math.floor(Date.now() / 1000) + 3600,
+      }]);
+    }
+  };
+  await freshContext();
   const results = [];
   try {
     for (const route of routes) {
       const url = `${baseUrl}${route.path}`;
       const row = { route: route.name, viewport: viewport.label, url, overlays: 0, judged: 0, findings: [], skipped: [] };
-      const page = await context.newPage();
+      let page = null;
       try {
+        page = await context.newPage().catch(async (error) => {
+          if (!/closed/i.test(String(error?.message ?? error))) throw error;
+          row.recovered = "the browser had to be restarted before this page";
+          await freshContext();
+          return context.newPage();
+        });
         await page.goto(url, { waitUntil: "networkidle", timeout: 60_000 })
           .catch(() => page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 }));
         await page.waitForTimeout(2_000);
@@ -863,8 +879,13 @@ export async function sweepViewport({ baseUrl, bearerToken, outDir, routes, view
         }
       } catch (error) {
         row.error = String(error?.message ?? error).split("\n")[0].slice(0, 200);
+        // A dead browser is not a verdict about this page, and it must not end the run.
+        if (/closed|crash|Target/i.test(row.error)) {
+          row.recovered = "the browser was lost on this page and restarted for the next one";
+          await freshContext().catch(() => {});
+        }
       } finally {
-        await page.close().catch(() => {});
+        await page?.close().catch(() => {});
       }
       results.push(row);
       if (onRoute) onRoute(row);

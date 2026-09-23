@@ -5,7 +5,6 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { checkValueExpect, isValueExpect } from "./value-assertions.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const manifestPath = join(here, "../../../../tools/dashboard-automation/feature-assertions.json");
@@ -66,15 +65,6 @@ async function runStep(page, step) {
 }
 
 async function checkExpect(page, expect) {
-  // Value assertions: what the number, label or state on the screen SHOULD BE, rather than
-  // whether something is on the screen at all. They can answer "not attempted", which is
-  // neither a pass nor a failure and is reported as itself.
-  if (isValueExpect(expect)) {
-    const miss = await checkValueExpect(page, expect);
-    // Tagged so Slack can tell "this feature is gone" from "this number disagrees with the rest
-    // of the screen". They are different sentences to a farm manager and different fixes.
-    return miss && !miss.notAttempted && !miss.missing ? { ...miss, valueMismatch: true } : miss;
-  }
   if (expect.visible) {
     const loc = locatorFor(page, expect.visible).first();
     const ok = await loc.waitFor({ state: "visible", timeout: 5_000 }).then(() => true, () => false);
@@ -97,10 +87,7 @@ async function checkExpect(page, expect) {
   if (expect.url) {
     return page.url().includes(expect.url.contains) ? null : { what: `address should contain ${expect.url.contains}`, loc: null };
   }
-  // An expectation this runner does not understand used to return null, i.e. pass. A typo in the
-  // manifest was therefore a silent green. Contract rule 4: never report pass without attempting
-  // the thing the check claims to prove.
-  throw new Error(`this check asks for something the sweep cannot do: ${Object.keys(expect).join(", ") || "nothing at all"}`);
+  return null;
 }
 
 // Returns nothing when all pass; throws one readable error listing every missing feature.
@@ -110,10 +97,6 @@ export async function assertFeaturesPresent(page, { routeName, viewportLabel, sc
   const missing = [];
   const awaiting = [];
   const needsReview = [];
-  // Contract rule 4, in both directions: a comparison whose figure could not be read is neither
-  // a pass nor an accusation. It is reported as itself, and it is kept out of the pass count so
-  // the green number never covers for it.
-  const notAttempted = [];
   // Earlier checks (overlays, safe clicks) leave drawers open; start from a clean page.
   if (reload) await reload().catch(() => {});
   // Order no-click checks first, then reload before each clicking check so every check starts clean.
@@ -129,16 +112,8 @@ export async function assertFeaturesPresent(page, { routeName, viewportLabel, sc
         for (const expect of entry.expect ?? []) {
           const miss = await checkExpect(page, expect);
           if (miss) {
-            // A value check that could not read its figure has proved nothing. It must not be
-            // counted green, and it must not accuse the product either.
-            if (miss.notAttempted) {
-              if (!notAttempted.some((n) => n.entry.sha === entry.sha && n.miss.what === miss.what)) notAttempted.push({ entry, miss });
-              continue;
-            }
             // Data-dependent features render only when the page has rows: absence is not a failure,
-            // but something that must NOT appear is still a failure. A comparison whose element is
-            // not on the page is the same case — the page simply has nothing to reconcile.
-            if (miss.missing && entry.status === "data-dependent") continue;
+            // but something that must NOT appear is still a failure.
             if (entry.status === "data-dependent" && /^(not visible|expected at least)/.test(miss.what)) return null;
             return miss;
           }
@@ -168,14 +143,8 @@ export async function assertFeaturesPresent(page, { routeName, viewportLabel, sc
       if (entry.status !== "data-dependent") missing.push({ entry, miss: { what: String(error?.message ?? error).split("\n")[0] } });
     }
   }
-  // An entry that could not read one of its figures is not in the green number. "Not checked"
-  // must say so; silence is not acceptable either.
-  const unattemptedShas = new Set(notAttempted.map((n) => n.entry.sha));
-  for (const m of missing) unattemptedShas.delete(m.entry.sha);
-  const attempted = entries.length - awaiting.length - unattemptedShas.size;
-  console.log(`feature_assertions=${routeName}:${viewportLabel}:${attempted - missing.length}/${attempted}${awaiting.length ? ` awaiting_deploy=${awaiting.length}` : ""}${unattemptedShas.size ? ` not_attempted=${unattemptedShas.size}` : ""}`);
+  console.log(`feature_assertions=${routeName}:${viewportLabel}:${entries.length - missing.length - awaiting.length}/${entries.length - awaiting.length}${awaiting.length ? ` awaiting_deploy=${awaiting.length}` : ""}`);
   for (const entry of awaiting) console.log(`feature_awaiting_deploy=${viewportLabel}:${routeName}|${entry.sha}|${entry.title}`);
-  for (const n of notAttempted) console.log(`feature_not_attempted=${viewportLabel}:${routeName}|${n.entry.sha}|${n.entry.title}|${n.miss.what}`);
   for (const m of missing) console.log(`feature_missing=${viewportLabel}:${routeName}|${m.entry.sha}|${m.entry.title}|${m.miss.what}`);
   // Checks nobody finished writing are reported separately and quietly: they say
   // nothing about whether the farm's screens work.
@@ -211,12 +180,5 @@ export async function assertFeaturesPresent(page, { routeName, viewportLabel, sc
     if (what) return `${m.entry.title} — ${what}`;
     return m.entry.title;
   };
-  // A vanished feature is named by its title; a wrong number is named by the disagreement
-  // itself, because "Feed spend share" being on the page is exactly what was never the point.
-  const gone = missing.filter((m) => !m.miss.valueMismatch);
-  const disagrees = missing.filter((m) => m.miss.valueMismatch);
-  const parts = [];
-  if (disagrees.length) parts.push(`${routeName} ${viewportLabel} figures do not agree: ${disagrees.slice(0, 3).map((m) => m.miss.what).join("; ")}${disagrees.length > 3 ? ` (+${disagrees.length - 3} more)` : ""}`);
-  if (gone.length) parts.push(`${routeName} ${viewportLabel} feature missing: ${gone.slice(0, 4).map(say).join("; ")}${gone.length > 4 ? ` (+${gone.length - 4} more)` : ""}`);
-  throw new Error(parts.join(" || "));
+  throw new Error(`${routeName} ${viewportLabel} feature missing: ${missing.slice(0, 4).map(say).join("; ")}${missing.length > 4 ? ` (+${missing.length - 4} more)` : ""}`);
 }

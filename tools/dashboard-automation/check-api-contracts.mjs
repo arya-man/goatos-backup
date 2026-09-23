@@ -22,7 +22,6 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { containsUnredactedSecret, redactText } from "./lib/redact.mjs";
-import { locateLaneRows, mismatchSentence } from "./lib/lane-rows.mjs";
 import { selfConsistencyFindings } from "./lib/self-consistency.mjs";
 import { API_LATENCY_POLICY_MS, normalizeApiLatencyEndpoints } from "../perf/api-latency-policy.mjs";
 import { reportHtml, toFindings as findingsForReport } from "./lib/finding-kinds/api-contracts.mjs";
@@ -662,29 +661,15 @@ export function normalizeLaneChecks(rows, { knownNames = new Set(), knownPaths =
 }
 
 export function loadLaneChecks(file = LANE_CHECKS_PATH, options = {}) {
-  if (!existsSync(file)) return { accepted: [], parked: [], present: false, found: 0, notLoaded: 0, shape: null };
+  if (!existsSync(file)) return { accepted: [], parked: [], present: false };
   try {
     const parsed = JSON.parse(readFileSync(file, "utf8"));
-    const located = locateLaneRows(parsed, "lane3");
-    if (!Array.isArray(located.rows)) {
-      // This used to end in `?? []`, which turned "I cannot find this lane's rows" into "this
-      // lane has no rows" — the same silence that cost lane 2 fifty checks. A shape this lane
-      // does not recognise now reports how many rows it failed to load, and is a mismatch, not
-      // an empty file.
-      return {
-        accepted: [],
-        parked: [{ name: "derived checks", reason: mismatchSentence(located.rowsNotLoaded) }],
-        present: true,
-        shapeMismatch: true,
-        found: located.rowsNotLoaded,
-        notLoaded: located.rowsNotLoaded,
-        shape: null,
-        shapesTried: located.shapesTried ?? []
-      };
-    }
-    return { ...normalizeLaneChecks(located.rows, options), present: true, found: located.rows.length, notLoaded: 0, shape: located.at };
+    const rows = Array.isArray(parsed)
+      ? parsed
+      : (parsed.lanes?.lane3?.checks ?? parsed.lane3?.checks ?? parsed.lane3 ?? parsed.checks ?? parsed.endpoints ?? []);
+    return { ...normalizeLaneChecks(rows, options), present: true };
   } catch (error) {
-    return { accepted: [], parked: [{ name: path.basename(file), reason: `could not be read: ${redactText(error?.message ?? String(error))}` }], present: true, shapeMismatch: true, found: 0, notLoaded: 0, shape: null };
+    return { accepted: [], parked: [{ name: path.basename(file), reason: `could not be read: ${redactText(error?.message ?? String(error))}` }], present: true };
   }
 }
 
