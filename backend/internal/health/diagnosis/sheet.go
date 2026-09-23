@@ -142,6 +142,12 @@ func EncodeSheet(doc AuthoredRegister) ([][]string, error) {
 		"vocabulary":       joinList(doc.Vocabulary),
 	})
 
+	// The pages, before the questions that sit on them -- the sheet is read top-down, and a
+	// question naming a page defined below it reads as a forward reference.
+	for _, sec := range doc.Sections {
+		add(sheetRow{"row": "page", "id": sec.ID, "title": sec.Title, "hint": sec.Hint})
+	}
+
 	for _, q := range doc.Questions {
 		r := sheetRow{
 			"row": "question", "id": q.ID, "title": q.Title, "kind": q.Kind,
@@ -294,6 +300,16 @@ func DecodeSheet(rows [][]string) (*AuthoredRegister, []string) {
 			doc.NonSpecific = splitList(cell(r, "non_specific"))
 			doc.Vocabulary = splitList(cell(r, "vocabulary"))
 
+		case "page":
+			id := cell(r, "id")
+			if id == "" {
+				problems = append(problems, fmt.Sprintf("row %d: a page needs an id", line))
+				continue
+			}
+			doc.Sections = append(doc.Sections, Section{
+				ID: id, Title: cell(r, "title"), Hint: cell(r, "hint"),
+			})
+
 		case "question":
 			id := cell(r, "id")
 			if id == "" {
@@ -434,8 +450,10 @@ func SheetExampleRows() [][]string {
 	return [][]string{
 		row(map[string]string{"row": "# register", "register_version": "my-type-1",
 			"applies_class": "my_type", "non_specific": "eating:not_eating;activity:weak"}),
+		row(map[string]string{"row": "# page", "id": "chest", "title": "Chest",
+			"hint": "What the animal sounds like"}),
 		row(map[string]string{"row": "# question", "id": "breathing", "title": "Breathing",
-			"kind": "choice", "section": "Chest"}),
+			"kind": "choice", "section": "chest"}),
 		row(map[string]string{"row": "# answer", "parent": "breathing", "value": "cough",
 			"label": "Coughing", "emits": "breathing:cough"}),
 		row(map[string]string{"row": "# band", "parent": "temperature", "gte": "104",
