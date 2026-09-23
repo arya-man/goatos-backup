@@ -28,6 +28,7 @@ import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.dto.DeathCauseCatalogDto
 import sg.mesha.goatos.core.network.dto.HealthDiagnosisProposalResponseDto
 import sg.mesha.goatos.core.network.dto.HealthDiagnosisQueueItemDto
+import sg.mesha.goatos.core.network.dto.HealthObservationFormDto
 import sg.mesha.goatos.core.network.dto.HealthWorkItemDetailDto
 import sg.mesha.goatos.core.network.dto.HealthWorkItemDto
 import sg.mesha.goatos.core.network.dto.HealthWorkItemPageDto
@@ -108,6 +109,18 @@ interface HealthRepository : DeathCauseVocabulary {
 
     /** Re-reads one run from the server. The server is the authority on its status. */
     suspend fun refreshDiagnosisRun(diagnosisRunId: String): Result<Unit>
+
+    /**
+     * The questions THIS animal's diagnosis type asks, as the server published them.
+     *
+     * NOT cached in Room, and that is deliberate on a clinical form. Every other read on this
+     * screen is offline-first because a stale list of work is better than a blank one; a stale
+     * RULEBOOK is not. An operator diagnosing against questions a director changed this morning
+     * would record answers the published register no longer reads, and the submit would be judged
+     * against the new version -- so the form is fetched, and an animal reached with no signal is
+     * told so rather than shown yesterday's questions.
+     */
+    suspend fun observationForm(goatId: String): Result<HealthObservationFormDto>
 
     /**
      * The Health Director's queue: assessments awaiting a decision, newest first.
@@ -219,6 +232,9 @@ class DefaultHealthRepository(
         database.healthDiagnosisQueueKeyDao().observe(filters.scopeKey).map { entity ->
             entity?.let { DiagnosisQueueMeta(mayConfirm = it.mayConfirm, endReached = it.endReached) }
         }.flowOn(Dispatchers.Default)
+
+    override suspend fun observationForm(goatId: String): Result<HealthObservationFormDto> =
+        runCatching { api.getHealthObservationForm(goatId) }
 
     override suspend fun refreshDiagnosisRun(diagnosisRunId: String): Result<Unit> = runCatching {
         val run = api.getHealthObservation(diagnosisRunId)

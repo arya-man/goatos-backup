@@ -177,6 +177,7 @@ import sg.mesha.goatos.feature.health.DiagnosisQueueEvent
 import sg.mesha.goatos.feature.health.DiagnosisQueueScreen
 import sg.mesha.goatos.feature.health.DiagnosisProposalScreen
 import sg.mesha.goatos.feature.health.ObservationFormEvent
+import sg.mesha.goatos.feature.health.AuthoredObservationScreen
 import sg.mesha.goatos.feature.health.ObservationFormScreen
 import sg.mesha.goatos.feature.counts.PenReconciliationEvent
 import sg.mesha.goatos.feature.counts.PenReconciliationExecuteEvent
@@ -1870,15 +1871,31 @@ fun AppNavHost(
                     }
                 }
             }
-            ObservationFormScreen(
-                state = state,
-                onEvent = { event ->
-                    when (event) {
-                        ObservationFormEvent.Back -> navController.popBackStack()
-                        else -> vm.onEvent(event)
-                    }
-                },
-            )
+            // The AUTHORED form is the one the operator sees. The compiled screen stays reachable
+            // only while a server has published no register for this animal's type -- an older
+            // deployment, not a state this farm should sit in -- so nothing is stranded mid-rollout.
+            val authored by vm.authoredForm.collectAsStateWithLifecycle()
+            val answers by vm.answers.collectAsStateWithLifecycle()
+            if (!authored.isEmpty) {
+                AuthoredObservationScreen(
+                    state = state,
+                    form = authored,
+                    answers = answers,
+                    onAnswers = vm::onAnswers,
+                    onSubmit = { vm.onEvent(ObservationFormEvent.Submit) },
+                    onBack = { navController.popBackStack() },
+                )
+            } else {
+                ObservationFormScreen(
+                    state = state,
+                    onEvent = { event ->
+                        when (event) {
+                            ObservationFormEvent.Back -> navController.popBackStack()
+                            else -> vm.onEvent(event)
+                        }
+                    },
+                )
+            }
         }
         composable(Routes.HEALTH_DIAGNOSIS_QUEUE) {
             val vm: DiagnosisQueueViewModel = hiltViewModel()
