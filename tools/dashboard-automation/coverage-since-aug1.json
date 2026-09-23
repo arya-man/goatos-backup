@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "description": "GoAT OS admin-web OCI smoke coverage for every feature and repeat-bug pattern shipped since 2026-08-01. Checked by check-coverage-since-aug1.mjs. Regenerable from classified commit JSONL (--commits <dir>).",
+  "description": "GoAT OS admin-web OCI smoke coverage for every feature and repeat-bug pattern shipped since 2026-08-01. Checked by check-coverage-since-aug1.mjs. Regenerable from classified commit JSONL (--commits <dir>). STATUS MEANS: covered = this entry names at least one check that can FAIL while the page still loads and renders (a relation between two figures, a contradiction in the recorded facts, an exact string, or a pattern entry's own defect detector), so a regression of it goes red. smoke-only = the sweep really does visit it and nothing there can fail - visiting a page, opening a drawer, clicking a control and \"is it on the screen\" are smoke, not coverage. gap = the sweep does not reach it. The way from smoke-only to covered is a check that can fail, never a relabel: the guard reads each reference's strength off the artefact that defines it.",
   "since": "2026-08-01",
   "source": "scratchpad regression-history.md (sample list; to be regenerated from full commit classification)",
   "entries": [
@@ -47,7 +47,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "feed-analytics-stock-only",
@@ -68,7 +68,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "feed-analytics-range-chips",
@@ -95,7 +95,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "feed-analytics-chart-hover",
@@ -150,7 +150,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "weights-metric-toggles",
@@ -172,7 +172,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "weights-growth-director",
@@ -197,7 +197,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "weights-download-drawer",
@@ -218,7 +218,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "herd-analytics",
@@ -243,7 +243,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "herd-analytics-date-filter",
@@ -264,7 +264,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "counts-breakdown-tag-editor",
@@ -285,7 +285,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "procurement-vendor-register",
@@ -310,7 +310,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "procurement-vendor-row-drawer",
@@ -331,7 +331,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "sales-ledger-sales",
@@ -360,7 +360,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "sales-ledger-sales-sold",
@@ -389,7 +389,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "sales-ledger-sales-loads",
@@ -418,7 +418,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "sales-ledger-sales-market-analytics",
@@ -447,7 +447,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "sales-ledger-sales-buyer-analytics",
@@ -476,7 +476,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "sales-market-table-scroll",
@@ -497,7 +497,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "sales-buyer-pager",
@@ -519,7 +519,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "vaccination-live-tracker",
@@ -540,7 +540,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "vaccination-command-board",
@@ -561,7 +561,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "vaccination-closed-no-dose-drawer",
@@ -582,7 +582,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "verify-capture-date-sort",
@@ -607,7 +607,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "verify-video-log",
@@ -628,7 +628,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "verification-oversight",
@@ -649,7 +649,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "actions-pager",
@@ -675,7 +675,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "verifier-module-nav-rail",
@@ -705,7 +705,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "health-config",
@@ -726,7 +726,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "feed-config-staged-filters",
@@ -755,7 +755,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "feed-direction",
@@ -776,7 +776,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "login-sso",
@@ -816,7 +816,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "health-analytics-tabs",
@@ -863,7 +863,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "feed-spend-share",
@@ -892,7 +892,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "feed-expenditure-per-animal",
@@ -914,7 +914,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "feed-consumption-view",
@@ -935,7 +935,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "feed-items-money-first",
@@ -960,7 +960,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "feed-by-shed-pager",
@@ -1011,7 +1011,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "weighing-analytics-tabs",
@@ -1067,7 +1067,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "weighing-fair-fight-board",
@@ -1097,7 +1097,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "weighing-sex-filter",
@@ -1136,7 +1136,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "sales-weight-bands-month-charts",
@@ -1161,7 +1161,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "sales-loads",
@@ -1187,7 +1187,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "sales-loads-hover-card",
@@ -1257,7 +1257,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "procurement-vendors-two-sides",
@@ -1278,7 +1278,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "procurement-feed-purchases",
@@ -1303,7 +1303,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "counts-breakdown-per-pen",
@@ -1324,7 +1324,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "counts-breakdown-multiselect",
@@ -1345,7 +1345,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "vaccination-plan",
@@ -1371,7 +1371,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "vaccination-plan-view-settings",
@@ -1392,7 +1392,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "live-tracker-throughput",
@@ -1413,7 +1413,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "verify-milk-citric",
@@ -1435,7 +1435,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "health-problems-tab",
@@ -1456,7 +1456,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "feed-consumption-fc-view",
@@ -1482,7 +1482,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "feed-purchased-vs-consumed",
@@ -1504,7 +1504,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "feed-by-pen-verified-bars",
@@ -1529,7 +1529,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "adg-time-bucket",
@@ -1551,7 +1551,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "adg-time-pen",
@@ -1594,7 +1594,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "weighing-fcr-tab",
@@ -1615,7 +1615,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "weighing-assumptions-drawer",
@@ -1636,7 +1636,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "feed-weight-band",
@@ -1671,7 +1671,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "feed-weight-band-exits-drawer",
@@ -1692,7 +1692,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "tasks-board",
@@ -1713,7 +1713,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "tasks-list",
@@ -1734,7 +1734,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "tasks-overdue",
@@ -1755,7 +1755,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "tasks-detail-drawer",
@@ -1776,7 +1776,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "tasks-phone-filter-sheet",
@@ -1797,7 +1797,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "tasks-search",
@@ -1818,7 +1818,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "tasks-pager",
@@ -1856,7 +1856,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "counts-breakdown-loads-card",
@@ -1881,7 +1881,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "sales-farm-born",
@@ -1902,7 +1902,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "sales-farm-born-pager",
@@ -1923,7 +1923,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "sales-buyer-analytics-sort",
@@ -1944,7 +1944,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "sales-market-analytics",
@@ -1965,7 +1965,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "sales-config-survey",
@@ -1986,7 +1986,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "sales-summary-farm-value-loadwise",
@@ -2012,7 +2012,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "sop-page-sales",
@@ -2033,7 +2033,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "sop-page-counts",
@@ -2054,7 +2054,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "sop-page-weighing",
@@ -2075,7 +2075,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "sop-page-feed",
@@ -2096,7 +2096,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "sop-page-procurement",
@@ -2117,7 +2117,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "sop-flow-counts",
@@ -2138,7 +2138,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "sop-flow-weighing",
@@ -2159,7 +2159,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "sop-flow-feed",
@@ -2180,7 +2180,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "sop-flow-sales",
@@ -2201,7 +2201,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "sop-flow-procurement",
@@ -2222,7 +2222,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "procurement-animal-purchases",
@@ -2247,7 +2247,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "procurement-feed-purchase-vendor-drawer",
@@ -2285,7 +2285,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "configuration-items-row-drawer",
@@ -2306,7 +2306,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "configuration-work-instructions",
@@ -2327,7 +2327,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "routines",
@@ -2348,7 +2348,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "routines-drawer",
@@ -2369,7 +2369,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "alerts",
@@ -2395,7 +2395,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "alerts-day-arrows",
@@ -2416,7 +2416,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "work-board",
@@ -2442,7 +2442,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "work-board-issue-dialog",
@@ -2463,7 +2463,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "leave",
@@ -2499,7 +2499,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "people-access-modal",
@@ -2520,7 +2520,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "people-notifications-tab",
@@ -2541,7 +2541,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "notification-bell",
@@ -2562,7 +2562,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "park-command-lenses",
@@ -2587,7 +2587,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "calendar",
@@ -2627,7 +2627,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "pattern-A",
@@ -2835,7 +2835,7 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only"
     },
     {
       "id": "pattern-F",

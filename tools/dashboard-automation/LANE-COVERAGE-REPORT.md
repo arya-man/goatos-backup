@@ -14,7 +14,7 @@ Window: `git log origin/main --since=2026-08-01T00:00:00+05:30 --no-merges`, pin
 
 ## Reconciliation - count in equals count out
 
-**Commits in the window: 4125.** Every commit is assigned exactly one primary bucket.
+**Rows on disk: 4140.** Every commit is assigned exactly one primary bucket.
 A commit that also matters to another lane carries an `alsoLanes` field on its row; that field
 never moves the commit between buckets, so the arithmetic below stays exact.
 
@@ -23,12 +23,24 @@ never moves the commit between buckets, so the arithmetic below stays exact.
 | Lane 1 - already covered by PR #350's web ledger (not re-classified here) | 1023 |
 | Lane 2 - read-only data sanity SQL on the STG replica | 171 |
 | Lane 3 - read-only production API contract + latency | 612 |
-| Lane 4 - write-path journeys on the OCI writable clone | 426 |
-| Lane 5 - Android on Firebase Test Lab | 1051 |
-| Parked - not automatable, with a reason on every row | 842 |
-| **Total** | **4125** |
+| Lane 4 - write-path journeys on the OCI writable clone | 427 |
+| Lane 5 - Android on Firebase Test Lab | 1052 |
+| Parked - not automatable, with a reason on every row | 855 |
+| **Total** | **4140** |
 
-`1023 + 171 + 612 + 426 + 1051 + 842 = 4125` and the window holds `4125` commits, so **4125 == 4125**.
+`1023 + 171 + 612 + 427 + 1052 + 855 = 4140` and the ledger files hold `4140` rows, so **4140 == 4140**.
+
+> **These are counted from the files, not from the last time someone typed them.** The table
+> above said 4125 while the ledgers on disk held 4140: the four lane files kept growing as work
+> landed and the summary did not follow, so the document contradicted itself by fifteen commits
+> and `lane-coverage.test.mjs` had been failing on that arithmetic. A snapshot that cannot be
+> re-derived from the files it describes is worth nothing; this one is re-derived by
+> `wc -l` on the ledgers, and the test compares the printed terms against them.
+>
+> The window on `origin/main` keeps moving, so the snapshot is always a little behind it. At the
+> last refresh the window held 4146 commits against these 4140 rows, and
+> `make dashboard-lane-coverage-guard` named the difference commit by commit. The live guard, not
+> this document, is the authority on what is uncovered right now.
 
 ### How the bucket is decided (deterministic, in this order)
 
@@ -63,12 +75,15 @@ number above cannot quietly rot.
 
 ## Checks per lane
 
-| Lane | Distinct checks | Commits routed |
-| --- | ---: | ---: |
-| lane2 | 50 | 170 |
-| lane3 | 62 | 609 |
-| lane4 | 35 | 426 |
-| lane5-android | 47 | 1051 |
+| Lane | Checks defined | Checks a commit is routed to | Commits routed |
+| --- | ---: | ---: | ---: |
+| lane2 | 50 | 30 | 171 |
+| lane3 | 62 | 54 | 612 |
+| lane4 | 35 | 33 | 427 |
+| lane5-android | 47 | 40 | 1052 |
+
+The middle column is the honest one: a check nothing is routed to is a check no commit is relying
+on. 194 of the 194 checks in `lane-checks.json` exist; 157 of them carry commits.
 
 Many commits map to one check; each check in `lane-checks.json` carries the full `sourceShas`
 list it was derived from, so a builder can always get back to the commits behind a check.
@@ -351,7 +366,7 @@ checks that carry it should be built first. Counts are over the commits classifi
 
 ## Parked - not automatable
 
-829 commits are parked. Every parked row in
+855 commits are parked. Every parked row in
 `commit-classification/not-automatable.jsonl` carries its own `reason`. Nothing parked is
 reported as covered anywhere. That file is an extra output beyond the four lane files: the
 parked rows need somewhere to live for the exactly-once count to be checkable by line count.
@@ -365,7 +380,96 @@ parked rows need somewhere to live for the exactly-once count to be checkable by
 | Migration bookkeeping only - renumbering, rebase collisions or checksum allowances. The schema and the data are unchanged, so there is nothing new a person could see. | 12 |
 | Goat OS MCP connector plumbing - outside the five dashboard lanes. No dashboard page and no app screen changes, so no lane can observe it. | 12 |
 | Regenerated or reformatted code only - the contract it was generated from is covered by its own lane 3 check, so re-checking the generated file would prove nothing extra. | 9 |
+| Documentation only - a note in the dashboard automation roadmap. | 9 |
 | No concrete check in this lane matches this commit; parked rather than attached to a check it does not actually exercise. | 8 |
+| Dashboard automation check definition only - it is the lane machinery, not a product surface. | 4 |
+| Slack notification plumbing and CI-support code only - no farm-facing surface. | 2 |
+| Eleven further reasons, one row each, all of them this automation's own plumbing. | 11 |
+| **Total** | **855** |
+
+383 + 277 + 106 + 22 + 12 + 12 + 9 + 9 + 8 + 4 + 2 + 11 = 855, which is the line count of
+`not-automatable.jsonl`. Counted from the file, every time this document is refreshed.
+
+## What "covered" means, and the honest number
+
+`coverage-since-aug1.json` is the web sweep's own ledger: one entry per feature and per
+repeat-bug pattern shipped since 2026-08-01. It read 109 of 125 covered - 87% - while
+independent judges measuring "would this catch the bug coming back" got 4% overall and 8-19%
+per area. Both numbers were correct. They were answering different questions.
+
+The ledger's question was: **does the sweep visit this?** Its guard checked that every reference
+resolved - the route is one the smoke loads, the drawer is one it opens, the control is one it
+clicks - and nothing in it ever asked whether any assertion could FAIL. An entry naming a page
+the sweep drives past, with one interaction listed, was "covered".
+
+The question now is: **does a regression of this make something go red?** An entry may claim
+`covered` only if it carries at least one reference that can fail while the page still loads and
+renders - a relation between two figures, a self-contradiction in the recorded facts, an exact
+string, or (for a pattern entry) the detector for its own defect class. Visiting a page, opening
+a drawer, clicking a control and "is it on the screen" are `smoke-only`: true, useful, and not
+coverage. `gap` is unchanged - the sweep does not reach it at all.
+
+Recounted under that definition, nothing deleted and nothing weakened - 102 entries moved from
+`covered` to `smoke-only`, which is what they always were:
+
+| Area | Entries | covered before | covered after | smoke-only | gap |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| action centre | 2 | 2 (100%) | 0 | 2 | 0 |
+| alerts | 2 | 2 (100%) | 0 | 2 | 0 |
+| calendar | 1 | 1 (100%) | 0 | 1 | 0 |
+| configuration | 3 | 3 (100%) | 0 | 3 | 0 |
+| control tower | 1 | 1 (100%) | 0 | 1 | 0 |
+| counts | 9 | 9 (100%) | 0 | 9 | 0 |
+| feed | 17 | 15 (88%) | 0 | 15 | 2 |
+| health | 3 | 3 (100%) | 0 | 3 | 0 |
+| leave | 1 | 1 (100%) | 0 | 1 | 0 |
+| login | 1 | 0 | 0 | 0 | 1 |
+| people | 2 | 2 (100%) | 0 | 2 | 0 |
+| procurement | 8 | 7 (88%) | 0 | 7 | 1 |
+| routines | 2 | 2 (100%) | 0 | 2 | 0 |
+| sales | 22 | 19 (86%) | 0 | 19 | 3 |
+| tasks | 9 | 8 (89%) | 0 | 8 | 1 |
+| vaccination | 6 | 6 (100%) | 0 | 6 | 0 |
+| verify | 6 | 6 (100%) | 0 | 6 | 0 |
+| weighing | 16 | 14 (88%) | 0 | 14 | 2 |
+| cross-cutting patterns | 14 | 8 (57%) | 7 (50%) | 1 | 6 |
+| **all** | **125** | **109 (87.2%)** | **7 (5.6%)** | **102** | **16** |
+
+Seven entries survive, and they are all the same shape: a repeat-bug pattern whose own detector
+runs on every page of the sweep, so the defect coming back makes it fire. Every feature area is
+at zero. That is not a worse product than yesterday - it is the same product, counted honestly,
+and 5.6% that means something is worth more than 87% that means the sweep drove past.
+
+The way up is to write checks that can fail, not to relabel: a relation in
+`api-contract-checks.json`, a contradiction in `data-sanity-checks.json`, or a feature assertion
+in `feature-assertions.json` that pins an exact string or holds two figures against each other.
+The guard resolves each of those against the artefact that defines it, so an entry cannot talk
+itself into being covered.
+
+### The same illusion one level down: greens off a blank screen
+
+`feature-assertions.json` carries one check per user-visible commit. 377 of the 607 that run are
+marked `data-dependent` - "this only draws when the screen has rows" - and for those, the runner
+treated "it is not on the page" as a pass, and swallowed any error the check threw as well. On
+the weighing and vaccination screens that is 95 entries and 119 expectations that could report
+green off a screen with nothing drawn on it, `vaccination-plan-edit` worst of all: all 17 of its
+checks are data-dependent, and published-plan-version immutability is one of them.
+
+There are three outcomes now, not two:
+
+- the screen had its rows and the check held -> **pass**
+- the screen had its rows and the check failed -> **fail**, with the red-boxed screenshot
+- the screen had nothing to judge -> **not-attempted**, never a pass
+
+The third uses the vocabulary lanes 4 and 5 already landed for exactly this - `not-attempted`,
+with the reason in farm words - rather than a fourth spelling of the same idea. An entry says
+how to tell whether the screen has its rows with a `dataProbe`; without one the answer is
+"cannot tell", which is not-attempted, because guessing "the page has some rows, so this
+feature's rows must be there" is how a correct page gets accused. None of the 377 carries a
+`dataProbe` yet: that is the work this makes visible, and each one added moves an entry from
+never-judged to judged. And an error thrown by the assertion machinery itself is now reported as
+a harness fault - the harness accusing itself, which it must, instead of a silence that read
+like a healthy screen.
 
 ## Keeping this number true tomorrow
 

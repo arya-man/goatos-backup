@@ -1,7 +1,55 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { WRITE_WORDS, loadFeatureAssertions } from "./feature-assertions.mjs";
+import { WRITE_WORDS, assertFeaturesPresent, isValueExpect, loadFeatureAssertions } from "./feature-assertions.mjs";
+
+// ---------------------------------------------------------------- a page that can be empty
+//
+// Enough of a page for the assertion machinery to run against, so the three outcomes can be
+// proved without a browser: what is on the screen is exactly what this says is on it.
+const makeLocator = (items) => ({
+  first: () => makeLocator(items.slice(0, 1)),
+  nth: (i) => makeLocator(items.slice(i, i + 1)),
+  count: async () => items.length,
+  isVisible: async () => Boolean(items[0]?.visible),
+  innerText: async () => items[0]?.text ?? "",
+  getAttribute: async () => null,
+  click: async () => {},
+  evaluate: async () => {},
+  waitFor: async () => { if (!items[0]?.visible) throw new Error("timed out waiting for it to be visible"); },
+});
+const fakePage = (onScreen = {}) => ({
+  locator: (key) => makeLocator(onScreen[key] ?? []),
+  getByText: (key) => makeLocator(onScreen[key] ?? []),
+  url: () => "https://example.test/vaccination/plan",
+  addStyleTag: async () => {},
+  screenshot: async () => {},
+  waitForLoadState: async () => {},
+});
+const shown = (text = "x") => [{ visible: true, text }];
+
+/** Runs the assertions against a fake screen and returns every line it printed, plus the throw. */
+async function runAgainst(page, entries) {
+  const lines = [];
+  const realLog = console.log;
+  console.log = (line) => lines.push(String(line));
+  let threw = null;
+  try {
+    await assertFeaturesPresent(page, {
+      routeName: "vaccination-plan-edit", viewportLabel: "laptop", screenshotDir: "/tmp", entries,
+    });
+  } catch (error) {
+    threw = String(error.message ?? error);
+  } finally {
+    console.log = realLog;
+  }
+  return { lines, threw, said: (prefix) => lines.filter((l) => l.startsWith(prefix)) };
+}
+
+const planEntry = (over = {}) => ({
+  sha: "d00d1e", title: "A published plan version cannot be edited", route: "vaccination-plan-edit",
+  viewports: ["laptop"], status: "data-dependent", expect: [{ visible: { css: ".plan-version-lock" } }], ...over,
+});
 
 test("feature assertion steps refuse anything that writes", () => {
   for (const word of ["Save", "Approve", "Reject", "Delete", "Submit", "Upload", "Download", "Assign", "Publish", "Mark reached", "Create task"]) {
@@ -55,7 +103,7 @@ test("the triaged PR350 entries assert the screen, not the sidebar, and are stil
 test("a clicking entry is replayed once before it is reported missing", () => {
   const source = readFileSync(new URL("./feature-assertions.mjs", import.meta.url), "utf8");
   assert.match(source, /const attempt = async \(\) => \{/);
-  assert.match(source, /if \(miss && entry\.steps\?\.length && reload\) miss = await attempt\(\);/);
+  assert.match(source, /if \(result\?\.miss && entry\.steps\?\.length && reload\) result = await attempt\(\);/);
 });
 
 // A multi-expect entry named only its title, so "Feed Config has an add feed item control"
@@ -88,7 +136,7 @@ test("a missing feature names the expectation that failed, not just the entry ti
 test("every asserted feature entry states which expectation it is checking", () => {
   for (const entry of loadFeatureAssertions()) {
     for (const expect of entry.expect ?? []) {
-      const named = expect.visible ?? expect.absent ?? expect.count ?? expect.url;
+      const named = expect.visible ?? expect.absent ?? expect.count ?? expect.url ?? expect.equals ?? expect.compare;
       assert.ok(named, `${entry.sha}: an expect with nothing to check`);
     }
   }
@@ -100,10 +148,13 @@ test("a step written as a sentence is a check to finish, not a broken feature", 
   // error that read like a product failure and was counted as one on every single run.
   assert.match(source, /NEEDS_STEP_PREFIX/);
   assert.match(source, /typeof target === "string" \|\| \(!target\.css && !target\.text\)/);
-  // It must be separated BEFORE the missing-feature bucket.
+  // It must be separated BEFORE anything that renders a verdict: before the missing-feature
+  // bucket, and before the harness-fault bucket that now catches everything else.
   const needsAt = source.indexOf("message.startsWith(NEEDS_STEP_PREFIX)");
-  const missingAt = source.indexOf('if (entry.status !== "data-dependent") missing.push(');
-  assert.ok(needsAt > 0 && needsAt < missingAt, "unwritten steps must be split off before the missing bucket");
+  const stepTargetAt = source.indexOf("message.startsWith(STEP_TARGET_PREFIX)");
+  const faultAt = source.indexOf("harnessFaults.push({ entry, why:");
+  assert.ok(needsAt > 0 && needsAt < stepTargetAt, "unwritten steps must be split off before the missing bucket");
+  assert.ok(stepTargetAt > 0 && stepTargetAt < faultAt, "a control that is not on the page is the product, not the harness");
   // And it must land on the wording that says a check needs review, not one that says
   // the farm's screen is broken.
   assert.match(source, /assertion\(s\) need review/);
@@ -121,4 +172,98 @@ test("the manifest still carries the unwritten steps this split is for", () => {
   }
   assert.ok(prose.includes("5c504076c"), "the Tasks attachment picker entry");
   assert.ok(prose.includes("75d30c3ef"), "the Tasks scope entry");
+});
+
+// ---------------------------------------------------------------- the three outcomes
+//
+// THE PROOF. `vaccination-plan-edit` reported 17 of 17 assertions passed against a screen with
+// nothing drawn on it - which is where published-plan-version immutability lives. Every one of
+// those greens came from one line: a data-dependent entry whose target was not on the page
+// returned "no miss", and no miss was read as a pass. A check that did not run must never
+// render a verdict, in either direction.
+
+test("a data-dependent check on an empty screen reports not-attempted, never a pass", async () => {
+  const run = await runAgainst(fakePage({}), [planEntry()]);
+  assert.equal(run.threw, null, "an empty screen is not an accusation against the product");
+  assert.equal(run.said("feature_missing=").length, 0);
+  assert.equal(run.said("feature_not_attempted=").length, 1, "it must say it was not checked");
+  assert.match(run.said("feature_not_attempted=")[0], /A published plan version cannot be edited/);
+  // And the count must not quietly carry it as a pass: nothing was judged here.
+  assert.match(run.said("feature_assertions=")[0], /^feature_assertions=vaccination-plan-edit:laptop:0\/0 not_attempted=1/);
+});
+
+test("a data-dependent check whose screen HAS its rows still fails when the feature is gone", async () => {
+  // The other half of the same bug: once the entry says how to tell the screen has its rows,
+  // an absent feature on a populated screen is a finding, not a shrug.
+  const entry = planEntry({ dataProbe: { css: ".plan-row" } });
+  const run = await runAgainst(fakePage({ ".plan-row": shown("kids, 2 doses") }), [entry]);
+  assert.match(String(run.threw), /feature missing/);
+  assert.match(String(run.threw), /A published plan version cannot be edited/);
+  assert.equal(run.said("feature_not_attempted=").length, 0);
+});
+
+test("a data-dependent check that holds is still a plain pass", async () => {
+  const entry = planEntry({ dataProbe: { css: ".plan-row" } });
+  const run = await runAgainst(fakePage({ ".plan-row": shown(), ".plan-version-lock": shown("Published") }), [entry]);
+  assert.equal(run.threw, null);
+  assert.match(run.said("feature_assertions=")[0], /:1\/1$/);
+});
+
+test("an error from the assertion machinery is a harness fault, never a silent green", async () => {
+  // A malformed target used to throw, and the throw was swallowed for data-dependent entries:
+  // the run reported the screen as fine while the check had not run at all.
+  const entry = planEntry({ expect: [{ visible: { name: "not a target the browser can find" } }] });
+  const run = await runAgainst(fakePage({}), [entry]);
+  assert.match(String(run.threw), /harness fault/, "the harness must accuse itself, not the farm's screens");
+  assert.equal(run.said("feature_missing=").length, 0, "and it must not be reported as a broken screen");
+  assert.equal(run.said("feature_assertion_harness_fault=").length, 1);
+  assert.match(run.said("feature_assertions=")[0], /harness_faults=1/);
+});
+
+test("something that must NOT appear is still a failure on a screen with no rows", async () => {
+  // The one thing absence never excuses: if a thing is on the page that must never be there,
+  // an empty screen is no defence.
+  const entry = planEntry({ expect: [{ absent: { css: ".raw-key" } }] });
+  const run = await runAgainst(fakePage({ ".raw-key": shown("plan.version.published") }), [entry]);
+  assert.match(String(run.threw), /feature missing/);
+});
+
+// ---------------------------------------------------------------- expectations that can be wrong
+
+test("presence is smoke; an exact string and a comparison between two figures can fail", () => {
+  for (const smoke of [{ visible: { css: ".x" } }, { count: { css: ".x", min: 1 } }, { absent: { css: ".x" } }, { url: { contains: "/x" } }]) {
+    assert.equal(isValueExpect(smoke), false, JSON.stringify(smoke));
+  }
+  for (const real of [{ equals: { css: ".total", is: "791" } }, { compare: { left: { css: ".a" }, right: { css: ".b" }, op: "lte" } }]) {
+    assert.equal(isValueExpect(real), true, JSON.stringify(real));
+  }
+});
+
+test("a figure that disagrees with the figure it is measured against is reported", async () => {
+  const entry = planEntry({
+    status: "assert",
+    expect: [{ compare: { left: { css: ".weighed" }, right: { css: ".head" }, op: "lte" } }],
+  });
+  const wrong = await runAgainst(fakePage({ ".weighed": shown("791"), ".head": shown("715") }), [entry]);
+  assert.match(String(wrong.threw), /791 must not be more than 715/);
+  const right = await runAgainst(fakePage({ ".weighed": shown("700"), ".head": shown("715") }), [entry]);
+  assert.equal(right.threw, null);
+});
+
+test("an exact string is held to the letter", async () => {
+  const entry = planEntry({ status: "assert", expect: [{ equals: { css: ".stage", is: "Published" } }] });
+  const wrong = await runAgainst(fakePage({ ".stage": shown("published") }), [entry]);
+  assert.match(String(wrong.threw), /should read "Published", reads "published"/);
+  const right = await runAgainst(fakePage({ ".stage": shown("Published") }), [entry]);
+  assert.equal(right.threw, null);
+});
+
+test("a harness fault is still said out loud when there are real findings too", async () => {
+  const run = await runAgainst(fakePage({ ".plan-row": shown() }), [
+    planEntry({ sha: "aaa111", status: "assert", expect: [{ visible: { css: ".gone" } }] }),
+    planEntry({ sha: "bbb222", expect: [{ visible: { name: "not a target" } }] }),
+  ]);
+  assert.match(String(run.threw), /feature missing/);
+  assert.match(String(run.threw), /1 check\(s\) could not be run at all/);
+  assert.equal(run.said("feature_assertion_harness_fault=").length, 1);
 });
