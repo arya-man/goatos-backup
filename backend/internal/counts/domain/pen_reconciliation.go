@@ -88,6 +88,8 @@ type PenReconciliationRaiseCommand struct {
 type PenReconciliationCompletionCommand struct {
 	TenantID string
 	CardID   string
+	// AuthorizedParkIDs is the caller's already-resolved park scope. Empty means tenant-wide.
+	AuthorizedParkIDs []string
 
 	CompletedByUserID string
 	CompletedAt       time.Time

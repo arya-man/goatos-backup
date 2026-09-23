@@ -46,14 +46,14 @@ func (s *PenReconciliationService) WithWorkflowEngine(engine PenReconciliationWo
 var ErrPenReconciliationWorkflowEngineNotWired = errors.New("counts: pen reconciliation workflow engine is not wired")
 
 // EnsureWorkflow returns the card's questionnaire workflow id, opening it on first call.
-func (s *PenReconciliationService) EnsureWorkflow(ctx context.Context, tenantID, cardID string) (string, error) {
+func (s *PenReconciliationService) EnsureWorkflow(ctx context.Context, tenantID, cardID string, authorizedParkIDs []string) (string, error) {
 	if strings.TrimSpace(tenantID) == "" || strings.TrimSpace(cardID) == "" {
 		return "", ErrMissingRequiredField
 	}
 	if s.engine == nil {
 		return "", ErrPenReconciliationWorkflowEngineNotWired
 	}
-	facts, err := s.repo.PenReconciliationCardForWorkflow(ctx, tenantID, cardID)
+	facts, err := s.repo.PenReconciliationCardForWorkflow(ctx, tenantID, cardID, authorizedParkIDs)
 	if err != nil {
 		return "", err
 	}
@@ -67,7 +67,7 @@ func (s *PenReconciliationService) EnsureWorkflow(ctx context.Context, tenantID,
 	if err != nil {
 		return "", err
 	}
-	if err := s.repo.SetPenReconciliationWorkflow(ctx, tenantID, cardID, workflowID); err != nil {
+	if err := s.repo.SetPenReconciliationWorkflow(ctx, tenantID, cardID, workflowID, authorizedParkIDs); err != nil {
 		return "", err
 	}
 	return workflowID, nil

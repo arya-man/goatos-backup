@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	countshttp "github.com/vgoats/goatos/backend/internal/counts/adapters/http"
 	countsapp "github.com/vgoats/goatos/backend/internal/counts/app"
+	"github.com/vgoats/goatos/backend/internal/counts/domain"
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 )
@@ -24,6 +26,18 @@ import (
 // park needs a second park's goats, campaign and bucket that this test is not about.
 
 const penRecOtherPark = "00000000-0000-4000-8000-000000003002"
+
+type penRecRouteWorkflowEngine struct{}
+
+func (penRecRouteWorkflowEngine) OpenSubjectWorkflow(context.Context, string, string, string, string, time.Time, string, string) (string, error) {
+	return "00000000-0000-4000-8000-00000000aa21", nil
+}
+
+type penRecRouteVerificationEnqueuer struct{}
+
+func (penRecRouteVerificationEnqueuer) EnqueuePenReconciliationVerification(context.Context, countsapp.PenReconciliationVerificationEnqueueRequest) error {
+	return nil
+}
 
 type penRecListBody struct {
 	Items []struct {
@@ -85,8 +99,11 @@ WHERE tenant_id = $1::uuid AND scanned_identifier = '1420 4002'`, countsTenant, 
 	}
 
 	mux := http.NewServeMux()
+	reconcileService := countsapp.NewPenReconciliationService(repo, nil).
+		WithWorkflowEngine(penRecRouteWorkflowEngine{}).
+		WithVerificationEnqueuer(penRecRouteVerificationEnqueuer{})
 	countshttp.RegisterPenReconciliation(mux, countshttp.NewAppWriteHandler(nil, nil).
-		WithPenReconciliationWorkflow(countsapp.NewPenReconciliationService(repo, nil)))
+		WithPenReconciliationWorkflow(reconcileService))
 
 	type caller func(context.Context) context.Context
 	ceo := func(c context.Context) context.Context {
@@ -97,10 +114,15 @@ WHERE tenant_id = $1::uuid AND scanned_identifier = '1420 4002'`, countsTenant, 
 			return httpmiddleware.WithPersonParkScope(c, httpmiddleware.PersonParkScope{ParkIDs: parks})
 		}
 	}
+	withBaseContext := func(req *http.Request, who caller) *http.Request {
+		ctx := httpmiddleware.WithTenantID(req.Context(), countsTenant)
+		ctx = httpmiddleware.WithActorID(ctx, penRecOperator)
+		return req.WithContext(who(ctx))
+	}
 	get := func(who caller, query string) (int, penRecListBody, string) {
 		t.Helper()
 		req := httptest.NewRequest(http.MethodGet, "/app/counts/pen-reconciliation/cards"+query, nil)
-		req = req.WithContext(who(httpmiddleware.WithTenantID(req.Context(), countsTenant)))
+		req = withBaseContext(req, who)
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, req)
 		var body penRecListBody
@@ -111,12 +133,35 @@ WHERE tenant_id = $1::uuid AND scanned_identifier = '1420 4002'`, countsTenant, 
 		}
 		return rec.Code, body, rec.Body.String()
 	}
+	post := func(who caller, path, body, key string) (int, string) {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Idempotency-Key", key)
+		req = withBaseContext(req, who)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		return rec.Code, rec.Body.String()
+	}
 	codesOf := func(b penRecListBody) []string {
 		out := []string{}
 		for _, item := range b.Items {
 			out = append(out, item.ParkCode)
 		}
 		return out
+	}
+	cardForPark := func(parkID string) string {
+		t.Helper()
+		var cardID string
+		if err := pool.QueryRow(ctx, `
+SELECT card_id::text
+FROM pen_reconciliation_cards
+WHERE tenant_id = $1::uuid AND park_id = $2::uuid
+ORDER BY scanned_identifier
+LIMIT 1`, countsTenant, parkID).Scan(&cardID); err != nil {
+			t.Fatalf("read card for park %s: %v", parkID, err)
+		}
+		return cardID
 	}
 
 	t.Run("CEO sees both parks, all cards, each card naming its park", func(t *testing.T) {
@@ -182,6 +227,45 @@ WHERE tenant_id = $1::uuid AND scanned_identifier = '1420 4002'`, countsTenant, 
 	t.Run("one-park person asking for another park is refused", func(t *testing.T) {
 		if code, _, raw := get(personIn(penRecOtherPark), "?park_id="+countsPark); code != http.StatusForbidden {
 			t.Fatalf("status = %d body=%s, want 403", code, raw)
+		}
+	})
+
+	t.Run("one-park person cannot open another park card workflow by card id", func(t *testing.T) {
+		otherParkCard := cardForPark(countsPark)
+		code, raw := post(personIn(penRecOtherPark),
+			"/app/counts/pen-reconciliation/cards/"+otherParkCard+"/workflow", "", "workflow-park-denied-1")
+		if code != http.StatusNotFound {
+			t.Fatalf("status = %d body=%s, want 404", code, raw)
+		}
+		var workflowID string
+		if err := pool.QueryRow(ctx, `
+SELECT COALESCE(workflow_id::text, '')
+FROM pen_reconciliation_cards
+WHERE tenant_id = $1::uuid AND card_id = $2::uuid`, countsTenant, otherParkCard).Scan(&workflowID); err != nil {
+			t.Fatalf("read workflow id: %v", err)
+		}
+		if workflowID != "" {
+			t.Fatalf("unauthorized workflow open wrote workflow_id=%q", workflowID)
+		}
+	})
+
+	t.Run("one-park person cannot complete another park card by card id", func(t *testing.T) {
+		otherParkCard := cardForPark(countsPark)
+		code, raw := post(personIn(penRecOtherPark),
+			"/app/counts/pen-reconciliation/cards/"+otherParkCard+"/complete",
+			`{"proof_ref":"proof-other-park-denied"}`, "complete-park-denied-1")
+		if code != http.StatusNotFound {
+			t.Fatalf("status = %d body=%s, want 404", code, raw)
+		}
+		var status string
+		if err := pool.QueryRow(ctx, `
+SELECT status
+FROM pen_reconciliation_cards
+WHERE tenant_id = $1::uuid AND card_id = $2::uuid`, countsTenant, otherParkCard).Scan(&status); err != nil {
+			t.Fatalf("read status: %v", err)
+		}
+		if status != domain.PenReconciliationStatusOpen {
+			t.Fatalf("unauthorized complete changed status to %q", status)
 		}
 	})
 

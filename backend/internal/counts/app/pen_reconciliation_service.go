@@ -81,6 +81,8 @@ func (s *PenReconciliationService) WithVerificationEnqueuer(enqueuer PenReconcil
 type CompletePenReconciliationInput struct {
 	TenantID string
 	CardID   string
+	// AuthorizedParkIDs is the caller's already-resolved park scope. Empty means tenant-wide.
+	AuthorizedParkIDs []string
 
 	CompletedByUserID string
 	TraceID           string
@@ -123,6 +125,7 @@ func (s *PenReconciliationService) Complete(
 	result, replay, err := s.repo.CompletePenReconciliationCard(ctx, domain.PenReconciliationCompletionCommand{
 		TenantID:           in.TenantID,
 		CardID:             in.CardID,
+		AuthorizedParkIDs:  append([]string(nil), in.AuthorizedParkIDs...),
 		CompletedByUserID:  in.CompletedByUserID,
 		CompletedAt:        s.now().UTC(),
 		TraceID:            in.TraceID,

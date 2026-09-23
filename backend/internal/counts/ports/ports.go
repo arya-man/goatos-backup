@@ -118,8 +118,8 @@ type PenReconciliationRepository interface {
 
 	// PenReconciliationCardForWorkflow / SetPenReconciliationWorkflow / PenReconciliationCardIDByWorkflow
 	// link a card to its SOP-driven questionnaire workflow (migration 000311).
-	PenReconciliationCardForWorkflow(ctx context.Context, tenantID, cardID string) (domain.PenReconciliationWorkflowFacts, error)
-	SetPenReconciliationWorkflow(ctx context.Context, tenantID, cardID, workflowID string) error
+	PenReconciliationCardForWorkflow(ctx context.Context, tenantID, cardID string, authorizedParkIDs []string) (domain.PenReconciliationWorkflowFacts, error)
+	SetPenReconciliationWorkflow(ctx context.Context, tenantID, cardID, workflowID string, authorizedParkIDs []string) error
 	PenReconciliationCardIDByWorkflow(ctx context.Context, tenantID, workflowID string) (string, error)
 
 	// MarkPenReconciliationVerificationEnqueued clears the durable retry marker after the
