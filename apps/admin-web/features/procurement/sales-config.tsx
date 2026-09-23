@@ -17,11 +17,11 @@ import {
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { firstAuthRequiredError, listProcurementVendorOptions, listSaleLocations } from "@/lib/api/server";
 import type { ProcurementVendorOptions, SaleLocationCatalog } from "@/lib/api/server";
-import { getLoadwiseSales, getSalesOptions, listSalesDeals } from "@/lib/api/procurement-server";
+import { getLoadwiseSales, getSalesOptions, listSalesDeals, listSellableProducts } from "@/lib/api/procurement-server";
 import type { LoadwiseLoad, SalesDeal } from "@/lib/api/procurement";
 import { boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
 import { dealStatusTone, humanDate, inr, num } from "./sales-format";
-import { SalesRecordDrawer } from "./sales-record-drawer";
+import { SalesItemsAndRecordDrawer } from "./sales-config-items";
 import { SaleAllocationDrawer } from "./sale-allocation-drawer";
 import { LoadCostDrawer } from "./load-cost-drawer";
 import { getMarketConfig, getMarketReporters } from "@/lib/api/market-server";
@@ -95,9 +95,10 @@ export async function SalesConfigPage({
   // are independent, so they are read TOGETHER rather than one after the other -- and each is
   // handled on its own below, so one failing does not take the other down.
   // serial-await: allow one bounded pair of drawer vocabulary reads after the sales/config core data.
-  const [vendorOptionsResult, salesOptionsResult] = await Promise.all([
+  const [vendorOptionsResult, salesOptionsResult, sellableProductsResult] = await Promise.all([
     listProcurementVendorOptions(),
     getSalesOptions(),
+    listSellableProducts(),
   ]);
   // The market survey's cities and questions (maintainer decision 2026-09-14): one bounded
   // read of the whole authored config.
@@ -123,6 +124,7 @@ export async function SalesConfigPage({
   // from an EMPTY register; the drawer gives the two different copy.
   const vendorOptions: ProcurementVendorOptions | null = vendorOptionsResult.ok ? vendorOptionsResult.data : null;
   const salesOptions = salesOptionsResult.ok ? salesOptionsResult.data : null;
+  const sellableProducts = sellableProductsResult.ok ? sellableProductsResult.data : null;
 
   const actionStatus = one(sp, "action_status");
   const actionKey = one(sp, "action_key");
@@ -358,7 +360,7 @@ export async function SalesConfigPage({
         )}
       </section>
 
-      {/* 4 — Market survey: what the morning calls ask. Its own permission (the Sales module's
+      {/* 5 — Market survey: what the morning calls ask. Its own permission (the Sales module's
           Configure level), so like the load-cost section it can be the inert one on a live page. */}
       <MarketConfigSection
         pageContract={pageContract}
@@ -368,7 +370,7 @@ export async function SalesConfigPage({
       {/* Who makes the calls (maintainer instruction 2026-09-19): beside the survey it reports. */}
       <MarketReportersSection pageContract={pageContract} result={marketReportersResult} canConfigure={canConfigureMarket} />
 
-      {/* 5 — Farm valuation (maintainer instruction 2026-09-19): the decided figures behind Farm
+      {/* 6 — Farm valuation (maintainer instruction 2026-09-19): the decided figures behind Farm
           value and Load wise. Same gating shape as the market survey. */}
       <ValuationSection
         pageContract={pageContract}
@@ -379,13 +381,22 @@ export async function SalesConfigPage({
 
       {/* Always mounted: LocalOverlayLink changes the URL without an RSC request, so an overlay
           gated on a server-read search param would never appear. */}
-      <SalesRecordDrawer
-        deals={deals}
+      {/* 4 — WHAT WE SELL (maintainer instruction 2026-09-23) and the record-sale drawer, as ONE
+          client boundary: adding an item here puts it in that drawer's dropdown with no reload.
+          The drawer is always mounted -- LocalOverlayLink changes the URL without an RSC request,
+          so an overlay gated on a server-read search param would never appear. */}
+      <SalesItemsAndRecordDrawer
+        productsPage={sellableProducts}
+        salesOptions={salesOptions}
         pageContract={pageContract}
+        canWriteProducts={controlEnabled(pageContract, "record_sellable_product", false)}
+        productsDisabledReason={
+          pageContract.controls?.find((control) => control.id === "record_sellable_product")?.disabled_reason ?? ""
+        }
+        deals={deals}
         listHref={listHref}
         canRecord={canRecord}
         vendorOptions={vendorOptions}
-        salesOptions={salesOptions}
         stockConfirmNeeded={actionKey === "action.sale_feed_stock_confirm"}
         stockConfirmDetail={actionDetail}
       />

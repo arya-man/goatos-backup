@@ -174,6 +174,32 @@ func (s *SalesService) confirmFeedStock(ctx context.Context, tenantID string, wr
 	return domain.ErrFeedStockShort{Shortfalls: short}
 }
 
+// ListSellableProducts serves the registry to its EDITOR, archived rows included: a list a person
+// maintains must show what is switched off, or they cannot switch it back on.
+func (s *SalesService) ListSellableProducts(ctx context.Context, tenantID string) ([]domain.ProductRow, error) {
+	return s.repo.ListAllSellableProducts(ctx, tenantID)
+}
+
+// SaveSellableProduct adds an item to the farm's registry, or edits one.
+//
+// The code is derived from the name when adding and kept when editing, so renaming an item leaves
+// every sale recorded under it pointing at the same row.
+func (s *SalesService) SaveSellableProduct(ctx context.Context, tenantID string, write domain.ProductWrite, actorID string) (domain.Product, error) {
+	normalized := write.Normalize()
+	if err := normalized.Validate(); err != nil {
+		return domain.Product{}, err
+	}
+	return s.repo.SaveSellableProduct(ctx, tenantID, normalized, actorID)
+}
+
+// DeleteSellableProduct removes an item, refusing when the farm has already sold any of it.
+func (s *SalesService) DeleteSellableProduct(ctx context.Context, tenantID, code, actorID string) error {
+	if strings.TrimSpace(code) == "" {
+		return ports.ErrProductNotFound
+	}
+	return s.repo.DeleteSellableProduct(ctx, tenantID, strings.TrimSpace(code), actorID)
+}
+
 // SetDealStatus sets a deal's lifecycle status -- the edit that closes an expected sale on the
 // day the animals actually leave. The vocabulary is closed; an unrecognised word is rejected,
 // never rewritten to a default.

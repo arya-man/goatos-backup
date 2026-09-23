@@ -18,10 +18,17 @@ import {
   deleteSalesDealPayment,
   recordSalesDealPayment,
   setSalesDealStatus,
+  deleteSellableProduct,
+  saveSellableProduct,
   setLoadCost,
   updateSalesDealPayment,
 } from "@/lib/api/procurement-server";
-import type { SalesDealWrite, SalesDealStatusWrite } from "@/lib/api/procurement";
+import type {
+  SalesDealWrite,
+  SalesDealStatusWrite,
+  SalesProductOption,
+  SellableProductWrite,
+} from "@/lib/api/procurement";
 import { MAX_SALE_LINES } from "./sales-format";
 
 // Every sales write is submitted from /sales/config (maintainer decision 2026-09-01), so that is
@@ -108,6 +115,89 @@ export async function recordSaleAction(formData: FormData): Promise<void> {
   }
   revalidatePath(SALES_PATH);
   actionRedirect(formData, "success", "action.sale_recorded");
+}
+
+/**
+ * The outcome of one item edit, kept WITH its row (the market-config shape, 2026-09-15) -- and the
+ * saved row itself, which the client applies in place.
+ *
+ * It RETURNS the row rather than revalidating the route: a returning action that also revalidates
+ * re-renders the whole page on top of the row the client just applied, which is the flicker the
+ * console's interaction rules ban. The section merges this into its own list, so the table and the
+ * record-sale dropdown both update without the page moving under the reader.
+ */
+export type SellableProductActionState = {
+  status: "idle" | "success" | "error";
+  code: string;
+  ticket: number;
+  product?: SalesProductOption & { status: string; is_builtin: boolean; sort_order: number; species_code: string };
+  /** The code that was removed, when the action was a delete. */
+  deletedCode?: string;
+};
+
+/**
+ * Adds an item the farm sells, edits one, or removes one (maintainer instruction 2026-09-23).
+ *
+ * The CODE is what makes this an edit rather than a second item: absent when adding, the backend
+ * derives it from the name once; sent back when editing, so a rename keeps every sale already
+ * recorded under the item. The form never composes it.
+ */
+export async function saveSellableProductAction(
+  previous: SellableProductActionState,
+  formData: FormData,
+): Promise<SellableProductActionState> {
+  const ticket = previous.ticket + 1;
+  const code = (formData.get("code")?.toString() ?? "").trim();
+
+  // The same form carries both buttons, so the intent is read from the one that was pressed.
+  if (formData.get("intent") === "delete") {
+    if (code === "") return { status: "error", code: "sellable_product_save_failed", ticket };
+    const removed = await deleteSellableProduct(code);
+    if (!removed.ok) {
+      return {
+        status: "error",
+        code: removed.error.code === "product_has_sales" ? "sellable_product_has_sales" : "sellable_product_save_failed",
+        ticket,
+      };
+    }
+    return { status: "success", code: "sellable_product_deleted", ticket, deletedCode: code };
+  }
+
+  const name = (formData.get("name")?.toString() ?? "").trim();
+  const kind = (formData.get("kind")?.toString() ?? "").trim();
+  const unit = (formData.get("unit")?.toString() ?? "").trim();
+  if (name === "" || kind === "" || unit === "") {
+    return { status: "error", code: "sellable_product_save_failed", ticket };
+  }
+  const speciesCode = (formData.get("species_code")?.toString() ?? "").trim();
+  const sortOrder = Number((formData.get("sort_order")?.toString() ?? "100").trim() || "100");
+  // A blank tick is an ARCHIVED item: the box asks whether it is in use, and an unticked box is a
+  // person saying it is not, never a missing answer.
+  const status = formData.get("in_use") !== null ? "active" : "archived";
+
+  const result = await saveSellableProduct({
+    code,
+    name,
+    kind: kind as SellableProductWrite["kind"],
+    unit: unit as SellableProductWrite["unit"],
+    species_code: speciesCode,
+    sort_order: sortOrder,
+    status,
+  });
+  if (!result.ok) {
+    // The one refusal worth its own sentence; everything else is "check the fields".
+    return {
+      status: "error",
+      code: result.error.code === "product_name_taken" ? "sellable_product_name_taken" : "sellable_product_save_failed",
+      ticket,
+    };
+  }
+  return {
+    status: "success",
+    code: "sellable_product_saved",
+    ticket,
+    product: { ...result.data, status, is_builtin: false, sort_order: sortOrder, species_code: speciesCode },
+  };
 }
 
 /**

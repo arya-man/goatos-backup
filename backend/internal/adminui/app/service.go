@@ -5109,6 +5109,36 @@ func pageSpecificCopy(id string) map[string]string {
 
 			// Record-sale drawer.
 			"action.record_sale.label": "Record sale",
+			// Items and settings for the sales desk: what the farm sells, and how each is sold.
+			"action.record_sellable_product.label":   "Add item",
+			"section.sellable_products.title":        "What we sell",
+			"section.sellable_products.aria":         "Items the farm sells",
+			"section.sellable_products.caption":      "The list the record-sale form offers. Add an item here and it is in the dropdown straight away.",
+			"section.sellable_products.row_hint":     "Click an item to edit it",
+			"drawer.sellable_product.title":          "Add an item",
+			"drawer.sellable_product.edit_title":     "Edit item",
+			"field.product_name":                     "Item name",
+			"field.product_kind":                     "What it is",
+			"field.product_unit":                     "Sold by",
+			"field.product_species":                  "Species",
+			"field.product_sort_order":               "Order",
+			"field.product_status":                   "Status",
+			"hint.product_code":                      "Renaming an item keeps every sale already recorded under it.",
+			"column.product_name":                    "Item",
+			"column.product_kind":                    "What it is",
+			"column.product_unit":                    "Sold by",
+			"column.product_status":                  "Status",
+			"status.product_active":                  "In use",
+			"status.product_archived":                "Archived",
+			"action.save_sellable_product":           "Save item",
+			"action.delete_sellable_product":         "Delete",
+			"action.sellable_product_deleted":        "Item deleted.",
+			"action.sellable_product_has_sales":      "This item has sales recorded against it, so it cannot be deleted. Untick 'In use' instead: it disappears from every dropdown and its sales stay readable.",
+			"action.sellable_product_saved":          "Item saved.",
+			"action.sellable_product_save_failed":    "Could not save that item. Check the fields and try again.",
+			"action.sellable_product_name_taken":     "Another item already has that name. A sale records the name it was sold under, so two items cannot share one.",
+			"action.sellable_product_builtin_locked": "Sheep, Goat and Manure are built in. You can rename them or change their order, but not switch them off or change what kind of thing they are.",
+			"empty.sellable_products":                "Nothing is set up to sell yet.",
 			// Payments section of the deal drawer: receipts, running totals, and the add-payment
 			// control. A buyer pays in parts — an advance, more on pickup, the balance later.
 			"section.payments.title":           "Payments",
@@ -5173,8 +5203,11 @@ func pageSpecificCopy(id string) map[string]string {
 			// A feed line is priced by the kilogram, so it asks for the quantity and the rate and
 			// works the value out. The labels say "feed" plainly: the operator is selling a sack,
 			// not a "product of kind feed".
-			"field.line_feed_item":     "Feed",
-			"field.line_quantity":      "Quantity (kg)",
+			"field.line_feed_item": "Feed",
+			"field.line_quantity":  "Quantity (kg)",
+			// A counted item asks how MANY, not how many kilograms.
+			"field.line_count":         "How many",
+			"field.line_rate_each":     "Rate (₹ each)",
 			"field.line_rate_per_unit": "Rate (₹ per kg)",
 			"hint.line_feed_value":     "Value is the quantity times the rate.",
 			"summary.lines.total":      "Sale total",
@@ -5184,6 +5217,7 @@ func pageSpecificCopy(id string) map[string]string {
 			// 250kg feed sale reading "0.0 kg" in the same footer is a sale that looks like it
 			// moved nothing.
 			"summary.lines.feed_kg": "kg feed",
+			"summary.lines.pieces":  "items",
 			"summary.lines.lines":   "lines",
 			// The ledger row's product/breed cells for a deal whose lines disagree.
 			"value.mixed":        "Mixed",

@@ -46,20 +46,36 @@ export function saleLineValue(line: SaleLineDraft): number {
   return parseOrZero(line.value);
 }
 
-/** The running total the footer previews -- the BACKEND computes the recorded one. */
-export function saleLinesTotals(lines: SaleLineDraft[]): {
+/**
+ * The running total the footer previews -- the BACKEND computes the recorded one.
+ *
+ * The quantities are kept APART by what they measure. A line's kilograms count as feed only when
+ * the line IS feed; 200 sheep tags are 200 pieces, and adding them to a kilogram total would make
+ * the footer say the sale moved 200 kg of feed that never left the store. `kinds` maps a product
+ * name to its kind, which is the only thing this needs from the registry.
+ */
+export function saleLinesTotals(
+  lines: SaleLineDraft[],
+  kinds: Record<string, string> = {},
+): {
   value: number;
   animals: number;
   weightKg: number;
   feedKg: number;
+  pieces: number;
 } {
   return lines.reduce(
-    (acc, line) => ({
-      value: acc.value + saleLineValue(line),
-      animals: acc.animals + parseOrZero(line.animals),
-      weightKg: acc.weightKg + parseOrZero(line.weightKg),
-      feedKg: acc.feedKg + parseOrZero(line.quantity),
-    }),
-    { value: 0, animals: 0, weightKg: 0, feedKg: 0 },
+    (acc, line) => {
+      const quantity = parseOrZero(line.quantity);
+      const isFeed = kinds[line.product] === "feed";
+      return {
+        value: acc.value + saleLineValue(line),
+        animals: acc.animals + parseOrZero(line.animals),
+        weightKg: acc.weightKg + parseOrZero(line.weightKg),
+        feedKg: acc.feedKg + (isFeed ? quantity : 0),
+        pieces: acc.pieces + (isFeed ? 0 : quantity),
+      };
+    },
+    { value: 0, animals: 0, weightKg: 0, feedKg: 0, pieces: 0 },
   );
 }

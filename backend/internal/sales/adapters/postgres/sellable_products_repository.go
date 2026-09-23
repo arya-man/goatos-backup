@@ -3,9 +3,11 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/vgoats/goatos/backend/internal/platform/audit"
 	"github.com/vgoats/goatos/backend/internal/sales/domain"
 	"github.com/vgoats/goatos/backend/internal/sales/ports"
 )
@@ -209,4 +211,174 @@ func scanStrings(rows pgx.Rows) ([]string, error) {
 		return nil, fmt.Errorf("sales: vocabulary rows: %w", err)
 	}
 	return out, nil
+}
+
+// upsertSellableProductSQL adds an item or edits the one that already carries its code.
+//
+// is_builtin is NEVER written here: the three rows every tenant starts with are seeded by
+// migration 000393 and may be renamed on screen, but a person cannot create a built-in, and an
+// edit cannot promote a row into one. The row's code is its identity and is fixed at creation, so
+// a rename updates the row rather than making a second one -- which is what keeps the sales
+// already recorded under it pointing at the same item.
+const upsertSellableProductSQL = `
+INSERT INTO public.sellable_product_catalog (
+	tenant_id, product_code, name, kind, unit, species_code, sort_order, status, updated_by
+) VALUES ($1, $2, $3, $4, $5, nullif(btrim($6), ''), $7, $8, nullif(btrim($9), '')::uuid)
+ON CONFLICT (tenant_id, product_code) DO UPDATE SET
+	name         = EXCLUDED.name,
+	kind         = EXCLUDED.kind,
+	unit         = EXCLUDED.unit,
+	species_code = EXCLUDED.species_code,
+	sort_order   = EXCLUDED.sort_order,
+	status       = EXCLUDED.status,
+	updated_by   = EXCLUDED.updated_by,
+	row_version  = public.sellable_product_catalog.row_version + 1,
+	updated_at   = now()
+RETURNING product_code, name, kind, unit, COALESCE(species_code, ''), sort_order`
+
+// readSellableProductSQL reads one row of the registry, whatever its status.
+const readSellableProductSQL = `
+SELECT product_code, name, kind, unit, COALESCE(species_code, ''), sort_order, status, is_builtin
+FROM public.sellable_product_catalog
+WHERE tenant_id = $1 AND product_code = $2`
+
+// SaveSellableProduct adds an item to the farm's registry, or edits the one with its code.
+func (r *Repository) SaveSellableProduct(ctx context.Context, tenantID string, write domain.ProductWrite, actorID string) (domain.Product, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return domain.Product{}, fmt.Errorf("sales: begin save sellable product: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// EVERY ROW IS EDITABLE (maintainer instruction 2026-09-23). The built-ins were locked out of
+	// changing kind and being switched off; the maintainer asked why, and the honest answer is
+	// that the fear was overstated. Nothing recorded moves: a sale line is STAMPED with the code,
+	// name and kind it was sold under, and the Sold page's cards key on the CODE, which an edit
+	// never changes. Changing what Goat IS only changes what the NEXT goat sale asks for, which
+	// is exactly what somebody editing this list means to do.
+
+	var out domain.Product
+	if err := tx.QueryRow(ctx, upsertSellableProductSQL,
+		tenantID, write.Code, write.Name, write.Kind, write.Unit, write.SpeciesCode,
+		write.SortOrder, write.Status, actorID,
+	).Scan(&out.Code, &out.Name, &out.Kind, &out.Unit, &out.SpeciesCode, &out.SortOrder); err != nil {
+		if strings.Contains(err.Error(), "sellable_product_catalog_tenant_name_uidx") {
+			return domain.Product{}, ports.ErrProductNameTaken
+		}
+		return domain.Product{}, fmt.Errorf("sales: save sellable product: %w", err)
+	}
+
+	if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{
+		TenantID:     tenantID,
+		ActorID:      actorID,
+		ActorType:    "human",
+		Action:       "sales.sellable_product.save",
+		ResourceType: "sellable_product",
+		// ResourceID is deliberately EMPTY: the column is a uuid, and this row is keyed by a
+		// derived CODE. The code rides in the metadata below, which is where a reader of the
+		// audit trail will find which item was edited.
+		Metadata: map[string]any{
+			"domain": "sales", "module": "sales", "category": "config",
+			"product_code": out.Code,
+			"name":         out.Name,
+			"kind":         out.Kind,
+			"unit":         out.Unit,
+			"status":       write.Status,
+		},
+	}); err != nil {
+		return domain.Product{}, fmt.Errorf("sales: audit sellable product: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return domain.Product{}, fmt.Errorf("sales: commit sellable product: %w", err)
+	}
+	return out, nil
+}
+
+// ListAllSellableProducts reads the registry INCLUDING archived rows, for the editor -- which must
+// show what is switched off so it can be switched back on.
+func (r *Repository) ListAllSellableProducts(ctx context.Context, tenantID string) ([]domain.ProductRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, `
+SELECT product_code, name, kind, unit, COALESCE(species_code, ''), sort_order, status, is_builtin
+FROM public.sellable_product_catalog
+WHERE tenant_id = $1
+ORDER BY sort_order, name`, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("sales: list all sellable products: %w", err)
+	}
+	defer rows.Close()
+	out := []domain.ProductRow{}
+	for rows.Next() {
+		var p domain.ProductRow
+		if err := rows.Scan(&p.Code, &p.Name, &p.Kind, &p.Unit, &p.SpeciesCode, &p.SortOrder, &p.Status, &p.IsBuiltin); err != nil {
+			return nil, fmt.Errorf("sales: scan sellable product row: %w", err)
+		}
+		out = append(out, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("sales: sellable product rows: %w", err)
+	}
+	return out, nil
+}
+
+// countSalesUnderProductSQL is how many recorded sale lines name this item. It is the ONE question
+// that decides whether an item may be deleted outright or only switched off.
+const countSalesUnderProductSQL = `
+SELECT count(*)
+FROM public.sales_deal_lines
+WHERE tenant_id = $1 AND product_code = $2`
+
+// DeleteSellableProduct removes an item from the registry.
+//
+// It refuses when the farm has SOLD any of it. A sale line stores the item's name and code, so the
+// row leaving would not corrupt the ledger -- but it would leave the reader of a recorded sale
+// with no way to look up what they sold, and the Sold page's buckets keyed on that code with no
+// item behind them. Switching the item off is the honest answer there, and it is what the refusal
+// says: an archived item is gone from every dropdown and keeps its history readable.
+func (r *Repository) DeleteSellableProduct(ctx context.Context, tenantID, code, actorID string) error {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("sales: begin delete sellable product: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var sold int
+	if err := tx.QueryRow(ctx, countSalesUnderProductSQL, tenantID, code).Scan(&sold); err != nil {
+		return fmt.Errorf("sales: count sales under product: %w", err)
+	}
+	if sold > 0 {
+		return ports.ErrProductHasSales
+	}
+
+	tag, err := tx.Exec(ctx, `
+DELETE FROM public.sellable_product_catalog
+WHERE tenant_id = $1 AND product_code = $2`, tenantID, code)
+	if err != nil {
+		return fmt.Errorf("sales: delete sellable product: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ports.ErrProductNotFound
+	}
+
+	if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{
+		TenantID:     tenantID,
+		ActorID:      actorID,
+		ActorType:    "human",
+		Action:       "sales.sellable_product.delete",
+		ResourceType: "sellable_product",
+		Metadata: map[string]any{
+			"domain": "sales", "module": "sales", "category": "config",
+			"product_code": code,
+		},
+	}); err != nil {
+		return fmt.Errorf("sales: audit sellable product delete: %w", err)
+	}
+	return tx.Commit(ctx)
 }

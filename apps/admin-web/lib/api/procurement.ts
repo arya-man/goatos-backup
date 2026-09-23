@@ -27,6 +27,10 @@ export type SalesDealPage = AppApiComponents["schemas"]["SalesDealPage"];
  */
 export type SalesOptions = AppApiComponents["schemas"]["SalesOptions"];
 export type SalesProductOption = AppApiComponents["schemas"]["SalesProductOption"];
+/** The farm's registry as its EDITOR sees it: archived rows included, with its vocabularies. */
+export type SellableProductPage = AppApiComponents["schemas"]["SellableProductPage"];
+export type SellableProduct = AppApiComponents["schemas"]["SellableProduct"];
+export type SellableProductWrite = AppApiComponents["schemas"]["SellableProductWrite"];
 export type SalesDealWrite = AppApiComponents["schemas"]["SalesDealWrite"];
 
 // Load-wise sales — every purchased load reconciled (/procurement/loadwise-sales).
