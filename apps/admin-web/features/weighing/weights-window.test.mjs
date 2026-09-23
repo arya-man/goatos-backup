@@ -85,6 +85,13 @@ test("the page lands on the database-configured default start (seed: 2026-08-03)
   assert.doesNotMatch(landingSource, /5\.5 \* 60/);
 });
 
+
+test("weights analytics starts independent cold-load reads together", () => {
+  assert.match(analyticsSource, /const landingWindowPromise = landingWindow\(/);
+  assert.match(analyticsSource, /const \[assumptions, window\] = await Promise\.all\(\[getGrowthAssumptions\(\), landingWindowPromise\]\);/);
+  assert.doesNotMatch(analyticsSource, /const assumptions = await getGrowthAssumptions\(\);[\s\S]*const window = await landingWindow\(/);
+});
+
 test("weights analytics time-wise uses the same selected/default period as every tab", () => {
   assert.doesNotMatch(analyticsSource, /TREND_WEEKS/);
   assert.doesNotMatch(analyticsSource, /trendWindow/);
@@ -94,6 +101,7 @@ test("weights analytics time-wise uses the same selected/default period as every
   // load is bought whole, so that tab's shed read carries park-only scope over an all-time window
   // and its caption says so. Every other tab still reads the page's own scope and window.
   assert.match(analyticsSource, /const shedParams = \{\s*\n\s*\.\.\.\(wantsLoads \? \{ park_id: parkFilter \|\| undefined, from: LOAD_TAB_ALL_TIME_FROM, to: today \} : \{ \.\.\.scope, \.\.\.readWindow \}\),/);
+  assert.match(analyticsSource, /include_loads: wantsLoads/);
   assert.match(analyticsSource, /getShedWeights\(shedParams\)/);
   assert.match(analyticsSource, /getWeighingGrowth\(\{\s*\n\s*\.\.\.scope,\s*\n\s*\.\.\.readWindow,\s*\n\s*sections: growthSections,\s*\n\s*\.\.\.\(tab === "time" \? \{ bucket: gainBucket, \.\.\.penScope \} : \{\}\),/);
   assert.match(analyticsSource, /getWeightDemographics\(\{\s*\n\s*\.\.\.scope,\s*\n\s*\.\.\.readWindow,\s*\n\s*sections: demographicsSections,\s*\n\s*band_edges_kg: bandEdgesParam\(assumptionRows\),\s*\n\s*\.\.\.\(tab === "time" \? \{ bucket: gainBucket, \.\.\.penScope \} : \{\}\),/);

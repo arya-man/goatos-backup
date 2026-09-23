@@ -1790,6 +1790,14 @@ paths:
             The lower ("Over 30 kg") line, in kg -- the tenant's sale_ready_lower_kg assumption,
             same contract as sale_threshold_kg. Omitted is the 30 kg default; outside 5..80 is REJECTED.
           schema: {type: number, format: double, minimum: 5, maximum: 80}
+        - name: include_loads
+          in: query
+          required: false
+          description: >-
+            Omit or `true` returns the procurement-load breakdown (`by_load` and
+            `load_unattributed_sheds`). `false` skips that load-grain work and returns an
+            empty load section for screens that render only shed rows and summary cards.
+          schema: {type: boolean, default: true}
       responses:
         "200":
           description: Per-shed weights and the whole-filter summary.
@@ -1914,6 +1922,14 @@ paths:
             The lower ("Over 30 kg") line, in kg -- the tenant's sale_ready_lower_kg assumption,
             same contract as sale_threshold_kg. Omitted is the 30 kg default; outside 5..80 is REJECTED.
           schema: {type: number, format: double, minimum: 5, maximum: 80}
+        - name: include_loads
+          in: query
+          required: false
+          description: >-
+            Omit or `true` returns the procurement-load breakdown (`by_load` and
+            `load_unattributed_sheds`). `false` skips that load-grain work and returns an
+            empty load section for screens that render only shed rows and summary cards.
+          schema: {type: boolean, default: true}
       responses:
         "200":
           description: Per-shed weights and the whole-filter summary.

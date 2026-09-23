@@ -22104,6 +22104,8 @@ export interface operations {
                 sale_threshold_kg?: number;
                 /** @description The lower ("Over 30 kg") line, in kg -- the tenant's sale_ready_lower_kg assumption, same contract as sale_threshold_kg. Omitted is the 30 kg default; outside 5..80 is REJECTED. */
                 sale_lower_kg?: number;
+                /** @description Omit or `true` returns the procurement-load breakdown (`by_load` and `load_unattributed_sheds`). `false` skips that load-grain work and returns an empty load section for screens that render only shed rows and summary cards. */
+                include_loads?: boolean;
             };
             header?: never;
             path?: never;
@@ -22150,6 +22152,8 @@ export interface operations {
                 sale_threshold_kg?: number;
                 /** @description The lower ("Over 30 kg") line, in kg -- the tenant's sale_ready_lower_kg assumption, same contract as sale_threshold_kg. Omitted is the 30 kg default; outside 5..80 is REJECTED. */
                 sale_lower_kg?: number;
+                /** @description Omit or `true` returns the procurement-load breakdown (`by_load` and `load_unattributed_sheds`). `false` skips that load-grain work and returns an empty load section for screens that render only shed rows and summary cards. */
+                include_loads?: boolean;
             };
             header?: never;
             path?: never;
