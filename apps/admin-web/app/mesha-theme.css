@@ -497,7 +497,7 @@
   .cfgdate-label{display:inline-flex;align-items:center;gap:8px;min-width:0}
   .cfgdate-popover{position:absolute;right:0;top:calc(100% + 8px);z-index:20;width:min(330px,88vw);padding:12px;background:var(--panel)}
   .cfgcalendar-head{display:flex;align-items:center;gap:10px;margin-bottom:9px}.cfgcalendar-head b{font-size:13px}.cfgcalendar-head input{width:142px;height:32px;margin-left:auto;font-size:12px}
-  .cfgcalendar-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}.cfgcalendar-dow{text-align:center;color:var(--faint);font-size:10px;font-weight:800;text-transform:uppercase;padding:2px 0}.cfgcalendar-day{height:32px;border:1px solid var(--line2);background:var(--bg);color:var(--ink);border-radius:7px;font:inherit;font-size:12px;font-weight:700;cursor:pointer}.cfgcalendar-day:hover{border-color:var(--brand);color:var(--brand)}.cfgcalendar-day.muted-day{color:var(--faint);opacity:.55}.cfgcalendar-day.today{border-color:var(--info);color:var(--info)}.cfgcalendar-day.on{background:var(--brand-soft);border-color:var(--brand);color:var(--brand)}
+  .cfgcalendar-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}.cfgcalendar-dow{text-align:center;color:var(--faint);font-size:10px;font-weight:800;text-transform:uppercase;padding:3px 0 5px}.cfgcalendar-day{height:32px;border:1px solid var(--line2);background:var(--bg);color:var(--ink);border-radius:7px;font:inherit;font-size:12px;font-weight:700;cursor:pointer}.cfgcalendar-day:hover{border-color:var(--brand);color:var(--brand)}.cfgcalendar-day.muted-day{color:var(--faint);opacity:.55}.cfgcalendar-day.today{border-color:var(--info);color:var(--info)}.cfgcalendar-day.on{background:var(--brand-soft);border-color:var(--brand);color:var(--brand)}
   .cfgsafety-list{display:grid;gap:0;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--bg)}
   .cfgsafety-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:9px;padding:8px 10px;border-bottom:1px solid var(--line2);font-size:12.5px;color:var(--muted);line-height:1.35}
   .cfgsafety-row:last-child{border-bottom:0}.cfgsafety-row .ic{width:16px;height:16px;color:var(--brand);flex:0 0 auto}
@@ -1288,7 +1288,7 @@
   /* Feed Analytics "Feed by shed" mix cell: one line per feed item with the
      item's chart colour dot, label left, kg right — a small aligned ledger
      instead of a chip pile. The kg column is tabular so amounts line up. */
-  .main .sfmix{display:flex;flex-direction:column;gap:5px;min-width:250px;max-width:340px;padding:2px 0}
+  .main .sfmix{display:flex;flex-direction:column;gap:5px;min-width:250px;max-width:340px;padding:3px 0 5px}
   .main .sfmix-row{display:flex;align-items:center;gap:8px}
   .main .sfmix-dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto}
   .main .sfmix-label{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -1877,7 +1877,7 @@
   .move-date-head button{display:grid;place-items:center;width:34px;height:34px;border:1px solid var(--line2);border-radius:8px;background:var(--bg);color:var(--muted);cursor:pointer}
   .move-date-head button:hover{border-color:var(--brand);color:var(--brand)}
   .move-date-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
-  .move-date-dow{text-align:center;color:var(--faint);font-size:10px;font-weight:850;text-transform:uppercase;padding:2px 0}
+  .move-date-dow{text-align:center;color:var(--faint);font-size:10px;font-weight:850;text-transform:uppercase;padding:3px 0 5px}
   .move-date-spacer{height:34px}
   .move-date-day{height:34px;border:1px solid var(--line2);border-radius:8px;background:var(--bg);color:var(--ink);font:inherit;font-size:12px;font-weight:800;cursor:pointer}
   .move-date-day:hover{border-color:var(--brand);color:var(--brand)}
@@ -2088,7 +2088,7 @@
 	  .calpicker-yearnav a{display:inline-flex;align-items:center;justify-content:center;min-width:88px;height:32px;border:1px solid var(--line);border-radius:9px;background:var(--bg);color:var(--muted);font-size:11.5px;font-weight:800;text-decoration:none}
 	  .calpicker-yearnav a:hover{border-color:var(--brand);color:var(--ink);background:var(--panel)}
 	  .calpicker-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:5px}
-	  .calpicker-dow{text-align:center;color:var(--muted);font-size:10px;font-weight:800;text-transform:uppercase;padding:2px 0}
+	  .calpicker-dow{text-align:center;color:var(--muted);font-size:10px;font-weight:800;text-transform:uppercase;padding:3px 0 5px}
 	  .calpicker-day{position:relative;display:grid;place-items:center;width:100%;min-width:0;height:40px;border:1px solid var(--line2);background:var(--bg);color:var(--muted);border-radius:8px;padding:5px 5px 11px;font-size:12px;font-weight:750;cursor:pointer;text-align:center}
 	  .calpicker-day:hover{border-color:var(--brand);color:var(--ink)}
 	  .calpicker-day.out{opacity:.28;cursor:default}
@@ -3242,6 +3242,17 @@ select:disabled { opacity: .45; }
 .wbar .wbv.neg{color:var(--danger)}
 .wbar .wbv{text-align:right;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
 @media(max-width:900px){.wbar{grid-template-columns:minmax(0,112px) minmax(96px,1fr) 62px;gap:8px}.wbar .wbl-text{display:block;white-space:nowrap;text-overflow:ellipsis;overflow:hidden}}
+/* The wide list's 240px label + 220px track minimums cannot fit a phone: the label column
+   collapsed to "C.." and its breed tag spilled across the bar. On narrow screens the row
+   stacks instead — pen name, tag and value on one line, the bar full width beneath. */
+@media(max-width:900px){
+  .wbars-wide .wbar{grid-template-columns:minmax(0,1fr) auto;gap:4px 8px;min-height:0;padding:3px 0 5px}
+  .wbars-wide .wbar .wbl{grid-column:1;grid-row:1;display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px}
+  .wbars-wide .wbar .wbl-text{white-space:normal;overflow:visible;overflow-wrap:anywhere}
+  .wbars-wide .wbar .wbar-mode{margin-top:0}
+  .wbars-wide .wbar .wbv{grid-column:2;grid-row:1}
+  .wbars-wide .wbar .wbt{grid-column:1/-1;grid-row:2;height:14px}
+}
 
 /* Weights gain marks, grouped bars. One row per breed: a label column carrying the
    breed and its head count, then the three marks as separate bars so a single mark can
