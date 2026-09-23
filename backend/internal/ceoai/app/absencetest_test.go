@@ -608,3 +608,45 @@ func TestAnUnreadableWrapperIsStillRefusedWhenItIsPointedAtBlankness(t *testing.
 		}
 	}
 }
+
+// TestLaunderingMeansAWrapperAndNotANeighbour pins the distinction the honest
+// refusal rests on, at the level where it is decided. "Laundered" must mean
+// that something this reader cannot evaluate was wrapped AROUND the guarded
+// column. It must NOT mean that the column was compared to, concatenated with,
+// or defaulted to some other column whose value the reader does not know: in
+// those the column itself is read perfectly plainly.
+//
+// Without this pin the distinction is invisible — `backup_label = owner_label`
+// is allowed either way, because the refusal ALSO requires the predicate to be
+// shaped like a blankness test. Two independent reasons, one pin each.
+func TestLaunderingMeansAWrapperAndNotANeighbour(t *testing.T) {
+	guarded := map[string]bool{"backup_label": true}
+	laundered := func(expr string) bool {
+		toks := significantTokens(lexSQLTokens(expr))
+		n, ok := parseSQLExpression(toks)
+		if !ok {
+			t.Fatalf("could not read %q", expr)
+		}
+		e := &blankEvaluator{guarded: guarded, probe: textVal("", true)}
+		e.eval(n)
+		return e.laundered
+	}
+	for expr, want := range map[string]bool{
+		// A neighbour the reader does not know is not a wrapper.
+		"backup_label = owner_label":                     false,
+		"backup_label <> owner_label":                    false,
+		"backup_label || ' covers ' || owner_label = ''": false,
+		"backup_label IN ('', owner_label)":              false,
+		"backup_label IS NOT DISTINCT FROM owner_label":  false,
+		"backup_label LIKE owner_label":                  false,
+		"backup_label BETWEEN owner_label AND 'zzzz'":    false,
+		// A wrapper the reader cannot evaluate is.
+		"regexp_replace(backup_label, 'a', '') = ''": true,
+		"weird_fn(backup_label) = ''":                true,
+		"weird_fn(backup_label) IS NULL":             true,
+	} {
+		if got := laundered(expr); got != want {
+			t.Errorf("%q: laundered=%v, want %v", expr, got, want)
+		}
+	}
+}

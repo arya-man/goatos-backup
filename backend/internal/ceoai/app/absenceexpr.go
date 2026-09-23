@@ -644,19 +644,21 @@ func (e *blankEvaluator) unknownOrder(derived bool) aval {
 }
 
 // opaqueCombination is the opacity a comparison-shaped node returns when one of
-// its operands is opaque. It launders only when the OPAQUE operand is itself
-// derived from the guarded column — that is, when something unreadable was
-// wrapped AROUND the column. Opacity that arrives from a different column, or
-// from an aggregate somewhere else in the clause, leaves the guarded column
-// plainly read and must not be reported as laundering it.
+// its operands is opaque, and it NEVER launders. Every wrapper this reader
+// cannot evaluate already calls launder at its own site — evalCall, evalCast,
+// evalUnary and the unmodelled arithmetic in evalBinary are the only ways a
+// derived value can turn opaque — so laundering again here adds nothing except
+// the one thing it must not say: that a comparison, a concatenation or a
+// coalesce fallback involving some OTHER column wrapped THIS one in something
+// unreadable. `backup_label = owner_label` reads the guarded column perfectly
+// plainly; it just compares it to a value the reader does not know, and
+// refusing it as "wrapped in something that cannot be read" described a
+// predicate the statement does not contain.
 func (e *blankEvaluator) opaqueCombination(vs ...aval) aval {
 	derived := false
 	for _, v := range vs {
 		if v.derived {
 			derived = true
-		}
-		if v.kind == avOpaque && v.derived {
-			e.laundered = true
 		}
 	}
 	return opaqueVal(derived)
