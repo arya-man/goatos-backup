@@ -411,3 +411,200 @@ func TestTheThreePointTestIsWhatDecides(t *testing.T) {
 		}
 	}
 }
+
+// TestTheGateIsWiredIntoTheOnlyPathModelSQLTakes. The gate is worth nothing
+// unless validateModelSQL calls it: every model-drafted statement goes through
+// that one function on its way to the executor, and every other test in this
+// file calls validateAbsenceTests DIRECTLY, so every one of them would still
+// pass with the call deleted.
+//
+// This pin existed at the round-6 head and was deleted by the commit that
+// introduced the expression evaluator. Deleting the `validateAbsenceTests` call
+// from validateModelSQL left this whole package green — ~1300 assertions about
+// what the gate SAYS, and not one that it RUNS. Do not remove it again.
+func TestTheGateIsWiredIntoTheOnlyPathModelSQLTakes(t *testing.T) {
+	err := validateModelSQL(liveBackupNullDraft, map[string]any{"sql": liveBackupNullDraft})
+	if err == nil {
+		t.Fatal("validateModelSQL accepted the ten-role draft; the gate is not on the path the planner's SQL takes")
+	}
+	if !strings.Contains(err.Error(), "backup_label") {
+		t.Errorf("validateModelSQL refused for some other reason: %v", err)
+	}
+}
+
+// absenceDraftWith puts one predicate into the statement the live planner
+// actually wrote, and runs it through the WHOLE guard sequence rather than
+// through validateAbsenceTests alone. Every pin below goes through
+// validateModelSQL for two reasons: it keeps the gate's wiring load-bearing for
+// these cases too, and it means a pin cannot pass because the test handed the
+// judge an atom the real atom splitter would never have produced — which is
+// exactly how the inverted CASE survived a round with ~1300 assertions.
+func absenceDraftWith(predicate string) string {
+	return `SELECT role_label AS label, CAST(count(*) AS text) AS value, role_label AS scope ` +
+		`FROM ceo_ai.workforce_coverage_status ` +
+		`WHERE tenant_id = '11111111-1111-1111-1111-111111111111' AND ` + predicate +
+		` GROUP BY role_label LIMIT 100`
+}
+
+func absenceGateVerdict(t *testing.T, predicate string) error {
+	t.Helper()
+	sql := absenceDraftWith(predicate)
+	return validateModelSQL(sql, map[string]any{"sql": sql})
+}
+
+// TestInvertingTheCaseArmsDoesNotHideTheBlanknessTest. THE ROUND-7 BYPASS.
+// Told no to `backup_label IS NULL`, the natural next draft is a CASE whose
+// WHEN condition is the LEGITIMATE inverse and whose ARMS carry the inversion:
+// `CASE WHEN backup_label IS NOT NULL THEN 0 ELSE 1 END = 1` is a different
+// statement byte for byte and the same wrong answer row for row — the ten roles
+// again, `Backup 6` among them.
+//
+// The gate saw only the WHEN condition, because the atom splitter cut at
+// `when`, and judged it — correctly, in isolation — as not a blankness test.
+// The fix is that the atom is the WHOLE conditional and the comparison that
+// selects an arm, so the evaluation answers about the expression the executor
+// would actually run.
+func TestInvertingTheCaseArmsDoesNotHideTheBlanknessTest(t *testing.T) {
+	for _, predicate := range []string{
+		// The inverted arms, in the spellings the refusal text invites.
+		"CASE WHEN backup_label IS NOT NULL THEN 0 ELSE 1 END = 1",
+		"CASE WHEN backup_label IS NOT NULL THEN 1 ELSE 0 END = 0",
+		"CASE WHEN backup_label IS NOT NULL THEN 'has' ELSE 'none' END = 'none'",
+		"CASE WHEN backup_label <> '' THEN 0 ELSE 1 END = 1",
+		"CASE WHEN length(backup_label) > 0 THEN 0 ELSE 1 END > 0",
+		// The same thing behind a grouping parenthesis, which used to stop the
+		// atom before the comparison that decides which arm is selected.
+		"(CASE WHEN backup_label IS NOT NULL THEN 0 ELSE 1 END) = 1",
+		// And the non-inverted spelling, kept so that a fix which only handles
+		// inversion is still visibly wrong here.
+		"CASE WHEN backup_label IS NULL THEN 1 ELSE 0 END = 1",
+		"CASE WHEN backup_label = '' THEN 1 ELSE 0 END = 1",
+	} {
+		err := absenceGateVerdict(t, predicate)
+		if err == nil {
+			t.Errorf("ALLOWED %q — this returns the ten roles the live planner returned", predicate)
+			continue
+		}
+		if !strings.Contains(err.Error(), "backup_label") || !strings.Contains(err.Error(), "coverage_status") {
+			t.Errorf("%q refused without naming the column or the authority: %v", predicate, err)
+		}
+	}
+}
+
+// TestTheInvertedCaseIsAlsoRefusedInsideAnAggregateFilter. The same inversion
+// one level down, where the count never leaves the SELECT list and the wrong
+// number arrives as a perfectly ordinary aggregate.
+func TestTheInvertedCaseIsAlsoRefusedInsideAnAggregateFilter(t *testing.T) {
+	sql := `SELECT role_label AS label, ` +
+		`CAST(count(*) FILTER (WHERE CASE WHEN backup_label IS NOT NULL THEN 0 ELSE 1 END = 1) AS text) AS value, ` +
+		`role_label AS scope FROM ceo_ai.workforce_coverage_status ` +
+		`WHERE tenant_id = '11111111-1111-1111-1111-111111111111' GROUP BY role_label LIMIT 100`
+	if err := validateModelSQL(sql, map[string]any{"sql": sql}); err == nil {
+		t.Fatal("the inverted CASE inside FILTER (WHERE ...) was allowed; that count is the ten-role answer as a number")
+	}
+}
+
+// TestAnOrderingComparisonCannotSeparateBlankFromFilled. THE SECOND ROUND-7
+// BYPASS, and it was the gate's OWN probe value that hid it. The "filled" leg
+// was a string chosen so that no statement could write it — but its first byte
+// sorts below every printable character, so every ordering leg answered the
+// opposite of what real data would, and `coalesce(backup_label,”) < 'A'` came
+// back "true for a filled value too" and was allowed.
+//
+// In Postgres that predicate is TRUE for exactly the blank rows and FALSE for
+// `Backup 6`: a perfect blankness test. The filled probe now stands for a
+// GENERIC non-blank value whose collation position is unknown, so a predicate
+// the blank value satisfies and which otherwise turns on where a value sorts is
+// the same false question with a comparison operator instead of a NULL keyword.
+func TestAnOrderingComparisonCannotSeparateBlankFromFilled(t *testing.T) {
+	for _, predicate := range []string{
+		"coalesce(backup_label, '') < 'A'",
+		"coalesce(backup_label, '') < 'Backup'",
+		"coalesce(backup_label, '') <= ''",
+		"NOT (coalesce(backup_label, '') >= 'A')",
+		"coalesce(backup_label, '') BETWEEN '' AND 'A'",
+		"coalesce(backup_label, '') NOT BETWEEN 'A' AND 'zzzz'",
+		"length(backup_label) < 1",
+		"coalesce(length(backup_label), 0) < 1",
+	} {
+		if err := absenceGateVerdict(t, predicate); err == nil {
+			t.Errorf("ALLOWED %q — in Postgres this is TRUE for exactly the blank rows", predicate)
+		}
+	}
+}
+
+// TestAnOrderingQuestionAboutRealValuesIsStillAllowed. The ordering rule must
+// not become "no comparison operator may touch this column". A predicate the
+// BLANK value does not satisfy is not separating blank from filled, whatever
+// operator it uses, and a leader may legitimately ask for a range.
+func TestAnOrderingQuestionAboutRealValuesIsStillAllowed(t *testing.T) {
+	for _, predicate := range []string{
+		"backup_label >= 'A'",
+		"backup_label > ''",
+		"length(backup_label) > 0",
+		"length(backup_label) >= 3",
+		"backup_label BETWEEN 'A' AND 'zzzz'",
+	} {
+		if err := absenceGateVerdict(t, predicate); err != nil {
+			t.Errorf("REFUSED %q — the blank value does not satisfy it, so it is not a blankness test: %v", predicate, err)
+		}
+	}
+}
+
+// TestComparingTheColumnToAnotherColumnIsAnOrdinaryQuestion. THE ROUND-7
+// DISHONEST REFUSAL. `backup_label = owner_label` asks whether the backup is
+// the same person as the owner. It contains no wrapper and tests nothing for
+// emptiness, and it was refused with a message saying it "wraps it in something
+// that cannot be read as a plain comparison" — a message describing a predicate
+// the statement does not contain. A refusal that misdescribes the statement is
+// worse than no refusal, because the re-plan has nowhere to go.
+//
+// The cause was that opacity from ANY other column was reported as laundering
+// THIS column. Opacity now launders only when the opaque value is itself
+// derived from the guarded column — that is, when something unreadable was
+// wrapped AROUND it.
+func TestComparingTheColumnToAnotherColumnIsAnOrdinaryQuestion(t *testing.T) {
+	for _, predicate := range []string{
+		"backup_label = owner_label",
+		"backup_label <> owner_label",
+		"coalesce(owner_label, backup_label) = 'Backup 6'",
+		"backup_label || ' covers ' || owner_label <> ''",
+		"substring(backup_label, 1, 6) = 'Backup'",
+		"coalesce(backup_label, owner_label) = 'Backup 6'",
+	} {
+		if err := absenceGateVerdict(t, predicate); err != nil {
+			t.Errorf("REFUSED %q — this is not a blankness test: %v", predicate, err)
+		}
+	}
+}
+
+// TestAnUnreadableWrapperIsStillRefusedWhenItIsPointedAtBlankness is the other
+// side of the test above: loosening the unreadable case must not reopen it. A
+// wrapper this reader cannot evaluate is still refused when what its result is
+// compared against could be blank — and the legitimate inverse through the same
+// unreadable wrapper still passes, because that is the question with a real
+// answer.
+func TestAnUnreadableWrapperIsStillRefusedWhenItIsPointedAtBlankness(t *testing.T) {
+	guarded := map[string]bool{"backup_label": true}
+	judge := func(expr string) blankVerdict {
+		toks := significantTokens(lexSQLTokens(expr))
+		n, ok := parseSQLExpression(toks)
+		if !ok {
+			t.Fatalf("could not read %q", expr)
+		}
+		return judgeBlanknessTest(n, guarded)
+	}
+	for expr, want := range map[string]blankVerdict{
+		"regexp_replace(backup_label, 'a', '') IS NULL":           blankUnreadable,
+		"regexp_replace(backup_label, 'a', '') = ''":              blankUnreadable,
+		"NOT (regexp_replace(backup_label, 'a', '') IS NOT NULL)": blankUnreadable,
+		"regexp_replace(backup_label, 'a', '') IS NOT NULL":       blankNotATest,
+		"regexp_replace(backup_label, 'a', '') <> ''":             blankNotATest,
+		"regexp_replace(backup_label, '0', '') = 'Backup '":       blankNotATest,
+		"backup_label = owner_label":                              blankNotATest,
+	} {
+		if got := judge(expr); got != want {
+			t.Errorf("%q: verdict %d, want %d", expr, got, want)
+		}
+	}
+}

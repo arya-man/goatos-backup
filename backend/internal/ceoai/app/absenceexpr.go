@@ -78,6 +78,16 @@ func opaqueVal(derived bool) aval         { return aval{kind: avOpaque, derived:
 // that cannot be written is FALSE for the right reason — the predicate
 // distinguishes blank from filled — rather than by accidentally colliding with
 // whatever literal the author happened to choose.
+//
+// ITS ORDER IS A LIE, AND MUST NEVER BE BELIEVED. The byte that makes it
+// uncollidable also makes it sort BELOW every printable string, so every
+// ordering leg answered the opposite of what real data would and
+// `coalesce(backup_label,'') < 'A'` — a perfect blankness test in Postgres —
+// came back "true for a filled value too", and was allowed. So the filled probe
+// is treated as a GENERIC non-blank value whose position in the collation is
+// simply unknown: see blindOrder below. Equality against it is still meaningful
+// (a generic filled value equals no literal the statement wrote); ordering
+// against it is not.
 const blankProbePresent = "\x01filled\x01"
 
 // ---------------------------------------------------------------------------
@@ -608,8 +618,48 @@ type blankEvaluator struct {
 	guarded map[string]bool
 	probe   aval
 	// laundered records that a value derived from a guarded column passed
-	// through something this reader cannot model.
+	// through something this reader cannot model. Opacity contributed by some
+	// OTHER column is not laundering: `backup_label = owner_label` reads the
+	// guarded column perfectly plainly, it just compares it to a value this
+	// reader does not know. Refusing that as "wrapped in something that cannot
+	// be read" was a dishonest refusal of an ordinary question.
 	laundered bool
+	// blindOrder makes every ordering comparison involving a value derived from
+	// the guarded column unknowable. It is set ONLY on the filled leg, where
+	// the probe stands for "some ordinary non-blank value" and therefore has no
+	// position in the collation the reader is entitled to assume.
+	blindOrder bool
+	// orderBlinded records that blindOrder actually suppressed an answer, so
+	// the verdict can tell "the filled value's ORDER is what this predicate
+	// turns on" apart from ordinary opacity.
+	orderBlinded bool
+}
+
+// unknownOrder is the answer the filled leg gives to an ordering comparison. It
+// is opacity WITHOUT laundering — nothing wrapped the column, the reader simply
+// refuses to invent a collation position for a generic filled value.
+func (e *blankEvaluator) unknownOrder(derived bool) aval {
+	e.orderBlinded = true
+	return opaqueVal(derived)
+}
+
+// opaqueCombination is the opacity a comparison-shaped node returns when one of
+// its operands is opaque. It launders only when the OPAQUE operand is itself
+// derived from the guarded column — that is, when something unreadable was
+// wrapped AROUND the column. Opacity that arrives from a different column, or
+// from an aggregate somewhere else in the clause, leaves the guarded column
+// plainly read and must not be reported as laundering it.
+func (e *blankEvaluator) opaqueCombination(vs ...aval) aval {
+	derived := false
+	for _, v := range vs {
+		if v.derived {
+			derived = true
+		}
+		if v.kind == avOpaque && v.derived {
+			e.laundered = true
+		}
+	}
+	return opaqueVal(derived)
 }
 
 func (e *blankEvaluator) eval(n *exprNode) aval {
@@ -660,7 +710,7 @@ func (e *blankEvaluator) eval(n *exprNode) aval {
 	case exIsDistinct:
 		l, r := e.eval(n.args[0]), e.eval(n.args[1])
 		if l.kind == avOpaque || r.kind == avOpaque {
-			return e.launder(mergeDerived(l, r))
+			return e.opaqueCombination(l, r)
 		}
 		distinct := !avNotDistinct(l, r)
 		if n.neg {
@@ -746,7 +796,7 @@ func (e *blankEvaluator) evalJunction(k exprKind, l, r aval) aval {
 		}
 	}
 	if l.kind == avOpaque || r.kind == avOpaque {
-		return e.launder(mergeDerived(l, r))
+		return e.opaqueCombination(l, r)
 	}
 	return nullVal(derived)
 }
@@ -918,7 +968,7 @@ func (e *blankEvaluator) evalBinary(n *exprNode) aval {
 	l, r := e.eval(n.args[0]), e.eval(n.args[1])
 	derived := l.derived || r.derived
 	if l.kind == avOpaque || r.kind == avOpaque {
-		return e.launder(mergeDerived(l, r))
+		return e.opaqueCombination(l, r)
 	}
 	if n.text == "||" {
 		if l.kind == avNull || r.kind == avNull {
@@ -952,7 +1002,7 @@ func (e *blankEvaluator) evalCompare(n *exprNode) aval {
 	l, r := e.eval(n.args[0]), e.eval(n.args[1])
 	derived := l.derived || r.derived
 	if l.kind == avOpaque || r.kind == avOpaque {
-		return e.launder(mergeDerived(l, r))
+		return e.opaqueCombination(l, r)
 	}
 	if l.kind == avNull || r.kind == avNull {
 		return nullVal(derived)
@@ -962,6 +1012,9 @@ func (e *blankEvaluator) evalCompare(n *exprNode) aval {
 		return boolVal(avEqual(l, r), derived)
 	case "<>", "!=":
 		return boolVal(!avEqual(l, r), derived)
+	}
+	if e.blindOrder && derived {
+		return e.unknownOrder(derived)
 	}
 	c, ok := avOrder(l, r)
 	if !ok {
@@ -1009,7 +1062,7 @@ func avOrder(l, r aval) (int, bool) {
 func (e *blankEvaluator) evalIn(n *exprNode) aval {
 	subject := e.eval(n.args[0])
 	if subject.kind == avOpaque {
-		return e.launder(subject)
+		return e.opaqueCombination(subject)
 	}
 	derived := subject.derived
 	if subject.kind == avNull {
@@ -1022,7 +1075,7 @@ func (e *blankEvaluator) evalIn(n *exprNode) aval {
 			derived = true
 		}
 		if v.kind == avOpaque {
-			return e.launder(mergeDerived(subject, v))
+			return e.opaqueCombination(subject, v)
 		}
 		if v.kind == avNull {
 			sawNull = true
@@ -1042,7 +1095,7 @@ func (e *blankEvaluator) evalLike(n *exprNode) aval {
 	l, r := e.eval(n.args[0]), e.eval(n.args[1])
 	derived := l.derived || r.derived
 	if l.kind == avOpaque || r.kind == avOpaque {
-		return e.launder(mergeDerived(l, r))
+		return e.opaqueCombination(l, r)
 	}
 	if l.kind == avNull || r.kind == avNull {
 		return nullVal(derived)
@@ -1095,10 +1148,13 @@ func (e *blankEvaluator) evalBetween(n *exprNode) aval {
 	subject, lo, hi := e.eval(n.args[0]), e.eval(n.args[1]), e.eval(n.args[2])
 	derived := subject.derived || lo.derived || hi.derived
 	if subject.kind == avOpaque || lo.kind == avOpaque || hi.kind == avOpaque {
-		return e.launder(mergeDerived(subject, lo, hi))
+		return e.opaqueCombination(subject, lo, hi)
 	}
 	if subject.kind == avNull || lo.kind == avNull || hi.kind == avNull {
 		return nullVal(derived)
+	}
+	if e.blindOrder && derived {
+		return e.unknownOrder(derived)
 	}
 	a, okA := avOrder(subject, lo)
 	b, okB := avOrder(subject, hi)
@@ -1163,24 +1219,121 @@ const (
 // for a filled one IS the false question, whatever it is spelled like. The
 // inverse — TRUE for a filled column — is a real question and passes.
 func judgeBlanknessTest(n *exprNode, guarded map[string]bool) blankVerdict {
-	run := func(probe aval) (aval, bool) {
-		e := &blankEvaluator{guarded: guarded, probe: probe}
+	run := func(probe aval, blind bool) (aval, bool, bool) {
+		e := &blankEvaluator{guarded: guarded, probe: probe, blindOrder: blind}
 		v := e.eval(n)
-		return v, e.laundered
+		return v, e.laundered, e.orderBlinded
 	}
-	vNull, lNull := run(nullVal(true))
-	vEmpty, lEmpty := run(textVal("", true))
-	vFilled, lFilled := run(textVal(blankProbePresent, true))
+	vNull, lNull, _ := run(nullVal(true), false)
+	vEmpty, lEmpty, _ := run(textVal("", true), false)
+	vFilled, lFilled, oFilled := run(textVal(blankProbePresent, true), true)
 
 	blankIsTrue := (vNull.kind == avBool && vNull.b) || (vEmpty.kind == avBool && vEmpty.b)
 	filledIsFalse := vFilled.kind == avBool && !vFilled.b
 	if blankIsTrue && filledIsFalse {
 		return blankTestsForEmptiness
 	}
-	if (lNull || lEmpty || lFilled) && allOpaque(vNull, vEmpty, vFilled) {
+	// The ordering arm. A predicate the BLANK column satisfies, and which a
+	// generic filled value can only satisfy or fail by where it happens to sort,
+	// is separating blank from filled by position in the collation — which is
+	// what `coalesce(backup_label,'') < 'A'`, `NOT (… >= 'A')`,
+	// `BETWEEN '' AND 'A'` and `NOT BETWEEN 'A' AND 'zzzz'` all are. The empty
+	// string and NULL sit at the bottom of every collation, so "true for blank,
+	// and turning on order for anything else" is the same false question with a
+	// comparison operator instead of a NULL keyword.
+	if blankIsTrue && oFilled && vFilled.kind == avOpaque {
+		return blankTestsForEmptiness
+	}
+	// The unreadable arm. An unmodelled wrapper around this column is only
+	// dangerous when what the wrapper's result is compared AGAINST could be
+	// blank: `weirdfn(backup_label) IS NULL` and `weirdfn(backup_label) = ''`
+	// are the false question hiding behind a function, while
+	// `substring(backup_label,1,6) = 'Backup'` and
+	// `regexp_replace(backup_label,'[0-9]','','g') = 'Backup '` ask about the
+	// column's CONTENT and are ordinary questions. Refusing those as "wrapped
+	// in something that cannot be read" named a predicate the statement did not
+	// contain, which is the dishonest-refusal failure this gate must not have.
+	if (lNull || lEmpty || lFilled) && allOpaque(vNull, vEmpty, vFilled) && asksWhetherItIsBlank(n) {
 		return blankUnreadable
 	}
 	return blankNotATest
+}
+
+// asksWhetherItIsBlank reports whether the expression, read for its SHAPE
+// alone, is pointed at blankness in the affirmative direction — the only
+// direction that produces the ten-versus-four answer. `x IS NULL` and `x = ''`
+// are; their inverses `x IS NOT NULL` and `x <> ''` are the legitimate question
+// and are not; and `NOT (x IS NOT NULL)` is the affirmative one again.
+//
+// This is a shape test, and it is used for exactly one decision: whether an
+// expression the evaluator could NOT read gets the benefit of the doubt. It
+// never decides that something IS the false question — the three-point
+// evaluation above does that, and it cannot be re-spelled around.
+func asksWhetherItIsBlank(n *exprNode) bool { return blankShapedUnder(n, true) }
+
+func blankShapedUnder(n *exprNode, positive bool) bool {
+	if n == nil {
+		return false
+	}
+	switch n.kind {
+	case exNot:
+		return blankShapedUnder(n.args[0], !positive)
+	case exIsNull:
+		return positive != n.neg
+	case exCompare:
+		if !hasBlankOperand(n.args) {
+			return false
+		}
+		switch n.text {
+		case "<>", "!=":
+			return !positive
+		case "=":
+			return positive
+		}
+		// `<= ''`, `< 'A'`, `>= ''` — an ordering comparison against the blank
+		// end of the domain is pointed at blankness whichever way it is read.
+		return true
+	case exIsDistinct:
+		// neg is IS NOT DISTINCT FROM, the NULL-aware equality.
+		if !hasBlankOperand(n.args) {
+			return false
+		}
+		return positive == n.neg
+	case exIn, exLike, exBetween:
+		if !hasBlankOperand(n.args[1:]) {
+			return false
+		}
+		return positive != n.neg
+	}
+	for _, a := range n.args {
+		if blankShapedUnder(a, positive) {
+			return true
+		}
+	}
+	return false
+}
+
+// hasBlankOperand reports a literal standing for emptiness: NULL, the empty
+// string, or zero (which is what `length(x)` becomes).
+func hasBlankOperand(args []*exprNode) bool {
+	for _, a := range args {
+		if a == nil {
+			continue
+		}
+		switch a.kind {
+		case exNullKeyword:
+			return true
+		case exLiteral:
+			if a.text == "" {
+				return true
+			}
+		case exNumber:
+			if a.num == 0 {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // allOpaque reports that every leg of the three-point test came back opaque,

@@ -289,8 +289,11 @@ func predicateAtomAround(toks []sqlToken, depth []int, i int) []sqlToken {
 }
 
 // isTransparentGrouping reports a plain grouping parenthesis — `(backup_label)`,
-// `(backup_label || ”)` — which the atom may climb out of because the
-// parenthesis changes nothing about the expression inside it.
+// `(backup_label || ”)`, `(CASE … END)` — which the atom may climb out of
+// because the parenthesis changes nothing about the expression inside it. A
+// parenthesised CASE is transparent for the same reason the CASE words are not
+// atom boundaries: stopping at the `)` would drop the `= 1` that decides which
+// arm the statement is selecting for.
 //
 // A parenthesis holding a boolean of its own (`(a IS NULL OR b)`) or a clause
 // (`(WHERE ...)`, `(SELECT ...)`) is NOT transparent: climbing out of it would
@@ -304,7 +307,7 @@ func isTransparentGrouping(toks []sqlToken, depth []int, open, close int) bool {
 			continue
 		}
 		switch strings.ToLower(toks[j].text) {
-		case "and", "or", "select", "where", "having", "case", "when":
+		case "and", "or", "select", "where", "having":
 			return false
 		}
 	}
@@ -353,6 +356,16 @@ func isNonFunctionParenKeyword(s string) bool {
 }
 
 // isAtomBoundary reports the tokens that end a predicate atom at its own level.
+//
+// CASE's own words — case/when/then/else/end — are deliberately NOT boundaries.
+// They used to be, and that one omission carried the whole live defect straight
+// through the evaluator: cutting at `when` hands the reader only the WHEN
+// CONDITION, so `CASE WHEN backup_label IS NOT NULL THEN 0 ELSE 1 END = 1` was
+// judged as the inner atom `backup_label IS NOT NULL` — correctly "not a
+// blankness test" in isolation — while the blankness test was carried entirely
+// by the arm VALUES and the comparison after END, which the gate never saw.
+// The atom must be the whole conditional and its comparison, so that inverting
+// the arms inverts the evaluated answer instead of hiding it.
 func isAtomBoundary(toks []sqlToken, j int) bool {
 	t := toks[j]
 	if t.kind == tokOther {
@@ -376,7 +389,7 @@ func isAtomBoundary(toks []sqlToken, j int) bool {
 			}
 		}
 		return true
-	case "or", "where", "having", "on", "when", "then", "else", "end", "case",
+	case "or", "where", "having", "on",
 		"select", "group", "order", "by", "limit", "offset", "union",
 		"intersect", "except", "join", "inner", "left", "right", "full",
 		"cross", "as", "with", "filter", "over", "partition", "using",
