@@ -18,6 +18,7 @@ package reporting
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -61,7 +62,7 @@ func f64(v float64) *float64 { return &v }
 // page/grain boundary proof: a reader that sums deal_outstanding_rupees over the
 // lines doubles a two-line deal's receivable, and is_deal_primary_line is what
 // makes the correct total expressible.
-func TestSalesLinesKeepLineGrainWhileDealMoneyStaysDealGrain(t *testing.T) {
+func TestSalesDealLinesOneToManyKeepLineGrainWhileDealMoneyStaysDealGrain(t *testing.T) {
 	ctx := context.Background()
 	pool, tenant := newDB(t, ctx)
 
@@ -146,7 +147,7 @@ func TestClosedDealWithNoLinesStillReportsItsMoney(t *testing.T) {
 
 // Status bucketing: only `Deal Closed` deals are on either view. An open
 // negotiation is not revenue and is not a receivable.
-func TestOnlyClosedDealsReachTheSalesViews(t *testing.T) {
+func TestSalesViewsStatusMatrixAdmitsOnlyClosedDeals(t *testing.T) {
 	ctx := context.Background()
 	pool, tenant := newDB(t, ctx)
 
@@ -329,6 +330,80 @@ func scan(t *testing.T, ctx context.Context, pool *pgxpool.Pool, fx growthFixtur
 		fx.tenant, fx.campaign[campaign], fx.bucket[campaign], tag, weight, fx.proofID, fx.userID,
 		acceptedAt, status, submittedAt); err != nil {
 		t.Fatalf("insert observation: %v", err)
+	}
+}
+
+// PAGE BOUNDARY. The view declares `pagination=NONE`: it paginates nothing
+// itself, and every consumer pages over it. That claim is only worth anything
+// if a consumer's keyset page is STABLE across the boundary -- so this walks
+// the whole view two rows at a time, ordered on a key that is unique at the
+// view's own grain, and proves every line is seen EXACTLY ONCE. A line join
+// that fanned out would repeat a row on the next page; a non-unique order key
+// would skip one.
+func TestSalesLinesPageBoundaryReturnsEachLineExactlyOnce(t *testing.T) {
+	ctx := context.Background()
+	pool, tenant := newDB(t, ctx)
+
+	// Five lines across three deals, so the 2-row pages break INSIDE a deal.
+	twoLine := closedDeal(t, ctx, pool, tenant, "2026-09-03", "Ramesh Traders", "Goat", "Sirohi", 12, 300, 120000, 0)
+	dealLine(t, ctx, pool, tenant, twoLine, 1, "Goat", "Sirohi", f64(8), 240, 96000)
+	dealLine(t, ctx, pool, tenant, twoLine, 2, "Manure", "", nil, 60, 24000)
+	threeLine := closedDeal(t, ctx, pool, tenant, "2026-09-05", "Second Buyer", "Sheep", "Deccani", 6, 150, 60000, 0)
+	dealLine(t, ctx, pool, tenant, threeLine, 1, "Sheep", "Deccani", f64(3), 70, 30000)
+	dealLine(t, ctx, pool, tenant, threeLine, 2, "Sheep", "Madgyal", f64(3), 60, 25000)
+	dealLine(t, ctx, pool, tenant, threeLine, 3, "Manure", "", nil, 20, 5000)
+	// A line-less deal, which the view fills in from the deal itself.
+	closedDeal(t, ctx, pool, tenant, "2026-09-07", "Third Buyer", "Goat", "Boer", 2, 50, 20000, 0)
+
+	var total int
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM ceo_ai.sales_deal_lines_closed WHERE tenant_id = $1`, tenant).Scan(&total); err != nil {
+		t.Fatalf("count lines: %v", err)
+	}
+	if total != 6 {
+		t.Fatalf("fixture: expected 6 line rows (2 + 3 + 1 synthesised), got %d", total)
+	}
+
+	seen := map[string]int{}
+	lastDeal, lastLine := "00000000-0000-0000-0000-000000000000", -1
+	for page := 0; page < 10; page++ {
+		rows, err := pool.Query(ctx,
+			`SELECT deal_id::text, line_no, sales_value
+			   FROM ceo_ai.sales_deal_lines_closed
+			  WHERE tenant_id = $1 AND (deal_id::text, line_no) > ($2, $3)
+			  ORDER BY deal_id::text, line_no
+			  LIMIT 2`, tenant, lastDeal, lastLine)
+		if err != nil {
+			t.Fatalf("page %d: %v", page, err)
+		}
+		got := 0
+		for rows.Next() {
+			var dealID string
+			var lineNo int
+			var value float64
+			if err := rows.Scan(&dealID, &lineNo, &value); err != nil {
+				rows.Close()
+				t.Fatalf("scan: %v", err)
+			}
+			seen[fmt.Sprintf("%s#%d", dealID, lineNo)]++
+			lastDeal, lastLine = dealID, lineNo
+			got++
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			t.Fatalf("page %d: %v", page, err)
+		}
+		if got == 0 {
+			break
+		}
+	}
+	if len(seen) != total {
+		t.Fatalf("paging saw %d distinct lines, the view holds %d", len(seen), total)
+	}
+	for key, times := range seen {
+		if times != 1 {
+			t.Errorf("line %s crossed the page boundary %d times, want exactly once", key, times)
+		}
 	}
 }
 
