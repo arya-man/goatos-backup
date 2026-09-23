@@ -144,12 +144,21 @@ func TestRoutingIsCaseAndSpaceInsensitive(t *testing.T) {
 	}
 }
 
-// THE SEED IS THE SHIPPED MAP, ROW FOR ROW.
+// THE SEED REPRODUCES THE SHIPPED ROUTING -- the kid rows literally, the adult side by
+// construction.
 //
 // Migration 000395 moves routing out of Go, and the one thing that must not change on deploy is
-// which register an animal reaches. This reads the migration's own VALUES block and compares it
-// to the oracle, so a hand edit to either side that drifts from the other fails here rather than
-// in a shed.
+// which register an animal reaches. The KID rows are a VALUES block and are compared here row for
+// row against the oracle.
+//
+// THE ADULT SIDE IS NOT A LITERAL, and that is deliberate. The shipped code branches on
+// `age_band = 'adult'` and never reads the stage, so the faithful translation is a wildcard -- and
+// a wildcard is unreadable on screen ("Every other stage" told a director nothing about which
+// cohorts were in there, and the maintainer said so). The migration instead seeds ONE ROW PER
+// ADULT STAGE from the farm's own catalog, which routes exactly the same animals to exactly the
+// same type while naming them. What is asserted here is that both halves of that are present: the
+// catalog-driven insert, and the wildcard kept only for a tenant whose catalog holds no adult
+// stage, without which such a tenant would have every adult refused on deploy day.
 func TestMigrationSeedReproducesTheShippedRouting(t *testing.T) {
 	path := filepath.Join("..", "..", "..", "migrations", "postgres",
 		"000395_health_diagnosis_types_and_stage_routes.sql")
@@ -168,11 +177,16 @@ func TestMigrationSeedReproducesTheShippedRouting(t *testing.T) {
 		seeded[m[1]+"/"+m[2]] = StageRoute{AgeBand: m[1], StageCode: m[2], TypeKey: m[3], SubStage: m[4]}
 	}
 
-	want := BuiltinStageRoutes()
-	if len(seeded) != len(want) {
-		t.Fatalf("migration seeds %d routes, the oracle has %d", len(seeded), len(want))
+	wantKid := []StageRoute{}
+	for _, r := range BuiltinStageRoutes() {
+		if r.AgeBand == AgeBandKid {
+			wantKid = append(wantKid, r)
+		}
 	}
-	for _, w := range want {
+	if len(seeded) != len(wantKid) {
+		t.Fatalf("the VALUES block seeds %d routes, the oracle has %d kid routes", len(seeded), len(wantKid))
+	}
+	for _, w := range wantKid {
 		got, ok := seeded[w.AgeBand+"/"+w.StageCode]
 		if !ok {
 			t.Errorf("migration does not seed %s/%s", w.AgeBand, w.StageCode)
@@ -182,6 +196,17 @@ func TestMigrationSeedReproducesTheShippedRouting(t *testing.T) {
 			t.Errorf("%s/%s seeds (%s,%s), oracle says (%s,%s)",
 				w.AgeBand, w.StageCode, got.TypeKey, got.SubStage, w.TypeKey, w.SubStage)
 		}
+	}
+
+	// One explicit adult row per stage the farm's catalog holds.
+	if !strings.Contains(sql, "FROM public.animal_stage_lookup s") ||
+		!strings.Contains(sql, "SELECT s.tenant_id, 'adult', lower(btrim(s.stage_code)), 'adult', ''") {
+		t.Error("the migration must seed one adult route per catalog stage, not a bare wildcard")
+	}
+	// And the wildcard kept ONLY where that would leave a tenant with no adult routing at all.
+	if !strings.Contains(sql, "SELECT t.tenant_id, 'adult', '*', 'adult', ''") ||
+		!strings.Contains(sql, "NOT EXISTS (\n        SELECT 1 FROM public.animal_stage_lookup s") {
+		t.Error("the adult wildcard must survive for a tenant whose catalog has no adult stage")
 	}
 }
 

@@ -154,13 +154,50 @@ CROSS JOIN (VALUES
   ('kid', 'f2-female', 'kid_fattening', ''),
   -- Added 2026-09-23 by maintainer decision, after 58 live kids on this stage could not be
   -- observed at all. It is an ordinary row here, which is the whole point of the table.
-  ('kid', 'warmup',    'kid_fattening', ''),
-  -- The adult branch. A wildcard, because the Go code never reads an adult's stage -- see the
-  -- header. Deleting this row makes adults fail-closed like kids; a farm may choose that, but
-  -- it is a change of behaviour and must not happen by accident on deploy.
-  ('adult', '*',       'adult',         '')
+  ('kid', 'warmup',    'kid_fattening', '')
 ) AS v(age_band, stage_code, type_key, sub_stage)
 WHERE EXISTS (SELECT 1 FROM public.health_diagnosis_types ty WHERE ty.tenant_id = t.tenant_id)
+ON CONFLICT (tenant_id, age_band, stage_code) DO NOTHING;
+
+-- THE ADULT SIDE IS SEEDED FROM THE FARM'S OWN STAGES, one explicit row each.
+--
+-- The Go code never reads an adult's stage -- it branches on `age_band = 'adult'` -- so the
+-- faithful translation of that is a WILDCARD row, and this migration seeded one. It was correct
+-- and it was unreadable: the screen showed adults covered by "Every other stage", which is the
+-- implementation's phrasing rather than the farm's, and it told a director nothing about which
+-- cohorts were actually in there.
+--
+-- Naming each stage gives the identical routing today -- every adult stage the catalog holds
+-- points at `adult`, which is where every adult goes now -- and makes the two things a farm
+-- actually does possible on screen: see what a category covers, and move one cohort out of it
+-- without touching the rest.
+--
+-- It also makes the fail-closed property real for adults rather than nominal. A stage added to
+-- the catalog later reaches no type until someone says which, and the routing screen reports it
+-- as a gap with its live animal count. That is the 2026-09-23 maintainer decision applied to both
+-- age bands instead of only to kids.
+INSERT INTO public.health_diagnosis_stage_routes (tenant_id, age_band, stage_code, type_key, sub_stage)
+SELECT s.tenant_id, 'adult', lower(btrim(s.stage_code)), 'adult', ''
+FROM public.animal_stage_lookup s
+WHERE s.status = 'active'
+  AND lower(coalesce(s.age_band, '')) = 'adult'
+  AND EXISTS (SELECT 1 FROM public.health_diagnosis_types ty WHERE ty.tenant_id = s.tenant_id)
+ON CONFLICT (tenant_id, age_band, stage_code) DO NOTHING;
+
+-- The wildcard survives ONLY for a tenant whose stage catalog holds no adult stage at all.
+--
+-- Without it such a tenant would have every adult refused on deploy day, which is a behaviour
+-- change smuggled in by a migration rather than chosen. The row is a safety net for an unseeded
+-- catalog, not the intended shape: a farm with real stages gets the explicit rows above and never
+-- sees it.
+INSERT INTO public.health_diagnosis_stage_routes (tenant_id, age_band, stage_code, type_key, sub_stage)
+SELECT t.tenant_id, 'adult', '*', 'adult', ''
+FROM public.tenants t
+WHERE EXISTS (SELECT 1 FROM public.health_diagnosis_types ty WHERE ty.tenant_id = t.tenant_id)
+  AND NOT EXISTS (
+        SELECT 1 FROM public.animal_stage_lookup s
+         WHERE s.tenant_id = t.tenant_id AND s.status = 'active'
+           AND lower(coalesce(s.age_band, '')) = 'adult')
 ON CONFLICT (tenant_id, age_band, stage_code) DO NOTHING;
 
 COMMIT;
