@@ -84,6 +84,22 @@
       "repair": "none needed \u2014 the behaviour is covered at HEAD by TestListCampaignShedsResolvesTheAssigneesOwnBucketsInAnUnmonitoredPark in backend/internal/weighing/app",
       "mutation": "remove the `if canExecute { access.AssigneeUserID = actor.UserID }` arm from GetCampaign",
       "result": "RED: 'ListCampaignSheds on the actor's OWN assigned task err = weighing: not found, want nil -- a director 404'd from their own buckets'"
+    },
+    {
+      "sha": "5633e961c",
+      "subject": "reject Z1+Z3 ET+TT dose binding",
+      "whyItDidNotBite": "the fixture omitted eligibility.defer_states, so the publish was refused for THAT reason and never reached the dose-family check. errors.Is(err, ErrNotPublishable) matched the other refusal happily \u2014 and the branch that ran was a DIFFERENT medical guard (the mandatory clinical defer set) masking the one under test.",
+      "repair": "backend/internal/protocol/app/publish_test.go \u2014 a fixture rejectable for exactly one reason, an assertion that names the ET+TT dose code, and a second test publishing the same fixture on a Z1+Z3 dose code so the guard cannot be satisfied by refusing every Z1+Z3 row",
+      "mutation": "disable validateMatrixVaccineDoseFamily; separately, widen it to refuse every Z1+Z3 row",
+      "result": "RED in both directions ('got <nil>' / 'a Z1+Z3 row on its OWN dose code must publish')"
+    },
+    {
+      "sha": "5bba4d8f0",
+      "subject": "a missing bucket is an outage, and the correlation must see it",
+      "whyItDidNotBite": "stale verdict \u2014 it bites at the current tip.",
+      "repair": "none needed",
+      "mutation": "remove the beforeSparse/afterSparse bucket-count check in computeEventCorrelationFromBatch",
+      "result": "RED: TestBatchedCorrelationClipsEachEventToItsOwnWindow"
     }
   ]
 }
