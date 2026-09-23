@@ -42,7 +42,8 @@ the ACK is an added line in the diff, so it is reviewed with the change.
 - a ratchet baseline that admits more debt than before — a new `file|kind` key, a
   grown count, or an appended line in a line-shaped allowlist
 - a baseline or allowlist file deleted
-- a named numeric threshold in a guard script raised
+- a named numeric threshold in a guard script moved the looser way: a ceiling
+  (`MAX_*`, `*_LIMIT`, `*_BUDGET`) raised, or a floor (`MIN_*`, `*_FLOOR`) lowered
 - a `step "..."` invocation removed from `tools/ci/run-local-ci.sh`, or a
   `-guard` target no longer invoked from the `Makefile`
 - a new guard-silencing marker (`<guard>:ignore:`, `exception:exempt`,

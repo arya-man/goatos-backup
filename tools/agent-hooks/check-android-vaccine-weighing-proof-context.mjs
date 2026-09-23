@@ -26,6 +26,24 @@ function lineNo(text, needle) {
   return index < 0 ? 1 : text.slice(0, index).split("\n").length;
 }
 
+
+// COUNT, not presence. `text.includes(needle)` passes while ANY one site still
+// has the line: measured 2026-09-23, changing one of the three lump-sum capture
+// sites in WeighingViewModel.kt from `rfidTag = null` to `rfidTag = lastScannedTag`
+// — burning an RFID onto a shed-level proof — exited 0, because the other two
+// sites still matched. These floors are MIN_* so check-guard-weakening.mjs
+// treats lowering one as a weakening.
+const MIN_WEIGHING_LUMP_SUM_NULL_TAG_SITES = 3;
+const MIN_WEIGHING_INDIVIDUAL_TAG_SITES = 2;
+
+function expectCount(text, rel, needle, min, reason) {
+  const seen = text.split(needle).length - 1;
+  if (seen < min) {
+    return { rel, line: 1, reason: `${reason} (${seen} site(s) found, expected at least ${min})`, snippet: needle };
+  }
+  return null;
+}
+
 function expect(text, rel, needle, reason) {
   if (!text.includes(needle)) {
     return { rel, line: 1, reason, snippet: needle };
@@ -60,13 +78,35 @@ function selfTest() {
     overlayContext: "fun proofOverlayContextLine(",
     scan: 'title = vaccinationProofTitle(row, state.value.cohortLabel, taskDetail.value)\ncaption = vaccinationProofCaption(row, state.value.cohortLabel, taskDetail.value)\nrfidTag = row.primaryTag.takeIf { it.isNotBlank() }\nfeature = "Vaccination"\nvaccinationParkLabel(detail)\nvaccinationLocationLabel(screenTitle, detail)\n.replace(" + ", VACCINE_LABEL_SEPARATOR)\n.joinToString(VACCINE_LABEL_SEPARATOR)\nprivate const val VACCINE_LABEL_SEPARATOR = " · "\npendingScanCommit = PendingScanCommit(\nval captured = proofCaptureSource.captureVideo(\npendingScanCommit?.let { commit ->\nmarkRowDone(row, commit.capturedAtMs, commit.obligationIds)',
     sheds: 'internal fun List<VaccinationExecutionRowDto>.opensSubmittedRecordOnly(): Boolean =\n    isNotEmpty() &&\n        none { row -> row.needsRedo() } &&\n        all { row -> row.hasSubmittedRecord() }\n\nprivate fun VaccinationExecutionRowDto.hasSubmittedRecord(): Boolean =\n    sopStatus.isSubmissionTerminalStatus() ||\n        verificationStatus.equals("pending", ignoreCase = true)',
-    weighing: 'title = weighingIndividualProofTitle(row)\ntitle = weighingLumpSumProofTitle()\ncaption = weighingIndividualProofCaption(row)\nrfidTag = row.primaryTag.takeIf { it.isNotBlank() }\ncaption = weighingLumpSumProofCaption(slotNumber)\nrfidTag = null\nfeature = "Weighing"\nweighingOverlayParkLabel()',
+    // Every real capture site, not one of each: the floors below are what make
+    // "one of three sites changed" visible, so the good fixture has to carry all
+    // of them or the self-test would be asserting a weaker rule than CI runs.
+    weighing: 'title = weighingIndividualProofTitle(row)\ntitle = weighingLumpSumProofTitle()\ncaption = weighingIndividualProofCaption(row)\nrfidTag = row.primaryTag.takeIf { it.isNotBlank() }\nrfidTag = row.primaryTag.takeIf { it.isNotBlank() }\ncaption = weighingLumpSumProofCaption(slotNumber)\nrfidTag = null\nrfidTag = null\nrfidTag = null\nfeature = "Weighing"\nweighingOverlayParkLabel()',
     feedPacking: 'ProofCaptureContext(\nfeature = "Feed packing"\nparkLabel = parkLabel.ifBlank { parkId }',
     feedTransport: 'ProofCaptureContext(title=feedTransportProofCaption()\nproofOverlayContextLine("Feed transport",parkLabel,shedLabel.ifBlank{shedId})',
     feedComplete: 'ProofCaptureContext(\nfeature = "Feed direction"',
     seed: "'Godel 1',   'Part 1', '',    2\n'Yashoda 1', 'Part 1', 'Y1-', 6\n'Castro 1',  'Part 1', 'C1-', 3\nr.sequence = 2 AND d.shed_seq IN (2, 6)\nELSE ARRAY['91000000-0000-4000-8000-000000000503','91000000-0000-4000-8000-000000000504']::uuid[]",
   });
-  const ok = bad.length >= 10 && good.length === 0;
+  // The planted violation that used to slip through: ONE of the three lump-sum
+  // sites starts burning an RFID. Everything else in the fixture stays correct,
+  // so this case fails only if the rule counts sites instead of asking whether
+  // the line appears anywhere.
+  const weighingGood = 'title = weighingIndividualProofTitle(row)\ntitle = weighingLumpSumProofTitle()\ncaption = weighingIndividualProofCaption(row)\nrfidTag = row.primaryTag.takeIf { it.isNotBlank() }\nrfidTag = row.primaryTag.takeIf { it.isNotBlank() }\ncaption = weighingLumpSumProofCaption(slotNumber)\nrfidTag = null\nrfidTag = null\nrfidTag = null\nfeature = "Weighing"\nweighingOverlayParkLabel()';
+  const oneSiteBurned = collectFindings({
+    overlayContext: "fun proofOverlayContextLine(",
+    scan: "",
+    sheds: "",
+    feedPacking: "",
+    feedTransport: "",
+    feedComplete: "",
+    seed: "",
+    weighing: weighingGood.replace("rfidTag = null\nrfidTag = null\nrfidTag = null", "rfidTag = null\nrfidTag = null\nrfidTag = lastScannedTag"),
+  }).filter((f) => f.reason.includes("must not burn RFID"));
+  const oneSiteCaught = oneSiteBurned.length === 1;
+  if (!oneSiteCaught) {
+    console.log("android-vaccine-weighing-proof-context self-test: FAIL — one burned lump-sum site was not detected");
+  }
+  const ok = bad.length >= 10 && good.length === 0 && oneSiteCaught;
   console.log(ok ? "android-vaccine-weighing-proof-context self-test: ok" : "android-vaccine-weighing-proof-context self-test: FAIL");
   process.exit(ok ? 0 : 1);
 }
@@ -105,8 +145,8 @@ function collectFindings({ scan, sheds, weighing, feedPacking = "", feedTranspor
     expectAbsent(sheds, SHEDS_VM, 'proofStatus.equals("uploaded", ignoreCase = true) ||\n        workState.equals("verification_pending", ignoreCase = true)', "uploaded proof alone must not be treated as a submitted record; it must stay openable for finalize/submit"),
     expect(weighing, WEIGHING_VM, "title = weighingIndividualProofTitle(row)", "individual weighing camera title must include task context"),
     expect(weighing, WEIGHING_VM, "title = weighingLumpSumProofTitle()", "lump-sum weighing camera title must include task context"),
-    expect(weighing, WEIGHING_VM, "rfidTag = row.primaryTag.takeIf { it.isNotBlank() }", "individual weighing must burn RFID"),
-    expect(weighing, WEIGHING_VM, "rfidTag = null", "lump-sum/shed weighing must not burn RFID"),
+    expectCount(weighing, WEIGHING_VM, "rfidTag = row.primaryTag.takeIf { it.isNotBlank() }", MIN_WEIGHING_INDIVIDUAL_TAG_SITES, "individual weighing must burn RFID at every capture site"),
+    expectCount(weighing, WEIGHING_VM, "rfidTag = null", MIN_WEIGHING_LUMP_SUM_NULL_TAG_SITES, "lump-sum/shed weighing must not burn RFID at any capture site"),
     expect(weighing, WEIGHING_VM, '"Weighing"', "weighing overlay must name the feature"),
     expect(weighing, WEIGHING_VM, "weighingOverlayParkLabel()", "weighing overlay must include park"),
     expect(feedPacking, FEED_PACKING_VM, "ProofCaptureContext(", "feed packing camera must receive full overlay context"),
