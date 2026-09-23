@@ -16,9 +16,13 @@ PostgreSQL 16 via GOATOS_PGTEST_ADMIN_DSN. Original Up fails on cross-tenant
 revocation; original Down fails to restore renamed original. Final fixed SQL
 rerun PASS. Focused Go suites rerun PASS. Bind-contract, seed-migration,
 git-identity and diff checks PASS.
-Pending: AI tool readiness, commit and PR push.
+Implementation SHA: 6f8e7b12a27a18aa299588cba51b22c45107cac0.
+Pending: PR push and remote SHA readback.
 Known failures: initial fixture omitted required valid_from; fixed and rerun.
-AI Doctor initially lacked local indexes; make ai-setup running.
+AI Doctor initially lacked local indexes. CRG built successfully. Repowise
+full and fresh fast indexing were stopped after extended local analysis.
+`REPOWISE_SETUP=0 make ai-doctor` PASS using the supported optional-tool
+exclusion; Repowise analysis is NOT certified. No code gate was disabled.
 validate-migrations reports existing unrelated migration findings; no 000394 finding.
  responsive guard lacks authenticated target configuration; no
 laptop/phone rendering proof. No UI changes in this follow-up. Full ci-local not run.
@@ -33,3 +37,6 @@ Exact checks (from backend unless stated):
 
 No performance claim: this is a bounded migration correctness repair. No latency
 endpoint, payload, frontend or running-service behavior was changed by this follow-up.
+
+Additional check: `go test ./migrations/postgres` PASS (database cases are
+opt-in; the new regression was separately run with PostgreSQL enabled).
