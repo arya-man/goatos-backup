@@ -21,6 +21,19 @@ test("every regression pattern family is declared and emitted by the collector",
   for (const name of Object.keys(REGRESSION_PATTERNS)) assert.ok(source.includes(`"${name}"`));
 });
 
+test("the pen-label family is declared here and emitted by the pen-label checker", async () => {
+  // P patterns are raised in lib/pen-label-checks.mjs (judged in Node against the farm's
+  // own pen list), not by the in-page collector, so they are asserted against that file.
+  const penSource = readFileSync(new URL("./pen-label-checks.mjs", import.meta.url), "utf8");
+  for (const name of ["P-pen-part-doubled", "P-pen-number-doubled", "P-pen-separator-wrong", "P-pen-whole-leaked", "P-pen-partition-missing"]) {
+    assert.ok(REGRESSION_PATTERNS[name], `declared: ${name}`);
+    assert.ok(penSource.includes(`"${name}"`), `emitted: ${name}`);
+  }
+  // The sweep must actually run them, at whatever viewport it is on.
+  assert.match(source, /collectPenLabelIssues\(page\)/);
+  assert.match(source, /penLabelFindings/);
+});
+
 test("covers the real chart class names and false-positive exclusions", () => {
   for (const cls of [".gcval", ".gclab", ".gcsub", ".mclab", ".mcv", ".wbl", ".wbl-text", ".wbv", ".hblab", ".hbval", "svg[role=img]", ".gcb:not(.gcempty)", ".celllink"]) assert.ok(source.includes(cls), cls);
   for (const guard of ["data-smoke-ignore", "aria-hidden", ".sr-only", "elementFromPoint", "rect\\(0"]) assert.ok(source.includes(guard), guard);

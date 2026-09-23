@@ -966,6 +966,36 @@ const REQUIRED_PATTERNS = [
   },
 ];
 
+// The display-fallback-bypass ratchet, kept separate so the self-test can drive it
+// directly instead of mutating tracked files to see it fire.
+//
+// Counts, not names. A file-keyed allowlist lets a file grow one more bypass in silence,
+// and the files carrying this debt are exactly the ones where it keeps shipping. Both
+// directions fail: one more is a regression, one fewer is a stale baseline that must be
+// lowered. Shrink-only, and it can only reach zero.
+export function evaluateFallbackBypassBaseline(countsByFile, baseline) {
+  const problems = [];
+  for (const [file, count] of countsByFile) {
+    const known = baseline.get(file) ?? 0;
+    if (count > known) {
+      problems.push(
+        `${file}: [display-fallback-bypass] ${count} location labels fall back to a raw shed name, baseline is ${known}. ` +
+          `Route the new one through operationalLocationLabel() -- do not raise the baseline.`
+      );
+    }
+  }
+  for (const [file, known] of baseline) {
+    const count = countsByFile.get(file) ?? 0;
+    if (count < known) {
+      problems.push(
+        `${file}: [display-fallback-bypass] baseline claims ${known} bypasses but only ${count} remain. ` +
+          `Lower the entry to ${count} (delete it at 0) so the ratchet keeps holding.`
+      );
+    }
+  }
+  return problems;
+}
+
 function scannable(file) {
   if (!/\.(go|ts|tsx|mjs|kt|sql|yaml)$/.test(file)) return false;
   if (/_test\.go$|\.test\.(mjs|ts|tsx)$|Test\.kt$/.test(file)) return false;
@@ -1696,6 +1726,29 @@ function selfTest() {
       failed++;
     }
   }
+  // --- the display-fallback-bypass ratchet, driven directly -----------------------------
+  // Detection is covered by the fixtures above; this covers what the guard DOES with the
+  // 27 known bypasses. Driven through counts rather than by editing a tracked file, so the
+  // self-test never has to dirty the worktree to watch the ratchet bite.
+  const baseline = new Map([["a/weights.tsx", 8], ["b/alerts.tsx", 1]]);
+  const ratchet = [
+    ["holding at baseline is silent", new Map([["a/weights.tsx", 8], ["b/alerts.tsx", 1]]), 0, null],
+    ["a NEW bypass in a baselined file fails", new Map([["a/weights.tsx", 9], ["b/alerts.tsx", 1]]), 1, /baseline is 8/],
+    ["a bypass in a FRESH file fails", new Map([["a/weights.tsx", 8], ["b/alerts.tsx", 1], ["c/new.tsx", 1]]), 1, /baseline is 0/],
+    ["a FIXED bypass fails until the baseline is lowered", new Map([["a/weights.tsx", 7], ["b/alerts.tsx", 1]]), 1, /Lower the entry to 7/],
+    ["a file cleared entirely asks for the entry to go", new Map([["a/weights.tsx", 8]]), 1, /Lower the entry to 0/],
+  ];
+  for (const [name, counts, expectedCount, expectedText] of ratchet) {
+    const got = evaluateFallbackBypassBaseline(counts, baseline);
+    if (got.length !== expectedCount) {
+      console.error(`SELF-TEST FAIL: ratchet "${name}" expected ${expectedCount} problem(s), got ${got.length}: ${got.join(" | ")}`);
+      failed++;
+    } else if (expectedText && !expectedText.test(got[0] ?? "")) {
+      console.error(`SELF-TEST FAIL: ratchet "${name}" message did not match ${expectedText}: ${got[0]}`);
+      failed++;
+    }
+  }
+
   if (failed > 0) {
     console.error(`operational-location guard self-test: ${failed} failure(s)`);
     process.exit(1);
@@ -1834,25 +1887,7 @@ function main() {
     const m = /^([^:]+):\d+: \[display-fallback-bypass\]/.exec(p);
     if (m) bypassByFile.set(m[1], (bypassByFile.get(m[1]) ?? 0) + 1);
   }
-  const bypassProblems = [];
-  for (const [file, count] of bypassByFile) {
-    const known = FALLBACK_BYPASS_BASELINE.get(file) ?? 0;
-    if (count > known) {
-      bypassProblems.push(
-        `${file}: [display-fallback-bypass] ${count} location labels fall back to a raw shed name, baseline is ${known}. ` +
-          `Route the new one through operationalLocationLabel() -- do not raise the baseline.`
-      );
-    }
-  }
-  for (const [file, known] of FALLBACK_BYPASS_BASELINE) {
-    const count = bypassByFile.get(file) ?? 0;
-    if (count < known) {
-      bypassProblems.push(
-        `${file}: [display-fallback-bypass] baseline claims ${known} bypasses but only ${count} remain. ` +
-          `Lower the entry to ${count} (delete it at 0) so the ratchet keeps holding.`
-      );
-    }
-  }
+  const bypassProblems = evaluateFallbackBypassBaseline(bypassByFile, FALLBACK_BYPASS_BASELINE);
   const bypassTotal = [...bypassByFile.values()].reduce((a, b) => a + b, 0);
   problems = problems.filter((p) => !/^[^:]+:\d+: \[display-fallback-bypass\]/.test(p)).concat(bypassProblems);
   if (bypassTotal > 0 && bypassProblems.length === 0) {
