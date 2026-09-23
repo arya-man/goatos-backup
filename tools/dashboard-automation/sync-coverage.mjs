@@ -499,10 +499,20 @@ export function planLaneCoverage({ windowShas, windowCommits, lane1Rows, laneRow
   const contract = [];
   const weakTies = {};
   let checkCount = 0;
+  // A check routed to no commit covers nothing. 37 of the 194 are in that state — good
+  // invariants the roadmap asked for, which no commit since 2026-08-01 maps to — and counting
+  // them in the headline overstated the catalogue by 24%. They are kept, because deleting a
+  // real invariant trades noise for blindness, and they are counted separately so the number
+  // that gets quoted as coverage is only ever the checks that cover something.
+  let commitCoveringCheckCount = 0;
+  const checksCoveringNoCommit = [];
   if (laneChecks?.lanes) {
     for (const [lane, spec] of Object.entries(laneChecks.lanes)) {
       for (const check of spec.checks ?? []) {
         checkCount += 1;
+        const routed = Number(check.sourceCommitCount ?? 0) > 0 || (check.sourceShas ?? []).length > 0;
+        if (routed) commitCoveringCheckCount += 1;
+        else checksCoveringNoCommit.push({ lane, id: check.id, guards: check.derivedFrom ? "a rule" : "nothing stated" });
         checkIds.add(check.id);
         contract.push(...failureSentenceFindings(check.failureSentence, check.id));
         if (lane === "lane2") contract.push(...sqlReadOnlyFindings(check.sql, check.id));
@@ -560,6 +570,8 @@ export function planLaneCoverage({ windowShas, windowCommits, lane1Rows, laneRow
     weakTies,
     needsRouting,
     checkCount,
+    commitCoveringCheckCount,
+    checksCoveringNoCommit,
   };
 }
 
@@ -595,7 +607,7 @@ export function summarizeLanePlan(plan) {
   const auto = plan.autoParked.length ? `, ${plan.autoParked.length} auto-parked as this automation's own bookkeeping` : "";
   return `lane-coverage: ${plan.accountedFor}/${plan.windowSize} commit(s) since ${COVERAGE_WINDOW} accounted for exactly once ` +
     `(${plan.lane1Covered} lane 1 only, ${plan.laneCovered} lanes 2-5 and parked, of which ${plan.bothLedgers} are also in lane 1's ledger${auto}), ` +
-    `${verdict}, ${plan.checkCount} check(s), ${plan.needsRouting} awaiting routing, ` +
+    `${verdict}, ${plan.commitCoveringCheckCount} of ${plan.checkCount} check(s) cover a commit, ${plan.needsRouting} awaiting routing, ` +
     `${weak} tied to their check by file path alone`;
 }
 
