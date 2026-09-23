@@ -163,12 +163,19 @@ export async function forwardBinary(path: string, init: ForwardInit): Promise<Re
   const call = await callBackend(path, init, "*/*");
   if (!call.ok) return unreachable(call);
   const upstream = call.response;
+  const contentType = upstream.headers.get("Content-Type") ?? "application/octet-stream";
+  // The content type is whatever the uploader claimed: only raster images and PDFs
+  // render inline; anything else (HTML, SVG, …) downloads so it cannot run script
+  // on the admin-web origin.
+  const inlineSafe = /^(image\/(png|jpe?g|gif|webp)|application\/pdf)\b/i.test(contentType);
+  const disposition = upstream.headers.get("Content-Disposition") ?? "inline";
   return new Response(upstream.body, {
     status: upstream.status,
     headers: {
-      "Content-Type": upstream.headers.get("Content-Type") ?? "application/octet-stream",
-      "Content-Disposition": upstream.headers.get("Content-Disposition") ?? "inline",
+      "Content-Type": contentType,
+      "Content-Disposition": inlineSafe ? disposition : disposition.replace(/^\s*inline/i, "attachment"),
       "Cache-Control": "private, max-age=86400",
+      "X-Content-Type-Options": "nosniff",
     },
   });
 }

@@ -99,6 +99,24 @@ gcloud billing budgets create --billing-account=$BILLING \
 (That filter covers all Vertex AI use in the project; Ask Mesha is the only Claude user today.)
 With `api-key`, also set a $100 monthly limit in the Anthropic Console.
 
+## 3d. Harden the read-only DB role (required before enabling)
+
+`mesha_ceo_readonly` must not be able to reach other roles/hosts. The `dblink` extension is
+installed and executable by PUBLIC; revoke it (as the DB owner / cloudsqlsuperuser):
+
+```sql
+REVOKE EXECUTE ON FUNCTION dblink(text, text), dblink(text), dblink_exec(text, text), dblink_exec(text),
+  dblink_connect(text, text), dblink_connect(text) FROM PUBLIC;
+REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+-- verify: should all be false
+SELECT has_function_privilege('mesha_ceo_readonly', 'dblink_exec(text,text)', 'EXECUTE'),
+       has_schema_privilege('mesha_ceo_readonly', 'public', 'CREATE');
+```
+
+Check what else uses dblink/public CREATE first (`\df dblink*`, app roles) so the revoke doesn't
+break another service. After deploy, confirm in the container that the agent's `Read /proc/1/environ`
+and `Read <state>/.pgenv` are denied.
+
 ## 4. Secrets (values piped from stdin, never echoed)
 
 ```bash
