@@ -7481,7 +7481,16 @@ func pageSpecificCopy(id string) map[string]string {
 			// than rendering blank. This screen's Save is declared HERE, beside the controls that
 			// use it, rather than assumed from another page's map -- an earlier attempt to add it
 			// silently landed in a different block and the Add-a-type form rendered nothing at all.
-			"action.save":                       "Save",
+			"action.save": "Save",
+			// The routing panel reads CATEGORY-FIRST: each type, then the stage tags under it.
+			// That is the farm's own mental model -- "Kids on milk is K0, K1, K2; Mothers is the
+			// Mother tag; Fattening is the F2s and Warmup because I say so" -- and a stage-per-row
+			// table made the reader assemble it in their head.
+			"section.routes.by_type":            "Stages in each type",
+			"label.no_stages_yet":               "No stages yet \u2014 no animal reaches this type",
+			"action.add_stage_to_type":          "Add a stage",
+			"label.stage_every":                 "Every other stage",
+			"note.wildcard_chip":                "Everything in this age band that no other type names",
 			"warn.stage_retired":                "This stage is no longer in use, so nothing reaches this type through it. Remove the row.",
 			"action.add_type":                   "Add a type",
 			"action.edit_type":                  "Rename",

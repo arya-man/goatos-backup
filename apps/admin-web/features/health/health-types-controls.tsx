@@ -456,3 +456,176 @@ export function MapStageButton({
     </div>
   );
 }
+
+/**
+ * Assign a stage tag TO A CATEGORY.
+ *
+ * Maintainer, 2026-09-23: "the categories are fixed, what stages come under I will configure".
+ * The routing is read category-first -- Kids on milk is K0, K1 and K2; Mothers is the Mother tag;
+ * Fattening is the F2s and Warmup because the farm says so -- and this is the control that adds
+ * one to the category it sits under, so the type is never chosen twice.
+ *
+ * Only stages NOT already routed are offered. A stage belongs to exactly one type per age band
+ * (the table's own key), so offering a routed one would mean silently moving it away from
+ * wherever it is now, which is a different act and deserves its own words.
+ */
+export function AddStageToType({
+  pageContract,
+  typeKey,
+  ageBands,
+  stages,
+  enabled,
+  disabledReason,
+}: {
+  pageContract: AdminUiPageContract;
+  typeKey: string;
+  ageBands: string[];
+  stages: HealthAvailableStage[];
+  enabled: boolean;
+  disabledReason: string;
+}) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [choice, setChoice] = useState("");
+  const [error, setError] = useState("");
+  const [pending, startTransition] = useTransition();
+  const intent = useIntentKey(`diagnosis-add-stage-${typeKey}`);
+
+  // A type's own age band is implied by the stages already under it; a brand-new type has none,
+  // so both bands are offered and the choice itself carries the band.
+  const offer = stages.filter(
+    (s) => !s.routed && (ageBands.length === 0 || ageBands.includes(s.age_band)),
+  );
+
+  if (!open) {
+    return (
+      <div style={{ display: "inline-flex", flexDirection: "column", gap: 4 }}>
+        <button
+          type="button"
+          className="btn ghost"
+          disabled={!enabled || pending || offer.length === 0}
+          title={!enabled ? disabledReason : ""}
+          onClick={() => setOpen(true)}
+        >
+          <Plus className="ic" aria-hidden="true" /> {copy(pageContract, "action.add_stage_to_type")}
+        </button>
+        <Feedback error={error} />
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: "inline-flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+      <select
+        className="input"
+        value={choice}
+        onChange={(e) => setChoice(e.target.value)}
+        aria-label={copy(pageContract, "label.stage")}
+      >
+        <option value="">{copy(pageContract, "label.stage")}</option>
+        {offer.map((s) => (
+          <option key={`${s.age_band}/${s.stage_code}`} value={`${s.age_band}/${s.stage_code}`}>
+            {s.stage_label || s.stage_code} ({s.live_animals})
+          </option>
+        ))}
+      </select>
+      <button
+        type="button"
+        className="btn primary"
+        disabled={pending || choice === ""}
+        onClick={() =>
+          startTransition(async () => {
+            setError("");
+            const [ageBand, stageCode] = choice.split("/");
+            const result = await saveDiagnosisRoute({ ageBand, stageCode, typeKey }, intent.take());
+            if (!result.ok) {
+              setError(result.detail ?? copy(pageContract, "action.error_backend"));
+              return;
+            }
+            intent.rotate();
+            setOpen(false);
+            setChoice("");
+            router.refresh();
+          })
+        }
+      >
+        {copy(pageContract, "action.save")}
+      </button>
+      <button type="button" className="btn ghost" disabled={pending} onClick={() => { setOpen(false); setError(""); }}>
+        {copy(pageContract, "action.cancel")}
+      </button>
+      <Feedback error={error} />
+    </div>
+  );
+}
+
+/** Take one stage tag off a category. */
+export function RemoveStageChip({
+  pageContract,
+  ageBand,
+  stageCode,
+  label,
+  enabled,
+  disabledReason,
+}: {
+  pageContract: AdminUiPageContract;
+  ageBand: string;
+  stageCode: string;
+  label: string;
+  enabled: boolean;
+  disabledReason: string;
+}) {
+  const router = useRouter();
+  const [confirming, setConfirming] = useState(false);
+  const [error, setError] = useState("");
+  const [pending, startTransition] = useTransition();
+  const intent = useIntentKey(`diagnosis-drop-${ageBand}-${stageCode}`);
+
+  return (
+    <span className="chip" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+      {label}
+      {confirming ? (
+        <>
+          <button
+            type="button"
+            className="btn ghost"
+            style={{ padding: "0 6px" }}
+            disabled={pending}
+            onClick={() =>
+              startTransition(async () => {
+                setError("");
+                const result = await deleteDiagnosisRoute({ ageBand, stageCode }, intent.take());
+                if (!result.ok) {
+                  setError(result.detail ?? copy(pageContract, "action.error_backend"));
+                  return;
+                }
+                intent.rotate();
+                setConfirming(false);
+                router.refresh();
+              })
+            }
+          >
+            {copy(pageContract, "action.remove_route")}
+          </button>
+          <button type="button" className="btn ghost" style={{ padding: "0 6px" }} disabled={pending}
+            onClick={() => setConfirming(false)}>
+            {copy(pageContract, "action.cancel")}
+          </button>
+        </>
+      ) : (
+        <button
+          type="button"
+          className="btn ghost"
+          style={{ padding: "0 4px" }}
+          disabled={!enabled || pending}
+          title={!enabled ? disabledReason : ""}
+          aria-label={`${copy(pageContract, "action.remove_route")} — ${label}`}
+          onClick={() => setConfirming(true)}
+        >
+          <Trash2 className="ic" aria-hidden="true" />
+        </button>
+      )}
+      <Feedback error={error} />
+    </span>
+  );
+}
