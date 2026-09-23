@@ -91,10 +91,10 @@ function ProductRow({
             ))}
           </select>
         </div>
-        <div className="fld sellable-product-order">
-          <label htmlFor={`sp-order-${id}`}>{copy(pageContract, "field.product_sort_order")}</label>
-          <input id={`sp-order-${id}`} name="sort_order" type="number" min={0} step={1} defaultValue={product?.sort_order ?? 100} disabled={!canWrite} />
-        </div>
+        {/* There is no Order field: the maintainer asked for it gone. An item keeps the place it
+            already has, and a new one is appended by the backend, so the list stays stable
+            without anybody being asked to number it. */}
+        {product ? <input type="hidden" name="sort_order" value={product.sort_order} /> : null}
         {/* The console's own checkbox line -- NOT inside a .fld, whose label styling turned this
             into a small-caps field header with a bare box beside it. */}
         <label className="chkline sellable-product-inuse" htmlFor={`sp-inuse-${id}`}>

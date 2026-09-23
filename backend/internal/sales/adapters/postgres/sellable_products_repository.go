@@ -260,6 +260,18 @@ func (r *Repository) SaveSellableProduct(ctx context.Context, tenantID string, w
 	// never changes. Changing what Goat IS only changes what the NEXT goat sale asks for, which
 	// is exactly what somebody editing this list means to do.
 
+	// NOBODY NUMBERS THE LIST (maintainer instruction 2026-09-23: "just remove it"). A new item is
+	// appended after the last one; an edit keeps the place the row already has. The column stays,
+	// because the list still needs a stable order to be read and offered in -- it simply stopped
+	// being a question anyone is asked.
+	if write.SortOrder <= 0 {
+		var next int
+		if err := tx.QueryRow(ctx, nextProductSortOrderSQL, tenantID).Scan(&next); err != nil {
+			return domain.Product{}, fmt.Errorf("sales: next sellable product order: %w", err)
+		}
+		write.SortOrder = next
+	}
+
 	var out domain.Product
 	if err := tx.QueryRow(ctx, upsertSellableProductSQL,
 		tenantID, write.Code, write.Name, write.Kind, write.Unit, write.SpeciesCode,
@@ -324,6 +336,13 @@ ORDER BY sort_order, name`, tenantID)
 	}
 	return out, nil
 }
+
+// nextProductSortOrderSQL puts a new item after the last one. The gap of ten leaves room to
+// reorder later without renumbering, if the farm ever asks for that.
+const nextProductSortOrderSQL = `
+SELECT COALESCE(MAX(sort_order), 0) + 10
+FROM public.sellable_product_catalog
+WHERE tenant_id = $1`
 
 // countSalesUnderProductSQL is how many recorded sale lines name this item. It is the ONE question
 // that decides whether an item may be deleted outright or only switched off.

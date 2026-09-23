@@ -6883,7 +6883,6 @@ aside.drawer.ltd-drawer{width:min(720px,94vw);overflow-y:auto;overscroll-behavio
    scrolling sideways, and the page body never scrolls with it. */
 .sellable-product-row{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px;padding:10px 0;border-bottom:1px solid var(--line)}
 .sellable-product-row .fld{flex:1 1 150px;min-width:0;margin:0}
-.sellable-product-row .sellable-product-order{flex:0 1 90px}
 /* The In-use tick is the console's own .chkline, sitting on the row's baseline with the fields
    rather than inside a .fld -- whose label styling turned it into a small-caps header with a bare
    box beside it. */

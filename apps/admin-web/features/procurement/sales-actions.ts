@@ -170,7 +170,9 @@ export async function saveSellableProductAction(
     return { status: "error", code: "sellable_product_save_failed", ticket };
   }
   const speciesCode = (formData.get("species_code")?.toString() ?? "").trim();
-  const sortOrder = Number((formData.get("sort_order")?.toString() ?? "100").trim() || "100");
+  // Absent when adding: the backend appends the item after the last one, so nobody is asked to
+  // number the list. An edit sends back the place the row already has.
+  const sortOrder = Number((formData.get("sort_order")?.toString() ?? "0").trim() || "0");
   // A blank tick is an ARCHIVED item: the box asks whether it is in use, and an unticked box is a
   // person saying it is not, never a missing answer.
   const status = formData.get("in_use") !== null ? "active" : "archived";
