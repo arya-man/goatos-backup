@@ -45,6 +45,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { discoverSmokeRoutes } from "./discover-admin-routes.mjs";
+import { detectorProven } from "./pattern-discrimination.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 export const manifestPath = join(repoRoot, "tools/dashboard-automation/coverage-since-aug1.json");
@@ -133,7 +134,14 @@ export function smokeReason(entry, interaction, ctx = {}) {
     // this entry's own coverage only when the entry IS that defect class - a `pattern` entry.
     // Cited by a feature entry it is the background sweep, which fires the same on a page where
     // the feature works perfectly and the same on a page where the feature is gone.
-    return entry.kind === "pattern" ? null : "a background defect sweep that fires on any page, feature working or not";
+    if (entry.kind !== "pattern") return "a background defect sweep that fires on any page, feature working or not";
+    // ...and being that defect class is NOT enough on its own. This line alone used to
+    // make an entry covered, and nothing verified the detector could FIRE. These are
+    // defect finders, so a page with nothing on it has no defects to find and every one
+    // of them is silent - which is how all seven survivors passed against a blank page.
+    // A detector earns it by having been shown BOTH firing on the fault and staying quiet
+    // on a correct page.
+    return detectorProven(ref, ctx.discrimination).proven ? null : detectorProven(ref, ctx.discrimination).why;
   }
   if (type === "relation") return ctx.relations?.has(ref) ? null : "unresolved";
   if (type === "dataCheck") return ctx.dataChecks?.has(ref) ? null : "unresolved";
