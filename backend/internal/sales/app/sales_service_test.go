@@ -48,6 +48,15 @@ func (f *fakeRepo) ListSellableProducts(_ context.Context, _ string) ([]domain.P
 	}, nil
 }
 
+// The variants each of those may be sold as, from the farm's live vocabularies.
+func (f *fakeRepo) ListProductVariants(_ context.Context, _ string, products []domain.Product) (map[string][]string, error) {
+	return map[string][]string{
+		domain.ProductSheep:  {"Anantapur", "Kenguri", "Nipani"},
+		domain.ProductGoat:   {"Malai", "Sojat", "Osmanabadi", "Beetle", "Sirohi"},
+		domain.ProductManure: {domain.ProductManure},
+	}, nil
+}
+
 func (f *fakeRepo) ListDeals(_ context.Context, _ string, farm string, limit, offset int) (ports.DealPage, error) {
 	f.listFarm, f.listLimit, f.listOffset = farm, limit, offset
 	return ports.DealPage{Total: 63}, nil

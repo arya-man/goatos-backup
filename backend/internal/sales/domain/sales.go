@@ -49,16 +49,12 @@ var (
 // cannot date a sale into next year, the same 60 days the web drawer caps at.
 const MaxSaleDateDaysAhead = 60
 
-// BreedsByProduct is the breed vocabulary each product type is sold under (maintainer
-// instruction 2026-09-04: the phone's record-sale form offers the SAME breeds the web drawer
-// does, from the backend, so the two surfaces cannot drift). The web page contract keeps its own
-// literal copy because the contract compiler must not import a feature package; TestSalesOptions
-// pins the two lists equal.
-var BreedsByProduct = map[string][]string{
-	ProductSheep:  {"Anantapur", "Kenguri", "Nipani"},
-	ProductGoat:   {"Malai", "Sojat", "Osmanabadi", "Beetle", "Sirohi"},
-	ProductManure: {ProductManure},
-}
+// BreedsByProduct is deliberately GONE (migration 000393). A product's variants are now read from
+// the farm's own LIVE vocabularies -- an animal product offers the breeds of its species, a feed
+// product the active feed catalogue, an `other` product its own name -- through
+// ports.SalesRepository.ListProductVariants, and both the web drawer and the phone form render
+// that one answer. A map in Go could only ever describe the three products that used to be
+// constants, which is the thing being retired.
 
 // StatusTone is the chip tone every surface renders a deal status in (the web's
 // sales_deal_statuses group): ok / dng / info / warn.

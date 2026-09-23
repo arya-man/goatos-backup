@@ -25,6 +25,7 @@ type SalesService interface {
 	PutValuationAssumptions(ctx context.Context, tenantID string, write domain.ValuationAssumptions, actorID string) (domain.ValuationAssumptions, error)
 	ListDeals(ctx context.Context, tenantID string, q app.DealListQuery) (ports.DealPage, error)
 	CreateDeal(ctx context.Context, tenantID string, write domain.DealWrite, actorID, idempotencyKey string) (domain.Deal, error)
+	SellableProducts(ctx context.Context, tenantID string) ([]domain.Product, map[string][]string, error)
 	RecordDealPayment(ctx context.Context, tenantID, dealID string, write domain.DealPaymentWrite, actorID, idempotencyKey string) (domain.Deal, error)
 	UpdateDealPayment(ctx context.Context, tenantID, dealID, paymentID string, write domain.DealPaymentWrite, actorID, idempotencyKey string) (domain.Deal, error)
 	DeleteDealPayment(ctx context.Context, tenantID, dealID, paymentID string, actorID, idempotencyKey string) (domain.Deal, error)
@@ -98,24 +99,46 @@ func (h *SalesHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
 	httpresponse.WriteJSON(w, http.StatusOK, toOverviewPayload(overview))
 }
 
-// GetOptions serves GET /sales/options: the vocabularies a record-sale form renders. Static per
-// build (they mirror the sales_deals CHECK constraints), so no tenant read is needed.
+// GetOptions serves GET /sales/options: the vocabularies a record-sale form renders.
+//
+// It is a TENANT READ now (migration 000393). What the farm sells is its own registry, and each
+// product's variants are the farm's own live breeds and feed catalogue, so this can no longer be
+// composed from constants at build time -- which was the whole point of retiring them.
 func (h *SalesHandler) GetOptions(w http.ResponseWriter, r *http.Request) {
-	httpresponse.WriteJSON(w, http.StatusOK, buildSalesOptionsPayload())
+	products, variants, err := h.service.SellableProducts(r.Context(), tenantID(r))
+	if err != nil {
+		h.writeErr(w, r, app.SalesHTTPError(err))
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, buildSalesOptionsPayload(products, variants))
 }
 
-func buildSalesOptionsPayload() salesOptionsPayload {
+func buildSalesOptionsPayload(products []domain.Product, variants map[string][]string) salesOptionsPayload {
 	statuses := make([]salesStatusOptionPayload, 0, len(domain.Statuses))
 	for _, s := range domain.Statuses {
 		statuses = append(statuses, salesStatusOptionPayload{Key: s, Label: s, Tone: domain.StatusTone(s)})
 	}
-	breeds := make(map[string][]string, len(domain.ProductTypes))
-	for _, p := range domain.ProductTypes {
-		breeds[p] = append([]string(nil), domain.BreedsByProduct[p]...)
+	names := make([]string, 0, len(products))
+	options := make([]salesProductOptionPayload, 0, len(products))
+	breeds := make(map[string][]string, len(products))
+	for _, p := range products {
+		names = append(names, p.Name)
+		options = append(options, salesProductOptionPayload{
+			Name: p.Name, Code: p.Code, Kind: p.Kind, Unit: p.Unit,
+		})
+		// The field keeps the name `breeds` so a client written before this still finds its list;
+		// what it holds widened from an animal's breeds to any product's variants, and a feed
+		// product's are the farm's feed items.
+		list := variants[p.Name]
+		if list == nil {
+			list = []string{}
+		}
+		breeds[p.Name] = list
 	}
 	return salesOptionsPayload{
 		Farms:                append([]string(nil), domain.Farms...),
-		ProductTypes:         append([]string(nil), domain.ProductTypes...),
+		ProductTypes:         names,
+		Products:             options,
 		Breeds:               breeds,
 		Statuses:             statuses,
 		DefaultStatus:        domain.StatusDealClosed,

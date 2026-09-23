@@ -13,6 +13,10 @@ import (
 type salesOptionsPayload struct {
 	Farms        []string `json:"farms"`
 	ProductTypes []string `json:"product_types"`
+	// Products is the same registry with the KIND on each, which is what a form needs to decide
+	// whether to ask for a head count or for kilograms at a rate. ProductTypes above is the bare
+	// name list a client written before the registry still reads.
+	Products []salesProductOptionPayload `json:"products"`
 	// Breeds keyed by product type, in offer order.
 	Breeds   map[string][]string        `json:"breeds"`
 	Statuses []salesStatusOptionPayload `json:"statuses"`
@@ -73,12 +77,31 @@ type dealPayload struct {
 	UpdatedAt string `json:"updated_at"`
 }
 
+// salesProductOptionPayload is one row of the farm's sellable-product registry as a form sees it.
+type salesProductOptionPayload struct {
+	Name string `json:"name"`
+	Code string `json:"code"`
+	Kind string `json:"kind"`
+	Unit string `json:"unit"`
+}
+
 // dealLinePayload is one product/breed line of a deal on the wire.
 type dealLinePayload struct {
-	LineID        string   `json:"line_id"`
-	LineNo        int      `json:"line_no"`
-	ProductType   string   `json:"product_type"`
-	Breed         string   `json:"breed"`
+	LineID string `json:"line_id"`
+	LineNo int    `json:"line_no"`
+	// ProductType is the name the line was sold under; ProductKind is what it DOES (animal, feed,
+	// other), which is what a renderer needs to decide whether to show a head count or kilograms.
+	// Both are stamped from the registry at write time (migration 000393), so a product renamed
+	// since does not change what this sale says it was.
+	ProductType string `json:"product_type"`
+	ProductCode string `json:"product_code"`
+	ProductKind string `json:"product_kind"`
+	// Breed is the line's VARIANT: a breed for an animal line, the feed item for a feed line.
+	Breed string `json:"breed"`
+	// Quantity at RatePerUnit, for a line priced by the unit rather than as a lump.
+	Quantity      *float64 `json:"quantity"`
+	Unit          string   `json:"unit"`
+	RatePerUnit   *float64 `json:"rate_per_unit"`
 	AnimalCount   *float64 `json:"animal_count"`
 	MaleCount     *float64 `json:"male_count"`
 	FemaleCount   *float64 `json:"female_count"`
@@ -88,8 +111,14 @@ type dealLinePayload struct {
 
 // dealLineWritePayload is one line of the record-sale body.
 type dealLineWritePayload struct {
-	ProductType   string   `json:"product_type"`
-	Breed         string   `json:"breed"`
+	ProductType string `json:"product_type"`
+	Breed       string `json:"breed"`
+	// How much, and at what rate. A feed line needs both; the value is then COMPUTED from them, so
+	// a client sending all three has its sales_value replaced rather than trusted. There is
+	// deliberately no product_kind here: a body that could name its own kind could sell a goat as
+	// feed and draw it out of the store.
+	Quantity      *float64 `json:"quantity"`
+	RatePerUnit   *float64 `json:"rate_per_unit"`
 	AnimalCount   *float64 `json:"animal_count"`
 	MaleCount     *float64 `json:"male_count"`
 	FemaleCount   *float64 `json:"female_count"`
@@ -156,6 +185,10 @@ type dealWritePayload struct {
 	// Optional: blank records the default, Deal Closed. Named for an EXPECTED sale ("Advance
 	// Paid", "In Discussion") whose advance is already in hand.
 	Status string `json:"status"`
+	// The desk having seen what the store thinks it holds and said the sale is right anyway
+	// (maintainer decision 2026-09-23). Only ever true because a person ticked it after being
+	// shown the balance.
+	StockShortfallAcknowledged bool `json:"stock_shortfall_acknowledged"`
 }
 
 func (p dealWritePayload) toDomain() domain.DealWrite {
@@ -163,6 +196,7 @@ func (p dealWritePayload) toDomain() domain.DealWrite {
 	for _, l := range p.Lines {
 		lines = append(lines, domain.DealLineWrite{
 			ProductType: l.ProductType, Breed: l.Breed,
+			Quantity: l.Quantity, RatePerUnit: l.RatePerUnit,
 			AnimalCount: l.AnimalCount, MaleCount: l.MaleCount, FemaleCount: l.FemaleCount,
 			TotalWeightKg: l.TotalWeightKg, SalesValue: l.SalesValue,
 		})
@@ -172,8 +206,9 @@ func (p dealWritePayload) toDomain() domain.DealWrite {
 		BuyerName: p.BuyerName, BuyerPlace: p.BuyerPlace, BuyerVendorID: p.BuyerVendorID,
 		AnimalCount: p.AnimalCount, MaleCount: p.MaleCount, FemaleCount: p.FemaleCount,
 		TotalWeightKg: p.TotalWeightKg, SalesValue: p.SalesValue, AdvanceAmount: p.AdvanceAmount,
-		Status:   p.Status,
-		Comments: p.Comments,
+		Status:                     p.Status,
+		Comments:                   p.Comments,
+		StockShortfallAcknowledged: p.StockShortfallAcknowledged,
 	}
 }
 
@@ -190,7 +225,10 @@ func toDealPayload(d domain.Deal) dealPayload {
 	lines := make([]dealLinePayload, 0, len(d.Lines))
 	for _, line := range d.Lines {
 		lines = append(lines, dealLinePayload{
-			LineID: line.LineID, LineNo: line.LineNo, ProductType: line.ProductType, Breed: line.Breed,
+			LineID: line.LineID, LineNo: line.LineNo,
+			ProductType: line.ProductType, ProductCode: line.Code(), ProductKind: line.Kind(),
+			Breed:    line.Breed,
+			Quantity: line.Quantity, Unit: line.Unit, RatePerUnit: line.RatePerUnit,
 			AnimalCount: line.AnimalCount, MaleCount: line.MaleCount, FemaleCount: line.FemaleCount,
 			TotalWeightKg: line.TotalWeightKg, SalesValue: line.SalesValue,
 		})
