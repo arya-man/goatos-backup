@@ -65,9 +65,60 @@ export function failedTestNames(output) {
   return [...names];
 }
 
-function run(cmd, args, cwd) {
+/**
+ * Did the baseline run actually EXERCISE anything?
+ *
+ * THE DEFECT THIS EXISTS TO STOP, and it is the whole reason this file changed.
+ * Postgres tests are opt-in (`pgtest.Enabled`); with the flag unset every test in
+ * an `adapters/postgres` package SKIPS and `go test` still exits 0. The sweep read
+ * that zero as "the package passed", reverted the fix, read the second zero as
+ * "the tests still pass", and filed `disproved` — a public accusation that a
+ * perfectly good test does not notice its own fix being undone. 32 of the 38
+ * disproved rows in the stored receipts are that, not a real finding.
+ *
+ * A missing input must push toward SILENCE, never toward accusing correct work,
+ * so a run with nothing but `[no tests to run]` / `--- SKIP` is `inconclusive`.
+ */
+export function ranRealTests(output) {
+  // A SKIP is not an exercise. `--- SKIP:` prints for every test in an
+  // opt-in-gated Postgres package, so counting it would reopen the exact hole
+  // this function closes: the run looks populated and proves nothing. Only a
+  // test that reached a verdict — PASS or FAIL — counts. Callers pass -v so
+  // these lines are always printed.
+  return /^\s*---\s+(PASS|FAIL):/m.test(String(output));
+}
+
+/**
+ * The Go test functions this commit ADDED or CHANGED, read from the `+` side of
+ * its own diff.
+ *
+ * WHY THE PROOF NARROWS TO THESE. The baseline step demands the package be green
+ * before the revert, but a large package carries pre-existing reds that have
+ * nothing to do with this commit — the weighing Postgres package shipped with 33
+ * of them, named in the commit message. Judging the whole package there answers a
+ * question nobody asked: the claim under test is "THIS commit's check bites when
+ * THIS commit's code is undone", so the run is scoped to the checks the commit
+ * brought with it. A commit that touched a test file but added no new Test
+ * function falls back to the whole package, which is the old behaviour.
+ */
+export function addedTestNames(diff) {
+  const names = new Set();
+  for (const line of String(diff).split("\n")) {
+    if (!line.startsWith("+")) continue;
+    const m = /^\+\s*func\s+(Test[A-Za-z0-9_]*)\s*\(/.exec(line);
+    if (m) names.add(m[1]);
+  }
+  return [...names].sort();
+}
+
+/** An anchored -run pattern, so TestFoo never drags in TestFooBar. */
+export function runPatternFor(names) {
+  return `^(${names.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})$`;
+}
+
+function run(cmd, args, cwd, env) {
   try {
-    return { ok: true, out: execFileSync(cmd, args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 600000 }) };
+    return { ok: true, out: execFileSync(cmd, args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 1800000, env: { ...process.env, ...(env ?? {}) } }) };
   } catch (err) {
     return { ok: false, out: `${err.stdout ?? ""}${err.stderr ?? ""}` };
   }
@@ -83,9 +134,18 @@ function proveOne(worktree, row, files) {
   if (!co.ok) return { verdict: "skipped", why: "could not check the commit out" };
   run("git", ["clean", "-fdq"], worktree);
 
-  const before = run("go", ["test", "-count=1", ...pkgs], join(worktree, "backend"));
+  const diff = run("git", ["show", "--format=", "--unified=0", "--", ...files.filter((f) => /^backend\/.*_test\.go$/.test(f))], worktree).out;
+  const own = addedTestNames(diff);
+  const scope = own.length ? ["-run", runPatternFor(own)] : [];
+
+  const before = run("go", ["test", "-count=1", "-v", ...scope, ...pkgs], join(worktree, "backend"));
   if (!before.ok) {
     return { verdict: "skipped", why: "the package did not pass at this commit, so a later failure would prove nothing", detail: before.out.slice(-400) };
+  }
+  if (!ranRealTests(before.out)) {
+    // Green because nothing ran. Reverting the fix cannot make a skip go red, so
+    // the only verdicts reachable from here are false ones.
+    return { verdict: "inconclusive", why: "every test in the package skipped (Postgres tests are opt-in: set GOATOS_RUN_POSTGRES_TESTS=1 and GOATOS_PGTEST_ADMIN_DSN), so a green run proves nothing", packages: pkgs };
   }
 
   // Revert only the non-test half. A file the commit ADDED has no parent
@@ -95,7 +155,7 @@ function proveOne(worktree, row, files) {
     if (!r.ok) run("git", ["rm", "-fq", "--", f], worktree);
   }
 
-  const after = run("go", ["test", "-count=1", ...pkgs], join(worktree, "backend"));
+  const after = run("go", ["test", "-count=1", "-v", ...scope, ...pkgs], join(worktree, "backend"));
   run("git", ["checkout", "--force", "."], worktree);
 
   if (after.ok) {
@@ -105,7 +165,7 @@ function proveOne(worktree, row, files) {
   if (!names.length) {
     return { verdict: "inconclusive", why: "the package went red but no test name was printed (a build break, not a failing check)", packages: pkgs, detail: after.out.slice(-400) };
   }
-  return { verdict: "proved", check: names[0], allFailing: names.slice(0, 6), packages: pkgs };
+  return { verdict: "proved", check: names[0], allFailing: names.slice(0, 6), packages: pkgs, scopedTo: own };
 }
 
 function main() {
@@ -167,6 +227,11 @@ function main() {
   for (const r of receipts) byS.set(r.sha, r);
   const rejS = new Map((prior.rejected ?? []).map((r) => [r.sha, r]));
   for (const r of rejected) if (!byS.has(r.sha)) rejS.set(r.sha, r);
+  // A receipt RETIRES the accusation. `disproved` is published as a finding
+  // against a named commit's test, so leaving a stale one beside a fresh proof
+  // keeps accusing work that has since been shown to bite — which is the worse
+  // of the two ways to be wrong here. Anything now proved leaves `rejected`.
+  for (const sha of byS.keys()) rejS.delete(sha);
 
   const out = {
     _comment:
@@ -199,6 +264,21 @@ function selfTest() {
   assert(goPackagesFor(["apps/admin-web/x.test.mjs"]).length === 0, "only Go packages here");
   assert(revertableFor(["backend/internal/a/b_test.go", "backend/internal/a/b.go"]).join() === "backend/internal/a/b.go",
     "the test half must never be reverted — that would delete the check instead of testing it");
+  // The silent-skip trap: a Postgres package with the opt-in flag unset exits 0
+  // having run nothing. Reading that as a pass is how 32 good tests were filed
+  // as `disproved`.
+  assert(ranRealTests("ok  \tgithub.com/x/y\t1.4s [no tests to run]\n") === false,
+    "a package where every test skipped must not count as a baseline pass");
+  assert(ranRealTests("=== RUN   TestA\n--- SKIP: TestA (0.00s)\nPASS\nok\tx\t0.1s\n") === false,
+    "a package whose every test SKIPPED exercised nothing — counting it is the same hole one line over");
+  assert(ranRealTests("--- SKIP: TestA (0.00s)\n--- PASS: TestB (0.01s)\n") === true,
+    "one real verdict among skips is still a real baseline");
+  assert(addedTestNames("+func TestNewThing(t *testing.T) {\n-func TestGone(t *testing.T) {\n").join() === "TestNewThing",
+    "only the added side of the diff names a check this commit brought");
+  assert(runPatternFor(["TestFoo"]) === "^(TestFoo)$",
+    "the -run pattern is anchored so TestFoo does not drag TestFooBar in with it");
+  assert(ranRealTests("=== RUN   TestA\n--- PASS: TestA (0.01s)\nok\tx\t0.1s\n") === true,
+    "a passing named test is a real baseline");
   console.log("prove-commit-ledger-reverts: self-test ok");
 }
 
