@@ -96,6 +96,12 @@ export async function liveRoutes({ focus = false, fixtures = {}, root = repo } =
  * lists hits: the only outputs are the denominator, the numerator, and a sentence
  * for each page that is in the first and not the second.
  */
+/** Holes that need nothing but the clock; a route made only of these is never a gap. */
+export const CLOCK_HOLE_TEXT = /smokeWideWindow|getFullYear/;
+
+/** Sentences that explain a group instead of a page. None of these may reach a receipt. */
+export const BULK_EXCUSE = /^(unreachable|not covered|n\/a|unknown|skipped)\.?$|the path is built from a fixture looked up at run time/i;
+
 export function sweepCoverage({ all, resolved, assumed = [], unresolved, viewports, rows }) {
   const pagesNotJudged = [];
   const judgedPages = [];
@@ -454,18 +460,36 @@ export async function selfTestWide() {
   // THE REAL DECISION, not a copy of it. `--live` with no --focus films the whole
   // resolved table at both viewports; the 4-route phone-only list is what --focus
   // narrows to. Asserted through the same function the CLI calls.
-  const wide = await liveRoutes({});
+  const wide = await liveRoutes({ fixtures: fixturesFromEnv() });
   const narrow = await liveRoutes({ focus: true });
-  assert(wide.length >= 135, `--live must film the whole resolved table, it would film ${wide.length}`);
+  // NOT a floor equal to today's route count. A ratchet pinned to the exact
+  // current number has no headroom in one direction and no meaning in the
+  // other: add a route needing an id and it goes red for something that is not
+  // a defect. What must hold is that --live films the WHOLE table minus only
+  // the routes that are genuinely gaps.
+  const table = await import("../../apps/admin-web/scripts/lib/smoke-route-catalogue.mjs")
+    .then((m) => m.resolveRoutes(repo, { fixtures: fixturesFromEnv() }));
+  assert(wide.length === table.resolved.length + table.assumed.length,
+    `--live must film every route that has an address, ${wide.length} of ${table.resolved.length + table.assumed.length}`);
+  assert(wide.length > DEEP_FILM_ROUTES.length * 10,
+    "the live path must not have quietly gone back to an example");
   assert(narrow.length === DEEP_FILM_ROUTES.length, "--focus narrows to the deep-film subset");
-  assert(wide.length > narrow.length * 10, "the live path must not have quietly gone back to an example");
   assert(viewports.includes("laptop") && viewports.includes("mobile"),
     `both viewports must be swept, this sweeps ${viewports.join(", ")}`);
 
   // Coverage is a fraction over the WHOLE table, and every page outside the numerator
   // carries its own sentence.
   const { all, resolved, assumed, unresolved } = resolveRoutes(repo, { fixtures: fixturesFromEnv() });
-  assert(resolved.length >= 135, `the sweep must resolve at least 135 of ${all.length} routes, it resolves ${resolved.length}`);
+  // Accounting, not a floor: every route lands in exactly one bucket, and a
+  // route whose holes are all CLOCK holes is always resolved — that is the
+  // property that would break if the bulk excuse came back, and it stays true
+  // however many routes the table grows to.
+  assert(resolved.length + assumed.length + unresolved.length === all.length,
+    "every route is accounted for exactly once");
+  assert(unresolved.every((r) => r.gaps.every((g) => !CLOCK_HOLE_TEXT.test(g.hole ?? ""))),
+    "a route whose address needs nothing but the clock must never be reported as a gap");
+  assert(resolved.length > unresolved.length,
+    `most of the table must resolve from the clock alone, ${resolved.length} did of ${all.length}`);
 
   // Junk ids must NOT lift the count. They used to take it to a clean 146 of 146.
   const junk = resolveRoutes(repo, { fixtures: { goatId: "NOT-A-REAL-ID", toxinSopId: "placeholder", workflowRowId: "7", calendarEventId: "" } });
@@ -478,10 +502,14 @@ export async function selfTestWide() {
     "a well-formed but unchecked id produces an assumed route, never a resolved one");
   assert(!shaped.resolved.some((r) => r.name === "goat-passport"), "and it is not counted as resolved");
   assert(shaped.assumed[0].why.includes("never checked against a real record"), "and it says so");
-  // The shed page that pointed at a shed called `placeholder` is a gap now.
-  const shed = unresolved.find((r) => r.name === "vaccination-shed-execution-detail");
-  assert(shed, "the vaccination shed execution page must be a named gap, not a placeholder nobody opens");
-  assert(shed.gaps[0].why.includes("real vaccination shed"), "and must say what it needs");
+  // The shed page must never resolve to a shed CALLED placeholder. Stated as
+  // the property itself, so a run that supplies a real shed path still passes.
+  const shedPage = [...resolved, ...assumed].find((r) => r.name === "vaccination-shed-execution-detail");
+  assert(!shedPage || !/\bplaceholder\b/.test(shedPage.path),
+    `the vaccination shed page must not be filmed at a placeholder address (${shedPage?.path})`);
+  const shedUnprovisioned = resolveRoutes(repo, { fixtures: {} }).unresolved
+    .find((r) => r.name === "vaccination-shed-execution-detail");
+  assert(shedUnprovisioned, "with no shed supplied it is a named gap, not a page nobody opens");
   const rows = [
     { route: resolved[0].name, viewport: "laptop", judged: 2, skipped: [], findings: [] },
     { route: resolved[1].name, viewport: "laptop", judged: 0, skipped: [{ id: "opened-1", why: "nothing solid opened" }], findings: [], parked: "this page needs a signed-in session and the run did not have one" },
@@ -495,11 +523,22 @@ export async function selfTestWide() {
     `every page outside the numerator must be named, ${coverage.pagesNotJudged.length} of ${coverage.pagesExpected - 1} were`);
   assert(coverage.pagesNotJudged.every((g) => g.why && g.why.length > 15 && g.route && g.viewport),
     "every gap names its page, its viewport and why in a sentence");
+  // SHAPE, never a count of distinct reasons. Demanding at least three
+  // different unchecked reasons is a property of an UNDER-provisioned run:
+  // hand the sweep the ids it asks for and the count falls, so the gate
+  // punished the fix and taught the next person to provision it worse.
   const reasons = new Set(coverage.pagesNotJudged.map((g) => g.why));
-  assert(reasons.size >= 3, `a bulk excuse is not acceptable; this sweep gives ${reasons.size} distinct reasons`);
+  for (const why of reasons) {
+    assert(!BULK_EXCUSE.test(why), `a gap may not be explained in bulk: "${why}"`);
+  }
   assert([...reasons].some((r) => r.includes("signed-in session")), "a parked page keeps the reason it was parked for");
   assert([...reasons].some((r) => r.includes("stopped before it reached")), "a page the sweep never reached is named, not omitted");
-  assert([...reasons].some((r) => r.includes("`goatId`")), "a route missing an id says which id");
+  // Only assert the missing-id sentence when a route is ACTUALLY missing an id.
+  for (const route of unresolved) {
+    for (const gap of route.gaps) {
+      assert(/`[A-Za-z.\-]+`/.test(gap.why), `${route.name} must name the thing it is missing: "${gap.why}"`);
+    }
+  }
   assert(coverage.overlaysNotJudged.some((o) => o.why === "nothing solid opened" && o.route && o.viewport),
     "a dialog that was not judged is named with its page");
 
