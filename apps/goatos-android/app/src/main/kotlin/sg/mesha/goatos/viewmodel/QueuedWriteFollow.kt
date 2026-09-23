@@ -24,7 +24,12 @@ sealed interface QueuedWriteOutcome {
     data object Saved : QueuedWriteOutcome
     data object StillQueued : QueuedWriteOutcome
     /** [field] is the ONE input the server named as refused (a questionnaire question id), when it did. */
-    data class Rejected(val reason: String?, val field: String? = null) : QueuedWriteOutcome
+    /**
+     * [code] is the SERVER's stable error code behind [reason]. A screen that must act on a
+     * particular refusal -- offering to confirm a sale the feed store says is short, say -- keys
+     * on this and never on the sentence, which is farm copy and may be reworded.
+     */
+    data class Rejected(val reason: String?, val field: String? = null, val code: String? = null) : QueuedWriteOutcome
 }
 
 const val DEFAULT_OFFLINE_AFTER_MS = 5_000L
@@ -46,7 +51,11 @@ fun SyncRepository.followQueuedWrite(
         when {
             item == null -> null
             item.status == SyncItemStatus.SUCCEEDED -> QueuedWriteOutcome.Saved
-            item.conflict || item.isDeadLetter -> QueuedWriteOutcome.Rejected(item.lastError, item.lastErrorField?.takeIf { it.isNotBlank() })
+            item.conflict || item.isDeadLetter -> QueuedWriteOutcome.Rejected(
+                item.lastError,
+                item.lastErrorField?.takeIf { it.isNotBlank() },
+                item.lastErrorCode?.takeIf { it.isNotBlank() },
+            )
             else -> null
         }
     }
