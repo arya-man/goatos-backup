@@ -39,6 +39,27 @@ func TestWeighingCaptureDTOsMatchTheirOpenAPISchemas(t *testing.T) {
 					t.Errorf("%T emits %q, which %s does not declare -- no client can see it", tc.dto, field, tc.schema)
 				}
 			}
+			// EVERY DECLARED PROPERTY, NOT ONLY THE REQUIRED ONES. The `required` loop above
+			// was the whole schema->DTO direction, and almost nothing here is required: a
+			// capture field is optional precisely so an older app that sends neither keeps
+			// working. Deleting `proofs`/`answers` from both submit requests therefore tripped
+			// NEITHER check -- not required, so the first loop skipped it; not emitted, so the
+			// second loop skipped it -- and the test stayed green while the phone's captures
+			// were dropped on the floor. That is exactly "a schema field nothing fills", the
+			// drift this file's own header claims to catch.
+			for field := range properties {
+				if field == "*" {
+					// The scanner's open-map marker, not a declared field name.
+					continue
+				}
+				if emitted[field] {
+					continue
+				}
+				if weighingNotOnTheWire[tc.schema+"."+field] {
+					continue
+				}
+				t.Errorf("%s declares %q, but %T never emits it -- the schema promises a field nothing fills", tc.schema, field, tc.dto)
+			}
 		})
 	}
 	// The two capture sections are DISTINCT in the contract: per-animal slots are the
@@ -49,6 +70,11 @@ func TestWeighingCaptureDTOsMatchTheirOpenAPISchemas(t *testing.T) {
 		t.Fatal("both capture ref shapes must be declared")
 	}
 }
+
+// A declared property the Go struct deliberately does not carry. Every entry is a claim that
+// the field is not this DTO's to emit, and each must say why -- an unexplained entry here is
+// how the both-ways check would be hollowed back out one field at a time.
+var weighingNotOnTheWire = map[string]bool{}
 
 func weighingEmittedJSONKeys(t *testing.T, dto any) map[string]bool {
 	t.Helper()
