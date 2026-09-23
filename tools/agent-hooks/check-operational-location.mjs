@@ -651,6 +651,39 @@ const CHECKS = [
     msg: "TypeScript string concatenation of shed name with partition label; use lib/operational-location.ts helpers instead",
   },
   {
+    id: "display-fallback-bypass",
+    // THE RECURRENCE ENGINE. 475312f5d replaced ad-hoc
+    //   row.operational_location_display || row.shed_label
+    // rendering with operationalLocationLabel() across 8 admin-web files plus Android
+    // and Go -- and every later sighting ("Mandela 1 - Part 1 - Part 1" on the weighing
+    // schedule, e2a70f3db; the bucket-row chain pinned by 1a256a225) came back through a
+    // call site that had never been converted.
+    //
+    // The shape is always the same: a component takes the backend's composed display
+    // when it is present, and when it is NOT, falls back to a RAW SHED NAME
+    // (shed_label, shed_display_name, display_name, shed_name). That fallback silently
+    // drops the partition, which is the "just godel1 without partition" report, and on
+    // the surfaces that then append a partition to it, it is the doubling report.
+    //
+    // The approved form keeps the same preference order but routes the fallback through
+    // the one helper that knows the separator rule:
+    //   row.operational_location_display || operationalLocationLabel({ shedName, partitionLabel })
+    //
+    // Checked across the line and its successor because these sites are JSX and the
+    // fallback routinely wraps.
+    test: (line, file, lines, i) => {
+      if (!/apps\/admin-web\/.*\.(ts|tsx)$/.test(file)) return false;
+      if (file.includes("lib/operational-location.ts")) return false; // the approved home
+      if (/^\s*(\/\/|\/\*|\*)/.test(line)) return false;
+      if (!/\b(?:operational_location_display|operationalLocationDisplay)\s*\|\|/.test(line)) return false;
+      // The fallback may sit on the next line in wrapped JSX / multi-line call arguments.
+      const window = `${line} ${lines?.[i + 1] ?? ""} ${lines?.[i + 2] ?? ""}`;
+      if (/operationalLocationLabel\s*\(/.test(window)) return false;
+      return true;
+    },
+    msg: "location label rendered with a raw shed-name fallback; route the fallback through operationalLocationLabel() from lib/operational-location.ts so a missing display cannot drop the partition",
+  },
+  {
     id: "kt-display-drift",
     // Detect Kotlin string concatenation of shed names with partition labels
     // outside PartitionLabel.kt. Same defect shape as go-display-drift.
@@ -1040,6 +1073,47 @@ function selfTest() {
       "apps/admin-web/features/weighing/schedule.tsx",
       `const label = operationalLocationLabel({ shedName: row.displayName, partitionLabel: row.partitionLabel });`,
       "composed-name-into-composer",
+    ],
+    // --- display-fallback-bypass -------------------------------------------
+    // The rendering 475312f5d converted away from, in the exact shapes still live.
+    [
+      "apps/admin-web/features/weighing/weights.tsx",
+      `      label: row.operational_location_display || row.shed_display_name,`,
+      "display-fallback-bypass",
+    ],
+    [
+      "apps/admin-web/features/verification-review/verification-review-drawer.tsx",
+      `              {renderLabelOrFallback(item.operational_location_display || item.shed_label)}`,
+      "display-fallback-bypass",
+    ],
+    [
+      "apps/admin-web/lib/api/herd-locations.ts",
+      `        label: pen.operational_location_display || pen.shed_name,`,
+      "display-fallback-bypass",
+    ],
+    // the APPROVED form -- same preference order, helper as the fallback -- must stay clean
+    [
+      "apps/admin-web/features/weighing/weights.tsx",
+      `      label: row.operational_location_display || operationalLocationLabel({ shedName: row.shed_display_name, partitionLabel: row.partition_label }),`,
+      null,
+    ],
+    // and the approved form still counts when the fallback wraps onto the next line
+    [
+      "apps/admin-web/features/weighing/weights.tsx",
+      `      label: row.operational_location_display ||\n        operationalLocationLabel({ shedName: row.shed_name, partitionLabel: row.partition_label }),`,
+      null,
+    ],
+    // a non-location `||` fallback is none of this check's business
+    [
+      "apps/admin-web/features/weighing/weights.tsx",
+      `      label: row.display_name || row.shed_display_name,`,
+      null,
+    ],
+    // the helper's own home is exempt
+    [
+      "apps/admin-web/lib/operational-location.ts",
+      `  const label = input.operational_location_display || shed;`,
+      null,
     ],
     // the FIXED forms must stay clean
     [
@@ -1720,6 +1794,74 @@ function main() {
     "backend/internal/vaccinationexecution/adapters/postgres/repository.go|sql-display-drift",
     "backend/cmd/backfill-verification-subject-labels/main.go|sql-display-drift",
   ]);
+
+  // The 27 admin-web call sites that still render a location label with a RAW SHED-NAME
+  // fallback instead of operationalLocationLabel(). Every one is a place the next
+  // "godel1 without partition" / "Castro 1 1" recurrence can come from.
+  //
+  // 22 are the snake_case shape (`operational_location_display || row.shed_label`). The
+  // other 5 are the SAME defect spelled in camelCase (`operationalLocationDisplay ||
+  // c.shedName`) in preventive-care-vaccination and vaccination-sheds. Hand greps for
+  // this class have always been written against the snake_case field name, which is why
+  // those five have never appeared on a list -- the check matches both spellings so the
+  // wire name a surface happens to use cannot hide it.
+  //
+  // Counted, not just listed. A file-keyed allowlist would let weights.tsx grow a ninth
+  // bypass without a word, and weights.tsx is where two of these already shipped. So the
+  // baseline records HOW MANY each file is known to have: one more fails the build, and
+  // one fewer fails it too, with an instruction to lower the number. Shrink-only, and it
+  // can only reach zero.
+  //
+  // Adding to these counts is not an accepted way to land code. Lower them as sites are
+  // converted; delete the entry at zero.
+  const FALLBACK_BYPASS_BASELINE = new Map([
+    ["apps/admin-web/features/alerts/alerts-page.tsx", 1],
+    ["apps/admin-web/features/verification-review/verification-review-drawer.tsx", 1],
+    ["apps/admin-web/features/verification-review/verification-review-page.tsx", 3],
+    ["apps/admin-web/features/weighing/weights-analytics.tsx", 4],
+    ["apps/admin-web/features/weighing/weights.tsx", 8],
+    ["apps/admin-web/features/work-board/work-board-board.tsx", 2],
+    ["apps/admin-web/features/work-board/work-board-modal.tsx", 2],
+    ["apps/admin-web/lib/api/herd-locations.ts", 1],
+    // camelCase spelling of the same defect
+    ["apps/admin-web/features/preventive-care-vaccination/cohort-detail.tsx", 1],
+    ["apps/admin-web/features/preventive-care-vaccination/status-matrix.tsx", 2],
+    ["apps/admin-web/features/vaccination-sheds/shed-board.tsx", 2],
+  ]);
+
+  const bypassByFile = new Map();
+  for (const p of problems) {
+    const m = /^([^:]+):\d+: \[display-fallback-bypass\]/.exec(p);
+    if (m) bypassByFile.set(m[1], (bypassByFile.get(m[1]) ?? 0) + 1);
+  }
+  const bypassProblems = [];
+  for (const [file, count] of bypassByFile) {
+    const known = FALLBACK_BYPASS_BASELINE.get(file) ?? 0;
+    if (count > known) {
+      bypassProblems.push(
+        `${file}: [display-fallback-bypass] ${count} location labels fall back to a raw shed name, baseline is ${known}. ` +
+          `Route the new one through operationalLocationLabel() -- do not raise the baseline.`
+      );
+    }
+  }
+  for (const [file, known] of FALLBACK_BYPASS_BASELINE) {
+    const count = bypassByFile.get(file) ?? 0;
+    if (count < known) {
+      bypassProblems.push(
+        `${file}: [display-fallback-bypass] baseline claims ${known} bypasses but only ${count} remain. ` +
+          `Lower the entry to ${count} (delete it at 0) so the ratchet keeps holding.`
+      );
+    }
+  }
+  const bypassTotal = [...bypassByFile.values()].reduce((a, b) => a + b, 0);
+  problems = problems.filter((p) => !/^[^:]+:\d+: \[display-fallback-bypass\]/.test(p)).concat(bypassProblems);
+  if (bypassTotal > 0 && bypassProblems.length === 0) {
+    console.error(
+      `operational-location guard: ${bypassTotal} BASELINED location-label bypass(es) across ` +
+        `${bypassByFile.size} admin-web file(s) (pre-existing debt, not failing the build). ` +
+        `Each renders a location label with a raw shed-name fallback; convert one whenever you touch these files.`
+    );
+  }
 
   const baselined = [];
   problems = problems.filter((p) => {

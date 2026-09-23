@@ -404,6 +404,14 @@ function issueRules() {
   [/accessibility violations/, null],
   [/new commit\(s\) need smoke coverage/, "New work shipped with no smoke check covering it"],
   [/assertion\(s\) need review/, "Some smoke checks point at screen text that no longer exists"],
+  // Pen / partition labels. The page name and the pen text itself come from the shared
+  // formatting below, so these read as e.g.
+  //   Weights Analytics (phone) — A pen is shown with its part number twice — "Godel 1 - Part 1 - Part 1"
+  [/P-pen-part-doubled/, "A pen is shown with its part number twice"],
+  [/P-pen-number-doubled/, "A pen is shown with its number twice"],
+  [/P-pen-partition-missing/, "A pen is shown without its part number"],
+  [/P-pen-separator-wrong/, "A pen's name is written in the wrong style"],
+  [/P-pen-whole-leaked/, "A pen shows the word whole instead of the shed name"],
   ...findingKindRules(), // --- finding kinds (additive) ---
   ];
 }
