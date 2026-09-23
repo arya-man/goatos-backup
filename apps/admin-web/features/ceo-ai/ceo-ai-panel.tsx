@@ -622,6 +622,12 @@ export function CeoAiPanel({
           requestId: m.request_id,
           messageId: m.message_id ?? m.id,
           citations: m.citations,
+          chart: m.chart,
+          files: m.files?.map((f) => ({
+            name: f.name,
+            type: f.type ?? "",
+            url: `/api/ceo-ai/conversations/${encodeURIComponent(id)}/files/${encodeURIComponent(f.id)}`,
+          })),
         };
         return message;
       });
@@ -632,6 +638,7 @@ export function CeoAiPanel({
 
   const removeThread = useCallback(
     async (id: string) => {
+      if (!window.confirm("Delete this chat?")) return;
       const ok = await deleteConversation(id).catch(() => false);
       if (ok) {
         trackCeoAiEvent(CeoAiEvents.DeleteChat);

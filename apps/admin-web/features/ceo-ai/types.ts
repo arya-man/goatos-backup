@@ -36,6 +36,9 @@ export type ConversationSummary = {
 // Backend messages payload row (for resuming a thread).
 export type StoredMessage = {
   id?: string;
+  // Coding-agent backend only: attachment refs on user turns, chart on answers.
+  files?: { id: string; name: string; type?: string }[];
+  chart?: CeoAiChart;
   message_id?: string;
   role?: string;
   content?: string;
