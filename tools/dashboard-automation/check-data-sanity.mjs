@@ -44,9 +44,34 @@ export function enforcedStatementTimeoutMs(requested) {
   return Math.min(asked, INCIDENT_RULES.statementTimeoutMs);
 }
 
+// THE one lock. There is exactly one production database to protect, so there is exactly one
+// lock that protects it. A caller-supplied path is not a second lock, it is no lock: two sweeps
+// naming different files both take "the lock" and both hit the database at once.
+export function sharedRunLockPath() {
+  return path.join(os.homedir(), ".cache/goatos-dashboard-automation.lock");
+}
+
+/**
+ * Whether the lock actually being taken is the shared one. A test may point somewhere else, and
+ * that is fine - but the receipt then says a private lock was taken, never that the lock was held.
+ */
+export function isSharedRunLock(lockPath) {
+  return path.resolve(String(lockPath ?? "")) === path.resolve(sharedRunLockPath());
+}
+
+/**
+ * A reason that is on the record has to mean something to whoever reads it after the next
+ * incident. Twelve characters of the same letter passes a length test and tells them nothing.
+ */
+export function reasonIsSubstantive(reason) {
+  const text = String(reason ?? "").trim();
+  const words = text.split(/\s+/).filter((word) => word.length >= 2);
+  const distinct = new Set(text.toLowerCase().replace(/[^a-z]/g, ""));
+  return words.length >= 3 && distinct.size >= 8;
+}
+
 // Refuses rather than queues, exactly like the shell wrapper's flock.
-export function acquireRunLock(lockPath = process.env.GOATOS_DASHBOARD_LOCK_FILE
-  || path.join(os.homedir(), ".cache/goatos-dashboard-automation.lock")) {
+export function acquireRunLock(lockPath = process.env.GOATOS_DASHBOARD_LOCK_FILE || sharedRunLockPath()) {
   mkdirSync(path.dirname(lockPath), { recursive: true });
   const holderPath = `${lockPath}.holder`;
   let fd;
@@ -62,18 +87,19 @@ export function acquireRunLock(lockPath = process.env.GOATOS_DASHBOARD_LOCK_FILE
       try { unlinkSync(holderPath); } catch { /* raced with another taker */ }
       return acquireRunLock(lockPath);
     }
-    return { acquired: false, holder, release() {} };
+    return { acquired: false, shared: isSharedRunLock(lockPath), lockPath: String(lockPath), holder, release() {} };
   }
   writeSync(fd, `pid ${process.pid} on ${os.hostname()} at ${new Date().toISOString()}\n`);
   closeSync(fd);
   let released = false;
+  const shared = isSharedRunLock(lockPath);
   const release = () => {
     if (released) return;
     released = true;
     try { unlinkSync(holderPath); } catch { /* already gone */ }
   };
   process.once("exit", release);
-  return { acquired: true, holder: `pid ${process.pid}`, release };
+  return { acquired: true, shared, lockPath: String(lockPath), holder: `pid ${process.pid}`, release };
 }
 
 function processIsAlive(pid) {
@@ -349,8 +375,8 @@ function main() {
   // claim a safety rule held when it did not. Skipping the lock now needs an acknowledgement,
   // and the skip is recorded in the receipt and named in the Slack sentence.
   const lockSkipAck = process.env.GOATOS_DASHBOARD_RUN_LOCK_SKIP_ACK ?? "";
-  if (args.noRunLock && lockSkipAck.trim().length < 12) {
-    console.error("--no-run-lock needs GOATOS_DASHBOARD_RUN_LOCK_SKIP_ACK set to why no lock is being taken; refusing to run unlocked without a reason on the record");
+  if (args.noRunLock && !reasonIsSubstantive(lockSkipAck)) {
+    console.error("--no-run-lock needs GOATOS_DASHBOARD_RUN_LOCK_SKIP_ACK set to a real sentence saying why no lock is being taken; a string of repeated characters is not a reason and will not be written to the record");
     return 2;
   }
   const lock = args.noRunLock
@@ -366,7 +392,11 @@ function main() {
       ...INCIDENT_RULES,
       statementTimeoutMs: enforcedStatementTimeoutMs(catalogue.statementTimeoutMs),
       // Truthful, always. `runLock` says the rule exists; these two say what this run did.
-      runLockHeld: Boolean(lock.acquired) && !lock.skipped,
+      // Held means THE shared lock. A private lock file is recorded as what it is, because two
+      // sweeps each holding their own lock ran at once and both receipts said the lock was held.
+      runLockHeld: Boolean(lock.acquired) && !lock.skipped && lock.shared === true,
+      runLockIsShared: lock.skipped ? false : Boolean(lock.shared),
+      runLockFile: lock.skipped ? null : (lock.lockPath ?? null),
       runLockSkipped: Boolean(lock.skipped),
       runLockSkipReason: lock.skipped ? lockSkipAck.trim() : null
     },
@@ -530,6 +560,13 @@ function main() {
   report.findings.sort((a, b) => severityRank(a.severity) - severityRank(b.severity) || b.rowCount - a.rowCount);
   report.status = report.findings.length ? "fail" : (report.parked.length ? "degraded" : "pass");
   report.slackLayerMessage = layerSentence(report.findings, report.parked);
+  if (!lock.skipped && lock.shared === false) {
+    report.parked.push({
+      name: "run lock",
+      reason: "this sweep held a private lock file, not the one shared with every other sweep, so it did not stop another sweep running at the same time"
+    });
+    report.slackLayerMessage = `${report.slackLayerMessage} This check did not hold the lock shared with other checks.`;
+  }
   if (lock.skipped) {
     report.parked.push({
       name: "run lock",
@@ -751,6 +788,41 @@ function selfTest() {
     if (/runLockHeld:\s*lock\.acquired\b/.test(runner)) {
       throw new Error("self-test: runLockHeld must not read true for a run that skipped the lock");
     }
+  }
+
+  // TWO SWEEPS RAN AT ONCE AND BOTH RECEIPTS SAID THE LOCK WAS HELD, because the path came from
+  // an environment variable nobody checked. A private lock is not a lock.
+  if (isSharedRunLock(sharedRunLockPath()) !== true) throw new Error("self-test: the shared lock must recognise itself");
+  if (isSharedRunLock(path.join(os.tmpdir(), "somewhere-else.lock"))) {
+    throw new Error("self-test: a private lock file must not read as the shared one");
+  }
+  {
+    const runner = readFileSync(fileURLToPath(import.meta.url), "utf8");
+    if (!runner.includes("lock.shared === true")) {
+      throw new Error("self-test: the receipt must only claim the lock was held when it was the shared one");
+    }
+    if (!runner.includes("runLockFile")) throw new Error("self-test: the receipt must name which lock was taken");
+  }
+  // Two sweeps on two private paths must BOTH report that they are not the shared lock.
+  {
+    const a = path.join(os.tmpdir(), `goatos-lock-a-${process.pid}.lock`);
+    const b = path.join(os.tmpdir(), `goatos-lock-b-${process.pid}.lock`);
+    const first = acquireRunLock(a);
+    const second = acquireRunLock(b);
+    if (!first.acquired || !second.acquired) throw new Error("self-test: two private locks are both takeable, which is the defect");
+    if (first.shared || second.shared) throw new Error("self-test: neither private lock may read as the shared one");
+    first.release();
+    second.release();
+  }
+
+  // A reason on the record has to mean something. This filters MECHANICAL filler - a repeated
+  // character, a repeated word - and cannot judge sincerity; no check can. It is the difference
+  // between a reason somebody wrote and a string that satisfied a length test.
+  for (const empty of ["", "   ", "xxxxxxxxxxxx", "aaaa aaaa aaaa", "test test test", "ok", "skip it"]) {
+    if (reasonIsSubstantive(empty)) throw new Error(`self-test: ${JSON.stringify(empty)} must not pass as a reason`);
+  }
+  if (!reasonIsSubstantive("running offline against a local throwaway clone")) {
+    throw new Error("self-test: a real sentence must pass as a reason");
   }
 
   // The run lock refuses a second sweep rather than queueing behind it.
