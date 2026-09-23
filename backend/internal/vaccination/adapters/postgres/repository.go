@@ -2010,6 +2010,58 @@ active AS (
    AND e.obligation_id = vc.obligation_id
    AND e.goat_id = vc.goat_id
   WHERE vc.status IN ('recorded', 'accepted')
+  UNION
+  SELECT vc.completion_id,
+         vc.tenant_id,
+         vc.obligation_id,
+         vc.goat_id,
+         vc.administered_at
+  FROM vaccination_completions vc
+  JOIN task_ctx tc
+    ON tc.tenant_id = vc.tenant_id
+   AND tc.goat_id = vc.goat_id
+  JOIN obligation_instances oi
+    ON oi.tenant_id = vc.tenant_id
+   AND oi.obligation_id = vc.obligation_id
+   AND oi.target_type = 'goat'
+   AND oi.target_id = tc.goat_id
+   AND (
+        oi.sop_task_id = tc.task_id
+        OR (tc.task_batch_id IS NOT NULL AND oi.batch_id = tc.task_batch_id)
+   )
+   AND (
+        (
+          tc.proof_obligation_id IS NOT NULL
+          AND oi.obligation_id = tc.proof_obligation_id
+          AND oi.row_version = tc.proof_obligation_row_version
+        )
+        OR EXISTS (
+          SELECT 1
+          FROM jsonb_array_elements(COALESCE(tc.proof_obligation_cycles, '[]'::jsonb)) cycle
+          WHERE NULLIF(cycle ->> 'obligation_id', '')::uuid = oi.obligation_id
+            AND (cycle ->> 'obligation_row_version') ~ '^[0-9]+$'
+            AND (cycle ->> 'obligation_row_version')::integer = oi.row_version
+        )
+        OR NOT tc.has_obligation_cycle_metadata
+   )
+  WHERE vc.status IN ('recorded', 'accepted')
+    AND vc.idempotency_key = 'vaccination:proof_upload:' || tc.proof_id::text || ':obligation:' || vc.obligation_id::text
+    AND oi.status NOT IN ('waived', 'canceled', 'superseded')
+    AND (
+      tc.task_batch_id IS NULL
+      OR EXISTS (
+        SELECT 1
+        FROM vaccination_drive_assignment_members member
+        JOIN vaccination_drive_assignments assignment
+          ON assignment.tenant_id = member.tenant_id
+         AND assignment.assignment_id = member.assignment_id
+        WHERE member.tenant_id = tc.tenant_id
+          AND member.goat_id = tc.goat_id
+          AND member.obligation_id = oi.obligation_id
+          AND member.canceled_at IS NULL
+          AND assignment.batch_id = tc.task_batch_id
+      )
+    )
 )
 SELECT DISTINCT ON (a.obligation_id)
        a.completion_id::text,

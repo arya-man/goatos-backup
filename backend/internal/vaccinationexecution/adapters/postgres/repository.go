@@ -4551,9 +4551,9 @@ WITH scoped AS (
          COALESCE(ovr.override_date, vda.planned_date) AS eff_date,
          vda.operator_id
   FROM obligation_instances oi
-  JOIN vaccination_drive_assignment_members m ON m.obligation_id = oi.obligation_id AND m.tenant_id = oi.tenant_id
-  JOIN vaccination_drive_assignments vda ON vda.assignment_id = m.assignment_id
-  JOIN protocol_rules pr ON pr.rule_id = oi.rule_id
+  JOIN vaccination_drive_assignment_members m ON m.obligation_id = oi.obligation_id AND m.tenant_id = oi.tenant_id AND m.canceled_at IS NULL
+  JOIN vaccination_drive_assignments vda ON vda.assignment_id = m.assignment_id AND vda.tenant_id = m.tenant_id
+  JOIN protocol_rules pr ON pr.rule_id = oi.rule_id AND pr.tenant_id = oi.tenant_id
   JOIN protocol_versions pv ON pv.tenant_id = oi.tenant_id AND pv.protocol_version_id = oi.protocol_version_id
   JOIN protocol_definitions pd ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id AND pd.category = 'vaccination'
   LEFT JOIN vaccination_drive_date_overrides ovr
