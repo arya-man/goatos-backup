@@ -552,11 +552,20 @@ export async function selfTestWide() {
   assert([...reasons].some((r) => r.includes("signed-in session")), "a parked page keeps the reason it was parked for");
   assert([...reasons].some((r) => r.includes("stopped before it reached")), "a page the sweep never reached is named, not omitted");
   // Only assert the missing-id sentence when a route is ACTUALLY missing an id.
+  // The gap names its page and what is missing in FARM words; the machine name
+  // of the missing thing rides a field beside it. §2 bans property names and
+  // code from a finding, and the first version of these sentences printed both.
   for (const route of unresolved) {
     for (const gap of route.gaps) {
-      assert(/`[A-Za-z.\-]+`/.test(gap.why), `${route.name} must name the thing it is missing: "${gap.why}"`);
+      assert(gap.why.includes(route.name), `a gap must name its own page: "${gap.why}"`);
+      assert(!/[`$]|encodeURIComponent|\$\{/.test(gap.why), `a finding may not print code at a person: "${gap.why}"`);
+      assert("needs" in gap, `${route.name} must carry the machine name of what it needs in a field, not in the sentence`);
     }
   }
+  // And no two pages may share one sentence: two toxin pages did.
+  const gapSentences = unresolved.flatMap((r) => r.gaps.map((g) => g.why));
+  assert(new Set(gapSentences).size === gapSentences.length,
+    "every gap needs its own sentence; two pages sharing one is a bulk excuse in disguise");
   assert(coverage.overlaysNotJudged.some((o) => o.why === "nothing solid opened" && o.route && o.viewport),
     "a dialog that was not judged is named with its page");
 

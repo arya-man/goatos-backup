@@ -56,10 +56,16 @@ export function reachableRoutes(repoRoot, source = SMOKE_SOURCE) {
 // ---------------------------------------------------------------------------
 //
 // `reachableRoutes` calls them all "needs a fixture" and that single sentence was
-// doing too much work: it covered 21 routes whose only hole is a DATE WINDOW the
-// smoke script computes from the clock, with no live lookup anywhere, and 7 that
-// genuinely need an id out of the database. Reporting 118 of 146 with one bulk
-// excuse hid 21 pages that could have been swept all along.
+// doing too much work. Most of those routes need nothing but the CLOCK — a date
+// window and a year the smoke script computes locally, with no lookup anywhere —
+// and only the rest genuinely need an id out of the database. Reporting 118 of
+// 146 behind one bulk excuse hid every one of the clock-only pages.
+//
+// The split today is 17 rescued by the clock and 11 that still need a real
+// record; an earlier version of this comment said 21 and 7, which the code
+// underneath it never produced. §8 again: a code comment is not a contract, and
+// the numbers here are worth re-deriving rather than trusting — `resolveRoutes`
+// is the only thing that actually answers it.
 //
 // So every hole is resolved against a named table. A hole this table does not know
 // is unresolved WITH ITS OWN EXPRESSION in the reason — never folded into a group —
@@ -144,15 +150,15 @@ const RECORD_ID = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
  * and not a `resolved` one — see `resolveRoutes`.
  */
 export function fixtureIdProblem(value, { isPath = false } = {}) {
-  if (value === undefined || value === null) return "none was supplied to the sweep";
+  if (value === undefined || value === null) return "the sweep was not given one";
   const text = String(value).trim();
-  if (SENTINEL_IDS.has(text.toLowerCase())) return `the value supplied was "${text}", which is a placeholder rather than a record`;
+  if (SENTINEL_IDS.has(text.toLowerCase())) return `what it was given ("${text}") is a stand-in rather than a real one`;
   if (isPath) {
-    if (!text.startsWith("/")) return `the value supplied ("${text}") is not a page address`;
-    if (/\bplaceholder\b/.test(text)) return `the address supplied ("${text}") points at a placeholder page nobody opens`;
+    if (!text.startsWith("/")) return `what it was given ("${text}") is not a page address`;
+    if (/\bplaceholder\b/.test(text)) return `the address it was given ("${text}") points at a stand-in page nobody opens`;
     return null;
   }
-  if (!RECORD_ID.test(text)) return `the value supplied ("${text}") is not shaped like a record id this farm stores`;
+  if (!RECORD_ID.test(text)) return `what it was given ("${text}") is not shaped like anything this farm has a record of`;
   return null;
 }
 
@@ -185,14 +191,22 @@ export function resolveRoutes(repoRoot, { fixtures = {}, now = new Date(), sourc
     for (const hole of holes) {
       const spec = ROUTE_HOLES[hole];
       if (!spec) {
-        gaps.push({ hole, why: `this route's address is built from \`${hole}\`, an expression the route resolver has never been taught to fill` });
+        gaps.push({
+          hole,
+          needs: null,
+          why: `the ${route.name} page is built in a way this check has never been taught to follow, so its address cannot be worked out`,
+        });
         continue;
       }
       if (spec.kind === "clock") { path = path.split(hole).join(spec.fill(ctx)); continue; }
       const value = lookupFixture(fixtures, spec.needs);
       const problem = fixtureIdProblem(value, { isPath: spec.isPath });
       if (problem) {
-        gaps.push({ hole, why: `this route's address needs ${spec.what}, and ${problem} (\`${spec.needs}\`)` });
+        gaps.push({
+          hole,
+          needs: spec.needs,
+          why: `the ${route.name} page cannot be opened without ${spec.what}, and ${problem}`,
+        });
         continue;
       }
       const text = String(value).trim();
@@ -210,7 +224,7 @@ export function resolveRoutes(repoRoot, { fixtures = {}, now = new Date(), sourc
         resolvedPath: path,
         path,
         unverified,
-        why: `this route's address was built from ${unverified.map((n) => `\`${n}\``).join(" and ")}, which the sweep was handed but never checked against a real record, so a not-found page here would be judged as the page itself`,
+        why: `the ${route.name} page was opened using details the sweep was handed but never checked against a real record, so a not-found screen here would be judged as though it were the page itself`,
       });
     } else resolved.push({ ...route, resolvedPath: path, path });
   }

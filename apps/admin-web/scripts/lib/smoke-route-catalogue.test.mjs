@@ -52,14 +52,18 @@ test("an unresolved route carries its own reason, never a shared one", () => {
     assert.ok(route.gaps.length > 0, `${route.name} must say what it is missing`);
     for (const gap of route.gaps) {
       assert.ok(gap.why.length > 20, `${route.name} needs a sentence, not a label`);
-      assert.ok(gap.why.includes("`"), `${route.name} must name the thing it wants`);
+      assert.ok(gap.why.includes(route.name), `${route.name} must name its own page`);
+      assert.ok(!/[`$]/.test(gap.why), `a finding may not print code at a person: "${gap.why}"`);
+      assert.ok("needs" in gap, `${route.name} carries the machine name in a field, not the sentence`);
       reasons.add(gap.why);
     }
   }
   // Ten routes, ten distinct things missing. One reason covering all of them is the
   // bulk excuse this replaced.
-  assert.ok(reasons.size >= 8, `expected a distinct reason per missing id, got ${reasons.size}`);
-  assert.ok(unresolved.some((r) => r.name === "goat-passport" && r.gaps[0].why.includes("one animal")));
+  assert.equal(reasons.size, unresolved.flatMap((r) => r.gaps).length,
+    "every gap has its own sentence; two toxin pages used to share one");
+  assert.ok(unresolved.some((r) => r.name === "goat-passport" && r.gaps[0].needs === "goatId"),
+    "and the machine name rides a field beside the sentence");
 });
 
 const UUID = (n) => `3f2504e0-4f89-41d3-9a0c-0305e82c33${String(n).padStart(2, "0")}`;
@@ -81,6 +85,7 @@ test("an id nobody checked is ASSUMED, never resolved", () => {
   assert.ok(!resolved.some((r) => r.name === "goat-passport"), "and is never counted as resolved");
   for (const route of assumed) {
     assert.match(route.why, /never checked against a real record/);
+    assert.ok(!/[`$]/.test(route.why), "an assumed route's sentence prints no code either");
     assert.ok(route.unverified.length > 0, `${route.name} names the id it trusted`);
   }
 });
@@ -110,11 +115,11 @@ test("a value that is not a record id resolves nothing at all", () => {
 
 test("fixtureIdProblem names what is wrong, and passes a real id", () => {
   assert.equal(fixtureIdProblem(UUID(1)), null);
-  assert.match(fixtureIdProblem(undefined), /none was supplied/);
-  assert.match(fixtureIdProblem("placeholder"), /placeholder rather than a record/);
-  assert.match(fixtureIdProblem("7"), /not shaped like a record id/);
+  assert.match(fixtureIdProblem(undefined), /was not given one/);
+  assert.match(fixtureIdProblem("placeholder"), /stand-in rather than a real one/);
+  assert.match(fixtureIdProblem("7"), /not shaped like anything this farm has a record of/);
   assert.equal(fixtureIdProblem("/vaccination/execution/sheds/abc", { isPath: true }), null);
-  assert.match(fixtureIdProblem("/vaccination/execution/sheds/placeholder", { isPath: true }), /placeholder page nobody opens/);
+  assert.match(fixtureIdProblem("/vaccination/execution/sheds/placeholder", { isPath: true }), /stand-in page nobody opens/);
 });
 
 test("the vaccination shed page is a gap, not a shed called placeholder", () => {
@@ -127,6 +132,7 @@ test("the vaccination shed page is a gap, not a shed called placeholder", () => 
   const shed = unresolved.find((r) => r.name === "vaccination-shed-execution-detail");
   assert.ok(shed, "it is a named gap");
   assert.match(shed.gaps[0].why, /real vaccination shed execution page/);
+  assert.equal(shed.gaps[0].needs, "vaccinationShedPath");
 });
 
 test("the sweep window is an India business date, never a UTC instant", () => {
