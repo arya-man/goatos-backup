@@ -59,8 +59,11 @@ func TestAMilkQuestionAnsweredFromTheAnimalScopeViewIsRefused(t *testing.T) {
 		t.Errorf("the refusal must name the source that actually ran, got %q", view)
 	}
 	refusal := substitutedSubjectRefusal(subject, view)
-	if !strings.Contains(refusal, "don't track milk feeding") || !strings.Contains(refusal, "animal_current_scope") {
-		t.Errorf("refusal must say what is untracked and which source ran: %q", refusal)
+	if !strings.Contains(refusal, "source for milk feeding") || !strings.Contains(refusal, "animal_current_scope") {
+		t.Errorf("refusal must say what it has no source for and which source ran: %q", refusal)
+	}
+	if strings.Contains(refusal, "in Goat OS") {
+		t.Errorf("refusal must not claim the product does not track it: %q", refusal)
 	}
 }
 

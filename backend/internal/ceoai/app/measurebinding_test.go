@@ -83,8 +83,15 @@ func TestASubjectNothingModelsIsRefusedRatherThanAnsweredFromANeighbour(t *testi
 	if len(terms) == 0 || !strings.Contains(strings.Join(terms, " "), "milk") {
 		t.Errorf("the refusal must name what is not tracked, got %v", terms)
 	}
-	if !strings.Contains(unmodelledRefusal(terms), "don't track") {
-		t.Error("the refusal must say the farm does not track it")
+	refusal := unmodelledRefusal(terms)
+	if !strings.Contains(refusal, "I don't have a source for") {
+		t.Errorf("the refusal must say the assistant has no source, got %q", refusal)
+	}
+	// It must NOT claim the farm does not record it: that is a statement about
+	// the product, and the evidence only supports one about the reads reachable
+	// from here. `health_cases` is the live counter-example.
+	if strings.Contains(refusal, "don't track") || strings.Contains(refusal, "in Goat OS") {
+		t.Errorf("the refusal overclaims about the product: %q", refusal)
 	}
 }
 

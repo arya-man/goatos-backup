@@ -118,8 +118,8 @@ func TestASingleSubReadThatFoundNothingStillAnswersHonestly(t *testing.T) {
 	if strings.Contains(low, "couldn't read") || strings.Contains(low, "could not read") {
 		t.Fatalf("an empty read was reported as a failed read: %q", ans.Answer)
 	}
-	if strings.Contains(low, "don't track") {
-		t.Fatalf("an empty read was reported as an untracked subject: %q", ans.Answer)
+	if strings.Contains(low, "don't have a source for") {
+		t.Fatalf("an empty read was reported as a subject with no source: %q", ans.Answer)
 	}
 	if strings.TrimSpace(ans.Answer) == "" {
 		t.Fatal("an empty read produced an empty answer")

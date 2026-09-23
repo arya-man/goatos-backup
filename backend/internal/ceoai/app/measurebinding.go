@@ -335,6 +335,28 @@ func cardModels(card reporting.SchemaCard, term string) bool {
 	return cardHasColumnFor(card, term)
 }
 
+// noSourceFor is the one sentence both refusals open with, and its exact claim
+// matters. It used to read "We don't track <subject> in Goat OS" -- a statement
+// about the PRODUCT, made from evidence that only supports a statement about
+// the READS THIS ASSISTANT CAN REACH. The two are not the same, and the gap is
+// not hypothetical: `health_cases` holds real rows, `/health/analytics` reports
+// them, and no ceo_ai view or tool exposes them to the assistant (a recorded
+// coverage decision, docs/ceo-ai/coverage-matrix.md), so a leader asking about
+// open health cases was told the farm does not track them. That is a false
+// statement about the product, dressed as an honest refusal.
+//
+// The refusal itself is unchanged and stays exactly as strict: the assistant
+// still will not answer from a neighbouring measure. It now says the true
+// thing about WHY.
+func noSourceFor(subject string) string {
+	return "I don't have a source for " + subject + " in the reads I can reach, so I can't answer that."
+}
+
+// substitutionIsRefused is the promise that follows, on both refusals: the
+// honesty gate this PR exists for, worded once.
+const substitutionIsRefused = " I won't answer it from a different measure that happens to be nearby — " +
+	"if it is recorded somewhere else, tell me where and I'll read that."
+
 // substitutedSubjectRefusal is what a leader is told instead of a neighbouring
 // view's number wearing their question's words.
 func substitutedSubjectRefusal(subject string, sourceView string) string {
@@ -342,17 +364,29 @@ func substitutedSubjectRefusal(subject string, sourceView string) string {
 	if sourceView != "" {
 		from = " I read " + sourceView + ", which does not report it."
 	}
-	return "We don't track " + subject + " in Goat OS, so I have no source for that." + from +
-		" I won't answer it from a different measure that happens to be nearby — " +
-		"if it is recorded somewhere else, tell me where and I'll read that."
+	return noSourceFor(subject) + from + substitutionIsRefused
 }
 
 // unmodelledRefusal is what a leader is told instead of a neighbour's number.
 func unmodelledRefusal(terms []string) string {
-	subject := strings.Join(terms, ", ")
-	return "We don't track " + subject + " in Goat OS, so I have no source for that. " +
-		"I won't answer it from a different measure that happens to be nearby — " +
-		"if it is recorded somewhere else, tell me where and I'll read that."
+	return noSourceFor(joinSubjectTerms(terms)) + substitutionIsRefused
+}
+
+// joinSubjectTerms renders the unmodelled terms as something a person reads.
+// A bare comma join produced "We don't track missed, treatment in Goat OS" --
+// the terms are a SET the sentence has to carry, and a list of two joined with
+// a comma reads as a typo rather than as two words.
+func joinSubjectTerms(terms []string) string {
+	switch len(terms) {
+	case 0:
+		return "that"
+	case 1:
+		return terms[0]
+	case 2:
+		return terms[0] + " and " + terms[1]
+	default:
+		return strings.Join(terms[:len(terms)-1], ", ") + " and " + terms[len(terms)-1]
+	}
 }
 
 // modelledTerms keeps the question's terms that some view column or some tool
