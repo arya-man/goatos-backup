@@ -198,11 +198,14 @@ type CompleteInput struct {
 	TraceID            string
 }
 type CompleteResult struct {
-	SessionID        string    `json:"health_session_id"`
-	Status           string    `json:"status"`
-	CompletedAt      time.Time `json:"completed_at"`
-	MedicationCount  int       `json:"medication_count"`
-	IdempotentReplay bool      `json:"idempotent_replay"`
+	// StepMedia is every step's clip, in step order, each named by the step it proves. Empty for
+	// a legacy one-video completion, which carries its proof in ProofRef as it always did.
+	StepMedia        []StepMedia `json:"step_media,omitempty"`
+	SessionID        string      `json:"health_session_id"`
+	Status           string      `json:"status"`
+	CompletedAt      time.Time   `json:"completed_at"`
+	MedicationCount  int         `json:"medication_count"`
+	IdempotentReplay bool        `json:"idempotent_replay"`
 
 	// Enqueue context for the treatment-evidence verification item, populated by the repository
 	// from the completion transaction's own reads and consumed by the app service's enqueue seam.

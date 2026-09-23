@@ -42,6 +42,7 @@ func (e *TreatmentEnqueuer) EnqueueTreatmentVerification(ctx context.Context, in
 			RefID:   in.SessionID,
 		},
 		MediaRefs:      in.MediaRefs,
+		MediaMeta:      verificationdomain.BuildMediaMeta(in.Captures),
 		OperatorID:     ptrIfSet(in.OperatorID),
 		ShedID:         ptrIfSet(in.ShedID),
 		ParkID:         ptrIfSet(in.ParkID),

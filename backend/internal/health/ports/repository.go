@@ -25,6 +25,10 @@ type Repository interface {
 	ListWorkItems(context.Context, domain.ListFilter) (domain.WorkItemPage, error)
 	GetWorkItem(context.Context, string, string) (domain.WorkItemDetail, error)
 	CompleteWorkItem(context.Context, domain.CompleteInput) (domain.CompleteResult, error)
+	// RecordStepProof attaches ONE video to ONE step, and StepProofs reads a session's set back
+	// in step order (maintainer decision 2026-09-23, one video per step).
+	RecordStepProof(context.Context, domain.RecordStepProofInput) (domain.StepProof, error)
+	StepProofs(ctx context.Context, tenantID, sessionID string) ([]domain.StepProof, error)
 	CloseCase(context.Context, domain.CloseCaseInput) (domain.CloseCaseResult, error)
 	HoldForDeathReview(context.Context, string, string) error
 	ResumeAfterDeathRejected(context.Context, string, string) error

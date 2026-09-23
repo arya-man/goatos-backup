@@ -11,6 +11,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/health/domain"
 	"github.com/vgoats/goatos/backend/internal/health/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
+	verificationdomain "github.com/vgoats/goatos/backend/internal/verification/domain"
 )
 
 var (
@@ -34,11 +35,15 @@ type TreatmentVerificationEnqueueRequest struct {
 	TenantID  string
 	SessionID string
 	// AgeBand routes the item to its verifier page (health_adults / health_kids).
-	AgeBand      string
-	OperatorID   string
-	ParkID       string
-	ShedID       string
-	MediaRefs    []string
+	AgeBand    string
+	OperatorID string
+	ParkID     string
+	ShedID     string
+	MediaRefs  []string
+	// Captures names each ref, POSITIONAL against MediaRefs. One item now carries every step's
+	// clip, so without a name per clip the verifier sees twelve videos and cannot tell which of
+	// six injections each one is.
+	Captures     []verificationdomain.ProofCapture
 	SubjectLabel string
 	CapturedAt   time.Time
 	// IdempotencyKey carries the proof set so transport retries heal idempotently while a
@@ -106,6 +111,30 @@ func (s *Service) GetWorkItem(ctx context.Context, tenantID, sessionID string) (
 	}
 	return s.repo.GetWorkItem(ctx, tenantID, sessionID)
 }
+// RecordStepProof attaches ONE step's video, on its own, before the session is submitted.
+//
+// Separate from the submit because a blob reaching storage is not the business fact (the proof
+// business-ack contract). THIS is the business fact for that step: it retries by itself, and a
+// failure here after a successful upload retries only this small write -- the video is never
+// re-uploaded to repair the link.
+func (s *Service) RecordStepProof(ctx context.Context, in domain.RecordStepProofInput) (domain.StepProof, error) {
+	if err := in.Validate(); err != nil {
+		return domain.StepProof{}, err
+	}
+	if !validUUID(in.TenantID) || !validUUID(in.ActorID) || !validUUID(in.SessionID) || !validUUID(in.StepID) {
+		return domain.StepProof{}, ErrInvalidInput
+	}
+	return s.repo.RecordStepProof(ctx, in)
+}
+
+// StepProofs is a session's recorded clips, in step order.
+func (s *Service) StepProofs(ctx context.Context, tenantID, sessionID string) ([]domain.StepProof, error) {
+	if !validUUID(strings.TrimSpace(tenantID)) || !validUUID(strings.TrimSpace(sessionID)) {
+		return nil, ErrInvalidInput
+	}
+	return s.repo.StepProofs(ctx, tenantID, sessionID)
+}
+
 func (s *Service) CompleteWorkItem(ctx context.Context, in domain.CompleteInput) (domain.CompleteResult, error) {
 	in.TenantID = strings.TrimSpace(in.TenantID)
 	in.ActorID = strings.TrimSpace(in.ActorID)
@@ -132,6 +161,21 @@ func (s *Service) CompleteWorkItem(ctx context.Context, in domain.CompleteInput)
 		if loc := (oploc.OperationalLocation{ShedName: res.ShedLabel, PartitionLabel: res.PartitionLabel}).Display(); loc != "" {
 			subject += " · " + loc
 		}
+		// ONE ITEM, EVERY STEP'S CLIP (maintainer decision 2026-09-23). The review grain is
+		// unchanged -- one item per session, tag and disease -- and the verifier steps through the
+		// set inside it. A legacy one-video completion carries its single ref exactly as before.
+		mediaRefs := []string{in.ProofRef}
+		var captures []verificationdomain.ProofCapture
+		if len(res.StepMedia) > 0 {
+			mediaRefs = mediaRefs[:0]
+			for _, m := range res.StepMedia {
+				mediaRefs = append(mediaRefs, m.ProofRef)
+				captures = append(captures, verificationdomain.ProofCapture{
+					Title: m.Label,
+					Kind:  verificationdomain.MediaKindVideo,
+				})
+			}
+		}
 		if err := s.enqueuer.EnqueueTreatmentVerification(ctx, TreatmentVerificationEnqueueRequest{
 			TenantID:     in.TenantID,
 			SessionID:    in.SessionID,
@@ -139,7 +183,8 @@ func (s *Service) CompleteWorkItem(ctx context.Context, in domain.CompleteInput)
 			OperatorID:   in.ActorID,
 			ParkID:       res.ParkID,
 			ShedID:       res.ShedID,
-			MediaRefs:    []string{in.ProofRef},
+			MediaRefs:    mediaRefs,
+			Captures:     captures,
 			SubjectLabel: subject,
 			CapturedAt:   res.CompletedAt,
 			// Keyed to the SESSION + proof so a retry collapses onto one queue item while a

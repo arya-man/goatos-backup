@@ -540,6 +540,28 @@ WHERE hs.tenant_id=$1::uuid AND hs.health_session_id=$2::uuid FOR UPDATE OF hs`,
 		// cannot be worked. Distinct from the death states above -- the animal is alive.
 		return domain.CompleteResult{}, ports.ErrCaseNotOpen
 	}
+	// EVERY STEP OWES ITS VIDEO (maintainer decision 2026-09-23), checked inside the lock so a
+	// capture landing between the check and the write cannot let a session through half-filmed.
+	//
+	// The gate TRIPS ONLY ONCE THE SESSION HAS AT LEAST ONE STEP CLIP. That is the compatibility
+	// boundary: an older APK completes with one session video and no step rows, and must keep
+	// submitting -- refusing it would strand every card already in the field. A current phone
+	// registers each step as it films it, so its first clip arms the gate and the remaining
+	// steps are then all required.
+	stepProofs, err := stepProofsInTx(ctx, tx, in.TenantID, in.SessionID)
+	if err != nil {
+		return domain.CompleteResult{}, err
+	}
+	stepsForMedia, err := sessionStepsInTx(ctx, tx, in.TenantID, in.SessionID)
+	if err != nil {
+		return domain.CompleteResult{}, err
+	}
+	if len(stepProofs) > 0 {
+		if missing := domain.MissingStepProofs(stepsForMedia, stepProofs); len(missing) > 0 {
+			return domain.CompleteResult{}, domain.StepProofsMissingError{Missing: missing}
+		}
+	}
+
 	now := r.now().UTC()
 	tag, err := tx.Exec(ctx, `UPDATE health_treatment_sessions SET status='completed',completed_by=$3::uuid,completed_at=$4,proof_ref=nullif($5,''),completion_idempotency_key=$6,completion_fingerprint=$7,row_version=row_version+1,updated_at=now() WHERE tenant_id=$1::uuid AND health_session_id=$2::uuid`, in.TenantID, in.SessionID, in.ActorID, now, in.ProofRef, in.IdempotencyKey, in.RequestFingerprint)
 	if err != nil {
@@ -569,7 +591,9 @@ FROM health_session_steps ss WHERE ss.tenant_id=$1::uuid AND ss.health_session_i
 		return domain.CompleteResult{}, err
 	}
 	committed = true
-	return withEnqueueContext(domain.CompleteResult{SessionID: in.SessionID, Status: "completed", CompletedAt: now, MedicationCount: medCount}), nil
+	res := withEnqueueContext(domain.CompleteResult{SessionID: in.SessionID, Status: "completed", CompletedAt: now, MedicationCount: medCount})
+	res.StepMedia = stepMediaFor(stepsForMedia, stepProofs)
+	return res, nil
 }
 
 // CloseCase records the clinical outcome of an open case (recovered / referred / canceled) and
