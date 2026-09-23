@@ -516,37 +516,46 @@ func ensureAuthProfileMember(ctx context.Context, pool *pgxpool.Pool, tenantID, 
 	// unidentifiable rows in the People/HRMS directory (found 2026-08-22); the
 	// role lives in the hint/designation, never in the display name.
 	displayName := acct.DisplayName
-	roleHint := acct.Role
-	var designation any
-	if acct.Role == permissions.RoleCEOInternal {
-		roleHint = "cxo"
-		designation = "cxo"
-	}
+	roleHint, designation := authProfileRoleHintAndGrade(acct.Role)
 	_, err := pool.Exec(ctx, `
-INSERT INTO workforce_members (
-  tenant_id, user_id, display_code, display_name, email, status,
-  primary_role_hint, hr_designation_grade, metadata
-)
-SELECT $1, $2, $3, $4,
-  -- Login email on the row itself (People/HRMS directory), unless another
-  -- member already carries it — unique per tenant.
-  CASE WHEN EXISTS (
-    SELECT 1 FROM workforce_members other
-    WHERE other.tenant_id = $1 AND lower(other.email) = lower(btrim($8::text))
-  ) THEN NULL ELSE lower(btrim(nullif($8::text, ''))) END,
-  'active', $5, $6, jsonb_build_object(
-  'source', 'seed_stg_login_grants_auth_profile',
-  'email', $8::text,
-  'role', $7::text
-)
-WHERE NOT EXISTS (
-  SELECT 1 FROM workforce_members
-  WHERE tenant_id = $1 AND user_id = $2 AND status = 'active'
-)`, tenantID, userID, "auth:"+userID, displayName, roleHint, designation, acct.Role, acct.Email)
+	INSERT INTO workforce_members (
+	  tenant_id, user_id, display_code, display_name, email, status,
+	  primary_role_hint, hr_designation_grade, metadata
+	)
+	SELECT $1, $2, $3, $4,
+	  -- Login email on the row itself (People/HRMS directory), unless another
+	  -- member already carries it — unique per tenant.
+	  CASE WHEN EXISTS (
+	    SELECT 1 FROM workforce_members other
+	    WHERE other.tenant_id = $1 AND lower(other.email) = lower(btrim($8::text))
+	  ) THEN NULL ELSE lower(btrim(nullif($8::text, ''))) END,
+	  'active', $5, $6, jsonb_build_object(
+	  'source', 'seed_stg_login_grants_auth_profile',
+	  'email', $8::text,
+	  'role', $7::text
+	)
+	WHERE NOT EXISTS (
+	  SELECT 1 FROM workforce_members
+	  WHERE tenant_id = $1 AND user_id = $2 AND status = 'active'
+	)`, tenantID, userID, "auth:"+userID, displayName, roleHint, designation, acct.Role, acct.Email)
 	if err != nil {
 		return fmt.Errorf("insert auth workforce member for %s: %w", acct.DisplayName, err)
 	}
 	return nil
+}
+
+func authProfileRoleHintAndGrade(role string) (string, any) {
+	if role == permissions.RoleCEOInternal {
+		return "cxo", "cxo"
+	}
+	if permissions.KeepsOperatorPrimaryRoleHintUntilAPK(role) {
+		tier, _, _ := permissions.ParseRoleKey(role)
+		if tier == permissions.TierAssistantManager {
+			return "operator", "assistant_manager"
+		}
+		return "operator", "manager"
+	}
+	return role, nil
 }
 
 func grantDepartmentModules(ctx context.Context, pool *pgxpool.Pool, tenantID, departmentID string, moduleKeys []string) (int, error) {

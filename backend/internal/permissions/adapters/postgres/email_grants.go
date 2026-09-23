@@ -276,6 +276,9 @@ func pendingEmailGrantRoleHint(role string) string {
 	case permissions.RolePCDirector:
 		return "supervisor"
 	default:
+		if permissions.KeepsOperatorPrimaryRoleHintUntilAPK(role) {
+			return "operator"
+		}
 		if tier, _, ok := permissions.ParseRoleKey(role); ok {
 			if tier == permissions.TierAssistantManager {
 				return "operator"

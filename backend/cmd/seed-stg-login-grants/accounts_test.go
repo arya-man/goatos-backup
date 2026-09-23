@@ -28,3 +28,28 @@ func TestLeadershipAndDirectorAccountsRemainTenantScoped(t *testing.T) {
 		}
 	}
 }
+
+func TestAuthProfileGroundTiersKeepOperatorHintUntilAPKShips(t *testing.T) {
+	for _, role := range []string{
+		permissions.RoleKey(permissions.TierManager, permissions.VerticalFeed),
+		permissions.RoleKey(permissions.TierManager, permissions.VerticalHealth),
+		permissions.RoleKey(permissions.TierManager, permissions.VerticalCleaning),
+		permissions.RoleKey(permissions.TierManager, permissions.VerticalFarming),
+	} {
+		hint, grade := authProfileRoleHintAndGrade(role)
+		if hint != "operator" || grade != "manager" {
+			t.Fatalf("authProfileRoleHintAndGrade(%q)=%q/%v, want operator/manager until installed APK feed gates move to capabilities", role, hint, grade)
+		}
+	}
+	for _, role := range []string{
+		permissions.RoleKey(permissions.TierAssistantManager, permissions.VerticalFeed),
+		permissions.RoleKey(permissions.TierAssistantManager, permissions.VerticalHealth),
+		permissions.RoleKey(permissions.TierAssistantManager, permissions.VerticalCleaning),
+		permissions.RoleKey(permissions.TierAssistantManager, permissions.VerticalFarming),
+	} {
+		hint, grade := authProfileRoleHintAndGrade(role)
+		if hint != "operator" || grade != "assistant_manager" {
+			t.Fatalf("authProfileRoleHintAndGrade(%q)=%q/%v, want operator/assistant_manager until installed APK feed gates move to capabilities", role, hint, grade)
+		}
+	}
+}

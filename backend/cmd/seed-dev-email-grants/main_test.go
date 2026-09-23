@@ -25,9 +25,28 @@ func TestNormalizeEmailsRejectsInvalidEmail(t *testing.T) {
 }
 
 func TestValidRole(t *testing.T) {
-	for _, role := range []string{permissions.RoleVerifier, permissions.RoleParkHead, permissions.RolePCDirector, permissions.RoleOperator, permissions.RoleCEOInternal} {
+	for _, role := range []string{
+		permissions.RoleVerifier,
+		permissions.RolePCDirector,
+		permissions.RoleCEOInternal,
+		permissions.RoleKey(permissions.TierDirector, permissions.VerticalPreventiveCare),
+	} {
 		if !validRole(role) {
 			t.Fatalf("valid role rejected: %s", role)
+		}
+	}
+	for _, role := range []string{
+		permissions.RoleOperator,
+		permissions.RoleParkHead,
+		permissions.RoleKey(permissions.TierManager, permissions.VerticalFeed),
+		permissions.RoleKey(permissions.TierManager, permissions.VerticalPreventiveCare),
+		permissions.RoleKey(permissions.TierManager, permissions.VerticalHealth),
+		permissions.RoleKey(permissions.TierManager, permissions.VerticalCleaning),
+		permissions.RoleKey(permissions.TierManager, permissions.VerticalFarming),
+		permissions.RoleKey(permissions.TierAssistantManager, permissions.VerticalFeed),
+	} {
+		if validRole(role) {
+			t.Fatalf("park-scoped role %s accepted by tenant-scope pending grant seeder", role)
 		}
 	}
 	retiredLegacyRole := "ad" + "min"

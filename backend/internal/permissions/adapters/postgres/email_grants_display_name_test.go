@@ -1,6 +1,10 @@
 package postgres
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/vgoats/goatos/backend/internal/permissions"
+)
 
 // The auto-created auth profile is named after the PERSON (email local-part),
 // never after the role: the literal "CEO/CXO" placeholder produced N identical
@@ -21,5 +25,22 @@ func TestPendingEmailGrantDisplayNameIsThePersonNotTheRole(t *testing.T) {
 	}
 	if got := pendingEmailGrantDisplayName("", "operator"); got != "Granted user" {
 		t.Fatalf("empty email non-leadership fallback = %q", got)
+	}
+}
+
+func TestPendingEmailGrantGroundTiersKeepOperatorHintUntilAPKShips(t *testing.T) {
+	for _, role := range []string{
+		permissions.RoleKey(permissions.TierManager, permissions.VerticalFeed),
+		permissions.RoleKey(permissions.TierManager, permissions.VerticalHealth),
+		permissions.RoleKey(permissions.TierManager, permissions.VerticalCleaning),
+		permissions.RoleKey(permissions.TierManager, permissions.VerticalFarming),
+		permissions.RoleKey(permissions.TierAssistantManager, permissions.VerticalFeed),
+		permissions.RoleKey(permissions.TierAssistantManager, permissions.VerticalHealth),
+		permissions.RoleKey(permissions.TierAssistantManager, permissions.VerticalCleaning),
+		permissions.RoleKey(permissions.TierAssistantManager, permissions.VerticalFarming),
+	} {
+		if got := pendingEmailGrantRoleHint(role); got != "operator" {
+			t.Fatalf("pendingEmailGrantRoleHint(%q)=%q, want operator until installed APK feed gates move to capabilities", role, got)
+		}
 	}
 }

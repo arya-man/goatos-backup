@@ -39,7 +39,7 @@ func main() {
 	var source string
 	var emails emailFlags
 	flag.StringVar(&tenantID, "tenant-id", "", "tenant UUID for the tenant-scope pending email grants")
-	flag.StringVar(&role, "role", permissions.RoleCEOInternal, "role: verifier, park_head, pc_director, operator, ceo_internal, or a composite org role such as director_preventive_care")
+	flag.StringVar(&role, "role", permissions.RoleCEOInternal, "tenant-scope role: verifier, pc_director, ceo_internal, or a non-ground composite org role such as director_preventive_care")
 	flag.StringVar(&source, "source", "manual_dev_seed", "audit/source label for the pending email grants")
 	flag.Var(&emails, "email", "approved email; may be repeated or comma-separated")
 	flag.Parse()
@@ -139,11 +139,24 @@ func validateTarget(env, databaseURL string) error {
 	return localtarget.ValidateLocalDatabaseTarget("seed-dev-email-grants", env, databaseURL, "local", "dev", "test")
 }
 
-// validRole accepts the flat legacy roles AND any composite tier x vertical
-// org role key (e.g. "manager_feed") -- permissions.IsKnownRole is the single
-// source of truth so a new vertical/tier does not require touching this CLI.
+// validRole accepts only tenant-scope pending grant roles. This CLI has no
+// park-id flag and writes scope_type='tenant', so park-scoped jobs must be
+// refused here instead of silently widened to the whole farm.
 func validRole(role string) bool {
-	return permissions.IsKnownRole(role)
+	if !permissions.IsKnownRole(role) {
+		return false
+	}
+	switch role {
+	case permissions.RoleOperator, permissions.RoleParkHead:
+		return false
+	}
+	if tier, _, ok := permissions.ParseRoleKey(role); ok {
+		return tier == permissions.TierHead || tier == permissions.TierDirector
+	}
+	if permissions.KeepsOperatorPrimaryRoleHintUntilAPK(role) {
+		return false
+	}
+	return true
 }
 
 func fail(format string, args ...any) {

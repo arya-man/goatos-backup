@@ -295,6 +295,9 @@ func devMemberRoleHint(role string) string {
 	case permissions.RolePCDirector:
 		return "supervisor"
 	default:
+		if permissions.KeepsOperatorPrimaryRoleHintUntilAPK(role) {
+			return "operator"
+		}
 		// Composite tier x vertical org role keys (e.g. "manager_feed",
 		// "director_health") are not individually listed in
 		// workforce_members_role_hint_check -- that CHECK stays a small,

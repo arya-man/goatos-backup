@@ -138,6 +138,32 @@ func IsKnownRole(role string) bool {
 	return ok
 }
 
+// KeepsOperatorPrimaryRoleHintUntilAPK reports the temporary compatibility
+// rule for the ground-tier roles that replace the retired flat operator grant.
+//
+// The currently installed Android app still gates Feed capture on
+// primary_role_hint == "operator". New and pending ground-tier managers must
+// therefore keep that display hint until the APK moves those gates to backend
+// capability flags. This helper keeps Add Person, pending email claims and seed
+// commands from each inventing their own version of that rule.
+func KeepsOperatorPrimaryRoleHintUntilAPK(role string) bool {
+	tier, vertical, ok := ParseRoleKey(role)
+	if !ok {
+		return false
+	}
+	switch tier {
+	case TierManager, TierAssistantManager:
+	default:
+		return false
+	}
+	switch vertical {
+	case VerticalHealth, VerticalFeed, VerticalCleaning, VerticalFarming:
+		return true
+	default:
+		return false
+	}
+}
+
 // RoleAuthorizedForVertical reports whether role may act within vertical.
 //
 // Composite org role keys (RoleKey) are vertical-scoped by construction: a

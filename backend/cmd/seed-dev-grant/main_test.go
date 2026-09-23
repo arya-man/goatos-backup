@@ -31,8 +31,19 @@ func TestDevMemberRoleHintForCompositeOrgRoles(t *testing.T) {
 	if got := devMemberRoleHint(am); got != "operator" {
 		t.Fatalf("devMemberRoleHint(%q)=%q, want operator", am, got)
 	}
+	for _, vertical := range []permissions.Vertical{
+		permissions.VerticalFeed,
+		permissions.VerticalHealth,
+		permissions.VerticalCleaning,
+		permissions.VerticalFarming,
+	} {
+		role := permissions.RoleKey(permissions.TierManager, vertical)
+		if got := devMemberRoleHint(role); got != "operator" {
+			t.Fatalf("devMemberRoleHint(%q)=%q, want operator until installed APK feed gates move to capabilities", role, got)
+		}
+	}
 	for _, tier := range []permissions.Tier{permissions.TierManager, permissions.TierHead, permissions.TierDirector} {
-		role := permissions.RoleKey(tier, permissions.VerticalHealth)
+		role := permissions.RoleKey(tier, permissions.VerticalPreventiveCare)
 		if got := devMemberRoleHint(role); got != "supervisor" {
 			t.Fatalf("devMemberRoleHint(%q)=%q, want supervisor", role, got)
 		}

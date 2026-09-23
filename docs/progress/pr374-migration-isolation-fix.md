@@ -40,3 +40,16 @@ endpoint, payload, frontend or running-service behavior was changed by this foll
 
 Additional check: `go test ./migrations/postgres` PASS (database cases are
 opt-in; the new regression was separately run with PostgreSQL enabled).
+
+2026-09-23 follow-up review/fix:
+- Scope: fix PR 374 review findings found after e8b4c353413082cb996c27f8397c1005f12988f1.
+- Done: centralized the temporary ground-tier `primary_role_hint='operator'`
+  compatibility rule for Add Person siblings, pending email claim profiles,
+  dev auth profiles and STG auth profiles; blocked tenant-scope pending email
+  grants from recreating retired `operator` or park-scoped ground/park-head
+  authority.
+- Tests: from `backend`, `go test ./internal/permissions ./internal/permissions/adapters/postgres ./internal/workforce/app ./cmd/seed-dev-grant ./cmd/seed-dev-email-grants ./cmd/seed-stg-login-grants ./migrations/postgres -run 'Test(Seeded|Clock|Cleaning|Ground|EveryGrantable|OperatorRetirement|PendingEmailGrant|AuthProfile|DevMemberRoleHint|ParkStaff|Leadership|ValidRole|NormalizeEmails)'` PASS.
+- Tests: from repo root, `node --test --experimental-strip-types apps/admin-web/features/feed/feed-follow-up-dates.test.mjs apps/admin-web/features/leadership-tasks/tasks-phone-viewport.test.mjs apps/admin-web/lib/admin-route-page-contract.test.mjs apps/admin-web/lib/admin-route-error.test.mjs apps/admin-web/features/vaccination-live-tracker/live-tracker.test.mjs` PASS (48 tests; Node printed experimental type-stripping warnings).
+- Review: UI subagent found no further UI issues after focused admin-web review; RBAC subagent found the seed-dev-email-grants gaps fixed above.
+- Diff check: `git diff --check` PASS.
+- Deployment state: none; no main promotion or staging deploy.
