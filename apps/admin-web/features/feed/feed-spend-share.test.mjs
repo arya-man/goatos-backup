@@ -1,7 +1,8 @@
-// The Feed spend share pie's feed rule (maintainer request 2026-09-14): the pie shows bhusa and
-// the TWO merged Mesha concentrates, never the four retired goat/sheep splits. The rule is an
-// exact-name list, because a "contains Mesha" fragment matched the splits too and no fragment
-// can name "Mesha Adult Concentrate" without also matching "Mesha Adult Concentrate Goat".
+// The Feed spend share pie shows EVERY ACTIVE FEED (maintainer request 2026-09-23): it has no
+// feed list of its own and instead shares the per-item cards' hidden-feed rule, so UHT Milk --
+// real money the animals drink, left off the chart by the retired bhusa + two-concentrate
+// allowlist -- gets a slice, and a feed the farm starts buying appears with no edit. The retired
+// goat/sheep split concentrates stay out of the pie and the cards alike.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -13,35 +14,47 @@ const page = readFileSync(join(here, "feed-analytics.tsx"), "utf8");
 const contract = readFileSync(join(here, "../../../../backend/internal/adminui/app/service.go"), "utf8");
 
 // Re-evaluate the rule exactly as the page implements it, from its own source.
-const fnSource = page.match(/function spendShareIncludes\(rule: string, label: string\): boolean \{[\s\S]*?\n\}/)?.[0];
-assert.ok(fnSource, "spendShareIncludes must exist in the page");
-const spendShareIncludes = new Function(
+const fnSource = page.match(/function itemCardHidden\(rule: string, label: string\): boolean \{[\s\S]*?\n\}/)?.[0];
+assert.ok(fnSource, "itemCardHidden must exist in the page");
+const itemCardHidden = new Function(
   "rule",
   "label",
-  fnSource.replace(/function spendShareIncludes\(rule: string, label: string\): boolean/, "").replace(/^\s*\{/, "").replace(/\}\s*$/, ""),
+  fnSource.replace(/function itemCardHidden\(rule: string, label: string\): boolean/, "").replace(/^\s*\{/, "").replace(/\}\s*$/, ""),
 );
-const rule = contract.match(/"chart\.spend_share\.feeds":\s*"([^"]+)"/)?.[1];
-assert.ok(rule, "the backend contract must author the pie's feed rule");
+const hidden = contract.match(/"chart\.item\.hidden_feeds":\s*"([^"]+)"/)?.[1];
+assert.ok(hidden, "the backend contract must author the hidden-feed rule");
 
-test("the merged concentrates and bhusa are in; the retired goat/sheep splits are out", () => {
-  for (const label of ["Dry Masoor Bhusa", "Mesha Adult Concentrate", "Mesha Kids Concentrate", "mesha kids concentrate"]) {
-    assert.equal(spendShareIncludes(rule, label), true, `${label} must be a slice`);
+test("the pie carries no feed allowlist of its own any more", () => {
+  assert.equal(
+    contract.includes('"chart.spend_share.feeds"'),
+    false,
+    "the retired allowlist must not come back — a new feed would be missing from the pie until someone widened it",
+  );
+  assert.equal(page.includes("spendShareIncludes"), false, "the page must not keep an allowlist helper for the pie");
+  assert.match(
+    page,
+    /money && money\.pricedDays > 0 && !itemCardHidden\(fa\(pageContract, "chart\.item\.hidden_feeds"\), series\.label\)/,
+    "the pie must gate its slices on the cards' hidden-feed rule",
+  );
+});
+
+test("every active feed gets a slice, UHT Milk included; the retired splits do not", () => {
+  for (const label of ["Dry Masoor Bhusa", "Mesha Adult Concentrate", "Mesha Kids Concentrate", "UHT Milk", "uht milk"]) {
+    assert.equal(itemCardHidden(hidden, label), false, `${label} must be a slice`);
   }
   for (const label of [
     "Mesha Adult Concentrate Goat",
     "Mesha Adult Concentrate Sheep",
     "Mesha Kids Goat Concentrate",
     "Mesha Kids Sheep Concentrate",
-    "UHT Milk",
-    "Soda",
   ]) {
-    assert.equal(spendShareIncludes(rule, label), false, `${label} must not be a slice`);
+    assert.equal(itemCardHidden(hidden, label), true, `${label} must not be a slice`);
   }
 });
 
-test("the rule is exact-name, so no fragment can leak a split concentrate back in", () => {
-  assert.equal(spendShareIncludes("Mesha", "Mesha Adult Concentrate Goat"), false);
-  assert.equal(spendShareIncludes("", "anything"), true, "an empty rule keeps every feed");
+test("a feed nobody has named is in, so the pie never goes stale on a new feed", () => {
+  assert.equal(itemCardHidden(hidden, "Some Feed Bought Next Month"), false);
+  assert.equal(itemCardHidden("", "anything"), false, "an empty rule hides nothing");
 });
 
 test("no two slices share a hue: a wrapped palette shade yields to the next unused colour", () => {

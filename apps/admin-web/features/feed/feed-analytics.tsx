@@ -767,20 +767,9 @@ function buildItemMoney(stock: FeedAnalyticsStockResponse | null, dayKeys: strin
 
 /** Money first: priced feeds by window ₹ descending, then unpriced feeds in their kg rank. */
 /**
- * The pie's feed rule from the contract: comma-separated feed NAMES, a feed is in when its label
- * IS one of them (case-insensitive). Exact, not "contains" (maintainer request 2026-09-14): the
- * fragment "Mesha" also caught the four retired split concentrates -- Mesha Adult Concentrate
- * Goat / Sheep, Mesha Kids Goat / Sheep Concentrate -- beside the two merged ones, and a
- * substring rule cannot name "Mesha Adult Concentrate" without also matching "Mesha Adult
- * Concentrate Goat". An empty rule keeps every feed.
+ * The per-item cards' hidden-feed rule, shared with the pie above it: exact names, and an EMPTY
+ * rule hides nothing.
  */
-function spendShareIncludes(rule: string, label: string): boolean {
-  const names = rule.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
-  if (names.length === 0) return true;
-  return names.includes(label.trim().toLowerCase());
-}
-
-/** The per-item cards' hidden-feed rule: exact names, and an EMPTY rule hides nothing. */
 function itemCardHidden(rule: string, label: string): boolean {
   const names = rule.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
   return names.includes(label.trim().toLowerCase());
@@ -842,12 +831,14 @@ function DirectedTabs({
 }) {
   const view = buildDirectedView(data, fa(pageContract, "series.other"), istDayPlus(todayIso(), -1));
   const itemMoney = tab === "overview" ? buildItemMoney(stock, view.dayLabels) : new Map<string, ItemMoney>();
-  // The pie's slices: the contract's feed rule applied to the priced feeds. Computed here so the
-  // section is gated on what the pie would actually show — an empty pie is hidden, not captioned
-  // with the directed-feed empty copy, which would say the wrong thing.
+  // The pie's slices: EVERY feed with spend in the window, less the same hidden feeds the cards
+  // below leave out (maintainer request 2026-09-23) — the pie and the cards under it show one set
+  // of feeds, so UHT Milk and any feed the farm starts buying get a slice with no list to widen.
+  // Computed here so the section is gated on what the pie would actually show — an empty pie is
+  // hidden, not captioned with the directed-feed empty copy, which would say the wrong thing.
   const spendShareSlices: PieSlice[] = distinctSliceColors(
     rankItemCards(view.itemSeries, itemMoney).flatMap(({ series, money }) =>
-      money && money.pricedDays > 0 && spendShareIncludes(fa(pageContract, "chart.spend_share.feeds"), series.label)
+      money && money.pricedDays > 0 && !itemCardHidden(fa(pageContract, "chart.item.hidden_feeds"), series.label)
         ? [{ label: series.label, value: money.rupeesTotal / money.pricedDays, colorVar: series.colorVar }]
         : [],
     ),

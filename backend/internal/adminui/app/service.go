@@ -6825,14 +6825,16 @@ func pageSpecificCopy(id string) map[string]string {
 			"chart.daily.hint":             "Total kg fed per day, stacked by feed item — the issued sheet plus the milk the crew prepared",
 			"chart.spend_share.title":      "Feed spend share",
 			"chart.spend_share.unit":       "/ day",
-			"chart.spend_share.hint":       "Average ₹ per day on bhusa and the two Mesha concentrates over the window, priced at each feed's most recent load rate — where the money goes",
-			// Which feeds the pie shows (maintainer requests 2026-09-04 and 2026-09-14): bhusa and
-			// the two MERGED Mesha concentrates -- never the retired goat/sheep splits (Mesha Adult
-			// Concentrate Goat / Sheep, Mesha Kids Goat / Sheep Concentrate), milk, soda or the
-			// unbranded concentrate. Comma-separated feed NAMES; a feed is in when its label is one
-			// of them exactly, case-insensitive -- a "Mesha" fragment matched the splits too.
-			"chart.spend_share.feeds": "Dry Masoor Bhusa,Mesha Adult Concentrate,Mesha Kids Concentrate",
-			"chart.mix.title":         "Feed mix",
+			"chart.spend_share.hint":       "Average ₹ per day on every feed the farm buys over the window, priced at each feed's most recent load rate — where the money goes",
+			// The pie shows EVERY ACTIVE FEED (maintainer request 2026-09-23), which is why it
+			// carries no feed list of its own any more: the earlier allowlist -- bhusa and the two
+			// merged Mesha concentrates -- left UHT Milk off a chart of where the feed money goes
+			// while the milk is real spend the animals drink, and every feed added after it would
+			// have been missing too until someone remembered to widen the list. The pie now shares
+			// the per-item cards' hidden-feed rule below, so the chart and the cards under it
+			// always show the same feeds: the retired split concentrates and the odds and ends
+			// stay out of both, and a feed the farm starts buying appears in both with no edit.
+			"chart.mix.title": "Feed mix",
 			"chart.mix.hint":          "Share of the fed kg over the window, sheet and milk together",
 			"chart.item.hint":         "₹ spent per day (solid line) and kg fed per day (dashed), priced at each farm's latest load rate",
 			// Feeds whose per-item card is NOT shown (maintainer requests 2026-09-14): the four
