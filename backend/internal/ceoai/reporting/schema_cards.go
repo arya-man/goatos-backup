@@ -70,29 +70,24 @@ type SchemaCard struct {
 	// percentiles or per-entity caps and must not be re-averaged or summed
 	// across rows.
 	NeverAverage []string
-	// BlankIsNotAbsence lists columns whose EMPTINESS means "this row is not
-	// that kind of row", never "this thing is missing" — so a NULL test on
-	// them answers a different question than the one a leader asked.
+	// A COLUMN WHOSE BLANK MEANT TWO THINGS USED TO BE DECLARED HERE, and the
+	// deliberate absence of that field is worth a note for whoever reaches for
+	// it next. `workforce_coverage_status.backup_label` was filled only on the
+	// covered_by_backup rows, so a blank one meant "nobody is away from this
+	// role" and not "this role has no cover"; asked which staff have no
+	// backup, the planner wrote `backup_label IS NULL` and named ten roles as
+	// staffing gaps when four are.
 	//
-	// `workforce_coverage_status.backup_label` is the one that shipped. The
-	// view fills it from the absence's replacement join, so it is populated on
-	// exactly the covered_by_backup rows and blank on every other. Asked which
-	// staff have no backup, the planner wrote `backup_label IS NULL` and named
-	// 13 of 16 rows — including `Backup 6`, a person who IS somebody's backup.
+	// Three repairs at the READING end each lost the same argument: prose on
+	// this card, a gate matching the predicate's SHAPE, and a gate that read
+	// the predicate as an expression and evaluated it three times. Each closed
+	// the spellings that had been measured and was re-spelled around by the
+	// next reviewer. Migration 000397 removed the ambiguity at the SOURCE
+	// instead -- the column is never NULL and never blank -- so there is
+	// nothing left to declare and ~1,800 lines of expression reader went with
+	// it. If a future view needs a column like this, give the VIEW a definite
+	// value before considering a gate here.
 	//
-	// THE CARD'S PROSE WAS TRIED FIRST AND MEASURED INSUFFICIENT. Naming the
-	// column's real vocabulary fixed the `<> 'covered'` spelling of this
-	// defect, verified live; the planner then reached for the NULL test
-	// instead and produced the SAME ten-role false alarm, three runs out of
-	// three. A sentence in a prompt moves a model's odds; it does not close a
-	// hole. Like the no-op filter it replaces, the mistake RETURNS ROWS, so
-	// nothing downstream can see it fire — which leaves refusing the statement
-	// as the only place it can be stopped for certain.
-	BlankIsNotAbsence []string
-	// AbsenceAuthority is the column that DOES answer "is this thing missing"
-	// on a card that declares BlankIsNotAbsence, named in the refusal so the
-	// re-plan has somewhere to go.
-	AbsenceAuthority string
 	// Route is the admin-web href the composer may offer as the drill-down
 	// page for this view.
 	Route string
@@ -924,17 +919,26 @@ var schemaCards = []SchemaCard{
 		// planner has to guess. It fits in the prompt's byte bound because it
 		// replaces the redundant half of this sentence rather than adding to
 		// it.
-		// A BLANK backup_label IS THE SAME FALSE ALARM ONE COLUMN OVER, and it
-		// is live on this branch. With the coverage_status vocabulary in place
-		// "which roles have no backup coverage" now answers with exactly the 4
+		// A BLANK backup_label WAS THE SAME FALSE ALARM ONE COLUMN OVER, and
+		// the fix for it is the reason this card now renders THREE VALUES for
+		// that column too. With the coverage_status vocabulary in place "which
+		// roles have no backup coverage" answered with exactly the 4
 		// uncovered_absence rows — but "which staff have no backup" filtered on
-		// `backup_label IS NULL` instead and named 13 of the 16 rows, among
-		// them `Backup 6`, a person who IS somebody's backup. The view fills
-		// backup_label only on the covered_by_backup rows, so a blank one is
-		// the ordinary state of a role nobody is away from. Telling the
-		// planner which column decides is the same repair as telling it which
-		// values exist, and it is the only repair that works: a NULL test, like
-		// a no-op filter, RETURNS ROWS, so nothing downstream can see it fire.
+		// `backup_label IS NULL` instead and named 10 of the 16 rows, among
+		// them `Backup 6`, a person who IS somebody's backup. The view filled
+		// backup_label only on the covered_by_backup rows, so a blank one was
+		// the ordinary state of a role nobody is away from.
+		//
+		// Telling the planner which column decides was tried, and so were two
+		// gates that refused the statement; each was re-spelled around, because
+		// a model can spell "is it empty" infinitely many ways. Migration
+		// 000397 made the column DEFINITE instead: it is never NULL and never
+		// blank, and carries the covering person's NAME, 'No backup named' or
+		// 'Nobody away'. Every emptiness test now returns ZERO ROWS, which a
+		// reader can see, and the question the leader asked finally has a
+		// correct spelling — `backup_label = 'No backup named'` returns the
+		// same four roles coverage_status does. The card renders both
+		// vocabularies because the planner has to guess VALUES, not columns.
 		//
 		// THE LEAD SENTENCE IS LOAD-BEARING AND WAS MEASURED, not assumed. The
 		// first attempt at this addition compacted the card to fit the prompt's
@@ -945,8 +949,8 @@ var schemaCards = []SchemaCard{
 		// sentence it sat in was not. A card is read by a model, so squeezing
 		// its prose to the byte is not a neutral edit — it is a behaviour
 		// change, and the only way to know is to ask the question again.
-		Purpose: "Workforce coverage per park/role. coverage_status: present|covered_by_backup|uncovered_absence " +
-			"is the gap test; blank backup_label is not.",
+		Purpose: "Workforce coverage per park/role. coverage_status: present|covered_by_backup|uncovered_absence. " +
+			"backup_label is never blank: a person's name, or 'No backup named', or 'Nobody away'.",
 		Grain:               "one row per park per role (current state)",
 		ParkColumn:          "park_label",
 		TenantScopedColumns: []string{"tenant_id"},
@@ -955,9 +959,7 @@ var schemaCards = []SchemaCard{
 			col("tenant_id", uuidT), col("park_label", textT), col("role_label", textT), col("owner_label", textT),
 			col("backup_label", textT), col("coverage_status", textT), col("active_work_count", bigT), col("overdue_work_count", bigT),
 		},
-		BlankIsNotAbsence: []string{"backup_label"},
-		AbsenceAuthority:  "coverage_status",
-		Route:             "/people",
+		Route: "/people",
 	},
 	{
 		Name:                "workforce_tasks_base",

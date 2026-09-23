@@ -175,13 +175,25 @@ func validateModelSQL(sql string, params map[string]any) error {
 	if err := sqlguard.Validate(sql); err != nil {
 		return err
 	}
-	// A blank-is-not-absence column may not be asked whether it is empty; see
-	// absencetest.go for why prose on the card was not enough. It runs on every
-	// drafted statement, before the window rules, because it is a question
-	// about what the read MEANS rather than about the period it covers.
-	if err := validateAbsenceTests(sql); err != nil {
-		return err
-	}
+	// THERE USED TO BE A BLANK-IS-NOT-ABSENCE GATE HERE, and it is gone because
+	// the column it guarded stopped being ambiguous. `workforce_coverage_status.
+	// backup_label` conflated "this role has no cover" with "nobody is away
+	// from this role", so `backup_label IS NULL` named ten roles as staffing
+	// gaps when four are. Three rounds of repair at THIS end -- prose on the
+	// card, a gate matching the predicate's shape, then a gate that read the
+	// predicate as an expression and evaluated it three times -- were each
+	// re-spelled around, because a model can spell one predicate infinitely
+	// many ways and a reader-side gate has to close all of them.
+	//
+	// Migration 000397 removes the ambiguity at the SOURCE instead: the column
+	// is never NULL and never blank, and carries the covering person's name,
+	// 'No backup named' or 'Nobody away'. Every emptiness test now returns ZERO
+	// ROWS -- an empty answer, which a reader can see -- and the question the
+	// leader asked has a correct spelling, `backup_label = 'No backup named'`,
+	// which returns exactly the four roles coverage_status agrees on. The
+	// defect is inexpressible rather than refused, so ~1,800 lines of
+	// expression reader went with it. Pinned by
+	// reporting.TestBackupLabelIsNeverBlankSoEmptinessCannotBeAsked.
 	if !isModelSQLParams(params) {
 		return nil
 	}

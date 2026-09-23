@@ -4899,7 +4899,11 @@ CREATE VIEW ceo_ai.workforce_coverage_status AS
     loc.name AS park_label,
     COALESCE(rc.label, wm.primary_role_hint) AS role_label,
     wm.display_name AS owner_label,
-    rep.display_name AS backup_label,
+        CASE
+            WHEN (aa.workforce_member_id IS NULL) THEN 'Nobody away'::text
+            WHEN ((rep.display_name IS NOT NULL) AND (btrim(rep.display_name) <> ''::text)) THEN rep.display_name
+            ELSE 'No backup named'::text
+        END AS backup_label,
         CASE
             WHEN (aa.workforce_member_id IS NULL) THEN 'present'::text
             WHEN (aa.replacement_member_id IS NOT NULL) THEN 'covered_by_backup'::text

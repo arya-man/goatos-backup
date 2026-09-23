@@ -344,3 +344,40 @@ func isIdentByte(c byte) bool {
 	return c == '_' || c == '$' ||
 		(c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
 }
+
+// significantTokens drops whitespace and comments. Comments are dropped rather
+// than kept because a word inside one is not part of any predicate: with no
+// comment rule at all, `-- animal_key = 'GT-1234'` reads as a filter the
+// statement does not contain, which is exactly the forgery
+// entitysubstitution.go exists to refuse.
+func significantTokens(toks []sqlToken) []sqlToken {
+	out := make([]sqlToken, 0, len(toks))
+	for _, t := range toks {
+		if t.kind == tokSpace || t.kind == tokComment {
+			continue
+		}
+		out = append(out, t)
+	}
+	return out
+}
+
+// parenDepths returns each token's nesting depth, with both parentheses of a
+// pair carrying the depth OUTSIDE them, so "stop when the depth drops below
+// mine" means "stop at the parenthesis that encloses me".
+func parenDepths(toks []sqlToken) []int {
+	out := make([]int, len(toks))
+	d := 0
+	for i, t := range toks {
+		if t.kind == tokOther && t.text == ")" {
+			d--
+		}
+		if d < 0 {
+			d = 0
+		}
+		out[i] = d
+		if t.kind == tokOther && t.text == "(" {
+			d++
+		}
+	}
+	return out
+}
