@@ -169,3 +169,43 @@ func TestValidate_MaxRowLimitBoundary(t *testing.T) {
 		t.Fatal("LIMIT 101 should be rejected")
 	}
 }
+
+// A REFUSAL THAT MISDESCRIBES THE STATEMENT LEAVES THE RE-PLAN NOWHERE TO GO.
+// `FROM` is also the separator inside `IS DISTINCT FROM` and inside
+// EXTRACT/SUBSTRING/TRIM, and this guard counts every FROM as a relation on
+// purpose -- guessing in the loose direction would admit a read the one bound
+// tenant predicate does not cover. The RULE is unchanged and these statements
+// are still refused; what changed is that the model is told WHY, instead of
+// being told it read two tables when it read one.
+func TestTheSecondFromRefusalNamesTheRealReason(t *testing.T) {
+	for _, tc := range []struct{ name, sql, want string }{
+		{
+			name: "is distinct from",
+			sql:  `SELECT count(*) FROM ceo_ai.workforce_coverage_status WHERE tenant_id = '1' AND backup_label IS DISTINCT FROM owner_label LIMIT 10`,
+			want: "DISTINCT",
+		},
+		{
+			name: "extract",
+			sql:  `SELECT extract(month FROM sale_date) AS m, count(*) FROM ceo_ai.sales_deal_lines_closed WHERE tenant_id = '1' GROUP BY 1 LIMIT 10`,
+			want: "function call",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := Validate(tc.sql)
+			if err == nil {
+				t.Fatal("the single-relation rule was loosened; a token guard cannot tell this FROM from a second table")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("the refusal does not name the real reason (%q): %v", tc.want, err)
+			}
+			if strings.Contains(err.Error(), "found 2 FROM") {
+				t.Errorf("the refusal still claims the statement reads two relations: %v", err)
+			}
+		})
+	}
+	// The ordinary second-relation case must keep the plain message.
+	err := Validate(`SELECT count(*) FROM ceo_ai.a, ceo_ai.b WHERE tenant_id = '1' LIMIT 10`)
+	if err == nil {
+		t.Fatal("a comma cross-join must still be refused")
+	}
+}

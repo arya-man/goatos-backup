@@ -194,6 +194,20 @@ func Validate(sql string) error {
 	//     relation is the only safe shape for a token guard (not a full parser)
 	//     to enforce.
 	if n := countKeyword(tokens, "FROM"); n != 1 {
+		// THE REFUSAL MUST DESCRIBE THE STATEMENT THE MODEL WROTE. `FROM` is
+		// not only a relation keyword: it is also the separator inside
+		// `IS DISTINCT FROM`, `EXTRACT(month FROM d)`, `SUBSTRING(x FROM 1 FOR
+		// 2)` and `POSITION(a IN b)`'s sibling spellings. The count is
+		// deliberately blunt -- a token guard cannot tell those apart from a
+		// second relation, and guessing in the loose direction would admit a
+		// read the tenant predicate does not cover -- so the RULE stays, but a
+		// statement refused for `backup_label IS DISTINCT FROM owner_label`
+		// used to be told it read "2 FROM" relations, which it does not, and a
+		// refusal that misdescribes the statement leaves the re-plan nowhere
+		// to go.
+		if w := wordBeforeAnExtraFrom(tokens); w != "" {
+			return rejit("this guard counts every FROM as a relation and cannot tell the FROM inside %s apart from a second table, so rewrite it without that FROM and read one %s.* relation", w, AllowedSchema)
+		}
 		return rejit("statement must read exactly one %s.* relation (found %d FROM)", AllowedSchema, n)
 	}
 	if !atDepthZero(tokens, "FROM") {
@@ -550,6 +564,45 @@ func atDepthZero(tokens []token, kw string) bool {
 }
 
 // countKeyword counts identifier tokens matching kw (case-insensitive).
+// wordBeforeAnExtraFrom returns the word sitting immediately before a FROM that
+// is plainly NOT a relation keyword -- `DISTINCT FROM`, or the FROM inside
+// EXTRACT/SUBSTRING/TRIM/OVERLAY. It is used only to word a refusal, never to
+// decide one.
+func wordBeforeAnExtraFrom(tokens []token) string {
+	for i, t := range tokens {
+		if t.isSym || t.isNum || !strings.EqualFold(t.text, "from") || i == 0 {
+			continue
+		}
+		prev := tokens[i-1]
+		if prev.isSym || prev.isNum {
+			continue
+		}
+		switch strings.ToLower(prev.text) {
+		case "distinct":
+			return "IS DISTINCT FROM"
+		}
+	}
+	// A FROM inside a call's parentheses is the other shape: EXTRACT(month FROM
+	// d), SUBSTRING(x FROM 1 FOR 2), TRIM(BOTH ' ' FROM x).
+	depth := 0
+	for _, t := range tokens {
+		if t.isSym && t.text == "(" {
+			depth++
+			continue
+		}
+		if t.isSym && t.text == ")" {
+			if depth > 0 {
+				depth--
+			}
+			continue
+		}
+		if depth > 0 && !t.isSym && !t.isNum && strings.EqualFold(t.text, "from") {
+			return "a function call such as EXTRACT or SUBSTRING"
+		}
+	}
+	return ""
+}
+
 func countKeyword(tokens []token, kw string) int {
 	n := 0
 	for _, t := range tokens {
