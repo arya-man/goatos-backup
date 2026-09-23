@@ -1663,6 +1663,29 @@ func (r *Repository) ExperimentAnalytics(ctx context.Context, tenantID string, q
 // small purchase ledger and windowed locked sheets, canonical-indexed-SQL default.
 const feedPurchaseStockKgSQL = `stock_kg`
 
+// FEED SOLD OFF THE STORE (migration 000393). One row per (farm, feed) of kilograms the farm
+// SOLD, joined to `bought` so it inherits that read's park narrowing and per-item depletion date,
+// and grouped to `bought`'s own key so the join into a balance is 1:1 and cannot fan a row out.
+//
+// IT REDUCES THE BALANCE AND IS NEVER CONSUMPTION, and that distinction is the whole reason it is
+// its own CTE instead of a third arm of the consumption union. A sale is one truck leaving on one
+// day, not the farm's daily draw: folded into the burn rate, a two-tonne sale would read as two
+// tonnes a day eaten, the days-left divisor would jump and every card for that feed would report
+// a store about to run dry. So the rate, the forecast and the expenditure reads deliberately do
+// NOT see these rows -- only the three balances do.
+// It is SELF-CONTAINED -- it names no other CTE -- so the three balance reads that use it can
+// keep their own differently-named purchase CTEs without three variants of this one drifting
+// apart, which is how six spellings of one location display once got into this schema. Every user
+// LEFT JOINs it and COALESCEs, because a feed nobody has sold must keep its balance rather than
+// vanish from the card.
+const feedSoldCTESQL = `
+sold AS (
+    SELECT farm_label, feed_item_key, SUM(quantity_kg) AS kg
+    FROM feed_sale_depletions
+    WHERE tenant_id = $1
+    GROUP BY farm_label, feed_item_key
+)`
+
 const stockItemsSQL = `
 WITH rate_override AS (
     -- HARD-CODED burn rates (domain.StockRateOverrides). Keyed on (farm, feed);
@@ -1729,6 +1752,7 @@ directed AS (
      AND lc.feed_day >= b.depletes_from
     GROUP BY b.farm_label, b.feed_item_key
 ),
+` + feedSoldCTESQL + `,
 -- Each item keeps its OWN ledger arithmetic -- net purchased minus everything
 -- directed since ITS depletion date -- and only the finished balance is folded
 -- into the family. Merging the purchases first would have collapsed the members'
@@ -1741,9 +1765,12 @@ item_balance AS (
            b.park_id_text,
            b.latest_batch,
            b.depletes_from,
-           b.net_kg - d.kg                              AS balance_kg
+           -- Purchased, less what the animals ate, less what the farm sold. All three are already
+           -- one row per (farm_label, feed_item_key), so both joins are 1:1.
+           b.net_kg - d.kg - COALESCE(sd.kg, 0)         AS balance_kg
     FROM bought b
     JOIN directed d USING (farm_label, feed_item_key)
+    LEFT JOIN sold sd USING (farm_label, feed_item_key)
     LEFT JOIN merge_map mm ON mm.member_key = b.feed_item_key
 ),
 family_stock AS (
@@ -2039,14 +2066,19 @@ directed AS (
      AND f.feed_day >= b.depletes_from
     GROUP BY b.farm_label, b.feed_item_key
 ),
+` + feedSoldCTESQL + `,
 item_balance AS (
     SELECT b.farm_label,
            COALESCE(mm.family_key, b.feed_item_key)     AS family_key,
            COALESCE(mm.family_label, b.feed_item_label) AS family_label,
            b.park_id_text,
-           b.net_kg - d.kg                              AS balance_kg
+           -- Sold feed is gone from the store, so the alert must see it: a farm that sold its
+           -- maize is as short of maize as one that fed it. It still never touches the RATE below,
+           -- which is what decides how many days the balance lasts.
+           b.net_kg - d.kg - COALESCE(sd.kg, 0)         AS balance_kg
     FROM bought b
     JOIN directed d USING (farm_label, feed_item_key)
+    LEFT JOIN sold sd USING (farm_label, feed_item_key)
     LEFT JOIN merge_map mm ON mm.member_key = b.feed_item_key
 ),
 family_stock AS (
@@ -2347,6 +2379,7 @@ locked_cells AS (
       AND r.quantity_kg IS NOT NULL
     GROUP BY i.park_id, r.feed_item_key, i.feed_day
 ),
+` + feedSoldCTESQL + `,
 depletion AS (
     SELECT l.farm_label,
            l.feed_item_key,
@@ -2372,12 +2405,17 @@ stock_balance AS (
            l.park_id_text,
            l.net_kg,
            l.depletes_from,
-           round(l.net_kg - COALESCE(dep.total_directed_kg, 0), 1) AS ledger_stock_kg
+           -- Purchased, less fed, less SOLD (migration 000393). The farm card reports the same
+           -- store the Stock cards do, so the two must subtract the same things.
+           round(l.net_kg - COALESCE(dep.total_directed_kg, 0) - COALESCE(sd.kg, 0), 1) AS ledger_stock_kg
     FROM loads l
     LEFT JOIN merge_map mm ON mm.member_key = l.feed_item_key
     LEFT JOIN depletion dep
       ON dep.farm_label = l.farm_label
      AND dep.feed_item_key = l.feed_item_key
+    LEFT JOIN sold sd
+      ON sd.farm_label = l.farm_label
+     AND sd.feed_item_key = l.feed_item_key
 ),
 families AS (
     -- SUM, not SUM of GREATEST(...,0): a member's negative balance means the
