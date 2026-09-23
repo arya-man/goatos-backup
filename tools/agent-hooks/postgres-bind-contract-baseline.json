@@ -20,7 +20,6 @@
   "internal/counts/adapters/postgres/feed_projected_counts.go|unverified-dynamic-bind": 1,
   "internal/counts/adapters/postgres/milk_preparation.go|unverified-dynamic-bind": 1,
   "internal/counts/adapters/postgres/shifting_destinations.go|unverified-dynamic-bind": 1,
-  "internal/counts/adapters/postgres/shifting_execution.go|unverified-dynamic-bind": 3,
   "internal/countssop/adapters/postgres/capture_card_source.go|unverified-dynamic-bind": 1,
   "internal/feeddirection/adapters/boardsource/source.go|unverified-dynamic-bind": 1,
   "internal/feeddirection/adapters/boardsource/subtasks.go|unverified-dynamic-bind": 1,

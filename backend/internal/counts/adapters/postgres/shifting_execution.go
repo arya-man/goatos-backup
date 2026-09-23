@@ -13,6 +13,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/counts/domain"
 	"github.com/vgoats/goatos/backend/internal/counts/ports"
 	identityports "github.com/vgoats/goatos/backend/internal/identity/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 	"github.com/vgoats/goatos/backend/internal/sop/authored"
 )
 
@@ -1212,7 +1213,7 @@ func (r *Repository) ListShiftingEventsPendingExecution(
 	}
 
 	// Fetch one extra row to decide whether a next page exists, without a second COUNT query.
-	rows, err := r.pool.Query(ctx, `
+	pageQuery, err := sqlbind.Bind(`
 WITH page AS (
 	    SELECT se.shifting_event_id, se.event_status, se.verification_state,
 	           -- An UNAPPROVED movement is never executable (maintainer decision 2026-08-09,
@@ -1298,6 +1299,10 @@ ORDER BY p.raised_at DESC, p.shifting_event_id DESC`,
 		q.TenantID, raisedFrom, raisedBefore, status, cursorRaisedAt, cursorID, pageSize+1,
 		domain.MaxShiftingExecutionAnimalPreview, sourceParkID, sourceShedID, now.UTC())
 	if err != nil {
+		return domain.ShiftingExecutionPage{}, fmt.Errorf("counts: bind shifting events pending execution: %w", err)
+	}
+	rows, err := r.pool.Query(ctx, pageQuery.SQL(), pageQuery.Args()...)
+	if err != nil {
 		return domain.ShiftingExecutionPage{}, fmt.Errorf("counts: list shifting events pending execution: %w", err)
 	}
 	defer rows.Close()
@@ -1380,7 +1385,7 @@ ORDER BY p.raised_at DESC, p.shifting_event_id DESC`,
 		// operator's work list; it is reachable only through its own read-only Pending tab. 'rework'
 		// excludes 'pending' for the same reason and 'canceled' because the page query drops canceled
 		// rows globally -- without that the Rework tab could count a row it cannot show.
-		if err := r.pool.QueryRow(ctx, `SELECT
+		summaryQuery, err := sqlbind.Bind(`SELECT
  count(*) FILTER (WHERE event_status NOT IN ('canceled', 'pending')),
  count(*) FILTER (WHERE event_status='pending'),
  count(*) FILTER (WHERE event_status='authorized' AND verification_state <> 'rejected'),
@@ -1391,7 +1396,11 @@ FROM shifting_events se WHERE tenant_id=$1::uuid AND raised_at >= $2 AND raised_
   AND ($6::uuid IS NULL OR se.source_shed_id = $6::uuid)
   AND `+shiftingExecutableSourceCurrentSQL("$1")+`
   AND `+shiftingActionsVisibleSQL("$4"),
-			q.TenantID, q.RaisedFrom.UTC(), q.RaisedBefore.UTC(), now.UTC(), sourceParkID, sourceShedID).Scan(
+			q.TenantID, q.RaisedFrom.UTC(), q.RaisedBefore.UTC(), now.UTC(), sourceParkID, sourceShedID)
+		if err != nil {
+			return domain.ShiftingExecutionPage{}, fmt.Errorf("counts: bind shifting actions summary: %w", err)
+		}
+		if err := r.pool.QueryRow(ctx, summaryQuery.SQL(), summaryQuery.Args()...).Scan(
 			&page.StatusCounts.All, &page.StatusCounts.Pending, &page.StatusCounts.Authorized,
 			&page.StatusCounts.Rework, &page.StatusCounts.Completed); err != nil {
 			return domain.ShiftingExecutionPage{}, fmt.Errorf("counts: shifting actions summary: %w", err)
@@ -1403,7 +1412,7 @@ FROM shifting_events se WHERE tenant_id=$1::uuid AND raised_at >= $2 AND raised_
 		// this badge is a call to action, so it counts only what the operator still has to do. It
 		// previously carried a bare `event_status <> 'canceled'`, which also counted completed and
 		// unapproved movements.
-		prevRows, err := r.pool.Query(ctx, `SELECT to_char((raised_at AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD'), count(*)
+		prevQuery, err := sqlbind.Bind(`SELECT to_char((raised_at AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD'), count(*)
 FROM shifting_events se
 WHERE tenant_id=$1::uuid AND `+shiftingOutstandingActionSQL()+`
   AND raised_at < $2 AND raised_at >= $2 - interval '90 days'
@@ -1413,6 +1422,10 @@ WHERE tenant_id=$1::uuid AND `+shiftingOutstandingActionSQL()+`
   AND `+shiftingActionsVisibleSQL("$3")+`
 GROUP BY (raised_at AT TIME ZONE 'Asia/Kolkata')::date
 ORDER BY (raised_at AT TIME ZONE 'Asia/Kolkata')::date DESC LIMIT 5`, q.TenantID, q.RaisedFrom.UTC(), now.UTC(), sourceParkID, sourceShedID)
+		if err != nil {
+			return domain.ShiftingExecutionPage{}, fmt.Errorf("counts: bind shifting previous dates: %w", err)
+		}
+		prevRows, err := r.pool.Query(ctx, prevQuery.SQL(), prevQuery.Args()...)
 		if err != nil {
 			return domain.ShiftingExecutionPage{}, fmt.Errorf("counts: shifting previous dates: %w", err)
 		}
