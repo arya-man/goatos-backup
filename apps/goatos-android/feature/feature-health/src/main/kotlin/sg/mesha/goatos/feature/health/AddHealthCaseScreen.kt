@@ -92,7 +92,7 @@ fun AddHealthCaseScreen(
 ) {
     Column(modifier.fillMaxSize().background(MeshaColors.PageBg)) {
         MeshaScreenHeader(
-            title = "Report sick goat",
+            title = "Report sick animal",
             subtitle = if (state.ageBand == "kid") "Kids" else "Adults",
             onBack = { onEvent(AddHealthCaseEvent.Back) },
         )
@@ -108,13 +108,13 @@ fun AddHealthCaseScreen(
                     }
                 }
             }
-            item("animal-title") { FieldTitle("1. Find the sick goat") }
+            item("animal-title") { FieldTitle("1. Find the sick animal") }
             item("lookup") {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(
                         value = state.animalQuery,
                         onValueChange = { onEvent(AddHealthCaseEvent.EditQuery(it)) },
-                        label = { Text("RFID or goat tag") },
+                        label = { Text("RFID or tag") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -122,7 +122,7 @@ fun AddHealthCaseScreen(
                         onClick = { onEvent(AddHealthCaseEvent.Lookup) },
                         enabled = state.animalQuery.isNotBlank() && !state.lookingUp,
                         modifier = Modifier.fillMaxWidth(),
-                    ) { Text(if (state.lookingUp) "Searching…" else "Search goat") }
+                    ) { Text(if (state.lookingUp) "Searching…" else "Search") }
                     state.lookupMessage?.let { Text(it, color = MeshaColors.Warn) }
                 }
             }
