@@ -292,6 +292,27 @@ BEGIN
   --     allowed no other shape, so this step also narrows them onto the person's active park
   --     grant. Everything still on `operator` after that -- the two tenant director rows, and
   --     a leaver like Darshan -- is revoked, which is the same treatment their live rows got.
+  --
+  --     projection-review: membership=active 'operator' rows of auth_pending_email_grants whose
+  --     normalized_email matches a workforce_members row in v_tenant that is itself an _op_targets
+  --     migration target, and who already holds an active park-scoped grant on that target's
+  --     new_role;
+  --     group_key=(tenant_id, pending_grant_id) -- the remaining GROUP BY columns are functionally
+  --     dependent on the pending grant's primary key or constant per target, so the grain is exactly
+  --     one row per pending grant;
+  --     join_cardinality=workforce_members joins one-to-one on (tenant_id, lower(email)) and
+  --     _op_targets is DISTINCT one row per person, but user_scope_grants is ONE-TO-MANY -- a person
+  --     ticked for two parks holds one active new_role park grant per park -- so the join fans out
+  --     per park and min(g.scope_id) collapses it back to the pending-grant grain deliberately --
+  --     the HAVING count(*) > 1 assertion below then refuses any residual ambiguity at that grain
+  --     rather than guessing which park invite to write;
+  --     pagination=none -- this is a one-shot temp table fully materialised inside the migration
+  --     transaction, not a paged read, so every matching pending grant is processed in one pass and
+  --     there is no LIMIT/OFFSET boundary at which a row could be skipped or double-counted;
+  --     scope=every join is pinned to the resolved single tenant (v_tenant via _op_targets, and
+  --     p.tenant_id = wm.tenant_id = g.tenant_id), so display_name/email labels cannot reach across
+  --     tenants -- and the write below NARROWS each invite from tenant scope onto that person's
+  --     own park.
   -- ---------------------------------------------------------------------
   CREATE TEMP TABLE _op_pending_targets ON COMMIT DROP AS
   SELECT p.tenant_id, p.pending_grant_id, p.role AS old_role, p.scope_type AS old_scope_type,

@@ -35,6 +35,11 @@
 // Signals mapping output matched from already-active RFID identifiers. They add
 // no vaccination/HRMS source column, date rule, roster row, SOP proof-grain
 // field, or fixture hash input for this validator.
+// Coupling review 2026-09-23: migrations 000393/000394 add ground-tier manager role hints
+// ('manager', 'assistant_manager') to the workforce_members primary_role_hint CHECK and retain
+// 'operator' pending the APK capability-flag cutover. Source validation is unchanged: this
+// validator checks source ROWS -- HRMS roster and vaccination history cells -- not role-hint
+// vocabulary, and a widened CHECK invalidates no existing source row or fixture hash input.
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";

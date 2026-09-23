@@ -1321,3 +1321,13 @@ hundred places, a few dozen items, never a per-animal or per-event table -- and 
 They carry `scale-guard:ignore: bounded tenant reference catalog` for that reason; the guard is
 not disabled. Species and sex are validated against `species_lookup` / `sex_lookup` on the
 identity write path with one indexed EXISTS each, never by scanning goats.
+
+## Role-hint CHECK widening is not a query-shape change (2026-09-23)
+
+Migrations 000393/000394 widen the `workforce_members.primary_role_hint` CHECK
+with `manager` and `assistant_manager` (retaining `operator`). A CHECK
+constraint vocabulary change adds no new scan, no new join, and no new
+cardinality shape: `workforce_members` is a bounded tenant roster table, the
+constraint is evaluated per row on write, and no read path gains a predicate or
+a grouping key. Do not treat it as a scale-relevant change, and do not add
+role-hint-derived fan-out on the strength of it.

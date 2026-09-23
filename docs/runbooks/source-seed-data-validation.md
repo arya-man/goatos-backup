@@ -407,6 +407,20 @@ that contains this contract before they can satisfy the gate.
 
 Species and sex are lookup codes since migration 000346 (species_lookup / sex_lookup, Configuration -> Items and settings): goats.species / goats.sex no longer carry CHECK constraints, and the four literals every seed writes (goat, sheep, female, male) are the built-in rows of those lookups. A seeded goat therefore validates exactly as before; a tenant with no lookup rows still accepts the built-ins.
 
+### Ground-tier role hints widen the vocabulary only (2026-09-23)
+
+Migrations 000393/000394 add the ground-tier Cleaning/Farming manager roles and
+retire the `operator` ROLE onto department manager roles. 000393 WIDENS the
+`workforce_members.primary_role_hint` CHECK with `manager` and
+`assistant_manager` and deliberately KEEPS `operator`, because the shipped
+Android APK gates feed-direction and feed-wastage capture on
+`primaryRoleHint == "operator"`; 000394 moves roles and grants and explicitly
+leaves `primary_role_hint` alone. Because the CHECK is only widened and no
+value is removed, no already-seeded row becomes invalid. Source validation
+semantics are unchanged: this report validates source ROWS, and the
+vaccination/HRMS fixture seeds `display_name`/`display_code` identity rather
+than authoring role-hint vocabulary.
+
 ## Recovery due floor is out of this report's scope (2026-09-23)
 
 The recovery/reschedule due floor clamps dates the kernel GENERATES after a

@@ -228,6 +228,14 @@ Permanent scale and guard-authoring rules:
   weighing operators) must declare a park and materialize `user_scope_grants`
   with `scope_type='park'`. Run `make stg-operator-scope-guard` for any STG
   login, Firebase, workforce, or operator grant change.
+- The `workforce_members.primary_role_hint` vocabulary now also includes
+  `manager` and `assistant_manager` (migrations 000393/000394, ground-tier
+  Cleaning/Farming roles). `operator` is RETAINED on purpose: the shipped
+  Android APK gates feed-direction and feed-wastage capture on
+  `primaryRoleHint == "operator"`, so 000394 migrates a person's ROLE and
+  grants and leaves their hint alone. Retire `operator` from the hint list only
+  in the same change that replaces those two APK gates with backend capability
+  flags.
 - Operator drive assignments are generated metadata, not obligation membership.
   Review SQL joins at exact assignment grain so multiple operators, planned
   dates, or partitions cannot multiply counts or expose another operator's
