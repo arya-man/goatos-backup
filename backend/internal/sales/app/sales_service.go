@@ -19,8 +19,19 @@ import (
 // nothing for a service layer to orchestrate beyond validating a write and the read filters.
 type SalesService struct {
 	repo ports.SalesRepository
+	// feedStock answers what the store holds, for the short-feed-sale confirmation. It is OPTIONAL
+	// -- a service built without it records feed sales with no warning, which is the behaviour
+	// before this existed and is what the fakes in the unit tests exercise. Production wires it.
+	feedStock ports.FeedStockReader
 	// now is injectable so a test pins the business date rather than depending on the wall clock.
 	now func() time.Time
+}
+
+// WithFeedStock wires the reader that answers how much feed the store holds, so a sale taking more
+// than that can ask the desk to confirm it once.
+func (s *SalesService) WithFeedStock(reader ports.FeedStockReader) *SalesService {
+	s.feedStock = reader
+	return s
 }
 
 func NewSalesService(repo ports.SalesRepository) *SalesService {
@@ -86,6 +97,9 @@ func (s *SalesService) CreateDeal(ctx context.Context, tenantID string, write do
 	if err := normalized.Validate(catalog); err != nil {
 		return domain.Deal{}, err
 	}
+	if err := s.confirmFeedStock(ctx, tenantID, normalized); err != nil {
+		return domain.Deal{}, err
+	}
 	return s.repo.CreateDeal(ctx, tenantID, normalized, actorID, strings.TrimSpace(idempotencyKey))
 }
 
@@ -114,6 +128,43 @@ func (s *SalesService) SellableProducts(ctx context.Context, tenantID string) ([
 		return nil, err
 	}
 	return domain.NewProductCatalog(rows).Products(), nil
+}
+
+// confirmFeedStock warns -- once -- when a feed line sells more than the store's ledger holds.
+//
+// It is a CONFIRMATION and not a gate (maintainer decision 2026-09-23): the feed may genuinely
+// have left while the purchase ledger is behind, and refusing the sale would make the register lie
+// about a load that physically went. Once the desk has seen the balance and re-sent the same sale,
+// it records.
+//
+// A farm with no stock reader wired, or a feed the store has no ledger for at all, raises NOTHING.
+// "The ledger has never heard of this feed" is a different fact from "the ledger says you have
+// none left", and warning on the first would teach the desk to tick past the second.
+func (s *SalesService) confirmFeedStock(ctx context.Context, tenantID string, write domain.DealWrite) error {
+	if s.feedStock == nil || write.StockShortfallAcknowledged {
+		return nil
+	}
+	short := []domain.FeedStockShortfall{}
+	for i, l := range write.Lines {
+		if l.Kind() != domain.KindFeed {
+			continue
+		}
+		balance, known, err := s.feedStock.FeedBalanceKg(ctx, tenantID, write.Farm, l.Breed)
+		if err != nil {
+			return err
+		}
+		if !known || balance >= l.QuantityKg() {
+			continue
+		}
+		short = append(short, domain.FeedStockShortfall{
+			LineNo: i + 1, FeedItem: l.Breed, FarmLabel: write.Farm,
+			RequestedKg: l.QuantityKg(), BalanceKg: balance,
+		})
+	}
+	if len(short) == 0 {
+		return nil
+	}
+	return domain.ErrFeedStockShort{Shortfalls: short}
 }
 
 // SetDealStatus sets a deal's lifecycle status -- the edit that closes an expected sale on the

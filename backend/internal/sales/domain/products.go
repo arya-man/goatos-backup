@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 )
@@ -147,4 +148,38 @@ func BuiltinKind(productType string) string {
 		return KindOther
 	}
 	return ""
+}
+
+// FeedStockShortfall is one feed line selling more than the store's ledger holds.
+type FeedStockShortfall struct {
+	LineNo      int
+	FeedItem    string
+	FarmLabel   string
+	RequestedKg float64
+	BalanceKg   float64
+}
+
+// ErrFeedStockShort is the CONFIRMATION a short feed sale raises (maintainer decision 2026-09-23).
+//
+// It is not a refusal. The sale may genuinely have happened while the purchase ledger is behind --
+// a load reached the farm and nobody has recorded it yet -- and refusing it outright would make
+// the register lie about feed that physically left. So the desk is told what the store thinks it
+// holds and, having checked, sends the same sale again with the acknowledgement.
+//
+// The desk is TOLD the balance here, unlike the verifier's packed-weight warning, which is told
+// only a direction. The two differ because of what the reader is for: a verifier is a second
+// independent reading and must not be anchored to the figure she is checking, while the person
+// recording a sale is being asked whether the LEDGER is wrong, and cannot answer that without
+// seeing what the ledger says.
+type ErrFeedStockShort struct {
+	Shortfalls []FeedStockShortfall
+}
+
+func (e ErrFeedStockShort) Error() string {
+	if len(e.Shortfalls) == 1 {
+		s := e.Shortfalls[0]
+		return fmt.Sprintf("sales: %s %s has %.3f kg in the store and this sale takes %.3f kg",
+			s.FarmLabel, s.FeedItem, s.BalanceKg, s.RequestedKg)
+	}
+	return fmt.Sprintf("sales: %d feed lines take more than the store holds", len(e.Shortfalls))
 }

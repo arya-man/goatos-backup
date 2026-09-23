@@ -279,6 +279,11 @@ type DealWrite struct {
 	// its own counts, weight and value. Normalize fills them from the legacy single-product
 	// fields below when a pre-000296 client sends none, and Validate refuses a sale with none.
 	Lines []DealLineWrite
+	// StockShortfallAcknowledged is the desk having seen what the store thinks it holds and said
+	// the sale is right anyway (maintainer decision 2026-09-23). It is only ever true because a
+	// person ticked it after being shown the balance; a client that sets it by default turns a
+	// confirmation into no confirmation at all.
+	StockShortfallAcknowledged bool
 	// ProductType, Breed, the counts, TotalWeightKg and SalesValue are the LEGACY single-line
 	// body. After Normalize they hold the ROLLUP of Lines (see RollupLines), which is what the
 	// deal row stores; a client that sends both lines and these gets its own figures replaced by
