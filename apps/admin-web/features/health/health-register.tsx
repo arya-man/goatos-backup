@@ -10,6 +10,7 @@ import {
 } from "@/lib/api/server";
 
 import { RegisterEditor } from "./health-register-editor";
+import { StaleVersionNotice } from "./health-stale-version-recovery";
 import { OpenRegisterDraftButton } from "./health-register-open";
 
 // Health Config -> Diagnosis. The other half of the rulebook: the questions asked about a sick
@@ -106,7 +107,7 @@ export async function HealthRegisterSection({
 }) {
   // The list and the editor are separate route states, for the same reason the protocol half keeps
   // them apart: reading the catalog behind a full-screen editor is backend fan-out nobody sees.
-  const listResult = selectedVersionId ? null : await listHealthConfigRegisters();
+  const firstListResult = selectedVersionId ? null : await listHealthConfigRegisters();
   const detailResult = selectedVersionId ? await getHealthConfigRegister(selectedVersionId) : null;
 
   const detail: HealthRegisterDetail | null = detailResult && detailResult.ok ? detailResult.data : null;
@@ -116,19 +117,11 @@ export async function HealthRegisterSection({
   const selectedVersionIsGone =
     Boolean(selectedVersionId) && detailResult !== null && !detailResult.ok && detailResult.error.kind === "not_found";
 
-  if (selectedVersionIsGone) {
-    return (
-      <div className="alert" style={{ marginBottom: 16 }}>
-        <AlertTriangle className="ic" aria-hidden="true" />
-        <div>
-          {optionalCopy(pageContract, "error.stale_version") ?? copy(pageContract, "action.error_backend")}{" "}
-          <a href={listHref} style={{ textDecoration: "underline", whiteSpace: "nowrap" }}>
-            {optionalCopy(pageContract, "action.back_to_list") ?? copy(pageContract, "action.back")}
-          </a>
-        </div>
-      </div>
-    );
-  }
+  // The dead version recovers TO THE LIST. This branch used to return the notice ALONE, and because
+  // the list is deliberately not read behind an open editor, that left "everything below is up to
+  // date" sitting over an EMPTY screen -- the state the maintainer hit on 2026-09-23. Publishing is
+  // the ordinary way to get here: it retires the draft id the editor URL still holds.
+  const listResult = firstListResult ?? (selectedVersionIsGone ? await listHealthConfigRegisters() : null);
 
   if (detail) {
     return (
@@ -151,6 +144,15 @@ export async function HealthRegisterSection({
   return (
     <>
       <HowItWorks pageContract={pageContract} />
+      {selectedVersionIsGone ? (
+        <StaleVersionNotice
+          message={
+            optionalCopy(pageContract, "error.stale_version") ?? copy(pageContract, "action.error_backend")
+          }
+          linkLabel={optionalCopy(pageContract, "action.back_to_list") ?? copy(pageContract, "action.back")}
+          listHref={listHref}
+        />
+      ) : null}
       <SectionError result={listResult} pageContract={pageContract} />
       <section className="card" style={{ marginBottom: 16 }}>
         <div className="hd">
