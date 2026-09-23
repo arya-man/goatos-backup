@@ -8237,10 +8237,13 @@ export interface components {
             /** @description The management stages this farm uses, so a route's stage is PICKED rather than typed. A typed code that matches no animal makes a route that can never fire, and its only symptom is a zero in a column. */
             stages?: components["schemas"]["HealthAvailableStage"][];
         };
+        /** @description One row per ACTIVE TYPE, not per register version: a type whose rules nobody has written yet arrives with an empty version id and zero counts, which is the honest reading of "nothing written yet" and is what makes a newly created type reachable from the screen that authors it. */
         HealthRegisterSummary: {
             /** Format: uuid */
             register_version_id: string;
             animal_class: string;
+            /** @description The farm's own name for the type. Carried so a client never derives one: an authored type has no copy key, and deriving from the machine key put "kid warmup" on screen. */
+            type_label?: string;
             version: number;
             /** @enum {string} */
             status: "draft" | "published" | "retired";

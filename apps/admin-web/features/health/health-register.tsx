@@ -11,7 +11,8 @@ import {
 
 import { RegisterEditor } from "./health-register-editor";
 import { StaleVersionNotice } from "./health-stale-version-recovery";
-import { RegisterSheetControls } from "./health-register-sheet";
+import { RegisterSheetControls, RegisterSheetHeaderControls } from "./health-register-sheet";
+import { InfoTooltip } from "@/components/ui-primitives";
 import { OpenRegisterDraftButton } from "./health-register-open";
 
 // Health Config -> Diagnosis. The other half of the rulebook: the questions asked about a sick
@@ -29,6 +30,8 @@ import { OpenRegisterDraftButton } from "./health-register-open";
 /** A class's live register and, when one is open, its draft — shown together. */
 type ClassRow = {
   animalClass: string;
+  /** The farm's own name for the type, from the backend. */
+  typeLabel?: string;
   live?: HealthRegisterRow;
   draft?: HealthRegisterRow;
 };
@@ -36,7 +39,13 @@ type ClassRow = {
 function groupByClass(rows: HealthRegisterRow[]): ClassRow[] {
   const byClass = new Map<string, ClassRow>();
   for (const row of rows) {
-    const entry = byClass.get(row.animal_class) ?? { animalClass: row.animal_class };
+    const entry = byClass.get(row.animal_class) ?? {
+      animalClass: row.animal_class,
+      typeLabel: row.type_label,
+    };
+    // Every row of a type carries the same label; the first non-empty one wins so a payload with
+    // it on only one row (a type with a draft and no published version) still names itself.
+    if (!entry.typeLabel && row.type_label) entry.typeLabel = row.type_label;
     if (row.status === "published") entry.live = row;
     if (row.status === "draft") entry.draft = row;
     byClass.set(row.animal_class, entry);
@@ -45,32 +54,28 @@ function groupByClass(rows: HealthRegisterRow[]): ClassRow[] {
 }
 
 /**
- * The class as a person says it. The stored value is a machine key (`kid_milk`); a farm reads
- * "Kids on milk", and the phrase is what a vet recognises from the shed rather than from a schema.
+ * The type as a person says it.
+ *
+ * The BACKEND'S OWN LABEL WINS, because a type the farm authored has no copy key and deriving one
+ * from the machine key put "kid warmup" and "mothers" on a screen a vet reads. The copy key is
+ * kept as the fallback for the four shipped classes, whose wording is the product's rather than
+ * the farm's, and the machine key is the last resort for a payload from a backend that predates
+ * the label.
  */
-function className(animalClass: string, pageContract: AdminUiPageContract): string {
+function className(
+  animalClass: string,
+  pageContract: AdminUiPageContract,
+  typeLabel?: string,
+): string {
+  if (typeLabel && typeLabel.trim() !== "") return typeLabel;
   const key = `label.class.${animalClass}`;
   return optionalCopy(pageContract, key) ?? animalClass.replace(/_/g, " ");
 }
 
-/**
- * What a register IS, in three sentences, on every view of it.
- *
- * It sits on the LIST as well as the editor because that is where someone opening this
- * screen for the first time lands, and "one register per animal class" tells them
- * nothing until they know what a register does.
- */
-function HowItWorks({ pageContract }: { pageContract: AdminUiPageContract }) {
-  return (
-    <section className="card" style={{ marginBottom: 16 }}>
-      <div className="bd">
-        <p className="small muted" style={{ margin: 0, lineHeight: 1.7 }}>
-          {copy(pageContract, "note.how_it_works")}
-        </p>
-      </div>
-    </section>
-  );
-}
+// The three-sentence explainer of what a register IS used to be a card of its own on every view.
+// It is now the "i" beside the section title: the words are worth keeping -- "one register per
+// animal class" tells a first-time reader nothing until they know what a register does -- but a
+// permanent paragraph is rent paid by every later visit for a sentence read once.
 
 function SectionError({
   result,
@@ -127,7 +132,6 @@ export async function HealthRegisterSection({
   if (detail) {
     return (
       <>
-        <HowItWorks pageContract={pageContract} />
         <RegisterEditor
         detail={detail}
         pageContract={pageContract}
@@ -144,7 +148,6 @@ export async function HealthRegisterSection({
 
   return (
     <>
-      <HowItWorks pageContract={pageContract} />
       {selectedVersionIsGone ? (
         <StaleVersionNotice
           message={
@@ -158,7 +161,14 @@ export async function HealthRegisterSection({
       <section className="card" style={{ marginBottom: 16 }}>
         <div className="hd">
           <h3>{copy(pageContract, "section.registers.title")}</h3>
+          <InfoTooltip label={copy(pageContract, "section.registers.title")}>
+            {copy(pageContract, "note.how_it_works")}
+          </InfoTooltip>
           <span className="small muted">{copy(pageContract, "section.registers.caption")}</span>
+          <div className="sp" style={{ flex: 1 }} />
+          {/* The template is one file for every type, and what an upload does is one fact, so
+              both live here rather than repeating down the table. */}
+          <RegisterSheetHeaderControls pageContract={pageContract} />
         </div>
         <p className="small muted" style={{ margin: "0 14px 10px", lineHeight: 1.6 }}>
           {copy(pageContract, "section.registers.note")}
@@ -202,7 +212,7 @@ export async function HealthRegisterSection({
                   const shown = row.draft ?? row.live;
                   return (
                     <tr key={row.animalClass}>
-                      <td>{className(row.animalClass, pageContract)}</td>
+                      <td>{className(row.animalClass, pageContract, row.typeLabel)}</td>
                       <td className="muted">{shown?.register_label ?? ""}</td>
                       <td>
                         {row.live ? (
@@ -243,7 +253,7 @@ export async function HealthRegisterSection({
                             never a question of which rulebook a download belongs to. */}
                         <RegisterSheetControls
                           animalClass={row.animalClass}
-                          typeLabel={shown?.register_label ?? row.animalClass}
+                          typeLabel={className(row.animalClass, pageContract, row.typeLabel)}
                           pageContract={pageContract}
                           mayWrite={mayWrite}
                           disabledReason={writeDisabledReason}

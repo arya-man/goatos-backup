@@ -3089,6 +3089,8 @@ export async function getHealthConfigDiagnosisTypes(): Promise<ApiResult<HealthD
 export type HealthRegisterRow = {
   register_version_id: string;
   animal_class: string;
+  /** The farm's own name for the type. Empty only on a payload from a backend that predates it. */
+  type_label?: string;
   version: number;
   status: "draft" | "published" | "retired";
   register_label: string;

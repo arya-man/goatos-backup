@@ -18,3 +18,11 @@ export function registerSheetHref(
 export function registerSheetImportUrl(animalClass: string): string {
   return `${HEALTH_REGISTER_SHEETS}/${encodeURIComponent(animalClass)}/import`;
 }
+
+/**
+ * The blank template is the SAME FILE for every type: the backend builds it from the column
+ * header and one worked example of each row kind, and never reads the animal class. The route
+ * still carries a class segment, so this names the one it passes rather than leaving a reader to
+ * wonder why the adult template is offered beside a kid register.
+ */
+export const TEMPLATE_CLASS_PLACEHOLDER = "adult";

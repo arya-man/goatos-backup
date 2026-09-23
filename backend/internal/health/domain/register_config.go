@@ -28,15 +28,24 @@ const (
 
 // RegisterSummary is one version as the catalog lists it.
 type RegisterSummary struct {
-	RegisterVersionID string     `json:"register_version_id"`
-	AnimalClass       string     `json:"animal_class"`
-	Version           int        `json:"version"`
-	Status            string     `json:"status"`
-	RegisterLabel     string     `json:"register_label"`
-	QuestionCount     int        `json:"question_count"`
-	RuleCount         int        `json:"rule_count"`
-	PublishedAt       *time.Time `json:"published_at,omitempty"`
-	UpdatedAt         time.Time  `json:"updated_at"`
+	RegisterVersionID string `json:"register_version_id"`
+	AnimalClass       string `json:"animal_class"`
+
+	// TypeLabel is the farm's own name for this type, carried so a screen never has to derive one.
+	//
+	// The four shipped classes have a copy key each; a type the farm AUTHORS has none, so a client
+	// deriving a name fell back to the machine key and rendered "kid warmup" and "mothers" on a
+	// screen a vet reads -- exactly what the copy firewall bans. The label is on the type row, so
+	// the list carries it rather than leaving every client to invent the same fallback.
+	TypeLabel string `json:"type_label"`
+
+	Version       int        `json:"version"`
+	Status        string     `json:"status"`
+	RegisterLabel string     `json:"register_label"`
+	QuestionCount int        `json:"question_count"`
+	RuleCount     int        `json:"rule_count"`
+	PublishedAt   *time.Time `json:"published_at,omitempty"`
+	UpdatedAt     time.Time  `json:"updated_at"`
 }
 
 // RegisterDetail is one version with its whole document.
