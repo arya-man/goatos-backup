@@ -431,6 +431,12 @@ export function CeoAiStyles(): ReactElement {
 .mzai-msg.user .mzai-thumb-open{border-color:var(--line);background:var(--panel);color:var(--ink)}
 .mzai-newbtn{background:transparent;color:var(--brand);border-color:color-mix(in srgb,var(--brand) 55%,transparent);box-shadow:none}
 .mzai-newbtn:hover{background:var(--brand-soft)}
+.mzai-thread.mzai-confirming{background:color-mix(in srgb,var(--danger) 12%,transparent);cursor:default}
+.mzai-confirm{display:flex;flex-wrap:wrap;align-items:center;gap:6px;width:100%;font-size:12px;color:var(--ink)}
+.mzai-confirm>span{flex:1 1 100%}
+.mzai-confirm button{font:inherit;font-size:11.5px;padding:3px 9px;border-radius:6px;cursor:pointer}
+.mzai-confirm-yes{border:0;background:var(--danger);color:#fff}
+.mzai-confirm-no{border:1px solid var(--line);background:transparent;color:var(--ink)}
 `}</style>
   );
 }

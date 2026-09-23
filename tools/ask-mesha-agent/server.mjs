@@ -7,16 +7,22 @@ import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
-import { execFileSync } from "node:child_process";
-import { query } from "@anthropic-ai/claude-agent-sdk";
+import { execFileSync, spawn } from "node:child_process";
+import { createSdkMcpServer, query, tool } from "@anthropic-ai/claude-agent-sdk";
+import { z } from "zod";
 
 const PORT = Number(process.env.PORT || 8787);
+// 127.0.0.1 locally; the container sets HOST=0.0.0.0 (Cloud Run fronts it with IAM).
+const HOST = process.env.HOST || "127.0.0.1";
 const STATE = process.env.ASK_MESHA_STATE_DIR || path.join(process.env.HOME, ".ask-mesha-agent");
 const REPO = process.env.GOATOS_REPO || path.join(process.env.HOME, "airnd/goatos-live");
 // Default to a fast model; "deep:" prefix on a question switches to the deep model.
 const MODEL = process.env.ASK_MESHA_MODEL || "claude-sonnet-5";
 const DEEP_MODEL = process.env.ASK_MESHA_DEEP_MODEL || "claude-opus-5-5";
 const EFFORT = process.env.ASK_MESHA_EFFORT || "low";
+// Read-only mode (default): the agent gets Read/Grep/Glob + a read-only SQL tool and
+// NO shell, edit, or write tools. Set ASK_MESHA_READONLY=0 only for local dev.
+const READONLY = process.env.ASK_MESHA_READONLY !== "0";
 const BASE_SHA = process.env.GOATOS_BASE_SHA || "HEAD";
 const STG_API = (process.env.GOATOS_STG_API || "https://api.goatos.mesha.sg").replace(/\/$/, "");
 const WORKTREES = path.join(STATE, "worktrees");
@@ -41,10 +47,10 @@ You are answering inside the Mesha admin web "Ask Mesha" chat. The people asking
 they want business answers, not engineering. Use the codebase silently to understand how numbers are
 defined and calculated, but do NOT mention file paths, function names, code, SQL, views, or tools in
 your answer unless the user explicitly asks for them. Explain definitions in plain business language.
-You have the full goatos codebase (current working directory, a git worktree of the live commit)
-and READ-ONLY access to the goatos-stg Postgres database via \`psql\` (connection env vars are
-already set; just run \`psql -c "..."\`). Explore the schema with \\dt / \\d when needed.
-Answer the way you normally would in Claude Code: investigate, run queries/tests, read code.
+You have the full goatos codebase (current working directory, the live commit) and READ-ONLY
+access to the goatos-stg Postgres database. ${READONLY
+  ? "Read code with Read/Grep/Glob. Query data ONLY with the run_sql tool (one SELECT per call). You cannot edit files or run shell commands."
+  : "Query with `psql -c \"...\"` (connection env vars are set). You may read code and run tests."}
 Answer style: lead with the direct answer in 1-2 sentences, then at most one compact table
 (<= 12 rows) and at most 3 short bullets of context. No preamble, no narration of what you are
 about to do, no restating the question. Go straight to the one query the data map points to.
@@ -113,6 +119,55 @@ function metricsSummary() {
     recent: rows.slice(-25).reverse(),
   };
 }
+
+// ---- read-only SQL tool (replaces Bash/psql in read-only mode) --------------
+const SQL_MAX_ROWS = 500;
+function runSql(sql) {
+  return new Promise((resolve) => {
+    const text = String(sql || "").trim();
+    // psql meta-commands (\\!, \\copy, \\o, \\set …) can reach the shell/filesystem.
+    if (!text || /(^|\n)\s*\\/.test(text) || text.includes("\\!")) {
+      return resolve({ ok: false, out: "Refused: only plain SQL (no psql backslash commands)." });
+    }
+    const child = spawn(
+      "psql",
+      ["-X", "-q", "-v", "ON_ERROR_STOP=1", "-P", "pager=off", "-P", "footer=off", "-A", "-F", "\t", "-f", "-"],
+      {
+        env: {
+          PATH: process.env.PATH,
+          ...PGENV,
+          // Belt and braces on top of the read-only DB role.
+          PGOPTIONS: "-c default_transaction_read_only=on -c statement_timeout=30000",
+        },
+      },
+    );
+    let out = "";
+    let err = "";
+    child.stdout.on("data", (c) => (out.length < 200_000 ? (out += c) : null));
+    child.stderr.on("data", (c) => (err += c));
+    child.on("close", (code) => {
+      const lines = out.split("\n");
+      const clipped = lines.length > SQL_MAX_ROWS + 1 ? lines.slice(0, SQL_MAX_ROWS + 1).join("\n") + `\n… (${lines.length - SQL_MAX_ROWS - 1} more rows truncated)` : out;
+      resolve({ ok: code === 0, out: code === 0 ? clipped : err.trim() || `psql exited ${code}` });
+    });
+    child.stdin.end(`BEGIN READ ONLY;\n${text.replace(/;\s*$/, "")};\nROLLBACK;\n`);
+  });
+}
+const meshaTools = createSdkMcpServer({
+  name: "mesha",
+  version: "1.0.0",
+  tools: [
+    tool(
+      "run_sql",
+      "Run ONE read-only SQL query against goatos-stg (ceo_ai.* views) and return tab-separated rows (max 500). Use the mesha data map to pick the view.",
+      { sql: z.string().describe("A single SELECT/WITH query. No psql backslash commands.") },
+      async ({ sql }) => {
+        const r = await runSql(sql);
+        return { content: [{ type: "text", text: r.out || "(no rows)" }], isError: !r.ok };
+      },
+    ),
+  ],
+});
 
 // ---- tiny JSON store ------------------------------------------------------
 let db = fs.existsSync(STORE) ? JSON.parse(fs.readFileSync(STORE, "utf8")) : { chats: {} };
@@ -234,6 +289,7 @@ async function canUseTool(toolName, input) {
 }
 
 function toolLabel(name, input) {
+  if (name === "mcp__mesha__run_sql") return "Querying goatos-stg database";
   if (name === "Bash") {
     const cmd = String(input.command || "");
     return /psql/.test(cmd) ? "Querying goatos-stg database" : `Running: ${cmd.slice(0, 60)}`;
@@ -385,6 +441,15 @@ async function ask(req, res, user) {
         includePartialMessages: true,
         canUseTool,
         permissionMode: "default",
+        ...(READONLY
+          ? {
+              // Only read tools + the read-only SQL tool exist for the agent.
+              tools: ["Read", "Grep", "Glob", "Skill", "TodoWrite"],
+              mcpServers: { mesha: meshaTools },
+              allowedTools: ["mcp__mesha__run_sql"],
+              disallowedTools: ["Bash", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Task", "Agent"],
+            }
+          : {}),
         // GOATOS_AI_SETUP_GUARD=0: the repo's documented opt-out for its "install code-graph
         // tooling" nag, which otherwise blocks every tool call in fresh chat worktrees.
         env: {
@@ -418,7 +483,11 @@ async function ask(req, res, user) {
           if (block.type === "tool_use") {
             metric.tool_calls += 1;
             if (metric.first_tool_ms === null) metric.first_tool_ms = since();
-            if (block.name === "Bash" && /\bpsql\b/.test(String(block.input?.command || ""))) metric.db_queries += 1;
+            if (
+              block.name === "mcp__mesha__run_sql" ||
+              (block.name === "Bash" && /\bpsql\b/.test(String(block.input?.command || "")))
+            )
+              metric.db_queries += 1;
             send({ type: "progress", phase: "querying", label: toolLabel(block.name, block.input || {}) });
           }
         }
@@ -474,7 +543,13 @@ http
     console.log(new Date().toISOString(), req.method, p);
     if (p === "/healthz") return json(res, 200, { ok: true });
     // Benchmark: local-only (server binds 127.0.0.1).
-    if (p === "/metrics") return json(res, 200, metricsSummary());
+    // Benchmark summary: open on a loopback bind; otherwise requires the bench token.
+    if (p === "/metrics") {
+      const bench = process.env.ASK_MESHA_BENCH_TOKEN;
+      const authz = String(req.headers["authorization"] || "");
+      if (HOST !== "127.0.0.1" && !(bench && authz === `Bearer ${bench}`)) return json(res, 403, { error: "forbidden" });
+      return json(res, 200, metricsSummary());
+    }
     const user = await authenticate(req);
     if (!user) return json(res, 403, { error: "leadership_required" });
 
@@ -524,4 +599,4 @@ http
     }
     json(res, 404, { error: "not_found" });
   })
-  .listen(PORT, "127.0.0.1", () => console.log(`ask-mesha agent on http://127.0.0.1:${PORT} repo=${REPO}`));
+  .listen(PORT, HOST, () => console.log(`ask-mesha agent on http://127.0.0.1:${PORT} repo=${REPO}`));
