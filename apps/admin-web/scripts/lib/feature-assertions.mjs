@@ -187,7 +187,13 @@ const ABSENCE_MISS = /^(not visible|expected at least)/;
 // swallowed - for every status, not just the ones we happened to think of.
 export async function assertFeaturesPresent(page, { routeName, viewportLabel, screenshotDir, relativeToRepo = (p) => p, reload, deployedSha, entries: given }) {
   const entries = (given ?? loadFeatureAssertions()).filter((e) => e.route === routeName && (e.viewports ?? ["laptop", "mobile"]).includes(viewportLabel));
-  if (entries.length === 0) return;
+  if (entries.length === 0) {
+    // Silence is a verdict nobody earned. This page at this width was reloaded and
+    // nothing was asserted about it — say so, so the gap is countable instead of
+    // invisible in a run that otherwise reads clean.
+    console.log(`feature_assertions_none=${routeName}:${viewportLabel}:no reload check is written for this page at this width`);
+    return;
+  }
   const missing = [];
   const awaiting = [];
   const needsReview = [];
@@ -324,4 +330,101 @@ export async function assertFeaturesPresent(page, { routeName, viewportLabel, sc
   // "these four things are wrong" and "these four things are wrong and one check never ran".
   const alsoFaulted = harnessFaults.length ? `; and ${harnessFaults.length} check(s) could not be run at all` : "";
   throw new Error(`${routeName} ${viewportLabel} feature missing: ${missing.slice(0, 4).map(say).join("; ")}${missing.length > 4 ? ` (+${missing.length - 4} more)` : ""}${alsoFaulted}`);
+}
+
+
+// ---------------------------------------------------------------------------
+// Coverage of the reload checks, as a fraction with a reason on every gap
+// ---------------------------------------------------------------------------
+//
+// The runner printed `feature_assertions=route:viewport:6/6` per page — a list of
+// hits. Six of six is a fine number and says nothing about the 115 route/viewport
+// pairs that had no reload check at all, which is the half of the surface that made
+// a sweep read clean while covering none of it.
+//
+// So the number this exports is a FRACTION over every route at every viewport, and
+// every pair outside the numerator carries its own sentence. Pure and fast: no
+// browser, no network, so it can run on the default path.
+
+/** Statuses `loadFeatureAssertions` refuses to run, and why each one cannot be judged. */
+export const UNRUNNABLE_STATUS_REASONS = Object.freeze({
+  "screenshot-only": "its evidence is a screenshot a person looks at, not something the browser can decide",
+  "not-visually-assertable": "what it changed leaves no mark on the screen this check could find",
+  "not-read-only": "proving it would mean pressing a control that writes, which a production sweep may not do",
+  "needs-assertion": "nobody has finished writing what this check should look for",
+  superseded: "a later commit replaced what this one shipped",
+  rejected: "it was looked at and judged not worth a check",
+  "console-check": "it is judged from the browser console, not from the page",
+});
+
+/**
+ * @param {object} args
+ * @param {Array<{name:string}>} args.routes every route the sweep visits
+ * @param {string[]} args.viewports every width it visits them at
+ * @param {Array} args.runnable entries the runner will execute (loadFeatureAssertions())
+ * @param {Array} args.manifest every entry in the manifest, runnable or not
+ */
+export function reloadCoverage({ routes, viewports, runnable, manifest }) {
+  const routeNames = new Set(routes.map((r) => r.name));
+  const byPair = new Map();
+  for (const entry of runnable) {
+    for (const viewport of entry.viewports ?? ["laptop", "mobile"]) {
+      const key = `${viewport}:${entry.route}`;
+      if (!byPair.has(key)) byPair.set(key, []);
+      byPair.get(key).push(entry);
+    }
+  }
+  // An entry aimed at a page the sweep never opens can never run, and nothing in a
+  // run mentions it. It is not a check; it is a check-shaped hole.
+  //
+  // An entry with NO route is a different thing and must not be counted as one: it was
+  // never aimed at a page in the first place. Folding the two together produced 42
+  // "can never run" entries that were all just unrouted — noise, and the kind that
+  // makes a real orphan invisible among them.
+  const unreachableEntries = manifest
+    .filter((e) => e.route && !routeNames.has(e.route))
+    .map((e) => ({ sha: e.sha, route: e.route, why: `this check is written for "${e.route}", which is not a page the sweep opens, so it can never run` }));
+  const unroutedEntries = manifest
+    .filter((e) => !e.route)
+    .map((e) => ({ sha: e.sha, status: e.status, why: "this entry names no page, so there is nowhere to run it" }));
+  // Same for a width the sweep does not visit.
+  const unreachableViewports = runnable
+    .flatMap((e) => (e.viewports ?? ["laptop", "mobile"]).filter((v) => !viewports.includes(v)).map((v) => ({ sha: e.sha, route: e.route, why: `this check is written for the ${v} width, which this sweep does not visit` })));
+
+  const covered = [];
+  const gaps = [];
+  for (const viewport of viewports) {
+    for (const route of routes) {
+      const key = `${viewport}:${route.name}`;
+      if (byPair.has(key)) { covered.push(key); continue; }
+      // Why is this pair empty? Answer it for THIS page, never in a group.
+      const here = manifest.filter((e) => e.route === route.name);
+      if (here.length === 0) {
+        gaps.push({ route: route.name, viewport, why: `nothing shipped on "${route.name}" since 2026-08-01 has a check written for it, so this page at the ${viewport} width is not checked` });
+        continue;
+      }
+      const otherWidth = runnable.filter((e) => e.route === route.name);
+      if (otherWidth.length > 0) {
+        const widths = [...new Set(otherWidth.flatMap((e) => e.viewports ?? ["laptop", "mobile"]))];
+        gaps.push({ route: route.name, viewport, why: `"${route.name}" has ${otherWidth.length} check(s), all written for the ${widths.join(" and ")} width only; nobody has said what the ${viewport} width should show, and widening them without knowing would accuse a correct page` });
+        continue;
+      }
+      const statuses = [...new Set(here.map((e) => e.status))];
+      gaps.push({
+        route: route.name,
+        viewport,
+        why: `"${route.name}" has ${here.length} entr(y/ies) and none is runnable at the ${viewport} width: ${statuses.map((st) => `${st} — ${UNRUNNABLE_STATUS_REASONS[st] ?? "no reason is recorded for this status"}`).join("; ")}`,
+      });
+    }
+  }
+  const total = routes.length * viewports.length;
+  return {
+    pairsExpected: total,
+    pairsWithACheck: covered.length,
+    fraction: `${covered.length}/${total} page/width pairs carry a reload check`,
+    gaps,
+    unreachableEntries,
+    unroutedEntries,
+    unreachableViewports,
+  };
 }
