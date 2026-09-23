@@ -313,6 +313,14 @@ var derivationWords = map[string]bool{
 	"been": true, "there": true, "they": true, "them": true, "then": true,
 	"than": true, "other": true, "olde": true, "older": true, "print": true,
 	"delete": true, "update": true, "select": true, "ignore": true,
+	// Observed reducing a whole question to junk and then refusing ON the junk:
+	// "which diseases are most common" -> ["common"] and "how many loads
+	// arrived yesterday" -> ["arrived"] (disease and load are dimension nouns,
+	// so the subject itself is stripped by measureTerms), and the leader was
+	// told "We don't track common, most in Goat OS". Same family as "came"
+	// and "recorded" above: a quality or an event verb, never a thing the farm
+	// records under that name.
+	"common": true, "arrive": true, "arrived": true, "arriving": true,
 }
 
 // cardModels reports that the card the answer came from carries this word in
@@ -454,6 +462,17 @@ func measureTerms(questionText string) []string {
 			continue
 		}
 		if nonMeasureWords[w] {
+			continue
+		}
+		// DERIVATION WORDS ARE NOT MEASURES either, for the same reason
+		// namesASubject already rejects them: "most", "biggest", "percentage",
+		// "arrived" are how a question asks for arithmetic or states a fact
+		// about a period, never what it asks ABOUT, and no schema models them.
+		// Leaving them in reduced a question to junk and then refused it on the
+		// junk: "which diseases are most common" (disease is a dimension) came
+		// out as terms ["common","most"] and a leader was told "We don't track
+		// common, most in Goat OS".
+		if derivationWords[wordStem(w)] || derivationWords[w] {
 			continue
 		}
 		out = append(out, w)

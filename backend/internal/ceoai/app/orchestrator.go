@@ -539,6 +539,19 @@ func (a *Assistant) ask(ctx context.Context, q domain.Question, opts askOptions)
 			a.telemetry.ReviewCorrection(ctx)
 		}
 		if a.retryFailedResults(ctx, q.Actor, plan.SubQuestions, results, budget) {
+			// THE LAST RESULT SWAP, GATED LIKE THE OTHERS. This retry replaces a
+			// failed/empty result IN PLACE with a read at a different tier,
+			// AFTER postReadHonesty has already run -- so without this the
+			// gates never see what actually answered. It is harmless today only
+			// by accident (no fallback alias defines a `sql` tier, so every
+			// replacement lands on a route with no SourceView and is
+			// unjudgeable); adding one alias, or setting SourceView on Toolbox
+			// results, would silently make it a live bypass. Gate it on the
+			// rule, not on the accident.
+			if reason, audit, refuse := postReadHonesty(plan.SubQuestions, results); refuse {
+				fitAudit = append(fitAudit, audit)
+				return a.refusal(requestID, q.ConversationID, reason), nil
+			}
 			body, citations, sections, composeErr = comp.composeFor(q.Actor, results)
 			if composeErr != nil {
 				return a.tenantGateRefusal(ctx, q, requestID, start, "compose_retry", composeErr, results, traces), nil

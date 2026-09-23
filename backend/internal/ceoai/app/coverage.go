@@ -65,12 +65,16 @@ func coveringTools(questionText string, catalog []ports.ToolSpec) []string {
 		name  string
 		score int
 	}
+	subjectAsked := questionNamesASubject(questionText)
 	var hits []scored
 	for _, spec := range catalog {
-		haystack := strings.ToLower(spec.Name + " " + spec.Description + " " + strings.Join(spec.Params, " "))
-		haystack = strings.ReplaceAll(haystack, "_", " ")
-		score := distinctStemHits(words, haystack)
-		if score >= 2 {
+		// A tool's NAME is what it is about; its description and params are the
+		// rest of its vocabulary. They are scored separately for the same reason
+		// a view's name is scored separately from its columns.
+		if score, ok := nominates(words,
+			identifierHaystack(spec.Name),
+			identifierHaystack(spec.Name+" "+spec.Description+" "+strings.Join(spec.Params, " ")),
+			subjectAsked); ok {
 			hits = append(hits, scored{name: spec.Name, score: score})
 		}
 	}
@@ -99,13 +103,13 @@ func coveringViews(questionText string, cards []reporting.SchemaCard) []reportin
 		card  reporting.SchemaCard
 		score int
 	}
+	subjectAsked := questionNamesASubject(questionText)
 	var hits []scored
 	for _, card := range cards {
-		haystack := strings.ToLower(card.Name + " " + strings.Join(columnNames(card), " "))
-		haystack = strings.ReplaceAll(haystack, "_", " ")
-		// Two independent words keep a single incidental match ("date", "label")
-		// from nominating every view in the catalog.
-		if score := distinctStemHits(words, haystack); score >= 2 {
+		if score, ok := nominates(words,
+			identifierHaystack(card.Name),
+			identifierHaystack(card.Name+" "+strings.Join(columnNames(card), " ")),
+			subjectAsked); ok {
 			hits = append(hits, scored{card: card, score: score})
 		}
 	}
@@ -134,33 +138,38 @@ func coveringViews(questionText string, cards []reporting.SchemaCard) []reportin
 // sessions were missed yesterday" nominated the vaccination-shed view and
 // disarmed the refusal for a subject the farm's read models do not carry at all.
 // Counting by stem restores what the rule always meant.
-func distinctStemHits(words map[string]bool, haystack string) int {
-	have := haystackStems(haystack)
+// stemHits are the question stems a source's vocabulary carries, deduplicated.
+// questionWords deliberately adds a crude singular beside every plural, so
+// "sessions" arrives as both "sessions" and "session" -- and a source with one
+// incidental `planned_sessions` column then counted 2 and satisfied the "two
+// independent words" rule on its own. Counting by stem restores what that rule
+// always meant.
+func stemHits(words map[string]bool, have map[string]bool) []string {
 	seen := map[string]bool{}
 	for w := range words {
-		if !have[wordStem(w)] {
-			continue
+		if have[wordStem(w)] {
+			seen[wordStem(w)] = true
 		}
-		seen[wordStem(w)] = true
 	}
-	return len(seen)
+	out := make([]string, 0, len(seen))
+	for stem := range seen {
+		out = append(out, stem)
+	}
+	sort.Strings(out)
+	return out
 }
 
-// haystackStems is the source's own vocabulary, one stem per identifier word.
+// identifierHaystack is a source's own vocabulary, one stem per identifier word.
 //
-// THE MATCH IS ANCHORED, and that is the whole point of this function. The bar
-// was an unanchored strings.Contains over `name + column names`, so a question
-// word scored on any SUBSTRING of any identifier: "session" landed inside
-// `session_no`, "shed" inside `shed_label`, and two such incidental hits WERE
-// the "two independent words" rule. "which sheds missed their milking session
-// yesterday" then nominated feed_direction_current on two DIMENSION columns --
-// with neither "milking" nor "missed" participating -- and coverageFeedback
-// told the planner to read it and never say the farm does not record it.
-// Matching whole identifier words on their stems nominates a source only for
-// words it actually names.
-func haystackStems(haystack string) map[string]bool {
+// THE MATCH IS ANCHORED, and that is the point of this function. The bar was an
+// unanchored strings.Contains over `name + column names`, so a question word
+// scored on any SUBSTRING of any identifier: "session" landed inside
+// `session_no`, "plan" inside `planned_sessions`, "manage" inside
+// `manager_label`. Matching whole identifier words on their stems nominates a
+// source only for words it actually names.
+func identifierHaystack(text string) map[string]bool {
 	stems := map[string]bool{}
-	for _, w := range strings.Fields(haystack) {
+	for _, w := range strings.Fields(strings.ReplaceAll(strings.ToLower(text), "_", " ")) {
 		w = strings.Trim(w, ".,;:?!()/-\"'")
 		if len(w) < 4 {
 			continue
@@ -170,25 +179,87 @@ func haystackStems(haystack string) map[string]bool {
 	return stems
 }
 
-// coverageWords is what a source is scored against: the question's SUBJECT
-// words only. It drops the dimension vocabulary (park, shed, session, status,
-// item, day...) and the period/quantifier words, for the same reason
-// measureTerms does -- a question is answered BY a measure and broken down BY a
-// dimension, and EVERY view carries dimension columns, so scoring on them
-// nominates the whole catalogue on noise alone.
+// coverageWords is the question's own vocabulary, scored against a source.
 //
-// It also drops the structural column nouns that are neither dimensions nor
-// subjects: a `*_label`, a `reason`, a `workflow`, a `blocked` flag and a bare
-// `name` sit on views about entirely different subjects.
+// IT DOES NOT DROP THE DIMENSION NOUNS, and an earlier version of this file
+// did -- which broke the very thing coverage.go exists for. `dimensionNouns`
+// holds buyer, vendor, vaccine, disease, load, session, breed, operator,
+// species and status, so routing coverage scoring through measureTerms left
+// "who are our top buyers this month", "how many vaccine doses did we use" and
+// "how many animals are in each shed" with NO words at all: nothing was
+// nominated, the "not tracked" override could not fire, and the CEO was told
+// the farm does not record its own buyers -- the held-out defect described at
+// the top of this file, re-opened.
+//
+// A dimension noun IS the subject of plenty of real questions. What it must not
+// do is nominate a source ON ITS OWN, beside another dimension noun, while the
+// question's real subject participates in nothing: that is how "which sheds
+// missed their milking session yesterday" reached feed_direction_current on
+// `shed_label` + `session_no` with neither "milking" nor "missed" scoring.
+// `nominates` below draws that line by POSITION IN THE MATCH rather than by
+// deleting the word from the question.
+//
+// What is dropped here is only what says nothing about subject anywhere: the
+// period/quantifier vocabulary (nonMeasureWords) and the structural column
+// nouns (coverageNoiseWords).
 func coverageWords(questionText string) map[string]bool {
 	out := map[string]bool{}
-	for _, t := range measureTerms(questionText) {
-		if coverageNoiseWords[t] {
+	for w := range questionWords(questionText) {
+		if nonMeasureWords[w] || coverageNoiseWords[w] {
 			continue
 		}
-		out[t] = true
+		out[w] = true
 	}
 	return out
+}
+
+// questionNamesASubject reports whether the question carries ANY word outside
+// the dimension vocabulary. "who are our top buyers this month" does not -- a
+// buyer is all it is about -- and for such a question a dimension noun matching
+// a source's NAME is the strongest evidence available, so nominates accepts it.
+// "which sheds missed their milking session yesterday" does ("milking",
+// "missed"), and there a dimension-only match is evidence that the source is
+// about the BREAKDOWN and not about the question.
+func questionNamesASubject(questionText string) bool {
+	for w := range coverageWords(questionText) {
+		if _, isDimension := dimensionNouns[w]; !isDimension {
+			return true
+		}
+	}
+	return false
+}
+
+// nominates decides whether one source covers the question, and returns the
+// score used to rank it. nameHay is the source's own name; fullHay is the name
+// plus its columns (a view) or its description and params (a tool).
+//
+// Two ways in, and the asymmetry is the whole rule:
+//
+//   - the source's NAME carries one of the question's words. A view called
+//     sales_buyer_summary is ABOUT buyers; one incidental `buyer_label` column
+//     on a view about something else is not. A dimension noun is accepted here
+//     only when the question named no other kind of subject at all.
+//   - TWO independent words match anywhere on the source, AT LEAST ONE of which
+//     is not a dimension noun. Two dimension columns (`shed_label`,
+//     `session_no`) are what every view carries and prove nothing; a real
+//     subject word beside a dimension is a genuine two-word match.
+func nominates(words map[string]bool, nameHay, fullHay map[string]bool, subjectAsked bool) (int, bool) {
+	all := stemHits(words, fullHay)
+	name := stemHits(words, nameHay)
+	subjects := 0
+	for _, stem := range all {
+		if _, isDimension := dimensionNouns[stem]; !isDimension {
+			subjects++
+		}
+	}
+	score := len(all)
+	switch {
+	case len(name) > 0 && (subjects > 0 || !subjectAsked):
+		return score + len(name), true
+	case len(all) >= 2 && subjects > 0:
+		return score, true
+	}
+	return 0, false
 }
 
 // coverageNoiseWords are column-shaped words that say nothing about WHAT a
