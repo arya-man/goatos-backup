@@ -65,3 +65,38 @@ func workflowBus(t *testing.T, pool *pgxpool.Pool) eventbus.Bus {
 }
 
 func f64(v float64) *float64 { return &v }
+
+// seedChainGoat inserts one animal. External input.
+func seedChainGoat(t *testing.T, ctx context.Context, pool *pgxpool.Pool, goatID, lifecycle string) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `
+INSERT INTO goats (goat_id, tenant_id, species, sex, breed, lifecycle_status, custodian_party_id,
+                   origin_type, dob, entry_date, exited_at, exit_reason)
+VALUES ($1::uuid, $2::uuid, 'goat', 'female', 'Boer', $3, $4::uuid,
+        'birth', DATE '2026-07-01', DATE '2026-07-01',
+        CASE WHEN $3 <> 'alive' THEN now() END,
+        CASE WHEN $3 <> 'alive' THEN 'died' END)
+ON CONFLICT (goat_id) DO NOTHING`, goatID, chainTenant, lifecycle, chainCustodian); err != nil {
+		t.Fatalf("seed goat %s: %v", goatID, err)
+	}
+}
+
+func workflowState(t *testing.T, ctx context.Context, pool *pgxpool.Pool, workflowID string) string {
+	t.Helper()
+	var state string
+	if err := pool.QueryRow(ctx, `SELECT state FROM workflow_instances WHERE tenant_id = $1::uuid AND workflow_id = $2::uuid`,
+		chainTenant, workflowID).Scan(&state); err != nil {
+		t.Fatalf("read workflow state: %v", err)
+	}
+	return state
+}
+
+func goatLifecycle(t *testing.T, ctx context.Context, pool *pgxpool.Pool, goatID string) string {
+	t.Helper()
+	var s string
+	if err := pool.QueryRow(ctx, `SELECT lifecycle_status FROM goats WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`,
+		chainTenant, goatID).Scan(&s); err != nil {
+		t.Fatalf("read lifecycle: %v", err)
+	}
+	return s
+}
