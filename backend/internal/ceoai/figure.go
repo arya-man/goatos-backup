@@ -115,6 +115,38 @@ var percentWords = map[string]bool{
 	"percent": true, "percentage": true, "percentages": true, "pct": true,
 }
 
+// measureDescription returns the text readableFigure should read as the
+// measure's own description, given the row's label, its scope and the view the
+// statement read.
+//
+// A KEY IN THE LABEL SLOT DESCRIBES NOTHING, AND THE PRECISION HAS TO COME
+// FROM SOMEWHERE THAT DOES. The composer already knows this shape: a
+// model-drafted read is free to write
+//
+//	SELECT park_label AS label, park_label AS scope, avg(weight_kg) AS value
+//
+// and renderFacts collapses the "Castro 1 in Castro 1" that produces. But the
+// figure had already been rendered by then, from a label that names a PARK.
+// No park name carries a measure word, so the figure fell to unknownPlaces and
+// the live answer to "what is the average weight per park" read
+// "Channapatna: 32.948" — a weight in kilograms at a thousandth of a kilogram,
+// out of the one file whose job is that this cannot happen.
+//
+// The source view is repo-owned description, exactly like the read contract's
+// `unit`: `weighing_latest_individual_weight` names a weight whatever a model
+// captions the row. It is used ONLY when the label is the key — when the two
+// slots differ the label IS the measure's phrase and stays the evidence, so
+// nothing that reads correctly today changes.
+func measureDescription(label, scope, sourceView string) string {
+	if strings.TrimSpace(scope) == "" || !strings.EqualFold(strings.TrimSpace(label), strings.TrimSpace(scope)) {
+		return label
+	}
+	if strings.TrimSpace(sourceView) == "" {
+		return label
+	}
+	return sourceView
+}
+
 // readableFigure renders one already-stringified database scalar as the figure
 // a leader reads: the same number, at the precision its measure carries.
 //

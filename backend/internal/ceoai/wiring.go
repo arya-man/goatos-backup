@@ -611,15 +611,21 @@ func rowsToToolResult(tenantID string, rows []sqlguard.Row, sql string) domain.T
 					unitText = scalarString(unit)
 				}
 				labelText := canonicalTagText(scalarString(label))
+				var scopeText string
+				if scope, hasScope := row["scope"]; hasScope {
+					scopeText = canonicalTagText(scalarString(scope))
+				}
 				fact := domain.Fact{
 					TenantID: tenantID,
 					Label:    labelText,
 					Unit:     unitText,
-					Value:    readableFigure(canonicalTagText(factValueString(value)), unitText, labelText),
+					Value: readableFigure(
+						canonicalTagText(factValueString(value)),
+						unitText,
+						measureDescription(labelText, scopeText, tr.SourceView),
+					),
 				}
-				if scope, hasScope := row["scope"]; hasScope {
-					fact.Scope = canonicalTagText(scalarString(scope))
-				}
+				fact.Scope = scopeText
 				fact.Values = seriesValues(row)
 				tr.Facts = append(tr.Facts, fact)
 				continue

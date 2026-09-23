@@ -797,7 +797,23 @@ var schemaCards = []SchemaCard{
 		// planner has to guess. It fits in the prompt's byte bound because it
 		// replaces the redundant half of this sentence rather than adding to
 		// it.
-		Purpose: "Workforce coverage per park/role. coverage_status: present|covered_by_backup|uncovered_absence.",
+		// A BLANK backup_label IS THE SAME FALSE ALARM ONE COLUMN OVER, and it
+		// is live on this branch. With the coverage_status vocabulary in place
+		// "which roles have no backup coverage" now answers with exactly the 4
+		// uncovered_absence rows — but "which staff have no backup" filtered on
+		// `backup_label IS NULL` instead and named 13 of the 16 rows, among
+		// them `Backup 6`, a person who IS somebody's backup. The view fills
+		// backup_label only on the covered_by_backup rows, so a blank one is
+		// the ordinary state of a role nobody is away from. Telling the
+		// planner which column decides is the same repair as telling it which
+		// values exist, and it is the only repair that works: a NULL test, like
+		// a no-op filter, RETURNS ROWS, so nothing downstream can see it fire.
+		//
+		// The prompt's byte bound is real, so this replaces the lead sentence
+		// rather than adding to it: "Workforce coverage per park/role" is
+		// already in the card's own name and in the Row= line rendered beside
+		// this one, and repeating it bought nothing a planner did not have.
+		Purpose: "coverage_status (present|covered_by_backup|uncovered_absence) is the gap test; blank backup_label is not.",
 		Grain:               "one row per park per role (current state)",
 		ParkColumn:          "park_label",
 		TenantScopedColumns: []string{"tenant_id"},

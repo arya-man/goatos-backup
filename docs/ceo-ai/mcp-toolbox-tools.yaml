@@ -924,6 +924,11 @@ tools:
       status, active work count, and overdue work count. Return role/position/
       status, not sensitive personal detail. Use for "who owns overdue work",
       "which staff has no backup", "coverage gaps by park".
+      coverage_status is the only column that judges coverage. backup_label is
+      filled only on covered_by_backup rows, so a blank backup_label is the
+      ordinary state of a role nobody is away from, NOT a coverage gap: answer
+      "who has no backup" with coverage_status = 'uncovered_absence', never
+      with backup_label IS NULL.
     statement: |
       SELECT
         park_label,
