@@ -141,12 +141,18 @@ function FollowUpLine({
       </td>
       <td className="muted small">
         {/* The two sheets compared. Naming them is what keeps a negative
-            verdict an observation rather than an accusation. */}
+            verdict an observation rather than an accusation.
+
+            Both days go through fmtDate like every other date on the page --
+            they arrive as the wire's ISO business day (`feed_day::text`) and
+            were being substituted into the contract's copy verbatim, so this
+            column read `2026-09-21 -> 2026-09-23` beside the event date one
+            cell to its left already reading `21/09/2026`. */}
         {pending
           ? fa(pageContract, "followup.day.pending")
           : fa(pageContract, "followup.day.sheets")
-              .replace("{before}", check.before_day)
-              .replace("{after}", check.after_day)}
+              .replace("{before}", fmtDate(check.before_day))
+              .replace("{after}", fmtDate(check.after_day))}
       </td>
       <td className="r nums">
         <Movement
