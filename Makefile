@@ -150,6 +150,8 @@ guardrails:
 	$(MAKE) gradle-worktree-lock-guard
 	$(MAKE) grafana-durability-guard
 	$(MAKE) guardrail-registration-guard
+	$(MAKE) guard-weakening-guard
+	$(MAKE) guard-input-presence-guard
 	$(MAKE) commandboard-query-plan-wiring-guard
 	$(MAKE) local-stack-service-guard
 	$(MAKE) backend-foundations-guard
@@ -299,6 +301,29 @@ frontend-foundations-guard:
 guardrail-registration-guard:
 	node tools/ci/check-guardrail-registration.mjs --self-test
 	node tools/ci/check-guardrail-registration.mjs
+
+# guard-weakening-guard: meta-guard. A diff that makes a guard protect LESS
+# (guard deleted, manifest entry removed, requiredInCI downgraded, selfTest
+# swapped for an exemption, ratchet baseline grown, threshold raised, CI step
+# removed, new silencing marker in product code) must carry an explicit
+# GUARD-WEAKENING-ACK line in docs/observability/GUARD_WEAKENING_LEDGER.md.
+# Tightening never needs one. Diff-scoped: a diff with no guard-surface and no
+# source file costs one `git diff --name-only` and exits.
+guard-weakening-guard:
+	node tools/agent-hooks/check-guard-weakening.mjs --self-test
+	node tools/agent-hooks/check-guard-weakening.mjs
+
+# guard-input-presence-guard: every file path hard-coded inside a guard script
+# must exist. 29 guards were measured exiting 0 with an input file moved aside —
+# a green verdict from a check that read nothing. ~80 ms of stat() calls.
+guard-input-presence-guard:
+	node tools/agent-hooks/check-guard-input-presence.mjs --self-test
+	node tools/agent-hooks/check-guard-input-presence.mjs
+
+# Re-derive tools/ci/guard-inputs.json after a legitimate rename. Shrinking that
+# manifest is itself a weakening and needs an ACK — see guard-weakening-guard.
+guard-input-presence-regenerate:
+	node tools/agent-hooks/check-guard-input-presence.mjs --regenerate
 
 # grafana-durability-guard: if dashboard JSONs exist, Terraform must keep
 # file-provider provisioning wired and staging deploy must smoke live Grafana.
