@@ -289,3 +289,32 @@ test("the report's arithmetic matches the ledgers on disk", (t) => {
       `the report's arithmetic must contain ${lane}'s real row count (${byLane[lane].length})`);
   }
 });
+
+// ---------------------------------------------------------------------------------------------
+// A check routed to no commit covers nothing.
+//
+// 37 of the 194 shipped checks are in that state. They are good invariants and they stay, but
+// counting them as coverage overstated the catalogue by 24%. These tests keep the two numbers
+// apart so the headline cannot quietly re-inflate.
+// ---------------------------------------------------------------------------------------------
+
+test("checks that cover no commit are counted separately from checks that do", () => {
+  const checks = readLaneChecks(join(repoRoot, "tools/dashboard-automation/lane-checks.json"));
+  const p = planLaneCoverage({ windowShas: [], lane1Rows: [], laneRows: [], laneChecks: checks });
+  assert.equal(p.commitCoveringCheckCount + p.checksCoveringNoCommit.length, p.checkCount);
+  assert.ok(p.commitCoveringCheckCount < p.checkCount, "the split must actually be reported");
+  // Every unrouted check has to say what it guards, so it is never mistaken for an oversight.
+  for (const lane of Object.values(checks.lanes)) {
+    for (const check of lane.checks ?? []) {
+      const routed = Number(check.sourceCommitCount ?? 0) > 0 || (check.sourceShas ?? []).length > 0;
+      if (routed) continue;
+      assert.ok(String(check.derivedFrom ?? "").length > 30, `${check.id} covers no commit and does not say what it guards`);
+    }
+  }
+});
+
+test("the report's check table shows the commit-covering count, not just the catalogue size", () => {
+  const report = readFileSync(join(repoRoot, "tools/dashboard-automation/LANE-COVERAGE-REPORT.md"), "utf8");
+  assert.match(report, /\| Lane \| Distinct checks \| Checks covering a commit \| Commits routed \|/);
+  assert.match(report, /routed to no commit at all/);
+});
