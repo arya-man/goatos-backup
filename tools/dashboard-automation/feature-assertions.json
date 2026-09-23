@@ -22410,5 +22410,89 @@
     "evidence": "apps/admin-web/features/feed/feed-analytics.tsx builds the pie's segment list with !itemCardHidden(chart.item.hidden_feeds, ...) -- no allowlist of its own",
     "reason": "A feed needs priced days in the window to get a slice, so the pie is hidden when nothing qualifies. Verified live on 2026-09-23 at laptop 1440 and phone 390 against api.goatos.mesha.sg: UHT Milk renders at Rs 1,576/day, 2.5%, beside Bhusa 29.1%, Kids 51.9%, Adult 16.4%.",
     "verdict": "pass"
+  },
+  {
+    "sha": "821bd1b25",
+    "title": "close the three review findings on #374",
+    "route": null,
+    "viewports": [
+      "laptop",
+      "mobile"
+    ],
+    "steps": [],
+    "expect": [],
+    "status": "needs-assertion",
+    "evidence": "",
+    "reason": "modifies a file an existing assertion relies on; needs a human-written read-only assertion (run sync-coverage.mjs --write, then fill steps/expect)"
+  },
+  {
+    "sha": "ac8157375",
+    "title": "scope the busy un-dimming to the sheet-hosting bar",
+    "route": null,
+    "viewports": [
+      "laptop",
+      "mobile"
+    ],
+    "steps": [],
+    "expect": [],
+    "status": "needs-assertion",
+    "evidence": "apps/admin-web/app/mesha-theme.css",
+    "reason": "new user-visible admin-web work; needs a human-written read-only assertion (run sync-coverage.mjs --write, then fill steps/expect)"
+  },
+  {
+    "sha": "8f452925a",
+    "title": "stop the filter sheet going see-through while a filter loads",
+    "route": null,
+    "viewports": [
+      "laptop",
+      "mobile"
+    ],
+    "steps": [],
+    "expect": [],
+    "status": "needs-assertion",
+    "evidence": "apps/admin-web/app/mesha-theme.css",
+    "reason": "new user-visible admin-web work; needs a human-written read-only assertion (run sync-coverage.mjs --write, then fill steps/expect)"
+  },
+  {
+    "sha": "2c6739d9a",
+    "title": "render the compared feed days as DD/MM/YYYY",
+    "route": null,
+    "viewports": [
+      "laptop",
+      "mobile"
+    ],
+    "steps": [],
+    "expect": [],
+    "status": "needs-assertion",
+    "evidence": "apps/admin-web/features/feed/feed-follow-up.tsx",
+    "reason": "new user-visible admin-web work; needs a human-written read-only assertion (run sync-coverage.mjs --write, then fill steps/expect)"
+  },
+  {
+    "sha": "62cfbf68a",
+    "title": "retire operator, move the farm onto manager roles",
+    "route": null,
+    "viewports": [
+      "laptop",
+      "mobile"
+    ],
+    "steps": [],
+    "expect": [],
+    "status": "needs-assertion",
+    "evidence": "",
+    "reason": "modifies a file an existing assertion relies on; needs a human-written read-only assertion (run sync-coverage.mjs --write, then fill steps/expect)"
+  },
+  {
+    "sha": "2a14571cd",
+    "title": "add ground-tier manager roles beside operator",
+    "route": null,
+    "viewports": [
+      "laptop",
+      "mobile"
+    ],
+    "steps": [],
+    "expect": [],
+    "status": "needs-assertion",
+    "evidence": "",
+    "reason": "modifies a file an existing assertion relies on; needs a human-written read-only assertion (run sync-coverage.mjs --write, then fill steps/expect)"
   }
 ]
