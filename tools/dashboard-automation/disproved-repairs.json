@@ -125,6 +125,14 @@
       "repair": "backend/internal/weighing/adapters/postgres/shed_weights_park_label_test.go \u2014 one read, rows checked against the code and the filter vocabulary checked against THE ROWS rather than a literal",
       "mutation": "make the rows fall back to the full name; separately, make only the filter fall back",
       "result": "RED on each side: 'row park label = \"Coimbatore\", want the short code \"CBE\"' and 'the filter says \"Coimbatore\" while every row says \"CBE\" \u2014 one screen, two names for one park'"
+    },
+    {
+      "sha": "c54f07da4",
+      "subject": "carry unchanged rules across a publish instead of re-minting them",
+      "whyItDidNotBite": "stale verdict \u2014 it bites at the current tip.",
+      "repair": "none needed",
+      "mutation": "remove the CarryOverUnchangedVaccinationObligations call from the generation path",
+      "result": "RED: TestGenerationCarriesOverBeforeItSupersedes \u2014 'carry-over never ran: every publish would cancel and re-mint the whole plan again'"
     }
   ],
   "shapeOfTheRemainingJob": {
@@ -137,5 +145,39 @@
     "whatTheSamePackageOnesAreNot": "same-package does NOT prove the test is weak. Of the ones hand-checked, 3bd2c61c5, 5bba4d8f0 and 93cb89104 all sit in the same package AND bite at the current tip \u2014 their stored verdict is stale against a moved tree. Each row still has to be opened.",
     "whatTheyMostlyAre": "of thirteen opened by hand, five were genuinely weak tests and are repaired, one was a dead suite, one led to a real unfixed defect in a sibling query, four were stale or mis-scoped, and two are unprovable in their current shape."
   },
-  "whatAVerdictMeans": "The prover answers 'did this test bite AT THE MOMENT OF THE COMMIT', by checking that commit out and reverting its own non-test files. That is the right question for a fresh commit and a weaker one for a tree that has moved: five of the rows opened by hand are disproved at their own tree and bite at the current tip, because the code was refactored afterwards and the commit's test was rewritten with it. Both statements are true; the one a reader usually wants is 'is this behaviour protected NOW', and that is what every `mutation` field in this file records."
+  "whatAVerdictMeans": "The prover answers 'did this test bite AT THE MOMENT OF THE COMMIT', by checking that commit out and reverting its own non-test files. That is the right question for a fresh commit and a weaker one for a tree that has moved: five of the rows opened by hand are disproved at their own tree and bite at the current tip, because the code was refactored afterwards and the commit's test was rewritten with it. Both statements are true; the one a reader usually wants is 'is this behaviour protected NOW', and that is what every `mutation` field in this file records.",
+  "tallyOfRowsOpenedByHand": {
+    "total": 17,
+    "genuinelyWeakAndRepaired": [
+      "0c378ff27",
+      "21ac4f56a",
+      "5090bf8cb",
+      "dddd18b93",
+      "5633e961c",
+      "5e7a3635b"
+    ],
+    "deadSuiteRevived": [
+      "4abf8ff47"
+    ],
+    "ledToARealUnfixedDefect": [
+      "de4e099b6"
+    ],
+    "staleVerdictBitesAtTheTip": [
+      "3bd2c61c5",
+      "5bba4d8f0",
+      "93cb89104",
+      "94e2efaaf",
+      "c54f07da4"
+    ],
+    "misScopedOrNotOnThisBranch": [
+      "b4612e578",
+      "bb927e2a9",
+      "62cfbf68a",
+      "528bb86e6"
+    ],
+    "genuineAndStillOPEN": [
+      "9fe71b380"
+    ],
+    "readThisAs": "roughly a third of the disproved rows opened so far were genuinely weak tests, a third were stale or mis-scoped verdicts where the behaviour IS protected at the tip, and the rest were a dead suite, a real defect found next door, and one still open. Nobody should extrapolate the 52 from 17, but nobody should assume they are all weak tests either."
+  }
 }
