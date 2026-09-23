@@ -96,6 +96,10 @@ paths:
         - name: movement_state
           in: query
           schema: { $ref: '#/components/schemas/HerdSignalMovementState' }
+        - name: live_state
+          in: query
+          schema: { $ref: '#/components/schemas/HerdSignalLiveStateFilter' }
+          description: Server-side realtime movement filter. `moving_now` means a fresh packet with a positive last-packet delta; `active_1m` means a fresh 60-second motion delta.
         - name: mapping_state
           in: query
           schema: { $ref: '#/components/schemas/HerdSignalMappingState' }
@@ -402,12 +406,18 @@ paths:
         - name: movement_state
           in: query
           schema: { $ref: '#/components/schemas/HerdSignalMovementState' }
+        - name: live_state
+          in: query
+          schema: { $ref: '#/components/schemas/HerdSignalLiveStateFilter' }
         - name: mapping_state
           in: query
           schema: { $ref: '#/components/schemas/HerdSignalMappingState' }
         - name: pattern
           in: query
           schema: { $ref: '#/components/schemas/HerdSignalPatternFilter' }
+        - name: risk_state
+          in: query
+          schema: { $ref: '#/components/schemas/HerdSignalRiskFilter' }
         - name: q
           in: query
           schema: { type: string }
@@ -18217,6 +18227,10 @@ components:
     HerdSignalRiskState:
       type: string
       enum: [low, watch, high]
+    HerdSignalLiveStateFilter:
+      type: string
+      description: Realtime movement query filter for GET /herd-signals/live and CSV export.
+      enum: [moving_now, active_1m]
     HerdSignalRiskFilter:
       type: string
       description: >-

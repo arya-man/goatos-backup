@@ -105,7 +105,7 @@ func ingestTag(t *testing.T, ctx context.Context, repo *Repository, gatewayID, t
 
 func mappingStateFromLive(t *testing.T, ctx context.Context, repo *Repository, tagID string) string {
 	t.Helper()
-	tags, _, _, err := repo.ListTagsLatest(ctx, hsiTenant, nil, nil, nil, nil, nil, nil, "", 200)
+	tags, _, _, err := repo.ListTagsLatest(ctx, hsiTenant, nil, nil, nil, nil, nil, nil, nil, "", 200)
 	if err != nil {
 		t.Fatalf("ListTagsLatest: %v", err)
 	}

@@ -82,7 +82,7 @@ func (f *fakeService) IngestPackets(_ context.Context, _ domain.Actor, req domai
 	return f.ingestResp, f.ingestErr
 }
 
-func (f *fakeService) ListLive(_ context.Context, _ domain.Actor, _, _, _, _, _, _, _ *string, _ string, _ int, sort domain.LiveSort) (domain.LiveResponse, error) {
+func (f *fakeService) ListLive(_ context.Context, _ domain.Actor, _, _, _, _, _, _, _, _ *string, _ string, _ int, sort domain.LiveSort) (domain.LiveResponse, error) {
 	f.liveSort = sort
 	return f.liveResp, f.liveErr
 }
@@ -100,7 +100,7 @@ func (f *fakeService) GetInsights(_ context.Context, _ domain.Actor) (domain.Ins
 	return f.insightsResp, f.insightsErr
 }
 
-func (f *fakeService) ExportCSV(_ context.Context, _ domain.Actor, parkID, shedID, movementState, mappingState, pattern, q *string, w io.Writer) error {
+func (f *fakeService) ExportCSV(_ context.Context, _ domain.Actor, parkID, shedID, movementState, liveState, mappingState, pattern, riskState, q *string, w io.Writer) error {
 	f.exportGot.parkID, f.exportGot.shedID = parkID, shedID
 	f.exportGot.movementState, f.exportGot.mappingState = movementState, mappingState
 	f.exportGot.pattern, f.exportGot.q = pattern, q

@@ -25,8 +25,10 @@ func (h *Handler) ExportCSV(w http.ResponseWriter, r *http.Request) {
 	parkID := optionalParam(query.Get("park_id"))
 	shedID := optionalParam(query.Get("shed_id"))
 	movementState := optionalParam(query.Get("movement_state"))
+	liveState := optionalParam(query.Get("live_state"))
 	mappingState := optionalParam(query.Get("mapping_state"))
 	pattern := optionalParam(query.Get("pattern"))
+	riskState := optionalParam(query.Get("risk_state"))
 	q := optionalParam(query.Get("q"))
 
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
@@ -37,7 +39,7 @@ func (h *Handler) ExportCSV(w http.ResponseWriter, r *http.Request) {
 	// opens as a corrupt sheet that LOOKS like data. A truncated download the client's parser
 	// rejects is honest; a silently corrupted one is not. Same discipline as the weighing export.
 	counting := &countingResponseWriter{ResponseWriter: w}
-	if err := h.service.ExportCSV(ctx, actor, parkID, shedID, movementState, mappingState, pattern, q, counting); err != nil {
+	if err := h.service.ExportCSV(ctx, actor, parkID, shedID, movementState, liveState, mappingState, pattern, riskState, q, counting); err != nil {
 		if counting.written > 0 {
 			h.log.Error("herd_signals_export_failed_mid_stream", "bytes_written", counting.written, "error", err.Error())
 			return

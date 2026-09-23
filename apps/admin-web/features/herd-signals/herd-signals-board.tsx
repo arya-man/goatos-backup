@@ -22,7 +22,7 @@ import { HerdSignalsInsights } from "./herd-signals-insights";
 import { Tag, type Tone } from "@/components/ui-primitives";
 import type { HerdSignalItem } from "@/lib/api/herd-signals";
 import { RISK_LABEL, RISK_TONE } from "./format";
-import { HERD_SIGNALS_TABS, herdSignalsHref, kpiToMovementState, parseHerdSignalsParams, type HerdSignalsParams, type HerdSignalsTab } from "./params";
+import { HERD_SIGNALS_TABS, herdSignalsHref, kpiToLiveState, kpiToMovementState, parseHerdSignalsParams, type HerdSignalsParams, type HerdSignalsTab } from "./params";
 
 const TAB_LABEL: Record<HerdSignalsTab, string> = {
   live: "Live Monitor",
@@ -108,6 +108,7 @@ function fetchForTab(params: HerdSignalsParams): Promise<ApiResult<HerdSignalsLi
   return getHerdSignalsLive({
     ...common,
     movementState: kpiToMovementState(params.kpi) ?? params.movementState,
+    liveState: kpiToLiveState(params.kpi),
     mappingState: params.mappingState,
     pattern: params.pattern,
   });

@@ -27,15 +27,18 @@ func (f *fakeRepo) IngestPackets(_ context.Context, _ string, _ domain.Gateway, 
 	return len(packets), len(packets), nil
 }
 
-func (f *fakeRepo) ListTagsLatestPage(_ context.Context, _ string, _, _, _, _, _, _ *string, _ string, limit int, _ ...domain.LiveSort) ([]domain.TagLatest, error) {
+func (f *fakeRepo) ListTagsLatestPage(_ context.Context, _ string, _, _, _, _, _, _, _ *string, _ string, limit int, _ ...domain.LiveSort) ([]domain.TagLatest, error) {
 	if limit <= 0 || limit > len(f.livePages) {
 		limit = len(f.livePages)
 	}
 	return append([]domain.TagLatest(nil), f.livePages[:limit]...), nil
 }
 
-func (f *fakeRepo) ListTagsLatest(_ context.Context, _ string, _, _, movementState, _, _, _ *string, cursor string, limit int, _ ...domain.LiveSort) ([]domain.TagLatest, domain.Summary, *string, error) {
+func (f *fakeRepo) ListTagsLatest(_ context.Context, _ string, _, _, movementState, liveState, _, _, _ *string, cursor string, limit int, _ ...domain.LiveSort) ([]domain.TagLatest, domain.Summary, *string, error) {
 	livePages := f.filteredLivePages(movementState)
+	if liveState != nil && *liveState != "" {
+		livePages = f.filteredLiveStatePages(livePages, *liveState)
+	}
 	start := 0
 	if cursor != "" {
 		for i, tag := range livePages {
@@ -58,6 +61,24 @@ func (f *fakeRepo) ListTagsLatest(_ context.Context, _ string, _, _, movementSta
 		next = &v
 	}
 	return append([]domain.TagLatest(nil), livePages[start:end]...), domain.Summary{}, next, nil
+}
+
+func (f *fakeRepo) filteredLiveStatePages(tags []domain.TagLatest, liveState string) []domain.TagLatest {
+	now := time.Now()
+	filtered := make([]domain.TagLatest, 0, len(tags))
+	for _, tag := range tags {
+		switch liveState {
+		case "moving_now":
+			if now.Sub(tag.LastSeenAt) <= 30*time.Second && tag.LastPacketMotionDelta != nil && *tag.LastPacketMotionDelta > 0 {
+				filtered = append(filtered, tag)
+			}
+		case "active_1m":
+			if now.Sub(tag.LastSeenAt) <= 90*time.Second && tag.MotionDelta60s != nil && *tag.MotionDelta60s > 0 {
+				filtered = append(filtered, tag)
+			}
+		}
+	}
+	return filtered
 }
 
 func (f *fakeRepo) filteredLivePages(movementState *string) []domain.TagLatest {
@@ -230,7 +251,7 @@ func TestListLiveRiskFilterPaginatesAfterFilteredRowsAndKeepsWholeSummary(t *tes
 	risk := "high"
 	sort := domain.LiveSort{Key: "smart_tag", Dir: "asc"}
 
-	first, err := svc.ListLive(context.Background(), actor, nil, nil, nil, nil, nil, &risk, nil, "", 2, sort)
+	first, err := svc.ListLive(context.Background(), actor, nil, nil, nil, nil, nil, nil, &risk, nil, "", 2, sort)
 	if err != nil {
 		t.Fatalf("ListLive first page: %v", err)
 	}
@@ -247,7 +268,7 @@ func TestListLiveRiskFilterPaginatesAfterFilteredRowsAndKeepsWholeSummary(t *tes
 		t.Fatalf("summary = %+v, want whole filtered set of 3 unmapped tags", first.Summary)
 	}
 
-	second, err := svc.ListLive(context.Background(), actor, nil, nil, nil, nil, nil, &risk, nil, *first.NextCursor, 2, sort)
+	second, err := svc.ListLive(context.Background(), actor, nil, nil, nil, nil, nil, nil, &risk, nil, *first.NextCursor, 2, sort)
 	if err != nil {
 		t.Fatalf("ListLive second page: %v", err)
 	}
@@ -288,7 +309,7 @@ func TestListLiveRiskFilterWalksPastRepositoryPageBoundary(t *testing.T) {
 	risk := "high"
 	sort := domain.LiveSort{Key: "smart_tag", Dir: "asc"}
 
-	resp, err := svc.ListLive(context.Background(), actor, nil, nil, nil, nil, nil, &risk, nil, "", 10, sort)
+	resp, err := svc.ListLive(context.Background(), actor, nil, nil, nil, nil, nil, nil, &risk, nil, "", 10, sort)
 	if err != nil {
 		t.Fatalf("ListLive: %v", err)
 	}
@@ -313,7 +334,7 @@ func TestListLiveRiskSummaryKeepsMovementBreakdownWhole(t *testing.T) {
 	movement := "stale"
 	sort := domain.LiveSort{Key: "smart_tag", Dir: "asc"}
 
-	resp, err := svc.ListLive(context.Background(), actor, nil, nil, &movement, nil, nil, &risk, nil, "", 10, sort)
+	resp, err := svc.ListLive(context.Background(), actor, nil, nil, &movement, nil, nil, nil, &risk, nil, "", 10, sort)
 	if err != nil {
 		t.Fatalf("ListLive: %v", err)
 	}
@@ -336,7 +357,7 @@ func TestListLiveAttentionRiskExcludesZeroScoreRows(t *testing.T) {
 	risk := "attention"
 	sort := domain.LiveSort{Key: "smart_tag", Dir: "asc"}
 
-	resp, err := svc.ListLive(context.Background(), actor, nil, nil, nil, nil, nil, &risk, nil, "", 10, sort)
+	resp, err := svc.ListLive(context.Background(), actor, nil, nil, nil, nil, nil, nil, &risk, nil, "", 10, sort)
 	if err != nil {
 		t.Fatalf("ListLive: %v", err)
 	}
@@ -379,7 +400,7 @@ func TestListLiveMovementFilterUsesWholePenForGroupComparisons(t *testing.T) {
 	movement := "moving"
 	sort := domain.LiveSort{Key: "smart_tag", Dir: "asc"}
 
-	resp, err := svc.ListLive(context.Background(), actor, nil, nil, &movement, nil, nil, nil, nil, "", 10, sort)
+	resp, err := svc.ListLive(context.Background(), actor, nil, nil, &movement, nil, nil, nil, nil, nil, "", 10, sort)
 	if err != nil {
 		t.Fatalf("ListLive: %v", err)
 	}
@@ -413,7 +434,7 @@ func TestListLiveUsesAnimalPartitionForPenDisplay(t *testing.T) {
 		},
 	}
 	svc := NewService(repo)
-	resp, err := svc.ListLive(context.Background(), domain.Actor{TenantID: "tenant-1", UserID: "user-1"}, nil, nil, nil, nil, nil, nil, nil, "", 10, domain.LiveSort{Key: "smart_tag", Dir: "asc"})
+	resp, err := svc.ListLive(context.Background(), domain.Actor{TenantID: "tenant-1", UserID: "user-1"}, nil, nil, nil, nil, nil, nil, nil, nil, "", 10, domain.LiveSort{Key: "smart_tag", Dir: "asc"})
 	if err != nil {
 		t.Fatalf("ListLive: %v", err)
 	}
@@ -439,7 +460,7 @@ func TestListLiveIncludesRolling24hMotionDelta(t *testing.T) {
 		motionDeltas24h: map[string]int64{"A0002A": delta24h},
 	}
 	svc := NewService(repo)
-	resp, err := svc.ListLive(context.Background(), domain.Actor{TenantID: "tenant-1", UserID: "user-1"}, nil, nil, nil, nil, nil, nil, nil, "", 10, domain.LiveSort{Key: "smart_tag", Dir: "asc"})
+	resp, err := svc.ListLive(context.Background(), domain.Actor{TenantID: "tenant-1", UserID: "user-1"}, nil, nil, nil, nil, nil, nil, nil, nil, "", 10, domain.LiveSort{Key: "smart_tag", Dir: "asc"})
 	if err != nil {
 		t.Fatalf("ListLive: %v", err)
 	}

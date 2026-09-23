@@ -178,13 +178,13 @@ func (s *Service) IngestPackets(ctx context.Context, actor domain.Actor, req dom
 }
 
 // ListLive fetches the current tag status with optional filters and pagination.
-func (s *Service) ListLive(ctx context.Context, actor domain.Actor, parkID, shedID, movementState, mappingState, pattern, riskState, q *string, cursor string, limit int, sort domain.LiveSort) (domain.LiveResponse, error) {
+func (s *Service) ListLive(ctx context.Context, actor domain.Actor, parkID, shedID, movementState, liveState, mappingState, pattern, riskState, q *string, cursor string, limit int, sort domain.LiveSort) (domain.LiveResponse, error) {
 	if actor.TenantID == "" {
 		return domain.LiveResponse{}, fmt.Errorf("actor tenant_id required")
 	}
 
 	if riskState != nil {
-		cohortTags, err := s.listAllTagsLatest(ctx, actor.TenantID, parkID, shedID, nil, mappingState, pattern, q, sort)
+		cohortTags, err := s.listAllTagsLatest(ctx, actor.TenantID, parkID, shedID, nil, liveState, mappingState, pattern, q, sort)
 		if err != nil {
 			s.log.Error("failed to list tags latest for signal filter", "error", err)
 			return domain.LiveResponse{}, fmt.Errorf("list tags failed: %w", err)
@@ -225,14 +225,14 @@ func (s *Service) ListLive(ctx context.Context, actor domain.Actor, parkID, shed
 	}
 
 	tags, summary, nextCursor, err := s.repo.ListTagsLatest(
-		ctx, actor.TenantID, parkID, shedID, movementState, mappingState, pattern, q, cursor, limit, sort,
+		ctx, actor.TenantID, parkID, shedID, movementState, liveState, mappingState, pattern, q, cursor, limit, sort,
 	)
 	if err != nil {
 		s.log.Error("failed to list tags latest", "error", err)
 		return domain.LiveResponse{}, fmt.Errorf("list tags failed: %w", err)
 	}
 
-	cohortTags, err := s.listAllTagsLatest(ctx, actor.TenantID, parkID, shedID, nil, mappingState, pattern, q, domain.LiveSort{})
+	cohortTags, err := s.listAllTagsLatest(ctx, actor.TenantID, parkID, shedID, nil, liveState, mappingState, pattern, q, domain.LiveSort{})
 	if err != nil {
 		s.log.Warn("failed to fetch live cohort for signal comparisons", "error", err)
 		cohortTags = tags
@@ -248,12 +248,12 @@ func (s *Service) ListLive(ctx context.Context, actor domain.Actor, parkID, shed
 	}, nil
 }
 
-func (s *Service) listAllTagsLatest(ctx context.Context, tenantID string, parkID, shedID, movementState, mappingState, pattern, q *string, sort domain.LiveSort) ([]domain.TagLatest, error) {
+func (s *Service) listAllTagsLatest(ctx context.Context, tenantID string, parkID, shedID, movementState, liveState, mappingState, pattern, q *string, sort domain.LiveSort) ([]domain.TagLatest, error) {
 	var all []domain.TagLatest
 	cursor := ""
 	for {
 		// scale-guard:ignore: bounded keyset page walk owner=herd-signals issue=PR-251 reason=risk_state is computed after batched enrichment and must see the whole filtered live cohort; the loop is capped by liveSignalCohortMaxRows and advances by opaque repository cursor expiry=2026-12-31
-		tags, _, nextCursor, err := s.repo.ListTagsLatest(ctx, tenantID, parkID, shedID, movementState, mappingState, pattern, q, cursor, liveSignalCohortPageSize, sort)
+		tags, _, nextCursor, err := s.repo.ListTagsLatest(ctx, tenantID, parkID, shedID, movementState, liveState, mappingState, pattern, q, cursor, liveSignalCohortPageSize, sort)
 		if err != nil {
 			return nil, err
 		}
