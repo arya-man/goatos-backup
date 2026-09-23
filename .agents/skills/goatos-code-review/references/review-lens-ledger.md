@@ -239,6 +239,7 @@ observability → UI-contract → maintainability). Each lens → its deep chapt
 | **kernel-obligation** | `references/kernel-and-scale.md` | sweeper-deployment, deployed-job-flags, worker-stage-budgets · *manual:* scale-guard, check-e2e-kernel-integrity.sh | CD-PEND1, CD-R50-011 |
 | **db-migration** | `references/backend.md` | seed-migration-coupling, room-migration-safety · *manual:* validate-migrations, validate-sqlc-plans, validate-hot-index-migrations | CD-R50-015, CD-IDEMPOTENCY-UNIQUE-INDEX |
 | **scale-aggregate** | `references/aggregates-and-projections.md` | aggregate-projection-review, atomic-readmodel-sync, admin-web-request-reads · *manual:* scale-guard | CD-PEND2-R50-022 (grain/fan-out); counts PR #12 |
+| **sql-pagination-shape** | `references/kernel-and-scale.md` + `docs/decisions/scale-anti-patterns.md` ("Unbounded CTE with the LIMIT outside it") | scale-guard rule `cte-limit-outside` · *manual:* validate-sqlc-plans | PR #376 notification-feed CTE (`/app/notifications`) |
 | **vaccination-rule** | `references/business-rules.md` | clinical-defer-states, vaccination-schedule-canonical, goat-shed-scope | CD-STAGE-REVIEW, CD-NO-CROSS-PARK-MOVE |
 | **backend-hexagonal / idempotency / atomic** | `references/backend.md` | idempotency-writes, atomic-readmodel-sync, config-validate-or-reject, domain-event-architecture · *manual:* check-boundaries.sh, check-contract-drift.sh | CD-PEND3, CD-IDEMPOTENCY-UNIQUE-INDEX |
 | **additive-publish** | `docs/preventive-care-vaccination/additive-publish.md` | additive-publish-guard | CD-ADDITIVE-PUBLISH |

@@ -30,6 +30,7 @@ Exit 1 on any NEW violation. Green when every offender is baselined or ignored.
 | `non-sargable-like` | `lower(col) LIKE '%..%'` |
 | `non-sargable-cast` | indexed column cast to text in an `ANY` predicate (`id::text = ANY(...)`); cast the typed bind array instead |
 | `god-cte` | > 8 `x AS (` CTEs in one request-path SQL literal |
+| `cte-limit-outside` | a paginated statement (top-level `ORDER BY` + `LIMIT`) whose scanning CTE has no `LIMIT` of its own — every request materialises the whole underlying set and then keeps a page. Work proportional to the table, not the page. Unlike the other SQL rules this one reads the **fully assembled** statement (package-level consts resolved through their `+` chains), because the CTE and the LIMIT routinely sit in different fragments |
 | `read-rollup-truth` | request-path/service rollup that bumps a raw list limit or clears `NextCursor` after in-memory aggregation |
 
 One-time tooling (`backend/cmd/seed-*`, `migrate`) is out of scope.

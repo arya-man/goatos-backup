@@ -112,6 +112,7 @@ regardless of which layer changed.
 | `apps/admin-web/**`, `packages/ui`, `packages/rbac`, `packages/forms-dsl`, `packages/api-client` | `references/frontend.md` (includes laptop + mobile responsive UI/UX and visual-guard coverage) |
 | `apps/goatos-android/**` (Kotlin/Compose app) | `references/mobile.md` |
 | `backend/internal/**`, `backend/cmd/**`, `backend/migrations/**` | `references/backend.md` **+** `references/kernel-and-scale.md` |
+| `backend/internal/**/adapters/postgres/*.go` paginated SQL — a CTE/subquery under an outer `LIMIT` or keyset cursor | `references/review-lens-ledger.md` **sql-pagination-shape** lens (`scale-guard` rule `cte-limit-outside`) |
 | Projection/read model/card/summary/calendar/reminder code, or a query combining `JOIN` with aggregation/pagination | `references/aggregates-and-projections.md` **+ producer and consumer lenses** |
 | `contracts/openapi`, event-payload / JSON-schema contracts | `references/backend.md` **+** `references/business-rules.md` **+ every consumer lens the contract reaches** (see consumer auto-pull below) |
 | Any admin dashboard route/page/tab/filter/drawer contract, SQL-bind change, or production-smoke relevant change | `references/frontend.md` **+** `docs/engineering/dashboard-nightly-automation-plan.md`; require `make dashboard-automation-guard` coverage and fail review if the change can reintroduce `backend_down`, `Admin-web contract unavailable`, `The board could not be loaded`, `Weights could not be loaded`, stale hardcoded route inventories, or hardcoded SQL parameter counts |

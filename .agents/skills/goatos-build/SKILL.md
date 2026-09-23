@@ -320,6 +320,10 @@ answer is a design gap, not work to defer silently.
 Before touching code, identify WHICH operational invariant(s) the change touches:
 
 - **pagination forward-progress:** cursor is monotonic, next-page fetch cannot regress
+- **paginated query bounds:** a paginated query's `LIMIT` (and its keyset predicate) belongs
+  INSIDE the CTE/subquery that does the scanning, never outside it — outside, the scan is
+  proportional to the table's rows for that caller and the outer `LIMIT` only discards rows
+  already materialised and sorted
 - **effective-state on partial updates:** a partial edit re-validates the WHOLE effective
   locked record (not just the changed field), so date/status/rule/version mutations don't
   create impossible states
