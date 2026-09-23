@@ -172,6 +172,46 @@ async function runLive({ baseUrl, bearerToken, outDir, routes }) {
 }
 
 // ---------------------------------------------------------------------------
+// The full surface: every route, every dialog, both viewports
+// ---------------------------------------------------------------------------
+async function runSweep({ baseUrl, bearerToken, outDir, limit }) {
+  const { reachableRoutes } = await import("../../apps/admin-web/scripts/lib/smoke-route-catalogue.mjs");
+  const { sweepViewport, SWEEP_VIEWPORTS } = await import("../../apps/admin-web/scripts/lib/flicker-capture.mjs");
+  const { all, reachable, needFixture } = reachableRoutes(repo);
+  const routes = limit ? reachable.slice(0, limit) : reachable;
+  const rows = [];
+  for (const viewport of SWEEP_VIEWPORTS) {
+    const done = await sweepViewport({
+      baseUrl, bearerToken, outDir, routes, viewport,
+      onRoute: (row) => {
+        const found = row.findings.length ? ` FOUND ${row.findings.length}` : "";
+        console.log(`swept ${row.viewport}:${row.route} overlays=${row.overlays} judged=${row.judged} skipped=${row.skipped.length}${row.parked ? " parked" : ""}${found}`);
+      },
+    });
+    rows.push(...done);
+  }
+  return {
+    source: "sweep",
+    baseUrl,
+    viewports: SWEEP_VIEWPORTS.map((v) => v.label),
+    // Coverage is a fraction with a reason on every gap, never a list of hits.
+    coverage: {
+      routesInLaneOne: all.length,
+      routesSwept: routes.length,
+      routesUnreachable: needFixture.length,
+      unreachableReason: "the path is built from a fixture looked up at run time, which this check does not resolve",
+      viewportsPerRoute: SWEEP_VIEWPORTS.length,
+      pagesAttempted: rows.length,
+      pagesParked: rows.filter((r) => r.parked).length,
+      pagesErrored: rows.filter((r) => r.error).length,
+      overlaysJudged: rows.reduce((n, r) => n + r.judged, 0),
+      overlaysSkipped: rows.reduce((n, r) => n + r.skipped.length, 0),
+    },
+    rows,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Receipt
 // ---------------------------------------------------------------------------
 export function buildReceipt({ statik, temporal, headless }) {
@@ -181,6 +221,7 @@ export function buildReceipt({ statik, temporal, headless }) {
   // the browser said the element is opaque, so one flash is already wrong. It does not
   // need the repetition the whole-screen shimmer detector insists on.
   const showedThrough = runs.filter((r) => (r.overlay?.findings ?? []).length);
+  const sweepFindings = (temporal?.rows ?? []).filter((row) => (row.findings ?? []).length);
   // A run that never opened the page it was aimed at is parked with its reason, never
   // counted as a clean page. A lane that quietly checks nothing is the worst outcome
   // available: it goes green exactly when it is blind.
@@ -195,7 +236,8 @@ export function buildReceipt({ statik, temporal, headless }) {
     // Check B: the symptom.
     temporal: temporal ?? null,
     filmed: filmed.length,
-    overlaysShowedThrough: showedThrough.length,
+    overlaysShowedThrough: showedThrough.length + sweepFindings.length,
+    coverage: temporal?.coverage ?? null,
     parked: parked.map((r) => ({ route: r.route, why: r.parked ?? r.error })),
     // Said out loud in the receipt so nobody reads a green temporal result as proof
     // the screen is fine on a real phone. This is a GPU compositing artefact, and a
@@ -203,7 +245,7 @@ export function buildReceipt({ statik, temporal, headless }) {
     headlessCaveat: headless
       ? "Check B ran in headless Chromium on a laptop. Headless composites differently from a phone GPU, so a clean run here is not proof a real phone is clean. Check A is the one that holds on this evidence."
       : "",
-    status: statik?.ok && flickering.length === 0 && showedThrough.length === 0 ? "pass" : "fail",
+    status: statik?.ok && flickering.length === 0 && showedThrough.length === 0 && sweepFindings.length === 0 ? "pass" : "fail",
   };
 }
 
@@ -216,12 +258,14 @@ function writeReceipt(receipt, runDir) {
 
 // ---------------------------------------------------------------------------
 function parseArgs(argv) {
-  const parsed = { selfTest: false, video: null, live: false, outDir: null, staticOnly: false };
+  const parsed = { selfTest: false, video: null, live: false, sweep: false, limit: 0, outDir: null, staticOnly: false };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--self-test") parsed.selfTest = true;
     else if (arg === "--static") parsed.staticOnly = true;
     else if (arg === "--live") parsed.live = true;
+    else if (arg === "--sweep") parsed.sweep = true;
+    else if (arg === "--limit") parsed.limit = Number(argv[++i]);
     else if (arg === "--video") parsed.video = argv[++i];
     else if (arg === "--out") parsed.outDir = argv[++i];
   }
@@ -309,6 +353,16 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       if (r.extent) console.log(`  changed area: ${r.extent.width}x${r.extent.height} (${r.extent.coverage}% of the screen), about every ${r.cadenceSeconds}s`);
       if (one.evidence.gif) console.log(`  gif: ${one.evidence.gif}`);
       if (one.evidence.filmstrip) console.log(`  filmstrip: ${one.evidence.filmstrip}`);
+    } else if (args.sweep && !args.staticOnly) {
+      headless = true;
+      temporal = await runSweep({
+        baseUrl: process.env.GOATOS_ADMIN_WEB_BASE_URL ?? "https://dashboard.mesha.sg",
+        bearerToken: process.env.GOATOS_BEARER_TOKEN ?? "",
+        outDir,
+        limit: args.limit,
+      });
+      const c = temporal.coverage;
+      console.log(`checked ${c.routesSwept} of ${c.routesInLaneOne} routes x ${c.viewportsPerRoute} viewports = ${c.pagesAttempted} pages; ${c.overlaysJudged} overlays judged, ${c.overlaysSkipped} skipped, ${c.pagesParked} pages parked, ${c.pagesErrored} errored; ${c.routesUnreachable} routes unreachable (${c.unreachableReason})`);
     } else if (args.live && !args.staticOnly) {
       headless = true;
       temporal = await runLive({

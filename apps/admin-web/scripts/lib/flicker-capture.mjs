@@ -614,3 +614,273 @@ export async function writeOverlayEvidence(frames, event, outDir, name) {
     note: filmstrip ? "" : "the frames are attached one by one, because a strip of them could not be written here",
   };
 }
+
+// ---------------------------------------------------------------------------
+// The full surface: every route, every dialog, both viewports
+// ---------------------------------------------------------------------------
+// The filmed bug was one filter panel, but the defect class is not: any overlay that
+// is opaque by design can briefly show what is behind it. So the sweep drives the
+// overlays lane 1 already enumerates in `overlay-journeys.mjs` — the same catalogue,
+// the same selectors, the same read-only gate — and then looks for any OTHER opaque
+// overlay a page will open when a safe control is pressed.
+//
+// What it watches and what it deliberately does not: an overlay is only judged while
+// it is SETTLED OPEN. Opening and closing legitimately show the page behind, because
+// that is what an entrance animation is; reporting those would be reporting the design.
+// The transitions judged are changing a control inside the overlay and scrolling
+// behind it, which is where the real defect lives.
+
+/** Controls inside an overlay that only change what is displayed. */
+const SAFE_INSIDE = [
+  'input[type="checkbox"]',
+  'input[type="radio"]',
+  ".lt-people-row",
+  '[role="option"]',
+  '[role="tab"]',
+  "select",
+].join(", ");
+
+/**
+ * Press something inside the overlay that only changes what is shown, then scroll the
+ * page behind it. Returns how many changes were made.
+ */
+async function nudgeOverlay(page, overlaySelector, mark) {
+  let changes = 0;
+  const inside = page.locator(`${overlaySelector} ${SAFE_INSIDE}`);
+  const available = await inside.count().catch(() => 0);
+  for (let i = 0; i < Math.min(3, available); i += 1) {
+    await mark("change something in the panel", async () => {
+      await inside.nth(i).click({ timeout: 3_000 }).catch(() => {});
+      await page.waitForTimeout(900);
+    });
+    changes += 1;
+  }
+  await mark("scroll the page behind it", async () => {
+    for (let i = 0; i < 4; i += 1) {
+      await page.mouse.wheel(0, 220);
+      await page.waitForTimeout(110);
+    }
+  });
+  return changes;
+}
+
+/**
+ * Film one overlay while it is open, and say whether it ever showed the page behind it.
+ *
+ * `open` opens the overlay and returns true; `overlaySelector` names it so the controls
+ * pressed are the ones inside it.
+ */
+export async function filmOverlay(page, { open, overlaySelector, outDir, name, options = {} }) {
+  const o = { ...CAPTURE_DEFAULTS, ...options };
+  const { PNG } = await import("pngjs");
+  const { collectOpaqueOverlays, detectShowThrough, interiorFrame } = await import("./overlay-paint-checks.mjs");
+
+  const opened = await open();
+  if (!opened) return { opened: false, reason: "the overlay did not open" };
+  await page.waitForTimeout(700);
+
+  // Probe once the overlay has settled, so its box and colour are what it really is.
+  const overlays = (await page.evaluate(collectOpaqueOverlays, {}).catch(() => [])) ?? [];
+  const viewport = page.viewportSize() ?? { width: o.maxWidth / 2, height: o.maxHeight / 2 };
+  if (!overlays.length) {
+    return { opened: true, overlays: [], findings: [], reason: "nothing opened that is solid enough to judge" };
+  }
+
+  const cdp = await page.context().newCDPSession(page);
+  const frames = [];
+  let t0 = null;
+  cdp.on("Page.screencastFrame", async (event) => {
+    try {
+      await cdp.send("Page.screencastFrameAck", { sessionId: event.sessionId });
+    } catch { /* the session went away */ }
+    try {
+      const stamp = Number(event.metadata?.timestamp ?? 0);
+      if (t0 === null) t0 = stamp;
+      frames.push({ t: stamp - t0, png: Buffer.from(event.data, "base64") });
+    } catch { /* one bad frame must not end the capture */ }
+  });
+  const phases = [];
+  const mark = async (label, fn) => {
+    const from = frames.length ? frames[frames.length - 1].t : 0;
+    await fn();
+    phases.push({ label, from, to: frames.length ? frames[frames.length - 1].t : from });
+  };
+
+  await cdp.send("Page.startScreencast", { format: "png", everyNthFrame: 1, maxWidth: o.maxWidth, maxHeight: o.maxHeight });
+  let changes = 0;
+  try {
+    changes = await nudgeOverlay(page, overlaySelector ?? "body", mark);
+    await page.waitForTimeout(500);
+  } finally {
+    await cdp.send("Page.stopScreencast").catch(() => {});
+    await cdp.detach().catch(() => {});
+  }
+
+  const series = overlays.map(() => []);
+  for (const frame of frames) {
+    let decoded;
+    try {
+      decoded = PNG.sync.read(frame.png);
+    } catch {
+      continue;
+    }
+    const scale = decoded.width / viewport.width;
+    overlays.forEach((overlay, index) => {
+      series[index].push(interiorFrame(decoded.data, decoded.width, decoded.height, overlay.rect, { ...o, scale, t: frame.t }));
+    });
+  }
+
+  const findings = [];
+  const unjudged = [];
+  for (const [index, overlay] of overlays.entries()) {
+    const verdict = detectShowThrough(series[index], o);
+    if (!verdict.judged) {
+      unjudged.push({ label: overlay.label, why: verdict.reason });
+      continue;
+    }
+    if (!verdict.showedThrough) continue;
+    findings.push({
+      label: overlay.label,
+      events: verdict.events,
+      evidence: await writeOverlayEvidence(frames, verdict.events[0], outDir, name),
+    });
+  }
+  return { opened: true, overlays: overlays.map((v) => ({ label: v.label, z: v.z })), findings, unjudged, changes, capturedFrames: frames.length, phases: phases.map((p) => p.label), reason: "" };
+}
+
+/**
+ * Every overlay this route can open, at this viewport.
+ *
+ * The catalogued ones come from lane 1's own overlay journeys so the two lanes cannot
+ * drift apart. The discovered ones are anything else on the page that opens something
+ * solid — and every one of them goes through `assertReadOnlyClickTarget` first, which
+ * is the same guard lane 1 uses to make sure a sweep never presses Save, Approve or
+ * Delete on production.
+ */
+export async function overlayCandidates(page, { routeName, viewportLabel, maxDiscovered = 3 }) {
+  const { overlayJourneys, assertReadOnlyClickTarget } = await import("./overlay-journeys.mjs");
+  const catalogued = (overlayJourneys[routeName] ?? [])
+    .filter((step) => !step.viewports || step.viewports.includes(viewportLabel))
+    .map((step) => ({ id: step.id, kind: step.kind, trigger: step.trigger, overlay: step.overlay, close: step.close, catalogued: true }));
+
+  const discovered = [];
+  const triggers = page.locator('[aria-haspopup="dialog"], [aria-haspopup="menu"], [data-overlay-trigger], button[aria-expanded="false"]');
+  const count = await triggers.count().catch(() => 0);
+  for (let i = 0; i < Math.min(count, maxDiscovered * 3) && discovered.length < maxDiscovered; i += 1) {
+    const target = triggers.nth(i);
+    try {
+      await assertReadOnlyClickTarget(target, { allowDialogTrigger: true });
+    } catch {
+      continue; // it could write something: never pressed on production
+    }
+    discovered.push({ id: `opened-${discovered.length + 1}`, kind: "discovered", locator: target, overlay: null, catalogued: false });
+  }
+  return [...catalogued, ...discovered];
+}
+
+/**
+ * The whole surface: every route given, every overlay it opens, at one viewport.
+ *
+ * Coverage is counted as it goes and every gap carries its reason, because the only
+ * number worth reporting here is a fraction. "No flicker found" over a sweep that
+ * silently skipped half the routes is the kind of green this automation exists to
+ * stop producing.
+ */
+export async function sweepViewport({ baseUrl, bearerToken, outDir, routes, viewport, onRoute }) {
+  const { chromium } = await import("@playwright/test");
+  const browser = await chromium.launch();
+  const context = await browser.newContext({
+    viewport: { width: viewport.width, height: viewport.height },
+    isMobile: Boolean(viewport.isMobile),
+    hasTouch: Boolean(viewport.isMobile),
+    deviceScaleFactor: viewport.deviceScaleFactor ?? 1,
+    userAgent: viewport.userAgent,
+  });
+  if (bearerToken) {
+    const cookieUrl = new URL(baseUrl);
+    await context.addCookies([{
+      name: "goatos_firebase_id_token",
+      value: bearerToken,
+      domain: cookieUrl.hostname,
+      path: "/",
+      httpOnly: true,
+      sameSite: "Lax",
+      expires: Math.floor(Date.now() / 1000) + 3600,
+    }]);
+  }
+  const results = [];
+  try {
+    for (const route of routes) {
+      const url = `${baseUrl}${route.path}`;
+      const row = { route: route.name, viewport: viewport.label, url, overlays: 0, judged: 0, findings: [], skipped: [] };
+      const page = await context.newPage();
+      try {
+        await page.goto(url, { waitUntil: "networkidle", timeout: 60_000 })
+          .catch(() => page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 }));
+        await page.waitForTimeout(2_000);
+        const landedOn = new URL(page.url()).pathname;
+        row.landedOn = landedOn;
+        if (/login|signin|sign-in/i.test(landedOn)) {
+          // A run that filmed a login screen says nothing about the page it aimed at.
+          row.parked = "this page needs a signed-in session and the run did not have one";
+          results.push(row);
+          continue;
+        }
+        const candidates = await overlayCandidates(page, { routeName: route.name, viewportLabel: viewport.label });
+        row.candidates = candidates.length;
+        for (const candidate of candidates) {
+          const name = `${viewport.label}-${route.name}-${candidate.id}`;
+          const open = async () => {
+            const target = candidate.locator ?? page.locator(candidate.trigger).first();
+            if (!(await target.count().catch(() => 0))) return false;
+            await target.scrollIntoViewIfNeeded().catch(() => {});
+            await target.click({ timeout: 4_000 }).catch(() => {});
+            await page.waitForTimeout(800);
+            if (candidate.overlay) {
+              return page.locator(candidate.overlay).first().isVisible({ timeout: 3_000 }).catch(() => false);
+            }
+            return true;
+          };
+          let filmed;
+          try {
+            filmed = await filmOverlay(page, { open, overlaySelector: candidate.overlay, outDir, name });
+          } catch (error) {
+            row.skipped.push({ id: candidate.id, why: String(error?.message ?? error).split("\n")[0].slice(0, 160) });
+            continue;
+          }
+          if (!filmed.opened || !(filmed.overlays ?? []).length) {
+            row.skipped.push({ id: candidate.id, why: filmed.reason || "nothing solid opened" });
+            continue;
+          }
+          row.overlays += filmed.overlays.length;
+          row.judged += filmed.overlays.length - (filmed.unjudged?.length ?? 0);
+          for (const skipped of filmed.unjudged ?? []) row.skipped.push({ id: candidate.id, why: skipped.why });
+          for (const finding of filmed.findings) row.findings.push({ ...finding, overlayId: candidate.id });
+          // Put the page back before the next candidate.
+          if (candidate.close) await page.locator(candidate.close).first().click({ timeout: 2_000 }).catch(() => {});
+          else await page.keyboard.press("Escape").catch(() => {});
+          await page.waitForTimeout(400);
+        }
+      } catch (error) {
+        row.error = String(error?.message ?? error).split("\n")[0].slice(0, 200);
+      } finally {
+        await page.close().catch(() => {});
+      }
+      results.push(row);
+      if (onRoute) onRoute(row);
+    }
+    await context.close();
+  } finally {
+    await browser.close();
+  }
+  return results;
+}
+
+/** The two viewports lane 1 sweeps. Desktop is not optional: Ravi named both. */
+export const SWEEP_VIEWPORTS = Object.freeze([
+  { label: "laptop", width: 1440, height: 1000, deviceScaleFactor: 1 },
+  {
+    label: "mobile", width: 390, height: 844, isMobile: true, deviceScaleFactor: 2,
+    userAgent: "Mozilla/5.0 (Linux; Android 14; Pixel 7 Build/UQ1A.240205.004; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/128.0.6613.127 Mobile Safari/537.36",
+  },
+]);
