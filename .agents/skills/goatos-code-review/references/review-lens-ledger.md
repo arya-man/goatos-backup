@@ -333,6 +333,14 @@ git diff --name-only HEAD                    # working-tree target
 
 Always-on, whatever changed: **evidence** (below) and this ledger's Part A.
 
+**Trigger convention.** Everything in backticks on a `triggers:` line is a
+machine-matchable glob — a script can `fnmatch` the changed paths against it and
+get the same answer a reviewer does. Unbackticked words on that line are the human
+qualifier ("a signed-URL path", "any rendered pen label") for cases a glob cannot
+express; they widen a lens, never narrow one. Keep globs precise: a bare
+`apps/admin-web/**` on a lens makes every frontend diff select it and the routing
+stops being useful.
+
 `covers:` is the number of `fix`/`revert` commits on `origin/main` since 2026-08-01 whose
 SUBJECT matches that class. One commit can match several lenses, so the numbers rank the
 classes — they are not a partition. Re-measure rather than trusting a stale number. A class
@@ -370,9 +378,11 @@ Apply matched lenses in the SKILL.md priority order (kernel → scale → securi
 ### Ranked lenses
 
 **LENS-PROOF-MEDIA** · covers: 332
-- triggers: `apps/goatos-android/**` proof/capture/media/video/photo code,
-  `backend/internal/**/proof*`, `backend/internal/verification/**`,
-  `apps/admin-web/**` proof preview or media read, any signed-URL or GCS path
+- triggers: `apps/goatos-android/**/*[Pp]roof*`, `apps/goatos-android/**/*[Cc]apture*`,
+  `apps/goatos-android/**/*[Mm]edia*`, `apps/goatos-android/**/*[Vv]ideo*`,
+  `backend/internal/verification/**`, `backend/internal/**/*proof*`,
+  `apps/admin-web/**/*proof*`, `apps/admin-web/**/*media*` — plus any signed-URL or GCS
+  read/write, and any change to what a submission must capture
 - rule: proof grain is SOP-owned and flows backend-config → API → Android; no post-upload
   hidden remote preview/probe/download; preview identity is stable and not signed-URL-keyed; an
   optional capture never blocks submit and a required one is never satisfied by absence
@@ -385,8 +395,10 @@ Apply matched lenses in the SKILL.md priority order (kernel → scale → securi
   grain or capture completeness. Review the grain by hand.
 
 **LENS-ANDROID-PHONE-SCALE** · covers: 331
-- triggers: `apps/goatos-android/**` list/picker/loading/layout code; any Compose screen over
-  state or domain collections
+- triggers: `apps/goatos-android/feature/**`, `apps/goatos-android/**/*Screen.kt`,
+  `apps/goatos-android/**/*List*.kt`, `apps/goatos-android/**/*Picker*.kt`,
+  `apps/goatos-android/**/ui/**` — plus any Compose screen that renders a state or domain
+  collection
 - rule: no unkeyed `items()`, no nested scrollable inside a list row, no unbounded
   `.forEach` over domain data in a scrollable, no chips as the picker for an unbounded
   dimension, no full-screen spinner that discards cached content
@@ -396,9 +408,10 @@ Apply matched lenses in the SKILL.md priority order (kernel → scale → securi
   CD-PHONE-SCALE-UI
 
 **LENS-PEN-LABEL** · covers: 326
-- triggers: any diff that renders a location/shed/pen/partition/park label;
-  `apps/admin-web/lib/operational-location.ts`, `backend/internal/**/location*`,
-  location-bearing schema, any screen showing pen names
+- triggers: `apps/admin-web/lib/operational-location.ts`,
+  `backend/internal/platform/oploc/**`, `backend/internal/**/*location*`,
+  `backend/migrations/postgres/**` when a location-bearing column moves — plus any diff that
+  renders a location, shed, pen, partition or park label on any surface
 - rule: when a partition exists (`Castro 1` beside `Castro 2`), every surface renders the
   partition label, grouped by `shed_id` + park, never collapsed to the parent unless the
   aggregate is explicit; goats never move between parks
@@ -412,8 +425,11 @@ Apply matched lenses in the SKILL.md priority order (kernel → scale → securi
   contradicts; read the database.
 
 **LENS-PERMISSION-SCOPE** · covers: 181
-- triggers: any route/page/tab/module gate, `packages/rbac/**`, `person_module_access`,
-  grant-role or `ceo_internal` code, nav composition, `backend/internal/**` tenant-scoped query
+- triggers: `packages/rbac/**`, `apps/admin-web/**/*permission*`, `apps/admin-web/**/*access*`,
+  `backend/internal/**/*authz*`, `backend/internal/**/*permission*`,
+  `backend/internal/identity/**`, `backend/migrations/postgres/**` touching
+  `person_module_access` — plus any route/page/tab/module gate, grant role or `ceo_internal`
+  path, and any newly added tenant-scoped query
 - rule: every scoped query filters `tenant_id`; a permission check is scope-specific, never a
   coarse module tick; CEO/CXO business visibility never depends on a later manual HRMS tick
 - guard: `role-scoped-ui-contract`, `nav-composition`, `org-boundary`, `stg-operator-scope`,
@@ -422,8 +438,9 @@ Apply matched lenses in the SKILL.md priority order (kernel → scale → securi
   invariant" · Part A: CD-R50-019-SCOPE
 
 **LENS-VERIFICATION-SIGNOFF** · covers: 180
-- triggers: `backend/internal/verification/**`, verifier/sign-off UI, any review queue,
-  `apps/goatos-android/**` verifier screens
+- triggers: `backend/internal/verification/**`,
+  `apps/admin-web/features/verification-review/**`, `apps/goatos-android/**/*[Vv]erif*`,
+  `apps/admin-web/**/*verif*` — plus any review, sign-off or approval queue
 - rule: verdict + evidence + self-verify ban + scope + close + idempotency; verification is a
   separate task from execution; a mismatch is fixed at ingestion, never by a runtime
   review/reconcile queue
@@ -433,8 +450,10 @@ Apply matched lenses in the SKILL.md priority order (kernel → scale → securi
   CD-STAGE-REVIEW
 
 **LENS-TOTALS-RECONCILE** · covers: 163 (plus 8 explicit `double-count`)
-- triggers: any summary/card/KPI/rollup, `backend/internal/counts/**`, a query combining `JOIN`
-  with aggregation and pagination, any projection or read model
+- triggers: `backend/internal/counts/**`, `backend/internal/**/*projection*`,
+  `backend/internal/**/*readmodel*`, `backend/internal/**/*summary*`,
+  `apps/admin-web/**/*summary*`, `apps/admin-web/**/*counts*` — plus any card/KPI/rollup and
+  any query combining `JOIN` with aggregation and pagination
 - rule: grain-explicit counts, declared disjoint buckets, page-independent totals, canonical
   membership, stable group key, proven join cardinality — a screen-local fix that hides a
   mismatch is a finding
@@ -444,8 +463,10 @@ Apply matched lenses in the SKILL.md priority order (kernel → scale → securi
   `docs/architecture/operational-read-model-contract.md`
 
 **LENS-NAV-ROUTE** · covers: 117
-- triggers: nav rendering, sidebar/bottom-bar, tabs, breadcrumbs, deep links, route
-  registration, `apps/goatos-android/**` navigation stack
+- triggers: `apps/admin-web/components/mesha-shell.tsx`, `apps/admin-web/**/*nav*`,
+  `apps/admin-web/app/**/layout.tsx`, `apps/goatos-android/**/navigation/**`,
+  `apps/goatos-android/**/*Nav*`, `backend/internal/adminui/**` — plus any tab, sub-tab,
+  breadcrumb, back control, deep link or route registration
 - rule: command lenses are top-level only and fed by `?domain=`/`?category=`; a hosted route
   must also be a supported root destination or every deep link lands on home; in-app navigation
   must not reload the document
@@ -456,8 +477,10 @@ Apply matched lenses in the SKILL.md priority order (kernel → scale → securi
   CD-RAW-ANCHOR-INTERNAL-ROUTE
 
 **LENS-NOTIFICATION-DELIVERY** · covers: 108
-- triggers: `backend/internal/notificationbridge/**`, outbox → channel code, Slack/FCM/push
-  adapters, reminder and escalation paths
+- triggers: `backend/internal/notificationbridge/**`, `backend/internal/**/*notif*`,
+  `backend/internal/**/*outbox*`, `backend/internal/**/*reminder*`,
+  `backend/internal/**/*escalat*`, `apps/goatos-android/**/*[Pp]ush*`,
+  `tools/dashboard-automation/notify-slack.mjs` — plus any Slack/FCM adapter
 - rule: notifications, reminders and escalations are durable rows written in the same
   transaction, never logs or in-memory state, and fail closed; the subject and the recipient set
   are specific and bounded; delivery is proved end of channel, not end of enqueue
@@ -466,8 +489,9 @@ Apply matched lenses in the SKILL.md priority order (kernel → scale → securi
 - detail: `references/kernel-and-scale.md` + `references/backend.md` · Part A: CD-R50-033
 
 **LENS-MIGRATION-SCHEMA** · covers: 102
-- triggers: `backend/migrations/postgres/**`, any Room migration, a new or altered column or
-  index, a hot-table query
+- triggers: `backend/migrations/postgres/**`, `apps/goatos-android/**/*[Mm]igration*`,
+  `backend/internal/**/*.sql`, `backend/internal/**/queries/**` — plus any new or altered
+  column or index and any hot-table query
 - rule: hot-table indexes are CONCURRENT in their own migration; add-nullable → backfill →
   constrain are separate, resumable, idempotent phases; a migration that touches a seed-owned or
   app-visible table updates the seed/projector in the same change
@@ -476,8 +500,9 @@ Apply matched lenses in the SKILL.md priority order (kernel → scale → securi
 - detail: `references/backend.md` + `.agents/skills/db-migration-safety/` · Part A: CD-R50-015
 
 **LENS-IDEMPOTENCY-OUTBOX** · covers: 90
-- triggers: any write path, server action, mutation adapter, outbox producer/consumer,
-  `ON CONFLICT`, retry or lease code
+- triggers: `backend/internal/**/*outbox*`, `backend/internal/**/*idempot*`,
+  `apps/admin-web/**/actions.ts`, `apps/admin-web/**/*action*.ts`,
+  `backend/internal/**/*repository*.go` — plus any write path, `ON CONFLICT`, retry or lease
 - rule: a stable idempotency key backed by a MATCHING unique index; state + audit + outbox in
   one transaction; claiming or leasing work is not a delivery attempt; a same-key replay returns
   the original result and fires no side effect twice
@@ -487,8 +512,9 @@ Apply matched lenses in the SKILL.md priority order (kernel → scale → securi
   CD-IDEMPOTENCY-UNIQUE-INDEX, CD-PEND2-R50-022
 
 **LENS-OVERLAY-PAINT** · covers: 72 (`flicker-overlay-paint`)
-- triggers: `apps/admin-web/app/mesha-theme.css`, any scrim/veil/drawer/modal/sticky rule, any
-  overlay open/close controller, any `z-index`, `backdrop-filter`, `transform` or `position`
+- triggers: `apps/admin-web/app/mesha-theme.css`, `apps/admin-web/**/*overlay*`,
+  `apps/admin-web/**/*drawer*`, `apps/admin-web/**/*modal*`, `packages/ui/**` — plus any
+  scrim/veil/sticky rule and any `z-index`, `backdrop-filter`, `transform` or `position`
   change
 - rule: an ordinary open/close never navigates or requests an RSC payload; an opaque panel holds
   its own stacking context for the whole transition and sits clearly above its dimmer;
@@ -499,8 +525,9 @@ Apply matched lenses in the SKILL.md priority order (kernel → scale → securi
 - note: flicker evidence is a GIF or filmstrip. A still cannot show it (contract §7).
 
 **LENS-OFFLINE-SYNC** · covers: 70
-- triggers: `apps/goatos-android/core/**` Room/outbox/sync code, any device-side queue, replay,
-  or WorkManager job
+- triggers: `apps/goatos-android/core/core-data/**`, `apps/goatos-android/core/core-db/**`,
+  `apps/goatos-android/**/*[Oo]utbox*`, `apps/goatos-android/**/*[Ss]ync*`,
+  `apps/goatos-android/**/*Worker*.kt` — plus any device-side queue or replay
 - rule: Room is the single source of truth and reads come from it; the device outbox has a
   declared lifecycle with bounded retry; a restarted unit keeps every synced capture of its
   current round; nothing derives a terminal state the server never confirmed
@@ -510,8 +537,10 @@ Apply matched lenses in the SKILL.md priority order (kernel → scale → securi
   CD-R50-008-010
 
 **LENS-SCHEDULER-SWEEPER** · covers: 68
-- triggers: `backend/internal/obligation/**`, `backend/internal/vaccination*/**`, any sweeper,
-  planner, drive-batching or cron path
+- triggers: `backend/internal/obligation/**`, `backend/internal/vaccination/**`,
+  `backend/internal/vaccinationexecution/**`, `backend/internal/**/*sweeper*`,
+  `backend/internal/**/*scheduler*`, `backend/cmd/*worker*/**` — plus any cron or
+  drive-batching path
 - rule: keyset-chunked with forward progress, `FOR UPDATE SKIP LOCKED`, lease/cursor and
   idempotency — never a restart at offset zero; drive planning maximizes compatible distinct
   animals per park visit inside the authored window; exact-due-date micro-drives are a bug
@@ -520,8 +549,9 @@ Apply matched lenses in the SKILL.md priority order (kernel → scale → securi
 - detail: `references/kernel-and-scale.md` + `references/business-rules.md`
 
 **LENS-PUBLISH-VERSION-LOCK** · covers: 67
-- triggers: any config/protocol/SOP publish path, draft vs active version code,
-  `backend/internal/protocol/**`, `backend/internal/configuration/**`
+- triggers: `backend/internal/protocol/**`, `backend/internal/configuration/**`,
+  `backend/internal/**/*publish*`, `apps/admin-web/features/config/**`,
+  `apps/admin-web/features/sops/**` — plus any draft-versus-active version code
 - rule: a publish only touches the rules that actually changed — adding a 6th vaccine leaves the
   other 5 operationally untouched (same obligation id, due date, task/batch/proof); an authored
   value the engine cannot honor is REJECTED at publish, never silently ignored
@@ -530,16 +560,18 @@ Apply matched lenses in the SKILL.md priority order (kernel → scale → securi
   · Part A: CD-ADDITIVE-PUBLISH, CD-PEND3
 
 **LENS-SQL-BIND** · covers: 66
-- triggers: any dynamically built SQL, `backend/internal/**` repository code, a changed
-  parameter list
+- triggers: `backend/internal/**/postgres/**`, `backend/internal/**/*repository*.go`,
+  `backend/internal/platform/sqlbind/**`, `backend/internal/**/*query*.go` — plus any
+  dynamically built statement or changed parameter list
 - rule: every dynamic statement binds through the repo's bind contract; parameter counts are
   never hardcoded in a caller or a guard
 - guard: `postgres-bind-contract`, `commandboard-query-plan`
 - detail: `references/backend.md` + `docs/engineering/backend-go-postgres-quality.md`
 
 **LENS-SEED-FIXTURE** · covers: 60
-- triggers: `backend/cmd/seed-*/**`, committed fixtures/manifests, importers,
-  `tools/dev/seed-closeout.sh`
+- triggers: `backend/cmd/seed-*/**`, `tools/dev/seed-closeout.sh`, `fixtures/**`,
+  `backend/internal/**/*importer*`, `backend/testdata/**` — plus any committed fixture,
+  manifest or correction ledger
 - rule: no fake business truth — a missing source becomes a reviewed mapping, a labelled
   provisional fixture a preflight can reject, or a blocker; committed loaders fail loud on
   unknown keys; a documented DB comparison is executed, not described; source dates are history
@@ -549,8 +581,9 @@ Apply matched lenses in the SKILL.md priority order (kernel → scale → securi
 - detail: `goatos-build/SKILL.md` "Must" + `docs/runbooks/source-seed-data-validation.md`
 
 **LENS-CONTRACT-DRIFT** · covers: 56
-- triggers: `contracts/openapi/**`, event/JSON-schema payloads, shared DTOs, generated clients,
-  `apps/admin-web/lib/**` contract readers
+- triggers: `contracts/openapi/**`, `contracts/**`, `packages/api-client/**`,
+  `apps/goatos-android/core/core-network/**`, `apps/admin-web/lib/*contract*` — plus any
+  shared DTO or event payload; pull EVERY consumer lens via CRG `callers_of`
 - rule: backend owns nav, labels, columns, filters, chips, copy and disabled reasons; the client
   renders them; a contract change pulls EVERY consumer lens (CRG `callers_of`), because the
   diff-scoped guards see no consumer file
@@ -559,8 +592,9 @@ Apply matched lenses in the SKILL.md priority order (kernel → scale → securi
 - detail: `references/frontend.md` + `references/mobile.md` + SKILL.md "Consumer auto-pull"
 
 **LENS-FALSE-EMPTY** · covers: 43
-- triggers: any data route's empty/error/loading branch, any `catch` that returns `[]`, any
-  bootstrap/contract-unavailable path
+- triggers: `apps/admin-web/**/error.tsx`, `apps/admin-web/**/loading.tsx`,
+  `apps/admin-web/lib/bootstrap*`, `apps/admin-web/**/*empty*` — plus any `catch` that returns
+  `[]` and any data route's empty/error branch
 - rule: a swallowed backend failure rendered as an empty array or a collapsed page is a
   merge-blocking product-truth bug — it lies to an operator about herd state. Distinct loading,
   empty-success, permission, contract-unavailable and unexpected-error surfaces, plus an
@@ -570,8 +604,9 @@ Apply matched lenses in the SKILL.md priority order (kernel → scale → securi
 - detail: `references/frontend.md` "Error, Loading, and Accessibility"
 
 **LENS-AUTH-SESSION** · covers: 42
-- triggers: bearer/token handling, Firebase auth, session and logout paths,
-  `apps/goatos-android/core/**` auth, any lane or script holding a stored token
+- triggers: `apps/goatos-android/**/*[Aa]uth*`, `apps/goatos-android/**/*[Ss]ession*`,
+  `backend/internal/**/*auth*`, `apps/admin-web/lib/*token*`, `apps/admin-web/lib/*auth*` —
+  plus any lane or script holding a stored bearer
 - rule: a stored bearer expires silently and an unauthenticated endpoint still answers 200 —
   prove authentication by reading real authorization-gated data before trusting any result;
   logout clears device state; never commit a service-account JSON or a plaintext password
@@ -581,7 +616,9 @@ Apply matched lenses in the SKILL.md priority order (kernel → scale → securi
   `references/backend.md`
 
 **LENS-CHART** · covers: 40
-- triggers: any chart, legend, axis, series, tooltip, or KPI tile under `apps/admin-web/**`
+- triggers: `apps/admin-web/**/*chart*`, `apps/admin-web/**/*graph*`,
+  `apps/admin-web/**/*kpi*`, `apps/admin-web/**/*legend*` — plus any series membership,
+  axis, tooltip or KPI tile change
 - rule: membership is a contract decision, not a rendering one — a membership change must be
   proved by the new member being VISIBLE in frame at 1440 and 390, never by a page that merely
   rendered; labels must survive the phone width
@@ -590,7 +627,9 @@ Apply matched lenses in the SKILL.md priority order (kernel → scale → securi
   `references/frontend.md`
 
 **LENS-LATENCY** · covers: 31
-- triggers: any page data read, hot-path query, work-board or dashboard slice, new endpoint
+- triggers: `tools/perf/**`, `backend/internal/**/*query*.go`,
+  `apps/admin-web/**/page.tsx`, `backend/internal/commandboard/**` — plus any page data read,
+  hot-path query, dashboard slice or new endpoint
 - rule: operator-facing routes hold a sub-500ms hot-load budget (p90 <= 300ms, p95/p99 <=
   500ms); a skeleton, spinner, prefetch or client cache does not fix a seconds-class read;
   fixed-URL warm-cache timings are not serving-cost evidence; measure before AND after against
@@ -600,7 +639,9 @@ Apply matched lenses in the SKILL.md priority order (kernel → scale → securi
 - detail: SKILL.md "Work Board latency evidence" + `references/kernel-and-scale.md`
 
 **LENS-COPY** · covers: 31
-- triggers: any user-visible string, `backend/internal/adminui/**`, UI config entries
+- triggers: `backend/internal/adminui/**`, `apps/admin-web/**/*copy*`,
+  `backend/internal/**/*label*`, `apps/goatos-android/**/res/values/**` — plus any
+  user-visible string, finding sentence or alert line
 - rule: operator-facing copy is plain English and backend-owned; findings and alerts name the
   page, the device and what a person sees — never a selector, property name, element tag, field
   path, status code, SQL or check code (contract §7)
@@ -608,7 +649,9 @@ Apply matched lenses in the SKILL.md priority order (kernel → scale → securi
 - detail: `references/frontend.md` "User-facing copy firewall"
 
 **LENS-PAGINATION** · covers: 12
-- triggers: any cursor, keyset, page-size or "load more" path
+- triggers: `backend/internal/**/*paginat*`, `backend/internal/**/*cursor*`,
+  `apps/goatos-android/**/*Paging*`, `apps/admin-web/**/*cursor*` — plus any keyset,
+  page-size or "load more" path
 - rule: the cursor is monotonic and the next page cannot regress; page size never silently
   changes the business completeness of a read; a paginated reminder loop reaches every candidate
   or is explicitly marked partial
@@ -616,8 +659,9 @@ Apply matched lenses in the SKILL.md priority order (kernel → scale → securi
 - detail: `references/aggregates-and-projections.md` + `references/mobile.md`
 
 **LENS-CAPACITY** · covers: 9
-- triggers: operator capacity, `workforce_positions.vaccination_daily_animal_cap`, shift config,
-  assignment config
+- triggers: `backend/internal/workforce/**`, `backend/internal/**/*capacity*`,
+  `backend/internal/**/*operator*` — plus `workforce_positions.vaccination_daily_animal_cap`,
+  shift config and assignment config
 - rule: capacity is HRMS-owned per position; the tenant default is a fallback, never a coercion;
   clearing a cap to null restores the default and must not silently keep the old custom cap; the
   cap fails closed
@@ -625,7 +669,9 @@ Apply matched lenses in the SKILL.md priority order (kernel → scale → securi
 - detail: `goatos-build/SKILL.md` "Must" + `references/business-rules.md`
 
 **LENS-BUSINESS-DATE** · covers: 8
-- triggers: any date-only business value — due, missed, recovery window, eligibility, overdue
+- triggers: `backend/internal/platform/biztime/**`, `backend/internal/**/*date*.go`,
+  `tools/agent-hooks/check-india-business-date.mjs` — plus any date-only business value:
+  due, missed, recovery window, eligibility, overdue
 - rule: India/local operational timezone, never UTC; a pinned clock, never `now()` at the call
   site
 - guard: `india-business-date`

@@ -67,14 +67,6 @@ fi
 
 mkdir -p "$OUT_ROOT"
 
-# Reclaim what previous runs left before starting a new one, so the automation can never
-# fill its own disk. Non-fatal: a janitor problem must not stop a sweep, but it is reported.
-if [[ -x "${SCRIPT_DIR}/janitor.sh" ]]; then
-  GOATOS_JANITOR_RENDER_ROOT="$(dirname "$OUT_ROOT")" \
-  GOATOS_JANITOR_PSQL="${GOATOS_JANITOR_PSQL:-${HOME}/.local/bin/psql}" \
-    bash "${SCRIPT_DIR}/janitor.sh" || echo "dashboard-automation-oci: janitor reported a problem; continuing" >&2
-fi
-
 exec node tools/dashboard-automation/run.mjs \
   --mode "$MODE" \
   --out-dir "${OUT_ROOT}/$(date -u +%Y%m%dT%H%M%SZ)-${current_sha:0:12}-${MODE}"
