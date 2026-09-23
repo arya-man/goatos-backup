@@ -124,6 +124,29 @@ fun DiagnosisProposalScreen(
                         onToggle = { onEvent(DiagnosisProposalEvent.ToggleProblem(problem.id)) },
                     )
                 }
+            } else if (state.notAccepted && !state.loading) {
+                // A refused check must never read as a clean one. Without this the screen said
+                // "Nothing found" over a run the engine threw away, and the operator walked off
+                // believing the animal had been looked at.
+                item {
+                    MeshaCard {
+                        Text("This check was not accepted", style = MeshaType.cardTitle)
+                        Text(
+                            "Something was missing, so the animal has not been assessed. Check it again.",
+                            style = MeshaType.body,
+                            color = MeshaColors.Faint,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                        if (state.rejectReason.isNotBlank()) {
+                            Text(
+                                state.rejectReason,
+                                style = MeshaType.body,
+                                color = MeshaColors.Faint,
+                                modifier = Modifier.padding(top = 6.dp),
+                            )
+                        }
+                    }
+                }
             } else if (!state.loading) {
                 item {
                     MeshaCard {

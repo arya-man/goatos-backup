@@ -36,6 +36,18 @@ data class DiagnosisProposalState(
     val covered: List<String> = emptyList(),
     val housing: HousingDirective = HousingDirective(),
     val notes: List<String> = emptyList(),
+    /**
+     * Whether the engine ACCEPTED this check at all.
+     *
+     * A refused run carries no problems, so without this it rendered as "Nothing found" -- a
+     * clean bill of health for a check the server threw away. An absent answer reads as normal,
+     * which is exactly the way a missing number does the most damage: the operator walks off
+     * believing the animal was looked at. `notAccepted` says so, and `rejectReason` is the
+     * server's own words about which questions are missing.
+     */
+    val accepted: Boolean = true,
+    val rejectReason: String = "",
+
     /** Whether THIS user may decide. Backend-owned; never inferred from a role here. */
     val mayConfirm: Boolean = false,
     /** Which problems the Director has ticked. Local until they send the decision. */
@@ -44,6 +56,9 @@ data class DiagnosisProposalState(
     val message: String? = null,
 ) {
     val decided: Boolean get() = status.isNotBlank() && status != "proposed"
+
+    /** A check the engine would not read. It is never "nothing found". */
+    val notAccepted: Boolean get() = !accepted
 
     /**
      * Whether the decision can be sent.
