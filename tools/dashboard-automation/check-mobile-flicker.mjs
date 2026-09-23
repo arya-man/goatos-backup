@@ -29,6 +29,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { checkCompositingHazards, compositingSummary } from "../../apps/admin-web/scripts/lib/compositing-checks.mjs";
 import { detectFlicker } from "../../apps/admin-web/scripts/lib/flicker-detector.mjs";
+import { assertSweepPermitted } from "./sweep-safety.mjs";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 export const RECEIPT_RELATIVE = "mobile-flicker/mobile-flicker-receipt.json";
@@ -64,6 +65,23 @@ export const FILMED_ROUTES = DEEP_FILM_ROUTES;
  * Offline by design: this reads a JSON blob someone hands the run, it never looks
  * anything up. A missing id is a named gap in the receipt, not a live query.
  */
+/**
+ * How many headless browsers are already alive.
+ *
+ * §8: `pgrep -f` matches your own command string, so this looks for the BROWSER
+ * binaries by name — never for anything containing this script's own path.
+ */
+export function browsersRunning() {
+  const probe = spawnSync("pgrep", ["-c", "-f", "headless_shell|chrome-linux/chrome"], { encoding: "utf8" });
+  const n = Number(String(probe.stdout ?? "").trim());
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** Refuse before a browser is opened, never after. */
+function permitSweep(pageLoads) {
+  return assertSweepPermitted({ env: process.env, browsersRunning: browsersRunning(), pageLoads });
+}
+
 export function fixturesFromEnv(env = process.env) {
   const raw = env.GOATOS_SMOKE_FIXTURES;
   if (!raw) return {};
@@ -566,6 +584,7 @@ function selfTestDone() {
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   const args = parseArgs(process.argv.slice(2));
+  const { resolveRoutes } = await import("../../apps/admin-web/scripts/lib/smoke-route-catalogue.mjs");
   if (args.selfTest) {
     selfTest();
     await selfTestWide();
@@ -594,8 +613,10 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       if (one.evidence.filmstrip) console.log(`  filmstrip: ${one.evidence.filmstrip}`);
     } else if (args.sweep && !args.staticOnly) {
       headless = true;
+      const table = resolveRoutes(repo, { fixtures: fixturesFromEnv() });
+      const { baseUrl } = permitSweep((table.resolved.length + table.assumed.length) * 2);
       temporal = await runSweep({
-        baseUrl: process.env.GOATOS_ADMIN_WEB_BASE_URL ?? "https://dashboard.mesha.sg",
+        baseUrl,
         bearerToken: process.env.GOATOS_BEARER_TOKEN ?? "",
         outDir,
         limit: args.limit,
@@ -609,11 +630,13 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       for (const [why, n] of [...byReason].sort((a, b) => b[1] - a[1])) console.log(`  not judged x${n}: ${why}`);
     } else if (args.live && !args.staticOnly) {
       headless = true;
+      const filming = await liveRoutes({ focus: args.focus, fixtures: fixturesFromEnv() });
+      const { baseUrl } = permitSweep(filming.length * 2);
       temporal = await runLive({
-        baseUrl: process.env.GOATOS_ADMIN_WEB_BASE_URL ?? "https://dashboard.mesha.sg",
+        baseUrl,
         bearerToken: process.env.GOATOS_BEARER_TOKEN ?? "",
         outDir,
-        routes: await liveRoutes({ focus: args.focus, fixtures: fixturesFromEnv() }),
+        routes: filming,
       });
       for (const run of temporal.runs) {
         if (run.error) { console.log(`${run.viewport}:${run.route}: could not be filmed — ${run.error}`); continue; }

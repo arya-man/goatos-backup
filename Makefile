@@ -110,6 +110,7 @@ dashboard-automation-self-test:
 	node tools/dashboard-automation/run-module-journeys.mjs --self-test
 	node tools/dashboard-automation/sync-coverage.mjs --self-test
 	node tools/dashboard-automation/check-mobile-flicker.mjs --self-test
+	node --test tools/dashboard-automation/sweep-safety.test.mjs
 	node --test tools/dashboard-automation/sync-coverage.test.mjs
 	node --test tools/dashboard-automation/lane-coverage.test.mjs
 	node --test apps/admin-web/scripts/lib/compositing-checks.test.mjs apps/admin-web/scripts/lib/flicker-detector.test.mjs apps/admin-web/scripts/lib/overlay-paint-checks.test.mjs apps/admin-web/scripts/lib/smoke-route-catalogue.test.mjs apps/admin-web/scripts/lib/page-substance.test.mjs

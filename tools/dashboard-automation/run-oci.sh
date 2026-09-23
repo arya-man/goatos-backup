@@ -48,6 +48,11 @@ fi
 
 # Cap how much this sweep may ask of production at once, well under the API's
 # 20-slot ceiling so the dashboard always has room to answer a real person.
+# The flicker sweep refuses to open a browser unless it can see this, so it can
+# never run outside the flock taken above. It is exported HERE, after the lock
+# and after the stray-browser refusal, so the two can never come apart: anything
+# that skips this file skips the permission with it.
+export GOATOS_DASHBOARD_LOCK_HELD=1
 export GOATOS_SMOKE_MAX_CONCURRENCY="${GOATOS_SMOKE_MAX_CONCURRENCY:-4}"
 export GOATOS_SMOKE_REQUEST_DELAY_MS="${GOATOS_SMOKE_REQUEST_DELAY_MS:-150}"
 # Any SQL this sweep runs is against the PRIMARY, not a standby: pg_is_in_recovery()
