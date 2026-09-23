@@ -68,6 +68,37 @@ func assignment(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tenant, b
 	}
 }
 
+func assignmentID(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tenant, batchID, operatorID, parkID, shedID, physicalShed, partition, plannedDate string, animals int) string {
+	t.Helper()
+	var id string
+	if err := pool.QueryRow(ctx,
+		`INSERT INTO vaccination_drive_assignments (assignment_id, tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count, created_at, updated_at)
+		 VALUES (gen_random_uuid(), $1, $2, $3::date, $4, $5, $6, $7, $8, $9, now(), now())
+		 RETURNING assignment_id::text`,
+		tenant, batchID, plannedDate, operatorID, parkID, shedID, physicalShed, partition, animals).Scan(&id); err != nil {
+		t.Fatalf("insert drive assignment: %v", err)
+	}
+	return id
+}
+
+func assignmentMemberObligation(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tenant, versionID, batchID, shedID, assignmentID, plannedDate, status, suffix string) {
+	t.Helper()
+	var obligationID, goatID string
+	if err := pool.QueryRow(ctx,
+		`INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, batch_id, target_id, target_type, scope_type, scope_id, rule_id, status, due_at, idempotency_key)
+		 VALUES (gen_random_uuid(), $1, $2, $3, gen_random_uuid(), 'goat', 'shed', $4, gen_random_uuid(), $5, $6::timestamptz, $7)
+		 RETURNING obligation_id::text, target_id::text`,
+		tenant, versionID, batchID, shedID, status, plannedDate, "operator-status-"+suffix).Scan(&obligationID, &goatID); err != nil {
+		t.Fatalf("insert obligation %s: %v", suffix, err)
+	}
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO vaccination_drive_assignment_members (tenant_id, assignment_id, obligation_id, goat_id)
+		 VALUES ($1, $2, $3, $4)`,
+		tenant, assignmentID, obligationID, goatID); err != nil {
+		t.Fatalf("insert assignment member %s: %v", suffix, err)
+	}
+}
+
 // TestOperatorStatusGrainAndCapacity proves: (1) an operator assigned across TWO
 // sheds in ONE day sums assigned_animals but does NOT multiply the per-day
 // capacity; (2) an overdue (past planned_date, still-open batch) is counted as
@@ -171,6 +202,43 @@ func TestOperatorStatusGrainAndCapacity(t *testing.T) {
 	}
 	if action != "completed" {
 		t.Errorf("op2 next_action=%q want completed", action)
+	}
+}
+
+func TestOperatorStatusTerminalMemberObligationsExcludedFromDue(t *testing.T) {
+	ctx := context.Background()
+	pool, tenant := newDB(t, ctx)
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO vaccination_capacity_config (tenant_id, max_per_day, capacity_scope, max_buffer_days, overflow_policy)
+		 VALUES ($1, 10, 'tenant', 7, 'split_within_safe_window_last_safe_may_exceed_cap')`, tenant); err != nil {
+		t.Fatalf("insert capacity config: %v", err)
+	}
+	pk := park(t, ctx, pool, tenant, "Castro Terminal")
+	shedID := shed(t, ctx, pool, tenant, pk, "Terminal Shed", nil)
+	ver := protocolVersion(t, ctx, pool, tenant)
+	op := operatorMember(t, ctx, pool, tenant, "Kavya")
+
+	past := "2020-01-01"
+	batchID := batch(t, ctx, pool, tenant, ver, shedID, past, "planned")
+	assignmentRowID := assignmentID(t, ctx, pool, tenant, batchID, op, pk, shedID, "Terminal Shed", "whole", past, 3)
+	assignmentMemberObligation(t, ctx, pool, tenant, ver, batchID, shedID, assignmentRowID, past, "due", "open")
+	assignmentMemberObligation(t, ctx, pool, tenant, ver, batchID, shedID, assignmentRowID, past, "waived", "waived")
+	assignmentMemberObligation(t, ctx, pool, tenant, ver, batchID, shedID, assignmentRowID, past, "superseded", "superseded")
+
+	var assigned, due, done, overdue, dayAssigned int64
+	var action string
+	if err := pool.QueryRow(ctx,
+		`SELECT assigned_animals, due, done, overdue, operator_day_assigned, next_action
+		 FROM ceo_ai.vaccination_operator_status
+		 WHERE tenant_id=$1 AND operator_id=$2 AND shed_id=$3`,
+		tenant, op, shedID).Scan(&assigned, &due, &done, &overdue, &dayAssigned, &action); err != nil {
+		t.Fatalf("query operator status: %v", err)
+	}
+	if assigned != 1 || due != 1 || done != 0 || overdue != 1 || dayAssigned != 1 {
+		t.Fatalf("assigned=%d due=%d done=%d overdue=%d day=%d, want 1/1/0/1/1", assigned, due, done, overdue, dayAssigned)
+	}
+	if action != "catch_up_overdue" {
+		t.Fatalf("next_action=%q want catch_up_overdue", action)
 	}
 }
 

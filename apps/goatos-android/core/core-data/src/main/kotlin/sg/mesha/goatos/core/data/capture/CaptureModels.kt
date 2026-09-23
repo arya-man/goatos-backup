@@ -377,6 +377,10 @@ data class ProofCaptureRow(
     val caption: String?,
     /** Human-readable RFID/tag for individual-animal proof matching and overlay display. */
     val rfidTag: String? = null,
+    /** Vaccination obligation cycle this proof was captured for. */
+    val obligationId: String? = null,
+    val obligationRowVersion: Int = 0,
+    val obligationCyclesJson: String? = null,
     val capturedAtMs: Long,
     /** Freshness/anti-fraud metadata — see `ProofCaptureEntity`'s kdoc ("Camera-only capture"). */
     val capturedStartMs: Long,

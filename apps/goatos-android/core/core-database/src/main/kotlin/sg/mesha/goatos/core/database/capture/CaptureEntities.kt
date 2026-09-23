@@ -688,14 +688,14 @@ interface ProofCaptureDao {
     @Query(
         "SELECT COUNT(*) FROM proof_capture WHERE taskId = :taskId AND partitionKey = :partitionKey " +
             "AND subjectId = :subjectId " +
-            "AND syncStatus != 'FAILED'",
+            "AND syncStatus != 'FAILED' AND serverProofId IS NULL",
     )
     suspend fun activeCountForSubject(taskId: String, partitionKey: String, subjectId: String): Int
 
     @Query(
         "SELECT COUNT(*) FROM proof_capture WHERE taskId = :taskId AND partitionKey = :partitionKey " +
             "AND proofSubject = :proofSubject " +
-            "AND subjectId IS NULL AND syncStatus != 'FAILED'",
+            "AND subjectId IS NULL AND syncStatus != 'FAILED' AND serverProofId IS NULL",
     )
     suspend fun activeCountForSubjectType(taskId: String, partitionKey: String, proofSubject: String): Int
 

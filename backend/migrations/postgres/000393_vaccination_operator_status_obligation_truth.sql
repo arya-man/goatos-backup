@@ -27,7 +27,7 @@ WITH member_animal AS (
       ON oi.tenant_id = m.tenant_id
      AND oi.obligation_id = m.obligation_id
      AND oi.target_type = 'goat'
-     AND oi.status <> 'canceled'
+     AND oi.status NOT IN ('canceled', 'waived', 'superseded')
     WHERE a.operator_id IS NOT NULL
     GROUP BY a.tenant_id, a.operator_id, a.park_id, a.shed_id,
              NULLIF(a.partition_label, 'whole'), a.planned_date, oi.target_id
