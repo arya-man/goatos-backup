@@ -871,7 +871,7 @@ export async function sweepViewport({ baseUrl, bearerToken, outDir, routes, view
         await page.waitForTimeout(2_000);
         const landedOn = new URL(page.url()).pathname;
         row.landedOn = landedOn;
-        const snapshot = await page.evaluate(collectSubstance).catch(() => ({}));
+        const snapshot = await page.evaluate(collectSubstance).catch(() => null);
         const verdict = judgeLandedPage({ landedOn, snapshot });
         row.substance = verdict.substance;
         if (!verdict.film) {
