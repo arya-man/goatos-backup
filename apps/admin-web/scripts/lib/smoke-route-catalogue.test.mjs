@@ -158,3 +158,11 @@ test("a hole nobody taught the resolver about is named, not silently dropped", (
   assert.equal(dates.from, "2026-08-11", "the 43-day window the smoke script computes");
   assert.ok(Object.keys(table).length === 13, `the route table has 13 kinds of hole, the resolver knows ${Object.keys(table).length}`);
 });
+
+test("a route table that is read but yields nothing is a failure, not an empty sweep", () => {
+  // A file that opens and says nothing would make every downstream fraction
+  // read "0 of 0 pages judged" — a clean-looking receipt counted from nothing.
+  // The missing-file case was already covered; this is the present-but-silent one.
+  assert.throws(() => smokeRoutes(repo, "apps/admin-web/scripts/lib/pen-label-vocabulary.json"),
+    /no route could be found in it/);
+});

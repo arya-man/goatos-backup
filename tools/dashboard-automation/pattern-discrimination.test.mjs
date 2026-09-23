@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { detectorProven, discrimination, scanDiscrimination } from "./pattern-discrimination.mjs";
+import { detectorProven, discrimination, discriminationCensus, scanDiscrimination } from "./pattern-discrimination.mjs";
 import { smokeReason } from "./check-coverage-since-aug1.mjs";
 
 test("both directions are read out of the real DOM tests", () => {
@@ -61,4 +61,27 @@ test("the detectors that survive are the ones with both halves recorded", () => 
   assert.ok(proven.includes("J-raw-text"));
   assert.ok(!proven.includes("B-container-overflow"), "never shown firing");
   assert.ok(!proven.includes("D-page-overflow"), "never shown firing");
+});
+
+test("the detector census says what it read, not just what it found", () => {
+  // B found this class in its own scanner: a file listed but never read
+  // contributed zero silently. An empty map that means "no evidence file" and
+  // an empty map that means "a file with no detectors in it" were the same
+  // value, and the headline counted from it either way.
+  const real = discriminationCensus().census;
+  assert.ok(real.characters > 1000, `the evidence file must actually be read, got ${real.characters} characters`);
+  assert.ok(real.detectors > 0, "and name detectors");
+  assert.equal(real.error, "");
+
+  const absent = discriminationCensus("/nonexistent/evidence.mjs").census;
+  assert.equal(absent.characters, 0);
+  assert.equal(absent.detectors, 0);
+  assert.match(absent.error, /could not be read/, "a silent zero and a real zero must not look the same");
+});
+
+test("an evidence file that is read but names nothing is reported, not counted", () => {
+  const { census } = discriminationCensus(new URL("./flicker-calibration.json", import.meta.url).pathname);
+  assert.ok(census.characters > 0, "it was read");
+  assert.equal(census.detectors, 0);
+  assert.match(census.error, /names no detector at all/);
 });

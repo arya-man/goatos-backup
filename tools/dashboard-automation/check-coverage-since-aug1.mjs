@@ -45,7 +45,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { discoverSmokeRoutes } from "./discover-admin-routes.mjs";
-import { detectorProven } from "./pattern-discrimination.mjs";
+import { detectorProven, discriminationCensus } from "./pattern-discrimination.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 export const manifestPath = join(repoRoot, "tools/dashboard-automation/coverage-since-aug1.json");
@@ -410,6 +410,16 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     process.exit(2);
   }
   const { findings, summary } = await runCoverageGuard({ commitsDir });
+  // Say what the census was counted FROM, before printing what it counted.
+  // A detector evidence file that failed to read would leave every pattern
+  // entry unproven and the headline would look like a deliberate result.
+  const census = discriminationCensus().census;
+  if (census.error) {
+    console.log(`coverage-since-aug1: NOT CHECKED - ${census.error}`);
+    process.exitCode = 1;
+  } else {
+    console.log(`coverage-since-aug1: read ${census.characters} characters of detector evidence naming ${census.detectors} detector(s)`);
+  }
   console.log(summary);
   if (findings.length) {
     console.error(findings.map((finding) => `FAIL ${finding}`).join("\n"));
