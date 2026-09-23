@@ -35,7 +35,7 @@ import {
   recordSpend,
   runnableJourneys
 } from "./run-android-journeys.mjs";
-import { engineeringLeaks, renderReplies, renderSection, summaryText, toFindingsFromRows } from "./lib/finding-kinds/android-journeys.mjs";
+import { NOT_CHECKED, engineeringLeaks, headline, renderReplies, renderSection, summaryText, toFindings, toFindingsFromRows } from "./lib/finding-kinds/android-journeys.mjs";
 import { failureSentenceFindings } from "./sync-coverage.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -423,6 +423,91 @@ test("a screenshot that is not a file on this disk is never offered to Slack", (
   assert.equal(renderReplies([{ ...base, screenshot: "https://example/shot.png" }]).length, 0);
   assert.equal(renderReplies([{ ...base, screenshot: "/no/such/file.png" }]).length, 0);
   assert.equal(renderReplies([{ ...base, screenshot: null }]).length, 0);
+});
+
+// ---------------------------------------------------------------------------
+// 4b. A run that checked nothing must SAY so
+// ---------------------------------------------------------------------------
+// Silence in this channel reads as "the phone is fine". A run where every journey
+// skipped proves nothing, and saying nothing about it lets the reader draw a
+// conclusion the run never earned — the same defect as a false green, inverted.
+/** Writes an android receipt where the notifier looks for it, and reads the findings back. */
+function findingsForReceipt(receipt) {
+  const dir = mkdtempSync(path.join(tmpdir(), "lane5-notchecked-"));
+  try {
+    mkdirSync(path.join(dir, "android-journeys"), { recursive: true });
+    writeFileSync(path.join(dir, "android-journeys", "android-journeys-receipt.json"), JSON.stringify(receipt));
+    // toFindings resolves the android receipt relative to the OUTER receipt's directory.
+    return toFindings({ status: "fail" }, dir);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+const SKIPPED_RUN = {
+  status: "not-run",
+  device: "a local Android emulator",
+  journeys: [
+    { name: "login-and-session", screen: "Auth / shell", outcome: "skipped", humanFailure: null },
+    { name: "crash-free-on-the-covered-screens", screen: "(every screen in this lane)", outcome: "skipped", humanFailure: null }
+  ]
+};
+
+test("a run where every journey skipped says the phone was not checked, exactly once", () => {
+  const findings = findingsForReceipt(SKIPPED_RUN);
+  assert.equal(findings.length, 1, "one notice, not one per skipped journey");
+  assert.equal(findings[0].kind, NOT_CHECKED);
+  assert.equal(findings.filter((f) => f.kind !== NOT_CHECKED).length, 0, "a skip is never a failure finding");
+});
+
+test("a run blocked before any phone started also says the phone was not checked", () => {
+  // No journeys at all: the submission never reached a device.
+  const findings = findingsForReceipt({ status: "not-run", device: "a phone", journeys: [] });
+  assert.equal(findings.length, 1);
+  assert.equal(findings[0].kind, NOT_CHECKED);
+});
+
+test("one real failure is still reported, and the not-checked notice stays out of its way", () => {
+  const findings = findingsForReceipt({
+    status: "fail",
+    device: "a local Android emulator",
+    journeys: [
+      { name: "login-and-session", screen: "Auth / shell", outcome: "skipped", humanFailure: null },
+      {
+        name: "upload-killed-mid-flight-resumes",
+        screen: "Proof upload / sync status",
+        outcome: "fail",
+        humanFailure: "The photo never finished uploading and the app showed no error."
+      }
+    ]
+  });
+  assert.equal(findings.length, 1, "the failure, and nothing else");
+  assert.equal(findings[0].kind, "failure");
+  assert.equal(findings.some((f) => f.kind === NOT_CHECKED), false,
+    "a run that found a real problem must report the problem, not a notice about cover");
+});
+
+test("a run that checked the app and found nothing wrong stays silent", () => {
+  const findings = findingsForReceipt({
+    status: "pass",
+    device: "a phone",
+    journeys: [{ name: "login-and-session", screen: "Auth / shell", outcome: "pass", humanFailure: null }]
+  });
+  assert.deepEqual(findings, [], "a clean run has nothing to say and must not raise a not-checked notice");
+});
+
+test("the not-checked notice reads as a gap in cover, never as a broken app", () => {
+  const findings = findingsForReceipt(SKIPPED_RUN);
+  const rendered = JSON.stringify([renderSection(findings), summaryText(findings)]);
+  assert.deepEqual(engineeringLeaks(rendered), [], `the notice leaked: ${rendered.slice(0, 300)}`);
+  assert.ok(/not checked/i.test(rendered), "it must say plainly that the app was not checked");
+  // Visibly distinct from a real phone finding, which leads with "On the phone".
+  assert.ok(!rendered.includes("*On the phone*"), "the notice must not be dressed as a list of things that are wrong");
+  assert.ok(/working or that it is broken|not a fault/i.test(rendered),
+    "it must say outright that this is not a verdict on the app");
+  // Nothing was checked, so there is no evidence to attach.
+  assert.equal(renderReplies(findings).length, 0, "a notice with no screenshot must offer Slack no screenshot");
+  assert.equal(headline(findings), null, "a run that checked nothing must not own the headline");
 });
 
 // ---------------------------------------------------------------------------

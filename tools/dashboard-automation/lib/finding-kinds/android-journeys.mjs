@@ -68,6 +68,40 @@ export function issueRules() {
   return [];
 }
 
+/**
+ * The one finding that is NOT about the app.
+ *
+ * A run where nothing was checked used to say nothing at all, and silence in this
+ * channel reads as "the phone is fine". That is the same defect as a false green,
+ * just inverted: the reader draws a conclusion the run never earned. So a run that
+ * checked nothing says so, in the one sentence a farm manager needs.
+ *
+ * It is deliberately NOT phrased as a fault. Blaming the app for a server that was
+ * never started is the mistake this lane has already made once, when a submission
+ * that never reached a phone was reported as two failed journeys.
+ */
+export const NOT_CHECKED = "not-checked";
+
+/** Only a pass or a fail is a verdict. A skip is the absence of one. */
+function isAVerdict(journey) {
+  return journey?.outcome === "pass" || journey?.outcome === "fail";
+}
+
+function notCheckedFinding(parsed) {
+  return {
+    kind: NOT_CHECKED,
+    name: "android-not-checked",
+    screen: "The phone app",
+    what: "The phone app was not checked today. Every part of it this run looks at needs a server it can " +
+      "reach, and there was none, so nothing here says the app is working or that it is broken.",
+    seen: "",
+    // Nothing was checked, so there is no screen to show. Attaching the one the app
+    // happened to be sitting on would dress a non-run up as evidence of a defect.
+    screenshot: null,
+    device: plainEnglish(parsed?.device, "an Android phone")
+  };
+}
+
 export function toFindings(receipt, receiptDir) {
   const file = path.join(receiptDir ?? ".", RECEIPT);
   if (!existsSync(file)) return [];
@@ -77,9 +111,11 @@ export function toFindings(receipt, receiptDir) {
   } catch {
     return [];
   }
-  return (parsed.journeys ?? [])
+  const journeys = parsed.journeys ?? [];
+  const failures = journeys
     .filter((journey) => journey.outcome === "fail")
     .map((journey) => ({
+      kind: "failure",
       name: journey.name,
       screen: screenName(journey.screen),
       what: plainEnglish(journey.humanFailure),
@@ -87,46 +123,93 @@ export function toFindings(receipt, receiptDir) {
       screenshot: journey.screenshot && existsSync(journey.screenshot) ? journey.screenshot : null,
       device: plainEnglish(parsed.device, "an Android phone")
     }));
+  // A real failure is always the thing to report. The not-checked notice is for a run
+  // that produced NO verdict at all — every journey skipped, or blocked before a phone
+  // was ever started. A run where journeys passed and none failed checked the app and
+  // found nothing wrong, which is this channel's definition of nothing to say.
+  if (failures.length) return failures;
+  if (journeys.some(isAVerdict)) return [];
+  return [notCheckedFinding(parsed)];
 }
 
 // ---------------------------------------------------------------------------
 // Rendering
 // ---------------------------------------------------------------------------
+const isNotChecked = (finding) => finding?.kind === NOT_CHECKED;
+const realFindings = (findings) => findings.filter((f) => !isNotChecked(f));
+const notCheckedNotices = (findings) => findings.filter(isNotChecked);
+
 export function headline(findings) {
-  const n = findings.length;
+  const real = realFindings(findings);
+  // A run that checked nothing must never own the alert's headline. Returning null
+  // leaves it to a lane that actually found something; the notice still shows up in
+  // its own block and in the message's summary line, so it is read, not shouted.
+  if (!real.length) return null;
+  const n = real.length;
   return `📱 ${n} thing${n === 1 ? "" : "s"} a person on the phone would hit`;
 }
 
 export function summaryText(findings) {
   if (!findings.length) return "";
-  return `On the phone: ${findings.map((f) => `${f.screen} — ${f.what}`).join(" · ")}`;
+  const parts = realFindings(findings).map((f) => `${f.screen} — ${f.what}`);
+  const text = parts.length ? `On the phone: ${parts.join(" · ")}` : "";
+  const notice = notCheckedNotices(findings).length ? "The phone app was not checked today — no server it could reach." : "";
+  return [text, notice].filter(Boolean).join("\n");
 }
 
 export function renderSection(findings) {
   if (!findings.length) return [];
-  const lines = findings.slice(0, 8).map((f) => `• *${f.screen}* — ${f.what}`);
-  const more = findings.length > lines.length ? `\n• +${findings.length - lines.length} more on the phone — every one in this thread` : "";
-  return [
-    {
-      type: "section",
-      text: {
-        type: "mrkdwn",
-        text: `*On the phone*\n${lines.join("\n")}${more}`
+  const blocks = [];
+  const real = realFindings(findings);
+  if (real.length) {
+    const lines = real.slice(0, 8).map((f) => `• *${f.screen}* — ${f.what}`);
+    const more = real.length > lines.length ? `\n• +${real.length - lines.length} more on the phone — every one in this thread` : "";
+    blocks.push(
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: `*On the phone*\n${lines.join("\n")}${more}`
+        }
+      },
+      {
+        type: "context",
+        elements: [{
+          type: "mrkdwn",
+          text: `Checked on ${real[0].device}. Screenshot of each one below.`
+        }]
       }
-    },
-    {
-      type: "context",
-      elements: [{
-        type: "mrkdwn",
-        text: `Checked on ${findings[0].device}. Screenshot of each one below.`
-      }]
-    }
-  ];
+    );
+  }
+  // Deliberately a different heading, a different lead word and no "on the phone"
+  // framing, so nobody skims this and files it next to a thing that is broken.
+  for (const notice of notCheckedNotices(findings)) {
+    blocks.push(
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: `*Not checked: the phone app*\n${notice.what}`
+        }
+      },
+      {
+        type: "context",
+        elements: [{
+          type: "mrkdwn",
+          text: "No screenshot, because nothing was checked — this is a gap in today's cover, not a fault in the app."
+        }]
+      }
+    );
+  }
+  return blocks;
 }
 
 /** One threaded reply per finding, carrying that screen's Test Lab screenshot. */
 export function renderReplies(findings) {
   return findings
+    // A not-checked notice carries no screenshot by construction. Filtered here too,
+    // so it can never be handed a screen it did not earn by some later edit.
+    .filter((f) => !isNotChecked(f))
     // Evidence is pulled out of Test Lab into a GCS bucket, so a screenshot path can
     // easily be a `gs://…` string rather than a file. Handing one of those to Slack
     // makes readFileSync throw INSIDE postSlack's catch, where path.basename then
@@ -214,6 +297,7 @@ export function selfTest() {
 /** Test seam: the same mapping toFindings does, without needing a file on disk. */
 export function toFindingsFromRows(rows, device = "an Android phone") {
   return rows.filter((r) => r.outcome === "fail").map((r) => ({
+    kind: "failure",
     name: r.name,
     screen: screenName(r.screen),
     what: plainEnglish(r.humanFailure),
