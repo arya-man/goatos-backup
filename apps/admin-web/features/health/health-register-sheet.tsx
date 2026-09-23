@@ -162,7 +162,9 @@ export function RegisterSheetHeaderControls({ pageContract }: { pageContract: Ad
       <a className="btn ghost" href={registerSheetHref(TEMPLATE_CLASS_PLACEHOLDER, "template", "xlsx")}>
         <Download className="ic" aria-hidden="true" /> {copy(pageContract, "action.download_template")}
       </a>
-      <InfoTooltip label={copy(pageContract, "action.upload_sheet")}>
+      {/* Opens LEFTWARD: this "i" sits at the right end of the card header, and `.card` clips
+          its overflow, so a rightward panel was cut off mid-sentence. */}
+      <InfoTooltip label={copy(pageContract, "action.upload_sheet")} align="end">
         {optionalCopy(pageContract, "note.sheet_writes_a_draft") ?? ""}
       </InfoTooltip>
     </span>

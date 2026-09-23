@@ -20,13 +20,29 @@ export function Tag({ tone, children, title }: { tone: Tone; children: ReactNode
 // Info popover for a column header / label. CSS-only (see `.tipwrap`/`.tip` in mesha-theme.css): the
 // tooltip body is always rendered in the DOM and revealed on hover/focus, so it needs no client JS and
 // stays testable. `label` is the accessible name of the "i" trigger; `children` is the popover body.
-export function InfoTooltip({ label, children }: { label: string; children: ReactNode }) {
+/**
+ * The console's "i": a hover/focus note beside a title.
+ *
+ * ALIGN IS NOT DECORATION. The panel opens from the badge and is up to 300px wide, while `.card`
+ * clips its overflow -- so an "i" sitting at the RIGHT end of a card header opened rightward into
+ * the card's edge and was cut off mid-sentence. `align="end"` opens it leftward instead, which is
+ * the same thing the table-header rule has always done for a tooltip in the last column.
+ */
+export function InfoTooltip({
+  label,
+  children,
+  align = "start",
+}: {
+  label: string;
+  children: ReactNode;
+  align?: "start" | "end";
+}) {
   return (
     <span className="tipwrap">
       <span className="ihelp" role="note" tabIndex={0} aria-label={label}>
         i
       </span>
-      <span className="tip" role="tooltip">
+      <span className={align === "end" ? "tip tip-end" : "tip"} role="tooltip">
         {children}
       </span>
     </span>
