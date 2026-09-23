@@ -69,6 +69,40 @@ corrected anchor fell into the past and was clamped. It also asserted the obsole
 identical either side of the correction, so that assertion could never pass and hid the two real
 proofs behind it.
 
+**A package of proofs that could not run at all.** `internal/identity/adapters/postgres` ran its
+own `docker run` instead of `platform/pgtest`, so it ignored `GOATOS_PGTEST_ADMIN_DSN` — the
+sanctioned no-Docker path `pgtest` exists for, in its own words because "on machines where
+Docker/Colima is disallowed the alternative is not 'run it another way' but 'the gate never
+runs'". Worse, those tests call `pgtest.SkipIfNoDocker`, which deliberately does NOT skip once a
+database is supplied, so with the DSN set they FAIL rather than skip. The package is a named proof
+for FOUR registered chains (`goat.created`, `goat.stage_changed`, `goat.identity.changed`,
+`goat.identifier.added`). Its `TestMain` already called `pgtest.RunMain`, so the conversion had
+been begun and abandoned.
+
+Converting it surfaced two defects it had been hiding:
+
+- **`FindIdentifierMatches` was invalid SQL.** It embeds `goatSummaryColumns()`, which renders
+  `gsp.partition_label` and `gsp.source_shed_name`, but does not join `goat_shed_partitions`. The
+  join was added to the shared column list and to the goat-summary query beside it and not here,
+  so every call failed 42P01 `missing FROM-clause entry for table "gsp"`. This is the RFID resolve
+  path.
+- **A fixture asserted a banned shape.** It demanded `operational_location_display == "Castro - 1"`.
+  A bare numeric partition joins with a SPACE — `Castro 1` is the name painted on the building —
+  and `AGENTS.md` lists the dash-separated numeric pen among the shapes that are NEVER rendered.
+  The code was right; the fixture demanded the banned form. That is the defect the same rule names
+  in its own words: *a fixture that asserts a shape the farm does not have is a defect even when
+  the assertion passes.*
+
+Four more packages carry the same own-docker harness and are reported rather than converted:
+`outbox`, `permissions`, `locations`, `bulkstatus`, plus `tests/scale`.
+
+**Six proofs red at HEAD in `counts/adapters/postgres`**, verified identical at the base commit so
+they are pre-existing and untouched: the five `TestCompleteShifting*` cases (named proofs for
+`goat.stage_changed`) and `TestCountsBreakdownStageLabelsParkScopeHierarchyKeepsRawCodesScoped`.
+`TestCompleteShiftingIntoUnconfiguredShedFailsClosed` reports "completion into an unconfigured
+shed succeeded, want a fail-closed error", which is a fail-open on a placement rule and worth
+reading first.
+
 ## Live-herd predicates: the sweep
 
 A sweep flagged 20 packages whose production code filters the live herd but whose fixtures build
