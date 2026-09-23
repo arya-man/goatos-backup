@@ -806,7 +806,10 @@ WHERE c.tenant_id = $1 AND c.status = 'recorded'
     OR oi.sop_task_id = $2
     OR ob.sop_task_id = $2
   )
-ORDER BY c.completion_id
+-- ORDER BY the OUTPUT column, not c.completion_id: with SELECT DISTINCT, Postgres requires every
+-- ORDER BY expression to appear in the select list, and the select list holds the ::text CAST of
+-- this column, not the uuid. Naming the uuid made every call fail 42P10.
+ORDER BY completion_id
 `
 
 type ListRecordedCompletionsByTaskParams struct {

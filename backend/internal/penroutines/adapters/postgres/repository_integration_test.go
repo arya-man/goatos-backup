@@ -849,3 +849,62 @@ func TestPenRoutineRoleResolutionTwoParkHeadsDirectorCXOParkScopeEveryNDaysPostg
 		t.Fatalf("outbox counts = %v", counts)
 	}
 }
+
+// TestAPenHoldingOnlyDeadAnimalsIsNotOccupied pins the live-herd predicate in sqlAuthoring9.
+//
+// A pen routine can be authored "occupied pens only", so `occupied` decides whether the farm is
+// sent to clean, count or check a pen at all. It is deliberately computed from the LIVING
+// residents: a pen whose animals have all died is an empty pen, and sending someone to it every
+// morning is work nobody owes.
+//
+// Nothing tested that. The fixture's Yashoda reads unoccupied because it holds NO animal row at
+// all, which is true under either reading, and every other fixture animal is alive -- so
+// neutralising `g.lifecycle_status = 'alive' AND g.exited_at IS NULL` left the whole package
+// green. A pen holding ONLY DEAD animals is the one arrangement that separates the two.
+func TestAPenHoldingOnlyDeadAnimalsIsNotOccupied(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	seedRoutineFixture(t, ctx, pool)
+	repo := NewRepository(pool, 10*time.Second)
+
+	occupied := func() map[string]bool {
+		t.Helper()
+		pens, err := repo.CatalogPens(ctx, prTenant, prParkCBE)
+		if err != nil {
+			t.Fatalf("catalog pens: %v", err)
+		}
+		out := map[string]bool{}
+		for _, p := range pens {
+			out[p.Label] = p.Occupied
+		}
+		return out
+	}
+	if occupied()["Yashoda"] {
+		t.Fatalf("the empty pen starts out occupied; the fixture changed under this test")
+	}
+
+	// The farm's animals in Yashoda have died. The pen is empty, whatever the register still holds.
+	const deadGoat = "00000000-0000-4000-8000-0000000f0f01"
+	if _, err := pool.Exec(ctx, `
+INSERT INTO goats (goat_id, tenant_id, species, breed, sex, lifecycle_status, age_band, custodian_party_id,
+                   park_id, shed_id, exited_at, exit_reason)
+VALUES ($1::uuid, $2::uuid, 'goat', 'Boer', 'female', 'dead', 'adult', $2::uuid, $3::uuid, $4::uuid, now(), 'died')`,
+		deadGoat, prTenant, prParkCBE, prShedYash); err != nil {
+		t.Fatalf("seed the dead animal: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, source_shed_name, partition_label)
+VALUES ($1::uuid, $2::uuid, $3::uuid, 'seed', 'whole')`, prTenant, deadGoat, prShedYash); err != nil {
+		t.Fatalf("place the dead animal: %v", err)
+	}
+
+	after := occupied()
+	if after["Yashoda"] {
+		t.Fatalf("a pen holding only DEAD animals reads as occupied; an occupied-pens-only routine would raise work for an empty pen")
+	}
+	// The living pens are untouched, so this is the live-herd filter and not a blanket exclusion.
+	if !after["Castro 1"] || !after["Castro 2"] || !after["Godel 1 - Part 3"] {
+		t.Fatalf("the pens holding living animals stopped reading as occupied: %+v", after)
+	}
+}

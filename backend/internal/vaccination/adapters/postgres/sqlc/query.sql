@@ -43,7 +43,10 @@ WHERE c.tenant_id = @tenant_id AND c.status = 'recorded'
     OR oi.sop_task_id = @task_id
     OR ob.sop_task_id = @task_id
   )
-ORDER BY c.completion_id;
+-- ORDER BY the OUTPUT column, not c.completion_id: with SELECT DISTINCT, Postgres requires every
+-- ORDER BY expression to appear in the select list, and the select list holds the ::text CAST of
+-- this column, not the uuid. Naming the uuid made every call fail 42P10.
+ORDER BY completion_id;
 
 -- name: CountRecordedCompletions :one
 -- Verification queue total for the current tenant/park filter. Exact total_count must stay honest even

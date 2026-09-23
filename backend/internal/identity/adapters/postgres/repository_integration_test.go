@@ -1,15 +1,10 @@
 package postgres
 
 import (
-	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"sort"
-	"strings"
 	"testing"
 	"time"
 
@@ -33,33 +28,8 @@ func TestRepositoryReadPathsWithDockerPostgres(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 
 	ctx := context.Background()
-	container := fmt.Sprintf("goatos-repo-test-%d", time.Now().UnixNano())
-	postgresImage := os.Getenv("GOATOS_POSTGRES_IMAGE")
-	if postgresImage == "" {
-		postgresImage = defaultPostgresImage
-	}
-	run(t, "docker", "run", "--rm", "--name", container, "-e", "POSTGRES_PASSWORD=goatos", "-e", "POSTGRES_DB=goatos", "-p", "127.0.0.1::5432", "-d", postgresImage)
-	t.Cleanup(func() {
-		_ = exec.Command("docker", "rm", "-f", container).Run()
-	})
-
-	ready := false
-	for i := 0; i < 60; i++ {
-		if exec.Command("docker", "exec", container, "pg_isready", "-h", "127.0.0.1", "-U", "postgres", "-d", "goatos").Run() == nil {
-			ready = true
-			break
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
-	if !ready {
-		t.Fatalf("postgres container did not become ready:\n%s", runOutput(t, "docker", "logs", container))
-	}
-
-	applyMigrations(t, container)
-	seedRepositoryData(t, container)
-
-	pool := openPool(t, ctx, container)
-	defer pool.Close()
+	pool := pgtest.StartPostgres(t, ctx)
+	seedRepositoryData(t, ctx, pool)
 	repo := NewRepository(pool, 5*time.Second)
 
 	passport, err := repo.GetGoatByID(ctx, meshaTenant, "10000000-0000-4000-8000-000000000001")
@@ -160,27 +130,9 @@ func TestRepositoryReadPathsWithDockerPostgres(t *testing.T) {
 	}
 }
 
-func applyMigrations(t *testing.T, container string) {
+func seedRepositoryData(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 	t.Helper()
-	root := repoRoot(t)
-	migrations, err := filepath.Glob(filepath.Join(root, "backend", "migrations", "postgres", "*.sql"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	sort.Strings(migrations)
-	for _, migration := range migrations {
-		sqlBytes, err := os.ReadFile(migration)
-		if err != nil {
-			t.Fatal(err)
-		}
-		upSQL := extractGooseUp(string(sqlBytes))
-		psql(t, container, upSQL)
-	}
-}
-
-func seedRepositoryData(t *testing.T, container string) {
-	t.Helper()
-	psql(t, container, `
+	execSQL(t, ctx, pool, `
 INSERT INTO tenants (tenant_id, name, status)
 VALUES ('`+secondTenant+`', 'Synthetic second tenant', 'active');
 
@@ -324,49 +276,13 @@ VALUES
 	`)
 }
 
-func openPool(t *testing.T, ctx context.Context, container string) *pgxpool.Pool {
+// execSQL runs a multi-statement seed script on the pgtest pool. It replaces a `docker exec psql`
+// helper, which is why the scripts are still written as one string with several statements.
+func execSQL(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sqlText string) {
 	t.Helper()
-	out := runOutput(t, "docker", "port", container, "5432/tcp")
-	parts := strings.Split(strings.TrimSpace(out), ":")
-	port := parts[len(parts)-1]
-	url := "postgres://postgres:goatos@127.0.0.1:" + port + "/goatos?sslmode=disable"
-	pool, err := pgxpool.New(ctx, url)
-	if err != nil {
-		t.Fatal(err)
+	if _, err := pool.Exec(ctx, sqlText); err != nil {
+		t.Fatalf("seed sql failed: %v", err)
 	}
-	if err := pool.Ping(ctx); err != nil {
-		t.Fatal(err)
-	}
-	return pool
-}
-
-func psql(t *testing.T, container, sqlText string) {
-	t.Helper()
-	cmd := exec.Command("docker", "exec", "-i", container, "psql", "-v", "ON_ERROR_STOP=1", "-h", "127.0.0.1", "-U", "postgres", "-d", "goatos")
-	cmd.Stdin = strings.NewReader(sqlText)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("psql failed: %v\n%s", err, stderr.String())
-	}
-}
-
-func extractGooseUp(sqlText string) string {
-	var out []string
-	inUp := false
-	for _, line := range strings.Split(sqlText, "\n") {
-		if strings.HasPrefix(line, "-- +goose Up") {
-			inUp = true
-			continue
-		}
-		if strings.HasPrefix(line, "-- +goose Down") {
-			break
-		}
-		if inUp {
-			out = append(out, line)
-		}
-	}
-	return strings.Join(out, "\n")
 }
 
 func repoRoot(t *testing.T) string {
@@ -385,28 +301,6 @@ func repoRoot(t *testing.T) string {
 		}
 		wd = next
 	}
-}
-
-func run(t *testing.T, name string, args ...string) {
-	t.Helper()
-	cmd := exec.Command(name, args...)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("%s %v failed: %v\n%s", name, args, err, stderr.String())
-	}
-}
-
-func runOutput(t *testing.T, name string, args ...string) string {
-	t.Helper()
-	cmd := exec.Command(name, args...)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
-	if err != nil {
-		t.Fatalf("%s %v failed: %v\n%s", name, args, err, stderr.String())
-	}
-	return string(out)
 }
 
 func strPtr(value string) *string {
