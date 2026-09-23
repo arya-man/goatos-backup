@@ -1026,6 +1026,15 @@ func pages() []domain.PageContract {
 				// what the form ASKS, and what the rules MAKE of the answers.
 				table("register-questions", "Questions", "/health-config/registers", []string{"title", "kind", "section", "answers", "emits", "only_if"}, "question_id"),
 				table("register-rules", "Rules", "/health-config/registers", []string{"rule_id", "treats", "severity_base", "pathognomonic", "probable", "possible"}, "rule_id"),
+				// WHO IS JUDGED BY WHICH RULEBOOK (migration 000395). Three tables because they
+				// answer three different questions and a reader wants them apart: what types
+				// exist, which stages reach them, and which stages reach NOTHING.
+				table("diagnosis-types", "Diagnosis types", "/health-config/diagnosis-types", []string{"label", "type_key", "status", "route_count", "has_published_register"}, "type_key"),
+				table("diagnosis-routes", "Who gets which type", "/health-config/diagnosis-types", []string{"age_band", "stage_label", "type_label", "sub_stage", "live_animals"}, "stage_code"),
+				// The gap table earns its place by being the only surface that can show it. A
+				// stage holding animals and reaching no type produces no error anywhere until a
+				// manager is refused in a shed.
+				table("diagnosis-gaps", "Stages with no type", "/health-config/diagnosis-types", []string{"stage_label", "age_band", "live_animals"}, "stage_code"),
 				// The document. medicine/dosage/route are empty on action and critical-action
 				// steps by design -- those steps carry an instruction instead -- so the columns are
 				// deliberately sparse rather than being split into three tables an author would
@@ -7423,6 +7432,59 @@ func pageSpecificCopy(id string) map[string]string {
 			"action.add_band":          "Add a band",
 			"action.add_clause":        "Add a way to recognise it",
 
+			// ---- who is judged by which rulebook ------------------------------------------
+			// The vocabulary is deliberately plain. "Type" is the farm's word for a rulebook;
+			// "stage" is the word already painted on its own screens. Nothing here says class,
+			// register key or route, because those are the machine's words for the same things.
+			"tab.types":                         "Types",
+			"section.types.title":               "Diagnosis types",
+			"section.types.caption":             "The rulebooks this farm diagnoses against",
+			"section.types.note":                "Each type has its own questions and illnesses. Add one when a group of animals should be judged differently -- then say below which animals it covers, and write its rules on the Diagnosis tab.",
+			"section.routes.title":              "Who gets which type",
+			"section.routes.caption":            "The management stage an animal is on decides the type it is judged against",
+			"section.routes.note":               "The most specific rule wins: a row for one stage overrides the row that covers the whole age band. An animal no row covers is not diagnosed at all -- it is refused, and the manager is told which stage to map.",
+			"section.gaps.title":                "Stages with no type",
+			"section.gaps.caption":              "Animals here cannot be observed until a type covers them",
+			"section.gaps.note":                 "Nothing else reports this. Until one of these stages is mapped, a manager opening one of its animals is turned away. Stages like ICU and Quarantine are not listed as gaps: they say where an animal is, not what it eats, so they cannot pick a rulebook.",
+			"table.types.aria":                  "Diagnosis type rows",
+			"table.types.noun":                  "type",
+			"table.routes.aria":                 "Stage routing rows",
+			"table.routes.noun":                 "rule",
+			"table.gaps.aria":                   "Unmapped stage rows",
+			"table.gaps.noun":                   "stage",
+			"empty.types":                       "No diagnosis type is set up yet.",
+			"empty.routes":                      "No animals are routed to a type yet.",
+			"empty.gaps":                        "Every stage that holds animals reaches a type.",
+			"label.type_key":                    "Key",
+			"label.type_label":                  "Name",
+			"label.route_count":                 "Stages",
+			"label.has_register":                "Rules written",
+			"label.stage":                       "Stage",
+			"label.sub_stage":                   "Cohort",
+			"label.live_animals":                "Animals now",
+			"label.band.adult":                  "Adults",
+			"label.band.kid":                    "Kids",
+			"label.every_stage":                 "Every stage",
+			"label.builtin":                     "Built in",
+			"label.retired":                     "Retired",
+			"label.clinical_placement":          "Where the animal is, not what it eats",
+			"action.add_type":                   "Add a type",
+			"action.edit_type":                  "Rename",
+			"action.retire_type":                "Retire",
+			"action.add_route":                  "Cover a stage",
+			"action.edit_route":                 "Change",
+			"action.remove_route":               "Remove",
+			"action.map_stage":                  "Give it a type",
+			"note.wildcard_route":               "This covers every stage in the band that no other row names. Removing it stops those animals being diagnosed until each stage has its own row.",
+			"note.type_key_fixed":               "The key never changes -- past diagnoses are recorded against it. The name is yours to edit.",
+			"note.no_register_yet":              "No rules written yet. Nothing is diagnosed against this type until they are.",
+			"warn.retire_routed":                "Stages still send animals here. Move them to another type first.",
+			"warn.retire_builtin":               "This is one of the rulebooks the system ships with and cannot be retired.",
+			"diagnosis_types.disabled_no_write": "Your current role can read the diagnosis types but cannot change them.",
+			"action.type_saved":                 "Saved.",
+			"action.route_saved":                "Saved. Animals on that stage are judged against this type from their next observation.",
+			"action.route_removed":              "Removed. Animals on that stage are not diagnosed until another row covers them.",
+
 			// ---- the layman's vocabulary ---------------------------------------------------
 			// A register is two lists joined by one idea: an answer can be a SIGN, and an
 			// illness is recognised by signs. The screen says exactly that, everywhere, and
@@ -11539,6 +11601,24 @@ func humanLabel(key string) string {
 	// "Profit loss", which reads as one thing rather than either-or.
 	case "profit_loss":
 		return "Profit / loss"
+	// The diagnosis-routing columns. humanLabel DERIVES a label from the column key, and the
+	// derivations here would be the machine's words on a screen a vet reads -- "Has published
+	// register", "Route count", "Type key". The farm's words are what the rest of this screen
+	// already uses.
+	case "route_count":
+		return "Stages"
+	case "has_published_register":
+		return "Rules written"
+	case "type_key":
+		return "Key"
+	case "type_label":
+		return "Type"
+	case "stage_label":
+		return "Stage"
+	case "sub_stage":
+		return "Cohort"
+	case "live_animals":
+		return "Animals now"
 	case "goat_id":
 		return "Goat ID"
 	case "display_id":

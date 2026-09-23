@@ -21,6 +21,8 @@ test("the rulebook tabs navigate through the console's Link, never a bare anchor
 
   assert.match(body, /<Link className=\{tab === "treatment" \? "btn" : "btn ghost"\} href=\{href\("treatment"\)\}>/);
   assert.match(body, /<Link className=\{tab === "diagnosis" \? "btn" : "btn ghost"\} href=\{href\("diagnosis"\)\}>/);
+  // The third tab (migration 000395): who is judged by which rulebook.
+  assert.match(body, /<Link className=\{tab === "types" \? "btn" : "btn ghost"\} href=\{href\("types"\)\}>/);
 
   // The regression itself: no raw anchor may carry a tab href again.
   assert.doesNotMatch(body, /<a\s/, "a bare <a> in the tab strip reloads the document");
@@ -30,5 +32,7 @@ test("the rulebook tabs navigate through the console's Link, never a bare anchor
 // keeps that; client-only state would not.
 test("the tab stays in the URL and drops the other tab's selection", () => {
   assert.match(source, /paramsWithout\(searchParams, \["hc_tab", "hc_version", "hc_register", "hc_cursor"\]\)/);
-  assert.match(source, /if \(next === "diagnosis"\) params\.set\("hc_tab", "diagnosis"\);/);
+  // Treatment is the default tab and carries no param; every other tab names itself. Written as
+  // "not treatment" rather than a list, so a fourth tab needs no edit here to keep its URL.
+  assert.match(source, /if \(next !== "treatment"\) params\.set\("hc_tab", next\);/);
 });

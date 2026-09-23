@@ -10,6 +10,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/health/domain"
 	"github.com/vgoats/goatos/backend/internal/health/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/audit"
 	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 )
 
@@ -119,6 +120,24 @@ WHERE g.tenant_id = $1::uuid
 GROUP BY 1, 2
 ORDER BY 4 DESC, 2`
 )
+
+// recordRoutingAudit writes the routing audit trail.
+//
+// It does NOT reuse recordAudit: that one stamps ResourceType "health_protocol_version" and a
+// UUID resource id, and a type key or a band/stage pair is neither. Passing one through produced
+// `invalid input syntax for type uuid` -- a 500 on a perfectly good request -- so the identity
+// that is not a UUID rides the AfterState, where it is readable, and the resource id is left
+// empty rather than filled with something that only looks like an id.
+func recordRoutingAudit(ctx context.Context, tx pgx.Tx, tenantID, actorID, action, resourceType string, after map[string]any) error {
+	return audit.NewTxRecorder(tx).Record(ctx, audit.Event{
+		TenantID:     tenantID,
+		ActorID:      actorID,
+		ActorType:    "admin",
+		Action:       action,
+		ResourceType: resourceType,
+		AfterState:   after,
+	})
+}
 
 // DiagnosisRouting reads the whole Types screen.
 func (r *Repository) DiagnosisRouting(ctx context.Context, tenantID string) (domain.DiagnosisRoutingView, error) {
@@ -266,8 +285,8 @@ WHERE tenant_id=$1::uuid AND type_key=$2`,
 		}
 	}
 
-	if err := recordAudit(ctx, tx, cmd.TenantID, cmd.ActorID, "health.diagnosis_type.saved",
-		cmd.TypeKey, map[string]any{
+	if err := recordRoutingAudit(ctx, tx, cmd.TenantID, cmd.ActorID, "health.diagnosis_type.saved",
+		"health_diagnosis_type", map[string]any{
 			"type_key": cmd.TypeKey, "label": cmd.Label, "status": cmd.Status,
 		}); err != nil {
 		return zero, err
@@ -328,8 +347,8 @@ DO UPDATE SET type_key = EXCLUDED.type_key, sub_stage = EXCLUDED.sub_stage, upda
 		return zero, fmt.Errorf("health: save stage route: %w", err)
 	}
 
-	if err := recordAudit(ctx, tx, cmd.TenantID, cmd.ActorID, "health.diagnosis_route.saved",
-		cmd.AgeBand+"/"+cmd.StageCode, map[string]any{
+	if err := recordRoutingAudit(ctx, tx, cmd.TenantID, cmd.ActorID, "health.diagnosis_route.saved",
+		"health_diagnosis_stage_route", map[string]any{
 			"age_band": cmd.AgeBand, "stage_code": cmd.StageCode,
 			"type_key": cmd.TypeKey, "sub_stage": cmd.SubStage,
 		}); err != nil {
@@ -377,8 +396,8 @@ WHERE tenant_id=$1::uuid AND age_band=$2 AND stage_code=$3`,
 		return ports.ErrNotFound
 	}
 
-	if err := recordAudit(ctx, tx, cmd.TenantID, cmd.ActorID, "health.diagnosis_route.deleted",
-		cmd.AgeBand+"/"+cmd.StageCode, map[string]any{
+	if err := recordRoutingAudit(ctx, tx, cmd.TenantID, cmd.ActorID, "health.diagnosis_route.deleted",
+		"health_diagnosis_stage_route", map[string]any{
 			"age_band": cmd.AgeBand, "stage_code": cmd.StageCode,
 		}); err != nil {
 		return err
