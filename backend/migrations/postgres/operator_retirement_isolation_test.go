@@ -34,6 +34,7 @@ func TestOperatorRetirementTenantIsolationAndExactRollback(t *testing.T) {
 	seed(1, 12, "Darshan Talwar", "operator", "inactive")
 	seed(2, 21, "Amit Kumar", "manager_health", "active")
 	seed(2, 22, "Darshan Talwar", "manager_feed", "active")
+	exec(`INSERT INTO auth_pending_email_grants (tenant_id,pending_grant_id,email,normalized_email,role,scope_type,scope_id,status,valid_from,source) VALUES ($1,$2,'other-operator@example.com','other-operator@example.com','operator','tenant',$1,'active',now(),'test')`, id(2), id(23))
 	_, sql := onlyMigrationWithSuffix(t, "retire_operator_onto_manager_roles")
 	// The harness applies all migrations before fixtures. Replay this data repair.
 	exec(`DROP TABLE IF EXISTS public.operator_retirement_000394_undo`)
@@ -52,6 +53,10 @@ func TestOperatorRetirementTenantIsolationAndExactRollback(t *testing.T) {
 	check(11, "manager_health", "active", "manager_health")
 	check(12, "operator", "revoked", "operator")
 	check(22, "manager_feed", "active", "manager_feed")
+	var pendingRole, pendingStatus string
+	if err := pool.QueryRow(ctx, `SELECT role,status FROM auth_pending_email_grants WHERE pending_grant_id=$1`, id(23)).Scan(&pendingRole, &pendingStatus); err != nil || pendingRole != "operator" || pendingStatus != "active" {
+		t.Fatalf("cross-tenant pending grant got %s/%s, err=%v; want operator/active", pendingRole, pendingStatus, err)
+	}
 	// A later same-name hire and a new grant are not undo targets. Renaming the
 	// original person must not prevent restoration of their original grant.
 	exec(`UPDATE workforce_members SET display_name='Renamed original' WHERE workforce_member_id=$1`, id(11))

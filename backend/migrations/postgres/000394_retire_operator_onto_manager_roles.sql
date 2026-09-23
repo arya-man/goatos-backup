@@ -288,14 +288,14 @@ BEGIN
 
   UPDATE auth_pending_email_grants
   SET status = 'revoked', updated_at = now()
-  WHERE role = 'operator' AND status = 'active';
+  WHERE tenant_id = v_tenant AND role = 'operator' AND status = 'active';
 
   -- ---------------------------------------------------------------------
-  -- 5. Nobody may be left on the role. If anyone is, this release would ship a console that
-  --    still says "Operator", so fail the deploy rather than land it half done.
+  -- 5. Nobody in this farm may be left on the role. If anyone is, this release would ship a
+  --    console that still says "Operator", so fail the deploy rather than land it half done.
   -- ---------------------------------------------------------------------
-  SELECT (SELECT count(*) FROM user_scope_grants          WHERE role = 'operator' AND status = 'active')
-       + (SELECT count(*) FROM auth_pending_email_grants WHERE role = 'operator' AND status = 'active')
+  SELECT (SELECT count(*) FROM user_scope_grants          WHERE tenant_id = v_tenant AND role = 'operator' AND status = 'active')
+       + (SELECT count(*) FROM auth_pending_email_grants WHERE tenant_id = v_tenant AND role = 'operator' AND status = 'active')
     INTO v_leftover;
   IF v_leftover > 0 THEN
     RAISE EXCEPTION 'operator retirement incomplete: % active operator grant(s) remain, live or pending', v_leftover;
