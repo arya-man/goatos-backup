@@ -280,6 +280,35 @@ function fileToAttachment(
   });
 }
 
+const BUBBLE_POS_KEY = "mzai-bubble-pos";
+const clamp = (v: number, lo: number, hi: number) =>
+  Math.max(lo, Math.min(hi, v));
+// Per-device convenience only; storage may be unavailable (private mode).
+function readBubblePos(): { x: number; y: number } | null {
+  try {
+    const raw =
+      typeof window !== "undefined"
+        ? window.localStorage.getItem(BUBBLE_POS_KEY)
+        : null;
+    const p = raw ? (JSON.parse(raw) as { x?: unknown; y?: unknown }) : null;
+    if (!p || typeof p.x !== "number" || typeof p.y !== "number") return null;
+    // Keep it on screen if the viewport shrank since it was saved.
+    return {
+      x: clamp(p.x, 4, window.innerWidth - 60),
+      y: clamp(p.y, 4, window.innerHeight - 60),
+    };
+  } catch {
+    return null;
+  }
+}
+function writeBubblePos(p: { x: number; y: number }) {
+  try {
+    window.localStorage.setItem(BUBBLE_POS_KEY, JSON.stringify(p));
+  } catch {
+    /* storage unavailable: position just isn't remembered */
+  }
+}
+
 function asksAllParks(question: string): boolean {
   return /\b(all parks|across all parks|company(?:-wide)?|overall|whole company|tenant-wide)\b/i.test(
     question,
@@ -309,6 +338,20 @@ export function CeoAiPanel({
   // Window state: "normal" floating panel, "max" fills the viewport, "min" docks
   // to a header-only bar. Conversation state survives every transition.
   const [view, setView] = useState<"normal" | "max" | "min">("normal");
+  // Draggable launcher (chat-head style): free position, snaps to the nearest side,
+  // remembered per device. A tap (< 6px of movement) still opens the chat.
+  const [bubblePos, setBubblePos] = useState<{ x: number; y: number } | null>(
+    readBubblePos,
+  );
+  const dragRef = useRef<{
+    id: number;
+    dx: number;
+    dy: number;
+    sx: number;
+    sy: number;
+    moved: boolean;
+  } | null>(null);
+  const suppressClickRef = useRef(false);
   // Thread list starts open on desktop, closed on phones (it overlays the chat there).
   // The panel renders only after the client-side capability probe, so reading the
   // viewport in the initializers is safe (no server render to mismatch).
@@ -691,11 +734,13 @@ export function CeoAiPanel({
             width: `min(${PANEL_WIDTH}px, calc(100vw - ${PANEL_MARGIN * 2}px))`,
             height: `min(640px, calc(100dvh - ${PANEL_MARGIN * 2}px))`,
           }
-    : { right: 24, bottom: 24 };
+    : bubblePos
+      ? { left: bubblePos.x, top: bubblePos.y, right: "auto", bottom: "auto" }
+      : { right: 24, bottom: 24 };
 
   return (
     <div
-      className={`mzai-root ${open ? "mzai-open" : "mzai-closed"} mzai-view-${view}`}
+      className={`mzai-root ${open ? "mzai-open" : "mzai-closed"} mzai-view-${view}${!open && bubblePos ? " mzai-free" : ""}`}
       style={rootStyle}
     >
       <CeoAiStyles />
@@ -1157,7 +1202,58 @@ export function CeoAiPanel({
           <button
             type="button"
             className="mzai-bubble"
+            onPointerDown={(e) => {
+              const r = e.currentTarget.getBoundingClientRect();
+              dragRef.current = {
+                id: e.pointerId,
+                dx: e.clientX - r.left,
+                dy: e.clientY - r.top,
+                sx: e.clientX,
+                sy: e.clientY,
+                moved: false,
+              };
+              e.currentTarget.setPointerCapture(e.pointerId);
+            }}
+            onPointerMove={(e) => {
+              const d = dragRef.current;
+              if (!d || d.id !== e.pointerId) return;
+              if (
+                !d.moved &&
+                Math.hypot(e.clientX - d.sx, e.clientY - d.sy) < 6
+              )
+                return;
+              d.moved = true;
+              const size = e.currentTarget.offsetWidth;
+              setBubblePos({
+                x: clamp(e.clientX - d.dx, 4, window.innerWidth - size - 4),
+                y: clamp(e.clientY - d.dy, 4, window.innerHeight - size - 4),
+              });
+            }}
+            onPointerUp={(e) => {
+              const d = dragRef.current;
+              dragRef.current = null;
+              if (!d?.moved) return;
+              suppressClickRef.current = true;
+              const size = e.currentTarget.offsetWidth;
+              const r = e.currentTarget.getBoundingClientRect();
+              const snapped = {
+                x:
+                  r.left + size / 2 < window.innerWidth / 2
+                    ? 12
+                    : window.innerWidth - size - 12,
+                y: clamp(r.top, 12, window.innerHeight - size - 12),
+              };
+              setBubblePos(snapped);
+              writeBubblePos(snapped);
+            }}
+            onPointerCancel={() => {
+              dragRef.current = null;
+            }}
             onClick={() => {
+              if (suppressClickRef.current) {
+                suppressClickRef.current = false;
+                return;
+              }
               setOpen(true);
               trackCeoAiEvent(CeoAiEvents.Open);
             }}

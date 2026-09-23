@@ -444,6 +444,9 @@ export function CeoAiStyles(): ReactElement {
   .mzai-closed .mzai-bubble{width:44px;height:44px}
   .mzai-closed .mzai-goat-icon{width:22px;height:22px}
 }
+/* draggable launcher: inline left/top win over the corner defaults */
+.mzai-root.mzai-closed.mzai-free{right:auto !important;bottom:auto !important;transition:none}
+.mzai-closed .mzai-bubble{touch-action:none;user-select:none;-webkit-user-select:none}
 `}</style>
   );
 }
