@@ -59,6 +59,7 @@ const PENDING_STYLE = {
   color: "var(--brand)",
 } satisfies CSSProperties;
 
+const enableTimedOutState = (): WebPushState => ({ status: "timed_out" });
 export function PushPermissionPrompt({
   className,
   contractCopy,
@@ -121,7 +122,7 @@ export function PushPermissionPrompt({
   const onEnable = useCallback(() => {
     setBusy("enabling");
     setMessage("");
-    void raceControl<WebPushState>(enableWebPush(), () => ({ status: "timed_out" }), CONTROL_ACTION_TIMEOUT_MS)
+    void raceControl<WebPushState>(enableWebPush(), enableTimedOutState, CONTROL_ACTION_TIMEOUT_MS)
       .then((next) => {
         setState(next);
         if (next.status === "dismissed") {
@@ -136,7 +137,7 @@ export function PushPermissionPrompt({
     setMessage("");
     void raceControl<WebPushState>(
       disableWebPush(),
-      () => ({
+      (): WebPushState => ({
         status: "error",
         reason: pushCopy(contractCopy, "push.disable_timed_out"),
       }),
