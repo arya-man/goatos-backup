@@ -62,15 +62,28 @@ func normalizeIdentityFilters(sql string) string {
 		if t.kind != tokIdent || !isKey[strings.ToLower(t.text)] {
 			continue
 		}
+		// THE QUALIFIER TRAVELS WITH THE COLUMN. A model drafts
+		// `FROM ceo_ai.weighing_latest_individual_weight w WHERE w.animal_key =
+		// 'MG-100001'`, which is ordinary legal SQL the guard's own bypass
+		// corpus expects. Splicing from the bare token while folding only the
+		// bare token composed the two into `w.upper(trim(animal_key))`, which
+		// the guard then rejects as a schema-qualified function call -- so a
+		// read that worked before this file existed failed, silently, on the
+		// exact question this file was written to fix. The whole qualified
+		// reference is consumed and re-emitted inside the fold.
+		start := qualifiedStart(sql, toks, i)
 		op := nextSignificant(toks, i)
 		if op < 0 {
 			continue
 		}
-		rewritten, end, ok := foldComparison(sql, toks, i, op)
+		rewritten, end, ok := foldComparison(sql, toks, start, i, op)
 		if !ok {
 			continue
 		}
-		out.WriteString(sql[cursor:t.start])
+		if start < cursor {
+			continue
+		}
+		out.WriteString(sql[cursor:start])
 		out.WriteString(rewritten)
 		cursor = end
 		// Continue AFTER the comparison we just consumed.
@@ -85,13 +98,44 @@ func normalizeIdentityFilters(sql string) string {
 	return out.String()
 }
 
-// foldComparison returns the rewritten text for the comparison that starts at
-// the identity-key token toks[col] with operator token toks[op], plus the
-// offset just past it. ok is false when the shape is not one this rewrites
-// (notably ILIKE, which is already case-insensitive, and any right-hand side
-// that is not a string literal — a column-to-column join must not be folded).
-func foldComparison(sql string, toks []sqlToken, col, op int) (string, int, bool) {
-	name := sql[toks[col].start:toks[col].end]
+// qualifiedStart walks back over `<ident> .` pairs so `w.animal_key` and
+// `ceo_ai.weighing_latest_individual_weight.animal_key` are treated as one
+// reference. It returns the byte offset the whole reference starts at.
+func qualifiedStart(sql string, toks []sqlToken, col int) int {
+	start := toks[col].start
+	i := col
+	for i >= 2 {
+		dot := previousSignificant(toks, i)
+		if dot < 0 || toks[dot].text != "." {
+			break
+		}
+		qual := previousSignificant(toks, dot)
+		if qual < 0 || toks[qual].kind != tokIdent {
+			break
+		}
+		start = toks[qual].start
+		i = qual
+	}
+	return start
+}
+
+func previousSignificant(toks []sqlToken, i int) int {
+	for j := i - 1; j >= 0; j-- {
+		if toks[j].kind != tokSpace {
+			return j
+		}
+	}
+	return -1
+}
+
+// foldComparison returns the rewritten text for the comparison whose column
+// reference starts at byte offset refStart and whose bare identifier token is
+// toks[col], with operator token toks[op], plus the offset just past it. ok is
+// false when the shape is not one this rewrites (notably ILIKE, which is
+// already case-insensitive, and any right-hand side that is not a plain string
+// literal -- a column-to-column join must not be folded).
+func foldComparison(sql string, toks []sqlToken, refStart, col, op int) (string, int, bool) {
+	name := sql[refStart:toks[col].end]
 	folded := "upper(trim(" + name + "))"
 	switch strings.ToLower(toks[op].text) {
 	case "=", "<>", "!=", "like":
@@ -99,7 +143,10 @@ func foldComparison(sql string, toks []sqlToken, col, op int) (string, int, bool
 		if rhs < 0 || toks[rhs].kind != tokString {
 			return "", 0, false
 		}
-		return folded + " " + sql[toks[op].start:toks[op].end] + " upper(trim(" + sql[toks[rhs].start:toks[rhs].end] + "))", toks[rhs].end, true
+		if !endsComparison(toks, rhs) {
+			return "", 0, false
+		}
+		return folded + " " + sql[toks[op].start:toks[op].end] + " upper(trim(" + normalizedLiteral(sql[toks[rhs].start:toks[rhs].end]) + "))", toks[rhs].end, true
 	case "in":
 		open := nextSignificant(toks, op)
 		if open < 0 || toks[open].text != "(" {
@@ -115,12 +162,15 @@ func foldComparison(sql string, toks []sqlToken, col, op int) (string, int, bool
 			if toks[next].kind != tokString {
 				return "", 0, false
 			}
-			lits = append(lits, "upper(trim("+sql[toks[next].start:toks[next].end]+"))")
+			lits = append(lits, "upper(trim("+normalizedLiteral(sql[toks[next].start:toks[next].end])+"))")
 			sep := nextSignificant(toks, next)
 			if sep < 0 {
 				return "", 0, false
 			}
 			if toks[sep].text == ")" {
+				if !endsComparison(toks, sep) {
+					return "", 0, false
+				}
 				return folded + " IN (" + strings.Join(lits, ", ") + ")", toks[sep].end, true
 			}
 			if toks[sep].text != "," {
@@ -130,6 +180,54 @@ func foldComparison(sql string, toks []sqlToken, col, op int) (string, int, bool
 		}
 	}
 	return "", 0, false
+}
+
+// endsComparison reports that nothing binds to the right of the token the fold
+// is about to close its parens after.
+//
+// The rewrite moves the literal INSIDE `upper(trim(...))`, so anything that
+// used to bind to it is pushed outside and re-associates:
+// `animal_key = 'MG-' || 'a0001'` became
+// `upper(trim(animal_key)) = upper(trim('MG-')) || 'a0001'`, which passes the
+// guard, EXECUTES, and compares an upper-cased column against a string whose
+// tail is still lower case -- a row that matched before now does not. A `::`
+// cast is the one thing that may legitimately follow, and it is applied to the
+// literal either way, so it is allowed through.
+func endsComparison(toks []sqlToken, last int) bool {
+	next := nextSignificant(toks, last)
+	if next < 0 {
+		return true
+	}
+	if toks[next].text == ":" {
+		return true
+	}
+	switch toks[next].kind {
+	case tokOther:
+		return toks[next].text == ")" || toks[next].text == ";" || toks[next].text == ","
+	case tokIdent:
+		switch strings.ToUpper(toks[next].text) {
+		case "AND", "OR", "ORDER", "GROUP", "LIMIT", "OFFSET", "HAVING", "WINDOW", "FETCH":
+			return true
+		}
+	}
+	return false
+}
+
+// normalizedLiteral collapses runs of whitespace INSIDE a string literal, which
+// is the half of the identity module's normal form `upper(trim(...))` cannot
+// express in SQL the guard allows.
+//
+// `sales_buyer_summary.buyer_key` is
+// `lower(regexp_replace(btrim(d.buyer_name), '\s+', ' ', 'g'))`
+// (000393:256), so the STORED key already has its internal whitespace
+// collapsed, while `upper(trim(col))` only strips the ends. A reader typing
+// `'Ravi  Traders'` -- exactly the spelling variance that normalisation exists
+// to absorb -- still got "no records found". `regexp_replace` is deliberately
+// NOT in sqlguard's closed function set and this does not add it: the LITERAL
+// is ours to rewrite before the statement is validated, and collapsing it there
+// makes both sides agree without widening what a model may draft.
+func normalizedLiteral(literal string) string {
+	return strings.Join(strings.Fields(literal), " ")
 }
 
 func nextSignificant(toks []sqlToken, i int) int {

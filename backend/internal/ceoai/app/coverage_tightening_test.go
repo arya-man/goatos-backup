@@ -131,13 +131,13 @@ func TestSourceVocabularyMatchesWholeIdentifierWordsNotSubstrings(t *testing.T) 
 	have := identifierHaystack("vaccination_shed_status planned_sessions manager_label")
 
 	for _, whole := range []string{"vaccination", "shed", "status", "planned", "session", "manager", "label"} {
-		if !have[wordStem(whole)] {
+		if !have[coverageStem(whole)] {
 			t.Errorf("%q is an identifier word of this source and must be matchable", whole)
 		}
 	}
 	// Strict substrings of those identifier words, and nothing the source names.
 	for _, fragment := range []string{"plan", "manage", "sessio", "vaccin", "stat"} {
-		if have[wordStem(fragment)] {
+		if have[coverageStem(fragment)] {
 			t.Errorf("%q is a substring of an identifier, not a word this source names", fragment)
 		}
 	}

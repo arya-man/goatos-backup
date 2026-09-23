@@ -28,7 +28,8 @@ func notTrackedRefusal(refusal string) bool {
 	for _, claim := range []string{
 		"not tracked", "doesn't track", "does not track", "isn't tracked", "is not tracked",
 		"not recorded", "doesn't record", "does not record", "not captured", "not stored",
-		"no data on", "not available in", "doesn't have", "does not have", "not modelled",
+		"no data on", "not available in", "doesn't have", "does not have", "don't have",
+		"do not have", "no source for", "not modelled",
 		"not modeled", "cannot be answered from", "can't be answered from",
 	} {
 		if strings.Contains(low, claim) {
@@ -43,11 +44,13 @@ func notTrackedRefusal(refusal string) bool {
 // tools, because a subject the farm records through a read API (sales is one)
 // has no schema card at all and would otherwise look unmodelled.
 func coveringSources(questionText string, cards []reporting.SchemaCard, catalog []ports.ToolSpec) []string {
+	vocab := catalogueVocabulary(cards, catalog)
+	strict := hasUnmodelledSubject(questionText, vocab)
 	var named []string
-	for _, card := range coveringViews(questionText, cards) {
+	for _, card := range coveringViews(questionText, cards, vocab, strict) {
 		named = append(named, "ceo_ai."+card.Name+" ("+strings.Join(columnNames(card), ", ")+")")
 	}
-	named = append(named, coveringTools(questionText, catalog)...)
+	named = append(named, coveringTools(questionText, catalog, vocab, strict)...)
 	const maxNamed = 4
 	if len(named) > maxNamed {
 		named = named[:maxNamed]
@@ -56,7 +59,7 @@ func coveringSources(questionText string, cards []reporting.SchemaCard, catalog 
 }
 
 // coveringTools scores catalogue tools the same way the views are scored.
-func coveringTools(questionText string, catalog []ports.ToolSpec) []string {
+func coveringTools(questionText string, catalog []ports.ToolSpec, vocab map[string]int, strict bool) []string {
 	words := coverageWords(questionText)
 	if len(words) == 0 {
 		return nil
@@ -72,7 +75,7 @@ func coveringTools(questionText string, catalog []ports.ToolSpec) []string {
 		// a view's name is scored separately from its columns.
 		if score, ok := nominates(words,
 			identifierHaystack(spec.Name),
-			identifierHaystack(spec.Name+" "+spec.Description+" "+strings.Join(spec.Params, " "))); ok {
+			identifierHaystack(spec.Name+" "+spec.Description+" "+strings.Join(spec.Params, " ")), vocab, strict); ok {
 			hits = append(hits, scored{name: spec.Name, score: score})
 		}
 	}
@@ -92,7 +95,7 @@ func coveringTools(questionText string, catalog []ports.ToolSpec) []string {
 // coveringViews returns the ceo_ai views whose own name or columns carry the
 // question's words, best first. It is a CAPABILITY check over the catalog, not
 // a per-topic list: a view added tomorrow participates without a code change.
-func coveringViews(questionText string, cards []reporting.SchemaCard) []reporting.SchemaCard {
+func coveringViews(questionText string, cards []reporting.SchemaCard, vocab map[string]int, strict bool) []reporting.SchemaCard {
 	words := coverageWords(questionText)
 	if len(words) == 0 {
 		return nil
@@ -105,7 +108,7 @@ func coveringViews(questionText string, cards []reporting.SchemaCard) []reportin
 	for _, card := range cards {
 		if score, ok := nominates(words,
 			identifierHaystack(card.Name),
-			identifierHaystack(card.Name+" "+strings.Join(columnNames(card), " "))); ok {
+			identifierHaystack(card.Name+" "+strings.Join(columnNames(card), " ")), vocab, strict); ok {
 			hits = append(hits, scored{card: card, score: score})
 		}
 	}
@@ -143,8 +146,8 @@ func coveringViews(questionText string, cards []reporting.SchemaCard) []reportin
 func stemHits(words map[string]bool, have map[string]bool) []string {
 	seen := map[string]bool{}
 	for w := range words {
-		if have[wordStem(w)] {
-			seen[wordStem(w)] = true
+		if have[coverageStem(w)] {
+			seen[coverageStem(w)] = true
 		}
 	}
 	out := make([]string, 0, len(seen))
@@ -173,12 +176,43 @@ func identifierHaystack(text string) map[string]bool {
 		return r
 	}, strings.ToLower(text))
 	for _, w := range strings.Fields(flat) {
-		if len(w) < 4 {
+		// THE FOUR-LETTER FLOOR HAS ONE EXCEPTION, AND IT IS STRUCTURAL. `sex`
+		// is a column on animal_current_scope, growth_adg_pairs and
+		// weighing_latest_individual_weight and a param on the counts tool --
+		// a dimension the farm genuinely models -- and a blanket len<4 drop
+		// made it invisible to coverage by construction. Any identifier word
+		// the dimension vocabulary itself names is kept whatever its length;
+		// everything else still needs four letters, so `no`, `id` and `at`
+		// stay out.
+		if len(w) < 4 && dimensionNouns[w] == "" {
 			continue
 		}
-		stems[wordStem(w)] = true
+		stems[coverageStem(w)] = true
 	}
 	return stems
+}
+
+// coverageStem folds a question word and an identifier word onto ONE key, so
+// the two vocabularies can meet. It is wordStem plus the canonicalisation
+// dimensionNouns already maintains for the rest of the package: a leader says
+// "workers" and the schema says `operator_label`; a leader says "disease" and
+// mortality_base says `cause_established`. That map is not a coverage-only
+// synonym list invented here -- answerfit binds dimensions through it, so the
+// two agree by construction, and a word added there participates in coverage
+// without a second edit.
+//
+// BOTH SIDES of every comparison run through this function. That is what keeps
+// the fold honest: it can never make a question word match something the
+// identifier vocabulary does not also fold onto.
+func coverageStem(w string) string {
+	stem := wordStem(w)
+	if canonical, ok := dimensionNouns[stem]; ok {
+		return canonical
+	}
+	if canonical, ok := dimensionNouns[w]; ok {
+		return canonical
+	}
+	return stem
 }
 
 // coverageWords is the question's own vocabulary, scored against a source.
@@ -207,7 +241,13 @@ func identifierHaystack(text string) map[string]bool {
 func coverageWords(questionText string) map[string]bool {
 	out := map[string]bool{}
 	for w := range questionWords(questionText) {
-		if nonMeasureWords[w] || coverageNoiseWords[w] {
+		// The crude singular questionWords adds beside every plural must be
+		// dropped with its plural, or half a noise word survives as a subject:
+		// "versus" is filtered here while "versu" was not, and that fragment is
+		// named by nothing in the catalogue, so it read as an unmodelled
+		// subject and made every comparison question strict.
+		if nonMeasureWords[w] || coverageNoiseWords[w] ||
+			nonMeasureWords[w+"s"] || coverageNoiseWords[w+"s"] {
 			continue
 		}
 		out[w] = true
@@ -241,49 +281,190 @@ func isAxisWord(stem string) bool {
 	return axisDimensions[canonical]
 }
 
-// isSubjectWord reports that a word can be what a question is ABOUT, rather
-// than only how it is sliced.
-func isSubjectWord(stem string) bool {
-	_, isDimension := dimensionNouns[stem]
-	return !isDimension
+// catalogueVocabulary is every word the WHOLE catalogue names, folded the same
+// way a question's words are folded. It is what lets one source's score be
+// judged against the catalogue rather than against itself.
+// It counts HOW MANY sources name each word, not merely that one does, because
+// the count is what ranks them: `animal` is named by a dozen views and says
+// almost nothing about which one answers a question, while `gain` is named by
+// growth_adg_pairs alone and says everything. Sorting on a flat hit count put
+// animals_base above growth_adg_pairs for "what daily gain are the animals
+// putting on" and above mortality_base for a cause-of-death question — the
+// misdirection round 3 filed, arriving through the ranking rather than the
+// rule.
+func catalogueVocabulary(cards []reporting.SchemaCard, catalog []ports.ToolSpec) map[string]int {
+	vocab := map[string]int{}
+	for _, card := range cards {
+		for stem := range identifierHaystack(card.Name + " " + strings.Join(columnNames(card), " ")) {
+			vocab[stem]++
+		}
+	}
+	for _, spec := range catalog {
+		for stem := range identifierHaystack(spec.Name + " " + spec.Description + " " + strings.Join(spec.Params, " ")) {
+			vocab[stem]++
+		}
+	}
+	return vocab
+}
+
+// stemWeight is how much one matched word is worth: the fewer sources name it,
+// the more it distinguishes the one that does. A word nothing names is worth
+// nothing, which can only happen for a stem that did not match at all.
+func stemWeight(stem string, vocab map[string]int) int {
+	named := vocab[stem]
+	if named <= 0 {
+		return 0
+	}
+	const scale = 64
+	return scale / named
+}
+
+// hasUnmodelledSubject is THE STRUCTURAL DISCRIMINATOR this file turns on, and
+// it is a property of the QUESTION against the WHOLE catalogue, not of any one
+// source.
+//
+// Three rounds oscillated between "one shared word nominates" and "two shared
+// words are required" because both are per-source thresholds, and no per-source
+// threshold can separate these two questions:
+//
+//	"what was our revenue last month"        -> revenue_rupees      (must nominate)
+//	"what is the interest rate on our loan"  -> reject_rate         (must not)
+//
+// Each matches exactly one common word on exactly one column. What differs is
+// what the REST of the question does: "revenue" is the whole subject, while
+// "interest" and "loan" are named by nothing in the catalogue at all. A farm
+// that models neither interest nor loans is a farm that does not record the
+// answer, and a `reject_rate` column on a video-review view does not change
+// that -- so the planner's refusal is the honest answer and must ship.
+//
+// So: when a question carries a subject word the catalogue NOWHERE names, only
+// a source whose own NAME is about the question still counts. A column that
+// merely shares a word stops disarming the refusal. When every subject word the
+// question used is modelled somewhere, the question is about this farm and a
+// column match is trusted as before.
+//
+// Words that carry no subject are exempt from the test: dimension nouns (they
+// are scored, but "buyer" being modelled is not what makes a question about
+// buyers answerable), and verbs and ranking words, which say HOW the subject is
+// asked about rather than WHAT it is.
+func hasUnmodelledSubject(questionText string, vocab map[string]int) bool {
+	exempt := map[string]bool{}
+	candidates := map[string]bool{}
+	for w := range coverageWords(questionText) {
+		stem := coverageStem(w)
+		if _, isDimension := dimensionNouns[stem]; isDimension {
+			exempt[stem] = true
+			continue
+		}
+		if isVerbForm(w) {
+			exempt[stem] = true
+			continue
+		}
+		if vocab[stem] == 0 {
+			candidates[stem] = true
+		}
+	}
+	for stem := range candidates {
+		if !exempt[stem] {
+			return true
+		}
+	}
+	return false
+}
+
+// isVerbForm reports a word that describes what is being DONE rather than what
+// the question is about. A verb naming nothing in the catalogue proves nothing:
+// no view is called `arrived` or `collected`, and "how many loads arrived
+// yesterday" is a question about loads.
+func isVerbForm(w string) bool {
+	if len(w) >= 5 && (strings.HasSuffix(w, "ed") || strings.HasSuffix(w, "ing")) {
+		return true
+	}
+	return coverageVerbWords[w]
+}
+
+// coverageVerbWords are the irregular and bare-stem verbs the suffix test above
+// cannot see. It is ordinary English, deliberately not farm vocabulary -- a
+// domain noun must never be hidden here.
+var coverageVerbWords = map[string]bool{
+	"make": true, "made": true, "need": true, "needs": true, "know": true,
+	"take": true, "took": true, "give": true, "gave": true, "come": true,
+	"came": true, "went": true, "keep": true, "kept": true, "look": true,
+	"want": true, "file": true, "owes": true, "hold": true, "held": true,
+	"send": true, "sent": true, "sell": true, "sold": true, "paid": true,
+	"gets": true, "goes": true, "runs": true, "ship": true, "find": true,
+	"seen": true, "using": true, "used": true, "book": true, "earn": true,
+	"died": true, "dies": true, "dead": true, "grew": true, "ran": true,
+	"earns": true, "spend": true, "spent": true, "puts": true, "sees": true,
 }
 
 // nominates decides whether one source covers the question, and returns the
 // score used to rank it. nameHay is the source's own name; fullHay is the name
-// plus its columns (a view) or its description and params (a tool).
+// plus its columns (a view) or its description and params (a tool). strict is
+// hasUnmodelledSubject for the question -- the joint, catalogue-level half of
+// the judgement.
 //
-// Two ways in:
+// The two arms are scored TOGETHER rather than one at a time:
 //
-//   - ONE of the question's SUBJECT words -- anything outside the dimension
-//     vocabulary -- appears anywhere on the source. One is enough: "what was our
-//     revenue last month" carries exactly one such word, and `revenue_rupees` is
-//     the column that answers it. Requiring two made every single-subject
-//     question structurally unreachable, which is most of them.
-//   - the source's NAME carries a dimension word that is NOT a pure axis --
-//     sales_buyer_summary for a buyer question, procurement_loads_base for a
-//     load question. The source is named after the thing being asked about.
+//   - the source's NAME carries a question word that is not a pure breakdown
+//     axis. The source is named after the thing being asked about
+//     (sales_buyer_summary for a buyer question, animal_current_scope for an
+//     animal one), and that holds whatever the rest of the question says.
+//   - ANY non-axis word of the question appears on the source at all --
+//     `revenue_rupees` for "what was our revenue" -- but ONLY when the question
+//     has no unmodelled subject. A single shared word on a column is weak
+//     evidence, and weak evidence must not be what overrides a leader-visible
+//     honesty refusal.
 //
-// What is deliberately NOT a way in: a match that is only axis/dimension words
-// on COLUMNS. Every view carries `shed_label` and half carry `session_no`, so
-// "which sheds missed their milking session yesterday" matched feed views on
-// nothing but its breakdown, with neither "milking" nor "missed" participating,
-// and coverageFeedback then told the model never to say the farm does not
-// record it. That question still nominates nothing.
-func nominates(words map[string]bool, nameHay, fullHay map[string]bool) (int, bool) {
+// What is deliberately NOT a way in, in either mode: a match that is only
+// breakdown axes. Every view carries `park_label` and `shed_label`, so "which
+// sheds missed their milking session yesterday" matched feed views on nothing
+// but its breakdown.
+func nominates(words map[string]bool, nameHay, fullHay map[string]bool, vocab map[string]int, strict bool) (int, bool) {
 	all := stemHits(words, fullHay)
 	name := stemHits(words, nameHay)
-	score := len(all) + len(name)
+	score := 0
 	for _, stem := range all {
-		if isSubjectWord(stem) {
-			return score, true
-		}
+		score += stemWeight(stem, vocab)
+	}
+	for _, stem := range name {
+		score += stemWeight(stem, vocab)
 	}
 	for _, stem := range name {
 		if !isAxisWord(stem) {
 			return score, true
 		}
 	}
+	if strict {
+		return 0, false
+	}
+	for _, stem := range all {
+		if !isColumnNoiseDimension(stem) {
+			return score, true
+		}
+	}
 	return 0, false
+}
+
+// isColumnNoiseDimension reports a dimension that says nothing about a source
+// when it is matched on a COLUMN. Every view carries `park_label`,
+// `shed_label`, a `status` and half carry `session_no`, so a question that
+// shares only those with a source shares only its filing system -- which is how
+// "which sheds missed their milking session yesterday" reached feed views on
+// `shed_label` + `session_no` with neither "milking" nor "missed" scoring.
+//
+// It is deliberately WIDER than axisDimensions, which governs the NAME arm: a
+// view CALLED sales_buyer_summary or procurement_loads_base really is about the
+// thing it is named after, so the name arm keeps every non-axis dimension.
+func isColumnNoiseDimension(stem string) bool {
+	if isAxisWord(stem) {
+		return true
+	}
+	switch stem {
+	case "session", "status", "category", "stage":
+		return true
+	}
+	return false
 }
 
 // coverageNoiseWords are column-shaped words that say nothing about WHAT a
@@ -297,6 +478,16 @@ var coverageNoiseWords = map[string]bool{
 	"scope": true, "scopes": true, "detail": true, "details": true,
 	"entry": true, "entries": true, "record": true, "records": true,
 	"row": true, "rows": true, "data": true, "info": true, "information": true,
+	// Ranking and degree words. They say how the answer is ORDERED, never what
+	// it is about, and an unmodelled one would otherwise read as a subject the
+	// farm does not record ("which disease is hitting us hardest").
+	"still": true, "hardest": true, "highest": true, "lowest": true,
+	"most": true, "least": true, "best": true, "worst": true,
+	// Shape words: they say how the answer is CUT, not what it is about.
+	"versus": true, "distribution": true, "breakdown": true, "split": true,
+	"summary": true, "overview": true, "trend": true, "trends": true,
+	"more": true, "less": true, "fewer": true, "biggest": true, "largest": true,
+	"smallest": true, "better": true, "worse": true,
 }
 
 // wordStem folds a plural onto its singular so the two forms of one word count
