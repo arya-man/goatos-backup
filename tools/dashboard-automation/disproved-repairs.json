@@ -101,5 +101,15 @@
       "mutation": "remove the beforeSparse/afterSparse bucket-count check in computeEventCorrelationFromBatch",
       "result": "RED: TestBatchedCorrelationClipsEachEventToItsOwnWindow"
     }
-  ]
+  ],
+  "shapeOfTheRemainingJob": {
+    "asOf": "2026-09-24, with 3 of 5 worker batches merged (48 disproved rows)",
+    "testAndCodeInTheSamePackage": 42,
+    "disjointPackages": 6,
+    "disjointMeans": "the prover reverted code the test package never exercises, so the verdict says nothing about the test. Known members: 5090bf8cb, 528bb86e6, b4612e578, bb927e2a9, c0f6f4070, e10a26c95. These need re-running against the CHANGED package, not repairing.",
+    "ancestorsOfThisBranch": 47,
+    "notAnAncestor": 1,
+    "whatTheSamePackageOnesAreNot": "same-package does NOT prove the test is weak. Of the ones hand-checked, 3bd2c61c5, 5bba4d8f0 and 93cb89104 all sit in the same package AND bite at the current tip \u2014 their stored verdict is stale against a moved tree. Each row still has to be opened.",
+    "whatTheyMostlyAre": "of thirteen opened by hand, five were genuinely weak tests and are repaired, one was a dead suite, one led to a real unfixed defect in a sibling query, four were stale or mis-scoped, and two are unprovable in their current shape."
+  }
 }
