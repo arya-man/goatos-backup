@@ -1,8 +1,13 @@
 package main
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -589,5 +594,250 @@ func TestHotPathInlineSQLCatchesLiteralsSplitAroundAVariable(t *testing.T) {
 	if got := rules(scanFile(repo, path))["hot-path-inline-sql"]; got != 1 {
 		t.Fatalf("hot-path-inline-sql = %d, want 1: a statement split across two sub-threshold "+
 			"literals around a variable is still unreachable SQL", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// cte-limit-outside
+// ---------------------------------------------------------------------------
+
+// realFeedQueryShape is the /app/notifications feed statement as it actually shipped, down
+// to the detail that matters: it is ASSEMBLED FROM CONCATENATED PACKAGE-LEVEL CONSTS, so
+// `mine AS (` and `LIMIT $5` land in different string literals with two const references
+// between them. Every other SQL rule in this guard inspects one *ast.BasicLit at a time and
+// is therefore blind to it. That blindness is why this query ran unbounded in production for
+// a year while scale-guard stayed green -- never baselined, never ignored, just never seen.
+const realFeedQueryShape = `package p
+
+const targetMemberCTE = ` + "`" + `
+WITH target_member AS (
+  SELECT COALESCE(
+    (SELECT wm.workforce_member_id FROM workforce_members wm
+      WHERE wm.tenant_id = $1::uuid AND wm.workforce_member_id = $2::uuid AND wm.status = 'active'),
+    (SELECT wm.workforce_member_id FROM workforce_members wm
+      WHERE wm.tenant_id = $1::uuid AND wm.user_id = $2::uuid AND wm.status = 'active')
+  ) AS workforce_member_id
+)` + "`" + `
+
+const dedupeKeyExpr = ` + "`" + `COALESCE(NULLIF(nr.context->>'event_key', ''), nr.notification_request_id::text)` + "`" + `
+
+const sqlListNotifications = targetMemberCTE + ` + "`" + `,
+mine AS (
+  SELECT DISTINCT ON (` + "`" + ` + dedupeKeyExpr + ` + "`" + `)
+    nr.notification_request_id, nr.requested_at, nr.context
+  FROM notification_requests nr, target_member tm
+  WHERE nr.tenant_id = $1::uuid
+    AND tm.workforce_member_id IS NOT NULL
+    AND nr.context->>'member_id' = tm.workforce_member_id::text
+  ORDER BY ` + "`" + ` + dedupeKeyExpr + ` + "`" + `, nr.requested_at DESC, nr.notification_request_id DESC
+)
+SELECT mine.notification_request_id::text, mine.requested_at
+FROM mine
+WHERE $3::timestamptz IS NULL
+   OR (mine.requested_at, mine.notification_request_id) < ($3::timestamptz, $4::uuid)
+ORDER BY mine.requested_at DESC, mine.notification_request_id DESC
+LIMIT $5` + "`" + `
+`
+
+// TestCTELimitOutsideCatchesTheRealNotificationFeedQuery plants the exact statement that
+// caused the incident and proves the guard now fires on it. Without this the rule would be a
+// happy-path decoration: the shape it must catch is the one that was actually shipped, not a
+// tidied-up sample written to match the regex.
+func TestCTELimitOutsideCatchesTheRealNotificationFeedQuery(t *testing.T) {
+	repo, path := writeGoAt(t, "backend/internal/notificationcentre/adapters/postgres/repository.go", realFeedQueryShape)
+	got := rules(scanFile(repo, path))
+	if got["cte-limit-outside"] != 1 {
+		t.Fatalf("expected the shipped feed query to be flagged exactly once, got %v", got)
+	}
+}
+
+// TestCTELimitOutsideGoesQuietOnTheFix is the other half of the contract: the finding must
+// DISAPPEAR when the defect is fixed, so a green guard means something. Same statement, same
+// concatenated assembly, same dedupe semantics -- only the LIMIT and keyset move inside.
+func TestCTELimitOutsideGoesQuietOnTheFix(t *testing.T) {
+	fixed := `package p
+
+const targetMemberCTE = ` + "`" + `
+WITH target_member AS (
+  SELECT COALESCE(
+    (SELECT wm.workforce_member_id FROM workforce_members wm
+      WHERE wm.tenant_id = $1::uuid AND wm.workforce_member_id = $2::uuid AND wm.status = 'active'),
+    (SELECT wm.workforce_member_id FROM workforce_members wm
+      WHERE wm.tenant_id = $1::uuid AND wm.user_id = $2::uuid AND wm.status = 'active')
+  ) AS workforce_member_id
+)` + "`" + `
+
+const dedupeKeyExpr = ` + "`" + `COALESCE(NULLIF(nr.context->>'event_key', ''), nr.notification_request_id::text)` + "`" + `
+const dedupeKeyExprNewer = ` + "`" + `COALESCE(NULLIF(newer.context->>'event_key', ''), newer.notification_request_id::text)` + "`" + `
+
+const sqlListNotifications = targetMemberCTE + ` + "`" + `,
+mine AS (
+  SELECT nr.notification_request_id, nr.requested_at, nr.context
+  FROM notification_requests nr, target_member tm
+  WHERE nr.tenant_id = $1::uuid
+    AND tm.workforce_member_id IS NOT NULL
+    AND nr.context->>'member_id' = tm.workforce_member_id::text
+    AND ($3::timestamptz IS NULL
+         OR (nr.requested_at, nr.notification_request_id) < ($3::timestamptz, $4::uuid))
+    AND NOT EXISTS (
+      SELECT 1 FROM notification_requests newer
+      WHERE newer.tenant_id = $1::uuid
+        AND newer.context->>'member_id' = tm.workforce_member_id::text
+        AND ` + "`" + ` + dedupeKeyExprNewer + ` + "`" + ` = ` + "`" + ` + dedupeKeyExpr + ` + "`" + `
+        AND (newer.requested_at, newer.notification_request_id)
+          > (nr.requested_at, nr.notification_request_id)
+    )
+  ORDER BY nr.requested_at DESC, nr.notification_request_id DESC
+  LIMIT $5
+)
+SELECT mine.notification_request_id::text, mine.requested_at
+FROM mine
+ORDER BY mine.requested_at DESC, mine.notification_request_id DESC` + "`" + `
+`
+	repo, path := writeGoAt(t, "backend/internal/notificationcentre/adapters/postgres/repository.go", fixed)
+	if got := rules(scanFile(repo, path)); got["cte-limit-outside"] != 0 {
+		t.Fatalf("the fixed statement must be clean, got %v", got)
+	}
+}
+
+// TestCTELimitOutsideNeedsAssembledConsts proves the const resolution is LOAD-BEARING and not
+// incidental engineering. The literal-at-a-time approach every other SQL rule uses cannot see
+// this statement: no single string literal in it contains both the CTE header and the LIMIT.
+func TestCTELimitOutsideNeedsAssembledConsts(t *testing.T) {
+	repo, path := writeGoAt(t, "backend/internal/notificationcentre/adapters/postgres/repository.go", realFeedQueryShape)
+	src, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, path, src, parser.ParseComments)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sawWholeStatementInOneLiteral := false
+	ast.Inspect(file, func(n ast.Node) bool {
+		lit, ok := n.(*ast.BasicLit)
+		if !ok || lit.Kind != token.STRING {
+			return true
+		}
+		text, err := strconv.Unquote(lit.Value)
+		if err != nil {
+			return true
+		}
+		if strings.Contains(text, "mine AS (") && limitClauseRe.MatchString(text) {
+			sawWholeStatementInOneLiteral = true
+		}
+		return true
+	})
+	if sawWholeStatementInOneLiteral {
+		t.Fatal("premise broken: a single literal held both the CTE and the LIMIT, so this test no longer proves anything")
+	}
+	_ = repo
+}
+
+// TestCTELimitOutsidePrecision pins every carve-out to a real statement from this repo. Each
+// case is a shape that WAS flagged by an earlier, blunter version of the rule; each one is
+// correct code, and a guard that fires on correct code trains people to reach for
+// scale-guard:ignore, which is how a guard stops meaning anything.
+func TestCTELimitOutsidePrecision(t *testing.T) {
+	cases := []struct {
+		name string
+		sql  string
+	}{{
+		name: "scalar caller-resolution CTE has no top-level FROM (browserpush listRegistrationsSQL)",
+		sql: `WITH target_member AS (
+  SELECT COALESCE(
+    (SELECT wm.workforce_member_id FROM workforce_members wm WHERE wm.tenant_id = $1::uuid AND wm.workforce_member_id = $2::uuid),
+    (SELECT wm.workforce_member_id FROM workforce_members wm WHERE wm.tenant_id = $1::uuid AND wm.user_id = $2::uuid)
+  ) AS workforce_member_id
+)
+SELECT reg.browser_registration_id
+  FROM workforce_member_browser_push_registrations reg
+  JOIN target_member tm ON tm.workforce_member_id = reg.workforce_member_id
+ WHERE reg.tenant_id = $1::uuid
+ ORDER BY reg.last_seen_at DESC
+ LIMIT 50`,
+	}, {
+		name: "CTE bounded by the caller's own bind arrays (workforce shedOwnershipsSQL)",
+		sql: `WITH wanted AS (
+  SELECT DISTINCT shed_id, center_id FROM unnest($2::text[], $3::text[]) AS u(shed_id, center_id) WHERE shed_id <> ''
+)
+SELECT wanted.shed_id FROM wanted ORDER BY wanted.shed_id LIMIT 100`,
+	}, {
+		name: "CTE bounded by an = ANY($n) id list",
+		sql: `WITH requested AS (
+  SELECT nr.notification_request_id FROM notification_requests nr
+  WHERE nr.tenant_id = $1::uuid AND nr.notification_request_id = ANY($3::uuid[])
+)
+SELECT * FROM requested ORDER BY notification_request_id LIMIT $4`,
+	}, {
+		name: "recursive CTE bounded by its depth guard (inventory resolveStockLocation)",
+		sql: `WITH RECURSIVE chain AS (
+  SELECT b.location_id, b.parent_location_id, 0 AS depth FROM locations b WHERE b.tenant_id = $1 AND b.location_id = $3
+  UNION ALL
+  SELECT l.location_id, l.parent_location_id, c.depth + 1 FROM locations l JOIN chain c ON l.location_id = c.parent_location_id
+  WHERE l.tenant_id = $1 AND c.depth < 8
+)
+SELECT c.location_id::text FROM chain c ORDER BY c.depth LIMIT 1`,
+	}, {
+		name: "keyed pick-one command: LIMIT 1 with no ORDER BY is not pagination (obligation reopenDeferredObligationForKey)",
+		sql: `WITH target AS MATERIALIZED (
+  SELECT oi.obligation_id, oi.status FROM obligation_instances oi
+  WHERE oi.tenant_id = $1 AND oi.idempotency_key = $2 FOR UPDATE
+), updated AS (
+  UPDATE obligation_instances oi SET status = 'scheduled' FROM target t
+  WHERE oi.tenant_id = $1 AND oi.obligation_id = t.obligation_id RETURNING oi.obligation_id, oi.status
+)
+SELECT obligation_id, status FROM updated
+UNION ALL
+SELECT t.obligation_id::text, t.status FROM target t WHERE NOT EXISTS (SELECT 1 FROM updated)
+LIMIT 1`,
+	}, {
+		name: "the LIMIT is already inside the scanning CTE",
+		sql: `WITH page AS (
+  SELECT t.id, t.at FROM tasks t WHERE t.tenant_id = $1::uuid AND (t.at, t.id) < ($2, $3)
+  ORDER BY t.at DESC, t.id DESC LIMIT $4
+)
+SELECT page.id FROM page ORDER BY page.at DESC, page.id DESC`,
+	}, {
+		name: "a nested subquery's LIMIT is not the outer query's",
+		sql: `WITH scoped AS (
+  SELECT c.case_id, c.at FROM health_cases c WHERE c.tenant_id = $1::uuid
+)
+SELECT s.case_id, (SELECT x.note FROM notes x WHERE x.case_id = s.case_id ORDER BY x.at DESC LIMIT 1) AS latest
+FROM scoped s ORDER BY s.at DESC`,
+	}}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if msg, bad := detectCTELimitOutside(tc.sql); bad {
+				t.Fatalf("false positive on correct code: %s", msg)
+			}
+		})
+	}
+}
+
+// TestCTELimitOutsideInlineIgnoreSuppresses keeps the documented escape hatch working for a
+// genuinely bounded case the static rule cannot see.
+func TestCTELimitOutsideInlineIgnoreSuppresses(t *testing.T) {
+	src := `package p
+
+// scale-guard:ignore: bounded -- one farm's ten pens, seeded at onboarding
+const sqlPens = ` + "`" + `
+WITH scoped AS (
+  SELECT p.pen_id, p.at FROM pens p WHERE p.tenant_id = $1::uuid
+)
+SELECT scoped.pen_id FROM scoped ORDER BY scoped.at DESC LIMIT $2` + "`" + `
+`
+	repo, path := writeGoAt(t, "backend/internal/x/adapters/postgres/repository.go", src)
+	if got := rules(scanFile(repo, path)); got["cte-limit-outside"] != 0 {
+		t.Fatalf("inline ignore must suppress, got %v", got)
+	}
+}
+
+// TestCTELimitOutsideIsScopedToPostgresAdapters keeps the rule where serving SQL lives.
+func TestCTELimitOutsideIsScopedToPostgresAdapters(t *testing.T) {
+	repo, path := writeGoAt(t, "backend/internal/notificationcentre/app/service.go", realFeedQueryShape)
+	if got := rules(scanFile(repo, path)); got["cte-limit-outside"] != 0 {
+		t.Fatalf("rule must not run outside repository adapters, got %v", got)
 	}
 }

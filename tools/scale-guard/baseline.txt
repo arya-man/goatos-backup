@@ -197,3 +197,22 @@ hot-path-inline-sql backend/internal/growthdirector/adapters/postgres/growth_coh
 hot-path-inline-sql backend/internal/herdsignals/adapters/postgres/export.go 1 # owner=platform issue=docs/runbooks/vaccination-command-board-latency.md expires=2027-02-28 reason=pre-existing debt made VISIBLE by tightening this rule twice (concat-with-variable, then literals split around a variable); not authored by this change; shrink-only ratchet
 hot-path-inline-sql backend/internal/verification/adapters/postgres/video_log.go 2 # owner=platform issue=docs/runbooks/vaccination-command-board-latency.md expires=2027-02-28 reason=pre-existing debt made VISIBLE by tightening this rule twice (concat-with-variable, then literals split around a variable); not authored by this change; shrink-only ratchet
 hot-path-inline-sql backend/internal/procurement/adapters/postgres/loadwise_repository.go 2 # owner=platform issue=docs/runbooks/vaccination-command-board-latency.md expires=2027-02-28 reason=arrived from main via rebase AFTER this rule was written; not authored by this change; shrink-only ratchet
+
+# --- cte-limit-outside: paginated query whose scanning CTE has no LIMIT of its own ---
+# Introduced 2026-09-23 after the /app/notifications feed query (notificationcentre) was found
+# scanning 102,291 rows per request to return 20. See PR #376 and
+# docs/decisions/scale-anti-patterns.md.
+#
+# THESE FOUR ARE NOT NOISE AND MUST NOT BE TREATED AS SUCH. Each one is the same shape as the
+# incident: a request-path page whose CTE reads an unbounded set and whose LIMIT sits outside
+# it. They are listed here only so the rule can land ahead of four separate product fixes --
+# this is a burn-down list, not an exemption. None of them has been measured at production row
+# counts yet; the notificationcentre one measured 355.6ms and 15s timeouts, so assume these are
+# live risks until someone EXPLAINs them.
+#
+# NOT baselined, deliberately: notificationcentre/adapters/postgres/repository.go. It is fixed
+# in PR #376, so this rule must land AFTER that PR (or rebased on it). If this guard ever needs
+# a line for notificationcentre, the fix has been reverted and that is the finding.
+cte-limit-outside backend/internal/calendar/adapters/postgres/repository.go 1 # owner=platform issue=SCALE-CTE-001 expires=2026-12-31 reason=calendarHistorySQL `history` unions one event's notification/snooze/audit rows with no LIMIT, outer ORDER BY occurred_at DESC LIMIT $5; keyset-pageable, needs the LIMIT pushed into each UNION arm
+cte-limit-outside backend/internal/health/adapters/postgres/analytics.go 2 # owner=platform issue=SCALE-CTE-002 expires=2026-12-31 reason=healthAnalyticsDiseases/`scoped` scans the tenant's health_cases for the window then ranks; outer ORDER BY is an AGGREGATE so the LIMIT cannot simply move inside -- this one wants a read model, not a pushdown
+cte-limit-outside backend/internal/pccare/adapters/postgres/rounds.go 1 # owner=platform issue=SCALE-CTE-003 expires=2026-12-31 reason=roundCardsPageSQL `scoped`/`crew` scan the tenant's pc_care_tasks and assignees with no LIMIT, outer ORDER BY ... LIMIT $10; the card page is keyset-pageable and should push the LIMIT into `scoped`
