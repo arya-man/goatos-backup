@@ -14,7 +14,7 @@
 // kernel-worker consolidation did) without repointing these references is the
 // class of drift this catches.
 import { readFileSync, readdirSync, existsSync } from "node:fs";
-import { resolve, dirname } from "node:path";
+import { resolve, dirname, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -285,10 +285,22 @@ if (process.argv.includes("--self-test")) {
 }
 
 const errors = [];
+let envsScanned = 0;
 for (const env of ENVS) {
   const dir = resolve(repo, "infra/envs", env);
-  if (!existsSync(dir)) continue;
+  // `continue` used to live here, and the success line below still claimed
+  // "2 environments checked". Moving infra/envs/stg away gave a green run that
+  // had read nothing for stg.
+  if (!existsSync(dir)) {
+    errors.push(`environment "${env}": ${relative(repo, dir)} does not exist — nothing was checked for it`);
+    continue;
+  }
   const files = readdirSync(dir).filter((f) => f.endsWith(".tf"));
+  if (files.length === 0) {
+    errors.push(`environment "${env}": no .tf files under ${relative(repo, dir)} — nothing was checked for it`);
+    continue;
+  }
+  envsScanned += 1;
   const texts = Object.fromEntries(
     files.map((f) => [f, readFileSync(resolve(dir, f), "utf8")]),
   );
@@ -301,5 +313,5 @@ if (errors.length > 0) {
   process.exit(1);
 }
 console.error(
-  `secret-accessors guard: every accessor / database client / runtime[...] reference resolves to a defined service account (${ENVS.length} environments checked)`,
+  `secret-accessors guard: every accessor / database client / runtime[...] reference resolves to a defined service account (${envsScanned} of ${ENVS.length} environments checked)`,
 );
