@@ -65,7 +65,6 @@ func coveringTools(questionText string, catalog []ports.ToolSpec) []string {
 		name  string
 		score int
 	}
-	subjectAsked := questionNamesASubject(questionText)
 	var hits []scored
 	for _, spec := range catalog {
 		// A tool's NAME is what it is about; its description and params are the
@@ -73,8 +72,7 @@ func coveringTools(questionText string, catalog []ports.ToolSpec) []string {
 		// a view's name is scored separately from its columns.
 		if score, ok := nominates(words,
 			identifierHaystack(spec.Name),
-			identifierHaystack(spec.Name+" "+spec.Description+" "+strings.Join(spec.Params, " ")),
-			subjectAsked); ok {
+			identifierHaystack(spec.Name+" "+spec.Description+" "+strings.Join(spec.Params, " "))); ok {
 			hits = append(hits, scored{name: spec.Name, score: score})
 		}
 	}
@@ -103,13 +101,11 @@ func coveringViews(questionText string, cards []reporting.SchemaCard) []reportin
 		card  reporting.SchemaCard
 		score int
 	}
-	subjectAsked := questionNamesASubject(questionText)
 	var hits []scored
 	for _, card := range cards {
 		if score, ok := nominates(words,
 			identifierHaystack(card.Name),
-			identifierHaystack(card.Name+" "+strings.Join(columnNames(card), " ")),
-			subjectAsked); ok {
+			identifierHaystack(card.Name+" "+strings.Join(columnNames(card), " "))); ok {
 			hits = append(hits, scored{card: card, score: score})
 		}
 	}
@@ -169,8 +165,14 @@ func stemHits(words map[string]bool, have map[string]bool) []string {
 // source only for words it actually names.
 func identifierHaystack(text string) map[string]bool {
 	stems := map[string]bool{}
-	for _, w := range strings.Fields(strings.ReplaceAll(strings.ToLower(text), "_", " ")) {
-		w = strings.Trim(w, ".,;:?!()/-\"'")
+	flat := strings.Map(func(r rune) rune {
+		switch r {
+		case '_', '/', '(', ')', ',', ';', ':', '-', '.', '"', '\'':
+			return ' '
+		}
+		return r
+	}, strings.ToLower(text))
+	for _, w := range strings.Fields(flat) {
 		if len(w) < 4 {
 			continue
 		}
@@ -213,51 +215,73 @@ func coverageWords(questionText string) map[string]bool {
 	return out
 }
 
-// questionNamesASubject reports whether the question carries ANY word outside
-// the dimension vocabulary. "who are our top buyers this month" does not -- a
-// buyer is all it is about -- and for such a question a dimension noun matching
-// a source's NAME is the strongest evidence available, so nominates accepts it.
-// "which sheds missed their milking session yesterday" does ("milking",
-// "missed"), and there a dimension-only match is evidence that the source is
-// about the BREAKDOWN and not about the question.
-func questionNamesASubject(questionText string) bool {
-	for w := range coverageWords(questionText) {
-		if _, isDimension := dimensionNouns[w]; !isDimension {
-			return true
-		}
+// axisDimensions are the dimension words that are ONLY ever a breakdown axis:
+// a question is answered BY a measure and sliced BY a park, a pen or a period.
+// The farm always has pens, so "shed" naming a view proves nothing about
+// whether that view answers the question -- vaccination_shed_status and
+// shed_capacity_current both carry it.
+//
+// Every OTHER dimension noun (buyer, vendor, load, vaccine, disease, item,
+// breed, operator, stage, session, status) is a thing the farm RECORDS, and a
+// question can be entirely about one: "who are our top buyers", "how many loads
+// arrived yesterday". For those, a view whose own NAME carries the word IS the
+// source, and refusing to nominate it is how the CEO got told the farm does not
+// record its own buyers.
+var axisDimensions = map[string]bool{
+	"park": true, "pen": true,
+	"day": true, "week": true, "month": true, "year": true, "quarter": true,
+}
+
+// isAxisWord reports that a question word is a pure breakdown axis.
+func isAxisWord(stem string) bool {
+	canonical, isDimension := dimensionNouns[stem]
+	if !isDimension {
+		return false
 	}
-	return false
+	return axisDimensions[canonical]
+}
+
+// isSubjectWord reports that a word can be what a question is ABOUT, rather
+// than only how it is sliced.
+func isSubjectWord(stem string) bool {
+	_, isDimension := dimensionNouns[stem]
+	return !isDimension
 }
 
 // nominates decides whether one source covers the question, and returns the
 // score used to rank it. nameHay is the source's own name; fullHay is the name
 // plus its columns (a view) or its description and params (a tool).
 //
-// Two ways in, and the asymmetry is the whole rule:
+// Two ways in:
 //
-//   - the source's NAME carries one of the question's words. A view called
-//     sales_buyer_summary is ABOUT buyers; one incidental `buyer_label` column
-//     on a view about something else is not. A dimension noun is accepted here
-//     only when the question named no other kind of subject at all.
-//   - TWO independent words match anywhere on the source, AT LEAST ONE of which
-//     is not a dimension noun. Two dimension columns (`shed_label`,
-//     `session_no`) are what every view carries and prove nothing; a real
-//     subject word beside a dimension is a genuine two-word match.
-func nominates(words map[string]bool, nameHay, fullHay map[string]bool, subjectAsked bool) (int, bool) {
+//   - ONE of the question's SUBJECT words -- anything outside the dimension
+//     vocabulary -- appears anywhere on the source. One is enough: "what was our
+//     revenue last month" carries exactly one such word, and `revenue_rupees` is
+//     the column that answers it. Requiring two made every single-subject
+//     question structurally unreachable, which is most of them.
+//   - the source's NAME carries a dimension word that is NOT a pure axis --
+//     sales_buyer_summary for a buyer question, procurement_loads_base for a
+//     load question. The source is named after the thing being asked about.
+//
+// What is deliberately NOT a way in: a match that is only axis/dimension words
+// on COLUMNS. Every view carries `shed_label` and half carry `session_no`, so
+// "which sheds missed their milking session yesterday" matched feed views on
+// nothing but its breakdown, with neither "milking" nor "missed" participating,
+// and coverageFeedback then told the model never to say the farm does not
+// record it. That question still nominates nothing.
+func nominates(words map[string]bool, nameHay, fullHay map[string]bool) (int, bool) {
 	all := stemHits(words, fullHay)
 	name := stemHits(words, nameHay)
-	subjects := 0
+	score := len(all) + len(name)
 	for _, stem := range all {
-		if _, isDimension := dimensionNouns[stem]; !isDimension {
-			subjects++
+		if isSubjectWord(stem) {
+			return score, true
 		}
 	}
-	score := len(all)
-	switch {
-	case len(name) > 0 && (subjects > 0 || !subjectAsked):
-		return score + len(name), true
-	case len(all) >= 2 && subjects > 0:
-		return score, true
+	for _, stem := range name {
+		if !isAxisWord(stem) {
+			return score, true
+		}
 	}
 	return 0, false
 }
@@ -278,8 +302,22 @@ var coverageNoiseWords = map[string]bool{
 // wordStem folds a plural onto its singular so the two forms of one word count
 // once. It mirrors the singularization questionWords applies.
 func wordStem(w string) string {
-	if strings.HasSuffix(w, "s") && len(w) > 4 {
+	// FOUR-LETTER PLURALS FOLD TOO. `kids` is the word a leader uses and `kid`
+	// is the word the schema uses (mortality_base.kid_deaths, the counts tool's
+	// "kids/adults"); with the old `len(w) > 4` bar the two never met and "how
+	// many kids do we have" nominated nothing. Both sides of every comparison
+	// run through this function, so folding one letter earlier keeps them
+	// agreeing with each other.
+	if strings.HasSuffix(w, "s") && len(w) >= 4 {
 		return strings.TrimSuffix(w, "s")
+	}
+	// A GERUND FOLDS ONTO ITS VERB, but only when a real word is left: a leader
+	// asks which items need "reordering" and the column is `reorder_flag`. The
+	// five-character floor is what keeps it honest -- "milking" would fold to
+	// "milk" and start matching a milk column that does not exist, so it stays
+	// whole. Both sides of every comparison run through this function.
+	if strings.HasSuffix(w, "ing") && len(w)-3 >= 5 {
+		return strings.TrimSuffix(w, "ing")
 	}
 	return w
 }

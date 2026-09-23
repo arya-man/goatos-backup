@@ -33,10 +33,19 @@ func TestThePostReviewRetrySwapIsGatedByTheHonestyChecks(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(src)
-	const call = "if a.retryFailedResults("
+	// ANCHORED ON THE FUNCTION, NOT ON THE `if a.` SPELLING, AND IT FAILS RATHER
+	// THAN SKIPS. The first version looked for the literal "if a.retryFailedResults("
+	// and called t.Skip when it was absent -- so reformatting the call to
+	// `if ok := a.retryFailedResults(...); ok {` AND deleting the gate together
+	// reported PASS. A routine refactor plus a dropped gate was invisible, which
+	// is the one thing a structural test must not allow. While the function
+	// exists in this file, its gate must be provable.
+	const call = "retryFailedResults("
 	at := strings.Index(text, call)
 	if at < 0 {
-		t.Skip("the post-review retry no longer exists in this shape")
+		t.Fatal("retryFailedResults is no longer called from orchestrator.go — if the post-review " +
+			"retry was removed, delete this test; if it MOVED, re-anchor it, because an ungated " +
+			"result swap after postReadHonesty puts a number in front of a leader that no gate saw")
 	}
 	// The branch body, up to its closing brace at the same indentation.
 	rest := text[at:]
