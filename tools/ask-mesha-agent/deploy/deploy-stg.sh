@@ -62,15 +62,15 @@ gcloud run deploy "$SERVICE" \
   --ingress=all \
   --port=8080 \
   --cpu=2 \
-  --memory=2Gi \
+  --memory=4Gi \
   --min-instances=1 \
   --max-instances=2 \
-  --concurrency=8 \
+  --concurrency=4 \
   --timeout=3600 \
   --no-cpu-throttling \
   --execution-environment=gen2 \
   --add-cloudsql-instances="$CLOUDSQL_INSTANCE" \
-  --set-env-vars="ASK_MESHA_UPLOADS_BUCKET=${UPLOADS_BUCKET},ASK_MESHA_READONLY=1,ASK_MESHA_MONTHLY_BUDGET_USD=${ASK_MESHA_MONTHLY_BUDGET_USD:-100},ASK_MESHA_PER_ANSWER_BUDGET_USD=${ASK_MESHA_PER_ANSWER_BUDGET_USD:-1},GOATOS_BASE_SHA=${COMMIT_TAG}${CLAUDE_ENV:+,${CLAUDE_ENV}}" \
+  --set-env-vars="ASK_MESHA_UPLOADS_BUCKET=${UPLOADS_BUCKET},ASK_MESHA_READONLY=1,ASK_MESHA_DB_MIGRATE=1,ASK_MESHA_MONTHLY_BUDGET_USD=${ASK_MESHA_MONTHLY_BUDGET_USD:-100},ASK_MESHA_PER_ANSWER_BUDGET_USD=${ASK_MESHA_PER_ANSWER_BUDGET_USD:-1},GOATOS_BASE_SHA=${COMMIT_TAG}${CLAUDE_ENV:+,${CLAUDE_ENV}}" \
   --set-secrets="${CLAUDE_SECRET}ASK_MESHA_DATABASE_URL=${SECRET_APP_DB}:latest,ASK_MESHA_READONLY_DB_URL=${SECRET_RO_DB}:latest" \
   --update-labels="commit_sha=${COMMIT_TAG},deployed_by=cloud-build" \
   --quiet

@@ -5,6 +5,7 @@
 // read-only access to goatos-stg Postgres.
 import http from "node:http";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
 import { execFileSync, spawn } from "node:child_process";
@@ -119,8 +120,9 @@ const SQL_MAX_ROWS = 500;
 function runSql(sql) {
   return new Promise((resolve) => {
     const text = String(sql || "").trim();
-    // psql meta-commands (\\!, \\copy, \\o, \\set …) can reach the shell/filesystem.
-    if (!text || /(^|\n)\s*\\/.test(text) || text.includes("\\!")) {
+    // psql meta-commands (\\!, \\copy, \\o, \\g |cmd …) can reach the shell/filesystem and
+    // psql honours them mid-line, so refuse ANY backslash (same rule as ro-sql.sh).
+    if (!text || text.includes("\\")) {
       return resolve({ ok: false, out: "Refused: only plain SQL (no psql backslash commands)." });
     }
     const child = spawn(
@@ -177,7 +179,8 @@ async function authenticate(req) {
   if (!token) return null;
   const tenantId = typeof req.headers["x-goatos-tenant-id"] === "string" ? req.headers["x-goatos-tenant-id"] : "";
   // Local benchmark runs: a shared secret from the environment, never set in deployed envs.
-  if (process.env.ASK_MESHA_BENCH_TOKEN && token === process.env.ASK_MESHA_BENCH_TOKEN) return { email: "bench@local", tenantId };
+  // K_SERVICE is set by Cloud Run: the bench bypass can never be live there.
+  if (process.env.ASK_MESHA_BENCH_TOKEN && !process.env.K_SERVICE && token === process.env.ASK_MESHA_BENCH_TOKEN) return { email: "bench@local", tenantId };
   const cacheKey = `${tenantId}\0${token}`;
   const hit = authCache.get(cacheKey);
   if (hit && hit.exp > Date.now()) return hit.user;
@@ -275,6 +278,21 @@ async function canUseTool(toolName, input) {
   if (toolName === "Bash" && DENY.some((re) => re.test(String(input.command || "")))) {
     return { behavior: "deny", message: "Blocked by Ask Mesha policy (no deploys/merges to main)." };
   }
+  // Read-only mode: file tools stay inside the repo snapshot and this run's uploads.
+  // Outside paths (/proc/*/environ, the state dir's .pgenv, $HOME) hold secrets.
+  if (READONLY && ["Read", "Grep", "Glob"].includes(toolName)) {
+    const p = input.file_path || input.path;
+    if (p) {
+      let real;
+      try { real = fs.realpathSync(path.resolve(REPO, String(p))); } catch { real = path.resolve(REPO, String(p)); }
+      const roots = [REPO, path.join(os.tmpdir(), "ask-mesha"), path.join(STATE, "uploads")].map((r) => {
+        try { return fs.realpathSync(r); } catch { return path.resolve(r); }
+      });
+      if (!roots.some((r) => real === r || real.startsWith(r + path.sep))) {
+        return { behavior: "deny", message: "Ask Mesha can only read the goatos repo and this chat's attachments." };
+      }
+    }
+  }
   return { behavior: "allow", updatedInput: input };
 }
 
@@ -331,7 +349,9 @@ function extractChart(text) {
 
 // Only these variables reach the agent (and therefore its Bash tool). The server's
 // own environment (cloud credentials, tokens, keys) is never inherited wholesale.
-const AGENT_ENV_ALLOW = ["PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "LC_ALL", "TMPDIR", "TERM", "ANTHROPIC_API_KEY"];
+const AGENT_ENV_ALLOW = ["PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "LC_ALL", "TMPDIR", "TERM", "ANTHROPIC_API_KEY",
+  // deploy-stg.sh auth modes: vertex (runtime SA via metadata server) and oauth.
+  "CLAUDE_CODE_USE_VERTEX", "ANTHROPIC_VERTEX_PROJECT_ID", "CLOUD_ML_REGION", "CLAUDE_CODE_OAUTH_TOKEN"];
 function agentEnv() {
   const env = {};
   for (const k of AGENT_ENV_ALLOW) if (process.env[k] !== undefined) env[k] = process.env[k];
@@ -356,10 +376,13 @@ async function ask(req, res, user) {
   let chat = body.conversation_id ? await store.getChat(body.conversation_id) : null;
   if (chat && !sameOwner(chat, user)) return json(res, 404, { error: "not_found" });
   // Hard monthly cap: answer with a plain message instead of calling Claude.
-  const spent = await store.monthSpendUsd(monthStart()).catch(() => 0);
+  // Fail closed: if spend can't be read, don't risk running past the cap.
+  const spent = await store.monthSpendUsd(monthStart()).catch(() => Infinity);
   if (spent >= MONTHLY_BUDGET_USD) {
     res.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-store" });
-    const answer = `This month's Ask Mesha budget ($${MONTHLY_BUDGET_USD}) has been used ($${spent.toFixed(2)}). It resets on the 1st; ask Ravi to raise the cap if needed.`;
+    const answer = Number.isFinite(spent)
+      ? `This month's Ask Mesha budget ($${MONTHLY_BUDGET_USD}) has been used ($${spent.toFixed(2)}). It resets on the 1st; ask Ravi to raise the cap if needed.`
+      : "Ask Mesha can't check this month's spend right now, so it isn't answering to stay under the budget. Please try again shortly.";
     res.end(`data: ${JSON.stringify({ type: "final", answer, mode: "agent", source: "budget" })}\n\n`);
     return;
   }
@@ -583,7 +606,7 @@ async function route(req, res) {
     const f = p.match(/^\/ceo-ai\/conversations\/([^/]+)\/files\/([\w-]+)$/);
     if (f && req.method === "GET") {
       const chat = await store.getChat(decodeURIComponent(f[1]));
-      if (!chat || !sameOwner(chat, user)) return json(res, 404, { error: "not_found" });
+      if (!chat || !sameOwner(chat, user) || chat.deleted_at) return json(res, 404, { error: "not_found" });
       const ref = await store.findFile(chat.id, f[2]);
       const stream = ref ? await uploads.open(chat.id, ref) : null;
       if (!ref || !stream) return json(res, 404, { error: "not_found" });
