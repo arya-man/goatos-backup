@@ -77,12 +77,95 @@ type dealPayload struct {
 	UpdatedAt string `json:"updated_at"`
 }
 
+// sellableProductPagePayload is GET /sales/products: the farm's registry as its EDITOR sees it,
+// with the two closed vocabularies its form offers. The vocabularies ride WITH the rows so the
+// editor never writes its own copy of them -- what a person may choose is the backend's answer.
+type sellableProductPagePayload struct {
+	Products []sellableProductPayload       `json:"products"`
+	Kinds    []sellableProductChoicePayload `json:"kinds"`
+	Units    []sellableProductChoicePayload `json:"units"`
+}
+
+// sellableProductChoicePayload is one option of a closed vocabulary, with the words for it.
+type sellableProductChoicePayload struct {
+	Key   string `json:"key"`
+	Label string `json:"label"`
+	Hint  string `json:"hint"`
+}
+
+// sellableProductPayload is one registry row in its editor.
+type sellableProductPayload struct {
+	Code string `json:"code"`
+	Name string `json:"name"`
+	Kind string `json:"kind"`
+	Unit string `json:"unit"`
+	// SpeciesCode narrows an animal item's breeds; empty on everything else.
+	SpeciesCode string `json:"species_code"`
+	SortOrder   int    `json:"sort_order"`
+	Status      string `json:"status"`
+	// IsBuiltin rows may be renamed and reordered but never switched off or changed in kind.
+	IsBuiltin bool `json:"is_builtin"`
+	// PricedPerUnit says whether SELLING this asks for a quantity at a rate. Composed here rather
+	// than derived by a client from the kind, so both surfaces agree on what a sale of it asks.
+	PricedPerUnit bool `json:"priced_per_unit"`
+}
+
+// sellableProductWritePayload is the add/edit body. The code is absent when adding -- it is
+// derived from the name, once -- and present when editing, which is what keeps a rename from
+// orphaning the sales already recorded under the item.
+type sellableProductWritePayload struct {
+	Code        string `json:"code"`
+	Name        string `json:"name"`
+	Kind        string `json:"kind"`
+	Unit        string `json:"unit"`
+	SpeciesCode string `json:"species_code"`
+	SortOrder   int    `json:"sort_order"`
+	Status      string `json:"status"`
+}
+
+func (p sellableProductWritePayload) toDomain() domain.ProductWrite {
+	return domain.ProductWrite{
+		Code: p.Code, Name: p.Name, Kind: p.Kind, Unit: p.Unit,
+		SpeciesCode: p.SpeciesCode, SortOrder: p.SortOrder, Status: p.Status,
+	}
+}
+
+func toSellableProductPayload(row domain.ProductRow) sellableProductPayload {
+	return sellableProductPayload{
+		Code: row.Code, Name: row.Name, Kind: row.Kind, Unit: row.Unit,
+		SpeciesCode: row.SpeciesCode, SortOrder: row.SortOrder,
+		Status: row.Status, IsBuiltin: row.IsBuiltin,
+		PricedPerUnit: row.PricedPerUnit(),
+	}
+}
+
+// The two closed vocabularies the item form offers, in farm words. The HINT is what makes the
+// choice answerable by someone who does not know the word "kind": it says what picking it DOES.
+func sellableProductKindPayloads() []sellableProductChoicePayload {
+	return []sellableProductChoicePayload{
+		{Key: domain.KindAnimal, Label: "Animals", Hint: "Sold as a lot: how many, their weight, and the price you agreed."},
+		{Key: domain.KindFeed, Label: "Feed from the store", Hint: "Picked from the feed list, and the kilograms sold come off the store."},
+		{Key: domain.KindOther, Label: "Something else", Hint: "Anything else the farm sells, such as manure or tags. Sold at a rate per unit."},
+	}
+}
+
+func sellableProductUnitPayloads() []sellableProductChoicePayload {
+	return []sellableProductChoicePayload{
+		{Key: domain.UnitKg, Label: "Kilograms", Hint: "Sold by weight."},
+		{Key: domain.UnitNumber, Label: "Number", Hint: "Sold by the piece: 200 tags, 12 animals."},
+	}
+}
+
 // salesProductOptionPayload is one row of the farm's sellable-product registry as a form sees it.
 type salesProductOptionPayload struct {
 	Name string `json:"name"`
 	Code string `json:"code"`
 	Kind string `json:"kind"`
 	Unit string `json:"unit"`
+	// PricedPerUnit says whether selling this asks for a quantity at a rate rather than a
+	// negotiated lump value. Composed HERE so neither surface re-derives it from the kind: a form
+	// that decided for itself would start asking a new kind of item the wrong questions.
+	PricedPerUnit bool `json:"priced_per_unit"`
 }
 
 // dealLinePayload is one product/breed line of a deal on the wire.

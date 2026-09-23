@@ -230,18 +230,18 @@ func (l DealLineWrite) validate(lineNo int, cat ProductCatalog) error {
 	}
 	// What the KIND requires. Only these three branches read the product at all; everything above
 	// and below is true of any line whatever the farm decided to sell.
-	if product.DrawsFeedStock() {
-		// A feed sale is kilograms out of a named store, so the kilograms are the sale: a feed
-		// line with no quantity would take a sale's money without taking any feed off the shelf,
-		// and the stock the store reports would drift from the store.
+	if product.PricedPerUnit() {
+		// An item sold by the kilogram or by number IS its quantity: a line without one would take
+		// the sale's money without saying how much left the farm -- and for feed, without taking
+		// anything off the shelf, so the stock the store reports would drift from the store.
 		if l.Quantity == nil || *l.Quantity <= 0 {
 			return ErrDealValidation{Field: field("quantity"), Reason: "must be more than zero"}
 		}
 		if l.RatePerUnit == nil {
-			return ErrDealValidation{Field: field("rate_per_unit"), Reason: "required -- feed is sold at a rate per " + product.Unit}
+			return ErrDealValidation{Field: field("rate_per_unit"), Reason: "required -- " + strings.ToLower(product.Name) + " is sold at a rate per " + product.UnitWord()}
 		}
-		// Refused rather than ignored. A body carrying both a feed quantity and an animal count is
-		// two different sales in one line, and silently dropping half of it would record the money
+		// Refused rather than ignored. A body carrying both a quantity and an animal count is two
+		// different sales in one line, and silently dropping half of it would record the money
 		// while losing what it was for.
 		for name, v := range map[string]*float64{
 			"animal_count": l.AnimalCount,
@@ -249,7 +249,7 @@ func (l DealLineWrite) validate(lineNo int, cat ProductCatalog) error {
 			"female_count": l.FemaleCount,
 		} {
 			if v != nil {
-				return ErrDealValidation{Field: field(name), Reason: "a feed sale has no animals"}
+				return ErrDealValidation{Field: field(name), Reason: "this is not an animal sale, so it carries no animals"}
 			}
 		}
 	}

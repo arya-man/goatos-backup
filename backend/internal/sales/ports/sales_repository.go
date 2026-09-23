@@ -22,6 +22,19 @@ var (
 	// originally recorded.
 	ErrIdempotencyConflict = errors.New("sales: idempotency key reused with different payload")
 
+	// ErrProductHasSales is returned when deleting an item the farm has already sold. The row
+	// leaving would not corrupt the ledger -- a line stores the name and code it was sold under --
+	// but it would leave a recorded sale with nothing to look up. Switching the item off is the
+	// answer there: gone from every dropdown, history still readable.
+	ErrProductHasSales = errors.New("sales: this item has recorded sales and can be switched off but not deleted")
+
+	// ErrProductNotFound is returned when a delete names an item the registry does not carry.
+	ErrProductNotFound = errors.New("sales: product not found")
+
+	// ErrProductNameTaken is returned when two products would share one name. A sale stores the
+	// NAME it was sold under, so two products cannot answer to one word.
+	ErrProductNameTaken = errors.New("sales: another product already has that name")
+
 	// ErrProductNotSellable is returned when a line names a product the tenant's registry no
 	// longer carries as active, detected UNDER the writing transaction. It is a conflict rather
 	// than a validation failure: the body was right when the form opened, and the farm changed
@@ -66,6 +79,15 @@ type SalesRepository interface {
 	// a feed product's feed items, an `other` product's own name. Every list is a LIVE vocabulary
 	// the farm already maintains, never one typed into this module.
 	ListProductVariants(ctx context.Context, tenantID string, products []domain.Product) (map[string][]string, error)
+
+	// ListAllSellableProducts reads the registry INCLUDING archived rows, for the editor.
+	ListAllSellableProducts(ctx context.Context, tenantID string) ([]domain.ProductRow, error)
+
+	// SaveSellableProduct adds an item to the farm's registry, or edits the one carrying its code.
+	SaveSellableProduct(ctx context.Context, tenantID string, write domain.ProductWrite, actorID string) (domain.Product, error)
+
+	// DeleteSellableProduct removes an item, refusing when the farm has already sold any of it.
+	DeleteSellableProduct(ctx context.Context, tenantID, code, actorID string) error
 
 	// CreateDeal records a sale. idempotencyKey is the client's Idempotency-Key: the reservation,
 	// the insert, and the audit row commit in ONE transaction. An exact replay returns the

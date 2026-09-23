@@ -541,6 +541,13 @@ var protectedRoutes = []Route{
 	// see SalesRead's doc comment.
 	{OperationID: "listSalesOverview", Method: "GET", Pattern: "/sales/overview", Permissions: []string{SalesRead}},
 	{OperationID: "listSalesOptions", Method: "GET", Pattern: "/sales/options", Permissions: []string{SalesRead}},
+	// The farm's own list of what it sells (maintainer instruction 2026-09-23), authored on Sales
+	// Config. Reading it rides SalesRead with the rest of the page; WRITING it is SalesWrite --
+	// the same authority that records a sale, because deciding the farm now sells sheep tags is
+	// the sales desk's business and not a separate office.
+	{OperationID: "listSellableProducts", Method: "GET", Pattern: "/sales/products", Permissions: []string{SalesRead}},
+	{OperationID: "saveSellableProduct", Method: "POST", Pattern: "/sales/products", Permissions: []string{SalesWrite}},
+	{OperationID: "deleteSellableProduct", Method: "DELETE", Pattern: "/sales/products/{product_code}", Permissions: []string{SalesWrite}},
 	{OperationID: "listSalesDeals", Method: "GET", Pattern: "/sales/deals", Permissions: []string{SalesRead}},
 	{OperationID: "createSalesDeal", Method: "POST", Pattern: "/sales/deals", Permissions: []string{SalesWrite}},
 	// A buyer receipt is a money write on the same ledger, so it carries the same write permission

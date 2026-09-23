@@ -11495,6 +11495,79 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/ServerError"
+  /sales/products:
+    get:
+      tags: [sales]
+      operationId: listSellableProducts
+      summary: What the farm sells, as its editor sees it
+      description: >-
+        The tenant's sellable-product registry INCLUDING archived rows, with the two closed
+        vocabularies its form offers. A list somebody maintains has to show what is switched off,
+        or they cannot switch it back on. The vocabularies ride with the rows so the editor never
+        writes its own copy of what a person may choose.
+      responses:
+        "200":
+          description: The registry and its vocabularies.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SellableProductPage"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [sales]
+      operationId: saveSellableProduct
+      summary: Add an item the farm sells, or edit one
+      description: >-
+        Adding leaves `code` empty: it is derived from the name once and never changes, so renaming
+        the item later cannot orphan the sales already recorded under it. Editing sends the code
+        back. The three built-in products may be renamed and reordered but never archived and never
+        changed in kind.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SellableProductWrite"
+      responses:
+        "200":
+          description: The saved item.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SalesProductOption"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
+  /sales/products/{product_code}:
+    delete:
+      tags: [sales]
+      operationId: deleteSellableProduct
+      summary: Remove an item the farm sells
+      description: >-
+        Refused with `product_has_sales` (409) when the farm has already sold any of it: the row
+        leaving would not corrupt the ledger, but it would leave a recorded sale with nothing to
+        look up. Switching the item off (status `archived`) is the answer there -- gone from every
+        dropdown, history still readable.
+      parameters:
+        - name: product_code
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: The item was removed.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundOrNotAllowed" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
   /sales/options:
     get:
       tags:
@@ -23851,12 +23924,84 @@ components:
     SalesProductOption:
       type: object
       description: One row of the farm's sellable-product registry, as a record-sale form sees it.
-      required: [name, code, kind, unit]
+      required: [name, code, kind, unit, priced_per_unit]
       properties:
         name: { type: string, description: The word a sale is recorded under. }
         code: { type: string, description: The registry row's stable identity. }
         kind: { type: string, enum: [animal, feed, other] }
-        unit: { type: string, description: What one of it is sold by -- head for an animal, kg for feed. }
+        unit: { type: string, enum: [kg, number], description: What one of it is sold by. }
+        priced_per_unit:
+          type: boolean
+          description: >-
+            Whether selling this asks for a quantity at a rate rather than a negotiated lump value.
+            False for animals. Composed by the backend so neither surface re-derives it from the
+            kind and starts asking a new kind of item the wrong questions.
+    SellableProductPage:
+      type: object
+      description: The farm's registry of what it sells, with the vocabularies its editor offers.
+      required: [products, kinds, units]
+      properties:
+        products:
+          type: array
+          items:
+            $ref: "#/components/schemas/SellableProduct"
+        kinds:
+          type: array
+          description: What an item can BE. The hint says what picking it does.
+          items:
+            $ref: "#/components/schemas/SellableProductChoice"
+        units:
+          type: array
+          description: How an item can be sold -- by the kilogram, or by number.
+          items:
+            $ref: "#/components/schemas/SellableProductChoice"
+    SellableProductChoice:
+      type: object
+      required: [key, label, hint]
+      properties:
+        key: { type: string }
+        label: { type: string }
+        hint: { type: string, description: What choosing this does, in farm words. }
+    SellableProduct:
+      type: object
+      required: [code, name, kind, unit, species_code, sort_order, status, is_builtin, priced_per_unit]
+      properties:
+        code:
+          type: string
+          description: The row's stable identity, derived from its name once and never changed.
+        name: { type: string }
+        kind: { type: string, enum: [animal, feed, other] }
+        unit: { type: string, enum: [kg, number] }
+        species_code:
+          type: string
+          description: Narrows an animal item's breeds. Empty on everything else.
+        sort_order: { type: integer }
+        status: { type: string, enum: [active, archived] }
+        is_builtin:
+          type: boolean
+          description: >-
+            May be renamed and reordered, never archived and never changed in kind: the Sold page's
+            cards key on these codes, and the kind decides whether a line carries animals.
+        priced_per_unit:
+          type: boolean
+          description: >-
+            Whether SELLING this asks for a quantity at a rate. False for animals, which are sold
+            as a lot at a negotiated price. Composed by the backend so both surfaces agree.
+    SellableProductWrite:
+      type: object
+      description: Add an item (no code) or edit one (its code).
+      required: [name, kind, unit]
+      properties:
+        code:
+          type: string
+          maxLength: 40
+          description: Absent when adding. Sent back when editing, which is what makes a rename an edit.
+        name: { type: string, maxLength: 60 }
+        kind: { type: string, enum: [animal, feed, other] }
+        unit: { type: string, enum: [kg, number] }
+        species_code: { type: string, maxLength: 40, description: Animal items only; dropped on anything else. }
+        sort_order: { type: integer, minimum: 0 }
+        status: { type: string, enum: [active, archived], description: Blank records `active`. }
     SalesDealPayment:
       type: object
       description: One amount the buyer actually handed over for one deal.

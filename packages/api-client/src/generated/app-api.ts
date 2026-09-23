@@ -4425,6 +4425,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sales/products": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What the farm sells, as its editor sees it
+         * @description The tenant's sellable-product registry INCLUDING archived rows, with the two closed vocabularies its form offers. A list somebody maintains has to show what is switched off, or they cannot switch it back on. The vocabularies ride with the rows so the editor never writes its own copy of what a person may choose.
+         */
+        get: operations["listSellableProducts"];
+        put?: never;
+        /**
+         * Add an item the farm sells, or edit one
+         * @description Adding leaves `code` empty: it is derived from the name once and never changes, so renaming the item later cannot orphan the sales already recorded under it. Editing sends the code back. The three built-in products may be renamed and reordered but never archived and never changed in kind.
+         */
+        post: operations["saveSellableProduct"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sales/products/{product_code}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove an item the farm sells
+         * @description Refused with `product_has_sales` (409) when the farm has already sold any of it: the row leaving would not corrupt the ledger, but it would leave a recorded sale with nothing to look up. Switching the item off (status `archived`) is the answer there -- gone from every dropdown, history still readable.
+         */
+        delete: operations["deleteSellableProduct"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sales/options": {
         parameters: {
             query?: never;
@@ -10598,8 +10642,63 @@ export interface components {
             code: string;
             /** @enum {string} */
             kind: "animal" | "feed" | "other";
-            /** @description What one of it is sold by -- head for an animal */
-            unit: string;
+            /**
+             * @description What one of it is sold by.
+             * @enum {string}
+             */
+            unit: "kg" | "number";
+            /** @description Whether selling this asks for a quantity at a rate rather than a negotiated lump value. False for animals. Composed by the backend so neither surface re-derives it from the kind and starts asking a new kind of item the wrong questions. */
+            priced_per_unit: boolean;
+        };
+        /** @description The farm's registry of what it sells, with the vocabularies its editor offers. */
+        SellableProductPage: {
+            products: components["schemas"]["SellableProduct"][];
+            /** @description What an item can BE. The hint says what picking it does. */
+            kinds: components["schemas"]["SellableProductChoice"][];
+            /** @description How an item can be sold -- by the kilogram, or by number. */
+            units: components["schemas"]["SellableProductChoice"][];
+        };
+        SellableProductChoice: {
+            key: string;
+            label: string;
+            /** @description What choosing this does */
+            hint: string;
+        };
+        SellableProduct: {
+            /** @description The row's stable identity, derived from its name once and never changed. */
+            code: string;
+            name: string;
+            /** @enum {string} */
+            kind: "animal" | "feed" | "other";
+            /** @enum {string} */
+            unit: "kg" | "number";
+            /** @description Narrows an animal item's breeds. Empty on everything else. */
+            species_code: string;
+            sort_order: number;
+            /** @enum {string} */
+            status: "active" | "archived";
+            /** @description May be renamed and reordered, never archived and never changed in kind: the Sold page's cards key on these codes, and the kind decides whether a line carries animals. */
+            is_builtin: boolean;
+            /** @description Whether SELLING this asks for a quantity at a rate. False for animals, which are sold as a lot at a negotiated price. Composed by the backend so both surfaces agree. */
+            priced_per_unit: boolean;
+        };
+        /** @description Add an item (no code) or edit one (its code). */
+        SellableProductWrite: {
+            /** @description Absent when adding. Sent back when editing, which is what makes a rename an edit. */
+            code?: string;
+            name: string;
+            /** @enum {string} */
+            kind: "animal" | "feed" | "other";
+            /** @enum {string} */
+            unit: "kg" | "number";
+            /** @description Animal items only; dropped on anything else. */
+            species_code?: string;
+            sort_order?: number;
+            /**
+             * @description Blank records `active`.
+             * @enum {string}
+             */
+            status?: "active" | "archived";
         };
         /** @description One amount the buyer actually handed over for one deal. */
         SalesDealPayment: {
@@ -29101,6 +29200,84 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             500: components["responses"]["ServerError"];
+        };
+    };
+    listSellableProducts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The registry and its vocabularies. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SellableProductPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    saveSellableProduct: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SellableProductWrite"];
+            };
+        };
+        responses: {
+            /** @description The saved item. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesProductOption"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+        };
+    };
+    deleteSellableProduct: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                product_code: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The item was removed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        status?: string;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
         };
     };
     listSalesOptions: {
