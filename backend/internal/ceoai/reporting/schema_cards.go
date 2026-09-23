@@ -574,12 +574,19 @@ var schemaCards = []SchemaCard{
 		Name: "sales_deal_lines_closed",
 		// line_no is REQUIRED, not optional prose: it is the view's unique key at
 		// its own grain and the keyset every consumer pages on (migration 000393).
-		// The planner prompt had 3 bytes of headroom (TestPlanPromptByteBound), so
-		// this card PAYS for its own column instead of raising the bound -- the
-		// Purpose dropped ", never avg(price_per_kg)" and the Grain its "synthesised"
-		// clause, because RenderCompact already emits "Never avg/sum: price_per_kg,..."
-		// from NeverAverage below, verbatim, two lines further down the same card.
-		// Rendered: 20469 of 20480 bytes. Trim here before widening the bound.
+		// The planner prompt had 3 bytes of headroom when this column was added
+		// (TestPlanPromptByteBound), so this card PAYS for its own column instead
+		// of raising the bound -- the Purpose dropped ", never avg(price_per_kg)"
+		// and the Grain its "synthesised" clause, because RenderCompact already
+		// emits "Never avg/sum: price_per_kg,..." from NeverAverage below,
+		// verbatim, two lines further down the same card.
+		//
+		// The bound HAS since been raised, deliberately and for a different card
+		// (20480 -> 20992; see MaxPlannerPromptBytes), so the figures above are
+		// the history of this card's trim, not today's headroom. Read the live
+		// number off TestPlanPromptByteBound -- it prints "planner prompt: N
+		// bytes of M (K cards)" -- rather than from this comment, and trim a card
+		// before widening the bound again.
 		Purpose:             "Closed deals, keyed (deal_id,line_no); page on it, never group it. Rupees/kg = sum(sales_value)/sum(total_weight_kg) where is_animal_line. deal_* repeats per line: sum only FILTER (WHERE is_deal_primary_line).",
 		Grain:               "one line of a closed deal; line_no 1 if it has none",
 		DateColumn:          "sale_date",
@@ -804,7 +811,7 @@ var schemaCards = []SchemaCard{
 		Route: "/weighing/weights",
 	},
 	{
-		Name:                "workforce_coverage_status",
+		Name: "workforce_coverage_status",
 		// THE VOCABULARY IS IN THE PURPOSE BECAUSE A GUESS AT IT SHIPPED AS A
 		// FALSE ALARM. Asked which roles have no backup coverage, the planner
 		// wrote `coverage_status <> 'covered'`; the view never emits

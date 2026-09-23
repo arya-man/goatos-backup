@@ -246,6 +246,10 @@ const (
 	tokIdent
 	tokString
 	tokOther
+	// tokComment is `-- to end of line` and `/* ... */`. sqlguard refuses both
+	// outright, but this lexer runs BEFORE the guard, so it has to know what a
+	// comment is or every word inside one is read as a column name.
+	tokComment
 )
 
 type sqlToken struct {
@@ -254,13 +258,21 @@ type sqlToken struct {
 	start, end int
 }
 
-// lexSQLTokens splits a statement into whitespace, identifiers/keywords,
-// single-quoted string literals (doubled-quote escapes included) and single
-// other bytes. It is
-// deliberately minimal: it exists so the rewrite above can tell a column name
-// from the same word INSIDE a literal, not to parse SQL. The guard
-// (sqlguard.Validate) has already rejected comments, stacking and quoted
-// identifiers by the time any of this runs.
+// lexSQLTokens splits a statement into whitespace, comments,
+// identifiers/keywords, single-quoted string literals (doubled-quote escapes
+// included) and single other bytes. It is deliberately minimal: it exists so
+// the rewrite above can tell a column name from the same word INSIDE a literal
+// or a comment, not to parse SQL.
+//
+// ON ORDERING, which an earlier version of this comment had backwards: this
+// lexer runs BEFORE sqlguard.Validate, not after. registry.go rewrites the
+// statement at :138 and validates it at :143, so every byte of a
+// comment-bearing statement passes through here first. The guard does reject
+// `--` and `/* */` a moment later, which means a comment cannot reach
+// execution — but "the next check happens to catch it" is not a reason for
+// this one to mis-read it, and it was not one: with no comment rule at all, a
+// column named in a comment was read as a column and refused a statement that
+// did not contain the predicate the refusal described.
 func lexSQLTokens(sql string) []sqlToken {
 	var toks []sqlToken
 	i := 0
@@ -273,6 +285,27 @@ func lexSQLTokens(sql string) []sqlToken {
 				j++
 			}
 			toks = append(toks, sqlToken{kind: tokSpace, text: sql[i:j], start: i, end: j})
+			i = j
+		case c == '-' && i+1 < len(sql) && sql[i+1] == '-':
+			j := i + 2
+			for j < len(sql) && sql[j] != '\n' {
+				j++
+			}
+			toks = append(toks, sqlToken{kind: tokComment, text: sql[i:j], start: i, end: j})
+			i = j
+		case c == '/' && i+1 < len(sql) && sql[i+1] == '*':
+			j := i + 2
+			for j < len(sql) {
+				if sql[j] == '*' && j+1 < len(sql) && sql[j+1] == '/' {
+					j += 2
+					break
+				}
+				j++
+			}
+			if j > len(sql) {
+				j = len(sql)
+			}
+			toks = append(toks, sqlToken{kind: tokComment, text: sql[i:j], start: i, end: j})
 			i = j
 		case c == '\'':
 			j := i + 1

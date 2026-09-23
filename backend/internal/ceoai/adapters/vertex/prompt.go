@@ -19,9 +19,12 @@ import (
 // MaxPlannerPromptBytes bounds the rendered planner prompt (system instruction
 // + user prompt with the full schema-card block and the golden catalog). The
 // golden snapshot pins the prompt's CONTENT; this is the size gate that stops
-// the 28-view card block (16 kB today) from growing silently as views are
-// added — the 29th..Nth card must either fit or force a deliberate compaction
-// (shorter card rendering, dropped columns) rather than an unbounded prompt.
+// the schema-card block from growing silently as views are added — the next
+// card must either fit or force a deliberate compaction (shorter card
+// rendering, dropped columns) rather than an unbounded prompt. The card COUNT
+// is deliberately not written here: it drifted from 28 to 32 while this comment
+// said 28. TestPlanPromptByteBound prints the live figure ("planner prompt: N
+// bytes of M (K cards)"); read it from there.
 // Prompt tokens are billed per request and the card block is the bulk of it.
 //
 // RAISED FROM 20 kB TO 20.5 kB, DELIBERATELY, because the alternative was
