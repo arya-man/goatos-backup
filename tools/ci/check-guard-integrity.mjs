@@ -26,7 +26,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { spawnSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { writeShims } from "./lib/guard-probe-shims.mjs";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -34,6 +34,7 @@ const MANIFEST = "tools/ci/guardrail-manifest.json";
 const MAKEFILE = "Makefile";
 const RUN_LOCAL_CI = "tools/ci/run-local-ci.sh";
 const RECORDER = "tools/ci/lib/guard-probe-recorder.cjs";
+const LOADER = "tools/ci/lib/guard-probe-loader.mjs";
 const FLOOR_FILE = "tools/ci/guard-floor.json";
 const INPUTS_FILE = "tools/ci/guard-inputs.json";
 
@@ -121,7 +122,7 @@ export function targetInvokesItsScript(recipe, script) {
  * nothing; every real guard reads at least its own inputs. Its own script does not count, because
  * node reads that to run it at all.
  */
-export function probeReads(command, { cwd = repo, timeoutMs = 180000, scriptPath = null } = {}) {
+export function probeReads(command, { cwd = repo, timeoutMs = 180000, scriptPath = null, watchModules = false } = {}) {
   const dir = mkdtempSync(path.join(os.tmpdir(), "goatos-guard-probe-"));
   const log = path.join(dir, "reads.txt");
   const shimLog = path.join(dir, "shim-args.txt");
@@ -129,7 +130,10 @@ export function probeReads(command, { cwd = repo, timeoutMs = 180000, scriptPath
   writeFileSync(shimLog, "");
   try {
     const shimDir = writeShims(path.join(dir, "bin"), { log: shimLog, realPath: process.env.PATH ?? "" });
-    const nodeOptions = `${process.env.NODE_OPTIONS ?? ""} --require ${path.join(repo, RECORDER)}`.trim();
+    // The module loader is only added for the SECOND look, because it costs a resolve hook on
+    // every import; the first pass stays cheap.
+    const loaderFlag = watchModules ? ` --import ${JSON.stringify(pathToFileURL(path.join(repo, LOADER)).href)}` : "";
+    const nodeOptions = `${process.env.NODE_OPTIONS ?? ""} --require ${path.join(repo, RECORDER)}${loaderFlag}`.trim();
     const result = spawnSync("bash", ["-c", command], {
       cwd,
       encoding: "utf8",
@@ -221,7 +225,7 @@ export function workVerdict(guard, seen, declaredInputs) {
   return { kind: "worked", read: hit.length, of: declared.length };
 }
 
-export function validate({ manifest, makefileText, runLocalCiText, probe, changedFiles = null, extraReachable = [], floor = null, guardInputs = new Map(), undeclaredAllowed = new Set(), noTargetAllowed = new Set(), exists = (file) => existsSync(path.join(repo, file)) }) {
+export function validate({ manifest, makefileText, runLocalCiText, probe, changedFiles = null, extraReachable = [], floor = null, guardInputs = new Map(), undeclaredAllowed = new Set(), noTargetAllowed = new Set(), reprobe = null, exists = (file) => existsSync(path.join(repo, file)) }) {
   const problems = [];
   const notes = [];
   // Named out loud rather than folded into the pass: guards this mechanism cannot judge.
@@ -275,8 +279,16 @@ export function validate({ manifest, makefileText, runLocalCiText, probe, change
     }
     if (guard.script && !exists(guard.script)) continue; // the weakening guard owns deletion
     probed += 1;
-    const seen = probe(guard.realCheck, guard.script);
-    const verdict = workVerdict(guard, seen, guardInputs.get(guard.script));
+    let seen = probe(guard.realCheck, guard.script);
+    let verdict = workVerdict(guard, seen, guardInputs.get(guard.script));
+    if (verdict.kind === "no-work" && typeof reprobe === "function") {
+      // NEVER accuse on the first look. A guard that reaches its inputs by importing them is
+      // invisible to a probe that watches file reads, and reporting that as "checks nothing"
+      // would be a check firing on correct work - which is the failure this rule was corrected
+      // for once already. So the second look happens before the accusation, not after it.
+      seen = reprobe(guard.realCheck, guard.script);
+      verdict = workVerdict(guard, seen, guardInputs.get(guard.script));
+    }
     if (verdict.kind === "not-run") {
       // Never report "read nothing" for a command that never started. That would be the same
       // false certainty this guard exists to remove, pointed the other way.
@@ -402,6 +414,7 @@ function run() {
     makefileText,
     runLocalCiText,
     probe: args.noProbe ? null : (command, script) => probeReads(command, { scriptPath: script }),
+    reprobe: args.noProbe ? null : (command, script) => probeReads(command, { scriptPath: script, watchModules: true }),
     changedFiles,
     extraReachable: mustRunInCi(),
     floor: registeredGuardFloor(),
@@ -564,6 +577,18 @@ function selfTest() {
   });
   if (carriedNoTarget.problems.some((p) => p.includes("declares no build target"))) {
     throw new Error("self-test: a guard with no build target on the carried list must not fail the build");
+  }
+
+  // An accusation must never be made on the first look alone.
+  let secondLooks = 0;
+  const cleared = validate({
+    manifest, makefileText: makefile, runLocalCiText: runLocalCi, exists, guardInputs,
+    probe: () => ({ ran: true, status: 0, reads: ["package.json"] }),
+    reprobe: () => { secondLooks += 1; return { ran: true, status: 0, reads: ["backend/x.go", "backend/z.go"] }; }
+  });
+  if (!secondLooks) throw new Error("self-test: a guard about to be accused must get a second look first");
+  if (cleared.problems.some((p) => p.includes("read none of the"))) {
+    throw new Error("self-test: a guard that reaches its inputs by importing them must not be accused");
   }
 
   // A timed-out command is "not watched", never "read nothing".
