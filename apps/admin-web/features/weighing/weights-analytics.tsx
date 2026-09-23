@@ -305,6 +305,7 @@ export async function WeighingWeightsAnalyticsPage({
     ...(saleThresholdKg != null ? { sale_threshold_kg: saleThresholdKg } : {}),
     ...(saleLowerKg != null ? { sale_lower_kg: saleLowerKg } : {}),
     include_loads: wantsLoads,
+    include_dates: false,
   };
 
   // ONE demographics read serves all three tabs that need it, Birth-wise included: the backend

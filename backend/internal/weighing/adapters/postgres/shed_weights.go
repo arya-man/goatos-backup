@@ -70,8 +70,10 @@ import (
 // once per bucket — the same fix measured in 000080 (3873ms -> 554ms at 400
 // buckets x 300 observations).
 func (r *Repository) GetShedWeights(ctx context.Context, tenantID string, scopeParkIDs []string, selectedParkID string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string, saleThresholdToleranceKg, saleLowerKg, saleUpperKg float64) (out domain.ShedWeights, err error) {
-	includeLoads := domain.ShedWeightsOptionsFromContext(ctx).IncludeLoads
-	cacheKey := weighingAnalyticsCacheKey("shed_weights:"+selectedParkID+":"+fmt.Sprintf("%.3f|%.3f|%.3f|loads=%t", saleThresholdToleranceKg, saleLowerKg, saleUpperKg, includeLoads), tenantID, scopeParkIDs, periodStart, periodEnd, sex, origin, weighingCategory)
+	options := domain.ShedWeightsOptionsFromContext(ctx)
+	includeLoads := options.IncludeLoads
+	includeDates := options.IncludeDates
+	cacheKey := weighingAnalyticsCacheKey("shed_weights:"+selectedParkID+":"+fmt.Sprintf("%.3f|%.3f|%.3f|loads=%t|dates=%t", saleThresholdToleranceKg, saleLowerKg, saleUpperKg, includeLoads, includeDates), tenantID, scopeParkIDs, periodStart, periodEnd, sex, origin, weighingCategory)
 	if cached, ok := r.getReadCache(cacheKey); ok {
 		return cached.(domain.ShedWeights), nil
 	}
@@ -114,48 +116,65 @@ func (r *Repository) GetShedWeights(ctx context.Context, tenantID string, scopeP
 	}
 	sexApplied := strings.TrimSpace(sex) != ""
 	originApplied := strings.TrimSpace(origin) != ""
-	var sexScope ReportScope
+	needsIdentityMap := weighingCategory != domain.CategoryPerShedPartition
+	var (
+		sexScope    ReportScope
+		originScope ReportScope
+		idMap       AnimalIdentityMap
+		scopeErr    error
+		originErr   error
+		idErr       error
+		setupWG     sync.WaitGroup
+	)
 	if sexApplied {
-		// The Sex filter narrows WHICH WEIGHS are counted, never which sheds exist: sheds_in_scope
-		// stays the whole scope, so "N of 65 sheds weighed" keeps one denominator across every filter
-		// position and a reader can see that the male half covers fewer sheds. Resolving identity is
-		// sex_scope.go's job — nothing in THIS file knows what an animal is; it is handed a list of
-		// tag strings and a list of buckets.
-		var scopeErr error
-		sexScope, scopeErr = r.resolveSexScope(ctx, tenantID, parkIDs, sex, periodStart, periodEnd)
-		if scopeErr != nil {
-			return domain.ShedWeights{}, scopeErr
-		}
+		setupWG.Add(1)
+		go func() {
+			defer setupWG.Done()
+			// The Sex filter narrows WHICH WEIGHS are counted, never which sheds exist: sheds_in_scope
+			// stays the whole scope, so "N of 65 sheds weighed" keeps one denominator across every filter
+			// position and a reader can see that the male half covers fewer sheds. Resolving identity is
+			// sex_scope.go's job — nothing in THIS file knows what an animal is; it is handed a list of
+			// tag strings and a list of buckets.
+			sexScope, scopeErr = r.resolveSexScope(ctx, tenantID, parkIDs, sex, periodStart, periodEnd)
+		}()
 	}
-	var originScope ReportScope
 	if originApplied {
-		// Origin (farm born / purchased) narrows the SAME rows through the SAME opaque shape, so the
-		// two filters compose without this file learning what either of them means. Both selected at
-		// once means the rows in BOTH, which is what a reader picking "Female" and "Purchased" asks
-		// for; the unfiltered page resolves neither and runs the query it always ran.
-		var originErr error
-		originScope, originErr = r.resolveOriginScope(ctx, tenantID, parkIDs, origin, periodStart, periodEnd)
-		if originErr != nil {
-			return domain.ShedWeights{}, originErr
-		}
+		setupWG.Add(1)
+		go func() {
+			defer setupWG.Done()
+			// Origin (farm born / purchased) narrows the SAME rows through the SAME opaque shape, so the
+			// two filters compose without this file learning what either of them means. Both selected at
+			// once means the rows in BOTH, which is what a reader picking "Female" and "Purchased" asks
+			// for; the unfiltered page resolves neither and runs the query it always ran.
+			originScope, originErr = r.resolveOriginScope(ctx, tenantID, parkIDs, origin, periodStart, periodEnd)
+		}()
+	}
+	if needsIdentityMap {
+		setupWG.Add(1)
+		go func() {
+			defer setupWG.Done()
+			// The same-animal map (identity_scope.go). Window-bounded and widened by the SAME gain lookback
+			// the pairing arm below reads, or an animal whose previous weigh sits before the window would
+			// merge in the growth read and not in this one -- two numbers on one page disagreeing about how
+			// many animals a shed holds, which is exactly the cross-surface split this fix exists to close.
+			//
+			// Whole-shed-only pages never read scanned-tag rows, so resolving RFID identity there only burns
+			// DB time before the query. Keep the arrays empty for that category and let the individual CTEs
+			// remain naturally empty under the category predicate.
+			idMap, idErr = r.resolveAnimalIdentityMap(ctx, tenantID, parkIDs, periodStart.AddDate(0, 0, -growthLookbackDays), periodEnd)
+		}()
+	}
+	setupWG.Wait()
+	if scopeErr != nil {
+		return domain.ShedWeights{}, scopeErr
+	}
+	if originErr != nil {
+		return domain.ShedWeights{}, originErr
+	}
+	if idErr != nil {
+		return domain.ShedWeights{}, idErr
 	}
 	scope := IntersectScopes(sexScope, sexApplied, originScope, originApplied)
-	var idMap AnimalIdentityMap
-	if weighingCategory != domain.CategoryPerShedPartition {
-		// The same-animal map (identity_scope.go). Window-bounded and widened by the SAME gain lookback
-		// the pairing arm below reads, or an animal whose previous weigh sits before the window would
-		// merge in the growth read and not in this one -- two numbers on one page disagreeing about how
-		// many animals a shed holds, which is exactly the cross-surface split this fix exists to close.
-		//
-		// Whole-shed-only pages never read scanned-tag rows, so resolving RFID identity there only burns
-		// DB time before the query. Keep the arrays empty for that category and let the individual CTEs
-		// remain naturally empty under the category predicate.
-		var idErr error
-		idMap, idErr = r.resolveAnimalIdentityMap(ctx, tenantID, parkIDs, periodStart.AddDate(0, 0, -growthLookbackDays), periodEnd)
-		if idErr != nil {
-			return domain.ShedWeights{}, idErr
-		}
-	}
 	sexFiltered := sexApplied || originApplied
 
 	out = domain.ShedWeights{
@@ -181,7 +200,7 @@ WITH scoped AS (
   -- excluded: a canceled bucket is work that was called off, so counting it in
   -- sheds_in_scope would inflate the "20 of 27" denominator with sheds nobody
   -- intended to weigh.
-  SELECT cs.campaign_shed_id, cs.tenant_id, cs.location_id, cs.partition_label, cs.weighing_category,
+  SELECT cs.campaign_shed_id, cs.campaign_id, cs.tenant_id, cs.location_id, cs.partition_label, cs.weighing_category,
          cs.status AS bucket_status, c.park_id, c.period_start_date, cs.created_at
   FROM weighing_campaign_sheds cs
   JOIN weighing_campaigns c
@@ -229,6 +248,7 @@ ind AS MATERIALIZED (
     LEFT JOIN unnest($14::text[], $15::text[]) AS akmap(tag, canonical_tag)
       ON akmap.tag = lower(btrim(o.scanned_identifier))
     WHERE o.tenant_id = s.tenant_id
+      AND o.campaign_id = s.campaign_id
       AND o.campaign_shed_id = s.campaign_shed_id
       AND o.accepted_at >= $3::timestamptz
       AND o.accepted_at <  $4::timestamptz
@@ -372,6 +392,7 @@ summary_individual AS MATERIALIZED (
         FROM scoped s
         JOIN weighing_observations o
           ON o.tenant_id = s.tenant_id
+         AND o.campaign_id = s.campaign_id
          AND o.campaign_shed_id = s.campaign_shed_id
         -- projection-review: membership=the same-animal map resolved by identity_scope.go; group_key=the normalized scanned tag; join_cardinality=0..1 map rows per observation because the map's tag column is unique by construction (DISTINCT ON over normalized identifier value), so this join adds NO rows and cannot fan an animal's weighs out under the aggregates below; pagination=NONE, the map arrives as two bounded bind arrays; scope=tenant + the same park scope and window the caller resolved the map with
         LEFT JOIN unnest($14::text[], $15::text[]) AS akmap(tag, canonical_tag)
@@ -568,8 +589,8 @@ LIMIT $7`
 		return domain.ShedWeights{}, err
 	}
 	var (
-		dates        domain.WeighingDates
-		byLoad       []domain.LoadGainBucket
+		dates        = domain.WeighingDates{LumpWeighingDates: []string{}}
+		byLoad       = []domain.LoadGainBucket{}
 		unattributed int
 		followErr    error
 		followMu     sync.Mutex
@@ -586,7 +607,7 @@ LIMIT $7`
 		followMu.Unlock()
 	}
 
-	followWG.Add(2)
+	followWG.Add(1)
 	go func() {
 		defer followWG.Done()
 		// Park vocabulary for the filter, labelled the same way the rows are. It is read
@@ -626,15 +647,18 @@ ORDER BY COALESCE(NULLIF(location_code, ''), name, ''), display_order, name, loc
 		followMu.Unlock()
 	}()
 
-	go func() {
-		defer followWG.Done()
-		// The two date facts come from ONE helper, shared with the narrow /weighing/weighing-dates read
-		// the Weights screens resolve their landing window from. Two copies of these queries would let
-		// the window a page opens on disagree with the dates the same page then reports.
-		var err error
-		dates, err = r.weighingDates(ctx, tenantID, parkIDs, periodStart, periodEnd, sexFiltered, scope, weighingCategory)
-		setFollowErr(err)
-	}()
+	if includeDates {
+		followWG.Add(1)
+		go func() {
+			defer followWG.Done()
+			// The two date facts come from ONE helper, shared with the narrow /weighing/weighing-dates read
+			// the Weights screens resolve their landing window from. Two copies of these queries would let
+			// the window a page opens on disagree with the dates the same page then reports.
+			var err error
+			dates, err = r.weighingDates(ctx, tenantID, parkIDs, periodStart, periodEnd, sexFiltered, scope, weighingCategory)
+			setFollowErr(err)
+		}()
+	}
 
 	if includeLoads {
 		followWG.Add(1)
