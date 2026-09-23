@@ -347,40 +347,47 @@ function resolveBase() {
 function changedFiles(base) {
   // Committed diff vs base, plus staged, plus unstaged — same three sources as
   // changed_since_base() in run-local-ci.sh, so this guard and the job scoping
-  // can never disagree about what "changed" means.
+  // can never disagree about what "changed" means. `stages` records which of the
+  // three actually produced anything, so the line-level diff below pays only for
+  // those (a clean working tree is the common case and costs nothing extra).
   const rows = [];
-  const parse = (out) => {
+  const stages = { committed: false, staged: false, unstaged: false };
+  const parseRows = (out) => {
+    let any = false;
     for (const rec of out.split("\n")) {
       if (!rec.trim()) continue;
+      any = true;
       const parts = rec.split("\t");
       const status = parts[0][0];
       if (status === "R") rows.push({ status: "R", oldPath: parts[1], path: parts[2] });
       else rows.push({ status, path: parts[1] });
     }
+    return any;
   };
-  try {
-    if (base) parse(git(["diff", "--name-status", "--diff-filter=ACMRD", `${base}...HEAD`]));
-  } catch {
-    /* fall through to the working-tree diffs */
-  }
-  try {
-    parse(git(["diff", "--name-status", "--diff-filter=ACMRD", "--cached"]));
-  } catch {
-    /* ignore */
-  }
-  try {
-    parse(git(["diff", "--name-status", "--diff-filter=ACMRD"]));
-  } catch {
-    /* ignore */
+  for (const [key, args] of [
+    ["committed", base ? ["diff", "--name-status", "--diff-filter=ACMRD", `${base}...HEAD`] : null],
+    ["staged", ["diff", "--name-status", "--diff-filter=ACMRD", "--cached"]],
+    ["unstaged", ["diff", "--name-status", "--diff-filter=ACMRD"]],
+  ]) {
+    if (!args) continue;
+    try {
+      stages[key] = parseRows(git(args));
+    } catch {
+      /* a source that cannot be read contributes nothing; the others still count */
+    }
   }
   const seen = new Map();
   for (const r of rows) seen.set(r.path, r);
-  return [...seen.values()];
+  const out = [...seen.values()];
+  out.stages = stages;
+  return out;
 }
 
+// A path that does not exist at the base is simply new; git writes a `fatal:`
+// line to stderr for it, which is noise in a green CI log.
 function showAt(rev, path) {
   try {
-    return git(["show", `${rev}:${path}`]);
+    return git(["show", `${rev}:${path}`], { stdio: ["ignore", "pipe", "ignore"] });
   } catch {
     return null;
   }
@@ -402,7 +409,7 @@ function readWorking(path) {
   }
 }
 
-function diffLines(base, paths) {
+function diffLines(base, paths, stages = { committed: true, staged: true, unstaged: true }) {
   const added = [];
   const removed = [];
   if (!paths.length) return { added, removed };
@@ -419,12 +426,12 @@ function diffLines(base, paths) {
       else if (line.startsWith("-")) removed.push({ path: file, line: line.slice(1) });
     }
   };
-  for (const args of [
-    base ? ["diff", "-U0", `${base}...HEAD`, "--"] : null,
-    ["diff", "-U0", "--cached", "--"],
-    ["diff", "-U0", "--"],
+  for (const [enabled, args] of [
+    [stages.committed && !!base, base ? ["diff", "-U0", `${base}...HEAD`, "--"] : null],
+    [stages.staged, ["diff", "-U0", "--cached", "--"]],
+    [stages.unstaged, ["diff", "-U0", "--"]],
   ]) {
-    if (!args) continue;
+    if (!enabled || !args) continue;
     try {
       collect(git([...args, ...paths]));
     } catch {
@@ -770,16 +777,27 @@ function main() {
   }
 
   // stage 2 — read ONLY what the diff touched.
+  // Only the files whose CONTENT the rules compare. A guard script's deletion is
+  // read from its status and its threshold changes from the line diff, so there
+  // is no reason to spawn a `git show` per guard script: on a branch touching a
+  // dozen of them that was ~850 ms of process spawns for content nothing read.
+  const needsContent = (path) =>
+    path === MANIFEST ||
+    path === GUARD_INPUTS_MANIFEST ||
+    path === RUN_LOCAL_CI ||
+    path === "Makefile" ||
+    BASELINE_RE.test(path);
   const before = {};
   const after = {};
   for (const c of surface) {
-    if (c.status === "D") continue;
+    if (c.status === "D" || !needsContent(c.path)) continue;
     before[c.path] = ref ? showAt(ref, c.path) : null;
     after[c.path] = readWorking(c.path);
   }
   const { added, removed } = diffLines(
     ref,
     [...new Set([...surface.map((c) => c.path), ...sources.map((c) => c.path), LEDGER])],
+    changed.stages,
   );
 
   const { findings, acks } = analyse({ changed, before, after, addedLines: added, removedLines: removed });
