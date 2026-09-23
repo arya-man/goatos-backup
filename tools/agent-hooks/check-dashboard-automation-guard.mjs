@@ -32,6 +32,11 @@ if (selfTest) {
   const runnerSource = readFileSync("apps/admin-web/scripts/lib/feature-assertions.mjs", "utf8");
   assert.match(runnerSource, /\["assert", "data-dependent", "mobile-only"\]\.includes\(entry\.status\)/,
     "feature-assertions runner must keep filtering to executed statuses, so parked entries never run");
+  const guardSource = readFileSync(new URL(import.meta.url), "utf8");
+  assert.match(guardSource, /if \(strictSync\) \{\n  failures\.push\(\.\.\.sync\.findings\);/,
+    "coverage-sync drift must stay non-blocking at landing (it caused the land-main rerun loop)");
+  const runSource = readFileSync("tools/dashboard-automation/run.mjs", "utf8");
+  assert.ok(runSource.includes('layer("coverage-sync"'), "OCI run must keep enforcing coverage-sync once the landing gate stops");
   console.log("dashboard automation guard self-test: PASS");
   process.exit(0);
 }
@@ -51,9 +56,19 @@ failures.push(...coverage.findings.map((finding) => `coverage-since-aug1: ${find
 // Coverage must be SELF-UPDATING: new user-visible admin-web commits on origin/main, and
 // assertions whose selector/copy has been renamed away, both have to be reported here rather
 // than silently falling out of the smoke.
+// Sync drift is about commits OTHER people already landed on origin/main, never the
+// candidate's own diff. Failing the merge gate on it forced a ledger-only commit on
+// every landing, which invalidated the exact-SHA receipt and re-ran the whole scope
+// (Android included) in a loop whenever main moved mid-run. The OCI dashboard run
+// (run.mjs `coverage-sync` layer) owns this check; here it warns unless --strict-sync.
+const strictSync = process.argv.includes("--strict-sync") || process.env.DASHBOARD_GUARD_STRICT_SYNC === "1";
 const sync = await runCoverageSyncFindings();
 console.log(sync.summary);
-failures.push(...sync.findings);
+if (strictSync) {
+  failures.push(...sync.findings);
+} else if (sync.findings.length > 0) {
+  console.warn(`dashboard automation guard: WARN (not blocking landing; OCI coverage-sync layer enforces)\n${sync.findings.join("\n")}`);
+}
 
 const smokeRoutes = discoverSmokeRoutes();
 const requiredNames = new Set(smokeRoutes.map((route) => route.name));

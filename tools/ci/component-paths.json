@@ -37,6 +37,7 @@
       "tools/ci/land-main.test.sh",
       "tools/ci/run-local-ci.sh",
       "tools/agent-hooks/install-stg-push-guard.sh",
+      "tools/agent-hooks/check-dashboard-automation-guard.mjs",
       "tools/dashboard-automation/coverage-state.json",
       "tools/dashboard-automation/feature-assertions.json"
     ]

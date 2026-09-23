@@ -216,6 +216,8 @@ function selfTest() {
     common: true, backend: false, adminWeb: false, android: true, full: false,
     selectedJobs: ["common", "android"],
   });
+  // The dashboard guard is a local-CI script run by `common`; editing it must not rebuild the apps.
+  assert.deepEqual(pick(["tools/agent-hooks/check-dashboard-automation-guard.mjs"]).selectedJobs, ["common"]);
   assert.deepEqual(pick(["tools/ci/land-main.sh"]), {
     common: true, backend: false, adminWeb: false, android: false, full: false,
     selectedJobs: ["common"],
