@@ -12,6 +12,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   coverageSentence,
+  routePairs,
+  routesOwningFiles,
   gradeAssertion,
   scanInteractiveSurfaces,
   validateLedger,
@@ -21,7 +23,12 @@ const adminWeb = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."
 const LEDGER = path.join(adminWeb, "scripts/interactive-surface-ledger.json");
 const ROOTS = ["features", "components", "app"];
 
-export function readSourceFiles(root = adminWeb, roots = ROOTS) {
+/**
+ * `extensions` widens what is READ, never what is scanned: the surface scan filters to .tsx/.jsx
+ * itself. The import graph needs the .ts barrels (features/people/index.ts) -- without them every
+ * chain from a page to its components breaks at the first barrel and no surface has an owning route.
+ */
+export function readSourceFiles(root = adminWeb, roots = ROOTS, extensions = /\.(tsx|jsx|ts|js)$/) {
   const files = [];
   const walk = (dir) => {
     for (const name of readdirSync(dir)) {
@@ -29,7 +36,7 @@ export function readSourceFiles(root = adminWeb, roots = ROOTS) {
       const full = path.join(dir, name);
       const info = statSync(full);
       if (info.isDirectory()) walk(full);
-      else if (/\.(tsx|jsx)$/.test(name)) {
+      else if (extensions.test(name) && !/\.d\.ts$/.test(name)) {
         files.push({ path: path.relative(root, full).replaceAll(path.sep, "/"), text: readFileSync(full, "utf8") });
       }
     }
@@ -46,7 +53,8 @@ export function readSourceFiles(root = adminWeb, roots = ROOTS) {
 }
 
 function run() {
-  const surfaces = scanInteractiveSurfaces(readSourceFiles());
+  const files = readSourceFiles();
+  const surfaces = scanInteractiveSurfaces(files);
   let ledger;
   try {
     ledger = JSON.parse(readFileSync(LEDGER, "utf8"));
@@ -54,13 +62,21 @@ function run() {
     console.error(`interactive-surface ledger could not be read: ${error.message}`);
     return { exit: 1, surfaces, coverage: null };
   }
-  const { problems, coverage } = validateLedger(surfaces, ledger);
+  // The gate reads the real files so every expected value is re-derived, never trusted.
+  const byPath = new Map(files.map((f) => [f.path, f.text]));
+  const { problems, coverage } = validateLedger(surfaces, ledger, (p) => byPath.get(p));
   if (problems.length) {
     console.error("interactive-surface coverage gate failed:");
     for (const problem of problems) console.error(`- ${problem}`);
     return { exit: 1, surfaces, coverage };
   }
   console.log(coverageSentence(coverage));
+  const routesByPath = routesOwningFiles(files);
+  const routes = new Set([...routesByPath.values()].flat());
+  console.log(
+    `these surfaces render on ${routes.size} admin routes; ` +
+      `${routePairs(surfaces, routesByPath)} surface-on-route pairs, each owed both 1440 and 390`,
+  );
   const notChecked = ledger.entries.filter((e) => e.status === "not-checked").length;
   console.log(`not checked, each with a stated reason: ${notChecked}`);
   return { exit: 0, surfaces, coverage };

@@ -7,7 +7,9 @@
       "kind": "edit-form",
       "where": "app/(admin)/people/loading.tsx:18",
       "status": "not-checked",
-      "notCheckedReason": "every control on this edit-form is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+      "notCheckedReason": "this loading skeleton carries no copy at all, so its only reference is how MANY placeholder boxes it paints -- and that count is produced by a .map at run time, not written in the source, so no source read can re-derive it; it needs one run to state a value that was actually measured",
+      "routes": [],
+      "routeGapReason": "Next.js reaches this file by convention rather than by an import, so the import graph cannot name its route; it is the loading state of the page it sits beside"
     },
     {
       "key": "components/auth/google-login.tsx::edit-form::grid gap-3.5",
@@ -28,8 +30,17 @@
             "Forgot password?",
             "Password"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "components/auth/google-login.tsx",
+            "line": 387,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/login"
       ]
     },
     {
@@ -51,8 +62,17 @@
             "Confirm password",
             "New password"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "components/auth/password-reset-action.tsx",
+            "line": 122,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/auth/action"
       ]
     },
     {
@@ -83,8 +103,17 @@
             "configure.title",
             "configure.updated_by"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/alerts/alerts-configure.tsx",
+            "line": 67,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/alerts"
       ]
     },
     {
@@ -106,8 +135,17 @@
             "request_id",
             "return_to"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/approvals/approvals-drawer.tsx",
+            "line": 280,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/approvals"
       ]
     },
     {
@@ -129,8 +167,17 @@
             "request_id",
             "return_to"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/approvals/approvals-drawer.tsx",
+            "line": 297,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/approvals"
       ]
     },
     {
@@ -163,8 +210,18 @@
             "calendar.drive.tag_1_header",
             "calendar.drive.tag_2_header"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/calendar/calendar-drive-detail.tsx",
+            "line": 222,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/calendar",
+        "/calendar/drive/placeholder"
       ]
     },
     {
@@ -188,8 +245,18 @@
             "idempotency_key",
             "return_to"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/calendar/calendar-event-drawer.tsx",
+            "line": 812,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/calendar",
+        "/calendar/drive/placeholder"
       ]
     },
     {
@@ -214,8 +281,18 @@
             "idempotency_key",
             "return_to"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/calendar/calendar-event-drawer.tsx",
+            "line": 803,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/calendar",
+        "/calendar/drive/placeholder"
       ]
     },
     {
@@ -239,8 +316,18 @@
             "drawer.event.close_label",
             "drawer.event.eyebrow"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/calendar/calendar-event-drawer.tsx",
+            "line": 356,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/calendar",
+        "/calendar/drive/placeholder"
       ]
     },
     {
@@ -273,8 +360,18 @@
             "label.reminder",
             "label.when"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/calendar/calendar-event-drawer.tsx",
+            "line": 439,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/calendar",
+        "/calendar/drive/placeholder"
       ]
     },
     {
@@ -307,8 +404,17 @@
             "Tool",
             "e.g. 9f2c1b7a-..."
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/ceo-ai-admin/trace-viewer.tsx",
+            "line": 121,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/ceo-ai-admin"
       ]
     },
     {
@@ -331,8 +437,17 @@
             "send",
             "title"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/ceo-ai/ceo-ai-panel.tsx",
+            "line": 641,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/tasks-preview"
       ]
     },
     {
@@ -358,8 +473,17 @@
             "filter.department.all",
             "search.placeholder"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/configuration/items-page.tsx",
+            "line": 528,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/configuration/items"
       ]
     },
     {
@@ -380,8 +504,17 @@
             "action.close",
             "crumb"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/configuration/items-page.tsx",
+            "line": 653,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/configuration/items"
       ]
     },
     {
@@ -403,8 +536,17 @@
             "crumb",
             "pager.noun"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/configuration/items-page.tsx",
+            "line": 627,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/configuration/items"
       ]
     },
     {
@@ -429,8 +571,17 @@
             "row_id",
             "row_version"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/configuration/row-actions.tsx",
+            "line": 224,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/configuration/items"
       ]
     },
     {
@@ -458,8 +609,17 @@
             "row_version",
             "status"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/configuration/row-actions.tsx",
+            "line": 212,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/configuration/items"
       ]
     },
     {
@@ -489,8 +649,17 @@
             "row_version",
             "status"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/configuration/row-actions.tsx",
+            "line": 180,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/configuration/items"
       ]
     },
     {
@@ -515,8 +684,17 @@
             "row_id",
             "row_version"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/configuration/row-actions.tsx",
+            "line": 224,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/configuration/items"
       ]
     },
     {
@@ -537,16 +715,48 @@
             "cancel",
             "remove"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/configuration/row-actions.tsx",
+            "line": 229,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/configuration/items"
       ]
     },
     {
       "key": "features/configuration/row-actions.tsx::row-action::cfg-rowacts-error",
       "kind": "row-action",
       "where": "features/configuration/row-actions.tsx:237",
-      "status": "not-checked",
-      "notCheckedReason": "every control on this row-action is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the labelled controls, copy slots and named fields a person meets on the row-action \"cfg-rowacts-error\" (features/configuration/row-actions.tsx:237)",
+          "operator": "field-set-equals",
+          "expected": [
+            "remove"
+          ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/configuration/row-actions.tsx",
+            "line": 237,
+            "extractor": "labels-near"
+          },
+          "blankScreenValue": []
+        }
+      ],
+      "routes": [
+        "/configuration/items"
+      ]
     },
     {
       "key": "features/configuration/row-actions.tsx::row-action::statusFormAction",
@@ -573,8 +783,17 @@
             "row_version",
             "status"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/configuration/row-actions.tsx",
+            "line": 205,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/configuration/items"
       ]
     },
     {
@@ -602,8 +821,17 @@
             "row_version",
             "status"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/configuration/row-actions.tsx",
+            "line": 208,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/configuration/items"
       ]
     },
     {
@@ -631,8 +859,17 @@
             "row_version",
             "status"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/configuration/row-actions.tsx",
+            "line": 206,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/configuration/items"
       ]
     },
     {
@@ -661,8 +898,17 @@
             "row_version",
             "status"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/configuration/row-actions.tsx",
+            "line": 190,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/configuration/items"
       ]
     },
     {
@@ -670,7 +916,10 @@
       "kind": "row-action",
       "where": "features/configuration/row-actions.tsx:243",
       "status": "not-checked",
-      "notCheckedReason": "every control on this row-action is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+      "notCheckedReason": "the only reference this row-action owns is a value made at run time -- the id of the row that opened it, or the sentence the server composed for this one refusal -- so no literal expected value can be written here; the sweep has to compare it against what it clicked, which nothing runs today",
+      "routes": [
+        "/configuration/items"
+      ]
     },
     {
       "key": "features/configuration/row-drawer.tsx::edit-form::cfg-form",
@@ -694,8 +943,17 @@
             "row_version",
             "status.archived"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/configuration/row-drawer.tsx",
+            "line": 152,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/configuration/items"
       ]
     },
     {
@@ -720,8 +978,17 @@
             "row_id",
             "row_version"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/configuration/row-drawer.tsx",
+            "line": 290,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/configuration/items"
       ]
     },
     {
@@ -750,8 +1017,17 @@
             "row_version",
             "status"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/configuration/row-drawer.tsx",
+            "line": 278,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/configuration/items"
       ]
     },
     {
@@ -796,8 +1072,23 @@
             "shed_id",
             "species"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/counts/herd-actions-ui.tsx",
+            "line": 341,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/calendar",
+        "/calendar/drive/placeholder",
+        "/counts/analytics",
+        "/counts/breakdown",
+        "/counts/herd",
+        "/counts/milk-preparation",
+        "/counts/mortality"
       ]
     },
     {
@@ -835,8 +1126,23 @@
             "placeholder.shed_notes",
             "return_to"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/counts/herd-actions-ui.tsx",
+            "line": 528,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/calendar",
+        "/calendar/drive/placeholder",
+        "/counts/analytics",
+        "/counts/breakdown",
+        "/counts/herd",
+        "/counts/milk-preparation",
+        "/counts/mortality"
       ]
     },
     {
@@ -872,16 +1178,60 @@
             "reproductive_status",
             "return_to"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/counts/herd-actions-ui.tsx",
+            "line": 1181,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/calendar",
+        "/calendar/drive/placeholder",
+        "/counts/analytics",
+        "/counts/breakdown",
+        "/counts/herd",
+        "/counts/milk-preparation",
+        "/counts/mortality"
       ]
     },
     {
       "key": "features/counts/herd-actions-ui.tsx::modal::unnamed",
       "kind": "modal",
       "where": "features/counts/herd-actions-ui.tsx:200",
-      "status": "not-checked",
-      "notCheckedReason": "every control on this modal is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the labelled controls, copy slots and named fields a person meets on the modal \"unnamed\" (features/counts/herd-actions-ui.tsx:200)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.working"
+          ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/counts/herd-actions-ui.tsx",
+            "line": 200,
+            "extractor": "labels-near"
+          },
+          "blankScreenValue": []
+        }
+      ],
+      "routes": [
+        "/calendar",
+        "/calendar/drive/placeholder",
+        "/counts/analytics",
+        "/counts/breakdown",
+        "/counts/herd",
+        "/counts/milk-preparation",
+        "/counts/mortality"
+      ]
     },
     {
       "key": "features/counts/herd-filters-modal-client.tsx::edit-form::tsearch",
@@ -907,8 +1257,23 @@
             "pager.page",
             "state.loading"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/counts/herd-filters-modal-client.tsx",
+            "line": 78,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/calendar",
+        "/calendar/drive/placeholder",
+        "/counts/analytics",
+        "/counts/breakdown",
+        "/counts/herd",
+        "/counts/milk-preparation",
+        "/counts/mortality"
       ]
     },
     {
@@ -935,8 +1300,23 @@
             "filter.scope_readonly",
             "filter.sex_label"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/counts/herd-filters-modal.tsx",
+            "line": 129,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/calendar",
+        "/calendar/drive/placeholder",
+        "/counts/analytics",
+        "/counts/breakdown",
+        "/counts/herd",
+        "/counts/milk-preparation",
+        "/counts/mortality"
       ]
     },
     {
@@ -965,8 +1345,23 @@
             "filter.scope_readonly",
             "filter.sex_label"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/counts/herd-filters-modal.tsx",
+            "line": 115,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/calendar",
+        "/calendar/drive/placeholder",
+        "/counts/analytics",
+        "/counts/breakdown",
+        "/counts/herd",
+        "/counts/milk-preparation",
+        "/counts/mortality"
       ]
     },
     {
@@ -988,16 +1383,60 @@
             "action.retag.applying",
             "action.retag.cancel"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/counts/inline-cell-editor.tsx",
+            "line": 309,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/calendar",
+        "/calendar/drive/placeholder",
+        "/counts/analytics",
+        "/counts/breakdown",
+        "/counts/herd",
+        "/counts/milk-preparation",
+        "/counts/mortality"
       ]
     },
     {
       "key": "features/counts/inline-cell-editor.tsx::inline-editor::btn sm#2",
       "kind": "inline-editor",
       "where": "features/counts/inline-cell-editor.tsx:330",
-      "status": "not-checked",
-      "notCheckedReason": "every control on this inline-editor is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the labelled controls, copy slots and named fields a person meets on the inline-editor \"btn sm\" (features/counts/inline-cell-editor.tsx:330)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.retag.cancel"
+          ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/counts/inline-cell-editor.tsx",
+            "line": 330,
+            "extractor": "labels-near"
+          },
+          "blankScreenValue": []
+        }
+      ],
+      "routes": [
+        "/calendar",
+        "/calendar/drive/placeholder",
+        "/counts/analytics",
+        "/counts/breakdown",
+        "/counts/herd",
+        "/counts/milk-preparation",
+        "/counts/mortality"
+      ]
     },
     {
       "key": "features/counts/inline-cell-editor.tsx::inline-editor::muted small",
@@ -1023,8 +1462,23 @@
             "action.retag.empty_scope",
             "action.retag.reason_label"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/counts/inline-cell-editor.tsx",
+            "line": 265,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/calendar",
+        "/calendar/drive/placeholder",
+        "/counts/analytics",
+        "/counts/breakdown",
+        "/counts/herd",
+        "/counts/milk-preparation",
+        "/counts/mortality"
       ]
     },
     {
@@ -1052,8 +1506,23 @@
             "action.retag.no_matches",
             "action.retag.reason_label"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/counts/inline-cell-editor.tsx",
+            "line": 253,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/calendar",
+        "/calendar/drive/placeholder",
+        "/counts/analytics",
+        "/counts/breakdown",
+        "/counts/herd",
+        "/counts/milk-preparation",
+        "/counts/mortality"
       ]
     },
     {
@@ -1079,8 +1548,23 @@
             "action.retag.empty_scope",
             "action.retag.reason_label"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/counts/inline-cell-editor.tsx",
+            "line": 284,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/calendar",
+        "/calendar/drive/placeholder",
+        "/counts/analytics",
+        "/counts/breakdown",
+        "/counts/herd",
+        "/counts/milk-preparation",
+        "/counts/mortality"
       ]
     },
     {
@@ -1103,16 +1587,60 @@
             "action.retag.cancel",
             "action.retag.reason_label"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/counts/inline-cell-editor.tsx",
+            "line": 299,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/calendar",
+        "/calendar/drive/placeholder",
+        "/counts/analytics",
+        "/counts/breakdown",
+        "/counts/herd",
+        "/counts/milk-preparation",
+        "/counts/mortality"
       ]
     },
     {
       "key": "features/counts/inline-cell-editor.tsx::inline-editor::small",
       "kind": "inline-editor",
       "where": "features/counts/inline-cell-editor.tsx:328",
-      "status": "not-checked",
-      "notCheckedReason": "every control on this inline-editor is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the labelled controls, copy slots and named fields a person meets on the inline-editor \"small\" (features/counts/inline-cell-editor.tsx:328)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.retag.cancel"
+          ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/counts/inline-cell-editor.tsx",
+            "line": 328,
+            "extractor": "labels-near"
+          },
+          "blankScreenValue": []
+        }
+      ],
+      "routes": [
+        "/calendar",
+        "/calendar/drive/placeholder",
+        "/counts/analytics",
+        "/counts/breakdown",
+        "/counts/herd",
+        "/counts/milk-preparation",
+        "/counts/mortality"
+      ]
     },
     {
       "key": "features/counts/inline-cell-editor.tsx::inline-editor::tagedit-confirm",
@@ -1138,8 +1666,23 @@
             "action.retag.empty_scope",
             "action.retag.reason_label"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/counts/inline-cell-editor.tsx",
+            "line": 275,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/calendar",
+        "/calendar/drive/placeholder",
+        "/counts/analytics",
+        "/counts/breakdown",
+        "/counts/herd",
+        "/counts/milk-preparation",
+        "/counts/mortality"
       ]
     },
     {
@@ -1165,8 +1708,23 @@
             "action.retag.empty_scope",
             "action.retag.reason_label"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/counts/inline-cell-editor.tsx",
+            "line": 281,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/calendar",
+        "/calendar/drive/placeholder",
+        "/counts/analytics",
+        "/counts/breakdown",
+        "/counts/herd",
+        "/counts/milk-preparation",
+        "/counts/mortality"
       ]
     },
     {
@@ -1194,8 +1752,23 @@
             "action.retag.no_matches",
             "action.retag.reason_label"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/counts/inline-cell-editor.tsx",
+            "line": 255,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/calendar",
+        "/calendar/drive/placeholder",
+        "/counts/analytics",
+        "/counts/breakdown",
+        "/counts/herd",
+        "/counts/milk-preparation",
+        "/counts/mortality"
       ]
     },
     {
@@ -1222,8 +1795,23 @@
             "action.retag.empty_scope",
             "action.retag.reason_label"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/counts/inline-cell-editor.tsx",
+            "line": 261,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/calendar",
+        "/calendar/drive/placeholder",
+        "/counts/analytics",
+        "/counts/breakdown",
+        "/counts/herd",
+        "/counts/milk-preparation",
+        "/counts/mortality"
       ]
     },
     {
@@ -1246,8 +1834,23 @@
             "action.retag.cancel",
             "action.retag.reason_label"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/counts/inline-cell-editor.tsx",
+            "line": 297,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/calendar",
+        "/calendar/drive/placeholder",
+        "/counts/analytics",
+        "/counts/breakdown",
+        "/counts/herd",
+        "/counts/milk-preparation",
+        "/counts/mortality"
       ]
     },
     {
@@ -1274,8 +1877,23 @@
             "action.retag.reason_label",
             "action.retag.search_placeholder"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/counts/inline-cell-editor.tsx",
+            "line": 215,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/calendar",
+        "/calendar/drive/placeholder",
+        "/counts/analytics",
+        "/counts/breakdown",
+        "/counts/herd",
+        "/counts/milk-preparation",
+        "/counts/mortality"
       ]
     },
     {
@@ -1302,8 +1920,23 @@
             "action.retag.reason_label",
             "action.retag.search_placeholder"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/counts/inline-cell-editor.tsx",
+            "line": 218,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/calendar",
+        "/calendar/drive/placeholder",
+        "/counts/analytics",
+        "/counts/breakdown",
+        "/counts/herd",
+        "/counts/milk-preparation",
+        "/counts/mortality"
       ]
     },
     {
@@ -1331,8 +1964,23 @@
             "action.retag.reason_label",
             "action.retag.search_placeholder"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/counts/inline-cell-editor.tsx",
+            "line": 236,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/calendar",
+        "/calendar/drive/placeholder",
+        "/counts/analytics",
+        "/counts/breakdown",
+        "/counts/herd",
+        "/counts/milk-preparation",
+        "/counts/mortality"
       ]
     },
     {
@@ -1362,16 +2010,74 @@
             "action.retag.reason_label",
             "action.retag.search_placeholder"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/counts/inline-cell-editor.tsx",
+            "line": 240,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/calendar",
+        "/calendar/drive/placeholder",
+        "/counts/analytics",
+        "/counts/breakdown",
+        "/counts/herd",
+        "/counts/milk-preparation",
+        "/counts/mortality"
       ]
     },
     {
       "key": "features/feed/feed-completion-table.tsx::modal::unnamed",
       "kind": "modal",
       "where": "features/feed/feed-completion-table.tsx:288",
-      "status": "not-checked",
-      "notCheckedReason": "every control on this modal is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the labelled controls, copy slots and named fields a person meets on the modal \"unnamed\" (features/feed/feed-completion-table.tsx:288)",
+          "operator": "field-set-equals",
+          "expected": [
+            "completion.slot.missing",
+            "completion.slot.no_name",
+            "drawer.completion.aria",
+            "drawer.completion.close_label",
+            "drawer.completion.col.video",
+            "drawer.completion.col.when",
+            "drawer.completion.col.who",
+            "drawer.completion.eyebrow",
+            "drawer.completion.farm",
+            "drawer.completion.none",
+            "drawer.completion.rework",
+            "drawer.completion.session",
+            "drawer.completion.status",
+            "drawer.completion.submitted_at",
+            "drawer.completion.submitted_by",
+            "drawer.completion.verified_at",
+            "drawer.completion.verified_by",
+            "drawer.completion.videos"
+          ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/feed/feed-completion-table.tsx",
+            "line": 288,
+            "extractor": "labels-near"
+          },
+          "blankScreenValue": []
+        }
+      ],
+      "routes": [
+        "/feed/analytics",
+        "/feed/config",
+        "/feed/direction",
+        "/feed/packing"
+      ]
     },
     {
       "key": "features/feed/feed-config-editor.tsx::edit-form::btn sm p",
@@ -1398,8 +2104,20 @@
             "shed_tag",
             "state.loading"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/feed/feed-config-editor.tsx",
+            "line": 152,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/feed/analytics",
+        "/feed/config",
+        "/feed/direction",
+        "/feed/packing"
       ]
     },
     {
@@ -1438,8 +2156,17 @@
             "section.evidence.title",
             "section.timeline.title"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/goat-passport/index.tsx",
+            "line": 291,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/goats/placeholder"
       ]
     },
     {
@@ -1482,8 +2209,17 @@
             "section.add_identifier.title",
             "section.evidence.title"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/goat-passport/index.tsx",
+            "line": 266,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/goats/placeholder"
       ]
     },
     {
@@ -1511,8 +2247,18 @@
             "note.both_bands",
             "state.loading"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/health/health-config-editor.tsx",
+            "line": 470,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/health/analytics",
+        "/health/config"
       ]
     },
     {
@@ -1534,8 +2280,18 @@
             "idempotency_key",
             "state.loading"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/health/health-config-editor.tsx",
+            "line": 553,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/health/analytics",
+        "/health/config"
       ]
     },
     {
@@ -1565,8 +2321,18 @@
             "note.days_shrink",
             "note.rename_scope"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/health/health-config-editor.tsx",
+            "line": 714,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/health/analytics",
+        "/health/config"
       ]
     },
     {
@@ -1594,8 +2360,18 @@
             "status.draft_none",
             "status.draft_open"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/health/health-config.tsx",
+            "line": 361,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/health/analytics",
+        "/health/config"
       ]
     },
     {
@@ -1620,8 +2396,17 @@
             "To",
             "dd/mm/yyyy"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/herd-signals/herd-signals-history-fullscreen.tsx",
+            "line": 241,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/herd-signals"
       ]
     },
     {
@@ -1642,8 +2427,17 @@
             "Cancel",
             "Close"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/herd-signals/herd-signals-mapping-table.tsx",
+            "line": 433,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/herd-signals"
       ]
     },
     {
@@ -1661,6 +2455,8 @@
           "subject": "the labelled controls, copy slots and named fields a person meets on the edit-form \"unnamed\" (features/leadership-tasks/task-activity-composer.tsx:238)",
           "operator": "field-set-equals",
           "expected": [
+            "activity.older",
+            "activity.older_loading",
             "comment",
             "idempotency_key",
             "ltd-comment-form",
@@ -1670,11 +2466,21 @@
             "note.label",
             "note.placeholder",
             "note.send",
+            "note.sending",
             "return_to",
             "task_id"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/leadership-tasks/task-activity-composer.tsx",
+            "line": 238,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/tasks"
       ]
     },
     {
@@ -1682,7 +2488,10 @@
       "kind": "modal",
       "where": "features/leadership-tasks/task-detail-drawer.tsx:133",
       "status": "not-checked",
-      "notCheckedReason": "every control on this modal is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+      "notCheckedReason": "this modal is a shell: every word on it arrives as a prop from whichever screen renders it, so no expected value belongs here -- the reference belongs on each call site, and those call sites are inventoried separately",
+      "routes": [
+        "/tasks"
+      ]
     },
     {
       "key": "features/leadership-tasks/task-status-menu.tsx::edit-form::action",
@@ -1701,21 +2510,59 @@
           "expected": [
             "from_status",
             "idempotency_key",
+            "label.status",
             "return_to",
             "row_version",
             "status",
+            "status.cancel_no",
+            "status.cancel_yes",
+            "status.menu_aria",
             "task_id"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/leadership-tasks/task-status-menu.tsx",
+            "line": 131,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/tasks"
       ]
     },
     {
       "key": "features/leadership-tasks/task-status-menu.tsx::row-action::opt",
       "kind": "row-action",
       "where": "features/leadership-tasks/task-status-menu.tsx:170",
-      "status": "not-checked",
-      "notCheckedReason": "every control on this row-action is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the labelled controls, copy slots and named fields a person meets on the row-action \"opt\" (features/leadership-tasks/task-status-menu.tsx:170)",
+          "operator": "field-set-equals",
+          "expected": [
+            "status.cancel_no",
+            "status.cancel_yes",
+            "status.menu_aria"
+          ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/leadership-tasks/task-status-menu.tsx",
+            "line": 170,
+            "extractor": "labels-near"
+          },
+          "blankScreenValue": []
+        }
+      ],
+      "routes": [
+        "/tasks"
+      ]
     },
     {
       "key": "features/leadership-tasks/task-write-forms.tsx::edit-form::action",
@@ -1743,8 +2590,17 @@
             "status",
             "task_id"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/leadership-tasks/task-write-forms.tsx",
+            "line": 71,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/tasks"
       ]
     },
     {
@@ -1770,8 +2626,17 @@
             "return_to",
             "task_id"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/leadership-tasks/task-write-forms.tsx",
+            "line": 123,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/tasks"
       ]
     },
     {
@@ -1806,8 +2671,17 @@
             "reject.reason_hint",
             "return_to"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/leave/leave-page.tsx",
+            "line": 145,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/leave"
       ]
     },
     {
@@ -1840,16 +2714,48 @@
             "reject.reason_hint",
             "return_to"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/leave/leave-page.tsx",
+            "line": 152,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/leave"
       ]
     },
     {
       "key": "features/notifications/notification-bell.tsx::modal::unnamed",
       "kind": "modal",
       "where": "features/notifications/notification-bell.tsx:320",
-      "status": "not-checked",
-      "notCheckedReason": "every control on this modal is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the labelled controls, copy slots and named fields a person meets on the modal \"unnamed\" (features/notifications/notification-bell.tsx:320)",
+          "operator": "field-set-equals",
+          "expected": [
+            "title"
+          ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/notifications/notification-bell.tsx",
+            "line": 320,
+            "extractor": "labels-near"
+          },
+          "blankScreenValue": []
+        }
+      ],
+      "routes": [
+        "/tasks-preview"
+      ]
     },
     {
       "key": "features/operations-audit/audit-log.tsx::edit-form::bd",
@@ -1885,8 +2791,17 @@
             "resource_id",
             "resource_type"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/operations-audit/audit-log.tsx",
+            "line": 309,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/operations/audit"
       ]
     },
     {
@@ -1915,8 +2830,17 @@
             "section.activity.title",
             "table.activity.aria"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/operations-audit/audit-log.tsx",
+            "line": 228,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/operations/audit"
       ]
     },
     {
@@ -1944,8 +2868,17 @@
             "label.operators",
             "section.span.title"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/operations-audit/audit-log.tsx",
+            "line": 185,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/operations/audit"
       ]
     },
     {
@@ -1972,8 +2905,17 @@
             "reason.replay",
             "return_to"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/operations-dlq/dlq-local-drawer.tsx",
+            "line": 133,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/operations/dlq"
       ]
     },
     {
@@ -1999,8 +2941,17 @@
             "reason.discard",
             "return_to"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/operations-dlq/dlq-local-drawer.tsx",
+            "line": 140,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/operations/dlq"
       ]
     },
     {
@@ -2034,8 +2985,17 @@
             "section.events.title",
             "topic"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/operations-dlq/index.tsx",
+            "line": 109,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/operations/dlq"
       ]
     },
     {
@@ -2071,8 +3031,17 @@
             "section.events.title",
             "topic"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/operations-dlq/index.tsx",
+            "line": 104,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/operations/dlq"
       ]
     },
     {
@@ -2099,8 +3068,17 @@
             "routine_id",
             "row_version"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/pen-routines/routine-drawer.tsx",
+            "line": 259,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/routines"
       ]
     },
     {
@@ -2126,8 +3104,17 @@
             "row_version",
             "status"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/pen-routines/routine-drawer.tsx",
+            "line": 682,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/routines"
       ]
     },
     {
@@ -2148,8 +3135,17 @@
             "action.close",
             "drawer.routine.title"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/pen-routines/routines-page.tsx",
+            "line": 404,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/routines"
       ]
     },
     {
@@ -2184,6 +3180,7 @@
             "date",
             "designation",
             "filter.all",
+            "filter.apply",
             "filter.park",
             "filter.search_label",
             "filter.search_placeholder",
@@ -2192,8 +3189,17 @@
             "summary.count",
             "tab"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/people/clock-screen.tsx",
+            "line": 124,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/people"
       ]
     },
     {
@@ -2219,6 +3225,7 @@
             "empty.people",
             "empty.people.unset",
             "filter.all",
+            "filter.apply",
             "filter.department",
             "filter.park",
             "filter.search_label",
@@ -2232,8 +3239,17 @@
             "status",
             "summary.count"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/people/people-board.tsx",
+            "line": 114,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/people"
       ]
     },
     {
@@ -2254,8 +3270,17 @@
             "access.error.load",
             "access.loading"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/people/person-access-launcher.tsx",
+            "line": 75,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/people"
       ]
     },
     {
@@ -2283,8 +3308,17 @@
             "access.warning.title",
             "action.close"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/people/person-access-modal.tsx",
+            "line": 206,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/people"
       ]
     },
     {
@@ -2309,8 +3343,17 @@
             "row_version",
             "target_status"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/people/person-add-drawer.tsx",
+            "line": 361,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/people"
       ]
     },
     {
@@ -2341,8 +3384,17 @@
             "return_to",
             "role"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/people/person-add-drawer.tsx",
+            "line": 170,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/people"
       ]
     },
     {
@@ -2378,8 +3430,17 @@
             "title.hint",
             "title.placeholder"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/people/person-add-drawer.tsx",
+            "line": 285,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/people"
       ]
     },
     {
@@ -2400,8 +3461,17 @@
             "Add planned leave",
             "Close"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/people/vaccination-operators-screen.tsx",
+            "line": 1146,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/people"
       ]
     },
     {
@@ -2424,8 +3494,17 @@
             "Cancel",
             "Close"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/people/vaccination-operators-screen.tsx",
+            "line": 1204,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/people"
       ]
     },
     {
@@ -2454,8 +3533,47 @@
             "command_board.shed_vaccine.drawer.verifying_of",
             "command_board.shed_vaccine.title"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/preventive-care-vaccination/command-board-view.tsx",
+            "line": 1490,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/(admin)",
+        "/action-center",
+        "/calendar",
+        "/calendar/drive/placeholder",
+        "/configuration/items",
+        "/counts/analytics",
+        "/counts/breakdown",
+        "/counts/herd",
+        "/counts/milk-preparation",
+        "/counts/mortality",
+        "/goats/placeholder",
+        "/procurement/animal-purchases",
+        "/procurement/feed-purchases",
+        "/procurement/source-entry",
+        "/procurement/source-entry/loads/placeholder",
+        "/procurement/vendors",
+        "/protocol-adherence",
+        "/routines",
+        "/sales/buyer-analytics",
+        "/sales/config",
+        "/sales/farm-born",
+        "/sales/farm-value",
+        "/sales/loads",
+        "/sales/market-analytics",
+        "/sales/sold",
+        "/sales/vendors",
+        "/vaccination",
+        "/vaccination/execution/sheds/placeholder",
+        "/vaccination/live-tracker",
+        "/workflows",
+        "/workflows/placeholder"
       ]
     },
     {
@@ -2482,8 +3600,47 @@
             "command_board.cohort_matrix.detail.close",
             "command_board.kpi.closed_without_dose"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/preventive-care-vaccination/command-board-view.tsx",
+            "line": 1627,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/(admin)",
+        "/action-center",
+        "/calendar",
+        "/calendar/drive/placeholder",
+        "/configuration/items",
+        "/counts/analytics",
+        "/counts/breakdown",
+        "/counts/herd",
+        "/counts/milk-preparation",
+        "/counts/mortality",
+        "/goats/placeholder",
+        "/procurement/animal-purchases",
+        "/procurement/feed-purchases",
+        "/procurement/source-entry",
+        "/procurement/source-entry/loads/placeholder",
+        "/procurement/vendors",
+        "/protocol-adherence",
+        "/routines",
+        "/sales/buyer-analytics",
+        "/sales/config",
+        "/sales/farm-born",
+        "/sales/farm-value",
+        "/sales/loads",
+        "/sales/market-analytics",
+        "/sales/sold",
+        "/sales/vendors",
+        "/vaccination",
+        "/vaccination/execution/sheds/placeholder",
+        "/vaccination/live-tracker",
+        "/workflows",
+        "/workflows/placeholder"
       ]
     },
     {
@@ -2515,8 +3672,47 @@
             "command_board.cohort_matrix.submitted_word",
             "command_board.cohort_matrix.verified_word"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/preventive-care-vaccination/command-board-view.tsx",
+            "line": 1707,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/(admin)",
+        "/action-center",
+        "/calendar",
+        "/calendar/drive/placeholder",
+        "/configuration/items",
+        "/counts/analytics",
+        "/counts/breakdown",
+        "/counts/herd",
+        "/counts/milk-preparation",
+        "/counts/mortality",
+        "/goats/placeholder",
+        "/procurement/animal-purchases",
+        "/procurement/feed-purchases",
+        "/procurement/source-entry",
+        "/procurement/source-entry/loads/placeholder",
+        "/procurement/vendors",
+        "/protocol-adherence",
+        "/routines",
+        "/sales/buyer-analytics",
+        "/sales/config",
+        "/sales/farm-born",
+        "/sales/farm-value",
+        "/sales/loads",
+        "/sales/market-analytics",
+        "/sales/sold",
+        "/sales/vendors",
+        "/vaccination",
+        "/vaccination/execution/sheds/placeholder",
+        "/vaccination/live-tracker",
+        "/workflows",
+        "/workflows/placeholder"
       ]
     },
     {
@@ -2546,8 +3742,47 @@
             "schedule.unit.animals",
             "schedule_sheds_q"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/preventive-care-vaccination/full-vaccine-schedule-drawer.tsx",
+            "line": 187,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/(admin)",
+        "/action-center",
+        "/calendar",
+        "/calendar/drive/placeholder",
+        "/configuration/items",
+        "/counts/analytics",
+        "/counts/breakdown",
+        "/counts/herd",
+        "/counts/milk-preparation",
+        "/counts/mortality",
+        "/goats/placeholder",
+        "/procurement/animal-purchases",
+        "/procurement/feed-purchases",
+        "/procurement/source-entry",
+        "/procurement/source-entry/loads/placeholder",
+        "/procurement/vendors",
+        "/protocol-adherence",
+        "/routines",
+        "/sales/buyer-analytics",
+        "/sales/config",
+        "/sales/farm-born",
+        "/sales/farm-value",
+        "/sales/loads",
+        "/sales/market-analytics",
+        "/sales/sold",
+        "/sales/vendors",
+        "/vaccination",
+        "/vaccination/execution/sheds/placeholder",
+        "/vaccination/live-tracker",
+        "/workflows",
+        "/workflows/placeholder"
       ]
     },
     {
@@ -2580,8 +3815,47 @@
             "schedule.unit.sheds",
             "schedule_sheds_q"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/preventive-care-vaccination/full-vaccine-schedule-drawer.tsx",
+            "line": 162,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/(admin)",
+        "/action-center",
+        "/calendar",
+        "/calendar/drive/placeholder",
+        "/configuration/items",
+        "/counts/analytics",
+        "/counts/breakdown",
+        "/counts/herd",
+        "/counts/milk-preparation",
+        "/counts/mortality",
+        "/goats/placeholder",
+        "/procurement/animal-purchases",
+        "/procurement/feed-purchases",
+        "/procurement/source-entry",
+        "/procurement/source-entry/loads/placeholder",
+        "/procurement/vendors",
+        "/protocol-adherence",
+        "/routines",
+        "/sales/buyer-analytics",
+        "/sales/config",
+        "/sales/farm-born",
+        "/sales/farm-value",
+        "/sales/loads",
+        "/sales/market-analytics",
+        "/sales/sold",
+        "/sales/vendors",
+        "/vaccination",
+        "/vaccination/execution/sheds/placeholder",
+        "/vaccination/live-tracker",
+        "/workflows",
+        "/workflows/placeholder"
       ]
     },
     {
@@ -2615,8 +3889,47 @@
             "schedule.postpone.vaccine",
             "vaccine_code"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/preventive-care-vaccination/full-vaccine-schedule-move-drawer.tsx",
+            "line": 135,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/(admin)",
+        "/action-center",
+        "/calendar",
+        "/calendar/drive/placeholder",
+        "/configuration/items",
+        "/counts/analytics",
+        "/counts/breakdown",
+        "/counts/herd",
+        "/counts/milk-preparation",
+        "/counts/mortality",
+        "/goats/placeholder",
+        "/procurement/animal-purchases",
+        "/procurement/feed-purchases",
+        "/procurement/source-entry",
+        "/procurement/source-entry/loads/placeholder",
+        "/procurement/vendors",
+        "/protocol-adherence",
+        "/routines",
+        "/sales/buyer-analytics",
+        "/sales/config",
+        "/sales/farm-born",
+        "/sales/farm-value",
+        "/sales/loads",
+        "/sales/market-analytics",
+        "/sales/sold",
+        "/sales/vendors",
+        "/vaccination",
+        "/vaccination/execution/sheds/placeholder",
+        "/vaccination/live-tracker",
+        "/workflows",
+        "/workflows/placeholder"
       ]
     },
     {
@@ -2654,8 +3967,47 @@
             "schedule.unit.doses",
             "vaccine_code"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/preventive-care-vaccination/full-vaccine-schedule-move-drawer.tsx",
+            "line": 122,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/(admin)",
+        "/action-center",
+        "/calendar",
+        "/calendar/drive/placeholder",
+        "/configuration/items",
+        "/counts/analytics",
+        "/counts/breakdown",
+        "/counts/herd",
+        "/counts/milk-preparation",
+        "/counts/mortality",
+        "/goats/placeholder",
+        "/procurement/animal-purchases",
+        "/procurement/feed-purchases",
+        "/procurement/source-entry",
+        "/procurement/source-entry/loads/placeholder",
+        "/procurement/vendors",
+        "/protocol-adherence",
+        "/routines",
+        "/sales/buyer-analytics",
+        "/sales/config",
+        "/sales/farm-born",
+        "/sales/farm-value",
+        "/sales/loads",
+        "/sales/market-analytics",
+        "/sales/sold",
+        "/sales/vendors",
+        "/vaccination",
+        "/vaccination/execution/sheds/placeholder",
+        "/vaccination/live-tracker",
+        "/workflows",
+        "/workflows/placeholder"
       ]
     },
     {
@@ -2683,9 +4035,17 @@
             "drawer.sop.video_proof_required",
             "drawer.sop.window_note"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/preventive-care-vaccination/sop-quick-view.tsx",
+            "line": 84,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
-      ]
+      ],
+      "routes": [],
+      "routeGapReason": "no page in the app imports this file, directly or through a barrel -- nothing can reach this surface today, which is a finding of its own and not something an assertion can cover"
     },
     {
       "key": "features/preventive-care-vaccination/supplier-warmup-context.tsx::modal::unnamed",
@@ -2719,9 +4079,17 @@
             "drawer.warmup.title_prefix",
             "drawer.warmup.warmup"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/preventive-care-vaccination/supplier-warmup-context.tsx",
+            "line": 266,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
-      ]
+      ],
+      "routes": [],
+      "routeGapReason": "no page in the app imports this file, directly or through a barrel -- nothing can reach this surface today, which is a finding of its own and not something an assertion can cover"
     },
     {
       "key": "features/preventive-care-vaccination/vaccination-filter-modal.tsx::modal::hd",
@@ -2751,8 +4119,47 @@
             "filter.search_visible_rows",
             "pager.matching_rows"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/preventive-care-vaccination/vaccination-filter-modal.tsx",
+            "line": 132,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/(admin)",
+        "/action-center",
+        "/calendar",
+        "/calendar/drive/placeholder",
+        "/configuration/items",
+        "/counts/analytics",
+        "/counts/breakdown",
+        "/counts/herd",
+        "/counts/milk-preparation",
+        "/counts/mortality",
+        "/goats/placeholder",
+        "/procurement/animal-purchases",
+        "/procurement/feed-purchases",
+        "/procurement/source-entry",
+        "/procurement/source-entry/loads/placeholder",
+        "/procurement/vendors",
+        "/protocol-adherence",
+        "/routines",
+        "/sales/buyer-analytics",
+        "/sales/config",
+        "/sales/farm-born",
+        "/sales/farm-value",
+        "/sales/loads",
+        "/sales/market-analytics",
+        "/sales/sold",
+        "/sales/vendors",
+        "/vaccination",
+        "/vaccination/execution/sheds/placeholder",
+        "/vaccination/live-tracker",
+        "/workflows",
+        "/workflows/placeholder"
       ]
     },
     {
@@ -2782,8 +4189,21 @@
             "filter.severity.title",
             "filter.work_state.title"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/process-integrity/action-center-filters.tsx",
+            "line": 90,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/(admin)",
+        "/action-center",
+        "/protocol-adherence",
+        "/workflows",
+        "/workflows/placeholder"
       ]
     },
     {
@@ -2817,8 +4237,21 @@
             "row_version",
             "task_id"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/process-integrity/action-center-local-drawer.tsx",
+            "line": 209,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/(admin)",
+        "/action-center",
+        "/protocol-adherence",
+        "/workflows",
+        "/workflows/placeholder"
       ]
     },
     {
@@ -2842,8 +4275,21 @@
             "row_version",
             "task_id"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/process-integrity/action-center.tsx",
+            "line": 72,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/(admin)",
+        "/action-center",
+        "/protocol-adherence",
+        "/workflows",
+        "/workflows/placeholder"
       ]
     },
     {
@@ -2870,8 +4316,31 @@
             "reject",
             "row_version"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/procurement/animal-purchase-decision-form.tsx",
+            "line": 60,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/configuration/items",
+        "/procurement/animal-purchases",
+        "/procurement/feed-purchases",
+        "/procurement/source-entry",
+        "/procurement/source-entry/loads/placeholder",
+        "/procurement/vendors",
+        "/routines",
+        "/sales/buyer-analytics",
+        "/sales/config",
+        "/sales/farm-born",
+        "/sales/farm-value",
+        "/sales/loads",
+        "/sales/market-analytics",
+        "/sales/sold",
+        "/sales/vendors"
       ]
     },
     {
@@ -2879,7 +4348,24 @@
       "kind": "modal",
       "where": "features/procurement/animal-purchase-lightbox.tsx:109",
       "status": "not-checked",
-      "notCheckedReason": "every control on this modal is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+      "notCheckedReason": "every word on this lightbox arrives as a prop, and its one shape-based reference -- that exactly one proof is painted -- cannot be re-derived from the source, which declares both a photo and a video branch while a run renders one; it needs one run to state a measured value",
+      "routes": [
+        "/configuration/items",
+        "/procurement/animal-purchases",
+        "/procurement/feed-purchases",
+        "/procurement/source-entry",
+        "/procurement/source-entry/loads/placeholder",
+        "/procurement/vendors",
+        "/routines",
+        "/sales/buyer-analytics",
+        "/sales/config",
+        "/sales/farm-born",
+        "/sales/farm-value",
+        "/sales/loads",
+        "/sales/market-analytics",
+        "/sales/sold",
+        "/sales/vendors"
+      ]
     },
     {
       "key": "features/procurement/animal-purchases.tsx::edit-form::ap-filter-bar",
@@ -2910,8 +4396,31 @@
             "recorded_from",
             "recorded_to"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/procurement/animal-purchases.tsx",
+            "line": 362,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/configuration/items",
+        "/procurement/animal-purchases",
+        "/procurement/feed-purchases",
+        "/procurement/source-entry",
+        "/procurement/source-entry/loads/placeholder",
+        "/procurement/vendors",
+        "/routines",
+        "/sales/buyer-analytics",
+        "/sales/config",
+        "/sales/farm-born",
+        "/sales/farm-value",
+        "/sales/loads",
+        "/sales/market-analytics",
+        "/sales/sold",
+        "/sales/vendors"
       ]
     },
     {
@@ -2944,8 +4453,31 @@
             "transport_cost",
             "unloading_cost"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/procurement/feed-purchase-drawer.tsx",
+            "line": 221,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/configuration/items",
+        "/procurement/animal-purchases",
+        "/procurement/feed-purchases",
+        "/procurement/source-entry",
+        "/procurement/source-entry/loads/placeholder",
+        "/procurement/vendors",
+        "/routines",
+        "/sales/buyer-analytics",
+        "/sales/config",
+        "/sales/farm-born",
+        "/sales/farm-value",
+        "/sales/loads",
+        "/sales/market-analytics",
+        "/sales/sold",
+        "/sales/vendors"
       ]
     },
     {
@@ -2977,8 +4509,31 @@
             "unloading_cost",
             "vendor"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/procurement/feed-purchase-drawer.tsx",
+            "line": 362,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/configuration/items",
+        "/procurement/animal-purchases",
+        "/procurement/feed-purchases",
+        "/procurement/source-entry",
+        "/procurement/source-entry/loads/placeholder",
+        "/procurement/vendors",
+        "/routines",
+        "/sales/buyer-analytics",
+        "/sales/config",
+        "/sales/farm-born",
+        "/sales/farm-value",
+        "/sales/loads",
+        "/sales/market-analytics",
+        "/sales/sold",
+        "/sales/vendors"
       ]
     },
     {
@@ -3013,8 +4568,31 @@
             "section.payments.title",
             "was_reached"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/procurement/feed-purchase-drawer.tsx",
+            "line": 507,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/configuration/items",
+        "/procurement/animal-purchases",
+        "/procurement/feed-purchases",
+        "/procurement/source-entry",
+        "/procurement/source-entry/loads/placeholder",
+        "/procurement/vendors",
+        "/routines",
+        "/sales/buyer-analytics",
+        "/sales/config",
+        "/sales/farm-born",
+        "/sales/farm-value",
+        "/sales/loads",
+        "/sales/market-analytics",
+        "/sales/sold",
+        "/sales/vendors"
       ]
     },
     {
@@ -3042,8 +4620,31 @@
             "payment_status",
             "return_to"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/procurement/feed-purchase-drawer.tsx",
+            "line": 595,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/configuration/items",
+        "/procurement/animal-purchases",
+        "/procurement/feed-purchases",
+        "/procurement/source-entry",
+        "/procurement/source-entry/loads/placeholder",
+        "/procurement/vendors",
+        "/routines",
+        "/sales/buyer-analytics",
+        "/sales/config",
+        "/sales/farm-born",
+        "/sales/farm-value",
+        "/sales/loads",
+        "/sales/market-analytics",
+        "/sales/sold",
+        "/sales/vendors"
       ]
     },
     {
@@ -3066,8 +4667,31 @@
             "payment_status",
             "return_to"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/procurement/feed-purchase-drawer.tsx",
+            "line": 619,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/configuration/items",
+        "/procurement/animal-purchases",
+        "/procurement/feed-purchases",
+        "/procurement/source-entry",
+        "/procurement/source-entry/loads/placeholder",
+        "/procurement/vendors",
+        "/routines",
+        "/sales/buyer-analytics",
+        "/sales/config",
+        "/sales/farm-born",
+        "/sales/farm-value",
+        "/sales/loads",
+        "/sales/market-analytics",
+        "/sales/sold",
+        "/sales/vendors"
       ]
     },
     {
@@ -3099,8 +4723,31 @@
             "loadwise.prior.title",
             "return_to"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/procurement/load-cost-drawer.tsx",
+            "line": 136,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/configuration/items",
+        "/procurement/animal-purchases",
+        "/procurement/feed-purchases",
+        "/procurement/source-entry",
+        "/procurement/source-entry/loads/placeholder",
+        "/procurement/vendors",
+        "/routines",
+        "/sales/buyer-analytics",
+        "/sales/config",
+        "/sales/farm-born",
+        "/sales/farm-value",
+        "/sales/loads",
+        "/sales/market-analytics",
+        "/sales/sold",
+        "/sales/vendors"
       ]
     },
     {
@@ -3145,8 +4792,31 @@
             "source_location_id",
             "source_party_id"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/procurement/load-forms.tsx",
+            "line": 91,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/configuration/items",
+        "/procurement/animal-purchases",
+        "/procurement/feed-purchases",
+        "/procurement/source-entry",
+        "/procurement/source-entry/loads/placeholder",
+        "/procurement/vendors",
+        "/routines",
+        "/sales/buyer-analytics",
+        "/sales/config",
+        "/sales/farm-born",
+        "/sales/farm-value",
+        "/sales/loads",
+        "/sales/market-analytics",
+        "/sales/sold",
+        "/sales/vendors"
       ]
     },
     {
@@ -3194,8 +4864,31 @@
             "species",
             "warmup_days"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/procurement/load-forms.tsx",
+            "line": 167,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/configuration/items",
+        "/procurement/animal-purchases",
+        "/procurement/feed-purchases",
+        "/procurement/source-entry",
+        "/procurement/source-entry/loads/placeholder",
+        "/procurement/vendors",
+        "/routines",
+        "/sales/buyer-analytics",
+        "/sales/config",
+        "/sales/farm-born",
+        "/sales/farm-value",
+        "/sales/loads",
+        "/sales/market-analytics",
+        "/sales/sold",
+        "/sales/vendors"
       ]
     },
     {
@@ -3242,8 +4935,31 @@
             "source_ref",
             "vaccine_name"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/procurement/load-forms.tsx",
+            "line": 253,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/configuration/items",
+        "/procurement/animal-purchases",
+        "/procurement/feed-purchases",
+        "/procurement/source-entry",
+        "/procurement/source-entry/loads/placeholder",
+        "/procurement/vendors",
+        "/routines",
+        "/sales/buyer-analytics",
+        "/sales/config",
+        "/sales/farm-born",
+        "/sales/farm-value",
+        "/sales/loads",
+        "/sales/market-analytics",
+        "/sales/sold",
+        "/sales/vendors"
       ]
     },
     {
@@ -3287,8 +5003,31 @@
             "status",
             "to_location_id"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/procurement/load-forms.tsx",
+            "line": 431,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/configuration/items",
+        "/procurement/animal-purchases",
+        "/procurement/feed-purchases",
+        "/procurement/source-entry",
+        "/procurement/source-entry/loads/placeholder",
+        "/procurement/vendors",
+        "/routines",
+        "/sales/buyer-analytics",
+        "/sales/config",
+        "/sales/farm-born",
+        "/sales/farm-value",
+        "/sales/loads",
+        "/sales/market-analytics",
+        "/sales/sold",
+        "/sales/vendors"
       ]
     },
     {
@@ -3330,8 +5069,31 @@
             "return_to",
             "status"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/procurement/load-forms.tsx",
+            "line": 468,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/configuration/items",
+        "/procurement/animal-purchases",
+        "/procurement/feed-purchases",
+        "/procurement/source-entry",
+        "/procurement/source-entry/loads/placeholder",
+        "/procurement/vendors",
+        "/routines",
+        "/sales/buyer-analytics",
+        "/sales/config",
+        "/sales/farm-born",
+        "/sales/farm-value",
+        "/sales/loads",
+        "/sales/market-analytics",
+        "/sales/sold",
+        "/sales/vendors"
       ]
     },
     {
@@ -3362,8 +5124,31 @@
             "placeholder.goat_ids_intake",
             "return_to"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/procurement/load-forms.tsx",
+            "line": 511,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/configuration/items",
+        "/procurement/animal-purchases",
+        "/procurement/feed-purchases",
+        "/procurement/source-entry",
+        "/procurement/source-entry/loads/placeholder",
+        "/procurement/vendors",
+        "/routines",
+        "/sales/buyer-analytics",
+        "/sales/config",
+        "/sales/farm-born",
+        "/sales/farm-value",
+        "/sales/loads",
+        "/sales/market-analytics",
+        "/sales/sold",
+        "/sales/vendors"
       ]
     },
     {
@@ -3407,8 +5192,31 @@
             "return_to",
             "to_location_id"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/procurement/load-forms.tsx",
+            "line": 403,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/configuration/items",
+        "/procurement/animal-purchases",
+        "/procurement/feed-purchases",
+        "/procurement/source-entry",
+        "/procurement/source-entry/loads/placeholder",
+        "/procurement/vendors",
+        "/routines",
+        "/sales/buyer-analytics",
+        "/sales/config",
+        "/sales/farm-born",
+        "/sales/farm-value",
+        "/sales/loads",
+        "/sales/market-analytics",
+        "/sales/sold",
+        "/sales/vendors"
       ]
     },
     {
@@ -3446,8 +5254,31 @@
             "return_to",
             "to_location_id"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/procurement/load-forms.tsx",
+            "line": 385,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/configuration/items",
+        "/procurement/animal-purchases",
+        "/procurement/feed-purchases",
+        "/procurement/source-entry",
+        "/procurement/source-entry/loads/placeholder",
+        "/procurement/vendors",
+        "/routines",
+        "/sales/buyer-analytics",
+        "/sales/config",
+        "/sales/farm-born",
+        "/sales/farm-value",
+        "/sales/loads",
+        "/sales/market-analytics",
+        "/sales/sold",
+        "/sales/vendors"
       ]
     },
     {
@@ -3484,8 +5315,31 @@
             "review_reason",
             "review_status"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/procurement/load-forms.tsx",
+            "line": 345,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/configuration/items",
+        "/procurement/animal-purchases",
+        "/procurement/feed-purchases",
+        "/procurement/source-entry",
+        "/procurement/source-entry/loads/placeholder",
+        "/procurement/vendors",
+        "/routines",
+        "/sales/buyer-analytics",
+        "/sales/config",
+        "/sales/farm-born",
+        "/sales/farm-value",
+        "/sales/loads",
+        "/sales/market-analytics",
+        "/sales/sold",
+        "/sales/vendors"
       ]
     },
     {
@@ -3493,7 +5347,24 @@
       "kind": "edit-form",
       "where": "features/procurement/market-config-form.tsx:45",
       "status": "not-checked",
-      "notCheckedReason": "every control on this edit-form is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+      "notCheckedReason": "this edit-form is a shell: every word on it arrives as a prop from whichever screen renders it, so no expected value belongs here -- the reference belongs on each call site, and those call sites are inventoried separately",
+      "routes": [
+        "/configuration/items",
+        "/procurement/animal-purchases",
+        "/procurement/feed-purchases",
+        "/procurement/source-entry",
+        "/procurement/source-entry/loads/placeholder",
+        "/procurement/vendors",
+        "/routines",
+        "/sales/buyer-analytics",
+        "/sales/config",
+        "/sales/farm-born",
+        "/sales/farm-value",
+        "/sales/loads",
+        "/sales/market-analytics",
+        "/sales/sold",
+        "/sales/vendors"
+      ]
     },
     {
       "key": "features/procurement/sale-allocation-drawer.tsx::modal::dh",
@@ -3521,8 +5392,31 @@
             "value.all_sheds",
             "value.choose_park"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/procurement/sale-allocation-drawer.tsx",
+            "line": 255,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/configuration/items",
+        "/procurement/animal-purchases",
+        "/procurement/feed-purchases",
+        "/procurement/source-entry",
+        "/procurement/source-entry/loads/placeholder",
+        "/procurement/vendors",
+        "/routines",
+        "/sales/buyer-analytics",
+        "/sales/config",
+        "/sales/farm-born",
+        "/sales/farm-value",
+        "/sales/loads",
+        "/sales/market-analytics",
+        "/sales/sold",
+        "/sales/vendors"
       ]
     },
     {
@@ -3554,8 +5448,31 @@
             "sale_date",
             "vendor_search"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/procurement/sales-record-drawer.tsx",
+            "line": 256,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/configuration/items",
+        "/procurement/animal-purchases",
+        "/procurement/feed-purchases",
+        "/procurement/source-entry",
+        "/procurement/source-entry/loads/placeholder",
+        "/procurement/vendors",
+        "/routines",
+        "/sales/buyer-analytics",
+        "/sales/config",
+        "/sales/farm-born",
+        "/sales/farm-value",
+        "/sales/loads",
+        "/sales/market-analytics",
+        "/sales/sold",
+        "/sales/vendors"
       ]
     },
     {
@@ -3584,8 +5501,31 @@
             "return_to",
             "status"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/procurement/sales-record-drawer.tsx",
+            "line": 624,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/configuration/items",
+        "/procurement/animal-purchases",
+        "/procurement/feed-purchases",
+        "/procurement/source-entry",
+        "/procurement/source-entry/loads/placeholder",
+        "/procurement/vendors",
+        "/routines",
+        "/sales/buyer-analytics",
+        "/sales/config",
+        "/sales/farm-born",
+        "/sales/farm-value",
+        "/sales/loads",
+        "/sales/market-analytics",
+        "/sales/sold",
+        "/sales/vendors"
       ]
     },
     {
@@ -3613,8 +5553,31 @@
             "return_to",
             "status"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/procurement/sales-record-drawer.tsx",
+            "line": 635,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/configuration/items",
+        "/procurement/animal-purchases",
+        "/procurement/feed-purchases",
+        "/procurement/source-entry",
+        "/procurement/source-entry/loads/placeholder",
+        "/procurement/vendors",
+        "/routines",
+        "/sales/buyer-analytics",
+        "/sales/config",
+        "/sales/farm-born",
+        "/sales/farm-value",
+        "/sales/loads",
+        "/sales/market-analytics",
+        "/sales/sold",
+        "/sales/vendors"
       ]
     },
     {
@@ -3637,8 +5600,31 @@
             "return_to",
             "status"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/procurement/sales-record-drawer.tsx",
+            "line": 658,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/configuration/items",
+        "/procurement/animal-purchases",
+        "/procurement/feed-purchases",
+        "/procurement/source-entry",
+        "/procurement/source-entry/loads/placeholder",
+        "/procurement/vendors",
+        "/routines",
+        "/sales/buyer-analytics",
+        "/sales/config",
+        "/sales/farm-born",
+        "/sales/farm-value",
+        "/sales/loads",
+        "/sales/market-analytics",
+        "/sales/sold",
+        "/sales/vendors"
       ]
     },
     {
@@ -3667,8 +5653,31 @@
             "return_to",
             "status"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/procurement/sales-record-drawer.tsx",
+            "line": 619,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/configuration/items",
+        "/procurement/animal-purchases",
+        "/procurement/feed-purchases",
+        "/procurement/source-entry",
+        "/procurement/source-entry/loads/placeholder",
+        "/procurement/vendors",
+        "/routines",
+        "/sales/buyer-analytics",
+        "/sales/config",
+        "/sales/farm-born",
+        "/sales/farm-value",
+        "/sales/loads",
+        "/sales/market-analytics",
+        "/sales/sold",
+        "/sales/vendors"
       ]
     },
     {
@@ -3700,8 +5709,31 @@
             "valuation.unsold_price.hint",
             "valuation.updated"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/procurement/valuation-section.tsx",
+            "line": 56,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/configuration/items",
+        "/procurement/animal-purchases",
+        "/procurement/feed-purchases",
+        "/procurement/source-entry",
+        "/procurement/source-entry/loads/placeholder",
+        "/procurement/vendors",
+        "/routines",
+        "/sales/buyer-analytics",
+        "/sales/config",
+        "/sales/farm-born",
+        "/sales/farm-value",
+        "/sales/loads",
+        "/sales/market-analytics",
+        "/sales/sold",
+        "/sales/vendors"
       ]
     },
     {
@@ -3725,8 +5757,31 @@
             "status",
             "vendor_id"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/procurement/vendor-local-drawer.tsx",
+            "line": 481,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/configuration/items",
+        "/procurement/animal-purchases",
+        "/procurement/feed-purchases",
+        "/procurement/source-entry",
+        "/procurement/source-entry/loads/placeholder",
+        "/procurement/vendors",
+        "/routines",
+        "/sales/buyer-analytics",
+        "/sales/config",
+        "/sales/farm-born",
+        "/sales/farm-value",
+        "/sales/loads",
+        "/sales/market-analytics",
+        "/sales/sold",
+        "/sales/vendors"
       ]
     },
     {
@@ -3756,8 +5811,31 @@
             "status",
             "vendor_id"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/procurement/vendor-local-drawer.tsx",
+            "line": 204,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/configuration/items",
+        "/procurement/animal-purchases",
+        "/procurement/feed-purchases",
+        "/procurement/source-entry",
+        "/procurement/source-entry/loads/placeholder",
+        "/procurement/vendors",
+        "/routines",
+        "/sales/buyer-analytics",
+        "/sales/config",
+        "/sales/farm-born",
+        "/sales/farm-value",
+        "/sales/loads",
+        "/sales/market-analytics",
+        "/sales/sold",
+        "/sales/vendors"
       ]
     },
     {
@@ -3779,8 +5857,24 @@
             "builder.preview.title",
             "modal.builder.eyebrow"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/sops/sop-builder.tsx",
+            "line": 518,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/configuration/work-instructions",
+        "/counts/sops",
+        "/feed/sops",
+        "/milk/sops",
+        "/pc-care/sops",
+        "/procurement/sops",
+        "/sales/sops",
+        "/weighing/sops"
       ]
     },
     {
@@ -3809,8 +5903,24 @@
             "modal.detail.aria",
             "modal.detail.close_label"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/sops/sop-library.tsx",
+            "line": 327,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/configuration/work-instructions",
+        "/counts/sops",
+        "/feed/sops",
+        "/milk/sops",
+        "/pc-care/sops",
+        "/procurement/sops",
+        "/sales/sops",
+        "/weighing/sops"
       ]
     },
     {
@@ -3841,8 +5951,17 @@
             "label.owner_chain_to_assign",
             "label.stock_resolved_action_center"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/vaccination-execution/execution-board.tsx",
+            "line": 507,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/vaccination/execution/sheds/placeholder"
       ]
     },
     {
@@ -3863,8 +5982,18 @@
             "How many",
             "Unit"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/vaccination-plan/duration-field.tsx",
+            "line": 101,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/vaccination/plan",
+        "/vaccination/plan/edit"
       ]
     },
     {
@@ -3896,8 +6025,18 @@
             "e.g. Brucella",
             "e.g. Brucellosis"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/vaccination-plan/plan-editor.tsx",
+            "line": 730,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/vaccination/plan",
+        "/vaccination/plan/edit"
       ]
     },
     {
@@ -3921,8 +6060,18 @@
             "Vaccine",
             "Version settings"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/vaccination-plan/version-sheet.tsx",
+            "line": 49,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/vaccination/plan",
+        "/vaccination/plan/edit"
       ]
     },
     {
@@ -3944,8 +6093,47 @@
             "label.sheds_noun",
             "sheds_q"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/vaccination-sheds/shed-filter-bar.tsx",
+            "line": 42,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/(admin)",
+        "/action-center",
+        "/calendar",
+        "/calendar/drive/placeholder",
+        "/configuration/items",
+        "/counts/analytics",
+        "/counts/breakdown",
+        "/counts/herd",
+        "/counts/milk-preparation",
+        "/counts/mortality",
+        "/goats/placeholder",
+        "/procurement/animal-purchases",
+        "/procurement/feed-purchases",
+        "/procurement/source-entry",
+        "/procurement/source-entry/loads/placeholder",
+        "/procurement/vendors",
+        "/protocol-adherence",
+        "/routines",
+        "/sales/buyer-analytics",
+        "/sales/config",
+        "/sales/farm-born",
+        "/sales/farm-value",
+        "/sales/loads",
+        "/sales/market-analytics",
+        "/sales/sold",
+        "/sales/vendors",
+        "/vaccination",
+        "/vaccination/execution/sheds/placeholder",
+        "/vaccination/live-tracker",
+        "/workflows",
+        "/workflows/placeholder"
       ]
     },
     {
@@ -3972,8 +6160,17 @@
             "return_to",
             "sample_percent"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/verification-review/randomization.tsx",
+            "line": 87,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/verify"
       ]
     },
     {
@@ -3995,10 +6192,23 @@
             "reason",
             "return_to",
             "row_version",
-            "task_id"
+            "task_id",
+            "toxin.action.accept",
+            "toxin.action.reject",
+            "toxin.drawer.reject_reason",
+            "toxin.drawer.reject_reason_hint"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/verification-review/toxin-review-list.tsx",
+            "line": 284,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/verify"
       ]
     },
     {
@@ -4019,10 +6229,23 @@
             "drawer.close_label",
             "drawer.media.empty",
             "drawer.media.open",
-            "feedback.failed"
+            "feedback.failed",
+            "toxin.drawer.reading",
+            "toxin.drawer.steps",
+            "toxin.drawer.strip_photo",
+            "toxin.drawer.title"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/verification-review/toxin-review-list.tsx",
+            "line": 206,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/verify"
       ]
     },
     {
@@ -4047,10 +6270,24 @@
             "next_trail",
             "reason",
             "return_to",
-            "row_version"
+            "row_version",
+            "verdict.disabled_no_evidence",
+            "verdict.disabled_not_pending",
+            "verdict.reason_label",
+            "verdict.reason_placeholder",
+            "verdict.reason_required"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/verification-review/verification-review-drawer.tsx",
+            "line": 932,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/verify"
       ]
     },
     {
@@ -4081,8 +6318,17 @@
             "filter.module",
             "filter.shed"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/verification-review/verification-review-page.tsx",
+            "line": 459,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/verify"
       ]
     },
     {
@@ -4109,8 +6355,17 @@
             "video_log.filter.search_hint",
             "video_log.filter.shed"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/verification-review/video-log.tsx",
+            "line": 210,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/verify"
       ]
     },
     {
@@ -4137,8 +6392,17 @@
             "owner.missing",
             "owner.pool"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/work-board/work-board-board.tsx",
+            "line": 126,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/work-board"
       ]
     },
     {
@@ -4168,8 +6432,17 @@
             "return_to",
             "row_key"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/work-board/work-board-modal.tsx",
+            "line": 34,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/work-board"
       ]
     },
     {
@@ -4202,8 +6475,17 @@
             "tile.done",
             "tile.pending"
           ],
+          "provenance": {
+            "kind": "source",
+            "path": "features/work-board/work-board-modal.tsx",
+            "line": 105,
+            "extractor": "labels-near"
+          },
           "blankScreenValue": []
         }
+      ],
+      "routes": [
+        "/work-board"
       ]
     }
   ]

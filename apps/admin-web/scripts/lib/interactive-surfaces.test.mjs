@@ -7,9 +7,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   blankNonMarkup,
+  blankValueFor,
+  deriveExpected,
   coverageOf,
   coverageSentence,
   gradeAssertion,
+  routeOfPageFile,
+  routesOwningFiles,
   scanInteractiveSurfaces,
   validateLedger,
 } from "./interactive-surfaces.mjs";
@@ -102,10 +106,13 @@ test("an assertion that does not even hold for its own expected value is refused
   assert.equal(graded.ok, false);
 });
 
-test("not declaring the blank-screen reading is itself a refusal", () => {
-  const graded = gradeAssertion({ subject: "the title", operator: "text-equals", expected: "Access" });
-  assert.equal(graded.ok, false);
-  assert.match(graded.reasons.join(" "), /blank screen/);
+test("the blank reading is derived, so omitting it is fine and mis-stating it is not", () => {
+  // Superseded the old "must declare it" rule after judge finding B1: an author who may choose
+  // BOTH sides of the comparison can always make it look discriminating, so the gate picks one.
+  assert.equal(gradeAssertion({ subject: "the title", operator: "text-equals", expected: "Access" }).ok, true);
+  const mis = gradeAssertion({ subject: "the title", operator: "text-equals", expected: "Access", blankScreenValue: "Access-ish" });
+  assert.equal(mis.ok, false);
+  assert.match(mis.reasons.join(" "), /does not get to pick this side/);
 });
 
 // ------------------------------------------------------------------ the ledger
@@ -113,6 +120,7 @@ const SURFACES = scanInteractiveSurfaces([
   file("features/a/modal.tsx", '<div className="vr-modal" role="dialog">'),
 ]);
 const KEY = SURFACES[0].key;
+const ROUTES = ["/people"];
 const goodAssertion = {
   subject: "the controls on the Access panel",
   operator: "field-set-equals",
@@ -127,23 +135,23 @@ test("a surface the ledger says nothing about fails the gate", () => {
 });
 
 test("a ledger entry whose surface has left the tree fails the gate", () => {
-  const { problems } = validateLedger([], { entries: [{ key: "gone", status: "not-checked", notCheckedReason: "x" }] });
+  const { problems } = validateLedger([], { entries: [{ routes: ROUTES, key: "gone", status: "not-checked", notCheckedReason: "x" }] });
   assert.match(problems.join(" "), /no longer exists in the source/);
 });
 
 test("not-checked is allowed only with a reason, and counts zero either way", () => {
   const withReason = validateLedger(SURFACES, {
-    entries: [{ key: KEY, status: "not-checked", notCheckedReason: "labels come from data" }],
+    entries: [{ routes: ROUTES, key: KEY, status: "not-checked", notCheckedReason: "labels come from data" }],
   });
   assert.deepEqual(withReason.problems, []);
   assert.equal(withReason.coverage.covered, 0);
 
-  const silent = validateLedger(SURFACES, { entries: [{ key: KEY, status: "not-checked" }] });
+  const silent = validateLedger(SURFACES, { entries: [{ routes: ROUTES, key: KEY, status: "not-checked" }] });
   assert.match(silent.problems.join(" "), /silence is not a verdict/);
 });
 
 test("covered without a run receipt is not coverage; with one it is", () => {
-  const base = { key: KEY, status: "covered", viewports: ["1440", "390"], assertions: [goodAssertion] };
+  const base = { routes: ROUTES, key: KEY, status: "covered", viewports: ["1440", "390"], assertions: [goodAssertion] };
   const noReceipt = validateLedger(SURFACES, { entries: [base] });
   assert.match(noReceipt.problems.join(" "), /names no run receipt/);
   assert.equal(noReceipt.coverage.covered, 0);
@@ -158,8 +166,7 @@ test("covered without a run receipt is not coverage; with one it is", () => {
 test("a stated assertion never counts toward coverage, however good it is", () => {
   const { problems, coverage } = validateLedger(SURFACES, {
     entries: [
-      {
-        key: KEY,
+      { routes: ROUTES, key: KEY,
         status: "stated-not-executed",
         viewports: ["1440", "390"],
         notExecutedReason: "the browser lane is disabled",
@@ -173,8 +180,7 @@ test("a stated assertion never counts toward coverage, however good it is", () =
 });
 
 test("one viewport is not both viewports unless the gap is named", () => {
-  const entry = {
-    key: KEY,
+  const entry = { routes: ROUTES, key: KEY,
     status: "stated-not-executed",
     notExecutedReason: "lane disabled",
     assertions: [goodAssertion],
@@ -188,8 +194,7 @@ test("one viewport is not both viewports unless the gap is named", () => {
 test("a blank-screen-proof assertion drags its whole entry out of coverage", () => {
   const { problems, coverage } = validateLedger(SURFACES, {
     entries: [
-      {
-        key: KEY,
+      { routes: ROUTES, key: KEY,
         status: "covered",
         viewports: ["1440", "390"],
         receipt: { runId: "r", path: "p" },
@@ -208,6 +213,104 @@ test("the coverage sentence reports proven and stated as separate numbers", () =
 });
 
 test("an unknown status is refused rather than ignored", () => {
-  const { problems } = validateLedger(SURFACES, { entries: [{ key: KEY, status: "smoke-only" }] });
+  const { problems } = validateLedger(SURFACES, { entries: [{ routes: ROUTES, key: KEY, status: "smoke-only" }] });
   assert.match(problems.join(" "), /use "covered", "stated-not-executed" or "not-checked"/);
+});
+
+// ------------------------------------------------------------------ which routes own a surface
+test("a route owns every surface its page reaches, through barrels and through relative paths", () => {
+  const owners = routesOwningFiles([
+    file("app/(admin)/people/page.tsx", 'import { PeoplePage } from "@/features/people";'),
+    file("features/people/index.ts", 'export { PeoplePage } from "./people-board";'),
+    file("features/people/people-board.tsx", 'import { PersonAccessModal } from "./person-access-modal";\n<form className="card">'),
+    file("features/people/person-access-modal.tsx", '<div role="dialog">'),
+    file("features/unreachable/orphan.tsx", '<div role="dialog">'),
+  ]);
+  assert.deepEqual(owners.get("features/people/person-access-modal.tsx"), ["/people"]);
+  assert.equal(owners.get("features/unreachable/orphan.tsx"), undefined, "an orphan claimed a route");
+});
+
+test("dropping the import drops the route, so a stale claim cannot survive", () => {
+  const withImport = routesOwningFiles([
+    file("app/(admin)/x/page.tsx", 'import { A } from "./a";'),
+    file("app/(admin)/x/a.tsx", '<form className="f">'),
+  ]);
+  assert.deepEqual(withImport.get("app/(admin)/x/a.tsx"), ["/x"]);
+  const without = routesOwningFiles([
+    file("app/(admin)/x/page.tsx", "const A = () => null;"),
+    file("app/(admin)/x/a.tsx", '<form className="f">'),
+  ]);
+  assert.equal(without.get("app/(admin)/x/a.tsx"), undefined);
+});
+
+test("a route group is not part of the route, and a dynamic segment is a placeholder", () => {
+  assert.equal(routeOfPageFile("app/(admin)/weighing/sops/page.tsx"), "/weighing/sops");
+  assert.equal(routeOfPageFile("app/(admin)/vaccination/sheds/[shed_id]/page.tsx"), "/vaccination/sheds/placeholder");
+});
+
+test("a surface with no owning route and no reason fails the gate", () => {
+  const entry = { routes: ROUTES, key: KEY,
+    status: "stated-not-executed",
+    viewports: ["1440", "390"],
+    notExecutedReason: "lane disabled",
+    assertions: [goodAssertion],
+    routes: [],
+  };
+  assert.match(validateLedger(SURFACES, { entries: [entry] }).problems.join(" "), /names no route that renders it/);
+  const named = { ...entry, routeGapReason: "nothing in the app imports this file" };
+  assert.deepEqual(validateLedger(SURFACES, { entries: [named] }).problems, []);
+});
+
+// ------------------------------------------------------------------ provenance (judge finding B1)
+const SOURCE = new Map([
+  ["features/a/panel.tsx", '<div role="dialog">\n<button aria-label="Close">X</button>\n<label>Designation</label>'],
+]);
+const readSource = (p) => SOURCE.get(p);
+const PANEL_PROVENANCE = { kind: "source", path: "features/a/panel.tsx", line: 1, extractor: "labels-near" };
+
+test("an expected value nobody measured is refused, however well-formed", () => {
+  // The judge's own example, verbatim.
+  const fabricated = { subject: "a thing nobody looked at", operator: "number-equals", expected: 7, blankScreenValue: 0 };
+  assert.equal(gradeAssertion(fabricated).ok, true, "grading without a reader is the ungated path");
+  const graded = gradeAssertion(fabricated, readSource);
+  assert.equal(graded.ok, false);
+  assert.match(graded.reasons.join(" "), /carries no provenance/);
+});
+
+test("provenance that does not re-derive the stated value is refused", () => {
+  const graded = gradeAssertion(
+    { subject: "the panel", operator: "field-set-equals", expected: ["Something else"], blankScreenValue: [], provenance: PANEL_PROVENANCE },
+    readSource,
+  );
+  assert.equal(graded.ok, false);
+  assert.match(graded.reasons.join(" "), /the source does not produce/);
+});
+
+test("a value re-derived from the source it names is accepted", () => {
+  const expected = deriveExpected(PANEL_PROVENANCE, readSource).value;
+  assert.ok(expected.includes("Close") && expected.includes("Designation"), `derived ${JSON.stringify(expected)}`);
+  const graded = gradeAssertion(
+    { subject: "the panel's controls", operator: "field-set-equals", expected, blankScreenValue: [], provenance: PANEL_PROVENANCE },
+    readSource,
+  );
+  assert.equal(graded.ok, true, graded.reasons.join("; "));
+});
+
+test("the author does not get to pick the blank side of the comparison", () => {
+  const expected = deriveExpected(PANEL_PROVENANCE, readSource).value;
+  const tilted = { subject: "the panel", operator: "field-set-equals", expected, blankScreenValue: ["Close"], provenance: PANEL_PROVENANCE };
+  assert.match(gradeAssertion(tilted, readSource).reasons.join(" "), /does not get to pick this side/);
+  assert.deepEqual(blankValueFor("field-set-equals"), []);
+  assert.equal(blankValueFor("count-equals"), 0);
+  assert.equal(blankValueFor("text-equals"), "");
+  assert.equal(blankValueFor("enabled-equals"), false);
+});
+
+test("provenance pointing at a file that is not in the app, or at an extractor nobody runs, is refused", () => {
+  assert.match(
+    deriveExpected({ kind: "source", path: "features/a/gone.tsx", line: 1, extractor: "labels-near" }, readSource).error,
+    /not a file in the app/,
+  );
+  assert.match(deriveExpected({ kind: "source", path: "features/a/panel.tsx", line: 1, extractor: "vibes" }, readSource).error, /not one this gate can run/);
+  assert.match(deriveExpected({ kind: "trust me" }, readSource).error, /cannot be re-derived/);
 });

@@ -101,6 +101,106 @@ export function scanInteractiveSurfaces(files) {
 }
 
 // ---------------------------------------------------------------------------------------------
+// 1b. Deriving a value from the source -- the ONLY way an expected value may be born
+// ---------------------------------------------------------------------------------------------
+//
+// The gate must be able to RE-DERIVE every expected value from the artefact it names. An author
+// who simply asserts "expected: 7" is stating a number nobody measured, which is the coverage
+// illusion moved one level up.
+
+const NOISE = /^(?:[-–—|/,.:;]+|\d+|true|false|null|undefined)$/i;
+
+/** Control labels the surface's own source declares, in the window of text the surface owns. */
+export function labelsNear(text, index, limit = 4000) {
+  // Comments describe a surface; they are not on screen. Harvesting a label out of one would
+  // state an expected value the product never renders.
+  const window = blankNonMarkup(text).slice(index, index + limit);
+  const labels = new Set();
+  for (const re of [
+    /aria-label=(?:"([^"{}]{2,48})"|\{"([^"{}]{2,48})"\})/g,
+    /placeholder=(?:"([^"{}]{2,48})"|\{"([^"{}]{2,48})"\})/g,
+    /<label[^>]*>\s*([A-Z][^<>{}\n]{1,46})\s*</g,
+    /<(?:button|h1|h2|h3|h4|summary|th|option|legend)[^>]*>\s*([A-Z][^<>{}\n]{1,46})\s*</g,
+    /title=(?:"([^"{}]{2,48})"|\{"([^"{}]{2,48})"\})/g,
+    // Copy that arrives from the page contract at runtime. The KEY is the offline-derivable
+    // reference: the surface must render resolved copy for exactly these keys -- a blank panel
+    // renders none of them, and missing copy renders the raw key instead of a sentence.
+    // Any copy helper, matched by its ARGUMENT rather than its name: t(), c(), fc(), fdc()...
+    // A DOTTED key is a copy key -- a class name or a selector never looks like this -- so this
+    // reads every helper the pages use without having to enumerate their names.
+    /\b[A-Za-z_$][A-Za-z0-9_$]{0,12}\(\s*"([A-Za-z0-9_-]{2,30}(?:\.[A-Za-z0-9_-]{1,30}){1,5})"/g,
+    // copy(pageContract, "key") and copy(pageContract, "key", "fallback").
+    /\bcopy\(\s*[A-Za-z0-9_$.]+\s*,\s*"([A-Za-z0-9_.-]{2,60})"/g,
+    // Copy handed in as a prop object (features/configuration/row-actions.tsx renders every one of
+    // its controls as labels.<slot>). The SLOT is the reference: a blank menu renders none of them.
+    /\b(?:labels|copy|strings|text|[A-Za-z][A-Za-z0-9]*Copy|[A-Za-z][A-Za-z0-9]*Labels)\.([A-Za-z][A-Za-z0-9_]{1,29})\b/g,
+    // The one-letter copy helper the configuration pages use: c("action.close").
+    /\bc\(\s*"([A-Za-z0-9_.-]{2,60})"\s*\)/g,
+    /\b(?:ariaLabel|closeLabel|title|label|heading|placeholder)=\{?"([^"{}]{2,48})"\}?/g,
+    // What an edit form actually submits. A form that renders with its fields missing -- the exact
+    // shape a degraded payload produces -- no longer carries this set.
+    /\bname="([A-Za-z][A-Za-z0-9_.-]{1,39})"/g,
+    /data-testid="([A-Za-z0-9_-]{2,48})"/g,
+  ]) {
+    for (const match of window.matchAll(re)) {
+      const label = (match[1] ?? match[2] ?? "").replace(/\s+/g, " ").trim();
+      if (label && !NOISE.test(label)) labels.add(label);
+    }
+  }
+  return [...labels].sort();
+}
+
+
+/** Count the times `pattern` appears in the window a surface owns. */
+export function countNear(text, index, pattern, limit = 4000) {
+  const window = blankNonMarkup(text).slice(index, index + limit);
+  return [...window.matchAll(new RegExp(pattern, "g"))].length;
+}
+
+/** The offset of a 1-based line, measured on the same blanked text the scan used. */
+export function offsetOfLine(text, line) {
+  return blankNonMarkup(text).split("\n").slice(0, Math.max(0, line - 1)).join("\n").length;
+}
+
+/**
+ * Re-derive an assertion's expected value from the source it names.
+ * @returns {{value: unknown} | {error: string}}
+ */
+export function deriveExpected(provenance, readFile) {
+  if (!provenance || typeof provenance !== "object") return { error: "carries no provenance for its expected value" };
+  const { kind, path, line, extractor, pattern } = provenance;
+  if (kind !== "source") return { error: `provenance kind ${JSON.stringify(kind ?? null)} cannot be re-derived here` };
+  const text = readFile(path);
+  if (typeof text !== "string") return { error: `names ${JSON.stringify(path)}, which is not a file in the app` };
+  const offset = offsetOfLine(text, Number(line));
+  if (extractor === "labels-near") return { value: labelsNear(text, offset) };
+  if (extractor === "count-matches") {
+    if (!pattern) return { error: "uses count-matches without saying what to count" };
+    return { value: countNear(text, offset, pattern) };
+  }
+  return { error: `extractor ${JSON.stringify(extractor ?? null)} is not one this gate can run` };
+}
+
+/**
+ * What the subject reads when nothing painted. DERIVED from the operator, never taken from the
+ * author -- otherwise an author could declare a blank reading that conveniently differs from
+ * their expected value and the "can it fail?" question answers itself.
+ */
+export function blankValueFor(operator) {
+  switch (operator) {
+    case "field-set-equals":
+      return [];
+    case "count-equals":
+    case "number-equals":
+      return 0;
+    case "enabled-equals":
+      return false;
+    default:
+      return "";
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
 // 2. The discrimination gate
 // ---------------------------------------------------------------------------------------------
 
@@ -138,7 +238,7 @@ export const REQUIRED_VIEWPORTS = ["1440", "390"];
  *
  * The last line is the whole point: a check that cannot go red is not coverage.
  */
-export function gradeAssertion(assertion) {
+export function gradeAssertion(assertion, readFile = null) {
   const reasons = [];
   const { operator, expected, blankScreenValue, subject } = assertion ?? {};
   if (!subject || !String(subject).trim()) reasons.push("names no subject a person could read");
@@ -154,15 +254,38 @@ export function gradeAssertion(assertion) {
     reasons.push("states no expected value");
     return { ok: false, reasons };
   }
-  if (blankScreenValue === undefined) {
-    reasons.push("does not declare what it reads on a blank screen, so nobody can tell whether it can fail");
+  // The blank reading is DERIVED from the operator, never accepted from the author (judge B1):
+  // an author who may choose both sides of the comparison can always make it look discriminating.
+  const derivedBlank = blankValueFor(operator);
+  if (blankScreenValue !== undefined && JSON.stringify(blankScreenValue) !== JSON.stringify(derivedBlank)) {
+    reasons.push(
+      `declares a blank-screen reading of ${JSON.stringify(blankScreenValue)}, but a ${operator} subject ` +
+        `reads ${JSON.stringify(derivedBlank)} when nothing painted; the author does not get to pick this side`,
+    );
     return { ok: false, reasons };
+  }
+
+  // The expected value must be RE-DERIVABLE from the artefact it names. Without this the gate
+  // grades an author's declaration rather than a measurement -- the coverage illusion one level up.
+  if (readFile) {
+    const derived = deriveExpected(assertion.provenance, readFile);
+    if (derived.error) {
+      reasons.push(derived.error);
+      return { ok: false, reasons };
+    }
+    if (JSON.stringify(derived.value) !== JSON.stringify(expected)) {
+      reasons.push(
+        `states an expected value the source does not produce: its own provenance re-derives ` +
+          `${JSON.stringify(derived.value)}, not ${JSON.stringify(expected)}`,
+      );
+      return { ok: false, reasons };
+    }
   }
   let passesOnGood = false;
   let passesOnBlank = true;
   try {
     passesOnGood = evaluate(expected, expected);
-    passesOnBlank = evaluate(blankScreenValue, expected);
+    passesOnBlank = evaluate(derivedBlank, expected);
   } catch (error) {
     reasons.push(`operator threw on its own values: ${error.message}`);
     return { ok: false, reasons };
@@ -170,7 +293,7 @@ export function gradeAssertion(assertion) {
   if (!passesOnGood) reasons.push("does not hold for the value it says it expects");
   if (passesOnBlank) {
     reasons.push(
-      `goes green on a blank screen: ${JSON.stringify(blankScreenValue)} still satisfies ${operator} ${JSON.stringify(expected)}`,
+      `goes green on a blank screen: ${JSON.stringify(derivedBlank)} still satisfies ${operator} ${JSON.stringify(expected)}`,
     );
   }
   return { ok: reasons.length === 0, reasons };
@@ -184,7 +307,7 @@ export function gradeAssertion(assertion) {
  * @param {ReturnType<typeof scanInteractiveSurfaces>} surfaces
  * @param {{entries: Array<object>}} ledger
  */
-export function validateLedger(surfaces, ledger) {
+export function validateLedger(surfaces, ledger, readFile = null) {
   const problems = [];
   const entries = Array.isArray(ledger?.entries) ? ledger.entries : null;
   if (!entries) return { problems: ["the interactive-surface ledger has no entries array"], coverage: null };
@@ -219,6 +342,14 @@ export function validateLedger(surfaces, ledger) {
   for (const entry of byKey.values()) {
     if (!scanned.has(entry.key)) continue;
 
+    // An example is never the scope: a modal defined once is a modal on every route that renders
+    // it, so the ledger names those routes. Zero routes with no reason means either the import
+    // graph lost the surface or nothing can reach it -- both are findings, not silence.
+    const routes = Array.isArray(entry.routes) ? entry.routes : [];
+    if (routes.length === 0 && !String(entry.routeGapReason ?? "").trim()) {
+      problems.push(`${entry.key} names no route that renders it, and no reason why not`);
+    }
+
     // "covered" and "stated-not-executed" share the SAME assertion bar. The only difference is
     // whether the assertion has ever been run against the product. Handover §2: a check that did
     // not run must not render a verdict -- so a stated assertion counts ZERO toward coverage until
@@ -231,7 +362,7 @@ export function validateLedger(surfaces, ledger) {
       }
       let good = true;
       for (const assertion of assertions) {
-        const graded = gradeAssertion(assertion);
+        const graded = gradeAssertion(assertion, readFile);
         if (!graded.ok) {
           good = false;
           for (const reason of graded.reasons) problems.push(`${entry.key}: assertion ${reason}`);
@@ -271,6 +402,12 @@ export function validateLedger(surfaces, ledger) {
 }
 
 /** Coverage as a fraction, whole tree and per kind. Denominator is always the SCAN, never the ledger. */
+export function routePairs(surfaces, routesByPath) {
+  let pairs = 0;
+  for (const surface of surfaces) pairs += (routesByPath.get(surface.path) ?? []).length;
+  return pairs;
+}
+
 export function coverageOf(surfaces, coveredKeys, statedKeys = []) {
   const coveredSet = new Set(coveredKeys);
   const statedSet = new Set(statedKeys);
@@ -299,4 +436,79 @@ export function coverageSentence(coverage) {
     `Discriminating assertion stated but never executed: ${coverage.stated}/${coverage.total}. ` +
     `By kind -- ${parts}`
   );
+}
+
+// ---------------------------------------------------------------------------------------------
+// 4. Which ROUTES own a surface
+// ---------------------------------------------------------------------------------------------
+//
+// "An example is never the scope" -- a modal defined once is a modal on every route that renders
+// it, so the ledger has to say which routes those are. Resolved from the import graph rather than
+// guessed: a page.tsx reaches a component, so that page owns every surface in it.
+
+const EXTENSIONS = ["", ".tsx", ".ts", "/index.tsx", "/index.ts", ".jsx", ".js"];
+
+/** `@/features/x` and `./x` -> a path in the file map, or "" when it leaves the app (node_modules). */
+export function resolveImport(specifier, fromPath, byPath) {
+  let base;
+  if (specifier.startsWith("@/")) base = specifier.slice(2);
+  else if (specifier.startsWith(".")) {
+    const dir = fromPath.split("/").slice(0, -1);
+    const parts = specifier.split("/");
+    for (const part of parts) {
+      if (part === ".") continue;
+      else if (part === "..") dir.pop();
+      else dir.push(part);
+    }
+    base = dir.join("/");
+  } else return "";
+  for (const ext of EXTENSIONS) if (byPath.has(base + ext)) return base + ext;
+  return "";
+}
+
+/** The admin route a `app/(admin)/.../page.tsx` serves, in the shape the sweep's route list uses. */
+export function routeOfPageFile(path) {
+  const rel = path.replace(/^app\//, "").replace(/\/page\.(t|j)sx?$/, "");
+  const route = `/${rel}`.replaceAll(/\([^)]*\)\//g, "").replaceAll(/\[[^/]+\]/g, "placeholder").replace(/\/$/, "");
+  return route === "" ? "/" : route;
+}
+
+/**
+ * @returns Map<filePath, string[] routes> -- every route whose page transitively imports that file.
+ */
+export function routesOwningFiles(files) {
+  const byPath = new Map(files.map((f) => [f.path, f.text]));
+  const importsOf = new Map();
+  for (const file of files) {
+    const text = blankNonMarkup(file.text);
+    const raw = file.text;
+    const specs = new Set();
+    // Imports were blanked for the surface scan; read them off the RAW text here, which is the
+    // one place they are the subject rather than noise.
+    for (const m of raw.matchAll(/(?:^|\n)\s*(?:import|export)[^\n;]*?from\s+["']([^"']+)["']/g)) specs.add(m[1]);
+    for (const m of raw.matchAll(/\bimport\(\s*["']([^"']+)["']\s*\)/g)) specs.add(m[1]);
+    void text;
+    importsOf.set(
+      file.path,
+      [...specs].map((s) => resolveImport(s, file.path, byPath)).filter(Boolean),
+    );
+  }
+  const owners = new Map();
+  for (const file of files) {
+    if (!/^app\/.*\/page\.(t|j)sx?$/.test(file.path) && file.path !== "app/page.tsx") continue;
+    const route = routeOfPageFile(file.path);
+    const seen = new Set();
+    const stack = [file.path];
+    while (stack.length) {
+      const current = stack.pop();
+      if (seen.has(current)) continue;
+      seen.add(current);
+      for (const next of importsOf.get(current) ?? []) stack.push(next);
+    }
+    for (const reached of seen) {
+      if (!owners.has(reached)) owners.set(reached, new Set());
+      owners.get(reached).add(route);
+    }
+  }
+  return new Map([...owners].map(([path, routes]) => [path, [...routes].sort()]));
 }
