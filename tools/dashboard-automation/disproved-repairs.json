@@ -179,5 +179,13 @@
       "9fe71b380"
     ],
     "readThisAs": "roughly a third of the disproved rows opened so far were genuinely weak tests, a third were stale or mis-scoped verdicts where the behaviour IS protected at the tip, and the rest were a dead suite, a real defect found next door, and one still open. Nobody should extrapolate the 52 from 17, but nobody should assume they are all weak tests either."
+  },
+  "whatTheInconclusiveRowsAre": {
+    "buildBreak": 172,
+    "ofThoseThatADDEDaNonTestGoFile": 61,
+    "modifiedExistingFilesOnly": 111,
+    "cause": "reproduced on 059555f97 (pen routine due notifier). The commit ADDED pen_routine_due_notify.go and its test together; reverting the non-test half DELETES the file, so the test cannot compile against symbols the commit introduced \u2014 'undefined: PenRoutineDueCopy', 'undefined: NewPenRoutineDueNotifier'.",
+    "whyThatIsNotNoSignal": "a compile error of that exact shape says the test references code THIS COMMIT brought, which is real evidence it exercises it. It is not proof the test ASSERTS the right thing, which is why the verdict stays inconclusive rather than being promoted, but it is a different and better state than 'nobody knows'. For a commit that adds a feature, deleting the implementation can never produce a failing TEST; the meaningful mutation is to neuter the new function's body while keeping its signature, which no automated pass can do safely.",
+    "theOtherIII": "the 111 that modified existing files only are the ones worth looking at: there a revert SHOULD compile, so a build break means the commit's non-test change is entangled with something else in its own tree."
   }
 }
