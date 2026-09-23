@@ -89,7 +89,7 @@ test("the live capture sees a page that flickers", { skip: available ? false : "
     }
 
     // And it produces something a person can look at, which is not a still.
-    const evidence = writeFlickerEvidence(frames, result, dir, "synthetic");
+    const evidence = await writeFlickerEvidence(frames, result, dir, "synthetic");
     assert.ok(evidence.gif || evidence.filmstrip || evidence.frames.length >= 3,
       "a flicker finding must carry moving evidence or a run of frames, never one still");
     if (evidence.gif) assert.match(evidence.gif, /\.gif$/);
