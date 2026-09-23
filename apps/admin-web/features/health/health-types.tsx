@@ -3,7 +3,12 @@ import { AlertTriangle } from "lucide-react";
 import { copy, optionalCopy, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { getHealthConfigDiagnosisTypes, type HealthDiagnosisRouting } from "@/lib/api/server";
 
-import { DiagnosisTypeControls, RouteControls, MapStageButton } from "./health-types-controls";
+import {
+  AddStageToType,
+  DiagnosisTypeControls,
+  MapStageButton,
+  RemoveStageChip,
+} from "./health-types-controls";
 
 /**
  * WHO IS JUDGED BY WHICH RULEBOOK.
@@ -30,7 +35,6 @@ export async function HealthTypesSection({
   const data: HealthDiagnosisRouting | null = result.ok ? result.data : null;
 
   const typeCols = tableLabels(pageContract, "diagnosis-types");
-  const routeCols = tableLabels(pageContract, "diagnosis-routes");
   const gapCols = tableLabels(pageContract, "diagnosis-gaps");
 
   const types = data?.types ?? [];
@@ -182,89 +186,85 @@ export async function HealthTypesSection({
         </div>
       </section>
 
-      {/* --------------------------------------------------------------------- the routing */}
+      {/* ------------------------------------------------------- the routing, CATEGORY-FIRST.
+          Maintainer decision 2026-09-23: the categories are fixed, and which stages come under
+          each one is configured. This used to be one row per STAGE, which made the reader
+          assemble each category in their head -- four scattered rows to see what the fattening
+          type covers. It reads the way the farm says it now: the type, then its stage tags. */}
       <section className="card" style={{ marginBottom: 16 }}>
         <div className="hd">
-          <h3>{copy(pageContract, "section.routes.title")}</h3>
+          <h3>{copy(pageContract, "section.routes.by_type")}</h3>
           <span className="small muted">{copy(pageContract, "section.routes.caption")}</span>
-          <div className="sp" style={{ flex: 1 }} />
-          <RouteControls
-            pageContract={pageContract}
-            mode="create"
-            types={activeTypes}
-            stages={stages}
-            enabled={mayWrite}
-            disabledReason={writeDisabledReason}
-          />
         </div>
         <p className="small muted" style={{ margin: "0 14px 10px", lineHeight: 1.6 }}>
           {copy(pageContract, "section.routes.note")}
         </p>
-        <div className="bd health-scroll" style={{ padding: 0, overflowX: "auto" }} tabIndex={0}
-          role="group" aria-label={copy(pageContract, "table.routes.aria")}>
-          <table className="feed-table" aria-label={copy(pageContract, "table.routes.aria")}>
-            <thead>
-              <tr>
-                {routeCols.map((c) => <th key={c}>{c}</th>)}
-                <th>{copy(pageContract, "action.edit_route")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {routes.length === 0 ? (
-                <tr>
-                  <td colSpan={routeCols.length + 1}>
-                    <div className="muted small" style={{ padding: "18px 4px", textAlign: "center" }}>
-                      {copy(pageContract, "empty.routes")}
-                    </div>
-                  </td>
-                </tr>
-              ) : (
-                routes.map((r) => (
-                  <tr key={`${r.age_band}/${r.stage_code}`}>
-                    <td>{bandLabel(r.age_band)}</td>
-                    <td>
-                      {r.is_wildcard ? (
-                        <>
-                          <b>{copy(pageContract, "label.every_stage")}</b>
-                          {/* The wildcard looks like any other row and is not: removing it makes
-                              a whole age band fail-closed. The consequence is said here rather
-                              than left to be discovered. */}
-                          <div className="small muted" style={{ marginTop: 2, lineHeight: 1.5 }}>
-                            {copy(pageContract, "note.wildcard_route")}
-                          </div>
-                        </>
-                      ) : (
-                        <>
-                          {r.stage_label || r.stage_code}
-                          {/* A route whose stage the catalog no longer holds matches nothing. It
-                              is shown, and SAID, so it can be removed rather than puzzled over. */}
-                          {r.stage_retired ? (
-                            <div className="small" style={{ color: "var(--danger)", marginTop: 2 }}>
-                              {copy(pageContract, "warn.stage_retired")}
-                            </div>
-                          ) : null}
-                        </>
-                      )}
-                    </td>
-                    <td>{r.type_label}</td>
-                    <td className="small muted">{r.sub_stage || "—"}</td>
-                    <td><b>{r.live_animals}</b></td>
-                    <td>
-                      <RouteControls
+        <div className="bd" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          {activeTypes.map((t) => {
+            const mine = routes.filter((r) => r.type_key === t.type_key);
+            const bands = [...new Set(mine.map((r) => r.age_band))];
+            const animals = mine.reduce((sum, r) => sum + r.live_animals, 0);
+            return (
+              <div
+                key={t.type_key}
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  alignItems: "center",
+                  gap: 8,
+                  paddingBottom: 12,
+                  borderBottom: "1px solid var(--line, rgba(255,255,255,.08))",
+                }}
+              >
+                <div style={{ minWidth: 160 }}>
+                  <b>{t.label}</b>
+                  {/* The number that makes the panel worth opening: how many animals this whole
+                      category actually covers right now. */}
+                  <div className="small muted">
+                    {animals} · {copy(pageContract, "label.live_animals")}
+                  </div>
+                </div>
+
+                {mine.length === 0 ? (
+                  <span className="small muted">{copy(pageContract, "label.no_stages_yet")}</span>
+                ) : (
+                  mine.map((r) =>
+                    r.is_wildcard ? (
+                      // The catch-all is a chip like the others and is NOT one: removing it takes
+                      // every unnamed stage in the band out of diagnosis, so it says what it is.
+                      <span
+                        key={`${r.age_band}/${r.stage_code}`}
+                        className="chip"
+                        title={copy(pageContract, "note.wildcard_route")}
+                      >
+                        {copy(pageContract, "label.stage_every")} ({r.live_animals})
+                      </span>
+                    ) : (
+                      <RemoveStageChip
+                        key={`${r.age_band}/${r.stage_code}`}
                         pageContract={pageContract}
-                        mode="edit"
-                        route={r}
-                        types={activeTypes}
-                        stages={stages}
+                        ageBand={r.age_band}
+                        stageCode={r.stage_code}
+                        label={`${r.stage_label || r.stage_code} (${r.live_animals})`}
                         enabled={mayWrite}
                         disabledReason={writeDisabledReason}
                       />
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+                    ),
+                  )
+                )}
+
+                <div className="sp" style={{ flex: 1 }} />
+                <AddStageToType
+                  pageContract={pageContract}
+                  typeKey={t.type_key}
+                  ageBands={bands}
+                  stages={stages}
+                  enabled={mayWrite}
+                  disabledReason={writeDisabledReason}
+                />
+              </div>
+            );
+          })}
         </div>
       </section>
 
