@@ -30,15 +30,15 @@
       "notes": "No dedicated Make target: `guardrails:` invokes the script (and its --self-test) directly, and run_common runs both. The self-test builds synthetic admin-web/Go fixtures in a tmpdir and asserts the guard REJECTS them (direct BigQuery/Sheets access, cross-feature deep imports, silent recover())."
     },
     {
-      "id": "date-format",
-      "script": "tools/agent-hooks/check-date-format.mjs",
-      "makeTarget": "date-format-guard",
-      "realCheck": "node tools/agent-hooks/check-date-format.mjs",
-      "selfTest": "node tools/agent-hooks/check-date-format.mjs --self-test",
-      "owningDoc": "docs/decisions/date-display-format.md",
+      "id": "admin-web-interaction-patterns",
+      "script": "tools/agent-hooks/check-admin-web-interaction-patterns.mjs",
+      "makeTarget": "admin-web-interaction-patterns-guard",
+      "realCheck": "node tools/agent-hooks/check-admin-web-interaction-patterns.mjs",
+      "selfTest": "node tools/agent-hooks/check-admin-web-interaction-patterns.mjs --self-test",
+      "owningDoc": "docs/decisions/admin-web-interaction-patterns.md",
       "requiredInCI": true,
-      "ciStep": "date-format-guard",
-      "notes": "Repo-wide: admin-web + Android + backend visible copy. Self-test asserts the guard REJECTS the retired DD-MM-YYYY dash form, the retired compact dd-mm-yy chart axis, every retired Android `d MMM` pattern, and a Go word-month layout, while PASSING wire formats (ISO, month headings, time-only) and honouring `date-format-guard:ignore:` only with a stated reason."
+      "ciStep": "admin-web-interaction-patterns-guard",
+      "notes": "Maintainer rule 2026-09-18 from the Tasks page: no native date/time inputs (ThemedDatePicker is the one date field), no ARIA-faked checkboxes (a tick is a real <input type=checkbox> in a <label>), no server action that returns a row AND revalidates the route (the drawer applies the row in place; the revalidate is the page flicker), no Board/List view toggle that navigates (client state + replaceLocalOverlayUrl). Whole-tree, count-ratcheted baseline in tools/admin-web-interaction-patterns/baseline.json (shrink-only). Self-test is adversarial per rule and also pins the reference implementations (themed-date-picker, task-people-dropdown, task-view-switch, task-row-store, the in-place status action having no revalidate). Card-click-navigates-to-open-a-drawer stays with admin-web-local-overlays, which now pins the Tasks drawer host."
     },
     {
       "id": "admin-web-local-overlays",
@@ -51,17 +51,6 @@
       "ciStep": "admin-web-local-overlay-guard"
     },
     {
-      "id": "admin-web-interaction-patterns",
-      "script": "tools/agent-hooks/check-admin-web-interaction-patterns.mjs",
-      "makeTarget": "admin-web-interaction-patterns-guard",
-      "realCheck": "node tools/agent-hooks/check-admin-web-interaction-patterns.mjs",
-      "selfTest": "node tools/agent-hooks/check-admin-web-interaction-patterns.mjs --self-test",
-      "owningDoc": "docs/decisions/admin-web-interaction-patterns.md",
-      "requiredInCI": true,
-      "ciStep": "admin-web-interaction-patterns-guard",
-      "notes": "Maintainer rule 2026-09-18 from the Tasks page: no native date/time inputs (ThemedDatePicker is the one date field), no ARIA-faked checkboxes (a tick is a real <input type=checkbox> in a <label>), no server action that returns a row AND revalidates the route (the drawer applies the row in place; the revalidate is the page flicker), no Board/List view toggle that navigates (client state + replaceLocalOverlayUrl). Whole-tree, count-ratcheted baseline in tools/admin-web-interaction-patterns/baseline.json (shrink-only). Self-test is adversarial per rule and also pins the reference implementations (themed-date-picker, task-people-dropdown, task-view-switch, task-row-store, the in-place status action having no revalidate). Card-click-navigates-to-open-a-drawer stays with admin-web-local-overlays, which now pins the Tasks drawer host."
-    },
-    {
       "id": "admin-web-nav-icon-coverage",
       "script": "tools/agent-hooks/check-admin-web-nav-icon-coverage.mjs",
       "makeTarget": "frontend-foundations-guard",
@@ -71,36 +60,6 @@
       "requiredInCI": true,
       "ciStep": "frontend-foundations-guard",
       "notes": "Backend-owned admin navigation keys must have explicit human labels/icons instead of raw identifier fallbacks."
-    },
-    {
-      "id": "admin-web-prefetch",
-      "script": "tools/agent-hooks/check-admin-web-prefetch.mjs",
-      "makeTarget": "admin-web-prefetch-guard",
-      "realCheck": "node tools/agent-hooks/check-admin-web-prefetch.mjs",
-      "selfTest": "node tools/agent-hooks/check-admin-web-prefetch.mjs --self-test",
-      "owningDoc": "docs/decisions/high-scale-dashboard-projections.md",
-      "requiredInCI": true,
-      "ciStep": "admin-web-prefetch-guard"
-    },
-    {
-      "id": "admin-web-server-client-values",
-      "script": "tools/agent-hooks/check-admin-web-server-client-values.mjs",
-      "makeTarget": "admin-web-server-client-values-guard",
-      "realCheck": "node tools/agent-hooks/check-admin-web-server-client-values.mjs",
-      "selfTest": "node tools/agent-hooks/check-admin-web-server-client-values.mjs --self-test",
-      "requiredInCI": true,
-      "ciStep": "admin-web-server-client-values-guard",
-      "notes": "A server component must not import a plain value (helper/const, not a component) from a \"use client\" module: it is a client reference, and calling it during server render fails at runtime while tsc/eslint/unit tests stay green (PR #295: 206 \"Attempted to call initials() from the server\" errors, zero task cards, React #419)."
-    },
-    {
-      "id": "admin-web-request-reads",
-      "script": "tools/agent-hooks/check-admin-web-request-reads.mjs",
-      "makeTarget": "admin-web-request-reads-guard",
-      "realCheck": "node tools/agent-hooks/check-admin-web-request-reads.mjs",
-      "selfTest": "node tools/agent-hooks/check-admin-web-request-reads.mjs --self-test",
-      "owningDoc": "docs/decisions/high-scale-dashboard-projections.md",
-      "requiredInCI": true,
-      "ciStep": "admin-web-request-reads-guard"
     },
     {
       "id": "admin-web-phone-viewport",
@@ -124,6 +83,16 @@
       "ciStep": "check-admin-web-phone-viewport-on-edit.sh"
     },
     {
+      "id": "admin-web-prefetch",
+      "script": "tools/agent-hooks/check-admin-web-prefetch.mjs",
+      "makeTarget": "admin-web-prefetch-guard",
+      "realCheck": "node tools/agent-hooks/check-admin-web-prefetch.mjs",
+      "selfTest": "node tools/agent-hooks/check-admin-web-prefetch.mjs --self-test",
+      "owningDoc": "docs/decisions/high-scale-dashboard-projections.md",
+      "requiredInCI": true,
+      "ciStep": "admin-web-prefetch-guard"
+    },
+    {
       "id": "admin-web-proof-media-egress",
       "script": "tools/agent-hooks/check-admin-web-proof-media-egress.mjs",
       "makeTarget": "admin-web-proof-media-egress-guard",
@@ -135,15 +104,34 @@
       "notes": "Admin-web drawers/lists/details must not mint signed GCS proof URLs or render proof media tags on load. Use backend proof routes and explicit open/play actions."
     },
     {
-      "id": "dashboard-automation",
-      "script": "tools/agent-hooks/check-dashboard-automation-guard.mjs",
-      "makeTarget": "dashboard-automation-guard",
-      "realCheck": "node tools/agent-hooks/check-dashboard-automation-guard.mjs",
-      "selfTest": "node tools/agent-hooks/check-dashboard-automation-guard.mjs --self-test",
-      "owningDoc": "docs/runbooks/dashboard-automation-oci.md",
+      "id": "admin-web-request-reads",
+      "script": "tools/agent-hooks/check-admin-web-request-reads.mjs",
+      "makeTarget": "admin-web-request-reads-guard",
+      "realCheck": "node tools/agent-hooks/check-admin-web-request-reads.mjs",
+      "selfTest": "node tools/agent-hooks/check-admin-web-request-reads.mjs --self-test",
+      "owningDoc": "docs/decisions/high-scale-dashboard-projections.md",
       "requiredInCI": true,
-      "ciStep": "dashboard-automation-guard",
-      "notes": "Daily/post-main dashboard automation guard: compares admin-web filesystem routes with deterministic smoke coverage, keeps Work Board/Weights/risky surfaces present, and requires the OCI/free-tier/receipt runner files. This catches future route additions/removals by source discovery instead of hard-coding a route count."
+      "ciStep": "admin-web-request-reads-guard"
+    },
+    {
+      "id": "admin-web-sectioned-aggregate-reads",
+      "script": "tools/agent-hooks/check-admin-web-sectioned-aggregate-reads.mjs",
+      "makeTarget": "admin-web-sectioned-aggregate-reads-guard",
+      "realCheck": "node tools/agent-hooks/check-admin-web-sectioned-aggregate-reads.mjs",
+      "selfTest": "node tools/agent-hooks/check-admin-web-sectioned-aggregate-reads.mjs --self-test",
+      "owningDoc": "docs/decisions/high-scale-dashboard-projections.md",
+      "requiredInCI": true,
+      "ciStep": "admin-web sectioned aggregate reads"
+    },
+    {
+      "id": "admin-web-server-client-values",
+      "script": "tools/agent-hooks/check-admin-web-server-client-values.mjs",
+      "makeTarget": "admin-web-server-client-values-guard",
+      "realCheck": "node tools/agent-hooks/check-admin-web-server-client-values.mjs",
+      "selfTest": "node tools/agent-hooks/check-admin-web-server-client-values.mjs --self-test",
+      "requiredInCI": true,
+      "ciStep": "admin-web-server-client-values-guard",
+      "notes": "A server component must not import a plain value (helper/const, not a component) from a \"use client\" module: it is a client reference, and calling it during server render fails at runtime while tsc/eslint/unit tests stay green (PR #295: 206 \"Attempted to call initials() from the server\" errors, zero task cards, React #419)."
     },
     {
       "id": "agent-write-scope",
@@ -165,16 +153,6 @@
       "owningDoc": ".agents/skills/goatos-code-review/references/aggregates-and-projections.md",
       "requiredInCI": true,
       "ciStep": "aggregate-projection-guard"
-    },
-    {
-      "id": "admin-web-sectioned-aggregate-reads",
-      "script": "tools/agent-hooks/check-admin-web-sectioned-aggregate-reads.mjs",
-      "makeTarget": "admin-web-sectioned-aggregate-reads-guard",
-      "realCheck": "node tools/agent-hooks/check-admin-web-sectioned-aggregate-reads.mjs",
-      "selfTest": "node tools/agent-hooks/check-admin-web-sectioned-aggregate-reads.mjs --self-test",
-      "owningDoc": "docs/decisions/high-scale-dashboard-projections.md",
-      "requiredInCI": true,
-      "ciStep": "admin-web sectioned aggregate reads"
     },
     {
       "id": "android-alerts-gate-composed",
@@ -239,16 +217,6 @@
       "notes": "L0 root screens must render MeshaScreenHeader (shell-owned chrome), call RefreshOnResume (read screens), and use SyncIconButton (not hand-rolled refresh). Prevents screens shipping without top chrome/drawer/refresh like /vaccination/videos on 2026-08-03."
     },
     {
-      "id": "android-navigation-stack",
-      "script": "tools/agent-hooks/check-android-navigation-stack.mjs",
-      "makeTarget": "android-navigation-stack-guard",
-      "realCheck": "node tools/agent-hooks/check-android-navigation-stack.mjs",
-      "selfTest": "node tools/agent-hooks/check-android-navigation-stack.mjs --self-test",
-      "owningDoc": "docs/decisions/android-navigation-stack.md",
-      "requiredInCI": true,
-      "ciStep": "android-navigation-stack-guard"
-    },
-    {
       "id": "android-nav-icon-coverage",
       "script": "tools/agent-hooks/check-android-nav-icon-coverage.mjs",
       "makeTarget": "mobile-guard",
@@ -258,6 +226,16 @@
       "requiredInCI": true,
       "ciStep": "mobile-guard",
       "notes": "Backend-owned Android navigation/module keys must have explicit icons and human labels."
+    },
+    {
+      "id": "android-navigation-stack",
+      "script": "tools/agent-hooks/check-android-navigation-stack.mjs",
+      "makeTarget": "android-navigation-stack-guard",
+      "realCheck": "node tools/agent-hooks/check-android-navigation-stack.mjs",
+      "selfTest": "node tools/agent-hooks/check-android-navigation-stack.mjs --self-test",
+      "owningDoc": "docs/decisions/android-navigation-stack.md",
+      "requiredInCI": true,
+      "ciStep": "android-navigation-stack-guard"
     },
     {
       "id": "android-orientation-lock",
@@ -281,6 +259,28 @@
       "notes": "Every Android OutboxOpType explicitly declares immediate UI, success reconciliation, terminal-failure, and process-death policy; wildcard coverage is rejected."
     },
     {
+      "id": "android-pen-visit-proof-preview",
+      "script": "tools/agent-hooks/check-android-pen-visit-proof-preview.mjs",
+      "makeTarget": "mobile-guard",
+      "realCheck": "node tools/agent-hooks/check-android-pen-visit-proof-preview.mjs",
+      "selfTest": "node tools/agent-hooks/check-android-pen-visit-proof-preview.mjs --self-test",
+      "owningDoc": "docs/decisions/pen-visit-tasks.md",
+      "requiredInCI": true,
+      "ciStep": "mobile-guard",
+      "notes": "Pen Visit submission must keep the captured live-camera video on the shared proof preview surface with replay, fullscreen, share, retry, and feature-owned analytics."
+    },
+    {
+      "id": "android-proof-media-egress",
+      "script": "tools/agent-hooks/check-android-proof-media-egress.mjs",
+      "makeTarget": "mobile-guard",
+      "realCheck": "node tools/agent-hooks/check-android-proof-media-egress.mjs",
+      "selfTest": "node tools/agent-hooks/check-android-proof-media-egress.mjs --self-test",
+      "owningDoc": "docs/runbooks/goatos-stg-proof-media-egress-2026-09-08.md",
+      "requiredInCI": true,
+      "ciStep": "mobile-guard",
+      "notes": "Blocks post-upload proof/media egress regressions: hidden remote preview/probe/download, signed-URL keyed state, missing stable preview identity, and unreviewed direct media reads."
+    },
+    {
       "id": "android-proof-policy-default",
       "script": "tools/agent-hooks/check-android-proof-policy-default.mjs",
       "makeTarget": "mobile-guard",
@@ -301,28 +301,6 @@
       "requiredInCI": true,
       "ciStep": "mobile-guard",
       "notes": "Every common proof preview surface must wire play/fullscreen/share/failure actions into feature analytics."
-    },
-    {
-      "id": "android-proof-media-egress",
-      "script": "tools/agent-hooks/check-android-proof-media-egress.mjs",
-      "makeTarget": "mobile-guard",
-      "realCheck": "node tools/agent-hooks/check-android-proof-media-egress.mjs",
-      "selfTest": "node tools/agent-hooks/check-android-proof-media-egress.mjs --self-test",
-      "owningDoc": "docs/runbooks/goatos-stg-proof-media-egress-2026-09-08.md",
-      "requiredInCI": true,
-      "ciStep": "mobile-guard",
-      "notes": "Blocks post-upload proof/media egress regressions: hidden remote preview/probe/download, signed-URL keyed state, missing stable preview identity, and unreviewed direct media reads."
-    },
-    {
-      "id": "android-pen-visit-proof-preview",
-      "script": "tools/agent-hooks/check-android-pen-visit-proof-preview.mjs",
-      "makeTarget": "mobile-guard",
-      "realCheck": "node tools/agent-hooks/check-android-pen-visit-proof-preview.mjs",
-      "selfTest": "node tools/agent-hooks/check-android-pen-visit-proof-preview.mjs --self-test",
-      "owningDoc": "docs/decisions/pen-visit-tasks.md",
-      "requiredInCI": true,
-      "ciStep": "mobile-guard",
-      "notes": "Pen Visit submission must keep the captured live-camera video on the shared proof preview surface with replay, fullscreen, share, retry, and feature-owned analytics."
     },
     {
       "id": "android-proof-video-pipeline",
@@ -463,15 +441,15 @@
       "ciStep": "backend-foundations-guard"
     },
     {
-      "id": "postgres-bind-contract",
-      "script": "tools/agent-hooks/check-postgres-bind-contract.mjs",
-      "makeTarget": "postgres-bind-contract-guard",
-      "realCheck": "node tools/agent-hooks/check-postgres-bind-contract.mjs",
-      "selfTest": "node tools/agent-hooks/check-postgres-bind-contract.mjs --self-test",
-      "owningDoc": "docs/engineering/backend-go-postgres-quality.md",
+      "id": "backend-proof-media-egress",
+      "script": "tools/agent-hooks/check-backend-proof-media-egress.mjs",
+      "makeTarget": "backend-proof-media-egress-guard",
+      "realCheck": "node tools/agent-hooks/check-backend-proof-media-egress.mjs",
+      "selfTest": "node tools/agent-hooks/check-backend-proof-media-egress.mjs --self-test",
+      "owningDoc": "docs/runbooks/goatos-stg-proof-media-egress-2026-09-08.md",
       "requiredInCI": true,
-      "ciStep": "postgres-bind-contract-guard",
-      "notes": "Derives positional placeholder contracts, blocks provable mismatches, rejects newly changed unverified dynamic bind calls, and keeps legacy dynamic debt on a per-file shrink-only baseline."
+      "ciStep": "backend-proof-media-egress-guard",
+      "notes": "Hot backend list/dashboard read models must not mint signed GCS proof-media URLs. Return authenticated /app/proofs/{proof_id}/download paths and let the explicit-open route mint/log the short-lived signed URL."
     },
     {
       "id": "calendar-endpoint-grain",
@@ -505,15 +483,15 @@
       "ciStep": "ceo-ai-boundary-guard"
     },
     {
-      "id": "mesha-data-map",
-      "script": "tools/ask-mesha-agent/gen-data-map.mjs",
-      "makeTarget": "mesha-data-map-guard",
-      "realCheck": "node tools/ask-mesha-agent/gen-data-map.mjs --check",
-      "selfTest": "node --test tools/ask-mesha-agent/test/derived-queries.test.mjs",
-      "owningDoc": "docs/agent-rules/ask-mesha.md",
+      "id": "ceo-ai-page-contract-drift",
+      "script": "tools/agent-hooks/check-ceo-ai-page-contract-drift.mjs",
+      "makeTarget": "ceo-ai-page-contract-drift-guard",
+      "realCheck": "node tools/agent-hooks/check-ceo-ai-page-contract-drift.mjs",
+      "selfTest": "node tools/agent-hooks/check-ceo-ai-page-contract-drift.mjs --self-test",
+      "owningDoc": "docs/ceo-ai/coverage-matrix.md",
       "requiredInCI": true,
-      "ciStep": "mesha-data-map-guard",
-      "notes": "Ask Mesha saved queries (ADG, cost/kg gain, feed stock days, load-wise sales, pens, herd weight...) are hand-copied from app code; references/derived-queries.json pins a sha256 of each source. Any change to those backend/migration sources fails until the query is re-derived and rehashed. Runs in run_common with PG env stripped (no DB needed; column-level check skipped). Self-test tampers a hash in a temp manifest and asserts failure."
+      "ciStep": "ceo-ai-page-contract-drift-guard",
+      "notes": "Plan v3 D6 page-contract drift guard: parses backend/internal/adminui/app/service.go page contracts for kpi.*/chart.* copy keys and requires each such page's data-source route (table data_source, else the page href) to appear in docs/ceo-ai/coverage-matrix.md as covered (Cube/api/view/tool/sql), PLANNED:P<n>, or a typed EXCLUDED:<category> row; a bare EXCLUDED or a missing row fails. Self-test builds synthetic contract sources for the missing/covered/bare/typed/planned/helper/indirection cases and a parser-drift canary over the real file."
     },
     {
       "id": "ceo-ai-schema-cards",
@@ -587,6 +565,28 @@
       "requiredInCI": true,
       "ciStep": "critical-animal-action-availability-guard",
       "notes": "Keeps ICU/quarantine/death/high-risk movement interim fail-closed rules visible until full policy-pack modules ship."
+    },
+    {
+      "id": "dashboard-automation",
+      "script": "tools/agent-hooks/check-dashboard-automation-guard.mjs",
+      "makeTarget": "dashboard-automation-guard",
+      "realCheck": "node tools/agent-hooks/check-dashboard-automation-guard.mjs",
+      "selfTest": "node tools/agent-hooks/check-dashboard-automation-guard.mjs --self-test",
+      "owningDoc": "docs/runbooks/dashboard-automation-oci.md",
+      "requiredInCI": true,
+      "ciStep": "dashboard-automation-guard",
+      "notes": "Daily/post-main dashboard automation guard: compares admin-web filesystem routes with deterministic smoke coverage, keeps Work Board/Weights/risky surfaces present, and requires the OCI/free-tier/receipt runner files. This catches future route additions/removals by source discovery instead of hard-coding a route count."
+    },
+    {
+      "id": "date-format",
+      "script": "tools/agent-hooks/check-date-format.mjs",
+      "makeTarget": "date-format-guard",
+      "realCheck": "node tools/agent-hooks/check-date-format.mjs",
+      "selfTest": "node tools/agent-hooks/check-date-format.mjs --self-test",
+      "owningDoc": "docs/decisions/date-display-format.md",
+      "requiredInCI": true,
+      "ciStep": "date-format-guard",
+      "notes": "Repo-wide: admin-web + Android + backend visible copy. Self-test asserts the guard REJECTS the retired DD-MM-YYYY dash form, the retired compact dd-mm-yy chart axis, every retired Android `d MMM` pattern, and a Go word-month layout, while PASSING wire formats (ISO, month headings, time-only) and honouring `date-format-guard:ignore:` only with a stated reason."
     },
     {
       "id": "deployed-job-flags",
@@ -704,17 +704,6 @@
       "ciStep": "git-identity-guard"
     },
     {
-      "id": "grafana-durability",
-      "script": "tools/ci/check-grafana-durability.mjs",
-      "makeTarget": "grafana-durability-guard",
-      "realCheck": "node tools/ci/check-grafana-durability.mjs",
-      "selfTest": "node tools/ci/check-grafana-durability.mjs --self-test",
-      "owningDoc": "docs/observability/RUNBOOK.md",
-      "requiredInCI": true,
-      "ciStep": "grafana-durability-guard",
-      "notes": "When infra/grafana/dashboards JSONs exist, Terraform must keep file-provider provisioning wired into the Grafana Cloud Run GCS mount, and the staging deploy script must run the live Grafana dashboard smoke so a backend/web deploy cannot report green while Grafana is empty."
-    },
-    {
       "id": "goat-shed-integrity-db-proof",
       "script": "tools/dev/check-goat-shed-integrity.sh",
       "makeTarget": "goat-shed-integrity-db-proof",
@@ -756,6 +745,39 @@
       "ciStep": "check-gradle-worktree-lock.sh"
     },
     {
+      "id": "grafana-durability",
+      "script": "tools/ci/check-grafana-durability.mjs",
+      "makeTarget": "grafana-durability-guard",
+      "realCheck": "node tools/ci/check-grafana-durability.mjs",
+      "selfTest": "node tools/ci/check-grafana-durability.mjs --self-test",
+      "owningDoc": "docs/observability/RUNBOOK.md",
+      "requiredInCI": true,
+      "ciStep": "grafana-durability-guard",
+      "notes": "When infra/grafana/dashboards JSONs exist, Terraform must keep file-provider provisioning wired into the Grafana Cloud Run GCS mount, and the staging deploy script must run the live Grafana dashboard smoke so a backend/web deploy cannot report green while Grafana is empty."
+    },
+    {
+      "id": "guard-input-presence",
+      "script": "tools/agent-hooks/check-guard-input-presence.mjs",
+      "makeTarget": "guard-input-presence-guard",
+      "realCheck": "node tools/agent-hooks/check-guard-input-presence.mjs",
+      "selfTest": "node tools/agent-hooks/check-guard-input-presence.mjs --self-test",
+      "owningDoc": "docs/observability/GUARD_WEAKENING_LEDGER.md",
+      "requiredInCI": true,
+      "ciStep": "guard-input-presence-guard",
+      "notes": "Every file path hard-coded in a guard script must exist. Closes the class where a guard's input is renamed away and the guard reports ok having read nothing (87 measured (guard,input) pairs across 29 guards, 2026-09-23)."
+    },
+    {
+      "id": "guard-weakening",
+      "script": "tools/agent-hooks/check-guard-weakening.mjs",
+      "makeTarget": "guard-weakening-guard",
+      "realCheck": "node tools/agent-hooks/check-guard-weakening.mjs",
+      "selfTest": "node tools/agent-hooks/check-guard-weakening.mjs --self-test",
+      "owningDoc": "docs/observability/GUARD_WEAKENING_LEDGER.md",
+      "requiredInCI": true,
+      "ciStep": "guard-weakening-guard",
+      "notes": "Meta-guard. Fails a diff that makes a guard protect less unless a GUARD-WEAKENING-ACK naming the exact finding id is added in the same diff. Tightening a guard, shrinking a ratchet or deleting an exemption never needs an ACK."
+    },
+    {
       "id": "guardrail-registration",
       "script": "tools/ci/check-guardrail-registration.mjs",
       "makeTarget": "guardrail-registration-guard",
@@ -795,6 +817,17 @@
       "owningDoc": ".agents/skills/goatos-code-review/references/business-rules.md",
       "requiredInCI": true,
       "ciStep": "india-date-guard"
+    },
+    {
+      "id": "interactive-surfaces",
+      "script": "tools/agent-hooks/check-interactive-surfaces.mjs",
+      "makeTarget": "interactive-surfaces-guard",
+      "realCheck": "node tools/agent-hooks/check-interactive-surfaces.mjs",
+      "selfTest": "node tools/agent-hooks/check-interactive-surfaces.mjs --self-test",
+      "owningDoc": "docs/engineering/automation-handover.md",
+      "requiredInCI": true,
+      "ciStep": "interactive-surfaces-guard",
+      "notes": "Every edit form, inline editor, row action and modal in admin-web carries a decision, and every decision claimed as coverage carries an assertion the gate RE-DERIVES from the source it names and that goes red on a blank screen. visible/absent/count/url are refused outright -- those are the four operators that let 178 assertions pass against a blank screen. The blank reading is derived from the operator, never accepted from the author. Expectations name the principal they describe, because admin-web compiles a different set of controls per permission set. A surface that no page imports must say so. Fails CLOSED when the ledger or the app tree is missing, so a vanished input can never read as 0/148 clean; the entrypoint names its inputs in this directory precisely so check-guard-input-presence.mjs covers them."
     },
     {
       "id": "kernel-worker-cutover",
@@ -840,17 +873,6 @@
       "notes": "Diff-scoped coverage check PLUS a whole-file typed-exclusion ratchet (plan v3 D6): a coverage-matrix `| EXCLUDED |` cell must be EXCLUDED:config|write|pii|detail|infra unless its surface is frozen in tools/agent-hooks/leadership-assistant-exclusion-baseline.txt, which only shrinks. Self-test cases 12-16 are the adversarial exclusion fixtures."
     },
     {
-      "id": "ceo-ai-page-contract-drift",
-      "script": "tools/agent-hooks/check-ceo-ai-page-contract-drift.mjs",
-      "makeTarget": "ceo-ai-page-contract-drift-guard",
-      "realCheck": "node tools/agent-hooks/check-ceo-ai-page-contract-drift.mjs",
-      "selfTest": "node tools/agent-hooks/check-ceo-ai-page-contract-drift.mjs --self-test",
-      "owningDoc": "docs/ceo-ai/coverage-matrix.md",
-      "requiredInCI": true,
-      "ciStep": "ceo-ai-page-contract-drift-guard",
-      "notes": "Plan v3 D6 page-contract drift guard: parses backend/internal/adminui/app/service.go page contracts for kpi.*/chart.* copy keys and requires each such page's data-source route (table data_source, else the page href) to appear in docs/ceo-ai/coverage-matrix.md as covered (Cube/api/view/tool/sql), PLANNED:P<n>, or a typed EXCLUDED:<category> row; a bare EXCLUDED or a missing row fails. Self-test builds synthetic contract sources for the missing/covered/bare/typed/planned/helper/indirection cases and a parser-drift canary over the real file."
-    },
-    {
       "id": "leadership-verifier-surface-separation",
       "script": "tools/agent-hooks/check-leadership-verifier-surface-separation.mjs",
       "makeTarget": "leadership-verifier-surface-separation-guard",
@@ -892,17 +914,6 @@
       "requiredInCI": true,
       "ciStep": "local-single-db-guard",
       "notes": "Already wired before this registration: run_backend of tools/ci/run-local-ci.sh runs `local-single-db-guard`, and the Makefile `guardrails:` target already invoked it. Only the manifest entry was missing."
-    },
-    {
-      "id": "org-boundary",
-      "script": "tools/agent-hooks/check-org-boundary.mjs",
-      "makeTarget": "org-boundary-guard",
-      "realCheck": "node tools/agent-hooks/check-org-boundary.mjs",
-      "selfTest": "node tools/agent-hooks/check-org-boundary.mjs --self-test",
-      "owningDoc": "docs/runbooks/google-cloud-environments.md",
-      "requiredInCI": true,
-      "ciStep": "org-boundary-guard",
-      "notes": "Diff guard that blocks newly added cross-organization/project names in Goat OS. It is diff-based so historical main-branch debt does not keep local CI red, but every new addition is rejected in run_common before push."
     },
     {
       "id": "migration-duplicate-versions",
@@ -1011,50 +1022,6 @@
       "notes": "Maintainer decision 2026-08-02: blocks abstract count-only notification copy (e.g. \"Vaccination(s) due soon - 3\") in backend/internal/notificationbridge/**. Requires park/shed/vaccine-name/date specificity in Title/Body. Composes with ui-vaccine-labels (raw-token humanization) rather than duplicating it."
     },
     {
-      "id": "procurement-sop",
-      "script": "tools/agent-hooks/check-procurement-sop-guard.mjs",
-      "makeTarget": "procurement-sop-guard",
-      "realCheck": "node tools/agent-hooks/check-procurement-sop-guard.mjs",
-      "selfTest": "node tools/agent-hooks/check-procurement-sop-guard.mjs --self-test",
-      "owningDoc": "docs/decisions/procurement-sop.md",
-      "requiredInCI": true,
-      "ciStep": "procurement-sop-guard",
-      "notes": "Maintainer decision 2026-09-14: the animal purchase inspection (pages, questions, proof, compulsory flags) is compiled from the PUBLISHED procurement.animal_purchase SOP version; no production Go reads the legacy catalog, the seed is embedded verbatim in migration 000307, and the phone hardcodes no question title."
-    },
-    {
-      "id": "weighing-sop",
-      "script": "tools/agent-hooks/check-weighing-sop-guard.mjs",
-      "makeTarget": "weighing-sop-guard",
-      "realCheck": "node tools/agent-hooks/check-weighing-sop-guard.mjs",
-      "selfTest": "node tools/agent-hooks/check-weighing-sop-guard.mjs --self-test",
-      "owningDoc": "docs/decisions/weighing-sop.md",
-      "requiredInCI": true,
-      "ciStep": "weighing-sop-guard",
-      "notes": "Maintainer decision 2026-09-15: the weighing rules (capture modes, default cap, feed & water removal mode / card copy / questions, lump-sum video window) come from the PUBLISHED weighing.session SOP version, pinned per task. The seed is embedded verbatim in migration 000315, weighing/app carries no cap literal and demands the removal operator only from sop_rules.go, backend/internal/weighing names no sop_* table, and the phone's lump-sum policy reads the pinned window rather than MAX_SHED_GROUP_VIDEOS."
-    },
-    {
-      "id": "pc-care-sop",
-      "script": "tools/agent-hooks/check-pc-care-sop-guard.mjs",
-      "makeTarget": "pc-care-sop-guard",
-      "realCheck": "node tools/agent-hooks/check-pc-care-sop-guard.mjs",
-      "selfTest": "node tools/agent-hooks/check-pc-care-sop-guard.mjs --self-test",
-      "owningDoc": "docs/decisions/pc-care-sop.md",
-      "requiredInCI": true,
-      "ciStep": "pc-care-sop-guard",
-      "notes": "Maintainer decision 2026-09-22: the PC Care per-animal captures, the questions answered at submit and the evening-before feed & water removal come from the PUBLISHED pc_care.tasks SOP version, pinned per task. The seed is embedded verbatim in migration 000386; no production Go under pccare reads the legacy slot table for an authored category or decides the removal from the category; readiness is the pinned required_slot_keys rather than the legacy proof columns; backend/internal/pccare names no sop_* table; the phone renders the served expected_slots; and /pc-care/sops is registered end to end in the adminui contract."
-    },
-    {
-      "id": "shifting-sop",
-      "script": "tools/agent-hooks/check-shifting-sop-guard.mjs",
-      "makeTarget": "shifting-sop-guard",
-      "realCheck": "node tools/agent-hooks/check-shifting-sop-guard.mjs",
-      "selfTest": "node tools/agent-hooks/check-shifting-sop-guard.mjs --self-test",
-      "owningDoc": "docs/decisions/shifting-sop.md",
-      "requiredInCI": true,
-      "ciStep": "shifting-sop-guard",
-      "notes": "Maintainer decision 2026-09-16: the raise extras, completion card and high-priority card of a shifting movement come from the PUBLISHED shifting SOP version, pinned per movement at raise. The seed is embedded verbatim in migration 000328, backend/internal/counts names no sop_* table (shiftingsop is the only reader), ErrShiftingProofSlotInvalid is minted only by the judge, and the phone's ShiftingExecute/Raise screens hold no seeded slot title as a literal."
-    },
-    {
       "id": "offline-first-reads",
       "script": "tools/agent-hooks/check-offline-first-reads.mjs",
       "makeTarget": "offline-first-guard",
@@ -1107,6 +1074,17 @@
       "notes": "Detects callers of operatorCapacityPlanner / effectiveOperatorAnimalCap in backend/internal/obligation/app/** that feed the returned cap into a capacity limit/lock sink without a fail-closed check (driveOperatorCapacityExhausted, or maxDriveCells>0 && effectiveCap<=0), which reintroduces the F1 fail-open (cap<=0 read as uncapped) on a config-present-but-no-executable-operator day."
     },
     {
+      "id": "org-boundary",
+      "script": "tools/agent-hooks/check-org-boundary.mjs",
+      "makeTarget": "org-boundary-guard",
+      "realCheck": "node tools/agent-hooks/check-org-boundary.mjs",
+      "selfTest": "node tools/agent-hooks/check-org-boundary.mjs --self-test",
+      "owningDoc": "docs/runbooks/google-cloud-environments.md",
+      "requiredInCI": true,
+      "ciStep": "org-boundary-guard",
+      "notes": "Diff guard that blocks newly added cross-organization/project names in Goat OS. It is diff-based so historical main-branch debt does not keep local CI red, but every new addition is rejected in run_common before push."
+    },
+    {
       "id": "overlay-motion",
       "script": "tools/agent-hooks/check-overlay-motion.mjs",
       "makeTarget": "overlay-motion-guard",
@@ -1125,6 +1103,39 @@
       "owningDoc": "docs/runbooks/local-ci-and-landing.md",
       "requiredInCI": true,
       "ciStep": "check-parallel-dispatch-cleanup.sh"
+    },
+    {
+      "id": "pc-care-sop",
+      "script": "tools/agent-hooks/check-pc-care-sop-guard.mjs",
+      "makeTarget": "pc-care-sop-guard",
+      "realCheck": "node tools/agent-hooks/check-pc-care-sop-guard.mjs",
+      "selfTest": "node tools/agent-hooks/check-pc-care-sop-guard.mjs --self-test",
+      "owningDoc": "docs/decisions/pc-care-sop.md",
+      "requiredInCI": true,
+      "ciStep": "pc-care-sop-guard",
+      "notes": "Maintainer decision 2026-09-22: the PC Care per-animal captures, the questions answered at submit and the evening-before feed & water removal come from the PUBLISHED pc_care.tasks SOP version, pinned per task. The seed is embedded verbatim in migration 000386; no production Go under pccare reads the legacy slot table for an authored category or decides the removal from the category; readiness is the pinned required_slot_keys rather than the legacy proof columns; backend/internal/pccare names no sop_* table; the phone renders the served expected_slots; and /pc-care/sops is registered end to end in the adminui contract."
+    },
+    {
+      "id": "postgres-bind-contract",
+      "script": "tools/agent-hooks/check-postgres-bind-contract.mjs",
+      "makeTarget": "postgres-bind-contract-guard",
+      "realCheck": "node tools/agent-hooks/check-postgres-bind-contract.mjs",
+      "selfTest": "node tools/agent-hooks/check-postgres-bind-contract.mjs --self-test",
+      "owningDoc": "docs/engineering/backend-go-postgres-quality.md",
+      "requiredInCI": true,
+      "ciStep": "postgres-bind-contract-guard",
+      "notes": "Derives positional placeholder contracts, blocks provable mismatches, rejects newly changed unverified dynamic bind calls, and keeps legacy dynamic debt on a per-file shrink-only baseline."
+    },
+    {
+      "id": "procurement-sop",
+      "script": "tools/agent-hooks/check-procurement-sop-guard.mjs",
+      "makeTarget": "procurement-sop-guard",
+      "realCheck": "node tools/agent-hooks/check-procurement-sop-guard.mjs",
+      "selfTest": "node tools/agent-hooks/check-procurement-sop-guard.mjs --self-test",
+      "owningDoc": "docs/decisions/procurement-sop.md",
+      "requiredInCI": true,
+      "ciStep": "procurement-sop-guard",
+      "notes": "Maintainer decision 2026-09-14: the animal purchase inspection (pages, questions, proof, compulsory flags) is compiled from the PUBLISHED procurement.animal_purchase SOP version; no production Go reads the legacy catalog, the seed is embedded verbatim in migration 000307, and the phone hardcodes no question title."
     },
     {
       "id": "proof-capture-authorization",
@@ -1189,6 +1200,17 @@
       "ciStep": "room-migration-guard"
     },
     {
+      "id": "sales-pages",
+      "script": "tools/agent-hooks/check-sales-pages.mjs",
+      "makeTarget": "sales-pages-guard",
+      "realCheck": "node tools/agent-hooks/check-sales-pages.mjs",
+      "selfTest": "node tools/agent-hooks/check-sales-pages.mjs --self-test",
+      "owningDoc": "docs/decisions/sales-config-owns-every-sales-write.md",
+      "requiredInCI": true,
+      "ciStep": "sales-pages-guard",
+      "notes": "The Sales split (maintainer decisions 2026-09-11, PR 238). Five source-text rules: (1) every admin-web page rendering SalesFarmToggle has its PAGE_PATH in the shell's PAGES_OWNING_PARK_SCOPE and the retired /sales is not listed -- the PR 238 P2, where the lock named only the retired path and the top bar showed a second park selector on both new pages; (2) the board stays retired: no sales.tsx, no page(\"sales\") contract, no sales-board leaf, /sales only redirects; (3) the deals ledger is the LAST block on Sold; (4) Farm value cards show Male and Female only -- no missing-sex count, no weighed-animal count; (5) the visual smoke and its coverage test hit /sales/sold and /sales/farm-value directly. Self-test covers each rule's inversion, including the exact review defect."
+    },
+    {
       "id": "scale-certification-docs",
       "script": "tools/agent-hooks/check-scale-certification-docs.mjs",
       "makeTarget": "scale-certification-docs-guard",
@@ -1250,15 +1272,15 @@
       "ciStep": "local-stack-service-guard"
     },
     {
-      "id": "sales-pages",
-      "script": "tools/agent-hooks/check-sales-pages.mjs",
-      "makeTarget": "sales-pages-guard",
-      "realCheck": "node tools/agent-hooks/check-sales-pages.mjs",
-      "selfTest": "node tools/agent-hooks/check-sales-pages.mjs --self-test",
-      "owningDoc": "docs/decisions/sales-config-owns-every-sales-write.md",
+      "id": "shifting-sop",
+      "script": "tools/agent-hooks/check-shifting-sop-guard.mjs",
+      "makeTarget": "shifting-sop-guard",
+      "realCheck": "node tools/agent-hooks/check-shifting-sop-guard.mjs",
+      "selfTest": "node tools/agent-hooks/check-shifting-sop-guard.mjs --self-test",
+      "owningDoc": "docs/decisions/shifting-sop.md",
       "requiredInCI": true,
-      "ciStep": "sales-pages-guard",
-      "notes": "The Sales split (maintainer decisions 2026-09-11, PR 238). Five source-text rules: (1) every admin-web page rendering SalesFarmToggle has its PAGE_PATH in the shell's PAGES_OWNING_PARK_SCOPE and the retired /sales is not listed -- the PR 238 P2, where the lock named only the retired path and the top bar showed a second park selector on both new pages; (2) the board stays retired: no sales.tsx, no page(\"sales\") contract, no sales-board leaf, /sales only redirects; (3) the deals ledger is the LAST block on Sold; (4) Farm value cards show Male and Female only -- no missing-sex count, no weighed-animal count; (5) the visual smoke and its coverage test hit /sales/sold and /sales/farm-value directly. Self-test covers each rule's inversion, including the exact review defect."
+      "ciStep": "shifting-sop-guard",
+      "notes": "Maintainer decision 2026-09-16: the raise extras, completion card and high-priority card of a shifting movement come from the PUBLISHED shifting SOP version, pinned per movement at raise. The seed is embedded verbatim in migration 000328, backend/internal/counts names no sop_* table (shiftingsop is the only reader), ErrShiftingProofSlotInvalid is minted only by the judge, and the phone's ShiftingExecute/Raise screens hold no seeded slot title as a literal."
     },
     {
       "id": "sidebar-typography",
@@ -1270,6 +1292,17 @@
       "requiredInCI": true,
       "ciStep": "sidebar-typography-guard",
       "notes": "Two navigation-copy rules (maintainer, 2026-09-02). (1) The sidebar's three kinds of row -- flat lens links .nav, group headers .ggrp, leaves .leaf -- are all navigation labels and all render at ONE size, the size of `Verify`; they had drifted to 14/11/13px, which made one list read as three stacked. Only SIZE is unified; weight and colour stay per-row. (2) The generic .crumb rule uppercases every breadcrumb, which shouted the Sales load page's own name as 'PURCHASE AND BORN'; the page scopes the transform off. Both halves of that second rule are checked, because a CSS override with no rendered class, or a rendered class with no override, is inert and reads as done. Self-test covers drifted size, absent size, a descendant-only rule mistaken for the base, and each deceptive half of the crumb fix."
+    },
+    {
+      "id": "sop-driven-herd-operations",
+      "script": "tools/agent-hooks/check-sop-driven-herd-operations-guard.mjs",
+      "makeTarget": "sop-driven-herd-operations-guard",
+      "realCheck": "node tools/agent-hooks/check-sop-driven-herd-operations-guard.mjs",
+      "selfTest": "node tools/agent-hooks/check-sop-driven-herd-operations-guard.mjs --self-test",
+      "owningDoc": "docs/decisions/sop-driven-herd-operations.md",
+      "requiredInCI": true,
+      "ciStep": "sop-driven-herd-operations-guard",
+      "notes": "SOP-DRIVEN HERD OPERATIONS (maintainer decision 2026-09-13). Birth / death / shifting completion / reconcile operator steps compile from the PUBLISHED SOP's follow_up at workflow open, pinned per workflow; the Go templates in tasks/domain/templates.go are the golden oracle only. Three failure modes: (1) template-stamped-from-go, a production call to TemplateByKeyAt/TemplateBirthKidAt/TemplateBirthMother/TemplateDeath outside tasks/domain; (2) seed-drifted-from-migration, an embedded sopseed document not present verbatim in migration 000308; (3) hardcoded-step-copy-on-phone, an operator step title typed into the Android workflow drill-in. BLIND SPOTS: names and strings only; a new template under another name or reworded copy passes -- the golden compile test and bootstrap copy tests are the runtime half."
     },
     {
       "id": "stg-disposable-topology",
@@ -1410,17 +1443,6 @@
       "ciStep": "vaccination-shed-ack-guard"
     },
     {
-      "id": "sop-driven-herd-operations",
-      "script": "tools/agent-hooks/check-sop-driven-herd-operations-guard.mjs",
-      "makeTarget": "sop-driven-herd-operations-guard",
-      "realCheck": "node tools/agent-hooks/check-sop-driven-herd-operations-guard.mjs",
-      "selfTest": "node tools/agent-hooks/check-sop-driven-herd-operations-guard.mjs --self-test",
-      "owningDoc": "docs/decisions/sop-driven-herd-operations.md",
-      "requiredInCI": true,
-      "ciStep": "sop-driven-herd-operations-guard",
-      "notes": "SOP-DRIVEN HERD OPERATIONS (maintainer decision 2026-09-13). Birth / death / shifting completion / reconcile operator steps compile from the PUBLISHED SOP's follow_up at workflow open, pinned per workflow; the Go templates in tasks/domain/templates.go are the golden oracle only. Three failure modes: (1) template-stamped-from-go, a production call to TemplateByKeyAt/TemplateBirthKidAt/TemplateBirthMother/TemplateDeath outside tasks/domain; (2) seed-drifted-from-migration, an embedded sopseed document not present verbatim in migration 000308; (3) hardcoded-step-copy-on-phone, an operator step title typed into the Android workflow drill-in. BLIND SPOTS: names and strings only; a new template under another name or reworded copy passes -- the golden compile test and bootstrap copy tests are the runtime half."
-    },
-    {
       "id": "weighing-close-gate",
       "script": "tools/agent-hooks/check-weighing-close-gate-guard.mjs",
       "makeTarget": "weighing-close-gate-guard",
@@ -1486,15 +1508,15 @@
       "notes": "Operator-facing weighing list/roster queries must filter by operator_user_id in SQL before LIMIT (never paginate then filter), and execute-scoped HTTP routes must derive operator scope from the authenticated actor, never a client-supplied field."
     },
     {
-      "id": "backend-proof-media-egress",
-      "script": "tools/agent-hooks/check-backend-proof-media-egress.mjs",
-      "makeTarget": "backend-proof-media-egress-guard",
-      "realCheck": "node tools/agent-hooks/check-backend-proof-media-egress.mjs",
-      "selfTest": "node tools/agent-hooks/check-backend-proof-media-egress.mjs --self-test",
-      "owningDoc": "docs/runbooks/goatos-stg-proof-media-egress-2026-09-08.md",
+      "id": "weighing-sop",
+      "script": "tools/agent-hooks/check-weighing-sop-guard.mjs",
+      "makeTarget": "weighing-sop-guard",
+      "realCheck": "node tools/agent-hooks/check-weighing-sop-guard.mjs",
+      "selfTest": "node tools/agent-hooks/check-weighing-sop-guard.mjs --self-test",
+      "owningDoc": "docs/decisions/weighing-sop.md",
       "requiredInCI": true,
-      "ciStep": "backend-proof-media-egress-guard",
-      "notes": "Hot backend list/dashboard read models must not mint signed GCS proof-media URLs. Return authenticated /app/proofs/{proof_id}/download paths and let the explicit-open route mint/log the short-lived signed URL."
+      "ciStep": "weighing-sop-guard",
+      "notes": "Maintainer decision 2026-09-15: the weighing rules (capture modes, default cap, feed & water removal mode / card copy / questions, lump-sum video window) come from the PUBLISHED weighing.session SOP version, pinned per task. The seed is embedded verbatim in migration 000315, weighing/app carries no cap literal and demands the removal operator only from sop_rules.go, backend/internal/weighing names no sop_* table, and the phone's lump-sum policy reads the pinned window rather than MAX_SHED_GROUP_VIDEOS."
     },
     {
       "id": "worker-stage-budgets",
@@ -1505,28 +1527,6 @@
       "owningDoc": "docs/decisions/scale-anti-patterns.md",
       "requiredInCI": true,
       "ciStep": "worker-stage-budgets-guard"
-    },
-    {
-      "id": "guard-weakening",
-      "script": "tools/agent-hooks/check-guard-weakening.mjs",
-      "makeTarget": "guard-weakening-guard",
-      "realCheck": "node tools/agent-hooks/check-guard-weakening.mjs",
-      "selfTest": "node tools/agent-hooks/check-guard-weakening.mjs --self-test",
-      "owningDoc": "docs/observability/GUARD_WEAKENING_LEDGER.md",
-      "requiredInCI": true,
-      "ciStep": "guard-weakening-guard",
-      "notes": "Meta-guard. Fails a diff that makes a guard protect less unless a GUARD-WEAKENING-ACK naming the exact finding id is added in the same diff. Tightening a guard, shrinking a ratchet or deleting an exemption never needs an ACK."
-    },
-    {
-      "id": "guard-input-presence",
-      "script": "tools/agent-hooks/check-guard-input-presence.mjs",
-      "makeTarget": "guard-input-presence-guard",
-      "realCheck": "node tools/agent-hooks/check-guard-input-presence.mjs",
-      "selfTest": "node tools/agent-hooks/check-guard-input-presence.mjs --self-test",
-      "owningDoc": "docs/observability/GUARD_WEAKENING_LEDGER.md",
-      "requiredInCI": true,
-      "ciStep": "guard-input-presence-guard",
-      "notes": "Every file path hard-coded in a guard script must exist. Closes the class where a guard's input is renamed away and the guard reports ok having read nothing (87 measured (guard,input) pairs across 29 guards, 2026-09-23)."
     }
   ]
 }
