@@ -23,7 +23,11 @@ type fakePenReconciliationRepo struct {
 	debts          []domain.PenReconciliationVerificationEnqueueDebt
 	debtErr        error
 	// cardIDByWorkflow resolves the workflow-completion path's card (blank = not found).
-	cardIDByWorkflow string
+	cardIDByWorkflow     string
+	workflowFacts        domain.PenReconciliationWorkflowFacts
+	workflowErr          error
+	workflowParkCalls    [][]string
+	setWorkflowParkCalls [][]string
 }
 
 func (f *fakePenReconciliationRepo) RaisePenReconciliationCards(context.Context, domain.PenReconciliationRaiseCommand) (int, error) {
@@ -87,6 +91,7 @@ func penReconciliationCompleteInput() CompletePenReconciliationInput {
 	return CompletePenReconciliationInput{
 		TenantID:           "tenant-1",
 		CardID:             "card-1",
+		AuthorizedParkIDs:  []string{"park-1"},
 		CompletedByUserID:  "operator-1",
 		ProofRef:           "proof-1",
 		IdempotencyKey:     "key-1",
@@ -141,6 +146,10 @@ func TestPenReconciliationCompleteEnqueuesVerificationWithProofKeyedIdempotency(
 	}
 	if len(repo.markCalls) != 1 || repo.markCalls[0] != "tenant-1:card-1" {
 		t.Fatalf("mark calls = %+v", repo.markCalls)
+	}
+	if len(repo.completeCalls) != 1 || len(repo.completeCalls[0].AuthorizedParkIDs) != 1 ||
+		repo.completeCalls[0].AuthorizedParkIDs[0] != "park-1" {
+		t.Fatalf("authorized parks passed to completion = %+v", repo.completeCalls)
 	}
 }
 
@@ -303,11 +312,19 @@ func TestPenReconciliationListValidatesTheFilter(t *testing.T) {
 	}
 }
 
-func (r *fakePenReconciliationRepo) PenReconciliationCardForWorkflow(context.Context, string, string) (domain.PenReconciliationWorkflowFacts, error) {
-	return domain.PenReconciliationWorkflowFacts{}, ports.ErrPenReconciliationCardNotFound
+func (r *fakePenReconciliationRepo) PenReconciliationCardForWorkflow(_ context.Context, _, cardID string, authorizedParkIDs []string) (domain.PenReconciliationWorkflowFacts, error) {
+	r.workflowParkCalls = append(r.workflowParkCalls, append([]string(nil), authorizedParkIDs...))
+	if r.workflowErr != nil {
+		return domain.PenReconciliationWorkflowFacts{}, r.workflowErr
+	}
+	if r.workflowFacts.CardID != "" {
+		return r.workflowFacts, nil
+	}
+	return domain.PenReconciliationWorkflowFacts{CardID: cardID, WorkflowID: "workflow-existing"}, nil
 }
 
-func (r *fakePenReconciliationRepo) SetPenReconciliationWorkflow(context.Context, string, string, string) error {
+func (r *fakePenReconciliationRepo) SetPenReconciliationWorkflow(_ context.Context, _, _, _ string, authorizedParkIDs []string) error {
+	r.setWorkflowParkCalls = append(r.setWorkflowParkCalls, append([]string(nil), authorizedParkIDs...))
 	return nil
 }
 
@@ -316,6 +333,38 @@ func (r *fakePenReconciliationRepo) PenReconciliationCardIDByWorkflow(context.Co
 		return r.cardIDByWorkflow, nil
 	}
 	return "", ports.ErrPenReconciliationCardNotFound
+}
+
+type fakePenReconciliationWorkflowEngine struct {
+	workflowID string
+}
+
+func (f fakePenReconciliationWorkflowEngine) OpenSubjectWorkflow(context.Context, string, string, string, string, time.Time, string, string) (string, error) {
+	if f.workflowID != "" {
+		return f.workflowID, nil
+	}
+	return "workflow-new", nil
+}
+
+func TestPenReconciliationEnsureWorkflowCarriesAuthorizedParkScope(t *testing.T) {
+	repo := &fakePenReconciliationRepo{workflowFacts: domain.PenReconciliationWorkflowFacts{
+		CardID: "card-1", Status: domain.PenReconciliationStatusOpen, GoatID: "goat-1",
+		ParkID: "park-1", RegisteredShedID: "shed-1", RaisedAt: time.Date(2026, 9, 20, 8, 0, 0, 0, time.UTC),
+	}}
+	svc := NewPenReconciliationService(repo, nil).WithWorkflowEngine(fakePenReconciliationWorkflowEngine{workflowID: "workflow-1"})
+	workflowID, err := svc.EnsureWorkflow(context.Background(), "tenant-1", "card-1", []string{"park-1"})
+	if err != nil {
+		t.Fatalf("EnsureWorkflow: %v", err)
+	}
+	if workflowID != "workflow-1" {
+		t.Fatalf("workflow id = %q", workflowID)
+	}
+	if len(repo.workflowParkCalls) != 1 || len(repo.workflowParkCalls[0]) != 1 || repo.workflowParkCalls[0][0] != "park-1" {
+		t.Fatalf("workflow read scope = %+v", repo.workflowParkCalls)
+	}
+	if len(repo.setWorkflowParkCalls) != 1 || len(repo.setWorkflowParkCalls[0]) != 1 || repo.setWorkflowParkCalls[0][0] != "park-1" {
+		t.Fatalf("workflow write scope = %+v", repo.setWorkflowParkCalls)
+	}
 }
 
 // TestPenReconciliationListParkScopeIsBackendOwned pins the three park-scope shapes the

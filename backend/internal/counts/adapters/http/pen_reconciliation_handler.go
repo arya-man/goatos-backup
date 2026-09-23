@@ -43,7 +43,7 @@ const (
 type PenReconciliationWorkflow interface {
 	Complete(ctx context.Context, in countsapp.CompletePenReconciliationInput) (domain.PenReconciliationCompletionResult, bool, error)
 	List(ctx context.Context, in countsapp.ListPenReconciliationInput) (domain.PenReconciliationPage, error)
-	EnsureWorkflow(ctx context.Context, tenantID, cardID string) (string, error)
+	EnsureWorkflow(ctx context.Context, tenantID, cardID string, authorizedParkIDs []string) (string, error)
 }
 
 // WithPenReconciliationWorkflow injects the reconciliation service. A handler without it
@@ -78,7 +78,11 @@ func (h *AppWriteHandler) EnsurePenReconciliationWorkflow(w http.ResponseWriter,
 		h.writeError(w, r, http.StatusBadRequest, "missing_card_id", "card_id is required", nil)
 		return
 	}
-	workflowID, err := h.reconciliation.EnsureWorkflow(r.Context(), tenantID, cardID)
+	authorizedParkIDs, ok := h.authorizedPenReconciliationParkIDs(w, r, tenantID)
+	if !ok {
+		return
+	}
+	workflowID, err := h.reconciliation.EnsureWorkflow(r.Context(), tenantID, cardID, authorizedParkIDs)
 	if err != nil {
 		h.writePenReconciliationError(w, r, err)
 		return
@@ -298,6 +302,10 @@ func (h *AppWriteHandler) CompletePenReconciliationCard(w http.ResponseWriter, r
 		h.writeError(w, r, http.StatusUnauthorized, "missing_actor", "missing actor context", nil)
 		return
 	}
+	authorizedParkIDs, ok := h.authorizedPenReconciliationParkIDs(w, r, tenantID)
+	if !ok {
+		return
+	}
 	clientKey, err := appIdempotencyKey(r)
 	if err != nil {
 		h.writeAppError(w, r, err)
@@ -343,6 +351,7 @@ func (h *AppWriteHandler) CompletePenReconciliationCard(w http.ResponseWriter, r
 	result, replay, err := h.reconciliation.Complete(r.Context(), countsapp.CompletePenReconciliationInput{
 		TenantID:           tenantID,
 		CardID:             cardID,
+		AuthorizedParkIDs:  authorizedParkIDs,
 		CompletedByUserID:  actorID,
 		TraceID:            appTraceID(r),
 		ProofRef:           proofRef,
@@ -367,6 +376,19 @@ func (h *AppWriteHandler) CompletePenReconciliationCard(w http.ResponseWriter, r
 		IdempotentReplay: replay,
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, out)
+}
+
+func (h *AppWriteHandler) authorizedPenReconciliationParkIDs(w http.ResponseWriter, r *http.Request, tenantID string) ([]string, bool) {
+	scope := httpmiddleware.ResolveAuthorizedParkScopeForCapabilities(
+		r.Context(), tenantID, "", permissions.CountsWrite)
+	if !scope.Allowed && scope.Code != "park_selection_required" {
+		h.writeError(w, r, scope.Status, scope.Code, scope.Message, nil)
+		return nil, false
+	}
+	if scope.Allowed && len(scope.ParkIDs) == 0 {
+		return nil, true
+	}
+	return append([]string(nil), scope.ParkIDs...), true
 }
 
 // ---------------------------------------------------------------------------

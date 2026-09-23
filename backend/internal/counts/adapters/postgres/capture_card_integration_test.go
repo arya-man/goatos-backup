@@ -190,7 +190,7 @@ func TestPenReconciliationWorkflowBackedCardCompletesThroughItsWorkflowPg(t *tes
 	}
 	cardID := page.Items[0].CardID
 	workflowID := "00000000-0000-4000-8000-00000000aa21"
-	if err := repo.SetPenReconciliationWorkflow(ctx, countsTenant, cardID, workflowID); err != nil {
+	if err := repo.SetPenReconciliationWorkflow(ctx, countsTenant, cardID, workflowID, nil); err != nil {
 		t.Fatal(err)
 	}
 	cmd := domain.PenReconciliationCompletionCommand{

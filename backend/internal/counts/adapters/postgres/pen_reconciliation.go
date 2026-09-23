@@ -365,6 +365,7 @@ SET status = 'pending_verification',
     row_version = row_version + 1,
     updated_at = now()
 WHERE tenant_id = $1::uuid AND card_id = $2::uuid
+  AND (cardinality($12::uuid[]) = 0 OR park_id = ANY($12::uuid[]))
   -- A workflow-backed card is completed ONLY through its own questionnaire workflow; a legacy
   -- (workflow-less) card through the one-video route. The old "workflow_id IS NULL" refused the
   -- questionnaire's own completion on every retry (bug 3, 2026-09-16).
@@ -437,6 +438,7 @@ SELECT c.status, c.goat_id, c.scanned_identifier, c.found_display_name,
 FROM pen_reconciliation_cards c
 LEFT JOIN locations reg ON reg.tenant_id = c.tenant_id AND reg.location_id = c.registered_shed_id
 WHERE c.tenant_id = $1::uuid AND c.card_id = $2::uuid
+  AND (cardinality($3::uuid[]) = 0 OR c.park_id = ANY($3::uuid[]))
 FOR UPDATE OF c
 `
 
@@ -476,7 +478,7 @@ func (r *Repository) CompletePenReconciliationCard(
 		verificationEnqueuePending                                              bool
 		storedRefs, storedMeta, storedRows                                      []byte
 	)
-	err = tx.QueryRow(ctx, lockPenReconciliationSQL, in.TenantID, in.CardID).Scan(
+	err = tx.QueryRow(ctx, lockPenReconciliationSQL, in.TenantID, in.CardID, parkIDArray(in.AuthorizedParkIDs)).Scan(
 		&status, &goatID, &tag, &foundDisplay,
 		&regShedID, &regShedName, &regPartition,
 		&parkID, &storedProof, &completedAt,
@@ -533,11 +535,15 @@ func (r *Repository) CompletePenReconciliationCard(
 	}
 
 	completedAtValue := in.CompletedAt.UTC()
-	if _, err := tx.Exec(ctx, completePenReconciliationSQL,
+	commandTag, err := tx.Exec(ctx, completePenReconciliationSQL,
 		in.TenantID, in.CardID, strings.TrimSpace(in.ProofRef), in.CompletedByUserID,
 		completedAtValue, in.IdempotencyKey, in.RequestFingerprint, proofRefsJSON(in.ProofRef, in.ProofRefs, in.ProofKinds),
-		jsonOrEmptyList(in.MediaMeta), jsonOrEmptyList(in.ContextRows), strings.TrimSpace(in.WorkflowID)); err != nil {
+		jsonOrEmptyList(in.MediaMeta), jsonOrEmptyList(in.ContextRows), strings.TrimSpace(in.WorkflowID), parkIDArray(in.AuthorizedParkIDs))
+	if err != nil {
 		return domain.PenReconciliationCompletionResult{}, false, err
+	}
+	if commandTag.RowsAffected() != 1 {
+		return domain.PenReconciliationCompletionResult{}, false, ports.ErrPenReconciliationCardNotFound
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -653,24 +659,27 @@ func nullableUUID(s string) *string {
 const penReconciliationCardForWorkflowSQL = `
 SELECT c.status, c.goat_id::text, c.park_id::text, c.registered_shed_id::text, c.raised_at, c.workflow_id::text
 FROM pen_reconciliation_cards c
-WHERE c.tenant_id = $1::uuid AND c.card_id = $2::uuid`
+WHERE c.tenant_id = $1::uuid AND c.card_id = $2::uuid
+  AND (cardinality($3::uuid[]) = 0 OR c.park_id = ANY($3::uuid[]))`
 
 const setPenReconciliationWorkflowSQL = `
 UPDATE pen_reconciliation_cards
 SET workflow_id = $3::uuid, updated_at = now()
-WHERE tenant_id = $1::uuid AND card_id = $2::uuid AND (workflow_id IS NULL OR workflow_id = $3::uuid)`
+WHERE tenant_id = $1::uuid AND card_id = $2::uuid
+  AND (cardinality($4::uuid[]) = 0 OR park_id = ANY($4::uuid[]))
+  AND (workflow_id IS NULL OR workflow_id = $3::uuid)`
 
 const penReconciliationCardIDByWorkflowSQL = `
 SELECT card_id::text FROM pen_reconciliation_cards
 WHERE tenant_id = $1::uuid AND workflow_id = $2::uuid`
 
 // PenReconciliationCardForWorkflow reads what opening the card's questionnaire needs.
-func (r *Repository) PenReconciliationCardForWorkflow(ctx context.Context, tenantID, cardID string) (domain.PenReconciliationWorkflowFacts, error) {
+func (r *Repository) PenReconciliationCardForWorkflow(ctx context.Context, tenantID, cardID string, authorizedParkIDs []string) (domain.PenReconciliationWorkflowFacts, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	var out domain.PenReconciliationWorkflowFacts
 	var parkID, workflowID *string
-	err := r.pool.QueryRow(ctx, penReconciliationCardForWorkflowSQL, tenantID, cardID).Scan(
+	err := r.pool.QueryRow(ctx, penReconciliationCardForWorkflowSQL, tenantID, cardID, parkIDArray(authorizedParkIDs)).Scan(
 		&out.Status, &out.GoatID, &parkID, &out.RegisteredShedID, &out.RaisedAt, &workflowID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return out, ports.ErrPenReconciliationCardNotFound
@@ -689,11 +698,17 @@ func (r *Repository) PenReconciliationCardForWorkflow(ctx context.Context, tenan
 }
 
 // SetPenReconciliationWorkflow records the questionnaire workflow on the card. Idempotent.
-func (r *Repository) SetPenReconciliationWorkflow(ctx context.Context, tenantID, cardID, workflowID string) error {
+func (r *Repository) SetPenReconciliationWorkflow(ctx context.Context, tenantID, cardID, workflowID string, authorizedParkIDs []string) error {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	_, err := r.pool.Exec(ctx, setPenReconciliationWorkflowSQL, tenantID, cardID, workflowID)
-	return err
+	tag, err := r.pool.Exec(ctx, setPenReconciliationWorkflowSQL, tenantID, cardID, workflowID, parkIDArray(authorizedParkIDs))
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return ports.ErrPenReconciliationCardNotFound
+	}
+	return nil
 }
 
 // PenReconciliationCardIDByWorkflow resolves the card a workflow belongs to.
