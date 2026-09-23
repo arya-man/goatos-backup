@@ -373,10 +373,17 @@ WHERE tenant_id=$1::uuid AND event_type='goat.stage_changed' AND aggregate_id=$2
 		}
 	}
 
-	// The response's location display is the DB round trip, not a formatter unit test: '1' is the
-	// display label seeded in the catalog, so the pen reads "Castro - 1".
-	if result.OperationalLocationDisplay != "Castro - 1" {
-		t.Fatalf("operational_location_display=%q, want %q", result.OperationalLocationDisplay, "Castro - 1")
+	// The response's location display is the DB round trip, not a formatter unit test. A BARE
+	// NUMERIC partition joins with a SPACE -- "Castro 1" is the name painted on the building --
+	// and the dash form is reserved for worded labels like "Godel 1 - Part 3". AGENTS.md lists
+	// the dash-separated numeric pen among the shapes that are NEVER rendered.
+	//
+	// This assertion demanded the banned form. It is the fixture defect that rule names in its own
+	// words: a fixture asserting a shape the farm does not have is a defect even when nobody sees
+	// it fail -- and nobody could, because this package ran its own `docker run` and so never
+	// executed on a machine without Docker.
+	if result.OperationalLocationDisplay != "Castro 1" {
+		t.Fatalf("operational_location_display=%q, want %q", result.OperationalLocationDisplay, "Castro 1")
 	}
 }
 
