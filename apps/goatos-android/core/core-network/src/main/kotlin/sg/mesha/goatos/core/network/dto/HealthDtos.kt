@@ -118,6 +118,14 @@ data class HealthWorkItemDetailDto(
     @SerialName("medication_count") val medicationCount: Int = 0,
     @SerialName("has_critical_step") val hasCriticalStep: Boolean = false,
     val steps: List<HealthTreatmentStepDto> = emptyList(),
+    /**
+     * What the SERVER already holds for this session, per step.
+     *
+     * Recorded state cannot live only on the phone that filmed it: different people do different
+     * steps of one session, and an operator reopening the card must see what a colleague already
+     * recorded rather than refilm it.
+     */
+    @SerialName("step_proofs") val stepProofs: List<HealthStepProofDto> = emptyList(),
     /** Backend-derived caller capabilities (mirror health.execute / health.diagnose). Display
      * gating only — the route permission is the enforcement. Defaults false so an older backend
      * fails safe (actions hidden) rather than rendering a 403-doomed button. */
