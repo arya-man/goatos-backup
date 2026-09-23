@@ -9,6 +9,7 @@ import { fmtClockSeconds } from "./format";
 // same data path paints the page without a blind browser polling interval.
 
 const STALE_AFTER_MS = 30_000;
+const STREAM_REFRESH_MIN_MS = 15_000;
 
 // Live/paused state is session-only — no localStorage persistence. Fresh page loads are always
 // live. Users can pause within the session using the toggle button, but the pause state is lost
@@ -92,6 +93,7 @@ export function HerdSignalsPoller({ generatedAt }: { generatedAt: string }) {
   const tabHidden = useTabHidden();
   const nowMs = useNowMs();
   const pendingRef = useRef(false);
+  const lastStreamRefreshAtRef = useRef(0);
   const [streamState, setStreamState] = useState<"connecting" | "open" | "error">("connecting");
 
   useEffect(() => {
@@ -164,6 +166,9 @@ export function HerdSignalsPoller({ generatedAt }: { generatedAt: string }) {
         first = false;
         return;
       }
+      const now = Date.now();
+      if (now - lastStreamRefreshAtRef.current < STREAM_REFRESH_MIN_MS) return;
+      lastStreamRefreshAtRef.current = now;
       refresh();
     });
     return () => source.close();

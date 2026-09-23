@@ -258,7 +258,7 @@ func (h *Handler) StreamLive(w http.ResponseWriter, r *http.Request) {
 	if !write("tick", map[string]interface{}{"at": time.Now().UTC().Format(time.RFC3339Nano)}) {
 		return
 	}
-	ticker := time.NewTicker(2 * time.Second)
+	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
 	for {
 		select {
