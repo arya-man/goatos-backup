@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "generatedFrom": {
+    "base": "origin/main",
+    "since": "2026-08-01",
+    "generator": "tools/dashboard-automation/build-commit-ledger.mjs"
+  },
+  "description": "One row per user-visible (feat/fix) commit on main since 2026-08-01, DERIVED from git log — never hand-typed. STATUS: covered = a named check was demonstrated to fail when this commit is reverted (stored receipt, nothing else qualifies). claimed = a named test plausibly covers it and the row says which and on what evidence, but nobody has shown it goes red. smoke-only = the browser sweep reaches a surface it touched and nothing there can fail. gap = no test in the repo touches anything it changed and no sweep reaches it, with a named reason. Rows live in commit-ledger.jsonl.",
+  "inputsRead": {
+    "commitsScanned": 4172,
+    "outOfScopeNonFeatFix": 1498,
+    "trackedFilesRead": 7342,
+    "testFilesRead": 2147,
+    "testDirsIndexed": 386,
+    "featureAssertionEntriesRead": 930,
+    "featureAssertionsWithSha": 930,
+    "sweptRoutesRead": 146,
+    "revertReceiptsRead": 106
+  },
+  "summary": {
+    "commitsRead": 2674,
+    "behaviours": 241,
+    "byStatus": {
+      "claimed": 2337,
+      "gap": 204,
+      "covered": 106,
+      "smoke-only": 27
+    },
+    "byClaimTier": {
+      "ships-own-test": 1716,
+      "sibling-test": 566,
+      "module-test": 55
+    },
+    "byArea": {
+      "tooling": 204,
+      "migration": 61,
+      "backend": 901,
+      "admin-web": 839,
+      "android": 584,
+      "contract": 22,
+      "docs": 10,
+      "other": 53
+    },
+    "gapReasons": {
+      "automation/CI tooling — no product surface": 76,
+      "Android module it changed holds no test and no journey reaches it": 79,
+      "documentation only — no product surface": 10,
+      "no test and no coverage artefact touches anything this commit changed": 36,
+      "admin-web code it changed holds no test and the sweep does not visit the route": 3
+    }
+  }
+}
