@@ -130,6 +130,12 @@ func (r *Registry) Execute(ctx context.Context, actor domain.Actor, sub domain.S
 			}
 			return res, err
 		}
+		// An identity-key filter (`animal_key = 'MG-100001'`) is folded to the
+		// identity module's normal form on both sides BEFORE the guard, so a
+		// reader's spelling of an ear tag or a buyer name matches the way the
+		// view stores it instead of silently returning "no records found".
+		// It never touches the tenant conjunct the guard binds on.
+		sql = normalizeIdentityFilters(sql)
 		// Model-drafted SQL: sqlguard.Validate, then the window contract
 		// (sqlguard.ValidateWindow, plan v3 D1.2) BEFORE the executor, so a
 		// period the leader asked for is either bound exactly or rejected —

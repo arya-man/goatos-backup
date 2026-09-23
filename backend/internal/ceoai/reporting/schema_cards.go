@@ -810,3 +810,51 @@ var schemaCards = []SchemaCard{
 		Route:         "/work-board",
 	},
 }
+
+// IdentityKeyColumns returns the card's IDENTITY-KEY text columns: the columns
+// whose values are a canonicalised name or tag (`animal_key`, `buyer_key`) and
+// which the views therefore store folded — `lower(btrim(...))` — rather than in
+// the spelling a reader types or reads off an ear tag.
+//
+// They exist so that two spellings of one animal or one buyer collapse to one
+// row. That folding is invisible to a question: a reader asks about
+// `MG-100001`, which is exactly how `goat_identifiers.normalized_value` stores
+// it and how it is printed on the tag, and an `=` against the folded column
+// misses — silently, and reported to the reader as "no records found". The
+// filter path (app.normalizeIdentityFilters) uses this list to compare such a
+// column case-insensitively instead.
+//
+// Only text columns qualify; a `*_id` uuid is not an identity KEY in this
+// sense, and no tenant-scoped column is ever rewritten.
+func (c SchemaCard) IdentityKeyColumns() []string {
+	var out []string
+	for _, col := range c.Columns {
+		if col.Type != textT || !isIdentityKeyName(col.Name) {
+			continue
+		}
+		if c.isTenantScoped(col.Name) {
+			continue
+		}
+		out = append(out, col.Name)
+	}
+	return out
+}
+
+// isIdentityKeyName reports the naming convention the ceo_ai views use for a
+// folded identity key: a `_key` or `_tag` suffix, or a bare `tag`.
+func isIdentityKeyName(name string) bool {
+	n := strings.ToLower(strings.TrimSpace(name))
+	return n == "tag" || strings.HasSuffix(n, "_key") || strings.HasSuffix(n, "_tag")
+}
+
+func (c SchemaCard) isTenantScoped(name string) bool {
+	if strings.EqualFold(name, "tenant_id") {
+		return true
+	}
+	for _, t := range c.TenantScopedColumns {
+		if strings.EqualFold(t, name) {
+			return true
+		}
+	}
+	return false
+}
