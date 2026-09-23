@@ -66,8 +66,19 @@ const (
 // wrapping message.
 var ErrGoatNotDiagnosable = fmt.Errorf("this animal cannot be checked")
 
-// ResolveAnimal maps a GoatOS goat onto the engine's Animal.
-func ResolveAnimal(facts GoatFacts) (diagnosis.Animal, error) {
+// ResolveAnimal maps a GoatOS goat onto the engine's Animal, using the farm's AUTHORED
+// routing to choose the diagnosis type.
+//
+// The routing arrives as a parameter rather than being read here so this function stays pure:
+// the repository loads the rows inside the same transaction as the observation it is writing,
+// which is what stops a route edit landing between the read and the write.
+//
+// An EMPTY routing refuses every animal rather than falling back to the shipped map. That is
+// deliberate and is the fail-closed property one layer up: a farm whose routing was never
+// seeded must say so out loud, because the alternative is diagnosing every animal off a table
+// nobody chose. Migration 000395 seeds every tenant that holds goats or a register, so the
+// empty case means something is genuinely wrong rather than merely new.
+func ResolveAnimal(facts GoatFacts, routing StageRouting) (diagnosis.Animal, error) {
 	species := strings.ToLower(strings.TrimSpace(facts.Species))
 	if species != "goat" && species != "sheep" {
 		return diagnosis.Animal{}, fmt.Errorf("%w: unknown species %q", ErrGoatNotDiagnosable, facts.Species)
@@ -86,105 +97,51 @@ func ResolveAnimal(facts GoatFacts) (diagnosis.Animal, error) {
 		return diagnosis.Animal{}, fmt.Errorf("%w: unknown sex %q", ErrGoatNotDiagnosable, facts.Sex)
 	}
 
-	// CLASS RESOLUTION STILL FAILS CLOSED, but on the STAGE rather than on the age band.
+	// CLASS RESOLUTION STILL FAILS CLOSED -- now on the farm's AUTHORED routing rather than on
+	// a map compiled into this binary.
 	//
-	// The engine carries four registers -- adult, kid_milk, kid_weaning, kid_fattening --
-	// and they differ in ways that make picking the wrong one worse than picking none. A
-	// fattening kid diagnosed off the milk register would never be checked for acidosis,
-	// the single thing most likely to kill it; a milk kid diagnosed off the weaning
-	// register would never get the drop test, which is the only way floppy kid is caught
-	// while it is still cheap to treat.
+	// The engine carries a register per type, and they differ in ways that make picking the
+	// wrong one worse than picking none. A fattening kid diagnosed off the milk register would
+	// never be checked for acidosis, the single thing most likely to kill it; a milk kid
+	// diagnosed off the weaning register would never get the drop test, which is the only way
+	// floppy kid is caught while it is still cheap to treat. So an animal nothing routes is
+	// REFUSED, and the refusal names the stage so a director can fix it on Health Config.
 	//
-	// This used to refuse EVERY kid, on the belief that GoatOS records nothing that could
-	// tell the three apart. That belief is no longer true: `animal_stage_lookup` is a
-	// seeded, tenant-scoped catalog whose codes line up with the spec's own class stages
-	// almost one for one (K0 Newborn / K1 Milk training / K2 Milk drinking -> kid_milk,
-	// K3 Weaned kids -> kid_weaning, F2* Fattening -> kid_fattening), and `loadGoatFacts`
-	// already reads `management_stage` into the facts. The mapping was sitting on the
-	// animal's own record, unread. Maintainer decision 2026-08-17.
+	// WHAT MOVED, AND WHAT DID NOT. The 2026-08-17 decision read `animal_stage_lookup` through
+	// a closed Go map, and the safety property was that "a stage this table does not name is
+	// refused, not defaulted". That property is unchanged. What changed is WHO may write the
+	// table: on 2026-09-23 `Warmup` was missing from it, 58 live kids could not be observed at
+	// all, and the repair was a deploy. Maintainer instruction the same day: adding a type and
+	// pointing a stage at it is dashboard work. Migration 000395 seeds the shipped map row for
+	// row, so this is a change of authority and not of behaviour.
 	//
-	// The safety property is preserved by keeping the mapping EXPLICIT and closed: a stage
-	// this table does not name is refused, not defaulted. That is what stops a newly-seeded
-	// stage from silently inheriting some other cohort's medicine. Note especially that
-	// clinical placements (ICU-Kid, Quarantine kids) are deliberately absent -- they say
-	// WHERE an animal is, not what it eats or how old it is, so they cannot choose a
-	// register and must not guess one.
-	//
-	// The old code defaulted every kid to `kid_milk`. That was harmless while kids were out
-	// of diagnostic scope entirely -- the class only had to exist so emergencies could fire
-	// -- and it became dangerous the moment the milk register started producing diagnoses.
-	ageBand := strings.ToLower(strings.TrimSpace(facts.AgeBand))
-	if ageBand == AgeBandAdult {
-		return diagnosis.Animal{
-			Class:   diagnosis.ClassAdult,
-			Species: species,
-			Sex:     sex,
-			Status:  resolveStatus(facts),
-		}, nil
-	}
-
-	class, stage, ok := kidClassForStage(facts.ManagementStage)
-	if !ok {
+	// ADULTS ARE ROUTED THROUGH THE SAME LOOKUP, which is new. The old code branched on
+	// `age_band == "adult"` and never read an adult's stage, so every doe, buck and adult in a
+	// clinical pen reached the adult register. The seed expresses that as an adult WILDCARD row
+	// rather than as an `if`, so a farm can peel one stage off it -- Mother onto its own type --
+	// or delete it to make adults fail-closed like kids. Both are now visible decisions.
+	typeKey, subStage, routed := routing.Resolve(facts.AgeBand, facts.ManagementStage)
+	if !routed {
 		// The refusal text is what the OPERATOR reads: writeDiagnosisError sends err.Error()
-		// straight out as the 422 body, and the phone renders it verbatim. So it names the
-		// farm fact and the stage that caused it, and leaves the register mechanics above
-		// where the next developer needs them and the manager does not.
-		return diagnosis.Animal{}, fmt.Errorf(
-			"%w: its stage %q does not say whether it is on milk, weaning or fattening",
-			ErrGoatNotDiagnosable, strings.TrimSpace(facts.ManagementStage))
+		// straight out as the 422 body, and the phone renders it verbatim. So it names the farm
+		// fact and the stage that caused it, and leaves the register mechanics here where the
+		// next developer needs them and the manager does not.
+		return diagnosis.Animal{}, RouteRefusal(facts.ManagementStage)
 	}
 
 	return diagnosis.Animal{
-		Class:   class,
-		Stage:   stage,
+		Class:   typeKey,
+		Stage:   subStage,
 		Species: species,
 		Sex:     sex,
 		Status:  resolveStatus(facts),
 	}, nil
 }
 
-// kidStageClasses maps a GoatOS management stage onto the engine class that treats it,
-// plus the sub-stage that class reads.
-//
-// The sub-stage is not decoration: inside kid_milk the register runs a DIFFERENT ladder for
-// a week-old K1 (three milk-bar sessions a day) than for a K2 on the free-choice bar, and
-// `offer_ors` / `session_bottle` / `force_milk` all branch on it. Passing the class without
-// the stage would produce a confident diagnosis off the wrong half of one register.
-//
-// Keyed on the stage CODE from `animal_stage_lookup`, compared case-insensitively because the
-// same catalog already holds both `kid` and `Kid` age bands from two different import runs.
-var kidStageClasses = map[string]struct {
-	class string
-	stage string
-}{
-	"k0": {diagnosis.ClassKidMilk, "K0"},
-	"k1": {diagnosis.ClassKidMilk, "K1"},
-	"k2": {diagnosis.ClassKidMilk, "K2"},
-	"k3": {diagnosis.ClassKidWeaning, "K3"},
-	// Fattening carries no sub-stage: its register has one cohort and reads no K value.
-	"f2":        {diagnosis.ClassKidFattening, ""},
-	"f2-male":   {diagnosis.ClassKidFattening, ""},
-	"f2-female": {diagnosis.ClassKidFattening, ""},
-	// Warmup is the farm's own stage between weaning and fattening, and it was MISSING here --
-	// so every animal on it was refused with "its stage does not say whether it is on milk,
-	// weaning or fattening" and could not be observed at all. That was 58 live kids on
-	// 2026-09-23, which is how the gap was found. Maintainer decision the same day: treat
-	// Warmup as fattening for now. It is an explicit row like every other, not a default, so
-	// the closed-map property this comment block exists to protect is unchanged -- the next
-	// unnamed stage is still refused rather than inheriting this one's medicine.
-	"warmup": {diagnosis.ClassKidFattening, ""},
-}
-
-// kidClassForStage resolves a kid's management stage to (class, sub-stage). The bool is false
-// for any stage not named above -- including a blank one and a clinical placement -- and the
-// caller must refuse rather than default.
-func kidClassForStage(managementStage string) (class string, stage string, ok bool) {
-	entry, found := kidStageClasses[strings.ToLower(strings.TrimSpace(managementStage))]
-	if !found {
-		return "", "", false
-	}
-	return entry.class, entry.stage, true
-}
+// The shipped stage -> type map that used to live here is now
+// domain.BuiltinStageRoutes() in stage_routes.go, where it is the golden ORACLE for migration
+// 000395's seed and is read by nothing on the runtime path. Routing is authored data; see
+// StageRouting for the resolution rule and why the adult wildcard exists.
 
 // resolveStatus picks the ONE status the engine accepts, most specific first.
 //

@@ -19,7 +19,7 @@ func TestResolveAnimalMapsSex(t *testing.T) {
 	for goatOS, want := range map[string]string{"female": "F", "male": "M", "FEMALE": "F", " male ": "M"} {
 		facts := adultDoe()
 		facts.Sex = goatOS
-		got, err := ResolveAnimal(facts)
+		got, err := ResolveAnimal(facts, shippedRouting())
 		if err != nil {
 			t.Fatalf("sex %q: %v", goatOS, err)
 		}
@@ -35,21 +35,21 @@ func TestResolveAnimalRefusesRatherThanDefaulting(t *testing.T) {
 	t.Run("unknown sex", func(t *testing.T) {
 		facts := adultDoe()
 		facts.Sex = "F" // already-mapped value is NOT what GoatOS stores
-		if _, err := ResolveAnimal(facts); !errors.Is(err, ErrGoatNotDiagnosable) {
+		if _, err := ResolveAnimal(facts, shippedRouting()); !errors.Is(err, ErrGoatNotDiagnosable) {
 			t.Errorf("want ErrGoatNotDiagnosable, got %v", err)
 		}
 	})
 	t.Run("empty sex", func(t *testing.T) {
 		facts := adultDoe()
 		facts.Sex = ""
-		if _, err := ResolveAnimal(facts); !errors.Is(err, ErrGoatNotDiagnosable) {
+		if _, err := ResolveAnimal(facts, shippedRouting()); !errors.Is(err, ErrGoatNotDiagnosable) {
 			t.Errorf("want ErrGoatNotDiagnosable, got %v", err)
 		}
 	})
 	t.Run("unknown species", func(t *testing.T) {
 		facts := adultDoe()
 		facts.Species = "cow"
-		if _, err := ResolveAnimal(facts); !errors.Is(err, ErrGoatNotDiagnosable) {
+		if _, err := ResolveAnimal(facts, shippedRouting()); !errors.Is(err, ErrGoatNotDiagnosable) {
 			t.Errorf("want ErrGoatNotDiagnosable, got %v", err)
 		}
 	})
@@ -80,7 +80,7 @@ func TestResolveAnimalStatusPrecedence(t *testing.T) {
 			facts := adultDoe()
 			facts.ManagementStage = tc.stage
 			facts.DaysSinceKidding = tc.since
-			got, err := ResolveAnimal(facts)
+			got, err := ResolveAnimal(facts, shippedRouting())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -110,7 +110,7 @@ func TestPeriparturientIsWhatUnlocksMilkFever(t *testing.T) {
 	fresh := adultDoe()
 	fresh.ManagementStage = "Mother"
 	fresh.DaysSinceKidding = days(2)
-	freshAnimal, err := ResolveAnimal(fresh)
+	freshAnimal, err := ResolveAnimal(fresh, shippedRouting())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +119,7 @@ func TestPeriparturientIsWhatUnlocksMilkFever(t *testing.T) {
 	stale := adultDoe()
 	stale.ManagementStage = "Mother"
 	stale.DaysSinceKidding = days(60)
-	staleAnimal, err := ResolveAnimal(stale)
+	staleAnimal, err := ResolveAnimal(stale, shippedRouting())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +143,7 @@ func TestPeriparturientIsWhatUnlocksMilkFever(t *testing.T) {
 func TestMissingKiddingHistoryIsReportedNotFatal(t *testing.T) {
 	facts := adultDoe()
 	facts.ManagementStage = "Mother"
-	if _, err := ResolveAnimal(facts); err != nil {
+	if _, err := ResolveAnimal(facts, shippedRouting()); err != nil {
 		t.Fatalf("a doe with no birth record must still be diagnosable: %v", err)
 	}
 	if !MissingKiddingHistory(facts) {
@@ -203,7 +203,7 @@ func TestResolveAnimalRefusesAKidWhoseStageCannotChooseARegister(t *testing.T) {
 			facts.AgeBand = AgeBandKid
 			facts.ManagementStage = stage
 
-			got, err := ResolveAnimal(facts)
+			got, err := ResolveAnimal(facts, shippedRouting())
 			if err == nil {
 				t.Fatalf("stage %q was resolved to class %q instead of being refused", stage, got.Class)
 			}
@@ -249,7 +249,7 @@ func TestResolveAnimalMapsEachKidStageToItsOwnRegister(t *testing.T) {
 			facts.AgeBand = AgeBandKid
 			facts.ManagementStage = tc.stage
 
-			got, err := ResolveAnimal(facts)
+			got, err := ResolveAnimal(facts, shippedRouting())
 			if err != nil {
 				t.Fatalf("stage %q: %v", tc.stage, err)
 			}
@@ -272,7 +272,7 @@ func TestKidRegistersDoNotCollapseIntoEachOther(t *testing.T) {
 		facts := adultDoe()
 		facts.AgeBand = AgeBandKid
 		facts.ManagementStage = stage
-		got, err := ResolveAnimal(facts)
+		got, err := ResolveAnimal(facts, shippedRouting())
 		if err != nil {
 			t.Fatalf("stage %q: %v", stage, err)
 		}
@@ -287,7 +287,7 @@ func TestKidRegistersDoNotCollapseIntoEachOther(t *testing.T) {
 // TestResolveAnimalClassesAnAdultAsAdult is the other half: the refusal above
 // must not have made the ordinary path fail too.
 func TestResolveAnimalClassesAnAdultAsAdult(t *testing.T) {
-	got, err := ResolveAnimal(adultDoe())
+	got, err := ResolveAnimal(adultDoe(), shippedRouting())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -304,3 +304,9 @@ func containsString(list []string, want string) bool {
 	}
 	return false
 }
+
+// shippedRouting is the routing the engine SHIPPED with, which migration 000395 seeds row for
+// row. Every assertion in this file predates authored routing and describes that behaviour, so
+// they run against it -- which is also what makes them a regression test for the seed: if the
+// oracle and these expectations ever disagree, the farm's routing was born wrong.
+func shippedRouting() StageRouting { return NewStageRouting(BuiltinStageRoutes()) }
