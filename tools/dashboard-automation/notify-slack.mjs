@@ -385,6 +385,10 @@ function humanIssue(failure) {
   // Raw-code findings: show the code itself. Element-dump findings: name the element by label/text.
   const featureTitle = raw.match(/feature missing: ([^\[;]{3,120})/)?.[1]?.trim();
   if (featureTitle) quoted.unshift(featureTitle);
+  // A disagreement carries its own sentence — "X says 3 but Y comes to 4" — and that sentence,
+  // not the check's title, is the thing a person can act on.
+  const figures = raw.match(/figures do not agree: ([^;]{3,160})/)?.[1]?.trim();
+  if (figures) quoted.unshift(figures);
   const code = raw.match(/(?:snake_case code|copy key|raw value) "([^"]{1,60})"/)?.[1];
   const named = /^\s*[\w-]+ \w+ (has|overlay)/.test(raw) ? (raw.match(/"ariaLabel":"([^"]{2,60})"/)?.[1] || raw.match(/"text":"([^"]{2,60})"/)?.[1] || raw.match(/"className":"([^"]{2,40})"/)?.[1]) : null;
   if (code) quoted.unshift(code);

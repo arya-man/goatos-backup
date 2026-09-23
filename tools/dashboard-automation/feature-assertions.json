@@ -719,15 +719,17 @@
       },
       {
         "absent": {
-          "text": "Feed consumption by shed"
-        }
+          "css": "main.main:has-text(\"Feed consumption by shed\")"
+        },
+        "absentWas": "Feed consumption by shed"
       }
     ],
     "status": "superseded",
     "reason": "Feed consumption-by-shed table replaced by 26a2b52b7 (shed-grain table + trend); vaccination panel renamed 'Pending vaccines by pen' in a503f3d87",
     "evidence": "backend/internal/adminui/app/service.go:6813 \"Packed vs given over time\"; absent \"Feed consumption by shed\" (not in origin/main UI copy)",
     "group": "A",
-    "verdict": "pass"
+    "verdict": "pass",
+    "noiseFix": "scoped to the part of the screen the commit changed; a whole-page match fires on ordinary content"
   },
   {
     "sha": "bb6a85345",
@@ -799,14 +801,16 @@
       },
       {
         "absent": {
-          "text": "Cost to buy"
-        }
+          "css": "table.feed-forecast-table:has-text(\"Cost to buy\")"
+        },
+        "absentWas": "Cost to buy"
       }
     ],
     "status": "assert",
     "evidence": "backend/internal/adminui/app/service.go:6692 \"Feed needed for the next 7 days\"; absent \"Cost to buy\" (not in origin/main UI copy)",
     "group": "A",
-    "verdict": "pass"
+    "verdict": "pass",
+    "noiseFix": "scoped to the part of the screen the commit changed; a whole-page match fires on ordinary content"
   },
   {
     "sha": "26a2b52b7",
@@ -997,14 +1001,16 @@
       },
       {
         "absent": {
-          "text": "Age group"
-        }
+          "css": "main.main:has-text(\"Age group\")"
+        },
+        "absentWas": "Age group"
       }
     ],
     "status": "assert",
     "evidence": "backend/internal/adminui/app/service.go:889 \"Packed vs directed\"; absent \"Age group\" (not in origin/main UI copy)",
     "group": "A",
-    "verdict": "pass"
+    "verdict": "pass",
+    "noiseFix": "scoped to the part of the screen the commit changed; a whole-page match fires on ordinary content"
   },
   {
     "sha": "bd5181d39",
@@ -1040,14 +1046,16 @@
     "expect": [
       {
         "absent": {
-          "text": "Verification latency"
-        }
+          "css": "main.main:has-text(\"Verification latency\")"
+        },
+        "absentWas": "Verification latency"
       }
     ],
     "status": "assert",
     "evidence": "absent \"Verification latency\" (not in origin/main UI copy)",
     "group": "A",
-    "verdict": "pass"
+    "verdict": "pass",
+    "noiseFix": "scoped to the part of the screen the commit changed; a whole-page match fires on ordinary content"
   },
   {
     "sha": "e42b59928",
@@ -1115,15 +1123,17 @@
       },
       {
         "absent": {
-          "text": "Feed by shed"
-        }
+          "css": "main.main:has-text(\"Feed by shed\")"
+        },
+        "absentWas": "Feed by shed"
       }
     ],
     "status": "superseded",
     "reason": "Feed-by-shed table replaced by Feed by pen bar charts in a3317be32 (renamed in a503f3d87)",
     "evidence": "apps/admin-web/features/feed/feed-analytics.tsx:380 \"Feed by pen\"; absent \"Feed by shed\" (not in origin/main UI copy)",
     "group": "A",
-    "verdict": "pass"
+    "verdict": "pass",
+    "noiseFix": "scoped to the part of the screen the commit changed; a whole-page match fires on ordinary content"
   },
   {
     "sha": "f7cb69998",
@@ -1287,13 +1297,42 @@
         "visible": {
           "text": "Feed spend share"
         }
+      },
+      {
+        "reconcile": {
+          "left": {
+            "countOf": "section.wchart[aria-label=\"Feed spend share\"] span.muted",
+            "says": "the number of feeds in the spend share pie"
+          },
+          "right": {
+            "countOf": ".chartcard .feed-item-strip > div:first-child .val:has-text(\"₹\")",
+            "says": "the number of feeds showing a daily spend on their own card"
+          },
+          "relation": "equals"
+        }
+      },
+      {
+        "reconcile": {
+          "left": {
+            "sumOf": "section.wchart[aria-label=\"Feed spend share\"] span.muted",
+            "pick": "first",
+            "says": "the daily spend added up across the spend share pie"
+          },
+          "right": {
+            "sumOf": ".chartcard .feed-item-strip > div:first-child .val:has-text(\"₹\")",
+            "says": "the daily spend added up across the per-feed cards"
+          },
+          "relation": "equals",
+          "tolerance": 1
+        }
       }
     ],
     "status": "data-dependent",
-    "reason": "Pie hidden when no feed qualifies",
-    "evidence": "backend/internal/adminui/app/service.go:6783 \"Feed spend share\"",
+    "reason": "Pie hidden when no feed qualifies. The pie and the per-feed cards render the same money by two different code paths, and the pie is the path that once carried its own feed allowlist, so they must name the same feeds and add up to the same rupees.",
+    "evidence": "apps/admin-web/features/feed/feed-analytics.tsx:839 spendShareSlices value = money.rupeesTotal / money.pricedDays; apps/admin-web/features/feed/feed-analytics.tsx:1069 the card grid applies the same itemCardHidden rule; apps/admin-web/components/svg-series.tsx:496 legend renders the rupee value and share as text; apps/admin-web/features/feed/feed-analytics.tsx:1087 the card renders the same rupee value",
     "group": "A",
-    "verdict": "pass"
+    "verdict": "pass",
+    "provenance": "reconciliation"
   },
   {
     "sha": "a3317be32",
@@ -2073,17 +2112,13 @@
         "visible": {
           "text": "Add feed item"
         }
-      },
-      {
-        "absent": {
-          "text": "Add feed type"
-        }
       }
     ],
     "status": "assert",
     "evidence": "apps/admin-web/features/feed/feed-config-editor.tsx:887 \"Add feed item\"; absent \"Add feed type\" (not in origin/main UI copy)",
     "group": "A",
-    "verdict": "pass"
+    "verdict": "pass",
+    "noiseFix": "dropped the negative \"Add feed type\": the positive assertion in this same check already goes red when the fix is reverted, and the negative was a whole-page substring that fires on ordinary content"
   },
   {
     "sha": "5bddbb60f",
@@ -3176,14 +3211,16 @@
     "expect": [
       {
         "absent": {
-          "text": "Vaccination SOP"
-        }
+          "css": "main.main:has-text(\"Vaccination SOP\")"
+        },
+        "absentWas": "Vaccination SOP"
       }
     ],
     "status": "assert",
     "evidence": "apps/admin-web/app/(admin)/vaccination",
     "group": "A",
-    "verdict": "pass"
+    "verdict": "pass",
+    "noiseFix": "scoped to the part of the screen the commit changed; a whole-page match fires on ordinary content"
   },
   {
     "sha": "82f67cac7",
@@ -4910,19 +4947,12 @@
       "mobile"
     ],
     "steps": [],
-    "expect": [
-      {
-        "absent": {
-          "text": "Integration notes"
-        }
-      }
-    ],
-    "status": "superseded",
+    "expect": [],
+    "status": "needs-assertion",
     "evidence": "apps/admin-web/app/(admin)/weighing (no page.tsx on origin/main)",
-    "reason": "/weighing root page deleted by 743c53b87 (weighing frontend is mobile only)",
+    "reason": "This check asserted only that the words \"Integration notes\" are absent, which six other checks on the same screen also asserted: one product change would have posted seven findings. The negative now lives on 0a3ebeaa4, the commit that is actually about it, and this check needs an assertion of its own before it can be counted as covering anything.",
     "needsRoute": "/weighing",
-    "group": "A",
-    "verdict": "pass"
+    "group": "A"
   },
   {
     "sha": "366108861",
@@ -4933,19 +4963,12 @@
       "mobile"
     ],
     "steps": [],
-    "expect": [
-      {
-        "absent": {
-          "text": "Integration notes"
-        }
-      }
-    ],
-    "status": "superseded",
+    "expect": [],
+    "status": "needs-assertion",
     "evidence": "apps/admin-web/app/(admin)/weighing (no page.tsx on origin/main)",
-    "reason": "/weighing root page deleted by 743c53b87 (weighing frontend is mobile only)",
+    "reason": "This check asserted only that the words \"Integration notes\" are absent, which six other checks on the same screen also asserted: one product change would have posted seven findings. The negative now lives on 0a3ebeaa4, the commit that is actually about it, and this check needs an assertion of its own before it can be counted as covering anything.",
     "needsRoute": "/weighing",
-    "group": "A",
-    "verdict": "pass"
+    "group": "A"
   },
   {
     "sha": "3557a46cb",
@@ -4956,19 +4979,12 @@
       "mobile"
     ],
     "steps": [],
-    "expect": [
-      {
-        "absent": {
-          "text": "Integration notes"
-        }
-      }
-    ],
-    "status": "superseded",
+    "expect": [],
+    "status": "needs-assertion",
     "evidence": "apps/admin-web/app/(admin)/weighing (no page.tsx on origin/main)",
-    "reason": "/weighing root page deleted by 743c53b87 (weighing frontend is mobile only)",
+    "reason": "This check asserted only that the words \"Integration notes\" are absent, which six other checks on the same screen also asserted: one product change would have posted seven findings. The negative now lives on 0a3ebeaa4, the commit that is actually about it, and this check needs an assertion of its own before it can be counted as covering anything.",
     "needsRoute": "/weighing",
-    "group": "A",
-    "verdict": "pass"
+    "group": "A"
   },
   {
     "sha": "f688cbd05",
@@ -4979,19 +4995,12 @@
       "mobile"
     ],
     "steps": [],
-    "expect": [
-      {
-        "absent": {
-          "text": "Integration notes"
-        }
-      }
-    ],
-    "status": "superseded",
+    "expect": [],
+    "status": "needs-assertion",
     "evidence": "apps/admin-web/app/(admin)/weighing (no page.tsx on origin/main)",
-    "reason": "/weighing root page deleted by 743c53b87 (weighing frontend is mobile only)",
+    "reason": "This check asserted only that the words \"Integration notes\" are absent, which six other checks on the same screen also asserted: one product change would have posted seven findings. The negative now lives on 0a3ebeaa4, the commit that is actually about it, and this check needs an assertion of its own before it can be counted as covering anything.",
     "needsRoute": "/weighing",
-    "group": "A",
-    "verdict": "pass"
+    "group": "A"
   },
   {
     "sha": "fb2e39aaa",
@@ -5002,19 +5011,12 @@
       "mobile"
     ],
     "steps": [],
-    "expect": [
-      {
-        "absent": {
-          "text": "Integration notes"
-        }
-      }
-    ],
-    "status": "superseded",
+    "expect": [],
+    "status": "needs-assertion",
     "evidence": "apps/admin-web/app/(admin)/weighing (no page.tsx on origin/main)",
-    "reason": "/weighing root page deleted by 743c53b87 (weighing frontend is mobile only)",
+    "reason": "This check asserted only that the words \"Integration notes\" are absent, which six other checks on the same screen also asserted: one product change would have posted seven findings. The negative now lives on 0a3ebeaa4, the commit that is actually about it, and this check needs an assertion of its own before it can be counted as covering anything.",
     "needsRoute": "/weighing",
-    "group": "A",
-    "verdict": "pass"
+    "group": "A"
   },
   {
     "sha": "376fe42dc",
@@ -5025,19 +5027,12 @@
       "mobile"
     ],
     "steps": [],
-    "expect": [
-      {
-        "absent": {
-          "text": "Integration notes"
-        }
-      }
-    ],
-    "status": "superseded",
+    "expect": [],
+    "status": "needs-assertion",
     "evidence": "apps/admin-web/app/(admin)/weighing (no page.tsx on origin/main)",
-    "reason": "/weighing root page deleted by 743c53b87 (weighing frontend is mobile only)",
+    "reason": "This check asserted only that the words \"Integration notes\" are absent, which six other checks on the same screen also asserted: one product change would have posted seven findings. The negative now lives on 0a3ebeaa4, the commit that is actually about it, and this check needs an assertion of its own before it can be counted as covering anything.",
     "needsRoute": "/weighing",
-    "group": "A",
-    "verdict": "pass"
+    "group": "A"
   },
   {
     "sha": "0a3ebeaa4",
@@ -6145,12 +6140,29 @@
         "visible": {
           "css": ".weights-page section.grid.kpi-row"
         }
+      },
+      {
+        "reconcile": {
+          "left": {
+            "css": ".kpi:has(.lab:text-is(\"Individual · Lump-sum\")) .val",
+            "pick": "sum",
+            "says": "the animals weighed one by one plus the animals weighed as whole pens"
+          },
+          "right": {
+            "css": ".kpi:has(.lab:text-is(\"Individual · Lump-sum\")) .dl",
+            "pick": "first",
+            "says": "the animals weighed altogether"
+          },
+          "relation": "equals"
+        }
       }
     ],
     "status": "assert",
-    "evidence": "apps/admin-web/features/weighing/weights.tsx:872",
+    "evidence": "backend/internal/weighing/adapters/postgres/shed_weights.go:448-456 animals_weighed = individual + lump_sum; apps/admin-web/features/weighing/weights.tsx:885-895",
     "group": "A",
-    "verdict": "pass"
+    "verdict": "pass",
+    "provenance": "reconciliation",
+    "reason": "The tile shows the two ways an animal can be weighed and, underneath, how many were weighed altogether. The database defines the whole as the sum of exactly those two parts, and the write path can only ever record an animal one way or the other, so the two halves and the total must agree."
   },
   {
     "sha": "767bf0471",
@@ -6376,15 +6388,17 @@
     "expect": [
       {
         "absent": {
-          "text": "Feed given vs growth"
-        }
+          "css": "main.main:has-text(\"Feed given vs growth\")"
+        },
+        "absentWas": "Feed given vs growth"
       }
     ],
     "status": "superseded",
     "evidence": "apps/admin-web/features/weighing/growth-director.tsx:51",
     "reason": "Table removed by 98a8bda4a",
     "group": "A",
-    "verdict": "pass"
+    "verdict": "pass",
+    "noiseFix": "scoped to the part of the screen the commit changed; a whole-page match fires on ordinary content"
   },
   {
     "sha": "6647cc66f",
@@ -6753,15 +6767,17 @@
       },
       {
         "absent": {
-          "text": "True"
-        }
+          "css": ".gmarks .gmrow:has-text(\"True\")"
+        },
+        "absentWas": "True"
       }
     ],
     "status": "data-dependent",
     "evidence": "apps/admin-web/features/weighing/gain-threshold-bars.tsx:90,105",
     "reason": "Needs weighs",
     "group": "A",
-    "verdict": "pass"
+    "verdict": "pass",
+    "noiseFix": "scoped the raw-boolean sentinel to the gain-band rows it is about; as a whole-page substring \"True\" matches inside ordinary words and data"
   },
   {
     "sha": "09d3cd2bb",
@@ -8174,15 +8190,17 @@
     "expect": [
       {
         "absent": {
-          "text": "Recent leads"
-        }
+          "css": "main.main:has-text(\"Recent leads\")"
+        },
+        "absentWas": "Recent leads"
       }
     ],
     "status": "superseded",
     "reason": "Leads/pipeline surfaces removed from Sales in dc06ec738 (sales-leadlist deleted)",
     "evidence": "apps/admin-web/features/procurement/sales-config.tsx:140",
     "group": "B",
-    "verdict": "pass"
+    "verdict": "pass",
+    "noiseFix": "scoped to the part of the screen the commit changed; a whole-page match fires on ordinary content"
   },
   {
     "sha": "9fe59652d",
@@ -8621,15 +8639,17 @@
       },
       {
         "absent": {
-          "text": "sensor housing"
-        }
+          "css": "aside.drawer.on[aria-label=\"Tag detail\"]:has-text(\"sensor housing\")"
+        },
+        "absentWas": "sensor housing"
       }
     ],
     "status": "data-dependent",
     "reason": "Needs live tag rows",
     "evidence": "apps/admin-web/features/herd-signals/herd-signals-drawer.tsx:140",
     "group": "B",
-    "verdict": "pass"
+    "verdict": "pass",
+    "noiseFix": "scoped to the part of the screen the commit changed; a whole-page match fires on ordinary content"
   },
   {
     "sha": "4a2699d99",
@@ -9493,15 +9513,17 @@
       },
       {
         "absent": {
-          "text": "Readings"
-        }
+          "css": "aside.drawer.on[aria-label=\"Tag detail\"]:has-text(\"Readings\")"
+        },
+        "absentWas": "Readings"
       }
     ],
     "status": "data-dependent",
     "reason": "Needs live tag rows",
     "evidence": "apps/admin-web/features/herd-signals/herd-signals-drawer.tsx:140",
     "group": "B",
-    "verdict": "pass"
+    "verdict": "pass",
+    "noiseFix": "scoped to the part of the screen the commit changed; a whole-page match fires on ordinary content"
   },
   {
     "sha": "b047b93f3",
@@ -9821,15 +9843,17 @@
       },
       {
         "absent": {
-          "text": "Estimated battery life"
-        }
+          "css": "aside.drawer.on[aria-label=\"Tag detail\"]:has-text(\"Estimated battery life\")"
+        },
+        "absentWas": "Estimated battery life"
       }
     ],
     "status": "data-dependent",
     "reason": "Needs live tag rows",
     "evidence": "apps/admin-web/features/herd-signals/herd-signals-drawer.tsx:140",
     "group": "B",
-    "verdict": "pass"
+    "verdict": "pass",
+    "noiseFix": "scoped to the part of the screen the commit changed; a whole-page match fires on ordinary content"
   },
   {
     "sha": "03684aee5",
@@ -9979,14 +10003,16 @@
       },
       {
         "absent": {
-          "text": "Estimated battery life"
-        }
+          "css": ".herd-signals-page:has-text(\"Estimated battery life\")"
+        },
+        "absentWas": "Estimated battery life"
       }
     ],
     "status": "assert",
     "evidence": "apps/admin-web/features/vaccination-live-tracker/live-tick.tsx:7",
     "group": "B",
-    "verdict": "fix"
+    "verdict": "fix",
+    "noiseFix": "scoped to the part of the screen the commit changed; a whole-page match fires on ordinary content"
   },
   {
     "sha": "e6a147f3e",
@@ -10661,15 +10687,17 @@
       },
       {
         "absent": {
-          "text": "Other exits"
-        }
+          "css": ".gcols:has-text(\"Other exits\")"
+        },
+        "absentWas": "Other exits"
       }
     ],
     "status": "data-dependent",
     "reason": "Needs loads; Other exits lives in the drawer",
     "evidence": "apps/admin-web/components/grouped-columns.tsx:85",
     "group": "B",
-    "verdict": "pass"
+    "verdict": "pass",
+    "noiseFix": "scoped to the part of the screen the commit changed; a whole-page match fires on ordinary content"
   },
   {
     "sha": "c68da2cab",
@@ -12049,15 +12077,17 @@
       },
       {
         "absent": {
-          "text": "Missing"
-        }
+          "css": ".sales-sex-split:has-text(\"Missing\")"
+        },
+        "absentWas": "Missing"
       }
     ],
     "status": "data-dependent",
     "reason": "Needs bucket data; runner should also check .sales-sex-split text lacks \"Missing\"",
     "evidence": "apps/admin-web/features/procurement/sales-farm-value.tsx:159",
     "group": "B",
-    "verdict": "fix"
+    "verdict": "fix",
+    "noiseFix": "scoped to the part of the screen the commit changed; a whole-page match fires on ordinary content"
   },
   {
     "sha": "4448a88d9",
@@ -12077,15 +12107,17 @@
       },
       {
         "absent": {
-          "text": "weighed"
-        }
+          "css": ".sales-sex-split[data-bucket=\"fattening\"]:has-text(\"weighed\")"
+        },
+        "absentWas": "weighed"
       }
     ],
     "status": "data-dependent",
     "reason": "Needs bucket data; runner should check fattening card text lacks \"weighed\"",
     "evidence": "apps/admin-web/features/procurement/sales-farm-value.tsx:159",
     "group": "B",
-    "verdict": "fix"
+    "verdict": "fix",
+    "noiseFix": "scoped to the part of the screen the commit changed; a whole-page match fires on ordinary content"
   },
   {
     "sha": "ad341f8f3",
@@ -13008,13 +13040,40 @@
           "css": "[data-testid=\"alerts-rule-row\"]",
           "min": 1
         }
+      },
+      {
+        "reconcile": {
+          "left": {
+            "css": "[data-testid=\"alerts-kpi-total\"]",
+            "says": "the alert count above the table"
+          },
+          "right": {
+            "countOf": "[data-testid=\"alerts-row\"]",
+            "says": "the alert rows listed under it"
+          },
+          "relation": "equals"
+        }
+      },
+      {
+        "reconcile": {
+          "left": {
+            "css": "[data-testid=\"alerts-kpi-critical\"]",
+            "says": "the critical alert count above the table"
+          },
+          "right": {
+            "countOf": "[data-testid=\"alerts-row\"][data-severity=\"critical\"]",
+            "says": "the rows marked critical"
+          },
+          "relation": "equals"
+        }
       }
     ],
     "status": "data-dependent",
-    "reason": "Configure link only for HRMS-permitted users; drawer opened, rules never saved",
-    "evidence": "apps/admin-web/features/alerts/alerts-page.tsx:94",
+    "reason": "Alerts need rows. The count above the table and the rows under it are the same list: the server sets the total to the number of rows it is returning, the table is not paged, and neither Alerts route narrows by severity, which is the one filter that would move the rows without moving the count.",
+    "evidence": "backend/internal/alerts/adapters/http/handler.go:128 Total: len(page.Rows); apps/admin-web/features/alerts/alerts-page.tsx:121,126,213",
     "group": "B",
-    "verdict": "pass"
+    "verdict": "pass",
+    "provenance": "reconciliation"
   },
   {
     "sha": "9678b2d3d",
@@ -13329,14 +13388,16 @@
       },
       {
         "absent": {
-          "text": "not configured"
-        }
+          "css": "[data-notification-bell] .parkmenu.on:has-text(\"not configured\")"
+        },
+        "absentWas": "not configured"
       }
     ],
     "status": "assert",
     "evidence": "apps/admin-web/features/notifications/notification-bell.tsx:54",
     "group": "B",
-    "verdict": "pass"
+    "verdict": "pass",
+    "noiseFix": "scoped to the part of the screen the commit changed; a whole-page match fires on ordinary content"
   },
   {
     "sha": "c72e2383e",
@@ -13431,12 +13492,42 @@
           "css": "table.mortality-rate-table",
           "min": 1
         }
+      },
+      {
+        "reconcile": {
+          "left": {
+            "css": ".kpi:has(.lab:text-is(\"Cause established\")) .val",
+            "pick": "last",
+            "says": "the number of deaths the cause tile is counting against"
+          },
+          "right": {
+            "css": ".kpi:has(.lab:text-is(\"Deaths\")) .val",
+            "says": "the deaths tile"
+          },
+          "relation": "equals"
+        }
+      },
+      {
+        "reconcile": {
+          "left": {
+            "css": ".kpi:has(.lab:text-is(\"Cause established\")) .val",
+            "pick": "first",
+            "says": "the deaths whose cause is established"
+          },
+          "right": {
+            "css": ".kpi:has(.lab:text-is(\"Deaths\")) .val",
+            "says": "the deaths tile"
+          },
+          "relation": "atMost"
+        }
       }
     ],
     "status": "assert",
-    "evidence": "apps/admin-web/features/counts/mortality.tsx:464",
+    "evidence": "apps/admin-web/features/counts/mortality.tsx:456,493-506; backend/internal/counts/domain/mortality.go:118-123 CauseRecorded/CauseInferred/CauseNone partition Deaths exactly",
     "group": "B",
-    "verdict": "pass"
+    "verdict": "pass",
+    "provenance": "reconciliation",
+    "reason": "The cause tile prints \"N / M\" where M is the same deaths figure the tile beside it shows, and N is a subset of it: recorded and inferred causes partition the deaths together with the ones that have no cause. Both numbers are on the same screen, so neither needs a fixture."
   },
   {
     "sha": "3eaf956ca",
@@ -13456,14 +13547,16 @@
       },
       {
         "absent": {
-          "text": "At risk"
-        }
+          "css": "table.mortality-rate-table thead:has-text(\"At risk\")"
+        },
+        "absentWas": "At risk"
       }
     ],
     "status": "assert",
     "evidence": "apps/admin-web/features/counts/mortality.tsx:126",
     "group": "B",
-    "verdict": "pass"
+    "verdict": "pass",
+    "noiseFix": "scoped to the part of the screen the commit changed; a whole-page match fires on ordinary content"
   },
   {
     "sha": "850a57167",
@@ -14205,8 +14298,9 @@
     "expect": [
       {
         "absent": {
-          "text": "All evidence"
-        }
+          "css": ".side .nav:has-text(\"All evidence\")"
+        },
+        "absentWas": "All evidence"
       },
       {
         "visible": {
@@ -14217,7 +14311,8 @@
     "status": "assert",
     "evidence": "apps/admin-web/components/mesha-shell.tsx:757",
     "group": "C",
-    "verdict": "pass"
+    "verdict": "pass",
+    "noiseFix": "scoped to the part of the screen the commit changed; a whole-page match fires on ordinary content"
   },
   {
     "sha": "ac10c83d5",
@@ -14549,20 +14644,23 @@
       },
       {
         "absent": {
-          "text": "Reassign"
-        }
+          "css": ".vr-modal.on:has-text(\"Reassign\")"
+        },
+        "absentWas": "Reassign"
       },
       {
         "absent": {
-          "text": "Penalty"
-        }
+          "css": ".vr-modal.on:has-text(\"Penalty\")"
+        },
+        "absentWas": "Penalty"
       }
     ],
     "status": "data-dependent",
     "reason": "needs a queue row",
     "evidence": "apps/admin-web/features/verification-review/verification-review-drawer.tsx:991",
     "group": "C",
-    "verdict": "pass"
+    "verdict": "pass",
+    "noiseFix": "scoped to the part of the screen the commit changed; a whole-page match fires on ordinary content"
   },
   {
     "sha": "e40a8dd03",
@@ -16772,14 +16870,16 @@
       },
       {
         "absent": {
-          "text": "0–25"
-        }
+          "css": ".wb .board:has-text(\"0–25\")"
+        },
+        "absentWas": "0–25"
       }
     ],
     "status": "assert",
     "evidence": "apps/admin-web/features/work-board/work-board-board.tsx:328",
     "group": "C",
-    "verdict": "pass"
+    "verdict": "pass",
+    "noiseFix": "scoped to the part of the screen the commit changed; a whole-page match fires on ordinary content"
   },
   {
     "sha": "96a4566d6",
@@ -17213,15 +17313,17 @@
       },
       {
         "absent": {
-          "text": "Open photo"
-        }
+          "css": ".vr-modal.on:has-text(\"Open photo\")"
+        },
+        "absentWas": "Open photo"
       }
     ],
     "status": "data-dependent",
     "reason": "needs a proof row",
     "evidence": "apps/admin-web/features/verification-review/verification-review-drawer.tsx:635",
     "group": "C",
-    "verdict": "pass"
+    "verdict": "pass",
+    "noiseFix": "scoped to the part of the screen the commit changed; a whole-page match fires on ordinary content"
   },
   {
     "sha": "e4b9a33ed",
@@ -18590,14 +18692,16 @@
       },
       {
         "absent": {
-          "text": "See every task in this status"
-        }
+          "css": ".ltb-colhd:has-text(\"See every task in this status\")"
+        },
+        "absentWas": "See every task in this status"
       }
     ],
     "status": "assert",
     "evidence": "apps/admin-web/features/leadership-tasks/task-board-dnd.tsx:280",
     "group": "C",
-    "verdict": "pass"
+    "verdict": "pass",
+    "noiseFix": "scoped to the part of the screen the commit changed; a whole-page match fires on ordinary content"
   },
   {
     "sha": "3eb69f674",
@@ -18666,17 +18770,13 @@
         "visible": {
           "text": "In progress"
         }
-      },
-      {
-        "absent": {
-          "text": "Doing"
-        }
       }
     ],
     "status": "assert",
     "evidence": "apps/admin-web/features/leadership-tasks/leadership-tasks-page.tsx:499",
     "group": "C",
-    "verdict": "pass"
+    "verdict": "pass",
+    "noiseFix": "dropped the negative \"Doing\": the positive assertion in this same check already goes red when the fix is reverted, and the negative was a whole-page substring that fires on ordinary content"
   },
   {
     "sha": "dcfa32f17",
@@ -20075,10 +20175,26 @@
           "css": ".kpi.mini",
           "min": 1
         }
+      },
+      {
+        "reconcile": {
+          "left": {
+            "sumOf": ".kpi.mini .val",
+            "says": "the value of every bucket added up"
+          },
+          "right": {
+            "css": ".kpi:has(.lab:text-is(\"Total farm value\")) .val",
+            "says": "the total farm value"
+          },
+          "relation": "equals",
+          "tolerance": 5
+        }
       }
     ],
     "status": "assert",
-    "evidence": "apps/admin-web/features/procurement/sales-farm-value.tsx:87 section.sales-block; :94 kpi.farm_value; :99 kpi.total_meat; :152 div.kpi.mini per bucket"
+    "evidence": "backend/internal/sales/adapters/postgres/overview_repository.go:207-213 TotalValueRupees += bucket.ValueRupees alongside Buckets = append(...); apps/admin-web/features/procurement/sales-farm-value.tsx:92-104,150-173",
+    "provenance": "reconciliation",
+    "reason": "Every bucket the page draws is one of the rows the server added into the headline total: it adds each row to the total and appends the same row to the list the page maps over, with nothing dropped in between. Whole rupees are rounded per bucket, so a few rupees of rounding is allowed and a missing bucket is not."
   },
   {
     "sha": "1004456ab",
@@ -20162,11 +20278,19 @@
         "visible": {
           "css": "section.card.sales-card"
         }
+      },
+      {
+        "value": {
+          "countOf": ".kpi[data-band]",
+          "equals": 4,
+          "says": "the weight bands on the sold-animals card"
+        }
       }
     ],
     "status": "data-dependent",
-    "reason": "The band tiles render only when sold_weight_bands.total is above zero; an empty register renders the empty state instead",
-    "evidence": "apps/admin-web/features/procurement/sales-sold.tsx:134 section.card.sales-card; :141 total===0 empty branch; :157 div.kpi data-band={band.band}; :164-166 measured / load_average / estimated provenance"
+    "reason": "The four weight bands are disjoint and are drawn unconditionally, zeros included, so that a band with nothing in it still shows. A band that stops being drawn is the defect this check exists for.",
+    "evidence": "contracts/openapi/app-api.yaml:23607-23616 the four bands are disjoint and bands plus unweighed equal total; apps/admin-web/features/procurement/sales-sold.tsx:151-160",
+    "provenance": "reconciliation"
   },
   {
     "sha": "47cafb30b",

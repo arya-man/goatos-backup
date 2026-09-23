@@ -21,6 +21,12 @@ export function staticIssueRules() {
   [/clipped button\/link text/, "Button text cut off"],
   [/text-cut-off|text hidden|is cut off, with no/, "Text cut off"],
   [/overlay .*did not open|never mounted/, "Clicking it did not open"],
+  // Ordered before "feature missing": one route reports both kinds joined by " || ", and a
+  // number that disagrees with the rest of its own screen is a different thing to a farm
+  // manager than a panel that has gone. It reads e.g.
+  //   Farm Value (laptop) — A number does not match the rest of the screen —
+  //   "the value of every bucket added up says 20797499 but the total farm value says 27160157"
+  [/figures do not agree/, "A number does not match the rest of the screen"],
   [/feature missing/, "Feature missing or broken"],
   [/header not visible at the top/, "Drawer opens with its title bar scrolled out of view"],
   [/overlapping interactive elements/, "Buttons overlapping each other"],
