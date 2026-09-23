@@ -196,7 +196,7 @@ SELECT $1::uuid, nr.notification_request_id, tm.workforce_member_id, reg.browser
    AND reg.browser_install_id = NULLIF($4, '')
    AND reg.workforce_member_id = tm.workforce_member_id
  WHERE tm.workforce_member_id IS NOT NULL
-   AND (nr.context->>'member_id' = tm.workforce_member_id::text OR nr.recipient_ref = reg.fcm_token)
+   AND (nr.context->>'member_id' = tm.workforce_member_id::text OR nr.context->>'recipient_device_id' = reg.browser_registration_id::text)
 ON CONFLICT (tenant_id, notification_request_id, browser_registration_id, event_type) DO NOTHING`
 
 // resolveRecipientsSQL returns one person's reachable browsers, for the notification fan-out.
