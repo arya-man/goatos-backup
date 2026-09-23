@@ -312,7 +312,9 @@ export function CeoAiPanel({
   // Thread list starts open on desktop, closed on phones (it overlays the chat there).
   // The panel renders only after the client-side capability probe, so reading the
   // viewport in the initializers is safe (no server render to mismatch).
-  const isNarrow = () => typeof window !== "undefined" && window.matchMedia("(max-width:620px)").matches;
+  const isNarrow = () =>
+    typeof window !== "undefined" &&
+    window.matchMedia("(max-width:620px)").matches;
   const [showThreads, setShowThreads] = useState(() => !isNarrow());
   const [narrow, setNarrow] = useState(isNarrow);
   useEffect(() => {
@@ -636,9 +638,9 @@ export function CeoAiPanel({
     [conversationId, stopGenerating],
   );
 
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const removeThread = useCallback(
     async (id: string) => {
-      if (!window.confirm("Delete this chat?")) return;
       const ok = await deleteConversation(id).catch(() => false);
       if (ok) {
         trackCeoAiEvent(CeoAiEvents.DeleteChat);
@@ -790,7 +792,12 @@ export function CeoAiPanel({
 
           <div className="mzai-body">
             {showThreads ? (
-              <button type="button" className="mzai-scrim" aria-label="Close chats" onClick={() => setShowThreads(false)} />
+              <button
+                type="button"
+                className="mzai-scrim"
+                aria-label="Close chats"
+                onClick={() => setShowThreads(false)}
+              />
             ) : null}
             <aside className={`mzai-side${showThreads ? "" : " mzai-hide"}`}>
               <div className="mzai-side-head">
@@ -810,10 +817,38 @@ export function CeoAiPanel({
                   conversations.map((thread) => (
                     <div
                       key={thread.id}
-                      className={`mzai-thread${thread.id === conversationId ? " mzai-on" : ""}`}
-                      onClick={() => void resumeThread(thread.id)}
+                      className={`mzai-thread${thread.id === conversationId ? " mzai-on" : ""}${confirmDelete === thread.id ? " mzai-confirming" : ""}`}
+                      onClick={() =>
+                        confirmDelete !== thread.id &&
+                        void resumeThread(thread.id)
+                      }
                     >
-                      {renaming === thread.id ? (
+                      {confirmDelete === thread.id ? (
+                        <span
+                          className="mzai-confirm"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <span>Delete this chat?</span>
+                          <button
+                            type="button"
+                            className="mzai-confirm-yes"
+                            autoFocus
+                            onClick={() => {
+                              setConfirmDelete(null);
+                              void removeThread(thread.id);
+                            }}
+                          >
+                            Delete
+                          </button>
+                          <button
+                            type="button"
+                            className="mzai-confirm-no"
+                            onClick={() => setConfirmDelete(null)}
+                          >
+                            Cancel
+                          </button>
+                        </span>
+                      ) : renaming === thread.id ? (
                         <input
                           autoFocus
                           value={renameText}
@@ -830,31 +865,35 @@ export function CeoAiPanel({
                           {thread.title || CHROME.newChat}
                         </span>
                       )}
-                      <button
-                        type="button"
-                        className="mzai-thread-act"
-                        aria-label={CHROME.rename}
-                        title={CHROME.rename}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setRenaming(thread.id);
-                          setRenameText(thread.title);
-                        }}
-                      >
-                        <Pencil className="ic" />
-                      </button>
-                      <button
-                        type="button"
-                        className="mzai-thread-act"
-                        aria-label={CHROME.delete}
-                        title={CHROME.delete}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          void removeThread(thread.id);
-                        }}
-                      >
-                        <Trash2 className="ic" />
-                      </button>
+                      {confirmDelete === thread.id ? null : (
+                        <>
+                          <button
+                            type="button"
+                            className="mzai-thread-act"
+                            aria-label={CHROME.rename}
+                            title={CHROME.rename}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setRenaming(thread.id);
+                              setRenameText(thread.title);
+                            }}
+                          >
+                            <Pencil className="ic" />
+                          </button>
+                          <button
+                            type="button"
+                            className="mzai-thread-act"
+                            aria-label={CHROME.delete}
+                            title={CHROME.delete}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setConfirmDelete(thread.id);
+                            }}
+                          >
+                            <Trash2 className="ic" />
+                          </button>
+                        </>
+                      )}
                     </div>
                   ))
                 )}
@@ -1061,7 +1100,13 @@ export function CeoAiPanel({
                     }
                   }}
                   rows={1}
-                  placeholder={listening ? "Listening…" : narrow ? "Ask Mesha…" : copy.placeholder}
+                  placeholder={
+                    listening
+                      ? "Listening…"
+                      : narrow
+                        ? "Ask Mesha…"
+                        : copy.placeholder
+                  }
                 />
                 {speechSupported ? (
                   <button
