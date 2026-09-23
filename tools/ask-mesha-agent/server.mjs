@@ -293,9 +293,10 @@ function saveAttachments(chatId, raw) {
     if (!a || typeof a.name !== "string" || typeof a.data !== "string") continue;
     const safe = a.name.replace(/[^\w.\- ]+/g, "_").slice(-120) || "file";
     fs.mkdirSync(dir, { recursive: true });
-    const file = path.join(dir, `${Date.now()}-${safe}`);
+    const id = `${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
+    const file = path.join(dir, `${id}-${safe}`);
     fs.writeFileSync(file, Buffer.from(a.data, "base64"));
-    out.push({ path: file, name: a.name, type: typeof a.type === "string" ? a.type : "" });
+    out.push({ id, path: file, name: a.name, type: typeof a.type === "string" ? a.type : "" });
   }
   return out;
 }
@@ -344,6 +345,9 @@ async function ask(req, res, user) {
   let prompt = question.replace(/^deep:\s*/i, "");
   const saved = saveAttachments(chat.id, body.attachments);
   if (saved.length) {
+    // Persist file refs on the user turn so a reloaded chat can show them again.
+    userMsg.files = saved.map(({ id, name, type }) => ({ id, name, type }));
+    save();
     prompt +=
       "\n\nThe user attached these files (open them with the Read tool; images and PDFs are supported):\n" +
       saved.map((f) => `- ${f.path} (${f.name}${f.type ? `, ${f.type}` : ""})`).join("\n");
@@ -479,14 +483,29 @@ http
     if (p === "/ceo-ai/conversations") {
       if (req.method === "POST") return json(res, 200, summary(newChat(user.email)));
       const mine = Object.values(db.chats)
-        .filter((c) => c.email === user.email && c.messages.length)
+        .filter((c) => c.email === user.email && c.messages.length && !c.deleted_at)
         .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
       return json(res, 200, { conversations: mine.map(summary) });
+    }
+    const f = p.match(/^\/ceo-ai\/conversations\/([^/]+)\/files\/([\w-]+)$/);
+    if (f && req.method === "GET") {
+      const chat = db.chats[decodeURIComponent(f[1])];
+      if (!chat || chat.email !== user.email) return json(res, 404, { error: "not_found" });
+      const ref = chat.messages.flatMap((x) => x.files || []).find((x) => x.id === f[2]);
+      const dir = path.join(UPLOADS, chat.id);
+      const name = ref && fs.existsSync(dir) ? fs.readdirSync(dir).find((n) => n.startsWith(`${ref.id}-`)) : undefined;
+      if (!ref || !name) return json(res, 404, { error: "not_found" });
+      res.writeHead(200, {
+        "Content-Type": ref.type || "application/octet-stream",
+        "Cache-Control": "private, max-age=86400",
+        "Content-Disposition": `inline; filename="${encodeURIComponent(ref.name)}"`,
+      });
+      return fs.createReadStream(path.join(dir, name)).pipe(res);
     }
     const m = p.match(/^\/ceo-ai\/conversations\/([^/]+)(\/messages)?$/);
     if (m) {
       const chat = db.chats[decodeURIComponent(m[1])];
-      if (!chat || chat.email !== user.email) return json(res, 404, { error: "not_found" });
+      if (!chat || chat.email !== user.email || chat.deleted_at) return json(res, 404, { error: "not_found" });
       if (req.method === "GET") {
         return json(res, 200, { messages: chat.messages.map((x) => ({ ...x, message_id: x.id })) });
       }
@@ -497,7 +516,8 @@ http
         return json(res, 200, summary(chat));
       }
       if (req.method === "DELETE") {
-        delete db.chats[chat.id];
+        // Soft delete: hidden from the list, kept on disk for recovery.
+        chat.deleted_at = new Date().toISOString();
         save();
         return json(res, 200, { ok: true });
       }
