@@ -370,6 +370,10 @@ test("pre-migration fallback cannot take public dashboard or API traffic", () =>
 });
 
 test("release wrapper verifies the same api latency shape and has safe deploy defaults", () => {
+  assert.ok(
+    releaseScript.includes('[[ "$max" == "4" ]] || die "goatos-api-stg max scale drift: got ${max:-unset} want 4"'),
+    "release verification must accept the four-instance API burst cap",
+  );
   assert.match(
     releaseScript,
     /GOATOS_STG_ZERO_DOWNTIME_DEPLOY="\$\{GOATOS_STG_ZERO_DOWNTIME_DEPLOY:-true\}"/,
