@@ -34,3 +34,27 @@ func TestExecutionCardSummaryUsesCanonicalVaccineLabelsAndAssignmentIdentity(t *
 		}
 	}
 }
+
+func TestExecutionCardSummaryNormalizesPartitionKeyLikeAndroid(t *testing.T) {
+	summaries := map[string]*domain.ShedCardSummary{}
+	assignmentID := "assignment-yashoda"
+	partitionLabel := "Part 3"
+
+	addExecutionCardSummary(summaries, executionCardSummaryRecord{
+		ShedID:          "shed-yashoda",
+		PartitionLabel:  &partitionLabel,
+		AssignmentID:    &assignmentID,
+		ObligationCount: 2,
+		OpenCount:       2,
+		VaccineLabels:   []string{"ET+TT"},
+	})
+
+	androidCardID := domain.BuildAssignmentCardID("shed-yashoda", "3", assignmentID, "", "", "")
+	if summaries[androidCardID] == nil {
+		t.Fatalf("missing Android-normalized card %q in %#v", androidCardID, summaries)
+	}
+	rawCardID := "shed:shed-yashoda|partition:Part 3|assignment:" + assignmentID
+	if summaries[rawCardID] != nil {
+		t.Fatalf("summary leaked raw partition key %q", rawCardID)
+	}
+}

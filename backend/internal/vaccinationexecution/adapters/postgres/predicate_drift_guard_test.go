@@ -125,6 +125,28 @@ func TestAssignmentPartitionMatchStaysInSyncBetweenQueries(t *testing.T) {
 	}
 }
 
+func TestAssignmentMemberJoinsIgnoreCanceledRows(t *testing.T) {
+	requiredFragments := map[string]string{
+		"assignment vaccine member count":    "AND m.canceled_at IS NULL\n        AND oi.status NOT IN",
+		"assignment vaccine legacy fallback": "AND m.canceled_at IS NULL\n    )",
+		"classified exact member":            "AND m.obligation_id = oi.obligation_id\n   AND m.canceled_at IS NULL",
+		"carry summary exact member":         "JOIN vaccination_drive_assignment_members m ON m.obligation_id = oi.obligation_id AND m.tenant_id = oi.tenant_id AND m.canceled_at IS NULL",
+	}
+	for name, fragment := range requiredFragments {
+		if !strings.Contains(repositorySQLSurface(), fragment) {
+			t.Fatalf("vaccination execution SQL lost canceled-member guard for %s: %q", name, fragment)
+		}
+	}
+}
+
+func repositorySQLSurface() string {
+	return strings.Join([]string{
+		driveAssignmentsSQL,
+		executionClassifiedCTE,
+		vaccinationExecutionCarrySummarySQL,
+	}, "\n")
+}
+
 // TestVdaGuessPartitionMatchStaysInSyncBetweenQueries is the equivalent guard for the "guess"
 // LATERAL fallback used when an obligation has no vaccination_drive_assignment_members row. Now
 // structurally guaranteed by TestSharedClassificationCTEIsEmbeddedVerbatim; kept as a named
