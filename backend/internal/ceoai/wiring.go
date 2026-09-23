@@ -10,6 +10,7 @@ package ceoai
 
 import (
 	"context"
+	"database/sql/driver"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -20,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	ceohttp "github.com/vgoats/goatos/backend/internal/ceoai/adapters/http"
@@ -350,6 +352,17 @@ func cubeRowScope(row map[string]any, view string, dims []string) string {
 	return strings.Join(parts, " / ")
 }
 
+// scalarString renders ONE database value as the text a reader will see. It is
+// the single rendering boundary between what pgx decodes out of a ceo_ai read
+// and what the composer puts in an answer, so a value it cannot render properly
+// is printed to a CEO verbatim.
+//
+// It used to end in a %v of whatever arrived, and pgx v5 decodes a `numeric`
+// column into a pgtype.Numeric STRUCT -- so the most basic feed question
+// answered "Total fed kg: Channapatna {1494 -1 false finite true}" instead of
+// "149.4". A %v of a struct is never a figure; the cases below name every
+// database scalar the fallback can return, and the default path asks the value
+// ITSELF for its SQL text form before it can fall through to a struct dump.
 func scalarString(v any) string {
 	switch t := v.(type) {
 	case nil:
@@ -357,14 +370,88 @@ func scalarString(v any) string {
 	case string:
 		return t
 	case float64:
-		return strconv.FormatFloat(t, 'f', -1, 64)
+		return trimDecimalZeros(strconv.FormatFloat(t, 'f', -1, 64))
+	case float32:
+		return trimDecimalZeros(strconv.FormatFloat(float64(t), 'f', -1, 32))
 	case bool:
 		return strconv.FormatBool(t)
+	case int:
+		return strconv.Itoa(t)
+	case int32:
+		return strconv.FormatInt(int64(t), 10)
+	case int64:
+		return strconv.FormatInt(t, 10)
 	case json.Number:
-		return t.String()
+		return trimDecimalZeros(t.String())
+	case time.Time:
+		return t.Format(time.RFC3339)
+	case []byte:
+		return string(t)
+	case pgtype.Numeric:
+		return numericString(t)
+	case *pgtype.Numeric:
+		if t == nil {
+			return ""
+		}
+		return numericString(*t)
 	default:
-		return fmt.Sprintf("%v", t)
+		return scalarStringSlow(v)
 	}
+}
+
+// numericString renders a `numeric` column. pgx decodes one into a
+// pgtype.Numeric, whose own text form carries the column's full SCALE -- which
+// is how an oracle-exact price per kg reached a reader as
+// 596.71800000000000000000. Only the scale's trailing zeros are dropped; the
+// figure itself is never rounded.
+func numericString(n pgtype.Numeric) string {
+	v, err := n.Value()
+	if err != nil || v == nil {
+		return ""
+	}
+	s, ok := v.(string)
+	if !ok {
+		return scalarString(v)
+	}
+	return trimDecimalZeros(s)
+}
+
+// scalarStringSlow renders the wrapper types pgx decodes into (pgtype.Numeric,
+// pgtype.Date, pgtype.UUID, ...). Each of them carries its own SQL text form,
+// and driver.Valuer IS that form, so it is asked for first. A NULL-ish wrapper
+// reports (nil, nil) and renders empty, exactly like an untyped nil.
+func scalarStringSlow(v any) string {
+	if val, ok := v.(driver.Valuer); ok {
+		dv, err := val.Value()
+		if err == nil {
+			if dv == nil {
+				return ""
+			}
+			// dv is a driver.Value (string / int64 / float64 / bool /
+			// time.Time / []byte) -- never another wrapper, so this cannot
+			// recurse indefinitely.
+			return scalarString(dv)
+		}
+	}
+	if str, ok := v.(fmt.Stringer); ok {
+		return str.String()
+	}
+	return fmt.Sprintf("%v", v)
+}
+
+// trimDecimalZeros drops the trailing zeros Postgres carries in a numeric's
+// scale, so a price that divides out to 596.71800000000000000000 is shown as
+// 596.718. It only ever removes zeros AFTER a decimal point: no value is
+// rounded, and an integer-valued string is returned untouched.
+func trimDecimalZeros(s string) string {
+	if !strings.Contains(s, ".") || strings.ContainsAny(s, "eE") {
+		return s
+	}
+	trimmed := strings.TrimSuffix(strings.TrimRight(s, "0"), ".")
+	if trimmed == "" || trimmed == "-" {
+		return "0"
+	}
+	return trimmed
 }
 
 // isBarNumeric reports whether a partition label is a bare ordinal (e.g., "1", "42").
