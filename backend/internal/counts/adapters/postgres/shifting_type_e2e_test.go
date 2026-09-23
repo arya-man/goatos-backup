@@ -241,8 +241,12 @@ func TestTypedGrowthBackwardRaiseIsRefusedAndWritesNothing(t *testing.T) {
 	mux, _ := typedE2EStack(t, pool)
 
 	goatID := "00000000-0000-4000-8000-00000000e2e3"
-	// The animal is K3; the destination pen is configured K1, which is BACKWARD.
+	// The animal is K3; the destination pen is configured K1 and holds a K1 animal, which is
+	// BACKWARD. The pen is OCCUPIED on purpose: since 2026-09-23 a growth move into an EMPTY pen is
+	// allowed outright (the animal takes its own next stage), so only an occupied pen can prove the
+	// backward refusal.
 	seedApprovalGoatWithStage(t, ctx, pool, goatID, countsShedA, "K3")
+	seedApprovalGoatWithStage(t, ctx, pool, "00000000-0000-4000-8000-00000000e2f3", countsShedB, "K1")
 	seedStageVocabulary(t, ctx, pool, "K1")
 	seedStageVocabulary(t, ctx, pool, "K3")
 	seedShedProfile(t, ctx, pool, countsShedB, "K1")

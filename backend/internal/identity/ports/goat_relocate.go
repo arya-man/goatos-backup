@@ -84,6 +84,11 @@ type ConfigureAdoptedShedCohortCommand struct {
 	// Stage is the tag to adopt, canonicalized against the live vocabulary at write time. Clinical
 	// states are refused -- no movement type adopts a clinical tag onto a PEN.
 	Stage string
+	// ReplaceConfiguredTag lets the adoption overwrite a DIFFERENT tag already set on the pen. Only a
+	// GROWTH movement into an empty pen sets it (maintainer decision 2026-09-23: the animals take
+	// their next stage and the pen's Stage column follows them). The occupant check still applies:
+	// a pen that gained animals of another stage since the raise still fails closed.
+	ReplaceConfiguredTag bool
 }
 
 // MaxRelocateGoatsPerCommand bounds one bulk relocate. A shed movement is a real-world group of

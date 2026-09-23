@@ -262,6 +262,13 @@ func resolveGrowthShift(ctx ShiftTypeContext) (ShiftTypeDecision, *ShiftTypeRefu
 		}
 	}
 
+	// An EMPTY pen never stops a growth move (maintainer decision 2026-09-23): each animal takes its
+	// own next stage directly and the pen adopts it. A leftover Stage cell on an empty pen is not a
+	// fact about any animal, so it does not decide anything here.
+	if ctx.DestinationHeadCount == 0 && len(ctx.DestinationResidentStages) == 0 {
+		return resolveGrowthIntoEmptyPen(ctx)
+	}
+
 	resident := resolveGrowthFromResidents(ctx)
 	if resident.target != "" {
 		return ShiftTypeDecision{TargetStage: resident.target}, nil
@@ -279,6 +286,76 @@ func resolveGrowthShift(ctx ShiftTypeContext) (ShiftTypeDecision, *ShiftTypeRefu
 		return ShiftTypeDecision{}, refuse("growth_next_stage_ambiguous", shiftCopyGrowthNextStageAmbiguous)
 	}
 	return ShiftTypeDecision{}, refusal
+}
+
+// resolveGrowthIntoEmptyPen stamps every animal with its next rung and has the pen adopt it. Where
+// the ladder splits by sex (K3, F2) the animal's own sex picks the rung (maintainer answer
+// 2026-09-23: K3 goes straight to F2-Male / F2-Female), so an unrecorded sex is refused rather than
+// guessed. A raise stamps ONE tag, so the whole group must land on the same rung.
+func resolveGrowthIntoEmptyPen(ctx ShiftTypeContext) (ShiftTypeDecision, *ShiftTypeRefusal) {
+	target := ""
+	for _, animal := range ctx.Animals {
+		next, refusal := growthNextStageForEmptyPen(animal, ctx.WritableStages)
+		if refusal != nil {
+			return ShiftTypeDecision{}, refusal
+		}
+		if target == "" {
+			target = next
+			continue
+		}
+		if !strings.EqualFold(target, next) {
+			return ShiftTypeDecision{}, refuse("growth_group_needs_split", shiftCopyGrowthGroupNeedsSplit)
+		}
+	}
+	if target == "" {
+		return ShiftTypeDecision{}, refuse("growth_stage_unknown", shiftCopyGrowthStageUnknown)
+	}
+	return ShiftTypeDecision{TargetStage: target, AdoptPenTag: target}, nil
+}
+
+// growthNextStageForEmptyPen answers one animal's single next rung on the authored ladder.
+func growthNextStageForEmptyPen(animal ShiftTypeAnimal, writable []string) (string, *ShiftTypeRefusal) {
+	var edges []string
+	for stage, nexts := range growthForwardEdges {
+		if strings.EqualFold(stage, strings.TrimSpace(animal.Stage)) {
+			edges = nexts
+			break
+		}
+	}
+	if len(edges) == 0 {
+		return "", refuse("growth_no_next_stage", shiftCopyGrowthNoNextStage)
+	}
+	var sexed []string
+	for _, next := range edges {
+		if growthStageSexFor(next) != "" {
+			sexed = append(sexed, next)
+		}
+	}
+	var chosen []string
+	if len(sexed) > 0 {
+		sex := strings.TrimSpace(animal.Sex)
+		if sex == "" {
+			return "", refuse("growth_sex_unknown", shiftCopyGrowthSexUnknown)
+		}
+		for _, next := range sexed {
+			if strings.EqualFold(growthStageSexFor(next), sex) {
+				chosen = append(chosen, next)
+			}
+		}
+		if len(chosen) == 0 {
+			return "", refuse("growth_sex_mismatch", shiftCopyGrowthSexMismatch)
+		}
+	} else {
+		chosen = edges
+	}
+	if len(chosen) != 1 {
+		return "", refuse("growth_next_stage_ambiguous", shiftCopyGrowthNextStageAmbiguous)
+	}
+	canonical := canonicalWritableStage(chosen[0], writable)
+	if canonical == "" || protocoldomain.IsClinicalManagementStage(canonical) {
+		return "", refuse("destination_tag_not_applicable", StageReasonNotApplicable)
+	}
+	return canonical, nil
 }
 
 // growthResidentOutcome is the resident rule's answer. target is set when exactly one next stage
@@ -596,6 +673,8 @@ const (
 	shiftCopyGrowthNotNext      = "This destination's tag is not the next stage for every animal in the group"
 	shiftCopyGrowthSexMismatch  = "This destination's tag does not match the sex of every animal in the group"
 
+	shiftCopyGrowthNoNextStage        = "An animal in this group has no next growth stage, so it cannot move as growth"
+	shiftCopyGrowthSexUnknown         = "An animal in this group has no sex recorded, so its next stage cannot be chosen"
 	shiftCopyGrowthGroupNeedsSplit    = "These animals need different next stages. Move each stage in its own shifting"
 	shiftCopyGrowthNextStageAmbiguous = "This pen holds more than one next stage for these animals. Set the pen's stage on Counts Breakdown, or pick another pen"
 

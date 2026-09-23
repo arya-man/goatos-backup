@@ -584,6 +584,12 @@ func (h *AppWriteHandler) writeShiftingExecutionError(w http.ResponseWriter, r *
 		h.writeError(w, r, http.StatusConflict, "destination_tag_conflict", err.Error(), err)
 	case errors.Is(err, identityports.ErrDestinationStageAmbiguous):
 		h.writeError(w, r, http.StatusConflict, "destination_stage_ambiguous", err.Error(), err)
+	// The pen promised to the park head (empty, or carrying the adopted tag) changed before the
+	// operator completed: somebody set its stage or moved other animals in. Not retryable -- the
+	// movement has to be raised again against the pen as it now is. Used to fall through to a 500.
+	case errors.Is(err, identityports.ErrDestinationPenChanged):
+		h.writeError(w, r, http.StatusConflict, "destination_pen_changed",
+			"This pen changed after the movement was raised (its stage was set, or other animals moved in). Raise the movement again.", err)
 	case errors.Is(err, identityports.ErrWriteConflict):
 		h.writeError(w, r, http.StatusConflict, "shifting_source_changed",
 			"the animal is no longer at the approved source location; refresh the shifting list before retrying", err)

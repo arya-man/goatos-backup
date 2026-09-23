@@ -235,3 +235,69 @@ func TestTypedHealthApplyStampsClinicalStateAndOtherTypesRefuse(t *testing.T) {
 		}
 	})
 }
+
+// A GROWTH apply into an EMPTY pen (maintainer decision 2026-09-23): the animal takes its next stage
+// and the pen's Stage is set to it, REPLACING a different stage the pen was left set to. Mutation
+// target: dropping ReplaceConfiguredTag from the apply turns this into ErrDestinationPenChanged.
+func TestTypedGrowthApplyIntoEmptyPenReplacesThePensStage(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	repo := newRealIdentityApprovalRepo(t, pool)
+
+	goatID := "00000000-0000-4000-8000-00000000ad21"
+	seedApprovalGoatWithStage(t, ctx, pool, goatID, countsShedA, "K2")
+	seedStageVocabulary(t, ctx, pool, "K3")
+	// The empty destination is still set to a stage its old residents carried.
+	seedShedProfile(t, ctx, pool, countsShedB, "F2")
+
+	eventID, approvalID := recordTypedShifting(t, ctx, repo, "typed-growth-empty",
+		[]string{goatID}, typedShiftingEvent("typed-growth-empty", "growth", "K3", "K3"))
+	if _, _, err := approveShifting(repo, ctx, "typed-growth-empty", approvalID, eventID, []string{goatID}); err != nil {
+		t.Fatalf("park-head approval: %v", err)
+	}
+	completed, _, err := submitShiftingForVerification(repo, ctx, "typed-growth-empty", eventID, "")
+	if err != nil {
+		t.Fatalf("operator completion: %v", err)
+	}
+	if completed.EventStatus != domain.ShiftingEventStatusApplied {
+		t.Fatalf("completion status=%q, want applied", completed.EventStatus)
+	}
+	if got := shedProfileStage(t, ctx, pool, countsShedB); got != "K3" {
+		t.Fatalf("destination stage=%q after growth apply, want K3 replacing F2", got)
+	}
+	if got := goatStage(t, ctx, pool, goatID); got != "K3" {
+		t.Fatalf("goat stage=%q after growth, want K3", got)
+	}
+}
+
+// The replace is not a free pass: an animal of another stage that walked into the pen after the
+// raise still fails the whole growth apply closed, and nothing is written.
+func TestTypedGrowthApplyFailsClosedWhenAnimalsMovedIntoTheEmptyPen(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	repo := newRealIdentityApprovalRepo(t, pool)
+
+	goatID := "00000000-0000-4000-8000-00000000ad22"
+	intruder := "00000000-0000-4000-8000-00000000ad23"
+	seedApprovalGoatWithStage(t, ctx, pool, goatID, countsShedA, "K2")
+	seedStageVocabulary(t, ctx, pool, "K3")
+
+	eventID, approvalID := recordTypedShifting(t, ctx, repo, "typed-growth-occupied",
+		[]string{goatID}, typedShiftingEvent("typed-growth-occupied", "growth", "K3", "K3"))
+	if _, _, err := approveShifting(repo, ctx, "typed-growth-occupied", approvalID, eventID, []string{goatID}); err != nil {
+		t.Fatalf("park-head approval: %v", err)
+	}
+	// Between approval and completion an F2 animal lands in the promised-empty pen.
+	seedApprovalGoatWithStage(t, ctx, pool, intruder, countsShedB, "F2")
+
+	_, _, err := submitShiftingForVerification(repo, ctx, "typed-growth-occupied", eventID, "")
+	if !errors.Is(err, identityports.ErrDestinationPenChanged) {
+		t.Fatalf("completion err=%v, want ErrDestinationPenChanged", err)
+	}
+	if got := goatShed(t, ctx, pool, goatID); got != countsShedA {
+		t.Fatalf("goat shed=%s after a failed apply, want untouched source %s", got, countsShedA)
+	}
+	if got := goatStage(t, ctx, pool, goatID); got != "K2" {
+		t.Fatalf("goat stage=%q after a failed apply, want K2 untouched", got)
+	}
+}

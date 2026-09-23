@@ -845,8 +845,9 @@ func (r *Repository) applyAuthorizedCompletedShiftingInTx(
 	if err != nil {
 		return domain.ShiftingExecutionResult{}, err
 	}
-	// PEN-TAG ADOPTION (typed shifting rewrite, maintainer decisions 2026-08-20): a spacing /
-	// delivery / flushing raise into an empty pen tags that pen with the arriving group's tag.
+	// PEN-TAG ADOPTION (typed shifting rewrite, maintainer decisions 2026-08-20 and 2026-09-23): a
+	// spacing / delivery / flushing / growth raise into an empty pen tags that pen with the arriving
+	// group's tag.
 	// Written through the identity seam BEFORE the relocation, in the same transaction, so a pen
 	// that changed between approval and apply fails the whole apply closed
 	// (ErrDestinationPenChanged) instead of silently creating a mixed pen.
@@ -856,6 +857,10 @@ func (r *Repository) applyAuthorizedCompletedShiftingInTx(
 			ShedID:         destShedID,
 			PartitionLabel: current.DestinationPartitionLabel,
 			Stage:          *current.AdoptPenTag,
+			// A growth move into an empty pen re-tags it even when the pen was set to something
+			// else (maintainer decision 2026-09-23). Derived from the stored category, like the
+			// clinical exception below, so a hand-crafted completion cannot widen it.
+			ReplaceConfiguredTag: current.Category != nil && strings.EqualFold(strings.TrimSpace(*current.Category), domain.ShiftTypeGrowth),
 		}); err != nil {
 			return domain.ShiftingExecutionResult{}, err
 		}

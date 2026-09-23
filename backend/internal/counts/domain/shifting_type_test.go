@@ -122,6 +122,7 @@ func TestGrowthShiftAdvancesOneRung(t *testing.T) {
 	for _, step := range [][2]string{{"K0", "K1"}, {"K1", "K2"}, {"K2", "K3"}, {"K3", "F2"}} {
 		ctx := knownDest(ShiftTypeContext{
 			Type:                       ShiftTypeGrowth,
+			DestinationHeadCount:       3, // an OCCUPIED pen with its Stage set
 			DestinationConfiguredStage: step[1],
 			Animals:                    animals(step[0], "male", step[0], "female"),
 		})
@@ -134,6 +135,7 @@ func TestGrowthShiftAdvancesOneRung(t *testing.T) {
 func TestGrowthShiftRefusesBackwardMove(t *testing.T) {
 	ctx := knownDest(ShiftTypeContext{
 		Type:                       ShiftTypeGrowth,
+		DestinationHeadCount:       3, // an OCCUPIED pen with its Stage set
 		DestinationConfiguredStage: "K1",
 		Animals:                    animals("K3", "male"),
 	})
@@ -143,6 +145,7 @@ func TestGrowthShiftRefusesBackwardMove(t *testing.T) {
 func TestGrowthShiftRefusesSkippingARung(t *testing.T) {
 	ctx := knownDest(ShiftTypeContext{
 		Type:                       ShiftTypeGrowth,
+		DestinationHeadCount:       3, // an OCCUPIED pen with its Stage set
 		DestinationConfiguredStage: "K3",
 		Animals:                    animals("K1", "female"),
 	})
@@ -154,6 +157,7 @@ func TestGrowthShiftRefusesSkippingARung(t *testing.T) {
 func TestGrowthShiftSexedDestinationRefusesOtherSex(t *testing.T) {
 	ctx := knownDest(ShiftTypeContext{
 		Type:                       ShiftTypeGrowth,
+		DestinationHeadCount:       3, // an OCCUPIED pen with its Stage set
 		DestinationConfiguredStage: "F2-Male",
 		Animals:                    animals("F2", "male", "F2", "female"),
 	})
@@ -163,6 +167,7 @@ func TestGrowthShiftSexedDestinationRefusesOtherSex(t *testing.T) {
 func TestGrowthShiftSexedDestinationRefusesUnknownSex(t *testing.T) {
 	ctx := knownDest(ShiftTypeContext{
 		Type:                       ShiftTypeGrowth,
+		DestinationHeadCount:       3, // an OCCUPIED pen with its Stage set
 		DestinationConfiguredStage: "Buck",
 		Animals:                    animals("F2-Male", ""),
 	})
@@ -174,6 +179,7 @@ func TestGrowthShiftSexedDestinationRefusesUnknownSex(t *testing.T) {
 func TestGrowthShiftK3MaySplitBySexDirectly(t *testing.T) {
 	ctx := knownDest(ShiftTypeContext{
 		Type:                       ShiftTypeGrowth,
+		DestinationHeadCount:       3, // an OCCUPIED pen with its Stage set
 		DestinationConfiguredStage: "F2-Female",
 		Animals:                    animals("K3", "female"),
 	})
@@ -183,6 +189,7 @@ func TestGrowthShiftK3MaySplitBySexDirectly(t *testing.T) {
 func TestGrowthShiftFatteningMaleBecomesBuck(t *testing.T) {
 	ctx := knownDest(ShiftTypeContext{
 		Type:                       ShiftTypeGrowth,
+		DestinationHeadCount:       3, // an OCCUPIED pen with its Stage set
 		DestinationConfiguredStage: "Buck",
 		Animals:                    animals("F2-Male", "male"),
 	})
@@ -194,12 +201,14 @@ func TestGrowthShiftFatteningMaleBecomesBuck(t *testing.T) {
 func TestGrowthShiftPregnancyIsTheOnlyTwoWayEdge(t *testing.T) {
 	forward := knownDest(ShiftTypeContext{
 		Type:                       ShiftTypeGrowth,
+		DestinationHeadCount:       3, // an OCCUPIED pen with its Stage set
 		DestinationConfiguredStage: "Pregnant",
 		Animals:                    animals("Non-Pregnant", "female"),
 	})
 	wantDecision(t, forward, ShiftTypeDecision{TargetStage: "Pregnant"})
 	back := knownDest(ShiftTypeContext{
 		Type:                       ShiftTypeGrowth,
+		DestinationHeadCount:       3, // an OCCUPIED pen with its Stage set
 		DestinationConfiguredStage: "Non-Pregnant",
 		Animals:                    animals("Pregnant", "female"),
 	})
@@ -212,6 +221,7 @@ func TestGrowthShiftPregnancyIsTheOnlyTwoWayEdge(t *testing.T) {
 func TestGrowthShiftRefusesStagesOffTheLadder(t *testing.T) {
 	ctx := knownDest(ShiftTypeContext{
 		Type:                       ShiftTypeGrowth,
+		DestinationHeadCount:       3, // an OCCUPIED pen with its Stage set
 		DestinationConfiguredStage: "Milking",
 		Animals:                    animals("Mother", "female"),
 	})
@@ -223,6 +233,7 @@ func TestGrowthShiftRefusesStagesOffTheLadder(t *testing.T) {
 func TestGrowthShiftRefusesAnimalWithNoStage(t *testing.T) {
 	ctx := knownDest(ShiftTypeContext{
 		Type:                       ShiftTypeGrowth,
+		DestinationHeadCount:       3, // an OCCUPIED pen with its Stage set
 		DestinationConfiguredStage: "K1",
 		Animals:                    animals("", "male"),
 	})
@@ -233,6 +244,7 @@ func TestGrowthShiftRefusesAnimalWithNoStage(t *testing.T) {
 func TestGrowthShiftRefusesClinicalDestination(t *testing.T) {
 	ctx := knownDest(ShiftTypeContext{
 		Type:                       ShiftTypeGrowth,
+		DestinationHeadCount:       3, // an OCCUPIED pen with its Stage set
 		DestinationConfiguredStage: "ICU",
 		Animals:                    animals("K1", "male"),
 	})
@@ -247,6 +259,7 @@ func TestGrowthShiftRefusesClinicalDestination(t *testing.T) {
 func TestGrowthShiftCanonicalizesCasing(t *testing.T) {
 	ctx := knownDest(ShiftTypeContext{
 		Type:                       ShiftTypeGrowth,
+		DestinationHeadCount:       3, // an OCCUPIED pen with its Stage set
 		DestinationConfiguredStage: "non-pregnant",
 		Animals:                    animals("f2-female", "female"),
 	})
@@ -351,6 +364,54 @@ func TestGrowthShiftUnbrokenResidentTieRefuses(t *testing.T) {
 		Animals:                   animals("K3", "male"),
 	})
 	wantRefusal(t, ctx, "growth_next_stage_ambiguous")
+}
+
+// --- growth into an EMPTY pen (maintainer decision 2026-09-23) ---------------------------------
+
+// Growth into an empty pen never stops: the animals take their own next stage directly, whatever
+// the pen's Stage cell says, and the pen adopts that stage (its Stage column is set on apply).
+func TestGrowthShiftIntoEmptyPenTakesTheNextStage(t *testing.T) {
+	for _, tc := range []struct{ from, sex, want string }{
+		{"K0", "male", "K1"}, {"K1", "female", "K2"}, {"K2", "male", "K3"},
+		{"F2-Male", "male", "Buck"}, {"F2-Female", "female", "Non-Pregnant"},
+		{"Non-Pregnant", "female", "Pregnant"}, {"Pregnant", "female", "Non-Pregnant"},
+	} {
+		ctx := knownDest(ShiftTypeContext{
+			Type:                       ShiftTypeGrowth,
+			DestinationConfiguredStage: "F2", // a leftover Stage cell never blocks an empty pen
+			Animals:                    animals(tc.from, tc.sex),
+		})
+		wantDecision(t, ctx, ShiftTypeDecision{TargetStage: tc.want, AdoptPenTag: tc.want})
+	}
+}
+
+// K3 and F2 split by sex straight into an empty pen (maintainer answer 2026-09-23).
+func TestGrowthShiftIntoEmptyPenSplitsK3AndF2BySex(t *testing.T) {
+	for _, tc := range []struct{ from, sex, want string }{
+		{"K3", "male", "F2-Male"}, {"K3", "female", "F2-Female"},
+		{"F2", "male", "F2-Male"}, {"F2", "female", "F2-Female"},
+	} {
+		ctx := knownDest(ShiftTypeContext{Type: ShiftTypeGrowth, Animals: animals(tc.from, tc.sex)})
+		wantDecision(t, ctx, ShiftTypeDecision{TargetStage: tc.want, AdoptPenTag: tc.want})
+	}
+}
+
+// A K3 with no sex recorded has no single next stage and is refused rather than guessed.
+func TestGrowthShiftIntoEmptyPenRefusesUnknownSexWhereTheLadderSplits(t *testing.T) {
+	ctx := knownDest(ShiftTypeContext{Type: ShiftTypeGrowth, Animals: animals("K3", "")})
+	wantRefusal(t, ctx, "growth_sex_unknown")
+}
+
+// One raise stamps one tag: a male and a female K3 need different next stages.
+func TestGrowthShiftIntoEmptyPenGroupNeedingTwoStagesMustBeSplit(t *testing.T) {
+	ctx := knownDest(ShiftTypeContext{Type: ShiftTypeGrowth, Animals: animals("K3", "male", "K3", "female")})
+	wantRefusal(t, ctx, "growth_group_needs_split")
+}
+
+// A stage with no growth step (Mother) still refuses, with copy that says so.
+func TestGrowthShiftIntoEmptyPenRefusesAStageWithNoNextStep(t *testing.T) {
+	ctx := knownDest(ShiftTypeContext{Type: ShiftTypeGrowth, Animals: animals("Mother", "female")})
+	wantRefusal(t, ctx, "growth_no_next_stage")
 }
 
 // --- breeding -----------------------------------------------------------------------------------

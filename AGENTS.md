@@ -1527,7 +1527,9 @@ acting); `growth` stamps the destination tag FORWARD ONLY along the authored lif
 ladder (one reverse edge, Pregnant → Non-Pregnant; sexed stages refuse the wrong sex; and
 — maintainer decision 2026-09-23 — a live non-clinical RESIDENT already carrying the group's
 next stage decides the tag FIRST, ahead of the pen's set stage, so a K2 joins a pen holding
-K3 + ICU and becomes K3; a group needing different next stages is refused to be split);
+K3 + ICU and becomes K3; into an EMPTY pen growth never stops -- each animal takes its own
+next stage, K3/F2 split by sex, and the pen's Stage is set to it; a group needing different
+next stages is refused to be split);
 `breeding` never changes the tag; `delivery` stamps the destination tag except never the
 newborn stage (into an empty untagged recovery shed the mother keeps her tag and the pen
 ADOPTS it); `spacing` moves the WHOLE source pen carrying its tag ("half-half is not an

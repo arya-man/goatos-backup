@@ -73,3 +73,28 @@ func TestShiftingExecutionErrorMapsSOPRefusalsByName(t *testing.T) {
 		}
 	}
 }
+
+// A pen promised at raise (empty, or taking the adopted stage) that changed before completion used
+// to fall through to a retryable 500, so the phone retried a completion that could never land. It
+// is a non-retryable 409 with farm copy telling the operator to raise the movement again.
+func TestShiftingExecutionErrorMapsDestinationPenChangedToConflict(t *testing.T) {
+	handler := &AppWriteHandler{}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/app/counts/shifting-events/event-1/complete", nil)
+	handler.writeShiftingExecutionError(rec, req, fmt.Errorf("adopt: %w", identityports.ErrDestinationPenChanged))
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusConflict)
+	}
+	var body struct {
+		Code      string `json:"code"`
+		Message   string `json:"message"`
+		Retryable bool   `json:"retryable"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Code != "destination_pen_changed" || body.Retryable || body.Message == "internal server error" {
+		t.Fatalf("body = %+v", body)
+	}
+}

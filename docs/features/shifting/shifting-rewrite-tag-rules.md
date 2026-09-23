@@ -87,6 +87,25 @@ Code: `domain.resolveGrowthShift` / `resolveGrowthFromResidents`; pinned by the
 `TestGrowthShift*Resident*` tests and `TestGrowthShiftJoinsAResidentCarryingTheNextStage` (the
 farm case, red before the change).
 
+## Growth into an EMPTY pen never stops (maintainer decision 2026-09-23)
+
+A growth move into a pen with no live animals is always allowed: each animal takes its OWN next
+stage straight off the ladder, whatever the pen's Stage cell says, and the pen's Stage (Counts
+Breakdown) is set to that stage when the move completes -- REPLACING a different stage the empty
+pen was left set to.
+
+- Where the ladder splits by sex, the animal's sex picks the rung: `K3` goes straight to `F2-Male`
+  / `F2-Female`, `F2` to `F2-Male` / `F2-Female`. An animal with no sex recorded there is refused
+  `growth_sex_unknown`.
+- A stage with no growth step (`Mother`, `Milking`, `M0`, `Warmup`) is refused
+  `growth_no_next_stage`.
+- One raise stamps one tag: a group landing on different next stages (a male and a female K3) is
+  refused `growth_group_needs_split`.
+- The replace happens only on apply, only for growth (derived from the stored category,
+  `ReplaceConfiguredTag`), and the occupant check still holds: if animals of another stage walked
+  into the pen after the raise, the apply fails closed (`ErrDestinationPenChanged`, now answered
+  409 `destination_pen_changed` with farm copy instead of a retryable 500).
+
 ## Pen-tag adoption ("pen tags follow occupancy")
 
 A spacing / delivery / flushing movement into an EMPTY pen tags THAT PEN with the arriving group's
@@ -107,7 +126,8 @@ farm-worded copy rendered VERBATIM by the phone (golden frontend rule — the cl
 a reason). Codes: `invalid_category`, `destination_not_in_catalog`, `destination_tag_missing`,
 `destination_tag_mixed`, `destination_tag_not_applicable`, `growth_stage_unknown`,
 `growth_not_next_stage`, `growth_sex_mismatch`, `growth_group_needs_split`,
-`growth_next_stage_ambiguous`, `spacing_source_unresolved`,
+`growth_next_stage_ambiguous`, `growth_sex_unknown`, `growth_no_next_stage`,
+`spacing_source_unresolved`,
 `spacing_partial_group`, `spacing_destination_occupied`, `spacing_destination_mismatch`,
 `flushing_requires_female`, `flushing_destination_mismatch`, `group_stage_unknown`,
 `group_stage_mixed`, `normal_destination_tag_mismatch`.

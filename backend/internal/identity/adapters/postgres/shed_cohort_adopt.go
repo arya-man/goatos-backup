@@ -100,7 +100,7 @@ WHERE shed.tenant_id = $1::uuid AND shed.location_id = $2::uuid
 	if err != nil {
 		return fmt.Errorf("identity: adopt shed cohort: validate destination pen: %w", err)
 	}
-	if currentTag != "" && !strings.EqualFold(currentTag, resolution.stage) {
+	if currentTag != "" && !strings.EqualFold(currentTag, resolution.stage) && !cmd.ReplaceConfiguredTag {
 		return ports.ErrDestinationPenChanged
 	}
 	if occupantsDisagree > 0 {
