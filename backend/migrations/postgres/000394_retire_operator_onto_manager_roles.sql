@@ -26,6 +26,17 @@
 
 SET lock_timeout = '5s';
 
+-- Durable undo identities: names and roles may change after deployment. Keep only
+-- the values changed here; revoked access and deleted module ticks stay revoked.
+CREATE TABLE public.operator_retirement_000394_undo (
+  kind text NOT NULL,
+  tenant_id uuid NOT NULL,
+  row_id uuid NOT NULL,
+  old_value text,
+  new_value text NOT NULL,
+  PRIMARY KEY (kind, tenant_id, row_id)
+);
+
 -- +goose StatementBegin
 DO $$
 DECLARE
@@ -163,6 +174,17 @@ BEGIN
   -- ---------------------------------------------------------------------
   -- 1. The role. Both grants move for a two-park person, because this keys on (tenant, user).
   -- ---------------------------------------------------------------------
+  INSERT INTO public.operator_retirement_000394_undo
+  SELECT 'grant', g.tenant_id, g.grant_id, g.role, t.new_role
+  FROM user_scope_grants g JOIN _op_targets t
+    ON g.tenant_id = t.tenant_id AND g.user_id = t.user_id
+  WHERE g.role = 'operator' AND g.status = 'active' AND g.scope_type = 'park';
+
+  INSERT INTO public.operator_retirement_000394_undo
+  SELECT 'designation', pa.tenant_id, pa.workforce_member_id, pa.designation_code, t.new_role
+  FROM person_access pa JOIN _op_targets t
+    ON pa.tenant_id = t.tenant_id AND pa.workforce_member_id = t.workforce_member_id;
+
   UPDATE user_scope_grants g
   SET role = t.new_role
   FROM _op_targets t
@@ -205,7 +227,9 @@ BEGIN
   SET status = 'revoked'
   FROM workforce_members wm
   WHERE wm.tenant_id = g.tenant_id AND wm.user_id = g.user_id
-    AND wm.display_name = 'Darshan Talwar' AND g.status = 'active';
+    AND wm.tenant_id = v_tenant
+    AND wm.display_name = 'Darshan Talwar' AND wm.status = 'inactive'
+    AND g.status = 'active';
 
   -- ---------------------------------------------------------------------
   -- 4b. The two TENANT-scoped operator grants, which are not ground operators at all.
@@ -247,6 +271,13 @@ BEGIN
   --     and a leaver like Darshan -- is revoked, which is the same treatment their live rows
   --     got.
   -- ---------------------------------------------------------------------
+  INSERT INTO public.operator_retirement_000394_undo
+  SELECT 'pending', p.tenant_id, p.pending_grant_id, p.role, t.new_role
+  FROM auth_pending_email_grants p
+  JOIN workforce_members wm ON p.tenant_id = wm.tenant_id AND lower(wm.email) = p.normalized_email
+  JOIN _op_targets t ON t.tenant_id = wm.tenant_id AND t.workforce_member_id = wm.workforce_member_id
+  WHERE p.role = 'operator' AND p.status = 'active' AND p.scope_type = 'park';
+
   UPDATE auth_pending_email_grants p
   SET role = t.new_role, updated_at = now()
   FROM workforce_members wm, _op_targets t
@@ -297,37 +328,22 @@ UPDATE public.designation_catalog SET status = 'active' WHERE designation_code =
 -- to be re-ticked on People / HRMS. V Munna Kumar's new setup is likewise left in place --
 -- he is correctly configured now either way.
 --
--- IT IS KEYED ON THE SAME NAMES THE UP MOVED, not on the manager roles themselves. Those roles
--- outlive this migration: 000393 makes them grantable and the Add Person form offers them, so a
--- Feed Manager hired after this deployed holds `manager_feed` having never been an operator.
--- A Down keyed on the role would rename that person to something the farm no longer has, and
--- the Up would not move them back. A rollback may only undo what it did.
-CREATE TEMP TABLE _op_rollback(display_name text PRIMARY KEY) ON COMMIT DROP;
-INSERT INTO _op_rollback VALUES
-  ('Amit Kumar'), ('Sagar Mahoor'), ('Kumar Sharath'), ('Natheswar'), ('Naveen'), ('Pramod'),
-  ('Manoj Kumar'), ('Mithlesh Kumar'),
-  ('Bipin'), ('Bipin Yadav'), ('Dheeraj Singh'), ('Mohd Shami'), ('Rajniti Kumar'),
-  ('Ravi Kumbar'), ('Santosh Kumar'), ('Santosh Kumar Sahni'), ('Manikanth Yadav'),
-  ('Dilkush Kumar'), ('Chandan Kumar'), ('Mithun'), ('Indrajit'), ('Irfan Gazi'),
-  ('Jay Mangal'), ('Shabeer'), ('Subrata Sardar'), ('Munna Kumar'), ('Arun Kumar'),
-  ('Sahid Gazi'), ('V Munna Kumar');
+-- Restore exact rows and prior values, only while they still carry our value.
+-- A new grant, renamed person, or same-name person in another tenant is not a target.
+UPDATE public.user_scope_grants g SET role = u.old_value
+FROM public.operator_retirement_000394_undo u
+WHERE u.kind = 'grant' AND g.tenant_id = u.tenant_id AND g.grant_id = u.row_id
+  AND g.status = 'active' AND g.role = u.new_value;
 
-UPDATE public.user_scope_grants g SET role = 'operator'
-FROM public.workforce_members wm, _op_rollback r
-WHERE wm.tenant_id = g.tenant_id AND wm.user_id = g.user_id AND wm.display_name = r.display_name
-  AND g.status = 'active' AND g.scope_type = 'park'
-  AND g.role IN ('manager_feed', 'manager_health', 'manager_cleaning');
-
-UPDATE public.auth_pending_email_grants p SET role = 'operator', updated_at = now()
-FROM public.workforce_members wm, _op_rollback r
-WHERE wm.tenant_id = p.tenant_id AND lower(wm.email) = p.normalized_email
-  AND wm.display_name = r.display_name
-  AND p.status = 'active' AND p.scope_type = 'park'
-  AND p.role IN ('manager_feed', 'manager_health', 'manager_cleaning');
+UPDATE public.auth_pending_email_grants p SET role = u.old_value, updated_at = now()
+FROM public.operator_retirement_000394_undo u
+WHERE u.kind = 'pending' AND p.tenant_id = u.tenant_id AND p.pending_grant_id = u.row_id
+  AND p.status = 'active' AND p.role = u.new_value;
 
 UPDATE public.person_access pa
-SET designation_code = 'operator', updated_at = now(), row_version = pa.row_version + 1
-FROM public.workforce_members wm, _op_rollback r
-WHERE wm.tenant_id = pa.tenant_id AND wm.workforce_member_id = pa.workforce_member_id
-  AND wm.display_name = r.display_name
-  AND pa.designation_code IN ('manager_feed', 'manager_health', 'manager_cleaning');
+SET designation_code = u.old_value, updated_at = now(), row_version = pa.row_version + 1
+FROM public.operator_retirement_000394_undo u
+WHERE u.kind = 'designation' AND pa.tenant_id = u.tenant_id AND pa.workforce_member_id = u.row_id
+  AND pa.designation_code = u.new_value;
+
+DROP TABLE public.operator_retirement_000394_undo;
