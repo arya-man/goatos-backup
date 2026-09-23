@@ -339,15 +339,29 @@ func ResolveFeedFollowUpDay(eventDate string, causes []FeedFollowUpCause, sheet 
 	}
 	day.HeadDelta = day.HeadAfter - day.HeadBefore
 	day.Unexplained = day.HeadDelta - day.NetAnimals
-	// NOTHING MOVED AT ALL is the finding -- not "the head count did not move".
-	// The maintainer's question is whether the FEED changed, and a pen can be
-	// fed for the same number of mouths on a different quantity (a ration
-	// change, a stage move). Judging on the head count alone called a pen that
-	// dropped 100.4 kg to 90.4 kg "not followed", which is plainly false to
-	// anyone reading the two columns beside the verdict.
+	// THE VERDICT IS ABOUT THE FEED, and about nothing else. A pen can be fed
+	// for the same number of mouths on a different quantity (a ration change, a
+	// stage move), so judging on the head count alone called a pen that dropped
+	// 100.4 kg to 90.4 kg "not followed", which is plainly false to anyone
+	// reading the two columns beside the verdict.
+	//
+	// The first fix for that ANDed the head count in -- red required the fed
+	// count to be stuck TOO -- and that hid the case this tab exists for
+	// (maintainer, 2026-09-23). On 2026-08-29 CBE Godel 2 - Part 5 sold 9 of its
+	// 10 animals: the fed count fell 10 -> 1 exactly as it should, while the
+	// experiment sheet stayed on 18.00 kg, the quantity authored for ten. The
+	// head count MOVING is what makes that worse, not better -- the system knew
+	// one animal was left and kept ordering feed for ten -- yet HeadDelta != 0
+	// made the row read "Feed changed". Part 3 sold 6 of 9 the same day and
+	// passed the same way.
+	//
+	// So the test is the kilograms alone: animals moved, the feed did not. That
+	// is the question the column asks and the one the two figures beside the
+	// verdict already answer. Causes that CANCEL OUT still pass, because
+	// NetAnimals is 0 and a steady sheet is then correct.
 	feedHeld := day.KgBefore != "" && day.KgBefore == day.KgAfter
 	switch {
-	case day.NetAnimals != 0 && day.HeadDelta == 0 && feedHeld:
+	case day.NetAnimals != 0 && feedHeld:
 		day.Status = FeedFollowUpNotFollowed
 	default:
 		day.Status = FeedFollowUpFollowed

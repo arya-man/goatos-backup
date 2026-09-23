@@ -59,6 +59,38 @@ func TestAChangeTheSheetNeverTookUpIsStillCaught(t *testing.T) {
 	}
 }
 
+// THE FED COUNT FALLING DOES NOT EXCUSE A FROZEN SHEET. Live case, CBE Godel 2
+// - Part 5 on 2026-08-29: nine of its ten animals were sold, the fed count fell
+// 10 -> 1 exactly as it should, and the experiment sheet stayed on the 18.00 kg
+// authored for ten. An earlier rule ANDed "the fed count is stuck too" into the
+// red test, so this read "Feed changed" -- the one shape the tab exists to
+// catch. The count moving makes it worse, not better.
+func TestAFallingHeadCountDoesNotExcuseAFrozenSheet(t *testing.T) {
+	got := domain.ResolveFeedFollowUpDay(
+		"2026-08-29",
+		[]domain.FeedFollowUpCause{cause(domain.FeedFollowUpSold, "2026-08-29", 9)},
+		sheet(day("2026-08-29", 10, "18.00"), day("2026-08-31", 1, "18.00")), nil)
+	if got.Status != domain.FeedFollowUpNotFollowed {
+		t.Fatalf("status = %q, want not_followed -- 9 of 10 sold and the sheet held 18.00 kg", got.Status)
+	}
+	if got.HeadDelta != -9 {
+		t.Fatalf("head delta = %d, want -9 -- the register did drop, and that is the point", got.HeadDelta)
+	}
+}
+
+// The same shape with a death, and the fed count moving the WRONG way: CBE
+// Castro 3 on 2026-08-16 lost an animal, was then fed for one MORE mouth, and
+// stayed on 58.0 kg. The feed did not move, so the verdict is not_followed.
+func TestADeathTheSheetNeverPricedIsCaught(t *testing.T) {
+	got := domain.ResolveFeedFollowUpDay(
+		"2026-08-16",
+		[]domain.FeedFollowUpCause{cause(domain.FeedFollowUpDied, "2026-08-16", 1)},
+		sheet(day("2026-08-16", 65, "58.0"), day("2026-08-18", 66, "58.0")), nil)
+	if got.Status != domain.FeedFollowUpNotFollowed {
+		t.Fatalf("status = %q, want not_followed -- the feed held at 58.0 kg", got.Status)
+	}
+}
+
 // A cut made on the FIRST of the two days counts, and so does one made on the
 // second: the window asks whether the farm reacted, not which day it chose.
 func TestEitherDayOfTheWindowCounts(t *testing.T) {
