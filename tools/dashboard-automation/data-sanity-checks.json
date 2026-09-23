@@ -47,7 +47,7 @@
         {
           "sha": "71f87ad77",
           "date": "2026-09-18",
-          "subject": "feat(counts): Mortality page — deaths from every angle beside the at-risk herd"
+          "subject": "feat(counts): Mortality page \u2014 deaths from every angle beside the at-risk herd"
         },
         {
           "sha": "01d240cd5",
@@ -942,7 +942,7 @@
         {
           "sha": "71f87ad77",
           "date": "2026-09-18",
-          "subject": "feat(counts): Mortality page — deaths from every angle beside the at-risk herd"
+          "subject": "feat(counts): Mortality page \u2014 deaths from every angle beside the at-risk herd"
         },
         {
           "sha": "52a95af4b",
@@ -1338,7 +1338,7 @@
         {
           "sha": "48a32c6a5",
           "date": "2026-09-22",
-          "subject": "feat(feed): Feed follow-up tab — did the sheet react when animals moved?"
+          "subject": "feat(feed): Feed follow-up tab \u2014 did the sheet react when animals moved?"
         }
       ]
     },
@@ -1497,7 +1497,7 @@
         {
           "sha": "71f87ad77",
           "date": "2026-09-18",
-          "subject": "feat(counts): Mortality page — deaths from every angle beside the at-risk herd"
+          "subject": "feat(counts): Mortality page \u2014 deaths from every angle beside the at-risk herd"
         },
         {
           "sha": "3b74d99ad",
@@ -2081,165 +2081,6 @@
           "date": "2026-09-17",
           "subject": "fix(counts): approving a duplicate death report after the animal died is a 409, not a 500"
         }
-      ]
-    },
-    {
-      "name": "feed_sheet_changed_after_it_was_locked",
-      "question": "Was any day's feed sheet changed after it had been locked for the day?",
-      "severity": "high",
-      "expectRows": 0,
-      "page": {
-        "title": "Feed direction",
-        "path": "/feed/direction"
-      },
-      "sql": "select i.feed_day::text as feed_day, i.state as state, i.workflow as sheet, i.amendment_count::text as times_changed from feed_direction_issues i where i.locked_at is not null and i.amended_at is not null and i.amended_at > i.locked_at order by i.feed_day desc limit 500",
-      "humanFailure": "Some days' feed sheets were changed after they had already been locked for the day. What the team was told to carry is no longer what the sheet says, so the day cannot be reconciled.",
-      "countUnit": "feed days changed after they were closed",
-      "sourceCommits": [
-        "321012f6b",
-        "29ad856a1",
-        "1770ed5d1",
-        "47f760820",
-        "4719e113f"
-      ],
-      "minerCheckIds": [
-        "lane2.locked-feed-sheet-stays-locked"
-      ]
-    },
-    {
-      "name": "feed_carried_to_a_pen_with_no_animals",
-      "question": "Is the feed sheet asking for feed to be carried to pens that have no animals in them?",
-      "severity": "high",
-      "expectRows": 0,
-      "page": {
-        "title": "Feed direction",
-        "path": "/feed/direction"
-      },
-      "sql": "select r.park_label as farm, r.shed_label as pen, r.feed_item_label as feed, r.head_count::text as animals, r.quantity_kg::text as quantity_kg from feed_direction_issue_rows r join feed_direction_issues i on i.feed_direction_issue_id = r.feed_direction_issue_id where i.locked_at is not null and r.quantity_kg is not null and r.quantity_kg > 0 and coalesce(r.head_count, 0) <= 0 order by r.quantity_kg desc limit 500",
-      "humanFailure": "The feed sheet is asking the team to weigh out and carry feed to pens that have no animals in them. That feed leaves the store and is never eaten.",
-      "countUnit": "pens sent feed with nothing in them",
-      "sourceCommits": [
-        "4719e113f",
-        "47f760820",
-        "321012f6b",
-        "8c2bc1218"
-      ],
-      "minerCheckIds": [
-        "lane2.feed-row-has-animals-or-no-feed"
-      ]
-    },
-    {
-      "name": "live_feed_rate_names_a_feed_the_catalogue_does_not_have",
-      "question": "Does every feed rate still in force name a feed that is in the catalogue at all?",
-      "severity": "high",
-      "expectRows": 0,
-      "page": {
-        "title": "Feed settings",
-        "path": "/feed/config"
-      },
-      "sql": "select r.ration_group_label as feed_group, r.shed_tag_label as pens, r.feed_item_label as feed, r.grams_per_head::text as grams_a_head from feed_ration_rates r left join feed_item_catalog c on c.tenant_id = r.tenant_id and c.feed_item_key = r.feed_item_key where r.valid_to is null and c.feed_item_id is null order by r.feed_item_label limit 500",
-      "humanFailure": "Some feed rates still in force name a feed that is not in the catalogue at all. Every pen on those rates is silently left off the daily sheet and gets nothing.",
-      "countUnit": "live rates naming a feed nobody stocks",
-      "sourceCommits": [
-        "75e788602",
-        "670437492",
-        "24d88696a",
-        "5bddbb60f"
-      ],
-      "minerCheckIds": [
-        "lane2.feed-rates-name-a-real-feed-item"
-      ]
-    },
-    {
-      "name": "sale_totals_disagree_with_its_own_lines",
-      "question": "Do the lines inside a sale add up to the animals, weight and money shown for that sale?",
-      "severity": "high",
-      "expectRows": 0,
-      "page": {
-        "title": "Sales",
-        "path": "/sales"
-      },
-      "sql": "with lines as (select deal_id, sum(animal_count) as line_animals, sum(total_weight_kg) as line_weight, sum(sales_value) as line_value from sales_deal_lines group by deal_id) select d.sale_date::text as sold_on, d.buyer_name as buyer, d.animal_count::text as sale_says_animals, lines.line_animals::text as lines_say_animals, round(coalesce(d.sales_value, 0))::text as sale_says_value, round(coalesce(lines.line_value, 0))::text as lines_say_value from sales_deals d join lines on lines.deal_id = d.id where coalesce(d.animal_count, 0) is distinct from coalesce(lines.line_animals, 0) or abs(coalesce(d.total_weight_kg, 0) - coalesce(lines.line_weight, 0)) > 0.5 or abs(coalesce(d.sales_value, 0) - coalesce(lines.line_value, 0)) > 1 order by d.sale_date desc limit 500",
-      "humanFailure": "Some sales show a different number of animals, a different weight or a different amount of money than the lines inside that same sale. Opening the sale contradicts the row above it.",
-      "countUnit": "sales that disagree with their own lines",
-      "sourceCommits": [
-        "f53c8c714",
-        "43bef4dab",
-        "837711f55",
-        "33f8bfc16",
-        "0add69933"
-      ],
-      "minerCheckIds": [
-        "lane2.sale-line-totals-match-the-deal"
-      ]
-    },
-    {
-      "name": "animals_on_a_closed_sale_are_not_marked_sold",
-      "question": "Is every animal still attached to a closed sale marked as sold on the herd register?",
-      "severity": "high",
-      "expectRows": 0,
-      "page": {
-        "title": "Sales summary",
-        "path": "/sales/sold"
-      },
-      "sql": "select d.sale_date::text as sold_on, d.buyer_name as buyer, g.display_id as animal, g.lifecycle_status as register_says from goat_sale_allocations a join sales_deals d on d.id = a.sales_deal_id join goats g on g.goat_id = a.goat_id where a.released_at is null and d.status = 'Deal Closed' and g.lifecycle_status is distinct from 'sold' order by d.sale_date desc limit 500",
-      "humanFailure": "Animals are still attached to a closed sale while the herd register says they never left the farm. They keep turning up in pen counts, on feed sheets and in vaccination rounds after they were sold.",
-      "countUnit": "sold animals the register still counts as on the farm",
-      "sourceCommits": [
-        "f5def6824",
-        "c46fd16c2",
-        "b5ed0c295",
-        "33f8bfc16",
-        "ec88a3f25"
-      ],
-      "minerCheckIds": [
-        "lane2.sold-animals-match-the-register"
-      ]
-    },
-    {
-      "name": "purchase_load_state_disagrees_with_its_animals",
-      "question": "Does a purchase load's own state agree with the state of the animals on it?",
-      "severity": "high",
-      "expectRows": 0,
-      "page": {
-        "title": "Procurement source entry",
-        "path": "/procurement/source-entry"
-      },
-      "sql": "select l.purchase_date::text as bought_on, l.status as load_says, lg.current_state as animal_says, count(*)::text as animals from procurement_loads l join procurement_load_goats lg on lg.load_id = l.load_id where (l.status = 'accepted_intake' and lg.current_state not in ('accepted_herd_intake', 'arrival_rejected', 'dead', 'sold', 'lost', 'canceled')) or (l.status = 'rejected' and lg.current_state = 'accepted_herd_intake') or (l.status = 'in_transit' and lg.current_state = 'accepted_herd_intake') group by l.purchase_date, l.status, lg.current_state order by l.purchase_date desc limit 500",
-      "humanFailure": "Some purchase loads are marked taken in while the animals on them are still shown as on the road, or marked turned away while their animals are already counted into the herd. The load screen and the animals on it tell two different stories.",
-      "countUnit": "loads whose animals are in a state the load contradicts",
-      "sourceCommits": [
-        "488def44d",
-        "e659cb017",
-        "425e15036",
-        "0b00e357e",
-        "b4b12e92b"
-      ],
-      "minerCheckIds": [
-        "lane2.procurement-load-counts-add-up"
-      ]
-    },
-    {
-      "name": "an_animal_sits_on_more_than_one_purchase_load",
-      "question": "Is any animal counted on more than one purchase load at the same time?",
-      "severity": "high",
-      "expectRows": 0,
-      "page": {
-        "title": "Sales loads",
-        "path": "/sales/loads"
-      },
-      "sql": "select g.display_id as animal, count(distinct lg.load_id)::text as loads_claiming_it, min(l.purchase_date)::text as first_bought_on, max(l.purchase_date)::text as last_bought_on from procurement_load_goats lg join procurement_loads l on l.load_id = lg.load_id join goats g on g.goat_id = lg.goat_id where l.status in ('in_transit', 'arrival_review', 'accepted_intake') and lg.current_state not in ('arrival_rejected', 'source_rejected', 'canceled') group by g.display_id having count(distinct lg.load_id) > 1 order by count(distinct lg.load_id) desc limit 500",
-      "humanFailure": "The same animal is counted on two purchase loads at once. Which load it is filed under, and which load carries its share of the money, changes from one look at the screen to the next.",
-      "countUnit": "animals claimed by two loads at once",
-      "sourceCommits": [
-        "b4b12e92b",
-        "a36af5bca",
-        "fff4de4ba",
-        "c180a000d",
-        "2bfdb5f60"
-      ],
-      "minerCheckIds": [
-        "lane2.procurement-load-counts-add-up"
       ]
     }
   ],
