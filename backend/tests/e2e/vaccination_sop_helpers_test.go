@@ -47,6 +47,12 @@ func completeVaccinationObligationThroughSOP(t *testing.T, fx *Fixture, versionI
 	fx.exec("SOP helper vaccine stock",
 		`INSERT INTO inventory_stock (stock_id, tenant_id, item_id, location_id, quantity_in_stock, quantity_reserved, quantity_unit, expiry_date)
 		 VALUES ($1, $2, $3, $4, $5, 0, 'dose', CURRENT_DATE + INTERVAL '10 years')`, lotID, fxTenant, itemID, fxPark, len(goatIDs)+10)
+	// The park must HAVE an operator who may vaccinate, or the sweeper plans a batch with no
+	// drive assignment at all (it never invents an operator fallback -- AGENTS.md rule 7), and
+	// the shed-readiness gate then reports the shed as holding no animals. This is external
+	// workforce input, not a derived result: an active member, an active non-director position
+	// scoped to the park, and the execute duty on preventive care.
+	seedVaccinationOperator(t, fx, operatorID)
 	h := newVaccinationSOPHarness(t, fx)
 	sweeper := oblapp.NewSweeperService(fx.Obl, storyAATaskCreator{service: h.Service, actorID: operatorID}, fx.Inv)
 	if _, err := sweeper.SweepVersion(fx.Ctx, fxTenant, versionID, oblapp.SweepConfig{
@@ -64,7 +70,11 @@ func completeVaccinationObligationThroughSOP(t *testing.T, fx *Fixture, versionI
 		batchID = fx.scanText(`SELECT batch_id::text FROM obligation_batches WHERE tenant_id=$1 AND protocol_version_id=$2::uuid ORDER BY created_at DESC LIMIT 1`, fxTenant, versionID)
 	}
 	reservedLotID := reservedLotForBatch(t, fx, batchID)
-	submitted, err := h.submit(taskID, shedID, operatorID, reservedLotID, goatIDs, administeredAt, key+":submit", "subcutaneous")
+	// The submit key CARRIES THE ACTIVE SHED SCOPE (":scope:<shed>"), which is how the server
+	// learns which shed a vaccination submission is for -- AGENTS.md states the rule for the
+	// mobile submit, and shedScopeFromSubmissionKey is the reader. Without it the readiness gate
+	// resolves no target shed, so a shed-grain SOP can never find its shed video.
+	submitted, err := h.submit(taskID, shedID, operatorID, reservedLotID, goatIDs, administeredAt, key+":scope:"+shedID+":submit", "subcutaneous")
 	if err != nil {
 		t.Fatalf("%s submit generated vaccination work: %v", key, err)
 	}
@@ -171,9 +181,14 @@ func (h *vaccinationSOPHarness) recordGoatScanCaptures(taskID, actorID string, g
 	return nil
 }
 
-func (h *vaccinationSOPHarness) submissionRequest(taskID, _ string, actorID, lotID string, goatIDs []string, administeredAt time.Time, idempotencyKey, routeSite string) (sopdomain.SubmitTaskRequest, error) {
+func (h *vaccinationSOPHarness) submissionRequest(taskID, shedID string, actorID, lotID string, goatIDs []string, administeredAt time.Time, idempotencyKey, routeSite string) (sopdomain.SubmitTaskRequest, error) {
 	h.t.Helper()
-	proofRefs := make([]sopdomain.ProofReference, 0, len(goatIDs))
+	// SHED-GRAIN SOP: the canonical vaccination SOP's proof subject is the SHED, and the server
+	// resolves that one video itself (service.go: with a shed gate and NO submitted refs it calls
+	// CompletedTaskProofRefs). Sending per-animal clips as the submission's refs is the GOAT-grain
+	// shape and leaves the shed gate unsatisfied, so this helper captures per-animal clips as
+	// evidence but submits none of them.
+	proofRefs := make([]sopdomain.ProofReference, 0)
 	for _, goatID := range goatIDs {
 		goatID := goatID
 		target, err := h.proofs.CreateUpload(h.fx.Ctx, proofdomain.CreateUpload{
@@ -200,7 +215,41 @@ func (h *vaccinationSOPHarness) submissionRequest(taskID, _ string, actorID, lot
 		}); err != nil {
 			return sopdomain.SubmitTaskRequest{}, err
 		}
-		proofRefs = append(proofRefs, sopdomain.ProofReference{ProofID: target.Proof.ProofID})
+		_ = target
+	}
+	// The canonical vaccination SOP's proof grain is the SHED (CLAUDE.md keeps BOTH grains
+	// supported and the SOP decides which), so the shed-readiness gate counts shed-scoped
+	// artifacts and the per-animal clips above cannot satisfy it. This helper had been dropping
+	// its shedID argument entirely, which is why every story that reaches submit read
+	// "1 shed video(s) still need proof".
+	if s := shedID; s != "" {
+		shedSubject := s
+		target, err := h.proofs.CreateUpload(h.fx.Ctx, proofdomain.CreateUpload{
+			TenantID: fxTenant, ProofType: "video", MimeType: "video/mp4", ScopeType: "shed", ScopeID: s,
+			SubjectType: "shed", SubjectID: &shedSubject, UploadedBy: storyAAPtrString(actorID),
+			Metadata: map[string]any{
+				"capture_source":      "in_app_camera",
+				"captured_start_ms":   int64(1000),
+				"captured_end_ms":     int64(5200),
+				"e2e_idempotency_key": idempotencyKey,
+			},
+		})
+		if err != nil {
+			return sopdomain.SubmitTaskRequest{}, err
+		}
+		stored, err := h.proofs.StoreUpload(h.fx.Ctx, fxTenant, target.Proof.ProofID, "video/mp4", bytes.NewBufferString(idempotencyKey+":shed:"+s))
+		if err != nil {
+			return sopdomain.SubmitTaskRequest{}, err
+		}
+		duration := int64(4200)
+		if _, err := h.proofs.CompleteUpload(h.fx.Ctx, proofdomain.CompleteUpload{
+			TenantID: fxTenant, ProofID: target.Proof.ProofID, ContentHash: stored.ContentHash,
+			MimeType: stored.MimeType, SizeBytes: stored.SizeBytes, DurationMS: &duration,
+		}); err != nil {
+			return sopdomain.SubmitTaskRequest{}, err
+		}
+		// Deliberately NOT added to ProofRefs: submit accepts only TASK-scoped references, and
+		// the readiness gate reads the shed artifact from proof_artifacts by its own scope.
 	}
 	goats := make([]any, len(goatIDs))
 	for i := range goatIDs {
@@ -215,4 +264,23 @@ func (h *vaccinationSOPHarness) submissionRequest(taskID, _ string, actorID, lot
 			"goat_ids": goats,
 		},
 	}, nil
+}
+
+// seedVaccinationOperator makes one workforce member eligible to be assigned a vaccination drive
+// in the fixture park. All three rows are EXTERNAL INPUTS (roster/HRMS facts a real farm
+// authors); nothing derived is seeded. Idempotent so several stories in one package can call it.
+func seedVaccinationOperator(t *testing.T, fx *Fixture, operatorID string) {
+	t.Helper()
+	fx.exec("SOP helper vaccination operator member",
+		`INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, display_name, status, primary_role_hint, primary_location_id)
+		 VALUES ($1, $2, 'VOP-' || left($4, 6), 'E2E Vaccination Operator', 'active', 'operator', $3)
+		 ON CONFLICT (workforce_member_id) DO NOTHING`, operatorID, fxTenant, fxPark, operatorID)
+	fx.exec("SOP helper vaccination operator position",
+		`INSERT INTO workforce_positions (tenant_id, workforce_member_id, scope_type, scope_id, position_code, position_tier, status, valid_from)
+		 VALUES ($1, $2, 'center', $3, 'vaccination_operator', 'assistant', 'active', now() - interval '30 days')`,
+		fxTenant, operatorID, fxPark)
+	fx.exec("SOP helper vaccination execute duty",
+		`INSERT INTO position_module_duties (tenant_id, position_code, module_code, duty_type, status, effective_from)
+		 VALUES ($1, 'vaccination_operator', 'preventive_care', 'execute', 'active', now() - interval '30 days')
+		 ON CONFLICT DO NOTHING`, fxTenant)
 }
