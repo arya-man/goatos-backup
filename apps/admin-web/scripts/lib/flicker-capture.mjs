@@ -13,7 +13,7 @@
 //    Everything this module produces for a person to look at is either an animated
 //    GIF or a filmstrip of the frames either side of the event.
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { detectFlicker, grayFrameFromRgba } from "./flicker-detector.mjs";
 
@@ -29,8 +29,39 @@ export const CAPTURE_DEFAULTS = Object.freeze({
   downsampleStep: 8,
 });
 
+// The OCI box has no ffmpeg on PATH, and without one a flicker finding degrades to a
+// pile of separate PNGs — which is the one thing this lane must not send, because a
+// person cannot see flicker in a still. Playwright ships an ffmpeg beside its browsers,
+// so look there before giving up.
+let ffmpegPath = null;
+function ffmpeg() {
+  if (ffmpegPath !== null) return ffmpegPath || null;
+  const candidates = ["ffmpeg"];
+  const root = process.env.PLAYWRIGHT_BROWSERS_PATH;
+  if (root) {
+    try {
+      for (const entry of readdirSync(root)) {
+        if (!entry.startsWith("ffmpeg")) continue;
+        for (const name of ["ffmpeg-linux", "ffmpeg-mac", "ffmpeg.exe"]) {
+          const candidate = join(root, entry, name);
+          if (existsSync(candidate)) candidates.push(candidate);
+        }
+      }
+    } catch {
+      /* no browsers directory: fall back to PATH */
+    }
+  }
+  for (const candidate of candidates) {
+    if (spawnSync(candidate, ["-version"], { stdio: "ignore" }).status === 0) {
+      ffmpegPath = candidate;
+      return candidate;
+    }
+  }
+  ffmpegPath = "";
+  return null;
+}
 function hasFfmpeg() {
-  return spawnSync("ffmpeg", ["-version"], { stdio: "ignore" }).status === 0;
+  return ffmpeg() !== null;
 }
 
 /**
@@ -208,7 +239,7 @@ export function writeFlickerEvidence(frames, result, outDir, name) {
   try {
     // Slow enough that a person can see the wrong frame go past, looping forever.
     execFileSync(
-      "ffmpeg",
+      ffmpeg(),
       ["-v", "error", "-y", "-framerate", "6", "-i", pattern, "-vf", "scale=390:-1:flags=lanczos", "-loop", "0", gif],
       { stdio: "ignore" },
     );
@@ -217,7 +248,7 @@ export function writeFlickerEvidence(frames, result, outDir, name) {
   }
   try {
     execFileSync(
-      "ffmpeg",
+      ffmpeg(),
       [
         "-v", "error", "-y", "-i", pattern,
         "-vf", `scale=260:-1,tile=${Math.min(written.length, 8)}x1:margin=6:padding=4:color=0x1b1f1d`,
@@ -536,10 +567,10 @@ export function writeOverlayEvidence(frames, event, outDir, name) {
   const filmstrip = join(outDir, `${name}-overlay-filmstrip.png`);
   const pattern = join(seqDir, "f%03d.png");
   try {
-    execFileSync("ffmpeg", ["-v", "error", "-y", "-framerate", "5", "-i", pattern, "-vf", "scale=390:-1:flags=lanczos", "-loop", "0", gif], { stdio: "ignore" });
+    execFileSync(ffmpeg(), ["-v", "error", "-y", "-framerate", "5", "-i", pattern, "-vf", "scale=390:-1:flags=lanczos", "-loop", "0", gif], { stdio: "ignore" });
   } catch { /* the frames are still on disk */ }
   try {
-    execFileSync("ffmpeg", [
+    execFileSync(ffmpeg(), [
       "-v", "error", "-y", "-i", join(seqDir, "f%03d.png"),
       "-vf", `scale=260:-1,tile=${Math.min(written.length, 5)}x1:margin=6:padding=4:color=0x1b1f1d`,
       "-frames:v", "1", filmstrip,
