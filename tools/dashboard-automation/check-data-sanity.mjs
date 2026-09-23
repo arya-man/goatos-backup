@@ -350,8 +350,11 @@ export function layerSentence(findings, errors) {
   return `${parts.join(", and ")}. The affected screens are listed in the thread.`;
 }
 
-const args = parseArgs(process.argv.slice(2));
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+// Parsed only when this file IS the command. Another script that imports these helpers has its
+// own flags, and refusing to load because it was passed one of them would take the importer down
+// over an argument that was never meant for this file.
+const args = isMain ? parseArgs(process.argv.slice(2)) : {};
 
 if (isMain) {
   if (args.selfTest) {
