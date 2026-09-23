@@ -63,12 +63,15 @@ number above cannot quietly rot.
 
 ## Checks per lane
 
-| Lane | Distinct checks | Commits routed |
-| --- | ---: | ---: |
-| lane2 | 50 | 170 |
-| lane3 | 62 | 609 |
-| lane4 | 35 | 426 |
-| lane5-android | 47 | 1051 |
+| Lane | Distinct checks | Checks covering a commit | Commits routed |
+| --- | ---: | ---: | ---: |
+| lane2 | 50 | 30 | 170 |
+| lane3 | 62 | 54 | 609 |
+| lane4 | 35 | 33 | 426 |
+| lane5-android | 47 | 40 | 1051 |
+| **total** | **194** | **157** | **2256** |
+
+**37 of the 194 checks are routed to no commit at all.** They are invariants the roadmap asked for — sale sex splits adding up, impossible weights, a locked feed sheet staying locked — that no commit since 2026-08-01 maps to. They are kept, because deleting a real invariant trades noise for blindness, and they are counted in their own column so "194 checks" is never read as 194 checks' worth of coverage. Only the middle column covers anything.
 
 Many commits map to one check; each check in `lane-checks.json` carries the full `sourceShas`
 list it was derived from, so a builder can always get back to the commits behind a check.

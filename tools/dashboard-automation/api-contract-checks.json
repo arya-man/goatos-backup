@@ -248,7 +248,33 @@
       "historyChecks": [
         "lane3.vaccination-action-center"
       ],
-      "historyCommitCount": 41
+      "historyCommitCount": 41,
+      "relations": [
+        {
+          "kind": "parts-sum-to-whole",
+          "name": "the action centre board's total is the work states it lists",
+          "parts": [
+            "counts_by_work_state[].count"
+          ],
+          "whole": "total_count",
+          "humanFailure": "The Action Centre's own total does not match the work states it breaks that total into, so the badge and the board underneath it tell a manager two different things.",
+          "sourceCommits": [
+            "c186fee72",
+            "165ab9f76",
+            "e3a5e4116",
+            "987fe748d",
+            "5fc519794",
+            "23a92fad0",
+            "41ba0d8ce",
+            "ddcbb7943",
+            "7b20653e4",
+            "7d2a681c3",
+            "4ca6a8ec2",
+            "4addd8814",
+            "39bd58322"
+          ]
+        }
+      ]
     },
     {
       "name": "action_center_counts",
@@ -288,7 +314,26 @@
       "historyChecks": [
         "lane3.vaccination-action-center-counts"
       ],
-      "historyCommitCount": 3
+      "historyCommitCount": 3,
+      "relations": [
+        {
+          "kind": "parts-sum-to-whole",
+          "name": "the action centre's badge is the work states it breaks down into",
+          "parts": [
+            "counts_by_work_state[].count"
+          ],
+          "whole": "total_count",
+          "humanFailure": "The count badge at the top of the Action Centre does not match the work states it is counting, so a manager is told there is more or less work waiting than the board underneath actually holds.",
+          "sourceCommits": [
+            "38924a13e",
+            "f9752acbf",
+            "91192e83a",
+            "231ec3512",
+            "4ec7082e5",
+            "c8b46b083"
+          ]
+        }
+      ]
     },
     {
       "name": "protocol_adherence",
@@ -1352,7 +1397,27 @@
       "historyChecks": [
         "lane3.counts-breakdown"
       ],
-      "historyCommitCount": 3
+      "historyCommitCount": 3,
+      "relations": [
+        {
+          "kind": "parts-sum-to-whole",
+          "name": "kids and adults are the whole herd the breakdown counts",
+          "parts": [
+            "total_kids",
+            "total_adults"
+          ],
+          "whole": "total_count",
+          "humanFailure": "On the counts breakdown the kid and adult numbers do not add up to the herd total shown beside them, so at least one of the three figures a manager reads is wrong.",
+          "sourceCommits": [
+            "38924a13e",
+            "f9752acbf",
+            "91192e83a",
+            "2e2006b30",
+            "a245d3288",
+            "630adf33d"
+          ]
+        }
+      ]
     },
     {
       "name": "counts_herd_analytics",
