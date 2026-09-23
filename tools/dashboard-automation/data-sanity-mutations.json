@@ -1,5 +1,5 @@
 {
-  "description": "One defect per lane 2 check. The mutation prover plants it in a local throwaway clone, shows the check fires, rolls it back, and shows the check goes quiet. A check with no defect here is reported as a named gap, never as coverage.",
+  "description": "One defect per lane 2 check, and - for the checks that compare records across farms - one two-farm case that must NOT fire. The prover plants the defect in a local throwaway clone, shows the check fires, rolls it back, and shows the check goes quiet. Rows are planted with referential integrity switched off, into an empty clone, so what this proves is that a check DISCRIMINATES, not that the defect is reachable through the product's own write paths. A check with no defect here is reported as a named gap, never as coverage.",
   "mutations": {
     "herd_total_vs_status_breakdown": {
       "defect": "an animal in a state the herd screen's four totals do not include",
@@ -58,7 +58,30 @@
       ]
     },
     "animal_in_two_pens": {
-      "unprovable": "the pen sheet holds one row per animal, so the same animal cannot be written into two pens and the check can never fire; it guards against that key being widened, and is not live coverage"
+      "unprovable": "inside one farm the pen sheet holds one row per animal, so the defect cannot be planted and the check cannot fire. It was wrongly struck as impossible outright: the key is the farm AND the animal, so before the farm was added to the grouping two farms reusing an animal id fired it. That half is proved below.",
+      "crossTenant": {
+        "description": "the same animal id used by two farms, one pen each",
+        "plant": [
+          {
+            "table": "goat_shed_partitions",
+            "row": {
+              "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+              "goat_id": "'00000000-0000-4000-8000-0000000000a1'::uuid",
+              "shed_id": "'00000000-0000-4000-8000-0000000000b1'::uuid",
+              "source_shed_name": "'Farm one pen'"
+            }
+          },
+          {
+            "table": "goat_shed_partitions",
+            "row": {
+              "tenant_id": "'00000000-0000-4000-8000-000000000002'::uuid",
+              "goat_id": "'00000000-0000-4000-8000-0000000000a1'::uuid",
+              "shed_id": "'00000000-0000-4000-8000-0000000000b2'::uuid",
+              "source_shed_name": "'Farm two pen'"
+            }
+          }
+        ]
+      }
     },
     "pen_record_disagrees_with_animal_record": {
       "defect": "the pen sheet and the animal's own record name different pens",
@@ -111,37 +134,40 @@
       ]
     },
     "duplicate_animal_tag": {
-      "defect": "one tag number worn by two animals (the check compares tags across the whole database, so the pair is planted under two tenants; one tenant cannot hold a duplicate tag at all)",
-      "plant": [
-        {
-          "table": "goat_identifiers",
-          "row": {
-            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
-            "goat_id": "'00000000-0000-4000-8000-0000000000a1'::uuid",
-            "identifier_type": "'animal_identifier_1'",
-            "identifier_value": "'FIXTAG1'",
-            "normalized_value": "'FIXTAG1'",
-            "scope_key": "'fixture'",
-            "status": "'active'",
-            "valid_from": "now()",
-            "normalizer_version": "'v1'"
+      "crossTenant": {
+        "description": "one tag number in use at two farms, on one animal each",
+        "plant": [
+          {
+            "table": "goat_identifiers",
+            "row": {
+              "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+              "goat_id": "'00000000-0000-4000-8000-0000000000a1'::uuid",
+              "identifier_type": "'animal_identifier_1'",
+              "identifier_value": "'FIXTAG1'",
+              "normalized_value": "'FIXTAG1'",
+              "scope_key": "'fixture'",
+              "status": "'active'",
+              "valid_from": "now()",
+              "normalizer_version": "'v1'"
+            }
+          },
+          {
+            "table": "goat_identifiers",
+            "row": {
+              "tenant_id": "'00000000-0000-4000-8000-000000000002'::uuid",
+              "goat_id": "'00000000-0000-4000-8000-0000000000a2'::uuid",
+              "identifier_type": "'animal_identifier_1'",
+              "identifier_value": "'FIXTAG1'",
+              "normalized_value": "'FIXTAG1'",
+              "scope_key": "'fixture'",
+              "status": "'active'",
+              "valid_from": "now()",
+              "normalizer_version": "'v1'"
+            }
           }
-        },
-        {
-          "table": "goat_identifiers",
-          "row": {
-            "tenant_id": "'00000000-0000-4000-8000-000000000002'::uuid",
-            "goat_id": "'00000000-0000-4000-8000-0000000000a2'::uuid",
-            "identifier_type": "'animal_identifier_1'",
-            "identifier_value": "'FIXTAG1'",
-            "normalized_value": "'FIXTAG1'",
-            "scope_key": "'fixture'",
-            "status": "'active'",
-            "valid_from": "now()",
-            "normalizer_version": "'v1'"
-          }
-        }
-      ]
+        ]
+      },
+      "unprovable": "inside one farm a tag is unique, so the defect cannot be planted and the check cannot fire. Before the farm was added to the grouping it fired on two farms using the same tag legitimately, which is the false accusation proved against below."
     },
     "non_positive_animal_weight": {
       "unprovable": "the database refuses a weight of zero or less on this table, so the row this check looks for cannot exist and the check can never fire; it guards against that constraint being dropped, and is not live coverage"
@@ -479,7 +505,54 @@
             "expected_count": "5"
           }
         }
-      ]
+      ],
+      "crossTenant": {
+        "description": "two farms using the same load id, each listing exactly the animals it expects",
+        "plant": [
+          {
+            "table": "procurement_loads",
+            "row": {
+              "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+              "load_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
+              "purchase_date": "current_date",
+              "status": "'in_transit'",
+              "expected_count": "1",
+              "idempotency_key": "'x-1'"
+            }
+          },
+          {
+            "table": "procurement_load_goats",
+            "row": {
+              "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+              "load_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
+              "goat_id": "'00000000-0000-4000-8000-0000000000a1'::uuid",
+              "current_state": "'in_transit'",
+              "animal_identifier_1": "'T1'"
+            }
+          },
+          {
+            "table": "procurement_loads",
+            "row": {
+              "tenant_id": "'00000000-0000-4000-8000-000000000002'::uuid",
+              "load_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
+              "purchase_date": "current_date",
+              "status": "'in_transit'",
+              "expected_count": "1",
+              "idempotency_key": "'x-2'"
+            }
+          },
+          {
+            "table": "procurement_load_goats",
+            "row": {
+              "tenant_id": "'00000000-0000-4000-8000-000000000002'::uuid",
+              "load_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
+              "goat_id": "'00000000-0000-4000-8000-0000000000a9'::uuid",
+              "current_state": "'in_transit'",
+              "animal_identifier_1": "'T2'"
+            }
+          }
+        ]
+      }
     },
     "weighing_run_stuck_over_2_days": {
       "defect": "a weighing run left in progress for ten days",
@@ -519,7 +592,50 @@
             "obligation_id": "'00000000-0000-4000-8000-0000000000c2'::uuid"
           }
         }
-      ]
+      ],
+      "crossTenant": {
+        "description": "two farms using the same round id, each listing exactly the animals its pen holds",
+        "plant": [
+          {
+            "table": "vaccination_drive_assignments",
+            "row": {
+              "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+              "assignment_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
+              "planned_date": "current_date",
+              "physical_shed": "'Farm one pen'",
+              "animal_count": "1"
+            }
+          },
+          {
+            "table": "vaccination_drive_assignment_members",
+            "row": {
+              "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+              "assignment_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
+              "goat_id": "'00000000-0000-4000-8000-0000000000a1'::uuid",
+              "obligation_id": "'00000000-0000-4000-8000-0000000000c2'::uuid"
+            }
+          },
+          {
+            "table": "vaccination_drive_assignments",
+            "row": {
+              "tenant_id": "'00000000-0000-4000-8000-000000000002'::uuid",
+              "assignment_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
+              "planned_date": "current_date",
+              "physical_shed": "'Farm two pen'",
+              "animal_count": "1"
+            }
+          },
+          {
+            "table": "vaccination_drive_assignment_members",
+            "row": {
+              "tenant_id": "'00000000-0000-4000-8000-000000000002'::uuid",
+              "assignment_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
+              "goat_id": "'00000000-0000-4000-8000-0000000000a9'::uuid",
+              "obligation_id": "'00000000-0000-4000-8000-0000000000c3'::uuid"
+            }
+          }
+        ]
+      }
     },
     "drive_scheduled_for_exited_animal": {
       "defect": "a vaccination planned for an animal that has been sold",
@@ -614,7 +730,34 @@
       ]
     },
     "vaccination_recorded_twice_for_same_dose": {
-      "unprovable": "the database already refuses a second recorded or accepted dose for the same animal, and those are the only two states this check reads, so it can never fire; it guards against that key being dropped, and is not live coverage"
+      "unprovable": "inside one farm the database already refuses a second recorded or accepted dose for the same animal, and those are the only two states this check reads, so it cannot fire. It was wrongly struck as impossible outright: the key is the farm AND the dose AND the animal, so before the farm was added to the grouping two farms reusing a dose id fired it. That half is proved below.",
+      "crossTenant": {
+        "description": "two farms using the same dose and animal ids, recorded once at each",
+        "plant": [
+          {
+            "table": "vaccination_completions",
+            "row": {
+              "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+              "obligation_id": "'00000000-0000-4000-8000-0000000000c2'::uuid",
+              "goat_id": "'00000000-0000-4000-8000-0000000000a1'::uuid",
+              "status": "'recorded'",
+              "administered_at": "now()",
+              "idempotency_key": "'ct-1'"
+            }
+          },
+          {
+            "table": "vaccination_completions",
+            "row": {
+              "tenant_id": "'00000000-0000-4000-8000-000000000002'::uuid",
+              "obligation_id": "'00000000-0000-4000-8000-0000000000c2'::uuid",
+              "goat_id": "'00000000-0000-4000-8000-0000000000a1'::uuid",
+              "status": "'recorded'",
+              "administered_at": "now()",
+              "idempotency_key": "'ct-2'"
+            }
+          }
+        ]
+      }
     },
     "same_dose_recorded_twice_in_any_state": {
       "defect": "the same dose recorded twice for one animal in any state",
@@ -641,7 +784,34 @@
             "idempotency_key": "'fix-vs-1'"
           }
         }
-      ]
+      ],
+      "crossTenant": {
+        "description": "two farms using the same dose and animal ids, recorded once at each",
+        "plant": [
+          {
+            "table": "vaccination_completions",
+            "row": {
+              "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+              "obligation_id": "'00000000-0000-4000-8000-0000000000c2'::uuid",
+              "goat_id": "'00000000-0000-4000-8000-0000000000a1'::uuid",
+              "status": "'recorded'",
+              "administered_at": "now()",
+              "idempotency_key": "'ct-1'"
+            }
+          },
+          {
+            "table": "vaccination_completions",
+            "row": {
+              "tenant_id": "'00000000-0000-4000-8000-000000000002'::uuid",
+              "obligation_id": "'00000000-0000-4000-8000-0000000000c2'::uuid",
+              "goat_id": "'00000000-0000-4000-8000-0000000000a1'::uuid",
+              "status": "'recorded'",
+              "administered_at": "now()",
+              "idempotency_key": "'ct-2'"
+            }
+          }
+        ]
+      }
     },
     "sales_sold_count_vs_herd_sold": {
       "defect": "an animal marked sold in the register with no closed sale to match it",
@@ -763,7 +933,38 @@
             "scope_type": "'shed'"
           }
         }
-      ]
+      ],
+      "crossTenant": {
+        "description": "two farms using the same repeating rule id, one open entry each",
+        "plant": [
+          {
+            "table": "obligation_instances",
+            "row": {
+              "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+              "rule_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
+              "target_type": "'goat'",
+              "target_id": "'00000000-0000-4000-8000-0000000000a1'::uuid",
+              "status": "'due'",
+              "scope_type": "'shed'",
+              "completed_at": "null",
+              "due_at": "now()"
+            }
+          },
+          {
+            "table": "obligation_instances",
+            "row": {
+              "tenant_id": "'00000000-0000-4000-8000-000000000002'::uuid",
+              "rule_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
+              "target_type": "'goat'",
+              "target_id": "'00000000-0000-4000-8000-0000000000a1'::uuid",
+              "status": "'due'",
+              "scope_type": "'shed'",
+              "completed_at": "null",
+              "due_at": "now()"
+            }
+          }
+        ]
+      }
     },
     "check_filed_under_the_wrong_pen": {
       "defect": "a check filed under a different pen from the one the work was done in",
@@ -816,7 +1017,54 @@
             "version_label": "'v1'"
           }
         }
-      ]
+      ],
+      "crossTenant": {
+        "description": "two farms using the same work instruction id, one published version each",
+        "plant": [
+          {
+            "table": "sop_definitions",
+            "row": {
+              "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+              "sop_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
+              "name": "'Fixture SOP'",
+              "code": "'fixture.sop'",
+              "kind": "'general'",
+              "status": "'active'"
+            }
+          },
+          {
+            "table": "sop_versions",
+            "row": {
+              "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+              "sop_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
+              "sop_version_id": "'00000000-0000-4000-8000-0000000000c2'::uuid",
+              "status": "'published'",
+              "version_label": "'v1'"
+            }
+          },
+          {
+            "table": "sop_definitions",
+            "row": {
+              "tenant_id": "'00000000-0000-4000-8000-000000000002'::uuid",
+              "sop_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
+              "name": "'Fixture SOP'",
+              "code": "'fixture.sop'",
+              "kind": "'general'",
+              "status": "'active'"
+            }
+          },
+          {
+            "table": "sop_versions",
+            "row": {
+              "tenant_id": "'00000000-0000-4000-8000-000000000002'::uuid",
+              "sop_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
+              "sop_version_id": "'00000000-0000-4000-8000-0000000000c3'::uuid",
+              "status": "'published'",
+              "version_label": "'v1'"
+            }
+          }
+        ]
+      }
     },
     "open_task_on_an_unpublished_sop": {
       "defect": "an open task pointing at an unpublished work instruction",
@@ -1106,7 +1354,74 @@
             "animal_identifier_1": "'FIXTAG1'"
           }
         }
-      ]
+      ],
+      "crossTenant": {
+        "description": "two farms whose animals carry the same display id, one load each",
+        "plant": [
+          {
+            "table": "procurement_loads",
+            "row": {
+              "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+              "load_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
+              "purchase_date": "current_date",
+              "status": "'in_transit'",
+              "expected_count": "1",
+              "idempotency_key": "'l-1'"
+            }
+          },
+          {
+            "table": "goats",
+            "row": {
+              "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+              "goat_id": "'00000000-0000-4000-8000-0000000000a1'::uuid",
+              "sex": "'f'",
+              "lifecycle_status": "'alive'",
+              "display_id": "'G-000900'"
+            }
+          },
+          {
+            "table": "procurement_load_goats",
+            "row": {
+              "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+              "load_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
+              "goat_id": "'00000000-0000-4000-8000-0000000000a1'::uuid",
+              "current_state": "'in_transit'",
+              "animal_identifier_1": "'T'"
+            }
+          },
+          {
+            "table": "procurement_loads",
+            "row": {
+              "tenant_id": "'00000000-0000-4000-8000-000000000002'::uuid",
+              "load_id": "'00000000-0000-4000-8000-0000000000c2'::uuid",
+              "purchase_date": "current_date",
+              "status": "'in_transit'",
+              "expected_count": "1",
+              "idempotency_key": "'l-2'"
+            }
+          },
+          {
+            "table": "goats",
+            "row": {
+              "tenant_id": "'00000000-0000-4000-8000-000000000002'::uuid",
+              "goat_id": "'00000000-0000-4000-8000-0000000000a9'::uuid",
+              "sex": "'f'",
+              "lifecycle_status": "'alive'",
+              "display_id": "'G-000900'"
+            }
+          },
+          {
+            "table": "procurement_load_goats",
+            "row": {
+              "tenant_id": "'00000000-0000-4000-8000-000000000002'::uuid",
+              "load_id": "'00000000-0000-4000-8000-0000000000c2'::uuid",
+              "goat_id": "'00000000-0000-4000-8000-0000000000a9'::uuid",
+              "current_state": "'in_transit'",
+              "animal_identifier_1": "'T'"
+            }
+          }
+        ]
+      }
     },
     "event_stuck_after_its_retries": {
       "defect": "an event that failed every retry and was never delivered",

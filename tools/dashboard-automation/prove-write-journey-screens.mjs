@@ -119,6 +119,16 @@ function main() {
   writeFileSync(out, `${JSON.stringify(report, null, 2)}\n`);
   console.log(`lane 4 screen assertions: ${report.proved.length} of ${report.totalJourneys} can tell the screen after the write from the screen before it and from a page that never loaded`);
   for (const gap of report.notProved) console.log(`  not proved — ${gap.name}: ${gap.reason}`);
+  // A floor, not a threshold to relax. CI holds the number that is proved today so it cannot
+  // quietly fall; the gaps stay named and visible in the same breath. Lowering the floor is a
+  // visible edit to the build file, which is what the guard-weakening guard reads.
+  if (Number.isFinite(args.min)) {
+    if (report.proved.length < args.min) {
+      console.error(`this run proves ${report.proved.length}, fewer than the ${args.min} proved when this floor was set`);
+      return 1;
+    }
+    return 0;
+  }
   return report.notProved.length === 0 ? 0 : 1;
 }
 
@@ -127,6 +137,7 @@ function parse(raw) {
   for (let i = 0; i < raw.length; i += 1) {
     if (raw[i] === "--self-test") parsed.selfTest = true;
     else if (raw[i] === "--out") parsed.out = raw[++i];
+    else if (raw[i] === "--min") parsed.min = Number(raw[++i]);
     else throw new Error(`unknown argument: ${raw[i]}`);
   }
   return parsed;

@@ -89,7 +89,7 @@ function ciStepWired(runLocalCiText, ciStep) {
     });
 }
 
-export function validate({ manifest, guardScripts, makeGuardrailsBody, runLocalCiText, owningDocs = new Map() }) {
+export function validate({ manifest, guardScripts, makeGuardrailsBody, runLocalCiText, owningDocs = new Map(), scriptExists = null }) {
   const problems = [];
   const guards = manifest.guards || [];
   const registered = new Set(guards.map((g) => g.script));
@@ -129,6 +129,12 @@ export function validate({ manifest, guardScripts, makeGuardrailsBody, runLocalC
     }
 
     if (g.requiredInCI === true) {
+      // (0) The manifest row must still point at a script that is there. This guard walked
+      // disk -> manifest only, so a script deleted with its row left behind read as registered:
+      // the count stayed right, the name stayed present, and nothing ran.
+      if (scriptExists && g.script && !scriptExists(g.script)) {
+        problems.push(`required guard ${id}: its manifest row points at ${g.script}, which is not in the tree`);
+      }
       // (3) required guard's makeTarget must be wired into `make guardrails`.
       if (g.makeTarget && !makeTargetWired(makeGuardrailsBody, g.makeTarget)) {
         problems.push(`required guard ${id}: makeTarget "${g.makeTarget}" missing from Makefile guardrails: target`);
@@ -317,6 +323,31 @@ function selfTest() {
     throw new Error("self-test: admin-web proof-media owning-doc phrases were not enforced");
   }
 
+  // A manifest row left behind after its script was deleted: the count stays right and nothing
+  // runs. This guard walked disk -> manifest only and could not see it.
+  const strandedRow = validate({
+    manifest: { guards: [{ id: "a", script: "tools/ci/check-a.mjs", makeTarget: "a-guard", selfTest: "x --self-test", owningDoc: "docs/a.md", requiredInCI: true, ciStep: "a-guard" }] },
+    guardScripts: [],
+    makeGuardrailsBody: "\t$(MAKE) a-guard\n",
+    runLocalCiText: 'step "a-guard" make a-guard\n',
+    owningDocs: new Map([["docs/a.md", "a"]]),
+    scriptExists: () => false,
+  });
+  if (!strandedRow.some((p) => p.includes("which is not in the tree"))) {
+    throw new Error("self-test: a manifest row whose script was deleted must be caught");
+  }
+  const presentRow = validate({
+    manifest: { guards: [{ id: "a", script: "tools/ci/check-a.mjs", makeTarget: "a-guard", selfTest: "x --self-test", owningDoc: "docs/a.md", requiredInCI: true, ciStep: "a-guard" }] },
+    guardScripts: [],
+    makeGuardrailsBody: "\t$(MAKE) a-guard\n",
+    runLocalCiText: 'step "a-guard" make a-guard\n',
+    owningDocs: new Map([["docs/a.md", "a"]]),
+    scriptExists: () => true,
+  });
+  if (presentRow.some((p) => p.includes("which is not in the tree"))) {
+    throw new Error("self-test: a row whose script is present must not be reported missing");
+  }
+
   console.log("guardrail-registration guard: self-test passed");
 }
 
@@ -338,6 +369,7 @@ function run() {
     makeGuardrailsBody,
     runLocalCiText,
     owningDocs,
+    scriptExists: (script) => existsSync(resolve(repo, script)),
   });
   if (problems.length > 0) {
     console.error("guardrail-registration guard: FAIL");

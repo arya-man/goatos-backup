@@ -111,7 +111,8 @@
       "selfTest": "node tools/agent-hooks/check-admin-web-request-reads.mjs --self-test",
       "owningDoc": "docs/decisions/high-scale-dashboard-projections.md",
       "requiredInCI": true,
-      "ciStep": "admin-web-request-reads-guard"
+      "ciStep": "admin-web-request-reads-guard",
+      "diffScoped": true
     },
     {
       "id": "admin-web-sectioned-aggregate-reads",
@@ -767,6 +768,17 @@
       "notes": "Every file path hard-coded in a guard script must exist. Closes the class where a guard's input is renamed away and the guard reports ok having read nothing (87 measured (guard,input) pairs across 29 guards, 2026-09-23)."
     },
     {
+      "id": "guard-integrity",
+      "script": "tools/ci/check-guard-integrity.mjs",
+      "makeTarget": "guard-integrity-guard",
+      "realCheck": "node tools/ci/check-guard-integrity.mjs",
+      "selfTest": "node tools/ci/check-guard-integrity.mjs --self-test",
+      "owningDoc": "docs/observability/GUARD_WEAKENING_LEDGER.md",
+      "requiredInCI": true,
+      "ciStep": "guard-integrity-guard",
+      "notes": "Meta-guard. Registration counts NAMES; this one asks whether a target actually runs its script, whether the script does any work at all, and whether any CI path reaches the target. A judge switched a guard off two ways with all three existing meta-guards green: empty the build recipe so it runs nothing, and replace the script's body with a print and an exit. Both leave the file, the manifest row, the target name and the CI step in place. Work is judged by watching the guard READ something - never by counting lines or hashing the file, which a padded file and any honest edit defeat in turn. It also holds a shrink-only floor on how many guards are registered, because a guard removed whole leaves a tree that is internally consistent and no snapshot check can see it."
+    },
+    {
       "id": "guard-weakening",
       "script": "tools/agent-hooks/check-guard-weakening.mjs",
       "makeTarget": "guard-weakening-guard",
@@ -935,7 +947,8 @@
       "owningDoc": ".agents/skills/mobile-anti-patterns/SKILL.md",
       "requiredInCI": true,
       "ciStep": "mobile-contract-ownership-guard",
-      "notes": "Required in Android local CI: backend bootstrap/nav/feature_flags own mobile visibility and execution affordances."
+      "notes": "Required in Android local CI: backend bootstrap/nav/feature_flags own mobile visibility and execution affordances.",
+      "diffScoped": true
     },
     {
       "id": "mobile-list-fetch",

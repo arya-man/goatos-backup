@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { containsUnredactedSecret, redactText } from "./lib/redact.mjs";
+import { enforcedStatementTimeoutMs } from "./check-data-sanity.mjs";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const config = JSON.parse(readFileSync(path.join(repo, "tools/dashboard-automation/config.json"), "utf8"));
@@ -444,8 +445,10 @@ function psqlRows(databaseUrl, sql) {
   };
 }
 
+// This had no statement timeout at all, in a file that queries the database serving the product.
+// The incident's 15 second cap lives in one place; every read-only wrapper now goes through it.
 function readOnlySql(sql) {
-  return `begin read only; set local default_transaction_read_only = on; ${sql}; rollback`;
+  return `begin read only; set local default_transaction_read_only = on; set local statement_timeout = ${enforcedStatementTimeoutMs()}; ${sql}; rollback`;
 }
 
 function assertReadOnlyConnection(name, databaseUrl, required) {
