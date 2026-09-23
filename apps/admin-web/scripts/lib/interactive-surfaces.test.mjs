@@ -14,8 +14,10 @@ import {
   gradeAssertion,
   routeOfPageFile,
   routesOwningFiles,
+  rootLabels,
   scanInteractiveSurfaces,
   validateLedger,
+  VALUE_OPERATORS,
 } from "./interactive-surfaces.mjs";
 
 const file = (path, text) => ({ path, text });
@@ -121,6 +123,7 @@ const SURFACES = scanInteractiveSurfaces([
 ]);
 const KEY = SURFACES[0].key;
 const ROUTES = ["/people"];
+const PRINCIPAL = "the verifier signed in with verification.review";
 const goodAssertion = {
   subject: "the controls on the Access panel",
   operator: "field-set-equals",
@@ -151,7 +154,7 @@ test("not-checked is allowed only with a reason, and counts zero either way", ()
 });
 
 test("covered without a run receipt is not coverage; with one it is", () => {
-  const base = { routes: ROUTES, key: KEY, status: "covered", viewports: ["1440", "390"], assertions: [goodAssertion] };
+  const base = { routes: ROUTES, key: KEY, principal: PRINCIPAL, status: "covered", viewports: ["1440", "390"], assertions: [goodAssertion] };
   const noReceipt = validateLedger(SURFACES, { entries: [base] });
   assert.match(noReceipt.problems.join(" "), /names no run receipt/);
   assert.equal(noReceipt.coverage.covered, 0);
@@ -167,7 +170,7 @@ test("a stated assertion never counts toward coverage, however good it is", () =
   const { problems, coverage } = validateLedger(SURFACES, {
     entries: [
       { routes: ROUTES, key: KEY,
-        status: "stated-not-executed",
+        principal: PRINCIPAL, status: "stated-not-executed",
         viewports: ["1440", "390"],
         notExecutedReason: "the browser lane is disabled",
         assertions: [goodAssertion],
@@ -181,7 +184,7 @@ test("a stated assertion never counts toward coverage, however good it is", () =
 
 test("one viewport is not both viewports unless the gap is named", () => {
   const entry = { routes: ROUTES, key: KEY,
-    status: "stated-not-executed",
+    principal: PRINCIPAL, status: "stated-not-executed",
     notExecutedReason: "lane disabled",
     assertions: [goodAssertion],
     viewports: ["1440"],
@@ -195,7 +198,7 @@ test("a blank-screen-proof assertion drags its whole entry out of coverage", () 
   const { problems, coverage } = validateLedger(SURFACES, {
     entries: [
       { routes: ROUTES, key: KEY,
-        status: "covered",
+        principal: PRINCIPAL, status: "covered",
         viewports: ["1440", "390"],
         receipt: { runId: "r", path: "p" },
         assertions: [{ subject: "the heading", operator: "text-matches", expected: ".*", blankScreenValue: "" }],
@@ -250,7 +253,7 @@ test("a route group is not part of the route, and a dynamic segment is a placeho
 
 test("a surface with no owning route and no reason fails the gate", () => {
   const entry = { routes: ROUTES, key: KEY,
-    status: "stated-not-executed",
+    principal: PRINCIPAL, status: "stated-not-executed",
     viewports: ["1440", "390"],
     notExecutedReason: "lane disabled",
     assertions: [goodAssertion],
@@ -313,4 +316,48 @@ test("provenance pointing at a file that is not in the app, or at an extractor n
   );
   assert.match(deriveExpected({ kind: "source", path: "features/a/panel.tsx", line: 1, extractor: "vibes" }, readSource).error, /not one this gate can run/);
   assert.match(deriveExpected({ kind: "trust me" }, readSource).error, /cannot be re-derived/);
+});
+
+// ---------------------------------------------- role-agnostic pages (judge finding B-1)
+test("an exact set scraped from a component is wrong for a narrower principal; the own-label superset is not", () => {
+  const couldRender = ["Close", "Delete person", "Designation", "Scope"];
+  const narrowerPrincipalSees = ["Close", "Designation", "Scope"];
+  // This is the defect: the page is correct, the person simply cannot delete.
+  assert.equal(VALUE_OPERATORS["field-set-equals"](narrowerPrincipalSees, couldRender), false);
+  assert.equal(VALUE_OPERATORS["field-set-contains-all"](narrowerPrincipalSees, ["Close"]), true);
+  // ...and it still cannot pass on a blank screen, which is the whole point of the gate.
+  assert.equal(VALUE_OPERATORS["field-set-contains-all"]([], ["Close"]), false);
+  assert.equal(VALUE_OPERATORS["field-set-contains-all"](["Close"], []), false, "an empty expectation asserts nothing");
+});
+
+test("an expectation that does not say whose screen it describes is refused", () => {
+  const entry = {
+    routes: ROUTES,
+    key: KEY,
+    status: "stated-not-executed",
+    viewports: ["1440", "390"],
+    notExecutedReason: "lane disabled",
+    assertions: [goodAssertion],
+  };
+  assert.match(validateLedger(SURFACES, { entries: [entry] }).problems.join(" "), /without saying WHOSE screen/);
+  const named = { ...entry, principal: "any principal whose contract lets them open it" };
+  assert.deepEqual(validateLedger(SURFACES, { entries: [named] }).problems, []);
+});
+
+test("only the surface's own opening tag is read, never a child control or a wire field name", () => {
+  const text = [
+    '<aside className="drawer" role="dialog" aria-label="Access" data-testid="access-drawer">',
+    '  <input name="row_version" />',
+    '  {canDelete ? <button aria-label="Delete person">x</button> : null}',
+    "</aside>",
+  ].join("\n");
+  const labels = rootLabels(text, 0);
+  assert.deepEqual(labels, ["Access"]);
+  assert.ok(!labels.includes("Delete person"), "a permission-gated child leaked into the expectation");
+  assert.ok(!labels.includes("row_version"), "a wire field name leaked into what a person reads");
+  assert.ok(!labels.includes("access-drawer"), "a test id leaked into what a person reads");
+});
+
+test("a copy key on the surface's own label is read, because an unresolved contract renders the key", () => {
+  assert.deepEqual(rootLabels('<div role="dialog" aria-label={t("filter.drawer.title")}>', 0), ["filter.drawer.title"]);
 });

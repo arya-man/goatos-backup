@@ -151,6 +151,37 @@ export function labelsNear(text, index, limit = 4000) {
 }
 
 
+/**
+ * Labels on the surface's OWN opening tag. Unconditional by construction: if the panel is
+ * mounted, its own label is on it -- unlike a child control, which may sit behind a permission
+ * or capability gate and legitimately differ per principal (judge B-1).
+ *
+ * Wire-level names -- `name="row_version"`, `data-testid` -- are deliberately NOT read here.
+ * Nobody meets them on a screen, and the contract says a finding names what a person sees.
+ */
+export function rootLabels(text, index) {
+  const window = blankNonMarkup(text).slice(index, index + 500);
+  const closing = window.indexOf(">");
+  const tag = window.slice(0, closing >= 0 ? closing + 1 : 500);
+  const found = new Set();
+  for (const re of [
+    /aria-label=\{?"([^"{}]{2,60})"\}?/g,
+    /title=\{?"([^"{}]{2,60})"\}?/g,
+    /\bariaLabel=\{?"([^"{}]{2,60})"\}?/g,
+    // A copy KEY on the surface's own label. The key is the offline-derivable reference for a
+    // word the page contract supplies at run time; a contract that does not resolve it renders
+    // the raw key, which is exactly the failure this catches.
+    /\b[A-Za-z_$][A-Za-z0-9_$]{0,12}\(\s*"([A-Za-z0-9_-]{2,30}(?:\.[A-Za-z0-9_-]{1,30}){1,5})"/g,
+    /\bcopy\(\s*[A-Za-z0-9_$.]+\s*,\s*"([A-Za-z0-9_.-]{2,60})"/g,
+  ]) {
+    for (const match of tag.matchAll(re)) {
+      const label = (match[1] ?? "").replace(/\s+/g, " ").trim();
+      if (label && !/^\d+$/.test(label)) found.add(label);
+    }
+  }
+  return [...found].sort();
+}
+
 /** Count the times `pattern` appears in the window a surface owns. */
 export function countNear(text, index, pattern, limit = 4000) {
   const window = blankNonMarkup(text).slice(index, index + limit);
@@ -173,6 +204,7 @@ export function deriveExpected(provenance, readFile) {
   const text = readFile(path);
   if (typeof text !== "string") return { error: `names ${JSON.stringify(path)}, which is not a file in the app` };
   const offset = offsetOfLine(text, Number(line));
+  if (extractor === "root-label") return { value: rootLabels(text, offset) };
   if (extractor === "labels-near") return { value: labelsNear(text, offset) };
   if (extractor === "count-matches") {
     if (!pattern) return { error: "uses count-matches without saying what to count" };
@@ -189,6 +221,7 @@ export function deriveExpected(provenance, readFile) {
 export function blankValueFor(operator) {
   switch (operator) {
     case "field-set-equals":
+    case "field-set-contains-all":
       return [];
     case "count-equals":
     case "number-equals":
@@ -216,6 +249,16 @@ export const VALUE_OPERATORS = {
   "count-equals": (actual, expected) => Number(actual) === Number(expected),
   "attribute-equals": (actual, expected) => String(actual) === String(expected),
   "enabled-equals": (actual, expected) => Boolean(actual) === Boolean(expected),
+  // Superset, not equality (judge B-1). Admin-web pages are role-agnostic: the controls a person
+  // meets are compiled from a backend contract against THEIR permissions, so an EXACT set pinned
+  // from component source lists every control the component COULD render and fails on a correct
+  // page for a narrower principal. What a surface owes every principal who can open it is that
+  // its own labels are there.
+  "field-set-contains-all": (actual, expected) => {
+    const have = new Set((Array.isArray(actual) ? actual : [actual]).map(String));
+    const want = Array.isArray(expected) ? expected : [expected];
+    return want.length > 0 && want.every((item) => have.has(String(item)));
+  },
   "field-set-equals": (actual, expected) => {
     const norm = (v) => (Array.isArray(v) ? [...v].map(String).sort() : [String(v)]);
     const a = norm(actual);
@@ -367,6 +410,17 @@ export function validateLedger(surfaces, ledger, readFile = null) {
           good = false;
           for (const reason of graded.reasons) problems.push(`${entry.key}: assertion ${reason}`);
         }
+      }
+      // Judge B-1: an expectation with no principal is an expectation about nobody. Admin-web
+      // compiles a different contract per permission set, so a set comparison run for the wrong
+      // principal fails in BOTH directions on a correct page.
+      if (!String(entry.principal ?? "").trim()) {
+        good = false;
+        problems.push(
+          `${entry.key} states an expectation without saying WHOSE screen it describes; this product ` +
+            `compiles a different set of controls per principal, so an expectation with no principal ` +
+            `cannot be right or wrong`,
+        );
       }
       const viewports = (entry.viewports ?? []).map(String);
       const missing = REQUIRED_VIEWPORTS.filter((v) => !viewports.includes(v));
