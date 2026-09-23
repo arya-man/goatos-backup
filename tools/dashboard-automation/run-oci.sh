@@ -17,6 +17,44 @@ die() {
   exit 2
 }
 
+# ---------------------------------------------------------------------------
+# ONE SWEEP AT A TIME, EVER.
+#
+# 2026-09-23: agents were run in parallel against production and saturated the
+# API. Its ceiling is 2 instances x 10 concurrent requests = 20 slots; 18 headless
+# browsers plus a latency sweep plus SQL on the primary filled every one of them,
+# the dashboard's own requests queued behind them, and users got backend_down.
+#
+# This lock makes that impossible rather than discouraged. A second sweep does not
+# queue and does not "run a bit slower" -- it refuses and exits. Nothing that talks
+# to production may start while this is held.
+# ---------------------------------------------------------------------------
+LOCK_FILE="${GOATOS_DASHBOARD_LOCK_FILE:-${HOME}/.cache/goatos-dashboard-automation.lock}"
+mkdir -p "$(dirname "$LOCK_FILE")"
+exec 9>"$LOCK_FILE"
+if ! flock -n 9; then
+  holder="$(cat "$LOCK_FILE" 2>/dev/null || true)"
+  die "another sweep is already running${holder:+ (started by ${holder})}; refusing to run a second one against production"
+fi
+echo "pid $$ on $(hostname) at $(date -u +%FT%TZ)" >&9 2>/dev/null || true
+
+# Refuse to start if anything is already driving a browser at production: a stale
+# sweep, a hand-run script, or an agent. Stopping the parent is not enough -- the
+# browsers outlive it, which is exactly how this was missed the first time.
+stray_browsers="$(pgrep -c -f "headless_shell|chrome-linux/chrome" 2>/dev/null || echo 0)"
+if [ "${stray_browsers:-0}" -gt 0 ]; then
+  die "${stray_browsers} browser process(es) are already running; refusing to add production load. Stop them, then rerun."
+fi
+
+# Cap how much this sweep may ask of production at once, well under the API's
+# 20-slot ceiling so the dashboard always has room to answer a real person.
+export GOATOS_SMOKE_MAX_CONCURRENCY="${GOATOS_SMOKE_MAX_CONCURRENCY:-4}"
+export GOATOS_SMOKE_REQUEST_DELAY_MS="${GOATOS_SMOKE_REQUEST_DELAY_MS:-150}"
+# Any SQL this sweep runs is against the PRIMARY, not a standby: pg_is_in_recovery()
+# is false on GOATOS_STG_READONLY_DATABASE_URL. Cap it so a check can never become a
+# long scan on the database serving the product.
+export PGOPTIONS="${PGOPTIONS:--c statement_timeout=15000 -c idle_in_transaction_session_timeout=15000}"
+
 case "$MODE" in
   production-smoke|post-main-certification) ;;
   *) die "unsupported GOATOS_DASHBOARD_AUTOMATION_MODE=${MODE}" ;;
