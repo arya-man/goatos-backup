@@ -182,12 +182,25 @@ WHERE tenant_id=$1::uuid AND type_key=$2`
 	// sqlDiagnosisTypeStatus
 	// Does this farm actually have this stage? The write refuses one it does not, because a route
 	// on an unknown stage matches nothing for ever and reports it as a zero.
+	// A STAGE THIS FARM USES IS ONE ITS ANIMALS ARE ON, not only one its catalog bands.
+	//
+	// The catalog's own age_band is blank on real rows -- ICU-Kid, with 25 live kids -- so keying
+	// the check on it alone refused a stage the console itself reports as a gap and now offers in
+	// the picker. Three places asked the same question from two sources: the gap list derived the
+	// band from the ANIMALS, the picker from the catalog, and this write from the catalog again.
+	// The animals are the authority the diagnosis engine itself resolves against, so they are the
+	// authority here too.
 	sqlStageExists = `
 SELECT EXISTS (
   SELECT 1 FROM animal_stage_lookup
    WHERE tenant_id=$1::uuid AND status='active'
      AND lower(coalesce(age_band,''))=$2
-     AND lower(btrim(stage_code))=$3)`
+     AND lower(btrim(stage_code))=$3)
+    OR EXISTS (
+  SELECT 1 FROM goats g
+   WHERE g.tenant_id=$1::uuid AND g.lifecycle_status='alive'
+     AND lower(coalesce(g.age_band,''))=$2
+     AND lower(btrim(coalesce(g.management_stage,'')))=$3)`
 
 	sqlDiagnosisTypeStatus = `
 SELECT status FROM health_diagnosis_types

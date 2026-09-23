@@ -427,4 +427,24 @@ func TestAStageTheConsoleCallsAGapCanBeMappedFromTheConsole(t *testing.T) {
 	if !offered {
 		t.Fatal("the console names icu-kid as a gap and will not offer it in the picker; the manager cannot fix what they are shown")
 	}
+
+	// AND THE WRITE MUST ACCEPT WHAT THE PICKER OFFERS. Offering a stage the server then refuses
+	// is worse than not offering it: the manager taps Save, nothing happens, and no request they
+	// can see failed. That shipped -- the picker was fixed and the write was not.
+	if _, err := repo.SaveStageRoute(ctx, domain.SaveStageRouteCommand{
+		TenantID: healthTenant, ActorID: healthActor, IdempotencyKey: "route-icu",
+		RequestFingerprint: "fp-route-icu", AgeBand: "kid", StageCode: "icu-kid", TypeKey: "adult",
+	}); err != nil {
+		t.Fatalf("saving the route the picker offered: %v", err)
+	}
+
+	after, err := repo.DiagnosisRouting(ctx, healthTenant)
+	if err != nil {
+		t.Fatalf("re-read the routing view: %v", err)
+	}
+	for _, g := range after.UnroutedStages {
+		if g.StageCode == "icu-kid" {
+			t.Fatal("icu-kid is still reported as a gap after being mapped")
+		}
+	}
 }
