@@ -1,0 +1,109 @@
+{
+  "description": "Lane 6 (delta) — the bounded set of readings taken once a business day, so that tomorrow's reading can be compared with today's and the CHANGE judged legal or not. Every section is one capped read. Aggregate sections describe a standing state (how many animals stand in each pen); movement sections describe what happened since the previous snapshot and are bounded by that cutoff, so a daily snapshot reads a day's worth of movement and never a history. Nothing here writes, and nothing here is stored in the product's database.",
+  "maxRowsPerSection": 2000,
+  "statementTimeoutMs": 15000,
+  "sections": [
+    {
+      "name": "pen_live_counts",
+      "kind": "standing",
+      "describes": "how many living animals stand in each pen",
+      "sql": "select g.tenant_id::text as farm, g.park_id::text as park, g.shed_id::text as pen_shed, coalesce(p.partition_label, 'whole') as pen_part, count(*)::text as living from goats g left join goat_shed_partitions p on p.tenant_id = g.tenant_id and p.goat_id = g.goat_id where g.merged_into_goat_id is null and g.lifecycle_status = 'alive' and g.shed_id is not null group by g.tenant_id, g.park_id, g.shed_id, coalesce(p.partition_label, 'whole') order by g.tenant_id, g.park_id, g.shed_id, 4 limit 2000"
+    },
+    {
+      "name": "living_total",
+      "kind": "standing",
+      "describes": "how many living animals the farm holds in total",
+      "sql": "select tenant_id::text as farm, count(*)::text as living from goats where merged_into_goat_id is null and lifecycle_status = 'alive' group by tenant_id order by tenant_id limit 50"
+    },
+    {
+      "name": "exited_animals_open_vaccination",
+      "kind": "movement",
+      "describes": "animals that have left the herd recently, and how much vaccination work is still open against each of them",
+      "sql": "select g.tenant_id::text as farm, g.goat_id::text as animal, g.display_id as animal_label, g.lifecycle_status as state, (g.exited_at at time zone 'Asia/Kolkata')::date::text as left_on, count(o.obligation_id)::text as still_open from goats g left join obligation_instances o on o.tenant_id = g.tenant_id and o.target_id = g.goat_id and o.status in ('scheduled', 'due', 'in_progress') where g.merged_into_goat_id is null and g.exited_at is not null and (g.exited_at at time zone 'Asia/Kolkata')::date >= $SINCE::date group by g.tenant_id, g.goat_id, g.display_id, g.lifecycle_status, 5 order by g.tenant_id, g.goat_id limit 2000"
+    },
+    {
+      "name": "sale_allocations",
+      "kind": "movement",
+      "describes": "animals tagged to a sale recently, by the pen they stood in and the moment they were tagged",
+      "sql": "select a.tenant_id::text as farm, a.park_id::text as park, a.shed_id::text as pen_shed, coalesce(nullif(btrim(a.partition_label), ''), 'whole') as pen_part, (a.allocated_at at time zone 'Asia/Kolkata')::date::text as sold_on, to_char(a.allocated_at at time zone 'Asia/Kolkata', 'HH24:MI') as sold_at_time, count(*)::text as animals from goat_sale_allocations a where a.status = 'allocated' and (a.allocated_at at time zone 'Asia/Kolkata')::date >= $SINCE::date group by a.tenant_id, a.park_id, a.shed_id, 4, 5, 6 order by a.tenant_id, a.park_id, a.shed_id, 5 limit 2000"
+    },
+    {
+      "name": "park_feed_clocks",
+      "kind": "standing",
+      "describes": "the hour each farm batches its feed corrections, which decides how soon a sale can change a pen's feed",
+      "sql": "select tenant_id::text as farm, park_id::text as park, workflow, to_char(correction_time, 'HH24:MI') as corrects_at from feed_schedule_config where valid_from <= (now() at time zone 'Asia/Kolkata')::date and (valid_to is null or valid_to > (now() at time zone 'Asia/Kolkata')::date) order by tenant_id, park_id, workflow limit 500"
+    },
+    {
+      "name": "feed_pen_head_counts",
+      "kind": "standing",
+      "describes": "how many mouths each pen's feed sheet was written for, on each recent feed day",
+      "sql": "select r.tenant_id::text as farm, r.park_id::text as park, r.shed_id::text as pen_shed, i.feed_day::text as feed_day, i.workflow, max(r.head_count)::text as mouths from feed_direction_issue_rows r join feed_direction_issues i on i.tenant_id = r.tenant_id and i.feed_direction_issue_id = r.feed_direction_issue_id where i.feed_day >= $SINCE::date - 1 and i.feed_day <= (now() at time zone 'Asia/Kolkata')::date + 3 group by r.tenant_id, r.park_id, r.shed_id, i.feed_day, i.workflow order by r.tenant_id, r.park_id, r.shed_id, i.feed_day limit 2000"
+    },
+    {
+      "name": "shifting_raised",
+      "kind": "movement",
+      "describes": "pen moves raised recently, with the moment they were raised and the day the farm treats them as taking effect",
+      "sql": "select s.tenant_id::text as farm, s.shifting_event_id::text as move, s.priority, coalesce(s.category, '') as move_kind, (s.raised_at at time zone 'Asia/Kolkata')::date::text as raised_on, to_char(s.raised_at at time zone 'Asia/Kolkata', 'HH24:MI') as raised_at_time, (s.effective_at at time zone 'Asia/Kolkata')::date::text as effective_on, s.event_status as state from shifting_events s where (s.raised_at at time zone 'Asia/Kolkata')::date >= $SINCE::date order by s.tenant_id, s.raised_at limit 2000"
+    },
+    {
+      "name": "weighing_buckets",
+      "kind": "standing",
+      "describes": "every weighing job and the state it is in",
+      "sql": "select s.tenant_id::text as farm, s.campaign_shed_id::text as job, s.status as state, s.display_name as pen_label from weighing_campaign_sheds s where s.status <> 'cancelled' order by s.tenant_id, s.campaign_shed_id limit 2000"
+    },
+    {
+      "name": "weighing_review_items",
+      "kind": "standing",
+      "describes": "the weighing videos waiting on a reviewer, and the ones already decided, per weighing job",
+      "sql": "select v.tenant_id::text as farm, v.source_ref_id::text as job, count(*) filter (where v.status = 'pending')::text as waiting, count(*)::text as altogether from verification_items v where v.source_module = 'weighing' and v.source_ref_id is not null group by v.tenant_id, v.source_ref_id order by v.tenant_id, v.source_ref_id limit 2000"
+    },
+    {
+      "name": "feed_loads_reached",
+      "kind": "movement",
+      "describes": "feed loads recorded as having arrived at the farm recently",
+      "sql": "select f.tenant_id::text as farm, f.feed_purchase_id::text as load, f.feed_item_key as feed, f.farm_label as farm_label, f.reached_on::text as arrived_on from feed_purchases f where f.delivery_status = 'reached' and f.reached_on is not null and f.reached_on >= $SINCE::date - 7 order by f.tenant_id, f.reached_on, f.feed_purchase_id limit 2000"
+    },
+    {
+      "name": "toxin_rounds",
+      "kind": "standing",
+      "describes": "the aflatoxin test rounds a recently arrived feed load carries",
+      "sql": "select t.tenant_id::text as farm, t.feed_purchase_id::text as load, count(*)::text as rounds, count(*) filter (where t.status in ('in_progress', 'pending_review'))::text as live_rounds, count(*) filter (where t.status = 'accepted')::text as accepted_rounds from toxin_test_tasks t where t.purchase_date >= $SINCE::date - 40 group by t.tenant_id, t.feed_purchase_id order by t.tenant_id, t.feed_purchase_id limit 2000"
+    },
+    {
+      "name": "pen_care_submitted",
+      "kind": "movement",
+      "describes": "the pens where preventive-care work was handed in recently, and the day it was handed in",
+      "sql": "select v.tenant_id::text as farm, v.park_id::text as park, v.shed_id::text as pen_shed, (v.captured_at at time zone 'Asia/Kolkata')::date::text as worked_on, count(*)::text as handovers from verification_items v where v.category in ('vaccination_proof', 'pc_care') and v.park_id is not null and v.shed_id is not null and (v.captured_at at time zone 'Asia/Kolkata')::date >= $SINCE::date - 1 group by v.tenant_id, v.park_id, v.shed_id, 4 order by v.tenant_id, v.park_id, v.shed_id, 4 limit 2000"
+    },
+    {
+      "name": "pen_visit_tasks",
+      "kind": "standing",
+      "describes": "the pen visits the farm owes, the day the work that triggered each one was handed in, and who owes it",
+      "sql": "select t.tenant_id::text as farm, t.park_id::text as park, t.shed_id::text as pen_shed, t.source_business_date::text as worked_on, t.due_business_date::text as owed_on, t.work_state as state from pen_visit_tasks t where t.source_business_date >= $SINCE::date - 3 order by t.tenant_id, t.park_id, t.shed_id, t.source_business_date limit 2000"
+    },
+    {
+      "name": "pen_visit_visitors",
+      "kind": "standing",
+      "describes": "the people each farm has named to walk its pens",
+      "sql": "select a.tenant_id::text as farm, a.park_id::text as park, a.user_id::text as visitor from pen_visit_park_assignees a order by a.tenant_id, a.park_id, a.user_id limit 500"
+    },
+    {
+      "name": "drive_progress",
+      "kind": "standing",
+      "describes": "how far each vaccination round has got: animals planned, and animals whose work is in",
+      "sql": "select a.tenant_id::text as farm, a.batch_id::text as round, a.planned_date::text as planned_for, count(distinct m.goat_id)::text as animals, count(distinct m.goat_id) filter (where o.status = 'completed')::text as done from vaccination_drive_assignments a join vaccination_drive_assignment_members m on m.tenant_id = a.tenant_id and m.assignment_id = a.assignment_id join obligation_instances o on o.tenant_id = m.tenant_id and o.obligation_id = m.obligation_id where a.planned_date >= $SINCE::date - 30 group by a.tenant_id, a.batch_id, a.planned_date order by a.tenant_id, a.batch_id, a.planned_date limit 2000"
+    },
+    {
+      "name": "open_workflow_sop_pins",
+      "kind": "standing",
+      "describes": "each birth or death workflow still being worked, and the version of the written procedure it was opened on",
+      "sql": "select w.tenant_id::text as farm, w.workflow_id::text as workflow, w.template_key as kind, w.state, coalesce(w.sop_version_id::text, '') as procedure_version, (w.created_at at time zone 'Asia/Kolkata')::date::text as opened_on from workflow_instances w where w.state not in ('completed', 'cancelled', 'canceled') order by w.tenant_id, w.workflow_id limit 2000"
+    },
+    {
+      "name": "sop_publishes",
+      "kind": "standing",
+      "describes": "the written procedures the farm has published, and when each became the current one",
+      "sql": "select v.tenant_id::text as farm, v.sop_id::text as procedure, v.sop_version_id::text as procedure_version, v.version::text as version_no, v.status, coalesce((v.published_at at time zone 'Asia/Kolkata')::date::text, '') as published_on from sop_versions v where v.status in ('published', 'retired') order by v.tenant_id, v.sop_id, v.version limit 2000"
+    }
+  ]
+}

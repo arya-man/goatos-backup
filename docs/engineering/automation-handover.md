@@ -155,6 +155,7 @@ claim of 90%. Weighing/vaccination **18.8%**, raised to 23.0% by work done.
 | 3 API contracts | GET-only shape + p95 latency, 58 endpoints | default on | **12 real findings** |
 | 4 write journeys | 9 journeys on the OCI clone, snapshot→write→assert→restore | default OFF | DB half yes, screen half 1 of 9 |
 | 5 Android | 47 journeys, Firebase Test Lab virtual | default OFF | **0 of 47 — harness works, lane proves nothing** |
+| 6 delta | day-over-day: was the overnight change LEGAL? 17 readings, 11 transition checks | never run live | **11 of 11 mutation-proven; never run against stg** |
 
 **Lane 2's live findings (real, on production data).** Numbers below are the ones with a stored
 receipt in `scratchpad/lane2-run/data-sanity.json`; an independent verification pass found several
@@ -175,6 +176,15 @@ history-mined checks, if enabled, produce **1,184 false findings against those 1
 99:1 ratio. They are parked behind `GOATOS_DASHBOARD_API_CONTRACTS_INCLUDE_HISTORY=1`. Do not
 enable them without measuring first. Judge finding J-010 records the same shape for 57
 history-derived `absent` assertions aimed at the alert channel.
+
+**Lane 6, new and not yet run live.** Lane 2 asks whether the data is right now; lane 6 asks whether
+it changed legally overnight — read-only, so it can run against real data, and reaching every
+animal, pen, load and day rather than only scripted screens. A daily snapshot of 17 bounded
+readings is stored OUTSIDE the product database; eleven checks then judge the change between two
+of them, each derived from a rule already written in `AGENTS.md`. It reuses lane 2's lock,
+read-only transaction, timeout and row cap unchanged. **It has never been run against stg** — the
+first live run is one supervised cycle, per §1. Full contract, the four outcomes, the
+comparability refusals and what is not derivable: `docs/engineering/lane6-delta.md`.
 
 **Lane 5's honest position:** its Kotlin could never launch the app on **any** virtual device —
 `monkey -c LAUNCHER` exits -5 without starting it, so four cold-boot tests were reading the
