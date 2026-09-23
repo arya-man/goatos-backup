@@ -6873,7 +6873,10 @@ ON CONFLICT (tenant_id, idempotency_key) DO NOTHING`,
 		RequestHash:    "mark-completed:" + obligationID,
 	}); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return false, fmt.Errorf("obligation: completed idempotency key already reserved")
+			if cerr := tx.Commit(ctx); cerr != nil {
+				return false, fmt.Errorf("obligation: commit completed idempotency replay: %w", cerr)
+			}
+			return true, nil
 		}
 		return false, fmt.Errorf("obligation: reserve completed idempotency key: %w", err)
 	}

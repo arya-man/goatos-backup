@@ -68,3 +68,8 @@ interface RfidReaderPort {
     /** Feed a hardware key event; returns true if consumed as (part of) a tag read. */
     fun onKeyEvent(event: KeyEvent): Boolean
 }
+
+/** Debug-build E2E hook implemented by the production adapter, used only from src/debug. */
+interface DebugRfidReadInjector {
+    fun injectCompletedReadForE2E(tag: String): Boolean
+}

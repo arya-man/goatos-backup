@@ -48,10 +48,10 @@ member_assigned AS (
 legacy_assigned AS (
     SELECT a.tenant_id, a.operator_id, a.park_id, a.shed_id,
            NULLIF(a.partition_label, 'whole') AS partition_label, a.planned_date,
-           COALESCE(SUM(a.animal_count), 0)::bigint AS assigned_animals,
-           COALESCE(SUM(a.animal_count) FILTER (WHERE b.status IN ('planned','in_progress')), 0)::bigint AS due,
-           COALESCE(SUM(a.animal_count) FILTER (WHERE b.status = 'completed'), 0)::bigint AS done,
-           COALESCE(SUM(a.animal_count) FILTER (
+           COALESCE(MAX(a.animal_count), 0)::bigint AS assigned_animals,
+           COALESCE(MAX(a.animal_count) FILTER (WHERE b.status IN ('planned','in_progress')), 0)::bigint AS due,
+           COALESCE(MAX(a.animal_count) FILTER (WHERE b.status = 'completed'), 0)::bigint AS done,
+           COALESCE(MAX(a.animal_count) FILTER (
                WHERE b.status IN ('planned','in_progress')
                  AND a.planned_date < (now() AT TIME ZONE 'Asia/Kolkata')::date
            ), 0)::bigint AS overdue,

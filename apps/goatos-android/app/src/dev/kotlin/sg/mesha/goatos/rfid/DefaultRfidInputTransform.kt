@@ -17,11 +17,28 @@ class DefaultRfidInputTransform @Inject constructor() : RfidInputTransform {
     override fun vaccination(rawRfid: String, shedId: String): String {
         val value = rawRfid.trim()
         if (value.isBlank()) return rawRfid
+        if (!isPhoneFixtureSampleCard(value)) return rawRfid
         val prefix = phoneFixtureShedPrefixes[shedId] ?: return rawRfid
         return prefix + value
     }
 
     private companion object {
+        fun isPhoneFixtureSampleCard(value: String): Boolean {
+            val normalized = value.filter { it.isLetterOrDigit() }.lowercase()
+            return normalized in phoneFixtureSampleCards
+        }
+
+        // Dev phone-QA cards only. Real-looking animal RFIDs must pass through unchanged so the
+        // active roster can reject wrong-shed or duplicate raw tags instead of silently prefixing
+        // them into the current shed.
+        val phoneFixtureSampleCards = setOf(
+            "tempcptcastro1001",
+            "tempcptcastro1002",
+            "tempcptcastro1003",
+            "tempcptcastro1004",
+            "tempcptcastro1005",
+        )
+
         val phoneFixtureShedPrefixes = mapOf(
             // Godel 1 (CBE) holds the raw tags, so it is intentionally absent from this map.
             "91000000-0000-4000-8000-000000000203" to "Y1-", // Yashoda 1 (CBE)

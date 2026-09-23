@@ -17,6 +17,8 @@ tenant_id="${GOATOS_TENANT_ID:-00000000-0000-4000-8000-000000000001}"
 user_id="${GOATOS_LOCAL_USER_ID:-90000000-0000-4000-8000-000000000202}"
 allowed_user_id="90000000-0000-4000-8000-000000000202"
 allowed_amit_user_id="90000000-0000-4000-8000-000000000201"
+allowed_sagar_user_id="90000000-0000-4000-8000-000000000204"
+allowed_ceo_user_id="90000000-0000-4000-8000-000000000101"
 adb_serial=""
 allowed_serial="${GOATOS_PHONE_QA_ALLOWED_SERIAL:-143382555G111292}"
 allowed_android_user="${GOATOS_PHONE_QA_ALLOWED_ANDROID_USER:-10}"
@@ -38,8 +40,8 @@ log() { printf '[phone-qa] %s\n' "$*"; }
 
 [ -n "${DATABASE_URL:-}" ] || die "DATABASE_URL is required"
 case "$user_id" in
-  "$allowed_user_id"|"$allowed_amit_user_id") ;;
-  *) die "refusing phone E2E app user '$user_id'; expected Pramod $allowed_user_id or Amit $allowed_amit_user_id" ;;
+  "$allowed_user_id"|"$allowed_amit_user_id"|"$allowed_sagar_user_id"|"$allowed_ceo_user_id") ;;
+  *) die "refusing phone E2E app user '$user_id'; expected Pramod $allowed_user_id, Amit $allowed_amit_user_id, Sagar $allowed_sagar_user_id, or CEO $allowed_ceo_user_id" ;;
 esac
 [ "$adb_serial" = "$allowed_serial" ] || die "refusing phone E2E serial '${adb_serial:-<missing>}'; expected $allowed_serial"
 foreground_user="$(adb -s "$adb_serial" shell am get-current-user 2>/dev/null | tr -d '\r' | head -1 || true)"
@@ -49,6 +51,11 @@ case "$DATABASE_URL" in
   *127.0.0.1:15544/*|*localhost:15544/*) ;;
   *127.0.0.1:15432/goatos_e2e_*|*localhost:15432/goatos_e2e_*) ;;
   *) die "refusing DATABASE_URL outside local throwaway port 15544 or OCI goatos_e2e_* tunnel: ${DATABASE_URL%%\?*}" ;;
+esac
+database_health_pattern="$database_target"
+case "$database_target" in
+  127.0.0.1:15544/*|localhost:15544/*) database_health_pattern="15544" ;;
+  127.0.0.1:15432/goatos_e2e_*|localhost:15432/goatos_e2e_*) database_health_pattern="${database_target#*:15432/}" ;;
 esac
 
 mkdir -p "$(dirname "$api_bin")" "$api_log_dir" "$(dirname "$plist")"
@@ -77,8 +84,16 @@ if [ "$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:${GOATOS_PHONE_
   running_db="$(printf '%s\n' "$running_env" | grep -o 'DATABASE_URL => [^ ]*' | cut -d' ' -f3 || true)"
   running_public_base="$(printf '%s\n' "$running_env" | grep -o 'GOATOS_API_PUBLIC_BASE_URL => [^ ]*' | cut -d' ' -f3 || true)"
   case "$running_db:$running_public_base" in
-    *15544*:"$public_base_url") api_healthy=1 ;;
+    *"$database_health_pattern"*:"$public_base_url") api_healthy=1 ;;
   esac
+  if [ "$api_healthy" != "1" ]; then
+    api_pid="$(lsof -ti tcp:"${GOATOS_PHONE_QA_PORT:-8081}" -sTCP:LISTEN 2>/dev/null | head -1 || true)"
+    api_env="$(ps eww -p "${api_pid:-0}" -o command= 2>/dev/null || true)"
+    case "$api_env" in
+      *goatos-api-phone-qa*DATABASE_URL=*"${database_health_pattern}"*GOATOS_API_PUBLIC_BASE_URL="$public_base_url"*) api_healthy=1 ;;
+      *goatos-api-phone-qa*GOATOS_API_PUBLIC_BASE_URL="$public_base_url"*DATABASE_URL=*"${database_health_pattern}"*) api_healthy=1 ;;
+    esac
+  fi
 fi
 
 if [ "$api_healthy" = "1" ]; then
@@ -102,8 +117,10 @@ case "$host_port" in
 esac
 pid="$(lsof -ti tcp:"$host_port" -sTCP:LISTEN 2>/dev/null | head -1 || true)"
 if [ -n "$pid" ]; then
-  # Only ever reclaim OUR OWN phone-qa API. Any other holder is someone else's work.
-  if ps -o command= -p "$pid" 2>/dev/null | grep -q 'goatos-api-phone-qa'; then
+  if [ "$api_healthy" = "1" ]; then
+    log "phone-QA API already owns port $host_port (pid $pid); preserving it for existing devices"
+  elif ps -o command= -p "$pid" 2>/dev/null | grep -q 'goatos-api-phone-qa'; then
+    # Only ever reclaim OUR OWN phone-qa API. Any other holder is someone else's work.
     log "reclaiming port $host_port from a previous phone-qa API (pid $pid)"
     launchctl bootout "$launch_domain/$label" >/dev/null 2>&1 || true
     kill "$pid" >/dev/null 2>&1 || true
@@ -255,5 +272,6 @@ GOATOS_LOCAL_USER_ID="$user_id" \
 GOATOS_TENANT_ID="$tenant_id" \
 DATABASE_URL="$DATABASE_URL" \
 GOATOS_ENV="${GOATOS_ENV:-local}" \
+GOATOS_PHONE_QA_PORT="$host_port" \
 GOATOS_ANDROID_INSTALL_USER="$allowed_android_user" \
 "$repo_root/tools/dev/android-dev-run.sh" "$@"

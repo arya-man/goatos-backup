@@ -62,6 +62,15 @@ class RfidKeyboardCapture(
         return true
     }
 
+    /** Debug/E2E seam: injects one completed tag without going through key-event character loss. */
+    fun injectCompletedRead(tag: String, deviceName: String? = "debug-rfid"): Boolean {
+        if (!enabled) return false
+        val trimmed = tag.trim()
+        if (trimmed.isEmpty()) return false
+        _reads.tryEmit(RfidRead(tag = trimmed, deviceName = deviceName, capturedAtDeviceMs = nowMs()))
+        return true
+    }
+
     private fun isCompletionKey(e: KeyEvent): Boolean =
         e.keyCode == KeyEvent.KEYCODE_ENTER ||
             e.keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER ||

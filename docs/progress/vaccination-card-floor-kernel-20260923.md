@@ -110,3 +110,23 @@
 - Green: `go test ./internal/vaccinationexecution/... -count=1`.
 - Green focused: `go test ./internal/vaccinationexecution/domain ./internal/vaccinationexecution/app ./internal/vaccinationexecution/adapters/http ./internal/vaccinationexecution/adapters/postgres -run 'TestScanRoster|TestVaccinationExecutionDeploymentContracts' -count=1`.
 - Postgres integration fixture added for two active members from source batches A/B with only batch A owning the SOP task, plus one canceled member. Docker was unavailable, so the final run used the existing disposable local Postgres on `127.0.0.1:15544`; `GOATOS_RUN_POSTGRES_TESTS=1 ... -run '^TestScanRosterAssignmentIncludesActiveMembersAcrossSourceBatches$' -v` passed.
+
+# Phone proof E2E continuation note (2026-09-24)
+
+- Rebuilt and installed `devDebug` on physical Infinix serial `143382555G111292`, Android user `10`, against local throwaway Postgres/API (`127.0.0.1:15544` / app reverse to API `8081`).
+- Reseeded the five-shed phone-QA fixture with one-, two-, and three-vaccine animals. Gandhi 2 carries three animals and three vaccines per animal (`PPR`, `FMD`, `HS`).
+- Visual evidence:
+  - `tmp/e2e-screens/operator-after-permissions-amstart.png`: worklist shows one Gandhi 2 card with `3 doses`, plus one/two-vaccine cards for adjacent sheds.
+  - `tmp/e2e-screens/operator-gandhi2-scan-open.png`: tapping Gandhi 2 opens the scan screen with `0/3`, not a taskless record screen.
+  - `tmp/e2e-screens/operator-gandhi2-after-raw-rfid-fixed.png`: raw duplicate-looking RFID `901007000504418` is rejected as `Unknown tag · not in this shed`; camera does not open.
+  - `tmp/e2e-screens/operator-gandhi2-after-three-valid-tags.png`: three valid prefixed RFIDs complete Gandhi 2 as `3/3`, `3 DONE`, `0 PENDING`; visible proof rows show `Proof synced`.
+- Device event evidence includes `proof_processing_completed`, `proof_gallery_save_started`, `proof_gallery_save_completed`, `proof_upload_registered`, `proof_upload_started`, transient `sync_write_attempt_failed` for `PROOF_UPLOAD` with `HttpException`, retry success on attempt `3/8`, `proof_upload_completed`, and per-obligation `SCAN_CAPTURE` success.
+- DB readback on the throwaway database for Gandhi 2 / task `91000000-0000-4000-8000-000000000702`:
+  - `obligation_instances`: 9 rows, 3 animals, 9 completed, vaccines `FMD,HS,PPR`.
+  - `vaccination_completions`: 9 rows, 3 animals, 9 recorded.
+  - `proof_artifacts`: 3 completed local video proofs, one per animal, each with `field_key=vaccination_goat_proof`, the prefixed `rfid_tag`, `capture_source=in_app_camera`, and all three `obligation_cycles`.
+- Additional focused guards after these edits:
+  - `cd backend && go test ./internal/vaccination/adapters/postgres ./internal/vaccination/app ./internal/obligation/adapters/postgres ./internal/ceoai/reporting`
+  - `cd apps/goatos-android && ANDROID_HOME=/Users/raviteja/Library/Android/sdk ./gradlew :app:testDevDebugUnitTest --no-configuration-cache --tests 'sg.mesha.goatos.rfid.DefaultRfidInputTransformTest' --tests 'sg.mesha.goatos.viewmodel.ShedsExecutionIdentityTest' --stacktrace`
+  - `cd apps/goatos-android && ANDROID_HOME=/Users/raviteja/Library/Android/sdk ./gradlew :core:core-data:testDebugUnitTest --no-configuration-cache --tests 'sg.mesha.goatos.core.data.ScanRosterRejectionBugTest' --stacktrace`
+- Remaining before promotion: final diff review, `git diff --check`, final PR push, and judge reread of the pushed diff.

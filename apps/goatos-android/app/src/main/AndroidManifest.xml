@@ -158,18 +158,14 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
-        <!-- Disable WorkManager's default on-startup initializer: GoatOsApplication implements
-             Configuration.Provider to supply a Hilt HiltWorkerFactory (on-demand init), so the
-             default initializer must NOT run first with a factory that can't build @HiltWorker. -->
+        <!-- Disable AndroidX Startup for this app process. WorkManager must initialize on demand
+             through GoatOsApplication's Configuration.Provider so it receives the Hilt
+             HiltWorkerFactory; leaving the empty Startup provider installed can still execute
+             before the app class and crash if its generated resource class is not in primary dex. -->
         <provider
             android:name="androidx.startup.InitializationProvider"
             android:authorities="${applicationId}.androidx-startup"
             android:exported="false"
-            tools:node="merge">
-            <meta-data
-                android:name="androidx.work.WorkManagerInitializer"
-                android:value="androidx.startup"
-                tools:node="remove" />
-        </provider>
+            tools:node="remove" />
     </application>
 </manifest>

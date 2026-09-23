@@ -30,7 +30,7 @@ import kotlinx.coroutines.flow.asStateFlow
 class KeyboardWedgeRfidReader(
     context: Context,
     private val nameHints: List<String> = RfidReaderNameMatcher.DEFAULT_HINTS,
-) : RfidReaderPort {
+) : RfidReaderPort, DebugRfidReadInjector {
 
     private val context = context.applicationContext
     private val capture = RfidKeyboardCapture()
@@ -100,6 +100,8 @@ class KeyboardWedgeRfidReader(
     }
 
     override fun onKeyEvent(event: KeyEvent): Boolean = capture.onKeyEvent(event)
+
+    override fun injectCompletedReadForE2E(tag: String): Boolean = capture.injectCompletedRead(tag)
 
     override fun setCaptureEnabled(enabled: Boolean) {
         if (!enabled || !capture.enabled) capture.resetBufferedRead()

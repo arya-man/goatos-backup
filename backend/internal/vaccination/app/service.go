@@ -28,6 +28,7 @@ type anchorObligationSuppressor interface {
 
 type proofObligationCompleter interface {
 	MarkCompleted(ctx context.Context, tenantID, obligationID string) (bool, error)
+	IsCompleted(ctx context.Context, tenantID, obligationID string) (bool, error)
 }
 
 type anchorRepository interface {
@@ -231,6 +232,16 @@ func (s *Service) OnProofCompleted(ctx context.Context, proof proofdomain.Artifa
 		}
 		seen[completion.ObligationID] = struct{}{}
 		if _, err := s.proofObligations.MarkCompleted(ctx, proof.TenantID, completion.ObligationID); err != nil {
+			if completed, readErr := s.proofObligations.IsCompleted(ctx, proof.TenantID, completion.ObligationID); readErr == nil && completed {
+				s.log.Warn("vaccination proof completion obligation close replayed after completed readback",
+					"tenant_id", proof.TenantID,
+					"proof_id", proof.ProofID,
+					"task_id", proof.ScopeID,
+					"goat_id", completion.GoatID,
+					"obligation_id", completion.ObligationID,
+					"error", err)
+				continue
+			}
 			s.log.Error("vaccination proof completion obligation close failed",
 				"tenant_id", proof.TenantID,
 				"proof_id", proof.ProofID,
