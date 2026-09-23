@@ -56,6 +56,17 @@ try {
   const runtimePrereqOk = staticOk && ociFreeOk && (receipt.runtimePolicy.dataParityRequiredBeforeBrowser === false || (fullParityReceiptOk && dataParityOk));
   if (!runtimePrereqOk) {
     receipt.runtimePolicy.browserSmoke = "not_run";
+    // A layer that never reached its turn must SAY it did not run. Before this,
+    // a failed prerequisite made lane 2 vanish from the receipt entirely, which
+    // reads to a later reader as a lane that has nothing to report.
+    for (const skipped of layersAfterPrerequisites()) {
+      receipt.layers.push({
+        name: skipped,
+        authority: "deterministic",
+        status: "not_run",
+        reason: "a required deterministic layer failed, so this layer was never started"
+      });
+    }
     throw new Error("stopping before runtime automation because a required deterministic layer failed");
   }
   if (isWriteJourneys || isProductionSmoke) {
@@ -203,6 +214,16 @@ try {
   if (receipt.status !== "pass") process.exit(1);
 }
 
+// The layers that sit after the deterministic prerequisites and would otherwise
+// leave no trace at all when a prerequisite stops the sweep.
+function layersAfterPrerequisites() {
+  const names = ["firebase-analytics-guard"];
+  if (enabled("GOATOS_DASHBOARD_DATA_SANITY", true)) names.push("data-sanity");
+  if (enabled("GOATOS_DASHBOARD_ANDROID_JOURNEYS", false)) names.push("android-journeys");
+  if (enabled("GOATOS_DASHBOARD_API_CONTRACTS", mode === "production-smoke")) names.push("api-contracts");
+  return names.filter((name) => !receipt.layers.some((entry) => entry.name === name));
+}
+
 function layer(name, authority, fn) {
   const startedAt = new Date().toISOString();
   try {
@@ -226,6 +247,7 @@ function enabled(envName, defaultValue = false) {
 function computeStatus() {
   if (receipt.fatalError) return "fail";
   if (receipt.layers.length === 0) return "fail";
+  if (receipt.layers.some((item) => item.status === "not_run")) return "fail";
   if (receipt.layers.every((item) => item.status === "pass")) return "pass";
   if (mode === "production-smoke" && receipt.runtimePolicy.browserSmoke === "ran_degraded" && productionBrowserSmokePassed() && onlyDegradablePrerequisitesFailed()) {
     return "degraded";
