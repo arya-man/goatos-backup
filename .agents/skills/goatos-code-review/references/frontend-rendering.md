@@ -24,11 +24,34 @@ A raw anchor to an internal route is a full document navigation: the browser
 re-downloads the page, re-runs every Server Component, and discards client state.
 The user paid a page load to switch a tab.
 
-Instance: `apps/admin-web/features/health/health-config.tsx` builds its
-Treatment / Diagnosis tab controls as two `<a className="btn" href={href(...)}>`
-elements, so every tab switch re-downloads the page. The rest of admin-web does
-this correctly — some fifty files navigate through `useRouter` — which is what
-makes the exception invisible until somebody watches the network panel.
+Instance (`origin/main`, 2026-09-23):
+`apps/admin-web/features/health/health-config.tsx:120` is
+
+```tsx
+<a className={tab === "treatment" ? "btn" : "btn ghost"} href={href("treatment")}>
+```
+
+so every Treatment/Diagnosis tab switch re-downloads the page. That file holds five
+such sites (`:120,123,312,454,459`), and the class is **12 uncorrected sites across
+6 files**: the five above plus `leadership-tasks-page.tsx:287,419`,
+`plan-console.tsx:132,289`, `row-drawer.tsx:161`, `health-register.tsx:125` and
+`live-tracker-board.tsx:349`.
+
+Re-derive that number rather than quoting it. Scan every `<a>` tag under
+`apps/admin-web/**/*.tsx`, then subtract three legitimate shapes: external and
+`target="_blank"` hrefs; the 9 anchors carrying `download` (a file download IS an
+anchor); and the 10 carrying an `onClick` interceptor, which is the correct
+progressive pattern — a real href for middle-click and a client-side navigation on
+plain click. What is left is the class. Getting this wrong in either direction is
+the point of `verification-and-coverage.md#comment-is-not-a-contract`: the first
+version of this rule quoted a paraphrased tag that `git grep` returns zero hits for.
+
+**`make admin-web-local-overlay-guard` is green on all 12, by construction.** Its
+three regexes key on the literal tokens `veil`, `drawer`, `overlay`,
+`shedDrawerHref` and `drawerPageHref`; these sites use `href("treatment")`,
+`tasksAliasFixedHref`, `draftHref`, `scheduleHref`, `listHref` and
+`editElsewhere.href`. The guard covers the overlay half of the rule and nothing
+else — do not read its pass as coverage of this class.
 
 Reviewer test: for every clickable control the diff adds or moves, ask which of
 three things it is — a route change (`useRouter`/`Link`), a same-page overlay
