@@ -2,11 +2,13 @@ package boardsource
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	feeddomain "github.com/vgoats/goatos/backend/internal/feeddirection/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 	"github.com/vgoats/goatos/backend/internal/workboard/domain"
 	"github.com/vgoats/goatos/backend/internal/workboard/ports"
@@ -28,6 +30,32 @@ const (
 	bsDate     = "2026-09-10" // work day D; packing/transport serve D+1
 	bsServeNxt = "2026-09-11" // D+1
 )
+
+// packingSOPProofs is the sop_proofs a packing completion carries, derived the way the WRITE PATH
+// derives it -- CompletePacking folds a legacy packing_proof_ref onto the seeded slot through
+// domain.LegacyProofRefs. Calling the same function here is the point: a fixture that hand-rolled
+// the JSON would drift from what production actually stores, and the whole value of this suite is
+// that it runs against the real migrated schema.
+//
+// The column is not optional. Migration 000342 added
+// feed_packing_completions_sop_proofs_check: a row in pending_verification or completed must carry
+// a non-empty sop_proofs object. Every INSERT in this file predated that and omitted it, so all
+// EIGHT Postgres tests in this package died at seed time on SQLSTATE 23514 and had been proving
+// nothing since. A row in 'rework' is outside the constraint and correctly gets {}.
+func stageSOPProofs(t *testing.T, stage, legacyField, proofRef string) []byte {
+	t.Helper()
+	raw, err := json.Marshal(feeddomain.LegacyProofRefs(stage, map[string]string{legacyField: proofRef}, nil))
+	if err != nil {
+		t.Fatalf("encode sop proofs: %v", err)
+	}
+	return raw
+}
+
+func packingSOPProofs(t *testing.T, proofRef string) []byte {
+	t.Helper()
+	return stageSOPProofs(t, feeddomain.StagePacking, "packing_proof_ref", proofRef)
+}
+
 
 func exec(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sql string, args ...any) {
 	t.Helper()
@@ -119,9 +147,9 @@ ON CONFLICT (task_id) DO NOTHING`, x.id, bsTenant, park, x.shed, bsDate, sched, 
 
 	packing := func(id, shed, status, proof, owner string) {
 		exec(t, ctx, pool, `
-INSERT INTO feed_packing_completions (completion_id, tenant_id, park_id, shed_id, session_no, target_date, workflow, status, packing_proof_ref, completed_by, idempotency_key)
-VALUES ($1::uuid,$2::uuid,$3::uuid,$4::uuid,1,$5::date,'normal',$6,NULLIF($7,''),NULLIF($8,'')::uuid,$1::text)
-ON CONFLICT (completion_id) DO NOTHING`, id, bsTenant, bsPark, shed, bsServeNxt, status, proof, owner)
+INSERT INTO feed_packing_completions (completion_id, tenant_id, park_id, shed_id, session_no, target_date, workflow, status, packing_proof_ref, completed_by, idempotency_key, sop_proofs)
+VALUES ($1::uuid,$2::uuid,$3::uuid,$4::uuid,1,$5::date,'normal',$6,NULLIF($7,''),NULLIF($8,'')::uuid,$1::text,$9::jsonb)
+ON CONFLICT (completion_id) DO NOTHING`, id, bsTenant, bsPark, shed, bsServeNxt, status, proof, owner, packingSOPProofs(t, proof))
 	}
 	packing("00000000-0000-4000-8000-0000000092a1", bsShedA, "completed", "proof:pk-a", bsOperator)
 	packing("00000000-0000-4000-8000-0000000092a2", bsShedB, "pending_verification", "proof:pk-b", bsOperator)
@@ -134,9 +162,9 @@ ON CONFLICT (completion_id) DO NOTHING`, "00000000-0000-4000-8000-0000000093a1",
 
 	// Wastage: A completed (experiment-only workflow), measured on D.
 	exec(t, ctx, pool, `
-INSERT INTO feed_wastage_completions (completion_id, tenant_id, park_id, shed_id, target_date, workflow, status, wastage_proof_ref, completed_by, idempotency_key)
-VALUES ($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5::date,'experiment','completed','proof:w-a',$6::uuid,$1::text)
-ON CONFLICT (completion_id) DO NOTHING`, "00000000-0000-4000-8000-0000000094a1", bsTenant, bsPark, bsShedA, bsDate, bsOperator)
+INSERT INTO feed_wastage_completions (completion_id, tenant_id, park_id, shed_id, target_date, workflow, status, wastage_proof_ref, completed_by, idempotency_key, sop_proofs)
+VALUES ($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5::date,'experiment','completed','proof:w-a',$6::uuid,$1::text,$7::jsonb)
+ON CONFLICT (completion_id) DO NOTHING`, "00000000-0000-4000-8000-0000000094a1", bsTenant, bsPark, bsShedA, bsDate, bsOperator, stageSOPProofs(t, feeddomain.StageWastage, "wastage_proof_ref", "proof:w-a"))
 }
 
 func query(owner string, states ...domain.WorkState) ports.SourceQuery {
@@ -335,9 +363,9 @@ ON CONFLICT DO NOTHING`, bsTenant, bsPark, bsShedA, session, session-1)
 	}
 	packing2 := func(id, shed string, session int, status, proof string) {
 		exec(t, ctx, pool, `
-INSERT INTO feed_packing_completions (completion_id, tenant_id, park_id, shed_id, session_no, target_date, workflow, status, packing_proof_ref, completed_by, idempotency_key)
-VALUES ($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5,$6::date,'normal',$7,NULLIF($8,''),$9::uuid,$1::text)
-ON CONFLICT (completion_id) DO NOTHING`, id, bsTenant, bsPark, shed, session, serve2, status, proof, bsOperator)
+INSERT INTO feed_packing_completions (completion_id, tenant_id, park_id, shed_id, session_no, target_date, workflow, status, packing_proof_ref, completed_by, idempotency_key, sop_proofs)
+VALUES ($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5,$6::date,'normal',$7,NULLIF($8,''),$9::uuid,$1::text,$10::jsonb)
+ON CONFLICT (completion_id) DO NOTHING`, id, bsTenant, bsPark, shed, session, serve2, status, proof, bsOperator, packingSOPProofs(t, proof))
 	}
 	packing2("00000000-0000-4000-8000-0000000095a1", bsShedA, 1, "completed", "proof:s1")
 	packing2("00000000-0000-4000-8000-0000000095a2", bsShedA, 2, "rework", "")
@@ -403,9 +431,9 @@ ON CONFLICT DO NOTHING`, bsTenant, issueID, bsPark, bsShedA, partitionLabel, row
 	penRow(1, "Part 4")
 	completion := func(id, partitionLabel, status string) {
 		exec(t, ctx, pool, `
-INSERT INTO feed_packing_completions (completion_id, tenant_id, park_id, shed_id, partition_label, session_no, target_date, workflow, status, packing_proof_ref, completed_by, idempotency_key)
-VALUES ($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5,1,$6::date,'normal',$7,'proof:'||$1,$8::uuid,$1::text)
-ON CONFLICT (completion_id) DO NOTHING`, id, bsTenant, bsPark, bsShedA, partitionLabel, serve3, status, bsOperator)
+INSERT INTO feed_packing_completions (completion_id, tenant_id, park_id, shed_id, partition_label, session_no, target_date, workflow, status, packing_proof_ref, completed_by, idempotency_key, sop_proofs)
+VALUES ($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5,1,$6::date,'normal',$7,'proof:'||$1,$8::uuid,$1::text,$9::jsonb)
+ON CONFLICT (completion_id) DO NOTHING`, id, bsTenant, bsPark, bsShedA, partitionLabel, serve3, status, bsOperator, packingSOPProofs(t, "proof:"+id))
 	}
 	completion("00000000-0000-4000-8000-0000000096c1", "Part 3", "completed")
 	completion("00000000-0000-4000-8000-0000000096c2", "Part 4", "pending_verification")
@@ -502,9 +530,9 @@ ON CONFLICT DO NOTHING`, bsTenant, issueID, bsPark, bsShedA, partitionLabel, ite
 	penItem(0, "Part 3", "Concentrate")
 	penItem(1, "part 3", "Mineral Mix")
 	exec(t, ctx, pool, `
-INSERT INTO feed_packing_completions (completion_id, tenant_id, park_id, shed_id, partition_label, session_no, target_date, workflow, status, packing_proof_ref, completed_by, idempotency_key)
-VALUES ('00000000-0000-4000-8000-0000000097c1'::uuid,$1::uuid,$2::uuid,$3::uuid,'Part 3',1,$4::date,'normal','pending_verification','proof:partition-key',$5::uuid,'partition-key')
-ON CONFLICT (completion_id) DO NOTHING`, bsTenant, bsPark, bsShedA, serve4, bsOperator)
+INSERT INTO feed_packing_completions (completion_id, tenant_id, park_id, shed_id, partition_label, session_no, target_date, workflow, status, packing_proof_ref, completed_by, idempotency_key, sop_proofs)
+VALUES ('00000000-0000-4000-8000-0000000097c1'::uuid,$1::uuid,$2::uuid,$3::uuid,'Part 3',1,$4::date,'normal','pending_verification','proof:partition-key',$5::uuid,'partition-key',$6::jsonb)
+ON CONFLICT (completion_id) DO NOTHING`, bsTenant, bsPark, bsShedA, serve4, bsOperator, packingSOPProofs(t, "proof:partition-key"))
 
 	src := New(pool, 5000000000)
 	rows, err := src.ListRows(ctx, ports.SourceQuery{TenantID: bsTenant, ParkID: bsPark, BusinessDate: d4, Limit: 50})
@@ -569,9 +597,9 @@ ON CONFLICT DO NOTHING`, bsTenant, bsPark, bsShedA, part, i)
 	}
 	setPen := func(id, part, status string) {
 		exec(t, ctx, pool, `
-INSERT INTO feed_packing_completions (completion_id, tenant_id, park_id, shed_id, partition_label, session_no, target_date, workflow, status, packing_proof_ref, completed_by, idempotency_key)
-VALUES ($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5,1,$6::date,'normal',$7,'proof:'||$1::text,$8::uuid,$1::text)
-ON CONFLICT (completion_id) DO UPDATE SET status = EXCLUDED.status`, id, bsTenant, bsPark, bsShedA, part, serve3, status, bsOperator)
+INSERT INTO feed_packing_completions (completion_id, tenant_id, park_id, shed_id, partition_label, session_no, target_date, workflow, status, packing_proof_ref, completed_by, idempotency_key, sop_proofs)
+VALUES ($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5,1,$6::date,'normal',$7,'proof:'||$1::text,$8::uuid,$1::text,$9::jsonb)
+ON CONFLICT (completion_id) DO UPDATE SET status = EXCLUDED.status`, id, bsTenant, bsPark, bsShedA, part, serve3, status, bsOperator, packingSOPProofs(t, "proof:"+id))
 	}
 	card := func() domain.Row {
 		t.Helper()
