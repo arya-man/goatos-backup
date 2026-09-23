@@ -175,6 +175,13 @@ func validateModelSQL(sql string, params map[string]any) error {
 	if err := sqlguard.Validate(sql); err != nil {
 		return err
 	}
+	// A blank-is-not-absence column may not be asked whether it is empty; see
+	// absencetest.go for why prose on the card was not enough. It runs on every
+	// drafted statement, before the window rules, because it is a question
+	// about what the read MEANS rather than about the period it covers.
+	if err := validateAbsenceTests(sql); err != nil {
+		return err
+	}
 	if !isModelSQLParams(params) {
 		return nil
 	}

@@ -70,6 +70,29 @@ type SchemaCard struct {
 	// percentiles or per-entity caps and must not be re-averaged or summed
 	// across rows.
 	NeverAverage []string
+	// BlankIsNotAbsence lists columns whose EMPTINESS means "this row is not
+	// that kind of row", never "this thing is missing" — so a NULL test on
+	// them answers a different question than the one a leader asked.
+	//
+	// `workforce_coverage_status.backup_label` is the one that shipped. The
+	// view fills it from the absence's replacement join, so it is populated on
+	// exactly the covered_by_backup rows and blank on every other. Asked which
+	// staff have no backup, the planner wrote `backup_label IS NULL` and named
+	// 13 of 16 rows — including `Backup 6`, a person who IS somebody's backup.
+	//
+	// THE CARD'S PROSE WAS TRIED FIRST AND MEASURED INSUFFICIENT. Naming the
+	// column's real vocabulary fixed the `<> 'covered'` spelling of this
+	// defect, verified live; the planner then reached for the NULL test
+	// instead and produced the SAME ten-role false alarm, three runs out of
+	// three. A sentence in a prompt moves a model's odds; it does not close a
+	// hole. Like the no-op filter it replaces, the mistake RETURNS ROWS, so
+	// nothing downstream can see it fire — which leaves refusing the statement
+	// as the only place it can be stopped for certain.
+	BlankIsNotAbsence []string
+	// AbsenceAuthority is the column that DOES answer "is this thing missing"
+	// on a card that declares BlankIsNotAbsence, named in the refusal so the
+	// re-plan has somewhere to go.
+	AbsenceAuthority string
 	// Route is the admin-web href the composer may offer as the drill-down
 	// page for this view.
 	Route string
@@ -809,11 +832,17 @@ var schemaCards = []SchemaCard{
 		// values exist, and it is the only repair that works: a NULL test, like
 		// a no-op filter, RETURNS ROWS, so nothing downstream can see it fire.
 		//
-		// The prompt's byte bound is real, so this replaces the lead sentence
-		// rather than adding to it: "Workforce coverage per park/role" is
-		// already in the card's own name and in the Row= line rendered beside
-		// this one, and repeating it bought nothing a planner did not have.
-		Purpose: "coverage_status (present|covered_by_backup|uncovered_absence) is the gap test; blank backup_label is not.",
+		// THE LEAD SENTENCE IS LOAD-BEARING AND WAS MEASURED, not assumed. The
+		// first attempt at this addition compacted the card to fit the prompt's
+		// byte bound, dropping "Workforce coverage per park/role." on the
+		// reasoning that the Row= line beside it already says so. Live, three
+		// runs in a row, "which roles have no backup coverage" went straight
+		// back to naming ten roles. The vocabulary was still in the string; the
+		// sentence it sat in was not. A card is read by a model, so squeezing
+		// its prose to the byte is not a neutral edit — it is a behaviour
+		// change, and the only way to know is to ask the question again.
+		Purpose: "Workforce coverage per park/role. coverage_status: present|covered_by_backup|uncovered_absence " +
+			"is the gap test; blank backup_label is not.",
 		Grain:               "one row per park per role (current state)",
 		ParkColumn:          "park_label",
 		TenantScopedColumns: []string{"tenant_id"},
@@ -822,7 +851,9 @@ var schemaCards = []SchemaCard{
 			col("tenant_id", uuidT), col("park_label", textT), col("role_label", textT), col("owner_label", textT),
 			col("backup_label", textT), col("coverage_status", textT), col("active_work_count", bigT), col("overdue_work_count", bigT),
 		},
-		Route: "/people",
+		BlankIsNotAbsence: []string{"backup_label"},
+		AbsenceAuthority:  "coverage_status",
+		Route:             "/people",
 	},
 	{
 		Name:                "workforce_tasks_base",

@@ -23,7 +23,21 @@ import (
 // added — the 29th..Nth card must either fit or force a deliberate compaction
 // (shorter card rendering, dropped columns) rather than an unbounded prompt.
 // Prompt tokens are billed per request and the card block is the bulk of it.
-const MaxPlannerPromptBytes = 20 * 1024
+//
+// RAISED FROM 20 kB TO 20.5 kB, DELIBERATELY, because the alternative was
+// worse. The workforce card had to gain one sentence — backup_label is filled
+// only on covered_by_backup rows, so its absence is not a coverage gap — and
+// at 20 kB it fit only by compacting the card's lead sentence away. That was
+// tried and MEASURED: three live runs of "which roles have no backup coverage"
+// went back to naming ten roles where the fuller card names the four. A card
+// is prose a model reads, so trimming it to the byte trades a wrong answer for
+// 62 bytes. The gate's own message names raising the bound as the other
+// option; this is it, taken once and recorded, not a habit. 512 bytes is a
+// ceiling for THIS sentence, not headroom for the next thirty views: the gate
+// still forces a deliberate compaction (shorter rendering, dropped columns)
+// when the card block grows, and the 3/4 check below still holds the card
+// block to the minority of the budget.
+const MaxPlannerPromptBytes = 20*1024 + 512
 
 const systemPlannerInstruction = `You are the planner for Mesha's read-only leadership operations assistant.
 Your ONLY job: classify the user's question, decompose it into sub-questions, and for each pick ONE tool from the provided catalog plus its parameters.
