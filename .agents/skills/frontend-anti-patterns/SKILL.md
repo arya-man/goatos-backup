@@ -5,8 +5,9 @@ description: >-
   reads, nav, labels, dashboards, same-page drawers, sidebars, modals, and
   popovers. Covers the backend-owns-the-contract golden
   rule, Next.js/React/TypeScript engineering quality, no SSR full-table request
-  reads, selected-window fetch=render, mock fidelity, and projection-backed
-  dashboards. Thin entrypoint: detailed rules live in the canonical chapters
+  reads, selected-window fetch=render, mock fidelity, projection-backed
+  dashboards, in-app navigation that must not reload the document, overlay paint
+  order and sticky/backdrop CSS, and how a hit area is measured. Thin entrypoint: detailed rules live in the canonical chapters
   linked below. Invoke before touching an admin-web page/route/data-read and
   before pushing. Machine gates: npm run check:mock-fidelity + make
   admin-web-request-reads-guard + admin-web-local-overlay-guard +
@@ -34,9 +35,15 @@ chapters below; do not review from the summary.
 - Any dashboard that slices by month/date/breed/farm/shed/status/etc.
 - Any route/load measurement at or above 500ms, especially when a narrow page is
   fed by a broad catch-all endpoint.
+- Any in-app navigation control — tab, sub-tab, back link, breadcrumb, row-click
+  target — and any `mesha-theme.css` overlay, scrim, sticky or `z-index` rule.
+- Any script that measures a UI element's size, position, or timing.
 
 ## Canonical detail (read these — do NOT duplicate here)
 - **Review chapter:** [`.agents/skills/goatos-code-review/references/frontend.md`](../goatos-code-review/references/frontend.md) (+ [`.agents/skills/goatos-code-review/references/mobile.md`](../goatos-code-review/references/mobile.md) for the mobile twin).
+- **Navigation, paint order, hit area:** [`.agents/skills/goatos-code-review/references/frontend-rendering.md`](../goatos-code-review/references/frontend-rendering.md) — raw anchors to internal routes, `position:sticky` + `backdrop-filter`, overlay stacking during a transition, effective hit area, and why deep-linking never exercises L2/L3.
+- **What makes the measuring check trustworthy:** [`.agents/skills/goatos-code-review/references/verification-and-coverage.md`](../goatos-code-review/references/verification-and-coverage.md) — an existence assertion is not coverage; a check that did not run renders no verdict.
+- **Lens routing (which rules apply to your diff):** [`.agents/skills/goatos-code-review/references/review-lens-ledger.md`](../goatos-code-review/references/review-lens-ledger.md) Part B, keyed by changed path.
 - **Selected-window fetch=render + reminder completeness:** [`docs/decisions/calendar-ownership.md`](../../../docs/decisions/calendar-ownership.md).
 - **Projection-backed dashboards:** [`docs/decisions/high-scale-dashboard-projections.md`](../../../docs/decisions/high-scale-dashboard-projections.md).
 - **Over-fetch anti-patterns (twin):** [`docs/decisions/mobile-data-fetch-anti-patterns.md`](../../../docs/decisions/mobile-data-fetch-anti-patterns.md).
@@ -113,6 +120,28 @@ chapters below; do not review from the summary.
   `revalidatePath`s (that is the flicker); a view toggle is client state with
   `replaceLocalOverlayUrl`. Reference: `features/leadership-tasks/task-drawer-host.tsx`,
   `task-row-store.ts`, `task-view-switch.tsx`.
+- **In-app navigation must not reload the document:** a tab/back/row-click
+  control uses `useRouter`/`Link` or the local overlay controller. A raw
+  `<a href>` to an internal route — including one built from an `href()` helper —
+  re-downloads the page and discards client state
+  (`features/health/health-config.tsx` does this for its Treatment/Diagnosis
+  tabs). Reject it on every tab, modal, edit and row action, not just the page
+  that was reported.
+- **`position:sticky` + `backdrop-filter` tears on mobile GPUs:** `.top`,
+  `.navback` and `.lt-fbar` are the known baseline in `mesha-theme.css`; do not
+  add a fourth. The file already calls `backdrop-filter:none` load-bearing in the
+  Tasks mobile block.
+- **An opaque overlay that shows the page through it mid-transition is a
+  paint-ordering bug:** the panel holds its own stacking context for the whole
+  transition and sits clearly above its dimmer (the Tasks filter panel at
+  `z-index:151` stops painting for ~0.2s over the dimmer at `z-index:150`).
+  Flicker evidence is a GIF or filmstrip — a still cannot show it.
+- **Measure the effective hit area, not the element rect:** walk up to the node
+  that owns the click. A search input measured 196x18 and was wrongly reported
+  "too small to tap"; the padding is on the wrapper.
+- **Deep-linking never exercises L2/L3:** `.navback` only exists after a row tap,
+  so a sweep that deep-links every route has never seen it. Journeys navigate the
+  way a person does.
 - **Controls are the console's own:** a tick is a real `<input type="checkbox">`
   in a `<label>` (never a coloured square or `aria-checked` button); a date is
   `ThemedDatePicker` (never `<input type="date">`); a confirm is two buttons in
