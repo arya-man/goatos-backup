@@ -633,17 +633,20 @@ func TestListVaccinationExecutionRejectsInvalidQuery(t *testing.T) {
 
 func TestScanRosterRequiresTaskIdentityAndReturnsCursor(t *testing.T) {
 	const (
-		tenantID = "00000000-0000-4000-8000-000000000001"
-		actorID  = "30000000-0000-4000-8000-000000000077"
-		shedID   = "30000000-0000-4000-8000-000000000001"
-		taskID   = "40000000-0000-4000-8000-000000000001"
-		goatID   = "50000000-0000-4000-8000-000000000001"
-		oblID    = "60000000-0000-4000-8000-000000000001"
+		tenantID     = "00000000-0000-4000-8000-000000000001"
+		actorID      = "30000000-0000-4000-8000-000000000077"
+		shedID       = "30000000-0000-4000-8000-000000000001"
+		taskID       = "40000000-0000-4000-8000-000000000001"
+		assignmentID = "40000000-0000-4000-8000-000000000002"
+		goatID       = "50000000-0000-4000-8000-000000000001"
+		oblID        = "60000000-0000-4000-8000-000000000001"
 	)
+	assignmentIDValue := assignmentID
 	next := &domain.ScanRosterCursor{GoatID: goatID, ObligationID: oblID}
 	reader := &fakeReader{
 		roster: []domain.ScanRosterRow{{
 			GoatID: goatID, ObligationID: oblID, TaskID: taskID,
+			AssignmentID: &assignmentIDValue,
 			BatchID:      "70000000-0000-4000-8000-000000000001",
 			SOPVersionID: "80000000-0000-4000-8000-000000000001", TaskRowVersion: 3,
 		}},
@@ -677,8 +680,15 @@ func TestScanRosterRequiresTaskIdentityAndReturnsCursor(t *testing.T) {
 	if badTask.Code != http.StatusBadRequest {
 		t.Fatalf("malformed task_id status=%d want 400", badTask.Code)
 	}
+	badAssignment := httptest.NewRecorder()
+	badAssignmentReq := httptest.NewRequest(http.MethodGet, "/app/vaccination/execution/sheds/"+shedID+"/roster?assignment_id=not-a-uuid", nil)
+	badAssignmentReq = badAssignmentReq.WithContext(httpmiddleware.WithActorID(httpmiddleware.WithTenantID(badAssignmentReq.Context(), tenantID), actorID))
+	mux.ServeHTTP(badAssignment, badAssignmentReq)
+	if badAssignment.Code != http.StatusBadRequest {
+		t.Fatalf("malformed assignment_id status=%d want 400", badAssignment.Code)
+	}
 
-	req := httptest.NewRequest(http.MethodGet, "/app/vaccination/execution/sheds/"+shedID+"/roster?task_id="+taskID+"&partition_label=Part%202&limit=1", nil)
+	req := httptest.NewRequest(http.MethodGet, "/app/vaccination/execution/sheds/"+shedID+"/roster?task_id="+taskID+"&assignment_id="+assignmentID+"&partition_label=Part%202&limit=1", nil)
 	req = req.WithContext(httpmiddleware.WithActorID(httpmiddleware.WithTenantID(req.Context(), tenantID), actorID))
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
@@ -687,6 +697,9 @@ func TestScanRosterRequiresTaskIdentityAndReturnsCursor(t *testing.T) {
 	}
 	if reader.lastRoster.TaskID != taskID || reader.lastRoster.ShedID != shedID {
 		t.Fatalf("query=%#v", reader.lastRoster)
+	}
+	if reader.lastRoster.AssignmentID != assignmentID {
+		t.Fatalf("assignment id=%q want %q", reader.lastRoster.AssignmentID, assignmentID)
 	}
 	if reader.lastRoster.OperatorScopeActorID != actorID {
 		t.Fatalf("operator scope actor=%q want %q", reader.lastRoster.OperatorScopeActorID, actorID)
@@ -700,6 +713,9 @@ func TestScanRosterRequiresTaskIdentityAndReturnsCursor(t *testing.T) {
 	}
 	if body["taskId"] != taskID {
 		t.Fatalf("taskId=%#v want %q; response=%#v", body["taskId"], taskID, body)
+	}
+	if body["assignmentId"] != assignmentID {
+		t.Fatalf("assignmentId=%#v want %q; response=%#v", body["assignmentId"], assignmentID, body)
 	}
 	nextCursor, ok := body["next_cursor"].(string)
 	if !ok || nextCursor == "" {

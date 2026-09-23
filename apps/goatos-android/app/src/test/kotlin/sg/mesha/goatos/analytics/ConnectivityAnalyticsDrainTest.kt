@@ -1,71 +1,73 @@
 package sg.mesha.goatos.analytics
 
-import kotlinx.coroutines.test.StandardTestDispatcher
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
-import org.junit.Test
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import sg.mesha.goatos.core.analytics.AnalyticsContext
+import sg.mesha.goatos.core.analytics.AnalyticsEvents
+import sg.mesha.goatos.core.data.sync.ConnectivitySource
+import sg.mesha.goatos.core.data.sync.ConnectivitySyncTrigger
+import sg.mesha.goatos.core.network.AppAnalyticsEventRequestDto
+import sg.mesha.goatos.core.network.AppAnalyticsEventResponseDto
+import sg.mesha.goatos.core.network.AppApi
+import javax.inject.Provider
 
-/**
- * Verifies that the connectivity gate triggers a durable analytics queue drain
- * when connectivity transitions from offline to online.
- */
+@OptIn(ExperimentalCoroutinesApi::class)
+@RunWith(RobolectricTestRunner::class)
 class ConnectivityAnalyticsDrainTest {
-    private val testDispatcher = StandardTestDispatcher()
-
-    @Test
-    fun drainIsCalledWhenConnectivityGoesOnline() = runTest(testDispatcher) {
-        var drainCalled = false
-        var drainCallCount = 0
-
-        // Create a mock analytics adapter that tracks drain calls
-        val mockAdapter = object {
-            suspend fun drainQueue() {
-                drainCalled = true
-                drainCallCount++
-            }
+    private class FakeSource : ConnectivitySource {
+        private var listener: ((Boolean) -> Unit)? = null
+        override fun start(onChange: (Boolean) -> Unit): AutoCloseable {
+            listener = onChange
+            return AutoCloseable { listener = null }
         }
 
-        // Simulate connectivity callback with online=true
-        val callback: (Boolean) -> Unit = { online ->
-            if (online) {
-                // This would be called in the real implementation
-                // through the sync engine, but we're testing the concept
-            }
+        fun emit(online: Boolean) = listener?.invoke(online)
+    }
+
+    private class FakeApi(@Volatile var offline: Boolean) : AppApi by sg.mesha.goatos.core.network.FakeAppApi() {
+        val received = mutableListOf<AppAnalyticsEventRequestDto>()
+        override suspend fun recordAnalyticsEvent(request: AppAnalyticsEventRequestDto): AppAnalyticsEventResponseDto {
+            if (offline) throw java.io.IOException("offline")
+            received += request
+            return AppAnalyticsEventResponseDto(accepted = true)
         }
-
-        // Verify the callback exists and can be invoked
-        assertTrue(callback != null)
-        callback(true) // Simulate online transition
-
-        advanceUntilIdle()
-
-        // In a real implementation, this would trigger adapter.drainQueue()
-        // The test verifies the wiring exists and the callback pattern is correct
-        assertEquals("drain should be wired to connectivity, not auto-called in this test scope", 0, drainCallCount)
     }
 
     @Test
-    fun drainOnlyCalledWhenTransitioningOnline() = runTest(testDispatcher) {
-        var lastOnlineState: Boolean? = null
-
-        val callback: (Boolean) -> Unit = { online ->
-            lastOnlineState = online
-        }
-
-        // Offline transition
-        callback(false)
-        assertEquals(false, lastOnlineState)
-
-        // Online transition
-        callback(true)
-        assertEquals(true, lastOnlineState)
-
-        // Offline again
-        callback(false)
-        assertEquals(false, lastOnlineState)
-
+    fun `offline critical event drains on reconnect`() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val queue = DurableAnalyticsQueue(context, ioDispatcher = UnconfinedTestDispatcher(testScheduler))
+        val api = FakeApi(offline = true)
+        val adapter = BackendAnalyticsAdapter(
+            apiProvider = Provider { api },
+            appScope = this,
+            analyticsContext = AnalyticsContext(flavor = "dev"),
+            queue = queue,
+        )
+        adapter.track(AnalyticsEvents.PROOF_PROCESSING_FAILED, mapOf("proof_stage" to "overlay"))
         advanceUntilIdle()
+        assertEquals(1, queue.size())
+
+        val source = FakeSource()
+        val trigger = ConnectivitySyncTrigger(source) { online ->
+            if (online) launch { adapter.drainQueue() }
+        }
+        trigger.start()
+        api.offline = false
+        source.emit(true)
+        advanceUntilIdle()
+
+        assertEquals(0, queue.size())
+        assertEquals(listOf(AnalyticsEvents.PROOF_PROCESSING_FAILED), api.received.map { it.eventName })
+        trigger.stop()
     }
 }

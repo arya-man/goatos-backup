@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 	"testing"
@@ -228,6 +229,19 @@ func TestDriveNameUsesBackendOwnedDoseDisplayLabel(t *testing.T) {
 	})
 	if got == nil || *got != "ET+TT" {
 		t.Fatalf("driveName() = %v, want ET+TT display label without dose-wave wording", got)
+	}
+}
+
+func TestDriveNamePrefersCanonicalVaccineLabels(t *testing.T) {
+	t.Parallel()
+
+	got := driveName(domain.ExecutionProjection{
+		ProtocolName:  "Per Animal Proof Vaccination QA",
+		DoseCode:      "BT",
+		VaccineLabels: []string{"BT", "ET+TT", "PPR"},
+	})
+	if got == nil || *got != "BT, ET+TT +1 more" {
+		t.Fatalf("driveName() = %v, want compact canonical vaccine label set", got)
 	}
 }
 
@@ -1602,6 +1616,18 @@ func computeCardSummariesFromRows(rows []domain.ExecutionRow) map[string]*domain
 		summaries[cardID] = summary
 	}
 	return summaries
+}
+
+func TestVaccineLabelsDoNotPrefixCanonicalVaccineWithProtocolName(t *testing.T) {
+	got := vaccineLabels(domain.ExecutionProjection{
+		ProtocolName:  "Per Animal Proof Vaccination QA",
+		DoseCode:      "BT",
+		VaccineLabels: []string{"BT", "ET+TT", "PPR"},
+	})
+	want := []string{"BT", "ET+TT", "PPR"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("vaccineLabels()=%#v want %#v", got, want)
+	}
 }
 
 // summarizeCardFromRows approximates a summary for the in-memory test fake.

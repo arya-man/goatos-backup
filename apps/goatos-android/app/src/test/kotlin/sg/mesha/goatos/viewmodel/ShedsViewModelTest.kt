@@ -30,6 +30,8 @@ import sg.mesha.goatos.core.data.cache.StatusCount
 import sg.mesha.goatos.core.network.BootstrapOperatorProfileDto
 import sg.mesha.goatos.core.network.dto.ExecutionFilterOptionsDto
 import sg.mesha.goatos.core.network.dto.ExecutionParkOptionDto
+import sg.mesha.goatos.core.network.dto.ShedCardSummaryDto
+import sg.mesha.goatos.core.network.dto.VaccineGroupSummaryDto
 import sg.mesha.goatos.core.model.nav.NavState
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionRowDto
@@ -57,6 +59,60 @@ class ShedsViewModelTest {
 
     @After
     fun tearDown() = Dispatchers.resetMain()
+
+    @Test
+    fun `date override rows become one two-animal executable shed card`() = runTest(dispatcher) {
+        val today = LocalDate.now().toString()
+        val common = VaccinationExecutionRowDto(
+            shedId = "shed-yashoda-3",
+            shedName = "Yashoda 3",
+            physicalShed = "Yashoda 3",
+            partitionLabel = "3",
+            parkId = "park-cpt",
+            parkName = "CPT",
+            dueDate = today,
+            targetCount = 1,
+            openCount = 1,
+            vaccineLabels = listOf("ET+TT"),
+            assignmentId = "assignment-current",
+        )
+        val repo = FakeShedsPinVmExecutionRepository(
+            VaccinationExecutionResponseDto(
+                rows = listOf(
+                    common.copy(batchId = "batch-old", sopTaskId = "task-executable", sopVersionId = "sop-v1"),
+                    common.copy(batchId = "batch-moved", sopTaskId = null),
+                ),
+                cardSummaries = mapOf(
+                    "shed:shed-yashoda-3|partition:3|assignment:assignment-current" to ShedCardSummaryDto(
+                        shedId = "shed-yashoda-3",
+                        partitionLabel = "3",
+                        assignmentId = "assignment-current",
+                        targetCount = 2,
+                        openCount = 2,
+                        vaccineGroups = listOf(VaccineGroupSummaryDto(label = "ET+TT", countLabel = "2 doses")),
+                    ),
+                ),
+            ),
+        )
+        val vm = ShedsViewModel(
+            repo = repo,
+            crashReporter = NoopCrashReporter(),
+            analytics = NoopAnalytics(),
+            bootstrapRepository = FakeShedsRoleBootstrapRepository(role = "operator"),
+            savedStateHandle = SavedStateHandle(),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertEquals(1, vm.state.value.rows.size)
+        val row = vm.state.value.rows.single()
+        assertEquals("2", row.inShed)
+        assertEquals("2", row.due)
+        assertEquals("task-executable", row.taskId)
+        assertEquals("batch-old", row.batchId)
+        assertEquals("assignment-current", row.assignmentId)
+        assertEquals(listOf("ET+TT"), row.vaccineGroups.map { it.label })
+    }
 
     @Test
     fun `clearing the pinned park via SelectPark(null) returns state to all parks`() = runTest(dispatcher) {

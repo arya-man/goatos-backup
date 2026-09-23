@@ -30,14 +30,22 @@ type DriveTargetCursor struct {
 // canonical_read.go's park_drive_events CTE, which now emits the ParkDrive form for every drive
 // (drive_count == 1 or > 1) instead of collapsing a lone source's own batch:/catchup: id.
 type ParsedDriveEvent struct {
-	BatchID   string
-	RuleID    string
-	ParkID    string
-	ShedID    string
-	Catchup   bool
-	ParkDrive bool   // true for the stable "parkdrive:park:<uuid>:date:<day>" / "parkdrive:tenant:<uuid>:date:<day>" identity
-	DueDay    string // YYYY-MM-DD in the IST business-date bucket
-	TenantID  string // for tenant-wide catch-up/park-drive when park/shed is absent
+	AssignmentID string
+	BatchID      string
+	RuleID       string
+	ParkID       string
+	ShedID       string
+	Catchup      bool
+	ParkDrive    bool   // true for the stable "parkdrive:park:<uuid>:date:<day>" / "parkdrive:tenant:<uuid>:date:<day>" identity
+	DueDay       string // YYYY-MM-DD in the IST business-date bucket
+	TenantID     string // for tenant-wide catch-up/park-drive when park/shed is absent
+}
+
+// FormatAssignmentDriveEventID builds the stable identity for one planned execution assignment.
+// The date is deliberately excluded: moving an assignment must not break reminders, cursors, or
+// detail links that already reference the drive.
+func FormatAssignmentDriveEventID(assignmentID string) string {
+	return "vaccinationdrive:assignment:" + assignmentID
 }
 
 // FormatParkDriveEventID builds the stable park/day drive identity: "parkdrive:park:<uuid>:date:<day>"
@@ -63,6 +71,9 @@ type ParsedHistoryEvent struct {
 func ParseDriveEventID(eventID string) (ParsedDriveEvent, error) {
 	eventID = strings.TrimSpace(eventID)
 	parts := strings.Split(eventID, ":")
+	if len(parts) == 3 && parts[0] == "vaccinationdrive" && parts[1] == "assignment" && uuidutil.IsUUIDString(parts[2]) {
+		return ParsedDriveEvent{AssignmentID: parts[2]}, nil
+	}
 	if len(parts) == 2 && parts[0] == "batch" && uuidutil.IsUUIDString(parts[1]) {
 		return ParsedDriveEvent{BatchID: parts[1]}, nil
 	}

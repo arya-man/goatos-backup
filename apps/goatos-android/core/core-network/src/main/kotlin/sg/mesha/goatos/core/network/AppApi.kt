@@ -850,6 +850,7 @@ interface AppApi {
         cursor: String? = null,
         limit: Int? = null,
         partitionLabel: String? = null,
+        assignmentId: String? = null,
     ): ScanRosterResponseDto
 
     /** POST /app/vaccination/obligations/{obligation_id}/reschedule — reschedule obligation to new date. */
@@ -2590,6 +2591,7 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         cursor: String?,
         limit: Int?,
         partitionLabel: String?,
+        assignmentId: String?,
     ): ScanRosterResponseDto = ScanRosterResponseDto(source = "fake", rows = emptyList())
 
     override suspend fun rescheduleObligation(

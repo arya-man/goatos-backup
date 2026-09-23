@@ -2041,7 +2041,7 @@ func (r *Repository) CancelOpenVaccinationObligationsForGoatDose(ctx context.Con
 
 	rows, err := tx.Query(ctx, `
 WITH open_goat_obligations AS MATERIALIZED (
-  SELECT obligation_id, batch_id, protocol_version_id, rule_id
+  SELECT tenant_id, obligation_id, batch_id, protocol_version_id, rule_id
   FROM obligation_instances
   WHERE tenant_id = $1::uuid
     AND target_type = 'goat'

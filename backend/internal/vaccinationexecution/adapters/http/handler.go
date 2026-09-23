@@ -777,6 +777,11 @@ func (h *Handler) ScanRoster(w http.ResponseWriter, r *http.Request) {
 		h.badRequest(w, r, "invalid_task_id", "task_id must be a UUID")
 		return
 	}
+	assignmentID := query.Get("assignment_id")
+	if assignmentID != "" && !uuidutil.IsUUIDString(assignmentID) {
+		h.badRequest(w, r, "invalid_assignment_id", "assignment_id must be a UUID")
+		return
+	}
 	limit := 500
 	if limitRaw := query.Get("limit"); limitRaw != "" {
 		n, err := strconv.Atoi(limitRaw)
@@ -798,6 +803,7 @@ func (h *Handler) ScanRoster(w http.ResponseWriter, r *http.Request) {
 		TenantID:             tenantID(r),
 		ShedID:               shedID,
 		PartitionLabel:       strings.TrimSpace(query.Get("partition_label")),
+		AssignmentID:         assignmentID,
 		TaskID:               taskID,
 		OperatorScopeActorID: actorID,
 		Limit:                limit,
@@ -830,6 +836,9 @@ func (h *Handler) ScanRoster(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(result.Rows) > 0 {
 		row := result.Rows[0]
+		if row.AssignmentID != nil {
+			response["assignmentId"] = *row.AssignmentID
+		}
 		response["taskId"] = row.TaskID
 		response["batchId"] = row.BatchID
 		response["sopVersionId"] = row.SOPVersionID

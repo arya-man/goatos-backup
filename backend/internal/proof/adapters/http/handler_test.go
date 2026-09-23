@@ -122,6 +122,77 @@ func TestCreateUploadResponseAdvertisesResumableProtocol(t *testing.T) {
 	}
 }
 
+func TestCreateUploadLogsBoundedProofCorrelationMetadata(t *testing.T) {
+	var logs bytes.Buffer
+	svc := &fakeHTTPProofService{target: domain.UploadTarget{Proof: domain.Artifact{
+		ProofID: httpTestProof, ProofType: "video", MimeType: "video/mp4", UploadState: "pending",
+	}}}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(svc, slog.New(slog.NewJSONHandler(&logs, nil))))
+	longException := strings.Repeat("x", proofLogValueLimit+20)
+	body := fmt.Sprintf(`{"proof_type":"video","mime_type":"video/mp4","scope_type":"task","scope_id":"scope-1","subject_type":"goat","metadata":{"local_proof_id":"local-1","outbox_item_id":"outbox-1","client_task_key":"task-1","field_key":"vaccination_goat_proof","obligation_id":"obligation-1","attempt":2,"proof_stage":"register","exception_class":%q,"local_file_available":true,"upload_original":false,"client_trace_id":"mobile-trace-1","ignored_secret":"must-not-log"}}`, longException)
+	req := httptest.NewRequest(http.MethodPost, "/app/proofs/uploads", strings.NewReader(body))
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), httpTestTenant))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	line := logs.String()
+	for _, want := range []string{
+		`"msg":"proof_upload_created"`, `"local_proof_id":"local-1"`,
+		`"outbox_item_id":"outbox-1"`, `"client_task_key":"task-1"`,
+		`"field_key":"vaccination_goat_proof"`, `"obligation_id":"obligation-1"`,
+		`"attempt":"2"`, `"proof_stage":"register"`, `"local_file_available":"true"`,
+		`"upload_original":"false"`, `"client_trace_id":"mobile-trace-1"`,
+	} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("log missing %s in %s", want, line)
+		}
+	}
+	if strings.Contains(line, "ignored_secret") || strings.Contains(line, "must-not-log") {
+		t.Fatalf("log leaked arbitrary metadata: %s", line)
+	}
+	if strings.Contains(line, longException) {
+		t.Fatalf("log did not bound exception metadata: %s", line)
+	}
+}
+
+func TestCompleteUploadLogsObligationCycleAndServerProofCorrelation(t *testing.T) {
+	var logs bytes.Buffer
+	svc := &fakeHTTPProofService{proof: domain.Artifact{
+		ProofID: httpTestProof, MimeType: "video/mp4", SizeBytes: 42, UploadState: "completed",
+		Metadata: map[string]any{
+			"server_proof_id": httpTestProof,
+			"upload_original": true,
+			"obligation_cycles": []any{map[string]any{
+				"obligation_id": "obligation-1", "obligation_row_version": float64(7),
+			}},
+		},
+	}}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(svc, slog.New(slog.NewJSONHandler(&logs, nil))))
+	req := httptest.NewRequest(http.MethodPost, "/app/proofs/"+httpTestProof+"/complete", strings.NewReader(`{"content_hash":"sha256:x","mime_type":"video/mp4","size_bytes":42,"metadata":{}}`))
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), httpTestTenant))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	line := logs.String()
+	for _, want := range []string{
+		`"msg":"proof_upload_completed"`, `"server_proof_id":"` + httpTestProof + `"`,
+		`"upload_original":"true"`, `"obligation_cycle_count":1`,
+		`"obligation_id":"obligation-1"`, `"obligation_row_version":"7"`,
+	} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("log missing %s in %s", want, line)
+		}
+	}
+}
+
 func TestDownloadRedirectLogsAttributionAndPrivateCache(t *testing.T) {
 	uploadedBy := "90000000-0000-4000-8000-000000000001"
 	subjectID := "30000000-0000-4000-8000-000000000001"
@@ -428,7 +499,7 @@ func (s *fakeHTTPProofService) CreateUpload(context.Context, domain.CreateUpload
 }
 
 func (s *fakeHTTPProofService) CompleteUpload(context.Context, domain.CompleteUpload) (domain.Artifact, error) {
-	return domain.Artifact{}, nil
+	return s.proof, nil
 }
 
 func (s *fakeHTTPProofService) StoreUpload(_ context.Context, tenantID, _ string, _ string, _ io.Reader) (domain.Artifact, error) {

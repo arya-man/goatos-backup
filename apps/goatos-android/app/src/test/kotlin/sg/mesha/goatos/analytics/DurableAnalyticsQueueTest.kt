@@ -151,6 +151,29 @@ class DurableAnalyticsQueueTest {
     }
 
     @Test
+    fun `persisted correlation payload is bounded and rejects unsafe property keys`() = runTest {
+        val queue = DurableAnalyticsQueue(context, ioDispatcher = kotlinx.coroutines.test.UnconfinedTestDispatcher())
+        val props = buildMap {
+            put("exception_class", "IOException")
+            put("proof_stage", "upload")
+            put("trace_id", "t".repeat(300))
+            put("Authorization", "must-not-persist")
+            repeat(80) { put("correlation_$it", "v") }
+        }
+        queue.enqueue(event("e-bounded").copy(properties = props))
+
+        var persisted: QueuedAnalyticsEvent? = null
+        queue.drain { queued -> persisted = queued; true }
+
+        val drained = requireNotNull(persisted)
+        assertEquals("IOException", drained.properties["exception_class"])
+        assertEquals("upload", drained.properties["proof_stage"])
+        assertEquals(160, drained.properties.getValue("trace_id").length)
+        assertTrue(drained.properties.size <= 64)
+        assertTrue("unsafe mixed-case key must not persist", "Authorization" !in drained.properties)
+    }
+
+    @Test
     fun `queue with no context is a safe no-op`() = runTest {
         val queue = DurableAnalyticsQueue(context = null, ioDispatcher = kotlinx.coroutines.test.UnconfinedTestDispatcher())
 

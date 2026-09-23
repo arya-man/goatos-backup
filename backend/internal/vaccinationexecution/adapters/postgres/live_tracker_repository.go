@@ -166,18 +166,23 @@ day_attempts AS (
 -- every one of the day's obligations it re-scanned all of that day's assignment rows and evaluated
 -- two regexp_replace() calls on each, with no Memoize applied — a textbook N+1 whose join key is not
 -- sargable, repeated across the five statements that embed this CTE, every poll, per viewer.
--- DISTINCT ON (shed, normalized partition) ORDER BY assignment_id keeps the exact
--- ORDER BY assignment_id LIMIT 1 tie-break the LATERAL had, so a duplicate assignment row still
--- cannot fan an obligation out.
+-- The vaccine rule is part of the assignment lane. Expanding each assignment onto the rules it
+-- admits keeps the fallback map one-to-one for an obligation and prevents an unmembered ET+TT row
+-- from inheriting the operator of a PPR/Z1/Z3 lane in the same shed and partition.
 day_assignments AS (
-  SELECT DISTINCT ON (a.shed_id, ` + liveTrackerPartitionNormExpr("a.partition_label") + `)
+  SELECT DISTINCT ON (a.shed_id, ` + liveTrackerPartitionNormExpr("a.partition_label") + `, pr.rule_id)
     a.shed_id,
     ` + liveTrackerPartitionNormExpr("a.partition_label") + ` AS part_norm,
+    pr.rule_id,
     a.operator_id
   FROM vaccination_drive_assignments a
+  JOIN protocol_rules pr
+    ON pr.tenant_id = a.tenant_id
+   AND (cardinality(a.vaccine_rule_ids) = 0 OR pr.rule_id = ANY(a.vaccine_rule_ids))
   WHERE a.tenant_id = $1::uuid
     AND a.planned_date = $2::date
-  ORDER BY a.shed_id, ` + liveTrackerPartitionNormExpr("a.partition_label") + `, a.assignment_id
+  ORDER BY a.shed_id, ` + liveTrackerPartitionNormExpr("a.partition_label") + `, pr.rule_id,
+           (cardinality(a.vaccine_rule_ids) > 0) DESC, a.assignment_id
 ),
 candidate_obligations AS (
   -- Start from TODAY's work, not every open goat obligation in the tenant. The old shape scanned
@@ -302,6 +307,7 @@ scoped_enriched AS (
   LEFT JOIN day_assignments asg
     ON asg.shed_id = s.shed_id
    AND asg.part_norm = s.part_norm
+   AND asg.rule_id = s.rule_id
   LEFT JOIN day_proofs dp ON dp.goat_id = s.goat_id
   LEFT JOIN day_scans ds ON ds.goat_id = s.goat_id
   LEFT JOIN day_attempts da ON da.goat_id = s.goat_id
