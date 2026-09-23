@@ -135,9 +135,15 @@ type AvailableStage struct {
 	StageCode   string `json:"stage_code"`
 	StageLabel  string `json:"stage_label"`
 	LiveAnimals int    `json:"live_animals"`
-	// Routed says a route already names this stage, so the screen can show what is already
-	// covered without a second read.
-	Routed bool `json:"routed"`
+	// Routed says a route already names this stage, and RoutedType names WHICH type it is on.
+	//
+	// The screen offers every stage, including ones already spoken for, because MOVING a stage
+	// between categories is the thing a farm does -- hiding them made "Add a stage" dead on every
+	// kid category once the kid stages were taken. So the offer has to say where a stage is now,
+	// or a move would be a surprise.
+	Routed          bool   `json:"routed"`
+	RoutedTypeKey   string `json:"routed_type_key,omitempty"`
+	RoutedTypeLabel string `json:"routed_type_label,omitempty"`
 }
 
 // UnroutedStage is a stage that holds animals and reaches no type.

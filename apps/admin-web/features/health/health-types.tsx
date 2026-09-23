@@ -202,7 +202,6 @@ export async function HealthTypesSection({
         <div className="bd" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {activeTypes.map((t) => {
             const mine = routes.filter((r) => r.type_key === t.type_key);
-            const bands = [...new Set(mine.map((r) => r.age_band))];
             const animals = mine.reduce((sum, r) => sum + r.live_animals, 0);
             return (
               <div
@@ -257,7 +256,6 @@ export async function HealthTypesSection({
                 <AddStageToType
                   pageContract={pageContract}
                   typeKey={t.type_key}
-                  ageBands={bands}
                   stages={stages}
                   enabled={mayWrite}
                   disabledReason={writeDisabledReason}

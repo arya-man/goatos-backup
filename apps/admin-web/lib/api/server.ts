@@ -3065,6 +3065,8 @@ export type HealthAvailableStage = {
   stage_label: string;
   live_animals: number;
   routed: boolean;
+  routed_type_key?: string;
+  routed_type_label?: string;
 };
 
 export type HealthDiagnosisRouting = {

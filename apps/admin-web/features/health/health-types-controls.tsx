@@ -465,21 +465,27 @@ export function MapStageButton({
  * Fattening is the F2s and Warmup because the farm says so -- and this is the control that adds
  * one to the category it sits under, so the type is never chosen twice.
  *
- * Only stages NOT already routed are offered. A stage belongs to exactly one type per age band
- * (the table's own key), so offering a routed one would mean silently moving it away from
- * wherever it is now, which is a different act and deserves its own words.
+ * EVERY stage is offered, including ones already on another type. An earlier version hid those,
+ * reasoning that moving a stage is a different act from adding one -- and that made the main
+ * thing this screen exists for impossible: once every kid stage was spoken for, "Add a stage" was
+ * dead on every kid category, so Warmup could never be moved onto its own type. The maintainer
+ * found it within a minute.
+ *
+ * Moving is what the farm does, so moving is what the control offers. A stage already on another
+ * type says so in the option ("now in Kids fattening"), and choosing it MOVES it -- which is
+ * exactly what the table's (band, stage) key does on upsert. Nothing is silent: the reader is
+ * told where it is before they pick it, and the category it leaves loses the chip on the same
+ * refresh.
  */
 export function AddStageToType({
   pageContract,
   typeKey,
-  ageBands,
   stages,
   enabled,
   disabledReason,
 }: {
   pageContract: AdminUiPageContract;
   typeKey: string;
-  ageBands: string[];
   stages: HealthAvailableStage[];
   enabled: boolean;
   disabledReason: string;
@@ -491,11 +497,11 @@ export function AddStageToType({
   const [pending, startTransition] = useTransition();
   const intent = useIntentKey(`diagnosis-add-stage-${typeKey}`);
 
-  // A type's own age band is implied by the stages already under it; a brand-new type has none,
-  // so both bands are offered and the choice itself carries the band.
-  const offer = stages.filter(
-    (s) => !s.routed && (ageBands.length === 0 || ageBands.includes(s.age_band)),
-  );
+  // Both bands, always. A type's band is not fixed by what is already under it -- a farm may put
+  // an adult stage and a kid stage in one category if that is how it treats them, and refusing
+  // that here would be this screen inventing a clinical rule nobody asked for. The option itself
+  // carries the band, so the write is never ambiguous.
+  const offer = stages;
 
   if (!open) {
     return (
@@ -504,6 +510,8 @@ export function AddStageToType({
           type="button"
           className="btn ghost"
           disabled={!enabled || pending || offer.length === 0}
+          // offer.length is 0 only when the farm has NO stages at all, which is a real state on a
+          // tenant whose catalog was never seeded -- and then there is genuinely nothing to add.
           title={!enabled ? disabledReason : ""}
           onClick={() => setOpen(true)}
         >
@@ -523,11 +531,30 @@ export function AddStageToType({
         aria-label={copy(pageContract, "label.stage")}
       >
         <option value="">{copy(pageContract, "label.stage")}</option>
-        {offer.map((s) => (
-          <option key={`${s.age_band}/${s.stage_code}`} value={`${s.age_band}/${s.stage_code}`}>
-            {s.stage_label || s.stage_code} ({s.live_animals})
-          </option>
-        ))}
+        {["adult", "kid"].map((band) => {
+          const inBand = offer.filter((s) => s.age_band === band);
+          if (inBand.length === 0) return null;
+          return (
+            <optgroup
+              key={band}
+              label={
+                band === "adult"
+                  ? copy(pageContract, "label.band.adult")
+                  : copy(pageContract, "label.band.kid")
+              }
+            >
+              {inBand.map((s) => (
+                <option key={`${s.age_band}/${s.stage_code}`} value={`${s.age_band}/${s.stage_code}`}>
+                  {/* Where it is NOW, so a move is never a surprise. */}
+                  {s.stage_label || s.stage_code} ({s.live_animals})
+                  {s.routed_type_label && s.routed_type_key !== typeKey
+                    ? ` — ${s.routed_type_label}`
+                    : ""}
+                </option>
+              ))}
+            </optgroup>
+          );
+        })}
       </select>
       <button
         type="button"

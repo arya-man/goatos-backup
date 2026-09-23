@@ -8224,6 +8224,10 @@ export interface components {
             live_animals: number;
             /** @description A route already names this stage. */
             routed: boolean;
+            /** @description The type this stage is on now, if any. */
+            routed_type_key?: string;
+            /** @description Shown in the picker so MOVING a stage is never a surprise. Every stage is offered, including ones already spoken for -- hiding them made it impossible to move a stage onto a new type once its band's stages were all taken. */
+            routed_type_label?: string;
         };
         HealthDiagnosisRouting: {
             types: components["schemas"]["HealthDiagnosisType"][];
