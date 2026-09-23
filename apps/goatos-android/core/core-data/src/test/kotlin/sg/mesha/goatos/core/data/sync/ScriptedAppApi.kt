@@ -86,6 +86,11 @@ class ScriptedAppApi(private val delegate: AppApi = FakeAppApi()) : AppApi by de
     val uploadProofBlobCalls: MutableList<String> =
         java.util.concurrent.CopyOnWriteArrayList<String>()
 
+    var completeRegisteredProofUploadFn: (suspend (String, String, Long?) -> ProofCompleteResponseDto)? = null
+
+    val completeRegisteredProofUploadCalls: MutableList<String> =
+        java.util.concurrent.CopyOnWriteArrayList<String>()
+
     /** (taskId, header Idempotency-Key) for every [submitAppTask] call — asserts the outbox sends
      *  the SAME key on every retry (and actually sends one at all). Thread-safe: the drain fans out
      *  group coroutines across real IO threads, so concurrent submits append here in parallel; a
@@ -250,5 +255,15 @@ class ScriptedAppApi(private val delegate: AppApi = FakeAppApi()) : AppApi by de
                 filePath,
                 durationMs,
             )
+    }
+
+    override suspend fun completeRegisteredProofUpload(
+        proofId: String,
+        mimeType: String,
+        durationMs: Long?,
+    ): ProofCompleteResponseDto {
+        completeRegisteredProofUploadCalls += proofId
+        return completeRegisteredProofUploadFn?.invoke(proofId, mimeType, durationMs)
+            ?: delegate.completeRegisteredProofUpload(proofId, mimeType, durationMs)
     }
 }

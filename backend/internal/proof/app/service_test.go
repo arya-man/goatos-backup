@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"strings"
 	"testing"
 	"time"
 
@@ -89,6 +90,21 @@ func TestCompleteUploadRetriesObserverForAlreadyCompletedProof(t *testing.T) {
 	}
 	if observer.calls != 1 || observer.proof.ProofID != proofTestID {
 		t.Fatalf("observer = calls %d proof %#v, want retry notification", observer.calls, observer.proof)
+	}
+}
+
+func TestStoreUploadIsIdempotentForAlreadyCompletedProof(t *testing.T) {
+	proof := baseProof()
+	proof.UploadState = "completed"
+	proof.MimeType = "video/mp4"
+	service := NewService(&fakeProofRepo{proof: proof}, &fakeProofStorage{})
+
+	stored, err := service.StoreUpload(context.Background(), proofTestTenant, proofTestID, "video/mp4", strings.NewReader("again"))
+	if err != nil {
+		t.Fatalf("StoreUpload() error = %v", err)
+	}
+	if stored.ProofID != proofTestID || stored.UploadState != "completed" {
+		t.Fatalf("stored = %#v, want completed proof", stored)
 	}
 }
 

@@ -2088,6 +2088,20 @@ class RetrofitAppApi(
         return service.completeProofUpload(proofId, request)
     }
 
+    override suspend fun completeRegisteredProofUpload(
+        proofId: String,
+        mimeType: String,
+        durationMs: Long?,
+    ): ProofCompleteResponseDto =
+        service.completeProofUpload(
+            proofId,
+            ProofCompleteRequestDto(
+                mimeType = mimeType,
+                sizeBytes = 0,
+                durationMs = durationMs,
+            ),
+        )
+
     override suspend fun getVaccinationGaps(
         parkId: String?,
         limit: Int?,
