@@ -629,9 +629,9 @@ var (
 	// by what the CALLER passed in, not by a table. Same reasoning as the `= ANY($n)` case.
 	recursiveWithRe = regexp.MustCompile(`(?is)\bWITH\s+RECURSIVE\b`)
 	// Bounded by a caller-supplied unique-id list: `notification_request_id = ANY($3::uuid[])`.
-	// Do not exempt arbitrary arrays such as `status = ANY($n)`: they can still match a tenant's
-	// whole history.
-	boundedByIDListRe = regexp.MustCompile(`(?is)\b(?:[a-z_][a-z0-9_]*\.)?(?:id|[a-z_][a-z0-9_]*_id)\s*=\s*ANY\s*\(\s*\$`)
+	// Do not exempt arbitrary id-like arrays such as `tenant_id = ANY($n)` or `park_id = ANY($n)`:
+	// they can still match a tenant's whole history.
+	idListPredicateRe = regexp.MustCompile(`(?is)\b(?:[a-z_][a-z0-9_]*\.)?([a-z_][a-z0-9_]*)\s*=\s*ANY\s*\(\s*\$`)
 	// A scalar aggregate with no GROUP BY returns exactly one row however big the input is.
 	// Its cost is still linear, but it is not the PAGINATION defect this rule names, and
 	// unrelated rules already cover compute-on-read aggregates.
@@ -639,6 +639,13 @@ var (
 	groupByRe   = regexp.MustCompile(`(?is)\bGROUP\s+BY\b`)
 	orderByRe   = regexp.MustCompile(`(?is)\bORDER\s+BY\b`)
 )
+
+var uniqueIDListColumns = map[string]bool{
+	// Bare id is accepted for ordinary primary-key CTEs. Other entity-specific names must be
+	// explicitly listed here so broad foreign keys do not suppress cte-limit-outside.
+	"id":                      true,
+	"notification_request_id": true,
+}
 
 // hasTopLevelLimit reports whether a LIMIT clause sits at the statement's own paren depth,
 // rather than inside a nested subquery that happens to have one.
@@ -733,6 +740,15 @@ func topLevelCTEReferences(maskedBody string, cteNames map[string]bool) []string
 		}
 	}
 	return out
+}
+
+func boundedByUniqueIDList(maskedBody string) bool {
+	for _, m := range idListPredicateRe.FindAllStringSubmatch(maskedBody, -1) {
+		if len(m) >= 2 && uniqueIDListColumns[strings.ToLower(m[1])] {
+			return true
+		}
+	}
+	return false
 }
 
 // detectCTELimitOutside finds a paginated statement whose scanning CTE has no LIMIT of its
@@ -855,7 +871,7 @@ func detectCTELimitOutside(text string) (string, bool) {
 		if hasTopLevelLimit(body) {
 			continue // already paged inside: the correct shape
 		}
-		if boundedByIDListRe.MatchString(body) {
+		if boundedByUniqueIDList(body) {
 			continue // bounded by a caller-supplied unique identifier list
 		}
 		if scalarAggRe.MatchString(strings.TrimSpace(body)) && !groupByRe.MatchString(body) {

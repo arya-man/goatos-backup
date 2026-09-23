@@ -891,6 +891,42 @@ SELECT scoped.id FROM scoped ORDER BY scoped.at DESC LIMIT $3`
 	}
 }
 
+func TestCTELimitOutsideDoesNotTreatBroadForeignKeyArraysAsBounded(t *testing.T) {
+	for _, column := range []string{"tenant_id", "park_id", "member_id", "campaign_shed_id"} {
+		t.Run(column, func(t *testing.T) {
+			sql := `WITH scoped AS (
+  SELECT o.id, o.at FROM orders o
+  WHERE o.` + column + ` = ANY($1::uuid[])
+)
+SELECT scoped.id FROM scoped ORDER BY scoped.at DESC LIMIT $2`
+			if msg, bad := detectCTELimitOutside(sql); !bad {
+				t.Fatalf("%s = ANY($n) can still match a broad slice and must be flagged; msg=%q", column, msg)
+			}
+		})
+	}
+}
+
+func TestCTELimitOutsideAcceptsOnlyUniqueIDListBounds(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		column string
+	}{
+		{name: "bare primary id", column: "id"},
+		{name: "configured unique notification request id", column: "notification_request_id"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sql := `WITH requested AS (
+  SELECT o.id, o.at FROM orders o
+  WHERE o.` + tc.column + ` = ANY($1::uuid[])
+)
+SELECT requested.id FROM requested ORDER BY requested.at DESC LIMIT $2`
+			if msg, bad := detectCTELimitOutside(sql); bad {
+				t.Fatalf("unique id list should bound the CTE, got false positive: %s", msg)
+			}
+		})
+	}
+}
+
 func TestCTELimitOutsideFollowsWrapperCTEDependencies(t *testing.T) {
 	sql := `WITH raw AS MATERIALIZED (
   SELECT o.id, o.at FROM orders o WHERE o.tenant_id = $1::uuid
