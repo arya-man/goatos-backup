@@ -66,6 +66,27 @@ fun SaleCreateScreen(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             item(key = "result") { VendorsResultBanner(status = state.writeStatus, message = state.writeMessage) }
+            // THE FEED STORE'S QUESTION, and the two ways to answer it (maintainer decision
+            // 2026-09-23). It arrives after the sale was queued and sent, so it lands here rather
+            // than at the tap; the sentence is the server's, naming the farm, the feed and both
+            // figures, and is shown verbatim.
+            if (state.stockConfirmMessage.isNotBlank()) {
+                item(key = "stock_confirm") {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        VendorsResultBanner(status = VendorsWriteStatus.FAILED, message = state.stockConfirmMessage)
+                        Text(text = STOCK_CONFIRM_HINT, color = MeshaColors.Muted, style = MeshaType.caption)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            VendorsGhostButton(label = STOCK_CONFIRM_CANCEL, onClick = { onEvent(SaleCreateEvent.DismissStockConfirm) })
+                            VendorsPrimaryButton(
+                                label = STOCK_CONFIRM_RECORD,
+                                enabled = !state.submitInFlight,
+                                onClick = { onEvent(SaleCreateEvent.ConfirmStockAndSubmit) },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
+                }
+            }
             state.message?.let { message -> item(key = "message") { VendorsResultBanner(status = VendorsWriteStatus.FAILED, message = message) } }
             when (state.step) {
                 0 -> item(key = "sale") { SaleStep(state, onEvent) }
@@ -158,12 +179,51 @@ private fun SaleLineCard(index: Int, line: SaleLineDraftUi, products: List<Vendo
         Text(text = LABEL_PRODUCT, color = MeshaColors.Muted, style = MeshaType.fieldLabel)
         VendorsSegmented(options = products, selectedValue = line.product, onSelect = { onEvent(SaleCreateEvent.LineChanged(line.id, SaleLineField.PRODUCT_TYPE, it)) })
         e[SaleLineField.PRODUCT_TYPE]?.let { Text(it, color = MeshaColors.Danger, style = MeshaType.caption) }
-        VendorsDropdownField(LABEL_BREED, line.breed, line.breeds, { onEvent(SaleCreateEvent.LineChanged(line.id, SaleLineField.BREED, it)) }, required = true, error = e[SaleLineField.BREED], placeholder = if (line.breeds.isEmpty()) HINT_PICK_PRODUCT_FIRST else HINT_PICK)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            VendorsTextField(line.animals, { onEvent(SaleCreateEvent.LineChanged(line.id, SaleLineField.ANIMAL_COUNT, it)) }, LABEL_ANIMALS, keyboard = KeyboardType.Number, error = e[SaleLineField.ANIMAL_COUNT], modifier = Modifier.weight(1f))
-            VendorsTextField(line.weightKg, { onEvent(SaleCreateEvent.LineChanged(line.id, SaleLineField.TOTAL_WEIGHT_KG, it)) }, LABEL_WEIGHT, keyboard = KeyboardType.Decimal, error = e[SaleLineField.TOTAL_WEIGHT_KG], modifier = Modifier.weight(1f))
+        // An item with no second dimension -- manure, tags -- has exactly one variant, its own
+        // name. A list of one is a question with no answer to give, so it is not asked.
+        if (!line.variantIsItself) {
+            VendorsDropdownField(
+                if (line.isFeed) LABEL_FEED else LABEL_BREED,
+                line.breed,
+                line.breeds,
+                { onEvent(SaleCreateEvent.LineChanged(line.id, SaleLineField.BREED, it)) },
+                required = true,
+                error = e[SaleLineField.BREED],
+                placeholder = if (line.breeds.isEmpty()) HINT_PICK_PRODUCT_FIRST else HINT_PICK,
+            )
         }
-        VendorsTextField(line.value, { onEvent(SaleCreateEvent.LineChanged(line.id, SaleLineField.SALES_VALUE, it)) }, LABEL_LINE_VALUE, required = true, keyboard = KeyboardType.Decimal, error = e[SaleLineField.SALES_VALUE])
+        // WHAT THE LINE ASKS FOR is the product's kind (maintainer instruction 2026-09-23): an
+        // animal lot is a head count and the price agreed for it; feed and counted items are a
+        // quantity at a rate, and the value is worked out rather than typed.
+        if (line.pricedPerUnit) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                VendorsTextField(
+                    line.quantity,
+                    { onEvent(SaleCreateEvent.LineChanged(line.id, SaleLineField.QUANTITY, it)) },
+                    if (line.unit == UNIT_NUMBER) LABEL_HOW_MANY else LABEL_QUANTITY_KG,
+                    required = true,
+                    keyboard = if (line.unit == UNIT_NUMBER) KeyboardType.Number else KeyboardType.Decimal,
+                    error = e[SaleLineField.QUANTITY],
+                    modifier = Modifier.weight(1f),
+                )
+                VendorsTextField(
+                    line.rate,
+                    { onEvent(SaleCreateEvent.LineChanged(line.id, SaleLineField.RATE_PER_UNIT, it)) },
+                    if (line.unit == UNIT_NUMBER) LABEL_RATE_EACH else LABEL_RATE_PER_KG,
+                    required = true,
+                    keyboard = KeyboardType.Decimal,
+                    error = e[SaleLineField.RATE_PER_UNIT],
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            Text(text = HINT_VALUE_IS_COMPUTED, color = MeshaColors.Muted, style = MeshaType.caption)
+        } else {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                VendorsTextField(line.animals, { onEvent(SaleCreateEvent.LineChanged(line.id, SaleLineField.ANIMAL_COUNT, it)) }, LABEL_ANIMALS, keyboard = KeyboardType.Number, error = e[SaleLineField.ANIMAL_COUNT], modifier = Modifier.weight(1f))
+                VendorsTextField(line.weightKg, { onEvent(SaleCreateEvent.LineChanged(line.id, SaleLineField.TOTAL_WEIGHT_KG, it)) }, LABEL_WEIGHT, keyboard = KeyboardType.Decimal, error = e[SaleLineField.TOTAL_WEIGHT_KG], modifier = Modifier.weight(1f))
+            }
+            VendorsTextField(line.value, { onEvent(SaleCreateEvent.LineChanged(line.id, SaleLineField.SALES_VALUE, it)) }, LABEL_LINE_VALUE, required = true, keyboard = KeyboardType.Decimal, error = e[SaleLineField.SALES_VALUE])
+        }
     }
 }
 
@@ -248,6 +308,16 @@ private const val HINT_SALE_DATE = "Up to 60 days ahead for a planned sale."
 private const val LABEL_FARM = "Farm"
 private const val LABEL_PRODUCT = "Product"
 private const val LABEL_BREED = "Breed"
+private const val LABEL_FEED = "Feed"
+private const val LABEL_QUANTITY_KG = "Quantity (kg)"
+private const val LABEL_HOW_MANY = "How many"
+private const val LABEL_RATE_PER_KG = "Rate (₹ per kg)"
+private const val LABEL_RATE_EACH = "Rate (₹ each)"
+private const val HINT_VALUE_IS_COMPUTED = "Value is the quantity times the rate."
+private const val STOCK_CONFIRM_HINT = "Record it anyway only if the feed really did leave. If a load reached the farm and is not recorded yet, record that purchase instead."
+private const val STOCK_CONFIRM_RECORD = "I checked the store — record it"
+private const val STOCK_CONFIRM_CANCEL = "Leave it"
+private const val UNIT_NUMBER = "number"
 private const val LABEL_ANIMALS = "Animals"
 private const val LABEL_WEIGHT = "Weight (kg)"
 private const val LABEL_WHAT_WAS_SOLD = "What was sold"

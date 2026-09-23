@@ -560,6 +560,9 @@ class SaleDetailViewModel @Inject constructor(
         const val SALE_WORKFLOW_TEMPLATE_KEY = "sales_deal"
         const val TAG_MANURE = "A manure sale has no animals to tag."
         const val TAG_FAILED = "A failed deal has no animals to tag."
+        /** The feed store's own refusal, which the screen offers to answer. */
+        const val CODE_STOCK_CONFIRM = "feed_stock_confirmation_required"
+        const val KIND_FEED = "feed"
         const val REQUIRED = "Required"
         const val NOT_A_NUMBER = "Enter a number"
         const val MORE_THAN_ZERO = "Must be more than zero"
@@ -602,6 +605,9 @@ class SaleCreateViewModel @Inject constructor(
         val animals: String = "",
         val weightKg: String = "",
         val value: String = "",
+        /** A line priced by the unit: how much, and at what rate. */
+        val quantity: String = "",
+        val rate: String = "",
         val errors: Map<SaleLineField, String> = emptyMap(),
     )
 
@@ -618,6 +624,8 @@ class SaleCreateViewModel @Inject constructor(
         val submitInFlight: Boolean = false,
         val message: String? = null,
         val buyersRefreshed: Boolean = false,
+        /** The feed store asked for this sale to be confirmed; its sentence, shown verbatim. */
+        val stockConfirmMessage: String = "",
     )
 
     private val local = MutableStateFlow(Local())
@@ -642,9 +650,21 @@ class SaleCreateViewModel @Inject constructor(
         val defaultProduct = o.productTypes.firstOrNull().orEmpty()
         val lines = l.lines.map { line ->
             val product = line.product.ifBlank { defaultProduct }
+            // What the line ASKS comes from the registry row, never from this screen reading the
+            // kind: an item the farm adds itself is asked the same questions the web asks.
+            val row = o.products.firstOrNull { it.name == product }
+            val variants = o.breeds[product].orEmpty()
+            // An item whose only variant is its own name -- manure, tags -- is not a choice. It is
+            // filled in rather than asked, so the line is complete without a list of one.
+            val breed = line.breed.ifBlank { product.takeIf { variants.size == 1 && variants.first() == product }.orEmpty() }
             SaleLineDraftUi(
-                id = line.id, product = product, breed = line.breed, animals = line.animals, weightKg = line.weightKg, value = line.value,
-                breeds = o.breeds[product].orEmpty().map { VendorsOptionUi(it, it) },
+                id = line.id, product = product, breed = breed,
+                animals = line.animals, weightKg = line.weightKg, value = line.value,
+                quantity = line.quantity, rate = line.rate,
+                pricedPerUnit = row?.pricedPerUnit ?: false,
+                unit = row?.unit.orEmpty(),
+                isFeed = row?.kind == KIND_FEED,
+                breeds = variants.map { VendorsOptionUi(it, it) },
                 errors = line.errors,
             )
         }
@@ -685,6 +705,7 @@ class SaleCreateViewModel @Inject constructor(
             maxDate = LocalDate.now(VENDORS_IST).plusDays(o.maxSaleDateDaysAhead.toLong()).toString(),
             writeStatus = l.writeStatus,
             writeMessage = l.writeMessage,
+            stockConfirmMessage = l.stockConfirmMessage,
             closeAfterSave = l.closeAfterSave,
             submitInFlight = l.submitInFlight,
             message = l.message,
@@ -703,12 +724,18 @@ class SaleCreateViewModel @Inject constructor(
             is SaleCreateEvent.LineChanged -> local.update { l ->
                 l.copy(lines = l.lines.map { line ->
                     if (line.id != event.lineId) line else when (event.field) {
-                        // A product change invalidates the breed: the breed list belongs to the product.
-                        SaleLineField.PRODUCT_TYPE -> line.copy(product = event.value, breed = if (line.product == event.value) line.breed else "", errors = line.errors - event.field - SaleLineField.BREED)
+                        // A product change empties everything it decided the shape of: a variant
+                        // from the previous product's list, or kilograms typed against a feed,
+                        // must never ride along into the submit of a different product.
+                        SaleLineField.PRODUCT_TYPE ->
+                            if (line.product == event.value) line.copy(product = event.value, errors = line.errors - event.field)
+                            else LineDraft(id = line.id, product = event.value)
                         SaleLineField.BREED -> line.copy(breed = event.value, errors = line.errors - event.field)
                         SaleLineField.ANIMAL_COUNT -> line.copy(animals = event.value, errors = line.errors - event.field)
                         SaleLineField.TOTAL_WEIGHT_KG -> line.copy(weightKg = event.value, errors = line.errors - event.field)
                         SaleLineField.SALES_VALUE -> line.copy(value = event.value, errors = line.errors - event.field)
+                        SaleLineField.QUANTITY -> line.copy(quantity = event.value, errors = line.errors - event.field)
+                        SaleLineField.RATE_PER_UNIT -> line.copy(rate = event.value, errors = line.errors - event.field)
                     }
                 })
             }
@@ -726,6 +753,15 @@ class SaleCreateViewModel @Inject constructor(
             SaleCreateEvent.Next -> next()
             SaleCreateEvent.Previous -> local.update { it.copy(step = (it.step - 1).coerceAtLeast(0)) }
             SaleCreateEvent.Submit -> submit()
+            SaleCreateEvent.ConfirmStockAndSubmit -> {
+                // The same sale, sent again with the answer attached. A NEW client id, because the
+                // first attempt is a settled write and this one is a different request -- reusing
+                // the key would read as a replay and return the refusal it already got.
+                savedStateHandle[KEY_CLIENT_ID] = UUID.randomUUID().toString()
+                local.update { it.copy(stockConfirmMessage = "") }
+                submit(acknowledgeStock = true)
+            }
+            SaleCreateEvent.DismissStockConfirm -> local.update { it.copy(stockConfirmMessage = "") }
             SaleCreateEvent.RecordAnother -> {
                 savedStateHandle[KEY_CLIENT_ID] = UUID.randomUUID().toString()
                 local.value = Local(buyersRefreshed = true)
@@ -761,7 +797,7 @@ class SaleCreateViewModel @Inject constructor(
         local.update { it.copy(step = (it.step + 1).coerceAtMost(STEP_COUNT - 1), fieldErrors = emptyMap()) }
     }
 
-    private fun submit() {
+    private fun submit(acknowledgeStock: Boolean = false) {
         val values = state.value.values
         val errors = (0 until STEP_COUNT).fold(emptyMap<SaleField, String>()) { acc, step -> acc + validate(step, values) }
         val lineErrors = validateLines(state.value.lines)
@@ -772,7 +808,7 @@ class SaleCreateViewModel @Inject constructor(
         }
         viewModelScope.launch {
             local.update { it.copy(submitInFlight = true, message = null) }
-            when (val result = syncRepository.enqueueSalesDealCreate(clientId, values.toWrite(state.value.lines))) {
+            when (val result = syncRepository.enqueueSalesDealCreate(clientId, values.toWrite(state.value.lines, acknowledgeStock))) {
                 is AppResult.Ok -> {
                     analytics.track(AnalyticsEventsVendors.VENDORS_SALE_QUEUED)
                     local.update { it.copy(submitInFlight = false, writeStatus = VendorsWriteStatus.QUEUED, writeMessage = MESSAGE_SAVING) }
@@ -796,7 +832,22 @@ class SaleCreateViewModel @Inject constructor(
                     when (outcome) {
                         QueuedWriteOutcome.Saved -> it.copy(writeStatus = VendorsWriteStatus.SYNCED, writeMessage = MESSAGE_SAVED, closeAfterSave = true)
                         QueuedWriteOutcome.StillQueued -> it.copy(writeStatus = VendorsWriteStatus.QUEUED, writeMessage = MESSAGE_QUEUED, closeAfterSave = true)
-                        is QueuedWriteOutcome.Rejected -> it.copy(writeStatus = VendorsWriteStatus.FAILED, writeMessage = MESSAGE_NOT_SAVED)
+                        is QueuedWriteOutcome.Rejected ->
+                            // A SHORT FEED SALE is not a failure: the store's ledger disagrees, and
+                            // the person may well be right -- the load reached the farm and nobody
+                            // has recorded it yet. The sale stays on screen with what the store
+                            // says, and they can send it again saying they checked. Keyed on the
+                            // server's CODE; the sentence is its copy and is shown verbatim.
+                            if (outcome.code == CODE_STOCK_CONFIRM) {
+                                it.copy(
+                                    writeStatus = VendorsWriteStatus.IDLE,
+                                    writeMessage = "",
+                                    closeAfterSave = false,
+                                    stockConfirmMessage = outcome.reason.orEmpty(),
+                                )
+                            } else {
+                                it.copy(writeStatus = VendorsWriteStatus.FAILED, writeMessage = MESSAGE_NOT_SAVED)
+                            }
                     }
                 }
             }
@@ -846,6 +897,16 @@ class SaleCreateViewModel @Inject constructor(
             val errors = mutableMapOf<SaleLineField, String>() // mobile-guard:ignore: per-call validation result, at most one entry per line field
             if (line.product.isBlank()) errors[SaleLineField.PRODUCT_TYPE] = REQUIRED
             if (line.breed.isBlank()) errors[SaleLineField.BREED] = REQUIRED
+            if (line.pricedPerUnit) {
+                // The quantity IS the sale for an item sold by the kilogram or by the piece: a
+                // line without one takes the money and says nothing about what left the farm.
+                val quantity = line.quantity.trim().toDoubleOrNull()
+                if (quantity == null || quantity <= 0.0) errors[SaleLineField.QUANTITY] = MORE_THAN_ZERO
+                val rate = line.rate.trim().toDoubleOrNull()
+                if (rate == null || rate < 0.0) errors[SaleLineField.RATE_PER_UNIT] = AMOUNT
+                if (errors.isNotEmpty()) out[line.id] = errors
+                continue
+            }
             val animals = line.animals.trim()
             if (animals.isNotBlank()) {
                 val n = animals.toDoubleOrNull()
@@ -871,8 +932,12 @@ class SaleCreateViewModel @Inject constructor(
     /** The running total the phone previews. The recorded figure is the backend's rollup. */
     private fun lineTotals(lines: List<LineDraft>): LineTotals {
         fun num(raw: String) = raw.trim().toDoubleOrNull()?.takeIf { it >= 0.0 } ?: 0.0
+        // A line priced by the unit is worth quantity x rate, worked out the way the backend works
+        // it out -- so the running total the person watches while typing is the total recorded.
+        fun value(l: LineDraft) =
+            if (l.quantity.isNotBlank() && l.rate.isNotBlank()) num(l.quantity) * num(l.rate) else num(l.value)
         return LineTotals(
-            value = lines.sumOf { num(it.value) },
+            value = lines.sumOf(::value),
             animals = lines.sumOf { num(it.animals) },
             weightKg = lines.sumOf { num(it.weightKg) },
         )
@@ -884,20 +949,33 @@ class SaleCreateViewModel @Inject constructor(
         else -> "${lines.size} lines"
     }
 
-    private fun Map<SaleField, String>.toWrite(lines: List<SaleLineDraftUi>): SalesDealWriteDto {
+    private fun Map<SaleField, String>.toWrite(lines: List<SaleLineDraftUi>, acknowledgeStock: Boolean = false): SalesDealWriteDto {
         fun number(raw: String): Double? = raw.trim().ifBlank { null }?.toDoubleOrNull()
         fun number(f: SaleField): Double? = number(get(f).orEmpty())
         return SalesDealWriteDto(
             saleDate = get(SaleField.SALE_DATE).orEmpty(),
             farm = get(SaleField.FARM).orEmpty(),
             lines = lines.map { line ->
-                SalesDealLineWriteDto(
-                    productType = line.product,
-                    breed = line.breed,
-                    animalCount = number(line.animals),
-                    totalWeightKg = number(line.weightKg),
-                    salesValue = line.value.trim().toDouble(),
-                )
+                // A line priced by the unit sends its quantity and rate and NO value: the backend
+                // works the money out, so a figure this screen computed can never be what is
+                // recorded. An animal line sends its counts and the price agreed for the lot.
+                if (line.pricedPerUnit) {
+                    SalesDealLineWriteDto(
+                        productType = line.product,
+                        breed = line.breed,
+                        quantity = number(line.quantity),
+                        ratePerUnit = number(line.rate),
+                        salesValue = 0.0,
+                    )
+                } else {
+                    SalesDealLineWriteDto(
+                        productType = line.product,
+                        breed = line.breed,
+                        animalCount = number(line.animals),
+                        totalWeightKg = number(line.weightKg),
+                        salesValue = line.value.trim().toDouble(),
+                    )
+                }
             },
             buyerName = get(SaleField.BUYER_NAME).orEmpty().trim(),
             buyerPlace = get(SaleField.BUYER_PLACE).orEmpty().trim(),
@@ -905,6 +983,7 @@ class SaleCreateViewModel @Inject constructor(
             advanceAmount = number(SaleField.ADVANCE_AMOUNT),
             comments = get(SaleField.COMMENTS).orEmpty().trim(),
             status = get(SaleField.STATUS).orEmpty(),
+            stockShortfallAcknowledged = acknowledgeStock,
         )
     }
 
@@ -917,6 +996,9 @@ class SaleCreateViewModel @Inject constructor(
         const val BUYER_LIST_MAX = 20
         const val MAX_SHORT = 160
         const val MAX_COMMENTS = 2000
+        /** The feed store's own refusal, which the screen offers to answer. */
+        const val CODE_STOCK_CONFIRM = "feed_stock_confirmation_required"
+        const val KIND_FEED = "feed"
         const val REQUIRED = "Required"
         const val PICK_BUYER = "Pick the buyer from the vendor register"
         const val MORE_THAN_ZERO = "Must be more than zero"

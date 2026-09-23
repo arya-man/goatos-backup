@@ -178,7 +178,7 @@ enum class SaleField {
 }
 
 /** The fields of one product line of a sale. */
-enum class SaleLineField { PRODUCT_TYPE, BREED, ANIMAL_COUNT, TOTAL_WEIGHT_KG, SALES_VALUE }
+enum class SaleLineField { PRODUCT_TYPE, BREED, ANIMAL_COUNT, TOTAL_WEIGHT_KG, SALES_VALUE, QUANTITY, RATE_PER_UNIT }
 
 /**
  * One product/breed line being entered (maintainer decision 2026-09-12: one sale carries sheep
@@ -194,10 +194,35 @@ data class SaleLineDraftUi(
     val animals: String = "",
     val weightKg: String = "",
     val value: String = "",
-    /** Breeds of THIS line's product; empty until a product is picked. */
+    /**
+     * How much, at what rate, for a line priced by the unit -- feed by the kilogram, sheep tags by
+     * number (maintainer instruction 2026-09-23). Blank on an animal line, which is sold as a lot.
+     */
+    val quantity: String = "",
+    val rate: String = "",
+    /**
+     * What this line ASKS is the BACKEND's answer about the product, never this screen's reading
+     * of its kind: a new kind of item must not be asked the wrong questions here while the web
+     * asks the right ones.
+     */
+    val pricedPerUnit: Boolean = false,
+    /** kg | number: decides whether the line asks for kilograms or for how many. */
+    val unit: String = "",
+    /** True for a feed line, whose variant list is the farm's own feed catalogue. */
+    val isFeed: Boolean = false,
+    /**
+     * The variants of THIS line's product; empty until a product is picked. An item with no second
+     * dimension -- manure, tags -- has exactly one, its own name, and the screen then asks nothing.
+     */
     val breeds: List<VendorsOptionUi> = emptyList(),
     val errors: Map<SaleLineField, String> = emptyMap(),
-)
+) {
+    /**
+     * Whether the variant question has an answer worth asking for. An item whose only variant is
+     * its own name is not a choice, so the screen states it instead of offering a list of one.
+     */
+    val variantIsItself: Boolean get() = breeds.size == 1 && breeds.first().value == product
+}
 
 /** One buyer offered by the picker (identity and place only). */
 @Immutable
@@ -234,6 +259,17 @@ data class SaleCreateUiState(
     val maxDate: String = "",
     val writeStatus: VendorsWriteStatus = VendorsWriteStatus.IDLE,
     val writeMessage: String = "",
+    /**
+     * The server asked for this sale to be confirmed because it takes more feed than the store
+     * shows (maintainer decision 2026-09-23). The sentence is BACKEND copy naming the farm, the
+     * feed and both figures, rendered verbatim; the screen keys its behaviour on the server's
+     * CODE, never on these words.
+     *
+     * It arrives LATE on the phone, not at the tap: a sale is queued and sent when there is a
+     * network, so the answer comes back as a rejection of that queued row. The screen then offers
+     * to record it anyway, which sends the same sale again with the answer attached.
+     */
+    val stockConfirmMessage: String = "",
     /** The write is durable (accepted, or queued for when the phone is online): the screen shows the banner briefly and closes. */
     val closeAfterSave: Boolean = false,
     val submitInFlight: Boolean = false,
@@ -251,6 +287,9 @@ sealed interface SaleCreateEvent {
     data object Previous : SaleCreateEvent
     data object Back : SaleCreateEvent
     data object Submit : SaleCreateEvent
+    /** Send the same sale again, saying the feed store was checked. */
+    data object ConfirmStockAndSubmit : SaleCreateEvent
+    data object DismissStockConfirm : SaleCreateEvent
     data object RecordAnother : SaleCreateEvent
     data object DismissMessage : SaleCreateEvent
 }
