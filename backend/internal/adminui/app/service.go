@@ -6835,8 +6835,8 @@ func pageSpecificCopy(id string) map[string]string {
 			// always show the same feeds: the retired split concentrates and the odds and ends
 			// stay out of both, and a feed the farm starts buying appears in both with no edit.
 			"chart.mix.title": "Feed mix",
-			"chart.mix.hint":          "Share of the fed kg over the window, sheet and milk together",
-			"chart.item.hint":         "₹ spent per day (solid line) and kg fed per day (dashed), priced at each farm's latest load rate",
+			"chart.mix.hint":  "Share of the fed kg over the window, sheet and milk together",
+			"chart.item.hint": "₹ spent per day (solid line) and kg fed per day (dashed), priced at each farm's latest load rate",
 			// Feeds whose per-item card is NOT shown (maintainer requests 2026-09-14): the four
 			// retired split concentrates the merged Mesha Adult / Kids Concentrate replaced, plus
 			// the unbranded Concentrate, Vijay Concentrate and Baking Soda -- the cards are for the
