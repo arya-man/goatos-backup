@@ -790,9 +790,11 @@ export async function sweepViewport({ baseUrl, bearerToken, outDir, routes, view
   const { chromium } = await import("@playwright/test");
   let browser = null;
   let context = null;
-  // A sweep of 118 pages will lose a browser somewhere: a page crashes, a tab runs out
-  // of memory, a renderer dies. Losing the browser must cost one route, not the other
-  // 117 — the first run of this sweep died on page four and reported nothing at all.
+  // A sweep of this many pages will lose a browser somewhere: a page crashes, a tab runs out
+  // of memory, a renderer dies. Losing the browser must cost ONE route, not every
+  // route after it — the first run of this sweep died on page four and reported
+  // nothing at all. (It said "118 pages" here; the count has moved since and a
+  // number baked into a comment only goes stale, so it no longer names one.)
   const freshContext = async () => {
     await context?.close().catch(() => {});
     await browser?.close().catch(() => {});
