@@ -24,12 +24,18 @@ import sg.mesha.goatos.core.data.cache.cacheKey
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.dto.CountsPenReconciliationCardDto
+import sg.mesha.goatos.core.network.dto.CountsPenReconciliationFiltersDto
 import sg.mesha.goatos.core.network.dto.CountsPenReconciliationStatusCountsDto
 
-/** Whole-filter chip counts for the Reconcile tab — backend truth, never page-derived. */
+/**
+ * Whole-filter chip counts and the park filter bar for the Reconcile tab — backend truth,
+ * never page-derived. [filters] carries the parks the caller may pick and which one the
+ * page was clamped to (a single-park operator is auto-selected server-side).
+ */
 data class PenReconciliationMeta(
     val status: String = "",
     val counts: CountsPenReconciliationStatusCountsDto = CountsPenReconciliationStatusCountsDto(),
+    val filters: CountsPenReconciliationFiltersDto = CountsPenReconciliationFiltersDto(),
 )
 
 /**
@@ -58,8 +64,12 @@ private const val PEN_RECONCILIATION_CACHED_QUERIES = 4
 interface PenReconciliationRepository {
     val meta: StateFlow<PenReconciliationMeta>
 
-    /** The paged Reconcile cards for one backend status bucket (all/open/…). */
-    fun cards(status: String = "all"): Flow<PagingData<CountsPenReconciliationCardDto>>
+    /**
+     * The paged Reconcile cards for one backend status bucket (all/open/…), optionally narrowed
+     * to one park. A null [parkId] lets the backend decide: a park-scoped operator is clamped
+     * and auto-selected onto their park, a tenant-wide reader gets every park.
+     */
+    fun cards(status: String = "all", parkId: String? = null): Flow<PagingData<CountsPenReconciliationCardDto>>
 
     /**
      * Removes a submitted card from the cached queue the moment its completion is durably queued,
@@ -109,8 +119,8 @@ class DefaultPenReconciliationRepository(
     }
 
     @OptIn(ExperimentalPagingApi::class)
-    override fun cards(status: String): Flow<PagingData<CountsPenReconciliationCardDto>> {
-        val key = scopeKey(status)
+    override fun cards(status: String, parkId: String?): Flow<PagingData<CountsPenReconciliationCardDto>> {
+        val key = scopeKey(status, parkId)
         return Pager(
             config = PagingConfig(
                 pageSize = PEN_RECONCILIATION_PAGE_SIZE,
@@ -124,11 +134,12 @@ class DefaultPenReconciliationRepository(
             ),
             remoteMediator = PenReconciliationRemoteMediator(
                 status = status,
+                parkId = parkId,
                 api = api,
                 database = database,
                 json = json,
                 clock = clock,
-                onMeta = { counts -> _meta.value = PenReconciliationMeta(status, counts) },
+                onMeta = { counts, filters -> _meta.value = PenReconciliationMeta(status, counts, filters) },
             ),
             pagingSourceFactory = { database.penReconciliationItemDao().pagingSource(key) },
         ).flow
@@ -152,7 +163,7 @@ class DefaultPenReconciliationRepository(
         dao.upsertAll(listOf(cached.copy(dtoJson = json.encodeToString(dto.copy(workflowId = workflowId)))))
     }
 
-    private fun scopeKey(status: String): String = cacheKey("pen-reconciliation", status)
+    private fun scopeKey(status: String, parkId: String?): String = penReconciliationScopeKey(status, parkId)
 }
 
 /**
@@ -163,13 +174,14 @@ class DefaultPenReconciliationRepository(
 @OptIn(ExperimentalPagingApi::class)
 private class PenReconciliationRemoteMediator(
     private val status: String,
+    private val parkId: String?,
     private val api: AppApi,
     private val database: GoatDatabase,
     private val json: Json,
     private val clock: () -> Long,
-    private val onMeta: (CountsPenReconciliationStatusCountsDto) -> Unit,
+    private val onMeta: (CountsPenReconciliationStatusCountsDto, CountsPenReconciliationFiltersDto) -> Unit,
 ) : RemoteMediator<Int, PenReconciliationItemEntity>() {
-    private val queryKey = cacheKey("pen-reconciliation", status)
+    private val queryKey = penReconciliationScopeKey(status, parkId)
 
     /**
      * ALWAYS refresh on open. This is a work queue answering "which animals are in the wrong pen
@@ -198,10 +210,11 @@ private class PenReconciliationRemoteMediator(
         return try {
             val response = api.listCountsPenReconciliationCards(
                 status = status,
+                parkId = parkId,
                 pageSize = PEN_RECONCILIATION_PAGE_SIZE,
                 cursor = cursor,
             )
-            if (loadType == LoadType.REFRESH) onMeta(response.statusCounts)
+            if (loadType == LoadType.REFRESH) onMeta(response.statusCounts, response.filters)
             // An absent next_cursor is the contract's own end-of-pages signal. A cursor that did
             // not ADVANCE is also treated as the end — otherwise a backend echoing the same cursor
             // would spin this mediator forever on one page (the non-terminating pagination loop
@@ -264,6 +277,18 @@ private class PenReconciliationRemoteMediator(
         }
     }
 }
+
+/**
+ * One Room scope per (status, park) pair. The park is part of the key so a CXO switching
+ * between CBE and CPT never reads the other park's cached rows under the same status chip.
+ * No park picked keeps the pre-filter key, so an upgraded phone still opens on its cached cards.
+ */
+private fun penReconciliationScopeKey(status: String, parkId: String?): String =
+    if (parkId.isNullOrBlank()) {
+        cacheKey("pen-reconciliation", status)
+    } else {
+        cacheKey("pen-reconciliation", status, parkId)
+    }
 
 private fun penReconciliationStatusRank(status: String): Int = when (status) {
     "completed" -> 4

@@ -15834,6 +15834,17 @@ paths:
           schema:
             type: string
             maxLength: 512
+        - name: park_id
+          in: query
+          required: false
+          description: >-
+            Narrows the page AND its status_counts to one park. Must be one of the parks offered
+            in `filters.parks`; any other value is refused (400 for a park the caller is not
+            offered, 403 for a park outside a park-scoped caller's grant). Omitted, a
+            single-park caller is clamped to their park and a tenant-wide reader sees every park.
+          schema:
+            type: string
+            format: uuid
       responses:
         "200":
           description: One page of status-filtered Reconcile cards.
@@ -45898,6 +45909,7 @@ components:
       required:
         - items
         - status_counts
+        - filters
       properties:
         items:
           type: array
@@ -45908,6 +45920,39 @@ components:
           type: string
         status_counts:
           $ref: "#/components/schemas/CountsPenReconciliationStatusCounts"
+        filters:
+          $ref: "#/components/schemas/CountsPenReconciliationFilters"
+    CountsPenReconciliationFilters:
+      description: >-
+        The backend-owned park filter bar. `parks` lists exactly the parks the caller may choose
+        (one for a park-scoped operator, every active park for a tenant-wide reader);
+        `selected_park_id` is the park this page is clamped to, empty when it spans every
+        offered park. Clients render these verbatim and never derive a park list.
+      type: object
+      additionalProperties: false
+      required: [parks, selected_park_id]
+      properties:
+        parks:
+          type: array
+          items:
+            $ref: "#/components/schemas/CountsPenReconciliationParkOption"
+        selected_park_id:
+          type: string
+    CountsPenReconciliationParkOption:
+      type: object
+      additionalProperties: false
+      required: [park_id, label, code, selected]
+      properties:
+        park_id:
+          type: string
+          format: uuid
+        label:
+          type: string
+        code:
+          description: The park's short code (CBE, CPT) — the small badge each card carries.
+          type: string
+        selected:
+          type: boolean
     CountsPenReconciliationStatusCounts:
       type: object
       additionalProperties: false
@@ -45976,6 +46021,9 @@ components:
           type: string
           format: uuid
         park_name:
+          type: string
+        park_code:
+          description: The park's short code (CBE, CPT), shown small on the card.
           type: string
         raised_at:
           type: string

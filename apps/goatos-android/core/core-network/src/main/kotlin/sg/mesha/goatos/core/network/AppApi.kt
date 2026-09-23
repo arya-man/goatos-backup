@@ -1154,6 +1154,7 @@ interface AppApi {
         status: String? = null,
         pageSize: Int? = null,
         cursor: String? = null,
+        parkId: String? = null,
     ): CountsPenReconciliationListResponseDto
 
     /**
@@ -2787,6 +2788,7 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         status: String?,
         pageSize: Int?,
         cursor: String?,
+        parkId: String?,
     ): CountsPenReconciliationListResponseDto = CountsPenReconciliationListResponseDto()
 
     override suspend fun completeCountsPenReconciliationCard(

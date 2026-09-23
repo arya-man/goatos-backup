@@ -108,6 +108,10 @@ type PenReconciliationRepository interface {
 	// whole-filter status counts.
 	ListPenReconciliationCards(ctx context.Context, q domain.PenReconciliationQuery) (domain.PenReconciliationPage, error)
 
+	// ListPenReconciliationParkOptions returns the active parks a Reconcile reader may filter
+	// by: every active park when parkIDs is empty, else exactly those parks (park-code order).
+	ListPenReconciliationParkOptions(ctx context.Context, tenantID string, parkIDs []string) ([]domain.PenReconciliationParkOption, error)
+
 	// CompletePenReconciliationCard stores the operator's mandatory return video and flips the
 	// card open/rework -> pending_verification. The bool result reports an idempotent replay.
 	CompletePenReconciliationCard(ctx context.Context, in domain.PenReconciliationCompletionCommand) (domain.PenReconciliationCompletionResult, bool, error)

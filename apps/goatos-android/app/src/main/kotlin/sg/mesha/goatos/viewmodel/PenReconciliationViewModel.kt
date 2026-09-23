@@ -28,6 +28,7 @@ import sg.mesha.goatos.core.network.dto.CountsPenReconciliationCardDto
 import sg.mesha.goatos.feature.counts.CountsWriteResultUi
 import sg.mesha.goatos.feature.counts.CountsWriteStatus
 import sg.mesha.goatos.feature.counts.PenReconciliationEvent
+import sg.mesha.goatos.feature.counts.PenReconciliationParkUi
 import sg.mesha.goatos.feature.counts.PenReconciliationRowUi
 import sg.mesha.goatos.feature.counts.PenReconciliationStatusUi
 import sg.mesha.goatos.feature.counts.PenReconciliationTone
@@ -53,7 +54,7 @@ class PenReconciliationViewModel @Inject constructor(
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val rows: Flow<PagingData<PenReconciliationRowUi>> = _selection
-        .flatMapLatest { repo.cards(status = it.status) }
+        .flatMapLatest { repo.cards(status = it.status, parkId = it.parkId) }
         .map { page -> page.map { it.toRowUi() } }
         .cachedIn(viewModelScope)
 
@@ -98,6 +99,21 @@ class PenReconciliationViewModel @Inject constructor(
                     },
                 )
             },
+            // The park bar is backend-owned: the options are exactly the parks this person may
+            // see, and `selected` already reflects the server's clamp (a single-park operator
+            // arrives auto-selected). The phone never invents a park list of its own. An "All"
+            // chip is offered only when there is more than one park to span.
+            parks = meta.filters.parks.let { parks ->
+                if (parks.size <= 1) {
+                    parks.map { PenReconciliationParkUi(parkId = it.parkId, label = it.label, code = it.code, selected = true) }
+                } else {
+                    listOf(
+                        PenReconciliationParkUi(parkId = "", label = ALL_PARKS_LABEL, code = "", selected = meta.filters.selectedParkId.isBlank()),
+                    ) + parks.map {
+                        PenReconciliationParkUi(parkId = it.parkId, label = it.label, code = it.code, selected = it.parkId == meta.filters.selectedParkId)
+                    }
+                }
+            },
             emptyMessage = if (isOffline) OFFLINE_EMPTY else EMPTY_MESSAGE,
             isErrorEmpty = isOffline,
             lastSyncedAt = lastSyncedAt,
@@ -136,6 +152,12 @@ class PenReconciliationViewModel @Inject constructor(
                 _selection.value = _selection.value.let { it.copy(refreshNonce = it.refreshNonce + 1) }
             is PenReconciliationEvent.SelectStatus -> if (STATUSES.any { it.first == event.status }) {
                 _selection.value = _selection.value.copy(status = event.status)
+            }
+            is PenReconciliationEvent.SelectPark -> {
+                // Only a park the backend offered may be chosen; "" is the All chip. The server
+                // re-clamps anyway, so a stale option can narrow nothing it should not.
+                val offered = event.parkId.isBlank() || repo.meta.value.filters.parks.any { it.parkId == event.parkId }
+                if (offered) _selection.value = _selection.value.copy(parkId = event.parkId.ifBlank { null })
             }
             is PenReconciliationEvent.OpenCard -> openCard(event.cardId)
             PenReconciliationEvent.OpenHandled -> _open.value = OpenState()
@@ -192,13 +214,14 @@ class PenReconciliationViewModel @Inject constructor(
         primaryActionKey = primaryActionKey,
         raisedAtLabel = GoatOsDates.fromWireDate(raisedAtIst.take(10)),
         reworkReason = reworkReason?.takeIf { it.isNotBlank() },
+        parkCode = parkCode.orEmpty(),
     )
 
     /**
      * The selected status bucket, plus a [refreshNonce] whose only job is to make a refresh a NEW
      * value — a bare copy() of an equal data class emits nothing through a conflating StateFlow.
      */
-    private data class Selection(val status: String, val refreshNonce: Int = 0)
+    private data class Selection(val status: String, val parkId: String? = null, val refreshNonce: Int = 0)
 
     private data class SubmittedOutboxNotice(
         val outboxItemId: String,
@@ -211,6 +234,7 @@ class PenReconciliationViewModel @Inject constructor(
             "all" to "All", "open" to "Open", "pending_verification" to "In review",
             "rework" to "Rework", "completed" to "Completed",
         )
+        const val ALL_PARKS_LABEL = "All parks"
         const val EMPTY_MESSAGE = "No animals need returning right now."
         const val OFFLINE_EMPTY = "Couldn't refresh. Cached cards will appear when available."
         const val QUEUED_MESSAGE = "Saved on this phone. It will sync automatically."

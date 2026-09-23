@@ -155,6 +155,86 @@ func TestPenReconciliationRaiseFindsOnlyTheMismatchedAnimal(t *testing.T) {
 	if page.StatusCounts.Open != 1 || page.StatusCounts.All != 1 {
 		t.Fatalf("status counts = %+v", page.StatusCounts)
 	}
+	// The fixture park's code is whatever the template holds (ON CONFLICT DO NOTHING keeps the
+	// seeded row), so read it back rather than assuming the fixture literal landed.
+	var ownCode string
+	if err := pool.QueryRow(ctx, `SELECT COALESCE(location_code, '') FROM locations WHERE location_id = $1::uuid`, countsPark).Scan(&ownCode); err != nil {
+		t.Fatalf("read own park code: %v", err)
+	}
+	if ownCode == "" || card.ParkCode == nil || *card.ParkCode != ownCode {
+		t.Fatalf("park code = %v, want the park's short code %q on the card", stringOrEmptyTest(card.ParkCode), ownCode)
+	}
+
+	// PARK CLAMP (maintainer request 2026-09-15): the page AND its chip counts obey the same
+	// park predicate, so a park-scoped operator never sees -- or is told about -- another
+	// park's cards. Clamped to the card's park it is there; clamped to another it is gone from
+	// both the rows and the counts.
+	otherPark := "00000000-0000-4000-8000-00000000f9a1"
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
+VALUES ($2::uuid, $1::uuid, 'park', 'ZZZ', 'Other Park', 'active')
+ON CONFLICT (location_id) DO NOTHING`, countsTenant, otherPark); err != nil {
+		t.Fatalf("seed other park: %v", err)
+	}
+	scoped, err := repo.ListPenReconciliationCards(ctx, domain.PenReconciliationQuery{
+		TenantID: countsTenant, Status: domain.PenReconciliationBucketAll, PageSize: 20,
+		ParkIDs: []string{countsPark},
+	})
+	if err != nil {
+		t.Fatalf("list clamped to own park: %v", err)
+	}
+	if len(scoped.Items) != 1 || scoped.StatusCounts.All != 1 {
+		t.Fatalf("own-park clamp: rows=%d counts=%+v, want the card", len(scoped.Items), scoped.StatusCounts)
+	}
+	foreign, err := repo.ListPenReconciliationCards(ctx, domain.PenReconciliationQuery{
+		TenantID: countsTenant, Status: domain.PenReconciliationBucketAll, PageSize: 20,
+		ParkIDs: []string{otherPark},
+	})
+	if err != nil {
+		t.Fatalf("list clamped to other park: %v", err)
+	}
+	if len(foreign.Items) != 0 || foreign.StatusCounts.All != 0 {
+		t.Fatalf("other-park clamp: rows=%d counts=%+v, want nothing", len(foreign.Items), foreign.StatusCounts)
+	}
+	options, err := repo.ListPenReconciliationParkOptions(ctx, countsTenant, nil)
+	if err != nil {
+		t.Fatalf("park options: %v", err)
+	}
+	codes := map[string]string{}
+	for _, opt := range options {
+		codes[opt.ParkID] = opt.Code
+	}
+	if codes[countsPark] != ownCode || codes[otherPark] != "ZZZ" {
+		t.Fatalf("park options = %+v, want both parks with their codes", options)
+	}
+	// Park CODE order, never name order: "AAA Alpha" sorts first by name but carries the
+	// last code, so a name-ordered query puts it first and fails here.
+	lastByCode := "00000000-0000-4000-8000-00000000f9a2"
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
+VALUES ($2::uuid, $1::uuid, 'park', 'ZZZZ', 'AAA Alpha', 'active')
+ON CONFLICT (location_id) DO NOTHING`, countsTenant, lastByCode); err != nil {
+		t.Fatalf("seed name-first park: %v", err)
+	}
+	ordered, err := repo.ListPenReconciliationParkOptions(ctx, countsTenant, nil)
+	if err != nil {
+		t.Fatalf("park options (ordered): %v", err)
+	}
+	for i := 1; i < len(ordered); i++ {
+		if ordered[i-1].Code > ordered[i].Code {
+			t.Fatalf("park options not in code order: %+v", ordered)
+		}
+	}
+	if ordered[len(ordered)-1].ParkID != lastByCode {
+		t.Fatalf("park options = %+v, want the ZZZZ park last despite its name", ordered)
+	}
+	only, err := repo.ListPenReconciliationParkOptions(ctx, countsTenant, []string{otherPark})
+	if err != nil {
+		t.Fatalf("park options (scoped): %v", err)
+	}
+	if len(only) != 1 || only[0].ParkID != otherPark {
+		t.Fatalf("scoped park options = %+v, want exactly the authorized park", only)
+	}
 }
 
 // TestPenReconciliationPartitionSpellingsCompareScrubbed pins the scrubbed-key rule: the
@@ -364,4 +444,11 @@ WHERE tenant_id = $1::uuid AND card_id = $2::uuid`, countsTenant, cardID); err !
 	if !errors.Is(err, ports.ErrPenReconciliationNotActionable) {
 		t.Fatalf("workflow-backed legacy complete err = %v", err)
 	}
+}
+
+func stringOrEmptyTest(v *string) string {
+	if v == nil {
+		return "<nil>"
+	}
+	return *v
 }

@@ -20030,6 +20030,20 @@ export interface components {
             /** @description Present only when another page exists. Opaque; pass back as ?cursor=. */
             next_cursor?: string;
             status_counts: components["schemas"]["CountsPenReconciliationStatusCounts"];
+            filters: components["schemas"]["CountsPenReconciliationFilters"];
+        };
+        /** @description The backend-owned park filter bar. `parks` lists exactly the parks the caller may choose (one for a park-scoped operator, every active park for a tenant-wide reader); `selected_park_id` is the park this page is clamped to, empty when it spans every offered park. Clients render these verbatim and never derive a park list. */
+        CountsPenReconciliationFilters: {
+            parks: components["schemas"]["CountsPenReconciliationParkOption"][];
+            selected_park_id: string;
+        };
+        CountsPenReconciliationParkOption: {
+            /** Format: uuid */
+            park_id: string;
+            label: string;
+            /** @description The park's short code (CBE, CPT) — the small badge each card carries. */
+            code: string;
+            selected: boolean;
         };
         CountsPenReconciliationStatusCounts: {
             all: number;
@@ -20070,6 +20084,8 @@ export interface components {
             /** Format: uuid */
             park_id?: string;
             park_name?: string;
+            /** @description The park's short code (CBE, CPT), shown small on the card. */
+            park_code?: string;
             /** Format: date-time */
             raised_at: string;
             raised_at_ist: string;
@@ -31476,6 +31492,8 @@ export interface operations {
                 page_size?: number;
                 /** @description Opaque keyset cursor from a previous page's next_cursor. */
                 cursor?: string;
+                /** @description Narrows the page AND its status_counts to one park. Must be one of the parks offered in `filters.parks`; any other value is refused (400 for a park the caller is not offered, 403 for a park outside a park-scoped caller's grant). Omitted, a single-park caller is clamped to their park and a tenant-wide reader sees every park. */
+                park_id?: string;
             };
             header?: never;
             path?: never;

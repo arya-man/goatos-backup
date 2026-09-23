@@ -18,6 +18,8 @@ type fakePenReconciliationRepo struct {
 	markCalls      []string
 	markErr        error
 	listCalls      []domain.PenReconciliationQuery
+	parks          []domain.PenReconciliationParkOption
+	parkCalls      [][]string
 	debts          []domain.PenReconciliationVerificationEnqueueDebt
 	debtErr        error
 	// cardIDByWorkflow resolves the workflow-completion path's card (blank = not found).
@@ -30,6 +32,21 @@ func (f *fakePenReconciliationRepo) RaisePenReconciliationCards(context.Context,
 func (f *fakePenReconciliationRepo) ListPenReconciliationCards(_ context.Context, q domain.PenReconciliationQuery) (domain.PenReconciliationPage, error) {
 	f.listCalls = append(f.listCalls, q)
 	return domain.PenReconciliationPage{}, nil
+}
+func (f *fakePenReconciliationRepo) ListPenReconciliationParkOptions(_ context.Context, _ string, parkIDs []string) ([]domain.PenReconciliationParkOption, error) {
+	f.parkCalls = append(f.parkCalls, parkIDs)
+	if len(parkIDs) == 0 {
+		return f.parks, nil
+	}
+	out := []domain.PenReconciliationParkOption{}
+	for _, park := range f.parks {
+		for _, id := range parkIDs {
+			if park.ParkID == id {
+				out = append(out, park)
+			}
+		}
+	}
+	return out, nil
 }
 func (f *fakePenReconciliationRepo) CompletePenReconciliationCard(_ context.Context, in domain.PenReconciliationCompletionCommand) (domain.PenReconciliationCompletionResult, bool, error) {
 	f.completeCalls = append(f.completeCalls, in)
@@ -272,13 +289,13 @@ func TestPenReconciliationListValidatesTheFilter(t *testing.T) {
 	repo := &fakePenReconciliationRepo{}
 	svc := NewPenReconciliationService(repo, nil)
 
-	if _, err := svc.List(context.Background(), "tenant-1", "not_a_bucket", 20, ""); !errors.Is(err, ErrInvalidPenReconciliationFilter) {
+	if _, err := svc.List(context.Background(), ListPenReconciliationInput{TenantID: "tenant-1", Status: "not_a_bucket", PageSize: 20}); !errors.Is(err, ErrInvalidPenReconciliationFilter) {
 		t.Fatalf("bad status: err = %v", err)
 	}
-	if _, err := svc.List(context.Background(), "tenant-1", "", 20, "!!!not-a-cursor"); !errors.Is(err, ErrInvalidPenReconciliationFilter) {
+	if _, err := svc.List(context.Background(), ListPenReconciliationInput{TenantID: "tenant-1", PageSize: 20, Cursor: "!!!not-a-cursor"}); !errors.Is(err, ErrInvalidPenReconciliationFilter) {
 		t.Fatalf("bad cursor: err = %v", err)
 	}
-	if _, err := svc.List(context.Background(), "tenant-1", "open", 20, ""); err != nil {
+	if _, err := svc.List(context.Background(), ListPenReconciliationInput{TenantID: "tenant-1", Status: "open", PageSize: 20}); err != nil {
 		t.Fatalf("valid: err = %v", err)
 	}
 	if len(repo.listCalls) != 1 || repo.listCalls[0].Status != domain.PenReconciliationBucketOpen {
@@ -299,4 +316,83 @@ func (r *fakePenReconciliationRepo) PenReconciliationCardIDByWorkflow(context.Co
 		return r.cardIDByWorkflow, nil
 	}
 	return "", ports.ErrPenReconciliationCardNotFound
+}
+
+// TestPenReconciliationListParkScopeIsBackendOwned pins the three park-scope shapes the
+// Reconcile tab serves: a single-park operator is auto-selected onto their park and clamped to
+// it; a tenant-wide reader is offered every park with nothing selected and an unclamped page;
+// and a tenant-wide reader's ?park_id narrows BOTH the page and (through the same query) the
+// chip counts, never the options.
+func TestPenReconciliationListParkScopeIsBackendOwned(t *testing.T) {
+	cbe := domain.PenReconciliationParkOption{ParkID: "park-cbe", Name: "Coimbatore", Code: "CBE"}
+	cpt := domain.PenReconciliationParkOption{ParkID: "park-cpt", Name: "Channapatna", Code: "CPT"}
+
+	t.Run("single-park operator is auto-selected and clamped", func(t *testing.T) {
+		repo := &fakePenReconciliationRepo{parks: []domain.PenReconciliationParkOption{cbe, cpt}}
+		svc := NewPenReconciliationService(repo, nil)
+		page, err := svc.List(context.Background(), ListPenReconciliationInput{
+			TenantID: "tenant-1", PageSize: 20, AuthorizedParkIDs: []string{"park-cpt"},
+		})
+		if err != nil {
+			t.Fatalf("err = %v", err)
+		}
+		if page.SelectedParkID != "park-cpt" {
+			t.Fatalf("selected = %q, want the operator's only park", page.SelectedParkID)
+		}
+		if len(page.Parks) != 1 || page.Parks[0].Code != "CPT" {
+			t.Fatalf("options = %+v, want exactly the operator's park", page.Parks)
+		}
+		if got := repo.listCalls[0].ParkIDs; len(got) != 1 || got[0] != "park-cpt" {
+			t.Fatalf("page clamp = %v, want [park-cpt]", got)
+		}
+	})
+
+	t.Run("tenant-wide reader sees every park, none selected, page unclamped", func(t *testing.T) {
+		repo := &fakePenReconciliationRepo{parks: []domain.PenReconciliationParkOption{cbe, cpt}}
+		svc := NewPenReconciliationService(repo, nil)
+		page, err := svc.List(context.Background(), ListPenReconciliationInput{TenantID: "tenant-1", PageSize: 20})
+		if err != nil {
+			t.Fatalf("err = %v", err)
+		}
+		if page.SelectedParkID != "" {
+			t.Fatalf("selected = %q, want none", page.SelectedParkID)
+		}
+		if len(page.Parks) != 2 {
+			t.Fatalf("options = %+v, want both parks", page.Parks)
+		}
+		if got := repo.listCalls[0].ParkIDs; len(got) != 0 {
+			t.Fatalf("page clamp = %v, want none", got)
+		}
+	})
+
+	t.Run("a park the caller is not offered is a bad filter, never an empty page", func(t *testing.T) {
+		repo := &fakePenReconciliationRepo{parks: []domain.PenReconciliationParkOption{cbe, cpt}}
+		svc := NewPenReconciliationService(repo, nil)
+		_, err := svc.List(context.Background(), ListPenReconciliationInput{
+			TenantID: "tenant-1", PageSize: 20, RequestedParkID: "not-a-park",
+		})
+		if !errors.Is(err, ErrInvalidPenReconciliationFilter) {
+			t.Fatalf("err = %v, want ErrInvalidPenReconciliationFilter", err)
+		}
+		if len(repo.listCalls) != 0 {
+			t.Fatalf("list ran %d times for a refused park", len(repo.listCalls))
+		}
+	})
+
+	t.Run("tenant-wide reader picking a park narrows the page but keeps every option", func(t *testing.T) {
+		repo := &fakePenReconciliationRepo{parks: []domain.PenReconciliationParkOption{cbe, cpt}}
+		svc := NewPenReconciliationService(repo, nil)
+		page, err := svc.List(context.Background(), ListPenReconciliationInput{
+			TenantID: "tenant-1", PageSize: 20, RequestedParkID: "park-cbe",
+		})
+		if err != nil {
+			t.Fatalf("err = %v", err)
+		}
+		if page.SelectedParkID != "park-cbe" || len(page.Parks) != 2 {
+			t.Fatalf("selected = %q options = %+v", page.SelectedParkID, page.Parks)
+		}
+		if got := repo.listCalls[0].ParkIDs; len(got) != 1 || got[0] != "park-cbe" {
+			t.Fatalf("page clamp = %v, want [park-cbe]", got)
+		}
+	})
 }

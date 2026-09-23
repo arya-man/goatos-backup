@@ -171,13 +171,15 @@ func (r *Repository) RaisePenReconciliationCards(
 
 const listPenReconciliationSQL = `
 -- projection-review: membership=one row per pen_reconciliation_card in the tenant matching
--- the selected status bucket, keyset-bounded; group_key=card_id (PK, no grouping);
+-- the selected status bucket AND the caller's park set ($6, empty = every park),
+-- keyset-bounded; group_key=card_id (PK, no grouping);
 -- join_cardinality=goats 0..1 (PK), reg_shed/park locations 0..1 each (PK) so the join fans
--- nothing out; pagination=keyset (raised_at DESC, card_id DESC) LIMIT $5+1; scope=tenant_id.
+-- nothing out; pagination=keyset (raised_at DESC, card_id DESC) LIMIT $5+1;
+-- scope=tenant_id + park_id clamp resolved from the caller's grants by the handler.
 SELECT c.card_id, c.status, c.goat_id, COALESCE(g.display_id, ''), c.scanned_identifier,
        c.found_location_id, c.found_partition_label, c.found_display_name,
        c.registered_shed_id, COALESCE(reg.name, ''), c.registered_partition_label,
-       c.park_id, park.name,
+       c.park_id, park.name, park.location_code,
        c.campaign_id, c.campaign_shed_id, c.raised_at,
        c.proof_ref, c.completed_by, c.completed_at,
        c.verified_by, c.verified_at, c.rework_reason,
@@ -188,16 +190,19 @@ LEFT JOIN locations reg ON reg.tenant_id = c.tenant_id AND reg.location_id = c.r
 LEFT JOIN locations park ON park.tenant_id = c.tenant_id AND park.location_id = c.park_id
 WHERE c.tenant_id = $1::uuid
   AND ($2::text = 'all' OR c.status = $2::text)
+  AND (cardinality($6::uuid[]) = 0 OR c.park_id = ANY($6::uuid[]))
   AND ($3::timestamptz IS NULL OR (c.raised_at, c.card_id) < ($3::timestamptz, $4::uuid))
 ORDER BY c.raised_at DESC, c.card_id DESC
 LIMIT $5
 `
 
 const penReconciliationStatusCountsSQL = `
--- projection-review: membership=every pen_reconciliation_card in the tenant; group_key=NONE
--- (whole-filter aggregate, one output row); join_cardinality=no joins, each card counted
--- exactly once per FILTER arm and the arms are disjoint on status; pagination=NONE (summary
--- is whole-filter truth, never page-local); scope=tenant_id.
+-- projection-review: membership=every pen_reconciliation_card in the tenant within the
+-- caller's park set ($2, empty = every park) -- the SAME park predicate the page uses, so
+-- the chips never advertise cards the list hides; group_key=NONE (whole-filter aggregate,
+-- one output row); join_cardinality=no joins, each card counted exactly once per FILTER arm
+-- and the arms are disjoint on status; pagination=NONE (summary is whole-filter truth, never
+-- page-local); scope=tenant_id + park_id clamp.
 SELECT count(*) AS all_count,
        count(*) FILTER (WHERE status = 'open') AS open_count,
        count(*) FILTER (WHERE status = 'pending_verification') AS submitted_count,
@@ -205,7 +210,52 @@ SELECT count(*) AS all_count,
        count(*) FILTER (WHERE status = 'completed') AS completed_count
 FROM pen_reconciliation_cards
 WHERE tenant_id = $1::uuid
+  AND (cardinality($2::uuid[]) = 0 OR park_id = ANY($2::uuid[]))
 `
+
+const penReconciliationParkOptionsSQL = `
+-- projection-review: membership=active park locations in the tenant, optionally restricted to
+-- the caller's authorized park ids ($2, empty = all); group_key=location_id (PK); no joins;
+-- pagination=NONE (a tenant has a handful of parks); scope=tenant_id. Ordered by park CODE,
+-- never name, so CBE (Coimbatore) precedes CPT (Channapatna) as on every other surface.
+SELECT location_id, name, COALESCE(location_code, '')
+FROM locations
+WHERE tenant_id = $1::uuid AND location_type = 'park' AND status = 'active'
+  AND (cardinality($2::uuid[]) = 0 OR location_id = ANY($2::uuid[]))
+ORDER BY COALESCE(NULLIF(location_code, ''), name), location_id
+`
+
+// ListPenReconciliationParkOptions returns the parks a Reconcile reader may filter the queue
+// by, park-code ordered (CBE before CPT), restricted to parkIDs when given.
+func (r *Repository) ListPenReconciliationParkOptions(
+	ctx context.Context, tenantID string, parkIDs []string,
+) ([]domain.PenReconciliationParkOption, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, penReconciliationParkOptionsSQL, tenantID, parkIDArray(parkIDs))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]domain.PenReconciliationParkOption, 0, 2)
+	for rows.Next() {
+		var opt domain.PenReconciliationParkOption
+		if err := rows.Scan(&opt.ParkID, &opt.Name, &opt.Code); err != nil {
+			return nil, err
+		}
+		out = append(out, opt)
+	}
+	return out, rows.Err()
+}
+
+// parkIDArray never passes NULL for the park clamp: cardinality(NULL) is NULL, which would
+// make the "no filter" arm false and hide every card.
+func parkIDArray(parkIDs []string) []string {
+	if parkIDs == nil {
+		return []string{}
+	}
+	return parkIDs
+}
 
 // ListPenReconciliationCards returns one keyset page of the Reconcile queue plus whole-filter
 // status counts.
@@ -232,7 +282,7 @@ func (r *Repository) ListPenReconciliationCards(
 	}
 
 	rows, err := r.pool.Query(ctx, listPenReconciliationSQL,
-		q.TenantID, status, cursorAt, cursorID, pageSize+1)
+		q.TenantID, status, cursorAt, cursorID, pageSize+1, parkIDArray(q.ParkIDs))
 	if err != nil {
 		return domain.PenReconciliationPage{}, err
 	}
@@ -246,7 +296,7 @@ func (r *Repository) ListPenReconciliationCards(
 			&card.CardID, &card.Status, &card.GoatID, &card.GoatDisplayID, &card.ScannedIdentifier,
 			&card.FoundLocationID, &card.FoundPartitionLabel, &card.FoundDisplayName,
 			&card.RegisteredShedID, &card.RegisteredShedName, &card.RegisteredPartitionLabel,
-			&card.ParkID, &card.ParkName,
+			&card.ParkID, &card.ParkName, &card.ParkCode,
 			&card.CampaignID, &card.CampaignShedID, &card.RaisedAt,
 			&card.ProofRef, &card.CompletedBy, &card.CompletedAt,
 			&card.VerifiedBy, &card.VerifiedAt, &card.ReworkReason,
@@ -276,7 +326,7 @@ func (r *Repository) ListPenReconciliationCards(
 	}
 	page.Items = items
 
-	if err := r.pool.QueryRow(ctx, penReconciliationStatusCountsSQL, q.TenantID).Scan(
+	if err := r.pool.QueryRow(ctx, penReconciliationStatusCountsSQL, q.TenantID, parkIDArray(q.ParkIDs)).Scan(
 		&page.StatusCounts.All, &page.StatusCounts.Open, &page.StatusCounts.Submitted,
 		&page.StatusCounts.Rework, &page.StatusCounts.Completed,
 	); err != nil {

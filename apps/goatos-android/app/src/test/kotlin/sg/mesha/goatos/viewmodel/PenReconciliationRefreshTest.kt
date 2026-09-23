@@ -23,6 +23,8 @@ import sg.mesha.goatos.core.data.PenReconciliationMeta
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.PenReconciliationRepository
 import sg.mesha.goatos.core.network.dto.CountsPenReconciliationCardDto
+import sg.mesha.goatos.core.network.dto.CountsPenReconciliationFiltersDto
+import sg.mesha.goatos.core.network.dto.CountsPenReconciliationParkOptionDto
 import sg.mesha.goatos.feature.counts.PenReconciliationEvent
 
 /**
@@ -76,16 +78,75 @@ class PenReconciliationRefreshTest {
         viewModel.rows.test {
             awaitItem()
             advanceUntilIdle()
-            assertEquals(listOf("all"), repo.subscriptions)
+            assertEquals(listOf("all|"), repo.subscriptions)
 
             viewModel.onEvent(PenReconciliationEvent.SelectStatus("open"))
             advanceUntilIdle()
-            assertEquals(listOf("all", "open"), repo.subscriptions)
+            assertEquals(listOf("all|", "open|"), repo.subscriptions)
 
             // An unknown status key is ignored — never sent to the backend as a filter.
             viewModel.onEvent(PenReconciliationEvent.SelectStatus("bogus"))
             advanceUntilIdle()
-            assertEquals(listOf("all", "open"), repo.subscriptions)
+            assertEquals(listOf("all|", "open|"), repo.subscriptions)
+
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    /**
+     * The park bar is BACKEND-OWNED (maintainer request 2026-09-15). A single-park operator gets
+     * one chip, already selected, and no "All"; a tenant-wide reader gets "All parks" selected
+     * plus one chip per park; picking a park resubscribes the paged read with that park; a park
+     * the backend never offered is ignored.
+     */
+    @Test
+    fun `park bar renders the backend's options and selection verbatim`() = runTest(dispatcher) {
+        val repo = CountingPenReconciliationRepository()
+        val viewModel = newViewModel(repo)
+        val cbe = CountsPenReconciliationParkOptionDto(parkId = "park-cbe", label = "Coimbatore", code = "CBE")
+        val cpt = CountsPenReconciliationParkOptionDto(parkId = "park-cpt", label = "Channapatna", code = "CPT")
+
+        viewModel.state.test {
+            awaitItem()
+
+            // Single-park operator: the server already clamped and selected their park.
+            repo.metaFlow.value = PenReconciliationMeta(
+                filters = CountsPenReconciliationFiltersDto(parks = listOf(cpt.copy(selected = true)), selectedParkId = "park-cpt"),
+            )
+            advanceUntilIdle()
+            val single = expectMostRecentItem().parks
+            assertEquals(listOf("Channapatna"), single.map { it.label })
+            assertEquals(listOf(true), single.map { it.selected })
+
+            // Tenant-wide reader: "All parks" leads and is selected until they pick one.
+            repo.metaFlow.value = PenReconciliationMeta(
+                filters = CountsPenReconciliationFiltersDto(parks = listOf(cbe, cpt), selectedParkId = ""),
+            )
+            advanceUntilIdle()
+            val wide = expectMostRecentItem().parks
+            assertEquals(listOf("All parks", "Coimbatore", "Channapatna"), wide.map { it.label })
+            assertEquals(listOf(true, false, false), wide.map { it.selected })
+            assertEquals(listOf("", "CBE", "CPT"), wide.map { it.code })
+
+            cancelAndIgnoreRemainingEvents()
+        }
+
+        viewModel.rows.test {
+            awaitItem()
+            advanceUntilIdle()
+            assertEquals(listOf("all|"), repo.subscriptions)
+
+            viewModel.onEvent(PenReconciliationEvent.SelectPark("park-cbe"))
+            advanceUntilIdle()
+            assertEquals("picking a park resubscribes scoped to it", listOf("all|", "all|park-cbe"), repo.subscriptions)
+
+            viewModel.onEvent(PenReconciliationEvent.SelectPark("park-never-offered"))
+            advanceUntilIdle()
+            assertEquals("an unoffered park is ignored", listOf("all|", "all|park-cbe"), repo.subscriptions)
+
+            viewModel.onEvent(PenReconciliationEvent.SelectPark(""))
+            advanceUntilIdle()
+            assertEquals("the All chip clears the clamp", listOf("all|", "all|park-cbe", "all|"), repo.subscriptions)
 
             cancelAndIgnoreRemainingEvents()
         }
@@ -100,15 +161,16 @@ class PenReconciliationRefreshTest {
 }
 
 private class CountingPenReconciliationRepository : PenReconciliationRepository {
-    /** Every status the paged read was (re)subscribed with, in order. */
+    /** Every (status|park) the paged read was (re)subscribed with, in order. */
     val subscriptions = mutableListOf<String>()
 
-    override val meta: StateFlow<PenReconciliationMeta> = MutableStateFlow(PenReconciliationMeta())
+    val metaFlow = MutableStateFlow(PenReconciliationMeta())
+    override val meta: StateFlow<PenReconciliationMeta> = metaFlow
 
     override suspend fun openQuestionnaire(cardId: String): AppResult<String> = AppResult.Ok("wf-$cardId")
 
-    override fun cards(status: String): Flow<PagingData<CountsPenReconciliationCardDto>> = flow {
-        subscriptions += status
+    override fun cards(status: String, parkId: String?): Flow<PagingData<CountsPenReconciliationCardDto>> = flow {
+        subscriptions += "$status|${parkId.orEmpty()}"
         emit(PagingData.empty())
     }
 
