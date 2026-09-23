@@ -629,6 +629,14 @@ data class HealthDetailUiState(
     val capturingStepId: String = "",
     val videoMessage: String? = null,
     val message: String? = null,
+    /**
+     * Whether [message] is the work being BLOCKED rather than progressing.
+     *
+     * One field carried both "Saved offline. Sync will finish automatically." and "Morning work
+     * opens at 08:00.", so a refusal was painted the same green as "Video recorded" -- an operator
+     * scanning the card read the block as one more thing that had gone right.
+     */
+    val messageIsProblem: Boolean = false,
 )
 
 @Composable
@@ -668,7 +676,9 @@ fun HealthDetailScreen(
                         Text(state.diseaseName, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                         Text(state.dayLabel)
                         Text(state.locationLabel, color = MeshaColors.Muted)
-                        state.message?.let { Text(it, color = MeshaColors.Brand) }
+                        state.message?.let {
+                            Text(it, color = if (state.messageIsProblem) MeshaColors.Warn else MeshaColors.Brand)
+                        }
                         if (state.canCloseCase) {
                             Text(
                                 "Record case outcome",

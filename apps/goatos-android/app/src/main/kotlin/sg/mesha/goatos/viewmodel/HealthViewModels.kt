@@ -327,7 +327,12 @@ class HealthDetailViewModel @Inject constructor(
 ) : ViewModel() {
     private val sessionId: String = checkNotNull(savedStateHandle["healthSessionId"])
     private val ops = MutableStateFlow(HealthDetailOps())
-    private val message = MutableStateFlow<String?>(null)
+    /** What the card says under its heading, and whether it is the work being BLOCKED.
+     *  One plain string carried both "Saved offline" and "Morning work opens at 08:00.", so a
+     *  refusal rendered in the same green as a recorded video. */
+    private data class Notice(val text: String? = null, val isProblem: Boolean = false)
+
+    private val message = MutableStateFlow(Notice())
     private val video = MutableStateFlow(HealthVideoState())
 
     /**
@@ -372,7 +377,10 @@ class HealthDetailViewModel @Inject constructor(
                 }
             }
         }
-        if (detail == null) HealthDetailUiState(loading = true, submitting = saving, message = notice)
+        if (detail == null) HealthDetailUiState(
+            loading = true, submitting = saving,
+            message = notice.text, messageIsProblem = notice.isProblem,
+        )
         else HealthDetailUiState(
             loading = false,
             goatDisplayId = detail.goatDisplayId,
@@ -385,7 +393,8 @@ class HealthDetailViewModel @Inject constructor(
             submitting = saving,
             closing = closingCase,
             refreshing = opsState.refreshing,
-            message = notice,
+            message = notice.text,
+            messageIsProblem = notice.isProblem,
             // Backend-owned capability gating (can_complete mirrors health.execute): the audit
             // found the button rendering for principals whose tap could only ever 403.
             // EVERY STEP RECORDED, not one video (maintainer decision 2026-09-23). A card whose
@@ -624,7 +633,7 @@ class HealthDetailViewModel @Inject constructor(
                 .distinctUntilChanged()
                 .collect { item ->
                     val notice = refusedCompletionNotice(item) ?: return@collect
-                    message.value = notice
+                    message.value = Notice(notice, isProblem = true)
                     analytics.track(
                         AnalyticsEvents.HEALTH_WRITE_FAILURE,
                         mapOf(
@@ -723,7 +732,7 @@ class HealthDetailViewModel @Inject constructor(
             is AppResult.Ok -> {
                 repo.markCompleted(sessionId)
                 analytics.track(AnalyticsEvents.HEALTH_TREATMENT_SUBMITTED)
-                message.value = "Saved offline. Sync will finish automatically."
+                message.value = Notice("Saved offline. Sync will finish automatically.")
                 observeCompletion(result.value)
             }
             is AppResult.Err -> {
@@ -731,7 +740,7 @@ class HealthDetailViewModel @Inject constructor(
                     AnalyticsEvents.HEALTH_WRITE_FAILURE,
                     mapOf(AnalyticsEvents.Params.KIND to "work_item", AnalyticsEvents.Params.REASON to result.message),
                 )
-                message.value = result.message
+                message.value = Notice(result.message, isProblem = true)
             }
         }
         ops.update { it.copy(submitting = false) }
@@ -755,14 +764,14 @@ class HealthDetailViewModel @Inject constructor(
         )) {
             is AppResult.Ok -> {
                 analytics.track(AnalyticsEvents.HEALTH_CASE_CLOSED, mapOf(AnalyticsEvents.Params.KIND to outcome))
-                message.value = "Outcome recorded. Sync will finish automatically."
+                message.value = Notice("Outcome recorded. Sync will finish automatically.")
             }
             is AppResult.Err -> {
                 analytics.track(
                     AnalyticsEvents.HEALTH_WRITE_FAILURE,
                     mapOf(AnalyticsEvents.Params.KIND to "case_close", AnalyticsEvents.Params.REASON to result.message),
                 )
-                message.value = result.message
+                message.value = Notice(result.message, isProblem = true)
             }
         }
         ops.update { it.copy(closing = false) }
