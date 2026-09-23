@@ -6,8 +6,21 @@
       "key": "app/(admin)/people/loading.tsx::edit-form::card",
       "kind": "edit-form",
       "where": "app/(admin)/people/loading.tsx:18",
-      "status": "not-checked",
-      "notCheckedReason": "every control on this edit-form is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep opens the People page's loading state yet; the browser lane is disabled after the 2026-09-23 incident",
+      "handWritten": "the skeleton carries no copy at all, so the reference is its SHAPE: the filter bar renders one placeholder per real filter. A blank screen renders none.",
+      "assertions": [
+        {
+          "subject": "the placeholder filter boxes on the People loading screen (app/(admin)/people/loading.tsx:18)",
+          "operator": "count-equals",
+          "expected": 5,
+          "blankScreenValue": 0
+        }
+      ]
     },
     {
       "key": "components/auth/google-login.tsx::edit-form::grid gap-3.5",
@@ -545,8 +558,22 @@
       "key": "features/configuration/row-actions.tsx::row-action::cfg-rowacts-error",
       "kind": "row-action",
       "where": "features/configuration/row-actions.tsx:237",
-      "status": "not-checked",
-      "notCheckedReason": "every control on this row-action is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the labelled controls, copy slots and named fields a person meets on the row-action \"cfg-rowacts-error\" (features/configuration/row-actions.tsx:237)",
+          "operator": "field-set-equals",
+          "expected": [
+            "remove"
+          ],
+          "blankScreenValue": []
+        }
+      ]
     },
     {
       "key": "features/configuration/row-actions.tsx::row-action::statusFormAction",
@@ -670,7 +697,7 @@
       "kind": "row-action",
       "where": "features/configuration/row-actions.tsx:243",
       "status": "not-checked",
-      "notCheckedReason": "every control on this row-action is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+      "notCheckedReason": "the only reference this row-action owns is a value made at run time -- the id of the row that opened it, or the sentence the server composed for this one refusal -- so no literal expected value can be written here; the sweep has to compare it against what it clicked, which nothing runs today"
     },
     {
       "key": "features/configuration/row-drawer.tsx::edit-form::cfg-form",
@@ -880,8 +907,22 @@
       "key": "features/counts/herd-actions-ui.tsx::modal::unnamed",
       "kind": "modal",
       "where": "features/counts/herd-actions-ui.tsx:200",
-      "status": "not-checked",
-      "notCheckedReason": "every control on this modal is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the labelled controls, copy slots and named fields a person meets on the modal \"unnamed\" (features/counts/herd-actions-ui.tsx:200)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.working"
+          ],
+          "blankScreenValue": []
+        }
+      ]
     },
     {
       "key": "features/counts/herd-filters-modal-client.tsx::edit-form::tsearch",
@@ -996,8 +1037,22 @@
       "key": "features/counts/inline-cell-editor.tsx::inline-editor::btn sm#2",
       "kind": "inline-editor",
       "where": "features/counts/inline-cell-editor.tsx:330",
-      "status": "not-checked",
-      "notCheckedReason": "every control on this inline-editor is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the labelled controls, copy slots and named fields a person meets on the inline-editor \"btn sm\" (features/counts/inline-cell-editor.tsx:330)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.retag.cancel"
+          ],
+          "blankScreenValue": []
+        }
+      ]
     },
     {
       "key": "features/counts/inline-cell-editor.tsx::inline-editor::muted small",
@@ -1111,8 +1166,22 @@
       "key": "features/counts/inline-cell-editor.tsx::inline-editor::small",
       "kind": "inline-editor",
       "where": "features/counts/inline-cell-editor.tsx:328",
-      "status": "not-checked",
-      "notCheckedReason": "every control on this inline-editor is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the labelled controls, copy slots and named fields a person meets on the inline-editor \"small\" (features/counts/inline-cell-editor.tsx:328)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.retag.cancel"
+          ],
+          "blankScreenValue": []
+        }
+      ]
     },
     {
       "key": "features/counts/inline-cell-editor.tsx::inline-editor::tagedit-confirm",
@@ -1370,8 +1439,39 @@
       "key": "features/feed/feed-completion-table.tsx::modal::unnamed",
       "kind": "modal",
       "where": "features/feed/feed-completion-table.tsx:288",
-      "status": "not-checked",
-      "notCheckedReason": "every control on this modal is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the labelled controls, copy slots and named fields a person meets on the modal \"unnamed\" (features/feed/feed-completion-table.tsx:288)",
+          "operator": "field-set-equals",
+          "expected": [
+            "completion.slot.missing",
+            "completion.slot.no_name",
+            "drawer.completion.aria",
+            "drawer.completion.close_label",
+            "drawer.completion.col.video",
+            "drawer.completion.col.when",
+            "drawer.completion.col.who",
+            "drawer.completion.eyebrow",
+            "drawer.completion.farm",
+            "drawer.completion.none",
+            "drawer.completion.rework",
+            "drawer.completion.session",
+            "drawer.completion.status",
+            "drawer.completion.submitted_at",
+            "drawer.completion.submitted_by",
+            "drawer.completion.verified_at",
+            "drawer.completion.verified_by",
+            "drawer.completion.videos"
+          ],
+          "blankScreenValue": []
+        }
+      ]
     },
     {
       "key": "features/feed/feed-config-editor.tsx::edit-form::btn sm p",
@@ -1661,6 +1761,8 @@
           "subject": "the labelled controls, copy slots and named fields a person meets on the edit-form \"unnamed\" (features/leadership-tasks/task-activity-composer.tsx:238)",
           "operator": "field-set-equals",
           "expected": [
+            "activity.older",
+            "activity.older_loading",
             "comment",
             "idempotency_key",
             "ltd-comment-form",
@@ -1670,6 +1772,7 @@
             "note.label",
             "note.placeholder",
             "note.send",
+            "note.sending",
             "return_to",
             "task_id"
           ],
@@ -1682,7 +1785,7 @@
       "kind": "modal",
       "where": "features/leadership-tasks/task-detail-drawer.tsx:133",
       "status": "not-checked",
-      "notCheckedReason": "every control on this modal is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+      "notCheckedReason": "this modal is a shell: every word on it arrives as a prop from whichever screen renders it, so no expected value belongs here -- the reference belongs on each call site, and those call sites are inventoried separately"
     },
     {
       "key": "features/leadership-tasks/task-status-menu.tsx::edit-form::action",
@@ -1701,9 +1804,13 @@
           "expected": [
             "from_status",
             "idempotency_key",
+            "label.status",
             "return_to",
             "row_version",
             "status",
+            "status.cancel_no",
+            "status.cancel_yes",
+            "status.menu_aria",
             "task_id"
           ],
           "blankScreenValue": []
@@ -1714,8 +1821,24 @@
       "key": "features/leadership-tasks/task-status-menu.tsx::row-action::opt",
       "kind": "row-action",
       "where": "features/leadership-tasks/task-status-menu.tsx:170",
-      "status": "not-checked",
-      "notCheckedReason": "every control on this row-action is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the labelled controls, copy slots and named fields a person meets on the row-action \"opt\" (features/leadership-tasks/task-status-menu.tsx:170)",
+          "operator": "field-set-equals",
+          "expected": [
+            "status.cancel_no",
+            "status.cancel_yes",
+            "status.menu_aria"
+          ],
+          "blankScreenValue": []
+        }
+      ]
     },
     {
       "key": "features/leadership-tasks/task-write-forms.tsx::edit-form::action",
@@ -1848,8 +1971,22 @@
       "key": "features/notifications/notification-bell.tsx::modal::unnamed",
       "kind": "modal",
       "where": "features/notifications/notification-bell.tsx:320",
-      "status": "not-checked",
-      "notCheckedReason": "every control on this modal is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the labelled controls, copy slots and named fields a person meets on the modal \"unnamed\" (features/notifications/notification-bell.tsx:320)",
+          "operator": "field-set-equals",
+          "expected": [
+            "title"
+          ],
+          "blankScreenValue": []
+        }
+      ]
     },
     {
       "key": "features/operations-audit/audit-log.tsx::edit-form::bd",
@@ -2184,6 +2321,7 @@
             "date",
             "designation",
             "filter.all",
+            "filter.apply",
             "filter.park",
             "filter.search_label",
             "filter.search_placeholder",
@@ -2219,6 +2357,7 @@
             "empty.people",
             "empty.people.unset",
             "filter.all",
+            "filter.apply",
             "filter.department",
             "filter.park",
             "filter.search_label",
@@ -2878,8 +3017,21 @@
       "key": "features/procurement/animal-purchase-lightbox.tsx::modal::ap-lightbox-scrim",
       "kind": "modal",
       "where": "features/procurement/animal-purchase-lightbox.tsx:109",
-      "status": "not-checked",
-      "notCheckedReason": "every control on this modal is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep opens an animal-purchase proof lightbox yet; the browser lane is disabled after the 2026-09-23 incident",
+      "handWritten": "every word on it is a prop, but the lightbox exists to show ONE proof: exactly one photo or video is painted in it. An empty lightbox shows none.",
+      "assertions": [
+        {
+          "subject": "the proof photo or video painted inside the animal-purchase lightbox (features/procurement/animal-purchase-lightbox.tsx:109)",
+          "operator": "count-equals",
+          "expected": 1,
+          "blankScreenValue": 0
+        }
+      ]
     },
     {
       "key": "features/procurement/animal-purchases.tsx::edit-form::ap-filter-bar",
@@ -3493,7 +3645,7 @@
       "kind": "edit-form",
       "where": "features/procurement/market-config-form.tsx:45",
       "status": "not-checked",
-      "notCheckedReason": "every control on this edit-form is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+      "notCheckedReason": "this edit-form is a shell: every word on it arrives as a prop from whichever screen renders it, so no expected value belongs here -- the reference belongs on each call site, and those call sites are inventoried separately"
     },
     {
       "key": "features/procurement/sale-allocation-drawer.tsx::modal::dh",
@@ -3995,7 +4147,11 @@
             "reason",
             "return_to",
             "row_version",
-            "task_id"
+            "task_id",
+            "toxin.action.accept",
+            "toxin.action.reject",
+            "toxin.drawer.reject_reason",
+            "toxin.drawer.reject_reason_hint"
           ],
           "blankScreenValue": []
         }
@@ -4019,7 +4175,11 @@
             "drawer.close_label",
             "drawer.media.empty",
             "drawer.media.open",
-            "feedback.failed"
+            "feedback.failed",
+            "toxin.drawer.reading",
+            "toxin.drawer.steps",
+            "toxin.drawer.strip_photo",
+            "toxin.drawer.title"
           ],
           "blankScreenValue": []
         }
@@ -4047,7 +4207,12 @@
             "next_trail",
             "reason",
             "return_to",
-            "row_version"
+            "row_version",
+            "verdict.disabled_no_evidence",
+            "verdict.disabled_not_pending",
+            "verdict.reason_label",
+            "verdict.reason_placeholder",
+            "verdict.reason_required"
           ],
           "blankScreenValue": []
         }
