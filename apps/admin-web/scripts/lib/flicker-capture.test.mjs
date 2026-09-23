@@ -227,7 +227,8 @@ test("finds a solid panel that shows the page through it when a filter changes",
     assert.ok(panel.events.length >= 2, `once per change, got ${panel.events.length}`);
     for (const event of panel.events) {
       assert.ok(event.seconds <= 1.5, `a flash, not a state: ${event.seconds}s`);
-      assert.ok(event.lowest < event.settled * 0.6, "the background really was missing");
+      assert.ok(event.abruptness >= 0.4, "it appeared between one frame and the next");
+      assert.ok(event.peak >= 0.02, `a real part of the panel changed, got ${event.peak}`);
     }
     assert.equal(panel.overlay.label, "Filters", "the finding must name the panel a person sees");
   });

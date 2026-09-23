@@ -313,7 +313,6 @@ export async function filmRoutes({ baseUrl, bearerToken, outDir, routes, phone }
             findings: showedThrough.map((finding) => ({
               label: finding.overlay.label,
               events: finding.events,
-              settledShare: finding.settledShare,
               evidence: writeOverlayEvidence(paint.frames, finding.events[0], outDir, `${route.name}-${(finding.overlay.label || "panel").toLowerCase().replace(/[^a-z0-9]+/g, "-")}`),
             })),
             reason: paint.reason,
@@ -423,7 +422,7 @@ export async function changeFilterOptions(page, mark, { times = 5 } = {}) {
 export async function captureOverlayPaint(page, options = {}) {
   const o = { ...CAPTURE_DEFAULTS, ...options };
   const { PNG } = await import("pngjs");
-  const { collectOpaqueOverlays, detectShowThrough, opaqueShare } = await import("./overlay-paint-checks.mjs");
+  const { collectOpaqueOverlays, detectShowThrough, interiorFrame } = await import("./overlay-paint-checks.mjs");
 
   const opened = await (o.open ?? openFilterPanel)(page);
   const overlays = await page.evaluate(collectOpaqueOverlays, {});
@@ -481,10 +480,9 @@ export async function captureOverlayPaint(page, options = {}) {
     }
     const scale = decoded.width / viewport.width;
     overlays.forEach((overlay, index) => {
-      series[index].push({
-        t: frame.t,
-        share: opaqueShare(decoded.data, decoded.width, decoded.height, overlay.rect, overlay.rgb, { ...o, scale }),
-      });
+      series[index].push(
+        interiorFrame(decoded.data, decoded.width, decoded.height, overlay.rect, { ...o, scale, t: frame.t }),
+      );
     });
   }
 
