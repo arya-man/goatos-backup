@@ -430,6 +430,42 @@ one product; this skill is the navigation layer.
   and verifies the exact green SHA. Use a clean isolated worktree when the
   development checkout is dirty or shared; never auto-rebase unrelated local
   changes merely because an agent session started.
+- **A web/UI change is not finished until its screenshots exist.** If you
+  touched admin-web, website, dashboard, frontend, CSS, page contracts, route
+  definitions, or web-visible copy, capture **laptop 1440px and phone 390px**
+  images of every affected route and every route-owned nested state (page tabs,
+  sidebars, drawers, modals, popovers, detail pages, charts, tables, horizontal
+  scroll regions) **after the final edit** — then open each file and confirm it
+  shows the target screen, not login, a loading skeleton, an error, stale
+  content, or the wrong route. The changed element must be visible in frame: a
+  chart membership change has to show the new member, not merely a page that
+  rendered.
+
+  ```bash
+  npm --prefix apps/admin-web run responsive:guard          # laptop + phone, all guarded routes
+  npm --prefix apps/admin-web run smoke:visual:baseline     # diff against committed baselines
+  ```
+
+  Capture these **before** you open or update the PR. Never write "screenshots
+  pending", "blocked on auth", or "please do not merge until proof is attached"
+  into a PR description and hand the problem to whoever lands it — `make
+  land-main` verifies evidence, it does not produce it, and the block then
+  surfaces at merge time when it is most expensive.
+
+  These captures need a backend on real data, so they need the OCI Postgres
+  password from Secret Manager. If `gcloud` is unauthenticated, ask the
+  maintainer for one interactive `gcloud auth login` **as soon as you know you
+  will need it** — not after the work is written up:
+
+  ```bash
+  gcloud auth login
+  gcloud secrets list --project=goatos-stg --filter="name~oci"   # verify
+  ```
+
+  `ERROR: Reauthentication failed. cannot prompt during non-interactive
+  execution` means only that. It is a five-minute unblock, not a reason to ship
+  a UI change with no pictures. If a route or tab you changed is not covered by
+  the guard, widen the guard in the same change.
 - **Kernel/remediation program exception.** The approved whole-ledger and
   operational-kernel program uses one external integration PR, not direct-main
   landing. F0 must introduce the repo-owned exact-head program-PR landing gate

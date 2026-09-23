@@ -535,6 +535,63 @@ explicit maintainer decision before approving — per `AGENTS.md` "Business and
 medical rule changes." Confirmed override: never accept mother-vaccination-status
 as a scheduling input.
 
+## Web/UI visual proof is a REVIEW deliverable, not a landing-time discovery
+
+If the diff touches admin-web, website, dashboard, frontend, CSS, page
+contracts, route definitions, or web-visible copy, **captured and
+visually-validated screenshots are part of this review's output.** Produce them
+during the review pass. Do not approve, do not hand the change back, and do not
+open or update the PR with the proof left as a "pending" or "blocked" note for
+whoever lands it.
+
+This rule exists because the proof was repeatedly deferred to the merge step
+(PR #370 is the worked example: the pie's membership rule changed, the PR said
+"please do not merge until the two screenshots are attached", and the gap
+surfaced only when someone asked to land main). Landing is a gate that checks
+evidence. It is not the place to start producing it.
+
+**What counts as proof.** For every affected route AND every route-owned nested
+state — page tabs, left/right sidebars, drawers, modals, popovers, dynamic
+detail pages, charts, tables, horizontal scroll regions:
+
+- **laptop 1440px** and **phone 390px** captures of the route after the final edit;
+- the reviewer **opened each file** and confirmed it shows the requested screen
+  and not login, a loading skeleton, an error page, stale content, or the wrong
+  route (`AGENTS.md`, "Before giving Ravi any screenshot ... validate the
+  artifact visually first");
+- the specific changed element is **visible in frame**. A chart membership
+  change must show the new member — for PR #370 that is a UHT Milk slice in the
+  Feed spend share pie, not just a page that rendered.
+
+**The commands:**
+
+```bash
+npm --prefix apps/admin-web run responsive:guard          # laptop + phone, all guarded routes
+npm --prefix apps/admin-web run smoke:visual:baseline     # diff against committed baselines
+```
+
+A route or tab the guard does not cover is itself a **review finding** — widen
+the guard in the same change.
+
+**Backend-data prerequisite — solve it, don't report it.** These captures need a
+backend against real data, which needs the OCI Postgres password from Secret
+Manager. If `gcloud` is unauthenticated the fix is one interactive command the
+maintainer can run; ask for it early in the review, not after the review is
+written:
+
+```bash
+gcloud auth login                                          # then verify:
+gcloud secrets list --project=goatos-stg --filter="name~oci"
+```
+
+`ERROR: Reauthentication failed. cannot prompt during non-interactive execution`
+means exactly this and nothing else. Treat it as a five-minute unblock request,
+not as grounds to ship a UI review with no pictures.
+
+**If the proof genuinely cannot be captured**, the review verdict is
+**blocked-on-proof**, not "approved pending screenshots". Say which route and
+which state is unproven, and what is needed to capture it.
+
 ## Mandatory review checklist
 
 Every review MUST verify every applicable row below before approval; an
@@ -563,6 +620,11 @@ merge":
 - [ ] **Guards match deployed configuration:** a guard that reads config must read the
       real deployed values or require explicit configuration in the rule/test (not default
       silently to safe-at-code-review, unsafe-at-runtime)
+- [ ] **Web/UI visual proof captured in-review:** for any admin-web/frontend/CSS/
+      page-contract/route/web-copy change, laptop-1440 and phone-390 screenshots of
+      every affected route and route-owned tab/drawer/modal exist, were opened and
+      visually validated, and show the changed element in frame — never deferred to
+      whoever lands the change
 - [ ] **Kernel non-deviation:** operational work names its event, stable task
       identity, real owner (with a separately owned exception when resolution
       fails), clock, hierarchy, proof,
