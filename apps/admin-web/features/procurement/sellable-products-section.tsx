@@ -21,6 +21,7 @@
 // vocabularies (what an item is, how it is sold) arrive from the backend with the rows.
 import { useState } from "react";
 import { useActionState } from "react";
+import { useRouter } from "next/navigation";
 import { Plus, Tag as TagIcon, Trash2 } from "lucide-react";
 
 import { Tag } from "@/components/ui-primitives";
@@ -46,6 +47,7 @@ function ProductRow({
   onSaved: (row: SellableProduct) => void;
   onDeleted: (code: string) => void;
 }) {
+  const router = useRouter();
   const [state, formAction, pending] = useActionState(
     async (previous: SellableProductActionState, formData: FormData) => {
       const next = await saveSellableProductAction(previous, formData);
@@ -53,17 +55,43 @@ function ProductRow({
       if (next.status === "success" && next.product) {
         onSaved({ ...(next.product as SellableProduct), priced_per_unit: next.product.priced_per_unit });
       }
+      // The row lands instantly from the answer above; this then re-reads the page's own data so
+      // the SERVER stays the source of truth. Without it the client list is the only record of an
+      // edit, and it drifts: an item added here and then edited twice posted the first edit's
+      // values the second time, because nothing ever told the page what was really stored. The
+      // ACTION deliberately does not revalidate -- a returning action that also revalidates
+      // re-renders the page on top of the row just applied -- so the refresh is asked for here,
+      // after the row is in place.
+      if (next.status === "success") router.refresh();
       return next;
     },
     INITIAL,
   );
   const adding = product === undefined;
   const id = product?.code ?? "new";
+  // The kind decides what the row SHOWS -- whether the feeds it covers are listed, and what the
+  // sale will ask for -- so it is held here rather than read off the DOM.
+  //
+  // Its correctness comes from the row's KEY, which carries the saved shape (see the list below):
+  // a save that changes what the row is remounts it onto the stored values, so this state cannot
+  // drift from them. An earlier version kept the state across the save and a renamed row came back
+  // reading Animals -- the select said one thing and the saved row another, and the NEXT save
+  // posted the select's lie.
+  const [kind, setKind] = useState(product?.kind ?? page.kinds[0]?.key ?? "animal");
   const outcome = state.status === "idle" ? "" : copy(pageContract, `action.${state.code}`);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-      <form action={formAction} className="sellable-product-row" aria-busy={pending} data-testid="sellable-product-row">
+      <form
+        action={formAction}
+        className="sellable-product-row"
+        aria-busy={pending}
+        data-testid="sellable-product-row"
+        // The row's stable handle: its registry code, or "new" for the blank one. A test (or a
+        // person reading the DOM) can name a row without matching on a typed-in value, which
+        // stops reflecting the field the moment somebody edits it.
+        data-code={product?.code ?? "new"}
+      >
         {/* The code is the row's identity: present on an edit, absent when adding. It is what
             makes a rename an EDIT rather than a second item. */}
         {product ? <input type="hidden" name="code" value={product.code} /> : null}
@@ -73,7 +101,20 @@ function ProductRow({
         </div>
         <div className="fld">
           <label htmlFor={`sp-kind-${id}`}>{copy(pageContract, "field.product_kind")}</label>
-          <select id={`sp-kind-${id}`} name="kind" required defaultValue={product?.kind ?? page.kinds[0]?.key} disabled={!canWrite}>
+          {/* UNCONTROLLED on purpose. What this select POSTS must be what the reader chose or what
+              was saved -- nothing else. Held as controlled state it followed a re-render instead,
+              and a row whose state had drifted posted the drift: an item edited twice saved the
+              first edit's kind the second time. The state below is for DISPLAY only (which fields
+              the row shows), and the key above re-seeds this default whenever the saved row
+              changes. */}
+          <select
+            id={`sp-kind-${id}`}
+            name="kind"
+            required
+            defaultValue={product?.kind ?? page.kinds[0]?.key}
+            onChange={(event) => setKind(event.target.value)}
+            disabled={!canWrite}
+          >
             {page.kinds.map((choice) => (
               <option key={choice.key} value={choice.key} title={choice.hint}>
                 {choice.label}
@@ -83,6 +124,7 @@ function ProductRow({
         </div>
         <div className="fld">
           <label htmlFor={`sp-unit-${id}`}>{copy(pageContract, "field.product_unit")}</label>
+          {/* Uncontrolled for the same reason as the kind above. */}
           <select id={`sp-unit-${id}`} name="unit" required defaultValue={product?.unit ?? page.units[0]?.key} disabled={!canWrite}>
             {page.units.map((choice) => (
               <option key={choice.key} value={choice.key} title={choice.hint}>
@@ -108,6 +150,14 @@ function ProductRow({
           />
           {copy(pageContract, "status.product_active")}
         </label>
+        {/* A feed item is a BUCKET: which feed is chosen on the sale, from the farm's configured
+            feed list. Naming them here makes that visible -- the reader can see the row covers
+            their Feed config and invents nothing. */}
+        {kind === "feed" && page.feed_items.length ? (
+          <div className="note sellable-product-covers">
+            {copy(pageContract, "hint.product_feed_covers")} {page.feed_items.join(", ")}
+          </div>
+        ) : null}
         {/* An animal item's breeds are its species'; the field rides along unchanged so an edit
             cannot silently drop it. */}
         {product?.species_code ? <input type="hidden" name="species_code" value={product.species_code} /> : null}
@@ -159,6 +209,15 @@ export function SellableProductsSection({
   onProductsChanged?: (products: SellableProduct[]) => void;
 }) {
   const [rows, setRows] = useState<SellableProduct[]>(page?.products ?? []);
+  // The server's list wins when it changes: a save applies its row here for speed and then asks
+  // the page to re-read, and this is what lets that answer land. Reset during render, never in an
+  // effect -- an effect would let one save's values flash into the next render.
+  const serverList = JSON.stringify(page?.products ?? []);
+  const [syncedServerList, setSyncedServerList] = useState(serverList);
+  if (serverList !== syncedServerList) {
+    setSyncedServerList(serverList);
+    setRows(page?.products ?? []);
+  }
   if (!page) return null;
 
   const publish = (next: SellableProduct[]) => {
@@ -166,8 +225,15 @@ export function SellableProductsSection({
     setRows(ordered);
     onProductsChanged?.(ordered);
   };
+  // A merge must never overwrite a field the row HAS with one the answer lacks: spreading an
+  // object with an undefined key erases the value that was there, and a row missing its kind reads
+  // as the first kind in the list rather than as unknown.
+  const merge = (current: SellableProduct, saved: SellableProduct): SellableProduct => {
+    const defined = Object.fromEntries(Object.entries(saved).filter(([, v]) => v !== undefined));
+    return { ...current, ...defined } as SellableProduct;
+  };
   const applySaved = (row: SellableProduct) =>
-    publish(rows.some((r) => r.code === row.code) ? rows.map((r) => (r.code === row.code ? { ...r, ...row } : r)) : [...rows, row]);
+    publish(rows.some((r) => r.code === row.code) ? rows.map((r) => (r.code === row.code ? merge(r, row) : r)) : [...rows, row]);
   const applyDeleted = (code: string) => publish(rows.filter((r) => r.code !== code));
 
   const active = rows.filter((p) => p.status === "active").length;
@@ -186,7 +252,11 @@ export function SellableProductsSection({
         ) : (
           rows.map((product) => (
             <ProductRow
-              key={product.code}
+              // The saved shape is part of the row's identity: a save that changes what the item
+              // IS remounts the row onto the stored values rather than leaving half-stale state
+              // behind it. The name is deliberately NOT in the key -- retyping a name would
+              // remount the row under the reader's cursor.
+              key={`${product.code}:${product.kind}:${product.unit}:${product.status}`}
               product={product}
               page={page}
               pageContract={pageContract}
