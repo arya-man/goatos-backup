@@ -789,3 +789,58 @@ test("reload coverage refuses to count from a manifest it could not read", () =>
   const real = realCoverage();
   assert.ok(real.pairsExpected > 0);
 });
+
+test("every way of drawing nothing is refused, and refused in the same place", async () => {
+  // Re-measured after the primitive's own refusal landed, by asking WHERE each
+  // case is stopped rather than assuming the fix reached this path. It had not:
+  // a page whose figure CONTAINERS drew but whose figures did not still passed
+  // under `count`, because the count counted the empty containers and both
+  // readings agreed. The blank-page defect one layer in.
+  const screens = {
+    "nothing matched at all": [],
+    "matched but all hidden": [vCell("50", false), vCell("70", false)],
+    "visible but carrying no figure": [vCell("—"), vCell("")],
+  };
+  for (const [what, rows] of Object.entries(screens)) {
+    for (const all of ["sum", "count", undefined]) {
+      const next = () => { const n = { ...vMakeLocator([vCell("Next")]), click: async () => {} }; n.first = () => n; return n; };
+      const page = {
+        locator: (k) => (k === ".nx" ? next() : vMakeLocator(rows)),
+        getByText: () => vMakeLocator([]),
+        url: () => "x", addStyleTag: async () => {}, screenshot: async () => {}, waitForLoadState: async () => {},
+      };
+      const entry = { sha: "s", title: "t", route: "r", status: "assert",
+        expect: [{ stable: { target: { css: ".kpi .val", ...(all ? { all } : {}) }, through: [{ click: { css: ".nx" } }], label: "the figure" } }] };
+      const log = console.log; console.log = () => {};
+      let message = null;
+      try {
+        await assertFeaturesPresent(page, { routeName: "r", viewportLabel: "laptop", screenshotDir: "/tmp", entries: [entry] });
+      } catch (e) { message = e.message; } finally { console.log = log; }
+      assert.ok(message, `${what}, reducer ${all ?? "none"}: must not pass`);
+      // Refused by THIS caller, before the primitive is asked — so the refusal
+      // does not depend on which version of the primitive is present.
+      assert.match(message, /is not on the page/, `${what}, reducer ${all ?? "none"}: must be refused in the same place as the others`);
+    }
+  }
+});
+
+test("the belt and the braces are both load-bearing, and neither is decoration", () => {
+  // Named so the next person tidying up does not remove one as redundant. The
+  // redundancy is deliberate and each half catches something the other cannot.
+  const engine = readFileSync(join(repoRoot, "apps/admin-web/scripts/lib/feature-assertions.mjs"), "utf8");
+  assert.match(engine, /TWO DEFENCES AGAINST A PAGE THAT DREW NOTHING/,
+    "the reason they are both here must be written where they are, not only in a commit message");
+  assert.match(engine, /BRACES - the shared primitive refuses/);
+  assert.match(engine, /BELT   - this caller turns an empty reading/);
+
+  // BRACES alone cannot catch this: by the time the primitive sees the pair,
+  // a count of visible-but-empty boxes is just two equal numbers.
+  const boxesButNoFigures = compareReadings([1, 1], [1, 1], { conditions: "deliberate-action", all: "count" });
+  assert.equal(boxesButNoFigures.agreed, true,
+    "the primitive agrees, correctly — it has no way to know those were empty boxes");
+
+  // BELT alone cannot protect any other caller: the primitive is the only thing
+  // standing between a future caller and the same hole.
+  assert.equal(compareReadings([], [], { conditions: "deliberate-action", all: "count" }).agreed, false,
+    "which is why the general refusal lives in the primitive too");
+});
