@@ -22494,5 +22494,36 @@
     "status": "needs-assertion",
     "evidence": "",
     "reason": "modifies a file an existing assertion relies on; needs a human-written read-only assertion (run sync-coverage.mjs --write, then fill steps/expect)"
+  },
+  {
+    "sha": "e311ef24c",
+    "title": "stack wide bar rows on phones so FCR pen labels stay readable",
+    "route": "weighing-analytics-fcr",
+    "viewports": [
+      "laptop",
+      "mobile"
+    ],
+    "expect": [
+      {
+        "visible": {
+          "css": ".wbars-wide .wbar"
+        }
+      },
+      {
+        "count": {
+          "css": ".wbars-wide .wbar",
+          "min": 1
+        }
+      },
+      {
+        "visible": {
+          "css": ".wbars-wide .wbar .wbt"
+        }
+      }
+    ],
+    "status": "assert",
+    "evidence": "apps/admin-web/app/mesha-theme.css",
+    "group": "A",
+    "verdict": "fix"
   }
 ]
