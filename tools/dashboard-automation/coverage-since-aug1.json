@@ -2728,7 +2728,8 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only",
+      "demotedReason": "its container-overflow detector has never been shown spotting the fault it is named after, so a page where it says nothing proves nothing"
     },
     {
       "id": "pattern-C",
@@ -2785,7 +2786,8 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only",
+      "demotedReason": "its page-overflow detector has never been shown spotting the fault it is named after, so a page where it says nothing proves nothing"
     },
     {
       "id": "pattern-E",
@@ -2865,7 +2867,8 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only",
+      "demotedReason": "its text-cut-off detector has only ever been shown staying quiet, never spotting the fault, so its silence proves nothing"
     },
     {
       "id": "pattern-G",
@@ -3114,7 +3117,8 @@
         "laptop",
         "mobile"
       ],
-      "status": "covered"
+      "status": "smoke-only",
+      "demotedReason": "its detector has never been shown spotting a pen label rendered wrong, so a page where it says nothing proves nothing"
     }
   ],
   "uncoverable": []

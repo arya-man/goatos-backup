@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { VERDICTS, assessSubstance, contentUnits, gateContentCheck } from "./page-substance.mjs";
 
 // The seven pages every surviving `covered` entry was silent on. Written as
@@ -126,4 +127,22 @@ test("a snapshot that could not be read is not treated as a good page", () => {
   const verdict = judgeLandedPage({ landedOn: "/tasks", snapshot: {} });
   assert.equal(verdict.film, false);
   assert.equal(verdict.blankPage, true);
+});
+
+test("the route sweep itself refuses to judge a page that drew nothing", () => {
+  // §8 again: the gate is only worth having if the sweep consults it, and the
+  // consultation sits in a loop that needs a live site. Removing it left every
+  // other test green, so it is pinned here at the source.
+  const runner = readFileSync(new URL("../smoke-visual-live.mjs", import.meta.url), "utf8");
+  assert.match(runner, /import \{[^}]*collectSubstance[^}]*\} from "\.\/lib\/page-substance\.mjs"/,
+    "the sweep must import the gate");
+  assert.match(runner, /const substanceGate = gateContentCheck\(substanceAssessment\);/, "and consult it");
+  assert.match(runner, /if \(!substanceGate\.judge\) \{/,
+    "and act on it — every per-route check below is a defect finder that goes silent on a blank page");
+  assert.match(runner, /route_not_judged=/, "and say which pages it refused to judge");
+  // The gate must sit BEFORE the checks it protects, or it protects nothing.
+  const gateAt = runner.indexOf("const substanceGate =");
+  const firstCheck = runner.indexOf("assertRegressionPatterns(page");
+  assert.ok(gateAt > 0 && firstCheck > 0 && gateAt < firstCheck,
+    "the gate must run before the first detector, not after it");
 });
