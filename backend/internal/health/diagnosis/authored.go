@@ -459,21 +459,23 @@ type Page struct {
 // accept-and-discard this codebase refuses everywhere else. Publishing reports it, so the author
 // is told; the operator is not left with a form missing a question in the meantime.
 func (a AuthoredRegister) Pages() []Page {
+	// A PARTIAL SECTION LIST NAMES PAGES; A COMPLETE ONE ORDERS THEM.
+	//
+	// Both intents are real and they used to collide. Listing every section IS how an author
+	// re-orders the form without moving forty question rows, and that stays. But authoring ONE
+	// section row -- to give a new page a title -- put that page FIRST, ahead of every page it
+	// did not mention: a vet who appended a Recovery check to the END of the sheet got it before
+	// Vitals on the phone, ahead of taking a temperature.
+	//
+	// So the questions lay the order down, and the authored list overrides it only when it
+	// accounts for every page. Naming one page says nothing about where the other eleven go.
+	titles := make(map[string]Section, len(a.Sections))
+	for _, s := range a.Sections {
+		titles[s.ID] = s
+	}
+
 	byID := map[string]int{}
 	out := []Page{}
-	add := func(id, title, hint string) int {
-		if at, ok := byID[id]; ok {
-			return at
-		}
-		byID[id] = len(out)
-		out = append(out, Page{ID: id, Title: title, Hint: hint, Questions: []Question{}})
-		return len(out) - 1
-	}
-
-	for _, s := range a.Sections {
-		add(s.ID, s.Title, s.Hint)
-	}
-
 	for _, q := range a.Questions {
 		id := strings.TrimSpace(q.Section)
 		if id == "" {
@@ -484,9 +486,38 @@ func (a AuthoredRegister) Pages() []Page {
 		}
 		at, ok := byID[id]
 		if !ok {
-			at = add(id, id, "")
+			title, hint := id, ""
+			if s, named := titles[id]; named {
+				if strings.TrimSpace(s.Title) != "" {
+					title = s.Title
+				}
+				hint = s.Hint
+			}
+			byID[id] = len(out)
+			at = len(out)
+			out = append(out, Page{ID: id, Title: title, Hint: hint, Questions: []Question{}})
 		}
 		out[at].Questions = append(out[at].Questions, q)
+	}
+
+	// The authored list re-orders ONLY when it covers every page the questions produced.
+	if len(a.Sections) > 0 {
+		covers := true
+		for id := range byID {
+			if _, named := titles[id]; !named {
+				covers = false
+				break
+			}
+		}
+		if covers {
+			ordered := make([]Page, 0, len(out))
+			for _, s := range a.Sections {
+				if at, ok := byID[s.ID]; ok {
+					ordered = append(ordered, out[at])
+				}
+			}
+			out = ordered
+		}
 	}
 
 	// A page nobody put a question on is not shown. An authored section can outlive the last

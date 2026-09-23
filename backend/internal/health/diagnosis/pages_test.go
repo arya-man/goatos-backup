@@ -101,3 +101,33 @@ func TestEverySeededRegisterStillPages(t *testing.T) {
 		}
 	}
 }
+
+// A PARTIAL SECTION LIST NAMES A PAGE; IT DOES NOT MOVE IT.
+//
+// Found on a real phone: a vet appended one page row to the END of a 37-question sheet, to give
+// the new page a title and a hint, and the phone opened on it -- a Recovery check before Vitals,
+// ahead of taking a temperature. Naming one page says nothing about where the other eleven go.
+func TestNamingOnePageDoesNotReorderTheForm(t *testing.T) {
+	doc := AuthoredRegister{
+		Sections: []Section{{ID: "recovery", Title: "Recovery check", Hint: "Before it leaves the pen"}},
+		Questions: []Question{
+			{ID: "temp", Section: "vitals"},
+			{ID: "gut", Section: "body"},
+			{ID: "standing", Section: "recovery"},
+		},
+	}
+
+	pages := doc.Pages()
+	if len(pages) != 3 {
+		t.Fatalf("pages = %d, want three", len(pages))
+	}
+	for i, want := range []string{"vitals", "body", "recovery"} {
+		if pages[i].ID != want {
+			t.Fatalf("page %d is %q, want %q -- the questions lay the order down", i, pages[i].ID, want)
+		}
+	}
+	// It still gets its authored title and hint; that is what the section row is FOR.
+	if pages[2].Title != "Recovery check" || pages[2].Hint != "Before it leaves the pen" {
+		t.Errorf("the named page lost its words: %+v", pages[2])
+	}
+}
