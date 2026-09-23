@@ -270,7 +270,7 @@ expect_service_image() {
 }
 
 expect_api_latency_shape() {
-  local line min max concurrency
+  local line min max concurrency service_min service_max
   line="$(
     gcloud run services describe goatos-api-stg \
       --project="$PROJECT_ID" \
@@ -280,21 +280,26 @@ import json
 import sys
 
 doc = json.load(sys.stdin)
+service_annotations = doc.get("metadata", {}).get("annotations", {})
 template = doc.get("spec", {}).get("template", {})
 annotations = template.get("metadata", {}).get("annotations", {})
 spec = template.get("spec", {})
 print("\t".join([
-    annotations.get("autoscaling.knative.dev/minScale", ""),
-    annotations.get("autoscaling.knative.dev/maxScale", ""),
-    str(spec.get("containerConcurrency", "")),
+    annotations.get("autoscaling.knative.dev/minScale", "unset"),
+    annotations.get("autoscaling.knative.dev/maxScale", "unset"),
+    str(spec.get("containerConcurrency", "unset")),
+    str(service_annotations.get("run.googleapis.com/minScale", "unset")),
+    str(service_annotations.get("run.googleapis.com/maxScale", "unset")),
 ]))
 '
   )"
-  IFS=$'\t' read -r min max concurrency <<<"$line"
+  IFS=$'\t' read -r min max concurrency service_min service_max <<<"$line"
   [[ "$min" == "1" ]] || die "goatos-api-stg min scale drift: got ${min:-unset} want 1"
   [[ "$max" == "4" ]] || die "goatos-api-stg max scale drift: got ${max:-unset} want 4"
   [[ "$concurrency" == "10" ]] || die "goatos-api-stg concurrency drift: got ${concurrency:-unset} want 10"
-  echo "verified api latency shape: min=$min max=$max concurrency=$concurrency"
+  [[ "$service_min" == "1" ]] || die "goatos-api-stg service min scale drift: got ${service_min:-unset} want 1"
+  [[ "$service_max" == "4" ]] || die "goatos-api-stg service max scale drift: got ${service_max:-unset} want 4"
+  echo "verified api latency shape: min=$min max=$max concurrency=$concurrency service_min=$service_min service_max=$service_max"
 }
 
 expect_analytics_events_shape() {

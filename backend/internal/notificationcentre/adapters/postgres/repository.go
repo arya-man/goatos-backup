@@ -174,8 +174,8 @@ const unreadPredicate = `nr.read_at IS NULL AND nr.status <> 'read'`
 // "keyset-paged at most 50 rows". By 2026-09-23 the production primary held 236,963 rows /
 // 621 MB with 102,291 on the worst single member, and the endpoint was the API's slowest --
 // 27 slow (>3s) requests in a 15-minute window and repeated 500s at a flat 15.0s timeout,
-// still failing after the API was scaled from 2 instances to 4. It was never a capacity
-// problem; it was this CTE.
+// still failing after the API was scaled from 2 instances to 4. The CTE added avoidable work to
+// each request; shared-database contention and request fanout also affect endpoint latency.
 //
 // MIGRATION 000354 FIXED THE SCAN, NOT THE SHAPE. notification_requests_member_feed_idx is
 // the NON-PARTIAL sibling of the four per-module alert indexes -- every one of those is
@@ -199,26 +199,10 @@ const unreadPredicate = `nr.read_at IS NULL AND nr.status <> 'read'`
 // pages against the 102,291-row fixture, that shape differed from the old query at 1,980 of
 // 2,000 positions. The anti join is what makes an already-emitted group stay emitted.
 //
-// MEASURED, throwaway database seeded to the production primary's worst member (102,291
-// delivery rows / 68,194 notifications / 236,999 rows in the table), EXPLAIN (ANALYZE,
-// BUFFERS), 2026-09-23:
-//
-//	                  rows scanned      time      buffers
-//	first page  before     102,291    355.6ms   8,156 shared + 5,187 temp read / 5,188 written
-//	first page  after           31      0.3ms     154 shared, no temp
-//	deep page   before     102,291    348.8ms   8,156 shared + 5,187 temp read / 5,188 written
-//	deep page   after           32      0.2ms     159 shared, no temp
-//
-// Before, both pages ran an external merge sort spilling 41,496kB to disk and emitted all
-// 68,194 deduped rows into a top-N heapsort that kept 21. After, both pages are a Nested
-// Loop Anti Join under the CTE's own LIMIT and the plan is flat with depth: at
-// representative #60,000 it is still 0.2ms.
-//
-// IDENTICAL RESULTS, PROVEN, NOT REASONED. Over the whole 68,194-notification feed the old
-// DISTINCT ON and this anti join select the same 68,194 rows with an empty symmetric
-// difference. Paged side by side the two agree at every one of 2,000 positions over 100
-// pages with no id emitted twice, and a 1,000-page/20,000-row walk of this statement matches
-// the canonical DISTINCT ON order position for position with nothing missing.
+// Repeatable large-fixture proof lives in repository_scale_test.go. Page-only timing
+// excludes the whole-feed unread aggregate; report both when evaluating endpoint latency.
+// First-page and cursor statements are separate so generic prepared plans can use the
+// cursor as an index range instead of filtering all rows above it.
 //
 // THE INNER PROBE NEEDS ITS INDEX. notification_requests_member_dedupe_idx (migration
 // 000393) carries dedupeKeyExpr VERBATIM; an expression index is only usable when it matches
@@ -226,7 +210,7 @@ const unreadPredicate = `nr.read_at IS NULL AND nr.status <> 'read'`
 // change together or not at all. Without it the planner has no access path for the dedupe
 // key and falls back to a Hash Anti Join that reads the member's whole history twice -- the
 // measurement that got this rewrite shelved the first time it was proposed.
-const sqlListNotifications = sqlTargetMemberCTE + `,
+const sqlNotificationPagePrefix = sqlTargetMemberCTE + `,
 mine AS (
   SELECT
     nr.notification_request_id,
@@ -242,8 +226,9 @@ mine AS (
   WHERE nr.tenant_id = $1::uuid
     AND tm.workforce_member_id IS NOT NULL
     AND nr.context->>'member_id' = tm.workforce_member_id::text
-    AND ($3::timestamptz IS NULL
-         OR (nr.requested_at, nr.notification_request_id) < ($3::timestamptz, $4::uuid))
+`
+
+const sqlNotificationPageDedupe = `
     AND NOT EXISTS (
       SELECT 1
       FROM notification_requests newer
@@ -255,7 +240,9 @@ mine AS (
           > (nr.requested_at, nr.notification_request_id)
     )
   ORDER BY nr.requested_at DESC, nr.notification_request_id DESC
-  LIMIT $5
+`
+
+const sqlNotificationPageProjection = `
 )
 SELECT
   mine.notification_request_id::text,
@@ -280,6 +267,15 @@ LEFT JOIN workforce_members actor
  AND actor.user_id = mine.requested_by
  AND actor.status = 'active'
 ORDER BY mine.requested_at DESC, mine.notification_request_id DESC`
+
+// Both statements are compile-time SQL with fixed bind contracts. Keeping the cursor
+// predicate out of a nullable OR is necessary even when pgx switches to a generic plan.
+const sqlListNotificationsFirst = sqlNotificationPagePrefix + sqlNotificationPageDedupe +
+	` LIMIT $3` + sqlNotificationPageProjection
+
+const sqlListNotifications = sqlNotificationPagePrefix + `
+    AND (nr.requested_at, nr.notification_request_id) < ($3::timestamptz, $4::uuid)
+` + sqlNotificationPageDedupe + ` LIMIT $5` + sqlNotificationPageProjection
 
 // sqlUnreadCount is the caller's WHOLE-FEED unread total.
 //
@@ -413,7 +409,12 @@ func (r *Repository) ListNotifications(ctx context.Context, p ports.ListParams) 
 	}
 
 	// limit+1 decides whether a next page exists; no count query, no OFFSET.
-	rows, err := r.pool.Query(ctx, sqlListNotifications, p.TenantID, p.MemberOrUserID, cursorAt, cursorID, limit+1)
+	var rows pgx.Rows
+	if cursor.RequestID == "" {
+		rows, err = r.pool.Query(ctx, sqlListNotificationsFirst, p.TenantID, p.MemberOrUserID, limit+1)
+	} else {
+		rows, err = r.pool.Query(ctx, sqlListNotifications, p.TenantID, p.MemberOrUserID, cursorAt, cursorID, limit+1)
+	}
 	if err != nil {
 		return domain.Page{}, fmt.Errorf("notificationcentre: list: %w", err)
 	}

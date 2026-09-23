@@ -15,3 +15,5 @@ Local CI completed: backend PASS; common failed on runner source receipt and an 
 Live incident follow-up: old SQL fixes are intact in deployed code; authenticated ADG reload rendered real data at 07:18Z. Server request 2.794s vs 12.969s earlier. No performance-code fix claimed. Full diagnostic record is /Users/raviteja/mesha/incident-api-scaling-20260923/diagnosis.md.
 
 Runner build SUCCESS: b9a99776-2f13-4561-a696-9639ecae014b; packaged-source verification executed inside the built image and passed. Immutable image asia-south1-docker.pkg.dev/goatos-stg/goatos/clouddeploy-stg-runner@sha256:830814dcbc6e7eee6c07c250e4cfab1d4595a69cd207c4d446bb6f6bf6293c29. Terraform/deploy/release guard all expect max 4. Deployment tests rerun PASS 11/11. Final repo-local CI/landing pending.
+
+Scope update: separate main landing stopped before push at maintainer request to combine work in PR376. Both commits copied into goatos-pr376. Three judges now completed; service-level scaling verification added and deployment tests12/12PASS. Current combined progress and remaining app-route proof: pr376-review-20260923.md. No source main push or app deploy occurred.

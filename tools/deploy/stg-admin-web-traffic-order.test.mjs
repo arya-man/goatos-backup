@@ -401,6 +401,49 @@ test("release wrapper verifies the same api latency shape and has safe deploy de
   );
 });
 
+test("release scaling readback rejects service drift even when revision settings are correct", () => {
+  const start = releaseScript.indexOf("expect_api_latency_shape() {");
+  const end = releaseScript.indexOf("\nexpect_analytics_events_shape()", start);
+  assert.ok(start >= 0 && end > start);
+  const functionBody = releaseScript.slice(start, end);
+  const expected = {
+    metadata: { annotations: {
+      "run.googleapis.com/minScale": "1",
+      "run.googleapis.com/maxScale": "4",
+    } },
+    spec: { template: {
+      metadata: { annotations: {
+        "autoscaling.knative.dev/minScale": "1",
+        "autoscaling.knative.dev/maxScale": "4",
+      } },
+      spec: { containerConcurrency: 10 },
+    } },
+  };
+  const runReadback = (doc) => spawnSync("bash", ["-c", `
+set -euo pipefail
+PROJECT_ID=fixture REGION=fixture
+die() { echo "$*" >&2; exit 1; }
+gcloud() { printf '%s' "$API_READBACK_FIXTURE"; }
+${functionBody}
+expect_api_latency_shape
+`], { encoding: "utf8", env: { ...process.env, API_READBACK_FIXTURE: JSON.stringify(doc) } });
+  const passing = runReadback(expected);
+  assert.equal(passing.status, 0, passing.stderr);
+  for (const [key, value, message] of [
+    ["run.googleapis.com/maxScale", "2", "service max scale drift"],
+    ["run.googleapis.com/minScale", "0", "service min scale drift"],
+    ["run.googleapis.com/maxScale", undefined, "service max scale drift"],
+    ["run.googleapis.com/minScale", undefined, "service min scale drift"],
+  ]) {
+    const drifted = structuredClone(expected);
+    if (value === undefined) delete drifted.metadata.annotations[key];
+    else drifted.metadata.annotations[key] = value;
+    const result = runReadback(drifted);
+    assert.notEqual(result.status, 0, `${key}=${value} must fail`);
+    assert.ok(result.stderr.includes(message), result.stderr);
+  }
+});
+
 test("analytics events has an isolated capped deploy lane", () => {
   const serviceStart = apiTerraform.indexOf('resource "google_cloud_run_v2_service" "analytics_events"');
   const serviceEnd = apiTerraform.indexOf('resource "google_cloud_run_v2_service_iam_member" "analytics_events_public_invoker"');
