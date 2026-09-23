@@ -9318,7 +9318,6 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 					option(permissions.RoleKey(permissions.TierAssistantManager, permissions.VerticalHealth), "Health Assistant Manager", "park", ""),
 					option(permissions.RoleKey(permissions.TierAssistantManager, permissions.VerticalFarming), "Farming Assistant Manager", "park", ""),
 					option(permissions.RoleKey(permissions.TierAssistantManager, permissions.VerticalCleaning), "Cleaning Assistant Manager", "park", ""),
-					option(permissions.RoleOperator, "Operator", "park", ""),
 					option(permissions.RoleParkHead, "Park Head", "park", ""),
 					option(permissions.RoleVerifier, "Verifier", "tenant", ""),
 					option(permissions.RolePCDirector, "PC Director", "tenant", ""),

@@ -1062,15 +1062,23 @@ func leadershipModuleKeys(grants []domain.GrantSummary) []string {
 	// CountsRead), and override health_director as the Counts owner. That exact alternative was
 	// offered to the maintainer and declined; see AGENTS.md -> Approvals-on-mobile rule.
 	//
-	// Nor is it keyed on the counts.write PERMISSION, which reads like the natural choice and is
-	// wrong: park_head holds counts.write on the ROLE, and TestCountsModuleRoleMatrix pins that a
-	// park head does NOT get the capture module. Keying on the permission therefore widened the
-	// offer to that job as well -- the same defect one layer over. The explicit `operator` GRANT is
-	// the per-person fact: it is what perPersonGrants layers onto a named individual (and what the
-	// stg-operator-scope guard makes them justify), so it names the person, not the job.
-	if hasRole(grants, permissions.RoleOperator) {
-		keys = appendMissing(keys, "counts")
-	}
+	// RETIRED 2026-09-23, and the reasoning above is kept because it is still the argument for
+	// why this was never keyed on a job or on counts.write.
+	//
+	// This branch offered Herd Operations (birth / death / shifting) CAPTURE to a leadership
+	// principal carrying an explicit per-person `operator` grant -- in practice the two named
+	// directors, who held that grant for no other purpose. The maintainer retired `operator`
+	// outright, was told these two would lose ground capture on their phones, and chose it: they
+	// do not record births, deaths or shifts. Migration 000394 revokes the grants in the same
+	// change, so nothing is left pointing at a role that no longer exists.
+	//
+	// Their APPROVAL authority is untouched and is a different thing: counts_approver still lets
+	// them approve birth / death / shifting on the Approvals module. Recording is not approving --
+	// that separation is the whole point of the per-person approvals decision.
+	//
+	// If a leadership principal ever needs ground capture again, DO NOT resurrect a role-keyed
+	// branch here. Tick them the `counts` module on People / HRMS: that is the per-person fact
+	// now, and it is the mechanism every other module already uses.
 	return keys
 }
 

@@ -80,7 +80,9 @@ func validCreateRequest() domain.CreatePersonRequest {
 		FirstName: "amit",
 		LastName:  "Kumar",
 		Email:     " Amit.Kumar@Mesha.SG ",
-		Role:      "operator",
+		// A department manager, since `operator` stopped being grantable when it was
+		// retired (2026-09-23). The fixture only needs a park-scoped grantable role.
+		Role:      "manager_feed",
 		ParkID:    testParkID,
 	}
 }

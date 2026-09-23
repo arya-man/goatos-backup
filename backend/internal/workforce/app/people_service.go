@@ -27,7 +27,6 @@ type personRoleSpec struct {
 // ceo_internal is deliberately absent: the platform-owner cohort is seed-owned
 // (founder/builder visibility invariant), never created from a form.
 var grantablePersonRoles = map[string]personRoleSpec{
-	permissions.RoleOperator:       {ScopeType: "park", RoleHint: "operator"},
 	permissions.RoleParkHead:       {ScopeType: "park", RoleHint: "park_head"},
 	permissions.RoleVerifier:       {ScopeType: "tenant", RoleHint: "verifier"},
 	permissions.RolePCDirector:     {ScopeType: "tenant", RoleHint: "pc_director"},

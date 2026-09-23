@@ -400,16 +400,23 @@ func TestNewDirectorRolesGetTheirOwnModuleOffer(t *testing.T) {
 	})
 }
 
-// TestHerdOperationsIsOfferedPerPersonNotPerDirectorJob pins the 2026-08-07 maintainer decision:
-// Chandrakant and Dinakar get the Herd Operations (Counts) capture module ON TOP OF their existing
-// director access, and they get it because THEY hold counts.write on their own grant row (a tenant
-// `operator` grant layered on the director job), never because of the director job itself.
+// TestHerdOperationsIsNeverOfferedFromARoleGrant pins the 2026-09-23 maintainer decision,
+// which RETIRES the 2026-08-07 one this test previously pinned.
 //
-// The negative half is the point of the test. A bare pc_director / growth_director -- a future
-// holder of either job with no personal operator grant -- must still resolve NO counts module, or
-// the per-person grant has silently become a per-job one and the one-module-one-director
-// segregation lock is reversed.
-func TestHerdOperationsIsOfferedPerPersonNotPerDirectorJob(t *testing.T) {
+// Until now Chandrakant and Dinakar were offered the Herd Operations (Counts) CAPTURE module
+// because each carried a tenant `operator` grant layered on their director job. `operator` has
+// been retired outright; the maintainer was told these two would lose ground capture on their
+// phones and chose it -- they do not record births, deaths or shifts. Migration 000394 revokes
+// the grants, and the offer branch keyed on them is gone.
+//
+// What this test now protects is that no role grant EVER confers that module again. Capture is
+// a per-person HRMS tick, like every other module. The negative cases below are unchanged and
+// are still the sharp end: park_head holds counts.write ON THE ROLE, so keying the offer on the
+// permission would silently hand capture to every park head.
+//
+// Their APPROVAL authority is a different thing and is untouched: counts_approver still lets
+// them approve birth / death / shifting. Recording is not approving.
+func TestHerdOperationsIsNeverOfferedFromARoleGrant(t *testing.T) {
 	const en = localization.DefaultTag
 
 	hasKey := func(keys []string, want string) bool {
@@ -421,37 +428,30 @@ func TestHerdOperationsIsOfferedPerPersonNotPerDirectorJob(t *testing.T) {
 		return false
 	}
 
-	// The two named people: director job + the personal tenant `operator` grant that carries
-	// counts.write. This is exactly what user_scope_grants holds for them in STG today.
-	perPerson := map[string][]domain.GrantSummary{
-		"Chandrakant (pc_director + operator)": {
+	// The two named people, exactly as their grants read AFTER 000394 revokes the operator row.
+	// Neither may be offered Counts from the job, and there is no longer any grant that would.
+	retired := map[string][]domain.GrantSummary{
+		"Chandrakant (pc_director)": {
 			grantWithRole(permissions.RolePCDirector),
-			grantWithRole(permissions.RoleOperator),
 		},
-		"Dinakar (growth_director + pc_director + operator)": {
+		"Dinakar (growth_director + pc_director)": {
 			grantWithRole(permissions.RoleGrowthDirector),
 			grantWithRole(permissions.RolePCDirector),
-			grantWithRole(permissions.RoleOperator),
 		},
 	}
-	for name, grants := range perPerson {
-		t.Run(name+" is offered Herd Operations", func(t *testing.T) {
-			if !permissions.RoleHasPermission(permissions.RoleOperator, permissions.CountsWrite) {
-				t.Fatal("operator no longer carries counts.write; this grant no longer confers capture")
+	for name, grants := range retired {
+		t.Run(name+" is NOT offered Herd Operations", func(t *testing.T) {
+			if keys := leadershipModuleKeys(grants); hasKey(keys, "counts") {
+				t.Fatalf("leadership module keys = %v; Herd Operations capture came back from a role grant", keys)
 			}
-			if keys := leadershipModuleKeys(grants); !hasKey(keys, "counts") {
-				t.Fatalf("leadership module keys = %v, want counts offered", keys)
+			if _, ok := moduleKeySet(modulesFor(grants, nil, en))["counts"]; ok {
+				t.Fatal("Counts module rendered for a director; capture is a per-person tick now")
 			}
-			// The offer must actually RENDER -- these people hold counts.write, so unlike
-			// health_director the Counts drawer row and its capture tabs are real.
-			if _, ok := moduleKeySet(modulesFor(grants, nil, en))["counts"]; !ok {
-				t.Fatal("Counts module did not render for a principal holding counts.write")
-			}
-			// ...and it is ADDITIVE: their existing director access is untouched.
+			// Their director access is untouched -- this removed one module, not their job.
 			keys := moduleKeySet(modulesFor(grants, nil, en))
 			for _, want := range []string{"vaccination", "weighing"} {
 				if _, ok := keys[want]; !ok {
-					t.Fatalf("module %q disappeared; Counts must be added on top, not swapped in", want)
+					t.Fatalf("module %q disappeared; only Herd Operations capture was withdrawn", want)
 				}
 			}
 		})

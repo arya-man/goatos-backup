@@ -2340,13 +2340,22 @@ block — block-scoped enforcement in `check-stg-operator-scope.mjs`), and a ten
 reads `workforce_positions` with `position_tier <> 'director'` rather than the RBAC
 role.
 
-Extended 2026-08-07 (same day, second decision): those two ALSO get the Herd
-Operations (Counts) CAPTURE module on the phone — birth, death, shifting — and
-they get it the per-person way, keyed on the explicit `operator` GRANT they hold,
-never on their director job. `leadershipModuleKeys` offers `counts` when
-`hasRole(grants, RoleOperator)`. A bare `pc_director` or `growth_director` is still
-offered nothing, so a future holder of either job inherits no capture, and the
-segregation lock above stands unchanged.
+RETIRED 2026-09-23. Extended 2026-08-07 (same day, second decision), those two ALSO
+got the Herd Operations (Counts) CAPTURE module on the phone — birth, death,
+shifting — keyed on the explicit tenant `operator` GRANT they held, never on their
+director job. That is **no longer true**: `operator` was retired outright when the
+farm's ground staff moved onto department manager roles, the maintainer was told
+these two would lose ground capture on their phones, and chose it — they do not
+record births, deaths or shifts. Migration `000394` revokes both grants and the
+`hasRole(grants, RoleOperator)` branch in `leadershipModuleKeys` is deleted.
+
+Their APPROVAL authority is untouched and is a different thing: `counts_approver`
+still lets them approve birth / death / shifting on the Approvals module. Recording
+is not approving — that separation is the whole point of the per-person approvals
+rule above. If a leadership principal ever needs ground capture again, do NOT
+resurrect a role-keyed branch: tick them the `counts` module on People / HRMS, which
+is the per-person fact now and the mechanism every other module already uses. Pinned
+by `TestHerdOperationsIsNeverOfferedFromARoleGrant`.
 
 Why the GRANT and not the `counts.write` PERMISSION, which reads like the obvious
 key and is wrong: `park_head` holds `counts.write` on the ROLE, and

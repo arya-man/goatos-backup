@@ -48,15 +48,11 @@ var perPersonGrants = []personGrant{
 			// aflatoxin strip test on purchased feed loads. Per person, never on the
 			// director job — see permissions.RoleToxinTester's doc comment.
 			permissions.RoleToxinTester,
-			// stg-operator-scope: tenant approved — maintainer decision 2026-08-07. This is an
-			// authority grant layered on a DIRECTOR, not a park staff account: he already holds
-			// pc_director at tenant scope for both-park visibility, and a park-scoped operator row
-			// here would contradict it. It does NOT put him in the vaccination drive operator pool:
-			// that pool reads workforce_positions with position_tier <> 'director'
-			// (obligation/adapters/postgres/visit_shot_lock.go), never the RBAC grant, and he holds
-			// no workforce_positions row at all. The CPT rehearsal invariant "Chandrakant is
-			// director-only monitoring scope" (AGENTS.md) therefore still holds.
-			permissions.RoleOperator,
+			// The tenant `operator` grant that used to sit here was RETIRED on 2026-09-23.
+			// It existed only to offer the Herd Operations capture module on the phone; the
+			// maintainer retired `operator` outright and chose to let these two lose ground
+			// capture -- they approve birth/death/shifting via counts_approver, and approving
+			// is not recording. Migration 000394 revokes the grants.
 		},
 	},
 	{
@@ -82,11 +78,11 @@ var perPersonGrants = []personGrant{
 			// that plans HOOF and HAIR TRIMMING (pc_care.plan_trimming). Deworming and ticks
 			// removal stay CEO-planned; pc_director above still carries no plan capability.
 			permissions.RoleBreedingDirector,
-			// stg-operator-scope: tenant approved — maintainer decision 2026-08-07. Same reasoning
-			// as Chandrakant's row above, and his position_tier is already 'director', which the
-			// operator pool query excludes. Listed explicitly even though he holds an active
-			// operator grant today, so this file states his whole authority rather than half of it.
-			permissions.RoleOperator,
+			// The tenant `operator` grant that used to sit here was RETIRED on 2026-09-23.
+			// It existed only to offer the Herd Operations capture module on the phone; the
+			// maintainer retired `operator` outright and chose to let these two lose ground
+			// capture -- they approve birth/death/shifting via counts_approver, and approving
+			// is not recording. Migration 000394 revokes the grants.
 		},
 	},
 	{
@@ -153,8 +149,8 @@ type grantResult struct {
 //
 // Tenant scope, not park scope: these are authority/visibility grants layered on directors whose
 // remit spans both parks. This does not violate the operator-scope invariant
-// (make stg-operator-scope-guard) the way a park staff account would — see the annotated
-// RoleOperator entries above.
+// (make stg-operator-scope-guard) the way a park staff account would. The annotated
+// RoleOperator entries that used to sit here were retired on 2026-09-23.
 func seedPerPersonGrants(ctx context.Context, pool *pgxpool.Pool, tenantID, authIssuer, source string) []grantResult {
 	byEmail := make(map[string]Account, len(stgLoginAccounts))
 	for _, acct := range stgLoginAccounts {
