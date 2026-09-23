@@ -980,7 +980,11 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	workforceService.WithModuleBadges(penroutinesapp.NewModuleBadges(penvisitsapp.NewModuleBadges(leadershipTasksService, penVisitsService), penRoutinesService))
 	// The sales module: its own bounded ledger (sales_*) with a thin service -- a commercial
 	// record with no state machine to orchestrate.
-	salesService := salesapp.NewSalesService(salespg.NewRepository(pool, cfg.Postgres.QueryTimeout))
+	// The feed store is wired in so a sale taking more feed than it holds asks the desk to confirm
+	// it once (migration 000393). Without this the confirmation silently never fires, so the
+	// wiring is asserted by a test rather than left to this line being noticed.
+	salesService := salesapp.NewSalesService(salespg.NewRepository(pool, cfg.Postgres.QueryTimeout)).
+		WithFeedStock(feedDirectionRepo)
 	salesHandler := saleshttp.NewSalesHandler(
 		salesService, log)
 	vaccinationRepo := vaccinationpg.NewRepository(pool, cfg.Postgres.QueryTimeout)

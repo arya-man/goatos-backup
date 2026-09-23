@@ -87,3 +87,90 @@ func confirmProductsStillSellable(ctx context.Context, tx pgx.Tx, tenantID strin
 	}
 	return nil
 }
+
+// ListProductVariants answers what each product may be sold AS -- the line's second dimension.
+//
+// Every list comes from a LIVE vocabulary the farm already maintains, never from a list typed into
+// this module: an animal product offers the breeds of its own species, a feed product offers the
+// active feed catalogue, and an `other` product offers its own name, which is what manure has
+// always stored. That is the same rule the procurement forms follow, and it is why adding a feed
+// to the catalogue makes it sellable the same day with no deploy.
+//
+// These are READ-ONLY vocabulary reads for a form. Sales writes the chosen word as text and joins
+// neither table for anything else.
+//
+// projection-review: membership=breeds keyed by species and feed_item_catalog keyed by tenant,
+// each narrowed to status='active'; group_key=none, both reads return their own rows ungrouped;
+// join_cardinality=no joins on either side, so neither can fan out; pagination=none -- these are
+// the choices a dropdown must offer in full, and a page of a vocabulary is a vocabulary with a
+// piece missing; scope=tenant_id for the feed catalogue, and the product's own species for breeds,
+// which is a product-wide table with no tenant column.
+func (r *Repository) ListProductVariants(ctx context.Context, tenantID string, products []domain.Product) (map[string][]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	out := make(map[string][]string, len(products))
+	var feeds []string
+	feedsLoaded := false
+
+	for _, p := range products {
+		switch p.Kind {
+		case domain.KindAnimal:
+			if p.SpeciesCode == "" {
+				// A product that names no species has no breed list to offer. Left absent rather
+				// than filled with every breed of every species, which would offer a sheep breed
+				// on a goat sale.
+				continue
+			}
+			rows, err := r.pool.Query(ctx, `
+				SELECT canonical_name FROM public.breeds
+				WHERE species = $1 AND status = 'active'
+				ORDER BY lower(canonical_name)`, p.SpeciesCode)
+			if err != nil {
+				return nil, fmt.Errorf("sales: list breeds for %s: %w", p.Name, err)
+			}
+			names, err := scanStrings(rows)
+			if err != nil {
+				return nil, err
+			}
+			out[p.Name] = names
+		case domain.KindFeed:
+			if !feedsLoaded {
+				rows, err := r.pool.Query(ctx, `
+					SELECT feed_item_label FROM public.feed_item_catalog
+					WHERE tenant_id = $1 AND status = 'active'
+					ORDER BY display_order, lower(feed_item_label)`, tenantID)
+				if err != nil {
+					return nil, fmt.Errorf("sales: list feed items: %w", err)
+				}
+				feeds, err = scanStrings(rows)
+				if err != nil {
+					return nil, err
+				}
+				feedsLoaded = true
+			}
+			out[p.Name] = append([]string(nil), feeds...)
+		default:
+			// `other` sells as itself. Manure's line has stored the word 'Manure' in this column
+			// since the ledger was imported, and a farm adding "Hay" gets the same shape.
+			out[p.Name] = []string{p.Name}
+		}
+	}
+	return out, nil
+}
+
+func scanStrings(rows pgx.Rows) ([]string, error) {
+	defer rows.Close()
+	out := []string{}
+	for rows.Next() {
+		var v string
+		if err := rows.Scan(&v); err != nil {
+			return nil, fmt.Errorf("sales: scan vocabulary row: %w", err)
+		}
+		out = append(out, v)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("sales: vocabulary rows: %w", err)
+	}
+	return out, nil
+}

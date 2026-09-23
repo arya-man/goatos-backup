@@ -44,6 +44,10 @@ func (f *feedRepo) ListSellableProducts(_ context.Context, _ string) ([]domain.P
 	}, nil
 }
 
+func (f *feedRepo) ListProductVariants(_ context.Context, _ string, _ []domain.Product) (map[string][]string, error) {
+	return map[string][]string{"Feed": {"Maize", "Groundnut Cake"}}, nil
+}
+
 // THE SHORT SALE IS A CONFIRMATION, NOT A BLOCK (maintainer decision 2026-09-23). The desk is told
 // what the store thinks it holds, and the SAME sale re-sent with the acknowledgement records --
 // because the feed may genuinely have left while the purchase ledger is behind, and refusing it

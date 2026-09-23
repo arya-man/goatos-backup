@@ -10,7 +10,17 @@ import (
 // instruction 2026-09-04): both farms, all three products each with its breeds, all four statuses
 // with a chip tone, the default status and the 60-day sale-date horizon.
 func TestSalesOptionsCarryEveryVocabularyTheWebDrawerOffers(t *testing.T) {
-	got := buildSalesOptionsPayload()
+	products := []domain.Product{
+		{Code: domain.ProductCodeSheep, Name: domain.ProductSheep, Kind: domain.KindAnimal, Unit: "head", SpeciesCode: "sheep", SortOrder: 10},
+		{Code: domain.ProductCodeGoat, Name: domain.ProductGoat, Kind: domain.KindAnimal, Unit: "head", SpeciesCode: "goat", SortOrder: 20},
+		{Code: domain.ProductCodeManure, Name: domain.ProductManure, Kind: domain.KindOther, Unit: "kg", SortOrder: 30},
+	}
+	variants := map[string][]string{
+		domain.ProductSheep:  {"Anantapur", "Kenguri", "Nipani"},
+		domain.ProductGoat:   {"Malai", "Sojat", "Osmanabadi", "Beetle", "Sirohi"},
+		domain.ProductManure: {domain.ProductManure},
+	}
+	got := buildSalesOptionsPayload(products, variants)
 	if len(got.Farms) != 2 || got.Farms[0] != domain.FarmCBE || got.Farms[1] != domain.FarmCPT {
 		t.Fatalf("farms = %v", got.Farms)
 	}
