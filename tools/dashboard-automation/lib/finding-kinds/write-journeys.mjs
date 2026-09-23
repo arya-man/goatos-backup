@@ -19,6 +19,29 @@ export const RECEIPT_RELATIVE_PATH = "write-journeys/write-journeys-receipt.json
 
 const RESTORE_SEVERITY = 0;
 const JOURNEY_SEVERITY = 1;
+// A gap in cover sits below both, and is never mixed in with them. It is not a finding about the
+// site; it is this lane admitting what it did not look at.
+const NOT_CHECKED_SEVERITY = 2;
+
+/**
+ * The one finding this lane raises that is NOT about the site. Same name, same shape and same
+ * framing lane 5 uses for the phone, so the two lanes speak one vocabulary rather than two.
+ *
+ * Why it exists at all: a journey that could not run used to render the journey's own failure
+ * sentence, which accused the product of a bug that never happened. Dropping the finding instead
+ * would only invert the lie — silence in this channel reads as "the site is fine", and the reader
+ * draws a conclusion the run never earned.
+ */
+export const NOT_CHECKED = "not-checked";
+
+// One deliberate difference from lane 5: lane 5 raises its notice only when NOTHING produced a
+// verdict, because its skips are a known standing state. Lane 4's gaps are per journey, and a run
+// that checked four of nine and mentioned neither the five nor the shortfall would read as "the
+// site is green". So this notice is raised whenever any journey was not attempted — it just never
+// takes the headline.
+
+const NOT_CHECKED_CONTEXT =
+  "No screenshot, because nothing was checked — this is a gap in today's cover, not a fault in the site.";
 
 // Anything that would make a farm manager's eyes glaze over, or tell an outsider how the data is
 // shaped. Checked against every string this module puts in front of a person.
@@ -72,10 +95,18 @@ function journeyFindings(findings) {
   return findings.filter((item) => item.kind === "journey");
 }
 
+function notCheckedNotices(findings) {
+  return findings.filter((item) => item.kind === NOT_CHECKED);
+}
+
 /** The header this lane would use when it is the only thing that found something. */
 export function headline(findings) {
   if (restoreFindings(findings).length) return "‼️ Practice data was left changed";
   const n = journeyFindings(findings).length;
+  // A run that checked nothing must never own the alert's headline. Returning null leaves it to a
+  // lane that actually found something; the notice still gets its own block and its own line in
+  // the summary, so it is read rather than shouted. Lane 5 makes the same choice for the phone.
+  if (n === 0) return null;
   return `🚨 ${n} thing${n === 1 ? "" : "s"} a person does on the site did not work`;
 }
 
@@ -106,6 +137,26 @@ export function renderSection(findings) {
       }
     });
   }
+  // Deliberately a different heading, a different lead word and none of the "did not work"
+  // framing, so nobody skims this and files it next to a thing that is broken.
+  const notices = notCheckedNotices(findings);
+  if (notices.length) {
+    const lines = notices.slice(0, 8).map((item) => `• ${link(item.url, item.page)}`);
+    const more = notices.length > lines.length ? `\n• +${notices.length - lines.length} more not checked` : "";
+    blocks.push(
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: `*Not checked: things people do on the site*\n${lines.join("\n")}${more}`
+        }
+      },
+      {
+        type: "context",
+        elements: [{ type: "mrkdwn", text: NOT_CHECKED_CONTEXT }]
+      }
+    );
+  }
   return blocks;
 }
 
@@ -115,14 +166,19 @@ export function summaryText(findings) {
   const parts = [];
   const restores = restoreFindings(findings);
   const journeys = journeyFindings(findings);
+  const gaps = notCheckedNotices(findings);
   if (restores.length) parts.push(`Practice data was left changed on ${restores.length} check${restores.length === 1 ? "" : "s"}`);
   if (journeys.length) parts.push(`${journeys.length} thing${journeys.length === 1 ? "" : "s"} a person does on the site did not work`);
+  if (gaps.length) parts.push(`${gaps.length} thing${gaps.length === 1 ? "" : "s"} a person does on the site ${gaps.length === 1 ? "was" : "were"} not checked today`);
   return assertPlainEnglish(parts.join(". "), "write-journey summary");
 }
 
 /** One threaded reply per finding, each with its own link and its own red-boxed screenshot. */
 export function renderReplies(findings) {
   return findings
+    // A not-checked notice carries no screenshot by construction. Filtered here too, so it can
+    // never be handed a screen it did not earn by some later edit.
+    .filter((item) => item.kind !== NOT_CHECKED)
     .filter((item) => item.screenshot && existsSync(item.screenshot))
     .slice(0, 12)
     .map((item) => ({
@@ -191,6 +247,48 @@ export function selfTest() {
     throw new Error("self-test: when practice data was left changed, that is the headline");
   }
   assertPlainEnglish(JSON.stringify(restoreBlocks), "self-test restore blocks");
+
+  // (d) A journey that was not attempted is a gap, never an accusation. It carries its own
+  // wording, it never borrows the journey's failure sentence, and it is never silent.
+  const gapOnly = toFindingsFromJourneys([{
+    name: "publish-vaccination-plan-version",
+    page: "Vaccination plan",
+    story: "A manager publishes a new vaccination plan version.",
+    status: "not-attempted",
+    notAttemptedReason: "this run had no stand-in for the write this journey makes on the screen",
+    humanFailure: "Publishing a new vaccination plan version did not save. A manager who publishes a plan would be told it worked and find nothing there.",
+    restore: { attempted: true, restored: true, verified: true }
+  }]);
+  if (gapOnly.length !== 1 || gapOnly[0].kind !== NOT_CHECKED) {
+    throw new Error("self-test: a journey that was not attempted must be a gap finding, not a journey failure");
+  }
+  if (headline(gapOnly) !== null) throw new Error("self-test: a run that checked nothing must not own the headline");
+  const gapText = JSON.stringify([renderSection(gapOnly), summaryText(gapOnly)]);
+  if (gapText.includes("did not save") || gapText.includes("did not work")) {
+    throw new Error("self-test: a journey that was not attempted must never render the product failure sentence it did not earn");
+  }
+  if (!gapText.includes("Not checked")) throw new Error("self-test: a gap must say plainly that it was not checked");
+  if (!gapText.includes("not a fault in the site")) {
+    throw new Error("self-test: a gap must say plainly that it is not a finding about the site");
+  }
+  if (renderSection(gapOnly).length === 0 || summaryText(gapOnly) === "") {
+    throw new Error("self-test: a run that checked nothing must not go silent; silence reads as fine");
+  }
+  if (renderReplies(gapOnly).length !== 0) throw new Error("self-test: a gap gets no threaded reply");
+  assertPlainEnglish(gapText, "self-test gap blocks");
+
+  // (e) A gap next to a real failure must not dilute the failure, and must not be folded into it.
+  const mixed = toFindingsFromJourneys([
+    { name: "a", page: "Vaccination plan", story: "s", status: "fail", humanFailure: "Publishing a new vaccination plan version did not save.", failedStep: "publish it", restore: { attempted: true, restored: true, verified: true } },
+    { name: "b", page: "Tasks board", story: "s", status: "not-attempted", restore: { attempted: true, restored: true, verified: true } }
+  ]);
+  if (!headline(mixed).includes("did not work")) {
+    throw new Error("self-test: with a real failure present, the headline must be the failure, not the gap");
+  }
+  const mixedText = JSON.stringify(renderSection(mixed));
+  if (!mixedText.includes("Doing this on the site did not work") || !mixedText.includes("Not checked")) {
+    throw new Error("self-test: a mixed run must show the failure and the gap as separate things");
+  }
   console.log("write-journey Slack finding kind: self-test passed");
 }
 
@@ -216,6 +314,22 @@ export function toFindingsFromJourneys(journeys) {
       });
     }
     if (journey.status === "pass") continue;
+    // The journey never ran, so it has no failure sentence to tell. Rendering `humanFailure` here
+    // was how "Publishing a new vaccination plan version did not save" reached Slack about a
+    // publish that was never attempted. A gap is reported as a gap, and carries no sentence at all.
+    if (journey.status === "not-attempted") {
+      findings.push({
+        severity: NOT_CHECKED_SEVERITY,
+        kind: NOT_CHECKED,
+        page,
+        url: journey.url ?? null,
+        story: journey.story ?? "",
+        headline: "",
+        detail: "",
+        screenshot: null
+      });
+      continue;
+    }
     findings.push({
       severity: JOURNEY_SEVERITY,
       kind: "journey",
