@@ -458,10 +458,11 @@ func windowResult(actor domain.Actor, subs []domain.SubQuestion, results []domai
 	// Same Surface as the SQL read it annotates: the composer de-duplicates
 	// citations by Surface, and sourceLabel would otherwise add a bare "sql".
 	return &domain.ToolResult{
-		Route:    domain.RouteSQL,
-		ToolName: "window",
-		Surface:  surface,
-		Facts:    []domain.Fact{{TenantID: actor.TenantID, Label: "Window", Value: value}},
+		Route:     domain.RouteSQL,
+		ToolName:  "window",
+		Surface:   surface,
+		Synthetic: true,
+		Facts:     []domain.Fact{{TenantID: actor.TenantID, Label: "Window", Value: value}},
 	}
 }
 

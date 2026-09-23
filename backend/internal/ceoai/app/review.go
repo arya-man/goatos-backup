@@ -70,8 +70,16 @@ func (rv reviewer) reviewSections(ctx context.Context, body string, sections []a
 		}
 	}
 
+	// Completeness counts the results that ANSWERED A SUB-QUESTION. A synthetic
+	// result the orchestrator appended to annotate the answer (the "Window: …"
+	// line) answers none of them, and counting it let a 2-sub plan with one
+	// empty read report Complete -- which also skipped the failed-read retry
+	// the orchestrator runs on an incomplete verdict.
 	nonEmpty := 0
 	for _, r := range results {
+		if r.Synthetic {
+			continue
+		}
 		if r.Err == nil && (len(r.Facts) > 0 || strings.TrimSpace(r.Summary) != "") {
 			nonEmpty++
 		}

@@ -537,6 +537,15 @@ func TestSaleReadinessFlagsUseStrictlyGreaterThan(t *testing.T) {
 // The scope proof: one tenant's sales and weighs are invisible to another, on
 // every one of the four views. Each join in 000393/000394 is keyed on tenant_id
 // as well as its own key, and this is what proves it.
+//
+// BOTH TENANTS ARE SEEDED, and that is the whole difference between this test
+// and a tautology. It used to seed tenant A only and then assert tenant B saw
+// zero rows -- which is true of an empty database however the views are keyed,
+// and could never catch the failure it is named for. The defect these joins
+// exist to prevent is a join that matches ANOTHER tenant's goat_identifiers or
+// deal lines and thereby INFLATES tenant A; so tenant B is now seeded with the
+// SAME tag strings and the SAME buyer, and each tenant's counts are asserted to
+// be exactly what its own rows produce in BOTH directions.
 func TestTheFourCoverageViewsAreTenantScoped(t *testing.T) {
 	ctx := context.Background()
 	pool, tenantA := newDB(t, ctx)
@@ -548,28 +557,108 @@ func TestTheFourCoverageViewsAreTenantScoped(t *testing.T) {
 		t.Fatalf("insert second tenant: %v", err)
 	}
 
-	fx := growthFixtureFor(t, ctx, pool, tenantA)
-	scan(t, ctx, pool, fx, "r1", "TAG-A", 20, "2026-09-01 10:00+05:30", "verified", true)
-	scan(t, ctx, pool, fx, "r2", "TAG-A2", 23, "2026-09-11 10:00+05:30", "verified", true)
+	// Tenant A: one animal weighed twice (one pair, one latest row) and one
+	// closed single-line deal to one buyer.
+	fxA := growthFixtureFor(t, ctx, pool, tenantA)
+	scan(t, ctx, pool, fxA, "r1", "TAG-A", 20, "2026-09-01 10:00+05:30", "verified", true)
+	scan(t, ctx, pool, fxA, "r2", "TAG-A2", 23, "2026-09-11 10:00+05:30", "verified", true)
 	closedDeal(t, ctx, pool, tenantA, "2026-09-03", "Ramesh Traders", "Goat", "Sirohi", 4, 100, 40000, 0)
 
-	for _, view := range []string{
-		"ceo_ai.sales_deal_lines_closed",
-		"ceo_ai.sales_buyer_summary",
-		"ceo_ai.weighing_latest_individual_weight",
-		"ceo_ai.growth_adg_pairs",
+	// Tenant B: the SAME tag strings, the SAME buyer name, its own everything
+	// else. A join keyed on the tag or the buyer alone fuses the two farms.
+	fxB := growthFixtureFor(t, ctx, pool, tenantB)
+	scan(t, ctx, pool, fxB, "r1", "TAG-A", 31, "2026-09-02 10:00+05:30", "verified", true)
+	scan(t, ctx, pool, fxB, "r2", "TAG-A2", 34, "2026-09-12 10:00+05:30", "verified", true)
+	scan(t, ctx, pool, fxB, "r1", "TAG-B", 28, "2026-09-02 11:00+05:30", "verified", true)
+	closedDeal(t, ctx, pool, tenantB, "2026-09-04", "Ramesh Traders", "Goat", "Sirohi", 9, 250, 90000, 0)
+
+	// Exact counts, not "> 0": tenant A's own rows are one latest-weight row,
+	// one pair, one deal line and one buyer; tenant B's are two latest-weight
+	// rows (TAG-A's animal and TAG-B's), one pair, one line and one buyer. Any
+	// cross-tenant match changes one of these numbers.
+	for _, tc := range []struct {
+		view         string
+		wantA, wantB int
+	}{
+		{"ceo_ai.sales_deal_lines_closed", 1, 1},
+		{"ceo_ai.sales_buyer_summary", 1, 1},
+		{"ceo_ai.weighing_latest_individual_weight", 1, 2},
+		{"ceo_ai.growth_adg_pairs", 1, 1},
 	} {
-		var mine, theirs int
+		var gotA, gotB int
 		if err := pool.QueryRow(ctx,
-			`SELECT (SELECT count(*) FROM `+view+` WHERE tenant_id = $1),
-			        (SELECT count(*) FROM `+view+` WHERE tenant_id = $2)`, tenantA, tenantB).Scan(&mine, &theirs); err != nil {
-			t.Fatalf("%s: %v", view, err)
+			`SELECT (SELECT count(*) FROM `+tc.view+` WHERE tenant_id = $1),
+			        (SELECT count(*) FROM `+tc.view+` WHERE tenant_id = $2)`, tenantA, tenantB).Scan(&gotA, &gotB); err != nil {
+			t.Fatalf("%s: %v", tc.view, err)
 		}
-		if mine == 0 {
-			t.Fatalf("%s: the fixture tenant must see its own rows", view)
+		if gotA != tc.wantA || gotB != tc.wantB {
+			t.Errorf("%s: tenant A saw %d rows (want %d), tenant B saw %d (want %d) — a join matched across tenants",
+				tc.view, gotA, tc.wantA, gotB, tc.wantB)
 		}
-		if theirs != 0 {
-			t.Fatalf("%s: the other tenant saw %d rows", view, theirs)
-		}
+	}
+
+	// And the money/weights themselves must not bleed: tenant A's buyer row is
+	// tenant A's deal alone, not the two farms' deals added together.
+	var revenueA, revenueB float64
+	if err := pool.QueryRow(ctx,
+		`SELECT (SELECT sum(revenue_rupees) FROM ceo_ai.sales_buyer_summary WHERE tenant_id = $1),
+		        (SELECT sum(revenue_rupees) FROM ceo_ai.sales_buyer_summary WHERE tenant_id = $2)`,
+		tenantA, tenantB).Scan(&revenueA, &revenueB); err != nil {
+		t.Fatalf("buyer revenue: %v", err)
+	}
+	if revenueA != 40000 || revenueB != 90000 {
+		t.Errorf("buyer revenue bled across tenants: A=%.0f (want 40000), B=%.0f (want 90000)", revenueA, revenueB)
+	}
+}
+
+// THE DENOMINATOR THE LEFT JOIN EXISTS TO PRESERVE. A scanned tag that is in NO
+// goat_identifiers row is an animal the register does not know -- a mis-typed
+// tag, a tag not yet registered, a tag from before the register was filled. Its
+// weigh was still taken and must still be reported: the join to the register is
+// a LEFT join precisely so an unresolvable scan keeps its own row keyed on the
+// scanned string, rather than dropping out and quietly shrinking every average
+// computed from the view.
+//
+// Correct by reading (animal_key COALESCEs the canonical tag with the scanned
+// string) and, until now, unproven by any test.
+func TestAScanWhoseTagHasNoRegisterRowStillProducesItsOwnRow(t *testing.T) {
+	ctx := context.Background()
+	pool, tenant := newDB(t, ctx)
+	fx := growthFixtureFor(t, ctx, pool, tenant)
+
+	// One registered animal, weighed twice, and one tag nothing in the register
+	// carries, weighed twice on the same two days.
+	scan(t, ctx, pool, fx, "r1", "TAG-A", 20, "2026-09-01 10:00+05:30", "verified", true)
+	scan(t, ctx, pool, fx, "r2", "TAG-A2", 23, "2026-09-11 10:00+05:30", "verified", true)
+	scan(t, ctx, pool, fx, "r1", "TAG-UNKNOWN", 18, "2026-09-01 10:30+05:30", "verified", true)
+	scan(t, ctx, pool, fx, "r2", "TAG-UNKNOWN", 22, "2026-09-11 10:30+05:30", "verified", true)
+
+	var latest int
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM ceo_ai.weighing_latest_individual_weight WHERE tenant_id = $1`, tenant).Scan(&latest); err != nil {
+		t.Fatalf("latest weight: %v", err)
+	}
+	if latest != 2 {
+		t.Fatalf("an unregistered scan was dropped from the denominator: %d rows, want 2", latest)
+	}
+
+	var unknownWeight float64
+	if err := pool.QueryRow(ctx,
+		`SELECT weight_kg FROM ceo_ai.weighing_latest_individual_weight
+		  WHERE tenant_id = $1 AND lower(animal_key) = 'tag-unknown'`, tenant).Scan(&unknownWeight); err != nil {
+		t.Fatalf("the unregistered scan has no row of its own: %v", err)
+	}
+	if unknownWeight != 22 {
+		t.Fatalf("the unregistered animal's latest weigh = %v, want 22", unknownWeight)
+	}
+
+	// It pairs with ITSELF across rounds, so its growth is reported too.
+	var pairs int
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM ceo_ai.growth_adg_pairs WHERE tenant_id = $1`, tenant).Scan(&pairs); err != nil {
+		t.Fatalf("pairs: %v", err)
+	}
+	if pairs != 2 {
+		t.Fatalf("the unregistered animal produced no growth pair: %d pairs, want 2", pairs)
 	}
 }

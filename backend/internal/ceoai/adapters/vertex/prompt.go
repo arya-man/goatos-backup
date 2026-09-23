@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/vgoats/goatos/backend/internal/ceoai/app"
+	"github.com/vgoats/goatos/backend/internal/ceoai/app/guard"
 	"github.com/vgoats/goatos/backend/internal/ceoai/domain"
 	"github.com/vgoats/goatos/backend/internal/ceoai/ports"
 	"github.com/vgoats/goatos/backend/internal/ceoai/reporting"
@@ -198,7 +199,12 @@ func buildFitJudgePrompt(question string, facts []domain.Fact) string {
 	sb.WriteString(question)
 	sb.WriteString("\n\nEvidence rows (label | scope | value):\n")
 	for _, f := range facts {
-		sb.WriteString(fmt.Sprintf("- %s | %s | %s\n", f.Label, f.Scope, f.Value))
+		// DB-sourced, operator-writable text: flatten each field to one line so
+		// a newline-bearing value cannot forge evidence rows. In the FOLDED
+		// judge+re-plan prompt this block sits immediately above the full
+		// planning context, which is what makes it worth the call.
+		sb.WriteString(fmt.Sprintf("- %s | %s | %s\n",
+			guard.SanitizeToolText(f.Label), guard.SanitizeToolText(f.Scope), guard.SanitizeToolText(f.Value)))
 	}
 	sb.WriteString("\nDo these rows answer the question as asked? Reply in STRICT JSON {\"answers\":bool,\"reason\":string}.")
 	return sb.String()

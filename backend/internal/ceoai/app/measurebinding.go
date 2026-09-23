@@ -88,6 +88,14 @@ func measureBindingIssues(q domain.Question, subs []domain.SubQuestion, results 
 	// ~25 of 43 carry SOME word no schema models ("percentage", "biggest",
 	// "cases", "rounds"). The shape that separates them is the compound
 	// SUBJECT, not the value dictionary, so the cards were left alone.
+	// THE FLAG SET IS NOT A GLOBAL BAG. It used to be one map for the whole
+	// plan with a `delete` on every satisfied term, so a SECOND sub-question
+	// over a DIFFERENT card could clear a flag the first one raised -- the same
+	// pooled-evidence defect review.go just fixed for grounding. A read binds
+	// the measure for the question IT answered; another read over another card
+	// is no evidence about it, and must not clear it. A term is now held
+	// per (card that ran, term), and any card that carries the column and did
+	// not read it raises the flag for good.
 	judged := false
 	unmet := map[string]bool{}
 	for i := range results {
@@ -105,12 +113,9 @@ func measureBindingIssues(q domain.Question, subs []domain.SubQuestion, results 
 				continue
 			}
 			if readTouchesAny(results[i], sub, []string{t}, card) {
-				delete(unmet, t)
 				continue
 			}
-			if _, met := unmet[t]; !met {
-				unmet[t] = true
-			}
+			unmet[t] = true
 		}
 	}
 	if !judged || len(unmet) == 0 {

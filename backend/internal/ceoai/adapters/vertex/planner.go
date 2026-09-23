@@ -27,6 +27,7 @@ import (
 	"golang.org/x/oauth2/google"
 
 	"github.com/vgoats/goatos/backend/internal/ceoai/app"
+	"github.com/vgoats/goatos/backend/internal/ceoai/app/guard"
 	"github.com/vgoats/goatos/backend/internal/ceoai/domain"
 	"github.com/vgoats/goatos/backend/internal/ceoai/ports"
 )
@@ -189,10 +190,14 @@ func (p *Planner) JudgeFitAndReplan(ctx context.Context, q domain.Question, mem 
 	if perr != nil {
 		return false, reason, domain.Plan{}, usage, nil
 	}
-	// A refusal returned beside "these rows do not answer" is the model
-	// declining to plan, not a refusal of the question; drop it and let the
-	// caller fall back to its own re-plan.
-	plan.Refusal = ""
+	// A refusal returned beside "these rows do not answer" is CARRIED, not
+	// dropped. Clearing it unconditionally made the caller's own `alt.Refusal
+	// == ""` guard (app/fitloop.go) dead code, so the same model response --
+	// {"answers":false,"refusal":"…","sub_questions":[…]} -- refused on the
+	// first-plan path and EXECUTED on the folded one. Two paths that decide the
+	// same thing must decide it the same way; the caller drops the plan and
+	// falls back to its own re-plan, which is what the unconditional clear was
+	// trying to achieve without telling the caller anything.
 	return false, reason, plan, usage, nil
 }
 
@@ -221,10 +226,15 @@ func (p *Planner) Critique(ctx context.Context, answer string, facts []domain.Fa
 		// it a dimensioned answer that names its dimension value ("… (goat): 972")
 		// looks unsupported to the critic — the exact cause of by-species/by-park
 		// answers degrading to "couldn't verify a figure" while the facts were real.
-		if strings.TrimSpace(f.Scope) != "" {
-			sb.WriteString(fmt.Sprintf("- %s (%s) = %s\n", f.Label, f.Scope, f.Value))
+		// Label/Scope/Value are OPERATOR-WRITABLE text read out of the
+		// database (a buyer name, a pen label, a probed literal). A newline or
+		// a bare "-" inside one would forge extra evidence rows in this
+		// list, so every field is flattened to a single line first.
+		label, scope, value := guard.SanitizeToolText(f.Label), guard.SanitizeToolText(f.Scope), guard.SanitizeToolText(f.Value)
+		if strings.TrimSpace(scope) != "" {
+			sb.WriteString(fmt.Sprintf("- %s (%s) = %s\n", label, scope, value))
 		} else {
-			sb.WriteString(fmt.Sprintf("- %s = %s\n", f.Label, f.Value))
+			sb.WriteString(fmt.Sprintf("- %s = %s\n", label, value))
 		}
 	}
 	prompt := fmt.Sprintf(

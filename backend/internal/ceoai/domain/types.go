@@ -143,7 +143,15 @@ type ToolResult struct {
 	// a module substitution ("delayed tasks" answered from vaccination
 	// obligations) visible instead of silent.
 	SourceView string
-	Err        error // non-nil => this step failed (never swallowed to empty)
+	// Synthetic marks a result the ORCHESTRATOR appended to annotate the
+	// answer, not a read of a sub-question -- today only the "Window: …" line.
+	// It is real, grounded evidence (its digits must ground the answer, so the
+	// composer and the grounding check still see it), but it answers NO
+	// sub-question. Counting it as one inflated review.Complete: a 2-sub plan
+	// with one empty read flipped Complete false -> true the moment the window
+	// line was appended, which also skipped the failed-read retry.
+	Synthetic bool
+	Err       error // non-nil => this step failed (never swallowed to empty)
 }
 
 // Fact is one groundable datum (a labelled value with optional scope).
