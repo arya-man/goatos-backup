@@ -17,6 +17,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -483,6 +484,49 @@ class MilkPreparationViewModelTest {
         advanceUntilIdle()
 
         assertEquals("past preparation date must never enqueue a backdated submit", 0, syncRepository.milkPreparationSubmitCalls)
+    }
+
+
+    @Test
+    fun `a preparation clip is stamped with a subject the server accepts`() = runTest(dispatcher) {
+        val proofCaptureRepository = FakeProofCaptureRepository()
+        val viewModel = MilkPreparationViewModel(
+            sync = FakeMilkPreparationSyncRepository(),
+            repo = FakeMilkPreparationRepository(),
+            capture = FakeProofCaptureSource(
+                mutableListOf(CapturedVideo(localUri = "/proof/goat-milk.mp4", startedAtMs = 1L, endedAtMs = 2L)),
+            ),
+            proofCaptureRepository = proofCaptureRepository,
+            drafts = FakeMilkPreparationDraftRepository(),
+            analytics = FakeAnalyticsPort(),
+            saved = SavedStateHandle(mapOf(MilkPreparationViewModel.ARG_PARK_ID to "park-1")),
+        )
+        backgroundScope.launch { viewModel.state.collect {} }
+
+        viewModel.onEvent(MilkPreparationEvent.SetCollectedMilk("morning", "0"))
+        viewModel.onEvent(MilkPreparationEvent.SetCollectedMilk("evening", "0"))
+        viewModel.onEvent(MilkPreparationEvent.SetGoatMilkUsed(true))
+        viewModel.onEvent(MilkPreparationEvent.SetStepAnswer("goat_milk_quantity", "5"))
+        advanceUntilIdle()
+        viewModel.onEvent(MilkPreparationEvent.CaptureStep("goat_milk_quantity"))
+        advanceUntilIdle()
+
+        assertBackendAcceptsSubject(proofCaptureRepository.captureCalls.single().subject)
+    }
+
+    // `subject_type` is a CROSS-BOUNDARY vocabulary, and the phone lost an argument with it: both
+    // milk screens stamped their clips `park`, which validateCreate (backend/internal/proof/app/
+    // service.go) has never accepted, so every milk proof upload 400'd (bc2c6c43). The operator
+    // filmed the work and the submission failed -- the damaging direction, because the screen had
+    // no way to say the clip was refused for naming a subject the server does not have. The
+    // accepted set is written out here rather than imported: the point is to fail when the two ends
+    // disagree, and a shared constant would move with whichever end changed.
+    private fun assertBackendAcceptsSubject(subject: ProofSubject) {
+        assertTrue(
+            "subject_type=${subject.wireValue} is not in validateCreate's accepted set, so this " +
+                "upload would be refused 400 invalid_proof after the operator filmed the work",
+            subject.wireValue in setOf("batch", "goat", "shed", "task", "vial_lot", "administration", "other"),
+        )
     }
 
 }
