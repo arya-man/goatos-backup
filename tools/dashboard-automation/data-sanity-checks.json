@@ -47,7 +47,7 @@
         {
           "sha": "71f87ad77",
           "date": "2026-09-18",
-          "subject": "feat(counts): Mortality page — deaths from every angle beside the at-risk herd"
+          "subject": "feat(counts): Mortality page \u2014 deaths from every angle beside the at-risk herd"
         },
         {
           "sha": "01d240cd5",
@@ -173,7 +173,7 @@
         "title": "Herd register",
         "path": "/counts/herd"
       },
-      "sql": "select p.goat_id::text as animal_ref, count(*)::text as pens from goat_shed_partitions p group by p.goat_id having count(*) > 1 order by count(*) desc limit 500",
+      "sql": "select p.goat_id::text as animal_ref, count(*)::text as pens from goat_shed_partitions p group by p.tenant_id, p.goat_id having count(*) > 1 order by count(*) desc limit 500",
       "humanFailure": "Some animals are recorded in two pens at the same time, so they are counted twice and every pen total that includes them is too high.",
       "countUnit": "animals in two pens at once",
       "sourceCommits": [
@@ -317,7 +317,7 @@
         "title": "Herd register",
         "path": "/counts/herd"
       },
-      "sql": "select i.identifier_type as tag_kind, i.normalized_value as tag, count(distinct i.goat_id)::text as animals from goat_identifiers i where i.status = 'active' group by i.identifier_type, i.normalized_value having count(distinct i.goat_id) > 1 order by count(distinct i.goat_id) desc limit 500",
+      "sql": "select i.identifier_type as tag_kind, i.normalized_value as tag, count(distinct i.goat_id)::text as animals from goat_identifiers i where i.status = 'active' group by i.tenant_id, i.identifier_type, i.normalized_value having count(distinct i.goat_id) > 1 order by count(distinct i.goat_id) desc limit 500",
       "humanFailure": "The same tag number is active on more than one animal, so a scan can land on the wrong animal and any work recorded against it goes to the wrong place.",
       "countUnit": "tag numbers shared by more than one animal",
       "sourceCommits": [
@@ -675,7 +675,7 @@
         "title": "Vaccination plan",
         "path": "/vaccination/plan"
       },
-      "sql": "select a.planned_date::text as planned_for, a.physical_shed as pen, a.animal_count::text as pen_says, count(distinct m.goat_id)::text as round_lists from vaccination_drive_assignments a join vaccination_drive_assignment_members m on m.assignment_id = a.assignment_id and m.canceled_at is null group by a.assignment_id, a.planned_date, a.physical_shed, a.animal_count having count(distinct m.goat_id) > a.animal_count order by count(distinct m.goat_id) - a.animal_count desc limit 500",
+      "sql": "select a.planned_date::text as planned_for, a.physical_shed as pen, a.animal_count::text as pen_says, count(distinct m.goat_id)::text as round_lists from vaccination_drive_assignments a join vaccination_drive_assignment_members m on m.assignment_id = a.assignment_id and m.tenant_id = a.tenant_id and m.canceled_at is null group by a.tenant_id, a.assignment_id, a.planned_date, a.physical_shed, a.animal_count having count(distinct m.goat_id) > a.animal_count order by count(distinct m.goat_id) - a.animal_count desc limit 500",
       "humanFailure": "Some vaccination rounds list more animals than the pen they are planned for holds, so the operator is asked to treat animals that are not there and the dose count is too high.",
       "countUnit": "vaccination rounds listing more animals than the pen holds",
       "sourceCommits": [
@@ -942,7 +942,7 @@
         {
           "sha": "71f87ad77",
           "date": "2026-09-18",
-          "subject": "feat(counts): Mortality page — deaths from every angle beside the at-risk herd"
+          "subject": "feat(counts): Mortality page \u2014 deaths from every angle beside the at-risk herd"
         },
         {
           "sha": "52a95af4b",
@@ -1156,7 +1156,7 @@
         "title": "Source entry",
         "path": "/procurement/source-entry"
       },
-      "sql": "select l.purchase_date::text as bought_on, l.status as state, l.expected_count::text as expected, count(lg.goat_id)::text as actually_listed from procurement_loads l left join procurement_load_goats lg on lg.load_id = l.load_id group by l.load_id, l.purchase_date, l.status, l.expected_count having l.expected_count is distinct from count(lg.goat_id) order by l.purchase_date desc limit 500",
+      "sql": "select l.purchase_date::text as bought_on, l.status as state, l.expected_count::text as expected, count(lg.goat_id)::text as actually_listed from procurement_loads l left join procurement_load_goats lg on lg.load_id = l.load_id and lg.tenant_id = l.tenant_id group by l.tenant_id, l.load_id, l.purchase_date, l.status, l.expected_count having l.expected_count is distinct from count(lg.goat_id) order by l.purchase_date desc limit 500",
       "humanFailure": "Some purchase loads list a different number of animals than the number they were expected to bring, so the intake figures and the herd growth do not match the paperwork.",
       "countUnit": "purchase loads whose head count does not match",
       "sourceCommits": [
@@ -1338,7 +1338,7 @@
         {
           "sha": "48a32c6a5",
           "date": "2026-09-22",
-          "subject": "feat(feed): Feed follow-up tab — did the sheet react when animals moved?"
+          "subject": "feat(feed): Feed follow-up tab \u2014 did the sheet react when animals moved?"
         }
       ]
     },
@@ -1497,7 +1497,7 @@
         {
           "sha": "71f87ad77",
           "date": "2026-09-18",
-          "subject": "feat(counts): Mortality page — deaths from every angle beside the at-risk herd"
+          "subject": "feat(counts): Mortality page \u2014 deaths from every angle beside the at-risk herd"
         },
         {
           "sha": "3b74d99ad",
@@ -1515,7 +1515,7 @@
         "title": "Vaccination live tracker",
         "path": "/vaccination/live-tracker"
       },
-      "sql": "SELECT obligation_id, goat_id, COUNT(*) AS recorded_times, MIN(administered_at) AS first_at, MAX(administered_at) AS last_at FROM vaccination_completions WHERE status IN ('recorded', 'accepted') GROUP BY obligation_id, goat_id HAVING COUNT(*) > 1 limit 500",
+      "sql": "SELECT obligation_id, goat_id, COUNT(*) AS recorded_times, MIN(administered_at) AS first_at, MAX(administered_at) AS last_at FROM vaccination_completions WHERE status IN ('recorded', 'accepted') GROUP BY tenant_id, obligation_id, goat_id HAVING COUNT(*) > 1 limit 500",
       "humanFailure": "Some animals are recorded as having had the same dose twice. The doses used and the coverage figure are both counted twice, so the vaccine stock and the coverage percentage are both wrong.",
       "countUnit": "animals recorded as vaccinated twice for the same dose",
       "minerCheckIds": [
@@ -1762,7 +1762,7 @@
         "title": "Vaccination plan",
         "path": "/vaccination/plan"
       },
-      "sql": "SELECT rule_id, target_type, target_id, COUNT(*) AS open_successors, MIN(due_at) AS earliest_due, MAX(due_at) AS latest_due FROM obligation_instances WHERE completed_at IS NULL AND status NOT IN ('completed', 'cancelled', 'canceled', 'superseded', 'expired') GROUP BY rule_id, target_type, target_id HAVING COUNT(*) > 1 limit 500",
+      "sql": "SELECT rule_id, target_type, target_id, COUNT(*) AS open_successors, MIN(due_at) AS earliest_due, MAX(due_at) AS latest_due FROM obligation_instances WHERE completed_at IS NULL AND status NOT IN ('completed', 'cancelled', 'canceled', 'superseded', 'expired') GROUP BY tenant_id, rule_id, target_type, target_id HAVING COUNT(*) > 1 limit 500",
       "humanFailure": "Some repeating doses have more than one next dose open at the same time. The same animal appears on two rounds, so the plan asks for more work than there is.",
       "countUnit": "repeating doses with more than one next dose open",
       "minerCheckIds": [
@@ -1880,7 +1880,7 @@
         "title": "Work instructions",
         "path": "/configuration/work-instructions"
       },
-      "sql": "SELECT v.sop_id, d.name AS sop_name, COUNT(*) FILTER (WHERE v.status = 'published') AS published_versions, string_agg(DISTINCT v.version_label, ', ') FILTER (WHERE v.status = 'published') AS labels FROM sop_versions v JOIN sop_definitions d ON d.sop_id = v.sop_id GROUP BY v.sop_id, d.name HAVING COUNT(*) FILTER (WHERE v.status = 'published') <> 1 limit 500",
+      "sql": "SELECT v.sop_id, d.name AS sop_name, COUNT(*) FILTER (WHERE v.status = 'published') AS published_versions, string_agg(DISTINCT v.version_label, ', ') FILTER (WHERE v.status = 'published') AS labels FROM sop_versions v JOIN sop_definitions d ON d.sop_id = v.sop_id AND d.tenant_id = v.tenant_id GROUP BY v.tenant_id, v.sop_id, d.name HAVING COUNT(*) FILTER (WHERE v.status = 'published') <> 1 limit 500",
       "humanFailure": "Some work instructions have no published version, or more than one at once. Whoever opens them on the phone may see the wrong steps, or none at all.",
       "countUnit": "work instructions without exactly one published version",
       "minerCheckIds": [
@@ -2152,7 +2152,7 @@
         "title": "Vaccination live tracker",
         "path": "/vaccination/live-tracker"
       },
-      "sql": "select obligation_id::text as due_dose, goat_id::text as animal, count(*)::text as recorded_times, string_agg(distinct status, ', ') as states from public.vaccination_completions where coalesce(status, '') not in ('withdrawn', 'cancelled', 'canceled', 'rejected') group by obligation_id, goat_id having count(*) > 1 order by count(*) desc limit 500",
+      "sql": "select obligation_id::text as due_dose, goat_id::text as animal, count(*)::text as recorded_times, string_agg(distinct status, ', ') as states from public.vaccination_completions where coalesce(status, '') not in ('withdrawn', 'cancelled', 'canceled', 'rejected') group by tenant_id, obligation_id, goat_id having count(*) > 1 order by count(*) desc limit 500",
       "humanFailure": "Some animals carry two records against the same due dose. Whichever of the two the board reads, the doses used and the coverage figure are counted twice, and an animal can be sent for a dose it has already had.",
       "countUnit": "animals recorded twice for one due dose",
       "sourceCommits": [
@@ -2310,7 +2310,7 @@
         "title": "Sales loads",
         "path": "/sales/loads"
       },
-      "sql": "select g.display_id as animal, count(distinct lg.load_id)::text as loads_claiming_it, min(l.purchase_date)::text as first_bought_on, max(l.purchase_date)::text as last_bought_on from procurement_load_goats lg join procurement_loads l on l.load_id = lg.load_id join goats g on g.goat_id = lg.goat_id where l.status in ('in_transit', 'arrival_review', 'accepted_intake') and lg.current_state not in ('arrival_rejected', 'source_rejected', 'canceled') group by g.display_id having count(distinct lg.load_id) > 1 order by count(distinct lg.load_id) desc limit 500",
+      "sql": "select g.display_id as animal, count(distinct lg.load_id)::text as loads_claiming_it, min(l.purchase_date)::text as first_bought_on, max(l.purchase_date)::text as last_bought_on from procurement_load_goats lg join procurement_loads l on l.load_id = lg.load_id and l.tenant_id = lg.tenant_id join goats g on g.goat_id = lg.goat_id and g.tenant_id = lg.tenant_id where l.status in ('in_transit', 'arrival_review', 'accepted_intake') and lg.current_state not in ('arrival_rejected', 'source_rejected', 'canceled') group by g.tenant_id, g.display_id having count(distinct lg.load_id) > 1 order by count(distinct lg.load_id) desc limit 500",
       "humanFailure": "The same animal is counted on two purchase loads at once. Which load it is filed under, and which load carries its share of the money, changes from one look at the screen to the next.",
       "countUnit": "animals claimed by two loads at once",
       "sourceCommits": [
@@ -2674,7 +2674,7 @@
         {
           "sha": "6953f41f6",
           "date": "2026-08-28",
-          "subject": "Clock In/Out: backend core — punches, presence, admin reads, module + permission wiring"
+          "subject": "Clock In/Out: backend core \u2014 punches, presence, admin reads, module + permission wiring"
         },
         {
           "sha": "4923b5b21",
