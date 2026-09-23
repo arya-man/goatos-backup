@@ -59,8 +59,13 @@ Read this before touching the admin-web **Ask Mesha** panel, `apps/admin-web/app
 - Why it's fast: `CLAUDE.md`/`AGENTS.md` are injected into the **system prompt** (cached, 1 h TTL via
   `ENABLE_PROMPT_CACHING_1H=1`, `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1`) and all chats share one checkout,
   so the large prefix is read from cache instead of re-written per chat. Per-chat worktrees break the
-  cache; keep `ASK_MESHA_WORKTREE_PER_CHAT` off. Defaults: `claude-sonnet-5`, effort `low`; `deep:`
-  prefix => `claude-opus-5-5`. Baseline: 84 s / $0.64 → ~15–30 s / ~$0.10 per question.
+  cache; keep `ASK_MESHA_WORKTREE_PER_CHAT` off. Quick lookups: `claude-sonnet-5`, effort `low`.
+  Investigations (attachment, `deep:` prefix, or verify/check/why/bug/wrong/explain…) automatically use
+  `claude-opus-5-5`, effort `high`, and must explain with a worked example (readings, arithmetic, verdict).
+  Baseline: 84 s / $0.64 → lookups ~15–30 s / ~$0.10; investigations ~1–2 min / ~$1.
+- Streaming: server sends `reset` before a tool call (pre-tool narration is cleared); the panel
+  typewriter reveals tokens per frame; a Codex-style activity trail shows plain-English steps and
+  "Worked for Xm · N steps".
 - Repo hook `ai-setup-guard` blocks tools in fresh clones; the agent sets the documented
   `GOATOS_AI_SETUP_GUARD=0`.
 
@@ -68,7 +73,10 @@ Read this before touching the admin-web **Ask Mesha** panel, `apps/admin-web/app
 
 - `ASK_MESHA_MONTHLY_BUDGET_USD` (default **100**): once this month's summed answer cost reaches it,
   `/ask` replies "budget reached" without calling Claude. Fails closed if spend can't be read.
-- `ASK_MESHA_PER_ANSWER_BUDGET_USD` (default 1): SDK `maxBudgetUsd` per answer.
+- Per-answer caps (SDK `maxBudgetUsd`, counted inside the monthly cap): `ASK_MESHA_PER_ANSWER_BUDGET_USD`
+  (default 1) for lookups, `ASK_MESHA_DEEP_ANSWER_BUDGET_USD` (default 5) for investigations.
+- Cost = SDK `total_cost_usd` per answer (tokens × list price incl. cache reads/writes), stored with the
+  metric; monthly spend = sum since the 1st (UTC). It is an estimate; the GCP bill is authoritative.
 - GCP budgets only alert; RUNBOOK §3c adds a $100 Vertex budget alert as a backstop.
 
 ## Claude access
