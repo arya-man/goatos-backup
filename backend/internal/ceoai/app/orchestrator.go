@@ -386,7 +386,7 @@ func (a *Assistant) ask(ctx context.Context, q domain.Question, opts askOptions)
 		if unmodelled, terms := measureUnmodelled(q.Text, reporting.Cards(), catalog); unmodelled && someReadNamesACard(subs, rs) {
 			a.log.InfoContext(ctx, "ceoai refusing a measure nothing models",
 				"terms", terms, "tenant_id", q.Actor.TenantID)
-			return unmodelledRefusal(terms), "refused_unmodelled_measure:" + strings.Join(terms, ","), true
+			return unmodelledRefusalFor(q.Text, terms), "refused_unmodelled_measure:" + strings.Join(terms, ","), true
 		}
 		// Fail closed on a SUBSTITUTED subject: the question named a compound
 		// subject ("milk feeding") whose one word nothing in the catalogue
@@ -399,6 +399,18 @@ func (a *Assistant) ask(ctx context.Context, q domain.Question, opts askOptions)
 			a.log.InfoContext(ctx, "ceoai refusing a subject the read that ran does not model",
 				"subject", subject, "source_view", view, "tenant_id", q.Actor.TenantID)
 			return substitutedSubjectRefusal(subject, view), "refused_substituted_subject:" + subject, true
+		}
+		// Fail closed on a SUBSTITUTED ANIMAL: the question named one animal by
+		// its ear tag and nothing that ran selected it, so the figure about to
+		// be composed belongs to the whole scope. Measured on the deterministic
+		// path -- "What does MG-100001 weigh now" answered with the herd's
+		// average weight -- which the two gates above miss by construction:
+		// they judge the question's VOCABULARY, and an ear tag is a word no
+		// catalogue will ever model. See namedEntitySubstitution.
+		if substituted, tag, view := namedEntitySubstitution(q.Text, subs, rs); substituted {
+			a.log.InfoContext(ctx, "ceoai refusing an animal the read that ran did not select",
+				"tag", tag, "source_view", view, "tenant_id", q.Actor.TenantID)
+			return substitutedEntityRefusal(tag, view), "refused_substituted_entity:" + tag, true
 		}
 		return "", "", false
 	}

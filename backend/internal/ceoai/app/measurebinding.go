@@ -367,9 +367,104 @@ func substitutedSubjectRefusal(subject string, sourceView string) string {
 	return noSourceFor(subject) + from + substitutionIsRefused
 }
 
-// unmodelledRefusal is what a leader is told instead of a neighbour's number.
+// unmodelledRefusal is what a leader is told instead of a neighbour's number,
+// with no question text in hand to read the subject's own word order from.
 func unmodelledRefusal(terms []string) string {
-	return noSourceFor(joinSubjectTerms(terms)) + substitutionIsRefused
+	return unmodelledRefusalFor("", terms)
+}
+
+// unmodelledRefusalFor is the same refusal written from the QUESTION, so the
+// subject reads as the reader said it.
+//
+// "How many treatment sessions were missed yesterday?" produced terms sorted
+// alphabetically -- `missed`, `treatment` -- and the sentence "I don't have a
+// source for missed and treatment", which is not English. The terms are the
+// right SET; what was lost is that the question says them as ONE PHRASE. Read
+// back off the question, the same refusal says "missed treatment sessions".
+func unmodelledRefusalFor(questionText string, terms []string) string {
+	return noSourceFor(subjectPhrase(questionText, terms)) + substitutionIsRefused
+}
+
+// subjectPhraseWindow is how far apart the unmodelled terms may sit and still
+// be one thing the question is ABOUT. Three words covers a compound subject
+// and the noun it hangs on ("treatment sessions were missed"); beyond that the
+// terms are separate ideas the question happens to carry, and welding them
+// into a phrase would invent a subject nobody named. "how many litres of milk
+// did we produce today" spans five, so it keeps the list join.
+const subjectPhraseWindow = 3
+
+// subjectPhrase renders the unmodelled terms as the noun phrase the question
+// used, falling back to the comma-and-"and" list whenever it cannot read one
+// off the question with confidence.
+func subjectPhrase(questionText string, terms []string) string {
+	if len(terms) < 2 || questionText == "" {
+		return joinSubjectTerms(terms)
+	}
+	words := phraseWords(questionText)
+	lo, hi := -1, -1
+	for _, t := range terms {
+		i := indexOfTerm(words, t)
+		if i < 0 {
+			return joinSubjectTerms(terms)
+		}
+		if lo < 0 || i < lo {
+			lo = i
+		}
+		if i > hi {
+			hi = i
+		}
+	}
+	if hi-lo > subjectPhraseWindow {
+		return joinSubjectTerms(terms)
+	}
+	// The span's own content words, in the question's order, minus the
+	// auxiliaries ("were", "did") that carry no subject. The dimension noun
+	// BETWEEN the terms is kept deliberately -- "sessions" is what "treatment"
+	// and "missed" are both about, and it is the word that makes the phrase a
+	// thing rather than two adjectives.
+	var lead, head []string
+	for i := lo; i <= hi; i++ {
+		w := words[i]
+		if w == "" || questionStopWords[w] || nonMeasureWords[w] {
+			continue
+		}
+		// A past participle said AFTER the noun ("sessions were missed") reads
+		// before it ("missed sessions"), which is how a person names it.
+		if len(head) > 0 && strings.HasSuffix(w, "ed") {
+			lead = append(lead, w)
+			continue
+		}
+		head = append(head, w)
+	}
+	phrase := strings.Join(append(lead, head...), " ")
+	if phrase == "" {
+		return joinSubjectTerms(terms)
+	}
+	return phrase
+}
+
+// phraseWords are the question's words, lower-cased and stripped of the
+// punctuation around them, IN ORDER and with every position kept -- a dropped
+// word would shift the span the terms are measured across.
+func phraseWords(questionText string) []string {
+	fields := strings.Fields(strings.ToLower(questionText))
+	out := make([]string, 0, len(fields))
+	for _, raw := range fields {
+		out = append(out, strings.Trim(raw, ".,;:?!()'\"“”"))
+	}
+	return out
+}
+
+// indexOfTerm finds where the question says this term. questionWords supplies
+// a crude singular beside each plural, so a term may be the singular of the
+// word actually written; both spellings resolve to the written one.
+func indexOfTerm(words []string, term string) int {
+	for i, w := range words {
+		if w == term || strings.TrimSuffix(w, "s") == term {
+			return i
+		}
+	}
+	return -1
 }
 
 // joinSubjectTerms renders the unmodelled terms as something a person reads.
