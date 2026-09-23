@@ -482,14 +482,11 @@ func sqlConstText(file *ast.File) []sqlStatement {
 		}
 	}
 
-	// Pass 2: resolve each one, substituting the others. Depth-limited, so a const that
-	// refers to itself (or a cycle through two) cannot hang CI -- it simply resolves to the
-	// unexpandable parts and the rule declines to fire on a statement it cannot read whole.
-	var resolve func(ast.Expr, int) (string, bool)
-	resolve = func(e ast.Expr, depth int) (string, bool) {
-		if depth > 8 {
-			return "", false
-		}
+	// Pass 2: resolve each one, substituting the others. Cycle-limited, so a const that
+	// refers to itself (or a cycle through two) cannot hang CI, but long ordinary
+	// concatenations still resolve.
+	var resolve func(ast.Expr, map[string]bool) (string, bool)
+	resolve = func(e ast.Expr, seen map[string]bool) (string, bool) {
 		switch v := e.(type) {
 		case *ast.BasicLit:
 			if v.Kind != token.STRING {
@@ -498,23 +495,31 @@ func sqlConstText(file *ast.File) []sqlStatement {
 			text, err := strconv.Unquote(v.Value)
 			return text, err == nil
 		case *ast.Ident:
+			if seen[v.Name] {
+				return "", false
+			}
 			inner, ok := decls[v.Name]
 			if !ok {
 				return "", false
 			}
-			return resolve(inner, depth+1)
+			next := make(map[string]bool, len(seen)+1)
+			for k, v := range seen {
+				next[k] = v
+			}
+			next[v.Name] = true
+			return resolve(inner, next)
 		case *ast.BinaryExpr:
 			if v.Op != token.ADD {
 				return "", false
 			}
-			l, lok := resolve(v.X, depth+1)
-			r, rok := resolve(v.Y, depth+1)
+			l, lok := resolve(v.X, seen)
+			r, rok := resolve(v.Y, seen)
 			if !lok || !rok {
 				return "", false
 			}
 			return l + r, true
 		case *ast.ParenExpr:
-			return resolve(v.X, depth+1)
+			return resolve(v.X, seen)
 		}
 		return "", false
 	}
@@ -534,7 +539,7 @@ func sqlConstText(file *ast.File) []sqlStatement {
 				if i >= len(vs.Values) {
 					continue
 				}
-				text, ok := resolve(vs.Values[i], 0)
+				text, ok := resolve(vs.Values[i], map[string]bool{name.Name: true})
 				if !ok || !sqlishRe.MatchString(text) {
 					continue
 				}
@@ -623,9 +628,10 @@ var (
 	// $3::text[])`, `FROM generate_series(...)`, `FROM jsonb_to_recordset($1)` -- is bounded
 	// by what the CALLER passed in, not by a table. Same reasoning as the `= ANY($n)` case.
 	recursiveWithRe = regexp.MustCompile(`(?is)\bWITH\s+RECURSIVE\b`)
-	// Bounded by a caller-supplied id list: `= ANY($3::uuid[])` / `IN ($1,$2)`. One page's
-	// worth of ids is page-sized BY CONSTRUCTION and flagging it would be noise.
-	boundedByIDsRe = regexp.MustCompile(`(?is)=\s*ANY\s*\(\s*\$`)
+	// Bounded by a caller-supplied unique-id list: `notification_request_id = ANY($3::uuid[])`.
+	// Do not exempt arbitrary arrays such as `status = ANY($n)`: they can still match a tenant's
+	// whole history.
+	boundedByIDListRe = regexp.MustCompile(`(?is)\b(?:[a-z_][a-z0-9_]*\.)?(?:id|[a-z_][a-z0-9_]*_id)\s*=\s*ANY\s*\(\s*\$`)
 	// A scalar aggregate with no GROUP BY returns exactly one row however big the input is.
 	// Its cost is still linear, but it is not the PAGINATION defect this rule names, and
 	// unrelated rules already cover compute-on-read aggregates.
@@ -671,7 +677,12 @@ func hasTopLevelOrderBy(masked string) bool { return matchesAtTopLevel(masked, o
 // two FROMs and returns one row; a rule that cannot tell that from `SELECT ... FROM t` fires
 // on every caller-resolution CTE in the codebase. A finding on correct code trains people to
 // reach for scale-guard:ignore, which is how a guard stops meaning anything.
-func scansTable(maskedBody string, cteNames map[string]bool) bool {
+type rowSource struct {
+	name       string
+	isFunction bool
+}
+
+func topLevelRowSources(maskedBody string) []rowSource {
 	// Paren depth at every byte offset, computed once.
 	depths := make([]int, len(maskedBody)+1)
 	d := 0
@@ -687,20 +698,41 @@ func scansTable(maskedBody string, cteNames map[string]bool) bool {
 		}
 	}
 	depths[len(maskedBody)] = d
+	var out []rowSource
 	for _, m := range topLevelFromRe.FindAllStringSubmatchIndex(maskedBody, -1) {
 		if depths[m[0]] != 0 {
 			continue // a subselect's FROM: per-row work or a scalar resolution, not a scan
 		}
 		name := strings.ToLower(maskedBody[m[2]:m[3]])
-		if m[4] >= 0 {
+		out = append(out, rowSource{name: name, isFunction: m[4] >= 0})
+	}
+	return out
+}
+
+func scansTable(maskedBody string, cteNames map[string]bool) bool {
+	for _, source := range topLevelRowSources(maskedBody) {
+		if source.isFunction {
 			continue // identifier immediately followed by '(' = a set-returning function
 		}
-		if cteNames[name] {
+		if cteNames[source.name] {
 			continue // another CTE; its own boundedness is judged on its own entry
 		}
 		return true
 	}
 	return false
+}
+
+func topLevelCTEReferences(maskedBody string, cteNames map[string]bool) []string {
+	var out []string
+	for _, source := range topLevelRowSources(maskedBody) {
+		if source.isFunction {
+			continue
+		}
+		if cteNames[source.name] {
+			out = append(out, source.name)
+		}
+	}
+	return out
 }
 
 // detectCTELimitOutside finds a paginated statement whose scanning CTE has no LIMIT of its
@@ -784,23 +816,47 @@ func detectCTELimitOutside(text string) (string, bool) {
 		referenced[strings.ToLower(m[1])] = true
 	}
 	cteNames := map[string]bool{}
+	cteBodies := map[string]string{}
 	for _, c := range ctes {
-		cteNames[strings.ToLower(c.name)] = true
+		name := strings.ToLower(c.name)
+		cteNames[name] = true
+		cteBodies[name] = c.body
+	}
+
+	reachable := map[string]bool{}
+	var visit func(string)
+	visit = func(name string) {
+		name = strings.ToLower(name)
+		if reachable[name] {
+			return
+		}
+		body, ok := cteBodies[name]
+		if !ok {
+			return
+		}
+		reachable[name] = true
+		for _, ref := range topLevelCTEReferences(maskSQLNoise(body), cteNames) {
+			visit(ref)
+		}
+	}
+	for name := range referenced {
+		visit(name)
 	}
 
 	for _, c := range ctes {
-		if !referenced[strings.ToLower(c.name)] {
+		name := strings.ToLower(c.name)
+		if !reachable[name] {
 			continue // an inner helper; the outer LIMIT is not applied to it
 		}
 		body := maskSQLNoise(c.body)
 		if recursive && regexp.MustCompile(`(?is)\b(?:FROM|JOIN)\s+`+regexp.QuoteMeta(c.name)+`\b`).MatchString(body) {
 			continue // self-referencing arm of a recursive CTE: bounded by its depth guard
 		}
-		if limitClauseRe.MatchString(body) {
+		if hasTopLevelLimit(body) {
 			continue // already paged inside: the correct shape
 		}
-		if boundedByIDsRe.MatchString(body) {
-			continue // bounded by a caller-supplied id list
+		if boundedByIDListRe.MatchString(body) {
+			continue // bounded by a caller-supplied unique identifier list
 		}
 		if scalarAggRe.MatchString(strings.TrimSpace(body)) && !groupByRe.MatchString(body) {
 			continue // one row out, whatever goes in
