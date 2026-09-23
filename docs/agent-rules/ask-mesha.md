@@ -17,7 +17,10 @@ Read this before touching the admin-web **Ask Mesha** panel, `apps/admin-web/app
 ## Audience rules (non-negotiable)
 
 - Answers are for CEOs: business language, direct answer first, one compact table, <= 3 bullets.
-  No file paths, function names, SQL, or tool names unless the user asks.
+  HARD RULE: never mention or offer code, files, SQL/queries, databases/views/columns, tools,
+  sessions, budgets or the agent's limits ("I checked the code", "I can trace it in the code",
+  "I'm low on budget" are bugs). Speak as Mesha's analyst ("the dashboard calculates it by…").
+  Activity-step labels are business wording too ("Checking weighing records"). Code/SQL only if asked.
 - Never invent a metric proxy when an exact definition exists; if a metric can't be reproduced
   from read-only data, say so (see the data map's "Metric definitions" and "Known gaps").
 - UI: no citation pill / "coding-agent · Live data" footer on agent answers; no greeting message;

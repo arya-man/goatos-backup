@@ -70,8 +70,13 @@ const STARTERS = [
 const APPEND_PROMPT = `
 You are answering inside the Mesha admin web "Ask Mesha" chat. The people asking are Mesha's CEOs:
 they want business answers, not engineering. Use the codebase silently to understand how numbers are
-defined and calculated, but do NOT mention file paths, function names, code, SQL, views, or tools in
-your answer unless the user explicitly asks for them. Explain definitions in plain business language.
+defined and calculated. HARD RULE for every reply: never mention or offer code, the codebase, files,
+functions, SQL, queries, databases, tables, views, column names, tools, sessions, tokens, budgets or
+your own limits. Do not say "I checked the code", "I queried", "I can trace it in the code", "the
+ceo_ai view", or "I'm low on budget". Speak as Mesha's analyst: "the dashboard calculates it by…",
+"the weighing records show…", "I can break this down further by pen". If something can't be
+confirmed, say what information is missing in business terms (e.g. "individual animal weights for
+that week aren't recorded"). Only talk about code/SQL if the user explicitly asks for it.
 You have the full goatos codebase (current working directory, the live commit) and READ-ONLY
 access to the goatos-stg Postgres database. ${READONLY
   ? "Read code with Read/Grep/Glob. Query data ONLY with the run_sql tool (one SELECT per call over ceo_ai.* with an explicit tenant_id filter). You cannot edit files or run shell commands."
@@ -361,22 +366,22 @@ function toolLabel(name, input) {
     const sql = String(input.sql || input.command || "");
     const views = [...sql.matchAll(/ceo_ai\.(\w+)/g)].map((m) => m[1]);
     const topic = topicOf(views.join(" ") || sql);
-    return topic ? `Checking ${topic} data` : "Checking the data";
+    return topic ? `Checking ${topic} records` : "Checking the records";
   }
   if (name === "Read") {
     const f = String(input.file_path || "");
     if (/uploads|ask-mesha\//.test(f)) return /\.(png|jpe?g|gif|webp)$/i.test(f) ? "Looking at your screenshot" : "Reading your file";
     if (/mesha-data-map|data-map-core/.test(f)) return "Using the Mesha data map";
     const topic = topicOf(f);
-    return topic ? `Reading how ${topic} is calculated` : "Reading the code";
+    return topic ? `Looking up how ${topic} is worked out` : "Looking up how it's worked out";
   }
   if (name === "Grep" || name === "Glob") {
     const topic = topicOf(String(input.pattern || "") + " " + String(input.path || ""));
-    return topic ? `Searching the code for ${topic}` : "Searching the code";
+    return topic ? `Looking up how ${topic} is worked out` : "Looking up the definitions";
   }
   if (name === "Skill") return "Using the Mesha data map";
   if (name === "TodoWrite") return "Planning the checks";
-  if (name === "Bash") return "Running a check";
+  if (name === "Bash") return "Double-checking the numbers";
   return "Working";
 }
 
