@@ -3,6 +3,8 @@ package sg.mesha.goatos.feature.health
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -218,6 +220,7 @@ private fun QuestionCard(
                     AnswerRow(
                         label = option.label.ifBlank { option.value },
                         picked = picked,
+                        multi = question.isMulti,
                         onClick = {
                             onAnswers(
                                 if (question.isMulti) answers.toggle(question, option.value)
@@ -231,8 +234,20 @@ private fun QuestionCard(
     }
 }
 
+/**
+ * One answer, and the fact that it IS the answer.
+ *
+ * `selectable` rather than `clickable` because being chosen has to be a STATE, not a colour. With
+ * a plain click the row reported selected=false whether or not it was picked, so the only thing
+ * saying "this is the answer" was a green tint -- invisible to TalkBack, and invisible to any
+ * check that is not a human looking at a screenshot. An observation form is a medical record; a
+ * reader who cannot see green cannot read it back.
+ *
+ * `role = RadioButton` is the honest role for a pick-one row; a pick-any question passes
+ * [multi] and gets Checkbox, which is what a reader is told to expect when several may be on.
+ */
 @Composable
-private fun AnswerRow(label: String, picked: Boolean, onClick: () -> Unit) {
+private fun AnswerRow(label: String, picked: Boolean, multi: Boolean = false, onClick: () -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -244,7 +259,11 @@ private fun AnswerRow(label: String, picked: Boolean, onClick: () -> Unit) {
                 if (picked) MeshaColors.Brand else MeshaColors.Line,
                 RoundedCornerShape(12.dp),
             )
-            .clickable(onClick = onClick)
+            .selectable(
+                selected = picked,
+                onClick = onClick,
+                role = if (multi) Role.Checkbox else Role.RadioButton,
+            )
             .padding(horizontal = 14.dp, vertical = 12.dp),
     ) {
         Text(
