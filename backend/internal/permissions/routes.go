@@ -780,6 +780,9 @@ var protectedRoutes = []Route{
 	{OperationID: "listAppHealthWorkItems", Method: "GET", Pattern: "/app/health/work-items", Permissions: []string{HealthRead}},
 	{OperationID: "getAppHealthWorkItem", Method: "GET", Pattern: "/app/health/work-items/{health_session_id}", Permissions: []string{HealthRead}},
 	{OperationID: "completeAppHealthWorkItem", Method: "POST", Pattern: "/app/health/work-items/{health_session_id}/complete", Permissions: []string{HealthExecute}},
+	// One video per treatment step (2026-09-23). Same authority as completing the session: the
+	// person filming a step is the person doing the treatment.
+	{OperationID: "recordAppHealthStepProof", Method: "PUT", Pattern: "/app/health/work-items/{health_session_id}/steps/{health_session_step_id}/proof", Permissions: []string{HealthExecute}},
 	// The health SOP diagnosis engine. The permission split across these three
 	// routes IS the advisory boundary, and it is the reason they are separate
 	// routes at all:

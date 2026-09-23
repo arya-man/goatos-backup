@@ -183,3 +183,15 @@ func (s *recordingCompleteService) CompleteWorkItem(_ context.Context, in domain
 	s.completed = in
 	return domain.CompleteResult{SessionID: in.SessionID, Status: "completed"}, nil
 }
+
+func (*fakeService) RecordStepProof(context.Context, domain.RecordStepProofInput) (domain.StepProof, error) {
+	return domain.StepProof{}, nil
+}
+
+func (*erroringCloseService) RecordStepProof(context.Context, domain.RecordStepProofInput) (domain.StepProof, error) {
+	return domain.StepProof{}, nil
+}
+
+func (*recordingCompleteService) RecordStepProof(context.Context, domain.RecordStepProofInput) (domain.StepProof, error) {
+	return domain.StepProof{}, nil
+}

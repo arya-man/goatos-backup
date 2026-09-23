@@ -29,6 +29,7 @@ type HealthService interface {
 	ListWorkItems(context.Context, domain.ListFilter) (domain.WorkItemPage, error)
 	GetWorkItem(context.Context, string, string) (domain.WorkItemDetail, error)
 	CompleteWorkItem(context.Context, domain.CompleteInput) (domain.CompleteResult, error)
+	RecordStepProof(context.Context, domain.RecordStepProofInput) (domain.StepProof, error)
 	CloseCase(context.Context, domain.CloseCaseInput) (domain.CloseCaseResult, error)
 }
 type Handler struct {
@@ -47,6 +48,9 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /app/health/work-items", h.ListWorkItems)
 	mux.HandleFunc("GET /app/health/work-items/{health_session_id}", h.GetWorkItem)
 	mux.HandleFunc("POST /app/health/work-items/{health_session_id}/complete", h.CompleteWorkItem)
+	// ONE VIDEO PER STEP (maintainer decision 2026-09-23). PUT because a re-shoot REPLACES that
+	// step's clip rather than adding another; the verifier receives exactly one per step.
+	mux.HandleFunc("PUT /app/health/work-items/{health_session_id}/steps/{health_session_step_id}/proof", h.RecordStepProof)
 	mux.HandleFunc("POST /app/health/cases/{health_case_id}/close", h.CloseCase)
 }
 
@@ -59,10 +63,24 @@ type openCaseRequest struct {
 type completeRequest struct {
 	ProofRef string `json:"proof_ref"`
 }
+type stepProofRequest struct {
+	ProofRef string `json:"proof_ref"`
+}
 type closeCaseRequest struct {
 	Outcome string `json:"outcome"`
 	Note    string `json:"note,omitempty"`
 }
+
+// stepProofErrorResponse carries the steps still owing a video alongside the standard envelope,
+// so the phone marks those exact rows instead of showing a count the operator must hunt for.
+type stepProofErrorResponse struct {
+	Code      string              `json:"code"`
+	Message   string              `json:"message"`
+	TraceID   string              `json:"trace_id"`
+	Retryable bool                `json:"retryable"`
+	Errors    []domain.FieldError `json:"errors"`
+}
+
 type errorResponse struct {
 	Code      string `json:"code"`
 	Message   string `json:"message"`
@@ -157,6 +175,39 @@ func (h *Handler) CompleteWorkItem(w http.ResponseWriter, r *http.Request) {
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, res)
 }
+
+// RecordStepProof attaches ONE step's video.
+//
+// Its own route, and its own retry, because the proof business-ack contract says the blob
+// reaching storage is not the business fact. If this fails after the upload succeeded, the phone
+// retries THIS write with the proof id it already holds; it never re-uploads the video.
+func (h *Handler) RecordStepProof(w http.ResponseWriter, r *http.Request) {
+	body, req, ok := decodeStrict[stepProofRequest](w, r, h)
+	if !ok {
+		return
+	}
+	idem := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	if idem == "" {
+		h.writeError(w, r, http.StatusBadRequest, "idempotency_key_required", "Idempotency-Key is required", nil)
+		return
+	}
+	res, err := h.svc.RecordStepProof(r.Context(), domain.RecordStepProofInput{
+		TenantID:           httpmiddleware.TenantIDFromContext(r.Context()),
+		ActorID:            httpmiddleware.ActorIDFromContext(r.Context()),
+		SessionID:          r.PathValue("health_session_id"),
+		StepID:             r.PathValue("health_session_step_id"),
+		ProofRef:           req.ProofRef,
+		IdempotencyKey:     idem,
+		RequestFingerprint: fingerprint(body),
+		TraceID:            httpmiddleware.TraceIDFromContext(r.Context()),
+	})
+	if err != nil {
+		h.writeDomainError(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, res)
+}
+
 func (h *Handler) CloseCase(w http.ResponseWriter, r *http.Request) {
 	body, req, ok := decodeStrict[closeCaseRequest](w, r, h)
 	if !ok {
@@ -196,6 +247,31 @@ func decodeStrict[T any](w http.ResponseWriter, r *http.Request, h *Handler) ([]
 func fingerprint(body []byte) string { sum := sha256.Sum256(body); return hex.EncodeToString(sum[:]) }
 func (h *Handler) writeDomainError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
+	// EVERY STEP OWES ITS VIDEO. The refusal NAMES the steps still missing, as field errors keyed
+	// by step id, so the phone marks those rows instead of showing a count the operator must hunt
+	// through a twelve-step card for.
+	case errors.Is(err, domain.ErrStepProofsIncomplete):
+		var missing domain.StepProofsMissingError
+		fieldErrors := []domain.FieldError{}
+		if errors.As(err, &missing) {
+			for _, st := range missing.Missing {
+				fieldErrors = append(fieldErrors, domain.FieldError{
+					Field:   "steps." + st.StepID,
+					Message: domain.StepLabel(st) + " has not been recorded",
+				})
+			}
+		}
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, stepProofErrorResponse{
+			Code:      "step_videos_incomplete",
+			Message:   "Every step needs its video before this can be submitted.",
+			TraceID:   httpmiddleware.TraceIDFromContext(r.Context()),
+			Retryable: false,
+			Errors:    fieldErrors,
+		}, err)
+	case errors.Is(err, domain.ErrStepNotInSession):
+		h.writeError(w, r, http.StatusUnprocessableEntity, "step_not_in_session", err.Error(), err)
+	case errors.Is(err, domain.ErrInvalidStepProof):
+		h.writeError(w, r, http.StatusBadRequest, "invalid_step_proof", err.Error(), err)
 	case errors.Is(err, healthapp.ErrInvalidInput), errors.Is(err, healthapp.ErrInvalidDate):
 		h.writeError(w, r, http.StatusBadRequest, "invalid_request", err.Error(), err)
 	case errors.Is(err, ports.ErrNotFound):

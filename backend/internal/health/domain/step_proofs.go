@@ -117,3 +117,43 @@ func StepLabel(s ProtocolStep) string {
 	}
 	return strings.TrimSpace(s.RecordType)
 }
+
+// StepMedia is one clip paired with the NAME of the step it proves.
+//
+// The verifier opens ONE item holding the whole session's set and steps through it. Without a
+// name per clip she cannot tell which of six injections each video is, which is the only thing
+// that makes a twelve-clip item reviewable rather than a wall of footage.
+type StepMedia struct {
+	StepID   string `json:"step_id"`
+	Label    string `json:"label"`
+	ProofRef string `json:"proof_ref"`
+}
+
+// StepProofsMissingError refuses a submit and NAMES the steps that still owe a video.
+//
+// It carries the steps rather than a count because an operator told "3 steps missing" on a
+// twelve-step card has to hunt for them; the phone renders these titles straight back onto the
+// rows that are still empty.
+type StepProofsMissingError struct {
+	Missing []ProtocolStep
+}
+
+func (e StepProofsMissingError) Error() string {
+	names := make([]string, 0, len(e.Missing))
+	for _, s := range e.Missing {
+		names = append(names, StepLabel(s))
+	}
+	return ErrStepProofsIncomplete.Error() + ": " + strings.Join(names, ", ")
+}
+
+// Is lets callers match the sentinel while still reading the named steps off the concrete type.
+func (e StepProofsMissingError) Is(target error) bool { return target == ErrStepProofsIncomplete }
+
+// StepLabels names the missing steps, for a client that renders the refusal.
+func (e StepProofsMissingError) StepLabels() []string {
+	out := make([]string, 0, len(e.Missing))
+	for _, s := range e.Missing {
+		out = append(out, StepLabel(s))
+	}
+	return out
+}

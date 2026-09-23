@@ -210,3 +210,10 @@ func TestHealthVerdictIgnoresOtherModulesAndRefTypes(t *testing.T) {
 		t.Fatalf("foreign verdicts must pass through untouched; applied=%v bounced=%v", store.applied, store.bounced)
 	}
 }
+
+func (*completingRepo) RecordStepProof(context.Context, domain.RecordStepProofInput) (domain.StepProof, error) {
+	return domain.StepProof{}, nil
+}
+func (*completingRepo) StepProofs(context.Context, string, string) ([]domain.StepProof, error) {
+	return nil, nil
+}

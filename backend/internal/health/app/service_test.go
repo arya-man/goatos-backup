@@ -69,3 +69,10 @@ func TestListWorkItemsMapsPublicHeldStatusAndRejectsInvalidScope(t *testing.T) {
 		t.Fatalf("invalid park err=%v, want ErrInvalidInput", err)
 	}
 }
+
+func (*fakeRepo) RecordStepProof(context.Context, domain.RecordStepProofInput) (domain.StepProof, error) {
+	return domain.StepProof{}, nil
+}
+func (*fakeRepo) StepProofs(context.Context, string, string) ([]domain.StepProof, error) {
+	return nil, nil
+}
