@@ -165,6 +165,14 @@ var kidStageClasses = map[string]struct {
 	"f2":        {diagnosis.ClassKidFattening, ""},
 	"f2-male":   {diagnosis.ClassKidFattening, ""},
 	"f2-female": {diagnosis.ClassKidFattening, ""},
+	// Warmup is the farm's own stage between weaning and fattening, and it was MISSING here --
+	// so every animal on it was refused with "its stage does not say whether it is on milk,
+	// weaning or fattening" and could not be observed at all. That was 58 live kids on
+	// 2026-09-23, which is how the gap was found. Maintainer decision the same day: treat
+	// Warmup as fattening for now. It is an explicit row like every other, not a default, so
+	// the closed-map property this comment block exists to protect is unchanged -- the next
+	// unnamed stage is still refused rather than inheriting this one's medicine.
+	"warmup": {diagnosis.ClassKidFattening, ""},
 }
 
 // kidClassForStage resolves a kid's management stage to (class, sub-stage). The bool is false
