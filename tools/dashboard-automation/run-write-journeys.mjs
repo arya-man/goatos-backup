@@ -248,6 +248,15 @@ function parseArgs(raw) {
 
 const UI_DRIVER_SCRIPT = "smoke:write-journey:live";
 
+/**
+ * Whether the screen driver is absent. Exported so the guarantee it protects -- a missing driver is
+ * a RUNNER blocker, never a journey failure -- stays under test now that the driver itself exists
+ * in apps/admin-web, which is what used to make the command-line version of this test meaningful.
+ */
+export function screenDriverMissing(scripts = adminWebScripts()) {
+  return !scripts?.[UI_DRIVER_SCRIPT];
+}
+
 function adminWebScripts() {
   try {
     return JSON.parse(readFileSync(path.join(repo, "apps/admin-web/package.json"), "utf8")).scripts ?? {};
