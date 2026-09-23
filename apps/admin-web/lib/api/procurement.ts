@@ -18,6 +18,15 @@ export type SalesDealPayment = AppApiComponents["schemas"]["SalesDealPayment"];
 export type SalesDealPaymentWrite = AppApiComponents["schemas"]["SalesDealPaymentWrite"];
 export type SalesDealStatusWrite = AppApiComponents["schemas"]["SalesDealStatusWrite"];
 export type SalesDealPage = AppApiComponents["schemas"]["SalesDealPage"];
+/**
+ * What the farm sells and what each of those may be sold as (migration 000393).
+ *
+ * The record-sale drawer reads THIS rather than a vocabulary in the page contract, because the
+ * phone's form reads it too and the two surfaces must not drift. It is a tenant read: a farm adds
+ * a product, or a feed to its catalogue, and both forms offer it the same day.
+ */
+export type SalesOptions = AppApiComponents["schemas"]["SalesOptions"];
+export type SalesProductOption = AppApiComponents["schemas"]["SalesProductOption"];
 export type SalesDealWrite = AppApiComponents["schemas"]["SalesDealWrite"];
 
 // Load-wise sales — every purchased load reconciled (/procurement/loadwise-sales).

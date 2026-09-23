@@ -66,6 +66,32 @@ export function actionRedirect(formData: FormData, status: "success" | "error", 
   redirect(withActionFeedback(safeReturnTo(formData), status, actionKey));
 }
 
+/**
+ * The longest a carried backend sentence may be. It rides in the URL, so it is bounded: a
+ * pathological message must not build a link no browser will follow.
+ */
+const MAX_ACTION_DETAIL = 400;
+
+/**
+ * Same as actionRedirect, plus ONE backend-composed sentence for the page to show under the
+ * contract copy.
+ *
+ * It exists for the cases where the useful part of a refusal is a FIGURE the backend worked out --
+ * "CPT Maize has 1400 kg in the store and this sale takes 2000 kg" -- which no fixed copy key can
+ * carry. The key still decides the headline and the shape of the banner; this is the detail
+ * beneath it. It is backend-owned farm copy, which is why rendering it verbatim is right rather
+ * than a leak of internals -- and why a client must key its BEHAVIOUR on the code, never on these
+ * words.
+ */
+export function actionRedirectWithDetail(
+  formData: FormData,
+  status: "success" | "error",
+  actionKey: string,
+  detail: string,
+): never {
+  redirect(withActionFeedback(safeReturnTo(formData), status, actionKey, detail));
+}
+
 export function actionErrorMessage(error: ApiUiError): string {
   void error;
   return "action.error_backend";
@@ -77,15 +103,23 @@ export function safeReturnTo(formData: FormData, fallback = "/"): string {
   return value;
 }
 
-function withActionFeedback(path: string, status: "success" | "error", actionKey: string): string {
+function withActionFeedback(
+  path: string,
+  status: "success" | "error",
+  actionKey: string,
+  detail = "",
+): string {
   const [pathWithoutHash, hash = ""] = path.split("#", 2);
   const [pathname, query = ""] = pathWithoutHash.split("?", 2);
   const params = new URLSearchParams(query);
   params.delete("action_status");
   params.delete("action_message");
   params.delete("action_key");
+  params.delete("action_detail");
   params.set("action_status", status);
   params.set("action_key", actionKey.startsWith("action.") ? actionKey : "action.error_form");
+  const trimmedDetail = detail.trim();
+  if (trimmedDetail !== "") params.set("action_detail", trimmedDetail.slice(0, MAX_ACTION_DETAIL));
   const qs = params.toString();
   const next = qs ? `${pathname}?${qs}` : pathname;
   return hash ? `${next}#${hash}` : next;

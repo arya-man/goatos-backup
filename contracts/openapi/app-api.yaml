@@ -23774,13 +23774,41 @@ components:
         updated_at: { type: string, format: date-time }
     SalesDealLine:
       type: object
-      description: One product/breed slice of a sale, with its own counts, weight and value.
-      required: [line_id, line_no, product_type, breed, sales_value]
+      description: >-
+        One product slice of a sale, with its own counts, weight and value. The product vocabulary
+        is the tenant's own sellable-product registry (migration 000393), so it is deliberately NOT
+        an enum here: a farm adds what it sells without a contract change.
+      required: [line_id, line_no, product_type, product_code, product_kind, breed, sales_value]
       properties:
         line_id: { type: string, format: uuid }
         line_no: { type: integer, minimum: 1 }
-        product_type: { type: string, enum: [Sheep, Goat, Manure] }
-        breed: { type: string }
+        product_type:
+          type: string
+          description: The name the line was sold under, stamped from the registry at write time.
+        product_code:
+          type: string
+          description: >-
+            The registry row's stable identity. The Sold page's Sheep/Goat/Manure cards key on
+            this, so renaming a product on screen moves its label and not its number.
+        product_kind:
+          type: string
+          enum: [animal, feed, other]
+          description: >-
+            What this product DOES, which is the only part any renderer branches on: an animal line
+            carries counts and live weight, a feed line kilograms off the store, an other line
+            weight and revenue alone.
+        breed:
+          type: string
+          description: >-
+            The line's VARIANT -- an animal line's breed, a feed line's feed item, 'Manure' for
+            manure. The field keeps its older name so every reader that already keys on it still
+            does.
+        quantity:
+          type: number
+          nullable: true
+          description: How much was sold, for a line priced by the unit. Kilograms for feed.
+        unit: { type: string, description: What one unit is (kg, head). Empty on a lump-value line. }
+        rate_per_unit: { type: number, nullable: true, description: Price per unit; sales_value is quantity times this. }
         animal_count: { type: number, nullable: true }
         male_count: { type: number, nullable: true }
         female_count: { type: number, nullable: true }
@@ -23788,16 +23816,47 @@ components:
         sales_value: { type: number }
     SalesDealLineWrite:
       type: object
-      description: One line of a record-sale body. Value is per line and must be more than zero.
-      required: [product_type, breed, sales_value]
+      description: >-
+        One line of a record-sale body. Value is per line and must be more than zero, EXCEPT on a
+        line priced by the unit, where it is computed as quantity times rate and any value sent is
+        replaced. There is deliberately no product_kind here: a body that could name its own kind
+        could sell a goat as feed and draw it out of the store.
+      required: [product_type, breed]
       properties:
-        product_type: { type: string, enum: [Sheep, Goat, Manure] }
-        breed: { type: string, maxLength: 160 }
+        product_type:
+          type: string
+          maxLength: 160
+          description: >-
+            A product from the farm's own registry, matched case-insensitively. One the registry
+            does not carry is refused.
+        breed:
+          type: string
+          maxLength: 160
+          description: The line's variant -- a breed, or the feed item being sold.
+        quantity:
+          type: number
+          minimum: 0
+          nullable: true
+          description: Required, and more than zero, on a feed line.
+        rate_per_unit:
+          type: number
+          minimum: 0
+          nullable: true
+          description: Required on a feed line. Feed is sold at a price per kilogram.
         animal_count: { type: number, minimum: 0, nullable: true }
         male_count: { type: number, minimum: 0, nullable: true }
         female_count: { type: number, minimum: 0, nullable: true }
         total_weight_kg: { type: number, minimum: 0, nullable: true }
-        sales_value: { type: number, exclusiveMinimum: 0 }
+        sales_value: { type: number, minimum: 0 }
+    SalesProductOption:
+      type: object
+      description: One row of the farm's sellable-product registry, as a record-sale form sees it.
+      required: [name, code, kind, unit]
+      properties:
+        name: { type: string, description: The word a sale is recorded under. }
+        code: { type: string, description: The registry row's stable identity. }
+        kind: { type: string, enum: [animal, feed, other] }
+        unit: { type: string, description: What one of it is sold by -- head for an animal, kg for feed. }
     SalesDealPayment:
       type: object
       description: One amount the buyer actually handed over for one deal.
@@ -23840,7 +23899,7 @@ components:
           description: Chip tone every surface renders this status in (ok, dng, info, warn).
     SalesOptions:
       type: object
-      required: [farms, product_types, breeds, statuses, default_status, max_sale_date_days_ahead]
+      required: [farms, product_types, products, breeds, statuses, default_status, max_sale_date_days_ahead]
       properties:
         farms:
           type: array
@@ -23848,11 +23907,24 @@ components:
             type: string
         product_types:
           type: array
+          description: >-
+            The farm's sellable products by name, in its own order. A bare name list, for a client
+            written before the registry carried kinds.
           items:
             type: string
+        products:
+          type: array
+          description: >-
+            The same registry with the KIND on each, which is what a form needs to decide whether
+            to ask for a head count or for kilograms at a rate.
+          items:
+            $ref: "#/components/schemas/SalesProductOption"
         breeds:
           type: object
-          description: Breeds keyed by product type, in offer order.
+          description: >-
+            Each product's VARIANTS, keyed by product name, in offer order -- an animal product's
+            breeds, a feed product's feed items, an other product's own name. The field keeps its
+            older name so a client written before this still finds its list.
           additionalProperties:
             type: array
             items:
@@ -23892,8 +23964,9 @@ components:
         value; the deal's product_type/breed/counts/sales_value are then computed server-side as
         the rollup of the lines and any client-sent values for them are ignored. The legacy
         single-product fields (product_type, breed, animal_count..., sales_value at the top level)
-        are still accepted WITHOUT `lines` and record exactly one line. Farm and product type are
-        closed vocabularies validated server-side and rejected -- never silently defaulted -- when
+        are still accepted WITHOUT `lines` and record exactly one line. The farm is a closed
+        vocabulary and the product is the tenant's own sellable-product registry (migration
+        000393); both are validated server-side and rejected -- never silently defaulted -- when
         unrecognised. Blank status records `Deal Closed`.
       required: [sale_date, farm, buyer_name, buyer_vendor_id]
       properties:
@@ -23905,10 +23978,17 @@ components:
           maxItems: 20
           items:
             $ref: "#/components/schemas/SalesDealLineWrite"
+        stock_shortfall_acknowledged:
+          type: boolean
+          description: >-
+            The desk having seen what the feed store holds and said the sale is right anyway. A
+            sale taking more feed than the store's ledger shows is refused once with
+            `feed_stock_confirmation_required` (422) naming both figures; re-sent with this true,
+            the same body records. Only ever true because a person ticked it after being shown the
+            balance -- a client that sets it by default turns a confirmation into no confirmation.
         product_type:
           type: string
-          enum: [Sheep, Goat, Manure]
-          description: Legacy single-line body only; ignored when `lines` is sent.
+          description: Legacy single-line body only; ignored when `lines` is sent. A product from the farm's registry.
         breed: { type: string, maxLength: 160, description: Legacy single-line body only. }
         buyer_name: { type: string, maxLength: 160 }
         buyer_place: { type: string, maxLength: 160 }

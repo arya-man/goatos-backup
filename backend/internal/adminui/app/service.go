@@ -5157,18 +5157,34 @@ func pageSpecificCopy(id string) map[string]string {
 			// breeds sold to one buyer are recorded as one deal with a line per product/breed,
 			// each carrying its own count, weight and value. The deal total is the sum, computed
 			// by the backend; the drawer only previews it.
+			//
+			// WHAT the farm sells is its own registry (migration 000393), so the product and
+			// variant vocabularies are NOT compiled here -- the drawer reads them from
+			// /sales/options, the same answer the phone's form reads, because a second copy in
+			// this contract is a vocabulary that can drift from the one the phone offers.
 			"section.lines.title":        "What was sold",
-			"hint.lines":                 "Add one line per product and breed. Each line carries its own animals, weight and value; the sale total adds up on its own.",
+			"hint.lines":                 "Add one line per product. Each line carries its own figures, and the sale total adds up on its own. Selling feed takes those kilograms off the store.",
 			"action.add_line":            "Add another product",
 			"action.remove_line":         "Remove",
 			"label.line":                 "Line",
 			"field.line_animal_count":    "Animals",
 			"field.line_total_weight_kg": "Weight (kg)",
 			"field.line_sales_value":     "Value (₹)",
-			"summary.lines.total":        "Sale total",
-			"summary.lines.animals":      "animals",
-			"summary.lines.weight":       "kg",
-			"summary.lines.lines":        "lines",
+			// A feed line is priced by the kilogram, so it asks for the quantity and the rate and
+			// works the value out. The labels say "feed" plainly: the operator is selling a sack,
+			// not a "product of kind feed".
+			"field.line_feed_item":     "Feed",
+			"field.line_quantity":      "Quantity (kg)",
+			"field.line_rate_per_unit": "Rate (₹ per kg)",
+			"hint.line_feed_value":     "Value is the quantity times the rate.",
+			"summary.lines.total":      "Sale total",
+			"summary.lines.animals":    "animals",
+			"summary.lines.weight":     "kg",
+			// Feed's kilograms are a DIFFERENT fact from live weight and get their own term: a
+			// 250kg feed sale reading "0.0 kg" in the same footer is a sale that looks like it
+			// moved nothing.
+			"summary.lines.feed_kg": "kg feed",
+			"summary.lines.lines":   "lines",
 			// The ledger row's product/breed cells for a deal whose lines disagree.
 			"value.mixed":        "Mixed",
 			"detail.lines.empty": "This sale has no product lines.",
@@ -5203,7 +5219,14 @@ func pageSpecificCopy(id string) map[string]string {
 			"pager.of":                   "of",
 			"action.sale_recorded":       "Sale recorded.",
 			"action.sale_record_failed":  "Could not record this sale. Check the fields and try again.",
-			"action.error_form":          "Could not complete that action.",
+			// The short-feed-sale CONFIRMATION (maintainer decision 2026-09-23). The sentence
+			// naming the farm, the feed and both figures is composed by the backend and shown
+			// beneath this line: the desk is being asked whether the purchase ledger is behind,
+			// and cannot answer that without seeing what the ledger says.
+			"action.sale_feed_stock_confirm": "This sale takes more feed than the store shows.",
+			"field.stock_shortfall_ack":      "I checked the store — record it anyway",
+			"hint.stock_shortfall_ack":       "Tick this only if the feed really did leave. If a load reached the farm and is not recorded yet, record that purchase instead.",
+			"action.error_form":              "Could not complete that action.",
 
 			// Load/permission states.
 			"error.load":     "Could not load the sales board. Refresh to try again.",
