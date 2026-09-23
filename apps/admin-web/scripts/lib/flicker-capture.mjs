@@ -377,23 +377,26 @@ const OPTION_ROWS =
  * measured, so the panel's box and colour are read once it has finished growing.
  */
 export async function openFilterPanel(page) {
-  const opener = page
-    .locator('button:has-text("Filters"), [aria-label="Filters"], .lt-fmore, .lt-fsheet-open, .lt-fbar button')
-    .first();
+  // By the button's accessible name, not by a list of class guesses. The guessy
+  // version matched some other button in the filter bar first and opened nothing,
+  // which reads downstream as "this page has no panel" — a clean result about a
+  // panel that was never opened.
+  let opener = page.getByRole("button", { name: /^Filters$/i }).first();
+  if (!(await opener.count().catch(() => 0))) {
+    opener = page.locator('[aria-label="Filters"], .lt-fmore, .lt-fsheet-open').first();
+  }
   if (!(await opener.count().catch(() => 0))) return false;
-  await opener.click({ timeout: 3_000 }).catch(() => {});
-  await page.waitForTimeout(700);
+  await opener.click({ timeout: 5_000 }).catch(() => {});
+  await page.waitForTimeout(1_500);
 
   if (!(await page.locator(OPTION_ROWS).count().catch(() => 0))) {
-    const discloser = page
-      .locator('.lt-fgroup.open button:has-text("Assignee"), .lt-fsheet button:has-text("Assignee"), .lt-fgroup.open button:has-text("Raised by")')
-      .first();
+    const discloser = page.locator("text=/^Assignee/").first();
     if (await discloser.count().catch(() => 0)) {
-      await discloser.click({ timeout: 3_000 }).catch(() => {});
-      await page.waitForTimeout(900);
+      await discloser.click({ timeout: 5_000 }).catch(() => {});
+      await page.waitForTimeout(1_500);
     }
   }
-  return true;
+  return (await page.locator(OPTION_ROWS).count().catch(() => 0)) > 0;
 }
 
 /**
@@ -410,8 +413,9 @@ export async function changeFilterOptions(page, mark, { times = 5 } = {}) {
     // Skip the first row: on this page it is "All", which clears rather than filters.
     const option = options.nth(i + 1);
     await mark("change the filters", async () => {
-      await option.click({ timeout: 3_000 }).catch(() => {});
-      await page.waitForTimeout(900);
+      await option.click({ timeout: 4_000 }).catch(() => {});
+      // Long enough for the list behind to re-render, which is what triggers it.
+      await page.waitForTimeout(1_300);
     });
     changed += 1;
   }
