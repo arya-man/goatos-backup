@@ -77,6 +77,26 @@ async function checkExpect(page, expect) {
   if (expect.url) {
     return page.url().includes(expect.url.contains) ? null : { what: `address should contain ${expect.url.contains}`, loc: null };
   }
+  if (expect.layout?.mode === "track-below-label-full-width") {
+    const target = expect.layout;
+    const row = page.locator(target.css).first();
+    await row.waitFor({ state: "visible", timeout: 5_000 });
+    const result = await row.evaluate((el, { labelCss, trackCss }) => {
+      const label = el.querySelector(labelCss);
+      const track = el.querySelector(trackCss);
+      if (!label || !track) return { ok: false, reason: `missing ${!label ? labelCss : trackCss}` };
+      const rowRect = el.getBoundingClientRect();
+      const labelRect = label.getBoundingClientRect();
+      const trackRect = track.getBoundingClientRect();
+      const trackBelowLabel = trackRect.top >= labelRect.bottom - 1;
+      const trackNearlyFullWidth = trackRect.left <= rowRect.left + 2 && trackRect.right >= rowRect.right - 2;
+      return {
+        ok: trackBelowLabel && trackNearlyFullWidth,
+        reason: `row=${Math.round(rowRect.width)} labelBottom=${Math.round(labelRect.bottom)} trackTop=${Math.round(trackRect.top)} trackWidth=${Math.round(trackRect.width)}`,
+      };
+    }, { labelCss: target.labelCss ?? ".wbl", trackCss: target.trackCss ?? ".wbt" });
+    return result.ok ? null : { what: `${target.css} expected track below label and full width (${result.reason})`, loc: row };
+  }
   return null;
 }
 

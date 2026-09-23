@@ -22500,7 +22500,6 @@
     "title": "stack wide bar rows on phones so FCR pen labels stay readable",
     "route": "weighing-analytics-fcr",
     "viewports": [
-      "laptop",
       "mobile"
     ],
     "expect": [
@@ -22518,6 +22517,14 @@
       {
         "visible": {
           "css": ".wbars-wide .wbar .wbt"
+        }
+      },
+      {
+        "layout": {
+          "css": ".wbars-wide .wbar",
+          "mode": "track-below-label-full-width",
+          "labelCss": ".wbl",
+          "trackCss": ".wbt"
         }
       }
     ],

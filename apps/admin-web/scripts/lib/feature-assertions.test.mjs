@@ -57,3 +57,18 @@ test("a clicking entry is replayed once before it is reported missing", () => {
   assert.match(source, /const attempt = async \(\) => \{/);
   assert.match(source, /if \(miss && entry\.steps\?\.length && reload\) miss = await attempt\(\);/);
 });
+
+test("FCR phone bar assertion checks layout, not only DOM presence", () => {
+  const entries = new Map(loadFeatureAssertions().map((entry) => [entry.sha, entry]));
+  const fcr = entries.get("e311ef24c");
+  assert.ok(fcr, "e311ef24c FCR assertion must stay runnable");
+  assert.deepEqual(fcr.viewports, ["mobile"]);
+  assert.ok(
+    fcr.expect.some((expect) => expect.layout?.mode === "track-below-label-full-width"),
+    "FCR phone fix must assert that the track stacks below the label and spans the row",
+  );
+
+  const source = readFileSync(new URL("./feature-assertions.mjs", import.meta.url), "utf8");
+  assert.match(source, /track-below-label-full-width/);
+  assert.match(source, /getBoundingClientRect\(\)/);
+});
