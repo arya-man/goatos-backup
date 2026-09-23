@@ -12,47 +12,38 @@
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { blankNonMarkup, labelsNear, routesOwningFiles, scanInteractiveSurfaces } from "./lib/interactive-surfaces.mjs";
+import { blankNonMarkup, rootLabels, routesOwningFiles, scanInteractiveSurfaces } from "./lib/interactive-surfaces.mjs";
 import { readSourceFiles } from "./check-interactive-surfaces.mjs";
 
 const adminWeb = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const LEDGER = path.join(adminWeb, "scripts/interactive-surface-ledger.json");
 
 function entryFor(surface, sourceText) {
-  const labels = labelsNear(sourceText, surface.offset);
+  const labels = rootLabels(sourceText, surface.offset);
   const where = `${surface.path}:${surface.line}`;
-  // ONE label is already discriminating: a blank panel renders none of them, so [] never equals
-  // ["action.retag.cancel"]. Requiring two was an arbitrary threshold that pushed real references
-  // into the gap list.
-  if (labels.length < 1) {
-    // Say WHICH gap this is. A shell whose copy arrives as props and a table whose copy arrives
-    // as data are both unanchorable offline, but they are closed by different work, and one
-    // sentence covering both would hide that.
+  if (labels.length === 0) {
+    // Judge B-1. Everything else this surface renders sits on a CHILD control, and admin-web
+    // compiles which children a person meets from a backend contract against their permissions.
+    // Scraping the component source lists every control it COULD render -- a superset of what
+    // most principals see -- so an exact comparison fails on a correct page in both directions.
+    // The expectation belongs per principal, and nothing offline knows the principals.
     const window = blankNonMarkup(sourceText).slice(surface.offset, surface.offset + 4000);
     const prop =
       /(?:aria-label|title|label|ariaLabel|closeLabel)=\{[A-Za-z_$][A-Za-z0-9_$.]*\}/.test(window) ||
       /\{\s*children\s*\}/.test(window);
-    // A surface whose only reference is a value created at run time -- the id of the row that
-    // opened it, a sentence the server composed for this one refusal. There IS a discriminating
-    // reference; it just cannot be written as a literal here.
-    const runtimeIdentity = /data-[a-z-]+=\{[A-Za-z_$][A-Za-z0-9_$.]*\}|role="(?:status|alert)"/.test(window);
     return {
       key: surface.key,
       kind: surface.kind,
       where,
       status: "not-checked",
-      notCheckedReason: runtimeIdentity && !prop
-        ? `the only reference this ${surface.kind} owns is a value made at run time -- the id of the ` +
-          `row that opened it, or the sentence the server composed for this one refusal -- so no ` +
-          `literal expected value can be written here; the sweep has to compare it against what it ` +
-          `clicked, which nothing runs today`
-        : prop
-        ? `this ${surface.kind} is a shell: every word on it arrives as a prop from whichever screen ` +
-          `renders it, so no expected value belongs here -- the reference belongs on each call site, ` +
-          `and those call sites are inventoried separately`
-        : `every control on this ${surface.kind} is labelled from data, not from its own source, so no ` +
-          `expected value can be derived offline; it needs one run against a seeded throwaway dataset ` +
-          `to state a reference that could fail`,
+      notCheckedReason: prop
+        ? `this ${surface.kind} puts no label of its own on screen -- its heading arrives as a prop from ` +
+          `whichever screen renders it -- so the only expectation that could be written here belongs ` +
+          `to each call site, and what its child controls show depends on the permissions of whoever ` +
+          `is signed in`
+        : `this ${surface.kind} carries no label on its own element, and every control inside it is ` +
+          `compiled per principal from the page contract, so no expected value here would be true of ` +
+          `more than one person; it needs a run signed in as a named principal to state one`,
     };
   }
   return {
@@ -61,20 +52,22 @@ function entryFor(surface, sourceText) {
     where,
     status: "stated-not-executed",
     viewports: ["1440", "390"],
+    // The one principal this expectation IS true of, and why it is safe for all of them: the
+    // label sits on the surface's own element, so it is painted whenever the surface is mounted,
+    // whatever the contract compiled for that person's child controls.
+    principal:
+      "any principal whose page contract lets them open this surface -- the expectation is only " +
+      "about the surface's own label, which does not vary with permissions",
     notExecutedReason:
       "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
     assertions: [
       {
         subject:
-          `the labelled controls, copy slots and named fields a person meets on the ${surface.kind} ` +
-          `"${surface.anchor}" (${where})`,
-        operator: "field-set-equals",
+          `the words on the ${surface.kind}'s own heading when a person opens it (${where}) -- a panel ` +
+          `that opened empty, or whose copy did not resolve, shows none of them`,
+        operator: "field-set-contains-all",
         expected: labels,
-        // The gate re-derives this from the same file and line and refuses the entry if it does
-        // not land on the same set, so the value cannot be an author's invention (judge B1).
-        provenance: { kind: "source", path: surface.path, line: surface.line, extractor: "labels-near" },
-        // A blank screen, a failed payload, or a panel parked off-screen all read as no controls.
-        blankScreenValue: [],
+        provenance: { kind: "source", path: surface.path, line: surface.line, extractor: "root-label" },
       },
     ],
   };
@@ -104,9 +97,9 @@ function main() {
           ...entry,
           routes: [],
           routeGapReason:
-            /\/(loading|error|not-found)\.[jt]sx$/.test(surface.path)
-              ? "Next.js reaches this file by convention rather than by an import, so the import graph cannot name its route; it is the loading state of the page it sits beside"
-              : "no page in the app imports this file, directly or through a barrel -- nothing can reach this surface today, which is a finding of its own and not something an assertion can cover",
+            "no page, layout or router-convention file in the app reaches this file -- not through " +
+            "an import, not through a barrel, not through a dynamic import. Nothing can render this " +
+            "surface today, which is a finding of its own rather than something an assertion covers",
         };
   });
   const ledger = {
