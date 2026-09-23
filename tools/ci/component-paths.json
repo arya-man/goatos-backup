@@ -81,8 +81,7 @@
       ],
       "components": [
         "backend",
-        "adminWeb",
-        "android"
+        "adminWeb"
       ]
     },
     {

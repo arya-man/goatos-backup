@@ -282,9 +282,12 @@ function selfTest() {
     common: true, backend: true, adminWeb: false, android: false, full: false,
     selectedJobs: ["common", "backend"],
   });
+  // Android DTOs are hand-mapped; no Android build or test reads contracts/ or
+  // packages/api-client/, so a contract edit cannot fail the Android job. Android
+  // still runs whenever its own DTOs/code change.
   assert.deepEqual(pick(["contracts/openapi/app-api.yaml"]), {
-    common: true, backend: true, adminWeb: true, android: true, full: false,
-    selectedJobs: ["common", "backend", "query-plans", "admin-web", "android"],
+    common: true, backend: true, adminWeb: true, android: false, full: false,
+    selectedJobs: ["common", "backend", "query-plans", "admin-web"],
   });
   assert.deepEqual(pick(["apps/admin-web/features/verification-review/verification-review-page.tsx"]), {
     common: true, backend: true, adminWeb: true, android: true, full: false,
