@@ -75,6 +75,12 @@ export function scanInteractiveSurfaces(files) {
   const found = [];
   const usedKeys = new Map();
   for (const file of [...files].sort((a, b) => a.path.localeCompare(b.path))) {
+    // A file that was LISTED but whose contents never arrived must not quietly contribute nothing.
+    // That is the census defect: a guard reporting "539 files scanned" with the tree deleted,
+    // because it counted its candidate list. A count has to be of what was read.
+    if (typeof file.text !== "string") {
+      throw new Error(`${file.path} was listed but its contents were never read; a count of listed files is not a count of scanned files`);
+    }
     if (!/\.(tsx|jsx)$/.test(file.path)) continue;
     if (/\.(test|spec)\.[^/]+$/.test(file.path)) continue;
     const scannable = blankNonMarkup(file.text);
