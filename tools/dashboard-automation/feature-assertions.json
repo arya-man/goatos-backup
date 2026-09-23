@@ -1711,7 +1711,7 @@
   },
   {
     "sha": "c47150597",
-    "title": "Spend-share pie covers bhusa and Mesha concentrates across full width",
+    "title": "Spend-share pie covers every active feed, including UHT Milk",
     "route": "feed-analytics",
     "viewports": [
       "laptop",
@@ -1726,13 +1726,13 @@
       },
       {
         "visible": {
-          "text": "bhusa and the two Mesha concentrates"
+          "text": "UHT Milk"
         }
       }
     ],
     "status": "data-dependent",
-    "reason": "Needs priced feeds",
-    "evidence": "backend/internal/adminui/app/service.go:6783 \"Feed spend share\"; backend/internal/adminui/app/service.go:6785 \"bhusa and the two Mesha concentrates\"",
+    "reason": "Pie hidden when no feed qualifies; a feed needs priced days in the window to get a slice. UHT Milk is the regression anchor for PR #370: the pie gates on chart.item.hidden_feeds (the per-item cards' rule), not on its own allowlist, so it must not go back to bhusa + the two Mesha concentrates.",
+    "evidence": "apps/admin-web/features/feed/feed-analytics.tsx itemCardHidden gate; backend/internal/adminui/app/service.go \"chart.item.hidden_feeds\"",
     "group": "A",
     "verdict": "pass"
   },
@@ -22369,5 +22369,46 @@
     "status": "needs-assertion",
     "evidence": "apps/admin-web/app/mesha-theme.css; apps/admin-web/features/weighing/fcr-tab.tsx",
     "reason": "new user-visible admin-web work; needs a human-written read-only assertion (run sync-coverage.mjs --write, then fill steps/expect)"
+  },
+  {
+    "sha": "9618d48bc",
+    "title": "gofmt-only realignment of the feed page-contract map",
+    "route": null,
+    "viewports": [
+      "laptop",
+      "mobile"
+    ],
+    "steps": [],
+    "expect": [],
+    "status": "not-visually-assertable",
+    "evidence": "backend/internal/adminui/app/service.go map literal alignment",
+    "reason": "Formatting only - no rendered change; gofmt -l is the check.",
+    "verdict": "pass"
+  },
+  {
+    "sha": "477fe46f1",
+    "title": "Spend-share pie shows every active feed, UHT Milk included",
+    "route": "feed-analytics",
+    "viewports": [
+      "laptop",
+      "mobile"
+    ],
+    "steps": [],
+    "expect": [
+      {
+        "visible": {
+          "text": "Feed spend share"
+        }
+      },
+      {
+        "visible": {
+          "text": "UHT Milk"
+        }
+      }
+    ],
+    "status": "data-dependent",
+    "evidence": "apps/admin-web/features/feed/feed-analytics.tsx builds the pie's segment list with !itemCardHidden(chart.item.hidden_feeds, ...) -- no allowlist of its own",
+    "reason": "A feed needs priced days in the window to get a slice, so the pie is hidden when nothing qualifies. Verified live on 2026-09-23 at laptop 1440 and phone 390 against api.goatos.mesha.sg: UHT Milk renders at Rs 1,576/day, 2.5%, beside Bhusa 29.1%, Kids 51.9%, Adult 16.4%.",
+    "verdict": "pass"
   }
 ]
