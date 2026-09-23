@@ -227,3 +227,69 @@ func TestASubjectWrittenOnlyIntoTheSelectListIsStillRefused(t *testing.T) {
 		t.Fatal("a caption the model wrote into its own projection excused the substitution")
 	}
 }
+
+// NOR IS ANYWHERE ELSE IN THE MODEL'S OWN STATEMENT. The caption rule above
+// guarded the projection only; the clearance beside it accepted the subject
+// appearing ANYWHERE from the outermost FROM onwards, tested as a substring
+// search. So mk-02 -- the exact held-out defect, `CBE 24, CPT 24` off the
+// animal-scope view -- came back the moment the model added a comment, a
+// tautology, an alias or an ordering key. Every shape below is that statement
+// plus one forged token, and all of them must still refuse.
+func TestAForgedMentionOfTheSubjectDoesNotExcuseTheWrongView(t *testing.T) {
+	card, _, results := scopeRead(t)
+	const head = "SELECT park_label, count(*) FROM ceo_ai.animal_current_scope"
+	for _, tc := range []struct{ name, sql string }{
+		{"a trailing line comment", head + " WHERE management_stage = 'K2' GROUP BY 1 -- milk feeding"},
+		{"a block comment", head + " /* milk feeding */ WHERE management_stage = 'K2' GROUP BY 1"},
+		{"a literal compared to another literal", head + " WHERE management_stage = 'K2' AND 'milk feeding' <> '' GROUP BY 1"},
+		{"a table alias", "SELECT park_label, count(*) FROM ceo_ai.animal_current_scope milk_feeding WHERE management_stage = 'K2' GROUP BY 1"},
+		{"an ordering key", head + " WHERE management_stage = 'K2' GROUP BY 1 ORDER BY 'milk feeding'"},
+		{"a filter that narrows on the word", head + " WHERE management_stage ILIKE '%milk feeding%' GROUP BY 1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			subs := []domain.SubQuestion{sqlSub(tc.sql)}
+			substituted, subject, view := subjectSubstitution(
+				"Kids on milk feeding per park today (head count)",
+				subs, results, reporting.Cards(), heldOutCatalogue())
+			if !substituted {
+				t.Fatalf("the model talked its way past the guard with its own statement text: %s", tc.sql)
+			}
+			if subject != "milk feeding" || view != card.Name {
+				t.Errorf("the refusal must still name the subject and the source that ran, got %q from %s", subject, view)
+			}
+		})
+	}
+}
+
+// THE OBVIOUS SQL FOR A QUESTION ABOUT ONE ROLE IS NOT EVIDENCE THAT THE ROLE
+// EXISTS, and this is the pair that says why the narrowing arm was deleted
+// rather than tightened. `WHERE role_label ILIKE '%Feed Inspector%'` matching
+// NO ROWS is the view saying it does not report that role -- and the old arm
+// read it as a yes. It is exactly what the model wrote for `Feed Director`, so
+// the guard cleared itself in precisely the case it was built to catch.
+//
+// Feed Director still answers, on the same narrowed statement, because a ROW
+// comes back carrying it. Only the data separates them, which is the property
+// the Director/Inspector pair has always been here to hold.
+func TestNarrowingOnARoleNoRowCarriesIsStillRefused(t *testing.T) {
+	card, _, results := coverageRead(t)
+	narrowed := func(role string) []domain.SubQuestion {
+		return []domain.SubQuestion{sqlSub(
+			"SELECT role_label, backup_label FROM ceo_ai." + card.Name +
+				" WHERE role_label ILIKE '%" + role + "%'")}
+	}
+	substituted, subject, _ := subjectSubstitution(
+		"who is the backup for the Feed Inspector",
+		narrowed("Feed Inspector"), results, reporting.Cards(), heldOutCatalogue())
+	if !substituted {
+		t.Fatal("a role no row of the view carries was cleared by the model's own WHERE clause")
+	}
+	if subject != "feed inspector" {
+		t.Errorf("the refusal must name the subject, got %q", subject)
+	}
+	if substituted, _, _ := subjectSubstitution(
+		"who is the backup for the Feed Director",
+		narrowed("Feed Director"), results, reporting.Cards(), heldOutCatalogue()); substituted {
+		t.Error("a role the view reports as a row was refused on the same narrowed statement shape")
+	}
+}

@@ -154,7 +154,7 @@ func readSelectedEntity(sub domain.SubQuestion, r domain.ToolResult, tag string)
 	// animal. So a read that came with SQL is judged on whether that SQL
 	// narrows to the tag, full stop.
 	if sql, ok := statementParam(sub.Params); ok {
-		return sqlFiltersOnEntity(sql, tag)
+		return sqlNarrowsToEntity(sql, tag)
 	}
 	if paramsNameEntity(sub.Params, tag) {
 		return true
@@ -184,17 +184,176 @@ func looksLikeSelect(s string) bool {
 	return strings.HasPrefix(strings.ToUpper(trimmed), "SELECT")
 }
 
-// sqlFiltersOnEntity reports that the statement mentions the tag somewhere the
-// database can narrow on — that is, anywhere except the outermost SELECT list.
-// The projection is everything between the leading SELECT and its own FROM; a
-// tag that appears only there is a label, not a filter.
+// sqlNarrowsToEntity reports that the statement ASKED THE DATABASE FOR THIS
+// ANIMAL: the tag appears as a string LITERAL that is an operand of a
+// comparison whose other side reads a COLUMN.
 //
-// It is deliberately crude in the SAFE direction: a subquery inside the
-// projection is treated as projection too, so such a read is refused rather
-// than trusted. A refusal says what could not be reached; a wrong figure
-// wearing an animal's name says nothing at all.
-func sqlFiltersOnEntity(sql, tag string) bool {
-	return containsFold(afterProjection(sql), tag)
+// IT USED TO BE A SUBSTRING SEARCH, AND A SUBSTRING SEARCH OVER THE MODEL'S
+// OWN TEXT IS NOT EVIDENCE. The previous version asked only whether the tag
+// appeared anywhere from the outermost FROM onwards. Measured, each of these
+// cleared the guard on a statement that selected nothing of the kind:
+//
+//	SELECT avg(weight_kg) FROM ceo_ai.animal_current_scope -- GT-1234
+//	… WHERE management_stage='K2' AND 'GT-1234' <> ''
+//	… FROM ceo_ai.animal_current_scope gt_1234 WHERE …
+//	… GROUP BY 1 ORDER BY 'GT-1234'
+//
+// The first answers "what does GT-1234 weigh" with a herd average, which is
+// the exact defect this file exists to stop, reopened by a comment. So the
+// question is asked structurally instead: a comment is not a predicate, an
+// ALIAS is an identifier and never a literal, `ORDER BY 'x'` compares nothing,
+// and `'x' <> ''` compares a literal to a literal — none of them narrows.
+//
+// `WHERE animal_key = 'GT-1234'`, `animal_key IN ('GT-1234','GT-9')`,
+// `upper(animal_key) = 'GT-1234'` and `animal_key ILIKE '%GT-1234%'` all do,
+// and all still clear — which is the case this arm exists for: a read filtered
+// to one animal that returns a bare figure ("Latest weight: 22.9") is a
+// correct answer that names the animal nowhere.
+//
+// It stays crude in the SAFE direction. A tag that appears only in the
+// outermost SELECT list is a caption and is not looked at; a statement this
+// reader cannot follow simply fails to clear, and the refusal stands.
+func sqlNarrowsToEntity(sql, tag string) bool {
+	toks := filterRegionTokens(sql)
+	for i, t := range toks {
+		if t.kind != tokString || !containsFold(t.text, tag) {
+			continue
+		}
+		if comparedAgainstAColumn(toks, i) {
+			return true
+		}
+	}
+	return false
+}
+
+// filterRegionTokens is the statement from its outermost FROM onwards, as
+// significant tokens. Whitespace and COMMENTS are gone before anything is
+// judged — that is what makes a trailing `-- GT-1234` unable to speak — and the
+// FROM is found among tokens rather than bytes, so a comment or a literal
+// carrying the word "from" cannot move the boundary.
+func filterRegionTokens(sql string) []sqlToken {
+	toks := significantTokens(lexSQLTokens(sql))
+	depth := parenDepths(toks)
+	for i, t := range toks {
+		if depth[i] == 0 && t.kind == tokIdent && strings.EqualFold(t.text, "from") {
+			return toks[i:]
+		}
+	}
+	return nil
+}
+
+// comparedAgainstAColumn reports that the literal at `at` sits on one side of a
+// comparison whose OTHER side reads a column.
+func comparedAgainstAColumn(toks []sqlToken, at int) bool {
+	for _, dir := range []int{-1, 1} {
+		op := nearestComparator(toks, at, dir)
+		if op < 0 {
+			continue
+		}
+		if operandReadsAColumn(toks, op, dir) {
+			return true
+		}
+	}
+	return false
+}
+
+// nearestComparator walks out from the literal across the rest of its own
+// operand — parentheses, commas, other literals, and the function names and
+// `ARRAY` spelling that wrap one — and returns the comparison it belongs to.
+// It stops at a boolean connective or a clause keyword, because past one of
+// those the literal is in a different predicate altogether.
+func nearestComparator(toks []sqlToken, at, dir int) int {
+	for i := at + dir; i >= 0 && i < len(toks); i += dir {
+		t := toks[i]
+		switch {
+		case isComparisonToken(t):
+			return i
+		case t.kind == tokIdent && sqlPredicateBreakWord(t.text):
+			return -1
+		case t.kind == tokOther:
+			switch t.text {
+			case "(", ")", ",", "[", "]", ".":
+				continue
+			default:
+				return -1
+			}
+		case t.kind == tokString || t.kind == tokIdent:
+			continue
+		default:
+			return -1
+		}
+	}
+	return -1
+}
+
+// operandReadsAColumn walks the operand on the far side of the comparison and
+// reports whether any ordinary identifier appears in it. `''`, `'x'` and a bare
+// number do not read a column; `animal_key` and `upper(animal_key)` do.
+func operandReadsAColumn(toks []sqlToken, op, dir int) bool {
+	// The other operand is on the opposite side of the operator from the
+	// literal, so keep walking in the same direction we came from.
+	for i := op + dir; i >= 0 && i < len(toks); i += dir {
+		t := toks[i]
+		switch {
+		case isComparisonToken(t):
+			return false
+		case t.kind == tokIdent && sqlPredicateBreakWord(t.text):
+			return false
+		case t.kind == tokIdent:
+			if !sqlNonColumnWord(t.text) {
+				return true
+			}
+		case t.kind == tokOther:
+			switch t.text {
+			case "(", ")", ",", "[", "]", ".":
+				continue
+			default:
+				return false
+			}
+		}
+	}
+	return false
+}
+
+func isComparisonToken(t sqlToken) bool {
+	if t.kind == tokOther {
+		switch t.text {
+		case "=", "<>", "!=", "<", ">", "<=", ">=", "~", "!~", "~*", "!~*":
+			return true
+		}
+		return false
+	}
+	if t.kind != tokIdent {
+		return false
+	}
+	switch strings.ToLower(t.text) {
+	case "like", "ilike", "in", "similar":
+		return true
+	}
+	return false
+}
+
+// sqlPredicateBreakWord ends one predicate: past it the literal belongs to a
+// different comparison or a different clause.
+func sqlPredicateBreakWord(w string) bool {
+	switch strings.ToLower(w) {
+	case "and", "or", "not", "where", "group", "order", "having", "limit",
+		"offset", "from", "join", "on", "using", "select", "case", "when",
+		"then", "else", "end", "union", "except", "intersect":
+		return true
+	}
+	return false
+}
+
+// sqlNonColumnWord names the identifiers that are SQL spelling rather than a
+// column a row could carry.
+func sqlNonColumnWord(w string) bool {
+	switch strings.ToLower(w) {
+	case "any", "all", "array", "null", "true", "false", "distinct", "as",
+		"asc", "desc", "is", "between", "text", "varchar", "escape":
+		return true
+	}
+	return false
 }
 
 // afterProjection returns the statement from its outermost FROM onwards, or

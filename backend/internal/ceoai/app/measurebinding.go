@@ -383,34 +383,45 @@ func cardModels(card reporting.SchemaCard, term string) bool {
 //   - the card must carry a text DIMENSION column at all (a GroupByColumns
 //     entry of text type -- role_label, park_label, coverage_status). A view
 //     of pure measures groups by nothing and can have no such value, so
-//     nothing here can excuse it;
-//   - the statement NARROWED on the word (`role_label ILIKE '%Feed
-//     Director%'`) -- the database itself selected rows by that value, which
-//     is the strongest evidence there is that the view reports it; or
+//     nothing here can excuse it; and
 //   - a ROW THAT CAME BACK carries it, in its label, its scope or its value.
 //
-// The row evidence is read with the same discipline entitysubstitution.go
-// applies to an ear tag, and for the same reason: a literal the model wrote
-// into the outermost SELECT list is a CAPTION, not data, so
-// `SELECT 'milk feeding' AS label, count(*) …` must not be able to talk its
-// way past this. When the word appears only in the projection the read gets no
-// credit and the refusal stands.
+// THERE USED TO BE A THIRD ARM AND IT WAS FORGEABLE. It cleared the read when
+// the statement "narrowed" on the word, tested as a case-insensitive SUBSTRING
+// SEARCH OVER THE MODEL'S OWN STATEMENT TEXT from the outermost FROM onwards.
+// The doc comment said the excuse was built from evidence the model did not
+// author; for that arm it was false -- the model authors every byte of its
+// SQL. Measured on the exact held-out defect (`mk-02`, "Kids on milk feeding
+// per park today" answered `CBE 24, CPT 24` off the animal-scope view), all of
+// a trailing `-- milk feeding` comment, `AND 'milk feeding' <> ''`, a table
+// alias `milk_feeding`, and `ORDER BY 'milk feeding'` CLEARED the guard, and
+// two of them passed sqlguard end to end. `SELECT avg(weight_kg) FROM
+// ceo_ai.animal_current_scope -- GT-1234` answered "what does GT-1234 weigh"
+// with a herd average.
 //
-// What this deliberately does NOT do is excuse a genuinely different entity.
-// "Kids on MILK FEEDING per park" answered `CBE 24, CPT 24` off the
-// animal-scope view still refuses: no row that came back says "milk", nothing
-// in the statement narrows on it, and the subject really is somewhere else.
+// TIGHTENING IT WAS NOT THE ANSWER EITHER, and that is the decision rather
+// than the omission. Even a real, structurally-parsed filter proves nothing
+// HERE. The question this function answers is whether the view REPORTS the
+// subject; `WHERE role_label ILIKE '%Feed Inspector%'` matching NO ROWS is the
+// view saying it does not, and the narrowing arm read that as a yes. It is the
+// obvious SQL for a question about one role -- it is what the model wrote for
+// `Feed Director` -- so the arm cleared itself in precisely the case it was
+// built to catch. The arm is deleted outright.
+//
+// What is left is evidence the model cannot author: the ROWS. They are read
+// with the same discipline entitysubstitution.go applies to an ear tag -- a
+// literal the model wrote into the outermost SELECT list is a CAPTION, not
+// data, so `SELECT 'milk feeding' AS label, count(*) …` gets no credit and the
+// refusal stands.
+//
+// The positive direction still works and is where this function came from:
+// "who is the backup for the Feed Director" clears because a row comes back
+// carrying `Feed Director`, whatever the statement says.
 func cardReportsSubjectAsDimensionValue(card reporting.SchemaCard, sub domain.SubQuestion, r domain.ToolResult, term string) bool {
 	if term == "" || !cardHasTextDimension(card) {
 		return false
 	}
-	sql, ranSQL := statementParam(sub.Params)
-	if ranSQL {
-		// A value the database narrowed on: anywhere from the outermost FROM
-		// onwards (WHERE, JOIN, GROUP BY), never the projection.
-		if sqlFiltersOnEntity(sql, term) {
-			return true
-		}
+	if sql, ranSQL := statementParam(sub.Params); ranSQL {
 		// The model captioned its own read with the word. That proves nothing
 		// about the rows, so the row check below is not allowed to be fooled
 		// by the value it produced.

@@ -201,3 +201,70 @@ func TestTheRefusalNamesTheSubjectAsThePersonSaidIt(t *testing.T) {
 		t.Errorf("refusal must not claim the product does not track it: %q", refusal)
 	}
 }
+
+// THE MODEL MAY NOT WRITE ITS OWN EXCUSE. The clearance used to be a
+// case-insensitive SUBSTRING SEARCH over the model's own statement text from
+// the outermost FROM onwards, which is not a filter test at all: every shape
+// below puts the tag somewhere that search can see it while the statement
+// still selects the whole herd, and each one answered "what does MG-100001
+// weigh" with a scope average wearing that animal's name.
+//
+// Each case is the SAME statement — a herd average — plus one forged token.
+// None may clear.
+func TestAForgedMentionOfTheAnimalDoesNotExcuseAHerdAverage(t *testing.T) {
+	const herdAverage = "SELECT avg(weight_kg) AS value FROM ceo_ai.weighing_latest_individual_weight WHERE tenant_id = 'T1'"
+	rows := []domain.ToolResult{{
+		ToolName: "sql_fallback", SourceView: "weighing_latest_individual_weight",
+		Facts: []domain.Fact{{Label: "Average weight kg", Value: "29.67"}},
+	}}
+	for _, tc := range []struct{ name, sql string }{
+		{"a trailing line comment", herdAverage + " -- MG-100001"},
+		{"a block comment", herdAverage + " /* MG-100001 */"},
+		{"a literal compared to another literal", herdAverage + " AND 'MG-100001' <> ''"},
+		{"a tautology over two literals", herdAverage + " AND 'MG-100001' = 'MG-100001'"},
+		{"a table alias spelled like the tag", "SELECT avg(weight_kg) AS value FROM ceo_ai.weighing_latest_individual_weight mg_100001 WHERE tenant_id = 'T1'"},
+		{"an ordering key", herdAverage + " GROUP BY 1 ORDER BY 'MG-100001'"},
+		{"a column alias", herdAverage + ", 1 AS mg_100001"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			substituted, tag, _ := namedEntitySubstitution(
+				"What does MG-100001 weigh now?",
+				[]domain.SubQuestion{sqlSub(tc.sql)}, rows)
+			if !substituted {
+				t.Fatalf("a herd average cleared the guard on forged evidence: %s", tc.sql)
+			}
+			if tag != "MG-100001" {
+				t.Errorf("the refusal must name the animal the reader named, got %q", tag)
+			}
+		})
+	}
+}
+
+// And the shapes that genuinely ask the database for one animal must all still
+// clear, because refusing a correct per-animal read is the opposite mistake and
+// is how this gate would get switched off. Every one of these is SQL a model
+// really writes.
+func TestEveryOrdinarySpellingOfNarrowingToOneAnimalStillAnswers(t *testing.T) {
+	const head = "SELECT weight_kg AS value FROM ceo_ai.weighing_latest_individual_weight WHERE tenant_id = 'T1' AND "
+	rows := []domain.ToolResult{{
+		ToolName: "sql_fallback", SourceView: "weighing_latest_individual_weight",
+		Facts: []domain.Fact{{Label: "Latest weight", Value: "22.9", Unit: "kg"}},
+	}}
+	for _, predicate := range []string{
+		"animal_key = 'MG-100001'",
+		"'MG-100001' = animal_key",
+		"animal_key IN ('MG-100001','MG-100002')",
+		"animal_key ILIKE '%MG-100001%'",
+		"animal_key LIKE 'MG-100001%'",
+		"upper(animal_key) = 'MG-100001'",
+		"upper(trim(animal_key)) = upper(trim('MG-100001'))",
+		"animal_key = ANY (ARRAY['MG-100001'])",
+		"w.animal_key = 'MG-100001'",
+	} {
+		if substituted, _, _ := namedEntitySubstitution(
+			"What does MG-100001 weigh now?",
+			[]domain.SubQuestion{sqlSub(head + predicate)}, rows); substituted {
+			t.Errorf("a read that really selected the animal was refused: %s", predicate)
+		}
+	}
+}
