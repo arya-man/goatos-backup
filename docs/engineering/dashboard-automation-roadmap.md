@@ -404,3 +404,83 @@ they read. A lane written from a remembered schema breaks **silently** against e
 change: the query errors, the check is skipped, and nothing on any screen says so. This is a rule
 for every lane, not a habit of lane 2's.
 
+
+### Mobile-webview flicker: the bug lane 1 cannot see
+
+Lane 1 takes **one settled screenshot per route**. Flicker does not exist in one screenshot — it
+only exists across frames in time — so no amount of per-route screenshotting will ever contain it.
+Two checks now cover it, deliberately different in kind.
+
+**A. The cause, statically.** `position:sticky` (or `fixed`) together with `filter`/`backdrop-filter`
+in one declaration block. A sticky element that blurs what is behind it makes the compositor
+re-rasterise its blurred backdrop every time content scrolls underneath; desktop composites once,
+mobile tears. No browser, milliseconds, never flaky —
+`apps/admin-web/scripts/lib/compositing-checks.mjs`, wired into `smoke-visual-live.mjs` so it runs
+on every sweep. It would have caught this the day the CSS landed.
+
+On main it finds three: `.top` (58), `.navback` (2280), `.lt-page .lt-fbar` (3839), and separates
+the two `fixed` overlays (`.veil`, `.schedule-drawer-backdrop`) as a note rather than a failure —
+nothing scrolls continuously under either.
+
+**A correction to the diagnosis, found by running it.** `.lt-page .lt-fbar` — the task filter bar,
+the element the recording was blamed on — is made `position:static` below 640px (line 4955). The
+recording is 576px wide, so the filter bar was **not** sticky in the video. The combination is real
+on a laptop and absent on a phone. The two that really are pinned-and-blurred at phone width are
+`.top` and `.navback`, and `.top` is a full-width blurred bar across every page, which matches the
+near-whole-screen repaint the frames show. The check now reports `appliesOnPhone` per element and
+only the phone-width ones reach the phone channel; telling a farm manager their phone flickers
+because of a laptop-only rule is a confident wrong answer they cannot check.
+
+A second shape the check deliberately does **not** find: a sticky PARENT with a blurred CHILD.
+`.vplan .actionbar` + `.vplan .ab-in` on main is exactly that, and is not reported.
+
+**B. The symptom, temporally.** `apps/admin-web/scripts/lib/flicker-detector.mjs` (pure, zero
+dependencies) plus `flicker-capture.mjs` (CDP `Page.startScreencast`; repeated `screenshot()` calls
+are far too slow to see a 60Hz event — the live capture measures **~58 frames/second**). A finding
+is an excursion that **returns**: the picture changes materially, comes back within a fraction of a
+second, got there abruptly rather than eased, **stays** back, and does it again.
+
+**Tuned against the recording, and it disagreed with the brief twice.** The signature is not
+isolated single frames: the frames show the filter panel and the page underneath painted **on top of
+each other** for ~0.2s, six times, about once a second (3.17, 4.33, 5.21, 6.30, 7.30, 8.05s), each
+covering 92% of the screen. The bursts at 1.47–1.80s are the filter panel **sliding shut** — a real
+state change that never comes back, correctly counted and never reported.
+
+Two discriminators were added because real data broke the naive ones, both worth remembering:
+
+- **A scroll that reverses direction** genuinely does go one step further and come straight back,
+  abruptly. It is the only other thing with this shape. What separates it is that a scroll carries
+  straight on moving afterwards and a flicker settles — hence `restSeconds`.
+- The symmetric "…and it was still **before**" looks obvious and is **wrong**: when a page flickers
+  repeatedly the frame just before one flicker is the previous flicker, so every event rules out its
+  neighbour and a page flickering once a second is filed as movement. That is not hypothetical — it
+  is what happened the first time the detector ran against a page built to flicker.
+
+**The limit, stated rather than papered over:** tearing *during* a steady scroll cannot be found by
+a return test at all, because the scroll carries the page onward and it never comes back to the
+frame it started from. What this finds is flicker on a page that is otherwise sitting still — which
+is what the recording shows and what a person notices.
+
+**Ground truth is committed.** `tools/dashboard-automation/testdata/phone-flicker-groundtruth.json.gz`
+is the recording's 275 frames at the exact 1/8-scale grayscale the detector consumes, so the ground
+truth is permanent without a recording of production data in the repo, and nothing in it is legible.
+A detector that cannot find the bug in the video of the bug is worth nothing, so that is a test.
+
+**Headless, honestly.** `flicker-capture.test.mjs` drives real headless Chromium at 390px: it finds
+a page built to flicker, stays quiet on a calm page, and does not call scrolling flicker. So the
+harness works headless. Against **production** it proves nothing yet: all three routes landed on
+`/login`, and a run that filmed a login screen is now **parked with its reason** rather than
+reported as a clean page. Separately, rendering the real stylesheet headless at 390px showed no
+flicker — expected, since this is a GPU compositing artefact and headless composites differently
+from a phone. **Check A is the half that holds on the evidence available; check B is proven as an
+instrument and not yet as a verdict on Goat OS.**
+
+**Evidence is never a still.** A still PNG cannot show flicker, and attaching one is worse than
+attaching nothing because it looks like proof. Every finding carries an animated GIF or a filmstrip
+of the frames either side, and the Slack message says so in as many words.
+
+**Slack** goes through the finding-kind registry:
+`tools/dashboard-automation/lib/finding-kinds/mobile-flicker.mjs`, one import, one `FINDING_KINDS`
+entry and one `labelByLayer` line. Lane 4's golden-file test stays green — a lane-1-only receipt
+renders byte-identically. The text carries no selector, CSS property, file, line, check code, frame
+number or timing: *"The Tasks page flickers on the phone."*
