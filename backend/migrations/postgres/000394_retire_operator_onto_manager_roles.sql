@@ -303,9 +303,10 @@ BEGIN
   --     join_cardinality=workforce_members joins one-to-one on (tenant_id, lower(email)) and
   --     _op_targets is DISTINCT one row per person, but user_scope_grants is ONE-TO-MANY -- a person
   --     ticked for two parks holds one active new_role park grant per park -- so the join fans out
-  --     per park and min(g.scope_id) collapses it back to the pending-grant grain deliberately --
-  --     the HAVING count(*) > 1 assertion below then refuses any residual ambiguity at that grain
-  --     rather than guessing which park invite to write;
+  --     per park and array_agg(DISTINCT g.scope_id) keeps EVERY distinct park at the pending-grant
+  --     grain rather than silently collapsing to one, uuid having no min() aggregate at all and a
+  --     lower-uuid pick being a park silently dropped, after which the array_length(park_ids, 1) > 1
+  --     assertion below refuses the genuinely ambiguous invite instead of guessing;
   --     pagination=none -- this is a one-shot temp table fully materialised inside the migration
   --     transaction, not a paged read, so every matching pending grant is processed in one pass and
   --     there is no LIMIT/OFFSET boundary at which a row could be skipped or double-counted;

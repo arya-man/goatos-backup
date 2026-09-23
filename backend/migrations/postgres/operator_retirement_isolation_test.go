@@ -109,7 +109,7 @@ func opRetirementFixture(t *testing.T, ctx context.Context) (
 	exec func(sql string, args ...any),
 	scan func(sql string, args []any, dest ...any) error,
 	id func(n int) string,
-	runUp func(),
+	runUp func() error,
 ) {
 	t.Helper()
 	pgtest.SkipIfNoDocker(t)
@@ -130,12 +130,13 @@ func opRetirementFixture(t *testing.T, ctx context.Context) (
 		exec(`INSERT INTO locations (tenant_id,location_id,location_type,location_code,name,status) VALUES ($1,$2,'park',$3,'Test park','active')`, id(1), id(park), code)
 	}
 	_, sql := onlyMigrationWithSuffix(t, "retire_operator_onto_manager_roles")
-	runUp = func() {
+	runUp = func() error {
 		t.Helper()
 		// The harness applies all migrations before fixtures. Replay this data repair.
 		exec(`DROP TABLE IF EXISTS public.operator_retirement_000394_undo`)
 		exec(`DROP TABLE IF EXISTS public.operator_retirement_000394_pending_scope_undo`)
-		exec(migrationUp(sql))
+		_, err := pool.Exec(ctx, migrationUp(sql))
+		return err
 	}
 	return exec, scan, id, runUp
 }
@@ -162,29 +163,29 @@ func seedPendingOperatorInvite(t *testing.T, exec func(string, ...any), id func(
 }
 
 // A person ticked for TWO parks holds one active new_role park grant per park,
-// so the user_scope_grants join fans the pending row out one-to-many. The
-// aggregate must collapse that back to exactly ONE invite on min(park), not
-// duplicate the invite and not trip the ambiguity assertion.
-func TestOperatorRetirementPendingTargetsOneToManyParkGrantsCollapse(t *testing.T) {
+// so the user_scope_grants join fans the pending row out one-to-many. A pending
+// invite carries ONE scope, so the aggregate must keep BOTH parks and the
+// migration must REFUSE -- silently taking one (the `min(g.scope_id)` this
+// replaced, which PostgreSQL cannot even parse for uuid) would narrow the invite
+// to one park and drop the other.
+func TestOperatorRetirementPendingTargetsOneToManyParksRefuseToGuess(t *testing.T) {
 	ctx := context.Background()
 	exec, scan, id, runUp := opRetirementFixture(t, ctx)
 	seedMappedOperator(t, exec, id, 11, "Amit Kumar", 101, 102)
 	seedPendingOperatorInvite(t, exec, id, 11, 15, "amit@example.com", "active")
-	runUp()
 
-	var invites int
-	if err := scan(`SELECT count(*) FROM public.operator_retirement_000394_pending_scope_undo WHERE pending_grant_id=$1`, []any{id(15)}, &invites); err != nil {
-		t.Fatal(err)
+	err := runUp()
+	if err == nil || !strings.Contains(err.Error(), "more than one park") {
+		t.Fatalf("two-park pending invite did not refuse: %v", err)
 	}
-	if invites != 1 {
-		t.Fatalf("two park grants produced %d undo rows for one pending invite; want exactly 1 (the min(park) collapse)", invites)
+
+	// The refusal must be total: the invite is left exactly as it was.
+	var role, scopeType, status string
+	if scanErr := scan(`SELECT role,scope_type,status FROM auth_pending_email_grants WHERE pending_grant_id=$1`, []any{id(15)}, &role, &scopeType, &status); scanErr != nil {
+		t.Fatal(scanErr)
 	}
-	var role, scopeType, scopeID string
-	if err := scan(`SELECT role,scope_type,scope_id::text FROM auth_pending_email_grants WHERE pending_grant_id=$1`, []any{id(15)}, &role, &scopeType, &scopeID); err != nil {
-		t.Fatal(err)
-	}
-	if role != "manager_health" || scopeType != "park" || scopeID != id(101) {
-		t.Fatalf("collapsed invite = %s/%s/%s; want manager_health/park/%s (the lowest of the two parks)", role, scopeType, scopeID, id(101))
+	if role != "operator" || scopeType != "tenant" || status != "active" {
+		t.Fatalf("refused invite = %s/%s/%s; want operator/tenant/active (untouched)", role, scopeType, status)
 	}
 }
 
@@ -203,7 +204,9 @@ func TestOperatorRetirementMigratesEveryPendingGrantWithoutPagination(t *testing
 		seedMappedOperator(t, exec, id, 20+i, name, 101)
 		seedPendingOperatorInvite(t, exec, id, 20+i, 200+i, fmt.Sprintf("person%d@example.com", i), "active")
 	}
-	runUp()
+	if err := runUp(); err != nil {
+		t.Fatal(err)
+	}
 
 	var leftover int
 	if err := scan(`SELECT count(*) FROM auth_pending_email_grants WHERE role='operator' AND status='active'`, nil, &leftover); err != nil {
@@ -231,7 +234,9 @@ func TestOperatorRetirementPendingInviteLandsOnOwnParkScope(t *testing.T) {
 	seedPendingOperatorInvite(t, exec, id, 11, 15, "amit@example.com", "active")
 	seedMappedOperator(t, exec, id, 12, "Bipin", 102)
 	seedPendingOperatorInvite(t, exec, id, 12, 16, "bipin@example.com", "active")
-	runUp()
+	if err := runUp(); err != nil {
+		t.Fatal(err)
+	}
 
 	for _, want := range []struct {
 		pending int
@@ -258,7 +263,9 @@ func TestOperatorRetirementPendingInviteStatusBuckets(t *testing.T) {
 	seedPendingOperatorInvite(t, exec, id, 11, 15, "amit@example.com", "active")
 	seedMappedOperator(t, exec, id, 12, "Bipin", 101)
 	seedPendingOperatorInvite(t, exec, id, 12, 16, "bipin@example.com", "revoked")
-	runUp()
+	if err := runUp(); err != nil {
+		t.Fatal(err)
+	}
 
 	var role, scopeType, status string
 	if err := scan(`SELECT role,scope_type,status FROM auth_pending_email_grants WHERE pending_grant_id=$1`, []any{id(16)}, &role, &scopeType, &status); err != nil {
