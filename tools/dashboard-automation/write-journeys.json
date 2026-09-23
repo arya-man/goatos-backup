@@ -13,46 +13,41 @@
       "name": "publish-vaccination-plan-version",
       "story": "A manager publishes a new vaccination plan version.",
       "route": "vaccination-plan-edit",
-      "url": "/vaccination/plan/edit?scope_mode=company",
+      "url": "/vaccination/plan?scope_mode=company",
       "steps": [
         {
-          "do": "open the vaccination plan editor"
+          "do": "open the vaccination plan"
         },
         {
-          "do": "start a new version",
+          "do": "open the draft version",
           "click": {
-            "text": "New version"
-          }
-        },
-        {
-          "do": "name the version",
-          "fill": {
-            "label": "Version name",
-            "value": "Automation check {{token}}"
+            "text": "Open the draft"
           }
         },
         {
           "do": "publish it",
           "click": {
-            "text": "Publish"
+            "text": "Publish plan"
           },
           "confirm": true
         }
       ],
       "screenAssertion": {
-        "description": "the plan editor shows the new version as published",
+        "description": "the plan screen shows the version live and no longer offers the draft",
         "visible": [
           {
-            "text": "Automation check {{token}}"
-          },
+            "text": "Live right now"
+          }
+        ],
+        "notVisible": [
           {
-            "text": "Published"
+            "text": "A draft is waiting"
           }
         ]
       },
       "dbAssertion": {
-        "description": "the published version exists, is marked published, and carries at least one dose rule",
-        "sql": "select v.protocol_version_id::text from protocol_versions v join protocol_rules r on r.protocol_version_id = v.protocol_version_id where v.version_label = 'Automation check {{token}}' and v.status = 'published' limit 1",
+        "description": "a plan version was published just now and carries at least one dose rule",
+        "sql": "select v.protocol_version_id::text from protocol_versions v join protocol_rules r on r.protocol_version_id = v.protocol_version_id where v.status = 'published' and v.published_at > now() - interval '15 minutes' limit 1",
         "expect": "at-least-one-row"
       },
       "writesTables": [
@@ -93,22 +88,22 @@
           "do": "open feed configuration"
         },
         {
-          "do": "open the rations tab",
+          "do": "start editing the first ration's rate",
           "click": {
-            "text": "Rations"
+            "text": "Edit rate"
           }
         },
         {
-          "do": "edit the first ration's rate",
+          "do": "type the new rate",
           "fill": {
-            "label": "Rate per animal",
+            "label": "g/head/day",
             "value": "{{numericToken}}"
           }
         },
         {
           "do": "save the change",
           "click": {
-            "text": "Save"
+            "text": "Apply"
           }
         }
       ],

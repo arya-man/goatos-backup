@@ -15,6 +15,7 @@
     "auth:seed-password-users": "node scripts/seed-firebase-password-users.mjs",
     "smoke:visual:live": "node scripts/smoke-visual-live.mjs",
     "smoke:module-journeys:live": "node ../../tools/dashboard-automation/run-module-journeys.mjs",
+    "smoke:write-journey:live": "node scripts/smoke-write-journey-live.mjs",
     "responsive:guard": "node scripts/smoke-visual-live.mjs && node scripts/check-sales-tolerance-layout.mjs",
     "smoke:action-center-drawer:live": "node scripts/smoke-action-center-local-drawer-live.mjs",
     "smoke:herd-signals-no-reload:live": "node scripts/smoke-herd-signals-no-reload-live.mjs",

@@ -23,6 +23,7 @@ import {
   loadCatalogue,
   pageNameFor,
   runJourney,
+  screenDriverMissing,
   summarise,
   validateCatalogue
 } from "./run-write-journeys.mjs";
@@ -172,9 +173,16 @@ test("nothing this lane renders into Slack contains SQL, a table name or a selec
 });
 
 test("tokens make every journey's marker unique and the SQL substitution is complete", () => {
-  const filled = fillTokens(catalogue.journeys[0], "A12345678");
-  assert.ok(!JSON.stringify(filled).includes("{{token}}"));
-  assert.ok(JSON.stringify(filled).includes("A12345678"));
+  // Not every journey can carry the token: the vaccination plan editor names versions itself
+  // (V10, V11...) and offers no field to type one into, so that journey is bound by publish time
+  // instead. Every journey that DOES declare a token must substitute it completely.
+  const tokenBound = catalogue.journeys.filter((j) => JSON.stringify(j).includes("{{token}}"));
+  assert.ok(tokenBound.length > 0, "at least one journey must be token-bound");
+  for (const journey of tokenBound) {
+    const filled = fillTokens(journey, "A12345678");
+    assert.ok(!JSON.stringify(filled).includes("{{token}}"), `${journey.name} still has an unsubstituted token`);
+    assert.ok(JSON.stringify(filled).includes("A12345678"), `${journey.name} did not take the token`);
+  }
   const rate = fillTokens(catalogue.journeys.find((j) => j.name === "change-a-feed-rate"), "A12345678");
   assert.ok(!JSON.stringify(rate).includes("{{numericToken}}"));
 });
@@ -314,19 +322,14 @@ test("a write-journey receipt beside a lane-1 receipt adds this lane's finding t
 
 test("a missing screen driver is a runner blocker, never a journey failure", () => {
   // Reporting "publishing a plan version did not save" because an npm script is absent would be
-  // a lie about the product, and a farm manager would act on it.
-  const result = spawnSync(process.execPath, [runner, "--only", "change-a-feed-rate"], {
-    cwd: repo,
-    encoding: "utf8",
-    env: {
-      PATH: process.env.PATH,
-      HOME: process.env.HOME,
-      GOATOS_WRITE_JOURNEY_DATABASE_URL: "postgres://p@127.0.0.1:5999/goatos_dashboard_automation_tmp"
-    }
-  });
-  assert.equal(result.status, 1);
-  assert.match(result.stderr, /Refusing to report a missing driver as a broken screen|screen driver/);
-  assert.ok(!result.stdout.includes("did not save"), "it must not claim the site is broken");
+  // a lie about the product, and a farm manager would act on it. The driver now ships in
+  // apps/admin-web, so the branch is proved directly rather than by deleting it from the repo.
+  assert.equal(screenDriverMissing({}), true, "no scripts at all means the driver is missing");
+  assert.equal(screenDriverMissing({ "smoke:visual:live": "x" }), true, "another smoke script is not this driver");
+  assert.equal(screenDriverMissing({ "smoke:write-journey:live": "node scripts/smoke-write-journey-live.mjs" }), false);
+  // And the driver really is wired up, so a real run drives the screen instead of blocking.
+  const scripts = JSON.parse(readFileSync(path.join(repo, "apps/admin-web/package.json"), "utf8")).scripts ?? {};
+  assert.equal(screenDriverMissing(scripts), false, "apps/admin-web must ship the write-journey screen driver");
 });
 
 test("notify-slack's own self-test passes, including the broken-lane isolation case", () => {
