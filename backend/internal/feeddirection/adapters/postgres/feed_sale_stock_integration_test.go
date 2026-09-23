@@ -176,3 +176,62 @@ VALUES ($1, $2, 'CBE', 'Maize', 703, DATE '2026-08-01', 5000, 20, 100000, 0,
 		t.Fatalf("an unledgered feed must be unknown, got kg=%v known=%v err=%v", kg, known, err)
 	}
 }
+
+// A BALANCE IS A WHOLE-LEDGER AGGREGATE, NOT A PAGE OF ONE (the PageBoundary case).
+//
+// Many small sales must subtract exactly what one large sale of the same total does. If the sold
+// CTE ever grew a LIMIT, or the join stopped ranging over every row, this is where it would show:
+// the store would report kilograms it no longer holds, and the more often the farm sold, the
+// further out it would drift.
+func TestTheBalanceSumsEverySaleAcrossAPageBoundary(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupIssueDB(t, ctx)
+
+	park := fdiPark
+	if _, err := pool.Exec(ctx, `
+INSERT INTO feed_purchases (tenant_id, park_id, farm_label, feed_item_label, batch_no,
+                            purchase_date, quantity_kg, per_kg_cost, total_cost,
+                            consumed_at_import_kg, depletes_from, vendor, payment_status,
+                            delivery_status)
+VALUES ($1, $2, 'CBE', 'Maize', 704, DATE '2026-08-01', 5000, 20, 100000, 0,
+        DATE '2026-08-01', 'Navaladi', 'Paid', 'reached')`, fdiTenant, park); err != nil {
+		t.Fatalf("insert purchase: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO sales_deals (tenant_id, sale_date, farm, buyer_name, product_type, breed, sales_value)
+VALUES ($1, DATE '2026-08-20', 'CBE', 'Many Small Sales', 'Feed', 'Maize', 1)`, fdiTenant); err != nil {
+		t.Fatalf("insert deal: %v", err)
+	}
+
+	// Forty sales of 50kg: 2000kg in total, across far more rows than any page would hold.
+	for i := 1; i <= 40; i++ {
+		if _, err := pool.Exec(ctx, `
+WITH l AS (
+    INSERT INTO sales_deal_lines (tenant_id, deal_id, line_no, product_type, product_code,
+                                  product_kind, breed, quantity, unit, rate_per_unit, sales_value)
+    SELECT $1, d.id, $2, 'Feed', 'feed', 'feed', 'Maize', 50, 'kg', 21, 1050
+    FROM sales_deals d WHERE d.tenant_id = $1 AND d.buyer_name = 'Many Small Sales'
+    RETURNING deal_id, line_id
+)
+INSERT INTO feed_sale_depletions (tenant_id, deal_id, line_id, park_id, farm_label,
+                                  feed_item_label, feed_day, quantity_kg)
+SELECT $1, l.deal_id, l.line_id, $3, 'CBE', 'Maize', DATE '2026-08-20', 50 FROM l`,
+			fdiTenant, i, park); err != nil {
+			t.Fatalf("insert sale %d: %v", i, err)
+		}
+	}
+
+	items, err := repo.stockItems(ctx, fdiTenant, nil)
+	if err != nil {
+		t.Fatalf("stock items: %v", err)
+	}
+	for _, it := range items {
+		if it.FeedItemLabel == "Maize" {
+			if it.BalanceKg != "3000.0" {
+				t.Fatalf("forty 50kg sales must subtract the full 2000kg, leaving 3000.0; got %q", it.BalanceKg)
+			}
+			return
+		}
+	}
+	t.Fatal("Maize missing from the stock cards")
+}

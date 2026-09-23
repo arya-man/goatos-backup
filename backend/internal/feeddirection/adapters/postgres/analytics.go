@@ -1617,7 +1617,7 @@ func (r *Repository) ExperimentAnalytics(ctx context.Context, tenantID string, q
 // depletion starts on the day it arrived (depletes_from follows reached_on). The rule lives in the
 // generated column and this predicate; no read re-derives it.
 //
-// projection-review: membership=feed_purchases at its (tenant, farm_label, feed_item_key, batch_no) natural key, locked feed_direction_issue_rows reached through the at-most-one live issue per (tenant, park, feed_day, workflow), and feed_effective_external_consumption at (tenant, park_id, feed_item_key, feed_day) (feeds the ration grid does not direct — UHT Milk, resolved from the Milk Preparation workflow on submit, with the feed_external_consumption ledger as the fallback for days that workflow does not cover; migration 000216 guarantees at most one row per key, so the two sources cannot both contribute); the two consumption sources pre-aggregate to the same (park_id, feed_item_key, feed_day) grain and the UNION ALL is re-grouped on that key, so a day contributes once; group_key=(farm_label, feed_item_key) on every side — purchases, depletion and the recent-day average all collapse to the farm-item before joining (the sheet side collapses to (park_id, feed_item_key) and one farm_label resolves to exactly one park), so the three sides meet strictly 1:1; join_cardinality=bought JOIN directed 1:1, LEFT JOIN recent 1:0..1, each pre-aggregated to one row per farm-item; the feed_item_catalog LEFT JOIN is 1:0..1 on its (tenant_id, feed_item_key) unique key and filters rows only, fanning nothing out; pagination=none, a tenant's feed catalog across its farms is a bounded card list; scope=tenant_id everywhere plus the caller's authorized park set on both purchases and sheets. Both workflows deplete stock — experiment feed leaves the same store.
+// projection-review: membership=feed_purchases at its (tenant, farm_label, feed_item_key, batch_no) natural key, locked feed_direction_issue_rows reached through the at-most-one live issue per (tenant, park, feed_day, workflow), and feed_effective_external_consumption at (tenant, park_id, feed_item_key, feed_day) (feeds the ration grid does not direct — UHT Milk, resolved from the Milk Preparation workflow on submit, with the feed_external_consumption ledger as the fallback for days that workflow does not cover -- migration 000216 guarantees at most one row per key, so the two sources cannot both contribute) -- the two consumption sources pre-aggregate to the same (park_id, feed_item_key, feed_day) grain and the UNION ALL is re-grouped on that key, so a day contributes once; group_key=(farm_label, feed_item_key) on every side — purchases, depletion and the recent-day average all collapse to the farm-item before joining (the sheet side collapses to (park_id, feed_item_key) and one farm_label resolves to exactly one park), so the three sides meet strictly 1:1; join_cardinality=bought JOIN directed 1:1, LEFT JOIN recent 1:0..1, each pre-aggregated to one row per farm-item, and the feed_item_catalog LEFT JOIN is 1:0..1 on its (tenant_id, feed_item_key) unique key and filters rows only, fanning nothing out; pagination=none, a tenant's feed catalog across its farms is a bounded card list; scope=tenant_id everywhere plus the caller's authorized park set on both purchases and sheets. Both workflows deplete stock — experiment feed leaves the same store.
 //
 // PER-FARM GRAIN (maintainer decision 2026-08-21): each farm keeps its own
 // physical feed store, so a tenant-wide balance/days-left is a number nobody's
@@ -1664,8 +1664,19 @@ func (r *Repository) ExperimentAnalytics(ctx context.Context, tenantID string, q
 const feedPurchaseStockKgSQL = `stock_kg`
 
 // FEED SOLD OFF THE STORE (migration 000393). One row per (farm, feed) of kilograms the farm
-// SOLD, joined to `bought` so it inherits that read's park narrowing and per-item depletion date,
-// and grouped to `bought`'s own key so the join into a balance is 1:1 and cannot fan a row out.
+// The producer's unique columns are (tenant_id, line_id) and the consumer groups by
+// (farm_label, feed_item_key): the SUM ranges over whole rows and counts each line once, so two
+// sales of one feed ADD UP rather than one overwriting the other. That group key is EXACTLY the
+// one every purchase and consumption CTE below is grouped to, so each balance joins this 1:1.
+// The park narrowing is inherited from the purchase CTE a caller joins this onto -- a sale at a
+// farm whose purchases are filtered out simply finds no row to subtract from.
+//
+// projection-review: membership=feed_sale_depletions at (tenant_id, line_id), one row per sold feed line; group_key=(farm_label, feed_item_key); join_cardinality=no joins inside the CTE, and 1:1 into every balance that uses it; pagination=none, a balance is a whole-ledger aggregate no page can compute; scope=tenant_id plus the park narrowing inherited from the purchase CTE
+//
+// SOLD, grouped to the same (farm_label, feed_item_key) key every purchase and consumption CTE
+// below is grouped to -- so each of the three balances LEFT JOINs it 1:1 and none can fan a row
+// out. A farm's park narrowing is inherited from the purchase CTE it is joined onto: a sale at a
+// farm whose purchases are filtered out simply finds no row to subtract from.
 //
 // IT REDUCES THE BALANCE AND IS NEVER CONSUMPTION, and that distinction is the whole reason it is
 // its own CTE instead of a third arm of the consumption union. A sale is one truck leaving on one
@@ -1765,6 +1776,7 @@ item_balance AS (
            b.park_id_text,
            b.latest_batch,
            b.depletes_from,
+           -- projection-review: membership=the sold CTE above, already one row per (farm_label, feed_item_key); group_key=(farm_label, feed_item_key) on all three sides; join_cardinality=1:1 by construction, so the LEFT JOIN can neither fan a row out nor drop an unsold feed; pagination=none, a balance is a whole-ledger aggregate no page can compute; scope=tenant_id plus the park narrowing inherited from the purchase CTE
            -- Purchased, less what the animals ate, less what the farm sold. All three are already
            -- one row per (farm_label, feed_item_key), so both joins are 1:1.
            b.net_kg - d.kg - COALESCE(sd.kg, 0)         AS balance_kg
@@ -2072,6 +2084,7 @@ item_balance AS (
            COALESCE(mm.family_key, b.feed_item_key)     AS family_key,
            COALESCE(mm.family_label, b.feed_item_label) AS family_label,
            b.park_id_text,
+           -- projection-review: membership=the sold CTE above, already one row per (farm_label, feed_item_key); group_key=(farm_label, feed_item_key) on all three sides; join_cardinality=1:1 by construction, so the LEFT JOIN can neither fan a row out nor drop an unsold feed; pagination=none, a balance is a whole-ledger aggregate no page can compute; scope=tenant_id plus the park narrowing inherited from the purchase CTE
            -- Sold feed is gone from the store, so the alert must see it: a farm that sold its
            -- maize is as short of maize as one that fed it. It still never touches the RATE below,
            -- which is what decides how many days the balance lasts.
@@ -2405,6 +2418,7 @@ stock_balance AS (
            l.park_id_text,
            l.net_kg,
            l.depletes_from,
+           -- projection-review: membership=the sold CTE above, already one row per (farm_label, feed_item_key); group_key=(farm_label, feed_item_key) on all three sides; join_cardinality=1:1 by construction, so the LEFT JOIN can neither fan a row out nor drop an unsold feed; pagination=none, a balance is a whole-ledger aggregate no page can compute; scope=tenant_id plus the park narrowing inherited from the purchase CTE
            -- Purchased, less fed, less SOLD (migration 000393). The farm card reports the same
            -- store the Stock cards do, so the two must subtract the same things.
            round(l.net_kg - COALESCE(dep.total_directed_kg, 0) - COALESCE(sd.kg, 0), 1) AS ledger_stock_kg

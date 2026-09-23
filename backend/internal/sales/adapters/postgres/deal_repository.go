@@ -285,6 +285,10 @@ SET status = $3, updated_at = now()
 WHERE tenant_id = $1 AND id = $2`, tenantID, dealID, status); err != nil {
 			return domain.Deal{}, fmt.Errorf("sales: update deal status: %w", err)
 		}
+		// Closing a sale takes its feed off the store; failing or reopening one gives it back.
+		if err := syncFeedSaleDepletions(ctx, tx, tenantID, dealID); err != nil {
+			return domain.Deal{}, err
+		}
 		if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{
 			TenantID:     tenantID,
 			ActorID:      actorID,
@@ -682,13 +686,12 @@ func (r *Repository) CreateDeal(ctx context.Context, tenantID string, write doma
 
 	// The lines land in the SAME transaction as the deal row they roll up into (migration 000296):
 	// one set-based insert over UNNEST, never a per-line round trip.
-	lineIDs, err := insertDealLines(ctx, tx, tenantID, dealID, write.Lines)
-	if err != nil {
+	if _, err := insertDealLines(ctx, tx, tenantID, dealID, write.Lines); err != nil {
 		return domain.Deal{}, err
 	}
 
-	// Feed sold off the store leaves it here, in this transaction.
-	if err := insertFeedSaleDepletions(ctx, tx, tenantID, dealID, write.Farm, write.SaleDate, write.Lines, lineIDs); err != nil {
+	// Feed sold off the store leaves it here, in this transaction -- if the sale is closed.
+	if err := syncFeedSaleDepletions(ctx, tx, tenantID, dealID); err != nil {
 		return domain.Deal{}, err
 	}
 
@@ -738,9 +741,69 @@ func fpFloat(v *float64) string {
 	return strings.TrimRight(strings.TrimRight(fmt.Sprintf("%.4f", *v), "0"), ".")
 }
 
+// insertDealLinesSQL writes a deal's lines in entry order with ONE set-based insert, returning
+// each line's id by its own line number so a feed line's stock depletion can name it.
+const insertDealLinesSQL = `
+INSERT INTO public.sales_deal_lines (
+	tenant_id, deal_id, line_no, product_type, product_code, product_kind, breed,
+	quantity, unit, rate_per_unit,
+	animal_count, male_count, female_count, total_weight_kg, sales_value
+)
+SELECT $1::uuid, $2::uuid, u.line_no, u.product_type, u.product_code, u.product_kind, u.breed,
+       u.quantity, u.unit, u.rate_per_unit,
+       u.animal_count, u.male_count, u.female_count, u.total_weight_kg, u.sales_value
+FROM unnest(
+	$3::int[], $4::text[], $5::text[], $6::text[], $7::text[],
+	$8::numeric[], $9::text[], $10::numeric[],
+	$11::numeric[], $12::numeric[], $13::numeric[], $14::numeric[], $15::numeric[]
+) AS u(line_no, product_type, product_code, product_kind, breed,
+       quantity, unit, rate_per_unit,
+       animal_count, male_count, female_count, total_weight_kg, sales_value)
+RETURNING line_no, line_id::text`
+
+// farmParkIDSQL resolves a deal's farm label to its park, the way the feed purchase importer does.
+const farmParkIDSQL = `
+SELECT location_id::text
+FROM public.locations
+WHERE tenant_id = $1 AND location_type = 'park' AND upper(location_code) = upper($2)`
+
+// deleteFeedSaleDepletionsSQL clears a deal's ledger rows before they are rewritten.
+const deleteFeedSaleDepletionsSQL = `
+DELETE FROM public.feed_sale_depletions
+WHERE tenant_id = $1 AND deal_id = $2`
+
+// dealStockFactsSQL is the three facts a depletion needs from the deal itself.
+const dealStockFactsSQL = `
+SELECT status, farm, sale_date::text
+FROM public.sales_deals
+WHERE tenant_id = $1 AND id = $2`
+
+// insertFeedSaleDepletionsSQL takes the sold kilograms off the feed store, one row per feed line,
+// reading the deal's OWN lines rather than a list handed in from Go -- so the ledger can never
+// describe a sale the lines do not, whichever path wrote them.
+//
+// The producer's unique columns are (tenant_id, deal_id, line_no) and this reads by
+// (tenant_id, deal_id, product_kind): every surviving row is still one line, so two feed lines
+// naming the SAME feed write two ledger rows and the store is drawn twice -- which is correct,
+// they are two sales of it. The DELETE above ranges over the identical key set, so a rewrite can
+// neither leave a stale row behind nor take another deal's rows with it.
+//
+// projection-review: membership=sales_deal_lines at (tenant_id, line_id), narrowed to this deal and product_kind=feed; group_key=none, the insert is row-for-row and nothing is aggregated; join_cardinality=no joins, the SELECT reads one table; pagination=none, a deal's lines are at most MaxDealLines and every one must deplete; scope=tenant_id and deal_id
+const insertFeedSaleDepletionsSQL = `
+INSERT INTO public.feed_sale_depletions (
+	tenant_id, deal_id, line_id, park_id, farm_label, feed_item_label, feed_day, quantity_kg
+)
+SELECT $1::uuid, $2::uuid, l.line_id, nullif(btrim($3), '')::uuid, $4, l.breed,
+       $5::date, COALESCE(l.quantity, 0)
+FROM public.sales_deal_lines l
+WHERE l.tenant_id = $1 AND l.deal_id = $2 AND l.product_kind = $6`
+
 // insertDealLines writes a deal's lines in entry order with one UNNEST insert, each stamped with
-// the registry product it was sold under (migration 000393), and returns each line's id by its
-// 1-based position so a feed line's stock depletion can name it.
+// the registry product it was sold under (migration 000393).
+//
+// It returns the new line ids by 1-based position, and the caller uses them only to CHECK that
+// every line it wrote came back. The feed depletion reads the deal's own lines rather than taking
+// a list from here, so the ledger cannot describe a sale the lines do not.
 func insertDealLines(ctx context.Context, tx pgx.Tx, tenantID, dealID string, lines []domain.DealLineWrite) ([]string, error) {
 	if len(lines) == 0 {
 		return nil, nil
@@ -780,23 +843,8 @@ func insertDealLines(ctx context.Context, tx pgx.Tx, tenantID, dealID string, li
 		weights[i] = l.TotalWeightKg
 		values[i] = l.SalesValue
 	}
-	rows, err := tx.Query(ctx, `
-INSERT INTO public.sales_deal_lines (
-	tenant_id, deal_id, line_no, product_type, product_code, product_kind, breed,
-	quantity, unit, rate_per_unit,
-	animal_count, male_count, female_count, total_weight_kg, sales_value
-)
-SELECT $1::uuid, $2::uuid, u.line_no, u.product_type, u.product_code, u.product_kind, u.breed,
-       u.quantity, u.unit, u.rate_per_unit,
-       u.animal_count, u.male_count, u.female_count, u.total_weight_kg, u.sales_value
-FROM unnest(
-	$3::int[], $4::text[], $5::text[], $6::text[], $7::text[],
-	$8::numeric[], $9::text[], $10::numeric[],
-	$11::numeric[], $12::numeric[], $13::numeric[], $14::numeric[], $15::numeric[]
-) AS u(line_no, product_type, product_code, product_kind, breed,
-       quantity, unit, rate_per_unit,
-       animal_count, male_count, female_count, total_weight_kg, sales_value)
-RETURNING line_no, line_id::text`,
+	rows, err := tx.Query(ctx, insertDealLinesSQL,
+
 		tenantID, dealID, lineNos, products, codes, kinds, breeds,
 		quantities, units, rates,
 		animals, males, females, weights, values,
@@ -806,8 +854,7 @@ RETURNING line_no, line_id::text`,
 	}
 	defer rows.Close()
 	// Keyed by the line's own number rather than by scan order: RETURNING makes no promise about
-	// the order rows come back in, and pairing a depletion with the wrong line would take the
-	// kilograms of one feed out of the store in the name of another.
+	// the order rows come back in.
 	ids := make([]string, n)
 	for rows.Next() {
 		var no int32
@@ -831,40 +878,41 @@ RETURNING line_no, line_id::text`,
 	return ids, nil
 }
 
-// insertFeedSaleDepletions takes the sold kilograms off the feed store (migration 000393), in the
-// SAME transaction as the sale, so a recorded sale and the stock it drew can never disagree.
+// syncFeedSaleDepletions makes the feed store agree with what this deal currently SAYS.
+//
+// It rewrites the deal's ledger rows from its own lines, in the transaction that changed the deal,
+// and it is driven by the deal's STATUS: feed leaves the store when a sale is closed, and a sale
+// still in discussion -- or one that failed -- has moved no feed at all. Depleting on the mere
+// recording of an expected sale would take two tonnes off a store that still physically holds
+// them, and the shortage would surface days later as a low-stock alert nobody could explain.
+//
+// It is a DELETE-then-INSERT rather than a diff, so it is idempotent and reaches the right answer
+// from any previous state: a deal closed, reopened and closed again ends with exactly one set of
+// rows, and a deal that fails after being closed gives its feed back.
 //
 // The park is resolved from the deal's farm by location_code the way the feed purchase importer
 // does. A farm whose park row does not resolve still writes the ledger row with a NULL park and
 // its farm label -- the column is nullable for exactly this reason (000174) -- rather than losing
 // the fact that the feed left.
-func insertFeedSaleDepletions(
-	ctx context.Context, tx pgx.Tx, tenantID, dealID, farm, saleDate string,
-	lines []domain.DealLineWrite, lineIDs []string,
-) error {
-	type depletion struct {
-		lineID string
-		feed   string
-		kg     float64
+func syncFeedSaleDepletions(ctx context.Context, tx pgx.Tx, tenantID, dealID string) error {
+	if _, err := tx.Exec(ctx, deleteFeedSaleDepletionsSQL, tenantID, dealID); err != nil {
+		return fmt.Errorf("sales: clear feed sale depletion: %w", err)
 	}
-	pending := []depletion{}
-	for i, l := range lines {
-		if l.Kind() != domain.KindFeed {
-			continue
+
+	var status, farm, saleDate string
+	if err := tx.QueryRow(ctx, dealStockFactsSQL, tenantID, dealID).Scan(&status, &farm, &saleDate); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ports.ErrDealNotFound
 		}
-		pending = append(pending, depletion{lineID: lineIDs[i], feed: l.Breed, kg: l.QuantityKg()})
+		return fmt.Errorf("sales: read deal for feed depletion: %w", err)
 	}
-	if len(pending) == 0 {
+	if status != domain.StatusDealClosed {
 		return nil
 	}
 
 	var parkID *string
 	var resolved string
-	switch err := tx.QueryRow(ctx, `
-		SELECT location_id::text FROM public.locations
-		WHERE tenant_id = $1 AND location_type = 'park' AND upper(location_code) = upper($2)`,
-		tenantID, farm,
-	).Scan(&resolved); {
+	switch err := tx.QueryRow(ctx, farmParkIDSQL, tenantID, farm).Scan(&resolved); {
 	case err == nil:
 		parkID = &resolved
 	case errors.Is(err, pgx.ErrNoRows):
@@ -873,20 +921,8 @@ func insertFeedSaleDepletions(
 		return fmt.Errorf("sales: resolve farm park for feed sale: %w", err)
 	}
 
-	lineIDArr := make([]string, len(pending))
-	feeds := make([]string, len(pending))
-	kgs := make([]float64, len(pending))
-	for i, d := range pending {
-		lineIDArr[i], feeds[i], kgs[i] = d.lineID, d.feed, d.kg
-	}
-	if _, err := tx.Exec(ctx, `
-INSERT INTO public.feed_sale_depletions (
-	tenant_id, deal_id, line_id, park_id, farm_label, feed_item_label, feed_day, quantity_kg
-)
-SELECT $1::uuid, $2::uuid, u.line_id::uuid, nullif(btrim($3), '')::uuid, $4, u.feed_item_label,
-       $5::date, u.quantity_kg
-FROM unnest($6::text[], $7::text[], $8::numeric[]) AS u(line_id, feed_item_label, quantity_kg)`,
-		tenantID, dealID, derefOrEmpty(parkID), farm, saleDate, lineIDArr, feeds, kgs,
+	if _, err := tx.Exec(ctx, insertFeedSaleDepletionsSQL,
+		tenantID, dealID, derefOrEmpty(parkID), farm, saleDate, domain.KindFeed,
 	); err != nil {
 		return fmt.Errorf("sales: record feed sale depletion: %w", err)
 	}
