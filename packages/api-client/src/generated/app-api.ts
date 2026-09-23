@@ -10546,30 +10546,60 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
         };
-        /** @description One product/breed slice of a sale, with its own counts, weight and value. */
+        /** @description One product slice of a sale, with its own counts, weight and value. The product vocabulary is the tenant's own sellable-product registry (migration 000393), so it is deliberately NOT an enum here: a farm adds what it sells without a contract change. */
         SalesDealLine: {
             /** Format: uuid */
             line_id: string;
             line_no: number;
-            /** @enum {string} */
-            product_type: "Sheep" | "Goat" | "Manure";
+            /** @description The name the line was sold under, stamped from the registry at write time. */
+            product_type: string;
+            /** @description The registry row's stable identity. The Sold page's Sheep/Goat/Manure cards key on this, so renaming a product on screen moves its label and not its number. */
+            product_code: string;
+            /**
+             * @description What this product DOES, which is the only part any renderer branches on: an animal line carries counts and live weight, a feed line kilograms off the store, an other line weight and revenue alone.
+             * @enum {string}
+             */
+            product_kind: "animal" | "feed" | "other";
+            /** @description The line's VARIANT -- an animal line's breed, a feed line's feed item, 'Manure' for manure. The field keeps its older name so every reader that already keys on it still does. */
             breed: string;
+            /** @description How much was sold, for a line priced by the unit. Kilograms for feed. */
+            quantity?: number | null;
+            /** @description What one unit is (kg */
+            unit?: string;
+            /** @description Price per unit; sales_value is quantity times this. */
+            rate_per_unit?: number | null;
             animal_count?: number | null;
             male_count?: number | null;
             female_count?: number | null;
             total_weight_kg?: number | null;
             sales_value: number;
         };
-        /** @description One line of a record-sale body. Value is per line and must be more than zero. */
+        /** @description One line of a record-sale body. Value is per line and must be more than zero, EXCEPT on a line priced by the unit, where it is computed as quantity times rate and any value sent is replaced. There is deliberately no product_kind here: a body that could name its own kind could sell a goat as feed and draw it out of the store. */
         SalesDealLineWrite: {
-            /** @enum {string} */
-            product_type: "Sheep" | "Goat" | "Manure";
+            /** @description A product from the farm's own registry, matched case-insensitively. One the registry does not carry is refused. */
+            product_type: string;
+            /** @description The line's variant -- a breed, or the feed item being sold. */
             breed: string;
+            /** @description Required, and more than zero, on a feed line. */
+            quantity?: number | null;
+            /** @description Required on a feed line. Feed is sold at a price per kilogram. */
+            rate_per_unit?: number | null;
             animal_count?: number | null;
             male_count?: number | null;
             female_count?: number | null;
             total_weight_kg?: number | null;
-            sales_value: number;
+            sales_value?: number;
+        };
+        /** @description One row of the farm's sellable-product registry, as a record-sale form sees it. */
+        SalesProductOption: {
+            /** @description The word a sale is recorded under. */
+            name: string;
+            /** @description The registry row's stable identity. */
+            code: string;
+            /** @enum {string} */
+            kind: "animal" | "feed" | "other";
+            /** @description What one of it is sold by -- head for an animal */
+            unit: string;
         };
         /** @description One amount the buyer actually handed over for one deal. */
         SalesDealPayment: {
@@ -10606,8 +10636,11 @@ export interface components {
         };
         SalesOptions: {
             farms: string[];
+            /** @description The farm's sellable products by name, in its own order. A bare name list, for a client written before the registry carried kinds. */
             product_types: string[];
-            /** @description Breeds keyed by product type, in offer order. */
+            /** @description The same registry with the KIND on each, which is what a form needs to decide whether to ask for a head count or for kilograms at a rate. */
+            products: components["schemas"]["SalesProductOption"][];
+            /** @description Each product's VARIANTS, keyed by product name, in offer order -- an animal product's breeds, a feed product's feed items, an other product's own name. The field keeps its older name so a client written before this still finds its list. */
             breeds: {
                 [key: string]: string[];
             };
@@ -10624,18 +10657,17 @@ export interface components {
             /** @description The offset actually applied. Echoed so the client can render the page number. */
             offset: number;
         };
-        /** @description Record-sale body. ONE sale may carry several product/breed lines (maintainer decision 2026-09-12): send `lines`, one per product/breed, each with its own counts, weight and value; the deal's product_type/breed/counts/sales_value are then computed server-side as the rollup of the lines and any client-sent values for them are ignored. The legacy single-product fields (product_type, breed, animal_count..., sales_value at the top level) are still accepted WITHOUT `lines` and record exactly one line. Farm and product type are closed vocabularies validated server-side and rejected -- never silently defaulted -- when unrecognised. Blank status records `Deal Closed`. */
+        /** @description Record-sale body. ONE sale may carry several product/breed lines (maintainer decision 2026-09-12): send `lines`, one per product/breed, each with its own counts, weight and value; the deal's product_type/breed/counts/sales_value are then computed server-side as the rollup of the lines and any client-sent values for them are ignored. The legacy single-product fields (product_type, breed, animal_count..., sales_value at the top level) are still accepted WITHOUT `lines` and record exactly one line. The farm is a closed vocabulary and the product is the tenant's own sellable-product registry (migration 000393); both are validated server-side and rejected -- never silently defaulted -- when unrecognised. Blank status records `Deal Closed`. */
         SalesDealWrite: {
             /** Format: date */
             sale_date: string;
             /** @enum {string} */
             farm: "CBE" | "CPT";
             lines?: components["schemas"]["SalesDealLineWrite"][];
-            /**
-             * @description Legacy single-line body only; ignored when `lines` is sent.
-             * @enum {string}
-             */
-            product_type?: "Sheep" | "Goat" | "Manure";
+            /** @description The desk having seen what the feed store holds and said the sale is right anyway. A sale taking more feed than the store's ledger shows is refused once with `feed_stock_confirmation_required` (422) naming both figures; re-sent with this true, the same body records. Only ever true because a person ticked it after being shown the balance -- a client that sets it by default turns a confirmation into no confirmation. */
+            stock_shortfall_acknowledged?: boolean;
+            /** @description Legacy single-line body only; ignored when `lines` is sent. A product from the farm's registry. */
+            product_type?: string;
             /** @description Legacy single-line body only. */
             breed?: string;
             buyer_name: string;

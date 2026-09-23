@@ -2,13 +2,24 @@
 
 import { Plus, Trash2 } from "lucide-react";
 
-import { copy, optionalOptionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
-import { newSaleLine, saleLinesTotals, type SaleLineDraft } from "./sale-lines";
+import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import type { SalesProductOption } from "@/lib/api/procurement";
+import { newSaleLine, saleLinesTotals, saleLineValue, type SaleLineDraft } from "./sale-lines";
 import { inr, MAX_SALE_LINES, num } from "./sales-format";
 
 /**
  * The "What was sold" block of the record-sale drawer (maintainer decision 2026-09-12): one card
- * per product/breed, each with its own animals, weight and value, and a running total underneath.
+ * per product line, each with its own figures, and a running total underneath.
+ *
+ * WHAT A LINE ASKS FOR IS DECIDED BY THE PRODUCT'S KIND (migration 000393), never by its name.
+ * An animal line asks for a breed, a head count, a weight and a value; a FEED line asks which
+ * feed, how many kilograms and at what rate, and works the value out. So the farm adding "Hay"
+ * to its registry as another `other` product, or a new feed to its catalogue, changes this screen
+ * with no edit here at all.
+ *
+ * The products and their variants come from /sales/options -- the same answer the phone's
+ * record-sale form reads -- rather than from this page's contract, because two copies of one
+ * vocabulary are two vocabularies waiting to disagree.
  *
  * Posts as indexed hidden-name fields (`line_product_type_0`...), read back in order by
  * readSaleForm. Every label is backend copy; this component owns layout and local edit state only.
@@ -17,12 +28,14 @@ export function SaleLinesEditor({
   lines,
   onChange,
   pageContract,
-  productOptions,
+  products,
+  variants,
 }: {
   lines: SaleLineDraft[];
   onChange: (next: SaleLineDraft[]) => void;
   pageContract: AdminUiPageContract;
-  productOptions: { key: string; label: string }[];
+  products: SalesProductOption[];
+  variants: Record<string, string[]>;
 }) {
   const totals = saleLinesTotals(lines);
   const canAdd = lines.length < MAX_SALE_LINES;
@@ -35,7 +48,7 @@ export function SaleLinesEditor({
     if (!canAdd) return;
     // A new line starts on the LAST line's product: a mixed sale is usually two breeds of one
     // product before it is two products, so the common case needs one fewer click.
-    onChange([...lines, newSaleLine(nextId, lines[lines.length - 1]?.product ?? productOptions[0]?.key ?? "")]);
+    onChange([...lines, newSaleLine(nextId, lines[lines.length - 1]?.product ?? products[0]?.name ?? "")]);
   };
 
   return (
@@ -44,10 +57,13 @@ export function SaleLinesEditor({
       <div className="note">{copy(pageContract, "hint.lines")}</div>
 
       {lines.map((line, index) => {
-        const breedOptions = optionalOptionGroup(pageContract, `sales_breeds_${line.product.toLowerCase()}`);
-        const breedValid = breedOptions.some((option) => option.key === line.breed);
+        const product = products.find((candidate) => candidate.name === line.product);
+        const isFeed = product?.kind === "feed";
+        const variantOptions = variants[line.product] ?? [];
+        const variantValid = variantOptions.includes(line.breed);
+        const computed = saleLineValue(line);
         return (
-          <fieldset className="sales-line" key={line.id} data-testid="sale-line">
+          <fieldset className="sales-line" key={line.id} data-testid="sale-line" data-kind={product?.kind ?? ""}>
             <div className="sales-line-hd">
               <span className="mt">
                 {copy(pageContract, "label.line")} {index + 1}
@@ -73,79 +89,143 @@ export function SaleLinesEditor({
                   name={`line_product_type_${index}`}
                   required
                   value={line.product}
-                  // Changing the product empties the breed: a breed from the previous product's
-                  // vocabulary must never ride along into the submit.
-                  onChange={(event) => update(line.id, { product: event.target.value, breed: "" })}
+                  // Changing the product empties everything it decided the shape of: a breed from
+                  // the previous product's vocabulary, or kilograms typed against a feed, must
+                  // never ride along into the submit of a different product.
+                  onChange={(event) =>
+                    update(line.id, {
+                      product: event.target.value,
+                      breed: "",
+                      quantity: "",
+                      rate: "",
+                      animals: "",
+                      weightKg: "",
+                      value: "",
+                    })
+                  }
                 >
-                  {productOptions.map((option) => (
-                    <option key={option.key} value={option.key}>
-                      {option.label}
+                  {products.map((option) => (
+                    <option key={option.code} value={option.name}>
+                      {option.name}
                     </option>
                   ))}
                 </select>
               </div>
               <div className="fld">
-                <label htmlFor={`s-line-breed-${line.id}`}>{copy(pageContract, "field.breed")}</label>
+                <label htmlFor={`s-line-breed-${line.id}`}>
+                  {copy(pageContract, isFeed ? "field.line_feed_item" : "field.breed")}
+                </label>
                 <select
                   id={`s-line-breed-${line.id}`}
                   name={`line_breed_${index}`}
                   required
-                  value={breedValid ? line.breed : ""}
+                  value={variantValid ? line.breed : ""}
                   onChange={(event) => update(line.id, { breed: event.target.value })}
                 >
                   <option value="" disabled>
                     —
                   </option>
-                  {breedOptions.map((option) => (
-                    <option key={option.key} value={option.key}>
-                      {option.label}
+                  {variantOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
                     </option>
                   ))}
                 </select>
               </div>
             </div>
-            <div className="sales-line-grid sales-line-grid-3">
-              <div className="fld">
-                <label htmlFor={`s-line-animals-${line.id}`}>{copy(pageContract, "field.line_animal_count")}</label>
-                <input
-                  id={`s-line-animals-${line.id}`}
-                  name={`line_animal_count_${index}`}
-                  type="number"
-                  inputMode="numeric"
-                  min={0}
-                  step={1}
-                  value={line.animals}
-                  onChange={(event) => update(line.id, { animals: event.target.value })}
-                />
+            {isFeed ? (
+              // A feed sale is kilograms at a rate. The value is a READOUT, not an input: it is
+              // computed here exactly as the backend computes it, so the figure the operator
+              // watches is the figure that gets recorded.
+              <div className="sales-line-grid sales-line-grid-3">
+                <div className="fld">
+                  <label htmlFor={`s-line-quantity-${line.id}`}>{copy(pageContract, "field.line_quantity")}</label>
+                  <input
+                    id={`s-line-quantity-${line.id}`}
+                    name={`line_quantity_${index}`}
+                    type="number"
+                    inputMode="decimal"
+                    min={0}
+                    step="0.001"
+                    required
+                    value={line.quantity}
+                    onChange={(event) => update(line.id, { quantity: event.target.value })}
+                  />
+                </div>
+                <div className="fld">
+                  <label htmlFor={`s-line-rate-${line.id}`}>{copy(pageContract, "field.line_rate_per_unit")}</label>
+                  <input
+                    id={`s-line-rate-${line.id}`}
+                    name={`line_rate_per_unit_${index}`}
+                    type="number"
+                    inputMode="decimal"
+                    min={0}
+                    step="0.01"
+                    required
+                    value={line.rate}
+                    onChange={(event) => update(line.id, { rate: event.target.value })}
+                  />
+                </div>
+                <div className="fld">
+                  <label htmlFor={`s-line-value-readout-${line.id}`}>
+                    {copy(pageContract, "field.line_sales_value")}
+                  </label>
+                  <output
+                    id={`s-line-value-readout-${line.id}`}
+                    className="sales-line-value"
+                    data-testid="sale-line-computed-value"
+                  >
+                    {inr(computed)}
+                  </output>
+                  <div className="note">{copy(pageContract, "hint.line_feed_value")}</div>
+                </div>
               </div>
-              <div className="fld">
-                <label htmlFor={`s-line-weight-${line.id}`}>{copy(pageContract, "field.line_total_weight_kg")}</label>
-                <input
-                  id={`s-line-weight-${line.id}`}
-                  name={`line_total_weight_kg_${index}`}
-                  type="number"
-                  inputMode="decimal"
-                  min={0}
-                  step="0.01"
-                  value={line.weightKg}
-                  onChange={(event) => update(line.id, { weightKg: event.target.value })}
-                />
+            ) : (
+              <div className="sales-line-grid sales-line-grid-3">
+                <div className="fld">
+                  <label htmlFor={`s-line-animals-${line.id}`}>{copy(pageContract, "field.line_animal_count")}</label>
+                  <input
+                    id={`s-line-animals-${line.id}`}
+                    name={`line_animal_count_${index}`}
+                    type="number"
+                    inputMode="numeric"
+                    min={0}
+                    step={1}
+                    value={line.animals}
+                    onChange={(event) => update(line.id, { animals: event.target.value })}
+                  />
+                </div>
+                <div className="fld">
+                  <label htmlFor={`s-line-weight-${line.id}`}>
+                    {copy(pageContract, "field.line_total_weight_kg")}
+                  </label>
+                  <input
+                    id={`s-line-weight-${line.id}`}
+                    name={`line_total_weight_kg_${index}`}
+                    type="number"
+                    inputMode="decimal"
+                    min={0}
+                    step="0.01"
+                    value={line.weightKg}
+                    onChange={(event) => update(line.id, { weightKg: event.target.value })}
+                  />
+                </div>
+                <div className="fld">
+                  <label htmlFor={`s-line-value-${line.id}`}>{copy(pageContract, "field.line_sales_value")}</label>
+                  <input
+                    id={`s-line-value-${line.id}`}
+                    name={`line_sales_value_${index}`}
+                    type="number"
+                    inputMode="decimal"
+                    min={1}
+                    step="0.01"
+                    required
+                    value={line.value}
+                    onChange={(event) => update(line.id, { value: event.target.value })}
+                  />
+                </div>
               </div>
-              <div className="fld">
-                <label htmlFor={`s-line-value-${line.id}`}>{copy(pageContract, "field.line_sales_value")}</label>
-                <input
-                  id={`s-line-value-${line.id}`}
-                  name={`line_sales_value_${index}`}
-                  type="number"
-                  inputMode="decimal"
-                  min={1}
-                  step="0.01"
-                  required
-                  value={line.value}
-                  onChange={(event) => update(line.id, { value: event.target.value })}
-                />
-              </div>
-            </div>
+            )}
           </fieldset>
         );
       })}
@@ -160,8 +240,25 @@ export function SaleLinesEditor({
           <span className="k">{copy(pageContract, "summary.lines.total")}</span>
           <strong>{inr(totals.value)}</strong>
           <span className="muted small">
-            {num(totals.animals)} {copy(pageContract, "summary.lines.animals")} · {num(totals.weightKg, 1)}{" "}
-            {copy(pageContract, "summary.lines.weight")} · {lines.length} {copy(pageContract, "summary.lines.lines")}
+            {num(totals.animals)} {copy(pageContract, "summary.lines.animals")}
+            {/* Live weight is dropped only when there is feed weight to show instead: an
+                animal-only sale keeps the "0.0 kg" it has always shown, while a feed-only sale
+                stops claiming zero kilograms of animal beside the kilograms it actually sold. */}
+            {totals.weightKg > 0 || totals.feedKg === 0 ? (
+              <>
+                {" · "}
+                {num(totals.weightKg, 1)} {copy(pageContract, "summary.lines.weight")}
+              </>
+            ) : null}
+            {/* Sold feed is kilograms too, but NOT live weight -- shown as its own term, and only
+                when there is any, so an animal-only sale reads exactly as it did before. */}
+            {totals.feedKg > 0 ? (
+              <>
+                {" · "}
+                {num(totals.feedKg, 1)} {copy(pageContract, "summary.lines.feed_kg")}
+              </>
+            ) : null}{" "}
+            · {lines.length} {copy(pageContract, "summary.lines.lines")}
           </span>
         </div>
       </div>

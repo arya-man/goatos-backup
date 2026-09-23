@@ -17,7 +17,7 @@ import {
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { firstAuthRequiredError, listProcurementVendorOptions, listSaleLocations } from "@/lib/api/server";
 import type { ProcurementVendorOptions, SaleLocationCatalog } from "@/lib/api/server";
-import { getLoadwiseSales, listSalesDeals } from "@/lib/api/procurement-server";
+import { getLoadwiseSales, getSalesOptions, listSalesDeals } from "@/lib/api/procurement-server";
 import type { LoadwiseLoad, SalesDeal } from "@/lib/api/procurement";
 import { boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
 import { dealStatusTone, humanDate, inr, num } from "./sales-format";
@@ -89,10 +89,16 @@ export async function SalesConfigPage({
   // The tag-animals picker's park/shed/pen vocabulary, backend-owned.
   // serial-await: allow bounded vocabulary reads stay serialized with the sales/config bootstrap above.
   const saleLocations = await listSaleLocations();
-  // Every sale is made TO a vendor (maintainer decision 2026-08-27). ONE bounded read, never
-  // a paged walk of /procurement/vendors: that is the banned SSR full-walk shape.
-  // serial-await: allow one bounded vendor-options read after the sales/config core data.
-  const vendorOptionsResult = await listProcurementVendorOptions();
+  // The record-sale drawer's two vocabularies: who may be sold TO (maintainer decision
+  // 2026-08-27; ONE bounded read, never a paged walk of /procurement/vendors, which is the banned
+  // SSR full-walk shape) and WHAT may be sold (the farm's own registry, migration 000393). They
+  // are independent, so they are read TOGETHER rather than one after the other -- and each is
+  // handled on its own below, so one failing does not take the other down.
+  // serial-await: allow one bounded pair of drawer vocabulary reads after the sales/config core data.
+  const [vendorOptionsResult, salesOptionsResult] = await Promise.all([
+    listProcurementVendorOptions(),
+    getSalesOptions(),
+  ]);
   // The market survey's cities and questions (maintainer decision 2026-09-14): one bounded
   // read of the whole authored config.
   // serial-await: allow one bounded market-config read after prior sales/config reads to avoid request fanout.
@@ -116,9 +122,14 @@ export async function SalesConfigPage({
   // null means the register could NOT be read (its own permission), which is a different fact
   // from an EMPTY register; the drawer gives the two different copy.
   const vendorOptions: ProcurementVendorOptions | null = vendorOptionsResult.ok ? vendorOptionsResult.data : null;
+  const salesOptions = salesOptionsResult.ok ? salesOptionsResult.data : null;
 
   const actionStatus = one(sp, "action_status");
   const actionKey = one(sp, "action_key");
+  // ONE backend-composed sentence beneath the banner's contract copy, for a refusal whose useful
+  // part is a figure no fixed copy key could carry -- what the feed store actually holds. It is
+  // farm copy the backend owns, rendered verbatim; the page's BEHAVIOUR keys on action_key.
+  const actionDetail = one(sp, "action_detail");
   const canRecord = controlEnabled(pageContract, "record_sale", false);
   const canAllocateAnimals = controlEnabled(pageContract, "allocate_sale_animals", false);
   const canRecordCost = controlEnabled(pageContract, "record_load_cost", false);
@@ -176,7 +187,13 @@ export async function SalesConfigPage({
           </div>
         ) : (
           <div className="alert" style={{ marginBottom: 14 }}>
-            {actionFeedbackCopy(pageContract, actionStatus, actionKey)}
+            {/* ONE flex child: .alert lays its children out in a row, so a detail sentence beside
+                the headline gets squeezed and clipped at the card edge. Stacked inside a single
+                block, the sentence gets the card's full width and wraps. */}
+            <div style={{ minWidth: 0 }}>
+              {actionFeedbackCopy(pageContract, actionStatus, actionKey)}
+              {actionDetail ? <div className="note" style={{ marginTop: 6 }}>{actionDetail}</div> : null}
+            </div>
           </div>
         )
       ) : null}
@@ -368,6 +385,9 @@ export async function SalesConfigPage({
         listHref={listHref}
         canRecord={canRecord}
         vendorOptions={vendorOptions}
+        salesOptions={salesOptions}
+        stockConfirmNeeded={actionKey === "action.sale_feed_stock_confirm"}
+        stockConfirmDetail={actionDetail}
       />
       {canAllocateAnimals ? (
         <SaleAllocationDrawer
