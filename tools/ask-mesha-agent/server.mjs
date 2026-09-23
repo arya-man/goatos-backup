@@ -28,12 +28,21 @@ const STG_API = (process.env.GOATOS_STG_API || "https://api.goatos.mesha.sg").re
 const WORKTREES = path.join(STATE, "worktrees");
 const STORE = path.join(STATE, "chats.json");
 const METRICS = path.join(STATE, "metrics.jsonl");
-const PGENV = Object.fromEntries(
-  fs.readFileSync(path.join(STATE, ".pgenv"), "utf8").trim().split("\n").map((l) => {
-    const i = l.indexOf("=");
-    return [l.slice(0, i), l.slice(i + 1)];
-  }),
-);
+fs.mkdirSync(STATE, { recursive: true });
+
+function loadPgEnv() {
+  const file = path.join(STATE, ".pgenv");
+  if (!fs.existsSync(file)) {
+    throw new Error(`missing ${file}; create it with read-only PG* variables before asking data questions`);
+  }
+  return Object.fromEntries(
+    fs.readFileSync(file, "utf8").trim().split("\n").filter(Boolean).map((l) => {
+      const i = l.indexOf("=");
+      if (i <= 0) throw new Error(`invalid ${file} line: ${l.slice(0, 40)}`);
+      return [l.slice(0, i), l.slice(i + 1)];
+    }),
+  );
+}
 
 const STARTERS = [
   "How many animals were weighed this month, by park?",
@@ -176,7 +185,6 @@ const save = () => {
   fs.writeFileSync(STORE + ".tmp", JSON.stringify(db, null, 2));
   fs.renameSync(STORE + ".tmp", STORE);
 };
-fs.mkdirSync(STATE, { recursive: true });
 
 // ---- auth: reuse the live backend's leadership check ----------------------
 const authCache = new Map();
@@ -184,12 +192,14 @@ async function authenticate(req) {
   const authz = req.headers["authorization"] || "";
   const token = authz.replace(/^Bearer\s+/i, "");
   if (!token) return null;
+  const tenantId = typeof req.headers["x-goatos-tenant-id"] === "string" ? req.headers["x-goatos-tenant-id"] : "";
   // Local benchmark runs: a shared secret from the environment, never set in deployed envs.
-  if (process.env.ASK_MESHA_BENCH_TOKEN && token === process.env.ASK_MESHA_BENCH_TOKEN) return { email: "bench@local" };
-  const hit = authCache.get(token);
+  if (process.env.ASK_MESHA_BENCH_TOKEN && token === process.env.ASK_MESHA_BENCH_TOKEN) return { email: "bench@local", tenantId };
+  const cacheKey = `${tenantId}\0${token}`;
+  const hit = authCache.get(cacheKey);
   if (hit && hit.exp > Date.now()) return hit.user;
   const headers = { Authorization: authz, Accept: "application/json" };
-  if (req.headers["x-goatos-tenant-id"]) headers["X-GoatOS-Tenant-ID"] = req.headers["x-goatos-tenant-id"];
+  if (tenantId) headers["X-GoatOS-Tenant-ID"] = tenantId;
   const res = await fetch(`${STG_API}/ceo-ai/starters`, { headers }).catch(() => null);
   if (!res || res.status !== 200) return null;
   // The payload is only trusted because the stg API just accepted this token's
@@ -201,8 +211,8 @@ async function authenticate(req) {
     email = payload.email || payload.sub || null;
   } catch {}
   if (typeof email !== "string" || !email) return null;
-  const user = { email };
-  authCache.set(token, { user, exp: Date.now() + 5 * 60_000 });
+  const user = { email, tenantId };
+  authCache.set(cacheKey, { user, exp: Date.now() + 5 * 60_000 });
   return user;
 }
 
@@ -230,10 +240,14 @@ const readBody = (req) =>
   });
 const summary = (c) => ({ id: c.id, title: c.title, updated_at: c.updated_at });
 
-function newChat(email) {
+function sameOwner(chat, user) {
+  return chat?.email === user.email && (chat.tenant_id ?? "") === user.tenantId;
+}
+
+function newChat(user) {
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
-  db.chats[id] = { id, email, title: "New chat", session_id: null, worktree: null, created_at: now, updated_at: now, messages: [] };
+  db.chats[id] = { id, email: user.email, tenant_id: user.tenantId, title: "New chat", session_id: null, worktree: null, created_at: now, updated_at: now, messages: [] };
   save();
   return db.chats[id];
 }
@@ -373,11 +387,11 @@ async function ask(req, res, user) {
   const question = String(body.question || "").trim();
   if (!question) return json(res, 400, { error: "question_required" });
   let chat = body.conversation_id && db.chats[body.conversation_id];
-  if (chat && chat.email !== user.email) return json(res, 404, { error: "not_found" });
+  if (chat && !sameOwner(chat, user)) return json(res, 404, { error: "not_found" });
   // One run per chat: two concurrent resumes of the same session fork it and
   // race on session_id / message order.
   if (chat && inFlight.has(chat.id)) return json(res, 409, { error: "chat_busy" });
-  if (!chat) chat = newChat(user.email);
+  if (!chat) chat = newChat(user);
   inFlight.add(chat.id);
   if (chat.title === "New chat") chat.title = question.slice(0, 60);
 
@@ -429,6 +443,7 @@ async function ask(req, res, user) {
     send({ type: "progress", phase: "planning", label: "Starting agent" });
     metric.first_progress_ms = since();
     const cwd = ensureWorktree(chat);
+    const pgEnv = loadPgEnv();
     const stream = query({
       prompt,
       options: {
@@ -454,7 +469,7 @@ async function ask(req, res, user) {
         // tooling" nag, which otherwise blocks every tool call in fresh chat worktrees.
         env: {
           ...agentEnv(),
-          ...PGENV,
+          ...pgEnv,
           GOATOS_AI_SETUP_GUARD: "0",
           CLAUDE_CODE_DISABLE_CLAUDE_MDS: "1", // loaded via repoInstructions() instead
           ENABLE_PROMPT_CACHING_1H: "1", // CEOs ask sporadically; keep the prefix warm for an hour
@@ -556,16 +571,16 @@ http
     if (p === "/ceo-ai/starters") return json(res, 200, { starters: STARTERS });
     if (p === "/ceo-ai/ask" && req.method === "POST") return ask(req, res, user);
     if (p === "/ceo-ai/conversations") {
-      if (req.method === "POST") return json(res, 200, summary(newChat(user.email)));
+      if (req.method === "POST") return json(res, 200, summary(newChat(user)));
       const mine = Object.values(db.chats)
-        .filter((c) => c.email === user.email && c.messages.length && !c.deleted_at)
+        .filter((c) => sameOwner(c, user) && c.messages.length && !c.deleted_at)
         .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
       return json(res, 200, { conversations: mine.map(summary) });
     }
     const f = p.match(/^\/ceo-ai\/conversations\/([^/]+)\/files\/([\w-]+)$/);
     if (f && req.method === "GET") {
       const chat = db.chats[decodeURIComponent(f[1])];
-      if (!chat || chat.email !== user.email) return json(res, 404, { error: "not_found" });
+      if (!chat || !sameOwner(chat, user)) return json(res, 404, { error: "not_found" });
       const ref = chat.messages.flatMap((x) => x.files || []).find((x) => x.id === f[2]);
       const dir = path.join(UPLOADS, chat.id);
       const name = ref && fs.existsSync(dir) ? fs.readdirSync(dir).find((n) => n.startsWith(`${ref.id}-`)) : undefined;
@@ -580,7 +595,7 @@ http
     const m = p.match(/^\/ceo-ai\/conversations\/([^/]+)(\/messages)?$/);
     if (m) {
       const chat = db.chats[decodeURIComponent(m[1])];
-      if (!chat || chat.email !== user.email || chat.deleted_at) return json(res, 404, { error: "not_found" });
+      if (!chat || !sameOwner(chat, user) || chat.deleted_at) return json(res, 404, { error: "not_found" });
       if (req.method === "GET") {
         return json(res, 200, { messages: chat.messages.map((x) => ({ ...x, message_id: x.id })) });
       }
