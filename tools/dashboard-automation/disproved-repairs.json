@@ -133,6 +133,14 @@
       "repair": "none needed",
       "mutation": "remove the CarryOverUnchangedVaccinationObligations call from the generation path",
       "result": "RED: TestGenerationCarriesOverBeforeItSupersedes \u2014 'carry-over never ran: every publish would cancel and re-mint the whole plan again'"
+    },
+    {
+      "sha": "e219b697f",
+      "subject": "the tenant-wide scan now supersedes work from a replaced plan",
+      "whyItDidNotBite": "stale verdict \u2014 it bites at the current tip.",
+      "repair": "none needed",
+      "mutation": "neuter supersedeRetiredPlanWork's body (return nil) rather than deleting its call sites",
+      "result": "RED twice: TestParkScopeGenerationStillSupersedesTheWorkItReplaces ('the plan it replaced keeps its open work forever') and TestGenerationCarriesOverBeforeItSupersedes"
     }
   ],
   "shapeOfTheRemainingJob": {
@@ -147,7 +155,7 @@
   },
   "whatAVerdictMeans": "The prover answers 'did this test bite AT THE MOMENT OF THE COMMIT', by checking that commit out and reverting its own non-test files. That is the right question for a fresh commit and a weaker one for a tree that has moved: five of the rows opened by hand are disproved at their own tree and bite at the current tip, because the code was refactored afterwards and the commit's test was rewritten with it. Both statements are true; the one a reader usually wants is 'is this behaviour protected NOW', and that is what every `mutation` field in this file records.",
   "tallyOfRowsOpenedByHand": {
-    "total": 17,
+    "total": 18,
     "genuinelyWeakAndRepaired": [
       "0c378ff27",
       "21ac4f56a",
@@ -167,7 +175,8 @@
       "5bba4d8f0",
       "93cb89104",
       "94e2efaaf",
-      "c54f07da4"
+      "c54f07da4",
+      "e219b697f"
     ],
     "misScopedOrNotOnThisBranch": [
       "b4612e578",
@@ -178,7 +187,8 @@
     "genuineAndStillOPEN": [
       "9fe71b380"
     ],
-    "readThisAs": "roughly a third of the disproved rows opened so far were genuinely weak tests, a third were stale or mis-scoped verdicts where the behaviour IS protected at the tip, and the rest were a dead suite, a real defect found next door, and one still open. Nobody should extrapolate the 52 from 17, but nobody should assume they are all weak tests either."
+    "readThisAs": "roughly a third of the disproved rows opened so far were genuinely weak tests, a third were stale or mis-scoped verdicts where the behaviour IS protected at the tip, and the rest were a dead suite, a real defect found next door, and one still open. Nobody should extrapolate the 52 from 17, but nobody should assume they are all weak tests either.",
+    "noteOnMethod": "Several of the stale ones only revealed themselves to a NEUTERED body, not a deleted call: deleting a call site can break the build (inconclusive), while returning early from the function keeps everything compiling and asks the real question. Worth reaching for when a revert refuses to compile."
   },
   "whatTheInconclusiveRowsAre": {
     "buildBreak": 172,
