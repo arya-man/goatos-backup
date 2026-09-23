@@ -1,6 +1,7 @@
 import { readWeighingPolicy } from "../../../tools/perf/weighing-workload.mjs";
 import { assertSmokeRouteIdentity, assertAnimalPurchaseHeading } from "./lib/smoke-route-identity.mjs";
 import { assertRegressionPatterns } from "./lib/regression-checks.mjs";
+import { checkCompositingHazards, compositingSummary } from "./lib/compositing-checks.mjs";
 import { exerciseOverlays } from "./lib/overlay-journeys.mjs";
 import { assertFeaturesPresent } from "./lib/feature-assertions.mjs";
 import { validateLocalStackReceipt, validateSmokeActor } from "./lib/local-stack-receipt.mjs";
@@ -117,6 +118,30 @@ async function resolveFixture(label, routeNames, resolve) {
     fixtureFindings.push({ viewport: "fixture", route: label, error: why });
     console.log(`fixture_lookup_failed=${label}|${why}`);
     return null;
+  }
+}
+
+// Flicker is the one bug family a per-route screenshot structurally cannot see: it
+// only exists between frames. Its CAUSE, though, is a CSS combination that can be
+// read straight off the stylesheet — an element that stays pinned while the page
+// scrolls under it and blurs what is behind it. That costs milliseconds and never
+// flakes, so it runs once per sweep, before the browser is even opened. The temporal
+// half lives in tools/dashboard-automation/check-mobile-flicker.mjs.
+{
+  const compositing = checkCompositingHazards(repoRoot);
+  console.log(`compositing_check=${compositing.ok ? "ok" : "found"}|${compositingSummary(compositing)}`);
+  for (const hazard of compositing.overlays) {
+    console.log(`compositing_overlay=${hazard.file}:${hazard.line}|${hazard.selector}`);
+  }
+  for (const hazard of compositing.scrolling.filter((f) => !f.appliesOnPhone)) {
+    console.log(`compositing_laptop_only=${hazard.file}:${hazard.line}|${hazard.selector}|switched off at phone width on line ${hazard.neutralisedAtLine}`);
+  }
+  for (const hazard of compositing.onPhone) {
+    fixtureFindings.push({
+      viewport: "mobile",
+      route: "stylesheet",
+      error: `${hazard.selector} (${hazard.file}:${hazard.line}) stays pinned while the page scrolls under it and blurs what is behind it, which makes a phone redraw the whole screen every frame`,
+    });
   }
 }
 

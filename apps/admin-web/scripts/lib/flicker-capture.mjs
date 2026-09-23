@@ -1,0 +1,320 @@
+// Drives a page the way a person does, films it, and hands the film to the detector.
+//
+// Two things here are not negotiable and are the reason this file exists at all:
+//
+// 1. FRAME RATE. Flicker at 60Hz is invisible to `page.screenshot()`, which takes
+//    tens to hundreds of milliseconds per call — by the time the second screenshot
+//    lands the flicker has been and gone several times over. CDP's
+//    `Page.startScreencast` pushes a frame whenever the compositor produces one,
+//    which is the only way to see something that only exists between frames.
+//
+// 2. EVIDENCE. A still PNG cannot show flicker. Attaching one and calling it proof
+//    is worse than attaching nothing, because it looks like evidence and isn't.
+//    Everything this module produces for a person to look at is either an animated
+//    GIF or a filmstrip of the frames either side of the event.
+import { execFileSync, spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { detectFlicker, grayFrameFromRgba } from "./flicker-detector.mjs";
+
+export const CAPTURE_DEFAULTS = Object.freeze({
+  // Long enough to catch a once-a-second recurrence several times over.
+  seconds: 8,
+  // The frames are downsampled for detection anyway; this keeps the screencast
+  // cheap and keeps the compositor doing roughly what it does for a real phone.
+  maxWidth: 390,
+  maxHeight: 844,
+  downsampleStep: 8,
+});
+
+function hasFfmpeg() {
+  return spawnSync("ffmpeg", ["-version"], { stdio: "ignore" }).status === 0;
+}
+
+/**
+ * What a person does on a page in the few seconds after it loads. Scrolling is the
+ * point: the sticky-plus-blur bug only tears when content moves underneath the
+ * pinned element, so a capture that never scrolls cannot see it.
+ *
+ * Each phase is recorded with its time window so the report can say what the
+ * person was doing when the screen misbehaved, in words, not in frame numbers.
+ */
+export async function driveLikeAPerson(page, mark) {
+  await mark("look at the page", async () => {
+    await page.waitForTimeout(500);
+  });
+  await mark("scroll down the page", async () => {
+    for (let i = 0; i < 6; i += 1) {
+      await page.mouse.wheel(0, 240);
+      await page.waitForTimeout(90);
+    }
+  });
+  await mark("scroll back up", async () => {
+    for (let i = 0; i < 6; i += 1) {
+      await page.mouse.wheel(0, -240);
+      await page.waitForTimeout(90);
+    }
+  });
+  // The recording that started this lane has the filter panel open, and the panel
+  // is the element carrying the blur. Opening it is part of the journey, not a
+  // nicety. Nothing here submits or changes anything: it opens a panel and scrolls.
+  await mark("open the filters and scroll", async () => {
+    const opener = page
+      .locator('button:has-text("Filters"), [aria-label="Filters"], .lt-fmore, .lt-fsheet-open')
+      .first();
+    if (await opener.count().catch(() => 0)) {
+      await opener.click({ timeout: 2_000 }).catch(() => {});
+      await page.waitForTimeout(400);
+      for (let i = 0; i < 4; i += 1) {
+        await page.mouse.wheel(0, 200);
+        await page.waitForTimeout(90);
+      }
+    } else {
+      for (let i = 0; i < 4; i += 1) {
+        await page.mouse.wheel(0, 200);
+        await page.waitForTimeout(90);
+      }
+    }
+  });
+}
+
+/**
+ * Film the page while `drive` exercises it.
+ *
+ * @returns {{ frames, phases, result }} frames carry their PNG bytes so evidence
+ *          can be written without filming twice.
+ */
+export async function captureFlicker(page, options = {}) {
+  const o = { ...CAPTURE_DEFAULTS, ...options };
+  const drive = o.drive ?? driveLikeAPerson;
+  const { PNG } = await import("pngjs");
+
+  const cdp = await page.context().newCDPSession(page);
+  const frames = [];
+  let t0 = null;
+  cdp.on("Page.screencastFrame", async (event) => {
+    // Acknowledge FIRST and always: an unacknowledged frame stops the screencast
+    // dead, and a capture that silently stops half way through looks exactly like
+    // a page that does not flicker.
+    try {
+      await cdp.send("Page.screencastFrameAck", { sessionId: event.sessionId });
+    } catch {
+      /* the session went away; nothing to do but stop collecting */
+    }
+    try {
+      const png = Buffer.from(event.data, "base64");
+      const decoded = PNG.sync.read(png);
+      const stamp = Number(event.metadata?.timestamp ?? 0);
+      if (t0 === null) t0 = stamp;
+      frames.push({
+        t: stamp - t0,
+        png,
+        gray: grayFrameFromRgba(decoded.data, decoded.width, decoded.height, {
+          t: stamp - t0,
+          step: o.downsampleStep,
+        }),
+      });
+    } catch {
+      /* one undecodable frame must not end the capture */
+    }
+  });
+
+  const phases = [];
+  const mark = async (label, fn) => {
+    const from = frames.length ? frames[frames.length - 1].t : 0;
+    await fn();
+    const to = frames.length ? frames[frames.length - 1].t : from;
+    phases.push({ label, from, to });
+  };
+
+  await cdp.send("Page.startScreencast", {
+    format: "png",
+    everyNthFrame: 1,
+    maxWidth: o.maxWidth,
+    maxHeight: o.maxHeight,
+  });
+  try {
+    await drive(page, mark);
+    await page.waitForTimeout(600); // let a trailing recurrence land
+  } finally {
+    await cdp.send("Page.stopScreencast").catch(() => {});
+    await cdp.detach().catch(() => {});
+  }
+
+  const result = detectFlicker(
+    frames.map((f) => f.gray),
+    o,
+  );
+  // Say what the person was doing when it happened, not which frame it was.
+  for (const event of result.events) {
+    const phase = phases.find((p) => event.startT >= p.from && event.startT <= p.to);
+    event.whileDoing = phase?.label ?? "using the page";
+  }
+  return { frames, phases, result };
+}
+
+/** The phase that most of the flicker happened in, for the one-sentence finding. */
+export function dominantPhase(result) {
+  const counts = new Map();
+  for (const event of result.events ?? []) {
+    const key = event.whileDoing ?? "using the page";
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  let best = null;
+  for (const [key, n] of counts) if (!best || n > best[1]) best = [key, n];
+  return best ? best[0] : "using the page";
+}
+
+/**
+ * Write something a person can actually look at: an animated GIF of the offending
+ * stretch, plus a filmstrip of the frames either side of it.
+ *
+ * Returns { gif, filmstrip, frames: [paths], note } — any of the first two may be
+ * null if ffmpeg is not on this machine, and `note` says so rather than pretending.
+ */
+export function writeFlickerEvidence(frames, result, outDir, name) {
+  mkdirSync(outDir, { recursive: true });
+  const event = (result.events ?? [])[0];
+  if (!event) return { gif: null, filmstrip: null, frames: [], note: "no flicker to show" };
+
+  // A couple of settled frames either side, so the GIF reads as "fine, wrong, fine".
+  const first = frames.findIndex((f) => f.gray.t >= event.startT);
+  const last = frames.findIndex((f) => f.gray.t >= event.endT);
+  const from = Math.max(0, (first < 0 ? 0 : first) - 2);
+  const to = Math.min(frames.length - 1, (last < 0 ? frames.length - 1 : last) + 2);
+
+  const seqDir = join(outDir, `${name}-frames`);
+  mkdirSync(seqDir, { recursive: true });
+  const written = [];
+  for (let i = from; i <= to; i += 1) {
+    const file = join(seqDir, `f${String(written.length + 1).padStart(3, "0")}.png`);
+    writeFileSync(file, frames[i].png);
+    written.push(file);
+  }
+  if (!hasFfmpeg()) {
+    return {
+      gif: null,
+      filmstrip: null,
+      frames: written,
+      note: "ffmpeg is not installed here, so the frames are attached one by one instead of as a GIF",
+    };
+  }
+
+  const gif = join(outDir, `${name}-flicker.gif`);
+  const filmstrip = join(outDir, `${name}-flicker-filmstrip.png`);
+  const pattern = join(seqDir, "f%03d.png");
+  try {
+    // Slow enough that a person can see the wrong frame go past, looping forever.
+    execFileSync(
+      "ffmpeg",
+      ["-v", "error", "-y", "-framerate", "6", "-i", pattern, "-vf", "scale=390:-1:flags=lanczos", "-loop", "0", gif],
+      { stdio: "ignore" },
+    );
+  } catch {
+    /* fall through: the frames are still on disk */
+  }
+  try {
+    execFileSync(
+      "ffmpeg",
+      [
+        "-v", "error", "-y", "-i", pattern,
+        "-vf", `scale=260:-1,tile=${Math.min(written.length, 8)}x1:margin=6:padding=4:color=0x1b1f1d`,
+        "-frames:v", "1", filmstrip,
+      ],
+      { stdio: "ignore" },
+    );
+  } catch {
+    /* same */
+  }
+  return {
+    gif: existsSync(gif) ? gif : null,
+    filmstrip: existsSync(filmstrip) ? filmstrip : null,
+    frames: written,
+    note: "",
+  };
+}
+
+/**
+ * Film a list of routes at the phone viewport.
+ *
+ * The browser is launched from here rather than from the runner in
+ * tools/dashboard-automation on purpose: Playwright and pngjs are admin-web's
+ * dependencies, and they only resolve for a module that lives under admin-web.
+ *
+ * Read-only throughout. It loads pages, scrolls them and opens panels.
+ */
+export async function filmRoutes({ baseUrl, bearerToken, outDir, routes, phone }) {
+  const { chromium } = await import("@playwright/test");
+  const browser = await chromium.launch();
+  const runs = [];
+  try {
+    const context = await browser.newContext({
+      viewport: { width: phone.width, height: phone.height },
+      isMobile: true,
+      hasTouch: true,
+      deviceScaleFactor: phone.deviceScaleFactor,
+      userAgent:
+        "Mozilla/5.0 (Linux; Android 14; Pixel 7 Build/UQ1A.240205.004; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/128.0.6613.127 Mobile Safari/537.36",
+    });
+    if (bearerToken) {
+      const cookieUrl = new URL(baseUrl);
+      await context.addCookies([{
+        name: "goatos_firebase_id_token",
+        value: bearerToken,
+        domain: cookieUrl.hostname,
+        path: "/",
+        httpOnly: true,
+        sameSite: "Lax",
+        expires: Math.floor(Date.now() / 1000) + 3600,
+      }]);
+    }
+    for (const route of routes) {
+      const page = await context.newPage();
+      const url = `${baseUrl}${route.path}`;
+      try {
+        await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45_000 });
+        await page.waitForTimeout(1_500);
+        // A page that bounced to a login screen was not the page we meant to film,
+        // and a clean result on it would be a false green.
+        const landedOn = new URL(page.url()).pathname;
+        if (route.path && !route.path.startsWith(landedOn.replace(/\/$/, "")) && /login|signin|sign-in/i.test(landedOn)) {
+          // A run that filmed a login screen says nothing about the page we meant to
+          // film, and reporting it as "no flicker" would be the purest kind of fake
+          // green: a clean result about a page nobody asked about. Park it instead.
+          runs.push({
+            route: route.name,
+            pageName: route.pageName,
+            url,
+            landedOn,
+            parked: "this page needs a signed-in session and the run did not have one, so it was never opened",
+          });
+          continue;
+        }
+        const { frames, phases, result } = await captureFlicker(page);
+        const evidence = result.flicker
+          ? writeFlickerEvidence(frames, result, outDir, route.name)
+          : { gif: null, filmstrip: null, frames: [], note: "" };
+        runs.push({
+          route: route.name,
+          pageName: route.pageName,
+          url,
+          landedOn,
+          capturedFrames: frames.length,
+          framesPerSecond: result.spanSeconds ? Number((frames.length / result.spanSeconds).toFixed(1)) : 0,
+          phases: phases.map((p) => p.label),
+          whileDoing: result.flicker ? dominantPhase(result) : "",
+          result,
+          evidence,
+        });
+      } catch (error) {
+        runs.push({ route: route.name, pageName: route.pageName, url, error: String(error?.message ?? error).split("\n")[0] });
+      } finally {
+        await page.close().catch(() => {});
+      }
+    }
+    await context.close();
+  } finally {
+    await browser.close();
+  }
+  return runs;
+}

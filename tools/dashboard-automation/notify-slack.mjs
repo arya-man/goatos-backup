@@ -13,7 +13,8 @@ import writeJourneysKind from "./lib/finding-kinds/write-journeys.mjs";
 import dataSanityKind from "./lib/finding-kinds/data-sanity.mjs";
 import apiContractsKind from "./lib/finding-kinds/api-contracts.mjs";
 import androidJourneysKind from "./lib/finding-kinds/android-journeys.mjs";
-const FINDING_KINDS = [writeJourneysKind, dataSanityKind, apiContractsKind, androidJourneysKind];
+import mobileFlickerKind from "./lib/finding-kinds/mobile-flicker.mjs";
+const FINDING_KINDS = [writeJourneysKind, dataSanityKind, apiContractsKind, androidJourneysKind, mobileFlickerKind];
 
 // Only the lanes that actually found something on THIS receipt are active. A registered lane that
 // contributed no findings contributes no rules and no blocks, so it cannot relabel, reorder or
@@ -674,6 +675,7 @@ function labelByLayer() {
     "data-sanity": "Figures on production that do not add up", // --- finding kinds (additive) ---
     "write-journeys": "Things a person does on the site", // --- finding kinds (additive) ---
     "android-journeys": "The phone app's opening screens", // --- finding kinds (additive) ---
+    "mobile-flicker": "Screens that flicker on the phone", // --- finding kinds (additive) ---
     lighthouse: "Lighthouse page performance",
     "grafana-smoke": "Grafana/dashboard health",
     "vaccination-lifecycle": "Vaccination backend lifecycle tests",

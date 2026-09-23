@@ -1,0 +1,315 @@
+#!/usr/bin/env node
+// Mobile-webview flicker — the class of bug the route sweep structurally cannot see.
+//
+// Lane 1 takes one settled screenshot per route. Flicker only exists between frames,
+// so no per-route screenshot will ever contain it. This runner carries the two checks
+// that can see it, and they are deliberately different in kind:
+//
+//   A. THE CAUSE, statically. `position:sticky` together with `filter`/`backdrop-filter`
+//      in one declaration block. No browser, milliseconds, never flaky. This is the
+//      check that would have caught the Tasks filter bar on the day its CSS landed.
+//      Implemented in apps/admin-web/scripts/lib/compositing-checks.mjs and also wired
+//      into the route sweep, so it runs whether or not this runner does.
+//
+//   B. THE SYMPTOM, temporally. Film the phone-width page while a person-like journey
+//      scrolls it and opens a panel, then look for a picture that changes and changes
+//      straight back, repeatedly. Implemented in
+//      apps/admin-web/scripts/lib/flicker-detector.mjs (pure) and flicker-capture.mjs
+//      (the CDP screencast driver).
+//
+// `--video` runs check B over a recording instead of a live page. That is not a
+// convenience: it is how the detector is held to ground truth. A detector that cannot
+// find the bug in the video of the bug is worth nothing, so that path is a test.
+//
+// Everything here is read-only. It loads pages, scrolls them and opens panels. It
+// submits nothing.
+import { execFileSync, spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { checkCompositingHazards, compositingSummary } from "../../apps/admin-web/scripts/lib/compositing-checks.mjs";
+import { detectFlicker } from "../../apps/admin-web/scripts/lib/flicker-detector.mjs";
+
+const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+export const RECEIPT_RELATIVE = "mobile-flicker/mobile-flicker-receipt.json";
+
+// The phone viewport lane 1 already uses. Kept identical on purpose: a finding that
+// only reproduces at some other width is not a finding about the lane people trust.
+export const PHONE = Object.freeze({
+  label: "mobile",
+  width: 390,
+  height: 844,
+  deviceScaleFactor: 3,
+  name: "an Android phone",
+});
+
+// Pages worth filming. Filming is seconds per route, so this is a short list of the
+// screens that carry a pinned-and-blurred element and that people are on all day —
+// not all 146 routes.
+export const FILMED_ROUTES = Object.freeze([
+  { name: "tasks", path: "/tasks?scope_mode=company", pageName: "The Tasks page" },
+  { name: "herd-register", path: "/herd/register", pageName: "The herd register" },
+  { name: "vaccination-plan", path: "/vaccination/plan", pageName: "The vaccination plan" },
+]);
+
+// ---------------------------------------------------------------------------
+// Check A
+// ---------------------------------------------------------------------------
+export function runStaticCheck(root = repo) {
+  const result = checkCompositingHazards(root);
+  return {
+    name: "pinned-and-blurred",
+    ok: result.ok,
+    summary: compositingSummary(result),
+    scanned: result.scanned,
+    scrolling: result.scrolling,
+    // Only these may be spoken about as something a phone will show; the rest are
+    // switched off at phone width and are a laptop-only combination.
+    onPhone: result.onPhone,
+    overlays: result.overlays,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Check B, over a recording (ground truth)
+// ---------------------------------------------------------------------------
+function ffprobeTimestamps(video) {
+  const out = execFileSync(
+    "ffprobe",
+    ["-v", "error", "-select_streams", "v:0", "-show_entries", "frame=pts_time", "-of", "csv=p=0", video],
+    { encoding: "utf8", maxBuffer: 1 << 28 },
+  );
+  return out.trim().split("\n").filter(Boolean).map(Number);
+}
+
+/**
+ * Decode a recording straight to downsampled grayscale. Going through ffmpeg's own
+ * scaler rather than decoding PNGs keeps this dependency-free and fast, and it is the
+ * same block-average the live capture applies.
+ */
+export function framesFromVideo(video, { step = 8 } = {}) {
+  const probe = execFileSync(
+    "ffprobe",
+    ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "csv=p=0:s=x", video],
+    { encoding: "utf8" },
+  ).trim().split("\n")[0];
+  const [sourceWidth, sourceHeight] = probe.split("x").map(Number);
+  const width = Math.max(1, Math.floor(sourceWidth / step));
+  const height = Math.max(1, Math.floor(sourceHeight / step));
+  const timestamps = ffprobeTimestamps(video);
+  const raw = execFileSync(
+    "ffmpeg",
+    ["-v", "error", "-i", video, "-vf", `scale=${width}:${height}`, "-pix_fmt", "gray", "-vsync", "0", "-f", "rawvideo", "-"],
+    { maxBuffer: 1 << 30 },
+  );
+  const size = width * height;
+  const count = Math.floor(raw.length / size);
+  const frames = [];
+  for (let i = 0; i < count; i += 1) {
+    frames.push({
+      t: timestamps[i] ?? i / 30,
+      width,
+      height,
+      gray: new Uint8Array(raw.subarray(i * size, (i + 1) * size)),
+      step,
+      sourceWidth,
+      sourceHeight,
+    });
+  }
+  return frames;
+}
+
+/** GIF + filmstrip cut straight out of the recording, at the times it went wrong. */
+export function evidenceFromVideo(video, result, outDir, name) {
+  mkdirSync(outDir, { recursive: true });
+  const event = result.events?.[0];
+  if (!event) return { gif: null, filmstrip: null, note: "no flicker to show" };
+  const pad = 0.12;
+  const from = Math.max(0, event.startT - pad);
+  const duration = event.endT - event.startT + pad * 2;
+  const gif = path.join(outDir, `${name}-flicker.gif`);
+  const filmstrip = path.join(outDir, `${name}-flicker-filmstrip.png`);
+  try {
+    execFileSync("ffmpeg", [
+      "-v", "error", "-y", "-ss", String(from), "-t", String(duration), "-i", video,
+      "-vf", "scale=300:-1:flags=lanczos,fps=8", "-loop", "0", gif,
+    ], { stdio: "ignore" });
+  } catch { /* the receipt still carries the numbers */ }
+  try {
+    execFileSync("ffmpeg", [
+      "-v", "error", "-y", "-ss", String(from), "-t", String(duration), "-i", video,
+      "-vf", "scale=210:-1,tile=6x1:margin=6:padding=4:color=0x1b1f1d", "-frames:v", "1", filmstrip,
+    ], { stdio: "ignore" });
+  } catch { /* same */ }
+  return {
+    gif: existsSync(gif) ? gif : null,
+    filmstrip: existsSync(filmstrip) ? filmstrip : null,
+    note: existsSync(gif) ? "" : "ffmpeg could not write the animation on this machine",
+  };
+}
+
+async function runVideo(video, outDir) {
+  if (spawnSync("ffprobe", ["-version"], { stdio: "ignore" }).status !== 0) {
+    throw new Error("ffprobe is not installed, so a recording cannot be read here");
+  }
+  const frames = framesFromVideo(video);
+  const result = detectFlicker(frames);
+  const evidence = evidenceFromVideo(video, result, outDir, "recording");
+  return { source: "recording", video: path.basename(video), result, evidence };
+}
+
+// ---------------------------------------------------------------------------
+// Check B, live
+// ---------------------------------------------------------------------------
+async function runLive({ baseUrl, bearerToken, outDir, routes }) {
+  // Playwright and pngjs are admin-web's dependencies and only resolve for a module
+  // that lives under admin-web, so the browser work stays there and this runner only
+  // asks for it.
+  const { filmRoutes } = await import("../../apps/admin-web/scripts/lib/flicker-capture.mjs");
+  const runs = await filmRoutes({ baseUrl, bearerToken, outDir, routes, phone: PHONE });
+  return { source: "live", device: PHONE, baseUrl, runs };
+}
+
+// ---------------------------------------------------------------------------
+// Receipt
+// ---------------------------------------------------------------------------
+export function buildReceipt({ statik, temporal, headless }) {
+  const runs = temporal?.runs ?? [];
+  const flickering = runs.filter((r) => r.result?.flicker);
+  // A run that never opened the page it was aimed at is parked with its reason, never
+  // counted as a clean page. A lane that quietly checks nothing is the worst outcome
+  // available: it goes green exactly when it is blind.
+  const parked = runs.filter((r) => r.parked || r.error);
+  const filmed = runs.filter((r) => r.result);
+  return {
+    lane: "mobile-flicker",
+    generatedAt: new Date().toISOString(),
+    device: PHONE,
+    // Check A: the cause. Sticky plus a filter is a failure; a fixed overlay is a note.
+    staticCheck: statik,
+    // Check B: the symptom.
+    temporal: temporal ?? null,
+    filmed: filmed.length,
+    parked: parked.map((r) => ({ route: r.route, why: r.parked ?? r.error })),
+    // Said out loud in the receipt so nobody reads a green temporal result as proof
+    // the screen is fine on a real phone. This is a GPU compositing artefact, and a
+    // headless browser does not composite the way a phone's GPU does.
+    headlessCaveat: headless
+      ? "Check B ran in headless Chromium on a laptop. Headless composites differently from a phone GPU, so a clean run here is not proof a real phone is clean. Check A is the one that holds on this evidence."
+      : "",
+    status: statik?.ok && flickering.length === 0 ? "pass" : "fail",
+  };
+}
+
+function writeReceipt(receipt, runDir) {
+  const file = path.join(runDir, RECEIPT_RELATIVE);
+  mkdirSync(path.dirname(file), { recursive: true });
+  writeFileSync(file, `${JSON.stringify(receipt, null, 2)}\n`);
+  return file;
+}
+
+// ---------------------------------------------------------------------------
+function parseArgs(argv) {
+  const parsed = { selfTest: false, video: null, live: false, outDir: null, staticOnly: false };
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (arg === "--self-test") parsed.selfTest = true;
+    else if (arg === "--static") parsed.staticOnly = true;
+    else if (arg === "--live") parsed.live = true;
+    else if (arg === "--video") parsed.video = argv[++i];
+    else if (arg === "--out") parsed.outDir = argv[++i];
+  }
+  return parsed;
+}
+
+export function selfTest() {
+  const assert = (condition, message) => { if (!condition) throw new Error(`self-test: ${message}`); };
+
+  // Check A finds the three pinned-and-blurred elements that are on main today, and
+  // does not fire on a filter that is not pinned to anything.
+  const statik = runStaticCheck();
+  assert(statik.scrolling.length >= 3, `check A must find the pinned-and-blurred elements, found ${statik.scrolling.length}`);
+  for (const selector of [".top", ".navback", ".lt-page .lt-fbar"]) {
+    assert(statik.scrolling.some((f) => f.selector === selector), `check A must flag ${selector}`);
+  }
+  // ...and must not claim the one that is switched off below 640px is a phone problem.
+  assert(!statik.onPhone.some((f) => f.selector === ".lt-page .lt-fbar"),
+    "an element made static at phone width must not be reported as a phone problem");
+  assert(statik.onPhone.some((f) => f.selector === ".top"),
+    "an element that stays pinned and blurred at phone width must be reported as one");
+  assert(!statik.scrolling.some((f) => f.selector === ".vr-results-loading"),
+    "check A must not flag an element that has a filter but is not pinned");
+  assert(statik.overlays.some((f) => f.selector === ".veil"),
+    "a fixed overlay must be reported separately, not counted as a scrolling hazard");
+
+  // A receipt with no temporal run must still be a complete receipt.
+  const receipt = buildReceipt({ statik: { ok: true }, temporal: null, headless: false });
+  assert(receipt.status === "pass", "a clean static check with no filming is a pass");
+  assert(receipt.lane === "mobile-flicker", "the receipt must name its lane");
+  const failing = buildReceipt({
+    statik: { ok: true },
+    temporal: { runs: [{ result: { flicker: true } }] },
+    headless: true,
+  });
+  assert(failing.status === "fail", "flicker found must fail the receipt");
+  assert(failing.headlessCaveat.includes("not proof"), "a headless run must carry its caveat in the receipt");
+
+  // A run that never opened the page it aimed at is parked with its reason and is
+  // never counted as a page that was checked and found clean.
+  const blind = buildReceipt({
+    statik: { ok: true },
+    temporal: { runs: [{ route: "tasks", parked: "not signed in" }, { route: "herd", error: "timed out" }] },
+    headless: true,
+  });
+  assert(blind.filmed === 0, "a parked run is not a filmed page");
+  assert(blind.parked.length === 2 && blind.parked.every((row) => row.why), "every parked run must carry a reason");
+
+  console.log("dashboard mobile flicker: self-test passed");
+}
+
+if (import.meta.url === `file://${process.argv[1]}`) {
+  const args = parseArgs(process.argv.slice(2));
+  if (args.selfTest) {
+    selfTest();
+  } else {
+    const runDir = args.outDir ?? path.join(repo, "outputs", "mobile-flicker", new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-"));
+    const outDir = path.join(runDir, "mobile-flicker");
+    const statik = runStaticCheck();
+    console.log(`pinned-and-blurred: ${statik.summary}`);
+    for (const f of statik.scrolling) console.log(`  ${f.file}:${f.line}  ${f.selector}  (${f.position} + ${f.filterProperty})`);
+
+    let temporal = null;
+    let headless = false;
+    if (args.video) {
+      temporal = { source: "recording", runs: [] };
+      const one = await runVideo(args.video, outDir);
+      one.pageName = "The Tasks page";
+      one.route = "tasks";
+      one.whileDoing = "";
+      temporal.runs.push(one);
+      const r = one.result;
+      console.log(`recording: ${r.flicker ? "FLICKER" : "no flicker"} — ${r.events.length} event(s) over ${r.spanSeconds}s, ${r.settledChanges} change(s) that stayed changed, ${r.easedReturns} smooth animation(s)`);
+      for (const e of r.events) console.log(`  ${e.startT}s..${e.endT}s  ${e.frames} frame(s), ${Math.round(e.peak * 100)}% of the screen, jumped in one frame (${e.abruptness})`);
+      if (r.extent) console.log(`  changed area: ${r.extent.width}x${r.extent.height} (${r.extent.coverage}% of the screen), about every ${r.cadenceSeconds}s`);
+      if (one.evidence.gif) console.log(`  gif: ${one.evidence.gif}`);
+      if (one.evidence.filmstrip) console.log(`  filmstrip: ${one.evidence.filmstrip}`);
+    } else if (args.live && !args.staticOnly) {
+      headless = true;
+      temporal = await runLive({
+        baseUrl: process.env.GOATOS_ADMIN_WEB_BASE_URL ?? "https://dashboard.mesha.sg",
+        bearerToken: process.env.GOATOS_BEARER_TOKEN ?? "",
+        outDir,
+        routes: FILMED_ROUTES,
+      });
+      for (const run of temporal.runs) {
+        if (run.error) { console.log(`${run.route}: could not be filmed — ${run.error}`); continue; }
+        console.log(`${run.route}: ${run.capturedFrames} frames at ${run.framesPerSecond}/s — ${run.result.flicker ? "FLICKER" : "no flicker"} (${run.result.reason})`);
+      }
+    }
+
+    const receipt = buildReceipt({ statik, temporal, headless });
+    const file = writeReceipt(receipt, runDir);
+    console.log(`receipt: ${file}`);
+    if (receipt.status !== "pass") process.exitCode = 1;
+  }
+}
