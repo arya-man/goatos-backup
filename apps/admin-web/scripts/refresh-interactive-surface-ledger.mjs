@@ -12,53 +12,11 @@
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { blankNonMarkup, scanInteractiveSurfaces } from "./lib/interactive-surfaces.mjs";
+import { blankNonMarkup, labelsNear, routesOwningFiles, scanInteractiveSurfaces } from "./lib/interactive-surfaces.mjs";
 import { readSourceFiles } from "./check-interactive-surfaces.mjs";
 
 const adminWeb = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const LEDGER = path.join(adminWeb, "scripts/interactive-surface-ledger.json");
-
-const NOISE = /^(?:[-–—|/,.:;]+|\d+|true|false|null|undefined)$/i;
-
-/** Control labels the surface's own source declares, in the window of text the surface owns. */
-export function labelsNear(text, index, limit = 4000) {
-  // Comments describe a surface; they are not on screen. Harvesting a label out of one would
-  // state an expected value the product never renders.
-  const window = blankNonMarkup(text).slice(index, index + limit);
-  const labels = new Set();
-  for (const re of [
-    /aria-label=(?:"([^"{}]{2,48})"|\{"([^"{}]{2,48})"\})/g,
-    /placeholder=(?:"([^"{}]{2,48})"|\{"([^"{}]{2,48})"\})/g,
-    /<label[^>]*>\s*([A-Z][^<>{}\n]{1,46})\s*</g,
-    /<(?:button|h1|h2|h3|h4|summary|th|option|legend)[^>]*>\s*([A-Z][^<>{}\n]{1,46})\s*</g,
-    /title=(?:"([^"{}]{2,48})"|\{"([^"{}]{2,48})"\})/g,
-    // Copy that arrives from the page contract at runtime. The KEY is the offline-derivable
-    // reference: the surface must render resolved copy for exactly these keys -- a blank panel
-    // renders none of them, and missing copy renders the raw key instead of a sentence.
-    // Any copy helper, matched by its ARGUMENT rather than its name: t(), c(), fc(), fdc()...
-    // A DOTTED key is a copy key -- a class name or a selector never looks like this -- so this
-    // reads every helper the pages use without having to enumerate their names.
-    /\b[A-Za-z_$][A-Za-z0-9_$]{0,12}\(\s*"([A-Za-z0-9_-]{2,30}(?:\.[A-Za-z0-9_-]{1,30}){1,5})"/g,
-    // copy(pageContract, "key") and copy(pageContract, "key", "fallback").
-    /\bcopy\(\s*[A-Za-z0-9_$.]+\s*,\s*"([A-Za-z0-9_.-]{2,60})"/g,
-    // Copy handed in as a prop object (features/configuration/row-actions.tsx renders every one of
-    // its controls as labels.<slot>). The SLOT is the reference: a blank menu renders none of them.
-    /\b(?:labels|copy|strings|text|[A-Za-z][A-Za-z0-9]*Copy|[A-Za-z][A-Za-z0-9]*Labels)\.([A-Za-z][A-Za-z0-9_]{1,29})\b/g,
-    // The one-letter copy helper the configuration pages use: c("action.close").
-    /\bc\(\s*"([A-Za-z0-9_.-]{2,60})"\s*\)/g,
-    /\b(?:ariaLabel|closeLabel|title|label|heading|placeholder)=\{?"([^"{}]{2,48})"\}?/g,
-    // What an edit form actually submits. A form that renders with its fields missing -- the exact
-    // shape a degraded payload produces -- no longer carries this set.
-    /\bname="([A-Za-z][A-Za-z0-9_.-]{1,39})"/g,
-    /data-testid="([A-Za-z0-9_-]{2,48})"/g,
-  ]) {
-    for (const match of window.matchAll(re)) {
-      const label = (match[1] ?? match[2] ?? "").replace(/\s+/g, " ").trim();
-      if (label && !NOISE.test(label)) labels.add(label);
-    }
-  }
-  return [...labels].sort();
-}
 
 function entryFor(surface, sourceText) {
   const labels = labelsNear(sourceText, surface.offset);
@@ -112,6 +70,9 @@ function entryFor(surface, sourceText) {
           `"${surface.anchor}" (${where})`,
         operator: "field-set-equals",
         expected: labels,
+        // The gate re-derives this from the same file and line and refuses the entry if it does
+        // not land on the same set, so the value cannot be an author's invention (judge B1).
+        provenance: { kind: "source", path: surface.path, line: surface.line, extractor: "labels-near" },
         // A blank screen, a failed payload, or a panel parked off-screen all read as no controls.
         blankScreenValue: [],
       },
@@ -128,10 +89,26 @@ function main() {
     return { ...surface, offset };
   });
 
+  const routesByPath = routesOwningFiles(files);
   const existing = existsSync(LEDGER) ? JSON.parse(readFileSync(LEDGER, "utf8")) : { entries: [] };
   const kept = new Map((existing.entries ?? []).map((e) => [e.key, e]));
 
-  const entries = surfaces.map((surface) => kept.get(surface.key) ?? entryFor(surface, byPath.get(surface.path) ?? ""));
+  const entries = surfaces.map((surface) => {
+    const entry = kept.get(surface.key) ?? entryFor(surface, byPath.get(surface.path) ?? "");
+    const routes = routesByPath.get(surface.path) ?? [];
+    // Routes are DERIVED every run, never hand-kept: a page that stops importing a component
+    // must drop off its list on the next refresh rather than leave a stale claim behind.
+    return routes.length
+      ? { ...entry, routes }
+      : {
+          ...entry,
+          routes: [],
+          routeGapReason:
+            /\/(loading|error|not-found)\.[jt]sx$/.test(surface.path)
+              ? "Next.js reaches this file by convention rather than by an import, so the import graph cannot name its route; it is the loading state of the page it sits beside"
+              : "no page in the app imports this file, directly or through a barrel -- nothing can reach this surface today, which is a finding of its own and not something an assertion can cover",
+        };
+  });
   const ledger = {
     note:
       "Decisions about every edit form, inline editor, row action and modal in admin-web. " +
