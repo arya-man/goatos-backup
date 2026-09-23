@@ -12,6 +12,7 @@ const require = createRequire(import.meta.url);
 const { webpack } = require("next/dist/compiled/webpack/webpack");
 const { chromium } = require("playwright");
 const app = fileURLToPath(new URL("../../", import.meta.url));
+const repo = path.resolve(app, "../..");
 
 async function bundle(dir) {
   const navigation = path.join(dir, "navigation.js");
@@ -39,7 +40,7 @@ async function bundle(dir) {
   const compiler = webpack({mode:"development",devtool:false,context:app,entry:path.join(dir,"entry.js"),
     output:{path:dir,filename:"bundle.js",publicPath:"/"},
     optimization:{splitChunks:false},plugins:[new webpack.optimize.LimitChunkCountPlugin({maxChunks:1})],
-    resolve:{extensions:[".tsx",".ts",".js"],modules:[path.join(app,"node_modules"),"node_modules"],alias:{
+    resolve:{extensions:[".tsx",".ts",".js"],modules:[path.join(app,"node_modules"),path.join(repo,"node_modules"),"node_modules"],alias:{
       "@":app,"next/navigation$":navigation,"next/link$":link,"./notification-actions$":actions}},
     module:{rules:[{test:/\.tsx?$/,exclude:/node_modules/,use:path.join(dir,"loader.cjs")}]}});
   try {
