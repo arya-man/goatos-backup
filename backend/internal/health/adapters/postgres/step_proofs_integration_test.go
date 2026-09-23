@@ -363,3 +363,68 @@ func TestAnEveningVisitCannotBeClosedInTheMorning(t *testing.T) {
 		t.Fatalf("closing the evening visit at 17:30: %v", err)
 	}
 }
+
+// EVERY GAP MUST BE FIXABLE FROM THE PICKER THAT REPORTS IT.
+//
+// The stage picker is built from animal_stage_lookup filtered to rows whose own age_band is adult
+// or kid. A stage whose lookup row has a NULL band is absent from it -- while the gap list, which
+// derives the band from the ANIMALS standing on the stage, names it loudly. On 2026-09-23 that was
+// ICU-Kid with 25 live animals: the console said those animals could not be diagnosed and offered
+// no way to map them, so the only route out was SQL.
+func TestAStageTheConsoleCallsAGapCanBeMappedFromTheConsole(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedHealthScope(t, ctx, pool)
+	repo := NewRepository(pool, 10*time.Second)
+
+	if _, err := repo.SaveDiagnosisType(ctx, domain.SaveDiagnosisTypeCommand{
+		TenantID: healthTenant, ActorID: healthActor, IdempotencyKey: "type-gap",
+		RequestFingerprint: "fp-type-gap", TypeKey: "adult", Label: "Adults", Status: "active",
+	}); err != nil {
+		t.Fatalf("author a type: %v", err)
+	}
+
+	// A stage the farm really uses, whose LOOKUP ROW carries no age band -- the shape that hid
+	// ICU-Kid from the picker.
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO animal_stage_lookup (tenant_id, stage_code, name, age_band, status)
+		 VALUES ($1::uuid, 'ICU-Kid', 'ICU-Kid', NULL, 'active') ON CONFLICT DO NOTHING`,
+		healthTenant); err != nil {
+		t.Fatalf("seed the stage catalog: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`UPDATE goats SET management_stage = 'ICU-Kid', age_band = 'kid'
+		  WHERE goat_id = $1::uuid AND tenant_id = $2::uuid`, healthGoat, healthTenant); err != nil {
+		t.Fatalf("stand an animal on it: %v", err)
+	}
+
+	view, err := repo.DiagnosisRouting(ctx, healthTenant)
+	if err != nil {
+		t.Fatalf("read the routing view: %v", err)
+	}
+
+	var named bool
+	for _, g := range view.UnroutedStages {
+		if g.StageCode == "icu-kid" {
+			named = true
+		}
+	}
+	if !named {
+		t.Fatalf("the gap list does not name icu-kid, so this test is checking the wrong thing: %+v", view.UnroutedStages)
+	}
+
+	var offered bool
+	for _, s := range view.Stages {
+		if s.StageCode == "icu-kid" {
+			offered = true
+			if s.AgeBand != "kid" {
+				t.Errorf("offered icu-kid in band %q, want the band its animals are in", s.AgeBand)
+			}
+		}
+	}
+	if !offered {
+		t.Fatal("the console names icu-kid as a gap and will not offer it in the picker; the manager cannot fix what they are shown")
+	}
+}

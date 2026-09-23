@@ -312,6 +312,32 @@ func (r *Repository) DiagnosisRouting(ctx context.Context, tenantID string) (dom
 		return out, fmt.Errorf("health: read unrouted stages: %w", err)
 	}
 
+	// EVERY GAP MUST BE FIXABLE FROM THE PICKER THAT REPORTS IT.
+	//
+	// The stage list comes from `animal_stage_lookup` and is filtered to rows whose own age_band
+	// is adult or kid. A stage whose lookup row has a NULL band -- ICU-Kid, with 25 live animals
+	// on this farm -- is therefore absent from the picker while the gap list names it. The
+	// manager was shown a problem and handed no way to fix it: those animals stayed
+	// undiagnosable, and the only route out was SQL.
+	//
+	// The gap rows carry the band derived from the ANIMALS standing on the stage, which is the
+	// better answer anyway -- that is the band the diagnosis engine itself resolves against.
+	known := make(map[string]struct{}, len(out.Stages))
+	for _, s := range out.Stages {
+		known[s.AgeBand+"/"+s.StageCode] = struct{}{}
+	}
+	for _, g := range out.UnroutedStages {
+		if _, ok := known[g.AgeBand+"/"+g.StageCode]; ok {
+			continue
+		}
+		out.Stages = append(out.Stages, domain.AvailableStage{
+			StageCode:   g.StageCode,
+			StageLabel:  g.StageLabel,
+			AgeBand:     g.AgeBand,
+			LiveAnimals: g.LiveAnimals,
+		})
+	}
+
 	return out, nil
 }
 
