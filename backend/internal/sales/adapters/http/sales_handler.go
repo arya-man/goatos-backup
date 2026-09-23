@@ -27,6 +27,7 @@ type SalesService interface {
 	CreateDeal(ctx context.Context, tenantID string, write domain.DealWrite, actorID, idempotencyKey string) (domain.Deal, error)
 	SellableProducts(ctx context.Context, tenantID string) ([]domain.Product, map[string][]string, error)
 	ListSellableProducts(ctx context.Context, tenantID string) ([]domain.ProductRow, error)
+	FeedItems(ctx context.Context, tenantID string) ([]string, error)
 	SaveSellableProduct(ctx context.Context, tenantID string, write domain.ProductWrite, actorID string) (domain.Product, error)
 	DeleteSellableProduct(ctx context.Context, tenantID, code, actorID string) error
 	RecordDealPayment(ctx context.Context, tenantID, dealID string, write domain.DealPaymentWrite, actorID, idempotencyKey string) (domain.Deal, error)
@@ -166,10 +167,18 @@ func (h *SalesHandler) ListSellableProducts(w http.ResponseWriter, r *http.Reque
 	for _, row := range rows {
 		out = append(out, toSellableProductPayload(row))
 	}
+	// The farm's configured feeds ride with the list, so the Feed row can SAY which feeds it
+	// covers -- the reader sees the dropdown is theirs and invents nothing.
+	feeds, err := h.service.FeedItems(r.Context(), tenantID(r))
+	if err != nil {
+		h.writeErr(w, r, app.SalesHTTPError(err))
+		return
+	}
 	httpresponse.WriteJSON(w, http.StatusOK, sellableProductPagePayload{
-		Products: out,
-		Kinds:    sellableProductKindPayloads(),
-		Units:    sellableProductUnitPayloads(),
+		Products:  out,
+		Kinds:     sellableProductKindPayloads(),
+		Units:     sellableProductUnitPayloads(),
+		FeedItems: feeds,
 	})
 }
 

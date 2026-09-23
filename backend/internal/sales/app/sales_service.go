@@ -180,6 +180,14 @@ func (s *SalesService) ListSellableProducts(ctx context.Context, tenantID string
 	return s.repo.ListAllSellableProducts(ctx, tenantID)
 }
 
+// FeedItems is the farm's configured feed list -- the same feed_item_catalog rows the ration grid
+// and the feed purchases are authored against. It is what the record-sale form offers when a feed
+// item is being sold, and what the item editor names beside the Feed row so a reader can see the
+// list is theirs.
+func (s *SalesService) FeedItems(ctx context.Context, tenantID string) ([]string, error) {
+	return s.repo.ListFeedItems(ctx, tenantID)
+}
+
 // SaveSellableProduct adds an item to the farm's registry, or edits one.
 //
 // The code is derived from the name when adding and kept when editing, so renaming an item leaves

@@ -6893,3 +6893,5 @@ aside.drawer.ltd-drawer{width:min(720px,94vw);overflow-y:auto;overscroll-behavio
 /* The controls must be allowed to SHRINK: a select carrying "Feed from the store" keeps its
    content width otherwise, and the row overflows its own card on a phone. */
 .sellable-product-row input,.sellable-product-row select{max-width:100%;min-width:0;box-sizing:border-box}
+/* The feeds a Feed item covers, listed under its row so the config-driven list is visible. */
+.sellable-product-row .sellable-product-covers{flex:1 1 100%;margin:0}

@@ -111,7 +111,11 @@ export async function recordSaleAction(formData: FormData): Promise<void> {
     if (result.error.code === "feed_stock_confirmation_required") {
       actionRedirectWithDetail(formData, "error", "action.sale_feed_stock_confirm", result.error.message);
     }
-    actionRedirect(formData, "error", "action.sale_record_failed");
+    // The backend names the exact field and what is wrong with it ("Quantity must be more than
+    // zero"); the banner used to drop that and say "check the fields", leaving the desk to hunt
+    // through a form of ten. The sentence is backend-composed farm copy, carried through the same
+    // way the stock confirmation's is.
+    actionRedirectWithDetail(formData, "error", "action.sale_record_failed", result.error.message);
   }
   revalidatePath(SALES_PATH);
   actionRedirect(formData, "success", "action.sale_recorded");
@@ -198,7 +202,19 @@ export async function saveSellableProductAction(
     status: "success",
     code: "sellable_product_saved",
     ticket,
-    product: { ...result.data, status, is_builtin: false, sort_order: sortOrder, species_code: speciesCode },
+    // Built from what the BACKEND saved, never from what the form sent: the two agree only if the
+    // write did what the client expected, and the row the client then shows must be the stored one.
+    product: {
+      name: result.data.name,
+      code: result.data.code,
+      kind: result.data.kind,
+      unit: result.data.unit,
+      priced_per_unit: result.data.priced_per_unit,
+      status,
+      is_builtin: false,
+      sort_order: sortOrder,
+      species_code: speciesCode,
+    },
   };
 }
 

@@ -23939,12 +23939,21 @@ components:
     SellableProductPage:
       type: object
       description: The farm's registry of what it sells, with the vocabularies its editor offers.
-      required: [products, kinds, units]
+      required: [products, kinds, units, feed_items]
       properties:
         products:
           type: array
           items:
             $ref: "#/components/schemas/SellableProduct"
+        feed_items:
+          type: array
+          description: >-
+            The farm's CONFIGURED feeds (feed_item_catalog, the rows the ration grid and the feed
+            purchases are authored against). An item of the feed kind must be one of these: a feed
+            is not a name somebody types, and inventing one would make a sale draw on a store that
+            does not exist.
+          items:
+            type: string
         kinds:
           type: array
           description: What an item can BE. The hint says what picking it does.

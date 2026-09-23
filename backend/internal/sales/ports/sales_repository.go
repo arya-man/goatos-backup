@@ -80,6 +80,10 @@ type SalesRepository interface {
 	// the farm already maintains, never one typed into this module.
 	ListProductVariants(ctx context.Context, tenantID string, products []domain.Product) (map[string][]string, error)
 
+	// ListFeedItems is the farm's configured feed list (feed_item_catalog): the closed set the
+	// record-sale form offers when a feed item is sold, and the list the Feed row names.
+	ListFeedItems(ctx context.Context, tenantID string) ([]string, error)
+
 	// ListAllSellableProducts reads the registry INCLUDING archived rows, for the editor.
 	ListAllSellableProducts(ctx context.Context, tenantID string) ([]domain.ProductRow, error)
 
