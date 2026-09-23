@@ -89,8 +89,11 @@ export type CeoAiStreamHandlers = {
 
 type AskPageScope = { park_id?: string; shed_id?: string };
 
+export type CeoAiAttachment = { name: string; type: string; data: string /* base64 */ };
+
 type AskArgs = {
   question: string;
+  attachments?: CeoAiAttachment[];
   conversationId?: string;
   locale?: string;
   pageScope?: AskPageScope;
@@ -204,6 +207,7 @@ async function readComposed(
       conversation_id: args.conversationId,
       locale: args.locale,
       page_scope: args.pageScope,
+      attachments: args.attachments?.length ? args.attachments : undefined,
       stream: true,
     }),
     signal,

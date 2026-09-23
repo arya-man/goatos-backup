@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily Mesha data map refresh
+
+[Timer]
+OnCalendar=*-*-* 07:30:00
+Persistent=true
+RandomizedDelaySec=10m
+
+[Install]
+WantedBy=timers.target

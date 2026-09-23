@@ -335,7 +335,7 @@ a bucket, or REOPEN it if it is already closed. No third verb, and no force,
 override or skip variant of close. The close gate is UNCONDITIONAL: a bucket
 cannot close while verification is pending, and if it will not close the answer
 is to resolve the verification, never to add a path around the gate. See
-`AGENTS.md` → "Weighing vocabulary" and
+`docs/agent-rules/business-medical-rules.md` → "Weighing vocabulary" and
 `context/repo-audits/weighing-implementation-do-not-reopen-ledger.md` → D-5.
 
 ## Production-Facing Naming

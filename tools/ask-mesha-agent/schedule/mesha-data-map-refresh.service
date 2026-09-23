@@ -1,0 +1,16 @@
+# systemd --user unit. Install:
+#   mkdir -p ~/.config/systemd/user
+#   cp tools/ask-mesha-agent/schedule/mesha-data-map-refresh.{service,timer} ~/.config/systemd/user/
+#   (edit GOATOS_REPO / PGENV_FILE / ExecStart paths)
+#   systemctl --user daemon-reload && systemctl --user enable --now mesha-data-map-refresh.timer
+#   loginctl enable-linger $USER   # run without an active login
+[Unit]
+Description=Refresh the Mesha data map (opens a PR, never merges)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+Environment=GOATOS_REPO=%h/goatos
+Environment=PGENV_FILE=%h/agent-local/.pgenv
+ExecStart=/bin/bash -lc '"$GOATOS_REPO"/tools/ask-mesha-agent/refresh-data-map.sh'

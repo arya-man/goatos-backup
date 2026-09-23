@@ -1,7 +1,14 @@
 "use client";
 
+import { CeoAiMarkdown, CopyButton } from "./ceo-ai-markdown";
 import {
+  Maximize2,
   MessageSquarePlus,
+  Mic,
+  MicOff,
+  Paperclip,
+  Minimize2,
+  Minus,
   PanelLeft,
   Pencil,
   Send,
@@ -186,6 +193,36 @@ function newId(): string {
   return typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `id-${Date.now()}-${Math.random()}`;
 }
 
+// Browser speech-to-text (Chrome/Edge/Safari). Hidden when unsupported (most
+// Android WebViews), so the mic never appears as a dead button.
+type SpeechRecognitionLike = {
+  lang: string;
+  interimResults: boolean;
+  continuous: boolean;
+  onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+  onend: (() => void) | null;
+  onerror: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+};
+function speechRecognitionCtor(): (new () => SpeechRecognitionLike) | undefined {
+  if (typeof window === "undefined") return undefined;
+  const w = window as unknown as Record<string, unknown>;
+  return (w.SpeechRecognition ?? w.webkitSpeechRecognition) as (new () => SpeechRecognitionLike) | undefined;
+}
+
+function fileToAttachment(file: File): Promise<{ name: string; type: string; data: string }> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const url = String(reader.result);
+      resolve({ name: file.name, type: file.type, data: url.slice(url.indexOf(",") + 1) });
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
 function asksAllParks(question: string): boolean {
   return /\b(all parks|across all parks|company(?:-wide)?|overall|whole company|tenant-wide)\b/i.test(question);
 }
@@ -204,11 +241,62 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
   const [allowed, setAllowed] = useState<boolean | null>(null);
   const [starters, setStarters] = useState<string[]>(copy.starters);
   const [open, setOpen] = useState(false);
+  // Window state: "normal" floating panel, "max" fills the viewport, "min" docks
+  // to a header-only bar. Conversation state survives every transition.
+  const [view, setView] = useState<"normal" | "max" | "min">("normal");
   const [showThreads, setShowThreads] = useState(true);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [conversationId, setConversationId] = useState<string | undefined>(undefined);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
+  const [files, setFiles] = useState<File[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [listening, setListening] = useState(false);
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const speechSupported = useMemo(() => typeof window !== "undefined" && Boolean(speechRecognitionCtor()), []);
+
+  // Esc restores a maximized/minimized panel to its normal size.
+  useEffect(() => {
+    if (!open || view === "normal") return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setView("normal");
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, view]);
+
+  const toggleVoice = useCallback(() => {
+    if (listening) {
+      recognitionRef.current?.stop();
+      return;
+    }
+    const Ctor = speechRecognitionCtor();
+    if (!Ctor) return;
+    const rec = new Ctor();
+    rec.lang = navigator.language || "en-IN";
+    rec.interimResults = true;
+    rec.continuous = true;
+    const base = input ? input.replace(/\s*$/, " ") : "";
+    rec.onresult = (event) => {
+      let heard = "";
+      for (let i = 0; i < event.results.length; i++) heard += event.results[i][0].transcript;
+      setInput(base + heard);
+    };
+    rec.onend = () => {
+      setListening(false);
+      recognitionRef.current = null;
+    };
+    rec.onerror = () => setListening(false);
+    recognitionRef.current = rec;
+    setListening(true);
+    rec.start();
+  }, [input, listening]);
+
+  const addFiles = useCallback((list: FileList | null) => {
+    if (!list) return;
+    setFiles((prev) => [...prev, ...Array.from(list)].slice(0, 5));
+  }, []);
+  const [dragging, setDragging] = useState(false);
   const [pending, setPending] = useState(false);
   const [showStarters, setShowStarters] = useState(true);
   const [banner, setBanner] = useState<{ kind: "err" | "warn"; text: string } | null>(null);
@@ -264,9 +352,13 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
   }, []);
 
   const ask = useCallback(
-    async (raw: string) => {
-      const question = raw.trim();
-      if (!question || pending) return;
+    async (raw: string, attached: File[] = []) => {
+      const typed = raw.trim();
+      if ((!typed && !attached.length) || pending) return;
+      recognitionRef.current?.stop();
+      const question = typed || "Please look at the attached file(s).";
+      const attachments = attached.length ? await Promise.all(attached.map(fileToAttachment)) : undefined;
+      setFiles([]);
       setInput("");
       setBanner(null);
       setPending(true);
@@ -276,7 +368,12 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
       const assistantId = newId();
       setMessages((prev) => [
         ...prev,
-        { id: newId(), role: "user", text: question, state: "complete" },
+        {
+          id: newId(),
+          role: "user",
+          text: attached.length ? `${question}\n${attached.map((f) => `📎 ${f.name}`).join("\n")}` : question,
+          state: "complete",
+        },
         { id: assistantId, role: "assistant", text: "", state: "streaming" },
       ]);
 
@@ -288,7 +385,7 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
 
       try {
         const final = await readCeoAiStream(
-          { question, conversationId, pageScope: currentPageScope(question), signal: controller.signal },
+          { question, attachments, conversationId, pageScope: currentPageScope(question), signal: controller.signal },
           {
             onToken: (text) =>
               setMessages((prev) =>
@@ -369,7 +466,7 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
 
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    void ask(input);
+    void ask(input, files);
   };
 
   const startNewChat = useCallback(async () => {
@@ -448,20 +545,51 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
   const startersVisible = showStarters || messages.length === 0;
 
   const rootStyle = open
-    ? {
+    ? view === "max"
+      ? { right: PANEL_MARGIN, bottom: PANEL_MARGIN, top: PANEL_MARGIN, left: PANEL_MARGIN }
+      : view === "min"
+        ? { right: PANEL_MARGIN, bottom: PANEL_MARGIN, width: `min(360px, calc(100vw - ${PANEL_MARGIN * 2}px))` }
+        : {
         right: PANEL_MARGIN,
         bottom: PANEL_MARGIN,
         width: `min(${PANEL_WIDTH}px, calc(100vw - ${PANEL_MARGIN * 2}px))`,
-        height: `min(640px, calc(100vh - ${PANEL_MARGIN * 2}px))`,
+        height: `min(640px, calc(100dvh - ${PANEL_MARGIN * 2}px))`,
       }
     : { right: 24, bottom: 24 };
 
   return (
-    <div className={`mzai-root ${open ? "mzai-open" : "mzai-closed"}`} style={rootStyle}>
+    <div className={`mzai-root ${open ? "mzai-open" : "mzai-closed"} mzai-view-${view}`} style={rootStyle}>
       <CeoAiStyles />
       {open ? (
-        <section className="mzai-panel" aria-label={copy.title}>
-          <div className="mzai-head">
+        <section
+          className={`mzai-panel${dragging ? " mzai-dragging" : ""}`}
+          aria-label={copy.title}
+          onDragEnter={(e) => {
+            if (e.dataTransfer.types.includes("Files")) {
+              e.preventDefault();
+              setDragging(true);
+            }
+          }}
+          onDragOver={(e) => {
+            if (e.dataTransfer.types.includes("Files")) e.preventDefault();
+          }}
+          onDragLeave={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false);
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragging(false);
+            addFiles(e.dataTransfer.files);
+            if (view === "min") setView("normal");
+          }}
+        >
+          {dragging ? <div className="mzai-drop">Drop files to attach</div> : null}
+          <div
+            className="mzai-head"
+            onClick={view === "min" ? () => setView("normal") : undefined}
+            onDoubleClick={view === "min" ? undefined : () => setView(view === "max" ? "normal" : "max")}
+            role={view === "min" ? "button" : undefined}
+          >
             <button
               type="button"
               className="mzai-icon"
@@ -479,8 +607,34 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
               <b>{copy.title}</b>
               <small>{copy.subtitle}</small>
             </span>
-            <div className="mzai-hbtns">
-              <button type="button" className="mzai-icon" onClick={() => setOpen(false)} aria-label={copy.close}>
+            <div className="mzai-hbtns" onClick={(e) => e.stopPropagation()}>
+              <button
+                type="button"
+                className="mzai-icon mzai-hide-mobile"
+                onClick={() => setView(view === "min" ? "normal" : "min")}
+                aria-label={view === "min" ? "Restore" : "Minimize"}
+                title={view === "min" ? "Restore" : "Minimize"}
+              >
+                <Minus className="ic" />
+              </button>
+              <button
+                type="button"
+                className="mzai-icon mzai-hide-mobile"
+                onClick={() => setView(view === "max" ? "normal" : "max")}
+                aria-label={view === "max" ? "Restore size" : "Maximize"}
+                title={view === "max" ? "Restore size" : "Maximize"}
+              >
+                {view === "max" ? <Minimize2 className="ic" /> : <Maximize2 className="ic" />}
+              </button>
+              <button
+                type="button"
+                className="mzai-icon"
+                onClick={() => {
+                  setOpen(false);
+                  setView("normal");
+                }}
+                aria-label={copy.close}
+              >
                 <X className="ic" />
               </button>
             </div>
@@ -563,9 +717,18 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
                     )}
                     <div className={`mzai-msg ${message.role} ${message.state}`}>
                       <div className="mzai-bub">
-                        {message.text}
+                        {message.role === "assistant" ? (
+                          <CeoAiMarkdown text={message.text} />
+                        ) : (
+                          message.text
+                        )}
                         {message.state === "streaming" && message.text ? <span className="mzai-caret" /> : null}
                       </div>
+                    {message.role === "assistant" && message.state === "complete" && message.id !== "hello" && message.text ? (
+                      <div className="mzai-actions">
+                        <CopyButton text={message.text} />
+                      </div>
+                    ) : null}
                     {message.role === "assistant" && message.state === "complete" && message.chart ? (
                       <CeoAiChart chart={message.chart} />
                     ) : null}
@@ -596,7 +759,7 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
                         })}
                       </div>
                     ) : null}
-                    {message.role === "assistant" && message.state === "complete" && message.id !== "hello" ? (
+                    {message.role === "assistant" && message.state === "complete" && message.id !== "hello" && message.mode !== "agent" ? (
                       <div className="mzai-foot">
                         <span className={`mzai-mode${message.mode === "degraded" ? " degraded" : ""}`}>
                           {formatSource(message.source) ? `${formatSource(message.source)} · ` : ""}
@@ -638,7 +801,44 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
                 </div>
               ) : null}
 
+              {files.length ? (
+                <div className="mzai-files">
+                  {files.map((f, i) => (
+                    <span key={`${f.name}-${i}`} className="mzai-file">
+                      <Paperclip size={12} />
+                      <span className="mzai-file-name" title={f.name}>{f.name}</span>
+                      <button
+                        type="button"
+                        aria-label={`Remove ${f.name}`}
+                        onClick={() => setFiles((prev) => prev.filter((_, j) => j !== i))}
+                      >
+                        <X size={12} />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              ) : null}
               <form className="mzai-form" onSubmit={onSubmit}>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  hidden
+                  accept="image/*,application/pdf,.csv,.xlsx,.xls,.txt,.md,.json"
+                  onChange={(e) => {
+                    addFiles(e.target.files);
+                    e.target.value = "";
+                  }}
+                />
+                <button
+                  type="button"
+                  className="mzai-tool"
+                  onClick={() => fileInputRef.current?.click()}
+                  aria-label="Attach files"
+                  title="Attach files"
+                >
+                  <Paperclip size={18} />
+                </button>
                 <textarea
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
@@ -648,15 +848,33 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
                       e.currentTarget.form?.requestSubmit();
                     }
                   }}
+                  onPaste={(e) => {
+                    if (e.clipboardData.files.length) {
+                      e.preventDefault();
+                      addFiles(e.clipboardData.files);
+                    }
+                  }}
                   rows={1}
-                  placeholder={copy.placeholder}
+                  placeholder={listening ? "Listening…" : copy.placeholder}
                 />
+                {speechSupported ? (
+                  <button
+                    type="button"
+                    className={`mzai-tool${listening ? " on" : ""}`}
+                    onClick={toggleVoice}
+                    aria-pressed={listening}
+                    aria-label={listening ? "Stop voice input" : "Voice input"}
+                    title={listening ? "Stop voice input" : "Voice input"}
+                  >
+                    {listening ? <MicOff size={18} /> : <Mic size={18} />}
+                  </button>
+                ) : null}
                 {pending ? (
                   <button type="button" className="mzai-send stop" onClick={stopGenerating} aria-label={CHROME.stop} title={CHROME.stop}>
                     <GoatWalking />
                   </button>
                 ) : (
-                  <button type="submit" className="mzai-send" aria-label={copy.send} disabled={!input.trim()}>
+                  <button type="submit" className="mzai-send" aria-label={copy.send} disabled={!input.trim() && !files.length}>
                     <Send className="ic" />
                   </button>
                 )}

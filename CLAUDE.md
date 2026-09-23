@@ -2,7 +2,7 @@
 
 ## Web Review Lens
 
-Follow `AGENTS.md` for all web/admin-web reviews: any change touching web UI,
+Follow `AGENTS.md` and `docs/agent-rules/ui-frontend.md` for all web/admin-web reviews: any change touching web UI,
 CSS, routes, page contracts, or visible copy must be reviewed on both laptop and
 mobile. Include nested tabs, drawers/modals/popovers, dynamic detail pages,
 sidebars, charts, tables, and scroll regions. A green build/typecheck alone is
@@ -20,7 +20,7 @@ Docker-specific test, or disposable mutation database.
 
 ## Vaccination Anchor Dates
 
-Follow the vaccination anchor-date rule in `AGENTS.md` and the detailed runbook
+Follow the vaccination anchor-date rule in `docs/agent-rules/vaccination.md` and the detailed runbook
 in `docs/preventive-care-vaccination/vaccination-anchor-runbook.md`. In short:
 an anchor date is baseline vaccine history/start-date semantics for the selected
 animals, not a blind one-off drive insert. Use the vaccination kernel/generation
@@ -29,7 +29,7 @@ actual RFID/tag identifiers rather than internal goat ids. `Z1+Z3` is one
 vaccine/program label, not separate `Z1`, `Z2`, and `Z3` stages.
 
 For vaccination drive packing, follow the 200-animals-per-operator-day rule in
-`AGENTS.md` and `docs/preventive-care-vaccination/vaccination-rules.md`: pack
+`docs/agent-rules/vaccination.md` and `docs/preventive-care-vaccination/vaccination-rules.md`: pack
 complete sheds first, keep sibling partitions under the same parent shed
 together when they fit, and do not split a whole shed/group merely to fill the
 last seats under 200.
