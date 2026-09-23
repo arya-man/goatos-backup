@@ -77,14 +77,23 @@ BEGIN
   -- "Manoj Kumar" would have had him swept into the move -- and, since Manoj is one of the two
   -- Cleaning Managers, reduced to attendance only.
   SELECT count(DISTINCT tenant_id) INTO v_tenants
-  FROM user_scope_grants WHERE role = 'operator' AND status = 'active';
+  FROM (
+    SELECT tenant_id FROM user_scope_grants WHERE role = 'operator' AND status = 'active'
+    UNION
+    SELECT tenant_id FROM auth_pending_email_grants WHERE role = 'operator' AND status = 'active'
+  ) operator_tenants;
 
   IF v_tenants > 1 THEN
-    RAISE EXCEPTION 'active operator grants span % tenants; this mapping is one farm''s roster and must not be applied by name across tenants', v_tenants;
+    RAISE EXCEPTION 'active operator grants, live or pending, span % tenants; this mapping is one farm''s roster and must not be applied by name across tenants', v_tenants;
   END IF;
 
   SELECT tenant_id INTO v_tenant
-  FROM user_scope_grants WHERE role = 'operator' AND status = 'active' LIMIT 1;
+  FROM (
+    SELECT tenant_id FROM user_scope_grants WHERE role = 'operator' AND status = 'active'
+    UNION
+    SELECT tenant_id FROM auth_pending_email_grants WHERE role = 'operator' AND status = 'active'
+  ) operator_tenants
+  LIMIT 1;
 
   IF v_tenant IS NULL THEN
     RAISE NOTICE 'no active operator grants at all; nothing to migrate';

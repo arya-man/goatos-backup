@@ -38,6 +38,15 @@ func TestOperatorRetirementTenantIsolationAndExactRollback(t *testing.T) {
 	_, sql := onlyMigrationWithSuffix(t, "retire_operator_onto_manager_roles")
 	// The harness applies all migrations before fixtures. Replay this data repair.
 	exec(`DROP TABLE IF EXISTS public.operator_retirement_000394_undo`)
+	if _, err := pool.Exec(ctx, migrationUp(sql)); err == nil || !strings.Contains(err.Error(), "live or pending, span 2 tenants") {
+		t.Fatalf("cross-tenant pending operator grant did not block retirement: %v", err)
+	}
+	var designationStatus string
+	if err := pool.QueryRow(ctx, `SELECT status FROM designation_catalog WHERE designation_code='operator'`).Scan(&designationStatus); err != nil || designationStatus != "active" {
+		t.Fatalf("operator designation after refused retirement = %q, err=%v; want active", designationStatus, err)
+	}
+	exec(`UPDATE auth_pending_email_grants SET status='revoked' WHERE pending_grant_id=$1`, id(23))
+	exec(`DROP TABLE IF EXISTS public.operator_retirement_000394_undo`)
 	exec(migrationUp(sql))
 	check := func(person int, role, status, designation string) {
 		t.Helper()
@@ -54,8 +63,8 @@ func TestOperatorRetirementTenantIsolationAndExactRollback(t *testing.T) {
 	check(12, "operator", "revoked", "operator")
 	check(22, "manager_feed", "active", "manager_feed")
 	var pendingRole, pendingStatus string
-	if err := pool.QueryRow(ctx, `SELECT role,status FROM auth_pending_email_grants WHERE pending_grant_id=$1`, id(23)).Scan(&pendingRole, &pendingStatus); err != nil || pendingRole != "operator" || pendingStatus != "active" {
-		t.Fatalf("cross-tenant pending grant got %s/%s, err=%v; want operator/active", pendingRole, pendingStatus, err)
+	if err := pool.QueryRow(ctx, `SELECT role,status FROM auth_pending_email_grants WHERE pending_grant_id=$1`, id(23)).Scan(&pendingRole, &pendingStatus); err != nil || pendingRole != "operator" || pendingStatus != "revoked" {
+		t.Fatalf("cross-tenant pending grant got %s/%s, err=%v; want operator/revoked", pendingRole, pendingStatus, err)
 	}
 	// A later same-name hire and a new grant are not undo targets. Renaming the
 	// original person must not prevent restoration of their original grant.
