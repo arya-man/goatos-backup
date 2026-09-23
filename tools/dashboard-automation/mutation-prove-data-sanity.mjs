@@ -55,18 +55,23 @@ function psql(dsn, sql, { tuplesOnly = true } = {}) {
 
 // Columns a row must supply. Anything NOT NULL without a default is filled with a
 // type-appropriate placeholder so a fixture only has to state the columns that carry the defect.
+let placeholderSeq = 0;
+
 export function buildInsert(sql, table, row, required) {
   const values = { ...row };
   for (const column of required) {
     if (column.name in values) continue;
-    values[column.name] = placeholderFor(column.type);
+    // Unique per filled column, so a table with a UNIQUE key on a column the
+    // fixture does not name cannot reject the second row it plants.
+    placeholderSeq += 1;
+    values[column.name] = placeholderFor(column.type, placeholderSeq);
   }
   const columns = Object.keys(values);
   const literals = columns.map((c) => values[c]);
   return `insert into public.${table} (${columns.map((c) => `"${c}"`).join(", ")}) values (${literals.join(", ")})`;
 }
 
-export function placeholderFor(type) {
+export function placeholderFor(type, seq = 0) {
   const t = String(type).toLowerCase();
   if (t === "uuid") return "'00000000-0000-4000-8000-000000000001'::uuid";
   if (t.startsWith("timestamp")) return "now()";
@@ -75,7 +80,7 @@ export function placeholderFor(type) {
   if (["integer", "bigint", "smallint", "numeric", "real", "double precision"].includes(t)) return "1";
   if (t === "jsonb" || t === "json") return `'{}'::${t}`;
   if (t === "array" || t.endsWith("[]")) return "'{}'";
-  return "'mutation-fixture'";
+  return `'mutation-fixture${seq ? `-${seq}` : ""}'`;
 }
 
 function requiredColumns(dsn, table) {
@@ -262,6 +267,7 @@ function selfTest() {
 
   const insert = buildInsert("", "goats", { sex: "'f'" }, [{ name: "tenant_id", type: "uuid" }, { name: "sex", type: "text" }]);
   if (!insert.includes("\"sex\"") || !insert.includes("'f'")) throw new Error("self-test: a fixture's own value must survive");
+  if (placeholderFor("text", 1) === placeholderFor("text", 2)) throw new Error("self-test: filled text must be unique per column");
   if (!insert.includes("00000000-0000-4000-8000-000000000001")) throw new Error("self-test: a required column must be filled");
   console.log(`lane 2 mutation prover: self-test passed (${covered.length} of ${catalogue.checks.length} checks have a defect to plant, ${gaps.length} named gaps)`);
   return 0;
