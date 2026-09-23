@@ -29,6 +29,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { checkCompositingHazards, compositingSummary } from "../../apps/admin-web/scripts/lib/compositing-checks.mjs";
 import { detectFlicker } from "../../apps/admin-web/scripts/lib/flicker-detector.mjs";
+import { assertSweepPermitted } from "./sweep-safety.mjs";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 export const RECEIPT_RELATIVE = "mobile-flicker/mobile-flicker-receipt.json";
@@ -64,6 +65,23 @@ export const FILMED_ROUTES = DEEP_FILM_ROUTES;
  * Offline by design: this reads a JSON blob someone hands the run, it never looks
  * anything up. A missing id is a named gap in the receipt, not a live query.
  */
+/**
+ * How many headless browsers are already alive.
+ *
+ * §8: `pgrep -f` matches your own command string, so this looks for the BROWSER
+ * binaries by name — never for anything containing this script's own path.
+ */
+export function browsersRunning() {
+  const probe = spawnSync("pgrep", ["-c", "-f", "headless_shell|chrome-linux/chrome"], { encoding: "utf8" });
+  const n = Number(String(probe.stdout ?? "").trim());
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** Refuse before a browser is opened, never after. */
+function permitSweep(pageLoads) {
+  return assertSweepPermitted({ env: process.env, browsersRunning: browsersRunning(), pageLoads });
+}
+
 export function fixturesFromEnv(env = process.env) {
   const raw = env.GOATOS_SMOKE_FIXTURES;
   if (!raw) return {};
@@ -85,7 +103,8 @@ export function fixturesFromEnv(env = process.env) {
 export async function liveRoutes({ focus = false, fixtures = {}, root = repo } = {}) {
   if (focus) return DEEP_FILM_ROUTES;
   const { resolveRoutes } = await import("../../apps/admin-web/scripts/lib/smoke-route-catalogue.mjs");
-  return resolveRoutes(root, { fixtures }).resolved;
+  const { resolved, assumed } = resolveRoutes(root, { fixtures });
+  return [...resolved, ...assumed];
 }
 
 /**
@@ -95,12 +114,20 @@ export async function liveRoutes({ focus = false, fixtures = {}, root = repo } =
  * lists hits: the only outputs are the denominator, the numerator, and a sentence
  * for each page that is in the first and not the second.
  */
-export function sweepCoverage({ all, resolved, unresolved, viewports, rows }) {
+/** Holes that need nothing but the clock; a route made only of these is never a gap. */
+export const CLOCK_HOLE_TEXT = /smokeWideWindow|getFullYear/;
+
+/** Sentences that explain a group instead of a page. None of these may reach a receipt. */
+export const BULK_EXCUSE = /^(unreachable|not covered|n\/a|unknown|skipped)\.?$|the path is built from a fixture looked up at run time/i;
+
+export function sweepCoverage({ all, resolved, assumed = [], unresolved, viewports, rows }) {
   const pagesNotJudged = [];
   const judgedPages = [];
   const seen = new Set();
+  const assumedNames = new Set(assumed.map((r) => r.name));
   for (const row of rows) {
     seen.add(`${row.viewport}:${row.route}`);
+    if (assumedNames.has(row.route)) continue; // already named as not judged, above
     const why = row.parked ?? row.error ?? null;
     if (why) pagesNotJudged.push({ route: row.route, viewport: row.viewport, why });
     else judgedPages.push(row);
@@ -116,11 +143,15 @@ export function sweepCoverage({ all, resolved, unresolved, viewports, rows }) {
     for (const route of unresolved) {
       for (const gap of route.gaps) pagesNotJudged.push({ route: route.name, viewport, why: gap.why });
     }
+    // A route built from an id nobody checked is not a judged page. Counting it
+    // made the receipt read best exactly when the fixtures were worst.
+    for (const route of assumed) pagesNotJudged.push({ route: route.name, viewport, why: route.why });
   }
   const pagesExpected = all.length * viewports.length;
   return {
     routesInLaneOne: all.length,
     routesResolved: resolved.length,
+    routesAssumed: assumed.length,
     viewports: [...viewports],
     pagesExpected,
     pagesJudged: judgedPages.length,
@@ -263,8 +294,11 @@ async function runLive({ baseUrl, bearerToken, outDir, routes }) {
 async function runSweep({ baseUrl, bearerToken, outDir, limit, fixtures }) {
   const { resolveRoutes } = await import("../../apps/admin-web/scripts/lib/smoke-route-catalogue.mjs");
   const { sweepViewport, SWEEP_VIEWPORTS } = await import("../../apps/admin-web/scripts/lib/flicker-capture.mjs");
-  const { all, resolved, unresolved } = resolveRoutes(repo, { fixtures });
-  const routes = limit ? resolved.slice(0, limit) : resolved;
+  const { all, resolved, assumed, unresolved } = resolveRoutes(repo, { fixtures });
+  // An assumed route is still VISITED — a page that renders is worth filming —
+  // but it is never counted as judged, because nothing checked the id behind it.
+  const sweepable = [...resolved, ...assumed];
+  const routes = limit ? sweepable.slice(0, limit) : sweepable;
   const rows = [];
   for (const viewport of SWEEP_VIEWPORTS) {
     const done = await sweepViewport({
@@ -284,8 +318,9 @@ async function runSweep({ baseUrl, bearerToken, outDir, limit, fixtures }) {
     // A fraction, with a sentence on every page that is not in the numerator.
     coverage: sweepCoverage({
       all,
-      resolved: limit ? routes : resolved,
-      unresolved: limit ? [...unresolved, ...resolved.slice(limit).map((r) => ({ ...r, gaps: [{ why: `--limit ${limit} stopped the sweep before this page` }] }))] : unresolved,
+      resolved: limit ? routes.filter((r) => !r.unverified) : resolved,
+      assumed,
+      unresolved: limit ? [...unresolved, ...sweepable.slice(limit).map((r) => ({ ...r, gaps: [{ why: `--limit ${limit} stopped the sweep before this page` }] }))] : unresolved,
       viewports,
       rows,
     }),
@@ -304,6 +339,10 @@ export function buildReceipt({ statik, temporal, headless }) {
   // need the repetition the whole-screen shimmer detector insists on.
   const showedThrough = runs.filter((r) => (r.overlay?.findings ?? []).length);
   const sweepFindings = (temporal?.rows ?? []).filter((row) => (row.findings ?? []).length);
+  // A page that loaded and drew nothing is a finding about the page, not a
+  // clean result. Without this, filming a "something went wrong" fallback
+  // produced identical frames and the same verdict a correct page gets.
+  const blankPages = (temporal?.rows ?? []).filter((row) => row.blankPage);
   // A run that never opened the page it was aimed at is parked with its reason, never
   // counted as a clean page. A lane that quietly checks nothing is the worst outcome
   // available: it goes green exactly when it is blind.
@@ -329,6 +368,7 @@ export function buildReceipt({ statik, temporal, headless }) {
     temporal: temporal ?? null,
     filmed: filmed.length,
     overlaysShowedThrough: showedThrough.length + sweepFindings.length,
+    blankPages: blankPages.map((row) => ({ route: row.route, viewport: row.viewport, why: row.parked })),
     coverage: temporal?.coverage ?? null,
     temporalVerdict,
     coverageLine: temporal?.coverage?.fraction ?? "",
@@ -343,11 +383,12 @@ export function buildReceipt({ statik, temporal, headless }) {
       && flickering.length === 0
       && showedThrough.length === 0
       && sweepFindings.length === 0
+      && blankPages.length === 0
       // A sweep that judged nothing may not report pass. §2: a check that did not run
       // renders no verdict, in either direction.
       && !(temporalAsked && temporalJudged === 0)
       ? "pass"
-      : temporalAsked && temporalJudged === 0 && flickering.length === 0 && showedThrough.length === 0 && sweepFindings.length === 0
+      : temporalAsked && temporalJudged === 0 && flickering.length === 0 && showedThrough.length === 0 && sweepFindings.length === 0 && blankPages.length === 0
         ? "not-checked"
         : "fail",
   };
@@ -443,23 +484,61 @@ export async function selfTestWide() {
   // THE REAL DECISION, not a copy of it. `--live` with no --focus films the whole
   // resolved table at both viewports; the 4-route phone-only list is what --focus
   // narrows to. Asserted through the same function the CLI calls.
-  const wide = await liveRoutes({});
+  const wide = await liveRoutes({ fixtures: fixturesFromEnv() });
   const narrow = await liveRoutes({ focus: true });
-  assert(wide.length >= 136, `--live must film the whole resolved table, it would film ${wide.length}`);
+  // NOT a floor equal to today's route count. A ratchet pinned to the exact
+  // current number has no headroom in one direction and no meaning in the
+  // other: add a route needing an id and it goes red for something that is not
+  // a defect. What must hold is that --live films the WHOLE table minus only
+  // the routes that are genuinely gaps.
+  const table = await import("../../apps/admin-web/scripts/lib/smoke-route-catalogue.mjs")
+    .then((m) => m.resolveRoutes(repo, { fixtures: fixturesFromEnv() }));
+  assert(wide.length === table.resolved.length + table.assumed.length,
+    `--live must film every route that has an address, ${wide.length} of ${table.resolved.length + table.assumed.length}`);
+  assert(wide.length > DEEP_FILM_ROUTES.length * 10,
+    "the live path must not have quietly gone back to an example");
   assert(narrow.length === DEEP_FILM_ROUTES.length, "--focus narrows to the deep-film subset");
-  assert(wide.length > narrow.length * 10, "the live path must not have quietly gone back to an example");
   assert(viewports.includes("laptop") && viewports.includes("mobile"),
     `both viewports must be swept, this sweeps ${viewports.join(", ")}`);
 
   // Coverage is a fraction over the WHOLE table, and every page outside the numerator
   // carries its own sentence.
-  const { all, resolved, unresolved } = resolveRoutes(repo, { fixtures: fixturesFromEnv() });
-  assert(resolved.length >= 136, `the sweep must resolve at least 136 of ${all.length} routes, it resolves ${resolved.length}`);
+  const { all, resolved, assumed, unresolved } = resolveRoutes(repo, { fixtures: fixturesFromEnv() });
+  // Accounting, not a floor: every route lands in exactly one bucket, and a
+  // route whose holes are all CLOCK holes is always resolved — that is the
+  // property that would break if the bulk excuse came back, and it stays true
+  // however many routes the table grows to.
+  assert(resolved.length + assumed.length + unresolved.length === all.length,
+    "every route is accounted for exactly once");
+  assert(unresolved.every((r) => r.gaps.every((g) => !CLOCK_HOLE_TEXT.test(g.hole ?? ""))),
+    "a route whose address needs nothing but the clock must never be reported as a gap");
+  assert(resolved.length > unresolved.length,
+    `most of the table must resolve from the clock alone, ${resolved.length} did of ${all.length}`);
+
+  // Junk ids must NOT lift the count. They used to take it to a clean 146 of 146.
+  const junk = resolveRoutes(repo, { fixtures: { goatId: "NOT-A-REAL-ID", toxinSopId: "placeholder", workflowRowId: "7", calendarEventId: "" } });
+  assert(junk.resolved.length === resolved.length,
+    `ids that are not records must not resolve a single route, they resolved ${junk.resolved.length - resolved.length} more`);
+  assert(junk.assumed.length === 0, "a junk id is refused outright, never assumed");
+  // A well-formed id nobody checked is an ASSUMPTION, reported as not judged.
+  const shaped = resolveRoutes(repo, { fixtures: { goatId: "3f2504e0-4f89-41d3-9a0c-0305e82c3301" } });
+  assert(shaped.assumed.some((r) => r.name === "goat-passport"),
+    "a well-formed but unchecked id produces an assumed route, never a resolved one");
+  assert(!shaped.resolved.some((r) => r.name === "goat-passport"), "and it is not counted as resolved");
+  assert(shaped.assumed[0].why.includes("never checked against a real record"), "and it says so");
+  // The shed page must never resolve to a shed CALLED placeholder. Stated as
+  // the property itself, so a run that supplies a real shed path still passes.
+  const shedPage = [...resolved, ...assumed].find((r) => r.name === "vaccination-shed-execution-detail");
+  assert(!shedPage || !/\bplaceholder\b/.test(shedPage.path),
+    `the vaccination shed page must not be filmed at a placeholder address (${shedPage?.path})`);
+  const shedUnprovisioned = resolveRoutes(repo, { fixtures: {} }).unresolved
+    .find((r) => r.name === "vaccination-shed-execution-detail");
+  assert(shedUnprovisioned, "with no shed supplied it is a named gap, not a page nobody opens");
   const rows = [
     { route: resolved[0].name, viewport: "laptop", judged: 2, skipped: [], findings: [] },
     { route: resolved[1].name, viewport: "laptop", judged: 0, skipped: [{ id: "opened-1", why: "nothing solid opened" }], findings: [], parked: "this page needs a signed-in session and the run did not have one" },
   ];
-  const coverage = sweepCoverage({ all, resolved, unresolved, viewports, rows });
+  const coverage = sweepCoverage({ all, resolved, assumed, unresolved, viewports, rows });
   assert(coverage.pagesExpected === all.length * viewports.length,
     `the denominator must be every route at every viewport, it is ${coverage.pagesExpected}`);
   assert(coverage.pagesJudged === 1, "only a page that was actually judged counts");
@@ -468,11 +547,31 @@ export async function selfTestWide() {
     `every page outside the numerator must be named, ${coverage.pagesNotJudged.length} of ${coverage.pagesExpected - 1} were`);
   assert(coverage.pagesNotJudged.every((g) => g.why && g.why.length > 15 && g.route && g.viewport),
     "every gap names its page, its viewport and why in a sentence");
+  // SHAPE, never a count of distinct reasons. Demanding at least three
+  // different unchecked reasons is a property of an UNDER-provisioned run:
+  // hand the sweep the ids it asks for and the count falls, so the gate
+  // punished the fix and taught the next person to provision it worse.
   const reasons = new Set(coverage.pagesNotJudged.map((g) => g.why));
-  assert(reasons.size >= 3, `a bulk excuse is not acceptable; this sweep gives ${reasons.size} distinct reasons`);
+  for (const why of reasons) {
+    assert(!BULK_EXCUSE.test(why), `a gap may not be explained in bulk: "${why}"`);
+  }
   assert([...reasons].some((r) => r.includes("signed-in session")), "a parked page keeps the reason it was parked for");
   assert([...reasons].some((r) => r.includes("stopped before it reached")), "a page the sweep never reached is named, not omitted");
-  assert([...reasons].some((r) => r.includes("no `goatId`")), "a route missing an id says which id");
+  // Only assert the missing-id sentence when a route is ACTUALLY missing an id.
+  // The gap names its page and what is missing in FARM words; the machine name
+  // of the missing thing rides a field beside it. §2 bans property names and
+  // code from a finding, and the first version of these sentences printed both.
+  for (const route of unresolved) {
+    for (const gap of route.gaps) {
+      assert(gap.why.includes(route.name), `a gap must name its own page: "${gap.why}"`);
+      assert(!/[`$]|encodeURIComponent|\$\{/.test(gap.why), `a finding may not print code at a person: "${gap.why}"`);
+      assert("needs" in gap, `${route.name} must carry the machine name of what it needs in a field, not in the sentence`);
+    }
+  }
+  // And no two pages may share one sentence: two toxin pages did.
+  const gapSentences = unresolved.flatMap((r) => r.gaps.map((g) => g.why));
+  assert(new Set(gapSentences).size === gapSentences.length,
+    "every gap needs its own sentence; two pages sharing one is a bulk excuse in disguise");
   assert(coverage.overlaysNotJudged.some((o) => o.why === "nothing solid opened" && o.route && o.viewport),
     "a dialog that was not judged is named with its page");
 
@@ -485,13 +584,23 @@ export async function selfTestWide() {
   });
   assert(blind.status === "not-checked", `a sweep that judged nothing must not pass, it said "${blind.status}"`);
   assert(blind.temporalVerdict.startsWith("not checked"), "and must say so in words");
+  // A page that loaded and drew nothing fails the receipt, and is named.
+  const blankPage = buildReceipt({
+    statik: { ok: true },
+    temporal: { runs: [], coverage, rows: [{ route: "tasks", viewport: "mobile", judged: 0, findings: [], skipped: [], blankPage: true, parked: "the page loaded and drew 0 piece(s) of content" }] },
+    headless: true,
+  });
+  assert(blankPage.status === "fail", `a page that drew nothing must not pass, it said "${blankPage.status}"`);
+  assert(blankPage.blankPages.length === 1 && blankPage.blankPages[0].route === "tasks",
+    "and the receipt must name which page it was");
+
   const some = buildReceipt({ statik: { ok: true }, temporal: { runs: [], coverage, rows: [] }, headless: true });
   assert(some.status === "pass" && some.temporalVerdict === "checked", "a sweep that judged a page and found nothing is a pass");
   assert(some.coverageLine === coverage.fraction, "the receipt carries the fraction, not a list of hits");
   const noTemporal = buildReceipt({ statik: { ok: true }, temporal: null, headless: false });
   assert(noTemporal.temporalVerdict.startsWith("not checked"), "a static-only run says the temporal check did not run");
 
-  console.log(`dashboard mobile flicker: wide self-test passed (${wide.length} routes x ${viewports.length} viewports resolvable, ${unresolved.length} routes named as gaps)`);
+  console.log(`dashboard mobile flicker: wide self-test passed (${resolved.length} of ${all.length} routes resolved, ${assumed.length} assumed, ${unresolved.length} named as gaps, x ${viewports.length} viewports)`);
 }
 
 function selfTestDone() {
@@ -500,6 +609,7 @@ function selfTestDone() {
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   const args = parseArgs(process.argv.slice(2));
+  const { resolveRoutes } = await import("../../apps/admin-web/scripts/lib/smoke-route-catalogue.mjs");
   if (args.selfTest) {
     selfTest();
     await selfTestWide();
@@ -528,26 +638,30 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       if (one.evidence.filmstrip) console.log(`  filmstrip: ${one.evidence.filmstrip}`);
     } else if (args.sweep && !args.staticOnly) {
       headless = true;
+      const table = resolveRoutes(repo, { fixtures: fixturesFromEnv() });
+      const { baseUrl } = permitSweep((table.resolved.length + table.assumed.length) * 2);
       temporal = await runSweep({
-        baseUrl: process.env.GOATOS_ADMIN_WEB_BASE_URL ?? "https://dashboard.mesha.sg",
+        baseUrl,
         bearerToken: process.env.GOATOS_BEARER_TOKEN ?? "",
         outDir,
         limit: args.limit,
         fixtures: fixturesFromEnv(),
       });
       const c = temporal.coverage;
-      console.log(`${c.fraction} (${c.routesResolved} of ${c.routesInLaneOne} routes x ${c.viewports.join(" + ")}), ${c.overlaysJudged} overlays judged`);
+      console.log(`${c.fraction} (${c.routesResolved} of ${c.routesInLaneOne} routes resolved, ${c.routesAssumed} built from ids nobody checked, x ${c.viewports.join(" + ")}), ${c.overlaysJudged} overlays judged`);
       // Every gap, with its own sentence. Grouped so a person reads reasons, not rows.
       const byReason = new Map();
       for (const gap of c.pagesNotJudged) byReason.set(gap.why, (byReason.get(gap.why) ?? 0) + 1);
       for (const [why, n] of [...byReason].sort((a, b) => b[1] - a[1])) console.log(`  not judged x${n}: ${why}`);
     } else if (args.live && !args.staticOnly) {
       headless = true;
+      const filming = await liveRoutes({ focus: args.focus, fixtures: fixturesFromEnv() });
+      const { baseUrl } = permitSweep(filming.length * 2);
       temporal = await runLive({
-        baseUrl: process.env.GOATOS_ADMIN_WEB_BASE_URL ?? "https://dashboard.mesha.sg",
+        baseUrl,
         bearerToken: process.env.GOATOS_BEARER_TOKEN ?? "",
         outDir,
-        routes: await liveRoutes({ focus: args.focus, fixtures: fixturesFromEnv() }),
+        routes: filming,
       });
       for (const run of temporal.runs) {
         if (run.error) { console.log(`${run.viewport}:${run.route}: could not be filmed — ${run.error}`); continue; }

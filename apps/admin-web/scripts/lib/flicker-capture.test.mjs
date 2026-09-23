@@ -45,9 +45,41 @@ const FLICKERING_PAGE = `<!doctype html><meta name=viewport content="width=devic
 /** A still page that does nothing at all. The negative control. */
 const CALM_PAGE = FLICKERING_PAGE.replace('n % 45 === 0 ? "1" : "0"', '"0"');
 
+// A test that hangs does not go red, it goes SILENT, and a suite that never
+// returns is indistinguishable from one still running. §2's "a check that did
+// not run must not render a verdict" applies to a test that never finishes, so
+// every browser step here is bounded and every bound has a sentence.
+//
+// The budget is generous on purpose: several agents share this laptop and a
+// cold Chromium start under contention is genuinely slow. What is not allowed
+// is unbounded.
+const BROWSER_BUDGET_MS = Number(process.env.GOATOS_FLICKER_TEST_BUDGET_MS ?? 30_000);
+const TEST_TIMEOUT_MS = BROWSER_BUDGET_MS * 3;
+
+/** Await `promise`, or fail with a sentence naming what did not answer. */
+async function bounded(promise, what, ms = BROWSER_BUDGET_MS) {
+  let timer;
+  let timedOut = false;
+  const bell = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      timedOut = true;
+      reject(new Error(`${what} did not respond within ${Math.round(ms / 1000)}s on this machine`));
+    }, ms);
+  });
+  try {
+    return await Promise.race([promise, bell]);
+  } finally {
+    clearTimeout(timer);
+    // Only the LOSER is cleaned up. Closing unconditionally here shut the
+    // browser the caller had just been handed — the cleanup broke the tests it
+    // was meant to protect, which is why it is conditional and asserted below.
+    if (timedOut) void Promise.resolve(promise).then((v) => v?.close?.()).catch(() => {});
+  }
+}
+
 async function phoneBrowser() {
   const { chromium } = await import("@playwright/test");
-  const browser = await chromium.launch();
+  const browser = await bounded(chromium.launch({ timeout: BROWSER_BUDGET_MS }), "the browser");
   const context = await browser.newContext({
     viewport: { width: 390, height: 844 },
     isMobile: true,
@@ -58,17 +90,23 @@ async function phoneBrowser() {
 }
 
 // The browser binary is not present everywhere this test suite runs. A missing
-// browser must read as "not run here", never as a pass.
-let available = true;
+// browser must read as "not run here", never as a pass — and a browser that is
+// PRESENT but will not start must read the same way rather than hanging the
+// suite. This probe is itself bounded: it used to run unbounded at module load,
+// so a wedged launch stopped the file before it reported anything at all.
+let skipReason = false;
 try {
   const { chromium } = await import("@playwright/test");
-  const probe = await chromium.launch();
+  const probe = await bounded(chromium.launch({ timeout: BROWSER_BUDGET_MS }), "the browser");
   await probe.close();
-} catch {
-  available = false;
+} catch (error) {
+  const message = String(error?.message ?? error);
+  skipReason = /did not respond within/.test(message)
+    ? `the browser is installed but did not start within ${Math.round(BROWSER_BUDGET_MS / 1000)}s on this machine, so these were not checked`
+    : "no browser on this machine";
 }
 
-test("the live capture sees a page that flickers", { skip: available ? false : "no browser on this machine" }, async () => {
+test("the live capture sees a page that flickers", { skip: skipReason, timeout: TEST_TIMEOUT_MS }, async () => {
   const { browser, context } = await phoneBrowser();
   const dir = mkdtempSync(path.join(tmpdir(), "flicker-capture-"));
   try {
@@ -100,7 +138,7 @@ test("the live capture sees a page that flickers", { skip: available ? false : "
   }
 });
 
-test("the live capture does not invent flicker on a calm page", { skip: available ? false : "no browser on this machine" }, async () => {
+test("the live capture does not invent flicker on a calm page", { skip: skipReason, timeout: TEST_TIMEOUT_MS }, async () => {
   const { browser, context } = await phoneBrowser();
   try {
     const page = await context.newPage();
@@ -116,7 +154,7 @@ test("the live capture does not invent flicker on a calm page", { skip: availabl
   }
 });
 
-test("scrolling a calm page is not reported as flicker", { skip: available ? false : "no browser on this machine" }, async () => {
+test("scrolling a calm page is not reported as flicker", { skip: skipReason, timeout: TEST_TIMEOUT_MS }, async () => {
   const { browser, context } = await phoneBrowser();
   try {
     const page = await context.newPage();
@@ -219,7 +257,7 @@ async function runOverlay(html, options = {}) {
 }
 
 test("finds a solid panel that shows the page through it when a filter changes",
-  { skip: available ? false : "no browser on this machine" }, async () => {
+  { skip: skipReason, timeout: TEST_TIMEOUT_MS }, async () => {
     const result = await runOverlay(overlayPage());
     assert.ok(result.overlays.length > 0, "the solid panel must be found on the page");
     const panel = result.findings.find((f) => f.showedThrough);
@@ -234,20 +272,20 @@ test("finds a solid panel that shows the page through it when a filter changes",
   });
 
 test("a solid panel that stays solid is not reported",
-  { skip: available ? false : "no browser on this machine" }, async () => {
+  { skip: skipReason, timeout: TEST_TIMEOUT_MS }, async () => {
     const result = await runOverlay(overlayPage({ flashOnChange: false }));
     assert.ok(!result.findings.some((f) => f.showedThrough),
       `a panel that behaves must stay quiet: ${JSON.stringify(result.findings.map((f) => f.events))}`);
   });
 
 test("a panel that closes on a change is not a panel that flickered",
-  { skip: available ? false : "no browser on this machine" }, async () => {
+  { skip: skipReason, timeout: TEST_TIMEOUT_MS }, async () => {
     const result = await runOverlay(overlayPage({ closeOnChange: true }));
     assert.ok(!result.findings.some((f) => f.showedThrough), "closing is what a panel is for");
   });
 
 test("a panel that is see-through by design is never judged at all",
-  { skip: available ? false : "no browser on this machine" }, async () => {
+  { skip: skipReason, timeout: TEST_TIMEOUT_MS }, async () => {
     // The whole basis of this check is that the browser says the element is opaque.
     // Something translucent must not even be collected, let alone reported.
     const result = await runOverlay(overlayPage({ panelAlpha: 0.6 }));
