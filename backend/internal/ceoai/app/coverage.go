@@ -540,16 +540,48 @@ var npDeterminers = map[string]bool{
 // -ed/-ing exemption waves through. Without it "which sheds missed their
 // milking session yesterday" is judged to be about this farm and reaches three
 // shed views on their filing system alone.
-func determinerHeadedNouns(text string) map[string]bool {
+// A PARTICIPLE IS NOT THE HEAD WHEN A MODELLED NOUN FOLLOWS IT. "a named
+// backup", "a missing tag", "an assigned operator" -- in each of these the
+// word after the determiner is an ADJECTIVE modifying the noun after it, and
+// the noun after it is a thing the catalogue names. Reading `named` as the
+// head noun is what made "list the roles that have a named backup" strict and
+// nominate NOTHING, though both `roles` and `backup` are modelled.
+//
+// The test is deliberately narrow on both sides: only a PAST participle
+// (-ed) is skipped, and only when the word it modifies is MODELLED. An -ing
+// word after a determiner is a gerund and IS the noun, so "which sheds missed
+// their milking session" still treats `milking` as the head and stays strict,
+// which is the behaviour this function was written for.
+func determinerHeadedNouns(text string, vocab map[string]int) map[string]bool {
 	out := map[string]bool{}
-	afterDeterminer := false
-	for _, w := range questionTokens(text) {
-		if afterDeterminer && !npOpeners[w] && !npBreakers[w] {
-			out[w] = true
+	tokens := questionTokens(text)
+	for i, w := range tokens {
+		if !npDeterminers[w] {
+			continue
 		}
-		afterDeterminer = npDeterminers[w]
+		j := i + 1
+		for j < len(tokens) && !npOpeners[tokens[j]] && !npBreakers[tokens[j]] &&
+			isParticipleForm(tokens[j]) && j+1 < len(tokens) &&
+			!npOpeners[tokens[j+1]] && !npBreakers[tokens[j+1]] &&
+			wordFormsAreModelled(tokens[j+1], vocab) {
+			j++
+		}
+		if j < len(tokens) && !npOpeners[tokens[j]] && !npBreakers[tokens[j]] {
+			out[tokens[j]] = true
+		}
 	}
 	return out
+}
+
+// isParticipleForm is the PAST participle only -- the -ed form. The -ing form
+// is deliberately excluded: after a determiner an -ing word is a GERUND and is
+// itself the noun ("their milking session", "the weighing progress"), which is
+// the case determinerHeadedNouns was written for in the first place. English
+// -ed after a determiner is an adjective and never the head of its phrase.
+// The irregular-verb list is deliberately not consulted: "a sold animal" would
+// be vocabulary, and this rule is meant to be grammar.
+func isParticipleForm(w string) bool {
+	return len(w) >= 5 && strings.HasSuffix(w, "ed")
 }
 
 // questionIsOnlyAboutItsBreakdown reports a question whose ONLY subject is a
@@ -593,7 +625,7 @@ func hasUnmodelledSubject(questionText string, vocab map[string]int) bool {
 	exempt := map[string]bool{}
 	candidates := map[string]bool{}
 	nounPos := nounPositionWords(questionText)
-	headNoun := determinerHeadedNouns(questionText)
+	headNoun := determinerHeadedNouns(questionText, vocab)
 	// A SHORT WORD IS STILL A SUBJECT. coverageWords keeps a four-letter floor
 	// so that `no`, `id` and `at` cannot nominate anything, but a word too
 	// short to SCORE can still be the thing the question is about -- "how much
@@ -605,13 +637,26 @@ func hasUnmodelledSubject(questionText string, vocab map[string]int) bool {
 		if len(w) < 3 || judged[w] {
 			continue
 		}
-		if questionStopWords[w] || nonMeasureWords[w] || coverageNoiseWords[w] {
+		if questionStopWords[w] || nonMeasureWords[w] || coverageNoiseWords[w] || isPeriodWord(w) {
 			continue
 		}
 		judged[w] = true
 	}
 	for w := range judged {
 		stem := coverageStem(w)
+		// A DATE IS WHEN, NOT WHAT. `august`, `monday`, `2026`, `q3` and `18`
+		// are TIME words exactly as `yesterday` and `last month` are, and
+		// those survive only because somebody happened to put them in
+		// questionStopWords. A month name is a noun sitting in a noun position
+		// ("in August", "for September", "on 18 September 2026") that no card
+		// and no tool is named after, so the polarity-inversion rule read it
+		// as proof the question was about another company and closed BOTH arms
+		// of nominates: measured, "what was our revenue in August" nominated
+		// NOTHING while "what was our revenue last month" nominated two.
+		if isPeriodWord(w) {
+			exempt[stem] = true
+			continue
+		}
 		// THE CRUDE SINGULAR IS NOT AN INDEPENDENT SUBJECT. questionWords adds
 		// a bare s-stripped form beside every plural, and that form is a
 		// fragment, not a word a leader said: "status" arrives with "statu"
@@ -649,6 +694,82 @@ func hasUnmodelledSubject(questionText string, vocab map[string]int) bool {
 		}
 	}
 	return false
+}
+
+// periodWords are the CALENDAR names of English: the twelve months (full name
+// and the abbreviations a leader types), the seven weekdays, and the quarter
+// tokens. Like the modals and the clitics elsewhere in this file, this is a
+// genuinely CLOSED class -- English will not grow a thirteenth month -- so
+// listing it is grammar rather than the word-by-word enumeration this file
+// exists to stop doing.
+//
+// The same vocabulary is resolved on the tool side by `englishMonths` in
+// internal/ceoai/adapters/readtools/toolexecutors.go. It is duplicated rather
+// than shared because app is the domain side of the hexagon and must not
+// import an adapter; if a third site ever needs it, lift it into its own
+// package and let both sides import that.
+var periodWords = map[string]bool{
+	"january": true, "february": true, "march": true, "april": true, "may": true,
+	"june": true, "july": true, "august": true, "september": true, "october": true,
+	"november": true, "december": true,
+	"jan": true, "feb": true, "mar": true, "apr": true, "jun": true, "jul": true,
+	"aug": true, "sep": true, "sept": true, "oct": true, "nov": true, "dec": true,
+	"monday": true, "tuesday": true, "wednesday": true, "thursday": true,
+	"friday": true, "saturday": true, "sunday": true,
+	"mon": true, "tue": true, "tues": true, "wed": true, "thu": true, "thur": true,
+	"thurs": true, "fri": true, "sat": true, "sun": true,
+	"q1": true, "q2": true, "q3": true, "q4": true,
+}
+
+// isPeriodWord reports a word that says WHEN the question is asked about
+// rather than WHAT it is about: a month or weekday name, a quarter token, a
+// bare four-digit year, or a day number written as a numeral or an ordinal
+// ("18", "18th", "1st"). None of these is a subject, so none of them can be
+// evidence that the question is about another company's records.
+func isPeriodWord(w string) bool {
+	if periodWords[w] {
+		return true
+	}
+	if isBareYear(w) {
+		return true
+	}
+	return isDayNumber(w)
+}
+
+// isBareYear reports a four-digit number in the range a farm's records can be
+// asked about.
+func isBareYear(w string) bool {
+	if len(w) != 4 {
+		return false
+	}
+	for _, r := range w {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return w >= "1900" && w <= "2999"
+}
+
+// isDayNumber reports a day of the month, as a numeral or an ordinal.
+func isDayNumber(w string) bool {
+	digits := w
+	for _, suffix := range []string{"st", "nd", "rd", "th"} {
+		if strings.HasSuffix(w, suffix) {
+			digits = strings.TrimSuffix(w, suffix)
+			break
+		}
+	}
+	if digits == "" || len(digits) > 2 {
+		return false
+	}
+	n := 0
+	for _, r := range digits {
+		if r < '0' || r > '9' {
+			return false
+		}
+		n = n*10 + int(r-'0')
+	}
+	return n >= 1 && n <= 31
 }
 
 // wordForms is a question word beside the OTHER form questionWords may have
@@ -885,6 +1006,11 @@ var questionStopWords = map[string]bool{
 	"where": true, "your": true, "ours": true, "each": true, "every": true, "last": true,
 	"month": true, "week": true, "today": true, "date": true, "days": true, "year": true,
 	"farm": true, "park": true, "please": true, "current": true, "total": true,
+	// The POLITENESS words, as the closed set they are. `please` was already
+	// here; `kindly` and `pls` are the same word in a leader's English, and
+	// "kindly share the weighing progress" nominated NOTHING because `kindly`
+	// sits in a noun position after nothing names it.
+	"kindly": true, "pls": true, "plz": true,
 	// The MODALS, as a closed class. English has nine of them and no tenth, so
 	// listing them is grammar rather than the word-by-word enumeration this
 	// file exists to stop doing. `will` was already here; the rest arrived
