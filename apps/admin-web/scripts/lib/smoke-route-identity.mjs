@@ -16,6 +16,12 @@ function canonicalSmokeRedirect(expectedPathname, actualPathname) {
   if (expectedPathname === actualPathname) return "same-path";
   if (expectedPathname === "/sales" && actualPathname === "/sales/sold") return "sales-sold";
   if (expectedPathname === "/procurement" && actualPathname === "/procurement/source-entry") return "procurement-source-entry";
+  // Kept-alive links from before the Actions -> Verify rename (maintainer decision
+  // 2026-08-12). Both pages exist only to redirect; see
+  // app/(admin)/actions/page.tsx and app/(admin)/verification/page.tsx. Landing on
+  // /verify is the whole point of visiting them, not a route that went astray.
+  if (expectedPathname === "/actions" && actualPathname === "/verify") return "actions-verify";
+  if (expectedPathname === "/verification" && actualPathname === "/verify") return "verification-verify";
   return "";
 }
 export function assertAnimalPurchaseHeading(heading) {

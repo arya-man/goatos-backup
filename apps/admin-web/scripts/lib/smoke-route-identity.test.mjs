@@ -27,3 +27,14 @@ test('procurement root may canonicalize to source entry only', () => {
   assert.throws(() => assertSmokeRouteIdentity('http://localhost/procurement?scope_mode=company&status=open', 'http://localhost/procurement/source-entry'), /query parameter/);
   assert.throws(() => assertSmokeRouteIdentity('http://localhost/procurement?scope_mode=company', 'http://localhost/procurement/animal-purchases?scope_mode=company'), /redirected/);
 });
+
+test('the kept-alive Actions/Verification links may land on Verify, and nothing else may', () => {
+  assert.equal(assertSmokeRouteIdentity('http://localhost/actions?scope_mode=company', 'http://localhost/verify?scope_mode=company'), '/verify');
+  assert.equal(assertSmokeRouteIdentity('http://localhost/verification?scope_mode=company', 'http://localhost/verify?scope_mode=company'), '/verify');
+  // The alias must carry the query through: a category deep-link that silently loses
+  // its category is the bug these pages exist to prevent.
+  assert.throws(() => assertSmokeRouteIdentity('http://localhost/actions?category=feed', 'http://localhost/verify'), /query parameter/);
+  // And no other page may quietly become Verify.
+  assert.throws(() => assertSmokeRouteIdentity('http://localhost/approvals', 'http://localhost/verify'), /redirected/);
+  assert.throws(() => assertSmokeRouteIdentity('http://localhost/actions', 'http://localhost/approvals'), /redirected/);
+});

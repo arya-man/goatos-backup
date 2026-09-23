@@ -8,6 +8,7 @@
 //
 // Selectors are taken from the component source (paths noted per step), never guessed.
 import { join } from "node:path";
+import { overlayHeaderOutOfView } from "./visible-break-rules.mjs";
 
 /** Labels that must never be clicked by the smoke. */
 export const WRITE_LABEL_PATTERN = /save|approve|reject|delete|retire|submit|upload|download|export|assign|mark|confirm|create|add\b/i;
@@ -209,12 +210,53 @@ export const overlayJourneys = {
   ],
 };
 
-/** Runs inside the page. Returns { issues: string[], offenders: number } and outlines offenders when `mark`. */
-function inspectOverlayInPage({ overlay, header, body, kind, minWidthRatio, mark }) {
+async function describeTriggerName(target, step) {
+  const described = await describeTarget(target).catch(() => null);
+  const name = String(described?.ariaLabel || described?.text || "").trim();
+  return name || step.id.replace(/-/g, " ");
+}
+
+/** Whatever the page put on screen instead of the panel: an error, a toast, a banner. */
+async function messageShownInstead(page) {
+  return page
+    .evaluate(() => {
+      const seen = [];
+      for (const el of document.querySelectorAll('[role=alert], [role=status], .err, .error, .toast, .banner-error, .vr-err')) {
+        if (el.getClientRects().length === 0) continue;
+        const text = (el.textContent ?? "").trim().replace(/\s+/g, " ");
+        if (text) seen.push(text.slice(0, 120));
+      }
+      return seen[0] ?? "";
+    })
+    .catch(() => "");
+}
+
+/** What is painted on top of a control that refused a press — in words, not selectors. */
+async function coveringElementName(page, target) {
+  const box = await target.boundingBox().catch(() => null);
+  if (!box) return "";
+  return page
+    .evaluate(
+      ({ x, y }) => {
+        const hit = document.elementFromPoint(x, y);
+        if (!hit) return "";
+        const named = hit.closest("[aria-label], [role=dialog], [role=alertdialog]") ?? hit;
+        const label = named.getAttribute?.("aria-label") || (named.textContent ?? "").trim().slice(0, 40);
+        return label ? `"${label}"` : "";
+      },
+      { x: Math.round(box.x + box.width / 2), y: Math.round(box.y + box.height / 2) },
+    )
+    .catch(() => "");
+}
+
+/** Runs inside the page. Returns { issues: string[], offenders: number, headerFacts } and outlines offenders when `mark`. */
+function inspectOverlayInPage({ overlay, header, body, kind, minWidthRatio, mark, headerVerdict }) {
   const issues = [];
   const offenders = [];
+  let headerFacts = null;
+  let headerNode = null;
   const el = [...document.querySelectorAll(overlay)].find((node) => node.getClientRects().length > 0) || document.querySelector(overlay);
-  if (!el) return { issues: [`overlay ${overlay} not mounted`], offenders: 0 };
+  if (!el) return { issues: [`overlay ${overlay} not mounted`], offenders: 0, headerFacts: null };
   const vw = window.innerWidth;
   const vh = window.innerHeight;
   const r = el.getBoundingClientRect();
@@ -272,7 +314,22 @@ function inspectOverlayInPage({ overlay, header, body, kind, minWidthRatio, mark
     if (!h) flag(el, `header ${header} missing`);
     else {
       const hr = h.getBoundingClientRect();
-      if (hr.height < 4 || hr.top < -1 || hr.top < r.top - 1 || hr.top > r.top + 48 || hr.bottom > vh + 1) flag(h, `header not visible at the top (top ${Math.round(hr.top)}px vs overlay ${Math.round(r.top)}px)`);
+      // Facts only. overlayHeaderOutOfView decides in Node whether a reader can see the
+      // title: the old rule demanded the title start within 48px of the panel's top edge,
+      // which failed every drawer that puts a breadcrumb or an Edit/Close bar above it.
+      let scrollerScrollTop = 0;
+      for (let q = h; q && q !== el.parentElement; q = q.parentElement) {
+        if (q.scrollHeight > q.clientHeight + 1 && q.scrollTop > scrollerScrollTop) scrollerScrollTop = q.scrollTop;
+      }
+      headerFacts = {
+        overlayTop: r.top,
+        headerTop: hr.top,
+        headerBottom: hr.bottom,
+        headerHeight: hr.height,
+        viewportHeight: vh,
+        scrollerScrollTop,
+      };
+      headerNode = h;
     }
   }
   const bodyEl = body ? el.querySelector(body) : el;
@@ -289,8 +346,14 @@ function inspectOverlayInPage({ overlay, header, body, kind, minWidthRatio, mark
       }
     }
   }
+  // On the marking pass Node tells us what it decided about the title, so the red
+  // outline lands on the same element the message talks about.
+  if (headerVerdict && headerNode) {
+    issues.push(headerVerdict);
+    offenders.push(headerNode);
+  }
   if (mark) for (const node of offenders) node.style.outline = "3px solid red";
-  return { issues, offenders: offenders.length };
+  return { issues, offenders: offenders.length, headerFacts };
 }
 
 function applies(step, viewportLabel) {
@@ -339,21 +402,47 @@ export async function exerciseOverlays(page, { routeName, viewportLabel, screens
     }
     await picked.target.scrollIntoViewIfNeeded().catch(() => {});
     await assertReadOnlyClickTarget(picked.target, { allowDialogTrigger: step.allowDialogTrigger });
-    await picked.target.click({ timeout: 5_000 });
     const fail = async (what) => {
-      await page.evaluate(inspectOverlayInPage, { ...step, mark: true }).catch(() => {});
+      await page.evaluate(inspectOverlayInPage, { ...step, mark: true, headerVerdict: headerVerdict || undefined }).catch(() => {});
       const issuesPath = join(screenshotDir, `${viewportLabel}-${routeName}-${step.id}-issues.png`);
       await page.screenshot({ path: issuesPath }).catch(() => {});
       console.log(`screenshot_path=${relativeToRepo(issuesPath)}`);
       throw new Error(`${routeName} ${viewportLabel} overlay ${step.id}: ${what}`);
     };
+    // A raw Playwright timeout reads "locator.click: Timeout 5000ms exceeded." and names
+    // nothing — not the page, not the control, not the reason. Say which control on which
+    // page, and try once more after the page has settled so a board that was still
+    // re-rendering is not reported as a control nobody can press.
+    const triggerName = await describeTriggerName(picked.target, step);
+    let clicked = await picked.target.click({ timeout: 5_000 }).then(() => true, () => false);
+    if (!clicked) {
+      await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => {});
+      clicked = await picked.target.click({ timeout: 5_000 }).then(() => true, () => false);
+    }
+    let headerVerdict = "";
+    if (!clicked) {
+      const blocker = await coveringElementName(page, picked.target);
+      await fail(blocker ? `"${triggerName}" cannot be pressed: ${blocker} is on top of it` : `"${triggerName}" did not respond to a press`);
+    }
     const opened = await page.locator(step.overlay).first().waitFor({ state: "attached", timeout: 10_000 }).then(() => true, () => false);
-    if (!opened) await fail(`did not open (${step.overlay} never mounted after clicking ${step.trigger})`);
+    if (!opened) {
+      // Say what the reader is left looking at. "never mounted after clicking
+      // button.btn.sm.ghost[aria-label^=Access]" is a selector dump; "showed 'That person
+      // is no longer on the roster.'" is the thing on the screen.
+      const shown = await messageShownInstead(page);
+      await fail(
+        shown
+          ? `did not open — pressing "${triggerName}" showed "${shown}" instead`
+          : `did not open — pressing "${triggerName}" did nothing`,
+      );
+    }
     // Poll so open transitions settle; report the last inspection if it never becomes healthy.
     let result = { issues: ["not inspected"] };
     const deadline = Date.now() + 3_000;
     while (Date.now() < deadline) {
       result = await page.evaluate(inspectOverlayInPage, { ...step, mark: false });
+      headerVerdict = overlayHeaderOutOfView(result.headerFacts);
+      if (headerVerdict) result = { ...result, issues: [...result.issues, headerVerdict] };
       if (result.issues.length === 0) break;
       // Re-inspect once the page has actually painted again. Two animation frames is the browser's
       // own signal that the open transition advanced; a fixed sleep is a guess at how long it takes.

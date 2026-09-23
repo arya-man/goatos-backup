@@ -363,3 +363,16 @@ test("routes that need a fixture id are dropped when that id is missing", () => 
   assert.match(smokeSource, /if \(route\.name === "goat-passport"\) return Boolean\(goatId\);/);
   assert.match(smokeSource, /return Boolean\(toxinSopId\);/);
 });
+
+test("no route is declared twice", () => {
+  // configuration-items and configuration-work-instructions were each declared twice
+  // (2026-09-22 sweep), so every finding on those pages was reported, screenshotted and
+  // posted twice — the same page, the same problem, two entries.
+  const seen = new Map();
+  const duplicates = [];
+  for (const [name, path] of routeEntries) {
+    if (seen.has(name)) duplicates.push(`${name} (${seen.get(name)} / ${path})`);
+    else seen.set(name, path);
+  }
+  assert.deepEqual(duplicates, [], `route names declared more than once: ${duplicates.join(", ")}`);
+});

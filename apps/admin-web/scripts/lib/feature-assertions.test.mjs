@@ -93,3 +93,32 @@ test("every asserted feature entry states which expectation it is checking", () 
     }
   }
 });
+
+test("a step written as a sentence is a check to finish, not a broken feature", () => {
+  const source = readFileSync(new URL("./feature-assertions.mjs", import.meta.url), "utf8");
+  // A prose step reaches locatorFor with neither css nor text, so it used to throw an
+  // error that read like a product failure and was counted as one on every single run.
+  assert.match(source, /NEEDS_STEP_PREFIX/);
+  assert.match(source, /typeof target === "string" \|\| \(!target\.css && !target\.text\)/);
+  // It must be separated BEFORE the missing-feature bucket.
+  const needsAt = source.indexOf("message.startsWith(NEEDS_STEP_PREFIX)");
+  const missingAt = source.indexOf('if (entry.status !== "data-dependent") missing.push(');
+  assert.ok(needsAt > 0 && needsAt < missingAt, "unwritten steps must be split off before the missing bucket");
+  // And it must land on the wording that says a check needs review, not one that says
+  // the farm's screen is broken.
+  assert.match(source, /assertion\(s\) need review/);
+});
+
+test("the manifest still carries the unwritten steps this split is for", () => {
+  // These are the entries that reported a present feature as missing on 2026-09-22.
+  // When someone finishes writing them as { css } / { text }, this list shrinks —
+  // it is here so the shrink is deliberate and visible, not silent.
+  const prose = [];
+  for (const entry of loadFeatureAssertions()) {
+    for (const step of entry.steps ?? []) {
+      if (typeof step.click === "string") prose.push(entry.sha);
+    }
+  }
+  assert.ok(prose.includes("5c504076c"), "the Tasks attachment picker entry");
+  assert.ok(prose.includes("75d30c3ef"), "the Tasks scope entry");
+});
