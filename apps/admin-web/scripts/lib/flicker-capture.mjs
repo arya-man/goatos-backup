@@ -357,7 +357,19 @@ export async function filmRoutes({ baseUrl, bearerToken, outDir, routes, phone }
 // it. Read-only throughout — it opens a panel and ticks a filter box. Nothing is
 // submitted, nothing is saved.
 
-/** Open the filter panel on a list page, if the page has one. */
+/** The rows a person ticks to filter a list. */
+const OPTION_ROWS =
+  '.lt-people-row, .lt-fgroup.open input[type="checkbox"], .lt-fsheet input[type="checkbox"], .lt-fgroup.open [role="option"]';
+
+/**
+ * Open the filter panel AND get its options on screen.
+ *
+ * Both halves matter. On /tasks the panel opens showing "Assignee / Raised by / Sort /
+ * Dates" and the list of people is one more tap away, so a driver that stops at the
+ * panel has nothing to tick and the check reports "could not judge it" — which is what
+ * the first production run did. The options are revealed here, before the overlay is
+ * measured, so the panel's box and colour are read once it has finished growing.
+ */
 export async function openFilterPanel(page) {
   const opener = page
     .locator('button:has-text("Filters"), [aria-label="Filters"], .lt-fmore, .lt-fsheet-open, .lt-fbar button')
@@ -365,6 +377,16 @@ export async function openFilterPanel(page) {
   if (!(await opener.count().catch(() => 0))) return false;
   await opener.click({ timeout: 3_000 }).catch(() => {});
   await page.waitForTimeout(700);
+
+  if (!(await page.locator(OPTION_ROWS).count().catch(() => 0))) {
+    const discloser = page
+      .locator('.lt-fgroup.open button:has-text("Assignee"), .lt-fsheet button:has-text("Assignee"), .lt-fgroup.open button:has-text("Raised by")')
+      .first();
+    if (await discloser.count().catch(() => 0)) {
+      await discloser.click({ timeout: 3_000 }).catch(() => {});
+      await page.waitForTimeout(900);
+    }
+  }
   return true;
 }
 
@@ -373,21 +395,18 @@ export async function openFilterPanel(page) {
  * moment in the film. Only rows inside the open panel are touched, and only ones that
  * read as a filter option — never a button that could save, apply, clear or submit.
  */
-export async function changeFilterOptions(page, mark, { times = 4 } = {}) {
-  const options = page.locator(
-    '.lt-fgroup.open input[type="checkbox"], .lt-fgroup.open [role="checkbox"], .lt-fsheet input[type="checkbox"], [class*="fgroup"].open label',
-  );
+export async function changeFilterOptions(page, mark, { times = 5 } = {}) {
+  const options = page.locator(OPTION_ROWS);
   const available = await options.count().catch(() => 0);
   if (!available) return 0;
   let changed = 0;
-  for (let i = 0; i < Math.min(times, available); i += 1) {
+  for (let i = 0; i < Math.min(times, available - 1); i += 1) {
     // Skip the first row: on this page it is "All", which clears rather than filters.
-    const option = options.nth(Math.min(i + 1, available - 1));
-    const done = await mark(`change the filters`, async () => {
+    const option = options.nth(i + 1);
+    await mark("change the filters", async () => {
       await option.click({ timeout: 3_000 }).catch(() => {});
       await page.waitForTimeout(900);
     });
-    void done;
     changed += 1;
   }
   return changed;
