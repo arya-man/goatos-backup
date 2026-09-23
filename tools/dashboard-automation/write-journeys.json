@@ -666,6 +666,17 @@
         "sql": "select count(*)::text from protocol_rules r join protocol_versions v on v.protocol_version_id = r.protocol_version_id where v.status = 'published' and r.created_at > now() - interval '10 minutes'",
         "expect": "zero-count"
       },
+      "simulatedRefusal": {
+        "description": "attempt to change a dose on an already-published plan version, and require the database itself to refuse it",
+        "failedStep": "try to change a dose on it",
+        "precondition": {
+          "description": "there is a published plan version with a dose on it to try this against",
+          "sql": "select 1::text from protocol_rules r join protocol_versions v on v.protocol_version_id = r.protocol_version_id where v.status = 'published' limit 1",
+          "expect": "at-least-one-row"
+        },
+        "sql": "update protocol_rules r set created_at = r.created_at from protocol_versions v where v.protocol_version_id = r.protocol_version_id and v.status = 'published'",
+        "refusedWhenErrorMatches": "not draft|published config is immutable"
+      },
       "writesTables": [
         "protocol_versions",
         "protocol_rules"

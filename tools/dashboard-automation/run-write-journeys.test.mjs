@@ -26,7 +26,7 @@ import {
   screenDriverMissing,
   summarise,
   validateCatalogue,
-  verdictNeedsItsOwnWrite,
+  attemptRefusal,
   exitCodeFor
 } from "./run-write-journeys.mjs";
 
@@ -453,16 +453,91 @@ test("the live vaccination publish failure is still a failure: a real screen run
   assert.equal(record.notAttemptedReason, undefined, "a real failure is never swept into the not-attempted bucket");
 });
 
-test("a rule journey still earns its verdict without a write; a write journey does not", () => {
-  // A rule journey asserts something already true of the data ("the item a ration names is still
-  // there"). Its answer does not depend on the journey having written anything.
-  assert.equal(verdictNeedsItsOwnWrite(catalogue.journeys.find((j) => j.name === "feed-item-in-use-cannot-be-deleted")), false);
-  assert.equal(verdictNeedsItsOwnWrite(catalogue.journeys.find((j) => j.name === "publish-vaccination-plan-version")), true);
+test("a rule journey that never attempts its forbidden operation is not-attempted, not a pass", () => {
+  // The false green this replaced: `feed-item-in-use-cannot-be-deleted` asserts "the item a
+  // ration names is still there". With no browser and no attempted delete that is just "the
+  // fixture data exists", and reporting it as "the business rule holds" is a verdict the run
+  // never earned. A false green gets trusted, which makes it worse than a false red.
   const engine = fakeEngine();
+  let asked = 0;
   const rule = catalogue.journeys.find((j) => j.name === "feed-item-in-use-cannot-be-deleted");
-  const record = runJourney(rule, { engine, driveUi: notAttemptedUi, queryRows: () => [["row-id"]], token: "A1", screenshotDir: "/tmp" });
-  assert.equal(record.status, "pass");
-  assert.equal(record.screen.status, "parked", "but what a browser would have proved is still recorded as unproved");
+  const record = runJourney(rule, {
+    engine,
+    driveUi: notAttemptedUi,
+    queryRows: () => { asked += 1; return [["row-id"]]; },
+    token: "A1",
+    screenshotDir: "/tmp"
+  });
+  assert.equal(record.status, "not-attempted", "nobody tried the delete, so nothing about the rule is known");
+  assert.equal(record.humanFailure, null);
+  assert.equal(asked, 0, "the rule's assertion must not be asked when the rule was never put to the test");
+  assert.match(record.notAttemptedReason, /never made|not checked|no stand-in/);
+});
+
+test("every journey needs its own action attempted - rule journeys included, no exceptions", () => {
+  // There is no longer a category of journey that earns a verdict without doing anything.
+  const engine = fakeEngine();
+  for (const name of ["feed-item-in-use-cannot-be-deleted", "published-plan-version-stays-locked", "partition-label-survives-a-move"]) {
+    const rule = catalogue.journeys.find((j) => j.name === name);
+    const record = runJourney(rule, { engine, driveUi: notAttemptedUi, queryRows: () => [["1"]], token: "A1", screenshotDir: "/tmp" });
+    assert.equal(record.status, "not-attempted", `${name} must not report a verdict it did not earn`);
+  }
+});
+
+// ---------------------------------------------------------------------------------------------
+// Where the database itself enforces the rule, the rule CAN be genuinely proved without a screen.
+// ---------------------------------------------------------------------------------------------
+
+const lockedRule = catalogue.journeys.find((j) => j.name === "published-plan-version-stays-locked");
+const refusalError = (detail) => { const e = new Error("database statement failed (exit 3)"); e.serverDetail = detail; throw e; };
+
+test("a rule whose forbidden operation is refused for the right reason earns its pass", () => {
+  const ui = attemptRefusal(lockedRule, (sql) => {
+    if (/select 1::text/.test(sql)) return [["1"]];
+    return refusalError("ERROR: protocol version 7 is published, not draft; published config is immutable");
+  });
+  assert.equal(ui.applied, true, "the operation really was attempted");
+  assert.equal(ui.ok, true, "and it really was refused");
+  assert.equal(ui.status, "refused");
+});
+
+test("a rule whose forbidden operation GOES THROUGH is a real, earned failure", () => {
+  const ui = attemptRefusal(lockedRule, (sql) => (/select 1::text/.test(sql) ? [["1"]] : []));
+  assert.equal(ui.applied, true);
+  assert.equal(ui.ok, false, "the guard did not hold, and that is a finding");
+  const engine = fakeEngine();
+  const record = runJourney(lockedRule, { engine, driveUi: () => ui, queryRows: () => [["0"]], token: "A1", screenshotDir: "/tmp" });
+  assert.equal(record.status, "fail");
+  assert.equal(record.humanFailure, lockedRule.humanFailure);
+  assert.equal(record.screen.status, "parked", "no screen was driven, so the receipt must not claim one failed");
+  assert.ok(engine.calls.includes("restore") && engine.calls.includes("verifyRestore"), "an attempted write is still put back and proved");
+});
+
+test("a refusal for the WRONG reason is not-attempted, never a pass", () => {
+  // A missing column or an unrelated constraint also throws. Counting any error as "refused"
+  // would be the same false green in a new place.
+  const ui = attemptRefusal(lockedRule, (sql) => {
+    if (/select 1::text/.test(sql)) return [["1"]];
+    return refusalError('ERROR: column "created_at" does not exist');
+  });
+  assert.equal(ui.applied, false, "an unrelated error means the rule was never put to the test");
+  assert.equal(ui.status, "not-attempted");
+  assert.match(ui.reason, /never put to the test/);
+});
+
+test("a rule with nothing to attempt it against is not-attempted, never a pass", () => {
+  const ui = attemptRefusal(lockedRule, () => []);
+  assert.equal(ui.applied, false, "no published version to try it on means the guard was never tested");
+  assert.equal(ui.status, "not-attempted");
+  assert.match(ui.reason, /nothing to try this rule against/);
+});
+
+test("a refusal attempt must say how a real refusal is recognised, and what to try it against", () => {
+  const base = catalogue.journeys[0];
+  const noMatcher = { journeys: [{ ...base, simulatedRefusal: { sql: "update x set y = y", precondition: { sql: "select 1" } } }] };
+  assert.ok(validateCatalogue(noMatcher).some((p) => /any error at all would be read as the rule holding/.test(p)));
+  const noPrecondition = { journeys: [{ ...base, simulatedRefusal: { sql: "update x set y = y", refusedWhenErrorMatches: "nope" } }] };
+  assert.ok(validateCatalogue(noPrecondition).some((p) => /never be put to the test/.test(p)));
 });
 
 test("a run where nothing was attempted is its own status, distinct from a run that failed", () => {
