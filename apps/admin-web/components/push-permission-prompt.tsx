@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type CSSProperties } from "react";
 import { Bell, BellOff, BellRing, Loader2 } from "lucide-react";
 import {
   detectWebPushSupport,
@@ -51,6 +51,26 @@ import { pushCopy } from "@/lib/push-copy";
 
 
 type Busy = "idle" | "enabling" | "disabling" | "refreshing";
+const CONTROL_ACTION_TIMEOUT_MS = 30_000;
+const PENDING_STYLE = {
+  opacity: 1,
+  borderColor: "var(--brand)",
+  color: "var(--brand)",
+} satisfies CSSProperties;
+
+async function withControlTimeout<T>(work: Promise<T>, onTimeout: () => T): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<T>((resolve) => {
+        timer = setTimeout(() => resolve(onTimeout()), CONTROL_ACTION_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
 
 export function PushPermissionPrompt({
   className,
@@ -114,7 +134,7 @@ export function PushPermissionPrompt({
   const onEnable = useCallback(() => {
     setBusy("enabling");
     setMessage("");
-    void enableWebPush()
+    void withControlTimeout(enableWebPush(), () => ({ status: "timed_out" }))
       .then((next) => {
         setState(next);
         if (next.status === "dismissed") {
@@ -127,10 +147,13 @@ export function PushPermissionPrompt({
   const onDisable = useCallback(() => {
     setBusy("disabling");
     setMessage("");
-    void disableWebPush()
+    void withControlTimeout(disableWebPush(), () => ({
+      status: "error",
+      reason: pushCopy(contractCopy, "push.disable_timed_out"),
+    }))
       .then((next) => setState(next))
       .finally(() => setBusy("idle"));
-  }, []);
+  }, [contractCopy]);
 
   const pending = busy !== "idle";
 
@@ -155,6 +178,8 @@ export function PushPermissionPrompt({
           disabled={pending}
           onClick={onDisable}
           title={copy("push.disable_hint")}
+          aria-busy={busy === "disabling"}
+          style={busy === "disabling" ? PENDING_STYLE : undefined}
         >
           {busy === "disabling" ? (
             <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
@@ -175,6 +200,8 @@ export function PushPermissionPrompt({
           disabled={pending}
           onClick={onEnable}
           title={copy("push.enable_hint")}
+          aria-busy={busy === "enabling"}
+          style={busy === "enabling" ? PENDING_STYLE : undefined}
         >
           {busy === "enabling" ? (
             <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />

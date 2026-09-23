@@ -30,17 +30,20 @@ export function NotificationPanel({
   feed,
   centreCopy,
   busy = false,
+  loadingMore = false,
   errorCode,
   permissionSlot,
   onMarkRead,
   onMarkAllRead,
   onRefresh,
+  onLoadMore,
   onClose,
   onNavigate,
 }: {
   feed: NotificationFeed;
   centreCopy: NotificationCentreCopy;
   busy?: boolean;
+  loadingMore?: boolean;
   /** A backend error code. The sentence beside it is contract copy; nothing is composed here. */
   errorCode?: string;
   /**
@@ -52,11 +55,17 @@ export function NotificationPanel({
   onMarkRead: (notificationRequestId: string) => void;
   onMarkAllRead: () => void;
   onRefresh: () => void;
+  onLoadMore?: () => void;
   onClose: () => void;
   onNavigate?: (item: InAppNotification) => void;
 }) {
   const rows = sortNotificationsNewestFirst(feed.items);
   const hasUnread = rows.some((item) => !isNotificationRead(item));
+  const hasMore = Boolean(feed.next_cursor);
+  const loadOlder = () => {
+    if (!hasMore || loadingMore || busy) return;
+    onLoadMore?.();
+  };
 
   return (
     <div>
@@ -99,7 +108,14 @@ export function NotificationPanel({
           engine without `dvh` support with no cap at all and an unbounded list. `dvh` still wins
           where it is supported, which is what the WhatsApp in-app webview needs: its chrome
           retracts, so a `vh` box is measured against a viewport the reader does not have. */}
-      <ul className="nc-list" aria-busy={busy}>
+      <ul
+        className="nc-list"
+        aria-busy={busy || loadingMore}
+        onScroll={(event) => {
+          const list = event.currentTarget;
+          if (list.scrollHeight - list.scrollTop - list.clientHeight < 64) loadOlder();
+        }}
+      >
         {rows.map((item) => {
           const href = notificationHref(item);
           const read = isNotificationRead(item);
@@ -164,6 +180,11 @@ export function NotificationPanel({
           <button type="button" className="btn sm" onClick={onMarkAllRead} disabled={busy}>
             <CheckCheck className="ic" aria-hidden="true" />
             {busy ? centreCopy.busy : centreCopy.markAllRead}
+          </button>
+        ) : null}
+        {hasMore ? (
+          <button type="button" className="btn sm ghost" onClick={loadOlder} disabled={busy || loadingMore}>
+            {loadingMore ? centreCopy.busy : centreCopy.loadOlder}
           </button>
         ) : null}
         <button
