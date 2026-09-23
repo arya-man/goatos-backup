@@ -1,0 +1,275 @@
+{
+  "generatedFrom": "prove-guard-selftest-reverts.mjs",
+  "results": [
+    {
+      "sha": "9bae53f13",
+      "path": "tools/ci/ci-scope.mjs",
+      "verdict": "proved",
+      "why": "Node.js v23.1.0"
+    },
+    {
+      "sha": "d9ae8d818",
+      "path": "tools/agent-hooks/check-sales-pages.mjs",
+      "verdict": "proved",
+      "why": "self-test FAIL: retired /sales in the lock and a page missing caught (expected 2 failure(s), got 1)"
+    },
+    {
+      "sha": "45ecef2c3",
+      "path": "tools/ci/ci-scope.mjs",
+      "verdict": "proved",
+      "why": "Node.js v23.1.0"
+    },
+    {
+      "sha": "ebd097e2c",
+      "path": "tools/agent-hooks/check-org-boundary.mjs",
+      "verdict": "skipped",
+      "why": "file is new in this commit; nothing to revert to"
+    },
+    {
+      "sha": "a86a6ee11",
+      "path": "tools/agent-hooks/check-cascade-event-wiring.mjs",
+      "verdict": "proved",
+      "why": "Node.js v23.1.0"
+    },
+    {
+      "sha": "44cbab1a7",
+      "path": "tools/agent-hooks/check-cascade-event-wiring.mjs",
+      "verdict": "proved",
+      "why": "Node.js v23.1.0"
+    },
+    {
+      "sha": "100117d4a",
+      "path": "tools/agent-hooks/check-sales-pages.mjs",
+      "verdict": "proved",
+      "why": "self-test FAIL: clean fixture passes (expected 0 failure(s), got 1)"
+    },
+    {
+      "sha": "49baf4cc5",
+      "path": "tools/agent-hooks/check-admin-web-proof-media-egress.mjs",
+      "verdict": "no-fixture",
+      "why": "the commit changed logic but shipped no new fixture"
+    },
+    {
+      "sha": "b0ff2f2e4",
+      "path": "tools/agent-hooks/check-vaccination-hrms-seed-fixture.mjs",
+      "verdict": "skipped",
+      "why": "no selfTest() in the guard at this commit"
+    },
+    {
+      "sha": "8dc64bd00",
+      "path": "tools/e2e/suite.mjs",
+      "verdict": "skipped",
+      "why": "no selfTest() in the guard at this commit"
+    },
+    {
+      "sha": "04d3aca47",
+      "path": "tools/e2e/suite.mjs",
+      "verdict": "skipped",
+      "why": "no selfTest() in the guard at this commit"
+    },
+    {
+      "sha": "3a45ebca5",
+      "path": "tools/agent-hooks/check-mock-css-parity.mjs",
+      "verdict": "proved",
+      "why": "Node.js v23.1.0"
+    },
+    {
+      "sha": "dea7514e5",
+      "path": "tools/agent-hooks/check-mock-css-parity.mjs",
+      "verdict": "proved",
+      "why": "- a comment containing ':' directly above a rule was swallowed into the selector and dropped the rule"
+    },
+    {
+      "sha": "f7f469d67",
+      "path": "tools/agent-hooks/check-mock-css-parity.mjs",
+      "verdict": "proved",
+      "why": "Node.js v23.1.0"
+    },
+    {
+      "sha": "fa1b25c15",
+      "path": "tools/agent-hooks/check-mock-css-parity.mjs",
+      "verdict": "proved",
+      "why": "Node.js v23.1.0"
+    },
+    {
+      "sha": "23d591aca",
+      "path": "tools/agent-hooks/check-herd-signals-language.mjs",
+      "verdict": "proved",
+      "why": "Node.js v23.1.0"
+    },
+    {
+      "sha": "8935c7cfe",
+      "path": "tools/agent-hooks/check-herd-signals-language.mjs",
+      "verdict": "proved",
+      "why": "Node.js v23.1.0"
+    },
+    {
+      "sha": "0752749ea",
+      "path": "tools/agent-hooks/check-herd-signals-language.mjs",
+      "verdict": "proved",
+      "why": "Node.js v23.1.0"
+    },
+    {
+      "sha": "9a0e12bae",
+      "path": "tools/agent-hooks/check-herd-signals-language.mjs",
+      "verdict": "proved",
+      "why": "Node.js v23.1.0"
+    },
+    {
+      "sha": "e4dee46d6",
+      "path": "tools/agent-hooks/check-herd-signals-language.mjs",
+      "verdict": "proved",
+      "why": "Node.js v23.1.0"
+    },
+    {
+      "sha": "67f428010",
+      "path": "tools/agent-hooks/check-herd-signals-language.mjs",
+      "verdict": "proved",
+      "why": "Node.js v23.1.0"
+    },
+    {
+      "sha": "587f326ed",
+      "path": "tools/agent-hooks/check-herd-signals-language.mjs",
+      "verdict": "skipped",
+      "why": "file is new in this commit; nothing to revert to"
+    },
+    {
+      "sha": "f8e91a6bf",
+      "path": "tools/agent-hooks/check-module-alerts-tab.mjs",
+      "verdict": "no-fixture",
+      "why": "the commit changed logic but shipped no new fixture"
+    },
+    {
+      "sha": "5cc4cf577",
+      "path": "tools/ci/check-git-identity.mjs",
+      "verdict": "no-fixture",
+      "why": "the commit changed logic but shipped no new fixture"
+    },
+    {
+      "sha": "040731438",
+      "path": "tools/agent-hooks/check-admin-web-local-overlays.mjs",
+      "verdict": "no-fixture",
+      "why": "the commit changed logic but shipped no new fixture"
+    },
+    {
+      "sha": "040731438",
+      "path": "tools/ci/check-git-identity.mjs",
+      "verdict": "no-fixture",
+      "why": "the commit changed logic but shipped no new fixture"
+    },
+    {
+      "sha": "94920fb0b",
+      "path": "tools/agent-hooks/check-android-runtime-permission-sdk-gates.mjs",
+      "verdict": "no-fixture",
+      "why": "the commit changed logic but shipped no new fixture"
+    },
+    {
+      "sha": "0bbb9bc48",
+      "path": "tools/agent-hooks/check-android-runtime-permission-sdk-gates.mjs",
+      "verdict": "no-fixture",
+      "why": "the commit changed logic but shipped no new fixture"
+    },
+    {
+      "sha": "954bd2fd1",
+      "path": "tools/agent-hooks/check-android-runtime-permission-sdk-gates.mjs",
+      "verdict": "no-fixture",
+      "why": "the commit changed logic but shipped no new fixture"
+    },
+    {
+      "sha": "812acaf9e",
+      "path": "tools/agent-hooks/check-android-runtime-permission-sdk-gates.mjs",
+      "verdict": "no-baseline",
+      "why": "self-test is already red at the commit: Node.js v23.1.0"
+    },
+    {
+      "sha": "e19044c05",
+      "path": "tools/agent-hooks/check-android-runtime-permission-sdk-gates.mjs",
+      "verdict": "no-baseline",
+      "why": "self-test is already red at the commit: Node.js v23.1.0"
+    },
+    {
+      "sha": "20b5d5b0a",
+      "path": "tools/agent-hooks/check-android-runtime-permission-sdk-gates.mjs",
+      "verdict": "proved",
+      "why": "android-runtime-permission-sdk-gates self-test: FAIL"
+    },
+    {
+      "sha": "39f2d2ca9",
+      "path": "tools/agent-hooks/check-android-runtime-permission-sdk-gates.mjs",
+      "verdict": "proved",
+      "why": "android-runtime-permission-sdk-gates self-test: FAIL"
+    },
+    {
+      "sha": "a4254de27",
+      "path": "tools/agent-hooks/check-android-runtime-permission-sdk-gates.mjs",
+      "verdict": "proved",
+      "why": "android-runtime-permission-sdk-gates self-test: FAIL"
+    },
+    {
+      "sha": "e979a508e",
+      "path": "tools/agent-hooks/check-android-runtime-permission-sdk-gates.mjs",
+      "verdict": "proved",
+      "why": "android-runtime-permission-sdk-gates self-test: FAIL"
+    },
+    {
+      "sha": "438345d12",
+      "path": "tools/agent-hooks/check-android-runtime-permission-sdk-gates.mjs",
+      "verdict": "proved",
+      "why": "android-runtime-permission-sdk-gates self-test: FAIL"
+    },
+    {
+      "sha": "dade1e5c1",
+      "path": "tools/agent-hooks/check-frontend-foundations.mjs",
+      "verdict": "proved",
+      "why": "Node.js v23.1.0"
+    },
+    {
+      "sha": "479eeca60",
+      "path": "tools/agent-hooks/check-weighing-close-gate-guard.mjs",
+      "verdict": "skipped",
+      "why": "file is new in this commit; nothing to revert to"
+    },
+    {
+      "sha": "cea1f132d",
+      "path": "tools/agent-hooks/check-operational-location.mjs",
+      "verdict": "proved",
+      "why": "operational-location guard self-test: 6 failure(s)"
+    },
+    {
+      "sha": "b09a22a80",
+      "path": "tools/agent-hooks/check-operational-location.mjs",
+      "verdict": "proved",
+      "why": "operational-location guard self-test: 8 failure(s)"
+    },
+    {
+      "sha": "09eb4b1f1",
+      "path": "tools/agent-hooks/check-weighing-free-flow-guard.mjs",
+      "verdict": "no-fixture",
+      "why": "the commit changed logic but shipped no new fixture"
+    },
+    {
+      "sha": "a985f5822",
+      "path": "tools/agent-hooks/check-overlay-motion.mjs",
+      "verdict": "skipped",
+      "why": "file is new in this commit; nothing to revert to"
+    },
+    {
+      "sha": "743d55f53",
+      "path": "tools/agent-hooks/check-operational-location.mjs",
+      "verdict": "no-fixture",
+      "why": "the commit changed logic but shipped no new fixture"
+    },
+    {
+      "sha": "7a2027202",
+      "path": "tools/agent-hooks/check-nav-entry-point-placement.mjs",
+      "verdict": "skipped",
+      "why": "file is new in this commit; nothing to revert to"
+    },
+    {
+      "sha": "14e6a0bbe",
+      "path": "tools/agent-hooks/check-domain-event-envelope-enum.mjs",
+      "verdict": "skipped",
+      "why": "file is new in this commit; nothing to revert to"
+    }
+  ]
+}
