@@ -1,5 +1,6 @@
 -- +goose Up
 
+-- seed-fixture-guard:ignore: browser_push_events is runtime browser-push telemetry written by notification receipts, not vaccination or HRMS seed data.
 CREATE TABLE IF NOT EXISTS public.browser_push_events (
     browser_push_event_id uuid DEFAULT gen_random_uuid() NOT NULL,
     tenant_id uuid NOT NULL,

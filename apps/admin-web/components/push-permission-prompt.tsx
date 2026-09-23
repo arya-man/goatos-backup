@@ -12,6 +12,7 @@ import {
   type WebPushState,
 } from "@/lib/web-push";
 import { pushCopy } from "@/lib/push-copy";
+import { raceControl } from "@/lib/control-race";
 
 /**
  * The "Enable notifications" control for browser push.
@@ -57,20 +58,6 @@ const PENDING_STYLE = {
   borderColor: "var(--brand)",
   color: "var(--brand)",
 } satisfies CSSProperties;
-
-async function withControlTimeout<T>(work: Promise<T>, onTimeout: () => T): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      work,
-      new Promise<T>((resolve) => {
-        timer = setTimeout(() => resolve(onTimeout()), CONTROL_ACTION_TIMEOUT_MS);
-      }),
-    ]);
-  } finally {
-    if (timer !== undefined) clearTimeout(timer);
-  }
-}
 
 export function PushPermissionPrompt({
   className,
@@ -134,7 +121,7 @@ export function PushPermissionPrompt({
   const onEnable = useCallback(() => {
     setBusy("enabling");
     setMessage("");
-    void withControlTimeout(enableWebPush(), () => ({ status: "timed_out" }))
+    void raceControl<WebPushState>(enableWebPush(), () => ({ status: "timed_out" }), CONTROL_ACTION_TIMEOUT_MS)
       .then((next) => {
         setState(next);
         if (next.status === "dismissed") {
@@ -147,10 +134,14 @@ export function PushPermissionPrompt({
   const onDisable = useCallback(() => {
     setBusy("disabling");
     setMessage("");
-    void withControlTimeout(disableWebPush(), () => ({
-      status: "error",
-      reason: pushCopy(contractCopy, "push.disable_timed_out"),
-    }))
+    void raceControl<WebPushState>(
+      disableWebPush(),
+      () => ({
+        status: "error",
+        reason: pushCopy(contractCopy, "push.disable_timed_out"),
+      }),
+      CONTROL_ACTION_TIMEOUT_MS,
+    )
       .then((next) => setState(next))
       .finally(() => setBusy("idle"));
   }, [contractCopy]);

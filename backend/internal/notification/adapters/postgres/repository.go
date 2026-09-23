@@ -364,7 +364,7 @@ claimed AS (
           SELECT 1
           FROM workforce_member_browser_push_registrations b
           WHERE b.tenant_id = nr.tenant_id
-            AND b.browser_registration_id::text = COALESCE(nr.context->>'recipient_device_id', '')
+            AND b.fcm_token = nr.recipient_ref
         ) THEN
         COALESCE(
           (
