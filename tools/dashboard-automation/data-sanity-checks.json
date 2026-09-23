@@ -2323,6 +2323,380 @@
       "minerCheckIds": [
         "lane2.procurement-load-counts-add-up"
       ]
+    },
+    {
+      "name": "event_stuck_after_its_retries",
+      "question": "Is any event the system passes between its own parts still stuck after it gave up retrying?",
+      "severity": "high",
+      "expectRows": 0,
+      "page": {
+        "title": "DLQ Center",
+        "path": "/operations/dlq"
+      },
+      "sql": "select outbox_id::text as record, event_type as event, status as state, attempt_count as tries, created_at::date::text as raised_on, left(coalesce(last_error, ''), 60) as reason from outbox_messages where status in ('failed', 'dead_letter', 'discarded') and published_at is null and created_at < now() - interval '2 days' limit 500",
+      "humanFailure": "Work that was recorded days ago is still stuck on its way from the phone to the dashboard. Whatever those messages were carrying has not reached the screens that are meant to show it, and the DLQ Center is the only place it would ever appear.",
+      "countUnit": "pieces of recorded work still stuck on their way to the dashboard",
+      "minerCheckIds": [
+        "lane2.messages-not-stuck-in-the-outbox"
+      ],
+      "repeatCommitCount": 8,
+      "topPatterns": [
+        "P-idempotency-outbox-replay"
+      ],
+      "sourceCommits": [
+        "c8ed52ff0",
+        "b176b7f36",
+        "2f053a583",
+        "a8e58fe2f",
+        "994d74d76",
+        "55ba1193f"
+      ],
+      "sourceCommitDetail": [
+        {
+          "sha": "c8ed52ff0",
+          "date": "2026-08-03",
+          "subject": "fix(weighing): enforce the (weight, video) pair server-side and stop silent outbox drops"
+        },
+        {
+          "sha": "b176b7f36",
+          "date": "2026-08-10",
+          "subject": "Harden weighing partition replay and repair"
+        },
+        {
+          "sha": "2f053a583",
+          "date": "2026-08-21",
+          "subject": "feat(obligation): repair job for duplicate open obligations, bounded and idempotent"
+        },
+        {
+          "sha": "a8e58fe2f",
+          "date": "2026-08-31",
+          "subject": "fix(vaccination): scope anchor publish idempotency"
+        },
+        {
+          "sha": "994d74d76",
+          "date": "2026-08-31",
+          "subject": "fix(health): idempotent replays return the full first response, never a thinner one"
+        },
+        {
+          "sha": "55ba1193f",
+          "date": "2026-09-08",
+          "subject": "fix(leadership-tasks): validate write idempotency keys"
+        }
+      ]
+    },
+    {
+      "name": "notification_nobody_ever_received",
+      "question": "Did the system try to tell somebody something, fail, and never try again?",
+      "severity": "high",
+      "expectRows": 0,
+      "page": {
+        "title": "People",
+        "path": "/people"
+      },
+      "sql": "select a.attempt_id::text as record, a.channel as sent_by, a.attempted_at::date::text as tried_on, left(coalesce(a.error, ''), 70) as reason from notification_delivery_attempts a where a.result = 'failed' and a.attempted_at >= now() - interval '14 days' and not exists (select 1 from notification_delivery_attempts b where b.tenant_id = a.tenant_id and b.notification_request_id = a.notification_request_id and b.attempt_no > a.attempt_no) limit 500",
+      "humanFailure": "Some messages the system meant to send to a person never reached them and were never tried again. Whoever was supposed to be told about that work has not been told, and nothing on any screen says so.",
+      "countUnit": "messages a person should have received and never did",
+      "minerCheckIds": [
+        "lane2.notifications-are-not-stuck"
+      ],
+      "repeatCommitCount": 9,
+      "topPatterns": [
+        "P-notification-not-delivered"
+      ],
+      "sourceCommits": [
+        "59a1a869a",
+        "3221e7028",
+        "5f9eee77f",
+        "d25546316",
+        "9f6341ce2",
+        "a5b3887f0"
+      ],
+      "sourceCommitDetail": [
+        {
+          "sha": "3221e7028",
+          "date": "2026-08-02",
+          "subject": "fix(notification): never log an FCM token, it is a bearer credential"
+        },
+        {
+          "sha": "59a1a869a",
+          "date": "2026-08-02",
+          "subject": "fix(notification): prune dead FCM tokens, and repair the query that never ran"
+        },
+        {
+          "sha": "5f9eee77f",
+          "date": "2026-08-11",
+          "subject": "fix(notification): protect FCM display data from context"
+        },
+        {
+          "sha": "d25546316",
+          "date": "2026-09-04",
+          "subject": "feat(leadership-tasks): admit the module's two push types to notification_requests_type_check"
+        },
+        {
+          "sha": "9f6341ce2",
+          "date": "2026-09-05",
+          "subject": "fix(notification): preserve leadership task notification types"
+        },
+        {
+          "sha": "a5b3887f0",
+          "date": "2026-09-08",
+          "subject": "fix(notifications): renumber audience migrations after rebase"
+        }
+      ]
+    },
+    {
+      "name": "notification_still_waiting_to_be_sent",
+      "question": "Is any message the system owes a person still sitting unsent days later?",
+      "severity": "medium",
+      "expectRows": 0,
+      "page": {
+        "title": "People",
+        "path": "/people"
+      },
+      "sql": "select notification_request_id::text as record, notification_type as about, channel as sent_by, status as state, requested_at::date::text as raised_on from notification_requests where status in ('queued', 'failed') and requested_at < now() - interval '2 days' limit 500",
+      "humanFailure": "Messages the system owes people have been waiting to go out for more than two days. Until they go, nobody has been told the work is waiting on them.",
+      "countUnit": "messages still waiting to go out",
+      "minerCheckIds": [
+        "lane2.notifications-are-not-stuck"
+      ],
+      "repeatCommitCount": 9,
+      "topPatterns": [
+        "P-notification-not-delivered"
+      ],
+      "sourceCommits": [
+        "59a1a869a",
+        "bdf9e8a74",
+        "483e19fc2",
+        "b6ad69a3d"
+      ],
+      "sourceCommitDetail": [
+        {
+          "sha": "59a1a869a",
+          "date": "2026-08-02",
+          "subject": "fix(notification): prune dead FCM tokens, and repair the query that never ran"
+        },
+        {
+          "sha": "bdf9e8a74",
+          "date": "2026-08-10",
+          "subject": "Fix FCM data notification text"
+        },
+        {
+          "sha": "483e19fc2",
+          "date": "2026-08-24",
+          "subject": "Daily low-stock alert, and farm dates in visible notification copy"
+        },
+        {
+          "sha": "b6ad69a3d",
+          "date": "2026-09-07",
+          "subject": "fix(pen-visits): retry due push after materialize replay"
+        }
+      ]
+    },
+    {
+      "name": "alert_switched_on_with_nobody_to_tell",
+      "question": "Does every alert that is switched on have somebody it goes to?",
+      "severity": "high",
+      "expectRows": 0,
+      "page": {
+        "title": "Alerts",
+        "path": "/alerts"
+      },
+      "sql": "select r.event_kind as alert, r.label as name, r.severity as importance from alert_event_rules r where r.enabled and not exists (select 1 from notification_alert_audiences a where a.alert_key = r.event_kind and coalesce(array_length(a.designation_codes, 1), 0) > 0) limit 500",
+      "humanFailure": "Some alerts are switched on with nobody set to receive them. They will look active on the Alerts page and will fire into an empty room, so the warning they exist to raise never reaches a person.",
+      "countUnit": "alerts switched on with nobody to receive them",
+      "minerCheckIds": [
+        "lane2.alerts-have-a-known-type-and-a-recipient"
+      ],
+      "repeatCommitCount": 4,
+      "topPatterns": [
+        "P-notification-not-delivered",
+        "P-permission-or-access-drift"
+      ],
+      "sourceCommits": [
+        "4d6059479",
+        "9d2bfdc67",
+        "483e19fc2",
+        "a5b3887f0"
+      ],
+      "sourceCommitDetail": [
+        {
+          "sha": "4d6059479",
+          "date": "2026-08-08",
+          "subject": "feat(notificationbridge): add feed and counts alerts feeds"
+        },
+        {
+          "sha": "9d2bfdc67",
+          "date": "2026-08-08",
+          "subject": "feat(vaccination): give vaccination its own module-scoped alerts feed"
+        },
+        {
+          "sha": "483e19fc2",
+          "date": "2026-08-24",
+          "subject": "Daily low-stock alert, and farm dates in visible notification copy"
+        },
+        {
+          "sha": "a5b3887f0",
+          "date": "2026-09-08",
+          "subject": "fix(notifications): renumber audience migrations after rebase"
+        }
+      ]
+    },
+    {
+      "name": "pen_work_left_open_past_its_day",
+      "question": "Is any pen round, preventive care round or pen visit still open days after it was due?",
+      "severity": "medium",
+      "expectRows": 0,
+      "page": {
+        "title": "Work Board",
+        "path": "/work-board"
+      },
+      "sql": "select 'preventive care' as kind, task_id::text as record, due_business_date::text as due_on from pc_care_tasks where work_state not in ('completed', 'canceled', 'cancelled', 'verified', 'closed') and due_business_date < current_date - 2 union all select 'pen visit', task_id::text, due_business_date::text from pen_visit_tasks where work_state not in ('completed', 'canceled', 'cancelled', 'verified', 'closed') and due_business_date < current_date - 2 union all select 'pen round', task_id::text, due_business_date::text from pen_routine_tasks where work_state not in ('completed', 'canceled', 'cancelled', 'verified', 'closed') and due_business_date < current_date - 2 limit 500",
+      "humanFailure": "Pen rounds, preventive care rounds and pen visits whose day passed more than two days ago are still sitting open. Either the work was done and never recorded, or it was never done, and the work board keeps carrying it forward either way.",
+      "countUnit": "rounds still open days after they were due",
+      "minerCheckIds": [
+        "lane2.work-items-not-stuck"
+      ],
+      "repeatCommitCount": 6,
+      "topPatterns": [
+        "P-stuck-or-rolled-forward-work"
+      ],
+      "sourceCommits": [
+        "b327000b0",
+        "4d4a2ba86",
+        "40c878f8b",
+        "3c2494407",
+        "b6ad69a3d"
+      ],
+      "sourceCommitDetail": [
+        {
+          "sha": "b327000b0",
+          "date": "2026-08-03",
+          "subject": "fix(calendar): a rolled-forward drive must still report that it is late"
+        },
+        {
+          "sha": "4d4a2ba86",
+          "date": "2026-08-22",
+          "subject": "fix(pc-care): first-page task list no longer 22P02s on the empty keyset cursor"
+        },
+        {
+          "sha": "40c878f8b",
+          "date": "2026-09-02",
+          "subject": "fix(pc-care): harden stock verdict landing issues"
+        },
+        {
+          "sha": "3c2494407",
+          "date": "2026-09-07",
+          "subject": "fix(pen-visits): renumber migrations past main's 000274/000275 and carry its enum and validator state"
+        },
+        {
+          "sha": "b6ad69a3d",
+          "date": "2026-09-07",
+          "subject": "fix(pen-visits): retry due push after materialize replay"
+        }
+      ]
+    },
+    {
+      "name": "finished_task_without_a_finish_time",
+      "question": "Does every task marked done record when it was finished?",
+      "severity": "medium",
+      "expectRows": 0,
+      "page": {
+        "title": "Tasks",
+        "path": "/tasks"
+      },
+      "sql": "select task_no as task, title, status as state, raised_at::date::text as raised_on from leadership_tasks where status = 'done' and done_at is null limit 500",
+      "humanFailure": "Some tasks show as done on the tasks board with no record of when they were finished. Nothing on the board can say how long that work took or whether it was finished before its deadline.",
+      "countUnit": "tasks marked done with no finish time",
+      "minerCheckIds": [
+        "lane2.tasks-finished-have-a-finish-time"
+      ],
+      "repeatCommitCount": 4,
+      "topPatterns": [
+        "P-status-machine-drift"
+      ],
+      "sourceCommits": [
+        "4330589ac",
+        "c19c69704",
+        "55ba1193f",
+        "ac0a92aa8"
+      ],
+      "sourceCommitDetail": [
+        {
+          "sha": "4330589ac",
+          "date": "2026-09-04",
+          "subject": "feat(leadership-tasks): backend module, permissions, events, push and bootstrap badge"
+        },
+        {
+          "sha": "55ba1193f",
+          "date": "2026-09-08",
+          "subject": "fix(leadership-tasks): validate write idempotency keys"
+        },
+        {
+          "sha": "c19c69704",
+          "date": "2026-09-11",
+          "subject": "fix(leadership-tasks): Tasks opens on 'For me'; scopes read 'For me' and 'Raised by me'"
+        },
+        {
+          "sha": "ac0a92aa8",
+          "date": "2026-09-19",
+          "subject": "chore(tasks): IST clock on the subject read"
+        }
+      ]
+    },
+    {
+      "name": "clock_entry_that_cannot_have_happened",
+      "question": "Does every clock entry have a start, an end and a length that are possible?",
+      "severity": "medium",
+      "expectRows": 0,
+      "page": {
+        "title": "People",
+        "path": "/people"
+      },
+      "sql": "select clock_entry_id::text as record, business_date::text as day, worked_minutes as minutes, status as state from workforce_clock_entries where (clock_out_at is not null and clock_out_at < clock_in_at) or worked_minutes < 0 or worked_minutes > 1440 limit 500",
+      "humanFailure": "Some clock entries say a person left before they arrived, or worked a negative or impossible number of hours. Any hours total built on them, and any pay or cover decision taken from them, is wrong.",
+      "countUnit": "clock entries that cannot have happened",
+      "minerCheckIds": [
+        "lane2.clock-entries-are-possible"
+      ],
+      "repeatCommitCount": 5,
+      "topPatterns": [
+        "P-business-date-timezone",
+        "P-status-machine-drift"
+      ],
+      "sourceCommits": [
+        "6953f41f6",
+        "4923b5b21",
+        "0ba2ccd4c",
+        "a54734390",
+        "fed9bd8c2"
+      ],
+      "sourceCommitDetail": [
+        {
+          "sha": "6953f41f6",
+          "date": "2026-08-28",
+          "subject": "Clock In/Out: backend core — punches, presence, admin reads, module + permission wiring"
+        },
+        {
+          "sha": "4923b5b21",
+          "date": "2026-08-28",
+          "subject": "Clock In/Out: drawer row on top, Team pinned CEO/CXO-only"
+        },
+        {
+          "sha": "0ba2ccd4c",
+          "date": "2026-08-28",
+          "subject": "Clock In/Out: guard registrations (module-alerts pending entry, scale/foundation markers)"
+        },
+        {
+          "sha": "fed9bd8c2",
+          "date": "2026-08-28",
+          "subject": "Clock In/Out: CXO role-hint label in all four locales"
+        },
+        {
+          "sha": "a54734390",
+          "date": "2026-08-29",
+          "subject": "Clock In/Out: reminder banner reads \"please clock in\" (maintainer ask)"
+        }
+      ]
     }
   ],
   "parkedChecks": [
