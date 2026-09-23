@@ -25,6 +25,13 @@
 //     (e.g. `id::text = ANY(...)`); bind a typed UUID/text array instead.
 //   - god-cte             : a single SQL literal with too many "x AS (" CTEs on a
 //     request path (compute-on-read; move to a read model).
+//   - cte-limit-outside   : a paginated statement whose scanning CTE has no LIMIT of its
+//     own -- the LIMIT sits OUTSIDE it, so every request materialises the whole
+//     underlying set and then keeps a page. Work proportional to the table
+//     instead of the page. Unlike the rules above, this one reads the FULLY
+//     ASSEMBLED statement (package-level consts resolved through their `+`
+//     chains), because the CTE and the LIMIT routinely sit in different
+//     fragments of one const expression.
 //   - read-rollup-truth   : request-path/service-layer rollup that bumps a raw
 //     list limit or clears pagination after in-memory aggregation, presenting a
 //     partial summary as business truth.
@@ -291,6 +298,19 @@ func scanFile(repo, path string) []finding {
 		}
 	}
 
+	// cte-limit-outside runs over FULLY ASSEMBLED package-level statements, not over
+	// individual string literals, because the defect is a relationship between a CTE and a
+	// LIMIT that routinely land in different fragments of a `constA + "..." + constB` chain.
+	// Scoped to repository adapters: that is where serving SQL lives, and a statement that
+	// is not hoisted to package level is already hot-path-inline-sql's problem.
+	if isPostgresAdapter(rel) {
+		for _, st := range sqlConstText(file) {
+			if msg, bad := detectCTELimitOutside(st.text); bad {
+				add("cte-limit-outside", st.pos, st.name+": "+msg)
+			}
+		}
+	}
+
 	// AST pass: loop-scoped rules.
 	ast.Inspect(file, func(n ast.Node) bool {
 		var body *ast.BlockStmt
@@ -413,6 +433,392 @@ func scanFile(repo, path string) []finding {
 		return true
 	})
 	return out
+}
+
+// ---------------------------------------------------------------------------
+// cte-limit-outside
+// ---------------------------------------------------------------------------
+
+// sqlConstText resolves a package-level SQL const/var to its FULL assembled text.
+//
+// WHY THIS EXISTS AT ALL. Every other SQL rule in this file walks *ast.BasicLit nodes and
+// tests one literal at a time. That is fine for OFFSET (a clause lives in one literal) and
+// for counting CTEs (a miscount only moves a threshold). It is useless for a rule whose whole
+// question is about the RELATIONSHIP between two clauses that may sit in different fragments.
+//
+// notificationcentre's feed query is the case in point. It is written as
+//
+//	const sqlListNotifications = sqlTargetMemberCTE + `, mine AS ( ... DISTINCT ON (` +
+//	    dedupeKeyExpr + `) ... )  SELECT ... LIMIT $5`
+//
+// so `mine AS (` and `LIMIT $5` land in DIFFERENT string literals with two const references
+// between them. No single BasicLit ever holds the pairing, and a rule written the way the
+// others are written is a pure false negative on it -- which is exactly what happened: that
+// query shipped an unbounded CTE for a year, was never baselined and never ignored, and this
+// guard stayed green while the endpoint grew to 355ms and 15s timeouts in production.
+//
+// Worse, the shape is not an evasion: hot-path-inline-sql actively PUSHES authors to hoist
+// serving SQL into named package-level consts, and sharing a CTE between statements by
+// concatenating consts is this repo's house style. The guard's own advice produced the shape
+// its own scanner could not read.
+func sqlConstText(file *ast.File) []sqlStatement {
+	// Pass 1: every package-level string const/var, by name.
+	decls := map[string]ast.Expr{}
+	for _, d := range file.Decls {
+		gen, ok := d.(*ast.GenDecl)
+		if !ok || (gen.Tok != token.CONST && gen.Tok != token.VAR) {
+			continue
+		}
+		for _, spec := range gen.Specs {
+			vs, ok := spec.(*ast.ValueSpec)
+			if !ok {
+				continue
+			}
+			for i, name := range vs.Names {
+				if i < len(vs.Values) {
+					decls[name.Name] = vs.Values[i]
+				}
+			}
+		}
+	}
+
+	// Pass 2: resolve each one, substituting the others. Depth-limited, so a const that
+	// refers to itself (or a cycle through two) cannot hang CI -- it simply resolves to the
+	// unexpandable parts and the rule declines to fire on a statement it cannot read whole.
+	var resolve func(ast.Expr, int) (string, bool)
+	resolve = func(e ast.Expr, depth int) (string, bool) {
+		if depth > 8 {
+			return "", false
+		}
+		switch v := e.(type) {
+		case *ast.BasicLit:
+			if v.Kind != token.STRING {
+				return "", false
+			}
+			text, err := strconv.Unquote(v.Value)
+			return text, err == nil
+		case *ast.Ident:
+			inner, ok := decls[v.Name]
+			if !ok {
+				return "", false
+			}
+			return resolve(inner, depth+1)
+		case *ast.BinaryExpr:
+			if v.Op != token.ADD {
+				return "", false
+			}
+			l, lok := resolve(v.X, depth+1)
+			r, rok := resolve(v.Y, depth+1)
+			if !lok || !rok {
+				return "", false
+			}
+			return l + r, true
+		case *ast.ParenExpr:
+			return resolve(v.X, depth+1)
+		}
+		return "", false
+	}
+
+	var out []sqlStatement
+	for _, d := range file.Decls {
+		gen, ok := d.(*ast.GenDecl)
+		if !ok || (gen.Tok != token.CONST && gen.Tok != token.VAR) {
+			continue
+		}
+		for _, spec := range gen.Specs {
+			vs, ok := spec.(*ast.ValueSpec)
+			if !ok {
+				continue
+			}
+			for i, name := range vs.Names {
+				if i >= len(vs.Values) {
+					continue
+				}
+				text, ok := resolve(vs.Values[i], 0)
+				if !ok || !sqlishRe.MatchString(text) {
+					continue
+				}
+				out = append(out, sqlStatement{name: name.Name, text: text, pos: name.Pos()})
+			}
+		}
+	}
+	return out
+}
+
+type sqlStatement struct {
+	name string
+	text string
+	pos  token.Pos
+}
+
+// maskSQLNoise blanks out SQL comments and single-quoted literals, preserving length and
+// newlines so byte offsets still line up. Without it a ')' inside '...' or a '--' comment
+// throws the paren matcher off, and `->>'event_key'` alone is enough to do it.
+func maskSQLNoise(s string) string {
+	b := []byte(s)
+	out := make([]byte, len(b))
+	copy(out, b)
+	blank := func(i int) {
+		if out[i] != '\n' {
+			out[i] = ' '
+		}
+	}
+	for i := 0; i < len(b); {
+		switch {
+		case b[i] == '\'':
+			j := i + 1
+			for j < len(b) {
+				if b[j] == '\'' {
+					if j+1 < len(b) && b[j+1] == '\'' { // doubled quote escape
+						j += 2
+						continue
+					}
+					break
+				}
+				j++
+			}
+			for k := i; k <= j && k < len(b); k++ {
+				blank(k)
+			}
+			i = j + 1
+		case b[i] == '-' && i+1 < len(b) && b[i+1] == '-':
+			j := i
+			for j < len(b) && b[j] != '\n' {
+				blank(j)
+				j++
+			}
+			i = j
+		case b[i] == '/' && i+1 < len(b) && b[i+1] == '*':
+			j := i
+			for j < len(b) && !(b[j] == '*' && j+1 < len(b) && b[j+1] == '/') {
+				blank(j)
+				j++
+			}
+			for k := j; k < len(b) && k <= j+1; k++ {
+				blank(k)
+			}
+			i = j + 2
+		default:
+			i++
+		}
+	}
+	return string(out)
+}
+
+var (
+	withRe        = regexp.MustCompile(`(?is)\bWITH\s+(?:RECURSIVE\s+)?`)
+	cteHeadRe     = regexp.MustCompile(`(?is)^\s*,?\s*([a-z_][a-z0-9_]*)\s+AS\s*(?:(?:NOT\s+)?MATERIALIZED\s*)?\(`)
+	limitClauseRe = regexp.MustCompile(`(?i)\bLIMIT\s+[\$:@%\d]`)
+	// Row sources at the CTE body's OWN level. Depth matters: the house-style
+	// `target_member AS (SELECT COALESCE((SELECT ... FROM workforce_members), (SELECT ...)))`
+	// has two FROMs, both inside subselects, and yields exactly ONE row. Counting those as a
+	// scan made this rule fire on every statement that resolves a caller -- a false positive
+	// on correct code, which is worse than no rule at all.
+	topLevelFromRe = regexp.MustCompile(`(?is)\b(?:FROM|JOIN)\s+([a-z_][a-z0-9_]*)\s*(\()?`)
+	// Row sources named in the outer query's FROM/JOIN list. This is what decides whether an
+	// unbounded CTE is the thing the outer LIMIT is applied TO, versus an inner helper (a
+	// target_member-style scalar resolution) that the LIMIT never sees.
+	fromJoinRefRe = regexp.MustCompile(`(?is)\b(?:FROM|JOIN)\s+([a-z_][a-z0-9_]*)`)
+	// A CTE that reads a set-returning FUNCTION of its own binds -- `FROM unnest($2::text[],
+	// $3::text[])`, `FROM generate_series(...)`, `FROM jsonb_to_recordset($1)` -- is bounded
+	// by what the CALLER passed in, not by a table. Same reasoning as the `= ANY($n)` case.
+	recursiveWithRe = regexp.MustCompile(`(?is)\bWITH\s+RECURSIVE\b`)
+	// Bounded by a caller-supplied id list: `= ANY($3::uuid[])` / `IN ($1,$2)`. One page's
+	// worth of ids is page-sized BY CONSTRUCTION and flagging it would be noise.
+	boundedByIDsRe = regexp.MustCompile(`(?is)=\s*ANY\s*\(\s*\$`)
+	// A scalar aggregate with no GROUP BY returns exactly one row however big the input is.
+	// Its cost is still linear, but it is not the PAGINATION defect this rule names, and
+	// unrelated rules already cover compute-on-read aggregates.
+	scalarAggRe = regexp.MustCompile(`(?is)^\s*SELECT\s+(?:DISTINCT\s+)?(?:COUNT|SUM|MAX|MIN|AVG|BOOL_OR|BOOL_AND|JSONB_AGG|ARRAY_AGG)\s*\(`)
+	groupByRe   = regexp.MustCompile(`(?is)\bGROUP\s+BY\b`)
+	orderByRe   = regexp.MustCompile(`(?is)\bORDER\s+BY\b`)
+)
+
+// hasTopLevelLimit reports whether a LIMIT clause sits at the statement's own paren depth,
+// rather than inside a nested subquery that happens to have one.
+func hasTopLevelLimit(masked string) bool { return matchesAtTopLevel(masked, limitClauseRe) }
+
+// matchesAtTopLevel reports whether re matches outside every parenthesised subexpression.
+func matchesAtTopLevel(masked string, re *regexp.Regexp) bool {
+	depth := 0
+	depths := make([]int, len(masked)+1)
+	for i := 0; i < len(masked); i++ {
+		depths[i] = depth
+		switch masked[i] {
+		case '(':
+			depth++
+		case ')':
+			if depth > 0 {
+				depth--
+			}
+		}
+	}
+	depths[len(masked)] = depth
+	for _, m := range re.FindAllStringIndex(masked, -1) {
+		if depths[m[0]] == 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// hasTopLevelOrderBy is hasTopLevelLimit's twin, for ORDER BY.
+func hasTopLevelOrderBy(masked string) bool { return matchesAtTopLevel(masked, orderByRe) }
+
+// scansTable reports whether a CTE body reads a real table at its own nesting level.
+//
+// DEPTH IS THE WHOLE POINT. `SELECT COALESCE((SELECT x FROM t WHERE ...), (SELECT ...))` has
+// two FROMs and returns one row; a rule that cannot tell that from `SELECT ... FROM t` fires
+// on every caller-resolution CTE in the codebase. A finding on correct code trains people to
+// reach for scale-guard:ignore, which is how a guard stops meaning anything.
+func scansTable(maskedBody string, cteNames map[string]bool) bool {
+	// Paren depth at every byte offset, computed once.
+	depths := make([]int, len(maskedBody)+1)
+	d := 0
+	for i := 0; i < len(maskedBody); i++ {
+		depths[i] = d
+		switch maskedBody[i] {
+		case '(':
+			d++
+		case ')':
+			if d > 0 {
+				d--
+			}
+		}
+	}
+	depths[len(maskedBody)] = d
+	for _, m := range topLevelFromRe.FindAllStringSubmatchIndex(maskedBody, -1) {
+		if depths[m[0]] != 0 {
+			continue // a subselect's FROM: per-row work or a scalar resolution, not a scan
+		}
+		name := strings.ToLower(maskedBody[m[2]:m[3]])
+		if m[4] >= 0 {
+			continue // identifier immediately followed by '(' = a set-returning function
+		}
+		if cteNames[name] {
+			continue // another CTE; its own boundedness is judged on its own entry
+		}
+		return true
+	}
+	return false
+}
+
+// detectCTELimitOutside finds a paginated statement whose scanning CTE has no LIMIT of its
+// own -- work proportional to the TABLE, not to the page.
+//
+// THE SHAPE, precisely: the outer query carries a LIMIT; it draws from a CTE in its FROM/JOIN
+// list; that CTE scans a real table; and the CTE itself has no LIMIT. Every request then
+// materialises the whole underlying set, sorts or dedupes it, and throws all but a page away.
+// It is fast at 1k rows, survives review because the statement DOES say LIMIT somewhere, and
+// becomes a timeout at 100k -- see docs/decisions/scale-anti-patterns.md.
+func detectCTELimitOutside(text string) (string, bool) {
+	masked := maskSQLNoise(text)
+	loc := withRe.FindStringIndex(masked)
+	if loc == nil {
+		return "", false
+	}
+
+	type cte struct{ name, body string }
+	var ctes []cte
+	i := loc[1]
+	for i < len(masked) {
+		head := cteHeadRe.FindStringSubmatchIndex(masked[i:])
+		if head == nil {
+			break
+		}
+		name := masked[i+head[2] : i+head[3]]
+		open := i + head[1] - 1 // index of '('
+		depth, j := 0, open
+		for ; j < len(masked); j++ {
+			if masked[j] == '(' {
+				depth++
+			} else if masked[j] == ')' {
+				depth--
+				if depth == 0 {
+					break
+				}
+			}
+		}
+		if j >= len(masked) {
+			return "", false // unbalanced: do not guess
+		}
+		ctes = append(ctes, cte{name: name, body: text[open+1 : j]})
+		i = j + 1
+		// Only a comma continues the CTE list; anything else starts the outer query.
+		k := i
+		for k < len(masked) && (masked[k] == ' ' || masked[k] == '\n' || masked[k] == '\t' || masked[k] == '\r') {
+			k++
+		}
+		if k >= len(masked) || masked[k] != ',' {
+			break
+		}
+		i = k
+	}
+	if len(ctes) == 0 {
+		return "", false
+	}
+
+	// A recursive CTE's bound is its termination guard (`WHERE depth < 8`), not a LIMIT.
+	// inventory's resolveStockLocation walks a location's parents from one primary-key
+	// anchor and stops at depth 8; calling that "proportional to the table" is simply wrong.
+	recursive := recursiveWithRe.MatchString(masked)
+
+	outer := masked[i:]
+	// THE LIMIT MUST BE THE OUTER QUERY'S OWN. A `LIMIT 1` inside a nested EXISTS or a
+	// scalar subselect belongs to that subquery and says nothing about how the outer result
+	// is bounded; matching it anywhere in the tail made this rule fire on keyed single-row
+	// commands that are not paginated at all.
+	// PAGINATION IS ORDER BY + LIMIT, and this rule is about PAGINATION. A bare `LIMIT 1`
+	// with no ordering is a pick-one guard (obligation's keyed reopen ends
+	// `... UNION ALL SELECT ... FROM target WHERE NOT EXISTS (SELECT 1 FROM updated) LIMIT 1`),
+	// not a page, and its CTE is bounded by an equality on the key it was handed. A real
+	// page must order, or the page is not stable -- so requiring both keeps the rule on the
+	// shape the ADR actually names and off keyed commands.
+	if !hasTopLevelLimit(outer) || !hasTopLevelOrderBy(outer) {
+		return "", false
+	}
+
+	// Which CTEs does the outer query actually SELECT FROM?
+	referenced := map[string]bool{}
+	for _, m := range fromJoinRefRe.FindAllStringSubmatch(outer, -1) {
+		referenced[strings.ToLower(m[1])] = true
+	}
+	cteNames := map[string]bool{}
+	for _, c := range ctes {
+		cteNames[strings.ToLower(c.name)] = true
+	}
+
+	for _, c := range ctes {
+		if !referenced[strings.ToLower(c.name)] {
+			continue // an inner helper; the outer LIMIT is not applied to it
+		}
+		body := maskSQLNoise(c.body)
+		if recursive && regexp.MustCompile(`(?is)\b(?:FROM|JOIN)\s+`+regexp.QuoteMeta(c.name)+`\b`).MatchString(body) {
+			continue // self-referencing arm of a recursive CTE: bounded by its depth guard
+		}
+		if limitClauseRe.MatchString(body) {
+			continue // already paged inside: the correct shape
+		}
+		if boundedByIDsRe.MatchString(body) {
+			continue // bounded by a caller-supplied id list
+		}
+		if scalarAggRe.MatchString(strings.TrimSpace(body)) && !groupByRe.MatchString(body) {
+			continue // one row out, whatever goes in
+		}
+		// Does it scan a real TABLE at its OWN level? A nested subselect's FROM does not
+		// count (it is per-row work, or a scalar resolution), another CTE does not count
+		// (its own boundedness is judged on its own entry), and a set-returning function of
+		// the caller's binds does not count (bounded by what the caller passed).
+		if !scansTable(body, cteNames) {
+			continue
+		}
+		return fmt.Sprintf(
+			"CTE %q scans a table with no LIMIT of its own while the outer query LIMITs its output: "+
+				"every request does work proportional to the TABLE, not the page, and only then keeps a page. "+
+				"Push the LIMIT (and the keyset predicate) INSIDE %q -- or, where the outer ORDER BY is an "+
+				"aggregate and cannot be pushed down, serve the ranking from a read model", c.name, c.name), true
+	}
+	return "", false
 }
 
 // isPostgresAdapter reports whether rel is a repository adapter file. The rule is scoped to these

@@ -1331,3 +1331,59 @@ cardinality shape: `workforce_members` is a bounded tenant roster table, the
 constraint is evaluated per row on write, and no read path gains a predicate or
 a grouping key. Do not treat it as a scale-relevant change, and do not add
 role-hint-derived fan-out on the strength of it.
+
+## Unbounded CTE with the LIMIT outside it (2026-09-23)
+
+A paginated statement whose row source is a CTE or subquery that scans a table
+with no LIMIT of its own is O(history), not O(page). An outer `LIMIT` and an
+outer keyset predicate only discard rows the CTE has already materialised and
+sorted, so every request pays for the caller's whole lifetime of rows and then
+keeps twenty.
+
+Concrete failure: `sqlListNotifications` in
+`backend/internal/notificationcentre/adapters/postgres/repository.go`, the
+`/app/notifications` feed. The `mine` CTE had no LIMIT; the `LIMIT` and the
+keyset predicate sat outside it, so the `DISTINCT ON` dedupe ran over the
+member's entire notification history on every request. At a 5,000-row fixture
+it measured 31 ms and the comment claimed the query was "keyset-paged at most 50
+rows". In production `notification_requests` holds 236,963 rows / 621 MB, the
+worst single member 102,291 of them, and the feed became the slowest endpoint on
+the API: 27 requests over 3 s in one 15-minute window, repeated 500s at a flat
+15.0 s timeout, still failing after the API was scaled from 2 to 4 instances.
+Not a capacity problem.
+
+Migration `000354` had already fixed the SCAN with a non-partial per-member feed
+index. An index cannot fix the SHAPE — only restructuring the statement can push
+a LIMIT into a CTE.
+
+The fix (PR #376) pushes the LIMIT and the keyset INSIDE the CTE and
+re-expresses `DISTINCT ON` as the equivalent per-row `NOT EXISTS` anti join ("no
+newer row shares my dedupe key"), supported by the new expression index
+`notification_requests_member_dedupe_idx` (migration `000393`). Measured on a
+throwaway local database seeded to 102,291 delivery rows / 68,194 notifications
+/ 236,999 rows in the table, `EXPLAIN (ANALYZE, BUFFERS)`:
+
+- first page before: 102,291 rows scanned, 355.6 ms, 8,156 shared hit + 5,187
+  temp read / 5,188 written. After: 31 rows, 0.3 ms, 154 shared hit, no temp.
+- deep page before: 102,291 rows scanned, 348.8 ms, 8,156 shared hit + 5,187
+  temp read / 5,188 written. After: 32 rows, 0.2 ms, 159 shared hit, no temp.
+
+Before, an external merge sort spilled 41,496 kB to disk on every request, and
+the deep page also discarded 5,000 already-materialised rows. After, a Nested
+Loop Anti Join runs under the CTE's own LIMIT and stays flat with depth — 0.2 ms
+at representative position #60,000.
+
+The tempting WRONG fix — push the keyset into the `DISTINCT ON` and leave the
+LIMIT outside — differs from the old query at 1,980 of 2,000 positions, because
+a dedupe group whose winner was on the previous page still has older delivery
+rows below the cursor and comes back again. Correctness here was proven, not
+reasoned: identical 68,194-row selection with an empty symmetric difference;
+identical at all 2,000 positions over a 100-page side-by-side walk with no
+duplicate ids; and a 1,000-page / 20,000-row walk that matches canonical
+`DISTINCT ON` order position for position.
+
+Rule: a paginated query's LIMIT belongs inside the CTE that does the scanning,
+with the keyset predicate beside it. `make scale-guard` rule
+`cte-limit-outside` blocks the recurrence — a request-path SQL statement with an
+outer LIMIT, where the row source that LIMIT is applied to is a CTE that scans a
+table with no LIMIT of its own.
