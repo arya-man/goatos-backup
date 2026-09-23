@@ -1153,3 +1153,144 @@ func TestListPendingExecutionFiltersBySourceShed(t *testing.T) {
 		t.Fatalf("rows=%d for the right park but wrong shed, want 0", len(page.Items))
 	}
 }
+
+// THE ACTIONS SCREEN'S THREE QUERIES TOGETHER, after they moved onto sqlbind (2026-09-23). The page,
+// the tab counts and the previous-dates strip are separate statements that must agree: a tab badge
+// may never advertise a row its tab does not list. The counts and the strip only run when a date
+// window is given, which most sibling tests omit, so this drives all three on one fixture:
+//
+//   - StatusBuckets: every tab's count equals the rows that tab lists, across all five statuses.
+//   - PageBoundary: each tab is walked one row per page, never skipping or repeating a movement.
+//   - MultipleDimensions: a two-animal movement is ONE row and ONE count, not one per animal.
+//   - ParkScope: a source-park filter for another park empties the rows, the counts and the strip.
+//   - the previous-dates strip counts, for the raise day, exactly the outstanding work (the
+//     approved movement and the one sent back), never the unapproved, completed or canceled ones.
+func TestListPendingExecutionBoundQueriesStatusBucketsPageBoundaryParkScopeMultipleDimensions(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	repo := newRealIdentityApprovalRepo(t, pool)
+	seedShedProfile(t, ctx, pool, countsShedB, "adult")
+
+	seedApprovalGoat(t, ctx, pool, "00000000-0000-4000-8000-00000000b501", countsShedA)
+	pendingID, _ := submitShiftingApproval(t, ctx, repo, "bound-pending", []string{"00000000-0000-4000-8000-00000000b501"})
+	// Two animals, one movement: must stay one row and one count.
+	authorizedID := authorizedShifting(t, ctx, pool, repo, "bound-authorized",
+		[]string{"00000000-0000-4000-8000-00000000b502", "00000000-0000-4000-8000-00000000b503"})
+	completedID := authorizedShifting(t, ctx, pool, repo, "bound-completed", []string{"00000000-0000-4000-8000-00000000b504"})
+	if _, _, err := completeShifting(repo, ctx, "bound-completed", completedID); err != nil {
+		t.Fatalf("complete: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE shifting_events SET verification_state = 'verified'
+WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid`, countsTenant, completedID); err != nil {
+		t.Fatalf("mark verified: %v", err)
+	}
+	reworkID := authorizedShifting(t, ctx, pool, repo, "bound-rework", []string{"00000000-0000-4000-8000-00000000b505"})
+	if _, _, err := completeShifting(repo, ctx, "bound-rework", reworkID); err != nil {
+		t.Fatalf("complete rework: %v", err)
+	}
+	if err := repo.BounceShiftingEventForRework(ctx, domain.ShiftingReworkCommand{
+		TenantID: countsTenant, ShiftingEventID: reworkID, VerifiedBy: countsApprover, Reason: "reshoot",
+	}); err != nil {
+		t.Fatalf("bounce: %v", err)
+	}
+	canceledID := authorizedShifting(t, ctx, pool, repo, "bound-canceled", []string{"00000000-0000-4000-8000-00000000b506"})
+	if _, _, err := cancelShifting(repo, ctx, "bound-canceled", canceledID, "abandoned"); err != nil {
+		t.Fatalf("cancel: %v", err)
+	}
+
+	// The shared fixture raises every movement two business days back; the window is that day.
+	raiseDay := biztime.BusinessDayStart(time.Now().AddDate(0, 0, -2))
+	windowFrom, windowBefore := raiseDay, raiseDay.AddDate(0, 0, 1)
+
+	walk := func(status, sourcePark string, from, before time.Time) ([]string, domain.ShiftingExecutionPage) {
+		t.Helper()
+		var ids []string
+		seen := map[string]bool{}
+		var first domain.ShiftingExecutionPage
+		cursor := ""
+		for pages := 0; ; pages++ {
+			if pages > 10 {
+				t.Fatalf("status=%s: pagination did not terminate", status)
+			}
+			decoded, err := domain.DecodeShiftingExecutionCursor(cursor)
+			if err != nil {
+				t.Fatalf("decode cursor: %v", err)
+			}
+			page, err := repo.ListShiftingEventsPendingExecution(ctx, domain.ShiftingExecutionQuery{
+				TenantID: countsTenant, Status: status, SourceParkID: sourcePark,
+				RaisedFrom: &from, RaisedBefore: &before, PageSize: 1, Cursor: decoded,
+			})
+			if err != nil {
+				t.Fatalf("list status=%s: %v", status, err)
+			}
+			if pages == 0 {
+				first = page
+			}
+			if len(page.Items) > 1 {
+				t.Fatalf("status=%s: page returned %d rows, want at most 1", status, len(page.Items))
+			}
+			for _, row := range page.Items {
+				if seen[row.ShiftingEventID] {
+					t.Fatalf("status=%s: movement %s appeared on two pages", status, row.ShiftingEventID)
+				}
+				seen[row.ShiftingEventID] = true
+				ids = append(ids, row.ShiftingEventID)
+			}
+			if page.NextCursor == "" {
+				break
+			}
+			cursor = page.NextCursor
+		}
+		sort.Strings(ids)
+		return ids, first
+	}
+	want := func(values ...string) []string { sort.Strings(values); return values }
+
+	_, counts := walk("all", "", windowFrom, windowBefore)
+	for _, tc := range []struct {
+		status string
+		want   []string
+		count  int
+	}{
+		{"all", want(authorizedID, completedID, reworkID), counts.StatusCounts.All},
+		{"pending", want(pendingID), counts.StatusCounts.Pending},
+		{"authorized", want(authorizedID), counts.StatusCounts.Authorized},
+		{"rework", want(reworkID), counts.StatusCounts.Rework},
+		{"completed", want(completedID), counts.StatusCounts.Completed},
+	} {
+		got, _ := walk(tc.status, "", windowFrom, windowBefore)
+		if !reflect.DeepEqual(got, tc.want) {
+			t.Fatalf("status=%s rows=%v, want %v", tc.status, got, tc.want)
+		}
+		if tc.count != len(got) {
+			t.Fatalf("status=%s tab count=%d but the tab lists %d rows", tc.status, tc.count, len(got))
+		}
+	}
+
+	// The day after: nothing is listed, and the strip points back at the raise day's outstanding work.
+	nextFrom, nextBefore := windowBefore, windowBefore.AddDate(0, 0, 1)
+	rows, next := walk("all", "", nextFrom, nextBefore)
+	if len(rows) != 0 || next.StatusCounts != (domain.ShiftingActionStatusCounts{}) {
+		t.Fatalf("next day rows=%v counts=%+v, want none", rows, next.StatusCounts)
+	}
+	wantDate := biztime.BusinessDate(raiseDay)
+	var raiseDayCount int
+	for _, d := range next.PreviousDates {
+		if d.Date == wantDate {
+			raiseDayCount = d.ActionCount
+		}
+	}
+	if raiseDayCount != 2 {
+		t.Fatalf("previous dates=%+v, want %s counting 2 (the approved and the sent-back movement)", next.PreviousDates, wantDate)
+	}
+
+	// ParkScope: another park's filter hides the rows, the counts and the strip alike.
+	otherPark := "00000000-0000-4000-8000-00000000b5ff"
+	rows, scoped := walk("all", otherPark, windowFrom, windowBefore)
+	if len(rows) != 0 || scoped.StatusCounts != (domain.ShiftingActionStatusCounts{}) {
+		t.Fatalf("other park rows=%v counts=%+v, want none", rows, scoped.StatusCounts)
+	}
+	if _, scopedNext := walk("all", otherPark, nextFrom, nextBefore); len(scopedNext.PreviousDates) != 0 {
+		t.Fatalf("other park previous dates=%+v, want none", scopedNext.PreviousDates)
+	}
+}
