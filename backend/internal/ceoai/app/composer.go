@@ -304,7 +304,13 @@ func renderSalesAnswer(r domain.ToolResult) string {
 		// No month was bound: the sales reader returns its all-time summary.
 		// Saying "for the selected period" presented that as the period the
 		// leader asked about.
-		b.WriteString("Across all recorded sales, ")
+		//
+		// It is all-time over CLOSED deals only: the sales views admit no open
+		// deal (pinned by TestSalesViewsStatusMatrixAdmitsOnlyClosedDeals).
+		// "Across all recorded sales" claimed a totality the figure does not
+		// have — live, roughly Rs 99,000 of open deals sat outside it — so the
+		// sentence names the restriction instead of asserting the whole.
+		b.WriteString("Across all closed sales deals, ")
 	}
 	switch {
 	case soldTotal != "" && soldGoats != "" && soldSheep != "" && revenue != "":
@@ -320,6 +326,9 @@ func renderSalesAnswer(r domain.ToolResult) string {
 	default:
 		b.WriteString(strings.TrimSuffix(renderFacts(r), ".") + ".")
 	}
+	// Every branch above is fed by a sales view that admits closed deals only,
+	// including the month branch, so the scope is stated once, plainly.
+	b.WriteString(" Closed deals only; open deals are not counted.")
 	return b.String()
 }
 

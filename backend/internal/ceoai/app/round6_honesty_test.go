@@ -64,8 +64,44 @@ func TestASalesReadWithNoMonthStillSaysSo(t *testing.T) {
 		Surface: "Mesha read API · Sales overview",
 		Facts:   salesFacts("", ""),
 	}})
-	if !strings.Contains(body, "Across all recorded sales") {
+	if !strings.Contains(strings.ToLower(body), "across all closed sales deals") {
 		t.Errorf("an unbound sales read must say it is all-time, got %q", body)
+	}
+}
+
+// TestTheSalesSentenceNeverClaimsAllRecordedSales is D1. Live, 2 of 5 runs, the
+// composed sentence printed "Across all recorded sales" above the CLOSED-deal
+// total; roughly Rs 99,000 of open recorded deals sat outside that figure, so
+// the claim of totality was false. The sales views admit closed deals only
+// (TestSalesViewsStatusMatrixAdmitsOnlyClosedDeals), so the sentence must name
+// that restriction. Asserted on the composed sentence for a real sales result,
+// not against the constant that produces it.
+func TestTheSalesSentenceNeverClaimsAllRecordedSales(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		facts []domain.Fact
+	}{
+		{"all-time", salesFacts("", "")},
+		{"bound month", salesFacts("2026-08", " in 2026-08")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body, _, _ := composer{}.compose([]domain.ToolResult{{
+				Surface: "Mesha read API · Sales overview",
+				Facts:   tc.facts,
+			}})
+			low := strings.ToLower(body)
+			for _, forbidden := range []string{
+				"across all recorded sales", "all recorded sales", "all sales",
+				"every sale", "total sales recorded",
+			} {
+				if strings.Contains(low, forbidden) {
+					t.Errorf("the closed-deal figure claims totality over all recorded sales (%q): %q", forbidden, body)
+				}
+			}
+			if !strings.Contains(low, "closed") && !strings.Contains(low, "completed") {
+				t.Errorf("the sentence must name the restriction the figure carries (closed/completed deals): %q", body)
+			}
+		})
 	}
 }
 
