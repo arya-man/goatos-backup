@@ -1962,6 +1962,11 @@ fun AppNavHost(
                     onRefresh = vm::refresh,
                     onRecordVideo = { vm.recordVideo() },
                     onReRecordVideo = { vm.recordVideo(replacing = true) },
+                    // One video per step: the step id is what the clip is filed against, and a
+                    // second tap on a recorded row re-shoots THAT step only.
+                    onRecordStepVideo = { stepId ->
+                        vm.recordStepVideo(stepId, replacing = state.stepProofs.of(stepId).recorded)
+                    },
                     onCloseCase = vm::closeCase,
                     // An animal can die MID-COURSE, and this is where the person treating it is
                     // standing when that happens. It opens the ordinary death form with the tag

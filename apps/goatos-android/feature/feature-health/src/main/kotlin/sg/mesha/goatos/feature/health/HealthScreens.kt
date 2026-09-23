@@ -598,6 +598,14 @@ data class HealthDetailUiState(
      */
     val registerRuleId: String = "",
     val videoCaptured: Boolean = false,
+    /**
+     * ONE VIDEO PER STEP (maintainer decision 2026-09-23). Keyed by step id.
+     *
+     * A step reads recorded only once its REGISTER landed -- see [TreatmentStepProofs]. Empty for
+     * a card from before per-step video, which keeps the single clip it was built on.
+     */
+    val stepProofs: TreatmentStepProofs = TreatmentStepProofs(),
+    val perStepVideo: Boolean = false,
     val isCapturingVideo: Boolean = false,
     val videoMessage: String? = null,
     val message: String? = null,
@@ -611,6 +619,8 @@ fun HealthDetailScreen(
     onRefresh: () -> Unit,
     onRecordVideo: () -> Unit,
     onReRecordVideo: () -> Unit,
+    /** Film ONE step. The step id is what the clip is filed against. */
+    onRecordStepVideo: (String) -> Unit = {},
     onCloseCase: (String, String) -> Unit,
     /** Open the death form for this animal, with this case's disease as the cause. */
     onMarkDead: () -> Unit,
@@ -688,11 +698,22 @@ fun HealthDetailScreen(
                         Spacer(Modifier.height(4.dp))
                         Text(step.detail)
                         if (step.critical) Text("Guarded handoff — no direct animal-state change", color = MeshaColors.Danger)
+                        if (state.perStepVideo) {
+                            HealthStepVideoRow(
+                                proof = state.stepProofs.of(step.id),
+                                enabled = state.canRecordVideo && !state.isCapturingVideo && !state.submitting,
+                                capturing = state.isCapturingVideo,
+                                onRecord = { onRecordStepVideo(step.id) },
+                            )
+                        }
                     }
                 }
             }
         }
-        if (state.canRecordVideo) {
+        // The single control belongs to a PRE-STEP-PROOF card only. A per-step card records from
+        // the rows themselves, and a second "record" button beside them would be a second way to
+        // film the same work with nothing saying which step it proved.
+        if (state.canRecordVideo && !state.perStepVideo) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
                 state.videoMessage?.let { Text(it, color = MeshaColors.Muted, fontSize = 12.sp) }
                 OutlinedButton(
@@ -719,6 +740,19 @@ fun HealthDetailScreen(
                 when {
                     state.submitting -> "Saving…"
                     !state.canRecordVideo -> "Completion is recorded by the operator"
+                    // NAME what is left. "Record the videos first" on a twelve-step card leaves
+                    // the operator scrolling to find which row is still empty.
+                    state.perStepVideo -> {
+                        val owed = state.stepProofs.missing(state.steps.map { it.id })
+                        when {
+                            owed.isEmpty() -> "Complete this session"
+                            owed.size == 1 -> {
+                                val name = state.steps.firstOrNull { it.id == owed.first() }?.title.orEmpty()
+                                if (name.isBlank()) "1 step still needs its video" else "Still to film: $name"
+                            }
+                            else -> "${owed.size} steps still need their video"
+                        }
+                    }
                     !state.videoCaptured -> "Record the treatment video first"
                     else -> "Complete this session"
                 },
@@ -783,4 +817,60 @@ private fun String.healthStepStatusLabel(): String? = when (lowercase()) {
     "pending" -> null
     "" -> null
     else -> replaceFirstChar { it.uppercase() }
+}
+
+/**
+ * ONE STEP'S VIDEO, on the step's own row.
+ *
+ * RECORDED here means the server holds the clip against this step -- its register landed, not its
+ * upload. A clip whose bytes landed and whose register then failed shows as still owed, with the
+ * failure in words: the proof business-ack contract, after PC Care read "Video sent" off an
+ * upload row while the feature row's ref was empty.
+ */
+@Composable
+private fun HealthStepVideoRow(
+    proof: TreatmentStepProof,
+    enabled: Boolean,
+    capturing: Boolean,
+    onRecord: () -> Unit,
+) {
+    Spacer(Modifier.height(8.dp))
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            when (proof.state) {
+                StepProofState.RECORDED -> "Video recorded"
+                StepProofState.SENDING -> "Video saving…"
+                StepProofState.FAILED -> "Video not saved"
+                StepProofState.NONE -> "No video yet"
+            },
+            color = when (proof.state) {
+                StepProofState.RECORDED -> MeshaColors.Ok
+                StepProofState.FAILED -> MeshaColors.Danger
+                else -> MeshaColors.Muted
+            },
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.weight(1f),
+        )
+        OutlinedButton(
+            onClick = onRecord,
+            enabled = enabled,
+            modifier = Modifier.minimumInteractiveComponentSize(),
+        ) {
+            Text(
+                when {
+                    capturing -> "Opening camera…"
+                    proof.state == StepProofState.RECORDED -> "Re-record"
+                    proof.state == StepProofState.FAILED -> "Try again"
+                    else -> "Record"
+                },
+                fontSize = 12.sp,
+            )
+        }
+    }
+    // The failure in the sync layer's OWN words. A step left saying "saving" forever is the
+    // terminal-failure-must-be-visible half of the same contract.
+    if (proof.state == StepProofState.FAILED && proof.message.isNotBlank()) {
+        Text(proof.message, color = MeshaColors.Danger, fontSize = 11.sp)
+    }
 }
