@@ -87,3 +87,43 @@ test("the threshold is a shape, not a knob to turn when something fires", () => 
   assert.equal(assessSubstance(snap({ rows: 3 }), { minContentUnits: 10 }).verdict, VERDICTS.BLANK,
     "and the floor is explicit, so a caller that moves it is visible in the diff");
 });
+
+// ---------------------------------------------------------------- the real capture decision
+//
+// The gate is only worth having if the sweep actually consults it, and a branch
+// buried inside a loop that needs a live site cannot be held to account (§8).
+// judgeLandedPage IS that branch, so these run against the real one.
+import { judgeLandedPage } from "./flicker-capture.mjs";
+
+test("a page that loaded and drew nothing is never filmed or called clean", () => {
+  const verdict = judgeLandedPage({ landedOn: "/tasks", snapshot: snap({ headings: 1, controls: 2, textLength: 22 }) });
+  assert.equal(verdict.film, false, "filming it would produce identical frames and a clean verdict");
+  assert.equal(verdict.blankPage, true, "and a page that drew nothing is a finding about the page");
+  assert.ok(verdict.parked.length > 40, "with a sentence");
+});
+
+test("a page that says it is empty is not filmed, and is not an accusation either", () => {
+  const verdict = judgeLandedPage({ landedOn: "/tasks", snapshot: snap({ headings: 1, emptyState: ["Nothing to show yet"] }) });
+  assert.equal(verdict.film, false);
+  assert.ok(!verdict.blankPage, "a correct empty state is not a finding");
+  assert.match(verdict.parked, /never put to the test/);
+});
+
+test("a sign-in redirect is still parked for its own reason", () => {
+  const verdict = judgeLandedPage({ landedOn: "/login", snapshot: snap({ rows: 20, cells: 80 }) });
+  assert.equal(verdict.film, false);
+  assert.match(verdict.parked, /signed-in session/);
+});
+
+test("a real page is filmed", () => {
+  const verdict = judgeLandedPage({ landedOn: "/tasks", snapshot: snap({ rows: 18, cells: 90, figures: 200 }) });
+  assert.equal(verdict.film, true, "NO FALSE POSITIVES: a page with content must still be swept");
+  assert.equal(verdict.substance, VERDICTS.SUBSTANTIAL);
+});
+
+test("a snapshot that could not be read is not treated as a good page", () => {
+  // page.evaluate failing returns {}; that must not read as a page worth filming.
+  const verdict = judgeLandedPage({ landedOn: "/tasks", snapshot: {} });
+  assert.equal(verdict.film, false);
+  assert.equal(verdict.blankPage, true);
+});

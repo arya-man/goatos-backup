@@ -339,6 +339,10 @@ export function buildReceipt({ statik, temporal, headless }) {
   // need the repetition the whole-screen shimmer detector insists on.
   const showedThrough = runs.filter((r) => (r.overlay?.findings ?? []).length);
   const sweepFindings = (temporal?.rows ?? []).filter((row) => (row.findings ?? []).length);
+  // A page that loaded and drew nothing is a finding about the page, not a
+  // clean result. Without this, filming a "something went wrong" fallback
+  // produced identical frames and the same verdict a correct page gets.
+  const blankPages = (temporal?.rows ?? []).filter((row) => row.blankPage);
   // A run that never opened the page it was aimed at is parked with its reason, never
   // counted as a clean page. A lane that quietly checks nothing is the worst outcome
   // available: it goes green exactly when it is blind.
@@ -364,6 +368,7 @@ export function buildReceipt({ statik, temporal, headless }) {
     temporal: temporal ?? null,
     filmed: filmed.length,
     overlaysShowedThrough: showedThrough.length + sweepFindings.length,
+    blankPages: blankPages.map((row) => ({ route: row.route, viewport: row.viewport, why: row.parked })),
     coverage: temporal?.coverage ?? null,
     temporalVerdict,
     coverageLine: temporal?.coverage?.fraction ?? "",
@@ -378,11 +383,12 @@ export function buildReceipt({ statik, temporal, headless }) {
       && flickering.length === 0
       && showedThrough.length === 0
       && sweepFindings.length === 0
+      && blankPages.length === 0
       // A sweep that judged nothing may not report pass. §2: a check that did not run
       // renders no verdict, in either direction.
       && !(temporalAsked && temporalJudged === 0)
       ? "pass"
-      : temporalAsked && temporalJudged === 0 && flickering.length === 0 && showedThrough.length === 0 && sweepFindings.length === 0
+      : temporalAsked && temporalJudged === 0 && flickering.length === 0 && showedThrough.length === 0 && sweepFindings.length === 0 && blankPages.length === 0
         ? "not-checked"
         : "fail",
   };
@@ -578,6 +584,16 @@ export async function selfTestWide() {
   });
   assert(blind.status === "not-checked", `a sweep that judged nothing must not pass, it said "${blind.status}"`);
   assert(blind.temporalVerdict.startsWith("not checked"), "and must say so in words");
+  // A page that loaded and drew nothing fails the receipt, and is named.
+  const blankPage = buildReceipt({
+    statik: { ok: true },
+    temporal: { runs: [], coverage, rows: [{ route: "tasks", viewport: "mobile", judged: 0, findings: [], skipped: [], blankPage: true, parked: "the page loaded and drew 0 piece(s) of content" }] },
+    headless: true,
+  });
+  assert(blankPage.status === "fail", `a page that drew nothing must not pass, it said "${blankPage.status}"`);
+  assert(blankPage.blankPages.length === 1 && blankPage.blankPages[0].route === "tasks",
+    "and the receipt must name which page it was");
+
   const some = buildReceipt({ statik: { ok: true }, temporal: { runs: [], coverage, rows: [] }, headless: true });
   assert(some.status === "pass" && some.temporalVerdict === "checked", "a sweep that judged a page and found nothing is a pass");
   assert(some.coverageLine === coverage.fraction, "the receipt carries the fraction, not a list of hits");

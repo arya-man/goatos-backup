@@ -16,6 +16,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { detectFlicker, grayFrameFromRgba } from "./flicker-detector.mjs";
+import { assessSubstance, collectSubstance, gateContentCheck } from "./page-substance.mjs";
 
 export const CAPTURE_DEFAULTS = Object.freeze({
   // Long enough to catch a once-a-second recurrence several times over.
@@ -786,6 +787,38 @@ export async function overlayCandidates(page, { routeName, viewportLabel, maxDis
  * silently skipped half the routes is the kind of green this automation exists to
  * stop producing.
  */
+/**
+ * Is this landed page worth filming, and if not, why not?
+ *
+ * A function rather than a branch inside the sweep loop, for §8's reason: a
+ * check that can only be reached by opening a browser against a real site is a
+ * check nothing can hold to account. sweepViewport calls THIS.
+ *
+ * @param {{landedOn: string, snapshot: object}} args
+ * @returns {{film: boolean, parked?: string, blankPage?: boolean}}
+ */
+export function judgeLandedPage({ landedOn = "", snapshot = {} } = {}) {
+  if (/login|signin|sign-in/i.test(landedOn)) {
+    // A run that filmed a login screen says nothing about the page it aimed at.
+    return { film: false, parked: "this page needs a signed-in session and the run did not have one" };
+  }
+  // A page that STAYED PUT and rendered nothing — an error state, a "something
+  // went wrong" fallback, an empty shell — used to be filmed, produce identical
+  // frames, and be reported clean: twelve identical blank frames return
+  // `flicker: false` with the same verdict a correct page gets. That is §3's
+  // failure reproduced inside the new check. The redirect test above covers an
+  // expired token; this covers everything else.
+  const substance = assessSubstance(snapshot);
+  const gate = gateContentCheck(substance);
+  if (gate.judge) return { film: true, substance: substance.verdict };
+  return {
+    film: false,
+    substance: substance.verdict,
+    parked: gate.finding ?? gate.notAttempted,
+    blankPage: Boolean(gate.finding),
+  };
+}
+
 export async function sweepViewport({ baseUrl, bearerToken, outDir, routes, viewport, onRoute }) {
   const { chromium } = await import("@playwright/test");
   let browser = null;
@@ -838,9 +871,12 @@ export async function sweepViewport({ baseUrl, bearerToken, outDir, routes, view
         await page.waitForTimeout(2_000);
         const landedOn = new URL(page.url()).pathname;
         row.landedOn = landedOn;
-        if (/login|signin|sign-in/i.test(landedOn)) {
-          // A run that filmed a login screen says nothing about the page it aimed at.
-          row.parked = "this page needs a signed-in session and the run did not have one";
+        const snapshot = await page.evaluate(collectSubstance).catch(() => ({}));
+        const verdict = judgeLandedPage({ landedOn, snapshot });
+        row.substance = verdict.substance;
+        if (!verdict.film) {
+          row.parked = verdict.parked;
+          if (verdict.blankPage) row.blankPage = true;
           results.push(row);
           continue;
         }
