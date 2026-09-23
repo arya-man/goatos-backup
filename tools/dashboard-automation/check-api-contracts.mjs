@@ -238,6 +238,261 @@ export function declaredSubtreeForbiddenFindings(payload, entry, { tokens = ["Na
   return problems;
 }
 
+// ---------------------------------------------------------------------------
+// Relations: whether a number is RIGHT, not merely present
+// ---------------------------------------------------------------------------
+// Everything above this point answers "is the field there, and is it non-null".
+// That is the whole vocabulary this lane had, and it is why a Weights page could
+// report a herd daily gain of zero, and a vaccination board could report more
+// doses than animals, without a single check going off.
+//
+// The bug history since 2026-08-01 is not made of missing fields. It is made of
+// numbers that disagree with other numbers on the same screen:
+//   b2d61bd54  the male and female halves of the Weights page came to 490 + 225
+//              against a headline of 791 - 76 kids belonged to neither half.
+//   99008fb21  the Weights page printed two different farm daily-gain figures at
+//              once: 133 g/day in the headline, 200 g/day in the chart below it.
+//   dad4b3c18  a 100-goat drive showed "Total 100" over tiles adding up to 97.
+//   442ebce13  a combined drive multiplied its animal count by the number of
+//              vaccines in it: 120 goats reported as 360.
+//   e5b9a96ac  the Overdue tile read 0 while the grid underneath it was red.
+//   51bae949a  the operators column came to 95 against its own tile of 199.
+//   d085b2a4d  an animal that gained 2.3 kg in 8 days was reported at 764 g/day.
+//
+// A relation is a rule between figures the same response already carries. It is
+// checked only when every figure it needs is really there and really a number;
+// otherwise it records NOT-ATTEMPTED and says so, because a rule that quietly
+// skips itself is how a screen ends up with a green tick and a wrong number.
+
+const RELATION_KINDS = Object.freeze([
+  "parts-sum-to-whole",
+  "figures-agree",
+  "at-most",
+  "share-matches-its-parts",
+  "list-matches-its-count",
+  "within-range",
+  "no-repeated-row",
+  "populated-together",
+  "average-matches-its-total",
+  "rate-matches-the-movement",
+  "never-more-than",
+  "difference-matches"
+]);
+
+function numbersAt(payload, path) {
+  const nodes = resolvePath(payload, path).filter((node) => !node.missing && !node.notAnArray);
+  const values = [];
+  for (const node of nodes) {
+    if (typeof node.value === "number" && Number.isFinite(node.value)) values.push(node.value);
+    else if (typeof node.value === "string" && node.value.trim() !== "" && Number.isFinite(Number(node.value))) values.push(Number(node.value));
+    else return null; // a non-number anywhere means this relation has no honest inputs
+  }
+  return values;
+}
+
+function oneNumberAt(payload, path) {
+  const values = numbersAt(payload, path);
+  if (!values || values.length !== 1) return null;
+  return values[0];
+}
+
+function keysAt(payload, path) {
+  return resolvePath(payload, path)
+    .filter((node) => !node.missing && !node.notAnArray && node.value !== null && node.value !== undefined)
+    .map((node) => String(node.value).trim().toLowerCase())
+    .filter((key) => key !== "");
+}
+
+/**
+ * Checks every relation an endpoint declares.
+ * Returns { findings, notAttempted } - never a bare pass. A relation whose inputs
+ * are absent lands in notAttempted, so the run can say "this was not checked"
+ * instead of counting it as proof.
+ */
+export function relationFindings(payload, relations = []) {
+  const findings = [];
+  const notAttempted = [];
+  for (const rule of relations) {
+    const name = rule.name ?? rule.kind;
+    const skip = (why) => notAttempted.push({ name, why });
+    if (!RELATION_KINDS.includes(rule.kind)) { skip(`unknown kind ${rule.kind}`); continue; }
+    // A response that says it cut a list short is not disagreeing with itself; it is
+    // telling the truth about a cap. Checking it anyway is how a check earns a
+    // reputation for crying wolf, and a check nobody trusts is worse than no check.
+    if (rule.unlessTruncated) {
+      const flag = resolvePath(payload, rule.unlessTruncated).find((node) => !node.missing);
+      if (flag?.value === true) { skip("the response says this list was cut short at a cap"); continue; }
+    }
+    const tol = Number(rule.tolerance ?? 0);
+
+    if (rule.kind === "parts-sum-to-whole") {
+      const parts = (rule.parts ?? []).map((path) => numbersAt(payload, path));
+      const whole = oneNumberAt(payload, rule.whole);
+      if (whole === null || parts.some((p) => p === null) || parts.every((p) => p.length === 0)) { skip("the figures it compares were not all present as numbers"); continue; }
+      const total = parts.flat().reduce((a, b) => a + b, 0);
+      if (Math.abs(total - whole) > tol) findings.push({ name, detail: `the parts come to ${total} against a whole of ${whole}` });
+      continue;
+    }
+
+    if (rule.kind === "figures-agree") {
+      const groups = (rule.figures ?? []).map((path) => numbersAt(payload, path));
+      if (groups.some((g) => g === null) || groups.some((g) => g.length === 0)) { skip("one of the figures it compares was not present as a number"); continue; }
+      const flat = groups.flat();
+      const lo = Math.min(...flat), hi = Math.max(...flat);
+      if (hi - lo > tol) findings.push({ name, detail: `the same figure is reported as ${lo} in one place and ${hi} in another` });
+      continue;
+    }
+
+    if (rule.kind === "at-most") {
+      const left = numbersAt(payload, rule.left);
+      const right = oneNumberAt(payload, rule.right);
+      if (left === null || right === null || left.length === 0) { skip("the figures it compares were not both present as numbers"); continue; }
+      const worst = Math.max(...left);
+      if (worst > right + tol) findings.push({ name, detail: `${worst} where at most ${right} is possible` });
+      continue;
+    }
+
+    if (rule.kind === "share-matches-its-parts") {
+      const part = oneNumberAt(payload, rule.part);
+      const whole = oneNumberAt(payload, rule.whole);
+      const share = oneNumberAt(payload, rule.share);
+      if (part === null || whole === null || share === null) { skip("the figures it compares were not all present as numbers"); continue; }
+      if (whole === 0) { skip("there is nothing to take a share of"); continue; }
+      const expected = (part / whole) * (rule.scale ?? 100);
+      if (Math.abs(expected - share) > (tol || 0.5)) findings.push({ name, detail: `reported as ${share} where the figures behind it give ${expected.toFixed(1)}` });
+      continue;
+    }
+
+    if (rule.kind === "list-matches-its-count") {
+      const rows = resolvePath(payload, rule.list).filter((node) => !node.missing && !node.notAnArray);
+      const stated = oneNumberAt(payload, rule.count);
+      if (stated === null) { skip("the stated total was not present as a number"); continue; }
+      if (resolvePath(payload, rule.list).some((node) => node.notAnArray)) { skip("the list it counts was not present"); continue; }
+      if (rule.onlyWhenNotPaged && stated > (rule.pageSize ?? Infinity)) { skip("the list is only one page of a longer list"); continue; }
+      if (rows.length !== stated) findings.push({ name, detail: `${rows.length} listed against a stated total of ${stated}` });
+      continue;
+    }
+
+    if (rule.kind === "within-range") {
+      const values = numbersAt(payload, rule.path);
+      if (values === null || values.length === 0) { skip("the figure it checks was not present as a number"); continue; }
+      const offenders = values.filter((v) => (rule.ignoreZero && v === 0 ? false : v < rule.min || v > rule.max));
+      if (offenders.length) findings.push({ name, detail: `${offenders[0]} where anything from ${rule.min} to ${rule.max} is believable` });
+      continue;
+    }
+
+    // The key must identify the thing, not its NAME. Pen names repeat across farms on
+    // purpose - there really are two Castro 1 and two Godel 2 - so keying a duplicate
+    // check on the displayed name reports two different pens as one (2b0320963 fixed
+    // exactly this on the vaccination board, by keying on the pen and not its label).
+    if (rule.kind === "no-repeated-row") {
+      const parts = Array.isArray(rule.key) ? rule.key : [rule.key];
+      const rows = resolvePath(payload, rule.rows ?? "").filter((node) => !node.missing && !node.notAnArray);
+      if (rows.length === 0) { skip("there were no rows to compare"); continue; }
+      // A field a row legitimately omits (an unpartitioned pen has no partition) counts
+      // as an empty part of the key, not as a reason to give up on the whole check.
+      const keys = rows.map((node) => parts.map((path) => (keysAt(node.value, path)[0] ?? "")).join("|"));
+      if (keys.every((key) => key.replaceAll("|", "") === "")) { skip("no row carried anything that identifies it"); continue; }
+      const seen = new Set(); let repeated = null;
+      for (const key of keys) { if (seen.has(key)) { repeated = key; break; } seen.add(key); }
+      if (repeated) findings.push({ name, detail: `the same row is listed more than once` });
+      continue;
+    }
+
+    // An average that is not its own total divided by its own head count is the
+    // single most reported weighing defect: the pen reads one number and the rows
+    // behind it say another.
+    if (rule.kind === "average-matches-its-total") {
+      const rows = resolvePath(payload, rule.each ?? "").filter((node) => !node.missing && !node.notAnArray);
+      const scope = rule.each ? rows.map((node) => node.value) : [payload];
+      if (scope.length === 0) { skip("there were no rows to check"); continue; }
+      let attempted = 0;
+      for (const item of scope) {
+        const total = oneNumberAt(item, rule.total);
+        const count = oneNumberAt(item, rule.count);
+        const average = oneNumberAt(item, rule.average);
+        if (total === null || count === null || average === null || count <= 0) continue;
+        attempted += 1;
+        const expected = total / count;
+        if (Math.abs(expected - average) > (tol || 0.5)) {
+          findings.push({ name, detail: `an average of ${average} where the total and the head count behind it give ${expected.toFixed(1)}` });
+          break;
+        }
+      }
+      if (attempted === 0) skip("no row carried a total, a head count and an average together");
+      continue;
+    }
+
+    // A daily gain that is not the weight actually gained divided by the days it took.
+    // d085b2a4d: a kid that gained 2.3 kg in 8 days was reported at 764 g/day, where
+    // the movement it is built on gives 287.
+    if (rule.kind === "rate-matches-the-movement") {
+      const rows = resolvePath(payload, rule.each ?? "").filter((node) => !node.missing && !node.notAnArray);
+      if (rows.length === 0) { skip("there were no rows to check"); continue; }
+      let attempted = 0;
+      for (const node of rows) {
+        const item = node.value;
+        const from = oneNumberAt(item, rule.from);
+        const to = oneNumberAt(item, rule.to);
+        const days = oneNumberAt(item, rule.days);
+        const rate = oneNumberAt(item, rule.rate);
+        if (from === null || to === null || days === null || rate === null || days <= 0) continue;
+        attempted += 1;
+        const expected = ((to - from) * (rule.scale ?? 1)) / days;
+        if (Math.abs(expected - rate) > (tol || 1)) {
+          findings.push({ name, detail: `a daily gain of ${rate} where the weights and the days behind it give ${expected.toFixed(1)}` });
+          break;
+        }
+      }
+      if (attempted === 0) skip("no row carried both weights, the days between them and a rate");
+      continue;
+    }
+
+    // A figure that counts a subset can never exceed the figure that counts the set.
+    if (rule.kind === "never-more-than") {
+      const subset = oneNumberAt(payload, rule.subset);
+      const set = oneNumberAt(payload, rule.set);
+      if (subset === null || set === null) { skip("the two figures it compares were not both present as numbers"); continue; }
+      if (subset > set + tol) findings.push({ name, detail: `${subset} counted inside a group of ${set}` });
+      continue;
+    }
+
+    // Remaining work is what was scheduled minus what actually closed. 51bae949a: the
+    // board took it from proof arrival instead, so a drive with every video in and
+    // almost nothing closed rendered as finished.
+    if (rule.kind === "difference-matches") {
+      const rows = rule.each ? resolvePath(payload, rule.each).filter((node) => !node.missing && !node.notAnArray) : [{ value: payload }];
+      if (rows.length === 0) { skip("there were no rows to check"); continue; }
+      let attempted = 0;
+      for (const node of rows) {
+        const item = node.value;
+        const from = oneNumberAt(item, rule.from);
+        const less = oneNumberAt(item, rule.less);
+        const result = oneNumberAt(item, rule.result);
+        if (from === null || less === null || result === null) continue;
+        attempted += 1;
+        const expected = rule.flooredAtZero ? Math.max(0, from - less) : from - less;
+        if (Math.abs(expected - result) > tol) {
+          findings.push({ name, detail: `${result} where the two figures behind it give ${expected}` });
+          break;
+        }
+      }
+      if (attempted === 0) skip("no row carried all three figures together");
+      continue;
+    }
+
+    if (rule.kind === "populated-together") {
+      const lead = numbersAt(payload, rule.when);
+      if (lead === null || lead.length === 0) { skip("the figure it keys off was not present as a number"); continue; }
+      if (!lead.some((v) => v > 0)) { skip("there was nothing on this screen to be consistent about"); continue; }
+      const rows = resolvePath(payload, rule.expect).filter((node) => !node.missing && !node.notAnArray);
+      if (rows.length === 0) findings.push({ name, detail: `one half of the screen has figures and the other half has none` });
+      continue;
+    }
+  }
+  return { findings, notAttempted };
+}
+
 function describeValue(value) {
   if (typeof value === "number" && Number.isNaN(value)) return "NaN";
   if (value === undefined) return "undefined";
@@ -304,6 +559,17 @@ export function validateEntry(entry, index = 0) {
   }
   if (!Array.isArray(entry.sourceCommits) || entry.sourceCommits.length === 0) {
     throw new Error(`api-contract ${where} must record the commits it comes from`);
+  }
+  for (const rule of entry.relations ?? []) {
+    const rname = `${where} relation ${rule?.name ?? rule?.kind ?? "<unnamed>"}`;
+    if (!RELATION_KINDS.includes(rule?.kind)) throw new Error(`${rname} has no known kind`);
+    if (!rule?.name) throw new Error(`${rname} has no name`);
+    // A relation with no shipped bug behind it is a guess, and a guess is how false
+    // alarms get in. Every one names the commits whose fix it would catch the loss of.
+    if (!Array.isArray(rule.sourceCommits) || rule.sourceCommits.length === 0) {
+      throw new Error(`${rname} names no commit it comes from`);
+    }
+    assertHumanSentence(rname, rule.humanFailure);
   }
   return entry;
 }
@@ -441,6 +707,7 @@ export async function checkEntry(entry, context) {
   const requestPath = expandPath(entry.path, now);
   const budgetMs = latencyBudgetFor(entry);
   const findings = [];
+  const relationsNotAttempted = [];
   const statuses = [];
   const durations = [];
   let lastPayload;
@@ -502,6 +769,16 @@ export async function checkEntry(entry, context) {
     for (const problem of declaredSubtreeForbiddenFindings(lastPayload, entry).slice(0, 5)) {
       findings.push(finding(entry, "forbidden-value", `${problem.concrete} is ${problem.reason}`, requestPath, ""));
     }
+    const relations = relationFindings(lastPayload, entry.relations ?? []);
+    for (const problem of relations.findings) {
+      // A relation carries its own sentence: the endpoint-wide one says "the page did not
+      // load", which is not what happened. The page loaded and lied.
+      findings.push({
+        ...finding(entry, "figures-disagree", problem.detail, requestPath, ""),
+        humanFailure: (entry.relations ?? []).find((rule) => (rule.name ?? rule.kind) === problem.name)?.humanFailure ?? entry.humanFailure,
+      });
+    }
+    relationsNotAttempted.push(...relations.notAttempted);
   }
 
   const sorted = [...durations].sort((a, b) => a - b);
@@ -530,6 +807,11 @@ export async function checkEntry(entry, context) {
     slow_rule: SLOW_RULE,
     sample_ms: sorted.map((value) => Number(value.toFixed(1))),
     passed: findings.length === 0,
+    // A relation that could not be checked is reported, never counted as proof.
+    // Silence here is how a screen earns a green tick it did not deserve.
+    relations_checked: (entry.relations ?? []).length - relationsNotAttempted.length,
+    relations_declared: (entry.relations ?? []).length,
+    relations_not_attempted: relationsNotAttempted,
     findings,
   };
 }

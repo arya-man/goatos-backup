@@ -373,7 +373,37 @@
       "historyChecks": [
         "lane3.vaccination-adherence"
       ],
-      "historyCommitCount": 14
+      "historyCommitCount": 14,
+      "relations": [
+        {
+          "kind": "share-matches-its-parts",
+          "name": "the adherence percentage is its own completed over its own expected",
+          "part": "summary.completed_count",
+          "whole": "summary.expected_count",
+          "share": "summary.adherence_percent",
+          "scale": 100,
+          "tolerance": 0.5,
+          "humanFailure": "On the vaccination adherence page the percentage is not the completed work divided by the work that was expected, so the headline figure and the counts beside it are two different answers.",
+          "sourceCommits": [
+            "60475c239",
+            "24e3b9e11",
+            "48d073baa",
+            "12f773673"
+          ]
+        },
+        {
+          "kind": "never-more-than",
+          "name": "no more work was completed than was expected",
+          "subset": "summary.completed_count",
+          "set": "summary.expected_count",
+          "humanFailure": "The vaccination adherence page reports more work completed than was ever expected, so the adherence figure is built on a total that does not exist.",
+          "sourceCommits": [
+            "60475c239",
+            "48d073baa",
+            "dad4b3c18"
+          ]
+        }
+      ]
     },
     {
       "name": "vaccination_command",
@@ -454,6 +484,57 @@
       ],
       "bugPatterns": [
         "chart-value-integrity-and-empty-scaffolds"
+      ],
+      "relations": [
+        {
+          "kind": "parts-sum-to-whole",
+          "name": "the vaccination board's tiles add up to its own total",
+          "parts": [
+            "kpis.missedNotGiven",
+            "kpis.dosesVerified",
+            "kpis.awaitingVerification",
+            "kpis.reworkNeeded",
+            "kpis.overdueNotGiven",
+            "kpis.scheduledAhead",
+            "kpis.closedWithoutDose"
+          ],
+          "whole": "kpis.targets",
+          "humanFailure": "On the vaccination board the tiles across the top do not add up to the total above them, so some animals are in the total and in none of the tiles, and nothing on the screen says where they went.",
+          "sourceCommits": [
+            "dad4b3c18",
+            "de4e099b6",
+            "e5b9a96ac",
+            "1b08bf91b",
+            "f281fb0f0",
+            "c3ce95b9a"
+          ]
+        },
+        {
+          "kind": "never-more-than",
+          "name": "no more doses are verified than were due",
+          "subset": "kpis.dosesVerified",
+          "set": "kpis.targets",
+          "humanFailure": "The vaccination board reports more doses given and checked than there were animals due a dose, so the coverage figure on that board is higher than it can possibly be.",
+          "sourceCommits": [
+            "e5b9a96ac",
+            "6cbcbb3e0",
+            "f1c1ca727",
+            "27634cf7a",
+            "442ebce13"
+          ]
+        },
+        {
+          "kind": "never-more-than",
+          "name": "no more doses are waiting to be checked than were due",
+          "subset": "kpis.awaitingVerification",
+          "set": "kpis.targets",
+          "humanFailure": "The vaccination board reports more doses waiting to be checked than there were animals due a dose.",
+          "sourceCommits": [
+            "1dec5d386",
+            "eb177b953",
+            "653aaca43"
+          ]
+        }
       ]
     },
     {
@@ -777,7 +858,135 @@
       "historyChecks": [
         "lane3.vaccination-live-tracker"
       ],
-      "historyCommitCount": 14
+      "historyCommitCount": 14,
+      "relations": [
+        {
+          "kind": "difference-matches",
+          "name": "what the drive still owes is what was planned less what actually closed",
+          "from": "kpis.scheduled_administrations",
+          "less": "kpis.closed_administrations",
+          "result": "kpis.remaining",
+          "flooredAtZero": true,
+          "humanFailure": "On the vaccination live tracker the work still outstanding is not the day's plan minus the work that actually finished, so a drive that is still running can show as finished.",
+          "sourceCommits": [
+            "51bae949a",
+            "0def56a5a",
+            "2ccd63d77",
+            "46ca2733b",
+            "7704914de"
+          ]
+        },
+        {
+          "kind": "never-more-than",
+          "name": "no more doses closed than were planned for the day",
+          "subset": "kpis.closed_administrations",
+          "set": "kpis.scheduled_administrations",
+          "humanFailure": "The vaccination live tracker reports more doses finished than were planned for the day.",
+          "sourceCommits": [
+            "51bae949a",
+            "442ebce13",
+            "0def56a5a"
+          ]
+        },
+        {
+          "kind": "never-more-than",
+          "name": "no more doses are waiting to close than were planned for the day",
+          "subset": "kpis.awaiting_close",
+          "set": "kpis.scheduled_administrations",
+          "humanFailure": "The vaccination live tracker reports more doses waiting to be closed than were planned for the day.",
+          "sourceCommits": [
+            "51bae949a",
+            "7dbbc777f",
+            "f216c968f"
+          ]
+        },
+        {
+          "kind": "list-matches-its-count",
+          "name": "the operators listed match the number of operators claimed",
+          "list": "operators[]",
+          "count": "operators_total",
+          "unlessTruncated": "operators_truncated",
+          "humanFailure": "The vaccination live tracker says one number of operators are out today and lists a different number, so operators doing the work are missing from the board with nothing to explain it.",
+          "sourceCommits": [
+            "51bae949a",
+            "0def56a5a",
+            "46ca2733b",
+            "e91e2cf72"
+          ]
+        },
+        {
+          "kind": "list-matches-its-count",
+          "name": "the pens listed match the number of pens claimed",
+          "list": "sheds[]",
+          "count": "sheds_total",
+          "unlessTruncated": "sheds_truncated",
+          "humanFailure": "The vaccination live tracker says one number of pens are being worked today and lists a different number, so pens are missing from the board with nothing to explain it.",
+          "sourceCommits": [
+            "51bae949a",
+            "65c9caba3",
+            "2b0320963"
+          ]
+        },
+        {
+          "kind": "difference-matches",
+          "name": "each operator's outstanding work is their plan less what they closed",
+          "each": "operators[]",
+          "from": "scheduled_administrations",
+          "less": "closed_administrations",
+          "result": "remaining",
+          "flooredAtZero": true,
+          "humanFailure": "On the vaccination live tracker an operator's outstanding work is not their own plan minus the work they finished, so an operator who is done can read as half done and be chased for work they have already completed.",
+          "sourceCommits": [
+            "51bae949a",
+            "0def56a5a",
+            "432727704",
+            "99f8483cd"
+          ]
+        },
+        {
+          "kind": "no-repeated-row",
+          "name": "an operator appears once on the live tracker",
+          "key": [
+            "operator_id"
+          ],
+          "humanFailure": "The vaccination live tracker lists the same operator more than once, so their work is counted twice in the day's figures.",
+          "sourceCommits": [
+            "0def56a5a",
+            "2ccd63d77",
+            "51bae949a"
+          ],
+          "rows": "operators[]"
+        },
+        {
+          "kind": "parts-sum-to-whole",
+          "name": "the pens' planned work adds up to the day's plan",
+          "parts": [
+            "sheds[].scheduled_administrations"
+          ],
+          "whole": "kpis.scheduled_administrations",
+          "unlessTruncated": "sheds_truncated",
+          "humanFailure": "On the vaccination live tracker the pens' own planned figures do not add up to the day's total above them, so part of the day's work belongs to no pen on the board.",
+          "sourceCommits": [
+            "51bae949a",
+            "0def56a5a",
+            "65c9caba3",
+            "2b0320963",
+            "da50a2ff8"
+          ]
+        },
+        {
+          "kind": "never-more-than",
+          "name": "the operators are not carrying more than the day's plan",
+          "subset": "operators_total",
+          "set": "kpis.scheduled_administrations",
+          "humanFailure": "The vaccination live tracker lists more operators out today than there are doses planned for the whole day.",
+          "sourceCommits": [
+            "51bae949a",
+            "e91e2cf72",
+            "46ca2733b"
+          ]
+        }
+      ]
     },
     {
       "name": "vaccination_drive_assignments",
@@ -1556,7 +1765,111 @@
       "historyChecks": [
         "lane3.weighing-shed-weights"
       ],
-      "historyCommitCount": 40
+      "historyCommitCount": 40,
+      "relations": [
+        {
+          "kind": "parts-sum-to-whole",
+          "name": "every weighed animal is in one of the two ways of weighing",
+          "parts": [
+            "summary.individual_animals_weighed",
+            "summary.lump_sum_animals_weighed"
+          ],
+          "whole": "summary.animals_weighed",
+          "humanFailure": "On the Weights page the animals weighed one at a time and the animals weighed as a whole pen do not add up to the number of animals the page says were weighed. Some pens are being left out of the totals, so every average and every gain figure on that page speaks for fewer animals than it claims.",
+          "sourceCommits": [
+            "b2d61bd54",
+            "d485c86ae",
+            "2c4d21c76",
+            "0441503ae",
+            "bdc50109b",
+            "99008fb21"
+          ]
+        },
+        {
+          "kind": "average-matches-its-total",
+          "name": "the Weights headline average is its own total over its own head count",
+          "total": "summary.total_weight_kg",
+          "count": "summary.animals_weighed",
+          "average": "summary.average_weight_kg",
+          "tolerance": 0.5,
+          "humanFailure": "On the Weights page the average weight is not the total weight divided by the number of animals weighed. The headline average is not the average of what was actually put on the scale.",
+          "sourceCommits": [
+            "fa22ed273",
+            "b3a217564",
+            "3c771ffc7"
+          ]
+        },
+        {
+          "kind": "average-matches-its-total",
+          "name": "each pen's average on the Weights page is its own total over its own head count",
+          "each": "rows[]",
+          "total": "total_weight_kg",
+          "count": "animals_weighed",
+          "average": "average_weight_kg",
+          "tolerance": 0.5,
+          "humanFailure": "On the Weights page a pen's average weight is not that pen's total divided by the animals in it, so the pen's row and the figure beside it are two different answers.",
+          "sourceCommits": [
+            "fa22ed273",
+            "2dcca1cd2",
+            "b6fb80c5e"
+          ]
+        },
+        {
+          "kind": "no-repeated-row",
+          "name": "a pen appears once on the Weights page",
+          "key": [
+            "park_id",
+            "location_id",
+            "partition_label"
+          ],
+          "humanFailure": "The Weights page lists the same pen of the same farm more than once, so that pen's animals are counted twice in every total on the page and its history is split between the two rows.",
+          "sourceCommits": [
+            "ca62e273f",
+            "9827effe2",
+            "d12eff22c",
+            "b0474acfd",
+            "9b778c202",
+            "c1e88b637"
+          ],
+          "rows": "rows[]"
+        },
+        {
+          "kind": "never-more-than",
+          "name": "no more pens were weighed than exist",
+          "subset": "summary.sheds_weighed",
+          "set": "summary.sheds_in_scope",
+          "humanFailure": "The Weights page says more pens were weighed than there are pens in the selected farm and period.",
+          "sourceCommits": [
+            "b428c8f76",
+            "5a0671754",
+            "7be3a816e"
+          ]
+        },
+        {
+          "kind": "never-more-than",
+          "name": "the heavier sale band sits inside the lighter one",
+          "subset": "summary.at_or_above_35kg",
+          "set": "summary.at_or_above_30kg",
+          "humanFailure": "On the Weights page more animals are reported at the heavier sale weight than at the lighter one, which cannot be true, so the sale-ready counts on that page are wrong.",
+          "sourceCommits": [
+            "63fdd2f2e",
+            "5147b85a8",
+            "45d1cdf8a"
+          ]
+        },
+        {
+          "kind": "never-more-than",
+          "name": "the sale-ready count sits inside the animals it was measured from",
+          "subset": "summary.at_or_above_30kg",
+          "set": "summary.threshold_basis_animals",
+          "humanFailure": "On the Weights page more animals are reported as ready to sell than were weighed to decide it.",
+          "sourceCommits": [
+            "63fdd2f2e",
+            "45d1cdf8a",
+            "c180a000d"
+          ]
+        }
+      ]
     },
     {
       "name": "weighing_weight_demographics",
@@ -1632,7 +1945,112 @@
       "historyChecks": [
         "lane3.weighing-leadership-growth"
       ],
-      "historyCommitCount": 13
+      "historyCommitCount": 13,
+      "relations": [
+        {
+          "kind": "list-matches-its-count",
+          "name": "the losing-animals tile and the list it opens agree",
+          "list": "losing_animals[]",
+          "count": "headline.losing_animal_count",
+          "humanFailure": "On the Growth page the tile counting the animals that are losing weight does not match the list of animals it opens, so one of the two is wrong and there is no way to tell which.",
+          "sourceCommits": [
+            "45d1cdf8a",
+            "99008fb21",
+            "b195865f2"
+          ]
+        },
+        {
+          "kind": "rate-matches-the-movement",
+          "name": "an animal's daily gain is the weight it gained over the days it took",
+          "each": "losing_animals[]",
+          "from": "previous_weight_kg",
+          "to": "latest_weight_kg",
+          "days": "days_between",
+          "rate": "adg_g_per_day",
+          "scale": 1000,
+          "tolerance": 1,
+          "humanFailure": "On the Growth page an animal's daily gain is not the weight it actually gained divided by the days between its two weighings, so the gain figures on that page are not the movement they are built on.",
+          "sourceCommits": [
+            "d085b2a4d",
+            "8591cdd4b",
+            "185e271b5",
+            "6db391ec3",
+            "503b1ac30"
+          ]
+        },
+        {
+          "kind": "never-more-than",
+          "name": "the animals losing weight sit inside the animals the gain figure speaks for",
+          "subset": "headline.losing_animal_count",
+          "set": "headline.headline_animals",
+          "humanFailure": "On the Growth page more animals are reported as losing weight than the daily gain figure above them counts at all.",
+          "sourceCommits": [
+            "45d1cdf8a",
+            "99008fb21",
+            "b2d61bd54"
+          ]
+        },
+        {
+          "kind": "parts-sum-to-whole",
+          "name": "the farms add up to the herd on the Growth page",
+          "parts": [
+            "by_park[].headline_animals"
+          ],
+          "whole": "headline.headline_animals",
+          "humanFailure": "On the Growth page the per-farm animal counts do not add up to the herd figure above them, so some animals belong to no farm on that page and the herd daily gain speaks for a different group than the cards beneath it.",
+          "sourceCommits": [
+            "b2d61bd54",
+            "2b0320963",
+            "7be3a816e",
+            "f61be8a9e",
+            "b22324763"
+          ]
+        },
+        {
+          "kind": "no-repeated-row",
+          "name": "a pen appears once on the Growth leaderboard",
+          "key": [
+            "park_id",
+            "location_id",
+            "partition_label"
+          ],
+          "humanFailure": "The Growth page lists the same pen of the same farm twice on its leaderboard, so that pen's history is split in two and neither row tells the whole story for it.",
+          "sourceCommits": [
+            "9b778c202",
+            "ca62e273f",
+            "b2d61bd54",
+            "45d1cdf8a",
+            "4c17af759"
+          ],
+          "rows": "shed_leaderboard[]"
+        },
+        {
+          "kind": "never-more-than",
+          "name": "the animals with two weighings sit inside the animals weighed",
+          "subset": "eligibility.animals_with_two_plus_weighs",
+          "set": "eligibility.total_animals_weighed",
+          "humanFailure": "On the Growth page more animals are reported as weighed twice than were weighed at all.",
+          "sourceCommits": [
+            "45d1cdf8a",
+            "364d5c3fb",
+            "4c17af759"
+          ]
+        },
+        {
+          "kind": "populated-together",
+          "name": "a farm that weighed animals has gain figures to show for it",
+          "when": "headline.headline_animals",
+          "expect": "weekly_gain[]",
+          "humanFailure": "The Growth page counts animals as weighed in this period and then shows no weekly gain at all for them, so a page with real weighings on it reads as though nothing was measured.",
+          "sourceCommits": [
+            "2c4d21c76",
+            "d485c86ae",
+            "0441503ae",
+            "b428c8f76",
+            "8759f9c57"
+          ]
+        }
+      ]
     },
     {
       "name": "growth_director_weights",

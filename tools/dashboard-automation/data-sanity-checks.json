@@ -47,7 +47,7 @@
         {
           "sha": "71f87ad77",
           "date": "2026-09-18",
-          "subject": "feat(counts): Mortality page \u2014 deaths from every angle beside the at-risk herd"
+          "subject": "feat(counts): Mortality page — deaths from every angle beside the at-risk herd"
         },
         {
           "sha": "01d240cd5",
@@ -942,7 +942,7 @@
         {
           "sha": "71f87ad77",
           "date": "2026-09-18",
-          "subject": "feat(counts): Mortality page \u2014 deaths from every angle beside the at-risk herd"
+          "subject": "feat(counts): Mortality page — deaths from every angle beside the at-risk herd"
         },
         {
           "sha": "52a95af4b",
@@ -1338,7 +1338,7 @@
         {
           "sha": "48a32c6a5",
           "date": "2026-09-22",
-          "subject": "feat(feed): Feed follow-up tab \u2014 did the sheet react when animals moved?"
+          "subject": "feat(feed): Feed follow-up tab — did the sheet react when animals moved?"
         }
       ]
     },
@@ -1497,7 +1497,7 @@
         {
           "sha": "71f87ad77",
           "date": "2026-09-18",
-          "subject": "feat(counts): Mortality page \u2014 deaths from every angle beside the at-risk herd"
+          "subject": "feat(counts): Mortality page — deaths from every angle beside the at-risk herd"
         },
         {
           "sha": "3b74d99ad",
@@ -2082,6 +2082,88 @@
           "subject": "fix(counts): approving a duplicate death report after the animal died is a 409, not a 500"
         }
       ]
+    },
+    {
+      "name": "animal_weight_outside_believable_range",
+      "question": "Is every recorded animal weight one a goat could actually have?",
+      "severity": "high",
+      "expectRows": 0,
+      "page": {
+        "title": "Weights",
+        "path": "/weighing/weights"
+      },
+      "sql": "select o.scanned_identifier as tag, o.weight_kg::text as weight, o.created_at::date::text as recorded_on from public.weighing_observations o where o.weight_kg is not null and (o.weight_kg < 0.5 or o.weight_kg > 150) order by o.created_at desc limit 500",
+      "humanFailure": "Some animals are recorded at a weight no goat can be. Every average, growth rate and weight band built on those rows is pulled off by them, and the pens they sit in read wrong on the Weights page.",
+      "countUnit": "animals recorded at an impossible weight",
+      "sourceCommits": [
+        "f688cbd05",
+        "3c771ffc7",
+        "d085b2a4d",
+        "45d1cdf8a"
+      ],
+      "why": "The existing check only rejects zero and below, so a scale left in grams, a double-entered digit or a pen total typed into an animal row all pass. d085b2a4d is the family: a figure that is arithmetically possible and physically not."
+    },
+    {
+      "name": "pen_weighing_with_no_average_to_show",
+      "question": "Does every whole-pen weighing carry the average it is supposed to display?",
+      "severity": "medium",
+      "expectRows": 0,
+      "page": {
+        "title": "Weights",
+        "path": "/weighing/weights"
+      },
+      "sql": "select s.weight_kg::text as pen_total, s.animal_count::text as animals, s.created_at::date::text as recorded_on from public.weighing_shed_observations s where s.weight_kg > 0 and s.animal_count > 0 and s.average_weight_kg is null order by s.created_at desc limit 500",
+      "humanFailure": "Some pens were weighed as a whole and have no average stored for them, so those pens show a blank where their average weight belongs while the animals still count towards the totals above.",
+      "countUnit": "whole-pen weighings with no average",
+      "sourceCommits": [
+        "fa22ed273",
+        "0441503ae",
+        "99008fb21",
+        "b492445e9"
+      ],
+      "why": "The average-versus-total check compares the stored average with the total over the head count, and a NULL average passes it because there is nothing to compare. Proven silent by feeding it that exact row."
+    },
+    {
+      "name": "pen_weighing_counted_against_nobody",
+      "question": "Does every whole-pen weighing say how many animals it covers?",
+      "severity": "high",
+      "expectRows": 0,
+      "page": {
+        "title": "Weights",
+        "path": "/weighing/weights"
+      },
+      "sql": "select s.weight_kg::text as pen_total, s.average_weight_kg::text as stored_average, s.created_at::date::text as recorded_on from public.weighing_shed_observations s where s.weight_kg > 0 and coalesce(s.animal_count, 0) <= 0 order by s.created_at desc limit 500",
+      "humanFailure": "Some pens were weighed as a whole with no head count recorded, so that pen's weight belongs to no animals at all and every per-animal figure built from it is missing those kids.",
+      "countUnit": "whole-pen weighings covering no animals",
+      "sourceCommits": [
+        "3c771ffc7",
+        "33046a035",
+        "bdc50109b",
+        "b2d61bd54"
+      ],
+      "why": "3c771ffc7 moved the head count off the operator's keyboard because operators kept typing it wrong. A zero head count is the form that survives that fix and it divides every average by nothing."
+    },
+    {
+      "name": "same_dose_recorded_twice_in_any_state",
+      "question": "Was any animal recorded against the same due dose twice, whatever state the records are in?",
+      "severity": "high",
+      "expectRows": 0,
+      "page": {
+        "title": "Vaccination live tracker",
+        "path": "/vaccination/live-tracker"
+      },
+      "sql": "select obligation_id::text as due_dose, goat_id::text as animal, count(*)::text as recorded_times, string_agg(distinct status, ', ') as states from public.vaccination_completions where coalesce(status, '') not in ('withdrawn', 'cancelled', 'canceled', 'rejected') group by obligation_id, goat_id having count(*) > 1 order by count(*) desc limit 500",
+      "humanFailure": "Some animals carry two records against the same due dose. Whichever of the two the board reads, the doses used and the coverage figure are counted twice, and an animal can be sent for a dose it has already had.",
+      "countUnit": "animals recorded twice for one due dose",
+      "sourceCommits": [
+        "6cbcbb3e0",
+        "27634cf7a",
+        "f1c1ca727",
+        "86f10576a",
+        "c3ce95b9a",
+        "f281fb0f0"
+      ],
+      "why": "The existing duplicate check only looks at records that reached recorded or accepted. A duplicate sitting in submitted, or split across recorded and verified, passes it. Proven silent by feeding it both of those shapes."
     }
   ],
   "parkedChecks": [
