@@ -47,8 +47,8 @@ export const PHONE = Object.freeze({
 // screens that carry a pinned-and-blurred element and that people are on all day —
 // not all 146 routes.
 export const FILMED_ROUTES = Object.freeze([
-  { name: "tasks", path: "/tasks?scope_mode=company", pageName: "The Tasks page" },
-  { name: "tasks-list", path: "/tasks?scope_mode=company&t_view=list", pageName: "The Tasks list" },
+  { name: "tasks", path: "/tasks", pageName: "The Tasks page" },
+  { name: "tasks-list", path: "/tasks?t_view=list", pageName: "The Tasks list" },
   { name: "herd-register", path: "/herd/register", pageName: "The herd register" },
   { name: "vaccination-plan", path: "/vaccination/plan", pageName: "The vaccination plan" },
 ]);
