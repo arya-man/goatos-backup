@@ -82,6 +82,9 @@ function progressStatusLabel(progress: {
   phase: string;
   label?: string;
 }): string {
+  // The coding-agent backend sends a specific step label; prefer it.
+  if (progress.label && progress.label !== "Starting agent")
+    return progress.label;
   switch (progress.phase) {
     case "planning":
       return CHROME.planning;
@@ -338,6 +341,58 @@ function createTypewriter(render: (shown: string) => void) {
   return api;
 }
 
+// Codex-style activity trail: live step list while the agent works, then a
+// collapsed "Worked for 1m 12s · 6 steps" summary the user can expand.
+function AgentSteps(props: {
+  steps: string[];
+  live: boolean;
+  startedAt?: number;
+  workedMs?: number;
+}) {
+  const { steps, live, startedAt, workedMs } = props;
+  const [open, setOpen] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!live) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [live]);
+  const ms = live ? now - (startedAt ?? now) : (workedMs ?? 0);
+  const secs = Math.max(0, Math.round(ms / 1000));
+  const took =
+    secs >= 60 ? `${Math.floor(secs / 60)}m ${secs % 60}s` : `${secs}s`;
+  const expanded = live || open;
+  return (
+    <div className={`mzai-steps${live ? " live" : ""}`}>
+      <button
+        type="button"
+        className="mzai-steps-head"
+        onClick={() => !live && setOpen((v) => !v)}
+        aria-expanded={expanded}
+      >
+        {live
+          ? `Working… ${took}`
+          : `Worked for ${took} · ${steps.length} step${steps.length === 1 ? "" : "s"}`}
+        {!live ? (
+          <span className="mzai-steps-chev">{open ? "▾" : "›"}</span>
+        ) : null}
+      </button>
+      {expanded ? (
+        <ol>
+          {steps.map((s, i) => (
+            <li
+              key={`${i}-${s}`}
+              className={live && i === steps.length - 1 ? "now" : "done"}
+            >
+              {s}
+            </li>
+          ))}
+        </ol>
+      ) : null}
+    </div>
+  );
+}
+
 const BUBBLE_POS_KEY = "mzai-bubble-pos";
 const clamp = (v: number, lo: number, hi: number) =>
   Math.max(lo, Math.min(hi, v));
@@ -572,7 +627,13 @@ export function CeoAiPanel({
           files: attached.length ? attached.map(toPreview) : undefined,
           state: "complete",
         },
-        { id: assistantId, role: "assistant", text: "", state: "streaming" },
+        {
+          id: assistantId,
+          role: "assistant",
+          text: "",
+          state: "streaming",
+          startedAt: Date.now(),
+        },
       ]);
 
       const controller = new AbortController();
@@ -613,8 +674,19 @@ export function CeoAiPanel({
             onProgress: (progress) =>
               setMessages((prev) =>
                 prev.map((m) =>
-                  m.id === assistantId && !m.text
-                    ? { ...m, progress: progressStatusLabel(progress) }
+                  m.id === assistantId
+                    ? {
+                        ...m,
+                        progress: m.text
+                          ? m.progress
+                          : progressStatusLabel(progress),
+                        steps:
+                          progress.label &&
+                          progress.label !== "Starting agent" &&
+                          m.steps?.at(-1) !== progress.label
+                            ? [...(m.steps ?? []), progress.label]
+                            : m.steps,
+                      }
                     : m,
                 ),
               ),
@@ -657,6 +729,13 @@ export function CeoAiPanel({
             refreshThreads();
           }
           const answer = final.answer || copy.noAnswer;
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantId && m.startedAt
+                ? { ...m, workedMs: Date.now() - m.startedAt }
+                : m,
+            ),
+          );
           patch({
             text: typer.shown() === answer.trim() ? typer.shown() : answer,
             state: "complete",
@@ -1032,6 +1111,14 @@ export function CeoAiPanel({
                     <div
                       className={`mzai-msg ${message.role} ${message.state}`}
                     >
+                      {message.role === "assistant" && message.steps?.length ? (
+                        <AgentSteps
+                          steps={message.steps}
+                          live={message.state === "streaming"}
+                          startedAt={message.startedAt}
+                          workedMs={message.workedMs}
+                        />
+                      ) : null}
                       {/* No empty assistant bubble while the agent works; the progress line shows instead. */}
                       {message.role === "user" || message.text ? (
                         <div className="mzai-bub">
