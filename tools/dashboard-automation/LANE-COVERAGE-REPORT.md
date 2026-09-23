@@ -18,6 +18,23 @@ Window: `git log origin/main --since=2026-08-01T00:00:00+05:30 --no-merges`, pin
 A commit that also matters to another lane carries an `alsoLanes` field on its row; that field
 never moves the commit between buckets, so the arithmetic below stays exact.
 
+> **What is PROVEN today, as against routed above.** This file routes commits to lanes; it says
+> nothing about what those lanes catch. Re-derive before quoting either number onward.
+>
+> - **Lane 2**: the catalogue holds **60** checks, not 49. All 60 executed against a local
+>   throwaway clone built from the real schema, and the receipt carries one ran-or-did-not line
+>   each. **53 of 60 discriminate**: each fires on the defect it names and goes quiet without it,
+>   against a synthetic row in an empty clone **with referential integrity switched off for the
+>   plant** - a discrimination proof, not a proof the defect is reachable through the product's own
+>   write paths. The other 7 are named gaps, each because the database itself refuses the row.
+>   Separately, **5 of 5** checks that compare records across farms stay quiet when the two rows are
+>   two farms' own business; for 4 more the id is unique across farms, so no such case is reachable.
+> - **Lane 4**: **8 of 9** screen assertions can tell the page after the write from the page before
+>   it and from a page that never loaded. That verdict is against a hand-written committed file of
+>   what those pages read - a SPECIFICATION, not a rendered page. **No browser has been driven.**
+>   The ninth, approving a verification, is named in `write-journeys.json`.
+> - Nothing here was measured against `goatos-stg`.
+
 | Bucket | Commits |
 | --- | ---: |
 | Lane 1 - already covered by PR #350's web ledger (not re-classified here) | 1023 |
