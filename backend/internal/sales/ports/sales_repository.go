@@ -62,6 +62,11 @@ type SalesRepository interface {
 	// not get through, which is the feed_item_catalog rule one layer up.
 	ListSellableProducts(ctx context.Context, tenantID string) ([]domain.Product, error)
 
+	// ListProductVariants answers what each product may be sold AS: an animal product's breeds,
+	// a feed product's feed items, an `other` product's own name. Every list is a LIVE vocabulary
+	// the farm already maintains, never one typed into this module.
+	ListProductVariants(ctx context.Context, tenantID string, products []domain.Product) (map[string][]string, error)
+
 	// CreateDeal records a sale. idempotencyKey is the client's Idempotency-Key: the reservation,
 	// the insert, and the audit row commit in ONE transaction. An exact replay returns the
 	// original deal with zero new side effects; a same-key/different-payload replay returns

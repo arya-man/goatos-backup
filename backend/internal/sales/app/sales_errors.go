@@ -2,7 +2,9 @@ package app
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/vgoats/goatos/backend/internal/sales/domain"
@@ -79,6 +81,17 @@ func SalesHTTPError(err error) *Error {
 	case errors.Is(err, ErrSalesIdempotencyKeyRequired):
 		return BadRequest("missing_idempotency_key", "This sale could not be recorded safely. Try again.")
 
+	case errors.Is(err, ports.ErrProductNotSellable):
+		// A CONFLICT, not a validation failure: the body was right when the form opened and the
+		// farm changed its mind in between, so telling the desk to reload is more useful than a
+		// field error implying they typed something wrong.
+		return Conflict("product_not_sellable",
+			"That product is no longer one this farm sells. Reload the page to see the current list, then record the sale again.")
+
+	case errors.Is(err, ErrNothingSellable):
+		return BadRequest("nothing_sellable",
+			"This farm has nothing set up to sell yet. Add what it sells under Configuration, Items and settings, then record the sale.")
+
 	case errors.Is(err, ports.ErrValuationVersionConflict):
 		return Conflict("valuation_version_conflict", "The valuation was changed by someone else. Reload the page to see the current figures, then try again.")
 
@@ -86,6 +99,19 @@ func SalesHTTPError(err error) *Error {
 		return BadRequest("valuation_invalid", strings.TrimPrefix(err.Error(), domain.ErrValuationInvalid.Error()+": "))
 
 	default:
+		// The short-feed-sale CONFIRMATION (maintainer decision 2026-09-23). 422 rather than 400
+		// because nothing about the body is malformed -- it is a complete, valid sale that the
+		// store's ledger disagrees with, and the desk may well be right. The client keys on the
+		// CODE and re-sends the same sale with stock_shortfall_acknowledged, never on this
+		// sentence, which is farm copy and may be reworded.
+		var short domain.ErrFeedStockShort
+		if errors.As(err, &short) {
+			return &Error{
+				Code:       "feed_stock_confirmation_required",
+				Message:    feedShortfallMessage(short),
+				HTTPStatus: http.StatusUnprocessableEntity,
+			}
+		}
 		var v domain.ErrDealValidation
 		if errors.As(err, &v) {
 			return &Error{
@@ -104,6 +130,25 @@ func SalesHTTPError(err error) *Error {
 		}
 		return Internal("Could not complete that sales action.")
 	}
+}
+
+// feedShortfallMessage is the sentence the desk reads when a sale takes more feed than the store's
+// ledger holds. It names the farm, the feed and BOTH figures, because the question being asked is
+// whether the ledger is behind -- and nobody can answer that without seeing what the ledger says.
+func feedShortfallMessage(short domain.ErrFeedStockShort) string {
+	parts := make([]string, 0, len(short.Shortfalls))
+	for _, s := range short.Shortfalls {
+		parts = append(parts, fmt.Sprintf("%s %s has %s kg in the store and this sale takes %s kg",
+			s.FarmLabel, s.FeedItem, trimKg(s.BalanceKg), trimKg(s.RequestedKg)))
+	}
+	return strings.Join(parts, "; ") + ". If a load has reached the farm and is not recorded yet, confirm and record the sale anyway."
+}
+
+// trimKg renders kilograms without trailing zeros, so 2000 reads as "2000" and 12.5 as "12.5".
+func trimKg(v float64) string {
+	out := strconv.FormatFloat(v, 'f', 3, 64)
+	out = strings.TrimRight(out, "0")
+	return strings.TrimSuffix(out, ".")
 }
 
 // salesFieldLabel renders a storage field name as the label the operator sees on the record-sale

@@ -121,13 +121,20 @@ func (s *SalesService) productCatalog(ctx context.Context, tenantID string) (dom
 	return catalog, nil
 }
 
-// SellableProducts serves the tenant's registry to the forms that offer it.
-func (s *SalesService) SellableProducts(ctx context.Context, tenantID string) ([]domain.Product, error) {
+// SellableProducts serves the tenant's registry, with each product's variants, to the forms that
+// offer them. Both halves come from the farm's own live data: what it sells, and what each of
+// those may be sold as.
+func (s *SalesService) SellableProducts(ctx context.Context, tenantID string) ([]domain.Product, map[string][]string, error) {
 	rows, err := s.repo.ListSellableProducts(ctx, tenantID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return domain.NewProductCatalog(rows).Products(), nil
+	products := domain.NewProductCatalog(rows).Products()
+	variants, err := s.repo.ListProductVariants(ctx, tenantID, products)
+	if err != nil {
+		return nil, nil, err
+	}
+	return products, variants, nil
 }
 
 // confirmFeedStock warns -- once -- when a feed line sells more than the store's ledger holds.
