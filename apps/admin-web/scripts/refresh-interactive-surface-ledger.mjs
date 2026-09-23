@@ -12,7 +12,7 @@
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { scanInteractiveSurfaces } from "./lib/interactive-surfaces.mjs";
+import { blankNonMarkup, scanInteractiveSurfaces } from "./lib/interactive-surfaces.mjs";
 import { readSourceFiles } from "./check-interactive-surfaces.mjs";
 
 const adminWeb = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -22,7 +22,9 @@ const NOISE = /^(?:[-–—|/,.:;]+|\d+|true|false|null|undefined)$/i;
 
 /** Control labels the surface's own source declares, in the window of text the surface owns. */
 export function labelsNear(text, index, limit = 4000) {
-  const window = text.slice(index, index + limit);
+  // Comments describe a surface; they are not on screen. Harvesting a label out of one would
+  // state an expected value the product never renders.
+  const window = blankNonMarkup(text).slice(index, index + limit);
   const labels = new Set();
   for (const re of [
     /aria-label=(?:"([^"{}]{2,48})"|\{"([^"{}]{2,48})"\})/g,
@@ -35,6 +37,13 @@ export function labelsNear(text, index, limit = 4000) {
     // renders none of them, and missing copy renders the raw key instead of a sentence.
     /\bt\(\s*"([A-Za-z0-9_.-]{2,60})"\s*\)/g,
     /\bcopy\(\s*[A-Za-z0-9_$.]+\s*,\s*"([A-Za-z0-9_.-]{2,60})"\s*\)/g,
+    // Copy handed in as a prop object (features/configuration/row-actions.tsx renders every one of
+    // its controls as labels.<slot>). The SLOT is the reference: a blank menu renders none of them.
+    /\b(?:labels|copy|strings|text)\.([A-Za-z][A-Za-z0-9_]{1,29})\b/g,
+    // What an edit form actually submits. A form that renders with its fields missing -- the exact
+    // shape a degraded payload produces -- no longer carries this set.
+    /\bname="([A-Za-z][A-Za-z0-9_.-]{1,39})"/g,
+    /data-testid="([A-Za-z0-9_-]{2,48})"/g,
   ]) {
     for (const match of window.matchAll(re)) {
       const label = (match[1] ?? match[2] ?? "").replace(/\s+/g, " ").trim();
@@ -69,7 +78,9 @@ function entryFor(surface, sourceText) {
       "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
     assertions: [
       {
-        subject: `the controls a person can see on the ${surface.kind} "${surface.anchor}" (${where})`,
+        subject:
+          `the labelled controls, copy slots and named fields a person meets on the ${surface.kind} ` +
+          `"${surface.anchor}" (${where})`,
         operator: "field-set-equals",
         expected: labels,
         // A blank screen, a failed payload, or a panel parked off-screen all read as no controls.
@@ -84,7 +95,7 @@ function main() {
   const byPath = new Map(files.map((f) => [f.path, f.text]));
   const surfaces = scanInteractiveSurfaces(files).map((surface) => {
     const text = byPath.get(surface.path) ?? "";
-    const offset = text.split("\n").slice(0, surface.line - 1).join("\n").length;
+    const offset = blankNonMarkup(text).split("\n").slice(0, surface.line - 1).join("\n").length;
     return { ...surface, offset };
   });
 
