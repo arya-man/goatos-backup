@@ -4,6 +4,8 @@
 // HEALTH_WRITE_FAILURE / HEALTH_READ_FAILURE in AddHealthCaseViewModel).
 package sg.mesha.goatos.feature.health
 
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -870,9 +872,31 @@ private fun HealthStepVideoRow(
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier.weight(1f),
         )
+        // A GREEN EDGE, because the default outline read as a label rather than a control
+        // (maintainer, 2026-09-24). The operator has to find this on every step of a
+        // twelve-step card; a button they have to guess at is a step that gets skipped.
+        //
+        // A step already filmed carries the quieter line: it is done, and the loud one belongs
+        // to the work still owed. A FAILED step is red, because that one needs them now.
         OutlinedButton(
             onClick = onRecord,
             enabled = enabled,
+            border = BorderStroke(
+                1.5.dp,
+                when {
+                    !enabled -> MeshaColors.Line
+                    proof.state == StepProofState.FAILED -> MeshaColors.Danger
+                    proof.state == StepProofState.RECORDED -> MeshaColors.Line
+                    else -> MeshaColors.Brand
+                },
+            ),
+            colors = ButtonDefaults.outlinedButtonColors(
+                contentColor = when {
+                    proof.state == StepProofState.FAILED -> MeshaColors.Danger
+                    proof.state == StepProofState.RECORDED -> MeshaColors.Ink
+                    else -> MeshaColors.Brand
+                },
+            ),
             modifier = Modifier.minimumInteractiveComponentSize(),
         ) {
             Text(
@@ -883,6 +907,7 @@ private fun HealthStepVideoRow(
                     else -> "Record"
                 },
                 fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
             )
         }
     }
