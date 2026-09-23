@@ -64,7 +64,15 @@ export function blankNonMarkup(text) {
   return String(text)
     .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
     .replace(/(^|[^:"'`\\])\/\/[^\n]*/g, (m, lead) => lead + " ".repeat(m.length - lead.length))
-    .replace(/^[ \t]*(?:import|export)\s[^\n;]*(?:;|from\s+["'][^"'\n]+["'];?)/gm, (m) => m.replace(/[^\n]/g, " "));
+    // Only a statement that NAMES ANOTHER MODULE is blanked. The first version blanked any
+    // single-line `export ...;`, which swallowed `export const Panel = () => <div role="dialog"/>;`
+    // whole -- a real surface, never inventoried, so the ledger never had to decide about it and
+    // the gate stayed happy. An under-count that looks clean is the census defect again, and this
+    // one pushed toward silence.
+    .replace(
+      /^[ \t]*(?:import|export)\s[^\n]*?from\s+["'][^"'\n]+["'];?|^[ \t]*import\s+["'][^"'\n]+["'];?|^[ \t]*export\s*\{[^}\n]*\}\s*;?/gm,
+      (m) => m.replace(/[^\n]/g, " "),
+    );
 }
 
 /**
@@ -531,6 +539,40 @@ export function validateLedger(surfaces, ledger, readFile = null, readReceipt = 
   }
 
   return { problems, coverage: coverageOf(surfaces, covered, stated) };
+}
+
+/**
+ * Has the source moved since the ledger was written?
+ *
+ * The gate asks this at CI time. The PROBE did not ask it at all, and the direction is bad: an
+ * entry whose surface has moved carries a presence selector and an expected value derived from
+ * the OLD line, so a reading taken under it is filed against something that is no longer there.
+ * If the stale selector happens to match some other element, two agreeing readings of the wrong
+ * element are promoted, and every later run accuses a correct page. That is a wrong expectation,
+ * not a missing one, so the probe has to refuse before it opens anything.
+ *
+ * @returns {string[]} what drifted, in words; empty when the ledger still describes the source
+ */
+export function ledgerDrift(surfaces, entries) {
+  const drift = [];
+  const scanned = new Map(surfaces.map((s) => [s.key, s]));
+  for (const entry of entries ?? []) {
+    const surface = scanned.get(entry.key);
+    if (!surface) {
+      drift.push(`${entry.key} is in the ledger but no longer in the source`);
+      continue;
+    }
+    const where = `${surface.path}:${surface.line}`;
+    if (entry.where && entry.where !== where) {
+      drift.push(`${entry.key} was written for ${entry.where} and now sits at ${where}`);
+    }
+  }
+  for (const surface of surfaces) {
+    if (!(entries ?? []).some((e) => e.key === surface.key)) {
+      drift.push(`${surface.kind} at ${surface.path}:${surface.line} is in the source but not in the ledger`);
+    }
+  }
+  return drift;
 }
 
 /** Coverage as a fraction, whole tree and per kind. Denominator is always the SCAN, never the ledger. */

@@ -25,7 +25,8 @@
 import { mkdirSync, writeFileSync, openSync, closeSync, unlinkSync, existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { RECEIPT_VERSION } from "./lib/interactive-surfaces.mjs";
+import { RECEIPT_VERSION, ledgerDrift, scanInteractiveSurfaces } from "./lib/interactive-surfaces.mjs";
+import { readSourceFiles } from "./check-interactive-surfaces.mjs";
 import { buildProbePlan, describeLock, navigationRefusal, planSummary, principalRefusal, targetRefusal } from "./lib/interactive-surface-probe.mjs";
 import { contractRevisionRefusal } from "./lib/reading-comparison.mjs";
 
@@ -43,7 +44,24 @@ function bearerHeaders() {
   return token ? { authorization: `Bearer ${token}` } : {};
 }
 
+// Set once this process owns the lock, so every exit path releases it. A refusal AFTER the lock
+// was taken -- the API being down, for instance -- used to leave it behind, and the next run then
+// refused for the WRONG reason. That direction is silence, which is safe, but it teaches an
+// operator to delete locks, and deleting a live one starts a second sweep beside a first.
+let holdsLock = false;
+
+function releaseLock() {
+  if (!holdsLock) return;
+  holdsLock = false;
+  try {
+    if (existsSync(LOCK)) unlinkSync(LOCK);
+  } catch {
+    /* nothing useful to do while exiting */
+  }
+}
+
 function die(message) {
+  releaseLock();
   console.error(message);
   process.exit(2);
 }
@@ -64,26 +82,22 @@ async function main() {
     );
   }
 
-  // The contract revision is the BACKEND BUILD SHA, obtained the way every sweep already obtains
-  // it, and refused rather than defaulted. `unknown` on a receipt makes two different builds look
-  // like one, which is worse than not running -- readings would be compared across a contract
-  // change nobody could see.
-  const apiBase = arg("api-base") ?? base.replace(/:\d+$/, ":8080");
-  const apiRefusal = targetRefusal(apiBase);
-  if (apiRefusal) die(`${apiRefusal}\n(--api-base is the local API this probe reads /version from.)`);
-  let apiBuildSha = "";
-  try {
-    const version = await fetch(new URL("/version", apiBase).toString(), { headers: bearerHeaders() }).then((r) => r.json());
-    apiBuildSha = String(version?.build_sha ?? "");
-  } catch (error) {
-    die(`could not read ${apiBase}/version for the build identity: ${error.message}\nStart the local stack first.`);
+  const ledger = JSON.parse(readFileSync(LEDGER, "utf8"));
+  // The ledger must still describe the source it was written from. An entry whose surface has
+  // moved carries a selector and an expected value derived from the OLD line: if that selector
+  // matches some other element, two agreeing readings of the WRONG element get promoted and every
+  // later run accuses a correct page. A wrong expectation, not a missing one, so refuse first.
+  const drift = ledgerDrift(scanInteractiveSurfaces(readSourceFiles()), ledger.entries);
+  if (drift.length) {
+    console.error(`refusing: the ledger no longer describes the source (${drift.length} differences).`);
+    for (const line of drift.slice(0, 5)) console.error(`- ${line}`);
+    if (drift.length > 5) console.error(`- ...and ${drift.length - 5} more`);
+    die("Run `npm --prefix apps/admin-web run refresh:interactive-surfaces` and re-read what changed before probing.");
   }
-  const revisionRefusal = contractRevisionRefusal(apiBuildSha);
-  if (revisionRefusal) die(`${revisionRefusal}\nThe API must report a real build_sha before a reading is worth recording.`);
-
   let lock;
   try {
     lock = openSync(LOCK, "wx");
+    holdsLock = true;
     writeFileSync(LOCK, `pid=${process.pid} started=${new Date().toISOString()}\n`);
   } catch {
     const held = (() => {
@@ -104,7 +118,26 @@ async function main() {
     die(`refusing: ${LOCK} exists.\n${describeLock(held, alive)}`);
   }
 
-  const entries = JSON.parse(readFileSync(LEDGER, "utf8")).entries.filter(
+  // Only now the checks that need something running. Everything above is free and offline, and
+  // ordering them after this one meant a stopped stack hid a stale ledger.
+  // The contract revision is the BACKEND BUILD SHA, obtained the way every sweep already obtains
+  // it, and refused rather than defaulted. `unknown` on a receipt makes two different builds look
+  // like one, which is worse than not running -- readings would be compared across a contract
+  // change nobody could see.
+  const apiBase = arg("api-base") ?? base.replace(/:\d+$/, ":8080");
+  const apiRefusal = targetRefusal(apiBase);
+  if (apiRefusal) die(`${apiRefusal}\n(--api-base is the local API this probe reads /version from.)`);
+  let apiBuildSha = "";
+  try {
+    const version = await fetch(new URL("/version", apiBase).toString(), { headers: bearerHeaders() }).then((r) => r.json());
+    apiBuildSha = String(version?.build_sha ?? "");
+  } catch (error) {
+    die(`could not read ${apiBase}/version for the build identity: ${error.message}\nStart the local stack first.`);
+  }
+  const revisionRefusal = contractRevisionRefusal(apiBuildSha);
+  if (revisionRefusal) die(`${revisionRefusal}\nThe API must report a real build_sha before a reading is worth recording.`);
+
+  const entries = ledger.entries.filter(
     (entry) => entry.status === "not-checked" && (entry.routes ?? []).length > 0,
   );
   const plan = buildProbePlan(entries);
@@ -170,7 +203,7 @@ async function main() {
   } finally {
     await browser?.close();
     closeSync(lock);
-    if (existsSync(LOCK)) unlinkSync(LOCK);
+    releaseLock();
   }
 
   mkdirSync(path.dirname(out), { recursive: true });
@@ -195,7 +228,7 @@ async function main() {
   console.log(`receipt written to ${out} — ${observations.length} observations. Nothing was graded; run the gate next.`);
 }
 
-main().catch((error) => {
-  if (existsSync(LOCK)) unlinkSync(LOCK);
-  die(String(error?.stack ?? error));
-});
+// A crash is an exit path too, and so is a signal: a lock that outlives its process is the thing
+// that gets deleted by hand next time.
+for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => die(`stopped by ${signal}`));
+main().catch((error) => die(String(error?.stack ?? error)));
