@@ -338,6 +338,18 @@ Before touching code, identify WHICH operational invariant(s) the change touches
 
 Every bug fix REQUIRES a failing-before regression test added to an existing
 suite. Run the test BEFORE the fix to confirm it fails; after the fix it passes.
+The same bar applies to the word "covered": a check covers a fix only when it goes
+red on revert, and an assertion that checks existence (`visible`, `text contains`,
+`count >= 1`, `absent`) is not a correctness check — compare a produced value to an
+expected value. A check that did not run reports `not-attempted`, never a pass and
+never a finding; a run where everything skipped says so. Never quiet a false
+positive by raising a threshold, deleting the assertion, or exempting the page —
+fix the measurement. Detail and the instances:
+`.agents/skills/goatos-code-review/references/verification-and-coverage.md`.
+The bug you were shown is one instance of a class: fix and check every place the
+class occurs — every route at 1440 and 390, every tab, overlay, row action, L1/L2/L3
+and the Android twin — and derive the expected values from the database or the
+rendered product, never from a code comment.
 A net-new feature proves its acceptance behavior is absent or failing on the
 base. A docs/policy-only change uses structural validation and diff proof rather
 than inventing a runtime failure. A behavioral fix without failing-before proof
@@ -376,6 +388,14 @@ approved whole-ledger/task-kernel program uses
 | `references/source-findings.md` | Using facts from General/Slack docs, customer promise safety findings, legacy source docs, or checking whether source facts reached canonical docs |
 | `references/existing-repos.md` | Inspecting or migrating from `dashboard`, `vgoats-dashboard`, `procurement_app`, `slack-automation-scripts`, or `website` reference repos |
 | `references/security-ops.md` | Dashboard gating, Slack token rotation, secrets, IAM tiers, Google Cloud context, Cloud SQL data pulls, prod read-only agent access, or auth/RBAC concerns |
+| `.agents/skills/goatos-code-review/references/verification-and-coverage.md` | Writing or changing a test, check, guard, lane, smoke run, receipt, or coverage ledger — what makes a green result mean anything |
+| `.agents/skills/goatos-code-review/references/frontend-rendering.md` | Building an in-app navigation control (tab, back link, row click), an overlay/scrim/sticky rule, or a script that measures a UI element |
+
+The last two chapters live in the review skill so there is one copy; load them
+from here, do not restate them. Every rule the reviewer will apply to your change
+is indexed in `.agents/skills/goatos-code-review/references/review-lens-ledger.md`
+Part B, keyed by the paths you are about to touch — read your triggers before you
+build, not after the review.
 
 ## Reference Doc Convention
 
@@ -429,7 +449,11 @@ one product; this skill is the navigation layer.
   `make ci-local`, refetches main, retries rebase + CI if main moved, then pushes
   and verifies the exact green SHA. Use a clean isolated worktree when the
   development checkout is dirty or shared; never auto-rebase unrelated local
-  changes merely because an agent session started.
+  changes merely because an agent session started. Because it rebases, the
+  commits that reach `main` are not the commits on the PR branch, so GitHub
+  cannot auto-close the PR unless the rebased branch was force-pushed first —
+  force-push before landing or close the PR naming the SHA that carried it.
+  (Three PRs stayed open looking unmerged for exactly this reason.)
 - **A web/UI change is not finished until its screenshots exist.** If you
   touched admin-web, website, dashboard, frontend, CSS, page contracts, route
   definitions, or web-visible copy, capture **laptop 1440px and phone 390px**
@@ -439,7 +463,13 @@ one product; this skill is the navigation layer.
   shows the target screen, not login, a loading skeleton, an error, stale
   content, or the wrong route. The changed element must be visible in frame: a
   chart membership change has to show the new member, not merely a page that
-  rendered.
+  rendered. While you are in there: an in-app tab/back/row-click control uses
+  `useRouter`/`Link` or the local overlay controller — a raw `<a href>` to an
+  internal route reloads the whole document; `position:sticky` plus
+  `backdrop-filter` tears on mobile GPUs; an opaque panel must hold its own
+  stacking context for the whole transition; and a hit-area measurement takes the
+  element that owns the click, not the inner rect. Detail:
+  `.agents/skills/goatos-code-review/references/frontend-rendering.md`.
 
   ```bash
   npm --prefix apps/admin-web run responsive:guard          # laptop + phone, all guarded routes
@@ -812,6 +842,10 @@ one product; this skill is the navigation layer.
 - Do not add direct Firestore/GCS writes to the operator app.
 - Do not let AI-created decisions become canonical without deterministic validation and evidence.
   When an agent claims a test passes, the test must have actually executed (not "[no test files]"/"no tests to run"/skipped). Paste the real test RUN line, its pass/fail output, and commit SHA. A reviewer or orchestrator MUST re-run the claimed test independently to verify the agent's result. Any code review claiming a fix is complete must have pasted test evidence on the real production path, not only a unit test in isolation — the production caller, the retry path, the race condition, or the edge case must reproduce the exact failure first, then pass after the fix.
+- Do not ship a gate that can only reach one branch while presenting itself as proof of the whole script. A dry-run/`--self-test` path that returns early proves nothing after that return; say which branches it exercises. (`GOATOS_DASHBOARD_SLACK_DRY_RUN=1` returns before any upload; three crashes shipped through that green gate.)
+- Do not let a loader that cannot find its input return empty, null, or a default — fail loudly with the file and the key. (`check-data-sanity.mjs` read `extra.lane2` while the rows live at `lanes.lane2.checks`; 112 checks vanished into one line saying the file could not be read.)
+- Do not prove a restore, reinsert, or backfill with a row count. Use a content fingerprint: a generated column changed the data while the count matched, and the count-based check called it green.
+- Do not trust "no findings" from a run whose only liveness probe is unauthenticated. An expired bearer still gets 200 from `/version`; read real authorization-gated data first.
 - Do not copy old repos blindly into `goatos/`; dashboard frontends are the
   intentional exception and should be snapshot/cloned into `goatos/apps/` for
   safe rewiring while live repos stay untouched.

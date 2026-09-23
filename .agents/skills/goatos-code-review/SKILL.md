@@ -102,7 +102,28 @@ chain remains shadowed or blocked.
 
 ## Scope detection (do this first, before the review pass)
 
-Map the changed paths to which reference(s) to load. **A change that touches
+**Step 0 — route mechanically, then stop.** Do not decide by judgement which rules
+apply; match the target's changed paths against the trigger lines in the ledger.
+
+```bash
+# from the goatos checkout root
+git diff --name-only origin/main...HEAD      # branch / PR target
+git diff --name-only HEAD                    # working-tree target
+```
+
+1. Read `references/review-lens-ledger.md` Part B. Each lens carries a `triggers:`
+   line of paths, symbols and surfaces, and a `covers:` count of how many fix
+   commits that class produced since 2026-08-01.
+2. Select every lens whose triggers match a changed path, plus the two always-on
+   lenses (**LENS-EVIDENCE**, **LENS-SCOPE-OF-CLASS**) and Part A.
+3. Load only the `detail:` chapters the selected lenses name, and apply them in
+   the priority order below.
+
+A narrow change should select two or three lenses. If your selection is most of
+the table, the scope detection is wrong — re-read the diff, not the ledger.
+Unmatched lenses are not "skipped" findings; say nothing about them.
+
+Then map the changed paths to which reference(s) to load. **A change that touches
 multiple layers loads MULTIPLE references** — do not stop at the first match.
 The four tools (CRG, Graphify, RTK, repowise) apply on **every** review
 regardless of which layer changed.
@@ -117,6 +138,8 @@ regardless of which layer changed.
 | Any admin dashboard route/page/tab/filter/drawer contract, SQL-bind change, or production-smoke relevant change | `references/frontend.md` **+** `docs/engineering/dashboard-nightly-automation-plan.md`; require `make dashboard-automation-guard` coverage and fail review if the change can reintroduce `backend_down`, `Admin-web contract unavailable`, `The board could not be loaded`, `Weights could not be loaded`, stale hardcoded route inventories, or hardcoded SQL parameter counts |
 | Calendar, Control Tower, Action Center, Protocol Adherence, Workflows, admin/mobile execution/proof screens, or new vertical/module onboarding | `docs/architecture/operational-read-model-contract.md` **+** `docs/decisions/operational-location-convention.md` (partition rule + location-bearing schema) **+** `references/aggregates-and-projections.md` **+ consumer lenses** |
 | `docs/**`, `rule_dsl` / protocol config, vaccination/feed rules | `references/business-rules.md` |
+| `tools/ci/**`, `tools/agent-hooks/check-*`, `tools/dashboard-automation/**`, `apps/admin-web/scripts/**`, `**/*.test.*`, `**/*_test.go`, or any receipt/coverage artifact | `references/verification-and-coverage.md` |
+| `apps/admin-web/app/mesha-theme.css`, overlay/scrim/sticky rules, tab/back/row-click controls, or a UI measurement script | `references/frontend-rendering.md` **+** `references/frontend.md` |
 | Any change (toolchain / tool-driving) | `references/toolchain.md` (always) |
 | **Every review, before flagging anything** | `references/review-lens-ledger.md` (always) — closed decisions + banned patterns; do NOT re-flag a CLOSED/LOCKED item or propose a BANNED one |
 
@@ -194,7 +217,19 @@ finding. For each fix, answer:
       prose scale report not tied to the current SHA, a test asserting the wrong
       response key, a skipped/never-started CI job? For static Terraform/HCL
       guards, require block-bounded matching and an adversarial sibling-block
-      fixture; a file-wide regex is not proof.
+      fixture; a file-wide regex is not proof. An existence assertion
+      (`visible`/`text`/`count >= 1`/`absent`) is not coverage, and a dry-run
+      `--self-test` proves nothing about code its early return never reaches —
+      `references/verification-and-coverage.md`.
+- [ ] **Does the named check go red on revert?** "Covered" means the check fails
+      when the fix is reverted, not that a commit has a check's name beside it —
+      `references/verification-and-coverage.md#covered-means-revert-fails`.
+- [ ] **Was the noise fixed at the measurement?** A raised threshold, a deleted
+      assertion, or a newly exempted page/route is a banned noise fix —
+      `references/verification-and-coverage.md#never-weaken-a-check`.
+- [ ] **Is the fix scoped to the class, or to the reported page?** Every route at
+      1440 and 390, every tab, overlay, row action, L1/L2/L3 and the Android twin
+      — `references/verification-and-coverage.md#example-is-never-the-scope`.
 - [ ] **Closure-ledger fixes** additionally run the
       `consolidated-ledger-defect-closure-program.md` proof-packet gate (see
       "Consolidated-ledger closure gate" below) and require independent
@@ -458,6 +493,8 @@ disclosure. (Multi-layer changes load multiple; see Scope detection above.)
 | Aggregate/projection/read-model/card/calendar/reminder summary or paged rail | `references/aggregates-and-projections.md` plus every reached producer/consumer lens |
 | A contract/DTO/list-endpoint consumed by a mobile or admin-web client | consumer lens (`references/mobile.md` / `references/frontend.md`) — see Proportionality & blast radius |
 | Vaccination / obligation / feed / calendar / SOP / org / species rules | `references/business-rules.md` |
+| A test, check, guard, lane, smoke run, receipt, or coverage ledger — or any review asked to trust a green result | `references/verification-and-coverage.md` (**always-on**) |
+| In-app navigation controls (tabs, back links, row-click targets), overlay/scrim/sticky CSS, `mesha-theme.css`, or any measurement of a UI element | `references/frontend-rendering.md` |
 | Which tool to run, how to run it, in what order | `references/toolchain.md` |
 
 Deeper source-of-truth docs (not duplicated here — read the doc):
@@ -488,7 +525,7 @@ skill uses, so Claude and Codex land on one source of truth.
 | `scale-anti-patterns` | `backend/internal/**` query / worker / repo / SQL; hot-path read; dashboard slice | `references/kernel-and-scale.md` + `docs/decisions/scale-anti-patterns.md`, `operational-kernel-5k-50k-scale-envelope.md`, `high-scale-dashboard-projections.md` |
 | `db-migration-safety` | a Postgres migration, hot-path query, read-model, or any mutating write path | `references/backend.md` + `references/aggregates-and-projections.md` + `docs/decisions/scale-anti-patterns.md`, `room-migration-safety.md`, `stale-binary-migration-drift-guard.md` |
 | `kernel-scale-lens` | a trigger / obligation / reminder / sweeper / projection / notification / Calendar / AC / PA / process-integrity path | `context/architecture/operational-kernel.md` + `references/kernel-and-scale.md` + `docs/decisions/operational-kernel-5k-50k-scale-envelope.md`, `high-scale-dashboard-projections.md` |
-| `frontend-anti-patterns` | `apps/admin-web/**` page / SSR read / nav / label / dashboard | `references/frontend.md` (+ `references/mobile.md`) + `docs/decisions/calendar-ownership.md`, `high-scale-dashboard-projections.md`, `mobile-data-fetch-anti-patterns.md` |
+| `frontend-anti-patterns` | `apps/admin-web/**` page / SSR read / nav / label / dashboard / overlay CSS | `references/frontend.md` + `references/frontend-rendering.md` (+ `references/mobile.md`) + `docs/decisions/calendar-ownership.md`, `high-scale-dashboard-projections.md`, `mobile-data-fetch-anti-patterns.md` |
 | `mobile-anti-patterns` | `apps/goatos-android/**` list fetch / Room / offline / memory / lifecycle | `references/mobile.md` + `docs/decisions/mobile-data-fetch-anti-patterns.md`, `android-offline-first.md`, `room-migration-safety.md` |
 | `nav-composition` | nav rendering, role/module gating, sidebar/bottom-bar composition | `references/frontend.md` + `docs/decisions/role-module-nav-composition.md` |
 
@@ -678,6 +715,23 @@ merge":
       collapsed/clipped/colliding chart labels, empty chart frames, sub-8px SVG text,
       container/page overflow, cell overpaint, crushed chips and raw-text leaks are each
       a finding — and a guard false positive or blind spot is a finding too
+- [ ] **Assertions compare a value, not an existence:** at least one assertion in
+      the added/changed check compares a produced value to an independently
+      expected value; `visible`/`text`/`count >= 1`/`absent` alone is not coverage
+- [ ] **Coverage proved by revert:** every "covered" claim was demonstrated by
+      reverting the fix (or applying the pre-fix behaviour to a fixture) and
+      watching the named check go red
+- [ ] **No unearned verdict, either direction:** every pass names the step that
+      attempted the operation, every unattempted check reports `not-attempted`
+      with its blocker, and a run where everything skipped says so
+- [ ] **Noise fixed at the measurement:** no raised threshold, deleted assertion,
+      or newly exempted page/route/selector appears in the diff as a noise fix
+- [ ] **Authenticated before "no findings":** any lane reporting an empty result
+      proved authentication against real authorization-gated data — an expired
+      bearer still gets 200 from an unauthenticated endpoint
+- [ ] **In-app navigation does not reload the document:** no raw `<a href>` to an
+      internal route as a tab/back/row-click control; overlays use the local
+      controller (`references/frontend-rendering.md`)
 - [ ] **Kernel non-deviation:** operational work names its event, stable task
       identity, real owner (with a separately owned exception when resolution
       fails), clock, hierarchy, proof,
