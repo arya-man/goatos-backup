@@ -206,3 +206,7 @@ backend/context/
 
 # Compiled scale-guard binary; the Makefile runs `go run .` from source.
 tools/scale-guard/scale-guard
+
+# supervised interactive-surface probe: run lock and receipts, never committed
+apps/admin-web/.interactive-surface-probe.lock
+apps/admin-web/.probe-receipts/
