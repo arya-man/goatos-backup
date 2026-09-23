@@ -573,6 +573,53 @@ npm --prefix apps/admin-web run smoke:visual:baseline     # diff against committ
 A route or tab the guard does not cover is itself a **review finding** — widen
 the guard in the same change.
 
+**Reading the capture is the check — both viewports, every time.** A screenshot
+file is not proof; the *annotated* run is. Every capture run writes three images
+per route per viewport — `<viewport>-<route>.png`, `-issues.png` (findings boxed
+in red) and `-feature-missing.png` — plus `route_failed=` lines. Open the
+`-issues.png` and read the `route_failed=` text at **laptop 1440 AND phone 390**.
+A run that exits non-zero with unread boxes is not a pass.
+
+`apps/admin-web/scripts/lib/regression-checks.mjs` is the catalogue; these are
+the breaks it names, and each is a finding at either viewport:
+
+| Family | Catches |
+|---|---|
+| `text-overlap`, `text-cut-off` | text over unrelated text; clipped with no ellipsis |
+| `A-chart-label-*` | labels collapsed to ~0px, clipped, colliding, >half ellipsised, label column <80px |
+| `A-chart-value-missing`, `A-chart-empty-frame` | a bar with no value; a chart with neither bars nor empty-state copy |
+| `A-svg-text-clipped/-overlap/-tiny` | SVG text outside its box, colliding, or under the 8px floor |
+| `B-container-overflow`, `D-page-overflow` | content wider than its card/dialog/drawer; anything forcing horizontal page scroll |
+| `C-cell-overpaint`, `C-cell-mid-word-wrap`, `chip-crushed` | table cells painting over the next column or broken mid-word; crushed chips/badges |
+| `J-raw-text` | a raw value, code, contract key, ISO date or doubled label leaking into the UI |
+
+Phone-390 is where these actually bite — crushed labels, sub-8px axis text and
+horizontal overflow mostly do not reproduce at 1440. Never approve a UI change
+off a desktop capture alone.
+
+**A guard false positive or blind spot is itself a finding — verify before you
+believe either verdict.** These checks read the live DOM, so a markup idiom the
+rule does not model produces a confident wrong answer in *both* directions.
+Worked example (2026-09-23, `/feed/analytics`): `A-chart-empty-frame` reported
+the *Feed mix* card as having "no visible bars and no empty-state text" while it
+was painting **8 bars at both viewports**. Cause: `SvgBars` marks its `<svg
+aria-hidden="true">` — correct, because the wrapping `<div role="img">` carries
+the accessible name — and `hidden()` in `regression-checks.mjs` treats
+`aria-hidden="true"` anywhere up the tree as not-painted, so every `<rect>` is
+filtered out and the bar count is always 0. The rule therefore cries wolf on
+every populated `SvgBars` chart and **can never catch a genuinely empty one**.
+Confirm a suspicious verdict against the DOM (count the painted nodes) before
+filing it or dismissing it, and fix the rule in the same change.
+
+**Android/mobile is the same obligation on its own lane.** Compose/phone screens
+are not covered by the admin-web guard. Android screenshots are OFF by default in
+`ci-local` (`SKIP android screenshots (default OFF...)`), so prove them
+explicitly and read them the same way:
+
+```bash
+make ci-local-screenshots          # GOATOS_RUN_ANDROID_SCREENSHOTS=1
+```
+
 **Backend-data prerequisite — solve it, don't report it.** These captures need a
 backend against real data, which needs the OCI Postgres password from Secret
 Manager. If `gcloud` is unauthenticated the fix is one interactive command the
@@ -625,6 +672,12 @@ merge":
       every affected route and route-owned tab/drawer/modal exist, were opened and
       visually validated, and show the changed element in frame — never deferred to
       whoever lands the change
+- [ ] **Rendering-quality checks read at BOTH viewports:** the capture run's
+      `-issues.png` and `route_failed=` lines were opened and read at laptop 1440 and
+      phone 390 (and `make ci-local-screenshots` for Android surfaces); overlap, cut-off,
+      collapsed/clipped/colliding chart labels, empty chart frames, sub-8px SVG text,
+      container/page overflow, cell overpaint, crushed chips and raw-text leaks are each
+      a finding — and a guard false positive or blind spot is a finding too
 - [ ] **Kernel non-deviation:** operational work names its event, stable task
       identity, real owner (with a separately owned exception when resolution
       fails), clock, hierarchy, proof,

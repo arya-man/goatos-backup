@@ -452,6 +452,41 @@ one product; this skill is the navigation layer.
   land-main` verifies evidence, it does not produce it, and the block then
   surfaces at merge time when it is most expensive.
 
+
+  **Read the capture, do not just take it — both viewports.** Each run writes
+  `<viewport>-<route>.png`, `-issues.png` (findings boxed red) and
+  `-feature-missing.png`, plus `route_failed=` lines. Open the `-issues.png` and
+  read those lines at **laptop 1440 AND phone 390**. The catalogue is
+  `apps/admin-web/scripts/lib/regression-checks.mjs`; each of these is a defect
+  to fix before the PR, at either viewport: `text-overlap` / `text-cut-off`;
+  `A-chart-label-*` (collapsed to ~0px, clipped, colliding, >half ellipsised,
+  label column <80px); `A-chart-value-missing`; `A-chart-empty-frame`;
+  `A-svg-text-clipped` / `-overlap` / `-tiny` (8px floor); `B-container-overflow`
+  and `D-page-overflow`; `C-cell-overpaint` / `C-cell-mid-word-wrap` /
+  `chip-crushed`; `J-raw-text` (a raw value, code, contract key, ISO date or
+  doubled label leaking into the UI). Phone-390 is where most of these bite —
+  crushed labels, sub-8px axis text and horizontal overflow usually do not
+  reproduce at 1440, so a desktop-only capture proves very little.
+
+  **Do not trust either verdict blindly — a guard blind spot is a bug to fix.**
+  These rules read the live DOM, so markup they do not model gives a confidently
+  wrong answer both ways. Worked example (2026-09-23, `/feed/analytics`):
+  `A-chart-empty-frame` called the *Feed mix* card empty while it painted 8 bars
+  at both viewports, because `SvgBars` sets `<svg aria-hidden="true">` (correct —
+  the wrapper `<div role="img">` holds the name) and `hidden()` treats
+  `aria-hidden` anywhere up the tree as not-painted, so the bar count is always
+  0 for that whole chart family — it cries wolf on populated charts and can never
+  catch a truly empty one. Count the painted nodes in the DOM before believing a
+  surprising verdict, and fix the rule in the same change.
+
+  **Android/mobile carries the same obligation on its own lane.** Compose screens
+  are not covered by the admin-web guard, and Android screenshots are OFF by
+  default in `ci-local`, so prove them explicitly and read them the same way:
+
+  ```bash
+  make ci-local-screenshots          # GOATOS_RUN_ANDROID_SCREENSHOTS=1
+  ```
+
   These captures need a backend on real data, so they need the OCI Postgres
   password from Secret Manager. If `gcloud` is unauthenticated, ask the
   maintainer for one interactive `gcloud auth login` **as soon as you know you

@@ -94,6 +94,35 @@ against both laptop and mobile viewports, inspect the generated screenshots
 before presenting them as proof, and treat missed route/tab/drawer coverage in
 the guard itself as a review finding.
 
+Capturing that guard is not the same as reading it. Every run writes an
+annotated `-issues.png` (findings boxed in red) beside the plain screenshot,
+plus `route_failed=` lines; open and read both at **laptop 1440 and phone 390**
+before calling a UI change proven. `apps/admin-web/scripts/lib/regression-checks.mjs`
+is the catalogue — text overlap and cut-off, chart labels collapsed to ~0px or
+clipped or colliding or mostly ellipsised, bars with no value, chart frames with
+neither bars nor empty-state copy, SVG text clipped/colliding/under the 8px
+floor, container and horizontal-page overflow, table cells painting over the
+next column, crushed chips, and raw values/codes/contract keys/ISO dates leaking
+into the UI. Each is a finding at either viewport, and phone-390 is where most
+of them actually appear. Android/Compose screens are not covered by that guard
+and their screenshots are OFF by default in `ci-local`: prove them with
+`make ci-local-screenshots` and read them the same way.
+
+A guard verdict is evidence, not truth: these rules read the live DOM, so markup
+they do not model answers confidently wrong in both directions. Verified example
+(2026-09-23): `A-chart-empty-frame` reported `/feed/analytics`'s *Feed mix* card
+as having no visible bars while it painted 8 at both viewports, because
+`SvgBars` marks its `<svg aria-hidden="true">` and `hidden()` treats `aria-hidden`
+anywhere up the tree as not-painted — so that rule cries wolf on every populated
+`SvgBars` chart and can never catch a genuinely empty one. Confirm a surprising
+verdict against the DOM before filing or dismissing it, and treat a false
+positive or blind spot in the guard as a finding to fix in the same change.
+
+This applies identically to Codex, Claude, and any other coding agent, during
+development and during review — not at merge time. See
+`.agents/skills/goatos-build/SKILL.md` and
+`.agents/skills/goatos-code-review/SKILL.md`, which carry the same rule.
+
 For Android/mobile/backend reviews that touch camera, proof media, attachments,
 signed URLs, uploads, previews, player screens, or billing/infra, include
 post-upload media egress risk in the review. Treat opened/detail proof-photo
