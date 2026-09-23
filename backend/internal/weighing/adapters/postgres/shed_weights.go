@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
@@ -121,58 +120,43 @@ func (r *Repository) GetShedWeights(ctx context.Context, tenantID string, scopeP
 		sexScope    ReportScope
 		originScope ReportScope
 		idMap       AnimalIdentityMap
-		scopeErr    error
-		originErr   error
-		idErr       error
-		setupWG     sync.WaitGroup
 	)
 	if sexApplied {
-		setupWG.Add(1)
-		go func() {
-			defer setupWG.Done()
-			// The Sex filter narrows WHICH WEIGHS are counted, never which sheds exist: sheds_in_scope
-			// stays the whole scope, so "N of 65 sheds weighed" keeps one denominator across every filter
-			// position and a reader can see that the male half covers fewer sheds. Resolving identity is
-			// sex_scope.go's job — nothing in THIS file knows what an animal is; it is handed a list of
-			// tag strings and a list of buckets.
-			sexScope, scopeErr = r.resolveSexScope(ctx, tenantID, parkIDs, sex, periodStart, periodEnd)
-		}()
+		var scopeErr error
+		// The Sex filter narrows WHICH WEIGHS are counted, never which sheds exist: sheds_in_scope
+		// stays the whole scope, so "N of 65 sheds weighed" keeps one denominator across every filter
+		// position and a reader can see that the male half covers fewer sheds. Resolve these support
+		// reads serially: during a burst one shed-weights request must not hold several pool slots.
+		sexScope, scopeErr = r.resolveSexScope(ctx, tenantID, parkIDs, sex, periodStart, periodEnd)
+		if scopeErr != nil {
+			return domain.ShedWeights{}, scopeErr
+		}
 	}
 	if originApplied {
-		setupWG.Add(1)
-		go func() {
-			defer setupWG.Done()
-			// Origin (farm born / purchased) narrows the SAME rows through the SAME opaque shape, so the
-			// two filters compose without this file learning what either of them means. Both selected at
-			// once means the rows in BOTH, which is what a reader picking "Female" and "Purchased" asks
-			// for; the unfiltered page resolves neither and runs the query it always ran.
-			originScope, originErr = r.resolveOriginScope(ctx, tenantID, parkIDs, origin, periodStart, periodEnd)
-		}()
+		var originErr error
+		// Origin (farm born / purchased) narrows the SAME rows through the SAME opaque shape, so the
+		// two filters compose without this file learning what either of them means. Both selected at
+		// once means the rows in BOTH, which is what a reader picking "Female" and "Purchased" asks
+		// for; the unfiltered page resolves neither and runs the query it always ran.
+		originScope, originErr = r.resolveOriginScope(ctx, tenantID, parkIDs, origin, periodStart, periodEnd)
+		if originErr != nil {
+			return domain.ShedWeights{}, originErr
+		}
 	}
 	if needsIdentityMap {
-		setupWG.Add(1)
-		go func() {
-			defer setupWG.Done()
-			// The same-animal map (identity_scope.go). Window-bounded and widened by the SAME gain lookback
-			// the pairing arm below reads, or an animal whose previous weigh sits before the window would
-			// merge in the growth read and not in this one -- two numbers on one page disagreeing about how
-			// many animals a shed holds, which is exactly the cross-surface split this fix exists to close.
-			//
-			// Whole-shed-only pages never read scanned-tag rows, so resolving RFID identity there only burns
-			// DB time before the query. Keep the arrays empty for that category and let the individual CTEs
-			// remain naturally empty under the category predicate.
-			idMap, idErr = r.resolveAnimalIdentityMap(ctx, tenantID, parkIDs, periodStart.AddDate(0, 0, -growthLookbackDays), periodEnd)
-		}()
-	}
-	setupWG.Wait()
-	if scopeErr != nil {
-		return domain.ShedWeights{}, scopeErr
-	}
-	if originErr != nil {
-		return domain.ShedWeights{}, originErr
-	}
-	if idErr != nil {
-		return domain.ShedWeights{}, idErr
+		var idErr error
+		// The same-animal map (identity_scope.go). Window-bounded and widened by the SAME gain lookback
+		// the pairing arm below reads, or an animal whose previous weigh sits before the window would
+		// merge in the growth read and not in this one -- two numbers on one page disagreeing about how
+		// many animals a shed holds, which is exactly the cross-surface split this fix exists to close.
+		//
+		// Whole-shed-only pages never read scanned-tag rows, so resolving RFID identity there only burns
+		// DB time before the query. Keep the arrays empty for that category and let the individual CTEs
+		// remain naturally empty under the category predicate.
+		idMap, idErr = r.resolveAnimalIdentityMap(ctx, tenantID, parkIDs, periodStart.AddDate(0, 0, -growthLookbackDays), periodEnd)
+		if idErr != nil {
+			return domain.ShedWeights{}, idErr
+		}
 	}
 	scope := IntersectScopes(sexScope, sexApplied, originScope, originApplied)
 	sexFiltered := sexApplied || originApplied
@@ -592,91 +576,62 @@ LIMIT $7`
 		dates        = domain.WeighingDates{LumpWeighingDates: []string{}}
 		byLoad       = []domain.LoadGainBucket{}
 		unattributed int
-		followErr    error
-		followMu     sync.Mutex
-		followWG     sync.WaitGroup
 	)
-	setFollowErr := func(err error) {
-		if err == nil {
-			return
-		}
-		followMu.Lock()
-		if followErr == nil {
-			followErr = err
-		}
-		followMu.Unlock()
-	}
 
-	followWG.Add(1)
-	go func() {
-		defer followWG.Done()
-		// Park vocabulary for the filter, labelled the same way the rows are. It is read
-		// here rather than from ListParks because that helper is shared with the mobile
-		// planner and returns the full name; the two would then disagree on screen, with
-		// the dropdown saying "Coimbatore" and every row saying "CBE".
-		//
-		// Ordered by the CODE the rows are labelled with, so this list is the page's park order
-		// (CBE, then CPT) and the charts group their park columns by it. Ordering on the full
-		// name put "Channapatna" (CPT) ahead of "Coimbatore" (CBE). Code also precedes
-		// configured display_order so every analytics surface agrees on the park clusters.
-		parkRows, err := r.pool.Query(ctx, `
+	// Park vocabulary for the filter, labelled the same way the rows are. It is read
+	// here rather than from ListParks because that helper is shared with the mobile
+	// planner and returns the full name; the two would then disagree on screen, with
+	// the dropdown saying "Coimbatore" and every row saying "CBE".
+	//
+	// Ordered by the CODE the rows are labelled with, so this list is the page's park order
+	// (CBE, then CPT) and the charts group their park columns by it. Ordering on the full
+	// name put "Channapatna" (CPT) ahead of "Coimbatore" (CBE). Code also precedes
+	// configured display_order so every analytics surface agrees on the park clusters.
+	parkRows, err := r.pool.Query(ctx, `
 SELECT location_id::text, COALESCE(NULLIF(location_code, ''), name, '')
 FROM locations
 WHERE tenant_id = $1::uuid AND location_id = ANY($2::uuid[])
 ORDER BY COALESCE(NULLIF(location_code, ''), name, ''), display_order, name, location_id`, tenantID, scopeParkIDs)
-		if err != nil {
-			setFollowErr(err)
-			return
+	if err != nil {
+		return domain.ShedWeights{}, err
+	}
+	parks := []domain.GrowthPark{}
+	for parkRows.Next() {
+		var park domain.GrowthPark
+		if err := parkRows.Scan(&park.ParkID, &park.Name); err != nil {
+			parkRows.Close()
+			return domain.ShedWeights{}, err
 		}
-		defer parkRows.Close()
-		parks := []domain.GrowthPark{}
-		for parkRows.Next() {
-			var park domain.GrowthPark
-			if err := parkRows.Scan(&park.ParkID, &park.Name); err != nil {
-				setFollowErr(err)
-				return
-			}
-			parks = append(parks, park)
-		}
-		if err := parkRows.Err(); err != nil {
-			setFollowErr(err)
-			return
-		}
-		followMu.Lock()
-		out.Parks = parks
-		followMu.Unlock()
-	}()
+		parks = append(parks, park)
+	}
+	if err := parkRows.Err(); err != nil {
+		parkRows.Close()
+		return domain.ShedWeights{}, err
+	}
+	parkRows.Close()
+	out.Parks = parks
 
 	if includeDates {
-		followWG.Add(1)
-		go func() {
-			defer followWG.Done()
-			// The two date facts come from ONE helper, shared with the narrow /weighing/weighing-dates read
-			// the Weights screens resolve their landing window from. Two copies of these queries would let
-			// the window a page opens on disagree with the dates the same page then reports.
-			var err error
-			dates, err = r.weighingDates(ctx, tenantID, parkIDs, periodStart, periodEnd, sexFiltered, scope, weighingCategory)
-			setFollowErr(err)
-		}()
+		// The two date facts come from ONE helper, shared with the narrow /weighing/weighing-dates read
+		// the Weights screens resolve their landing window from. Two copies of these queries would let
+		// the window a page opens on disagree with the dates the same page then reports.
+		var err error
+		dates, err = r.weighingDates(ctx, tenantID, parkIDs, periodStart, periodEnd, sexFiltered, scope, weighingCategory)
+		if err != nil {
+			return domain.ShedWeights{}, err
+		}
 	}
 
 	if includeLoads {
-		followWG.Add(1)
-		go func() {
-			defer followWG.Done()
-			// Growth per procurement load, over the same tenant/park/window scope. Its own
-			// read rather than another CTE here: it collapses to LOAD grain, not shed grain,
-			// and folding a different grain into this query is how a shed ends up counted
-			// once per load it touches.
-			var err error
-			byLoad, unattributed, err = r.loadWeights(ctx, tenantID, parkIDs, periodStart, periodEnd, sexFiltered, scope, idMap, weighingCategory)
-			setFollowErr(err)
-		}()
-	}
-
-	followWG.Wait()
-	if followErr != nil {
-		return domain.ShedWeights{}, followErr
+		// Growth per procurement load, over the same tenant/park/window scope. Its own
+		// read rather than another CTE here: it collapses to LOAD grain, not shed grain,
+		// and folding a different grain into this query is how a shed ends up counted
+		// once per load it touches.
+		var err error
+		byLoad, unattributed, err = r.loadWeights(ctx, tenantID, parkIDs, periodStart, periodEnd, sexFiltered, scope, idMap, weighingCategory)
+		if err != nil {
+			return domain.ShedWeights{}, err
+		}
 	}
 	out.LumpWeighingDates = dates.LumpWeighingDates
 	out.LatestWeighingDate = dates.LatestWeighingDate

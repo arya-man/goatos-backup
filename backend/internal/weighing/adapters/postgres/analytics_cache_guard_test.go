@@ -89,6 +89,29 @@ func TestGrowthAnalyticsReadFanoutIsBounded(t *testing.T) {
 	}
 }
 
+func TestShedWeightsSupportReadsDoNotFanOutPoolSlots(t *testing.T) {
+	src := readSource(t, "shed_weights.go")
+	start := strings.Index(src, "func (r *Repository) GetShedWeights(")
+	if start < 0 {
+		t.Fatal("shed_weights.go missing GetShedWeights")
+	}
+	body := src[start:]
+	if strings.Contains(body, "go func()") || strings.Contains(body, "sync.WaitGroup") {
+		t.Fatal("GetShedWeights must keep support DB reads serial so one request cannot hold multiple pool slots during ADG bursts")
+	}
+	for _, required := range []string{
+		"sexScope, scopeErr = r.resolveSexScope(",
+		"originScope, originErr = r.resolveOriginScope(",
+		"idMap, idErr = r.resolveAnimalIdentityMap(",
+		"dates, err = r.weighingDates(",
+		"byLoad, unattributed, err = r.loadWeights(",
+	} {
+		if !strings.Contains(body, required) {
+			t.Fatalf("GetShedWeights serial-read guard missing %q", required)
+		}
+	}
+}
+
 func TestGrowthADGSectionsOneToManyPageBoundaryParkScopeStatusMatrix(t *testing.T) {
 	all := growthADGSectionSet("")
 	for _, section := range []string{
