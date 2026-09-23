@@ -1,0 +1,81 @@
+{
+  "_comment": "Repairs for `disproved` rows in commit-ledger-receipts.json — a test that exists, runs, passes and does NOT notice its own behaviour disappearing. Each entry names the NEW check and the exact mutation that was watched go red on the production path. These are deliberately NOT prover receipts: the prover scopes its run to the Test functions the original commit added, so a repair living in a new file cannot flip that commit's verdict. The row stays `disproved` — correctly, because the commit's OWN test still does not bite — and this file records that the behaviour is now covered by something else.",
+  "repairs": [
+    {
+      "sha": "0c378ff27",
+      "subject": "weighing capture slots, answers and kinds on the SOP rules, submits and observations",
+      "whyItDidNotBite": "TestWeighingCaptureDTOsMatchTheirOpenAPISchemas ran the schema->DTO direction over the `required` list only, and almost nothing here is required — a capture field is optional so an older app that sends neither keeps working. Dropping proofs/answers from both submit requests tripped neither check.",
+      "repair": "backend/internal/weighing/adapters/http/capture_contract_test.go — every DECLARED property must be emitted, not only the required ones",
+      "mutation": "git checkout 0c378ff27^ -- backend/internal/weighing/adapters/http/handler.go",
+      "result": "RED, naming proofs and answers on both submit requests"
+    },
+    {
+      "sha": "21ac4f56a",
+      "subject": "resolve an item's category kind through the cheap walk, not the counted projection",
+      "whyItDidNotBite": "the commit's only test change was a compile-stub CategoryKind on an existing fake; it asserted nothing about the write path.",
+      "repair": "backend/internal/configuration/app/kind_resolution_test.go — a counting fake proves the item write asks CategoryKind and never reads the categories register, on Create and on Update",
+      "mutation": "restore s.repo.Get(ctx, tenantID, RegCategories, ...) in Service.kindFor",
+      "result": "RED on both subtests and both counters"
+    },
+    {
+      "sha": "5090bf8cb",
+      "subject": "restore the feed columns lost in the merge",
+      "whyItDidNotBite": "every register test asserts a register the merge had left internally consistent; a column that vanished agrees with itself, so no fixture built out of the register could represent the failure. The commit's own new test covered an unrelated migration grain move.",
+      "repair": "backend/internal/configuration/domain/feed_item_authoring_test.go — the three ration keys named as literals and driven through the real validator, plus the medicine and mixed-sheet cases so it cannot be satisfied the wrong way",
+      "mutation": "restore the pre-merge `unit` column and delete energy_kcal_per_kg / dry_matter_factor / wastage_factor",
+      "result": "RED, reproducing the reported defect verbatim"
+    },
+    {
+      "sha": "dddd18b93",
+      "subject": "align stock loads read permission",
+      "whyItDidNotBite": "TestGetStockLoadsAcceptsFeedDirectionReader grants RoleFeedDirector, which holds BOTH permissions of the OR. A principal holding both halves can never show which half is load-bearing.",
+      "repair": "backend/internal/feeddirection/adapters/http/stock_loads_scope_test.go — a principal holding ONLY FeedDirectionRead, plus a principal holding neither",
+      "mutation": "narrow the handler back to permissions.FeedAnalyticsStockRead alone",
+      "result": "RED with 403 'this route requires an authorized park scope', while the original test stayed green beside it"
+    },
+    {
+      "sha": "4abf8ff47",
+      "subject": "read current Feed card state on each Work Board request",
+      "whyItDidNotBite": "not the test's fault in the way the word implies — every Postgres test in feeddirection/adapters/boardsource died at seed time on the sop_proofs check constraint added by migration 000342, so the suite could not run at all.",
+      "repair": "backend/internal/feeddirection/adapters/boardsource/source_integration_test.go — the fixture derives sop_proofs the way the write path does, reviving all eight tests",
+      "mutation": "let a card value outlive its request",
+      "result": "RED: 'stale feed summary after complete: map[in_progress:2 rejected:2]'"
+    },
+    {
+      "sha": "de4e099b6",
+      "subject": "stop the Closed, No Dose drawer fanning out on multi-tag animals",
+      "whyItDidNotBite": "its own test is sound and bites at HEAD (verified). Checking why the row read disproved found the SAME defect unfixed in the sibling query, vaccinationGapsSQL, whose fixture gives no animal any tag so the case cannot arise in it.",
+      "repair": "backend/internal/vaccinationexecution/adapters/postgres/gaps_multi_tag_fanout_test.go, and the LATERAL fix in repository.go",
+      "mutation": "red-first: the test fails on the unchanged query with 'appears 2 times, want 1'",
+      "result": "a real defect, fixed — on a keyset-paginated scan the duplicate spends a LIMIT slot and distinct gapped animals fall off the page"
+    },
+    {
+      "sha": "b4612e578",
+      "subject": "apply work_state/severity filters to card summaries query",
+      "whyItDidNotBite": "the fix is in SQL; the test it shipped lives in app/service_test.go and is served by a hand-written fakeRepo that was taught the same filtering. Reverting the SQL cannot reach the fake, so the test proves the fake works.",
+      "repair": "none needed — the behaviour IS covered, by TestVaccinationExecutionCardSummariesStatusMatrix... in adapters/postgres",
+      "mutation": "neutralise the $6 work_state predicate in the card-summaries SELECT",
+      "result": "RED. A mis-scoped ledger row rather than an uncovered behaviour; the app-layer fake should not be read as SQL proof."
+    },
+    {
+      "sha": "93cb89104",
+      "subject": "the verifier's card shows the pen, not a shed UUID",
+      "whyItDidNotBite": "it does bite at HEAD (verified). The stored verdict is stale.",
+      "repair": "none needed",
+      "mutation": "put the shed id and the Pen fragment back into feedDistributionSubjectLabel",
+      "result": "RED: TestDistributionVerificationCarriesPartitionIdentity"
+    },
+    {
+      "sha": "bb927e2a9",
+      "subject": "satisfy blind verification landing guards",
+      "whyItDidNotBite": "mis-scoping, not a weak test: its only test file is verificationcatalog/catalog_test.go (a migration filename) while its code change is 230 lines in weighing/adapters/postgres. The prover ran the first and reverted the second.",
+      "repair": "none — the row is unprovable in this shape, not uncovered"
+    },
+    {
+      "sha": "62cfbf68a",
+      "subject": "retire operator, move the farm onto manager roles",
+      "whyItDidNotBite": "TestHerdOperationsIsNeverOfferedFromARoleGrant feeds two grant sets that contain no operator role, so re-adding the branch the commit deleted changes nothing for them. The fixture cannot represent a principal who still holds the retired grant — the test pins current behaviour, not required behaviour.",
+      "repair": "none here — this commit is NOT an ancestor of this branch, so the code it changed does not exist in this tree. Repair belongs on the lane that carries it."
+    }
+  ]
+}
