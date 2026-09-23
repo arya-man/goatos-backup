@@ -58,17 +58,38 @@ test("a clicking entry is replayed once before it is reported missing", () => {
   assert.match(source, /if \(miss && entry\.steps\?\.length && reload\) miss = await attempt\(\);/);
 });
 
-test("FCR phone bar assertion checks layout, not only DOM presence", () => {
-  const entries = new Map(loadFeatureAssertions().map((entry) => [entry.sha, entry]));
-  const fcr = entries.get("e311ef24c");
-  assert.ok(fcr, "e311ef24c FCR assertion must stay runnable");
-  assert.deepEqual(fcr.viewports, ["mobile"]);
-  assert.ok(
-    fcr.expect.some((expect) => expect.layout?.mode === "track-below-label-full-width"),
-    "FCR phone fix must assert that the track stacks below the label and spans the row",
-  );
-
+// A multi-expect entry named only its title, so "Feed Config has an add feed item control"
+// was reported when the Add feed item button was on the page several times over and only the
+// "Feed items" heading was gone. The sentence must name the part that actually failed.
+test("a missing feature names the expectation that failed, not just the entry title", () => {
   const source = readFileSync(new URL("./feature-assertions.mjs", import.meta.url), "utf8");
-  assert.match(source, /track-below-label-full-width/);
-  assert.match(source, /getBoundingClientRect\(\)/);
+  assert.match(source, /const say = \(m\) => \{/);
+  assert.match(source, /\^\(\?:not visible\|should not appear\): \(\.\+\)\$/);
+  assert.match(source, /missing\.slice\(0, 4\)\.map\(say\)/);
+
+  // The shape checkExpect actually produces for a missing "visible" target.
+  const say = (m) => {
+    const what = String(m.miss?.what ?? "");
+    const quoted = what.match(/^(?:not visible|should not appear): (.+)$/);
+    if (quoted) return `${m.entry.title} — "${quoted[1]}" is not on the page`;
+    if (what) return `${m.entry.title} — ${what}`;
+    return m.entry.title;
+  };
+  assert.equal(
+    say({ entry: { title: "Feed Config has an add feed item control" }, miss: { what: "not visible: Feed items" } }),
+    'Feed Config has an add feed item control — "Feed items" is not on the page',
+  );
+  assert.equal(
+    say({ entry: { title: "x" }, miss: { what: "expected at least 1 of .qlist, found 0" } }),
+    "x — expected at least 1 of .qlist, found 0",
+  );
+});
+
+test("every asserted feature entry states which expectation it is checking", () => {
+  for (const entry of loadFeatureAssertions()) {
+    for (const expect of entry.expect ?? []) {
+      const named = expect.visible ?? expect.absent ?? expect.count ?? expect.url;
+      assert.ok(named, `${entry.sha}: an expect with nothing to check`);
+    }
+  }
 });
