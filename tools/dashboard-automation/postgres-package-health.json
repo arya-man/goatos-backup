@@ -1,0 +1,121 @@
+{
+  "_comment": "Every Postgres-gated test package in backend/, run at this branch tip against a real database. Postgres tests are OPT-IN (GOATOS_RUN_POSTGRES_TESTS=1), so none of this is visible to a default `go test ./...` or to the ordinary CI path \u2014 a package can be entirely red for months and every green run stays green.",
+  "sweptAtTip": "automation/lane-fixes + cover-backend, 2026-09-24",
+  "packagesSwept": 67,
+  "packagesRed": 21,
+  "howToReadIt": "FOUR of these start their OWN Docker container rather than using the shared pgtest harness, so they fail on a machine without Docker and say nothing about the code. ONE is the harness's own self-test asserting a template DSN that the external-DSN mode does not create. The REST are real assertion or seed failures at this tip.",
+  "alreadyRepairedOnThisBranch": [
+    "./cmd/migrate \u2014 a repo-root-relative migrations path that never resolved, plus a DELETE from a bookkeeping table the harness never creates",
+    "./internal/feeddirection/adapters/boardsource \u2014 all eight tests died at seed time on the sop_proofs check constraint added by migration 000342"
+  ],
+  "reportedSeparately": [
+    "./cmd/partition-maintainer \u2014 calls goatos_ensure_partition_coverage, which migration 000212 deliberately DROPPED; the command was never retired and is still scheduled daily"
+  ],
+  "red": [
+    {
+      "package": "./cmd/migrate",
+      "firstFailure": "main_test.go:189: load migrations: read migrations dir: open migrations/postgres: no such file or directory",
+      "kind": "assertion-or-seed-failure"
+    },
+    {
+      "package": "./cmd/partition-maintainer",
+      "firstFailure": "main_test.go:65: ensureCoverage: ensure partition coverage: ERROR: function goatos_ensure_partition_coverage(timestamp with time zone, integer) does not exi",
+      "kind": "assertion-or-seed-failure"
+    },
+    {
+      "package": "./cmd/seed-vaccination-real",
+      "firstFailure": "r50_regression_test.go:65: seed: generate effective cohort partial failure: failed_goats=1 generated=0 deferred=0 reopened=0 skipped_no_due_date=0 suppresse",
+      "kind": "assertion-or-seed-failure"
+    },
+    {
+      "package": "./internal/calendar/adapters/postgres",
+      "firstFailure": "repository_integration_test.go:861: grouped drive=domain.CalendarEvent{EventID:\"parkdrive:park:86000000-0000-4000-8000-000000000701:date:2026-09-24\", EventT",
+      "kind": "assertion-or-seed-failure"
+    },
+    {
+      "package": "./internal/ceoai/reporting",
+      "firstFailure": "operator_views_test.go:98: insert drive assignment: ERROR: vaccination operator 124893d1-b82d-488c-986e-fc61354fa0b2 does not belong to park 73f62390-a3c0-4",
+      "kind": "assertion-or-seed-failure"
+    },
+    {
+      "package": "./internal/counts/adapters/postgres",
+      "firstFailure": "approval_relocate_integration_test.go:632: mover management_stage=\"K1\" after completion, want the destination cohort K2 -- a goat shifted into a K2 shed mus",
+      "kind": "assertion-or-seed-failure"
+    },
+    {
+      "package": "./internal/feedconfig/adapters/postgres",
+      "firstFailure": "experiment_pen_integration_test.go:572: all-retired partitioned shed reappeared as a phantom whole pen: domain.Pen{ParkID:\"00000000-0000-4000-8000-000000003",
+      "kind": "assertion-or-seed-failure"
+    },
+    {
+      "package": "./internal/feeddirection/adapters/postgres",
+      "firstFailure": "analytics_integration_test.go:116: day kg: want 2.500 (blocked adds nothing, experiment invisible), got \"502.500\"",
+      "kind": "assertion-or-seed-failure"
+    },
+    {
+      "package": "./internal/growthdirector/adapters/postgres",
+      "firstFailure": "fcr_integration_test.go:202: worst first, got Coimbatore \u00b7 Fcr Shed - Part 2",
+      "kind": "assertion-or-seed-failure"
+    },
+    {
+      "package": "./internal/health/adapters/postgres",
+      "firstFailure": "analytics_problems_grain_integration_test.go:114: elevated = 0, want 2; a second shed_profiles row must never multiply a case",
+      "kind": "assertion-or-seed-failure"
+    },
+    {
+      "package": "./internal/identity/adapters/postgres",
+      "firstFailure": "baseline_operational_history_fks_integration_test.go:16: docker [run --rm --name goatos-identifier-write-test-1790197914843800000 -e POSTGRES_PASSWORD=goato",
+      "kind": "needs-its-own-docker-container"
+    },
+    {
+      "package": "./internal/kernelstages",
+      "firstFailure": "reminder_cadence_finding_test.go:68: FINDING 1: run 1 (no recipients) -> 0 notifications, 0 markers claimed (retryable) \u2014 OK",
+      "kind": "assertion-or-seed-failure"
+    },
+    {
+      "package": "./internal/leadershiptasks/adapters/postgres",
+      "firstFailure": "repository_integration_test.go:856: raise: leadership task: insert: ERROR: new row for relation \"leadership_tasks\" violates check constraint \"leadership_tas",
+      "kind": "assertion-or-seed-failure"
+    },
+    {
+      "package": "./internal/locations/adapters/postgres",
+      "firstFailure": "write_integration_test.go:34: docker [run --rm --name goatos-location-write-test-20260924024720938028000 -e POSTGRES_PASSWORD=goatos -e POSTGRES_DB=goatos -",
+      "kind": "needs-its-own-docker-container"
+    },
+    {
+      "package": "./internal/obligation/adapters/postgres",
+      "firstFailure": "additive_publish_carryover_integration_test.go:216: carried over 5, want 4 -- the edited vaccine must NOT carry over, or the edit never reaches an animal",
+      "kind": "assertion-or-seed-failure"
+    },
+    {
+      "package": "./internal/outbox/adapters/postgres",
+      "firstFailure": "repository_integration_test.go:39: docker [run --rm --name goatos-outbox-test-1790199169877895000 -e POSTGRES_PASSWORD=goatos -e POSTGRES_DB=goatos -p 127.0",
+      "kind": "needs-its-own-docker-container"
+    },
+    {
+      "package": "./internal/pccare/adapters/postgres",
+      "firstFailure": "fasting_precondition_integration_test.go:340: CreateTask with removal: pccare: a task for this pen, category and date already exists",
+      "kind": "assertion-or-seed-failure"
+    },
+    {
+      "package": "./internal/permissions/adapters/postgres",
+      "firstFailure": "grants_integration_test.go:44: docker [run --rm --name goatos-permissions-test-1790199451729068000 -e POSTGRES_PASSWORD=goatos -e POSTGRES_DB=goatos -p 127.",
+      "kind": "needs-its-own-docker-container"
+    },
+    {
+      "package": "./internal/platform/pgtest",
+      "firstFailure": "pgtest_test.go:121: expected template dsn once harness started",
+      "kind": "harness-self-test"
+    },
+    {
+      "package": "./internal/processintegrity/adapters/postgres",
+      "firstFailure": "drive_assignment_binding_integration_test.go:67: assignment partition 2: ERROR: vaccination operator 71000000-0000-4000-8000-000000000031 does not belong to",
+      "kind": "assertion-or-seed-failure"
+    },
+    {
+      "package": "./internal/procurement/adapters/postgres",
+      "firstFailure": "loadwise_repository_integration_test.go:377: seed cost lines: ERROR: cannot insert multiple commands into a prepared statement (SQLSTATE 42601)",
+      "kind": "assertion-or-seed-failure"
+    }
+  ]
+}
