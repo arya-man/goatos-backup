@@ -205,7 +205,7 @@ export function dominantPhase(result) {
  * Returns { gif, filmstrip, frames: [paths], note } — any of the first two may be
  * null if ffmpeg is not on this machine, and `note` says so rather than pretending.
  */
-export function writeFlickerEvidence(frames, result, outDir, name) {
+export async function writeFlickerEvidence(frames, result, outDir, name) {
   mkdirSync(outDir, { recursive: true });
   const event = (result.events ?? [])[0];
   if (!event) return { gif: null, filmstrip: null, frames: [], note: "no flicker to show" };
@@ -224,46 +224,29 @@ export function writeFlickerEvidence(frames, result, outDir, name) {
     writeFileSync(file, frames[i].png);
     written.push(file);
   }
-  if (!hasFfmpeg()) {
-    return {
-      gif: null,
-      filmstrip: null,
-      frames: written,
-      note: "ffmpeg is not installed here, so the frames are attached one by one instead of as a GIF",
-    };
-  }
-
-  const gif = join(outDir, `${name}-flicker.gif`);
-  const filmstrip = join(outDir, `${name}-flicker-filmstrip.png`);
-  const pattern = join(seqDir, "f%03d.png");
-  try {
-    // Slow enough that a person can see the wrong frame go past, looping forever.
-    execFileSync(
-      ffmpeg(),
-      ["-v", "error", "-y", "-framerate", "6", "-i", pattern, "-vf", "scale=390:-1:flags=lanczos", "-loop", "0", gif],
-      { stdio: "ignore" },
-    );
-  } catch {
-    /* fall through: the frames are still on disk */
-  }
-  try {
-    execFileSync(
-      ffmpeg(),
-      [
-        "-v", "error", "-y", "-i", pattern,
-        "-vf", `scale=260:-1,tile=${Math.min(written.length, 8)}x1:margin=6:padding=4:color=0x1b1f1d`,
-        "-frames:v", "1", filmstrip,
-      ],
-      { stdio: "ignore" },
-    );
-  } catch {
-    /* same */
+  const filmstrip = written.length >= 2
+    ? await composeFilmstrip(frames.slice(from, to + 1).map((f) => f.png), join(outDir, `${name}-flicker-filmstrip.png`))
+    : null;
+  let gif = null;
+  if (hasFfmpeg() && written.length >= 2) {
+    const candidate = join(outDir, `${name}-flicker.gif`);
+    try {
+      // Slow enough that a person can see the wrong frame go past, looping forever.
+      execFileSync(
+        ffmpeg(),
+        ["-v", "error", "-y", "-framerate", "6", "-i", join(seqDir, "f%03d.png"), "-vf", "scale=390:-1:flags=lanczos", "-loop", "0", candidate],
+        { stdio: "ignore" },
+      );
+      if (existsSync(candidate)) gif = candidate;
+    } catch {
+      /* the filmstrip already carries the evidence */
+    }
   }
   return {
-    gif: existsSync(gif) ? gif : null,
-    filmstrip: existsSync(filmstrip) ? filmstrip : null,
+    gif,
+    filmstrip,
     frames: written,
-    note: "",
+    note: filmstrip ? "" : "the frames are attached one by one, because a strip of them could not be written here",
   };
 }
 
@@ -334,7 +317,7 @@ export async function filmRoutes({ baseUrl, bearerToken, outDir, routes, phone }
         // second is the one Ravi filmed, and no amount of scrolling would find it.
         const { frames, phases, result } = await captureFlicker(page);
         const evidence = result.flicker
-          ? writeFlickerEvidence(frames, result, outDir, route.name)
+          ? await writeFlickerEvidence(frames, result, outDir, route.name)
           : { gif: null, filmstrip: null, frames: [], note: "" };
 
         let overlay = null;
@@ -348,11 +331,16 @@ export async function filmRoutes({ baseUrl, bearerToken, outDir, routes, phone }
             watched: paint.overlays.map((o) => ({ label: o.label, z: o.z })),
             // An overlay this check cannot judge is said so, never counted as clean.
             unjudged: paint.findings.filter((f) => !f.judged).map((f) => ({ label: f.overlay.label, why: f.reason })),
-            findings: showedThrough.map((finding) => ({
+            findings: await Promise.all(showedThrough.map(async (finding) => ({
               label: finding.overlay.label,
               events: finding.events,
-              evidence: writeOverlayEvidence(paint.frames, finding.events[0], outDir, `${route.name}-${(finding.overlay.label || "panel").toLowerCase().replace(/[^a-z0-9]+/g, "-")}`),
-            })),
+              evidence: await writeOverlayEvidence(
+                paint.frames,
+                finding.events[0],
+                outDir,
+                `${route.name}-${(finding.overlay.label || "panel").toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+              ),
+            }))),
             reason: paint.reason,
           };
         } catch (error) {
@@ -537,11 +525,57 @@ export async function captureOverlayPaint(page, options = {}) {
 }
 
 /**
+ * Stitch consecutive frames side by side into one PNG: fine, wrong, fine.
+ *
+ * This is written by hand rather than shelled out to ffmpeg because the evidence for
+ * this lane cannot be optional. The OCI box has no ffmpeg on PATH, and the one
+ * Playwright ships beside its browsers is a stripped build with no image-sequence
+ * demuxer — it reports "No such file or directory" for a perfectly good run of PNGs.
+ * Both were found the hard way, on a real production finding that came back with no
+ * picture attached. pngjs is already a dependency because the frames arrive as PNG, so
+ * a filmstrip always works, everywhere, and a flicker finding is never reduced to a
+ * single still that cannot show flicker.
+ */
+export async function composeFilmstrip(pngBuffers, outFile, { targetWidth = 260, gap = 8 } = {}) {
+  if (pngBuffers.length < 2) return null;
+  const { PNG } = await import("pngjs");
+  let decoded;
+  try {
+    decoded = pngBuffers.map((buffer) => PNG.sync.read(buffer));
+  } catch {
+    return null;
+  }
+  const source = decoded[0];
+  const scale = Math.max(1, Math.round(source.width / targetWidth));
+  const w = Math.floor(source.width / scale);
+  const h = Math.floor(source.height / scale);
+  const out = new PNG({ width: w * decoded.length + gap * (decoded.length - 1), height: h });
+  out.data.fill(0);
+  for (let i = 3; i < out.data.length; i += 4) out.data[i] = 255;
+  decoded.forEach((frame, index) => {
+    if (frame.width !== source.width || frame.height !== source.height) return;
+    const offsetX = index * (w + gap);
+    for (let y = 0; y < h; y += 1) {
+      for (let x = 0; x < w; x += 1) {
+        const from = (y * scale * frame.width + x * scale) * 4;
+        const to = (y * out.width + offsetX + x) * 4;
+        out.data[to] = frame.data[from];
+        out.data[to + 1] = frame.data[from + 1];
+        out.data[to + 2] = frame.data[from + 2];
+        out.data[to + 3] = 255;
+      }
+    }
+  });
+  writeFileSync(outFile, PNG.sync.write(out));
+  return outFile;
+}
+
+/**
  * Before / during / after, from the capture, for an overlay that showed through.
  * The middle frame is the defect; the two either side are what it should look like.
  * A single still is never enough here — the whole point is that it came back.
  */
-export function writeOverlayEvidence(frames, event, outDir, name) {
+export async function writeOverlayEvidence(frames, event, outDir, name) {
   mkdirSync(outDir, { recursive: true });
   const at = (t) => {
     let best = 0;
@@ -560,21 +594,23 @@ export function writeOverlayEvidence(frames, event, outDir, name) {
     writeFileSync(file, frames[i].png);
     written.push(file);
   }
-  if (!hasFfmpeg() || written.length < 2) {
-    return { gif: null, filmstrip: null, frames: written, note: hasFfmpeg() ? "" : "ffmpeg is not installed here, so the frames are attached one by one instead of as a GIF" };
+  // The filmstrip is built in-process and always works. The GIF is a bonus when a
+  // real ffmpeg happens to be installed.
+  const filmstrip = written.length >= 2
+    ? await composeFilmstrip(frames.slice(before, after + 1).map((f) => f.png), join(outDir, `${name}-overlay-filmstrip.png`))
+    : null;
+  let gif = null;
+  if (hasFfmpeg() && written.length >= 2) {
+    const candidate = join(outDir, `${name}-overlay.gif`);
+    try {
+      execFileSync(ffmpeg(), ["-v", "error", "-y", "-framerate", "5", "-i", join(seqDir, "f%03d.png"), "-vf", "scale=390:-1:flags=lanczos", "-loop", "0", candidate], { stdio: "ignore" });
+      if (existsSync(candidate)) gif = candidate;
+    } catch { /* the filmstrip already carries the evidence */ }
   }
-  const gif = join(outDir, `${name}-overlay.gif`);
-  const filmstrip = join(outDir, `${name}-overlay-filmstrip.png`);
-  const pattern = join(seqDir, "f%03d.png");
-  try {
-    execFileSync(ffmpeg(), ["-v", "error", "-y", "-framerate", "5", "-i", pattern, "-vf", "scale=390:-1:flags=lanczos", "-loop", "0", gif], { stdio: "ignore" });
-  } catch { /* the frames are still on disk */ }
-  try {
-    execFileSync(ffmpeg(), [
-      "-v", "error", "-y", "-i", join(seqDir, "f%03d.png"),
-      "-vf", `scale=260:-1,tile=${Math.min(written.length, 5)}x1:margin=6:padding=4:color=0x1b1f1d`,
-      "-frames:v", "1", filmstrip,
-    ], { stdio: "ignore" });
-  } catch { /* same */ }
-  return { gif: existsSync(gif) ? gif : null, filmstrip: existsSync(filmstrip) ? filmstrip : null, frames: written, note: "" };
+  return {
+    gif,
+    filmstrip,
+    frames: written,
+    note: filmstrip ? "" : "the frames are attached one by one, because a strip of them could not be written here",
+  };
 }
