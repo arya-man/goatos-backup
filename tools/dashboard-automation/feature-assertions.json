@@ -22417,5 +22417,67 @@
     "evidence": "apps/admin-web/features/feed/feed-analytics.tsx builds the pie's segment list with !itemCardHidden(chart.item.hidden_feeds, ...) -- no allowlist of its own",
     "reason": "A feed needs priced days in the window to get a slice, so the pie is hidden when nothing qualifies. Verified live on 2026-09-23 at laptop 1440 and phone 390 against api.goatos.mesha.sg: UHT Milk renders at Rs 1,576/day, 2.5%, beside Bhusa 29.1%, Kids 51.9%, Adult 16.4%.",
     "verdict": "pass"
+  },
+  {
+    "sha": "invariant-summary-whole-filter-milk",
+    "title": "Milk preparation summary describes the whole filter, not the rows on screen",
+    "route": "counts-milk-preparation",
+    "status": "data-dependent",
+    "group": "invariant",
+    "dataProbe": {
+      "css": ".pager2 > a.btn.sm:last-child",
+      "min": 1
+    },
+    "expect": [
+      {
+        "stable": {
+          "target": {
+            "css": ".kpi .val",
+            "all": "sum"
+          },
+          "through": [
+            {
+              "click": {
+                "css": ".pager2 > a.btn.sm:last-child"
+              }
+            }
+          ],
+          "label": "the summary figures above the list"
+        }
+      }
+    ],
+    "evidence": "AGENTS.md, operational read-model contract: summaries are whole-filter aggregates unless explicitly named page_*; pagination changes rows only, never summary truth.",
+    "reason": "Needs a second page of results"
+  },
+  {
+    "sha": "invariant-summary-whole-filter-weights",
+    "title": "Weights summary describes the whole filter, not the rows on screen",
+    "route": "weighing-weights",
+    "status": "data-dependent",
+    "group": "invariant",
+    "dataProbe": {
+      "css": ".pager2 > a.btn.sm:last-child",
+      "min": 1
+    },
+    "expect": [
+      {
+        "stable": {
+          "target": {
+            "css": ".kpi .val",
+            "all": "sum"
+          },
+          "through": [
+            {
+              "click": {
+                "css": ".pager2 > a.btn.sm:last-child"
+              }
+            }
+          ],
+          "label": "the summary figures above the list"
+        }
+      }
+    ],
+    "evidence": "AGENTS.md, operational read-model contract: summaries are whole-filter aggregates unless explicitly named page_*; pagination changes rows only, never summary truth.",
+    "reason": "Needs a second page of results"
   }
 ]

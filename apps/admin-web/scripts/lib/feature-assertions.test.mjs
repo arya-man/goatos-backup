@@ -148,8 +148,15 @@ test("a missing feature names the expectation that failed, not just the entry ti
 test("every asserted feature entry states which expectation it is checking", () => {
   for (const entry of loadFeatureAssertions()) {
     for (const expect of entry.expect ?? []) {
-      const named = expect.visible ?? expect.absent ?? expect.count ?? expect.url ?? expect.equals ?? expect.compare;
+      const named = expect.visible ?? expect.absent ?? expect.count ?? expect.url ?? expect.equals ?? expect.compare ?? expect.stable;
       assert.ok(named, `${entry.sha}: an expect with nothing to check`);
+      // A shape the ENGINE does not implement would be silently skipped by
+      // checkExpect and read as a pass. This guard caught `stable` the moment it
+      // was added, which is what it is for; it must keep catching the next one.
+      const engine = readFileSync(join(repoRoot, "apps/admin-web/scripts/lib/feature-assertions.mjs"), "utf8");
+      for (const shape of Object.keys(expect)) {
+        assert.ok(engine.includes(`expect.${shape}`), `${entry.sha}: nothing in the engine reads "${shape}", so this expectation would be skipped and read as a pass`);
+      }
     }
   }
 });
@@ -526,4 +533,97 @@ test("a rounded percentage is not a disagreement", async () => {
     compare: { left: { css: ".rtx" }, right: { ratio: { part: { css: ".done" }, whole: { css: ".total" } }, times: 100 }, tolerance: 1 },
   }]);
   assert.deepEqual(errors, [], "rounding must not fire");
+});
+
+// ---------------------------------------------------------------- the invariants themselves
+//
+// The engine tests above prove the machinery. These run the REAL entries out of
+// the manifest, so a wrong selector or a mis-written entry is caught here rather
+// than on a live sweep — §8: a check nothing exercises is a check nobody has.
+
+const invariantEntries = () => loadFeatureAssertions().filter((e) => e.group === "invariant");
+
+test("the repo now carries assertions that can compare a value", () => {
+  // It carried none: 0 of 928. A presence check holds on a page whose every
+  // figure is wrong, which is the whole reason the coverage ledger read 87%.
+  const entries = invariantEntries();
+  assert.ok(entries.length > 0, "at least one invariant is asserted");
+  for (const entry of entries) {
+    assert.ok((entry.expect ?? []).some(isValueExpect), `${entry.sha} must carry a reference that can fail`);
+    assert.ok(entry.evidence?.length > 40, `${entry.sha} must cite the rule it enforces, not someone's judgement`);
+  }
+});
+
+test("a summary computed from the rows on screen is reported by the real entry", async () => {
+  // The banned anti-pattern, played out: page one says 240, page two says 31,
+  // because the summary was computed from the rows currently rendered.
+  const entry = invariantEntries()[0];
+  let turned = false;
+  const next = () => {
+    const n = { ...vMakeLocator([vCell("Next")]), click: async () => { turned = true; } };
+    n.first = () => n;
+    return n;
+  };
+  const page = {
+    locator: (k) => {
+      if (k === ".kpi .val") return vMakeLocator(turned ? [vCell("31"), vCell("9")] : [vCell("240"), vCell("9")]);
+      if (k === entry.dataProbe.css) return next();
+      return vMakeLocator([]);
+    },
+    getByText: () => vMakeLocator([]),
+    url: () => "https://example.test/counts/milk-preparation",
+    addStyleTag: async () => {}, screenshot: async () => {}, waitForLoadState: async () => {},
+  };
+  const log = console.log; console.log = () => {};
+  let message = null;
+  try {
+    await assertFeaturesPresent(page, { routeName: entry.route, viewportLabel: "laptop", screenshotDir: "/tmp", entries: [entry] });
+  } catch (e) { message = e.message; } finally { console.log = log; }
+  assert.ok(turned, "the entry turns the page");
+  assert.ok(message, "and reports the summary that moved");
+  assert.match(message, /249, then 40/, "249 on page one, 40 on page two");
+  assert.match(message, /must describe the whole filter/);
+});
+
+test("a summary that holds across the page turn is a pass", async () => {
+  const entry = invariantEntries()[0];
+  const next = () => { const n = { ...vMakeLocator([vCell("Next")]), click: async () => {} }; n.first = () => n; return n; };
+  const page = {
+    locator: (k) => {
+      if (k === ".kpi .val") return vMakeLocator([vCell("240"), vCell("9")]);
+      if (k === entry.dataProbe.css) return next();
+      return vMakeLocator([]);
+    },
+    getByText: () => vMakeLocator([]),
+    url: () => "https://example.test/x",
+    addStyleTag: async () => {}, screenshot: async () => {}, waitForLoadState: async () => {},
+  };
+  const log = console.log; console.log = () => {};
+  let message = null;
+  try {
+    await assertFeaturesPresent(page, { routeName: entry.route, viewportLabel: "laptop", screenshotDir: "/tmp", entries: [entry] });
+  } catch (e) { message = e.message; } finally { console.log = log; }
+  assert.equal(message, null, "NO FALSE POSITIVES: a correct page must not be accused");
+});
+
+test("a page with only one page of results is not attempted, never a pass", async () => {
+  // The probe IS the click target, so a selector that matches nothing — a
+  // single page of results, or a selector that turns out to be wrong — degrades
+  // to not-attempted rather than accusing a page that is fine.
+  const entry = invariantEntries()[0];
+  const page = {
+    locator: () => vMakeLocator([]),
+    getByText: () => vMakeLocator([]),
+    url: () => "https://example.test/x",
+    addStyleTag: async () => {}, screenshot: async () => {}, waitForLoadState: async () => {},
+  };
+  const lines = [];
+  const log = console.log; console.log = (l) => lines.push(String(l));
+  let message = null;
+  try {
+    await assertFeaturesPresent(page, { routeName: entry.route, viewportLabel: "laptop", screenshotDir: "/tmp", entries: [entry] });
+  } catch (e) { message = e.message; } finally { console.log = log; }
+  assert.equal(message, null, "it must not be a finding");
+  assert.ok(lines.some((l) => l.startsWith("feature_not_attempted=")), "it must say it was not attempted");
+  assert.ok(!lines.some((l) => /feature_assertions=.*:1\/1/.test(l)), "and must never be counted as a pass");
 });
