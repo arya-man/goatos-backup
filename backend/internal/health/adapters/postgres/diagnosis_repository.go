@@ -75,7 +75,14 @@ func (r *DiagnosisRepository) SubmitObservation(
 	if facts.LifecycleStatus != "alive" {
 		return domain.SubmitObservationResult{}, ports.ErrGoatNotAlive
 	}
-	animal, err := domain.ResolveAnimal(facts)
+	// The farm's authored routing, read INSIDE this transaction for the same reason the
+	// published register is: a route edit landing between the read and the write would judge
+	// this animal against a type the director had already moved it off.
+	routing, err := stageRoutingInTx(ctx, tx, in.TenantID)
+	if err != nil {
+		return domain.SubmitObservationResult{}, err
+	}
+	animal, err := domain.ResolveAnimal(facts, routing)
 	if err != nil {
 		return domain.SubmitObservationResult{}, err
 	}
@@ -189,6 +196,33 @@ RETURNING health_diagnosis_run_id::text`,
 		Proposal:       proposal,
 		Confirmable:    confirmable,
 	}, nil
+}
+
+// stageRoutingInTx loads the farm's authored stage -> diagnosis type routing.
+//
+// Retired types are EXCLUDED, so retiring a type stops routing animals to it without anyone
+// having to hunt down its routes first -- an animal pointed at a retired type refuses and
+// names its stage, which is the same recoverable state as a stage nobody mapped.
+func stageRoutingInTx(ctx context.Context, tx pgx.Tx, tenantID string) (domain.StageRouting, error) {
+	bound := sqlbind.MustBind(sqlStageRoutes, tenantID)
+	rows, err := tx.Query(ctx, bound.SQL(), bound.Args()...)
+	if err != nil {
+		return domain.StageRouting{}, fmt.Errorf("health: read diagnosis stage routes: %w", err)
+	}
+	defer rows.Close()
+
+	out := []domain.StageRoute{}
+	for rows.Next() {
+		var r domain.StageRoute
+		if err := rows.Scan(&r.AgeBand, &r.StageCode, &r.TypeKey, &r.SubStage); err != nil {
+			return domain.StageRouting{}, fmt.Errorf("health: scan diagnosis stage route: %w", err)
+		}
+		out = append(out, r)
+	}
+	if err := rows.Err(); err != nil {
+		return domain.StageRouting{}, fmt.Errorf("health: read diagnosis stage routes: %w", err)
+	}
+	return domain.NewStageRouting(out), nil
 }
 
 func publishedRegisterDocumentInTx(ctx context.Context, tx pgx.Tx, tenantID, animalClass string) (*diagnosis.AuthoredRegister, error) {

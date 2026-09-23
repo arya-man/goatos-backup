@@ -51,6 +51,16 @@ SELECT ` + registerColumns + `
 FROM health_diagnosis_register_versions
 WHERE tenant_id=$1::uuid AND animal_class=$2 AND status='published'`
 
+	// The routing read, once per observation, beside the register read above. Retired types are
+	// excluded here rather than at resolution time so the domain never has to know a type can be
+	// retired -- it simply sees no route, and refuses naming the stage.
+	sqlStageRoutes = `
+SELECT r.age_band, r.stage_code, r.type_key, r.sub_stage
+FROM health_diagnosis_stage_routes r
+JOIN health_diagnosis_types t
+  ON t.tenant_id = r.tenant_id AND t.type_key = r.type_key AND t.status = 'active'
+WHERE r.tenant_id=$1::uuid`
+
 	sqlDraftIDForClass = `
 SELECT health_diagnosis_register_version_id::text
 FROM health_diagnosis_register_versions
