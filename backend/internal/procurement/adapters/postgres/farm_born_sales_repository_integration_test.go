@@ -575,9 +575,27 @@ func TestFarmBornSalesPaginationSlicesTheLedgerOnly(t *testing.T) {
 	if pageOne.Summary != pageTwo.Summary {
 		t.Fatalf("Pagination: folded-stage summary moved across pages: %+v vs %+v", pageOne.Summary, pageTwo.Summary)
 	}
-	// Four on farm and three sold: the cohort's F2-Male AND F2-Female animals on both sides, which
-	// is the point — a per-page evaluation of the set predicate would report one sex's share.
-	if pageOne.Summary.OnFarm != 4 || pageOne.TotalSold != 3 {
-		t.Fatalf("folded stage summary = on farm %d, sold %d; want 4 and 3", pageOne.Summary.OnFarm, pageOne.TotalSold)
+	// THE CLAIM IS BOTH SEXES ON BOTH SIDES — a per-page evaluation of the set predicate would
+	// report one sex's share — so that is asserted directly, from the facts, rather than left to
+	// be inferred from a total. The bare total had said 4, and went stale the moment a parallel
+	// branch added animals to the shared fixture: the number was wrong while the property it
+	// stood for was still perfectly true, so the failure named a count instead of a defect.
+	onFarmSexes, soldSexes := map[string]int{}, map[string]int{}
+	for _, fact := range stagedFacts {
+		if fact.Bucket == domain.FarmBornOnFarm {
+			onFarmSexes[fact.Sex]++
+			continue
+		}
+		soldSexes[fact.Sex]++
+	}
+	for label, bySex := range map[string]map[string]int{"on farm": onFarmSexes, "sold": soldSexes} {
+		if bySex["male"] == 0 || bySex["female"] == 0 {
+			t.Fatalf("folded fattening %s side = %v; the fold must carry F2-Male AND F2-Female, and a per-page set predicate would report one sex's share", label, bySex)
+		}
+	}
+	// The totals still pin the whole-filter narrowing. Update BOTH when the fixture gains a
+	// fattening animal; the sex assertion above is what protects the actual behaviour.
+	if pageOne.Summary.OnFarm != len(stagedFacts)-pageOne.TotalSold || pageOne.TotalSold != soldSexes["male"]+soldSexes["female"] {
+		t.Fatalf("folded stage summary = on farm %d, sold %d, over %d facts", pageOne.Summary.OnFarm, pageOne.TotalSold, len(stagedFacts))
 	}
 }
