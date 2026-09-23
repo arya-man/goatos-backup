@@ -918,6 +918,20 @@ interface SyncRepository {
         proofOutboxItemId: String = "",
     ): AppResult<String> = AppResult.Err("health treatment sync is not configured")
 
+    /**
+     * Queues ONE treatment step's video (maintainer decision 2026-09-23).
+     *
+     * The SESSION is the lane, so a step's register drains behind its own PROOF_UPLOAD and ahead
+     * of the session submit. The video rides by REFERENCE ([proofOutboxItemId]); if this register
+     * fails after the upload succeeded, only this row retries -- the bytes are never sent twice.
+     */
+    suspend fun enqueueHealthStepProofRegister(
+        healthSessionId: String,
+        healthSessionStepId: String,
+        proofOutboxItemId: String,
+        idempotencyKey: String,
+    ): AppResult<String> = AppResult.Err("health step proof sync is not configured")
+
     /** Enqueues the clinical case closure (recovered / referred / canceled) for health.diagnose
      * holders. [ageBand]/[businessDate]/[healthSessionId] are local-only refresh context. */
     suspend fun enqueueHealthCaseClose(
@@ -2429,6 +2443,26 @@ class DefaultSyncRepository(
         idempotencyKey = idempotencyKey,
         payloadJson = syncJson.encodeToString(
             HealthTreatmentCompletePayload(healthSessionId = healthSessionId, proofOutboxItemId = proofOutboxItemId),
+        ),
+    )
+
+    override suspend fun enqueueHealthStepProofRegister(
+        healthSessionId: String,
+        healthSessionStepId: String,
+        proofOutboxItemId: String,
+        idempotencyKey: String,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.HEALTH_STEP_PROOF_REGISTER,
+        // The SESSION is the lane, the same one the submit uses, so every step's register drains
+        // before the submit that checks them all.
+        groupKey = healthSessionId,
+        idempotencyKey = idempotencyKey,
+        payloadJson = syncJson.encodeToString(
+            HealthStepProofRegisterPayload(
+                healthSessionId = healthSessionId,
+                healthSessionStepId = healthSessionStepId,
+                proofOutboxItemId = proofOutboxItemId,
+            ),
         ),
     )
 

@@ -598,6 +598,7 @@ class SyncEngine(
         OutboxOpType.HEALTH_CASE_OPEN -> dispatchHealthCaseOpen(item)
         OutboxOpType.HEALTH_OBSERVATION_SUBMIT -> dispatchHealthObservationSubmit(item)
         OutboxOpType.HEALTH_DIAGNOSIS_CONFIRM -> dispatchHealthDiagnosisConfirm(item)
+        OutboxOpType.HEALTH_STEP_PROOF_REGISTER -> dispatchHealthStepProofRegister(item)
         OutboxOpType.HEALTH_TREATMENT_COMPLETE -> dispatchHealthTreatmentComplete(item)
         OutboxOpType.HEALTH_CASE_CLOSE -> dispatchHealthCaseClose(item)
         OutboxOpType.WEIGHING_ANIMAL_OBSERVATION -> dispatchWeighingAnimalObservation(item)
@@ -2339,6 +2340,26 @@ class SyncEngine(
             )
         }
         return syncJson.encodeToString(response)
+    }
+
+    /**
+     * ONE STEP'S VIDEO, registered on its own.
+     *
+     * Separate from the session submit because the blob reaching storage is not the business
+     * fact. If THIS fails after the upload succeeded, only this row retries -- with the proof id
+     * the upload already produced, never the video again.
+     */
+    private suspend fun dispatchHealthStepProofRegister(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<HealthStepProofRegisterPayload>(item.payloadJson)
+        api.registerHealthStepProof(
+            payload.healthSessionId,
+            payload.healthSessionStepId,
+            item.idempotencyKey,
+            sg.mesha.goatos.core.network.dto.HealthStepProofRequestDto(
+                proofRef = resolveUploadedProofRef(payload.proofOutboxItemId),
+            ),
+        )
+        return "{}"
     }
 
     private suspend fun dispatchHealthTreatmentComplete(item: OutboxEntity): String {

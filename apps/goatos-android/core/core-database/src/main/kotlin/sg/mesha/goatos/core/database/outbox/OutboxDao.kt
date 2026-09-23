@@ -100,14 +100,14 @@ interface OutboxDao {
             "  AND (older.conflict = 1 OR older.attemptCount >= older.maxAttempts)) " +
             "AND NOT (candidate.opType = 'PROOF_UPLOAD' AND older.opType = 'PROOF_UPLOAD') " +
             "AND NOT (candidate.opType = older.opType AND candidate.opType IN ('WEIGHING_ANIMAL_OBSERVATION', 'WEIGHING_SHED_OBSERVATION')) " +
-            "AND NOT (older.opType IN ('PC_CARE_SLOT_REGISTER', 'PC_CARE_TASK_PROOF_REGISTER') " +
-            "  AND candidate.opType IN ('PROOF_UPLOAD', 'PC_CARE_SLOT_REGISTER', 'PC_CARE_TASK_PROOF_REGISTER')) " +
-            "AND NOT (older.opType IN ('PC_CARE_SLOT_REGISTER', 'PC_CARE_TASK_PROOF_REGISTER') " +
-            "  AND candidate.opType = 'PC_CARE_TASK_SUBMIT' " +
+            "AND NOT (older.opType IN ('PC_CARE_SLOT_REGISTER', 'PC_CARE_TASK_PROOF_REGISTER', 'HEALTH_STEP_PROOF_REGISTER') " +
+            "  AND candidate.opType IN ('PROOF_UPLOAD', 'PC_CARE_SLOT_REGISTER', 'PC_CARE_TASK_PROOF_REGISTER', 'HEALTH_STEP_PROOF_REGISTER')) " +
+            "AND NOT (older.opType IN ('PC_CARE_SLOT_REGISTER', 'PC_CARE_TASK_PROOF_REGISTER', 'HEALTH_STEP_PROOF_REGISTER') " +
+            "  AND candidate.opType IN ('PC_CARE_TASK_SUBMIT', 'HEALTH_TREATMENT_COMPLETE') " +
             "  AND EXISTS (" +
             "    SELECT 1 FROM outbox AS newer_register " +
             "    WHERE newer_register.groupKey = candidate.groupKey " +
-            "      AND newer_register.opType IN ('PC_CARE_SLOT_REGISTER', 'PC_CARE_TASK_PROOF_REGISTER') " +
+            "      AND newer_register.opType IN ('PC_CARE_SLOT_REGISTER', 'PC_CARE_TASK_PROOF_REGISTER', 'HEALTH_STEP_PROOF_REGISTER') " +
             "      AND (newer_register.createdAt > older.createdAt " +
             "        OR (newer_register.createdAt = older.createdAt AND newer_register.rowid > older.rowid)) " +
             "      AND (newer_register.createdAt < candidate.createdAt " +
@@ -117,17 +117,17 @@ interface OutboxDao {
             "AND (older.conflict = 1 " +
             "  OR older.attemptCount >= older.maxAttempts " +
             "  OR older.nextAttemptAt > :now)) " +
-            "OR (candidate.opType IN ('PC_CARE_SLOT_REGISTER', 'PC_CARE_TASK_PROOF_REGISTER') " +
+            "OR (candidate.opType IN ('PC_CARE_SLOT_REGISTER', 'PC_CARE_TASK_PROOF_REGISTER', 'HEALTH_STEP_PROOF_REGISTER') " +
             "  AND older.opType = 'PROOF_UPLOAD' " +
             "  AND candidate.payloadJson LIKE '%\"proof_outbox_item_id\":\"' || older.id || '\"%' " +
             "  AND (older.status IN ('QUEUED', 'IN_FLIGHT') " +
             "    OR (older.status = 'FAILED' AND older.conflict = 0 AND older.attemptCount < older.maxAttempts)))" +
-            "OR (candidate.opType = 'PC_CARE_TASK_SUBMIT' " +
+            "OR (candidate.opType IN ('PC_CARE_TASK_SUBMIT', 'HEALTH_TREATMENT_COMPLETE') " +
             "  AND older.opType = 'PROOF_UPLOAD' " +
             "  AND EXISTS (" +
             "    SELECT 1 FROM outbox AS pending_register " +
             "    WHERE pending_register.groupKey = candidate.groupKey " +
-            "      AND pending_register.opType IN ('PC_CARE_SLOT_REGISTER', 'PC_CARE_TASK_PROOF_REGISTER') " +
+            "      AND pending_register.opType IN ('PC_CARE_SLOT_REGISTER', 'PC_CARE_TASK_PROOF_REGISTER', 'HEALTH_STEP_PROOF_REGISTER') " +
             "      AND pending_register.payloadJson LIKE '%\"proof_outbox_item_id\":\"' || older.id || '\"%' " +
             "      AND (pending_register.createdAt < candidate.createdAt " +
             "        OR (pending_register.createdAt = candidate.createdAt AND pending_register.rowid < candidate.rowid)) " +
