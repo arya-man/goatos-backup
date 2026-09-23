@@ -19,7 +19,7 @@ func validWrite() DealWrite {
 }
 
 func TestDealWriteValidateAcceptsARealSale(t *testing.T) {
-	if err := validWrite().Normalize().Validate(); err != nil {
+	if err := validWrite().Normalize(builtinCatalog()).Validate(builtinCatalog()); err != nil {
 		t.Fatalf("valid write rejected: %v", err)
 	}
 }
@@ -52,7 +52,7 @@ func TestDealWriteValidateRejectsEachBrokenField(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			w := validWrite()
 			tc.mutate(&w)
-			err := w.Normalize().Validate()
+			err := w.Normalize(builtinCatalog()).Validate(builtinCatalog())
 			var v ErrDealValidation
 			if !errors.As(err, &v) {
 				t.Fatalf("want ErrDealValidation, got %v", err)

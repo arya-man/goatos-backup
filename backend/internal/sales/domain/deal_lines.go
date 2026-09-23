@@ -23,7 +23,22 @@ type DealLine struct {
 	LineNo int
 
 	ProductType string
-	Breed       string
+	// ProductCode and ProductKind are the registry row this line was sold under, stamped at write
+	// time (migration 000393). The kind is what every read below asks -- never the name, which the
+	// farm may since have renamed.
+	ProductCode string
+	ProductKind string
+	// Breed is the line's VARIANT: an animal line's breed, a feed line's feed item, 'Manure' for
+	// manure. The column keeps the older word so every (product, breed) band and chart still keys
+	// on the fact it always keyed on.
+	Breed string
+
+	// Quantity at RatePerUnit, for a line priced by the unit rather than as a lump: feed by the
+	// kilogram, and manure when the desk records it that way. SalesValue stays the authoritative
+	// money figure and is Quantity * RatePerUnit when both are recorded.
+	Quantity    *float64
+	Unit        string
+	RatePerUnit *float64
 
 	AnimalCount   *float64
 	MaleCount     *float64
@@ -46,10 +61,52 @@ type DealLine struct {
 	WeightEstimateBasis string
 }
 
+// Kind is what this line's product does, from the line itself. A line recorded before migration
+// 000393 stamped one -- or a synthetic line built from a deal read without its lines -- falls back
+// to the built-in vocabulary, which is the only thing those rows can be: until 000393 nothing else
+// could be stored.
+func (l DealLine) Kind() string {
+	if l.ProductKind != "" {
+		return l.ProductKind
+	}
+	return BuiltinKind(l.ProductType)
+}
+
+// IsLive reports whether this line sold live animals.
+func (l DealLine) IsLive() bool { return l.Kind() == KindAnimal }
+
+// Code is the registry row this line was sold under. A line recorded before migration 000393, or
+// a synthetic line from a deal read without lines, falls back to the built-in whose name it
+// carries -- and to nothing at all for a rollup of 'Mixed', which names no single product.
+func (l DealLine) Code() string {
+	if l.ProductCode != "" {
+		return l.ProductCode
+	}
+	switch l.ProductType {
+	case ProductSheep:
+		return ProductCodeSheep
+	case ProductGoat:
+		return ProductCodeGoat
+	case ProductManure:
+		return ProductCodeManure
+	}
+	return ""
+}
+
+// QuantityKg is the line's recorded quantity, 0 when none was recorded. It is what a feed line
+// SOLD -- kilograms off the store -- and is a different fact from TotalWeightKg, which is live
+// weight on the hoof.
+func (l DealLine) QuantityKg() float64 {
+	if l.Quantity == nil {
+		return 0
+	}
+	return *l.Quantity
+}
+
 // Animals resolves how many animals this line moved: animal_count when recorded, otherwise the
 // male+female split, and always zero for manure.
 func (l DealLine) Animals() float64 {
-	if !IsLiveProduct(l.ProductType) {
+	if !l.IsLive() {
 		return 0
 	}
 	if l.AnimalCount != nil {
@@ -77,39 +134,129 @@ func (l DealLine) WeightKg() float64 {
 type DealLineWrite struct {
 	ProductType   string
 	Breed         string
+	Quantity      *float64
+	RatePerUnit   *float64
 	AnimalCount   *float64
 	MaleCount     *float64
 	FemaleCount   *float64
 	TotalWeightKg *float64
 	SalesValue    float64
+
+	// Resolved from the registry by normalize. Unexported because a CLIENT may not name them: a
+	// body that could send its own kind could sell a goat as feed and draw it out of the store.
+	productCode string
+	productKind string
+	unit        string
 }
 
-func (l DealLineWrite) normalize() DealLineWrite {
+// ResolvedProduct is what normalize stamped: the registry row this line resolved to. The
+// repository writes these onto the line and reads the kind to decide whether the sale depletes
+// feed stock.
+func (l DealLineWrite) ResolvedProduct() (code, kind, unit string) {
+	return l.productCode, l.productKind, l.unit
+}
+
+// QuantityKg is the line's recorded quantity, 0 when none was recorded.
+func (l DealLineWrite) QuantityKg() float64 {
+	if l.Quantity == nil {
+		return 0
+	}
+	return *l.Quantity
+}
+
+// Kind is the resolved kind, or the built-in fallback for a line whose product did not resolve --
+// which validate then refuses. Reading it before that refusal must not panic or lie.
+func (l DealLineWrite) Kind() string {
+	if l.productKind != "" {
+		return l.productKind
+	}
+	return BuiltinKind(l.ProductType)
+}
+
+// normalize trims the line and resolves its product against the ACTIVE registry, stamping the
+// code, kind and unit the sale is recorded under.
+//
+// A line priced by the unit has its value COMPUTED here, once: quantity * rate. The desk enters
+// two tonnes at twenty-one rupees and the money follows, so a stored value can never disagree with
+// the arithmetic printed beside it. A line that names no rate keeps the lump value it was sent.
+func (l DealLineWrite) normalize(cat ProductCatalog) DealLineWrite {
 	out := l
 	out.ProductType = strings.TrimSpace(l.ProductType)
 	out.Breed = strings.Join(strings.Fields(l.Breed), " ")
+	if p, ok := cat.Lookup(out.ProductType); ok {
+		// The registry's spelling wins over the caller's, so a sale is recorded under the word the
+		// farm actually keeps -- not 'sheep' because that is how it arrived on the wire.
+		out.ProductType = p.Name
+		out.productCode, out.productKind, out.unit = p.Code, p.Kind, p.Unit
+	}
+	if out.Quantity != nil && out.RatePerUnit != nil {
+		out.SalesValue = *out.Quantity * *out.RatePerUnit
+	}
 	return out
 }
 
 // validate checks one line; field names carry the line's 1-based position so the desk can see
 // WHICH row of the form was refused. lineNo 0 means the line came from the legacy single-product
 // fields, whose names are reported bare.
-func (l DealLineWrite) validate(lineNo int) error {
+func (l DealLineWrite) validate(lineNo int, cat ProductCatalog) error {
 	field := func(name string) string {
 		if lineNo == 0 {
 			return name
 		}
 		return fmt.Sprintf("lines[%d].%s", lineNo, name)
 	}
-	if !IsProductType(l.ProductType) {
-		return ErrDealValidation{Field: field("product_type"), Reason: "must be Sheep, Goat or Manure"}
+	if l.ProductType == "" {
+		return ErrDealValidation{Field: field("product_type"), Reason: "required"}
+	}
+	product, known := cat.Lookup(l.ProductType)
+	if !known {
+		// Named, and not something this farm sells. The message points at the registry rather than
+		// listing a vocabulary, because the vocabulary is now the farm's and this package no
+		// longer knows it.
+		return ErrDealValidation{
+			Field:  field("product_type"),
+			Reason: "is not something this farm sells -- add it under Configuration, Items and settings",
+		}
 	}
 	if l.Breed == "" {
-		return ErrDealValidation{Field: field("breed"), Reason: "required"}
+		reason := "required"
+		if product.DrawsFeedStock() {
+			reason = "pick the feed being sold"
+		}
+		return ErrDealValidation{Field: field("breed"), Reason: reason}
 	}
 	if len(l.Breed) > maxDealShortField {
 		return ErrDealValidation{Field: field("breed"), Reason: "too long"}
 	}
+	// What the KIND requires. Only these three branches read the product at all; everything above
+	// and below is true of any line whatever the farm decided to sell.
+	if product.DrawsFeedStock() {
+		// A feed sale is kilograms out of a named store, so the kilograms are the sale: a feed
+		// line with no quantity would take a sale's money without taking any feed off the shelf,
+		// and the stock the store reports would drift from the store.
+		if l.Quantity == nil || *l.Quantity <= 0 {
+			return ErrDealValidation{Field: field("quantity"), Reason: "must be more than zero"}
+		}
+		if l.RatePerUnit == nil {
+			return ErrDealValidation{Field: field("rate_per_unit"), Reason: "required -- feed is sold at a rate per " + product.Unit}
+		}
+		// Refused rather than ignored. A body carrying both a feed quantity and an animal count is
+		// two different sales in one line, and silently dropping half of it would record the money
+		// while losing what it was for.
+		for name, v := range map[string]*float64{
+			"animal_count": l.AnimalCount,
+			"male_count":   l.MaleCount,
+			"female_count": l.FemaleCount,
+		} {
+			if v != nil {
+				return ErrDealValidation{Field: field(name), Reason: "a feed sale has no animals"}
+			}
+		}
+	}
+	// The money check comes AFTER the kind rules on purpose. A feed line's value is COMPUTED from
+	// quantity * rate, so a missing quantity makes the value zero too -- and refusing it as
+	// "sales_value must be more than zero" would name a field the feed form does not even show,
+	// sending the desk to look for a box that is not there. The kind rule names the box that is.
 	if l.SalesValue <= 0 {
 		return ErrDealValidation{Field: field("sales_value"), Reason: "must be more than zero"}
 	}
@@ -118,16 +265,24 @@ func (l DealLineWrite) validate(lineNo int) error {
 		"male_count":      l.MaleCount,
 		"female_count":    l.FemaleCount,
 		"total_weight_kg": l.TotalWeightKg,
+		"quantity":        l.Quantity,
+		"rate_per_unit":   l.RatePerUnit,
 	} {
 		if v != nil && *v < 0 {
 			return ErrDealValidation{Field: field(name), Reason: "must not be negative"}
 		}
 	}
+
 	return nil
 }
 
 // linesFromLegacy turns a pre-000296 single-product body (product_type/breed/counts/value on the
 // deal itself) into its one line, so an older client keeps recording exactly what it did before.
+//
+// It carries NO quantity or rate, deliberately: selling feed is a capability that arrived with
+// lines, and an older client that cannot send lines cannot sell feed either. A feed line reaching
+// this path would fail validation for the missing quantity, which is the honest answer -- better
+// than a legacy body half-describing a sale that moves stock.
 // Returns nil when the body names no product, which Validate then refuses as "no lines".
 func (w DealWrite) linesFromLegacy() []DealLineWrite {
 	if w.ProductType == "" && w.Breed == "" {
@@ -178,7 +333,7 @@ func RollupLines(lines []DealLineWrite) DealRollup {
 	for _, l := range lines {
 		products[l.ProductType] = struct{}{}
 		breeds[l.Breed] = struct{}{}
-		if IsLiveProduct(l.ProductType) {
+		if l.Kind() == KindAnimal {
 			sum(&out.AnimalCount, l.AnimalCount)
 			sum(&out.MaleCount, l.MaleCount)
 			sum(&out.FemaleCount, l.FemaleCount)

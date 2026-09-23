@@ -21,6 +21,20 @@ var (
 	// request payload. Surfaced as a 409 so the client knows its retry does not match what was
 	// originally recorded.
 	ErrIdempotencyConflict = errors.New("sales: idempotency key reused with different payload")
+
+	// ErrProductNotSellable is returned when a line names a product the tenant's registry no
+	// longer carries as active, detected UNDER the writing transaction. It is a conflict rather
+	// than a validation failure: the body was right when the form opened, and the farm changed
+	// its mind in between. Telling the desk that is more useful than a field error implying they
+	// typed something wrong.
+	ErrProductNotSellable = errors.New("sales: product is no longer one this farm sells")
+
+	// ErrFeedStockShort is returned when a feed line sells more kilograms than the store's ledger
+	// holds, and the caller did not acknowledge it. It is a CONFIRMATION, not a block (maintainer
+	// decision 2026-09-23): the sale may genuinely have happened while the purchase ledger is
+	// behind, and refusing it outright would make the register lie about feed that physically
+	// left. Re-sent with the acknowledgement, the same body records.
+	ErrFeedStockShort = errors.New("sales: less feed in the store than this sale takes")
 )
 
 // DealPage is one page of the ledger plus the whole-filter total.
@@ -42,10 +56,21 @@ type SalesRepository interface {
 	// whole-filter total.
 	ListDeals(ctx context.Context, tenantID, farm string, limit, offset int) (DealPage, error)
 
+	// ListSellableProducts is the tenant's ACTIVE registry of what the farm sells (migration
+	// 000393), in farm order. It is read for validation before the write and RE-READ inside the
+	// writing transaction: a product archived between the form opening and the save landing must
+	// not get through, which is the feed_item_catalog rule one layer up.
+	ListSellableProducts(ctx context.Context, tenantID string) ([]domain.Product, error)
+
 	// CreateDeal records a sale. idempotencyKey is the client's Idempotency-Key: the reservation,
 	// the insert, and the audit row commit in ONE transaction. An exact replay returns the
 	// original deal with zero new side effects; a same-key/different-payload replay returns
 	// ErrIdempotencyConflict.
+	//
+	// The lines' products are re-resolved under the transaction; a product no longer active there
+	// returns ErrProductNotSellable rather than recording a sale against a word the farm retired.
+	// A feed line writes its kilograms to feed_sale_depletions in the SAME transaction, so a
+	// recorded sale and the stock it took off the store can never disagree.
 	CreateDeal(ctx context.Context, tenantID string, write domain.DealWrite, actorID, idempotencyKey string) (domain.Deal, error)
 
 	// SetDealStatus sets a deal's lifecycle status directly (closing an expected sale on the day

@@ -23,8 +23,8 @@ func mixedWrite() DealWrite {
 }
 
 func TestNormalizeRollsTheLinesUpOntoTheDeal(t *testing.T) {
-	w := mixedWrite().Normalize()
-	if err := w.Validate(); err != nil {
+	w := mixedWrite().Normalize(builtinCatalog())
+	if err := w.Validate(builtinCatalog()); err != nil {
 		t.Fatalf("mixed sale rejected: %v", err)
 	}
 	if w.ProductType != ProductMixed || w.Breed != ProductMixed {
@@ -48,7 +48,7 @@ func TestNormalizeRollsTheLinesUpOntoTheDeal(t *testing.T) {
 func TestRollupKeepsASingleProductWhenEveryLineAgrees(t *testing.T) {
 	w := mixedWrite()
 	w.Lines = w.Lines[:2] // two sheep breeds
-	w = w.Normalize()
+	w = w.Normalize(builtinCatalog())
 	if w.ProductType != ProductSheep {
 		t.Fatalf("product = %q, want Sheep: two breeds of one product are still that product", w.ProductType)
 	}
@@ -60,7 +60,7 @@ func TestRollupKeepsASingleProductWhenEveryLineAgrees(t *testing.T) {
 func TestClientSentDealValueIsReplacedByTheLineSum(t *testing.T) {
 	w := mixedWrite()
 	w.SalesValue = 1 // a stale or hand-typed total
-	w = w.Normalize()
+	w = w.Normalize(builtinCatalog())
 	if w.SalesValue != 221000 {
 		t.Fatalf("deal value = %v, want 221000: the deal can never disagree with its lines", w.SalesValue)
 	}
@@ -74,7 +74,7 @@ func TestRollupIgnoresManureAnimalCountsForTheAllocationTarget(t *testing.T) {
 		AnimalCount: fp(500), MaleCount: fp(250), FemaleCount: fp(250),
 		TotalWeightKg: fp(900), SalesValue: 12000,
 	})
-	w = w.Normalize()
+	w = w.Normalize(builtinCatalog())
 	if w.AnimalCount == nil || *w.AnimalCount != 19 {
 		t.Fatalf("animal rollup = %v, want 19: manure count must not become the tag-animals target", w.AnimalCount)
 	}
@@ -96,7 +96,7 @@ func TestManureOnlySaleHasNoAnimalTargetEvenIfAClientPostsCounts(t *testing.T) {
 		AnimalCount: fp(500), MaleCount: fp(250), FemaleCount: fp(250),
 		TotalWeightKg: fp(900), SalesValue: 12000,
 	}}
-	w = w.Normalize()
+	w = w.Normalize(builtinCatalog())
 	if w.ProductType != ProductManure || w.Breed != ProductManure {
 		t.Fatalf("rollup product/breed = %q/%q, want Manure/Manure", w.ProductType, w.Breed)
 	}
@@ -109,7 +109,7 @@ func TestManureOnlySaleHasNoAnimalTargetEvenIfAClientPostsCounts(t *testing.T) {
 }
 
 func TestLegacySingleProductBodyBecomesOneLine(t *testing.T) {
-	w := validWrite().Normalize()
+	w := validWrite().Normalize(builtinCatalog())
 	if len(w.Lines) != 1 {
 		t.Fatalf("lines = %d, want 1 built from the legacy fields", len(w.Lines))
 	}
@@ -117,7 +117,7 @@ func TestLegacySingleProductBodyBecomesOneLine(t *testing.T) {
 	if l.ProductType != ProductSheep || l.Breed != "Anantapur" || l.SalesValue != 201500 || *l.AnimalCount != 23 {
 		t.Fatalf("legacy line = %+v", l)
 	}
-	if err := w.Validate(); err != nil {
+	if err := w.Validate(builtinCatalog()); err != nil {
 		t.Fatalf("legacy body rejected: %v", err)
 	}
 }
@@ -139,7 +139,7 @@ func TestLineValidationNamesTheLine(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			w := mixedWrite()
 			tc.mutate(&w)
-			err := w.Normalize().Validate()
+			err := w.Normalize(builtinCatalog()).Validate(builtinCatalog())
 			var v ErrDealValidation
 			if !errors.As(err, &v) {
 				t.Fatalf("want ErrDealValidation, got %v", err)
@@ -155,7 +155,7 @@ func TestLineValidationNamesTheLine(t *testing.T) {
 			w.Lines = append(w.Lines, w.Lines[0])
 		}
 		var v ErrDealValidation
-		if err := w.Normalize().Validate(); !errors.As(err, &v) || v.Field != "lines" {
+		if err := w.Normalize(builtinCatalog()).Validate(builtinCatalog()); !errors.As(err, &v) || v.Field != "lines" {
 			t.Fatalf("want lines cap refusal, got %v", err)
 		}
 	})

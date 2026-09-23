@@ -641,6 +641,13 @@ func (r *Repository) CreateDeal(ctx context.Context, tenantID string, write doma
 		return r.getDeal(ctx, tenantID, reservation.resultID)
 	}
 
+	// The registry is re-read UNDER this transaction (migration 000393). The service already
+	// validated against it, but a product archived in between would otherwise be recorded as sold
+	// -- and, for a feed product, would draw stock the farm has stopped selling.
+	if err := confirmProductsStillSellable(ctx, tx, tenantID, write.Lines); err != nil {
+		return domain.Deal{}, err
+	}
+
 	// buyer_vendor_id goes through nullif(btrim(...)) like the other optional text, NOT a bare
 	// $6::uuid: an empty string is not a uuid and Postgres rejects it outright (22P02), so a blank
 	// would 500 instead of storing the NULL the column exists to hold for pre-register history.
@@ -675,7 +682,13 @@ func (r *Repository) CreateDeal(ctx context.Context, tenantID string, write doma
 
 	// The lines land in the SAME transaction as the deal row they roll up into (migration 000296):
 	// one set-based insert over UNNEST, never a per-line round trip.
-	if err := insertDealLines(ctx, tx, tenantID, dealID, write.Lines); err != nil {
+	lineIDs, err := insertDealLines(ctx, tx, tenantID, dealID, write.Lines)
+	if err != nil {
+		return domain.Deal{}, err
+	}
+
+	// Feed sold off the store leaves it here, in this transaction.
+	if err := insertFeedSaleDepletions(ctx, tx, tenantID, dealID, write.Farm, write.SaleDate, write.Lines, lineIDs); err != nil {
 		return domain.Deal{}, err
 	}
 
@@ -725,15 +738,22 @@ func fpFloat(v *float64) string {
 	return strings.TrimRight(strings.TrimRight(fmt.Sprintf("%.4f", *v), "0"), ".")
 }
 
-// insertDealLines writes a deal's lines in entry order with one UNNEST insert.
-func insertDealLines(ctx context.Context, tx pgx.Tx, tenantID, dealID string, lines []domain.DealLineWrite) error {
+// insertDealLines writes a deal's lines in entry order with one UNNEST insert, each stamped with
+// the registry product it was sold under (migration 000393), and returns each line's id by its
+// 1-based position so a feed line's stock depletion can name it.
+func insertDealLines(ctx context.Context, tx pgx.Tx, tenantID, dealID string, lines []domain.DealLineWrite) ([]string, error) {
 	if len(lines) == 0 {
-		return nil
+		return nil, nil
 	}
 	n := len(lines)
 	lineNos := make([]int32, n)
 	products := make([]string, n)
+	codes := make([]string, n)
+	kinds := make([]string, n)
 	breeds := make([]string, n)
+	quantities := make([]*float64, n)
+	units := make([]*string, n)
+	rates := make([]*float64, n)
 	animals := make([]*float64, n)
 	males := make([]*float64, n)
 	females := make([]*float64, n)
@@ -742,29 +762,142 @@ func insertDealLines(ctx context.Context, tx pgx.Tx, tenantID, dealID string, li
 	for i, l := range lines {
 		lineNos[i] = int32(i + 1)
 		products[i] = l.ProductType
+		codes[i], kinds[i], _ = l.ResolvedProduct()
 		breeds[i] = l.Breed
+		quantities[i] = l.Quantity
+		rates[i] = l.RatePerUnit
+		// The unit is stored only on a line that actually carries a quantity; a lump-value line
+		// has no unit to state, and writing one would say it was priced by something it was not.
+		if l.Quantity != nil {
+			if _, _, unit := l.ResolvedProduct(); unit != "" {
+				u := unit
+				units[i] = &u
+			}
+		}
 		animals[i] = l.AnimalCount
 		males[i] = l.MaleCount
 		females[i] = l.FemaleCount
 		weights[i] = l.TotalWeightKg
 		values[i] = l.SalesValue
 	}
-	if _, err := tx.Exec(ctx, `
+	rows, err := tx.Query(ctx, `
 INSERT INTO public.sales_deal_lines (
-	tenant_id, deal_id, line_no, product_type, breed,
+	tenant_id, deal_id, line_no, product_type, product_code, product_kind, breed,
+	quantity, unit, rate_per_unit,
 	animal_count, male_count, female_count, total_weight_kg, sales_value
 )
-SELECT $1::uuid, $2::uuid, u.line_no, u.product_type, u.breed,
+SELECT $1::uuid, $2::uuid, u.line_no, u.product_type, u.product_code, u.product_kind, u.breed,
+       u.quantity, u.unit, u.rate_per_unit,
        u.animal_count, u.male_count, u.female_count, u.total_weight_kg, u.sales_value
 FROM unnest(
-	$3::int[], $4::text[], $5::text[],
-	$6::numeric[], $7::numeric[], $8::numeric[], $9::numeric[], $10::numeric[]
-) AS u(line_no, product_type, breed, animal_count, male_count, female_count, total_weight_kg, sales_value)`,
-		tenantID, dealID, lineNos, products, breeds, animals, males, females, weights, values,
+	$3::int[], $4::text[], $5::text[], $6::text[], $7::text[],
+	$8::numeric[], $9::text[], $10::numeric[],
+	$11::numeric[], $12::numeric[], $13::numeric[], $14::numeric[], $15::numeric[]
+) AS u(line_no, product_type, product_code, product_kind, breed,
+       quantity, unit, rate_per_unit,
+       animal_count, male_count, female_count, total_weight_kg, sales_value)
+RETURNING line_no, line_id::text`,
+		tenantID, dealID, lineNos, products, codes, kinds, breeds,
+		quantities, units, rates,
+		animals, males, females, weights, values,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("sales: create deal lines: %w", err)
+	}
+	defer rows.Close()
+	// Keyed by the line's own number rather than by scan order: RETURNING makes no promise about
+	// the order rows come back in, and pairing a depletion with the wrong line would take the
+	// kilograms of one feed out of the store in the name of another.
+	ids := make([]string, n)
+	for rows.Next() {
+		var no int32
+		var id string
+		if err := rows.Scan(&no, &id); err != nil {
+			return nil, fmt.Errorf("sales: scan created deal line: %w", err)
+		}
+		if no < 1 || int(no) > n {
+			return nil, fmt.Errorf("sales: created deal line %d outside the %d written", no, n)
+		}
+		ids[int(no)-1] = id
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("sales: created deal line rows: %w", err)
+	}
+	for i, id := range ids {
+		if id == "" {
+			return nil, fmt.Errorf("sales: created deal line %d came back without an id", i+1)
+		}
+	}
+	return ids, nil
+}
+
+// insertFeedSaleDepletions takes the sold kilograms off the feed store (migration 000393), in the
+// SAME transaction as the sale, so a recorded sale and the stock it drew can never disagree.
+//
+// The park is resolved from the deal's farm by location_code the way the feed purchase importer
+// does. A farm whose park row does not resolve still writes the ledger row with a NULL park and
+// its farm label -- the column is nullable for exactly this reason (000174) -- rather than losing
+// the fact that the feed left.
+func insertFeedSaleDepletions(
+	ctx context.Context, tx pgx.Tx, tenantID, dealID, farm, saleDate string,
+	lines []domain.DealLineWrite, lineIDs []string,
+) error {
+	type depletion struct {
+		lineID string
+		feed   string
+		kg     float64
+	}
+	pending := []depletion{}
+	for i, l := range lines {
+		if l.Kind() != domain.KindFeed {
+			continue
+		}
+		pending = append(pending, depletion{lineID: lineIDs[i], feed: l.Breed, kg: l.QuantityKg()})
+	}
+	if len(pending) == 0 {
+		return nil
+	}
+
+	var parkID *string
+	var resolved string
+	switch err := tx.QueryRow(ctx, `
+		SELECT location_id::text FROM public.locations
+		WHERE tenant_id = $1 AND location_type = 'park' AND upper(location_code) = upper($2)`,
+		tenantID, farm,
+	).Scan(&resolved); {
+	case err == nil:
+		parkID = &resolved
+	case errors.Is(err, pgx.ErrNoRows):
+		// Left NULL deliberately; see the doc comment.
+	default:
+		return fmt.Errorf("sales: resolve farm park for feed sale: %w", err)
+	}
+
+	lineIDArr := make([]string, len(pending))
+	feeds := make([]string, len(pending))
+	kgs := make([]float64, len(pending))
+	for i, d := range pending {
+		lineIDArr[i], feeds[i], kgs[i] = d.lineID, d.feed, d.kg
+	}
+	if _, err := tx.Exec(ctx, `
+INSERT INTO public.feed_sale_depletions (
+	tenant_id, deal_id, line_id, park_id, farm_label, feed_item_label, feed_day, quantity_kg
+)
+SELECT $1::uuid, $2::uuid, u.line_id::uuid, nullif(btrim($3), '')::uuid, $4, u.feed_item_label,
+       $5::date, u.quantity_kg
+FROM unnest($6::text[], $7::text[], $8::numeric[]) AS u(line_id, feed_item_label, quantity_kg)`,
+		tenantID, dealID, derefOrEmpty(parkID), farm, saleDate, lineIDArr, feeds, kgs,
 	); err != nil {
-		return fmt.Errorf("sales: create deal lines: %w", err)
+		return fmt.Errorf("sales: record feed sale depletion: %w", err)
 	}
 	return nil
+}
+
+func derefOrEmpty(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return *v
 }
 
 // fpLines renders the lines as one stable fingerprint part, so a replay that changes any line --
@@ -775,6 +908,9 @@ func fpLines(lines []domain.DealLineWrite) string {
 		parts = append(parts, strings.Join([]string{
 			l.ProductType, l.Breed, fpFloat(l.AnimalCount), fpFloat(l.MaleCount), fpFloat(l.FemaleCount),
 			fpFloat(l.TotalWeightKg), fmt.Sprintf("%.4f", l.SalesValue),
+			// The quantity and rate define what a feed line TAKES OFF THE STORE, so a replay
+			// changing either is a different request and must be refused rather than recorded.
+			fpFloat(l.Quantity), fpFloat(l.RatePerUnit),
 		}, "|"))
 	}
 	return strings.Join(parts, ";")

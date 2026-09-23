@@ -146,7 +146,7 @@ func BuildSoldWeightBands(closed []Deal, measured map[string][]float64) SoldWeig
 		weights := measured[d.DealID]
 		next := 0
 		for _, l := range d.lineView() {
-			if !IsLiveProduct(l.ProductType) {
+			if !l.IsLive() {
 				continue
 			}
 			animals := int(math.Round(l.Animals()))
