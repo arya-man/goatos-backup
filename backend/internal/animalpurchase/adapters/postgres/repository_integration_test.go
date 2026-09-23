@@ -357,3 +357,61 @@ func inspection(sex, breed string, weight float64, animalRefs ...string) domain.
 	w.Normalize()
 	return w
 }
+
+// TestBreedSuggestionsComeFromTheLIVEHerd pins the live-herd predicate in sqlBreedSuggestions.
+//
+// The picklist an inspector picks a breed from is built from the farm's own animals, and it is
+// deliberately built from the LIVING ones: a breed the farm no longer keeps should stop being
+// offered. Nothing tested that. Neutralising `g.lifecycle_status = 'alive'` in repository.go left
+// every test in this package green, because every fixture animal here is alive -- so the filter
+// could have been deleted and no one would have known.
+//
+// The test seeds one breed on a live animal and a DIFFERENT breed on a dead one, which is the only
+// arrangement that can tell the two readings apart.
+func TestBreedSuggestionsComeFromTheLIVEHerd(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	repo, _ := seedLoadWithCandidates(t, ctx, pool, 1)
+
+	custodian := "00000000-0000-4000-8000-0000000009c0"
+	if _, err := pool.Exec(ctx, `
+INSERT INTO parties (party_id, party_type, display_name, status)
+VALUES ($1::uuid, 'org', 'Breed Suggestion Custodian', 'active') ON CONFLICT (party_id) DO NOTHING`, custodian); err != nil {
+		t.Fatalf("seed custodian: %v", err)
+	}
+	insert := func(id, breed, lifecycle string) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, `
+INSERT INTO goats (goat_id, tenant_id, species, sex, breed, lifecycle_status, custodian_party_id,
+                   origin_type, dob, entry_date, exited_at, exit_reason)
+VALUES ($1::uuid, $2::uuid, 'goat', 'female', $3, $4, $5::uuid, 'procured', DATE '2026-01-01', DATE '2026-01-01',
+        CASE WHEN $4 <> 'alive' THEN now() END,
+        CASE WHEN $4 <> 'alive' THEN 'died' END)
+ON CONFLICT (goat_id) DO NOTHING`, id, apTenant, breed, lifecycle, custodian); err != nil {
+			t.Fatalf("seed %s goat: %v", lifecycle, err)
+		}
+	}
+	insert("00000000-0000-4000-8000-0000000009a1", "Kept Malai", "alive")
+	insert("00000000-0000-4000-8000-0000000009a2", "Retired Sirohi", "dead")
+
+	got, err := repo.BreedSuggestions(ctx, apTenant)
+	if err != nil {
+		t.Fatalf("breed suggestions: %v", err)
+	}
+	var sawLive, sawDead bool
+	for _, b := range got {
+		switch b {
+		case "Kept Malai":
+			sawLive = true
+		case "Retired Sirohi":
+			sawDead = true
+		}
+	}
+	if !sawLive {
+		t.Fatalf("a living animal's breed is missing from the suggestions: %v", got)
+	}
+	if sawDead {
+		t.Fatalf("a DEAD animal's breed is being offered to the inspector: %v", got)
+	}
+}
