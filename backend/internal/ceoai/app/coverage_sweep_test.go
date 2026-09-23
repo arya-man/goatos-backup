@@ -298,10 +298,10 @@ func TestStrictGatesBOTHArmsNotOnlyTheColumnArm(t *testing.T) {
 	nameHay := identifierHaystack("mortality_base")
 	fullHay := identifierHaystack("mortality_base deaths kid_deaths adult_deaths")
 	vocab := map[string]int{"mortality": 1, "death": 1, "kid": 1, "adult": 1}
-	if _, ok := nominates(words, nameHay, fullHay, vocab, true); ok {
+	if _, ok := nominates(words, nameHay, fullHay, vocab, true, false); ok {
 		t.Error("strict must close the NAME arm too: a name match overrode a question judged to be about something the farm models nowhere")
 	}
-	if _, ok := nominates(words, nameHay, fullHay, vocab, false); !ok {
+	if _, ok := nominates(words, nameHay, fullHay, vocab, false, false); !ok {
 		t.Error("the name arm must still open when the question carries no unmodelled subject")
 	}
 }

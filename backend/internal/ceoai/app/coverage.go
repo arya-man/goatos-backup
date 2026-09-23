@@ -46,11 +46,12 @@ func notTrackedRefusal(refusal string) bool {
 func coveringSources(questionText string, cards []reporting.SchemaCard, catalog []ports.ToolSpec) []string {
 	vocab := catalogueVocabulary(cards, catalog)
 	strict := hasUnmodelledSubject(questionText, vocab)
+	axisOnly := questionIsOnlyAboutItsBreakdown(questionText)
 	var named []string
-	for _, card := range coveringViews(questionText, cards, vocab, strict) {
+	for _, card := range coveringViews(questionText, cards, vocab, strict, axisOnly) {
 		named = append(named, "ceo_ai."+card.Name+" ("+strings.Join(columnNames(card), ", ")+")")
 	}
-	named = append(named, coveringTools(questionText, catalog, vocab, strict)...)
+	named = append(named, coveringTools(questionText, catalog, vocab, strict, axisOnly)...)
 	const maxNamed = 4
 	if len(named) > maxNamed {
 		named = named[:maxNamed]
@@ -59,7 +60,7 @@ func coveringSources(questionText string, cards []reporting.SchemaCard, catalog 
 }
 
 // coveringTools scores catalogue tools the same way the views are scored.
-func coveringTools(questionText string, catalog []ports.ToolSpec, vocab map[string]int, strict bool) []string {
+func coveringTools(questionText string, catalog []ports.ToolSpec, vocab map[string]int, strict, axisOnly bool) []string {
 	words := coverageWords(questionText)
 	if len(words) == 0 {
 		return nil
@@ -75,7 +76,7 @@ func coveringTools(questionText string, catalog []ports.ToolSpec, vocab map[stri
 		// a view's name is scored separately from its columns.
 		if score, ok := nominates(words,
 			identifierHaystack(spec.Name),
-			identifierHaystack(spec.Name+" "+spec.Description+" "+strings.Join(spec.Params, " ")), vocab, strict); ok {
+			identifierHaystack(spec.Name+" "+spec.Description+" "+strings.Join(spec.Params, " ")), vocab, strict, axisOnly); ok {
 			hits = append(hits, scored{name: spec.Name, score: score})
 		}
 	}
@@ -95,7 +96,7 @@ func coveringTools(questionText string, catalog []ports.ToolSpec, vocab map[stri
 // coveringViews returns the ceo_ai views whose own name or columns carry the
 // question's words, best first. It is a CAPABILITY check over the catalog, not
 // a per-topic list: a view added tomorrow participates without a code change.
-func coveringViews(questionText string, cards []reporting.SchemaCard, vocab map[string]int, strict bool) []reporting.SchemaCard {
+func coveringViews(questionText string, cards []reporting.SchemaCard, vocab map[string]int, strict, axisOnly bool) []reporting.SchemaCard {
 	words := coverageWords(questionText)
 	if len(words) == 0 {
 		return nil
@@ -108,7 +109,7 @@ func coveringViews(questionText string, cards []reporting.SchemaCard, vocab map[
 	for _, card := range cards {
 		if score, ok := nominates(words,
 			identifierHaystack(card.Name),
-			identifierHaystack(card.Name+" "+strings.Join(columnNames(card), " ")), vocab, strict); ok {
+			identifierHaystack(card.Name+" "+strings.Join(columnNames(card), " ")), vocab, strict, axisOnly); ok {
 			hits = append(hits, scored{card: card, score: score})
 		}
 	}
@@ -184,7 +185,7 @@ func identifierHaystack(text string) map[string]bool {
 		// the dimension vocabulary itself names is kept whatever its length;
 		// everything else still needs four letters, so `no`, `id` and `at`
 		// stay out.
-		if len(w) < 4 && dimensionNouns[w] == "" && leaderNouns[w] == "" {
+		if len(w) < 3 && dimensionNouns[w] == "" && leaderNouns[w] == "" {
 			continue
 		}
 		stems[coverageStem(w)] = true
@@ -278,6 +279,32 @@ var leaderNouns = map[string]string{
 	// weight_kg, gain_kg) and is two letters, so it needs the floor lifted as
 	// well as the fold.
 	"kg": "kg", "kilo": "kg", "kilos": "kg", "kilogram": "kg", "kilograms": "kg",
+
+	// THE ACTION VERBS, AND THE THIRD ROOT CAUSE THIS CLOSES. `spend`, `spent`,
+	// `made`, `sold`, `died` were already in coverageVerbWords, which EXEMPTS a
+	// word from making the question strict and gives it nothing to score on. A
+	// question whose only subject is one of them therefore matched no source at
+	// all: measured on the live catalogue, "how much did we make", "what did we
+	// spend", "how many died last month", "who has not been vaccinated" and
+	// "are we growing" each nominated NOTHING. Exempting a verb is not the same
+	// as understanding it; a verb that names what the farm records has to score
+	// on the thing it names, and the fold is where that is said.
+	"make": "revenue", "makes": "revenue", "made": "revenue", "making": "revenue",
+	"profit": "revenue", "earnings": "revenue",
+	"spend": "purchase", "spent": "purchase", "spends": "purchase", "spending": "purchase",
+	"buy": "purchase", "buys": "purchase", "buying": "purchase", "bought": "purchase",
+	"bill": "payment", "bills": "payment", "wage": "payment", "wages": "payment",
+	"die": "death", "dies": "death", "died": "death", "dying": "death",
+	"vaccinate": "vaccine", "vaccinated": "vaccine", "vaccinating": "vaccine",
+	"shot": "vaccine", "shots": "vaccine", "jab": "vaccine", "jabs": "vaccine",
+	"grow": "growth", "grows": "growth", "growing": "growth", "grew": "growth", "gain": "growth",
+	"fed": "feed", "feeds": "feed",
+	"headcount": "animal", "livestock": "animal",
+	"working": "work", "worked": "work", "works": "work",
+	// Attendance. workforce_coverage_status.coverage_status is the farm's
+	// answer to "who is here today"; `off` is two letters short of the floor,
+	// so it needs the fold as well as the floor lift.
+	"absent": "coverage", "absence": "coverage", "off": "coverage", "leave": "coverage",
 }
 
 // coverageWords is the question's own vocabulary, scored against a source.
@@ -412,10 +439,178 @@ func stemWeight(stem string, vocab map[string]int) int {
 // are scored, but "buyer" being modelled is not what makes a question about
 // buyers answerable), and verbs and ranking words, which say HOW the subject is
 // asked about rather than WHAT it is.
+// npOpeners are the CLOSED-CLASS words that open an English noun phrase:
+// determiners, possessives, quantifiers and prepositions. English has a fixed,
+// small set of them, which is exactly why this test does not require anybody
+// to enumerate English content words.
+var npOpeners = map[string]bool{
+	"a": true, "an": true, "the": true, "this": true, "that": true, "these": true, "those": true,
+	"my": true, "our": true, "your": true, "their": true, "its": true, "his": true, "her": true,
+	"no": true, "any": true, "some": true, "every": true, "each": true, "all": true, "both": true,
+	"many": true, "much": true, "few": true, "several": true,
+	"of": true, "in": true, "on": true, "at": true, "by": true, "for": true, "from": true,
+	"with": true, "about": true, "into": true, "per": true, "over": true, "under": true,
+	"across": true, "during": true, "without": true, "within": true, "between": true,
+}
+
+// npBreakers end a noun phrase: auxiliaries, copulas, modals, wh-words,
+// pronouns and conjunctions. Also a closed class.
+var npBreakers = map[string]bool{
+	"is": true, "are": true, "was": true, "were": true, "be": true, "been": true, "being": true,
+	"am": true, "do": true, "does": true, "did": true, "have": true, "has": true, "had": true,
+	"will": true, "would": true, "can": true, "could": true, "shall": true, "should": true,
+	"may": true, "might": true, "must": true, "and": true, "or": true, "but": true, "not": true,
+	"what": true, "which": true, "who": true, "whom": true, "whose": true, "when": true,
+	"where": true, "why": true, "how": true, "there": true, "than": true, "if": true, "to": true,
+	"we": true, "they": true, "it": true, "you": true, "he": true, "she": true, "us": true,
+	"them": true, "me": true, "i": true, "so": true,
+}
+
+// nounPositionWords are the question's words that sit where a NOUN sits.
+//
+// THIS IS THE FIX FOR THE SECOND ROOT CAUSE, AND IT IS THE POLARITY THAT WAS
+// WRONG. `hasUnmodelledSubject` used to read ANY English word the catalogue
+// does not name -- and that no hand-written list happened to exempt -- as
+// POSITIVE PROOF that the question is about another company. So one ordinary
+// word poisoned a question every other word of which was covered: measured on
+// the live catalogue, "how many people work here" nominated NOTHING even
+// though people->operator and work->work both resolve, killed by `here`; and
+// so did "how many animals are sick" (`sick`), "how heavy are our goats"
+// (`heavy`) and "are any sheds overcrowded".
+//
+// Closing that by adding `here`, `sick` and `heavy` to a stop list is a seventh
+// word-list patch and would be wrong for the eighth word. The CAUSE is that
+// absence from a list was treated as evidence. Foreign scope has to be
+// evidenced POSITIVELY, and the positive signal is SYNTACTIC: a question about
+// another company NAMES that company's things, and a name sits in a noun
+// position -- `the interest rate on our loan`, `our chickens`, `our payroll
+// cost`, `the staff attrition rate`, `the stock market`. A predicate does not:
+// `are sick`, `are overcrowded`, `is stuck`, `work here`, `how heavy`.
+//
+// So a word counts as evidence only when a closed-class noun-phrase opener
+// introduces it. Determiners, possessives, quantifiers and prepositions are a
+// genuinely closed class of English -- unlike nouns and adjectives -- so this
+// mechanism needs no vocabulary to grow and an unknown word outside a noun
+// phrase is simply NEUTRAL rather than proof of anything.
+//
+// The chain runs at most two content words past the opener, which is what
+// carries an ordinary compound (`our cash runway`, `the staff attrition rate`)
+// without walking the whole clause and swallowing a predicate three words
+// later.
+func nounPositionWords(text string) map[string]bool {
+	out := map[string]bool{}
+	inNP, pos := false, 0
+	for _, w := range questionTokens(text) {
+		switch {
+		case npOpeners[w]:
+			inNP, pos = true, 0
+		case npBreakers[w]:
+			inNP, pos = false, 0
+		case inNP:
+			pos++
+			out[w] = true
+			if pos >= 2 {
+				inNP, pos = false, 0
+			}
+		}
+	}
+	return out
+}
+
+// npDeterminers are the subset of npOpeners that are DETERMINERS or
+// POSSESSIVES. A quantifier or a preposition can head a verb phrase as easily
+// as a noun phrase ("many loads ARRIVED", "in WEIGHING"), but the word straight
+// after `the`/`our`/`their` is a noun -- including a gerund, which is the case
+// this distinction exists for.
+var npDeterminers = map[string]bool{
+	"a": true, "an": true, "the": true, "this": true, "that": true, "these": true, "those": true,
+	"my": true, "our": true, "your": true, "their": true, "its": true, "his": true, "her": true,
+	// Prepositions belong here too: what follows one is its OBJECT, and an
+	// object is a noun. "how much did we spend on FENCING" is a question about
+	// fencing, and reading `fencing` as a verb because it ends in -ing hands a
+	// procurement view to a question about something the farm never bought
+	// through it.
+	"of": true, "in": true, "on": true, "at": true, "by": true, "for": true, "from": true,
+	"with": true, "about": true, "into": true, "per": true, "during": true, "without": true,
+}
+
+// determinerHeadedNouns are the words sitting IMMEDIATELY after a determiner or
+// possessive. Such a word is a noun whatever its shape, which is what keeps
+// `their milking session` an unmodelled SUBJECT rather than a verb the
+// -ed/-ing exemption waves through. Without it "which sheds missed their
+// milking session yesterday" is judged to be about this farm and reaches three
+// shed views on their filing system alone.
+func determinerHeadedNouns(text string) map[string]bool {
+	out := map[string]bool{}
+	afterDeterminer := false
+	for _, w := range questionTokens(text) {
+		if afterDeterminer && !npOpeners[w] && !npBreakers[w] {
+			out[w] = true
+		}
+		afterDeterminer = npDeterminers[w]
+	}
+	return out
+}
+
+// questionIsOnlyAboutItsBreakdown reports a question whose ONLY subject is a
+// breakdown dimension -- "sheds", "parks", "show me the sheds".
+//
+// axisDimensions and isColumnNoiseDimension exist to stop a question that HAS a
+// real subject from being answered by a source that shares only its filing
+// system ("which sheds missed their milking session" reaching a feed view on
+// shed_label + session_no). When the breakdown IS the subject there is no other
+// subject to prefer, and suppressing it just means the question is answered by
+// nothing at all: measured, "sheds" and "parks" nominated NOTHING while
+// `shed_capacity_current` and `vaccination_shed_status` sit in the catalogue.
+func questionIsOnlyAboutItsBreakdown(questionText string) bool {
+	sawDimension := false
+	for w := range coverageWords(questionText) {
+		// BOTH FORMS, because questionWords adds a crude singular beside every
+		// plural and the fragment is not an independent subject: "categories"
+		// arrives with "categorie" beside it, which folds onto nothing and
+		// would otherwise read as a real subject sitting next to the breakdown.
+		dimension := false
+		for _, form := range wordForms(w) {
+			formStem := coverageStem(form)
+			if isAxisWord(formStem) || isColumnNoiseDimension(formStem) {
+				dimension = true
+			}
+		}
+		if dimension {
+			sawDimension = true
+			continue
+		}
+		if anyFormIsVerb(w) {
+			continue
+		}
+		// A real subject word: the ordinary suppression applies.
+		return false
+	}
+	return sawDimension
+}
+
 func hasUnmodelledSubject(questionText string, vocab map[string]int) bool {
 	exempt := map[string]bool{}
 	candidates := map[string]bool{}
-	for w := range coverageWords(questionText) {
+	nounPos := nounPositionWords(questionText)
+	headNoun := determinerHeadedNouns(questionText)
+	// A SHORT WORD IS STILL A SUBJECT. coverageWords keeps a four-letter floor
+	// so that `no`, `id` and `at` cannot nominate anything, but a word too
+	// short to SCORE can still be the thing the question is about -- "how much
+	// tax did we pay" is a question about tax, and reading only `pay` from it
+	// answers a tax question from the sales ledger. Evidence of foreign scope
+	// is therefore taken from the noun positions directly, floor and all.
+	judged := coverageWords(questionText)
+	for w := range nounPos {
+		if len(w) < 3 || judged[w] {
+			continue
+		}
+		if questionStopWords[w] || nonMeasureWords[w] || coverageNoiseWords[w] {
+			continue
+		}
+		judged[w] = true
+	}
+	for w := range judged {
 		stem := coverageStem(w)
 		// THE CRUDE SINGULAR IS NOT AN INDEPENDENT SUBJECT. questionWords adds
 		// a bare s-stripped form beside every plural, and that form is a
@@ -434,8 +629,14 @@ func hasUnmodelledSubject(questionText string, vocab map[string]int) bool {
 			exempt[stem] = true
 			continue
 		}
-		if anyFormIsVerb(w) {
+		if anyFormIsVerb(w) && !headNoun[w] {
 			exempt[stem] = true
+			continue
+		}
+		// NOT IN A NOUN POSITION -> NEUTRAL, never evidence. See
+		// nounPositionWords: absence from the catalogue is not by itself a
+		// statement about WHOSE farm the question is about.
+		if !nounPos[w] {
 			continue
 		}
 		if vocab[stem] == 0 {
@@ -503,6 +704,7 @@ var coverageVerbWords = map[string]bool{
 	"came": true, "went": true, "keep": true, "kept": true, "look": true,
 	"want": true, "file": true, "owes": true, "hold": true, "held": true,
 	"send": true, "sent": true, "sell": true, "sold": true, "paid": true,
+	"get": true, "got": true, "gotten": true,
 	"gets": true, "goes": true, "runs": true, "ship": true, "find": true,
 	"seen": true, "using": true, "used": true, "book": true, "earn": true,
 	"died": true, "dies": true, "dead": true, "grew": true, "ran": true,
@@ -536,7 +738,7 @@ var coverageVerbWords = map[string]bool{
 // breakdown axes. Every view carries `park_label` and `shed_label`, so "which
 // sheds missed their milking session yesterday" matched feed views on nothing
 // but its breakdown.
-func nominates(words map[string]bool, nameHay, fullHay map[string]bool, vocab map[string]int, strict bool) (int, bool) {
+func nominates(words map[string]bool, nameHay, fullHay map[string]bool, vocab map[string]int, strict, axisOnly bool) (int, bool) {
 	all := stemHits(words, fullHay)
 	name := stemHits(words, nameHay)
 	score := 0
@@ -566,12 +768,12 @@ func nominates(words map[string]bool, nameHay, fullHay map[string]bool, vocab ma
 		return 0, false
 	}
 	for _, stem := range name {
-		if !isAxisWord(stem) {
+		if axisOnly || !isAxisWord(stem) {
 			return score, true
 		}
 	}
 	for _, stem := range all {
-		if !isColumnNoiseDimension(stem) {
+		if axisOnly || !isColumnNoiseDimension(stem) {
 			return score, true
 		}
 	}
@@ -615,6 +817,7 @@ var coverageNoiseWords = map[string]bool{
 	// farm does not record ("which disease is hitting us hardest").
 	"still": true, "hardest": true, "highest": true, "lowest": true,
 	"most": true, "least": true, "best": true, "worst": true,
+	"top": true, "bottom": true, "too": true, "very": true, "quite": true, "rather": true,
 	// Shape words: they say how the answer is CUT, not what it is about.
 	"versus": true, "distribution": true, "breakdown": true, "split": true,
 	"summary": true, "overview": true, "trend": true, "trends": true,
@@ -684,12 +887,71 @@ var questionStopWords = map[string]bool{
 	"farm": true, "park": true, "please": true, "current": true, "total": true,
 }
 
+// englishClitics are the CONTRACTION suffixes of English, and the list is
+// closed: `n't`, `'s`, `'re`, `'ve`, `'ll`, `'d`, `'m` are every clitic the
+// language has. Stripping them is grammar, not vocabulary -- nothing here
+// names a farm word, and a contraction a leader invents tomorrow is already
+// covered because it can only be built from these.
+//
+// WHY THIS IS A BLOCKER AND NOT A NICETY: the old tokenizer trimmed only EDGE
+// punctuation, so `hasn't` survived whole, matched no schema name, and was
+// read as a subject the farm models nowhere -- which closes BOTH arms of
+// `nominates`. Measured on the live catalogue: "who hasn't paid us" nominated
+// NOTHING while "who has not paid us" nominated two sources. The 127-question
+// golden set contains zero `n't` forms, which is exactly why six review rounds
+// could not see it.
+var englishClitics = []string{"n't", "'re", "'ve", "'ll", "'s", "'d", "'m"}
+
+// contractedIrregulars are the contractions whose stem is not the word itself.
+// Everything else in English contracts by simple suffixing.
+var contractedIrregulars = map[string]string{"won't": "will", "can't": "can", "shan't": "shall"}
+
+// expandContraction returns the word a contraction was built from. It is
+// applied to EVERY token before any matching, so `what's` is the word `what`
+// and `aren't` is the word `are` -- both ordinary stop words -- rather than
+// tokens the catalogue can never name.
+func expandContraction(w string) string {
+	w = strings.ReplaceAll(w, "’", "'")
+	if stem, ok := contractedIrregulars[w]; ok {
+		return stem
+	}
+	for _, clitic := range englishClitics {
+		if strings.HasSuffix(w, clitic) && len(w) > len(clitic) {
+			return strings.TrimSuffix(w, clitic)
+		}
+	}
+	return w
+}
+
+// questionTokens is the question as ORDERED, normalised words -- contractions
+// expanded, edge punctuation trimmed, nothing dropped. Order matters to
+// nounPositionWords, which is why this is separate from questionWords.
+func questionTokens(text string) []string {
+	raw := strings.Fields(strings.ToLower(text))
+	out := make([]string, 0, len(raw))
+	for _, r := range raw {
+		w := strings.Trim(r, ".,;:?!()'\"’")
+		if w == "" {
+			continue
+		}
+		out = append(out, expandContraction(w))
+	}
+	return out
+}
+
 // questionWords is the set of subject-bearing words a question used.
 func questionWords(text string) map[string]bool {
 	words := map[string]bool{}
-	for _, raw := range strings.Fields(strings.ToLower(text)) {
-		w := strings.Trim(raw, ".,;:?!()'\"")
-		if len(w) < 4 || questionStopWords[w] {
+	for _, w := range questionTokens(text) {
+		// THE FOUR-LETTER FLOOR HAS THE SAME EXCEPTION THE IDENTIFIER SIDE
+		// HAS, and for the same reason: `buy` and `off` are words a leader
+		// really types and the fold really carries, so dropping them by length
+		// made "what did we buy this week" produce an EMPTY word set and bail
+		// before it was scored at all.
+		if len(w) < 4 && leaderNouns[w] == "" && dimensionNouns[w] == "" {
+			continue
+		}
+		if questionStopWords[w] {
 			continue
 		}
 		words[w] = true

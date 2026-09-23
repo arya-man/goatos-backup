@@ -1,0 +1,74 @@
+[
+  {
+    "id": "lang-contraction-who-hasnt-paid",
+    "class": "leader_language_contraction",
+    "question": "Who hasn't paid us?",
+    "notes": "CONTRACTIONS. Before this set the golden questions contained zero `n't` forms, and coverage.go's tokenizer trimmed only edge punctuation -- so `hasn't` survived whole, matched no schema name, and was read as a subject the farm models nowhere, which closed both arms of the refusal override. Measured on the live catalogue: this question nominated NOTHING while 'who has not paid us' nominated two sources. A contracted question must behave exactly as its expanded form does.",
+    "expect": {
+      "tiers_any_of": ["sql", "cube", "api", "toolbox"]
+    }
+  },
+  {
+    "id": "lang-contraction-whats-our-revenue",
+    "class": "leader_language_contraction",
+    "question": "What's our revenue this month?",
+    "notes": "The `'s` clitic, same defect as the `n't` one above.",
+    "expect": {
+      "tiers_any_of": ["sql", "cube", "api", "toolbox"]
+    }
+  },
+  {
+    "id": "lang-contraction-buyers-havent-paid",
+    "class": "leader_language_contraction",
+    "question": "Which buyers haven't paid?",
+    "notes": "Contracted form of a question already in the sweep in its expanded form; the two must agree.",
+    "expect": {
+      "tiers_any_of": ["sql", "cube", "api", "toolbox"]
+    }
+  },
+  {
+    "id": "lang-contraction-pens-arent-full",
+    "class": "leader_language_contraction",
+    "question": "Which pens aren't full?",
+    "notes": "Contracted form over shed_capacity_current.",
+    "expect": {
+      "tiers_any_of": ["sql", "cube", "api", "toolbox"]
+    }
+  },
+  {
+    "id": "lang-verb-only-how-much-did-we-make",
+    "class": "leader_language_verb_only",
+    "question": "How much did we make last month?",
+    "notes": "VERB-ONLY PHRASING. `make`/`made` were exempted from making a question strict and given nothing to score on, so a question whose only subject is the verb nominated NOTHING. A verb that names something the farm records has to score on the thing it names.",
+    "expect": {
+      "tiers_any_of": ["sql", "cube", "api", "toolbox"]
+    }
+  },
+  {
+    "id": "lang-verb-only-what-did-we-spend",
+    "class": "leader_language_verb_only",
+    "question": "What did we spend last month?",
+    "notes": "Verb-only, procurement side.",
+    "expect": {
+      "tiers_any_of": ["sql", "cube", "api", "toolbox"]
+    }
+  },
+  {
+    "id": "lang-verb-only-how-many-died",
+    "class": "leader_language_verb_only",
+    "question": "How many died last month?",
+    "notes": "Verb-only, mortality. The leader names no noun at all.",
+    "expect": {
+      "tiers_any_of": ["sql", "cube", "api", "toolbox"]
+    }
+  },
+  {
+    "id": "lang-verb-only-how-many-did-we-sell",
+    "class": "leader_language_verb_only",
+    "question": "How many did we sell last month?",
+    "notes": "Verb-only, sales.",
+    "expect": {
+      "tiers_any_of": ["sql", "cube", "api", "toolbox"]
+    }
+  }
+]
