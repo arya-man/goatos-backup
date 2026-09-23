@@ -142,3 +142,16 @@ assert.match(
   "the sheet must stay tappable while loading, or a second pick is swallowed",
 );
 assert.match(busyRule, /box-shadow:0 0 0 2px var\(--ring\)/, "the ring is the busy signal instead");
+
+// ...and the exception stops at this bar. `.lt-page .lt-fbar.wfbusy` also matches the vaccination
+// live tracker's filter bar (live-tracker-filters.tsx), which holds nothing but its own controls
+// and so has none of the problem above -- the shared dimming is the right busy signal there.
+// Folding the two selectors into one list silently drops the dimming from that page too, which is
+// why the generic rule is asserted to carry the ring and NOTHING else.
+const genericBusyRule =
+  css.match(/(?:^|\n)\.lt-page \.lt-fbar\.wfbusy\{[^}]*\}/)?.[0]?.trim() ?? "";
+assert.equal(
+  genericBusyRule,
+  ".lt-page .lt-fbar.wfbusy{box-shadow:0 0 0 2px var(--ring)}",
+  "the live tracker's bar keeps the shared dimming; only the sheet-hosting bar opts out",
+);

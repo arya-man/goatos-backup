@@ -82,7 +82,7 @@ const (
 
 // AllVerticals is every vertical a tier can be scoped to, in the order
 // seeded into org_verticals (migration 000178_org_role_catalog.sql, extended by
-// 000393_cleaning_and_farming_verticals.sql).
+// 000393_ground_tier_roles_cleaning_and_farming.sql).
 var AllVerticals = []Vertical{
 	VerticalProcurement, VerticalPreventiveCare, VerticalBreeding, VerticalHealth,
 	VerticalGrowth, VerticalInfrastructure, VerticalFeed, VerticalMilk, VerticalSales,
