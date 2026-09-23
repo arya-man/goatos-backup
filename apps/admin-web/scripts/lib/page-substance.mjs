@@ -46,6 +46,10 @@ export function collectSubstance() {
   const emptyState = [...main.querySelectorAll('[data-empty], .empty, .empty-state, [role="status"]')]
     .filter(vis).map((el) => (el.innerText ?? "").trim()).filter(Boolean);
   return {
+    // Proof the script RAN. Without it, a snapshot that never happened and a
+    // page that drew nothing are the same value — and one of those is a finding
+    // against the page.
+    collected: true,
     rows: count("tbody tr"),
     cards: count("[data-card], .card, article"),
     cells: count("tbody td"),
@@ -69,6 +73,7 @@ export const VERDICTS = Object.freeze({
   SUBSTANTIAL: "substantial",
   EMPTY_STATE: "empty-state",
   BLANK: "blank",
+  UNREADABLE: "unreadable",
 });
 
 /**
@@ -77,6 +82,19 @@ export const VERDICTS = Object.freeze({
  * @returns {{verdict, why, units}}
  */
 export function assessSubstance(snapshot, { minContentUnits = 3 } = {}) {
+  // THE DIRECTION THAT MATTERS. Both callers used to hand `{}` over when
+  // page.evaluate failed, so a snapshot that could not be TAKEN read exactly
+  // like a page that drew nothing — and that is a finding AGAINST the page. A
+  // blocked script, a detached frame or a navigation mid-evaluate would have
+  // reported a perfectly good screen as broken. A missing input must push
+  // towards silence, never towards an accusation.
+  if (!snapshot || snapshot.collected !== true) {
+    return {
+      verdict: VERDICTS.UNREADABLE,
+      units: 0,
+      why: "the check that looks at what this page drew could not be run here, so nothing was learned about it either way",
+    };
+  }
   const units = contentUnits(snapshot);
   if (units >= minContentUnits) {
     return { verdict: VERDICTS.SUBSTANTIAL, units, why: "" };
@@ -105,6 +123,10 @@ export function assessSubstance(snapshot, { minContentUnits = 3 } = {}) {
  */
 export function gateContentCheck(assessment) {
   if (assessment.verdict === VERDICTS.SUBSTANTIAL) return { judge: true };
+  // A page that SAYS it is empty, and a snapshot that could not be taken, are
+  // both "nothing was judged". Only a page that demonstrably drew nothing is an
+  // accusation.
   if (assessment.verdict === VERDICTS.EMPTY_STATE) return { judge: false, notAttempted: assessment.why };
+  if (assessment.verdict === VERDICTS.UNREADABLE) return { judge: false, notAttempted: assessment.why };
   return { judge: false, finding: assessment.why };
 }

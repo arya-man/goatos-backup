@@ -4,6 +4,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { compareReadings } from "./reading-comparison.mjs";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -117,33 +118,36 @@ async function readSide(page, target) {
   if (target?.all === "count") {
     const loc = locatorFor(page, target);
     const total = await loc.count().catch(() => null);
-    if (total === null) return { number: null, how: "count" };
-    let seen = 0;
+    // Nothing matched is NOT a count of zero. Two readings of a figure that was
+    // never drawn are equal, and equal is the pass condition — so a page that
+    // rendered nothing twice used to pass. Measured: it did.
+    if (!total) return { number: null, values: null, how: "count" };
+    const values = [];
     for (let i = 0; i < total; i += 1) {
-      if (await loc.nth(i).isVisible().catch(() => false)) seen += 1;
+      if (await loc.nth(i).isVisible().catch(() => false)) values.push(1);
     }
-    return { number: seen, how: "count" };
+    if (!values.length) return { number: null, values: null, how: "count" };
+    return { number: values.length, values, how: "count" };
   }
   if (target?.all === "sum") {
     const loc = locatorFor(page, target);
     const total = await loc.count().catch(() => null);
-    if (!total) return { number: null, how: "sum" };
-    let sum = 0;
-    let seen = 0;
+    if (!total) return { number: null, values: null, how: "sum" };
+    const values = [];
     for (let i = 0; i < total; i += 1) {
       const one = loc.nth(i);
       if (!(await one.isVisible().catch(() => false))) continue;
       const value = numberIn(await one.innerText().catch(() => null));
       // A row with no number in it is not a zero. Treating it as one is how a
       // sum quietly drifts below the total it is checked against.
-      if (value === null) return { number: null, how: "sum", why: "one of the rows has no figure in it" };
-      sum += value;
-      seen += 1;
+      if (value === null) return { number: null, values: null, how: "sum", why: "one of the rows has no figure in it" };
+      values.push(value);
     }
-    return { number: seen ? sum : null, how: "sum" };
+    if (!values.length) return { number: null, values: null, how: "sum" };
+    return { number: values.reduce((n, v) => n + v, 0), values, how: "sum" };
   }
   const { number } = await readCell(page, target);
-  return { number, how: "first" };
+  return { number, values: number === null ? null : number, how: "first" };
 }
 
 async function runStep(page, step) {
@@ -201,15 +205,29 @@ async function checkExpect(page, expect) {
     // written and still reports a different total on page two.
     const { target, through = [], label = "this figure" } = expect.stable;
     const before = await readSide(page, target);
-    if (before.number === null) return { what: `not visible: ${target.text ?? target.css}`, loc: null };
+    if (before.values === null) return { what: `not visible: ${target.text ?? target.css}`, loc: null };
     for (const step of through) await runStep(page, step);
     const after = await readSide(page, target);
-    if (after.number === null) {
+    if (after.values === null) {
       return { what: `${label} disappeared after the page changed`, loc: null };
     }
-    return before.number === after.number
-      ? null
-      : { what: `${label} reads ${before.number}, then ${after.number} after the page changed — a summary must describe the whole filter, not the rows on screen`, loc: locatorFor(page, target).first() };
+    // ONE comparison, shared with builder B's promotion rule. The conditions
+    // differ, and so does what a disagreement MEANS: B takes both readings under
+    // the same conditions, so a disagreement is something the page varies; here
+    // something was deliberately done between them that must not change this
+    // figure, so a disagreement is it moving when it should not.
+    const verdict = compareReadings(before.values, after.values, {
+      conditions: "deliberate-action",
+      label,
+      all: target?.all,
+    });
+    if (verdict.agreed) return null;
+    return {
+      // The shared sentence says what happened; this clause says which rule it
+      // breaks, which is what makes the finding actionable.
+      what: `${verdict.verdict} — a summary must describe the whole filter, not the rows on screen`,
+      loc: locatorFor(page, target).first(),
+    };
   }
 
   // ------------------------------------------------------------------ expectations that can be wrong
@@ -457,6 +475,15 @@ export const UNRUNNABLE_STATUS_REASONS = Object.freeze({
  * @param {Array} args.manifest every entry in the manifest, runnable or not
  */
 export function reloadCoverage({ routes, viewports, runnable, manifest }) {
+  // Counted from what was READ. A manifest that could not be read returns an
+  // empty list, and every pair would then be reported as a gap — a fraction
+  // counted from nothing, printed as though it were a measurement.
+  if (!Array.isArray(manifest) || manifest.length === 0) {
+    throw new Error("the reload coverage was asked to count from a manifest with no entries in it, so any fraction it produced would be counted from nothing");
+  }
+  if (!Array.isArray(routes) || routes.length === 0) {
+    throw new Error("the reload coverage was asked to count over no routes at all, so any fraction it produced would be counted from nothing");
+  }
   const routeNames = new Set(routes.map((r) => r.name));
   const byPair = new Map();
   for (const entry of runnable) {
