@@ -68,7 +68,24 @@ BEGIN
 
   SELECT count(*) INTO v_moved FROM _op_targets;
   IF v_moved = 0 THEN
-    RAISE NOTICE 'no active park operator grants match the mapping; nothing to migrate';
+    -- Nothing matched. A fresh database, a local stack, or a re-run: all no-ops, and correct.
+    --
+    -- But it is ALSO what a drifted database looks like -- somebody renamed, or a fixture
+    -- operator seeded under a name this mapping never had -- and in that case the release
+    -- must not go on to retire the designation. That would leave the half-done state this
+    -- migration exists to prevent: "Operator" unpickable for anybody new while live operator
+    -- grants still resolve. So the designation retire moved INSIDE this block, after the
+    -- leftover assertion, and this path skips it.
+    --
+    -- It says so loudly rather than failing: a throwaway QA database carrying a fixture
+    -- operator is not a broken deploy, and hard-failing here would block every local stack
+    -- that has one. On STG the mapping matches and the assertion below is the real gate.
+    SELECT count(*) INTO v_leftover FROM user_scope_grants WHERE role = 'operator' AND status = 'active';
+    IF v_leftover > 0 THEN
+      RAISE WARNING 'operator retirement skipped: % active operator grant(s) match no name in the mapping; the designation stays pickable', v_leftover;
+    ELSE
+      RAISE NOTICE 'no active operator grants at all; nothing to migrate';
+    END IF;
     RETURN;
   END IF;
 
@@ -198,14 +215,21 @@ BEGIN
     RAISE EXCEPTION 'operator retirement incomplete: % active operator grant(s) remain', v_leftover;
   END IF;
 
+  -- ---------------------------------------------------------------------
+  -- 6. Retire the designation so "Operator" cannot be picked for anybody new. The row is KEPT
+  --    rather than deleted: person_access.designation_code is an FK to it, and historical
+  --    rows must stay readable.
+  --
+  --    This sits INSIDE the block, after the assertion above, on purpose: the designation is
+  --    retired only once the retirement actually completed. The early RETURN further up skips
+  --    it, so a database whose operator grants this mapping does not cover keeps a pickable
+  --    "Operator" rather than ending up unable to name a role its own people still hold.
+  -- ---------------------------------------------------------------------
+  UPDATE public.designation_catalog SET status = 'retired' WHERE designation_code = 'operator';
+
   RAISE NOTICE 'operator retired: % people moved onto department manager roles', v_moved;
 END $$;
 -- +goose StatementEnd
-
--- 6. Retire the designation so "Operator" cannot be picked for anybody new. The row is KEPT
---    rather than deleted: person_access.designation_code is an FK to it, and historical rows
---    must stay readable.
-UPDATE public.designation_catalog SET status = 'retired' WHERE designation_code = 'operator';
 
 -- +goose Down
 SET lock_timeout = '5s';
@@ -217,9 +241,31 @@ UPDATE public.designation_catalog SET status = 'active' WHERE designation_code =
 -- mechanics, and silently resurrecting removed access on a rollback is worse than leaving it
 -- to be re-ticked on People / HRMS. V Munna Kumar's new setup is likewise left in place --
 -- he is correctly configured now either way.
-UPDATE public.user_scope_grants SET role = 'operator'
-WHERE status = 'active' AND scope_type = 'park'
-  AND role IN ('manager_feed', 'manager_health', 'manager_cleaning');
+--
+-- IT IS KEYED ON THE SAME NAMES THE UP MOVED, not on the manager roles themselves. Those roles
+-- outlive this migration: 000393 makes them grantable and the Add Person form offers them, so a
+-- Feed Manager hired after this deployed holds `manager_feed` having never been an operator.
+-- A Down keyed on the role would rename that person to something the farm no longer has, and
+-- the Up would not move them back. A rollback may only undo what it did.
+CREATE TEMP TABLE _op_rollback(display_name text PRIMARY KEY) ON COMMIT DROP;
+INSERT INTO _op_rollback VALUES
+  ('Amit Kumar'), ('Sagar Mahoor'), ('Kumar Sharath'), ('Natheswar'), ('Naveen'), ('Pramod'),
+  ('Manoj Kumar'), ('Mithlesh Kumar'),
+  ('Bipin'), ('Bipin Yadav'), ('Dheeraj Singh'), ('Mohd Shami'), ('Rajniti Kumar'),
+  ('Ravi Kumbar'), ('Santosh Kumar'), ('Santosh Kumar Sahni'), ('Manikanth Yadav'),
+  ('Dilkush Kumar'), ('Chandan Kumar'), ('Mithun'), ('Indrajit'), ('Irfan Gazi'),
+  ('Jay Mangal'), ('Shabeer'), ('Subrata Sardar'), ('Munna Kumar'), ('Arun Kumar'),
+  ('Sahid Gazi'), ('V Munna Kumar');
 
-UPDATE public.person_access SET designation_code = 'operator', updated_at = now(), row_version = row_version + 1
-WHERE designation_code IN ('manager_feed', 'manager_health', 'manager_cleaning');
+UPDATE public.user_scope_grants g SET role = 'operator'
+FROM public.workforce_members wm, _op_rollback r
+WHERE wm.tenant_id = g.tenant_id AND wm.user_id = g.user_id AND wm.display_name = r.display_name
+  AND g.status = 'active' AND g.scope_type = 'park'
+  AND g.role IN ('manager_feed', 'manager_health', 'manager_cleaning');
+
+UPDATE public.person_access pa
+SET designation_code = 'operator', updated_at = now(), row_version = pa.row_version + 1
+FROM public.workforce_members wm, _op_rollback r
+WHERE wm.tenant_id = pa.tenant_id AND wm.workforce_member_id = pa.workforce_member_id
+  AND wm.display_name = r.display_name
+  AND pa.designation_code IN ('manager_feed', 'manager_health', 'manager_cleaning');
