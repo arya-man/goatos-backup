@@ -358,7 +358,14 @@ claimed AS (
     -- context (email/slack/webhook/incident, or legacy rows predating this contract) are entirely
     -- unaffected: they keep using the stored recipient_ref exactly as before.
     CASE
-      WHEN nr.channel = 'push_fcm' AND (nr.context->>'member_id') ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' THEN
+      WHEN nr.channel = 'push_fcm'
+        AND (nr.context->>'member_id') ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+        AND NOT EXISTS (
+          SELECT 1
+          FROM workforce_member_browser_push_registrations b
+          WHERE b.tenant_id = nr.tenant_id
+            AND b.browser_registration_id::text = COALESCE(nr.context->>'recipient_device_id', '')
+        ) THEN
         COALESCE(
           (
             SELECT d.fcm_token

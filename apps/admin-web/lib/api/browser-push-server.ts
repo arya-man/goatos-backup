@@ -106,6 +106,20 @@ export async function postBrowserPushUnregister(input: {
   );
 }
 
+export async function postBrowserPushEvent(input: {
+  notificationRequestId: string;
+  browserInstallId: string;
+  eventType: "displayed" | "opened";
+  traceId?: string;
+}): Promise<WebPushResult<{ recorded: boolean }>> {
+  return callBackend("/admin/notifications/browser-events", "POST", {
+    notification_request_id: input.notificationRequestId,
+    browser_install_id: input.browserInstallId,
+    event_type: input.eventType,
+    trace_id: input.traceId ?? "",
+  });
+}
+
 /** List this person's own browser registrations, whatever their status. */
 export async function getBrowserPushRegistrations(): Promise<
   WebPushResult<{ registrations: BrowserPushRegistration[] }>

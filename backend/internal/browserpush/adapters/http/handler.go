@@ -49,6 +49,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /admin/notifications/browser-registrations", h.ListRegistrations)
 	mux.HandleFunc("POST /admin/notifications/browser-registrations", h.RegisterBrowser)
 	mux.HandleFunc("POST /admin/notifications/browser-registrations/unregister", h.UnregisterBrowser)
+	mux.HandleFunc("POST /admin/notifications/browser-events", h.RecordBrowserEvent)
 }
 
 // ListRegistrations returns the caller's own browser registrations.
@@ -114,6 +115,23 @@ func (h *Handler) UnregisterBrowser(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		h.fail(w, r, "browser_push_unregister_failed", err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, result)
+}
+
+func (h *Handler) RecordBrowserEvent(w http.ResponseWriter, r *http.Request) {
+	var body browserpush.EventRequest
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	result, err := h.service.RecordEvent(r.Context(), browserpush.EventCommand{
+		TenantID: tenantID(r),
+		ActorID:  actorID(r),
+		Body:     body,
+	})
+	if err != nil {
+		h.fail(w, r, "browser_push_event_failed", err)
 		return
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, result)

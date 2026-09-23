@@ -99,6 +99,13 @@ type UnregisterRequest struct {
 	BrowserInstallID string `json:"browser_install_id"`
 }
 
+type EventRequest struct {
+	NotificationRequestID string `json:"notification_request_id"`
+	BrowserInstallID      string `json:"browser_install_id,omitempty"`
+	EventType             string `json:"event_type"`
+	TraceID               string `json:"trace_id,omitempty"`
+}
+
 // RegisterCommand is the service-level command: session-derived identity plus the browser's claim.
 type RegisterCommand struct {
 	TenantID string
@@ -111,6 +118,12 @@ type UnregisterCommand struct {
 	TenantID string
 	ActorID  string
 	Body     UnregisterRequest
+}
+
+type EventCommand struct {
+	TenantID string
+	ActorID  string
+	Body     EventRequest
 }
 
 // RegisterResult is what the browser gets back. It echoes the stored registration so the client
@@ -127,6 +140,10 @@ type RegisterResult struct {
 // may already have reported.
 type UnregisterResult struct {
 	Removed bool `json:"removed"`
+}
+
+type EventResult struct {
+	Recorded bool `json:"recorded"`
 }
 
 // Recipient is one reachable browser, in the minimal shape the delivery layer needs. It is
@@ -176,6 +193,7 @@ type Repository interface {
 	// MarkTokenStale is the PRUNE. It is addressed by token because that is all a delivery
 	// failure knows. Reports how many registrations it retired.
 	MarkTokenStale(ctx context.Context, tenantID, token, reason string, now time.Time) (int, error)
+	RecordEvent(ctx context.Context, tenantID, memberOrUserID string, event EventRequest, now time.Time) (bool, error)
 }
 
 // Service is the application service: validation, session-identity enforcement, and nothing else.
@@ -240,6 +258,26 @@ func (s *Service) Unregister(ctx context.Context, cmd UnregisterCommand) (Unregi
 		return UnregisterResult{}, err
 	}
 	return UnregisterResult{Removed: removed}, nil
+}
+
+func (s *Service) RecordEvent(ctx context.Context, cmd EventCommand) (EventResult, error) {
+	tenantID := strings.TrimSpace(cmd.TenantID)
+	actorID := strings.TrimSpace(cmd.ActorID)
+	if tenantID == "" || actorID == "" {
+		return EventResult{}, fmt.Errorf("browser push event: unauthenticated caller")
+	}
+	event := sanitizeEvent(cmd.Body)
+	if event.NotificationRequestID == "" {
+		return EventResult{}, fmt.Errorf("browser push event: notification_request_id is required")
+	}
+	if event.EventType == "" {
+		return EventResult{}, fmt.Errorf("browser push event: event_type is required")
+	}
+	recorded, err := s.repo.RecordEvent(ctx, tenantID, actorID, event, s.now().UTC())
+	if err != nil {
+		return EventResult{}, err
+	}
+	return EventResult{Recorded: recorded}, nil
 }
 
 // List returns the caller's own browser registrations.
@@ -366,4 +404,25 @@ func sanitizeRegister(in RegisterRequest) (RegisterRequest, error) {
 		out.BrowserLabel = out.BrowserLabel[:maxBrowserLabelLen]
 	}
 	return out, nil
+}
+
+func sanitizeEvent(in EventRequest) EventRequest {
+	out := EventRequest{
+		NotificationRequestID: strings.TrimSpace(in.NotificationRequestID),
+		BrowserInstallID:      strings.TrimSpace(in.BrowserInstallID),
+		EventType:             strings.TrimSpace(in.EventType),
+		TraceID:               strings.TrimSpace(in.TraceID),
+	}
+	switch out.EventType {
+	case "displayed", "opened":
+	default:
+		out.EventType = ""
+	}
+	if len(out.BrowserInstallID) > maxBrowserInstallIDLen {
+		out.BrowserInstallID = out.BrowserInstallID[:maxBrowserInstallIDLen]
+	}
+	if len(out.TraceID) > 128 {
+		out.TraceID = out.TraceID[:128]
+	}
+	return out
 }

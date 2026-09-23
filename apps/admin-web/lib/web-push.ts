@@ -16,6 +16,7 @@ import {
 } from "@/lib/web-push-state";
 import {
   getWebPushVapidKey,
+  recordBrowserPushEvent,
   registerBrowserPush,
   unregisterBrowserPush,
 } from "@/lib/web-push-actions";
@@ -331,6 +332,42 @@ export function listenForPushNavigation(navigate: (link: string) => void): () =>
     if (!data || data.type !== "mesha-push-navigate") return;
     if (typeof data.link !== "string" || !data.link.startsWith("/")) return;
     navigate(data.link);
+  };
+  navigator.serviceWorker.addEventListener("message", handler);
+  return () => navigator.serviceWorker.removeEventListener("message", handler);
+}
+
+export async function recordCurrentBrowserPushEvent(input: {
+  notificationRequestId: string;
+  eventType: "displayed" | "opened";
+  traceId?: string;
+}): Promise<void> {
+  const notificationRequestId = input.notificationRequestId.trim();
+  if (!notificationRequestId) return;
+  await recordBrowserPushEvent({
+    notificationRequestId,
+    eventType: input.eventType,
+    traceId: input.traceId,
+    browserInstallId: getBrowserInstallId(),
+  }).catch(() => undefined);
+}
+
+export function listenForPushReceipts(): () => void {
+  if (typeof window === "undefined" || !("serviceWorker" in navigator)) return () => undefined;
+  const handler = (event: MessageEvent) => {
+    const data = event.data as {
+      type?: string;
+      eventType?: "displayed" | "opened";
+      notificationRequestId?: string;
+      traceId?: string;
+    } | null;
+    if (!data || data.type !== "mesha-push-receipt") return;
+    if (data.eventType !== "displayed" && data.eventType !== "opened") return;
+    void recordCurrentBrowserPushEvent({
+      notificationRequestId: data.notificationRequestId ?? "",
+      eventType: data.eventType,
+      traceId: data.traceId,
+    });
   };
   navigator.serviceWorker.addEventListener("message", handler);
   return () => navigator.serviceWorker.removeEventListener("message", handler);

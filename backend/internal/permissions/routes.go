@@ -166,6 +166,7 @@ var protectedRoutes = []Route{
 	{OperationID: "listBrowserPushRegistrations", Method: "GET", Pattern: "/admin/notifications/browser-registrations", Permissions: []string{AdminWebBootstrap}},
 	{OperationID: "registerBrowserPushRegistration", Method: "POST", Pattern: "/admin/notifications/browser-registrations", Permissions: []string{AdminWebBootstrap}},
 	{OperationID: "unregisterBrowserPushRegistration", Method: "POST", Pattern: "/admin/notifications/browser-registrations/unregister", Permissions: []string{AdminWebBootstrap}},
+	{OperationID: "recordBrowserPushEvent", Method: "POST", Pattern: "/admin/notifications/browser-events", Permissions: []string{AdminWebBootstrap}},
 
 	{OperationID: "appMe", Method: "GET", Pattern: "/app/me", Permissions: []string{AppBootstrap}},
 	{OperationID: "appBootstrap", Method: "GET", Pattern: "/app/bootstrap", Permissions: []string{AppBootstrap}},

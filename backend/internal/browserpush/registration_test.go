@@ -22,6 +22,8 @@ type fakeRepo struct {
 	staleReason   string
 	staleCount    int
 	resolveResult []Recipient
+	event         EventRequest
+	eventRecorded bool
 }
 
 func (f *fakeRepo) Upsert(_ context.Context, tenantID, memberOrUserID string, in RegisterRequest, now time.Time) (Registration, bool, error) {
@@ -77,6 +79,11 @@ func (f *fakeRepo) MarkTokenStale(_ context.Context, _, token, reason string, _ 
 	f.staleToken = token
 	f.staleReason = reason
 	return f.staleCount, nil
+}
+
+func (f *fakeRepo) RecordEvent(_ context.Context, _, _ string, event EventRequest, _ time.Time) (bool, error) {
+	f.event = event
+	return f.eventRecorded, nil
 }
 
 func newService(repo *fakeRepo) *Service {
@@ -283,6 +290,65 @@ func TestResolveBrowserRecipientsSkipsAnEmptyLookup(t *testing.T) {
 	}
 	if len(got) != 1 {
 		t.Fatalf("want the recipient, got %+v", got)
+	}
+}
+
+func TestRecordEventRequiresAuthenticatedCallerAndSupportedEvent(t *testing.T) {
+	service := newService(&fakeRepo{})
+	body := EventRequest{
+		NotificationRequestID: "request-1",
+		BrowserInstallID:      "web-1",
+		EventType:             "opened",
+	}
+	if _, err := service.RecordEvent(context.Background(), EventCommand{TenantID: "", ActorID: "u", Body: body}); err == nil {
+		t.Fatal("want unauthenticated tenant refused")
+	}
+	if _, err := service.RecordEvent(context.Background(), EventCommand{TenantID: "t", ActorID: "", Body: body}); err == nil {
+		t.Fatal("want unauthenticated actor refused")
+	}
+	if _, err := service.RecordEvent(context.Background(), EventCommand{
+		TenantID: "t",
+		ActorID:  "u",
+		Body: EventRequest{
+			NotificationRequestID: "request-1",
+			BrowserInstallID:      "web-1",
+			EventType:             "forged",
+		},
+	}); err == nil {
+		t.Fatal("want unsupported event refused")
+	}
+}
+
+func TestRecordEventPassesSanitizedReceiptToRepository(t *testing.T) {
+	repo := &fakeRepo{eventRecorded: true}
+	service := newService(repo)
+	result, err := service.RecordEvent(context.Background(), EventCommand{
+		TenantID: "tenant-1",
+		ActorID:  "user-1",
+		Body: EventRequest{
+			NotificationRequestID: " request-1 ",
+			BrowserInstallID:      " web-1 ",
+			EventType:             "opened",
+			TraceID:               " trace-" + strings.Repeat("x", 200),
+		},
+	})
+	if err != nil {
+		t.Fatalf("record event: %v", err)
+	}
+	if !result.Recorded {
+		t.Fatal("want recorded=true from repository")
+	}
+	if repo.event.NotificationRequestID != "request-1" {
+		t.Fatalf("want trimmed request id, got %q", repo.event.NotificationRequestID)
+	}
+	if repo.event.BrowserInstallID != "web-1" {
+		t.Fatalf("want trimmed browser install id, got %q", repo.event.BrowserInstallID)
+	}
+	if repo.event.EventType != "opened" {
+		t.Fatalf("want opened event, got %q", repo.event.EventType)
+	}
+	if len(repo.event.TraceID) != 128 {
+		t.Fatalf("want bounded trace id, got %d", len(repo.event.TraceID))
 	}
 }
 

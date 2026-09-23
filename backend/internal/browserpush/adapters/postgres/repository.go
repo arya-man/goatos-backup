@@ -180,6 +180,25 @@ SELECT` + registrationColumnsQualified + `
  ORDER BY reg.last_seen_at DESC, reg.browser_registration_id
  LIMIT 50`
 
+const recordEventSQL = targetMemberCTE + `
+INSERT INTO browser_push_events (
+  tenant_id, notification_request_id, workforce_member_id, browser_registration_id,
+  browser_install_id, event_type, occurred_at, trace_id
+)
+SELECT $1::uuid, nr.notification_request_id, tm.workforce_member_id, reg.browser_registration_id,
+       NULLIF($4, ''), $5, $6::timestamptz, NULLIF($7, '')
+  FROM target_member tm
+  JOIN notification_requests nr
+    ON nr.tenant_id = $1::uuid
+   AND nr.notification_request_id = $3::uuid
+  JOIN workforce_member_browser_push_registrations reg
+    ON reg.tenant_id = $1::uuid
+   AND reg.browser_install_id = NULLIF($4, '')
+   AND reg.workforce_member_id = tm.workforce_member_id
+ WHERE tm.workforce_member_id IS NOT NULL
+   AND (nr.context->>'member_id' = tm.workforce_member_id::text OR nr.context->>'recipient_device_id' = reg.browser_registration_id::text)
+ON CONFLICT (tenant_id, notification_request_id, browser_registration_id, event_type) DO NOTHING`
+
 // resolveRecipientsSQL returns one person's reachable browsers, for the notification fan-out.
 // Params: $1 tenant, $2 member-or-user id.
 const resolveRecipientsSQL = targetMemberCTE + `
@@ -554,6 +573,24 @@ func (r *Repository) ListForMember(ctx context.Context, tenantID, memberOrUserID
 		return nil, fmt.Errorf("browser push: list registrations: %w", err)
 	}
 	return registrations, nil
+}
+
+func (r *Repository) RecordEvent(ctx context.Context, tenantID, memberOrUserID string, event browserpush.EventRequest, now time.Time) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	tag, err := r.pool.Exec(ctx, recordEventSQL,
+		tenantID,
+		memberOrUserID,
+		event.NotificationRequestID,
+		event.BrowserInstallID,
+		event.EventType,
+		now,
+		event.TraceID,
+	)
+	if err != nil {
+		return false, fmt.Errorf("browser push: record event: %w", err)
+	}
+	return tag.RowsAffected() > 0, nil
 }
 
 // ResolveMemberRecipients returns one person's reachable browsers.

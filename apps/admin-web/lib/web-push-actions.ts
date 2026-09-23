@@ -3,6 +3,7 @@
 import {
   getBrowserPushRegistrations,
   postBrowserPushRegistration,
+  postBrowserPushEvent,
   postBrowserPushUnregister,
   readWebPushVapidKey,
   type BrowserPushRegistration,
@@ -98,6 +99,28 @@ export async function unregisterBrowserPush(input: {
   return postBrowserPushUnregister({
     browserInstallId,
     stableMutationKey: stableMutationKey("unregister", browserInstallId),
+  });
+}
+
+export async function recordBrowserPushEvent(input: {
+  notificationRequestId: string;
+  browserInstallId: string;
+  eventType: "displayed" | "opened";
+  traceId?: string;
+}): Promise<WebPushActionResult<{ recorded: boolean }>> {
+  const notificationRequestId = requiredField(input.notificationRequestId, 64);
+  const browserInstallId = requiredField(input.browserInstallId, MAX_BROWSER_INSTALL_ID);
+  if (!notificationRequestId || !browserInstallId) {
+    return { ok: false, error: "This notification event could not be recorded." };
+  }
+  if (input.eventType !== "displayed" && input.eventType !== "opened") {
+    return { ok: false, error: "This notification event is not supported." };
+  }
+  return postBrowserPushEvent({
+    notificationRequestId,
+    browserInstallId,
+    eventType: input.eventType,
+    traceId: optionalField(input.traceId, 128),
   });
 }
 

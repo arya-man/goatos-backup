@@ -249,6 +249,23 @@ test("the service worker always shows a notification and always handles a click"
   assert.match(serviceWorkerCode, /showNotification\(/);
 });
 
+test("the service worker reports displayed and opened receipts with the notification request id", () => {
+  // Backend FCM carries notification_request_id in data. The worker must preserve it so support can
+  // answer "did Chrome show/open this request?" without reverse-engineering from screenshots.
+  assert.match(serviceWorkerCode, /notificationRequestId:\s*data\.notification_request_id/);
+  assert.match(serviceWorkerCode, /notifyOpenClients\("displayed",\s*data\.notification_request_id/);
+  assert.match(serviceWorkerCode, /notifyOpenClients\("opened",\s*notificationRequestId,\s*traceId\)/);
+  assert.match(serviceWorkerCode, /type:\s*"mesha-push-receipt"/);
+});
+
+test("a notification click carries push_open in the URL for cold browser opens", () => {
+  // If Chrome wakes the worker while no authenticated dashboard tab is open, postMessage cannot
+  // record the open. The landing page query param lets the hydrated app record it after auth state
+  // is available, and the backend dedupes if the message path already won.
+  assert.match(serviceWorkerCode, /target\.searchParams\.set\("push_open",\s*notificationRequestId\)/);
+  assert.match(serviceWorkerCode, /focusOrOpen\(addOpenReceipt\(link,\s*notificationRequestId\)\)/);
+});
+
 test("the service worker looks for uncontrolled windows when focusing a tab", () => {
   // Without includeUncontrolled the worker sees NOTHING on its first activation -- every tab the
   // person already has open predates it -- so the first click would open a duplicate tab.

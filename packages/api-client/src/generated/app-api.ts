@@ -4145,6 +4145,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/notifications/browser-events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record displayed/opened telemetry for THIS browser notification.
+         * @description Records a best-effort receipt from the caller's own browser push registration for one notification request. The tenant and member come from the authenticated session; the body may name only the notification request, this browser profile's install id, and the event type.
+         *
+         *     The backend joins the request to the caller's active browser registration before writing, so a page cannot forge receipt/open events for another member or another browser profile. Duplicate events for the same notification, browser registration and event type are idempotently ignored.
+         */
+        post: operations["recordBrowserPushEvent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/procurement/feed-purchases/{purchase_id}/payments": {
         parameters: {
             query?: never;
@@ -10108,6 +10130,26 @@ export interface components {
         BrowserPushUnregisterResponse: {
             /** @description False when nothing active matched. Not an error -- unregister is idempotent, because the client calls it on revocations it may already have reported. */
             removed: boolean;
+        };
+        BrowserPushEventRequest: {
+            /**
+             * Format: uuid
+             * @description The notification request id carried in FCM data.
+             */
+            notification_request_id: string;
+            /** @description The browser profile that displayed or opened the push. */
+            browser_install_id: string;
+            /**
+             * @description The browser-side receipt type.
+             * @enum {string}
+             */
+            event_type: "displayed" | "opened";
+            /** @description Optional send trace copied from FCM data for support correlation. */
+            trace_id?: string;
+        };
+        BrowserPushEventResponse: {
+            /** @description False when the same browser already reported this event or the request does not belong to it. */
+            recorded: boolean;
         };
         LeadershipTaskPage: {
             /** @description The L0 header title; mirrors the nav label. */
@@ -28231,6 +28273,42 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    recordBrowserPushEvent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BrowserPushEventRequest"];
+            };
+        };
+        responses: {
+            /** @description Whether a new receipt row was inserted. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BrowserPushEventResponse"];
+                };
+            };
+            /** @description `browser_push_invalid_request` -- notification_request_id or browser_install_id is missing, or event_type is not `displayed` or `opened`. `invalid_request_body` for malformed JSON or an unknown field. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             500: components["responses"]["ServerError"];
         };
     };
