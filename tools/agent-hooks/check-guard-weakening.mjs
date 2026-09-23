@@ -179,12 +179,19 @@ export function analyse(input) {
     add(`new-silencer:${path}`, `new guard-silencing marker in ${path}: ${line.trim().slice(0, 140)}`);
   }
 
-  // W5 — a numeric threshold in a guard script was RAISED (looser). Lowering is free.
+  // W5 — a numeric threshold in a guard script moved in the LOOSER direction.
+  // For a ceiling (MAX_*, *_LIMIT, *_BUDGET) that is up. For a FLOOR (MIN_*,
+  // *_FLOOR, *_MIN) it is DOWN: a floor is what stops a guard that has gone
+  // blind from reporting a pass, so lowering one is exactly the move this guard
+  // exists to catch. Getting that backwards would have left every floor added by
+  // the 2026-09-23 audit trivially removable.
   for (const pair of pairThresholdChanges(input.removedLines || [], input.addedLines || [])) {
-    if (pair.after > pair.before) {
+    const isFloor = /(?:^MIN_|_MIN$|_FLOOR$|^FLOOR_)/.test(pair.name);
+    const looser = isFloor ? pair.after < pair.before : pair.after > pair.before;
+    if (looser) {
       add(
-        `threshold-raised:${pair.path}:${pair.name}`,
-        `${pair.path}: ${pair.name} raised ${pair.before} -> ${pair.after}`,
+        `threshold-loosened:${pair.path}:${pair.name}`,
+        `${pair.path}: ${pair.name} ${isFloor ? "floor lowered" : "raised"} ${pair.before} -> ${pair.after}`,
       );
     }
   }
@@ -653,7 +660,7 @@ function selfTest() {
         removedLines: [{ path: "tools/agent-hooks/check-money.mjs", line: "const MAX_DRIFT = 5;" }],
         addedLines: [{ path: "tools/agent-hooks/check-money.mjs", line: "const MAX_DRIFT = 500;" }],
       },
-      "threshold-raised:tools/agent-hooks/check-money.mjs:MAX_DRIFT",
+      "threshold-loosened:tools/agent-hooks/check-money.mjs:MAX_DRIFT",
     ),
   );
   check(
@@ -666,7 +673,33 @@ function selfTest() {
         removedLines: [{ path: "tools/agent-hooks/check-money.mjs", line: "const MAX_DRIFT = 500;" }],
         addedLines: [{ path: "tools/agent-hooks/check-money.mjs", line: "const MAX_DRIFT = 5;" }],
       },
-      "threshold-raised:tools/agent-hooks/check-money.mjs:MAX_DRIFT",
+      "threshold-loosened:tools/agent-hooks/check-money.mjs:MAX_DRIFT",
+    ),
+  );
+  check(
+    "lowered FLOOR fires (a floor is loosened by going down)",
+    fires(
+      {
+        changed: [{ status: "M", path: "tools/agent-hooks/check-money.mjs" }],
+        before: {},
+        after: {},
+        removedLines: [{ path: "tools/agent-hooks/check-money.mjs", line: "const MIN_CALLSITES = 8;" }],
+        addedLines: [{ path: "tools/agent-hooks/check-money.mjs", line: "const MIN_CALLSITES = 0;" }],
+      },
+      "threshold-loosened:tools/agent-hooks/check-money.mjs:MIN_CALLSITES",
+    ),
+  );
+  check(
+    "raised FLOOR is silent (tightening)",
+    !fires(
+      {
+        changed: [{ status: "M", path: "tools/agent-hooks/check-money.mjs" }],
+        before: {},
+        after: {},
+        removedLines: [{ path: "tools/agent-hooks/check-money.mjs", line: "const MIN_CALLSITES = 8;" }],
+        addedLines: [{ path: "tools/agent-hooks/check-money.mjs", line: "const MIN_CALLSITES = 12;" }],
+      },
+      "threshold-loosened:tools/agent-hooks/check-money.mjs:MIN_CALLSITES",
     ),
   );
   // W6 CI step removed
