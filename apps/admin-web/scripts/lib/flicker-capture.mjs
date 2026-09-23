@@ -20,10 +20,12 @@ import { detectFlicker, grayFrameFromRgba } from "./flicker-detector.mjs";
 export const CAPTURE_DEFAULTS = Object.freeze({
   // Long enough to catch a once-a-second recurrence several times over.
   seconds: 8,
-  // The frames are downsampled for detection anyway; this keeps the screencast
-  // cheap and keeps the compositor doing roughly what it does for a real phone.
-  maxWidth: 390,
-  maxHeight: 844,
+  // Twice the phone viewport. This is not a nicety: at 1:1 the screencast downscales
+  // the page so hard that the text and buttons bleeding through a panel smear into its
+  // background, and a live run of the real bug measured as nothing. At 2x the same run
+  // finds it. Detection downsamples again afterwards, so the cost is one decode.
+  maxWidth: 780,
+  maxHeight: 1688,
   downsampleStep: 8,
 });
 
@@ -272,8 +274,13 @@ export async function filmRoutes({ baseUrl, bearerToken, outDir, routes, phone }
       const page = await context.newPage();
       const url = `${baseUrl}${route.path}`;
       try {
-        await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45_000 });
-        await page.waitForTimeout(1_500);
+        // Wait for the page to actually have its content. A panel filmed over an empty
+        // list has nothing behind it to show through, so an eager load turns a real
+        // defect into a clean result.
+        await page.goto(url, { waitUntil: "networkidle", timeout: 90_000 }).catch(async () => {
+          await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45_000 });
+        });
+        await page.waitForTimeout(3_500);
         // A page that bounced to a login screen was not the page we meant to film,
         // and a clean result on it would be a false green.
         const landedOn = new URL(page.url()).pathname;
