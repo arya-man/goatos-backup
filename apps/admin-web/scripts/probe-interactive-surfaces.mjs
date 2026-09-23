@@ -51,7 +51,12 @@ function sourceFingerprint() {
       else if (/\.(tsx|jsx|ts|js)$/.test(name)) stats.push({ path: full, mtimeMs: info.mtimeMs, size: info.size });
     }
   };
-  for (const root of ["features", "components", "app"]) walk(path.join(adminWeb, root));
+  // lib/ is watched even though the ledger is not keyed to it: 37 files under lib/ -- including
+  // lib/api/server.ts and the page-contract helpers -- are transitively imported by surface files,
+  // so an edit there changes what a page renders while leaving the three ledger roots untouched.
+  // Measured, not assumed: the first count said zero, because the walk only read the roots it was
+  // already watching and every edge that left them was dropped.
+  for (const root of ["features", "components", "app", "lib"]) walk(path.join(adminWeb, root));
   return fingerprintOf(stats);
 }
 
@@ -160,7 +165,15 @@ async function main() {
     const me = await fetch(new URL("/app/me", apiBase).toString(), { headers: bearerHeaders() }).then((r) => r.json());
     identity = identityOf(me);
   } catch (error) {
-    die(`could not read ${apiBase}/app/me to find out whose screen this is: ${error.message}`);
+    die(
+      `could not read ${apiBase}/app/me to find out whose screen this is: ${error.message}\n` +
+        "WHAT TO CHECK FIRST. /app/me is declared in contracts/openapi/app-api.yaml:503 and returns\n" +
+        "actor_id + grants, but it is the OPERATOR APP's endpoint. This probe sends the token in\n" +
+        "GOATOS_BEARER_TOKEN, which for an admin-web session may not be accepted there — a 401 here\n" +
+        "means the token is wrong for THIS endpoint, not that you are signed out. The contract says\n" +
+        "it should work; whether an admin-web session's token is accepted has never been verified,\n" +
+        "and this refusal is the first place anyone would find out.",
+    );
   }
   if (identity.error) die(`${identity.error}\nSign in first; a reading filed under the wrong person is worse than no reading.`);
   console.log(`signed in as ${identity.actorId} with grants: ${identity.grants.join(", ")}`);
@@ -174,6 +187,17 @@ async function main() {
     `probe plan: ${summary.routes} routes, ${summary.pageLoads} page loads, ${summary.surfaceOpenings} surface openings, serial.`,
   );
 
+  // 104 sequential reads over loopback measured at 2,624 ms -- 25 ms each, the same order as the
+  // source fingerprint's 14 ms. Watching the source closely while not watching the backend at all
+  // was an asymmetry with no justification behind it.
+  const readBuildSha = async () => {
+    try {
+      const version = await fetch(new URL("/version", apiBase).toString(), { headers: bearerHeaders() }).then((r) => r.json());
+      return String(version?.build_sha ?? "");
+    } catch {
+      return "";
+    }
+  };
   let fingerprint = sourceFingerprint();
   const startedFingerprint = fingerprint;
   const observations = [];
@@ -185,6 +209,15 @@ async function main() {
     for (const step of plan) {
       // Before every step, not just at the start. If the source moved, re-run the expensive check
       // and STOP rather than keep filing readings against a ledger that no longer describes it.
+      const nowSha = await readBuildSha();
+      if (nowSha !== apiBuildSha) {
+        console.error(
+          `stopping: the backend changed mid-run (${apiBuildSha} -> ${nowSha || "unreadable"}). ` +
+            `The page contract is compiled per build, so readings from either side of this are not ` +
+            `readings of the same screen.`,
+        );
+        break;
+      }
       const now = sourceFingerprint();
       if (now !== fingerprint) {
         const movedDrift = ledgerDrift(scanInteractiveSurfaces(readSourceFiles()), ledger.entries);

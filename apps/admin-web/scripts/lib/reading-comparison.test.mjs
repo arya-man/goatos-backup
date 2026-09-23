@@ -1,6 +1,7 @@
 // The shared primitive: one comparison, two verdict vocabularies.
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { compareReadings, contractRevisionRefusal, isAbsentReading } from "./reading-comparison.mjs";
 
 test("same conditions: a disagreement is something the page VARIES, not a finding", () => {
@@ -78,4 +79,14 @@ test("ZERO is not nothing — a real reading of zero still compares", () => {
 test("isAbsentReading draws the line in one place", () => {
   for (const nothing of [null, undefined, "", "   ", [], {}]) assert.equal(isAbsentReading(nothing), true, `${JSON.stringify(nothing)}`);
   for (const something of [0, false, "0", [0], [""], { a: 1 }, NaN]) assert.equal(isAbsentReading(something), false, `${JSON.stringify(something)}`);
+});
+
+test("the shared definition states why agreement alone is not enough", () => {
+  // Not decoration: every refusal in this file and its callers exists because of this one line,
+  // and a later reader who removes one needs to find the reason in the same place as the rules.
+  const source = readFileSync(new URL("./reading-comparison.mjs", import.meta.url), "utf8");
+  assert.match(source, /CONSISTENCY IS NOT CORRECTNESS WHEN THE TWO THINGS BEING COMPARED ARE NOT THE SAME THING/);
+  for (const instance of [/Two empty readings agree/, /sign-in page/, /source edit/, /principal label/]) {
+    assert.match(source, instance, "an instance of the pattern is missing from the definition");
+  }
 });

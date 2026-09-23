@@ -19,6 +19,18 @@
 // edited from here while that file is being worked in.
 //
 // ---------------------------------------------------------------------------------------------
+// WHY AGREEMENT IS NOT ENOUGH, which is the reason every rule below exists:
+//
+//     CONSISTENCY IS NOT CORRECTNESS WHEN THE TWO THINGS BEING COMPARED ARE NOT THE SAME THING.
+//
+// Two empty readings agree. Two readings of a sign-in page a stale token redirected to agree.
+// Two readings taken either side of a source edit agree. Two runs that both typed the same
+// principal label agree. Every one of those would have been promoted into an expectation, and
+// every one describes something other than what it claims to. So a pair must be shown to be a
+// pair -- same source, same contract, same grants, something actually read -- before agreement
+// between its halves means anything at all.
+//
+// ---------------------------------------------------------------------------------------------
 // WHAT A CONTRACT REVISION IS, stated ONCE so two receipts cannot define it differently.
 //
 // A reading is only comparable to another reading taken against the same compiled contract. The
