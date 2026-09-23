@@ -5,6 +5,7 @@ import { controlTextIsCutOff, overlapIsVisibleBreak } from "./lib/visible-break-
 import { checkCompositingHazards, compositingSummary } from "./lib/compositing-checks.mjs";
 import { exerciseOverlays } from "./lib/overlay-journeys.mjs";
 import { assertFeaturesPresent, loadFeatureAssertions, reloadCoverage } from "./lib/feature-assertions.mjs";
+import { assessSubstance, collectSubstance, gateContentCheck } from "./lib/page-substance.mjs";
 import { validateLocalStackReceipt, validateSmokeActor } from "./lib/local-stack-receipt.mjs";
 import { noRoutesLeftError, planRouteSelection, routeSkippedLine } from "./lib/route-skips.mjs";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -543,6 +544,30 @@ try {
         // Run every check on the page; one broken check must not hide the others.
         const routeErrors = [];
         const check = async (fn) => { try { await fn(); } catch (error) { routeErrors.push(error); } };
+        // Did this page draw its content, or only its chrome?
+        //
+        // Every check below is a defect FINDER — colliding labels, overpainting
+        // cells, leaked raw text, a feature's marks being present. A page with
+        // NOTHING on it has no defects to find, so every finder is silent and
+        // the sweep read that silence as clean. That is how 178 of 276
+        // assertions went green against a screen with nothing drawn on it, and
+        // how a plan editor reported 17 of 17.
+        //
+        // A page that says it is empty is NOT ATTEMPTED; a page that loaded and
+        // drew nothing at all is a finding about the page itself. Neither is a
+        // pass, and neither is silence.
+        const substanceAssessment = assessSubstance(await page.evaluate(collectSubstance).catch(() => ({})));
+        const substanceGate = gateContentCheck(substanceAssessment);
+        browserEvidence.routes[browserEvidence.routes.length - 1].substance = substanceAssessment.verdict;
+        if (!substanceGate.judge) {
+          const why = substanceGate.finding ?? substanceGate.notAttempted;
+          console.log(`route_not_judged=${viewport.label}:${route.name}|${why}`);
+          if (substanceGate.finding) {
+            throw new Error(`${route.name} ${viewport.label}: ${why}`);
+          }
+          console.log(`visual_route_done=${viewport.label}:${route.name}`);
+          continue;
+        }
         await check(() => assertRegressionPatterns(page, { routeName: route.name, viewportLabel: viewport.label, screenshotDir, relativeToRepo }));
         await check(() => assertLayoutHealthy(page, route.name, viewport.label));
         await check(() => assertMobileWideTableGestures(page, route.name, viewport.label, screenshotDir));
