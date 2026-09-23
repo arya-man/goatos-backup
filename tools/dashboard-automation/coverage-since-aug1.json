@@ -3011,6 +3011,110 @@
       ],
       "status": "gap",
       "gapReason": "smoke does not collect console errors; no hydration pattern id in regression-checks.mjs"
+    },
+    {
+      "id": "pen-partition-label-rendering",
+      "kind": "pattern",
+      "title": "Pen/partition labels render correctly: no doubled part, no doubled numeral, no wrong separator, no \"whole\", no dropped partition",
+      "shippedIn": "2026-08-16..2026-09-23",
+      "commits": [
+        "475312f5d",
+        "e2a70f3db",
+        "1a256a225",
+        "601f6b72b",
+        "3d4dfc8d7",
+        "409925cad"
+      ],
+      "notes": "475312f5d replaced ad-hoc `operational_location_display || shed_label` rendering with operationalLocationLabel() across 8 admin-web files plus Android and Go. e2a70f3db fixed \"Mandela 1 - Part 1 - Part 1\" on the weighing schedule; 1a256a225 pinned the same pen as a STRING at every hop because field-presence tests passed while the output was wrong. Until these checks, nothing in the automation looked at a rendered label.",
+      "routes": [
+        "feed-config",
+        "feed-direction",
+        "feed-packing",
+        "counts-herd",
+        "counts-milk-preparation",
+        "counts-breakdown",
+        "alerts-populated",
+        "vaccination-live-tracker",
+        "weighing-weights",
+        "weighing-analytics",
+        "verify-all",
+        "work-board-populated"
+      ],
+      "interactions": [
+        {
+          "type": "route-param",
+          "ref": "feed-config"
+        },
+        {
+          "type": "route-param",
+          "ref": "feed-direction"
+        },
+        {
+          "type": "route-param",
+          "ref": "feed-packing"
+        },
+        {
+          "type": "route-param",
+          "ref": "counts-herd"
+        },
+        {
+          "type": "route-param",
+          "ref": "counts-milk-preparation"
+        },
+        {
+          "type": "route-param",
+          "ref": "counts-breakdown"
+        },
+        {
+          "type": "route-param",
+          "ref": "alerts-populated"
+        },
+        {
+          "type": "route-param",
+          "ref": "vaccination-live-tracker"
+        },
+        {
+          "type": "route-param",
+          "ref": "weighing-weights"
+        },
+        {
+          "type": "route-param",
+          "ref": "weighing-analytics"
+        },
+        {
+          "type": "route-param",
+          "ref": "verify-all"
+        },
+        {
+          "type": "route-param",
+          "ref": "work-board-populated"
+        },
+        {
+          "type": "check",
+          "ref": "P-pen-part-doubled"
+        },
+        {
+          "type": "check",
+          "ref": "P-pen-number-doubled"
+        },
+        {
+          "type": "check",
+          "ref": "P-pen-separator-wrong"
+        },
+        {
+          "type": "check",
+          "ref": "P-pen-whole-leaked"
+        },
+        {
+          "type": "check",
+          "ref": "P-pen-partition-missing"
+        }
+      ],
+      "viewports": [
+        "laptop",
+        "mobile"
+      ],
+      "status": "covered"
     }
   ],
   "uncoverable": []
