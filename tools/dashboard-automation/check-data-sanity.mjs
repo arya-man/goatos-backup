@@ -152,11 +152,14 @@ export function cappedSql(sql, maxRows) {
 }
 
 // Wraps a verified SELECT in an explicit read-only transaction that is always rolled back.
-export function readOnlySql(sql, statementTimeoutMs = 20000) {
+// The timeout is clamped HERE, not at the call sites, because the call sites were the defect:
+// the default parameter was 20000 and the two proof queries took it, inside the very file that
+// claims to bind the 15 second rule. Nothing can now ask this wrapper for longer.
+export function readOnlySql(sql, statementTimeoutMs) {
   return [
     "begin read only",
     "set local default_transaction_read_only = on",
-    `set local statement_timeout = ${Number(statementTimeoutMs) || 20000}`,
+    `set local statement_timeout = ${enforcedStatementTimeoutMs(statementTimeoutMs)}`,
     sql,
     "rollback"
   ].join(";\n");
@@ -341,7 +344,18 @@ function main() {
   const outPath = path.resolve(args.out ?? path.join(repo, ".codex-goatos-render/dashboard-automation/data-sanity.json"));
   mkdirSync(path.dirname(outPath), { recursive: true });
 
-  const lock = INCIDENT_RULES.runLock && !args.noRunLock ? acquireRunLock() : { acquired: true, release() {} };
+  // A sweep that took no lock must SAY so. The receipt is what someone reads after the next
+  // incident to decide whether the rule was in force, so it is the one artefact that must never
+  // claim a safety rule held when it did not. Skipping the lock now needs an acknowledgement,
+  // and the skip is recorded in the receipt and named in the Slack sentence.
+  const lockSkipAck = process.env.GOATOS_DASHBOARD_RUN_LOCK_SKIP_ACK ?? "";
+  if (args.noRunLock && lockSkipAck.trim().length < 12) {
+    console.error("--no-run-lock needs GOATOS_DASHBOARD_RUN_LOCK_SKIP_ACK set to why no lock is being taken; refusing to run unlocked without a reason on the record");
+    return 2;
+  }
+  const lock = args.noRunLock
+    ? { acquired: true, skipped: true, release() {} }
+    : acquireRunLock();
 
   const report = {
     generatedAt: new Date().toISOString(),
@@ -351,7 +365,10 @@ function main() {
     incidentRules: {
       ...INCIDENT_RULES,
       statementTimeoutMs: enforcedStatementTimeoutMs(catalogue.statementTimeoutMs),
-      runLockHeld: lock.acquired
+      // Truthful, always. `runLock` says the rule exists; these two say what this run did.
+      runLockHeld: Boolean(lock.acquired) && !lock.skipped,
+      runLockSkipped: Boolean(lock.skipped),
+      runLockSkipReason: lock.skipped ? lockSkipAck.trim() : null
     },
     checks: startLedger(catalogue.checks),
     checksRun: 0,
@@ -513,6 +530,13 @@ function main() {
   report.findings.sort((a, b) => severityRank(a.severity) - severityRank(b.severity) || b.rowCount - a.rowCount);
   report.status = report.findings.length ? "fail" : (report.parked.length ? "degraded" : "pass");
   report.slackLayerMessage = layerSentence(report.findings, report.parked);
+  if (lock.skipped) {
+    report.parked.push({
+      name: "run lock",
+      reason: `this sweep ran without the lock that stops two sweeps hitting the production database at once. Reason given: ${lockSkipAck.trim()}`
+    });
+    report.slackLayerMessage = `${report.slackLayerMessage} This check ran without the lock that stops two of them running at once.`;
+  }
   writeJson(outPath, report);
 
   // stdout is quoted verbatim into the receipt and can reach Slack, so it stays plain English.
@@ -696,8 +720,37 @@ function selfTest() {
   if (enforcedStatementTimeoutMs(0) !== 15000 || enforcedStatementTimeoutMs("x") !== 15000) {
     throw new Error("self-test: a missing timeout must fall back to 15s, never to none");
   }
-  if (!readOnlySql("select 1 limit 1", enforcedStatementTimeoutMs(20000)).includes("statement_timeout = 15000")) {
-    throw new Error("self-test: the enforced timeout must reach the wrapper");
+  // The path the old self-test never took: it passed a SAFE value in and confirmed 15000, so it
+  // could never observe that the wrapper's own DEFAULT was 20000 - which is what the two proof
+  // queries in this very file were using. Assert the default, and every way of not naming one.
+  for (const built of [
+    readOnlySql("select 1 limit 1"),
+    readOnlySql("select 1 limit 1", undefined),
+    readOnlySql("select 1 limit 1", null),
+    readOnlySql("select 1 limit 1", 20000),
+    readOnlySql("select 1 limit 1", Infinity),
+    readOnlySql("select 1 limit 1", "15000abc"),
+    readOnlyProofSql(),
+    roleGrantProofSql(["goats"])
+  ]) {
+    const asked = /statement_timeout = (\d+)/.exec(built)?.[1];
+    if (asked !== "15000") throw new Error(`self-test: a query asked the database for ${asked}ms, not the 15s the rules cap it at`);
+  }
+  if (readOnlySql("select 1 limit 1", 5000).includes("statement_timeout = 15000")) {
+    throw new Error("self-test: a shorter timeout must still be honoured");
+  }
+
+  // A receipt must never say a safety rule held when it did not. This is the one artefact
+  // somebody reads after the next incident to decide whether the rule was in force.
+  {
+    const runner = readFileSync(fileURLToPath(import.meta.url), "utf8");
+    if (!runner.includes("runLockSkipped")) throw new Error("self-test: the receipt must record when no lock was taken");
+    if (!runner.includes("GOATOS_DASHBOARD_RUN_LOCK_SKIP_ACK")) {
+      throw new Error("self-test: running without the lock must need an acknowledgement on the record");
+    }
+    if (/runLockHeld:\s*lock\.acquired\b/.test(runner)) {
+      throw new Error("self-test: runLockHeld must not read true for a run that skipped the lock");
+    }
   }
 
   // The run lock refuses a second sweep rather than queueing behind it.
