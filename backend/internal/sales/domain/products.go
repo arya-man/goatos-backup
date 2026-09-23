@@ -327,6 +327,8 @@ func (w ProductWrite) Validate() error {
 	if w.Status != StatusActive && w.Status != StatusArchived {
 		return ErrProductValidation{Field: "status", Reason: "must be in use or archived"}
 	}
+	// SortOrder is not asked for on screen any more: zero means "put it at the end", which the
+	// repository resolves. A NEGATIVE one is still nonsense and is refused.
 	if w.SortOrder < 0 {
 		return ErrProductValidation{Field: "sort_order", Reason: "must not be negative"}
 	}
