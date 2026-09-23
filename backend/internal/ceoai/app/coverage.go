@@ -885,6 +885,14 @@ var questionStopWords = map[string]bool{
 	"where": true, "your": true, "ours": true, "each": true, "every": true, "last": true,
 	"month": true, "week": true, "today": true, "date": true, "days": true, "year": true,
 	"farm": true, "park": true, "please": true, "current": true, "total": true,
+	// The MODALS, as a closed class. English has nine of them and no tenth, so
+	// listing them is grammar rather than the word-by-word enumeration this
+	// file exists to stop doing. `will` was already here; the rest arrived
+	// through the contraction expansion — `couldn't` expands to `could`, which
+	// is four letters, is in no other list, and was therefore read as a thing
+	// the farm might record.
+	"can": true, "could": true, "shall": true, "should": true,
+	"would": true, "must": true, "might": true, "cannot": true,
 }
 
 // englishClitics are the CONTRACTION suffixes of English, and the list is

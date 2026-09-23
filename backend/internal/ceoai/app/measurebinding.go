@@ -272,14 +272,23 @@ func compoundSubjects(questionText string) [][2]string {
 }
 
 // contentWord strips a question word down to the noun it carries, or returns ""
-// when it carries none. The apostrophe cut matters: "what's" tokenizes into
-// "what'" and "what's", neither of which any schema models and neither of which
-// asks about anything.
+// when it carries none.
+//
+// CUTTING AT THE APOSTROPHE WAS WRONG, and it was wrong live. It was written
+// for "what's" — cut at the quote and what is left is "what", a stop word — and
+// it happens to be right for exactly that shape. On a NEGATIVE contraction it
+// keeps the wrong half: "hasn't" becomes "hasn", which is four letters long and
+// is not in any stop list, so it reads as a noun the farm might record. "who
+// hasn't paid us" then produced the compound subject `hasn paid` and the leader
+// was told, in those words, that there is no source for "hasn paid".
+//
+// The contraction is expanded rather than cut, through the same closed set of
+// English clitics the coverage tokenizer uses, so "hasn't" arrives here as the
+// ordinary stop word "has" and carries no subject at all. One expansion, two
+// callers: a leader typing an apostrophe must not reach two different answers
+// depending on which gate reads the word.
 func contentWord(raw string) string {
-	w := strings.Trim(raw, ".,;:?!()\"'“”")
-	if i := strings.Index(w, "'"); i > 0 {
-		w = w[:i]
-	}
+	w := expandContraction(strings.Trim(raw, ".,;:?!()\"'“”"))
 	if len(w) < 4 || questionStopWords[w] {
 		return ""
 	}
