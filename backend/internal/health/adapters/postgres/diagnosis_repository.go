@@ -278,6 +278,8 @@ func (r *Repository) ObservationForm(ctx context.Context, tenantID, goatID strin
 		Tag:             tag,
 		TypeKey:         animal.Class,
 		TypeLabel:       typeLabel,
+		Sex:             animal.Sex,
+		Stage:           animal.Stage,
 		RegisterVersion: doc.RegisterVersion,
 		Pages:           doc.Pages(),
 	}

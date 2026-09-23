@@ -381,5 +381,8 @@ data class HealthObservationFormDto(
     @SerialName("type_key") val typeKey: String = "",
     @SerialName("type_label") val typeLabel: String = "",
     @SerialName("register_version") val registerVersion: String = "",
+    /** The animal's own sex and stage, normalised as the engine reads them (F/M). */
+    val sex: String = "",
+    val stage: String = "",
     val pages: List<HealthFormPageDto> = emptyList(),
 )

@@ -58,9 +58,62 @@ data class AuthoredForm(
     val typeKey: String = "",
     val typeLabel: String = "",
     val registerVersion: String = "",
+    /**
+     * The animal's OWN sex and stage, normalised by the server exactly as its engine reads them.
+     *
+     * They arrive with the form rather than being read off a search result, because the register
+     * speaks `F`/`M` while the herd register stores `female`/`male`. Matching the wrong vocabulary
+     * does not fail loudly -- it silently hides every sex-gated question, so the operator walks a
+     * form with the udder questions missing and the submit is refused after the animal is back in
+     * its pen. That shipped, and this field is why it cannot again.
+     */
+    val sex: String = "",
+    val stage: String = "",
     val pages: List<AuthoredPage> = emptyList(),
 ) {
     val isEmpty: Boolean get() = pages.isEmpty()
+
+    private val byId: Map<String, AuthoredQuestion> =
+        pages.flatMap { it.questions }.associateBy { it.id }
+
+    /**
+     * The questions this page asks RIGHT NOW.
+     *
+     * Conditions are resolved over the WHOLE form, never within one page, because a follow-up is
+     * routinely authored onto a later page than the question that triggers it -- the Drop test on
+     * the Kid page turns on the Activity answer given back on Vitals. Resolving per page hid it,
+     * the operator never saw it, and the server refused the submit for a question the phone had
+     * decided not to ask.
+     */
+    fun applicableQuestions(page: AuthoredPage, answers: AuthoredAnswers): List<AuthoredQuestion> =
+        page.questions.filter { applies(it, answers, HashSet()) }
+
+    /**
+     * What is still unanswered on this page.
+     *
+     * EVERY applicable question is compulsory. A blank cannot tell "nobody looked" from "normal",
+     * and the unexplained-findings channel depends on that difference -- which is why a question
+     * hidden by sex records nothing rather than being left empty: it was never asked.
+     */
+    fun missing(page: AuthoredPage, answers: AuthoredAnswers): List<String> =
+        applicableQuestions(page, answers).filterNot { answers.answered(it.id) }.map { it.title }
+
+    /**
+     * A question applies when the animal matches its sex/stage gate AND its parent both applies
+     * itself and holds one of the listed answers.
+     *
+     * `seen` breaks a cycle an authored document could contain; a question caught in one applies,
+     * because hiding it would take a question away from the operator that the server still owes.
+     */
+    private fun applies(q: AuthoredQuestion, answers: AuthoredAnswers, seen: MutableSet<String>): Boolean {
+        if (q.onlyIfSex.isNotBlank() && !q.onlyIfSex.equals(sex, ignoreCase = true)) return false
+        if (q.onlyIfStage.isNotEmpty() && q.onlyIfStage.none { it.equals(stage, ignoreCase = true) }) return false
+        if (q.onlyIfQuestion.isBlank()) return true
+        if (!seen.add(q.id)) return true
+        val parent = byId[q.onlyIfQuestion] ?: return false
+        if (!applies(parent, answers, seen)) return false
+        return answers.of(parent.id).any { it in q.onlyIfIn }
+    }
 }
 
 /**
@@ -104,43 +157,3 @@ data class AuthoredAnswers(val values: Map<String, Set<String>> = emptyMap()) {
         if (raw.isBlank()) AuthoredAnswers(values - questionId)
         else AuthoredAnswers(values + (questionId to setOf(raw.trim())))
 }
-
-/**
- * The questions this page asks RIGHT NOW.
- *
- * A conditional question applies only when its parent is itself applicable AND holds one of the
- * listed answers -- the same chain the server walks, so a follow-up whose parent was hidden by a
- * change of mind is hidden too. Sex and stage come from the ANIMAL, never from the form: they
- * decide how an answer is read, and a manager who could type them could change the reading.
- */
-fun AuthoredPage.applicableQuestions(
-    answers: AuthoredAnswers,
-    sex: String,
-    stage: String,
-): List<AuthoredQuestion> {
-    val shown = LinkedHashSet<String>()
-    val out = ArrayList<AuthoredQuestion>(questions.size)
-    for (q in questions) {
-        if (q.onlyIfSex.isNotBlank() && !q.onlyIfSex.equals(sex, ignoreCase = true)) continue
-        if (q.onlyIfStage.isNotEmpty() && q.onlyIfStage.none { it.equals(stage, ignoreCase = true) }) continue
-        if (q.onlyIfQuestion.isNotBlank()) {
-            if (q.onlyIfQuestion !in shown) continue
-            if (answers.of(q.onlyIfQuestion).none { it in q.onlyIfIn }) continue
-        }
-        shown += q.id
-        out += q
-    }
-    return out
-}
-
-/**
- * What is still unanswered on this page.
- *
- * EVERY applicable question is compulsory. A blank cannot tell "nobody looked" from "normal", and
- * the unexplained-findings channel depends on that difference -- which is why a question hidden by
- * sex records nothing rather than being left empty: it was never asked.
- */
-fun AuthoredPage.missing(answers: AuthoredAnswers, sex: String, stage: String): List<String> =
-    applicableQuestions(answers, sex, stage)
-        .filterNot { answers.answered(it.id) }
-        .map { it.title }

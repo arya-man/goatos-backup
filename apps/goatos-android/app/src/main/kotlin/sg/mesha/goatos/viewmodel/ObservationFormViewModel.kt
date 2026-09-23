@@ -293,7 +293,7 @@ class ObservationFormViewModel @Inject constructor(
                 goatId = goatId,
                 findings = current.form.toFindingsDto(),
                 answers = if (authored.isEmpty) current.form.toAuthoredAnswersJson()
-                else _answers.value.toWireJson(),
+                else _answers.value.toWireJson(_authoredForm.value),
                 context = HealthObservationContextDto(),
                 idempotencyKey = idempotencyKey.current(),
                 goatDisplayId = current.goatDisplayId,
@@ -482,12 +482,28 @@ internal fun ObservationFormState.toAuthoredAnswersJson(): JsonObject? {
  * so one shape on the wire is one shape in the tests -- the same reasoning the typed findings DTO
  * records for its own multi-value fields.
  */
-private fun AuthoredAnswers.toWireJson(): JsonObject =
-    JsonObject(
-        values.filterValues { it.isNotEmpty() }.mapValues { (_, picked) ->
-            JsonArray(picked.map { JsonPrimitive(it) })
+/**
+ * The answers as the engine reads them.
+ *
+ * A MEASUREMENT goes as a bare number, never as a list holding its own text. The engine keeps
+ * `Values` and `Number` apart on purpose -- a temperature has to be compared against the
+ * question's bands -- so `["102"]` reaches it as a ticked option named "102" and the whole
+ * submit is refused with "Temperature takes a measurement". That shipped: an operator walked
+ * eleven pages and the run was stored invalid behind a screen that read "Nothing found".
+ *
+ * A figure that will not parse is sent as typed rather than dropped, so the server names the
+ * field instead of reporting it unanswered.
+ */
+private fun AuthoredAnswers.toWireJson(form: AuthoredForm): JsonObject {
+    val numbers = form.pages.flatMap { it.questions }.filter { it.isNumber }.map { it.id }.toSet()
+    return JsonObject(
+        values.filterValues { it.isNotEmpty() }.mapValues { (id, picked) ->
+            val one = picked.first().toDoubleOrNull()
+            if (id in numbers && picked.size == 1 && one != null) JsonPrimitive(one)
+            else JsonArray(picked.map { JsonPrimitive(it) })
         },
     )
+}
 
 /**
  * The published form, as this screen holds it.
@@ -507,6 +523,8 @@ private fun HealthObservationFormDto.toAuthoredForm(): AuthoredForm =
         typeKey = typeKey,
         typeLabel = typeLabel,
         registerVersion = registerVersion,
+        sex = sex,
+        stage = stage,
         pages = pages.map { page ->
             AuthoredPage(
                 id = page.id,
