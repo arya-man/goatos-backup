@@ -9,10 +9,14 @@ import { basename, resolve } from "node:path";
 
 const repo = resolve(import.meta.dirname, "../..");
 const limit = Number(process.env.GOATOS_MAX_TRACKED_FILE_BYTES || 5 * 1024 * 1024);
-const exempt = new Set(["package-lock.json", "pnpm-lock.yaml"]);
+// EXACT repo-relative paths, not basenames. `exempt.has(basename(path))` let a
+// 6 MB blob named package-lock.json pass from ANY directory — verified
+// 2026-09-23 at tools/tmpprobe/package-lock.json, while the same 6 MB in
+// README.md was caught. The lockfiles that need the exemption live at the root.
+const exempt = new Set(["package-lock.json", "pnpm-lock.yaml", "apps/admin-web/package-lock.json"]);
 
 export function oversized(entries, maxBytes = limit) {
-  return entries.filter(({ path, size }) => !exempt.has(basename(path)) && size > maxBytes);
+  return entries.filter(({ path, size }) => !exempt.has(path) && size > maxBytes);
 }
 
 function selfTest() {

@@ -95,20 +95,40 @@ function walkTree(dir, keep) {
   return out;
 }
 
+// WORKING TREE COUNTS. `<base>...HEAD` is committed history only, so a violation
+// an agent has just written — the state a PostToolUse/pre-commit hook runs in —
+// was invisible and this guard exited 0 on it. Staged and unstaged diffs are
+// unioned in, the same three sources changed_since_base() uses in
+// tools/ci/run-local-ci.sh. Two extra cheap git calls; still diff-scoped, no
+// tree walk.
 function changedFiles() {
   const base = process.env.ADMIN_WEB_GUARD_BASE || "origin/main";
-  const ranges = [`${base}...HEAD`, "HEAD~1...HEAD"];
-  for (const range of ranges) {
+  const found = new Set();
+  let resolved = false;
+  for (const range of [`${base}...HEAD`, "HEAD~1...HEAD"]) {
     try {
-      const refOk = range.split("...")[0];
-      execSync(`git rev-parse --verify --quiet ${refOk}^{commit}`, { cwd: repo, stdio: "ignore" });
-      const out = execSync(`git diff --name-only --diff-filter=d ${range}`, { cwd: repo, encoding: "utf8" });
-      return out.split("\n").map((s) => s.trim()).filter(Boolean).filter(isAdminWebTs);
+      execSync(`git rev-parse --verify --quiet ${range.split("...")[0]}^{commit}`, { cwd: repo, stdio: "ignore" });
+      for (const line of execSync(`git diff --name-only --diff-filter=d ${range}`, { cwd: repo, encoding: "utf8" }).split("\n")) {
+        if (line.trim()) found.add(line.trim());
+      }
+      resolved = true;
+      break;
     } catch {
       /* try next range */
     }
   }
-  return null;
+  for (const args of ["diff --name-only --diff-filter=d --cached", "diff --name-only --diff-filter=d"]) {
+    try {
+      for (const line of execSync(`git ${args}`, { cwd: repo, encoding: "utf8" }).split("\n")) {
+        if (line.trim()) found.add(line.trim());
+      }
+      resolved = true;
+    } catch {
+      /* ignore */
+    }
+  }
+  if (!resolved) return null;
+  return [...found].filter(isAdminWebTs);
 }
 
 function selfTest() {
