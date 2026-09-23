@@ -43,6 +43,36 @@ function locatorFor(page, target) {
 
 /** A step written as a sentence instead of a target the browser can find. */
 export const NEEDS_STEP_PREFIX = "needs-step: ";
+/** The control a step has to click is not on the page: that is the product, not the harness. */
+export const STEP_TARGET_PREFIX = "step-target: ";
+
+/**
+ * Does this expectation compare a VALUE, or only ask whether something is on the page?
+ *
+ * "Is it visible", "at least one of these", "this must not appear" and "the address contains"
+ * all hold on a page whose figures are wrong, so they are smoke: they prove the screen was
+ * reached, not that it is right. An exact string and a comparison between two figures can be
+ * wrong while everything still renders, so they are the ones that can catch a regression.
+ *
+ * check-coverage-since-aug1.mjs imports this so the ledger and the runner cannot drift apart.
+ */
+export function isValueExpect(expect = {}) {
+  if (expect.equals) return true;
+  if (expect.compare) return true;
+  return false;
+}
+
+/** The text of an element, and the first number in it. */
+async function readCell(page, target) {
+  const loc = locatorFor(page, target).first();
+  const shown = await loc.waitFor({ state: "visible", timeout: 5_000 }).then(
+    () => loc.innerText().catch(() => null),
+    () => null,
+  );
+  if (shown === null) return { text: null, number: null };
+  const match = String(shown).replace(/,/g, "").match(/-?\d+(?:\.\d+)?/);
+  return { text: String(shown).trim(), number: match ? Number(match[0]) : null };
+}
 
 async function runStep(page, step) {
   const target = step.click;
@@ -57,7 +87,11 @@ async function runStep(page, step) {
   const label = target.text ?? target.css ?? "";
   if (WRITE_WORDS.test(label)) throw new Error(`refused write-shaped step "${label}"`);
   const loc = locatorFor(page, target).first();
-  await loc.waitFor({ state: "visible", timeout: 5_000 });
+  // A control that never appears is a product finding, not a harness fault: say which it is,
+  // so the two never get mixed up downstream.
+  await loc.waitFor({ state: "visible", timeout: 5_000 }).catch(() => {
+    throw new Error(`${STEP_TARGET_PREFIX}${label || JSON.stringify(target)}`);
+  });
   const text = (await loc.innerText().catch(() => "")) + " " + ((await loc.getAttribute("aria-label").catch(() => "")) ?? "");
   if (WRITE_WORDS.test(text)) throw new Error(`refused write-shaped control "${text.trim().slice(0, 40)}"`);
   await loc.click({ timeout: 5_000 });
@@ -87,71 +121,177 @@ async function checkExpect(page, expect) {
   if (expect.url) {
     return page.url().includes(expect.url.contains) ? null : { what: `address should contain ${expect.url.contains}`, loc: null };
   }
+  // ------------------------------------------------------------------ expectations that can be wrong
+  // Everything above holds on a page whose figures are nonsense. These two do not.
+  if (expect.equals) {
+    const { text } = await readCell(page, expect.equals);
+    if (text === null) return { what: `not visible: ${expect.equals.text ?? expect.equals.css}`, loc: null };
+    return text === String(expect.equals.is).trim() ? null : { what: `should read "${expect.equals.is}", reads "${text}"`, loc: locatorFor(page, expect.equals).first() };
+  }
+  if (expect.compare) {
+    const { left, right, op = "eq", tolerance = 0 } = expect.compare;
+    const a = await readCell(page, left);
+    const b = await readCell(page, right);
+    if (a.number === null || b.number === null) {
+      return { what: `not visible: ${(a.number === null ? left : right).text ?? (a.number === null ? left : right).css}`, loc: null };
+    }
+    const ok = op === "lte" ? a.number <= b.number + tolerance
+      : op === "gte" ? a.number + tolerance >= b.number
+        : Math.abs(a.number - b.number) <= tolerance;
+    const said = op === "lte" ? "must not be more than" : op === "gte" ? "must not be less than" : "must equal";
+    return ok ? null : { what: `${a.number} ${said} ${b.number}`, loc: locatorFor(page, left).first() };
+  }
   return null;
 }
 
+/**
+ * Did the screen have the rows this data-dependent check is drawn from?
+ *
+ * Only an entry that says how to tell can be judged. Guessing - "the page has some rows, so the
+ * feature's rows must be there too" - is how a correct page gets accused, and a check that fires
+ * on a correct page is worse than no check. So without a `dataProbe` the answer is "cannot tell",
+ * which is not-attempted: never a pass, never an accusation.
+ */
+export async function probeData(page, entry) {
+  const probe = entry.dataProbe;
+  if (!probe) {
+    return { present: false, why: "this check only holds when the screen has particular rows, and the check does not say how to tell whether it does, so it was never put to the test" };
+  }
+  const min = probe.min ?? 1;
+  const loc = locatorFor(page, probe);
+  const total = await loc.count().catch(() => 0);
+  let seen = 0;
+  for (let i = 0; i < total && seen < min; i += 1) {
+    if (await loc.nth(i).isVisible().catch(() => false)) seen += 1;
+  }
+  if (seen >= min) return { present: true, why: "" };
+  return { present: false, why: "the screen had none of the rows this feature is drawn from, so there was nothing to judge" };
+}
+
+/** A miss that only says "it is not on the page" - the shape a screen with no rows produces. */
+const ABSENCE_MISS = /^(not visible|expected at least)/;
+
 // Returns nothing when all pass; throws one readable error listing every missing feature.
-export async function assertFeaturesPresent(page, { routeName, viewportLabel, screenshotDir, relativeToRepo = (p) => p, reload, deployedSha }) {
-  const entries = loadFeatureAssertions().filter((e) => e.route === routeName && (e.viewports ?? ["laptop", "mobile"]).includes(viewportLabel));
+//
+// THREE OUTCOMES, NEVER TWO. A data-dependent entry used to report green whenever its target was
+// not on the page, on the theory that the rows may simply not be there today. Measured against
+// the weighing and vaccination screens that swallowed 178 of 276 assertions on a page with
+// nothing drawn on it at all, including a plan editor reporting 17 of 17 passed against a blank
+// screen. A check that did not run must never render a verdict:
+//
+//   the screen had its rows and the check held      -> pass
+//   the screen had its rows and the check failed    -> fail, with a red-boxed screenshot
+//   the screen had no rows to judge                 -> not-attempted, never a pass
+//
+// and a throw from the assertion machinery itself is a harness fault, reported as one and never
+// swallowed - for every status, not just the ones we happened to think of.
+export async function assertFeaturesPresent(page, { routeName, viewportLabel, screenshotDir, relativeToRepo = (p) => p, reload, deployedSha, entries: given }) {
+  const entries = (given ?? loadFeatureAssertions()).filter((e) => e.route === routeName && (e.viewports ?? ["laptop", "mobile"]).includes(viewportLabel));
   if (entries.length === 0) return;
   const missing = [];
   const awaiting = [];
   const needsReview = [];
+  const notAttempted = [];
+  const harnessFaults = [];
+  // Entries this run stepped over: a route it was not on, or a step the write guard refused.
+  // They are not passes either, so they come out of the denominator rather than inflating it.
+  let skipped = 0;
   // Earlier checks (overlays, safe clicks) leave drawers open; start from a clean page.
   if (reload) await reload().catch(() => {});
   // Order no-click checks first, then reload before each clicking check so every check starts clean.
   entries.sort((a, b) => (a.steps?.length ? 1 : 0) - (b.steps?.length ? 1 : 0));
   for (const entry of entries) {
-    if (entry.needsRoute) { console.log(`feature_assertion_skip=${routeName}:${viewportLabel}:${entry.sha}:needs route ${entry.needsRoute}`); continue; }
+    if (entry.needsRoute) { skipped += 1; console.log(`feature_assertion_skip=${routeName}:${viewportLabel}:${entry.sha}:needs route ${entry.needsRoute}`); continue; }
     if (deployedSha && isAwaitingDeploy(entry.sha, deployedSha)) { awaiting.push(entry); continue; }
     try {
       // One attempt = fresh load, replay the steps, check the expects.
+      // It answers { miss } (the product is wrong), { skipped } (nothing to judge), or null (pass).
       const attempt = async () => {
         if (entry.steps?.length && reload) await reload();
         for (const step of entry.steps ?? []) await runStep(page, step);
         for (const expect of entry.expect ?? []) {
           const miss = await checkExpect(page, expect);
-          if (miss) {
-            // Data-dependent features render only when the page has rows: absence is not a failure,
-            // but something that must NOT appear is still a failure.
-            if (entry.status === "data-dependent" && /^(not visible|expected at least)/.test(miss.what)) return null;
-            return miss;
+          if (!miss) continue;
+          // A data-dependent feature draws only when the screen has its rows. "It is not there"
+          // is then either a real regression or a day with nothing to draw - and which one it is
+          // decides between a finding and not-attempted. It is NEVER a pass. Something that must
+          // NOT appear is a failure whatever the screen holds.
+          if (entry.status === "data-dependent" && ABSENCE_MISS.test(miss.what)) {
+            const data = await probeData(page, entry);
+            return data.present ? { miss } : { skipped: data.why };
           }
+          return { miss };
         }
         return null;
       };
-      let miss = await attempt();
+      let result = await attempt();
       // The first click after a fresh load can land before React has attached its handler, so the
       // control is visible, the click is a no-op, and the view never changes. That looked like a
       // missing feature (acbb15186 on laptop, passing on mobile, with every sibling check on the
       // same route green). Replay a clicking entry once before calling it broken: a feature that is
       // genuinely gone fails both times, and the retry is only paid on a failure.
-      if (miss && entry.steps?.length && reload) miss = await attempt();
-      if (miss) {
-        missing.push({ entry, miss });
-        if (miss.loc) await miss.loc.evaluate((el) => el.setAttribute("data-smoke-issue", "feature")).catch(() => {});
+      if (result?.miss && entry.steps?.length && reload) result = await attempt();
+      if (result?.skipped) {
+        notAttempted.push({ entry, why: result.skipped });
+      } else if (result?.miss) {
+        missing.push({ entry, miss: result.miss });
+        if (result.miss.loc) await result.miss.loc.evaluate((el) => el.setAttribute("data-smoke-issue", "feature")).catch(() => {});
       }
     } catch (error) {
       const message = String(error?.message ?? error);
       // The write guard stopping a step is a safety skip, not a missing feature.
-      if (message.startsWith("refused ")) { console.log(`feature_assertion_skip=${routeName}:${viewportLabel}:${entry.sha}:${message.slice(0, 80)}`); continue; }
+      if (message.startsWith("refused ")) { skipped += 1; console.log(`feature_assertion_skip=${routeName}:${viewportLabel}:${entry.sha}:${message.slice(0, 80)}`); continue; }
       if (message.startsWith(NEEDS_STEP_PREFIX)) {
         needsReview.push({ entry, why: message.slice(NEEDS_STEP_PREFIX.length) });
         console.log(`feature_assertion_needs_step=${viewportLabel}:${routeName}|${entry.sha}|${entry.title}|${message.slice(NEEDS_STEP_PREFIX.length, NEEDS_STEP_PREFIX.length + 80)}`);
         continue;
       }
-      if (entry.status !== "data-dependent") missing.push({ entry, miss: { what: String(error?.message ?? error).split("\n")[0] } });
+      if (message.startsWith(STEP_TARGET_PREFIX)) {
+        // The control this check has to click is not on the screen. For a data-dependent entry
+        // that can be a screen with nothing on it, so it is judged the same way as a missing
+        // target: rows or no rows, never a silent pass.
+        const what = `the control this check has to open is not on the page: ${message.slice(STEP_TARGET_PREFIX.length)}`;
+        if (entry.status === "data-dependent") {
+          const data = await probeData(page, entry).catch(() => ({ present: false, why: "the screen could not be read, so nothing was proved either way" }));
+          if (data.present) missing.push({ entry, miss: { what } });
+          else notAttempted.push({ entry, why: data.why });
+        } else {
+          missing.push({ entry, miss: { what } });
+        }
+        continue;
+      }
+      // Anything else is the machinery failing, not the farm's screen. A swallowed error is a
+      // verdict nobody earned: report it as a harness fault, for every status.
+      harnessFaults.push({ entry, why: message.split("\n")[0] });
     }
   }
-  console.log(`feature_assertions=${routeName}:${viewportLabel}:${entries.length - missing.length - awaiting.length}/${entries.length - awaiting.length}${awaiting.length ? ` awaiting_deploy=${awaiting.length}` : ""}`);
+  // Only entries this run actually put to the test are in the denominator. A check that did not
+  // run must never render a verdict - and it must not quietly pad the score either.
+  const judged = entries.length - awaiting.length - notAttempted.length - harnessFaults.length - needsReview.length - skipped;
+  console.log(`feature_assertions=${routeName}:${viewportLabel}:${judged - missing.length}/${judged}`
+    + `${notAttempted.length ? ` not_attempted=${notAttempted.length}` : ""}`
+    + `${harnessFaults.length ? ` harness_faults=${harnessFaults.length}` : ""}`
+    + `${awaiting.length ? ` awaiting_deploy=${awaiting.length}` : ""}`);
   for (const entry of awaiting) console.log(`feature_awaiting_deploy=${viewportLabel}:${routeName}|${entry.sha}|${entry.title}`);
   for (const m of missing) console.log(`feature_missing=${viewportLabel}:${routeName}|${m.entry.sha}|${m.entry.title}|${m.miss.what}`);
+  for (const n of notAttempted) console.log(`feature_not_attempted=${viewportLabel}:${routeName}|${n.entry.sha}|${n.entry.title}|${n.why}`);
+  for (const h of harnessFaults) console.log(`feature_assertion_harness_fault=${viewportLabel}:${routeName}|${h.entry.sha}|${h.entry.title}|${h.why}`);
   // Checks nobody finished writing are reported separately and quietly: they say
   // nothing about whether the farm's screens work.
   if (needsReview.length > 0) {
     console.log(`feature_assertions_need_review=${routeName}:${viewportLabel}:${needsReview.length}`);
   }
   if (missing.length === 0) {
+    // A fault in the machinery is reported as a fault in the machinery. It is not a finding about
+    // the farm's screens, and it is not silence either.
+    if (harnessFaults.length > 0) {
+      throw new Error(
+        `${routeName} ${viewportLabel} harness fault, ${harnessFaults.length} check(s) could not be run: ${harnessFaults
+          .slice(0, 3)
+          .map((h) => `${h.entry.title} (${h.why})`)
+          .join("; ")}`,
+      );
+    }
     if (needsReview.length > 0) {
       throw new Error(
         `${routeName} ${viewportLabel} ${needsReview.length} assertion(s) need review: ${needsReview
@@ -180,5 +320,8 @@ export async function assertFeaturesPresent(page, { routeName, viewportLabel, sc
     if (what) return `${m.entry.title} — ${what}`;
     return m.entry.title;
   };
-  throw new Error(`${routeName} ${viewportLabel} feature missing: ${missing.slice(0, 4).map(say).join("; ")}${missing.length > 4 ? ` (+${missing.length - 4} more)` : ""}`);
+  // A harness fault alongside real findings is still said out loud: it is the difference between
+  // "these four things are wrong" and "these four things are wrong and one check never ran".
+  const alsoFaulted = harnessFaults.length ? `; and ${harnessFaults.length} check(s) could not be run at all` : "";
+  throw new Error(`${routeName} ${viewportLabel} feature missing: ${missing.slice(0, 4).map(say).join("; ")}${missing.length > 4 ? ` (+${missing.length - 4} more)` : ""}${alsoFaulted}`);
 }
