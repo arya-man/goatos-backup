@@ -219,7 +219,7 @@ func endsComparison(toks []sqlToken, last int) bool {
 //
 // `sales_buyer_summary.buyer_key` is
 // `lower(regexp_replace(btrim(d.buyer_name), '\s+', ' ', 'g'))`
-// (000393:256), so the STORED key already has its internal whitespace
+// (000395:256), so the STORED key already has its internal whitespace
 // collapsed, while `upper(trim(col))` only strips the ends. A reader typing
 // `'Ravi  Traders'` -- exactly the spelling variance that normalisation exists
 // to absorb -- still got "no records found". `regexp_replace` is deliberately

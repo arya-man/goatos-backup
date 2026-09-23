@@ -116,7 +116,7 @@ func TestAConcatenatedRightHandSideIsLeftAloneRatherThanReassociated(t *testing.
 }
 
 // `sales_buyer_summary.buyer_key` is
-// `lower(regexp_replace(btrim(d.buyer_name), '\s+', ' ', 'g'))` (000393:256),
+// `lower(regexp_replace(btrim(d.buyer_name), '\s+', ' ', 'g'))` (000395:256),
 // so the stored key has its INTERNAL whitespace collapsed while
 // `upper(trim(...))` only strips the ends. A reader typing the doubled space is
 // exactly the spelling variance the view's normalisation exists to absorb, and

@@ -1,5 +1,5 @@
 // sales_growth_views_test.go holds the adversarial grain/identity proofs for the
-// four coverage views added by migrations 000393 (sales) and 000394 (weighing
+// four coverage views added by migrations 000395 (sales) and 000396 (weighing
 // growth):
 //
 //	ceo_ai.sales_deal_lines_closed          one row per line of a closed deal
@@ -341,7 +341,7 @@ func scan(t *testing.T, ctx context.Context, pool *pgxpool.Pool, fx growthFixtur
 // that fanned out would repeat a row on the next page; a non-unique order key
 // would skip one.
 //
-// The key is (tenant_id, deal_id, line_no), which is why 000393 PROJECTS
+// The key is (tenant_id, deal_id, line_no), which is why 000395 PROJECTS
 // `line_no` at all. Two things have to hold before the walk means anything, and
 // both are asserted first:
 //
@@ -675,7 +675,7 @@ func TestSaleReadinessFlagsUseStrictlyGreaterThan(t *testing.T) {
 }
 
 // The scope proof: one tenant's sales and weighs are invisible to another, on
-// every one of the four views. Each join in 000393/000394 is keyed on tenant_id
+// every one of the four views. Each join in 000395/000396 is keyed on tenant_id
 // as well as its own key, and this is what proves it.
 //
 // BOTH TENANTS ARE SEEDED, and that is the whole difference between this test

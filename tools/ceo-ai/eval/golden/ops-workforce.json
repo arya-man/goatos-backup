@@ -260,7 +260,7 @@
     "id": "weighing-adg-by-breed",
     "class": "weighing_adg_by_breed",
     "question": "Show daily gain by breed for the last 30 days",
-    "notes": "Must read ceo_ai.growth_adg_pairs (migration 000394), NEVER the census view animal_current_scope -- a breed count is not a growth rate. Aggregate by re-dividing sums (sum(gain_kg)*1000/sum(days_between)), never avg(adg_g_per_day): a 7-day pair and a 70-day pair are not two equal observations. One series per breed, bar chart.",
+    "notes": "Must read ceo_ai.growth_adg_pairs (migration 000396), NEVER the census view animal_current_scope -- a breed count is not a growth rate. Aggregate by re-dividing sums (sum(gain_kg)*1000/sum(days_between)), never avg(adg_g_per_day): a 7-day pair and a 70-day pair are not two equal observations. One series per breed, bar chart.",
     "expect": {
       "tiers_any_of": ["api", "sql"],
       "forbid_tools_any_of": ["animal_current_scope", "counts_breakdown"],
@@ -355,7 +355,7 @@
     "id": "weighing-heaviest-pens-table",
     "class": "weighing_heaviest_pens",
     "question": "List the five heaviest pens by average weight",
-    "notes": "The Weights page's 'Average weight by pen' chart as a table, from ceo_ai.weighing_latest_individual_weight (migration 000394): one row per animal at its latest-ever weigh, grouped by pen. Whole-shed (lump-sum) pens have no per-animal row and stay on ceo_ai.weighing_capture_activity. Five rows, table chart type. Reads weighing tables plus breed/sex decoration only -- never the herd register as a population.",
+    "notes": "The Weights page's 'Average weight by pen' chart as a table, from ceo_ai.weighing_latest_individual_weight (migration 000396): one row per animal at its latest-ever weigh, grouped by pen. Whole-shed (lump-sum) pens have no per-animal row and stay on ceo_ai.weighing_capture_activity. Five rows, table chart type. Reads weighing tables plus breed/sex decoration only -- never the herd register as a population.",
     "expect": {
       "tiers_any_of": ["api", "sql"],
       "forbid_tools_any_of": ["animal_current_scope"],

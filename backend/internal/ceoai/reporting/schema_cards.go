@@ -573,7 +573,7 @@ var schemaCards = []SchemaCard{
 	{
 		Name: "sales_deal_lines_closed",
 		// line_no is REQUIRED, not optional prose: it is the view's unique key at
-		// its own grain and the keyset every consumer pages on (migration 000393).
+		// its own grain and the keyset every consumer pages on (migration 000395).
 		// The planner prompt had 3 bytes of headroom when this column was added
 		// (TestPlanPromptByteBound), so this card PAYS for its own column instead
 		// of raising the bound -- the Purpose dropped ", never avg(price_per_kg)"
