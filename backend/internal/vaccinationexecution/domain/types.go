@@ -1363,8 +1363,9 @@ func BuildCardID(shedID, partitionLabel, taskID, batchID, driveID string) string
 	sb.WriteString("shed:")
 	sb.WriteString(shedID)
 	sb.WriteString("|partition:")
-	if partitionLabel != "" && partitionLabel != "whole" {
-		sb.WriteString(partitionLabel)
+	partitionKey := NormalizePartitionLabel(partitionLabel)
+	if partitionKey != "" && partitionKey != "whole" {
+		sb.WriteString(partitionKey)
 	} else {
 		sb.WriteString("whole")
 	}

@@ -632,6 +632,7 @@ WITH assignment_vaccines AS (
        AND oi.obligation_id = m.obligation_id
       WHERE m.tenant_id = vda.tenant_id
         AND m.assignment_id = vda.assignment_id
+        AND m.canceled_at IS NULL
         AND oi.status NOT IN ('canceled', 'superseded', 'waived')
       GROUP BY oi.rule_id
     ) member_rules
@@ -643,6 +644,7 @@ WITH assignment_vaccines AS (
       FROM vaccination_drive_assignment_members m
       WHERE m.tenant_id = vda.tenant_id
         AND m.assignment_id = vda.assignment_id
+        AND m.canceled_at IS NULL
     )
   ) assignment_rule ON true
   LEFT JOIN protocol_rules pr
@@ -1045,6 +1047,7 @@ raw AS (
   LEFT JOIN vaccination_drive_assignment_members m
     ON m.tenant_id = oi.tenant_id
    AND m.obligation_id = oi.obligation_id
+   AND m.canceled_at IS NULL
    AND m.canceled_at IS NULL
   LEFT JOIN vaccination_drive_assignments assignment
     ON assignment.tenant_id = m.tenant_id
@@ -1524,6 +1527,7 @@ raw_obligations AS MATERIALIZED (
   LEFT JOIN vaccination_drive_assignment_members m
     ON m.tenant_id = oi.tenant_id
    AND m.obligation_id = oi.obligation_id
+   AND m.canceled_at IS NULL
   LEFT JOIN vaccination_drive_assignments assignment
     ON assignment.tenant_id = m.tenant_id
    AND assignment.assignment_id = m.assignment_id
