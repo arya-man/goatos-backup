@@ -101,18 +101,47 @@ func TestAFilterClauseAndAnAggregateAreNotAHidingPlace(t *testing.T) {
 		"in a HAVING clause": "SELECT role_label AS label, CAST(count(*) AS text) AS value " +
 			"FROM ceo_ai.workforce_coverage_status WHERE tenant_id = '1' GROUP BY role_label " +
 			"HAVING max(coalesce(backup_label, '')) = '' LIMIT 100",
-		// count(col) counts the rows the column is FILLED on, so it asks the
-		// same question as a NULL test with no NULL keyword written anywhere.
-		"counted instead of tested": "SELECT role_label AS label, CAST(count(backup_label) AS text) AS value " +
-			"FROM ceo_ai.workforce_coverage_status WHERE tenant_id = '1' GROUP BY role_label LIMIT 100",
-		"counted through a wrapper": "SELECT role_label AS label, CAST(count(nullif(backup_label, '')) AS text) AS value " +
-			"FROM ceo_ai.workforce_coverage_status WHERE tenant_id = '1' GROUP BY role_label LIMIT 100",
 		// Renaming the column does not rename the question.
 		"aliased in the projection": "SELECT role_label AS label, backup_label AS bl, CAST(count(*) AS text) AS value " +
 			"FROM ceo_ai.workforce_coverage_status WHERE tenant_id = '1' AND bl IS NULL GROUP BY role_label, backup_label LIMIT 100",
 	} {
 		if err := validateAbsenceTests(sql); err == nil {
 			t.Errorf("%s was accepted", name)
+		}
+	}
+}
+
+// TestCountingTheColumnSaysSoInTheRefusal. count() reads blankness as
+// arithmetic: it skips the blank rows silently, so count(backup_label) against
+// count(*) reproduces the exact ten-versus-four framing as a ratio with no NULL
+// keyword written anywhere.
+//
+// The statement would be refused either way -- count is a function the
+// expression reader cannot evaluate, so the column reaches a value through an
+// unreadable wrapper -- and the refusal would then say "wraps it in something
+// that cannot be read", which tells the model to try a different wrapper. THE
+// MESSAGE IS THE POINT: a re-plan is steered by what the refusal says, and this
+// one has to say that counting the column IS the question, not that the gate
+// could not follow the arithmetic.
+func TestCountingTheColumnSaysSoInTheRefusal(t *testing.T) {
+	for name, sql := range map[string]string{
+		"counted instead of tested": "SELECT role_label AS label, CAST(count(backup_label) AS text) AS value " +
+			"FROM ceo_ai.workforce_coverage_status WHERE tenant_id = '1' GROUP BY role_label LIMIT 100",
+		"counted through a wrapper": "SELECT role_label AS label, CAST(count(nullif(backup_label, '')) AS text) AS value " +
+			"FROM ceo_ai.workforce_coverage_status WHERE tenant_id = '1' GROUP BY role_label LIMIT 100",
+		"counted bare": "SELECT role_label AS label, count(backup_label) AS value " +
+			"FROM ceo_ai.workforce_coverage_status WHERE tenant_id = '1' GROUP BY role_label LIMIT 100",
+	} {
+		err := validateAbsenceTests(sql)
+		if err == nil {
+			t.Errorf("%s was accepted", name)
+			continue
+		}
+		if !strings.Contains(err.Error(), "counting") {
+			t.Errorf("%s: the refusal does not say the COUNT is the false question: %v", name, err)
+		}
+		if !strings.Contains(err.Error(), "coverage_status") {
+			t.Errorf("%s: the refusal does not name the authority column: %v", name, err)
 		}
 	}
 }
