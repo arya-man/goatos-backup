@@ -41,9 +41,19 @@ function locatorFor(page, target) {
   throw new Error(`assertion target needs css or text: ${JSON.stringify(target)}`);
 }
 
+/** A step written as a sentence instead of a target the browser can find. */
+export const NEEDS_STEP_PREFIX = "needs-step: ";
+
 async function runStep(page, step) {
   const target = step.click;
   if (!target) return;
+  // A step like { click: "the New task button to open the compose modal" } is a note to a
+  // human, not something a browser can click: locatorFor would throw and the entry would be
+  // reported as a MISSING FEATURE on every run, for ever, while the button sits on the page.
+  // An assertion nobody finished writing is a check that needs review, not a broken product.
+  if (typeof target === "string" || (!target.css && !target.text)) {
+    throw new Error(`${NEEDS_STEP_PREFIX}${typeof target === "string" ? target : JSON.stringify(target)}`);
+  }
   const label = target.text ?? target.css ?? "";
   if (WRITE_WORDS.test(label)) throw new Error(`refused write-shaped step "${label}"`);
   const loc = locatorFor(page, target).first();
@@ -86,6 +96,7 @@ export async function assertFeaturesPresent(page, { routeName, viewportLabel, sc
   if (entries.length === 0) return;
   const missing = [];
   const awaiting = [];
+  const needsReview = [];
   // Earlier checks (overlays, safe clicks) leave drawers open; start from a clean page.
   if (reload) await reload().catch(() => {});
   // Order no-click checks first, then reload before each clicking check so every check starts clean.
@@ -124,13 +135,33 @@ export async function assertFeaturesPresent(page, { routeName, viewportLabel, sc
       const message = String(error?.message ?? error);
       // The write guard stopping a step is a safety skip, not a missing feature.
       if (message.startsWith("refused ")) { console.log(`feature_assertion_skip=${routeName}:${viewportLabel}:${entry.sha}:${message.slice(0, 80)}`); continue; }
+      if (message.startsWith(NEEDS_STEP_PREFIX)) {
+        needsReview.push({ entry, why: message.slice(NEEDS_STEP_PREFIX.length) });
+        console.log(`feature_assertion_needs_step=${viewportLabel}:${routeName}|${entry.sha}|${entry.title}|${message.slice(NEEDS_STEP_PREFIX.length, NEEDS_STEP_PREFIX.length + 80)}`);
+        continue;
+      }
       if (entry.status !== "data-dependent") missing.push({ entry, miss: { what: String(error?.message ?? error).split("\n")[0] } });
     }
   }
   console.log(`feature_assertions=${routeName}:${viewportLabel}:${entries.length - missing.length - awaiting.length}/${entries.length - awaiting.length}${awaiting.length ? ` awaiting_deploy=${awaiting.length}` : ""}`);
   for (const entry of awaiting) console.log(`feature_awaiting_deploy=${viewportLabel}:${routeName}|${entry.sha}|${entry.title}`);
   for (const m of missing) console.log(`feature_missing=${viewportLabel}:${routeName}|${m.entry.sha}|${m.entry.title}|${m.miss.what}`);
-  if (missing.length === 0) return;
+  // Checks nobody finished writing are reported separately and quietly: they say
+  // nothing about whether the farm's screens work.
+  if (needsReview.length > 0) {
+    console.log(`feature_assertions_need_review=${routeName}:${viewportLabel}:${needsReview.length}`);
+  }
+  if (missing.length === 0) {
+    if (needsReview.length > 0) {
+      throw new Error(
+        `${routeName} ${viewportLabel} ${needsReview.length} assertion(s) need review: ${needsReview
+          .slice(0, 3)
+          .map((r) => r.entry.title)
+          .join("; ")}`,
+      );
+    }
+    return;
+  }
   await page.addStyleTag({ content: "[data-smoke-issue]{outline:3px solid #e11d48 !important;outline-offset:1px}" }).catch(() => {});
   const shot = join(screenshotDir, `${viewportLabel}-${routeName}-feature-missing.png`);
   await page.screenshot({ path: shot, fullPage: false }).catch(() => {});

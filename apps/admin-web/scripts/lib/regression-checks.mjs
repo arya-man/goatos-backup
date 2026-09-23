@@ -5,6 +5,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { collectPenLabelCandidates, penLabelFindings } from "./pen-label-checks.mjs";
+import { cellOverpaintDetail } from "./visible-break-rules.mjs";
 
 export const REGRESSION_PATTERNS = Object.freeze({
   "text-overlap": "text drawn over other unrelated text",
@@ -302,8 +303,9 @@ export function collectRegressionFindings({ mobile = false, limit = 40 } = {}) {
       const broken = brokenToken(el);
       if (broken) { add("C-cell-mid-word-wrap", el, `"${broken.token.slice(0, 24)}" split over ${broken.lines} lines`); break; }
     }
-    const s = getComputedStyle(td);
-    if (s.overflowX === "visible" && td.scrollWidth > td.clientWidth + 1 && !td.querySelector("[style*=absolute], .dot")) add("C-cell-overpaint", td, `text ${td.scrollWidth - td.clientWidth}px wider than the cell`);
+    // C-cell-overpaint is judged in Node, not here: see collectCellOverpaintIssues below.
+    // "wider than the cell" is not a break — "painted over the next column's words" is,
+    // and telling them apart needs a rule that can be unit-tested.
   }
 
   // ---------- chips / badges ----------
@@ -427,6 +429,79 @@ export function collectRegressionFindings({ mobile = false, limit = 40 } = {}) {
   return found;
 }
 
+// Table cells whose text runs past their column. The page reports geometry only:
+// where the cell is, how far its words run on, and what the columns beside it
+// actually paint. cellOverpaintDetail decides whether any of that is covered.
+export function collectCellOverpaintCandidates() {
+  const paintedTextRects = (el) => {
+    const rects = [];
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node && rects.length < 12; node = walker.nextNode()) {
+      const text = (node.textContent ?? "").trim();
+      if (!text) continue;
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      for (const r of range.getClientRects()) {
+        if (r.width > 0.5 && r.height > 0.5) {
+          rects.push({ rect: { left: r.left, right: r.right, top: r.top, bottom: r.bottom }, text });
+        }
+      }
+    }
+    return rects;
+  };
+  const out = [];
+  let index = 0;
+  for (const td of document.querySelectorAll("table td")) {
+    if (out.length >= 40) break;
+    const style = getComputedStyle(td);
+    if (style.overflowX !== "visible") continue;
+    if (style.visibility === "hidden" || style.display === "none") continue;
+    const overflowPx = td.scrollWidth - td.clientWidth;
+    if (overflowPx <= 1) continue;
+    if (td.querySelector("[style*=absolute], .dot")) continue;
+    const r = td.getBoundingClientRect();
+    if (r.width <= 0 || r.height <= 0) continue;
+    const neighbourTexts = [];
+    for (let sib = td.nextElementSibling; sib; sib = sib.nextElementSibling) {
+      const sr = sib.getBoundingClientRect();
+      if (sr.left >= r.right + overflowPx) break;
+      for (const hit of paintedTextRects(sib)) neighbourTexts.push(hit);
+      if (neighbourTexts.length >= 24) break;
+    }
+    td.setAttribute("data-overpaint-candidate", String(index));
+    out.push({
+      index,
+      overflowPx,
+      rect: { left: r.left, right: r.right, top: r.top, bottom: r.bottom },
+      text: (td.textContent ?? "").trim().replace(/\s+/g, " ").slice(0, 40),
+      neighbourTexts,
+    });
+    index += 1;
+  }
+  return out;
+}
+
+async function collectCellOverpaintIssues(page) {
+  const candidates = await page.evaluate(collectCellOverpaintCandidates);
+  const issues = [];
+  for (const candidate of candidates) {
+    const detail = cellOverpaintDetail(candidate);
+    if (detail) issues.push({ index: candidate.index, detail, text: candidate.text });
+  }
+  await page.evaluate((marks) => {
+    for (const el of document.querySelectorAll("[data-overpaint-candidate]")) {
+      const i = Number(el.getAttribute("data-overpaint-candidate"));
+      if (marks.includes(i)) el.setAttribute("data-smoke-issue", "C-cell-overpaint");
+      el.removeAttribute("data-overpaint-candidate");
+    }
+  }, issues.map((issue) => issue.index));
+  return issues.map((issue) => ({
+    pattern: "C-cell-overpaint",
+    element: `table cell "${issue.text}"`,
+    detail: issue.detail,
+  }));
+}
+
 // Pen labels are judged in Node, not in the page: the vocabulary is the farm's own data
 // and the rules are worth unit-testing directly (see pen-label-checks.test.mjs). The page
 // only reports what it renders and where, then gets told which candidates to outline.
@@ -496,6 +571,7 @@ export async function assertRegressionPatterns(page, { routeName, viewportLabel,
   let findings = await page.evaluate(collectRegressionFindings, { mobile: width < 768 || /mobile|phone/i.test(viewportLabel) });
   // Audit log / dead-letter queue list event codes by design; they are internal ops tooling.
   if (/^operations-(audit|dlq)/.test(routeName)) findings = findings.filter((f) => f.pattern !== "J-raw-text");
+  findings = findings.concat(await collectCellOverpaintIssues(page));
   findings = findings.concat(await collectPenLabelIssues(page));
   if (findings.length === 0) return [];
   await page.addStyleTag({ content: "[data-smoke-issue]{outline:3px solid #e11d48 !important;outline-offset:1px}" });

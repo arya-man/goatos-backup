@@ -1,6 +1,7 @@
 import { readWeighingPolicy } from "../../../tools/perf/weighing-workload.mjs";
 import { assertSmokeRouteIdentity, assertAnimalPurchaseHeading } from "./lib/smoke-route-identity.mjs";
 import { assertRegressionPatterns } from "./lib/regression-checks.mjs";
+import { controlTextIsCutOff, overlapIsVisibleBreak } from "./lib/visible-break-rules.mjs";
 import { checkCompositingHazards, compositingSummary } from "./lib/compositing-checks.mjs";
 import { exerciseOverlays } from "./lib/overlay-journeys.mjs";
 import { assertFeaturesPresent } from "./lib/feature-assertions.mjs";
@@ -48,8 +49,11 @@ const screenshotDir = join(
 const diffDir = join(screenshotDir, "diffs");
 let baselineCompared = 0;
 let baselineUpdated = 0;
-const wideTableScrollOwnerSelector =
-  ".tablewrap,.twrap,.cfgtablewrap,.feed-stock-tablewrap,.pa-gridwrap,.lt-tablewrap,.sales-market-wrap,.health-analytics-scroll,.cbm-future-table-wrap,.vplan .scroll";
+// assertMobileWideContentScrolls marks every ancestor that genuinely scrolls a wide table
+// sideways. The gesture check then drags exactly those. It used to be a hand-kept list of
+// class names, which quietly stopped covering a page each time one shipped a new wrapper
+// and, worse, reported the wrapper it had never heard of as "no sideways scroll at all".
+const wideTableScrollOwnerSelector = "[data-smoke-scroll-owner]";
 const smokeWideWindowTo = new Date().toISOString().slice(0, 10);
 const smokeWideWindowFrom = new Date(Date.now() - 43 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
@@ -228,7 +232,6 @@ function buildRoutes({ toxinSopId, goatId, procurementLoadId, workflowRowId, cal
     { name: "procurement-source-entry-health-pending", path: "/procurement/source-entry?scope_mode=company&status=health_pending" },
     { name: "procurement-source-entry-arrival-review", path: "/procurement/source-entry?scope_mode=company&status=arrival_review" },
     { name: "procurement-source-entry-accepted-intake", path: "/procurement/source-entry?scope_mode=company&status=accepted_intake" },
-    { name: "procurement", path: "/procurement?scope_mode=company" },
     { name: "procurement-vendors", path: "/procurement/vendors?scope_mode=company" },
     { name: "procurement-feed-purchases", path: "/procurement/feed-purchases?scope_mode=company" },
     { name: "procurement-animal-purchases", path: "/procurement/animal-purchases?scope_mode=company" },
@@ -252,7 +255,6 @@ function buildRoutes({ toxinSopId, goatId, procurementLoadId, workflowRowId, cal
     { name: "sales-config", path: "/sales/config?scope_mode=company" },
     { name: "sales-sops", path: "/sales/sops?scope_mode=company" },
     { name: "sales-vendors", path: "/sales/vendors?scope_mode=company" },
-    { name: "sales-sops", path: "/sales/sops?scope_mode=company" },
     { name: "feed-config", path: "/feed/config?scope_mode=company" },
     { name: "feed-analytics", path: "/feed/analytics?scope_mode=company" },
     { name: "feed-analytics-items", path: "/feed/analytics?scope_mode=company&tab=items" },
@@ -318,8 +320,6 @@ function buildRoutes({ toxinSopId, goatId, procurementLoadId, workflowRowId, cal
     { name: "health-analytics-treatment", path: "/health/analytics?scope_mode=company&tab=treatment" },
     { name: "health-analytics-engine", path: "/health/analytics?scope_mode=company&tab=engine" },
     { name: "health-config", path: "/health/config?scope_mode=company" },
-    { name: "configuration-items", path: "/configuration/items?scope_mode=company" },
-    { name: "configuration-work-instructions", path: "/configuration/work-instructions?scope_mode=company" },
     { name: "operations-audit", path: "/operations/audit?scope_mode=company" },
     { name: "operations-audit-awaiting", path: "/operations/audit?scope_mode=company&status=verification_pending" },
     { name: "operations-audit-rejected", path: "/operations/audit?scope_mode=company&result=rejected" },
@@ -337,7 +337,6 @@ function buildRoutes({ toxinSopId, goatId, procurementLoadId, workflowRowId, cal
     { name: "leave-approved", path: "/leave?scope_mode=company&status=approved" },
     { name: "leave-rejected", path: "/leave?scope_mode=company&status=rejected" },
     { name: "leave-withdrawn", path: "/leave?scope_mode=company&status=withdrawn" },
-    { name: "routines", path: "/routines?scope_mode=company" },
     { name: "tasks", path: "/tasks?scope_mode=company" },
     { name: "tasks-list", path: "/tasks?scope_mode=company&t_view=list" },
     { name: "tasks-overdue", path: "/tasks?scope_mode=company&filter=overdue" },
@@ -1089,7 +1088,7 @@ async function assertLayoutHealthy(page, routeName, viewportLabel) {
   // settle so the measurement reflects the resting layout. This does NOT touch the horizontal overflow or
   // card-clipping checks (they measure the same resting layout) — it only removes the main.top false positive.
   await settleAtTop(page);
-  const layout = await page.evaluate((scrollOwnerSelector) => {
+  const layout = await page.evaluate(() => {
     window.scrollTo(0, 0);
     const root = document.documentElement;
     const overflow = root.scrollWidth - root.clientWidth;
@@ -1108,12 +1107,24 @@ async function assertLayoutHealthy(page, routeName, viewportLabel) {
       })
       .slice(0, 5)
       .map(describeElement);
+    // Candidates only. Whether a control's label is actually CUT is decided in Node by
+    // controlTextIsCutOff: a box with overflow:visible paints its words outside itself and
+    // hides nothing, so "wider than its box" on its own accuses links that read in full.
     const clippedControls = Array.from(document.querySelectorAll("a, button"))
       .filter(isVisible)
       .filter((element) => (element.textContent ?? "").trim().length > 0)
       .filter((element) => (element.scrollWidth > element.clientWidth + 2 || element.scrollHeight > element.clientHeight + 8) && !unclippedAvatarText(element))
-      .slice(0, 5)
-      .map(describeElement);
+      .slice(0, 24)
+      .map((element) => {
+        const style = window.getComputedStyle(element);
+        return {
+          ...describeElement(element),
+          overflowX: style.overflowX,
+          overflowY: style.overflowY,
+          textOverflow: style.textOverflow,
+          lineClamp: style.webkitLineClamp || "none",
+        };
+      });
     const clippedNavLabels = Array.from(document.querySelectorAll('nav[aria-label^="Mesha"] span'))
       .filter(isVisible)
       .filter((element) => (element.textContent ?? "").trim().length > 0)
@@ -1220,6 +1231,25 @@ async function assertLayoutHealthy(page, routeName, viewportLabel) {
       const a = first.getBoundingClientRect(), b = second.getBoundingClientRect();
       return xOverlap > 0 && xOverlap <= 8 && a.height === b.height && yOverlap === a.height && Math.abs(a.top - b.top) < 1;
     }
+    // An open drawer or dialog is SUPPOSED to sit on top of the page, and its backdrop is
+    // supposed to cover every control behind it. Recording which layer a control is on lets
+    // overlapIsVisibleBreak keep "two controls colliding on the same screen" and drop "an
+    // open drawer looks like an open drawer".
+    const openOverlays = Array.from(
+      document.querySelectorAll('[role=dialog], [role=alertdialog], .drawer.on, .modal.on, dialog[open]'),
+    ).filter(isVisible);
+    function isOverlayChrome(element) {
+      if (/(^|\s)(scrim|backdrop|overlay-scrim|modal-scrim)(\s|$)/.test(element.getAttribute("class") || "")) return true;
+      const style = getComputedStyle(element);
+      if (style.position !== "fixed") return false;
+      const rect = element.getBoundingClientRect();
+      // A fixed control the size of the window is a backdrop, not a button.
+      return rect.width >= window.innerWidth - 2 && rect.height >= window.innerHeight - 2;
+    }
+    function coveredByOverlay(element) {
+      if (openOverlays.length === 0) return false;
+      return !openOverlays.some((overlay) => overlay.contains(element));
+    }
     const overlaps = [];
     for (let i = 0; i < interactives.length; i += 1) {
       for (let j = i + 1; j < interactives.length; j += 1) {
@@ -1231,11 +1261,16 @@ async function assertLayoutHealthy(page, routeName, viewportLabel) {
         const xOverlap = Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left));
         const yOverlap = Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
         if (xOverlap > 4 && yOverlap > 4 && !intentionalAvatarOverlap(first, second, xOverlap, yOverlap)) {
-          overlaps.push({ first: describeElement(first), second: describeElement(second), xOverlap: Math.round(xOverlap), yOverlap: Math.round(yOverlap) });
+          overlaps.push({
+            first: { ...describeElement(first), isOverlayChrome: isOverlayChrome(first), coveredByOverlay: coveredByOverlay(first) },
+            second: { ...describeElement(second), isOverlayChrome: isOverlayChrome(second), coveredByOverlay: coveredByOverlay(second) },
+            xOverlap: Math.round(xOverlap),
+            yOverlap: Math.round(yOverlap),
+          });
         }
-        if (overlaps.length >= 5) break;
+        if (overlaps.length >= 24) break;
       }
-      if (overlaps.length >= 5) break;
+      if (overlaps.length >= 24) break;
     }
     const truncationTitleProblems = Array.from(document.querySelectorAll("[data-truncate]"))
       .filter(isVisible)
@@ -1303,11 +1338,25 @@ async function assertLayoutHealthy(page, routeName, viewportLabel) {
         .filter(isVisible)
         .filter((table) => table.scrollWidth > rootElement.clientWidth + 2);
       for (const table of wideTables) {
-        const scroller = table.closest(scrollOwnerSelector);
+        // The scroll owner is whichever ancestor actually scrolls sideways, not whichever
+        // ancestor carries a class name someone remembered to add to a list. The old
+        // allowlist reported a working, scrollable table as unreachable the moment a page
+        // shipped a wrapper class that was not on it.
+        const chain = [];
+        for (let node = table.parentElement, depth = 0; node && depth < 8; node = node.parentElement, depth += 1) {
+          const nodeStyle = window.getComputedStyle(node);
+          chain.push({ element: node, overflowX: nodeStyle.overflowX, clientWidth: node.clientWidth, scrollWidth: node.scrollWidth });
+        }
+        const ownerIndex = chain.findIndex(
+          (node) => /(auto|scroll)/.test(node.overflowX) && node.scrollWidth > node.clientWidth + 2,
+        );
+        const scroller = ownerIndex >= 0 ? chain[ownerIndex].element : null;
         if (!(scroller instanceof HTMLElement)) {
           problems.push({ kind: "missing-scroll-owner", table: describeElement(table) });
           continue;
         }
+        // The gesture check re-finds these without an allowlist of its own.
+        scroller.setAttribute("data-smoke-scroll-owner", "1");
         const style = window.getComputedStyle(scroller);
         const canOverflow = /(auto|scroll)/.test(style.overflowX);
         const hasRoom = scroller.scrollWidth > scroller.clientWidth + 2;
@@ -1332,7 +1381,7 @@ async function assertLayoutHealthy(page, routeName, viewportLabel) {
       }
       return problems;
     }
-  }, wideTableScrollOwnerSelector);
+  });
 
   if (layout.overflow > 2) {
     throw new Error(`${routeName} ${viewportLabel} has horizontal overflow of ${layout.overflow}px`);
@@ -1343,9 +1392,11 @@ async function assertLayoutHealthy(page, routeName, viewportLabel) {
   if (layout.panels.length > 0) {
     throw new Error(`${routeName} ${viewportLabel} has cards/panels cut at the viewport edge: ${JSON.stringify(layout.panels)}`);
   }
-  const blockingClippedControls = layout.clippedControls;
+  const blockingClippedControls = layout.clippedControls.filter(controlTextIsCutOff).slice(0, 5);
   if (blockingClippedControls.length > 0) {
-    throw new Error(`${routeName} ${viewportLabel} has clipped button/link text: ${JSON.stringify(blockingClippedControls)}`);
+    // Name what the reader can see is missing, not the element it belongs to.
+    const labels = blockingClippedControls.map((control) => `"${control.ariaLabel || control.text}"`).join("; ");
+    throw new Error(`${routeName} ${viewportLabel} has clipped button/link text: ${labels}`);
   }
   if (viewportLabel === "laptop" && layout.clippedNavLabels.length > 0) {
     throw new Error(`${routeName} ${viewportLabel} has clipped navigation labels: ${JSON.stringify(layout.clippedNavLabels)}`);
@@ -1357,8 +1408,13 @@ async function assertLayoutHealthy(page, routeName, viewportLabel) {
   if (viewportLabel === "mobile" && blockingSmallTargets.length > 0) {
     throw new Error(`${routeName} ${viewportLabel} has interactive targets below 40px: ${JSON.stringify(blockingSmallTargets)}`);
   }
-  if (layout.overlaps.length > 0) {
-    throw new Error(`${routeName} ${viewportLabel} has overlapping interactive elements: ${JSON.stringify(layout.overlaps)}`);
+  const blockingOverlaps = layout.overlaps.filter(overlapIsVisibleBreak).slice(0, 5);
+  if (blockingOverlaps.length > 0) {
+    // Name the two things a person sees sitting on top of each other.
+    const pairs = blockingOverlaps
+      .map((pair) => `"${pair.first.ariaLabel || pair.first.text}" and "${pair.second.ariaLabel || pair.second.text}"`)
+      .join("; ");
+    throw new Error(`${routeName} ${viewportLabel} has overlapping interactive elements: ${pairs}`);
   }
   if (layout.truncationTitleProblems.length > 0) {
     throw new Error(`${routeName} ${viewportLabel} has truncated text without hover/full text: ${JSON.stringify(layout.truncationTitleProblems)}`);

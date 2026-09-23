@@ -16,7 +16,10 @@ test("every regression pattern family is declared and emitted by the collector",
     "A-svg-text-overlap", "A-svg-text-tiny", "B-container-overflow", "C-cell-mid-word-wrap", "C-cell-overpaint", "chip-crushed",
     "J-raw-text", "D-page-overflow"]) {
     assert.ok(REGRESSION_PATTERNS[name], `declared: ${name}`);
-    assert.ok(source.includes(`add("${name}"`), `emitted: ${name}`);
+    // Most families are added in the page; a few (the ones whose rule has to be
+    // unit-tested) are judged in Node and emitted as a pattern there instead.
+    const emitted = source.includes(`add("${name}"`) || source.includes(`pattern: "${name}"`);
+    assert.ok(emitted, `emitted: ${name}`);
   }
   for (const name of Object.keys(REGRESSION_PATTERNS)) assert.ok(source.includes(`"${name}"`));
 });
