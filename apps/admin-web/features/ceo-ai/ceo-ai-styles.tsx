@@ -406,6 +406,26 @@ export function CeoAiStyles(): ReactElement {
   .mzai-log{padding:12px}
   .mzai-form{padding:10px}
 }
+/* ---- composer + phone fixes (kept last so they win over earlier rules) ---- */
+.mzai-form textarea::placeholder{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mzai-form textarea{min-width:0;line-height:1.4}
+.mzai-newbtn{white-space:nowrap}
+.mzai-scrim{display:none}
+@media (max-width:620px){
+  .mzai-root .mzai-hide-mobile{display:none}
+  .mzai-side{width:min(78vw,280px)}
+  .mzai-scrim{display:block;position:absolute;inset:0;z-index:1;border:0;padding:0;background:rgba(0,0,0,.45)}
+  .mzai-form{gap:6px;padding:8px 10px}
+  .mzai-tool{width:36px;height:40px}
+  .mzai-send{width:40px}
+  .mzai-root .mzai-form textarea{font-size:16px;padding:9px 11px}
+  .mzai-head{padding:10px 12px;gap:8px}
+  .mzai-hbtns{gap:4px}
+  .mzai-htext small{display:none}
+  .mzai-starters{flex-wrap:nowrap;overflow-x:auto;padding:4px 12px 10px;scrollbar-width:none}
+  .mzai-starters button{flex:none;max-width:78vw;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+}
+.mzai-md ul{list-style:disc}.mzai-md ol{list-style:decimal}.mzai-md li::marker{color:var(--muted)}
 `}</style>
   );
 }
