@@ -66,13 +66,41 @@ data class SalesDealPageDto(
 )
 
 /** `POST /sales/deals`. Unknown keys are a 400 on the server, so this carries exactly its fields. */
+/**
+ * One row of the farm's sellable-product registry (migration 000393), as a record-sale form sees
+ * it. WHAT the farm sells is its own list, edited on the web's Sales Config; the phone renders it.
+ */
+@Serializable
+data class SalesProductOptionDto(
+    @SerialName("name") val name: String = "",
+    @SerialName("code") val code: String = "",
+    /** animal | feed | other -- the only part any renderer branches on. */
+    @SerialName("kind") val kind: String = "",
+    /** kg | number: what one of it is sold by. */
+    @SerialName("unit") val unit: String = "",
+    /**
+     * Whether selling this asks for a quantity at a rate rather than a negotiated lump value.
+     * BACKEND-composed: the phone must not re-derive it from the kind, or a new kind of item would
+     * be asked the wrong questions on one surface and the right ones on the other.
+     */
+    @SerialName("priced_per_unit") val pricedPerUnit: Boolean = false,
+)
+
 /** One product/breed slice of a deal on the wire. */
 @Serializable
 data class SalesDealLineDto(
     @SerialName("line_id") val lineId: String = "",
     @SerialName("line_no") val lineNo: Int = 0,
     @SerialName("product_type") val productType: String = "",
+    /** The registry row's stable identity and what it DOES, stamped when the sale was recorded. */
+    @SerialName("product_code") val productCode: String = "",
+    @SerialName("product_kind") val productKind: String = "",
+    /** The line's VARIANT: a breed on an animal line, the feed item on a feed line. */
     @SerialName("breed") val breed: String = "",
+    /** How much was sold, on a line priced by the unit, and at what rate. */
+    @SerialName("quantity") val quantity: Double? = null,
+    @SerialName("unit") val unit: String = "",
+    @SerialName("rate_per_unit") val ratePerUnit: Double? = null,
     @SerialName("animal_count") val animalCount: Double? = null,
     @SerialName("male_count") val maleCount: Double? = null,
     @SerialName("female_count") val femaleCount: Double? = null,
@@ -80,11 +108,19 @@ data class SalesDealLineDto(
     @SerialName("sales_value") val salesValue: Double = 0.0,
 )
 
-/** One line of the record-sale body. Value is per line and must be more than zero. */
+/**
+ * One line of the record-sale body.
+ *
+ * A line priced by the unit sends [quantity] and [ratePerUnit] and NO value -- the backend works
+ * it out, so a figure the phone computed can never be recorded as the money. An animal line sends
+ * its counts and the negotiated [salesValue], which is the farm's own price for the lot.
+ */
 @Serializable
 data class SalesDealLineWriteDto(
     @SerialName("product_type") val productType: String,
     @SerialName("breed") val breed: String,
+    @SerialName("quantity") val quantity: Double? = null,
+    @SerialName("rate_per_unit") val ratePerUnit: Double? = null,
     @SerialName("animal_count") val animalCount: Double? = null,
     @SerialName("male_count") val maleCount: Double? = null,
     @SerialName("female_count") val femaleCount: Double? = null,
@@ -116,6 +152,13 @@ data class SalesDealWriteDto(
     @SerialName("advance_amount") val advanceAmount: Double? = null,
     @SerialName("comments") val comments: String = "",
     @SerialName("status") val status: String = "",
+    /**
+     * The person having seen what the feed store holds and said the sale is right anyway
+     * (maintainer decision 2026-09-23). Only ever true because they answered that question: the
+     * server refuses a short feed sale once, naming both figures, and the same body records when
+     * it comes back with this set.
+     */
+    @SerialName("stock_shortfall_acknowledged") val stockShortfallAcknowledged: Boolean = false,
 )
 
 @Serializable
@@ -131,7 +174,17 @@ data class SalesStatusOptionDto(
 data class SalesOptionsDto(
     @SerialName("farms") val farms: List<String> = emptyList(),
     @SerialName("product_types") val productTypes: List<String> = emptyList(),
-    /** Breeds keyed by product type, in offer order. */
+    /**
+     * The same registry with the KIND and unit on each (migration 000393), which is what the form
+     * needs to decide whether to ask for a head count or for a quantity at a rate. [productTypes]
+     * above is the bare name list a build written before the registry still reads.
+     */
+    @SerialName("products") val products: List<SalesProductOptionDto> = emptyList(),
+    /**
+     * Each product's VARIANTS keyed by product name, in offer order -- an animal product's breeds,
+     * a feed product's FEED ITEMS from the farm's own feed catalogue, an other product's own name.
+     * The field keeps its older name so an older build still finds its list.
+     */
     @SerialName("breeds") val breeds: Map<String, List<String>> = emptyMap(),
     @SerialName("statuses") val statuses: List<SalesStatusOptionDto> = emptyList(),
     @SerialName("default_status") val defaultStatus: String = "",
