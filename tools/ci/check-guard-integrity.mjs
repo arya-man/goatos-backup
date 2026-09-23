@@ -35,6 +35,9 @@ const MAKEFILE = "Makefile";
 const RUN_LOCAL_CI = "tools/ci/run-local-ci.sh";
 const RECORDER = "tools/ci/lib/guard-probe-recorder.cjs";
 const LOADER = "tools/ci/lib/guard-probe-loader.mjs";
+// The trees a guard checks the product in. Reading package.json at the root is not reading the
+// product - which is exactly the one-line escape this keeps closed.
+export const SOURCE_TREES = ["apps", "backend", "contracts", "tools", "docs", "context", "infra", "analytics", "packages", "fixtures", "mock"];
 const FLOOR_FILE = "tools/ci/guard-floor.json";
 const INPUTS_FILE = "tools/ci/guard-inputs.json";
 
@@ -216,13 +219,22 @@ export function workVerdict(guard, seen, declaredInputs) {
   }
   // A directory counts for the inputs under it: a guard that walks a tree reads the children.
   const hit = declared.filter((input) => read.has(input) || [...read].some((file) => file.startsWith(`${input}/`) || input.startsWith(`${file}/`)));
-  if (!hit.length) {
-    return {
-      kind: "no-work",
-      reason: `ran and read none of the ${declared.length} file(s) it declares it checks, so whatever it opened, it is not checking them`
-    };
+  if (hit.length) return { kind: "worked", how: "declared", read: hit.length, of: declared.length };
+
+  // A declared input is the STRONGEST evidence, not the only evidence, and assuming otherwise
+  // produced a false accusation: check-ui-vaccine-labels reads 1522 files it finds by globbing and
+  // none of them is the single path declared for it. guard-inputs.json lists paths HARD-CODED IN a
+  // guard, which is not the same thing as the files it reads - a weaker declaration than its name
+  // suggests. So a guard that read the product's own source is credited, and the receipt says
+  // which of the two kinds of evidence it had.
+  const inSource = [...read].filter((file) => SOURCE_TREES.some((tree) => file.startsWith(`${tree}/`)));
+  if (inSource.length) {
+    return { kind: "worked", how: "source", read: inSource.length, of: declared.length };
   }
-  return { kind: "worked", read: hit.length, of: declared.length };
+  return {
+    kind: "no-work",
+    reason: `ran and read none of the ${declared.length} file(s) it declares it checks, and nothing under the product's own source either, so whatever it opened, it is not checking them`
+  };
 }
 
 export function validate({ manifest, makefileText, runLocalCiText, probe, changedFiles = null, extraReachable = [], floor = null, guardInputs = new Map(), undeclaredAllowed = new Set(), noTargetAllowed = new Set(), reprobe = null, exists = (file) => existsSync(path.join(repo, file)) }) {
@@ -312,7 +324,9 @@ export function validate({ manifest, makefileText, runLocalCiText, probe, change
       // Count what was READ, never what was listed. Several guards print a file count taken from
       // their candidate list: with apps/ absent entirely one still printed "539 files scanned"
       // having opened none. A log that asserts a scope nobody examined is worse than a bare "ok".
-      notes.push(`guard ${id}: read ${verdict.read} of the ${verdict.of} file(s) it declares it checks`);
+      notes.push(verdict.how === "declared"
+        ? `guard ${id}: read ${verdict.read} of the ${verdict.of} file(s) it declares it checks`
+        : `guard ${id}: read ${verdict.read} file(s) of the product's own source, though none of the ${verdict.of} path(s) declared for it - weaker evidence, and the declaration is probably stale`);
     }
   }
 
@@ -545,10 +559,24 @@ function selfTest() {
   // THE ESCAPE THAT WALKED PAST THE FIRST VERSION, one line further on than the naive gutting:
   // a guard that opens package.json, prints ok and exits. It reads A file, so "opened something"
   // cleared it. It reads none of ITS OWN declared inputs, which is what is asked now.
+  // Root files, deliberately: package.json is not the product. A guard that opens it has still
+  // read none of the trees it is supposed to be checking.
   const opensSomethingElse = () => ({ ran: true, status: 0, reads: ["package.json", "README.md"] });
   const walkedPast = validate({ manifest, makefileText: makefile, runLocalCiText: runLocalCi, probe: opensSomethingElse, exists, guardInputs });
   if (!walkedPast.problems.some((p) => p.includes("read none of the"))) {
     throw new Error("self-test: a guard that opens an unrelated file must not count as doing work");
+  }
+
+  // The weaker evidence is credited, and named as weaker.
+  const globsInstead = validate({
+    manifest, makefileText: makefile, runLocalCiText: runLocalCi, exists, guardInputs,
+    probe: () => ({ ran: true, status: 0, reads: ["apps/admin-web/app/page.tsx", "apps/admin-web/lib/x.ts"] })
+  });
+  if (globsInstead.problems.length) {
+    throw new Error(`self-test: a guard that read the product's source must not be accused, got ${globsInstead.problems.join("; ")}`);
+  }
+  if (!globsInstead.notes.some((n) => n.includes("weaker evidence"))) {
+    throw new Error("self-test: weaker evidence must be reported as weaker, not as a clean pass");
   }
 
   // A guard that declares nothing is REFUSED unless it is on the shrink-only debt list.
