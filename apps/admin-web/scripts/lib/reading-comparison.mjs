@@ -47,6 +47,30 @@ export function contractRevisionRefusal(sha) {
   return null;
 }
 
+/**
+ * A reading that holds NOTHING is an absence of evidence, not evidence.
+ *
+ * Found by builder A after adopting this primitive, one level below where both callers had
+ * already fixed the same shape privately: B refused absent readings in stableReading, A
+ * normalised empty to absent before calling, and the thing underneath them both still agreed
+ * that nothing equals nothing. Measured in A's lane: with the page drawing nothing at both
+ * readings, `sum` reported and a single cell reported, but `count` PASSED.
+ *
+ * So the refusal lives HERE and the callers stop compensating -- otherwise every future caller
+ * has to remember, which is exactly what gets forgotten.
+ *
+ * ZERO IS NOT NOTHING. A total that reads 0, a count of 0 rows, `false` -- those are real
+ * readings and must keep comparing. Only a container that holds nothing, and null/undefined, are
+ * absences.
+ */
+export function isAbsentReading(value) {
+  if (value === null || value === undefined) return true;
+  if (typeof value === "string") return value.trim() === "";
+  if (Array.isArray(value)) return value.length === 0;
+  if (typeof value === "object") return Object.keys(value).length === 0;
+  return false;
+}
+
 /** sum / count reducers, so a list reading and a number reading compare through one path. */
 function reduceReading(reading, all) {
   if (all === "count") return Array.isArray(reading) ? reading.length : reading === null || reading === undefined ? 0 : 1;
@@ -68,10 +92,18 @@ export function compareReadings(before, after, { conditions, label = "this readi
   }
   // A reading that never arrived is not a reading. Both sides must refuse it rather than let two
   // absences agree with each other -- see the note on direction below.
+  // Checked on the RAW readings, before any reducer: `count` over an empty list is 0, and two
+  // zeroes agree, which is how an empty page passed.
   for (const [which, reading] of [["first", before], ["second", after]]) {
-    if (reading === null || reading === undefined) {
-      return { agreed: false, verdict: `the ${which} reading of ${label} never arrived, so there is nothing to compare` };
-    }
+    if (!isAbsentReading(reading)) continue;
+    const nothingThere = reading !== null && reading !== undefined;
+    return {
+      agreed: false,
+      verdict: nothingThere
+        ? `the ${which} reading of ${label} found nothing on the screen; two absences agree with each ` +
+          `other, and agreeing is how a value is trusted, so nothing is never an answer here`
+        : `the ${which} reading of ${label} never arrived, so there is nothing to compare`,
+    };
   }
   const a = reduceReading(before, all);
   const b = reduceReading(after, all);

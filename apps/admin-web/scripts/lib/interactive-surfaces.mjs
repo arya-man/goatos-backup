@@ -707,19 +707,9 @@ export function stableReading(readings, { label = "this reading", all } = {}) {
   if (!Array.isArray(readings) || readings.length < 2) {
     return { stable: false, reason: `needs at least two independent readings, got ${readings?.length ?? 0}` };
   }
-  // DIRECTION OF FAILURE. Two absent readings agree with each other, and agreeing is how a value
-  // gets promoted -- so a surface that rendered nothing twice would hand the ledger "nothing" as
-  // the thing that surface owes, and the check would then accuse a correct page of missing it.
-  // Absence must push toward "not checked", never toward an expectation, so an empty reading is
-  // refused here even though it is perfectly consistent.
-  for (const reading of readings) {
-    if (reading === null || reading === undefined) {
-      return { stable: false, reason: `has a reading that never arrived; an absence must not become the thing a page owes` };
-    }
-    if (Array.isArray(reading) && reading.length === 0) {
-      return { stable: false, reason: `read nothing on the screen; "nothing" is not an expectation, it is a surface nobody could read` };
-    }
-  }
+  // The absence refusal used to live here AND in A's caller, by two different private
+  // conventions, while the primitive underneath still agreed that nothing equals nothing. It now
+  // lives in compareReadings alone: a caller that has to remember is a caller that will forget.
   for (let i = 1; i < readings.length; i += 1) {
     const compared = compareReadings(readings[0], readings[i], { conditions: "same", label, all });
     if (!compared.agreed) return { stable: false, reason: compared.verdict };
