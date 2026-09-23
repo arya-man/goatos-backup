@@ -167,3 +167,20 @@ test("every relation in the catalogue is named, sourced and readable by a farm m
     }
   }
 });
+
+test("a page that only works once it is warm is not a passing page", async () => {
+  const { checkEntry } = await import("./check-api-contracts.mjs");
+  const item = entry("weighing_shed_weights");
+  const good = JSON.stringify({ parks: [], rows: [], by_load: [], lump_weighing_dates: [], period_start: "a", period_end: "b",
+    summary: { animals_weighed: 1, average_weight_kg: 26, total_weight_kg: 26, individual_animals_weighed: 1, lump_sum_animals_weighed: 0,
+      sheds_weighed: 1, sheds_in_scope: 1, at_or_above_30kg: 0, at_or_above_35kg: 0, threshold_basis_animals: 1 } });
+  const answering = (failFirst) => { let n = 0; return async () => { n += 1; const bad = n <= failFirst;
+    return { ok: !bad, status: bad ? 500 : 200, url: "https://api/x", headers: { get: () => null }, text: async () => (bad ? "{}" : good) }; }; };
+  const run = (failFirst) => checkEntry(item, { baseUrl: "https://api.mesha.sg", headers: {}, samples: 3, warmup: 3, fetchImpl: answering(failFirst) });
+
+  const cold = await run(3);
+  assert.equal(cold.passed, false, "a page that fails every time it is asked cold must not report a pass");
+  assert.ok(cold.findings.some((f) => f.code === "cold-start-failure"));
+  assert.equal((await run(0)).passed, true, "a page that always works must pass");
+  assert.equal((await run(1)).passed, true, "one cold blip is not worth waking anyone for");
+});
