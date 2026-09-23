@@ -51,7 +51,7 @@ const (
 	// of types; scope=tenant_id equality on both sides of the join.
 	sqlListRegisters = `
 SELECT v.health_diagnosis_register_version_id::text, t.type_key, v.version, v.status,
-       v.register_label, v.document, v.published_at, coalesce(v.updated_at, t.updated_at)
+       v.register_label, v.document, v.published_at, coalesce(v.updated_at, t.updated_at), t.label
 FROM health_diagnosis_types t
 LEFT JOIN health_diagnosis_register_versions v
        ON v.tenant_id = t.tenant_id AND v.animal_class = t.type_key
@@ -175,7 +175,7 @@ func (r *Repository) ListRegisters(ctx context.Context, tenantID string) ([]doma
 
 	out := []domain.RegisterSummary{}
 	for rows.Next() {
-		detail, err := scanRegister(rows)
+		detail, err := scanRegisterWithLabel(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -212,7 +212,19 @@ type rowScanner interface {
 	Scan(dest ...any) error
 }
 
+// scanRegisterWithLabel reads a LIST row, which carries the type's own label as a last column.
+//
+// Only the list joins the types table, so only the list can supply it; the by-id and serving reads
+// address one version and have no business widening for a label nobody shows there.
+func scanRegisterWithLabel(row rowScanner) (domain.RegisterDetail, error) {
+	return scanRegisterRow(row, true)
+}
+
 func scanRegister(row rowScanner) (domain.RegisterDetail, error) {
+	return scanRegisterRow(row, false)
+}
+
+func scanRegisterRow(row rowScanner, withLabel bool) (domain.RegisterDetail, error) {
 	var (
 		d           domain.RegisterDetail
 		raw         []byte
@@ -222,10 +234,15 @@ func scanRegister(row rowScanner) (domain.RegisterDetail, error) {
 		status      *string
 		label       *string
 	)
-	if err := row.Scan(&versionID, &d.AnimalClass, &version, &status,
-		&label, &raw, &publishedAt, &d.UpdatedAt); err != nil {
+	var typeLabel *string
+	targets := []any{&versionID, &d.AnimalClass, &version, &status, &label, &raw, &publishedAt, &d.UpdatedAt}
+	if withLabel {
+		targets = append(targets, &typeLabel)
+	}
+	if err := row.Scan(targets...); err != nil {
 		return domain.RegisterDetail{}, err
 	}
+	d.TypeLabel = strOrEmpty(typeLabel)
 	d.RegisterVersionID = strOrEmpty(versionID)
 	d.RegisterLabel = strOrEmpty(label)
 	d.Status = strOrEmpty(status)

@@ -4,9 +4,11 @@ import { useRef, useState } from "react";
 import { Download, Upload } from "lucide-react";
 
 import { copy, optionalCopy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { InfoTooltip } from "@/components/ui-primitives";
 
 import {
   IDEMPOTENCY_HEADER,
+  TEMPLATE_CLASS_PLACEHOLDER,
   registerSheetHref,
   registerSheetImportUrl,
 } from "@/lib/sheet-upload";
@@ -102,9 +104,6 @@ export function RegisterSheetControls({
         <a className="btn ghost" href={href("export", "xlsx")} aria-label={`${copy(pageContract, "action.download_sheet")} — ${typeLabel}`}>
           <Download className="ic" aria-hidden="true" /> {copy(pageContract, "action.download_sheet")}
         </a>
-        <a className="btn ghost" href={href("template", "xlsx")}>
-          {copy(pageContract, "action.download_template")}
-        </a>
         <button
           type="button"
           className="btn ghost"
@@ -125,11 +124,6 @@ export function RegisterSheetControls({
           }}
         />
       </div>
-      {/* Said BEFORE a file is chosen, not after it lands: an author who expects a publish and
-          gets a draft has to be told twice. */}
-      <div className="small muted" style={{ maxWidth: 520, lineHeight: 1.5 }}>
-        {optionalCopy(pageContract, "note.sheet_writes_a_draft") ?? ""}
-      </div>
       {note ? (
         <div className="small" style={{ color: "var(--ok, var(--accent))" }}>{note}</div>
       ) : null}
@@ -147,5 +141,30 @@ export function RegisterSheetControls({
         </ul>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * The sheet controls that belong ONCE, at the top of the section.
+ *
+ * THE BLANK TEMPLATE IS THE SAME FILE FOR EVERY TYPE -- the handler builds it from the column
+ * header and one worked example of each row kind, and never reads the animal class -- so repeating
+ * the button on every row was six ways to download one file, and made the row's own
+ * type-specific "Download rules" harder to spot.
+ *
+ * The draft note moves here too, as the console's own "i". It is a standing fact about what an
+ * upload does, not a per-row one: saying it six times made the table taller without making it
+ * clearer, and a reader who has read it once does not need it again beside every category.
+ */
+export function RegisterSheetHeaderControls({ pageContract }: { pageContract: AdminUiPageContract }) {
+  return (
+    <span style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
+      <a className="btn ghost" href={registerSheetHref(TEMPLATE_CLASS_PLACEHOLDER, "template", "xlsx")}>
+        <Download className="ic" aria-hidden="true" /> {copy(pageContract, "action.download_template")}
+      </a>
+      <InfoTooltip label={copy(pageContract, "action.upload_sheet")}>
+        {optionalCopy(pageContract, "note.sheet_writes_a_draft") ?? ""}
+      </InfoTooltip>
+    </span>
   );
 }
