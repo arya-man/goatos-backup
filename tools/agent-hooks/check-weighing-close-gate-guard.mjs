@@ -124,7 +124,7 @@ if (process.argv.includes("--self-test")) {
   }
   if (problems.length) {
     console.error("weighing close-gate guard FAILED:\n" + problems.join("\n"));
-    console.error("\nWeighing has two verbs: close, or reopen. The close gate is unconditional.\nSee AGENTS.md and context/repo-audits/weighing-implementation-do-not-reopen-ledger.md -> D-5");
+    console.error("\nWeighing has two verbs: close, or reopen. The close gate is unconditional.\nSee docs/agent-rules/weighing.md and context/repo-audits/weighing-implementation-do-not-reopen-ledger.md -> D-5");
     process.exit(1);
   }
   console.log("weighing close-gate guard: OK");

@@ -17,6 +17,7 @@ export PATH := $(HOME)/.local/bin:$(PATH)
 .PHONY: release-tag release-tag-contract-guard restore-stg-android-release-env stg-zero-downtime-migration-audit
 .PHONY: e2e-image-build e2e-parity e2e-smoke e2e-business-chain scale-cert
 .PHONY: org-boundary-guard
+.PHONY: mesha-data-map-guard
 .PHONY: dashboard-automation-guard dashboard-automation-self-test dashboard-automation-data-parity dashboard-automation-production-smoke dashboard-automation-post-main-certification
 setup-crg: ai-setup
 
@@ -617,6 +618,12 @@ ceo-ai-boundary-guard:
 ceo-ai-schema-card-guard:
 	node tools/agent-hooks/check-ceo-ai-schema-cards.mjs --self-test
 	node tools/agent-hooks/check-ceo-ai-schema-cards.mjs
+
+# mesha-data-map-guard: .agents/skills/mesha-data-map/references/views.generated.md
+# must list every ceo_ai object (schema_cards.go + migrations). With PG* env it is
+# a full byte compare against the live DB render; without, column check is skipped.
+mesha-data-map-guard:
+	node tools/ask-mesha-agent/gen-data-map.mjs --check
 
 vaccination-drive-clubbing-guard:
 	cd backend && go test ./internal/obligation/app -run 'Test(DrivePlanner|BatchSession|Normalized|Pick|Park|Combo|SweepVersionWalksEverySafeOverflowDateWhenShotCapFull|ParkMergeStepWalksEverySafeOverflowDateWhenShotCapFull)' -count=1 -timeout=60s

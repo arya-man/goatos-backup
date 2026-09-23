@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Daily 07:30 local. Edit the two paths, then:
+     cp tools/ask-mesha-agent/schedule/sg.mesha.data-map-refresh.plist ~/Library/LaunchAgents/
+     launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/sg.mesha.data-map-refresh.plist -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>sg.mesha.data-map-refresh</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>-lc</string>
+    <string>/Users/raviteja/airnd/goatos-pr/tools/ask-mesha-agent/refresh-data-map.sh</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>GOATOS_REPO</key><string>/Users/raviteja/airnd/goatos-pr</string>
+    <key>PGENV_FILE</key><string>/Users/raviteja/airnd/agent-local/.pgenv</string>
+  </dict>
+  <key>StartCalendarInterval</key>
+  <dict><key>Hour</key><integer>7</integer><key>Minute</key><integer>30</integer></dict>
+  <key>StandardOutPath</key><string>/tmp/mesha-data-map-refresh.out</string>
+  <key>StandardErrorPath</key><string>/tmp/mesha-data-map-refresh.err</string>
+</dict>
+</plist>

@@ -123,6 +123,88 @@ export function CeoAiStyles(): ReactElement {
     <style>{`
 .mzai-root{position:fixed;bottom:24px;right:24px;z-index:80;font-family:var(--f);transition:all .3s cubic-bezier(.34,.1,.64,.9);
   overscroll-behavior:contain}
+.mzai-md{white-space:normal;font-size:13.5px;line-height:1.65}
+.mzai-md>*:first-child{margin-top:0}.mzai-md>*:last-child{margin-bottom:0}
+.mzai-md p{margin:0 0 .7em}
+.mzai-md ul,.mzai-md ol{margin:0 0 .7em;padding-left:1.3em}
+.mzai-md li{margin:.25em 0}.mzai-md li>p{margin:0}
+.mzai-md h1,.mzai-md h2,.mzai-md h3,.mzai-md h4{font-weight:700;line-height:1.3;margin:1em 0 .45em}
+.mzai-md h1{font-size:1.25em}.mzai-md h2{font-size:1.12em}.mzai-md h3,.mzai-md h4{font-size:1em}
+.mzai-md strong{font-weight:700}
+.mzai-md a{color:var(--brand);text-decoration:underline;text-underline-offset:2px}
+.mzai-md blockquote{margin:0 0 .7em;padding:.1em .9em;border-left:3px solid var(--brand);opacity:.9}
+.mzai-md hr{border:0;border-top:1px solid var(--line);margin:1em 0}
+.mzai-md :not(pre)>code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.86em;padding:.12em .38em;border-radius:5px;background:rgba(127,127,127,.18)}
+.mzai-table{overflow-x:auto;margin:.3em 0 .9em;border:1px solid var(--line);border-radius:10px}
+.mzai-md table{border-collapse:collapse;width:100%;font-size:.92em}
+.mzai-md th,.mzai-md td{padding:.45em .75em;text-align:left;white-space:nowrap;border-bottom:1px solid var(--line)}
+.mzai-md tr:last-child td{border-bottom:0}
+.mzai-md th{font-weight:700;background:rgba(127,127,127,.1)}
+.mzai-md td:not(:first-child),.mzai-md th:not(:first-child){font-variant-numeric:tabular-nums}
+.mzai-code{margin:.3em 0 .9em;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#0d1117}
+.mzai-code-head{display:flex;justify-content:space-between;align-items:center;padding:.35em .5em .35em .8em;font-size:11.5px;color:#9aa4ae;background:#161b22;border-bottom:1px solid #262c34}
+.mzai-code-actions{display:flex;gap:6px}
+.mzai-code pre{margin:0;padding:.8em .9em;overflow-x:auto;color:#e6edf3;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;line-height:1.55;white-space:pre}
+.mzai-code pre code{background:none;padding:0;font-size:inherit}
+.mzai-html{display:block;width:100%;height:320px;border:0;background:#fff}
+.mzai-copy{font:inherit;font-size:11.5px;padding:.25em .6em;border-radius:6px;border:1px solid rgba(127,127,127,.35);background:transparent;color:inherit;cursor:pointer}
+.mzai-copy:hover{background:rgba(127,127,127,.18)}
+.mzai-copy-ic{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;
+  border:0;border-radius:6px;background:transparent;color:var(--muted);cursor:pointer;opacity:.75;transition:opacity .15s,background .15s}
+.mzai-copy-ic:hover{opacity:1;background:rgba(127,127,127,.16);color:var(--ink)}
+.mzai-code .mzai-copy-ic{color:#9aa4ae;width:24px;height:24px}
+.mzai-code .mzai-copy-ic:hover{color:#e6edf3}
+.hljs-comment,.hljs-quote{color:#8b949e;font-style:italic}
+.hljs-keyword,.hljs-selector-tag,.hljs-literal,.hljs-type{color:#ff7b72}
+.hljs-string,.hljs-regexp,.hljs-addition{color:#a5d6ff}
+.hljs-number,.hljs-symbol,.hljs-bullet{color:#79c0ff}
+.hljs-title,.hljs-section,.hljs-title.function_{color:#d2a8ff}
+.hljs-attr,.hljs-attribute,.hljs-variable,.hljs-template-variable,.hljs-property{color:#79c0ff}
+.hljs-built_in,.hljs-name,.hljs-tag{color:#7ee787}
+.hljs-meta{color:#ffa657}.hljs-deletion{color:#ffa198}
+
+/* ---- containment: nothing inside a message may widen the chat column ---- */
+.mzai-log{overflow-x:hidden}
+.mzai-msg-wrap{min-width:0}
+.mzai-msg{min-width:0}
+.mzai-msg.assistant{flex:1 1 auto;max-width:calc(100% - 40px)}
+.mzai-bub{min-width:0;max-width:100%;overflow-wrap:anywhere}
+.mzai-msg.assistant .mzai-bub{width:100%;box-sizing:border-box}
+.mzai-md,.mzai-table,.mzai-code{max-width:100%;min-width:0}
+.mzai-md img,.mzai-md svg{max-width:100%;height:auto}
+.mzai-msg .recharts-responsive-container,.mzai-msg svg.recharts-surface{max-width:100%}
+/* ---- window states ---- */
+.mzai-view-min .mzai-body{display:none}
+.mzai-view-min .mzai-panel{height:auto}
+.mzai-view-min .mzai-head{cursor:pointer;border-bottom:0}
+.mzai-view-max .mzai-panel{height:100%}
+.mzai-view-max .mzai-msg.assistant{max-width:min(980px,calc(100% - 40px))}
+/* ---- phones and narrow webviews: full-screen sheet, threads overlay ---- */
+@media (max-width:620px){
+  .mzai-root.mzai-open{inset:0 !important;width:auto !important;height:auto !important}
+  .mzai-open .mzai-panel{height:100dvh;border-radius:0;border:0;
+    padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)}
+  .mzai-hide-mobile{display:none}
+  .mzai-body{position:relative}
+  .mzai-side{position:absolute;inset:0 auto 0 0;width:min(78vw,280px);z-index:2;box-shadow:8px 0 24px rgba(0,0,0,.25)}
+  .mzai-msg.assistant{max-width:calc(100% - 36px)}
+  .mzai-root .mzai-form textarea{font-size:16px}
+}
+.mzai-tool{flex:none;width:38px;height:38px;border-radius:10px;border:1px solid var(--line);background:transparent;
+  color:var(--muted);display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+.mzai-tool:hover{color:var(--ink);background:rgba(127,127,127,.14)}
+.mzai-tool.on{color:#fff;background:var(--danger);border-color:var(--danger);animation:mzai-pulse 1.2s ease-in-out infinite}
+@keyframes mzai-pulse{50%{opacity:.7}}
+.mzai-files{display:flex;flex-wrap:wrap;gap:6px;padding:8px 14px 0}
+.mzai-file{display:inline-flex;align-items:center;gap:5px;max-width:220px;padding:3px 6px 3px 8px;border:1px solid var(--line);
+  border-radius:8px;font-size:12px;color:var(--ink);background:var(--panel-2)}
+.mzai-file-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mzai-file button{display:inline-flex;border:0;background:transparent;color:var(--muted);cursor:pointer;padding:2px}
+.mzai-msg.user .mzai-bub{white-space:pre-wrap}
+.mzai-actions{display:flex;gap:2px;margin:-2px 0 0 2px}
+.mzai-panel{position:relative}
+.mzai-drop{position:absolute;inset:8px;z-index:5;display:flex;align-items:center;justify-content:center;border:2px dashed var(--brand);
+  border-radius:16px;background:rgba(20,28,22,.82);color:#fff;font-size:15px;font-weight:600;pointer-events:none}
 .mzai-bubble{width:56px;height:56px;border-radius:50%;border:2px solid var(--brand);
   background:var(--brand);color:#fff;display:flex;align-items:center;justify-content:center;
   cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,.15);transition:transform .2s cubic-bezier(.34,.1,.64,.9),box-shadow .2s ease}

@@ -532,7 +532,7 @@ validate-sqlc-plans` coverage is a HIGH finding.
 If the change encodes a **new** business/medical rule, timing, or workflow that
 contradicts existing docs/config/kernel behavior, do NOT silently accept it.
 Surface the conflict (old source vs new change side by side) and require an
-explicit maintainer decision before approving — per `AGENTS.md` "Business and
+explicit maintainer decision before approving — per `docs/agent-rules/business-medical-rules.md` "Business and
 medical rule changes." Confirmed override: never accept mother-vaccination-status
 as a scheduling input.
 

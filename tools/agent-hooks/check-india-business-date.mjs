@@ -267,7 +267,7 @@ if (newOffenders.length > 0) {
     console.error(`    ${f.text}`);
   }
   console.error(
-    "\nSee AGENTS.md → 'Treat Goat OS time semantics as India-business-calendar' and backend/internal/platform/biztime/"
+    "\nSee docs/agent-rules/time-semantics.md → 'Treat Goat OS time semantics as India-business-calendar' and backend/internal/platform/biztime/"
   );
   process.exit(1);
 }

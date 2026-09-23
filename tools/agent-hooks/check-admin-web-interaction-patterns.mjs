@@ -367,7 +367,7 @@ function main() {
     for (const w of wiring) console.error(`  ${w}`);
   }
   if (increased.length) {
-    console.error("admin-web-interaction-patterns: FAIL -- new findings (AGENTS.md 'Admin-web interaction patterns'):");
+    console.error("admin-web-interaction-patterns: FAIL -- new findings (docs/agent-rules/ui-frontend.md 'Admin-web interaction patterns'):");
     for (const { key, was, n } of increased) {
       console.error(`  ${key}: ${was} -> ${n}`);
       for (const f of findings.filter((x) => `${x.file}|${x.rule}` === key)) console.error(`    ${f.file}:${f.line} [${f.rule}] ${f.detail}`);
