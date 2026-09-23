@@ -7,9 +7,10 @@
       "kind": "edit-form",
       "where": "app/(admin)/people/loading.tsx:18",
       "status": "not-checked",
-      "notCheckedReason": "this is a loading skeleton, so whether it is on screen at all is pure timing and a fast page never shows it; and how many placeholder boxes it paints follows the filter bar, which varies with who is signed in. Neither half can be pinned to a constant.",
-      "routes": [],
-      "routeGapReason": "Next.js reaches this file by convention rather than by an import, so the import graph cannot name its route; it is the loading state of the page it sits beside"
+      "notCheckedReason": "this edit-form carries no label on its own element, and every control inside it is compiled per principal from the page contract, so no expected value here would be true of more than one person; it needs a run signed in as a named principal to state one",
+      "routes": [
+        "/people"
+      ]
     },
     {
       "key": "components/auth/google-login.tsx::edit-form::grid gap-3.5",
@@ -40,6 +41,7 @@
         "1440",
         "390"
       ],
+      "principal": "any principal whose page contract lets them open this surface -- the expectation is only about the surface's own label, which does not vary with permissions",
       "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
       "assertions": [
         {
@@ -59,8 +61,7 @@
       ],
       "routes": [
         "/alerts"
-      ],
-      "principal": "any principal whose page contract lets them open this surface -- the expectation is only about the surface's own label, which does not vary with permissions"
+      ]
     },
     {
       "key": "features/approvals/approvals-drawer.tsx::edit-form::btn p",
@@ -194,6 +195,7 @@
       "status": "not-checked",
       "notCheckedReason": "this edit-form puts no label of its own on screen -- its heading arrives as a prop from whichever screen renders it -- so the only expectation that could be written here belongs to each call site, and what its child controls show depends on the permissions of whoever is signed in",
       "routes": [
+        "/(admin)",
         "/tasks-preview"
       ]
     },
@@ -1072,6 +1074,7 @@
       "status": "not-checked",
       "notCheckedReason": "this modal puts no label of its own on screen -- its heading arrives as a prop from whichever screen renders it -- so the only expectation that could be written here belongs to each call site, and what its child controls show depends on the permissions of whoever is signed in",
       "routes": [
+        "/(admin)",
         "/tasks-preview"
       ]
     },
@@ -1693,7 +1696,7 @@
         }
       ],
       "routes": [],
-      "routeGapReason": "no page in the app imports this file, directly or through a barrel -- nothing can reach this surface today, which is a finding of its own and not something an assertion can cover"
+      "routeGapReason": "no page, layout or router-convention file in the app reaches this file -- not through an import, not through a barrel, not through a dynamic import. Nothing can render this surface today, which is a finding of its own rather than something an assertion covers"
     },
     {
       "key": "features/preventive-care-vaccination/supplier-warmup-context.tsx::modal::unnamed",
@@ -1702,7 +1705,7 @@
       "status": "not-checked",
       "notCheckedReason": "this modal carries no label on its own element, and every control inside it is compiled per principal from the page contract, so no expected value here would be true of more than one person; it needs a run signed in as a named principal to state one",
       "routes": [],
-      "routeGapReason": "no page in the app imports this file, directly or through a barrel -- nothing can reach this surface today, which is a finding of its own and not something an assertion can cover"
+      "routeGapReason": "no page, layout or router-convention file in the app reaches this file -- not through an import, not through a barrel, not through a dynamic import. Nothing can render this surface today, which is a finding of its own rather than something an assertion covers"
     },
     {
       "key": "features/preventive-care-vaccination/vaccination-filter-modal.tsx::modal::hd",
@@ -1815,7 +1818,7 @@
       "kind": "modal",
       "where": "features/procurement/animal-purchase-lightbox.tsx:109",
       "status": "not-checked",
-      "notCheckedReason": "how many proof slots an animal-purchase inspection has is AUTHORED data the farm edits on the procurement SOP screen, so a constant pinned here goes red the day someone publishes a version with a second photo. It also depends on the media kind: a photo paints when the card opens while a video waits for a tap, so a video slot paints nothing. An expectation here has to READ the published SOP version, which nothing offline can do.",
+      "notCheckedReason": "this modal puts no label of its own on screen -- its heading arrives as a prop from whichever screen renders it -- so the only expectation that could be written here belongs to each call site, and what its child controls show depends on the permissions of whoever is signed in",
       "routes": [
         "/configuration/items",
         "/procurement/animal-purchases",
