@@ -133,7 +133,7 @@ Boundary guard (`check-ceo-ai-core-boundary.mjs`) forbids non-ceoai code touchin
 | View | Grain | Must carry | Answers |
 |---|---|---|---|
 | `load_economics` | load | prior outcomes folded; `price_basis`; NULL cost ⇒ NULL P&L; `park_code` agree-or-bare; `served_rank` (page = newest 60); **+ breed, species, source_label, purchase_date, sold_out_date** | load P&L, ₹/kg in vs out, fattening days, mortality % by load, "did the June Sirohi loads make money" |
-| `sales_deal_lines_closed` | deal **line** (UNION legacy no-line deals) | `status='Deal Closed'`, `is_priced_live`, `farm`, month key, buyer_key, payments rollup | revenue/animals/manure by month, ₹/kg by breed, top buyers, outstanding |
+| `sales_deal_lines_closed` | deal **line** (UNION legacy no-line deals), uniquely keyed **(tenant_id, deal_id, line_no)** | `status='Deal Closed'`, `is_priced_live`, `farm`, month key, buyer_key, payments rollup, **`line_no` — the paging key; the synthesised no-line row takes the defined value 1, never NULL** | revenue/animals/manure by month, ₹/kg by breed, top buyers, outstanding |
 | `sales_buyer_summary` | buyer | deals, animals, ₹, first/last sale, outstanding, repeat flag | repeat %, buyer cadence (no subquery needed) |
 | `farm_valuation` | valuation bucket | rates from one shared `ceo_ai.farm_valuation_rates` source used by the page SQL too; `verified_only` flagged | farm value, meat kg |
 | `weighing_latest_individual_weight` | canonical animal | identity CTE inlined (`identity_scope.go:153-222`), latest-ever accepted individual weigh, band, campaign pen + partition, origin/sex/breed | >30/>35 kg (sale-readiness definition), band counts, avg by pen **with date** |

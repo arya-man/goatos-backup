@@ -31,7 +31,10 @@
 -- planner's schema card, so a column a leadership question cannot ask for costs
 -- tokens on every request. The deal's sex split, its line id, its status (always
 -- 'Deal Closed' on this view, by its own WHERE clause) and the buyer's place are
--- reachable on `GET /sales/deals` and stay there.
+-- reachable on `GET /sales/deals` and stay there. `line_no` is the one
+-- non-question column kept: it is the view's unique key at its own grain and
+-- every consumer pages on it (see the projection note on view 1).
+
 --
 -- MONEY IS NOT DERIVED FROM STATUS AND STATUS IS NOT DERIVED FROM MONEY (000227):
 -- `status` is the deal's human lifecycle and `payment_received` is the running
@@ -81,9 +84,11 @@ SET LOCAL statement_timeout = '30s';
 -- answer can state what is still owed on the same deal without a second read,
 -- and they REPEAT identically on each of a mixed deal's lines. Summing them
 -- across lines multiplies a two-line deal's receivable by two. `is_deal_primary_line`
--- is true on exactly one line per deal (the lowest `line_no`, which is 1 by the
--- write path and by 000296's backfill, and is resolved by window function here
--- rather than assumed), so the correct deal-grain total is
+-- is true on exactly one line per deal (the lowest `line_no` -- the SAME
+-- `line_no` this view projects, so a reader can verify the flag instead of
+-- taking it on trust; it is 1 by the write path and by 000296's backfill, and is
+-- resolved by window function here rather than assumed), so the correct
+-- deal-grain total is
 -- `sum(deal_outstanding_rupees) FILTER (WHERE is_deal_primary_line)` -- or,
 -- better, ceo_ai.sales_buyer_summary, which is already at a grain where money
 -- sums plainly. The schema card names both facts.
@@ -105,7 +110,7 @@ SET LOCAL statement_timeout = '30s';
 -- move deals between months. A monthly series is date_trunc('month', sale_date)
 -- over this column; a stored month key would only repeat it.
 --
--- projection-review: membership=public.sales_deal_lines rows whose deal is status='Deal Closed' (the WHERE is on the deal side and runs before any projection), UNIONed in-place by the LEFT JOIN with the closed deals that have no line row at all; group_key=NONE -- this view has no GROUP BY, it is line-grain detail and every consumer aggregates over it; join_cardinality=sales_deal_lines 0..N per deal BY DESIGN (that IS the grain: one output row per line, never more), and NOTHING else is joined -- no vendor register, no receipts table, no herd table -- so no OTHER relation can multiply a line -- the window function computing is_deal_primary_line partitions by (tenant_id, deal_id) and adds no rows; pagination=NONE, this is a view and every consumer paginates over it; scope=tenant_id, exposed as d.tenant_id, and the line join is keyed on BOTH tenant_id and deal_id so a line can never attach to another tenant's deal
+-- projection-review: membership=public.sales_deal_lines rows whose deal is status='Deal Closed' (the WHERE is on the deal side and runs before any projection), UNIONed in-place by the LEFT JOIN with the closed deals that have no line row at all; group_key=NONE -- this view has no GROUP BY, it is line-grain detail and every consumer aggregates over it -- but it DOES expose a unique key at its own grain, (tenant_id, deal_id, line_no), projected as `line_no`: unique on the line side by sales_deal_lines_deal_line_no_uq (000296), and the one synthesised row of a line-less deal takes the defined value 1, so the key is total and unique over EVERY row of the view; join_cardinality=sales_deal_lines 0..N per deal BY DESIGN (that IS the grain: one output row per line, never more), and NOTHING else is joined -- no vendor register, no receipts table, no herd table -- so no OTHER relation can multiply a line -- the window function computing is_deal_primary_line partitions by (tenant_id, deal_id) and adds no rows; pagination=NONE, this is a view and every consumer paginates over it -- on the projected (tenant_id, deal_id, line_no) keyset, which TestSalesLinesPageBoundaryReturnsEachLineExactlyOnce walks two rows at a time across a boundary that falls INSIDE a mixed deal and proves returns every line exactly once; scope=tenant_id, exposed as d.tenant_id, and the line join is keyed on BOTH tenant_id and deal_id so a line can never attach to another tenant's deal
 --
 -- Ratio key sets: price_per_kg has numerator sales_value and denominator total_weight_kg drawn from the SAME LINE ROW -- one key set, no cross-grain division -- and is NULL rather than 0 when the denominator is absent or zero, so an unweighed line is excluded from a ₹/kg answer instead of dragging it to zero. deal_outstanding_rupees = greatest(deal_sales_value - deal_payment_received, 0), both columns of the SAME DEAL ROW, matching `greatest(r.sales_value - r.payment_received, 0)` in procurement/adapters/postgres/buyer_analytics_repository.go so this view and the Buyer analytics page compute a receivable identically; it is clamped at 0 because an overpayment is a credit, not a negative debt, and must not net off another deal's arrears.
 -- ===========================================================================
@@ -113,6 +118,21 @@ CREATE OR REPLACE VIEW ceo_ai.sales_deal_lines_closed AS
 SELECT
     d.tenant_id                                          AS tenant_id,
     d.id                                                 AS deal_id,
+    -- THE VIEW'S OWN UNIQUE KEY, AT ITS OWN GRAIN: (tenant_id, deal_id, line_no).
+    -- `sales_deal_lines_deal_line_no_uq UNIQUE (tenant_id, deal_id, line_no)`
+    -- (000296) makes it unique on the line side, and a deal with NO line row
+    -- contributes exactly one synthesised row, which takes the defined value 1 --
+    -- the same value 000296's backfill gave every real single-line deal, and a
+    -- legal one under `sales_deal_lines_line_no_positive CHECK (line_no >= 1)`.
+    -- It is projected because `pagination=NONE` means EVERY consumer pages over
+    -- this view, and a keyset page is only stable on a key that is unique at the
+    -- grain being paged: ordering on (deal_id, sale_date) or (deal_id, breed)
+    -- repeats or skips a line of a mixed deal at the page boundary. It is also
+    -- what makes `is_deal_primary_line` below checkable by a reader rather than
+    -- a claim about a column the reader cannot select.
+    -- NOT A DIMENSION: line_no is the desk's data-entry order, not a business
+    -- fact -- page and de-duplicate on it, never GROUP BY it.
+    COALESCE(l.line_no, 1)                               AS line_no,
     d.sale_date                                          AS sale_date,
     d.farm                                               AS farm,
     d.buyer_name                                         AS buyer_label,

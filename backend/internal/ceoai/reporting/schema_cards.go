@@ -548,14 +548,22 @@ var schemaCards = []SchemaCard{
 		Route: "/sales/buyer-analytics",
 	},
 	{
-		Name:                "sales_deal_lines_closed",
-		Purpose:             "Closed sales deals at line grain. Rupees/kg = sum(sales_value)/sum(total_weight_kg) on is_animal_line rows, never avg(price_per_kg). deal_* money repeats per line: sum only under FILTER (WHERE is_deal_primary_line).",
-		Grain:               "one row per line of a closed deal (synthesised if it has none)",
+		Name: "sales_deal_lines_closed",
+		// line_no is REQUIRED, not optional prose: it is the view's unique key at
+		// its own grain and the keyset every consumer pages on (migration 000393).
+		// The planner prompt had 3 bytes of headroom (TestPlanPromptByteBound), so
+		// this card PAYS for its own column instead of raising the bound -- the
+		// Purpose dropped ", never avg(price_per_kg)" and the Grain its "synthesised"
+		// clause, because RenderCompact already emits "Never avg/sum: price_per_kg,..."
+		// from NeverAverage below, verbatim, two lines further down the same card.
+		// Rendered: 20469 of 20480 bytes. Trim here before widening the bound.
+		Purpose:             "Closed deals, keyed (deal_id,line_no); page on it, never group it. Rupees/kg = sum(sales_value)/sum(total_weight_kg) where is_animal_line. deal_* repeats per line: sum only FILTER (WHERE is_deal_primary_line).",
+		Grain:               "one line of a closed deal; line_no 1 if it has none",
 		DateColumn:          "sale_date",
 		TenantScopedColumns: []string{"tenant_id"},
 		GroupByColumns:      []string{"sale_date", "farm", "buyer_key", "buyer_label", "product_type", "breed", "is_animal_line"},
 		Columns: []Column{
-			col("tenant_id", uuidT), col("deal_id", uuidT), col("sale_date", dateT),
+			col("tenant_id", uuidT), col("deal_id", uuidT), col("line_no", intT), col("sale_date", dateT),
 			col("farm", textT), col("buyer_label", textT), col("buyer_key", textT),
 			col("product_type", textT), col("breed", textT),
 			col("is_animal_line", boolT), col("animal_count", numT), col("total_weight_kg", numT),

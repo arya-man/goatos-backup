@@ -340,6 +340,23 @@ func scan(t *testing.T, ctx context.Context, pool *pgxpool.Pool, fx growthFixtur
 // view's own grain, and proves every line is seen EXACTLY ONCE. A line join
 // that fanned out would repeat a row on the next page; a non-unique order key
 // would skip one.
+//
+// The key is (tenant_id, deal_id, line_no), which is why 000393 PROJECTS
+// `line_no` at all. Two things have to hold before the walk means anything, and
+// both are asserted first:
+//
+//  1. The key is TOTAL. The synthesised row of a closed deal with no line rows
+//     must carry a DEFINED line_no, not NULL -- `COALESCE(l.line_no, 1)`. A NULL
+//     key is not comparable, so `(deal_id, line_no) > (…)` is NULL for that row
+//     and a keyset walk silently DROPS the line-less deal's money forever, which
+//     is the exact disagreement with /sales/overview the synthesised row exists
+//     to prevent.
+//  2. The key is UNIQUE over every row of the view, including that synthesised
+//     one, so no page can repeat or skip.
+//
+// Ordering on anything else available here -- (deal_id, sale_date),
+// (deal_id, breed), (deal_id, sales_value) -- is NOT unique at line grain: the
+// two-line deal below shares one sale_date across both of its lines.
 func TestSalesLinesPageBoundaryReturnsEachLineExactlyOnce(t *testing.T) {
 	ctx := context.Background()
 	pool, tenant := newDB(t, ctx)
@@ -347,11 +364,11 @@ func TestSalesLinesPageBoundaryReturnsEachLineExactlyOnce(t *testing.T) {
 	// Five lines across three deals, so the 2-row pages break INSIDE a deal.
 	twoLine := closedDeal(t, ctx, pool, tenant, "2026-09-03", "Ramesh Traders", "Goat", "Sirohi", 12, 300, 120000, 0)
 	dealLine(t, ctx, pool, tenant, twoLine, 1, "Goat", "Sirohi", f64(8), 240, 96000)
-	dealLine(t, ctx, pool, tenant, twoLine, 2, "Manure", "", nil, 60, 24000)
+	dealLine(t, ctx, pool, tenant, twoLine, 2, "Manure", "NA", nil, 60, 24000)
 	threeLine := closedDeal(t, ctx, pool, tenant, "2026-09-05", "Second Buyer", "Sheep", "Deccani", 6, 150, 60000, 0)
 	dealLine(t, ctx, pool, tenant, threeLine, 1, "Sheep", "Deccani", f64(3), 70, 30000)
 	dealLine(t, ctx, pool, tenant, threeLine, 2, "Sheep", "Madgyal", f64(3), 60, 25000)
-	dealLine(t, ctx, pool, tenant, threeLine, 3, "Manure", "", nil, 20, 5000)
+	dealLine(t, ctx, pool, tenant, threeLine, 3, "Manure", "NA", nil, 20, 5000)
 	// A line-less deal, which the view fills in from the deal itself.
 	closedDeal(t, ctx, pool, tenant, "2026-09-07", "Third Buyer", "Goat", "Boer", 2, 50, 20000, 0)
 
@@ -362,6 +379,54 @@ func TestSalesLinesPageBoundaryReturnsEachLineExactlyOnce(t *testing.T) {
 	}
 	if total != 6 {
 		t.Fatalf("fixture: expected 6 line rows (2 + 3 + 1 synthesised), got %d", total)
+	}
+
+	// (1) TOTAL: no row may carry a NULL key component. The synthesised row of
+	// the line-less deal is the only candidate, and it must read line_no = 1.
+	var nullKeys int
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM ceo_ai.sales_deal_lines_closed
+		  WHERE tenant_id = $1 AND (deal_id IS NULL OR line_no IS NULL)`, tenant).Scan(&nullKeys); err != nil {
+		t.Fatalf("null key probe: %v", err)
+	}
+	if nullKeys != 0 {
+		t.Fatalf("%d row(s) carry a NULL page key; a keyset walk drops every one of them", nullKeys)
+	}
+	var synthLineNo int
+	var synthPrimary bool
+	if err := pool.QueryRow(ctx,
+		`SELECT line_no, is_deal_primary_line FROM ceo_ai.sales_deal_lines_closed
+		  WHERE tenant_id = $1 AND buyer_label = 'Third Buyer'`, tenant).Scan(&synthLineNo, &synthPrimary); err != nil {
+		t.Fatalf("read synthesised line: %v", err)
+	}
+	if synthLineNo != 1 {
+		t.Errorf("the synthesised line of a line-less deal must take the defined key value 1 (000296's backfill value), got %d", synthLineNo)
+	}
+	if !synthPrimary {
+		t.Errorf("the synthesised line is the deal's only line and must be its primary line")
+	}
+
+	// (2) UNIQUE: the key the walk orders on must be unique across the whole view.
+	var distinctKeys int
+	if err := pool.QueryRow(ctx,
+		`SELECT count(DISTINCT (deal_id, line_no)) FROM ceo_ai.sales_deal_lines_closed
+		  WHERE tenant_id = $1`, tenant).Scan(&distinctKeys); err != nil {
+		t.Fatalf("distinct key count: %v", err)
+	}
+	if distinctKeys != total {
+		t.Fatalf("(deal_id, line_no) is not unique at the view's grain: %d distinct keys over %d rows", distinctKeys, total)
+	}
+	// And the obvious wrong key is demonstrably NOT unique, so the walk below is
+	// proving something the cheaper ordering could not: the two-line deal shares
+	// one sale_date across both lines.
+	var distinctDateKeys int
+	if err := pool.QueryRow(ctx,
+		`SELECT count(DISTINCT (deal_id, sale_date)) FROM ceo_ai.sales_deal_lines_closed
+		  WHERE tenant_id = $1`, tenant).Scan(&distinctDateKeys); err != nil {
+		t.Fatalf("distinct date key count: %v", err)
+	}
+	if distinctDateKeys >= total {
+		t.Fatalf("fixture no longer exercises a within-deal page boundary: (deal_id, sale_date) separates all %d rows", total)
 	}
 
 	seen := map[string]int{}
