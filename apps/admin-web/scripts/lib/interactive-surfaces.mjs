@@ -520,9 +520,20 @@ export function resolveImport(specifier, fromPath, byPath) {
   return "";
 }
 
+/**
+ * Next.js reaches these by CONVENTION, with no import anywhere: the router renders loading.tsx
+ * while a page streams, error.tsx when it throws, not-found.tsx when it 404s, and layout.tsx
+ * around everything beneath it. Leaving them out meant a real screen -- the empty and error
+ * states this work is supposed to cover -- carried "no page imports this file", which reads like
+ * dead code and is not.
+ */
+export const ROUTER_CONVENTION_FILES = ["loading", "error", "not-found", "template", "default", "global-error"];
+
 /** The admin route a `app/(admin)/.../page.tsx` serves, in the shape the sweep's route list uses. */
 export function routeOfPageFile(path) {
-  const rel = path.replace(/^app\//, "").replace(/\/page\.(t|j)sx?$/, "");
+  const rel = path
+    .replace(/^app\//, "")
+    .replace(/\/(?:page|layout|loading|error|not-found|template|default|global-error)\.(t|j)sx?$/, "");
   const route = `/${rel}`.replaceAll(/\([^)]*\)\//g, "").replaceAll(/\[[^/]+\]/g, "placeholder").replace(/\/$/, "");
   return route === "" ? "/" : route;
 }
@@ -547,9 +558,19 @@ export function routesOwningFiles(files) {
       [...specs].map((s) => resolveImport(s, file.path, byPath)).filter(Boolean),
     );
   }
-  const owners = new Map();
+  // A dynamic import built from a variable is an edge this graph cannot follow. There are none in
+  // the app today, and if one appears it must show up as UNRESOLVED rather than quietly making a
+  // reachable file look like dead code.
+  const unresolvable = new Set();
   for (const file of files) {
-    if (!/^app\/.*\/page\.(t|j)sx?$/.test(file.path) && file.path !== "app/page.tsx") continue;
+    if (/\bimport\(\s*[^"'`)\s]/.test(file.text)) unresolvable.add(file.path);
+  }
+
+  const owners = new Map();
+  const conventions = ROUTER_CONVENTION_FILES.join("|");
+  const entryPoint = new RegExp(`^app/(?:.*/)?(?:page|layout|${conventions})\\.(t|j)sx?$`);
+  for (const file of files) {
+    if (!entryPoint.test(file.path)) continue;
     const route = routeOfPageFile(file.path);
     const seen = new Set();
     const stack = [file.path];
@@ -564,5 +585,7 @@ export function routesOwningFiles(files) {
       owners.get(reached).add(route);
     }
   }
-  return new Map([...owners].map(([path, routes]) => [path, [...routes].sort()]));
+  const resolved = new Map([...owners].map(([path, routes]) => [path, [...routes].sort()]));
+  resolved.unresolvableImportSites = [...unresolvable].sort();
+  return resolved;
 }

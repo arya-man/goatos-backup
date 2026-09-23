@@ -97,9 +97,9 @@ function main() {
           ...entry,
           routes: [],
           routeGapReason:
-            /\/(loading|error|not-found)\.[jt]sx$/.test(surface.path)
-              ? "Next.js reaches this file by convention rather than by an import, so the import graph cannot name its route; it is the loading state of the page it sits beside"
-              : "no page in the app imports this file, directly or through a barrel -- nothing can reach this surface today, which is a finding of its own and not something an assertion can cover",
+            "no page, layout or router-convention file in the app reaches this file -- not through " +
+            "an import, not through a barrel, not through a dynamic import. Nothing can render this " +
+            "surface today, which is a finding of its own rather than something an assertion covers",
         };
   });
   const ledger = {

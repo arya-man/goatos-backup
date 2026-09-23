@@ -361,3 +361,31 @@ test("only the surface's own opening tag is read, never a child control or a wir
 test("a copy key on the surface's own label is read, because an unresolved contract renders the key", () => {
   assert.deepEqual(rootLabels('<div role="dialog" aria-label={t("filter.drawer.title")}>', 0), ["filter.drawer.title"]);
 });
+
+// ---------------------------------------------- router-convention files and unfollowable imports
+test("the router's own files own their route, though no import names them", () => {
+  const owners = routesOwningFiles([
+    file("app/(admin)/people/page.tsx", "export default function P() { return null; }"),
+    file("app/(admin)/people/loading.tsx", '<form className="card" aria-busy="true">'),
+    file("app/(admin)/people/error.tsx", '<div role="alert">'),
+  ]);
+  // Next.js renders these while the page streams or when it throws. They are the empty and error
+  // states, not dead code, and before this they read as "no page imports this file".
+  assert.deepEqual(owners.get("app/(admin)/people/loading.tsx"), ["/people"]);
+  assert.deepEqual(owners.get("app/(admin)/people/error.tsx"), ["/people"]);
+});
+
+test("a dynamic import the graph cannot follow is reported, not silently treated as no edge", () => {
+  const quiet = routesOwningFiles([file("app/(admin)/x/page.tsx", 'const m = await import("./a");')]);
+  assert.deepEqual(quiet.unresolvableImportSites, []);
+  const loud = routesOwningFiles([file("app/(admin)/x/page.tsx", "const m = await import(whichever);")]);
+  assert.deepEqual(loud.unresolvableImportSites, ["app/(admin)/x/page.tsx"]);
+});
+
+test("a literal dynamic import IS followed, so a lazily loaded panel still names its route", () => {
+  const owners = routesOwningFiles([
+    file("app/(admin)/n/page.tsx", 'const P = lazy(() => import("./panel"));'),
+    file("app/(admin)/n/panel.tsx", '<div role="dialog" aria-label="Notifications">'),
+  ]);
+  assert.deepEqual(owners.get("app/(admin)/n/panel.tsx"), ["/n"]);
+});
