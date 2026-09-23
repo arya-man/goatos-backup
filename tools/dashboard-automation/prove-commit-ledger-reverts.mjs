@@ -175,6 +175,23 @@ function main() {
   const sample = sampleIdx !== -1 ? Number(args[sampleIdx + 1]) : 20;
   const shaIdx = args.indexOf("--sha");
   const only = shaIdx !== -1 ? args[shaIdx + 1] : null;
+  // Batching + parallelism. 795 backend rows do not fit in one serial pass, so several workers
+  // take disjoint --offset/--sample windows of the SAME deterministic ordering and each writes its
+  // own --receipts file; the files merge afterwards because every receipt is keyed by sha.
+  const offIdx = args.indexOf("--offset");
+  const offset = offIdx !== -1 ? Number(args[offIdx + 1]) : 0;
+  // Every backend `claimed` row, not only the ships-own-test tier. A commit whose evidence is a
+  // SIBLING test still deserves a verdict; it will come back `skipped` naming why, which is the
+  // honest word for unprovable rather than a row nobody looked at.
+  const allTiers = args.includes("--all-tiers");
+  // An explicit worklist, so a re-run does not spend an hour re-proving rows that already carry a
+  // verdict. One sha per line; the ordering below still applies within it.
+  const listIdx = args.indexOf("--shas-file");
+  const shaList = listIdx !== -1
+    ? new Set(readFileSync(args[listIdx + 1], "utf8").split("\n").map((l) => l.trim()).filter(Boolean))
+    : null;
+  const recIdx = args.indexOf("--receipts");
+  const receiptsPath = recIdx !== -1 ? args[recIdx + 1] : RECEIPTS;
 
   const rowsPath = join(repoRoot, LEDGER_ROWS);
   if (!existsSync(rowsPath)) {
@@ -183,11 +200,12 @@ function main() {
   }
   const rows = readFileSync(rowsPath, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l));
 
-  let candidates = rows.filter((r) => r.claimTier === "ships-own-test" && r.area === "backend");
+  let candidates = rows.filter((r) => r.area === "backend" && r.status === "claimed" && (allTiers || r.claimTier === "ships-own-test"));
   if (only) candidates = rows.filter((r) => r.sha.startsWith(only));
   // Deterministic order: newest first, so a re-run proves the same commits.
   candidates.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : a.sha.localeCompare(b.sha)));
-  candidates = candidates.slice(0, only ? candidates.length : sample);
+  if (shaList) candidates = candidates.filter((r) => shaList.has(r.sha));
+  candidates = only ? candidates : candidates.slice(offset, offset + sample);
 
   const worktree = mkdtempSync(join(tmpdir(), "goatos-revert-"));
   rmSync(worktree, { recursive: true, force: true });
@@ -221,7 +239,7 @@ function main() {
   }
 
   // Merge with any receipts already stored; never drop one.
-  const path = join(repoRoot, RECEIPTS);
+  const path = join(repoRoot, receiptsPath);
   const prior = existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : { receipts: [], rejected: [] };
   const byS = new Map((prior.receipts ?? []).map((r) => [r.sha, r]));
   for (const r of receipts) byS.set(r.sha, r);
