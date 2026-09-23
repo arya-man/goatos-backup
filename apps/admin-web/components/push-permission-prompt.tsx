@@ -58,6 +58,8 @@ const PENDING_STYLE = {
   color: "var(--brand)",
 } satisfies CSSProperties;
 
+const enableTimedOutState = (): WebPushState => ({ status: "timed_out" });
+
 async function withControlTimeout<T>(work: Promise<T>, onTimeout: () => T): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -134,7 +136,7 @@ export function PushPermissionPrompt({
   const onEnable = useCallback(() => {
     setBusy("enabling");
     setMessage("");
-    void withControlTimeout(enableWebPush(), () => ({ status: "timed_out" }))
+    void withControlTimeout(enableWebPush(), enableTimedOutState)
       .then((next) => {
         setState(next);
         if (next.status === "dismissed") {
@@ -147,7 +149,7 @@ export function PushPermissionPrompt({
   const onDisable = useCallback(() => {
     setBusy("disabling");
     setMessage("");
-    void withControlTimeout(disableWebPush(), () => ({
+    void withControlTimeout(disableWebPush(), (): WebPushState => ({
       status: "error",
       reason: pushCopy(contractCopy, "push.disable_timed_out"),
     }))
