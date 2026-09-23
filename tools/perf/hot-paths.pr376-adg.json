@@ -1,0 +1,71 @@
+{
+  "scope": {
+    "evidence_profile": "pr376_adg_performance",
+    "required_hot_paths": [
+      "pr376_adg_landing_dates",
+      "pr376_adg_shed_weights_fast",
+      "pr376_adg_growth_general",
+      "pr376_adg_demographics_composition"
+    ],
+    "included": [
+      "pr376_adg_landing_dates",
+      "pr376_adg_shed_weights_fast",
+      "pr376_adg_growth_general",
+      "pr376_adg_demographics_composition"
+    ],
+    "evidence_boundaries": {
+      "stg_like_adg_backend_reads": [
+        "pr376_adg_landing_dates",
+        "pr376_adg_shed_weights_fast",
+        "pr376_adg_growth_general",
+        "pr376_adg_demographics_composition"
+      ]
+    },
+    "excluded": {
+      "browser_render": "Run separately after merge/deploy against /weighing/analytics?scope_mode=company and fail on backend_down, Admin-web contract unavailable, Weights could not be loaded, and The board could not be loaded.",
+      "live_stg_claim": "This manifest certifies the backend read budget for a built API. It is not proof that the currently deployed STG site already contains this PR."
+    }
+  },
+  "endpoints": [
+    {
+      "name": "pr376_adg_landing_dates",
+      "method": "GET",
+      "path": "/weighing/weighing-dates?from={weighing_lookback_from}&to={weighing_today}&sex=male",
+      "p90_ms": 300,
+      "p95_ms": 500,
+      "p99_ms": 500,
+      "max_response_bytes": 262144,
+      "assertion": { "type": "array_min", "path": "lump_weighing_dates", "min": 1 }
+    },
+    {
+      "name": "pr376_adg_shed_weights_fast",
+      "method": "GET",
+      "path": "/weighing/shed-weights?from={weighing_from}&to={weighing_to}&sex=male&include_loads=false&include_dates=false",
+      "p90_ms": 300,
+      "p95_ms": 500,
+      "p99_ms": 500,
+      "max_response_bytes": 524288,
+      "assertion": { "type": "array_min", "path": "rows", "min": 1 }
+    },
+    {
+      "name": "pr376_adg_growth_general",
+      "method": "GET",
+      "path": "/weighing/leadership/growth?from={weighing_from}&to={weighing_to}&sex=male&sections=headline,shed_leaderboard,by_park",
+      "p90_ms": 300,
+      "p95_ms": 500,
+      "p99_ms": 500,
+      "max_response_bytes": 262144,
+      "assertion": { "type": "array_min", "path": "by_park", "min": 1 }
+    },
+    {
+      "name": "pr376_adg_demographics_composition",
+      "method": "GET",
+      "path": "/weighing/weight-demographics?from={weighing_from}&to={weighing_to}&sex=male&sections=composition",
+      "p90_ms": 300,
+      "p95_ms": 500,
+      "p99_ms": 500,
+      "max_response_bytes": 262144,
+      "assertion": { "type": "array_min", "path": "shed_composition", "min": 1 }
+    }
+  ]
+}

@@ -22106,6 +22106,8 @@ export interface operations {
                 sale_lower_kg?: number;
                 /** @description Omit or `true` returns the procurement-load breakdown (`by_load` and `load_unattributed_sheds`). `false` skips that load-grain work and returns an empty load section for screens that render only shed rows and summary cards. */
                 include_loads?: boolean;
+                /** @description Omit or `true` returns the shed response's lump-sum date markers and latest weighing date. `false` skips those fields for callers that already resolved the landing window through /weighing/weighing-dates and render no calendar markers from this response. */
+                include_dates?: boolean;
             };
             header?: never;
             path?: never;
@@ -22154,6 +22156,8 @@ export interface operations {
                 sale_lower_kg?: number;
                 /** @description Omit or `true` returns the procurement-load breakdown (`by_load` and `load_unattributed_sheds`). `false` skips that load-grain work and returns an empty load section for screens that render only shed rows and summary cards. */
                 include_loads?: boolean;
+                /** @description Omit or `true` returns the shed response's lump-sum date markers and latest weighing date. `false` skips those fields for callers that already resolved the landing window through /weighing/weighing-dates and render no calendar markers from this response. */
+                include_dates?: boolean;
             };
             header?: never;
             path?: never;

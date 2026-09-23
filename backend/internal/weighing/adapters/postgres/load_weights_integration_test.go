@@ -2,8 +2,10 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -235,9 +237,13 @@ func TestShedWeightsCanSkipLoadBreakdownWithoutChangingRows(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetShedWeights(default): %v", err)
 	}
-	withoutLoads, err := repo.GetShedWeights(domain.WithShedWeightsOptions(ctx, domain.ShedWeightsOptions{IncludeLoads: false}), repoTenant, []string{repoPark}, "", from, to, "", "", "", 0, 0, 0)
+	withoutLoads, err := repo.GetShedWeights(domain.WithShedWeightsOptions(ctx, domain.ShedWeightsOptions{IncludeLoads: false, IncludeDates: true}), repoTenant, []string{repoPark}, "", from, to, "", "", "", 0, 0, 0)
 	if err != nil {
 		t.Fatalf("GetShedWeights(include_loads=false): %v", err)
+	}
+	withoutLoadsAndDates, err := repo.GetShedWeights(domain.WithShedWeightsOptions(ctx, domain.ShedWeightsOptions{IncludeLoads: false, IncludeDates: false}), repoTenant, []string{repoPark}, "", from, to, "", "", "", 0, 0, 0)
+	if err != nil {
+		t.Fatalf("GetShedWeights(include_loads=false,include_dates=false): %v", err)
 	}
 
 	if len(withLoads.ByLoad) == 0 {
@@ -245,6 +251,24 @@ func TestShedWeightsCanSkipLoadBreakdownWithoutChangingRows(t *testing.T) {
 	}
 	if len(withoutLoads.ByLoad) != 0 || withoutLoads.LoadUnattributedSheds != 0 {
 		t.Fatalf("include_loads=false must skip load section, got %d buckets and %d unattributed", len(withoutLoads.ByLoad), withoutLoads.LoadUnattributedSheds)
+	}
+	encoded, err := json.Marshal(withoutLoads)
+	if err != nil {
+		t.Fatalf("marshal include_loads=false response: %v", err)
+	}
+	if !strings.Contains(string(encoded), `"by_load":[]`) {
+		t.Fatalf("include_loads=false must serialize by_load as [], got %s", encoded)
+	}
+	if len(withoutLoadsAndDates.ByLoad) != 0 || withoutLoadsAndDates.LoadUnattributedSheds != 0 || len(withoutLoadsAndDates.LumpWeighingDates) != 0 || withoutLoadsAndDates.LatestWeighingDate != "" {
+		t.Fatalf("include_loads=false/include_dates=false must skip load and date sections, got loads=%d unattributed=%d dates=%d latest=%q",
+			len(withoutLoadsAndDates.ByLoad), withoutLoadsAndDates.LoadUnattributedSheds, len(withoutLoadsAndDates.LumpWeighingDates), withoutLoadsAndDates.LatestWeighingDate)
+	}
+	encodedFast, err := json.Marshal(withoutLoadsAndDates)
+	if err != nil {
+		t.Fatalf("marshal include_loads=false/include_dates=false response: %v", err)
+	}
+	if !strings.Contains(string(encodedFast), `"by_load":[]`) || !strings.Contains(string(encodedFast), `"lump_weighing_dates":[]`) {
+		t.Fatalf("include_loads=false/include_dates=false must serialize skipped arrays as [], got %s", encodedFast)
 	}
 	withLoadsComparable := withLoads
 	withoutLoadsComparable := withoutLoads
@@ -254,6 +278,14 @@ func TestShedWeightsCanSkipLoadBreakdownWithoutChangingRows(t *testing.T) {
 	withoutLoadsComparable.LoadUnattributedSheds = 0
 	if !reflect.DeepEqual(withLoadsComparable, withoutLoadsComparable) {
 		t.Fatalf("include_loads=false changed non-load response fields: with=%#v without=%#v", withLoadsComparable, withoutLoadsComparable)
+	}
+	withoutDatesComparable := withoutLoadsAndDates
+	withoutDatesComparable.LumpWeighingDates = withLoadsComparable.LumpWeighingDates
+	withoutDatesComparable.LatestWeighingDate = withLoadsComparable.LatestWeighingDate
+	withoutDatesComparable.ByLoad = nil
+	withoutDatesComparable.LoadUnattributedSheds = 0
+	if !reflect.DeepEqual(withLoadsComparable, withoutDatesComparable) {
+		t.Fatalf("include_dates=false changed fields other than load/date sections: with=%#v without=%#v", withLoadsComparable, withoutDatesComparable)
 	}
 
 	cachedWithLoads, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "", "", "", 0, 0, 0)

@@ -243,8 +243,10 @@ func (h *Handler) GetShedWeights(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
-	if r.URL.Query().Get("include_loads") == "false" {
-		ctx = domain.WithShedWeightsOptions(ctx, domain.ShedWeightsOptions{IncludeLoads: false})
+	includeLoads := r.URL.Query().Get("include_loads") != "false"
+	includeDates := r.URL.Query().Get("include_dates") != "false"
+	if !includeLoads || !includeDates {
+		ctx = domain.WithShedWeightsOptions(ctx, domain.ShedWeightsOptions{IncludeLoads: includeLoads, IncludeDates: includeDates})
 	}
 	result, err := h.service.GetShedWeights(
 		ctx,
