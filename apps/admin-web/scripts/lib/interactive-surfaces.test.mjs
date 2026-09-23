@@ -14,6 +14,8 @@ import {
   gradeAssertion,
   routeOfPageFile,
   routesOwningFiles,
+  gradeReading,
+  presenceProbe,
   rootLabels,
   scanInteractiveSurfaces,
   validateLedger,
@@ -125,6 +127,7 @@ const KEY = SURFACES[0].key;
 const ROUTES = ["/people"];
 const PRINCIPAL = "the verifier signed in with verification.review";
 const goodAssertion = {
+  presence: { css: "[role=dialog]", min: 1 },
   subject: "the controls on the Access panel",
   operator: "field-set-equals",
   expected: ["Close", "Designation", "Scope"],
@@ -399,4 +402,46 @@ test("a file that was listed but never read is refused, not counted as zero surf
     /listed but its contents were never read/,
   );
   assert.equal(scanInteractiveSurfaces([]).length, 0, "an empty tree must count zero, not a leftover");
+});
+
+// ---------------------------------------------- which way does a missing input push the answer?
+test("a surface that never opened answers not-checked, never that its heading is wrong", () => {
+  const assertion = { operator: "field-set-contains-all", expected: ["Access"], presence: { css: "[role=dialog]", min: 1 } };
+  // The false-accusation direction: [] satisfies nothing, so without the precondition this reads
+  // as a bug on a page that is simply not showing the panel.
+  assert.equal(VALUE_OPERATORS["field-set-contains-all"]([], ["Access"]), false);
+  assert.equal(gradeReading(assertion, [], false).verdict, "not-checked");
+  assert.match(gradeReading(assertion, [], false).why, /not the same as its heading being wrong/);
+  // A probe that never ran is also not a verdict.
+  assert.equal(gradeReading(assertion, [], null).verdict, "not-checked");
+  // ...and when the surface IS there, the check still bites.
+  assert.equal(gradeReading(assertion, ["Access", "Close"], true).verdict, "pass");
+  assert.equal(gradeReading(assertion, ["Something else"], true).verdict, "fail");
+  assert.equal(gradeReading(assertion, null, true).verdict, "not-checked", "on screen but unreadable is not a pass");
+});
+
+test("an assertion with no way to tell whether the surface was there is refused", () => {
+  const blind = { ...goodAssertion };
+  delete blind.presence;
+  const entry = {
+    routes: ROUTES,
+    key: KEY,
+    principal: PRINCIPAL,
+    status: "stated-not-executed",
+    viewports: ["1440", "390"],
+    notExecutedReason: "lane disabled",
+    assertions: [blind],
+  };
+  assert.match(
+    validateLedger(SURFACES, { entries: [entry] }).problems.join(" "),
+    /a panel that never opened would be reported as a panel whose heading is wrong/,
+  );
+});
+
+test("a component name is never used as a selector, because nothing renders one", () => {
+  assert.deepEqual(presenceProbe('<div role="dialog" className="vr-modal">', 0), { css: "[role=dialog]", min: 1 });
+  assert.deepEqual(presenceProbe('<form className="cfg-form" action={a}>', 0), { css: ".cfg-form", min: 1 });
+  // The shared drawer renders aside.drawer.on; its component name is not in the DOM.
+  assert.deepEqual(presenceProbe("<LocalOverlayDrawer items={x} />", 0), { css: "aside.drawer.on", min: 1 });
+  assert.equal(presenceProbe("<SomeOtherComponent foo={1}>", 0), null, "a component name leaked in as a selector");
 });
