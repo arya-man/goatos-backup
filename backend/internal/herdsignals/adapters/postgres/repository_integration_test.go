@@ -506,6 +506,18 @@ func TestGapDeltaFlaggedNotSmearedExcludedFromBaselineAndNotASpike(t *testing.T)
 	if latest.MotionCount == nil || *latest.MotionCount != 8200 {
 		t.Errorf("motion_count = %v, want 8200", latest.MotionCount)
 	}
+	if latest.LastPacketMotionDelta == nil || *latest.LastPacketMotionDelta != 0 {
+		t.Errorf("last_packet_motion_delta = %v, want 0 on reconnect gap because timing is unknown", latest.LastPacketMotionDelta)
+	}
+	if latest.MotionDelta30s == nil || *latest.MotionDelta30s != 0 {
+		t.Errorf("motion_delta_30s = %v, want 0 on reconnect gap because timing is unknown", latest.MotionDelta30s)
+	}
+	if latest.MotionDelta60s == nil || *latest.MotionDelta60s != 0 {
+		t.Errorf("motion_delta_60s = %v, want 0 on reconnect gap because timing is unknown", latest.MotionDelta60s)
+	}
+	if latest.MotionDelta5m == nil || *latest.MotionDelta5m != 0 {
+		t.Errorf("motion_delta_5m = %v, want 0 on reconnect gap because timing is unknown", latest.MotionDelta5m)
+	}
 
 	// --- pattern_state must not be "spike" despite the huge delta. ---
 	if latest.PatternState == "spike" {
@@ -576,6 +588,64 @@ func TestGapDeltaFlaggedNotSmearedExcludedFromBaselineAndNotASpike(t *testing.T)
 	}
 	if !sawReconnect {
 		t.Fatal("timeline did not include the reconnect bucket")
+	}
+}
+
+func TestLastMovedAtPreservedAcrossFreshStillPacket(t *testing.T) {
+	ctx := context.Background()
+	repo, _ := setupHerdSignalsDB(t, ctx)
+
+	gw := domain.Gateway{TenantID: hsiTenant, GatewayID: "gw-hsi-last-moved", Status: "active"}
+	base := time.Now().UTC().Add(-10 * time.Minute).Truncate(time.Second)
+	if _, _, err := repo.IngestPackets(ctx, hsiTenant, gw, []domain.Packet{
+		makePacket(hsiTenant, hsiUnmappedTag, hsiUnmappedMAC, "gw-hsi-last-moved", base, 1000, -60),
+	}); err != nil {
+		t.Fatalf("first ingest: %v", err)
+	}
+	movedAt := base.Add(20 * time.Second)
+	if _, _, err := repo.IngestPackets(ctx, hsiTenant, gw, []domain.Packet{
+		makePacket(hsiTenant, hsiUnmappedTag, hsiUnmappedMAC, "gw-hsi-last-moved", movedAt, 1007, -60),
+	}); err != nil {
+		t.Fatalf("moving ingest: %v", err)
+	}
+	stillAt := movedAt.Add(20 * time.Second)
+	if _, _, err := repo.IngestPackets(ctx, hsiTenant, gw, []domain.Packet{
+		makePacket(hsiTenant, hsiUnmappedTag, hsiUnmappedMAC, "gw-hsi-last-moved", stillAt, 1007, -60),
+	}); err != nil {
+		t.Fatalf("still ingest: %v", err)
+	}
+
+	latest, err := repo.GetTagLatest(ctx, hsiTenant, hsiUnmappedTag)
+	if err != nil {
+		t.Fatalf("GetTagLatest: %v", err)
+	}
+	if latest.LastPacketMotionDelta == nil || *latest.LastPacketMotionDelta != 0 {
+		t.Errorf("last_packet_motion_delta = %v, want 0 for fresh still packet", latest.LastPacketMotionDelta)
+	}
+	if latest.LastMovedAt == nil || !latest.LastMovedAt.Equal(movedAt) {
+		t.Errorf("last_moved_at = %v, want preserved movedAt %v", latest.LastMovedAt, movedAt)
+	}
+}
+
+func TestSameBatchEqualTimestampUsesLastReadingForLatest(t *testing.T) {
+	ctx := context.Background()
+	repo, _ := setupHerdSignalsDB(t, ctx)
+
+	gw := domain.Gateway{TenantID: hsiTenant, GatewayID: "gw-hsi-same-batch", Status: "active"}
+	seenAt := time.Now().UTC().Add(-2 * time.Minute).Truncate(time.Second)
+	if _, _, err := repo.IngestPackets(ctx, hsiTenant, gw, []domain.Packet{
+		makePacket(hsiTenant, hsiUnmappedTag, hsiUnmappedMAC, "gw-hsi-same-batch", seenAt, 1000, -60),
+		makePacket(hsiTenant, hsiUnmappedTag, hsiUnmappedMAC, "gw-hsi-same-batch", seenAt, 1015, -60),
+	}); err != nil {
+		t.Fatalf("same-batch ingest: %v", err)
+	}
+
+	latest, err := repo.GetTagLatest(ctx, hsiTenant, hsiUnmappedTag)
+	if err != nil {
+		t.Fatalf("GetTagLatest: %v", err)
+	}
+	if latest.MotionCount == nil || *latest.MotionCount != 1015 {
+		t.Errorf("motion_count = %v, want last same-timestamp reading 1015", latest.MotionCount)
 	}
 }
 

@@ -94,6 +94,34 @@ const RISK_RULES =
 const TABLE_SORT_NOTE =
   "Rows are sorted by the server across the filtered result. Smart tag is the default so live refresh keeps the visible order steady.";
 
+function selectedLiveDelta(item: HerdSignalItem, window: HerdSignalsParams["liveWindow"]): number | null {
+  if (window === "30s") return item.motion_delta_30s;
+  if (window === "1m") return item.motion_delta_60s;
+  if (window === "5m") return item.motion_delta_5m;
+  return item.motion_delta;
+}
+
+function liveWindowLabel(window: HerdSignalsParams["liveWindow"]): string {
+  if (window === "30s") return "30s";
+  if (window === "1m") return "1m";
+  if (window === "5m") return "5m";
+  return "15m";
+}
+
+function movingNowLabel(item: HerdSignalItem, nowMs: number): { label: string; tone: "ok" | "warn" | "dng" | "mut" } {
+  const seenAt = item.last_seen_at ? Date.parse(item.last_seen_at) : Number.NaN;
+  if (!Number.isFinite(seenAt) || nowMs - seenAt > 30 * 60_000) return { label: "No signal", tone: "dng" };
+  if (nowMs - seenAt > 30_000) return { label: "Delayed", tone: "warn" };
+  if ((item.last_packet_motion_delta ?? 0) > 0 || (item.motion_delta_30s ?? 0) > 0) return { label: "Moving", tone: "ok" };
+  return { label: "Still", tone: "mut" };
+}
+
+function baselineLabel(value: number | null, disabled = false): string {
+  if (disabled) return "Off";
+  if (value == null) return "—";
+  return signedPercent(value);
+}
+
 // Keyset pagination carries no server-side page index, so the position readout is derived from the
 // cursors this page has actually walked through -- never guessed from a cursor string. `stack` holds
 // the cursor of every page BEFORE the current one (the first entry is "" for the uncursored first
@@ -327,7 +355,13 @@ export function HerdSignalsTable({
               <th>Pen</th>
               <th>Gateway</th>
               <th>Signal</th>
+              <th>Now</th>
+              <th>Last moved</th>
               {sortableHead("Motion count", "motion_count", "num", "Cumulative counter maintained by the tag firmware. It can stay flat while packets are received.")}
+              <th className="num">
+                {liveWindowLabel(params.liveWindow)} delta
+                <InfoTip label="Selected movement window" text="Movement counter delta for the selected window. Use 30s or 1m for live checks; 15m remains the sustained activity window." />
+              </th>
               {sortableHead("Tag temp", "tag_temp", "num", "Tag housing temperature, not the animal's body temperature.")}
               {sortableHead("15m delta", "delta_15m", "num", "Current 15-minute motion-count delta: latest counter minus the baseline reading for the window.")}
               {sortableHead("1h delta", "delta_1h", "num", "Current 1-hour motion-count delta when enough readings exist; blank means the window is not established yet.")}
@@ -336,9 +370,11 @@ export function HerdSignalsTable({
                 <InfoTip label="24h delta rules" text="Rolling 24-hour motion-counter delta. This is movement units from the tag firmware, not a step count." />
               </th>
               <th>
-                Activity
+                15m activity
                 <InfoTip label="Activity rules" text={ACTIVITY_RULES} />
               </th>
+              <th>Own baseline</th>
+              <th>Shed peers</th>
               <th>
                 Pattern
                 <InfoTip label="Pattern rules" text={PATTERN_RULES} />
@@ -363,9 +399,11 @@ export function HerdSignalsTable({
                 : operationalLocationLabel({ shedName: item.shed_name, partitionLabel: item.partition_label });
               const parkName = item.park_name;
               const delta15 = fmtSignedDelta(item.motion_delta);
+              const liveDelta = fmtSignedDelta(selectedLiveDelta(item, params.liveWindow));
               const delta1hText = fmtDelta1h(item.motion_delta_1h, item.motion_delta);
               const delta1h = delta1hText === "—" ? { text: "—", tone: "zero" as const } : fmtSignedDelta(item.motion_delta_1h);
               const delta24h = fmtSignedDelta(item.motion_delta_24h);
+              const nowState = movingNowLabel(item, nowMs);
               const href = rowHref(item);
               return (
                 <tr
@@ -411,7 +449,15 @@ export function HerdSignalsTable({
                       "—"
                     )}
                   </td>
+                  <td data-l="Now">
+                    <Tag tone={nowState.tone}>{nowState.label}</Tag>
+                    {item.last_packet_motion_delta != null ? <small className="faint">last pkt {fmtSignedDelta(item.last_packet_motion_delta).text}</small> : null}
+                  </td>
+                  <td data-l="Last moved">{item.last_moved_at ? fmtAgo(item.last_moved_at, nowMs) : "—"}</td>
                   <td data-l="Motion count" className="num mono">{fmtDelta(item.motion_count)}</td>
+                  <td data-l={`${liveWindowLabel(params.liveWindow)} delta`} className="num">
+                    <span className={`delta ${liveDelta.tone}`}>{liveDelta.text}</span>
+                  </td>
                   <td data-l="Tag temp" className="num" title="Tag housing temperature, not the animal's body temperature">
                     {fmtTagTemp(item.tag_temperature_c)}
                   </td>
@@ -429,13 +475,15 @@ export function HerdSignalsTable({
                   <td data-l="24h delta" className="num">
                     <span className={`delta ${delta24h.tone}`}>{delta24h.text}</span>
                   </td>
-                  <td data-l="Activity">
+                  <td data-l="15m activity">
                     {item.movement_state ? (
                       <Tag tone={MOVEMENT_TONE[item.movement_state]}>{MOVEMENT_LABEL[item.movement_state]}</Tag>
                     ) : (
                       "—"
                     )}
                   </td>
+                  <td data-l="Own baseline">{baselineLabel(item.own_motion_delta_pct, params.ownBaseline === "off")}</td>
+                  <td data-l="Shed peers">{baselineLabel(item.group_motion_delta_pct)}</td>
                   <td data-l="Pattern">
                     {item.pattern_state ? (
                       <Tag tone={PATTERN_TONE[item.pattern_state]}>{PATTERN_LABEL[item.pattern_state]}</Tag>

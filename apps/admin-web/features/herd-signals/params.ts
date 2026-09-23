@@ -16,11 +16,17 @@ export type HerdSignalsTab = (typeof HERD_SIGNALS_TABS)[number];
 
 // KPI-card click-to-filter targets (Section: KPI cards). Each maps a card key to the query params
 // it applies; clicking the SAME card again clears it (see herd-signals-kpis.tsx).
-export const KPI_FILTER_KEYS = ["moving", "quiet", "weak_signal", "missing_signal", "low_battery"] as const;
+export const KPI_FILTER_KEYS = ["moving_now", "active_1m", "moving_15m", "quiet", "weak_signal", "missing_signal", "low_battery"] as const;
 export type KpiFilterKey = (typeof KPI_FILTER_KEYS)[number];
 export const HERD_SIGNALS_SORT_KEYS = ["smart_tag", "tag_temp", "last_seen", "motion_count", "delta_15m", "delta_1h"] as const;
 export type HerdSignalsSortKey = (typeof HERD_SIGNALS_SORT_KEYS)[number];
 export type HerdSignalsSortDirection = "asc" | "desc";
+export const HERD_SIGNALS_LIVE_WINDOWS = ["30s", "1m", "5m", "15m"] as const;
+export type HerdSignalsLiveWindow = (typeof HERD_SIGNALS_LIVE_WINDOWS)[number];
+export const HERD_SIGNALS_OWN_BASELINES = ["off", "24h"] as const;
+export type HerdSignalsOwnBaseline = (typeof HERD_SIGNALS_OWN_BASELINES)[number];
+export const HERD_SIGNALS_SHED_BASELINES = ["now"] as const;
+export type HerdSignalsShedBaseline = (typeof HERD_SIGNALS_SHED_BASELINES)[number];
 
 export type HerdSignalsParams = {
   sp: RouteSearchParams;
@@ -38,6 +44,9 @@ export type HerdSignalsParams = {
   limit: number;
   sort: HerdSignalsSortKey;
   sortDir: HerdSignalsSortDirection;
+  liveWindow: HerdSignalsLiveWindow;
+  ownBaseline: HerdSignalsOwnBaseline;
+  shedBaseline: HerdSignalsShedBaseline;
   hasFilter: boolean;
 };
 
@@ -58,7 +67,7 @@ function boundedText(raw: string | undefined, max: number): string | undefined {
 // via the shared summary-vs-rows contract: see herd-signals-board.tsx `kpiRowFilter`). This keeps
 // every KPI number itself a `summary` field (server aggregate), never a recount of rows on screen.
 export function kpiToMovementState(kpi: KpiFilterKey | undefined): HerdSignalMovementState | undefined {
-  if (kpi === "moving") return "moving";
+  if (kpi === "moving_15m") return "moving";
   if (kpi === "quiet") return "quiet";
   return undefined;
 }
@@ -79,6 +88,9 @@ export function parseHerdSignalsParams(searchParams: RouteSearchParams | undefin
   const limit = boundedInt(one(sp, "hs_limit"), LIMIT_DEFAULT, 10, LIMIT_MAX);
   const sort = HERD_SIGNALS_SORT_KEYS.find((value) => value === one(sp, "hs_sort")) ?? "smart_tag";
   const sortDir = one(sp, "hs_dir") === "desc" ? "desc" : "asc";
+  const liveWindow = HERD_SIGNALS_LIVE_WINDOWS.find((value) => value === one(sp, "hs_live_window")) ?? "1m";
+  const ownBaseline = HERD_SIGNALS_OWN_BASELINES.find((value) => value === one(sp, "hs_own_base")) ?? "24h";
+  const shedBaseline = HERD_SIGNALS_SHED_BASELINES.find((value) => value === one(sp, "hs_shed_base")) ?? "now";
 
   return {
     sp,
@@ -96,6 +108,9 @@ export function parseHerdSignalsParams(searchParams: RouteSearchParams | undefin
     limit,
     sort,
     sortDir,
+    liveWindow,
+    ownBaseline,
+    shedBaseline,
     hasFilter: Boolean(shedId || q || movementState || mappingState || pattern || risk || kpi),
   };
 }
@@ -118,6 +133,9 @@ export function herdSignalsHref(params: HerdSignalsParams, overrides: Record<str
     hs_limit: params.limit === LIMIT_DEFAULT ? undefined : String(params.limit),
     hs_sort: params.sort === "smart_tag" ? undefined : params.sort,
     hs_dir: params.sortDir === "asc" ? undefined : params.sortDir,
+    hs_live_window: params.liveWindow === "1m" ? undefined : params.liveWindow,
+    hs_own_base: params.ownBaseline === "24h" ? undefined : params.ownBaseline,
+    hs_shed_base: params.shedBaseline === "now" ? undefined : params.shedBaseline,
     hs_cursor: undefined,
     ...rest,
   });

@@ -735,27 +735,36 @@ func (s *Service) enrichTagsBatch(ctx context.Context, tenantID string, tags []d
 		composedBatteryState := domain.BatteryStateWithTrend(tag.BatteryState, trend, tag.PatternState == "missing")
 
 		item := domain.LiveItem{
-			TagID:                 tag.TagID,
-			GatewayID:             tag.GatewayID,
-			LastSeenAt:            tag.LastSeenAt.Format(time.RFC3339),
-			RSSIdbm:               tag.LastRSSIdbm,
-			SignalState:           nullableEnum(tag.SignalState),
-			BatteryMV:             tag.BatteryMV,
-			BatteryState:          nullableEnum(composedBatteryState),
-			BatteryTrend:          batteryTrendResp,
-			TagTemperatureC:       tag.TagTemperatureC,
-			MotionCount:           tag.MotionCount,
-			MotionDelta:           tag.MotionDelta,
-			MotionDelta1h:         tag.MotionDelta1h, // real 1h (3600s-tier) delta -- defect 4 fix, was wrongly aliased to the 15m value
-			MotionWindowSeconds:   tag.MotionWindowSeconds,
-			MovementState:         nullableEnum(tag.MovementState),
-			PatternState:          nullableEnum(tag.PatternState),
-			SensorState:           sensorStateSummary(tag.TemperatureSensorOK, tag.AccelerometerSensorOK),
-			TemperatureSensorOK:   tag.TemperatureSensorOK,
-			AccelerometerSensorOK: tag.AccelerometerSensorOK,
-			MappingState:          tag.MappingState,
-			GapDelta:              tag.GapDelta,
-			RiskReasons:           []string{},
+			TagID:                   tag.TagID,
+			GatewayID:               tag.GatewayID,
+			LastSeenAt:              tag.LastSeenAt.Format(time.RFC3339),
+			RSSIdbm:                 tag.LastRSSIdbm,
+			SignalState:             nullableEnum(tag.SignalState),
+			BatteryMV:               tag.BatteryMV,
+			BatteryState:            nullableEnum(composedBatteryState),
+			BatteryTrend:            batteryTrendResp,
+			TagTemperatureC:         tag.TagTemperatureC,
+			MotionCount:             tag.MotionCount,
+			LastPacketMotionDelta:   tag.LastPacketMotionDelta,
+			LastPacketWindowSeconds: tag.LastPacketWindowSeconds,
+			MotionDelta30s:          tag.MotionDelta30s,
+			MotionDelta60s:          tag.MotionDelta60s,
+			MotionDelta5m:           tag.MotionDelta5m,
+			MotionDelta:             tag.MotionDelta,
+			MotionDelta1h:           tag.MotionDelta1h, // real 1h (3600s-tier) delta -- defect 4 fix, was wrongly aliased to the 15m value
+			MotionWindowSeconds:     tag.MotionWindowSeconds,
+			MovementState:           nullableEnum(tag.MovementState),
+			PatternState:            nullableEnum(tag.PatternState),
+			SensorState:             sensorStateSummary(tag.TemperatureSensorOK, tag.AccelerometerSensorOK),
+			TemperatureSensorOK:     tag.TemperatureSensorOK,
+			AccelerometerSensorOK:   tag.AccelerometerSensorOK,
+			MappingState:            tag.MappingState,
+			GapDelta:                tag.GapDelta,
+			RiskReasons:             []string{},
+		}
+		if tag.LastMovedAt != nil {
+			lastMoved := tag.LastMovedAt.Format(time.RFC3339)
+			item.LastMovedAt = &lastMoved
 		}
 
 		if baseline, ok := baselines[tag.TagID]; ok {
@@ -1001,6 +1010,16 @@ func summaryFromItems(items []domain.LiveItem) domain.Summary {
 				summary.NotMoving++
 			case "stale":
 				summary.Stale++
+			}
+		}
+		if item.LastPacketMotionDelta != nil && *item.LastPacketMotionDelta > 0 && item.LastSeenAt != "" {
+			if seenAt, err := time.Parse(time.RFC3339, item.LastSeenAt); err == nil && time.Since(seenAt) <= 30*time.Second {
+				summary.MovingNow++
+			}
+		}
+		if item.MotionDelta60s != nil && *item.MotionDelta60s > 0 && item.LastSeenAt != "" {
+			if seenAt, err := time.Parse(time.RFC3339, item.LastSeenAt); err == nil && time.Since(seenAt) <= 90*time.Second {
+				summary.Active1m++
 			}
 		}
 		if item.SignalState != nil && *item.SignalState == "weak" {
