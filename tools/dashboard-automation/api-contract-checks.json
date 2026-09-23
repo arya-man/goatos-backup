@@ -1210,7 +1210,52 @@
         "items",
         "projection"
       ],
-      "forbiddenValues": [],
+      "forbiddenValues": [
+        {
+          "path": "items[].title",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        },
+        {
+          "path": "items[].status",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        },
+        {
+          "path": "items[].due_at",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        },
+        {
+          "path": "items[].owner_key",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        },
+        {
+          "path": "projection.freshness_status",
+          "enum": [
+            "green",
+            "amber",
+            "red"
+          ]
+        }
+      ],
       "latencyBudgetMs": 500,
       "humanFailure": "The calendar would show no entries for the week ahead, so nobody could see what work is coming.",
       "sourceCommits": [
@@ -1492,6 +1537,37 @@
         },
         {
           "path": "cause[].deaths",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "totals",
+          "disallow": [
+            "null",
+            "undefined"
+          ]
+        },
+        {
+          "path": "breed[].deaths",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "sex[].deaths",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "stage[].deaths",
           "disallow": [
             "null",
             "NaN",
@@ -2652,7 +2728,48 @@
         "pending_by_module",
         "verifier_activity"
       ],
-      "forbiddenValues": [],
+      "forbiddenValues": [
+        {
+          "path": "kpis",
+          "disallow": [
+            "null",
+            "undefined"
+          ]
+        },
+        {
+          "path": "pending_age_buckets[].count",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "daily_volume_last_14d[].count",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "pending_by_module[].module",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        },
+        {
+          "path": "pending_by_module[].count",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        }
+      ],
       "latencyBudgetMs": 500,
       "humanFailure": "The verify oversight charts would be empty, hiding how big the backlog of unchecked work has grown.",
       "sourceCommits": [
@@ -2705,9 +2822,26 @@
         "lanes",
         "business_date",
         "park_id",
-        "modules"
+        "modules",
+        "degraded"
       ],
-      "forbiddenValues": [],
+      "forbiddenValues": [
+        {
+          "path": "summary.total",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "degraded",
+          "disallow": [
+            "null",
+            "undefined"
+          ]
+        }
+      ],
       "latencyBudgetMs": 500,
       "humanFailure": "The work board would not list today's jobs, so nobody could see what the team is meant to be doing.",
       "sourceCommits": [
@@ -2731,6 +2865,15 @@
       "forbiddenValues": [
         {
           "path": "items[].display_name",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        },
+        {
+          "path": "items[].status",
           "disallow": [
             "null",
             "NaN",
@@ -2775,7 +2918,44 @@
       "requiredFields": [
         "items"
       ],
-      "forbiddenValues": [],
+      "forbiddenValues": [
+        {
+          "path": "items[].person_name",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        },
+        {
+          "path": "items[].designation",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        },
+        {
+          "path": "items[].dates_label",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        },
+        {
+          "path": "items[].status_line",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        }
+      ],
       "latencyBudgetMs": 500,
       "humanFailure": "The cover page would not show who is standing in for whom, so a pen could be left unattended.",
       "sourceCommits": [
@@ -2805,6 +2985,24 @@
       "forbiddenValues": [
         {
           "path": "items[].name",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        },
+        {
+          "path": "items[].location_type",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        },
+        {
+          "path": "items[].status",
           "disallow": [
             "null",
             "NaN",
@@ -2862,6 +3060,32 @@
             "empty",
             "undefined"
           ]
+        },
+        {
+          "path": "items[].code",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        },
+        {
+          "path": "items[].kind",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        },
+        {
+          "path": "items[].version_count",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
         }
       ],
       "latencyBudgetMs": 500,
@@ -2906,7 +3130,33 @@
         "deaths",
         "generated_at"
       ],
-      "forbiddenValues": [],
+      "forbiddenValues": [
+        {
+          "path": "months[].label",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        },
+        {
+          "path": "months[].new_cases",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "months[].deaths",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        }
+      ],
       "latencyBudgetMs": 500,
       "humanFailure": "The health analytics page would show empty charts, hiding which illnesses are spreading.",
       "sourceCommits": [
@@ -2935,6 +3185,30 @@
             "null",
             "NaN",
             "empty",
+            "undefined"
+          ]
+        },
+        {
+          "path": "items[].published_version",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "items[].duration_days",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "items[].step_count",
+          "disallow": [
+            "null",
+            "NaN",
             "undefined"
           ]
         }
@@ -3073,7 +3347,40 @@
         "rework",
         "as_of"
       ],
-      "forbiddenValues": [],
+      "forbiddenValues": [
+        {
+          "path": "proof_coverage_percent",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "awaiting_verification",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "rejected",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "rework",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        }
+      ],
       "latencyBudgetMs": 500,
       "humanFailure": "The operations audit summary would not load, so nobody could see a roll-up of what changed recently.",
       "sourceCommits": [
@@ -3150,7 +3457,42 @@
         "event_rules",
         "event_kinds"
       ],
-      "forbiddenValues": [],
+      "forbiddenValues": [
+        {
+          "path": "rules[].key",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        },
+        {
+          "path": "rules[].label",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        },
+        {
+          "path": "rules[].threshold_label",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        },
+        {
+          "path": "rules[].enabled",
+          "disallow": [
+            "null",
+            "undefined"
+          ]
+        }
+      ],
       "latencyBudgetMs": 500,
       "humanFailure": "The alerts page would not say which alerts are switched on, so an important warning could be off without anyone knowing.",
       "sourceCommits": [
@@ -3174,6 +3516,50 @@
       "forbiddenValues": [
         {
           "path": "rows[].title",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        },
+        {
+          "path": "rows[].task_no",
+          "disallow": [
+            "null",
+            "NaN",
+            "undefined"
+          ]
+        },
+        {
+          "path": "rows[].number_label",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        },
+        {
+          "path": "rows[].status",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        },
+        {
+          "path": "rows[].status_chip",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        },
+        {
+          "path": "rows[].raised_by_name",
           "disallow": [
             "null",
             "NaN",
@@ -3235,7 +3621,53 @@
       "requiredFields": [
         "items"
       ],
-      "forbiddenValues": [],
+      "forbiddenValues": [
+        {
+          "path": "items[].label",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        },
+        {
+          "path": "items[].summary",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        },
+        {
+          "path": "items[].request_type",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        },
+        {
+          "path": "items[].status",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        },
+        {
+          "path": "items[].raised_at",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        }
+      ],
       "latencyBudgetMs": 500,
       "humanFailure": "The approvals page would not list what is waiting on a manager's decision, so a death report or a correction could sit forever.",
       "sourceCommits": [
@@ -3256,6 +3688,77 @@
         "lane3.admin-web-approvals"
       ],
       "historyCommitCount": 5
+    },
+    {
+      "name": "operations_dlq_list",
+      "method": "GET",
+      "path": "/operations/dlq?limit=50",
+      "page": "DLQ Center",
+      "pageUrl": "https://dashboard.mesha.sg/operations/dlq",
+      "requiredFields": [
+        "items"
+      ],
+      "forbiddenValues": [
+        {
+          "path": "items[].event_type",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        },
+        {
+          "path": "items[].status",
+          "disallow": [
+            "null",
+            "NaN",
+            "empty",
+            "undefined"
+          ]
+        }
+      ],
+      "latencyBudgetMs": 500,
+      "humanFailure": "The DLQ Center would not list the work that got stuck on its way from the phone to the dashboard, which is the only place that work ever appears.",
+      "sourceCommits": [
+        "c8ed52ff0",
+        "b176b7f36",
+        "2f053a583",
+        "55ba1193f",
+        "301983f40"
+      ],
+      "bugPatterns": [
+        "api-fanout-and-latency-regression"
+      ],
+      "notes": "Added 2026-09-23: the kernel-health entry reads a status summary; nothing read the list the page itself renders."
+    },
+    {
+      "name": "ceo_ai_starters",
+      "method": "GET",
+      "path": "/ceo-ai/starters",
+      "page": "Ask Mesha",
+      "pageUrl": "https://dashboard.mesha.sg/",
+      "requiredFields": [
+        "starters"
+      ],
+      "forbiddenValues": [
+        {
+          "path": "starters",
+          "disallow": [
+            "null",
+            "undefined"
+          ]
+        }
+      ],
+      "latencyBudgetMs": 500,
+      "humanFailure": "The Ask Mesha panel would not offer its opening questions, and because the dashboard decides whether to show the panel at all from this same answer, the assistant would disappear from the screen entirely.",
+      "sourceCommits": [
+        "4330589ac"
+      ],
+      "bugPatterns": [
+        "admin-web-contract-and-known-failure-screens"
+      ],
+      "notes": "Added 2026-09-23: the assistant had no endpoint in this catalogue at all. Its answer endpoint is a POST, which this read-only lane may never call, so the launcher probe is the part that can be watched."
     }
   ]
 }
