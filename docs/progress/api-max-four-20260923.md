@@ -8,3 +8,10 @@ Judge status: not requested; none run.
 Known failures: none in this patch yet. Authenticated browser E2E not run; scaling-only change.
 Pending: validate source change and persist through repository workflow.
 Deployment state: live scaling update complete; no new application build/deployment required by this source patch.
+
+Local CI identified required runner receipt refresh: packaged deploy script changed. Rebuilding runner image and verifying packaged bytes before updating immutable pin; no guard bypass. Backend CI still running.
+
+Local CI completed: backend PASS; common failed on runner source receipt and an existing unclassified documentation commit d3b523225 on main. Classified that docs-only change accurately; dashboard-automation-guard now PASS. Runner rebuild b9a99776-2f13-4561-a696-9639ecae014b is in progress. Added release max=4 regression assertion.
+Live incident follow-up: old SQL fixes are intact in deployed code; authenticated ADG reload rendered real data at 07:18Z. Server request 2.794s vs 12.969s earlier. No performance-code fix claimed. Full diagnostic record is /Users/raviteja/mesha/incident-api-scaling-20260923/diagnosis.md.
+
+Runner build SUCCESS: b9a99776-2f13-4561-a696-9639ecae014b; packaged-source verification executed inside the built image and passed. Immutable image asia-south1-docker.pkg.dev/goatos-stg/goatos/clouddeploy-stg-runner@sha256:830814dcbc6e7eee6c07c250e4cfab1d4595a69cd207c4d446bb6f6bf6293c29. Terraform/deploy/release guard all expect max 4. Deployment tests rerun PASS 11/11. Final repo-local CI/landing pending.
