@@ -137,13 +137,67 @@ function main() {
   const report = {
     generatedAt: new Date().toISOString(),
     database: "a local throwaway clone; stg was never contacted",
+    // Say exactly what this number is worth. The rows are SYNTHETIC, planted into an EMPTY clone
+    // with referential integrity switched off for the plant, so what is shown is that each check
+    // DISCRIMINATES - it fires on the defect it names and goes quiet without it. It is not a
+    // statement that the defect is reachable through the product's own write paths. Reachability
+    // was the standard used to strike the checks that cannot fire at all, and it is not the
+    // standard met here.
+    howProved: "each check fired on the defect it names and went quiet without it, against a synthetic row in an empty clone with referential integrity switched off for the plant; no browser was driven and stg was never contacted",
+    caveat: "with foreign keys enforced instead, most of these rows could not be planted without their parent records, so this is a discrimination proof and not a reachability proof",
     totalChecks: catalogue.checks.length,
     proved: [],
-    notProved: []
+    notProved: [],
+    // Nine checks grouped or joined on a business key without the farm it belongs to, so two
+    // farms legitimately reusing an id read as one farm's duplicate. Firing on the defect is
+    // only half of correct: the check must also stay QUIET when the two rows are different
+    // farms' own business, which is the false accusation §2 says matters more.
+    quietAcrossFarms: [],
+    notQuietAcrossFarms: [],
+    noCrossFarmCase: []
   };
 
   const tableColumns = new Map();
+  const insertsFor = (plant, name) => {
+    const inserts = [];
+    for (const planted of plant) {
+      if (!tableColumns.has(planted.table)) tableColumns.set(planted.table, requiredColumns(dsn, planted.table));
+      inserts.push(buildInsert("", planted.table, planted.row ?? {}, tableColumns.get(planted.table)));
+    }
+    return inserts;
+  };
+
   for (const check of checks) {
+    // Half one, for every check that names one: two farms' own rows must not read as one
+    // farm's duplicate.
+    const crossFarm = fixtures.mutations[check.name]?.crossTenant;
+    if (!crossFarm?.plant?.length) {
+      report.noCrossFarmCase.push({ name: check.name, reason: crossFarm?.reason ?? "this check does not compare records across farms, so there is nothing to confuse" });
+    } else {
+      const capped = cappedSql(check.sql, 500);
+      let outcome;
+      try {
+        outcome = psql(dsn, ["begin", "set local session_replication_role = replica", ...insertsFor(crossFarm.plant, check.name), capped, "rollback"].join(";\n"));
+      } catch (error) {
+        outcome = { error: error.message };
+      }
+      if (outcome.error && /duplicate key value|unique constraint/i.test(String(outcome.error))) {
+        // The database itself makes the collision impossible: the id is unique across farms, not
+        // per farm. The check cannot accuse the wrong farm today, and the farm in its grouping is
+        // defence against that key changing rather than a live fix.
+        report.noCrossFarmCase.push({
+          name: check.name,
+          reason: "two farms cannot reuse this id at all - the database keeps it unique across farms - so no cross-farm confusion is reachable today"
+        });
+      } else if (outcome.error) {
+        report.notQuietAcrossFarms.push({ name: check.name, reason: `the two-farm case could not be set up: ${String(outcome.error).split("\n")[0].slice(0, 200)}` });
+      } else if (outcome.rows.length > 0) {
+        report.notQuietAcrossFarms.push({ name: check.name, reason: `this check accuses two farms of one farm's duplicate: ${crossFarm.description ?? "the same id used by two farms"}` });
+      } else {
+        report.quietAcrossFarms.push({ name: check.name, case: crossFarm.description ?? null });
+      }
+    }
+
     const entry = fixtures.mutations[check.name];
     if (!entry || entry.unprovable || !Array.isArray(entry.plant) || !entry.plant.length) {
       report.notProved.push({
@@ -214,12 +268,15 @@ function main() {
   }
 
   report.coverage = `${report.proved.length}/${report.totalChecks}`;
+  report.crossFarmCoverage = `${report.quietAcrossFarms.length}/${report.quietAcrossFarms.length + report.notQuietAcrossFarms.length}`;
   const out = path.resolve(args.out ?? path.join(repo, ".codex-goatos-render/dashboard-automation/data-sanity-mutations.json"));
   mkdirSync(path.dirname(out), { recursive: true });
   writeFileSync(out, `${JSON.stringify(report, null, 2)}\n`);
-  console.log(`lane 2 mutation proof: ${report.proved.length} of ${report.totalChecks} checks fired on their own defect and went quiet when it was removed`);
+  console.log(`lane 2 mutation proof: ${report.proved.length} of ${report.totalChecks} checks fired on the defect they name and went quiet without it, against a synthetic row in an empty clone with referential integrity switched off`);
+  console.log(`  two farms, one id: ${report.quietAcrossFarms.length} of ${report.quietAcrossFarms.length + report.notQuietAcrossFarms.length} checks that compare records across farms stayed quiet when the rows were two farms' own business`);
+  for (const gap of report.notQuietAcrossFarms) console.log(`  accuses the wrong farm — ${gap.name}: ${gap.reason}`);
   for (const gap of report.notProved) console.log(`  not proved — ${gap.name}: ${gap.reason}`);
-  return report.notProved.length === 0 ? 0 : 1;
+  return report.notProved.length === 0 && report.notQuietAcrossFarms.length === 0 ? 0 : 1;
 }
 
 function parse(raw) {
