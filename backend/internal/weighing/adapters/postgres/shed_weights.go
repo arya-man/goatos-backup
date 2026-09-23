@@ -70,7 +70,8 @@ import (
 // once per bucket — the same fix measured in 000080 (3873ms -> 554ms at 400
 // buckets x 300 observations).
 func (r *Repository) GetShedWeights(ctx context.Context, tenantID string, scopeParkIDs []string, selectedParkID string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string, saleThresholdToleranceKg, saleLowerKg, saleUpperKg float64) (out domain.ShedWeights, err error) {
-	cacheKey := weighingAnalyticsCacheKey("shed_weights:"+selectedParkID+":"+fmt.Sprintf("%.3f|%.3f|%.3f", saleThresholdToleranceKg, saleLowerKg, saleUpperKg), tenantID, scopeParkIDs, periodStart, periodEnd, sex, origin, weighingCategory)
+	includeLoads := domain.ShedWeightsOptionsFromContext(ctx).IncludeLoads
+	cacheKey := weighingAnalyticsCacheKey("shed_weights:"+selectedParkID+":"+fmt.Sprintf("%.3f|%.3f|%.3f|loads=%t", saleThresholdToleranceKg, saleLowerKg, saleUpperKg, includeLoads), tenantID, scopeParkIDs, periodStart, periodEnd, sex, origin, weighingCategory)
 	if cached, ok := r.getReadCache(cacheKey); ok {
 		return cached.(domain.ShedWeights), nil
 	}
@@ -585,7 +586,7 @@ LIMIT $7`
 		followMu.Unlock()
 	}
 
-	followWG.Add(3)
+	followWG.Add(2)
 	go func() {
 		defer followWG.Done()
 		// Park vocabulary for the filter, labelled the same way the rows are. It is read
@@ -635,16 +636,19 @@ ORDER BY COALESCE(NULLIF(location_code, ''), name, ''), display_order, name, loc
 		setFollowErr(err)
 	}()
 
-	go func() {
-		defer followWG.Done()
-		// Growth per procurement load, over the same tenant/park/window scope. Its own
-		// read rather than another CTE here: it collapses to LOAD grain, not shed grain,
-		// and folding a different grain into this query is how a shed ends up counted
-		// once per load it touches.
-		var err error
-		byLoad, unattributed, err = r.loadWeights(ctx, tenantID, parkIDs, periodStart, periodEnd, sexFiltered, scope, idMap, weighingCategory)
-		setFollowErr(err)
-	}()
+	if includeLoads {
+		followWG.Add(1)
+		go func() {
+			defer followWG.Done()
+			// Growth per procurement load, over the same tenant/park/window scope. Its own
+			// read rather than another CTE here: it collapses to LOAD grain, not shed grain,
+			// and folding a different grain into this query is how a shed ends up counted
+			// once per load it touches.
+			var err error
+			byLoad, unattributed, err = r.loadWeights(ctx, tenantID, parkIDs, periodStart, periodEnd, sexFiltered, scope, idMap, weighingCategory)
+			setFollowErr(err)
+		}()
+	}
 
 	followWG.Wait()
 	if followErr != nil {

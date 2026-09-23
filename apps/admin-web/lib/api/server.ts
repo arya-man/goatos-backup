@@ -1150,6 +1150,7 @@ export async function getShedWeights(params: {
   sale_threshold_kg?: number;
   /** The lower ("Over 30 kg") line in kg -- the tenant's sale_ready_lower_kg assumption. */
   sale_lower_kg?: number;
+  include_loads?: boolean;
 }): Promise<ApiResult<ShedWeightsResponse>> {
   const config = await getServerConfig();
   if (!config.ok) return config;

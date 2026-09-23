@@ -221,10 +221,20 @@ export async function WeighingWeightsAnalyticsPage({
   // block, served on this page's contract copy (backend-owned; the constants are the fallback).
   const windowSettings = weightsWindowSettings(pageContract.copy, today);
   const weighingCategoryFilter = modeFilter !== "all" ? modeFilter : "";
+  const landingWindowPromise = landingWindow(
+    params,
+    today,
+    parkFilter,
+    sexFilter,
+    originFilter,
+    weighingCategoryFilter,
+    windowSettings,
+  );
   // The assumptions (maintainer decision 2026-09-19): the shed-weights read takes both sale lines
   // and the demographics read its band edges from them -- weighing is isolated and does not read
   // the assumptions table itself, so the caller names them, exactly as it names the tolerance.
-  const assumptions = await getGrowthAssumptions();
+  // The landing-window date lookup is independent, so start both before awaiting either one.
+  const [assumptions, window] = await Promise.all([getGrowthAssumptions(), landingWindowPromise]);
   if (firstAuthRequiredError(assumptions)) redirect(INTERNAL_LOGIN_PATH);
   // Any other failure is the page's failure (PR #320 review): rendering "Over 35 kg" from the
   // constants while the tenant's line may be something else would show a wrong count as if it
@@ -235,15 +245,6 @@ export async function WeighingWeightsAnalyticsPage({
   const assumptionRows = assumptions.data.values;
   const saleThresholdKg = assumptionRows ? assumptionValue(assumptionRows, "sale_ready_threshold_kg") : null;
   const saleLowerKg = assumptionRows ? assumptionValue(assumptionRows, "sale_ready_lower_kg") : null;
-  const window = await landingWindow(
-    params,
-    today,
-    parkFilter,
-    sexFilter,
-    originFilter,
-    weighingCategoryFilter,
-    windowSettings,
-  );
   // Every tab reads the same selected/default period, including Time-wise. That keeps the tab strip
   // as slices of one population instead of silently changing the date range under the reader.
   const readWindow = window;
@@ -303,6 +304,7 @@ export async function WeighingWeightsAnalyticsPage({
     ...(wantsLoads ? { park_id: parkFilter || undefined, from: LOAD_TAB_ALL_TIME_FROM, to: today } : { ...scope, ...readWindow }),
     ...(saleThresholdKg != null ? { sale_threshold_kg: saleThresholdKg } : {}),
     ...(saleLowerKg != null ? { sale_lower_kg: saleLowerKg } : {}),
+    include_loads: wantsLoads,
   };
 
   // ONE demographics read serves all three tabs that need it, Birth-wise included: the backend

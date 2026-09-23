@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"testing"
 	"time"
 
@@ -214,6 +215,53 @@ func TestLoadWeightsPageBoundaryBlendsEveryTaggedShedAcrossBothCaptureModes(t *t
 	}
 	if !found {
 		t.Fatal("expected the tagged load to appear in by_load")
+	}
+}
+
+func TestShedWeightsCanSkipLoadBreakdownWithoutChangingRows(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	day := time.Date(2026, 7, 20, 6, 0, 0, 0, time.UTC)
+	seedLoadLumpWeigh(t, ctx, pool, repoShedScope, repoCampaign, repoShedProof, 22.0, 40, day)
+	seedLoadTag(t, ctx, pool, repoPerShed, "L-OPT", "Supplier")
+
+	from, to := shedWeightsWindow()
+	withLoads, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "", "", "", 0, 0, 0)
+	if err != nil {
+		t.Fatalf("GetShedWeights(default): %v", err)
+	}
+	withoutLoads, err := repo.GetShedWeights(domain.WithShedWeightsOptions(ctx, domain.ShedWeightsOptions{IncludeLoads: false}), repoTenant, []string{repoPark}, "", from, to, "", "", "", 0, 0, 0)
+	if err != nil {
+		t.Fatalf("GetShedWeights(include_loads=false): %v", err)
+	}
+
+	if len(withLoads.ByLoad) == 0 {
+		t.Fatal("default shed weights must still include load buckets")
+	}
+	if len(withoutLoads.ByLoad) != 0 || withoutLoads.LoadUnattributedSheds != 0 {
+		t.Fatalf("include_loads=false must skip load section, got %d buckets and %d unattributed", len(withoutLoads.ByLoad), withoutLoads.LoadUnattributedSheds)
+	}
+	withLoadsComparable := withLoads
+	withoutLoadsComparable := withoutLoads
+	withLoadsComparable.ByLoad = nil
+	withoutLoadsComparable.ByLoad = nil
+	withLoadsComparable.LoadUnattributedSheds = 0
+	withoutLoadsComparable.LoadUnattributedSheds = 0
+	if !reflect.DeepEqual(withLoadsComparable, withoutLoadsComparable) {
+		t.Fatalf("include_loads=false changed non-load response fields: with=%#v without=%#v", withLoadsComparable, withoutLoadsComparable)
+	}
+
+	cachedWithLoads, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "", "", "", 0, 0, 0)
+	if err != nil {
+		t.Fatalf("GetShedWeights(default cached): %v", err)
+	}
+	if len(cachedWithLoads.ByLoad) == 0 {
+		t.Fatal("include_loads=false response polluted the default cache entry")
 	}
 }
 
