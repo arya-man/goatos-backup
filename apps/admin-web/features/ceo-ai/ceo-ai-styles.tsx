@@ -437,10 +437,10 @@ export function CeoAiStyles(): ReactElement {
 .mzai-confirm button{font:inherit;font-size:11.5px;padding:3px 9px;border-radius:6px;cursor:pointer}
 .mzai-confirm-yes{border:0;background:var(--danger);color:#fff}
 .mzai-confirm-no{border:1px solid var(--line);background:transparent;color:var(--ink)}
-/* Phones: the launcher was hidden (no other entry point) — show a compact one
-   above the home indicator instead. */
+/* Phones: the launcher was hidden (no other entry point) — show a compact one,
+   raised clear of browser/webview bottom toolbars. */
 @media (max-width:620px){
-  .mzai-root.mzai-closed{display:block;right:14px !important;bottom:calc(14px + env(safe-area-inset-bottom)) !important}
+  .mzai-root.mzai-closed{display:block;right:14px !important;bottom:calc(88px + env(safe-area-inset-bottom)) !important}
   .mzai-closed .mzai-bubble{width:44px;height:44px}
   .mzai-closed .mzai-goat-icon{width:22px;height:22px}
 }
