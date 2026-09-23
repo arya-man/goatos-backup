@@ -8,6 +8,8 @@ export type { CeoAiChart, CeoAiCitation, CeoAiFinal };
 export type ChatMessageState = "streaming" | "complete" | "error";
 
 export type ChatMessage = {
+  // Files attached to a user turn (object URLs; previews only for this session).
+  files?: { name: string; type: string; url: string }[];
   id: string;
   role: "user" | "assistant";
   text: string;

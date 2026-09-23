@@ -197,11 +197,36 @@ export function CeoAiStyles(): ReactElement {
 .mzai-tool:hover{color:var(--ink);background:rgba(127,127,127,.14)}
 .mzai-tool.on{color:#fff;background:var(--danger);border-color:var(--danger);animation:mzai-pulse 1.2s ease-in-out infinite}
 @keyframes mzai-pulse{50%{opacity:.7}}
-.mzai-files{display:flex;flex-wrap:wrap;gap:6px;padding:8px 14px 0}
-.mzai-file{display:inline-flex;align-items:center;gap:5px;max-width:220px;padding:3px 6px 3px 8px;border:1px solid var(--line);
-  border-radius:8px;font-size:12px;color:var(--ink);background:var(--panel-2)}
-.mzai-file-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.mzai-file button{display:inline-flex;border:0;background:transparent;color:var(--muted);cursor:pointer;padding:2px}
+.mzai-files{display:flex;flex-wrap:wrap;gap:8px;padding:10px 16px 4px;border-top:1px solid var(--line)}
+.mzai-thumb{position:relative;display:inline-flex}
+.mzai-thumb-open{display:inline-flex;align-items:center;gap:6px;height:56px;max-width:200px;padding:0 10px;border:1px solid var(--line);
+  border-radius:10px;background:var(--panel-2);color:var(--ink);font:inherit;font-size:12px;cursor:zoom-in;overflow:hidden}
+.mzai-thumb.img .mzai-thumb-open{width:56px;padding:0}
+.mzai-thumb.img img{width:100%;height:100%;object-fit:cover;display:block}
+.mzai-thumb-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mzai-thumb-x{position:absolute;top:-6px;right:-6px;width:18px;height:18px;border-radius:50%;border:1px solid var(--line);
+  background:var(--panel);color:var(--ink);display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
+.mzai-msg-files{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.mzai-msg.user .mzai-thumb-open{border-color:rgba(255,255,255,.35);background:rgba(0,0,0,.12);color:#fff}
+.mzai-lb{position:fixed;inset:0;z-index:2000;background:rgba(6,10,8,.92);display:flex;flex-direction:column}
+.mzai-lb-top{display:flex;align-items:center;gap:12px;padding:12px 16px;color:#fff;font-size:13px}
+.mzai-lb-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mzai-lb-count{opacity:.7}
+.mzai-lb-top button,.mzai-lb-nav{border:0;background:rgba(255,255,255,.12);color:#fff;border-radius:50%;width:40px;height:40px;
+  display:flex;align-items:center;justify-content:center;cursor:pointer}
+.mzai-lb-body{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:8px 64px 24px}
+.mzai-lb-body img{max-width:100%;max-height:100%;object-fit:contain;border-radius:8px}
+.mzai-lb-body iframe{width:min(1000px,100%);height:100%;border:0;border-radius:8px;background:#fff}
+.mzai-lb-card{display:flex;flex-direction:column;align-items:center;gap:12px;color:#fff}
+.mzai-lb-card a{color:var(--brand)}
+.mzai-lb-nav{position:absolute;top:50%;transform:translateY(-50%)}
+.mzai-lb-nav.prev{left:12px}.mzai-lb-nav.next{right:12px}
+@media (max-width:620px){.mzai-lb-body{padding:8px 8px 24px}.mzai-lb-nav{top:auto;bottom:20px;transform:none}}
+/* spacing between suggestions, attachments and composer */
+.mzai-suggestbar{padding:8px 16px}
+.mzai-starters{padding:4px 16px 12px}
+/* maximized panel sits above the app chrome so its header stays visible */
+.mzai-root.mzai-view-max{z-index:1000}
 .mzai-msg.user .mzai-bub{white-space:pre-wrap}
 .mzai-actions{display:flex;gap:2px;margin:-2px 0 0 2px}
 .mzai-panel{position:relative}
