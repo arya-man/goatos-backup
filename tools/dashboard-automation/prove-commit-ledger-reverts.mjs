@@ -31,7 +31,7 @@
 // being undone is a finding, not an absence.
 
 import { execFileSync, execSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -124,6 +124,35 @@ function run(cmd, args, cwd, env) {
   }
 }
 
+/**
+ * Put TODAY's pgtest harness into the checked-out tree.
+ *
+ * GOATOS_PGTEST_ADMIN_DSN -- the sanctioned no-Docker path -- landed on 2026-08-31. A commit older
+ * than that checks out a pgtest that knows only Docker, so on a machine without it SkipIfNoDocker
+ * skips every Postgres test, the package goes green having run nothing, and the row is unprovable.
+ * That is ~205 of the 795 backend rows: a third of the ledger unreachable for a reason that has
+ * nothing to do with whether their tests are any good.
+ *
+ * WHY THIS IS NOT CHEATING, and where the line is. pgtest is the HARNESS, never the code under
+ * test: it decides where the database comes from and applies the migrations found in the tree it
+ * is running in -- the CHECKED-OUT commit's migrations, not today's. The commit's own test files
+ * and its own production code are untouched. Overlaying anything else would be tampering; this
+ * package is copied whole and nothing else is.
+ *
+ * If the old tests do not compile against today's harness the package fails to build, which this
+ * file already reports as `inconclusive` rather than as a verdict. Silent on failure by design.
+ */
+function overlayCurrentHarness(worktree) {
+  const from = join(repoRoot, "backend/internal/platform/pgtest");
+  const to = join(worktree, "backend/internal/platform/pgtest");
+  if (!existsSync(from) || !existsSync(to)) return;
+  try {
+    cpSync(from, to, { recursive: true });
+  } catch {
+    // An older tree without the package: leave it alone and let the run report what it finds.
+  }
+}
+
 function proveOne(worktree, row, files) {
   const pkgs = goPackagesFor(files);
   const revertable = revertableFor(files);
@@ -133,6 +162,7 @@ function proveOne(worktree, row, files) {
   const co = run("git", ["checkout", "--detach", "--force", row.sha], worktree);
   if (!co.ok) return { verdict: "skipped", why: "could not check the commit out" };
   run("git", ["clean", "-fdq"], worktree);
+  overlayCurrentHarness(worktree);
 
   const diff = run("git", ["show", "--format=", "--unified=0", "--", ...files.filter((f) => /^backend\/.*_test\.go$/.test(f))], worktree).out;
   const own = addedTestNames(diff);
