@@ -752,9 +752,9 @@ deploy() {
     --image="$BACKEND_IMAGE" \
     --ingress=internal-and-cloud-load-balancing \
     --min=1 \
-    --max=2 \
+    --max=4 \
     --min-instances=1 \
-    --max-instances=2 \
+    --max-instances=4 \
     --concurrency=10 \
     --no-traffic \
     --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy" \

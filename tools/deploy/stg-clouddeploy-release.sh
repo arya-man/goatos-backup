@@ -292,7 +292,7 @@ print("\t".join([
   )"
   IFS=$'\t' read -r min max concurrency <<<"$line"
   [[ "$min" == "1" ]] || die "goatos-api-stg min scale drift: got ${min:-unset} want 1"
-  [[ "$max" == "2" ]] || die "goatos-api-stg max scale drift: got ${max:-unset} want 2"
+  [[ "$max" == "4" ]] || die "goatos-api-stg max scale drift: got ${max:-unset} want 4"
   [[ "$concurrency" == "10" ]] || die "goatos-api-stg concurrency drift: got ${concurrency:-unset} want 10"
   echo "verified api latency shape: min=$min max=$max concurrency=$concurrency"
 }
