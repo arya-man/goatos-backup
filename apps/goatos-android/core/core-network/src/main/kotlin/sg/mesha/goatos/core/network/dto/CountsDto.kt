@@ -794,6 +794,8 @@ data class CountsPenReconciliationCardDto(
     @SerialName("registered_operational_location_display") val registeredOperationalLocationDisplay: String = "",
     @SerialName("park_id") val parkId: String? = null,
     @SerialName("park_name") val parkName: String? = null,
+    /** The park's short code (CBE, CPT) — shown small on the card. Backend-owned. */
+    @SerialName("park_code") val parkCode: String? = null,
     @SerialName("raised_at") val raisedAt: String = "",
     @SerialName("raised_at_ist") val raisedAtIst: String = "",
     @SerialName("proof_ref") val proofRef: String? = null,
@@ -832,6 +834,28 @@ data class CountsPenReconciliationListResponseDto(
     @SerialName("items") val items: List<CountsPenReconciliationCardDto> = emptyList(),
     @SerialName("next_cursor") val nextCursor: String? = null,
     @SerialName("status_counts") val statusCounts: CountsPenReconciliationStatusCountsDto = CountsPenReconciliationStatusCountsDto(),
+    @SerialName("filters") val filters: CountsPenReconciliationFiltersDto = CountsPenReconciliationFiltersDto(),
+)
+
+/**
+ * The backend-owned park filter bar for the Reconcile tab. [parks] is exactly the set the caller
+ * may choose (one for a park-scoped operator, every park for a tenant-wide reader) and
+ * [selectedParkId] is the park the page was clamped to — empty when it spans every offered park.
+ * Rendered verbatim; the phone never derives a park list or an auto-selection of its own.
+ */
+@Serializable
+data class CountsPenReconciliationFiltersDto(
+    @SerialName("parks") val parks: List<CountsPenReconciliationParkOptionDto> = emptyList(),
+    @SerialName("selected_park_id") val selectedParkId: String = "",
+)
+
+@Serializable
+data class CountsPenReconciliationParkOptionDto(
+    @SerialName("park_id") val parkId: String = "",
+    @SerialName("label") val label: String = "",
+    /** The park's short code (CBE, CPT). */
+    @SerialName("code") val code: String = "",
+    @SerialName("selected") val selected: Boolean = false,
 )
 
 // ---------------------------------------------------------------------------

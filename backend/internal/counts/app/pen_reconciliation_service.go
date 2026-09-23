@@ -214,31 +214,84 @@ func (s *PenReconciliationService) RecoverVerificationEnqueues(ctx context.Conte
 	return recovered, nil
 }
 
+// ListPenReconciliationInput scopes one page of the Reconcile queue.
+type ListPenReconciliationInput struct {
+	TenantID string
+	Status   string
+	PageSize int
+	Cursor   string
+	// AuthorizedParkIDs is the caller's park scope, ALREADY resolved and clamped by the
+	// handler from their grants. Empty means tenant-wide (every active park is offered).
+	AuthorizedParkIDs []string
+	// RequestedParkID narrows the page to one park; the handler has already refused a park
+	// outside AuthorizedParkIDs, so here it is trusted. Empty means every authorized park.
+	RequestedParkID string
+}
+
 // List returns one keyset page of the Reconcile queue. Status buckets are disjoint
 // backend-owned workflow states; the summary counts are whole-filter truth, never page-local.
+//
+// Park scope is backend-owned on both halves: the page and its chip counts are clamped to the
+// same park set, and the filter options carry exactly the parks the caller may choose. A
+// single-park operator therefore gets one option, already selected, and never sees the other
+// park's cards; a tenant-wide reader gets every park with none selected until they pick one.
 func (s *PenReconciliationService) List(
-	ctx context.Context, tenantID, status string, pageSize int, cursor string,
+	ctx context.Context, in ListPenReconciliationInput,
 ) (domain.PenReconciliationPage, error) {
-	if strings.TrimSpace(tenantID) == "" {
+	if strings.TrimSpace(in.TenantID) == "" {
 		return domain.PenReconciliationPage{}, ErrMissingRequiredField
 	}
-	decoded, err := domain.DecodePenReconciliationCursor(cursor)
+	decoded, err := domain.DecodePenReconciliationCursor(in.Cursor)
 	if err != nil {
 		return domain.PenReconciliationPage{}, ErrInvalidPenReconciliationFilter
 	}
-	status = strings.ToLower(strings.TrimSpace(status))
+	status := strings.ToLower(strings.TrimSpace(in.Status))
 	if status == "" {
 		status = domain.PenReconciliationBucketAll
 	}
 	if !domain.ValidPenReconciliationBucket(status) {
 		return domain.PenReconciliationPage{}, ErrInvalidPenReconciliationFilter
 	}
-	return s.repo.ListPenReconciliationCards(ctx, domain.PenReconciliationQuery{
-		TenantID: tenantID,
+	options, err := s.repo.ListPenReconciliationParkOptions(ctx, in.TenantID, in.AuthorizedParkIDs)
+	if err != nil {
+		return domain.PenReconciliationPage{}, err
+	}
+	selected := strings.TrimSpace(in.RequestedParkID)
+	if selected != "" && !penReconciliationParkOffered(options, selected) {
+		// A park the caller may not choose -- malformed, inactive, or another tenant's -- is a
+		// bad filter, never an empty page that reads as "nothing to reconcile".
+		return domain.PenReconciliationPage{}, ErrInvalidPenReconciliationFilter
+	}
+	if selected == "" && len(options) == 1 {
+		// One park to choose from is no choice: auto-select it so the phone opens on it.
+		selected = options[0].ParkID
+	}
+	parkIDs := in.AuthorizedParkIDs
+	if selected != "" {
+		parkIDs = []string{selected}
+	}
+	page, err := s.repo.ListPenReconciliationCards(ctx, domain.PenReconciliationQuery{
+		TenantID: in.TenantID,
 		Status:   status,
-		PageSize: pageSize,
+		ParkIDs:  parkIDs,
+		PageSize: in.PageSize,
 		Cursor:   decoded,
 	})
+	if err != nil {
+		return domain.PenReconciliationPage{}, err
+	}
+	page.Parks = options
+	page.SelectedParkID = selected
+	return page, nil
+}
+
+func penReconciliationParkOffered(options []domain.PenReconciliationParkOption, parkID string) bool {
+	for _, option := range options {
+		if option.ParkID == parkID {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *PenReconciliationService) enqueueVerification(ctx context.Context, tenantID string, in PenReconciliationVerificationEnqueueRequest) error {

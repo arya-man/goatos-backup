@@ -162,6 +162,9 @@ type PenReconciliationCard struct {
 
 	ParkID   *string
 	ParkName *string
+	// ParkCode is the park's short code (CBE, CPT) — the small park badge a card carries when
+	// a tenant-wide reader sees both parks in one queue.
+	ParkCode *string
 
 	CampaignID     string
 	CampaignShedID string
@@ -234,9 +237,22 @@ type PenReconciliationVerificationEnqueueDebt struct {
 type PenReconciliationQuery struct {
 	TenantID string
 	// Status is one of the PenReconciliationBucket* values; empty normalizes to all.
-	Status   string
+	Status string
+	// ParkIDs clamps the queue to these parks. Empty means every park the tenant has — the
+	// handler resolves it from the caller's grant scope plus the optional ?park_id filter, so
+	// a park-scoped operator never sees another park's cards.
+	ParkIDs  []string
 	PageSize int
 	Cursor   *PenReconciliationCursor
+}
+
+// PenReconciliationParkOption is one park the reader may filter the queue to. Options are
+// backend-owned: a park-scoped reader gets exactly their park(s); a tenant-wide reader gets
+// every active park.
+type PenReconciliationParkOption struct {
+	ParkID string
+	Name   string
+	Code   string
 }
 
 // PenReconciliationCursor is the keyset position: (raised_at, card_id) descending.
@@ -250,6 +266,10 @@ type PenReconciliationPage struct {
 	Items        []PenReconciliationCard
 	NextCursor   string
 	StatusCounts PenReconciliationStatusCounts
+	// Parks are the filter options the caller may choose between; SelectedParkID is the park
+	// this page was clamped to, or empty when the page spans every offered park.
+	Parks          []PenReconciliationParkOption
+	SelectedParkID string
 }
 
 // PenReconciliationStatusCounts is the whole-filter bucket summary (never page-local).

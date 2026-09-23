@@ -21,6 +21,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
@@ -69,6 +70,17 @@ data class PenReconciliationRowUi(
     val raisedAtLabel: String = "",
     /** The verifier's reason when evidence was rejected; rendered verbatim when present. */
     val reworkReason: String? = null,
+    /** The park's short code (CBE, CPT), backend-owned; shown small on the card's top-right. */
+    val parkCode: String = "",
+)
+
+/** One park chip in the Reconcile park bar. Backend-owned options; `""` parkId is "All parks". */
+@Immutable
+data class PenReconciliationParkUi(
+    val parkId: String,
+    val label: String,
+    val code: String,
+    val selected: Boolean,
 )
 
 /** Visual weight for a row's state pill: work to do, waiting on review, or finished. */
@@ -84,6 +96,8 @@ data class PenReconciliationStatusUi(
 
 @Immutable
 data class PenReconciliationUiState(
+    /** The park filter bar — empty until the first page answers, then exactly the parks offered. */
+    val parks: List<PenReconciliationParkUi> = emptyList(),
     val statuses: List<PenReconciliationStatusUi> = emptyList(),
     val submissionNotice: CountsWriteResultUi? = null,
     val emptyMessage: String? = null,
@@ -102,6 +116,8 @@ sealed interface PenReconciliationEvent {
     data object Refresh : PenReconciliationEvent
     data object Back : PenReconciliationEvent
     data class SelectStatus(val status: String) : PenReconciliationEvent
+    /** Pick a park chip; an empty parkId is the "All parks" chip. */
+    data class SelectPark(val parkId: String) : PenReconciliationEvent
     data class OpenCard(val cardId: String) : PenReconciliationEvent
     /** The host navigated to [PenReconciliationUiState.openWorkflowId]; clear it so it fires once. */
     data object OpenHandled : PenReconciliationEvent
@@ -152,6 +168,11 @@ fun PenReconciliationScreen(
             contentPadding = PaddingValues(bottom = 20.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            // Park bar sits on top (maintainer request 2026-09-15): a single-park person sees
+            // their park already selected; a CXO sees every park plus All.
+            if (state.parks.isNotEmpty()) {
+                item(key = "parks") { PenReconciliationParkBar(state.parks, onEvent) }
+            }
             item(key = "status") { PenReconciliationStatusBar(state.statuses, onEvent) }
 
             if (rows.itemCount == 0 && state.emptyMessage != null) {
@@ -172,6 +193,32 @@ fun PenReconciliationScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun PenReconciliationParkBar(
+    parks: List<PenReconciliationParkUi>,
+    onEvent: (PenReconciliationEvent) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        parks.forEach { park ->
+            Text(
+                park.label,
+                color = if (park.selected) MeshaColors.OnBrand else MeshaColors.Muted,
+                style = MeshaType.pill,
+                modifier = Modifier
+                    .minimumInteractiveComponentSize()
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(if (park.selected) MeshaColors.Brand else MeshaColors.Surf2)
+                    // One offered park is no choice: the chip shows the clamp but does nothing.
+                    .clickable(enabled = parks.size > 1) { onEvent(PenReconciliationEvent.SelectPark(park.parkId)) }
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+            )
         }
     }
 }
@@ -222,6 +269,15 @@ private fun PenReconciliationRowCard(row: PenReconciliationRowUi, onClick: () ->
             )
             if (row.goatDisplayId.isNotBlank()) {
                 Text(row.goatDisplayId, color = MeshaColors.Faint, style = MeshaType.cardSubtitle)
+            }
+            if (row.parkCode.isNotBlank()) {
+                // Small park badge, top-right: tells CBE from CPT in a queue that spans both.
+                PenReconciliationPill(
+                    text = row.parkCode,
+                    bg = MeshaColors.Surf3,
+                    fg = MeshaColors.Muted,
+                    modifier = Modifier.padding(start = 8.dp),
+                )
             }
         }
         LocationLine(label = "Found in", value = row.foundLabel, valueColor = MeshaColors.Warn)
@@ -285,13 +341,18 @@ private fun LocationLine(label: String, value: String, valueColor: androidx.comp
 }
 
 @Composable
-private fun PenReconciliationPill(text: String, bg: androidx.compose.ui.graphics.Color, fg: androidx.compose.ui.graphics.Color) {
+private fun PenReconciliationPill(
+    text: String,
+    bg: androidx.compose.ui.graphics.Color,
+    fg: androidx.compose.ui.graphics.Color,
+    modifier: Modifier = Modifier,
+) {
     if (text.isBlank()) return
     Text(
         text = text,
         color = fg,
         style = MeshaType.pill,
-        modifier = Modifier
+        modifier = modifier
             .clip(RoundedCornerShape(999.dp))
             .background(bg)
             .padding(horizontal = 10.dp, vertical = 3.dp),

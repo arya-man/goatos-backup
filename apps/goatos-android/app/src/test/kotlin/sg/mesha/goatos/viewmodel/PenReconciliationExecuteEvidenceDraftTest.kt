@@ -275,7 +275,7 @@ private class FakePenReconciliationCardRepository(
     val forgotten = mutableListOf<String>()
     override val meta: StateFlow<PenReconciliationMeta> = MutableStateFlow(PenReconciliationMeta())
 
-    override fun cards(status: String): Flow<PagingData<CountsPenReconciliationCardDto>> =
+    override fun cards(status: String, parkId: String?): Flow<PagingData<CountsPenReconciliationCardDto>> =
         flowOf(PagingData.empty())
 
     override suspend fun openQuestionnaire(cardId: String): AppResult<String> = AppResult.Ok("wf-$cardId")

@@ -788,6 +788,8 @@ interface AppApiService {
         @Query("status") status: String?,
         @Query("page_size") pageSize: Int?,
         @Query("cursor") cursor: String?,
+        // Omitted = let the server decide: a single-park operator is clamped to their park.
+        @Query("park_id") parkId: String? = null,
     ): CountsPenReconciliationListResponseDto
 
     @POST("app/counts/pen-reconciliation/cards/{card_id}/workflow")
@@ -2277,8 +2279,9 @@ class RetrofitAppApi(
         status: String?,
         pageSize: Int?,
         cursor: String?,
+        parkId: String?,
     ): CountsPenReconciliationListResponseDto =
-        service.listCountsPenReconciliationCards(status, pageSize, cursor)
+        service.listCountsPenReconciliationCards(status, pageSize, cursor, parkId)
 
     override suspend fun completeCountsPenReconciliationCard(
         cardId: String,

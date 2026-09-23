@@ -11,6 +11,7 @@ import (
 	countsapp "github.com/vgoats/goatos/backend/internal/counts/app"
 	"github.com/vgoats/goatos/backend/internal/counts/domain"
 	"github.com/vgoats/goatos/backend/internal/counts/ports"
+	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
@@ -41,7 +42,7 @@ const (
 // needs.
 type PenReconciliationWorkflow interface {
 	Complete(ctx context.Context, in countsapp.CompletePenReconciliationInput) (domain.PenReconciliationCompletionResult, bool, error)
-	List(ctx context.Context, tenantID, status string, pageSize int, cursor string) (domain.PenReconciliationPage, error)
+	List(ctx context.Context, in countsapp.ListPenReconciliationInput) (domain.PenReconciliationPage, error)
 	EnsureWorkflow(ctx context.Context, tenantID, cardID string) (string, error)
 }
 
@@ -93,6 +94,24 @@ type appPenReconciliationListResponse struct {
 	Items        []appPenReconciliationCard           `json:"items"`
 	NextCursor   string                               `json:"next_cursor,omitempty"`
 	StatusCounts domain.PenReconciliationStatusCounts `json:"status_counts"`
+	Filters      appPenReconciliationFilters          `json:"filters"`
+}
+
+// appPenReconciliationFilters is the backend-owned park filter bar. Parks lists exactly the
+// parks the caller may choose (one for a park-scoped operator, every active park for a
+// tenant-wide reader); SelectedParkID is the park this page is clamped to, empty when the page
+// spans every offered park. The phone renders these verbatim and never derives a park list.
+type appPenReconciliationFilters struct {
+	Parks          []appPenReconciliationParkOption `json:"parks"`
+	SelectedParkID string                           `json:"selected_park_id"`
+}
+
+type appPenReconciliationParkOption struct {
+	ParkID string `json:"park_id"`
+	Label  string `json:"label"`
+	// Code is the park's short code (CBE, CPT): the small badge a card carries.
+	Code     string `json:"code"`
+	Selected bool   `json:"selected"`
 }
 
 type appPenReconciliationCard struct {
@@ -120,6 +139,9 @@ type appPenReconciliationCard struct {
 
 	ParkID   *string `json:"park_id,omitempty"`
 	ParkName *string `json:"park_name,omitempty"`
+	// ParkCode is the park's short code (CBE, CPT) shown small on the card so a reader who
+	// sees both parks in one queue can tell them apart at a glance.
+	ParkCode string `json:"park_code,omitempty"`
 
 	RaisedAt    time.Time `json:"raised_at"`
 	RaisedAtIST string    `json:"raised_at_ist"`
@@ -162,9 +184,32 @@ func (h *AppWriteHandler) ListPenReconciliationCards(w http.ResponseWriter, r *h
 		}
 	}
 
-	page, err := h.reconciliation.List(r.Context(), tenantID,
-		strings.TrimSpace(r.URL.Query().Get("status")), pageSize,
-		strings.TrimSpace(r.URL.Query().Get("cursor")))
+	// Park scope is resolved from the caller's grants, capability-aware: an operator's park
+	// grant clamps the queue to that park (and refuses ?park_id for any other), a tenant-wide
+	// counts grant sees the requested park or every park. A person covering several parks
+	// without a tenant grant is offered all of them rather than refused -- this is a work queue,
+	// and "choose a park" is the filter bar's job, not an error page's.
+	requestedParkID := strings.TrimSpace(r.URL.Query().Get("park_id"))
+	scope := httpmiddleware.ResolveAuthorizedParkScopeForCapabilities(
+		r.Context(), tenantID, requestedParkID, permissions.CountsWrite)
+	if !scope.Allowed && scope.Code != "park_selection_required" {
+		h.writeError(w, r, scope.Status, scope.Code, scope.Message, nil)
+		return
+	}
+	authorizedParkIDs := append([]string(nil), scope.ParkIDs...)
+	if scope.Allowed && len(scope.ParkIDs) == 0 {
+		// Tenant-wide: no clamp beyond the tenant; the requested park (if any) narrows below.
+		authorizedParkIDs = nil
+	}
+
+	page, err := h.reconciliation.List(r.Context(), countsapp.ListPenReconciliationInput{
+		TenantID:          tenantID,
+		Status:            strings.TrimSpace(r.URL.Query().Get("status")),
+		PageSize:          pageSize,
+		Cursor:            strings.TrimSpace(r.URL.Query().Get("cursor")),
+		AuthorizedParkIDs: authorizedParkIDs,
+		RequestedParkID:   requestedParkID,
+	})
 	if err != nil {
 		h.writePenReconciliationError(w, r, err)
 		return
@@ -191,6 +236,7 @@ func (h *AppWriteHandler) ListPenReconciliationCards(w http.ResponseWriter, r *h
 			}.Display(),
 			ParkID:       card.ParkID,
 			ParkName:     card.ParkName,
+			ParkCode:     stringOrEmpty(card.ParkCode),
 			RaisedAt:     card.RaisedAt,
 			RaisedAtIST:  card.RaisedAt.In(biztime.DefaultLocation()).Format(time.RFC3339),
 			ProofRef:     card.ProofRef,
@@ -201,8 +247,20 @@ func (h *AppWriteHandler) ListPenReconciliationCards(w http.ResponseWriter, r *h
 			ProofRefs:    nonNilRefs(card.ProofRefs),
 		})
 	}
+	filters := appPenReconciliationFilters{
+		Parks:          make([]appPenReconciliationParkOption, 0, len(page.Parks)),
+		SelectedParkID: page.SelectedParkID,
+	}
+	for _, park := range page.Parks {
+		filters.Parks = append(filters.Parks, appPenReconciliationParkOption{
+			ParkID:   park.ParkID,
+			Label:    park.Name,
+			Code:     park.Code,
+			Selected: park.ParkID == page.SelectedParkID,
+		})
+	}
 	httpresponse.WriteJSON(w, http.StatusOK, appPenReconciliationListResponse{
-		Items: items, NextCursor: page.NextCursor, StatusCounts: page.StatusCounts,
+		Items: items, NextCursor: page.NextCursor, StatusCounts: page.StatusCounts, Filters: filters,
 	})
 }
 
