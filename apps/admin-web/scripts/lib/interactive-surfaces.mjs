@@ -55,6 +55,19 @@ function anchorFor(text, index) {
 }
 
 /**
+ * Comments and import lines are not surfaces. `mention-textarea.tsx` documents itself with the
+ * words `<form action={serverAction}>` inside a block comment, and `counts-breakdown-table.tsx`
+ * imports `./inline-cell-editor` -- both were counted as real controls until this ran. Blanking
+ * them (rather than deleting them) keeps every line number honest.
+ */
+export function blankNonMarkup(text) {
+  return String(text)
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
+    .replace(/(^|[^:"'`\\])\/\/[^\n]*/g, (m, lead) => lead + " ".repeat(m.length - lead.length))
+    .replace(/^[ \t]*(?:import|export)\s[^\n;]*(?:;|from\s+["'][^"'\n]+["'];?)/gm, (m) => m.replace(/[^\n]/g, " "));
+}
+
+/**
  * @param {Array<{path: string, text: string}>} files source files, paths relative to apps/admin-web
  * @returns {Array<{key: string, kind: string, path: string, line: number, anchor: string, marker: string}>}
  */
@@ -64,10 +77,11 @@ export function scanInteractiveSurfaces(files) {
   for (const file of [...files].sort((a, b) => a.path.localeCompare(b.path))) {
     if (!/\.(tsx|jsx)$/.test(file.path)) continue;
     if (/\.(test|spec)\.[^/]+$/.test(file.path)) continue;
+    const scannable = blankNonMarkup(file.text);
     for (const marker of SURFACE_MARKERS) {
       const re = new RegExp(marker.pattern.source, "g");
       let match;
-      while ((match = re.exec(file.text)) !== null) {
+      while ((match = re.exec(scannable)) !== null) {
         const anchor = anchorFor(file.text, match.index) || "unnamed";
         const base = `${file.path}::${marker.kind}::${anchor}`;
         const seen = (usedKeys.get(base) ?? 0) + 1;
@@ -76,7 +90,7 @@ export function scanInteractiveSurfaces(files) {
           key: seen === 1 ? base : `${base}#${seen}`,
           kind: marker.kind,
           path: file.path,
-          line: file.text.slice(0, match.index).split("\n").length,
+          line: scannable.slice(0, match.index).split("\n").length,
           anchor,
           marker: marker.note,
         });

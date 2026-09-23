@@ -6,6 +6,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  blankNonMarkup,
   coverageOf,
   coverageSentence,
   gradeAssertion,
@@ -35,6 +36,27 @@ test("two surfaces of the same kind in one file do not collapse into one key", (
   const found = scanInteractiveSurfaces([file("features/a/two.tsx", '<form className="x">\n<form className="x">')]);
   assert.equal(found.length, 2);
   assert.equal(new Set(found.map((s) => s.key)).size, 2);
+});
+
+test("a surface described in a comment or an import is not a surface, but the real one next to it is", () => {
+  const described = scanInteractiveSurfaces([
+    file("features/a/doc.tsx", '/**\n * It renders a real <form action={serverAction}> so it can drop in.\n */\nexport const A = 1;'),
+    file("features/a/imp.tsx", 'import { InlineCellEditor } from "./inline-cell-editor";'),
+    file("features/a/line.tsx", '// <div role="dialog"> is what this used to be\nconst x = 1;'),
+  ]);
+  assert.deepEqual(described, [], "a comment or an import was counted as a control");
+
+  // ...and the same markup, actually rendered, still counts -- with the right line number.
+  const real = scanInteractiveSurfaces([
+    file("features/a/real.tsx", '// <div role="dialog"> is what this used to be\nimport x from "y";\n<form className="real-form">'),
+  ]);
+  assert.equal(real.length, 1);
+  assert.equal(real[0].line, 3, "blanking a comment must not move the line numbers");
+});
+
+test("blanking keeps a URL inside a string intact", () => {
+  assert.match(blankNonMarkup('const u = "https://example.test/x"; // gone'), /https:\/\/example\.test\/x/);
+  assert.doesNotMatch(blankNonMarkup('const u = "x"; // gone'), /gone/);
 });
 
 test("test fixtures are not counted as product surfaces", () => {
