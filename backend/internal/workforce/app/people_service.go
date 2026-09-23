@@ -37,6 +37,29 @@ var grantablePersonRoles = map[string]personRoleSpec{
 	// Breeding Director (maintainer decision 2026-09-04): a director desk, tenant-scoped like
 	// the others -- hoof / hair trimming is planned across both parks.
 	permissions.RoleBreedingDirector: {ScopeType: "tenant", RoleHint: "breeding_director"},
+
+	// The ground tiers (maintainer decision 2026-09-23). The farm has no "operator": it has
+	// MANAGERS, by department, and ASSISTANT MANAGERS under them -- which is what the roster
+	// seats (feeding_manager, health_kidding_manager_1, cleaning_am1, farming_am) always
+	// said, while RBAC had only the one flat `operator` role to grant them.
+	//
+	// PARK-scoped, never tenant: a ground tier belongs to one park, and the operator-scope
+	// invariant this replaces is the same one (check-stg-operator-scope.mjs).
+	//
+	// The hint is the TIER, not the role key, so the set stays at two values however many
+	// verticals are added later. `operator` stays a legal hint until the phone stops reading
+	// it (FeedDirectionViewModel / FeedWastageViewModel gate capture on
+	// primaryRoleHint == "operator"), which is why migrating a person moves their ROLE and
+	// leaves their hint alone.
+	permissions.RoleKey(permissions.TierManager, permissions.VerticalHealth):   {ScopeType: "park", RoleHint: "manager"},
+	permissions.RoleKey(permissions.TierManager, permissions.VerticalFeed):     {ScopeType: "park", RoleHint: "manager"},
+	permissions.RoleKey(permissions.TierManager, permissions.VerticalCleaning): {ScopeType: "park", RoleHint: "manager"},
+	permissions.RoleKey(permissions.TierManager, permissions.VerticalFarming):  {ScopeType: "park", RoleHint: "manager"},
+
+	permissions.RoleKey(permissions.TierAssistantManager, permissions.VerticalHealth):   {ScopeType: "park", RoleHint: "assistant_manager"},
+	permissions.RoleKey(permissions.TierAssistantManager, permissions.VerticalFeed):     {ScopeType: "park", RoleHint: "assistant_manager"},
+	permissions.RoleKey(permissions.TierAssistantManager, permissions.VerticalCleaning): {ScopeType: "park", RoleHint: "assistant_manager"},
+	permissions.RoleKey(permissions.TierAssistantManager, permissions.VerticalFarming):  {ScopeType: "park", RoleHint: "assistant_manager"},
 }
 
 var validDesignationGrades = map[string]struct{}{

@@ -9307,6 +9307,17 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 				// the park select is required; it is a machine hint, not display copy.
 				ID: "people_roles",
 				Options: []domain.Option{
+					// The ground tiers, by department (maintainer decision 2026-09-23).
+					// These replace Operator; it stays grantable until the last person
+					// carrying it has been moved across.
+					option(permissions.RoleKey(permissions.TierManager, permissions.VerticalFeed), "Feed Manager", "park", ""),
+					option(permissions.RoleKey(permissions.TierManager, permissions.VerticalHealth), "Health Manager", "park", ""),
+					option(permissions.RoleKey(permissions.TierManager, permissions.VerticalFarming), "Farming Manager", "park", ""),
+					option(permissions.RoleKey(permissions.TierManager, permissions.VerticalCleaning), "Cleaning Manager", "park", ""),
+					option(permissions.RoleKey(permissions.TierAssistantManager, permissions.VerticalFeed), "Feed Assistant Manager", "park", ""),
+					option(permissions.RoleKey(permissions.TierAssistantManager, permissions.VerticalHealth), "Health Assistant Manager", "park", ""),
+					option(permissions.RoleKey(permissions.TierAssistantManager, permissions.VerticalFarming), "Farming Assistant Manager", "park", ""),
+					option(permissions.RoleKey(permissions.TierAssistantManager, permissions.VerticalCleaning), "Cleaning Assistant Manager", "park", ""),
 					option(permissions.RoleOperator, "Operator", "park", ""),
 					option(permissions.RoleParkHead, "Park Head", "park", ""),
 					option(permissions.RoleVerifier, "Verifier", "tenant", ""),

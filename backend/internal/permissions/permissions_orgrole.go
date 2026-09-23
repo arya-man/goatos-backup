@@ -69,13 +69,24 @@ const (
 	VerticalFeed           Vertical = "feed"
 	VerticalMilk           Vertical = "milk"
 	VerticalSales          Vertical = "sales"
+	// Cleaning and Farming are the two ground verticals the roster always had as
+	// SEATS (cleaning_am1, cleaning_am2, farming_am in seed-roster-real) while the
+	// org grid had no vertical to hang them on, so their people could only be
+	// granted the flat `operator` role. They carry NO module of their own in
+	// verticalModule -- a cleaning manager's app is Clock In / Out, which is
+	// baseline for every principal and needs no tick (maintainer decision
+	// 2026-09-23). Which modules they get beyond that is a per-person HRMS tick.
+	VerticalCleaning Vertical = "cleaning"
+	VerticalFarming  Vertical = "farming"
 )
 
 // AllVerticals is every vertical a tier can be scoped to, in the order
-// seeded into org_verticals (migration 000178_org_role_catalog.sql).
+// seeded into org_verticals (migration 000178_org_role_catalog.sql, extended by
+// 000393_cleaning_and_farming_verticals.sql).
 var AllVerticals = []Vertical{
 	VerticalProcurement, VerticalPreventiveCare, VerticalBreeding, VerticalHealth,
 	VerticalGrowth, VerticalInfrastructure, VerticalFeed, VerticalMilk, VerticalSales,
+	VerticalCleaning, VerticalFarming,
 }
 
 // RoleKey composes the concrete grantable role string for a (tier, vertical)

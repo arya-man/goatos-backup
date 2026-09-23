@@ -686,6 +686,17 @@ var moduleCapabilities = []ModuleCapability{
 		Blurb:    "Who is at work: clock-ins, clock-outs and hours.",
 		Surfaces: []string{SurfaceWeb, SurfaceMobile},
 		Levels: map[string][]string{
+			// View grants NOTHING, on purpose -- the punch itself rides AppBootstrap and the
+			// module is a baseline offer no tick can remove. What this level does is ADMIT THE
+			// SURFACE (see PermissionsForAssignments: "a capability granting no permissions
+			// still counts as real access for the surface-bootstrap derivation"), which is the
+			// only way to give somebody the phone for attendance ALONE. Before it existed the
+			// sole assignable level was Oversee, so opening the app for a cleaning or farming
+			// manager also handed them the cross-person Team presence board. The `operations`
+			// module one entry down is the same shape (maintainer decision 2026-09-23).
+			LevelView: {},
+			// The CROSS-PERSON presence read: the phone Team page and the admin-web
+			// People / HRMS clock tab. Not the person's own punch.
 			LevelOversee: {ClockPresenceRead},
 		},
 	},

@@ -235,6 +235,12 @@ func TestOrgRoleCatalogHasEntryForEveryComposedRole(t *testing.T) {
 		"am_procurement": {}, "am_preventive_care": {}, "am_breeding": {},
 		"am_health": {}, "am_growth": {}, "am_infrastructure": {},
 		"am_feed": {}, "am_milk": {}, "am_sales": {},
+		// Cleaning and Farming, added by 000393_ground_tier_roles_cleaning_and_farming.sql
+		// (maintainer decision 2026-09-23). The roster always had the SEATS -- cleaning_am1,
+		// cleaning_am2, farming_am -- and the grid had no vertical to hang them on, so those
+		// people could only be granted the flat `operator` role.
+		"director_cleaning": {}, "head_cleaning": {}, "manager_cleaning": {}, "am_cleaning": {},
+		"director_farming": {}, "head_farming": {}, "manager_farming": {}, "am_farming": {},
 	}
 	if len(seeded) != len(AllTiers)*len(AllVerticals) {
 		t.Fatalf("seeded fixture has %d entries, want %d (len(AllTiers)*len(AllVerticals))", len(seeded), len(AllTiers)*len(AllVerticals))

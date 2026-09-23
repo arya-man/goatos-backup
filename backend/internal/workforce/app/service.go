@@ -797,7 +797,15 @@ func validMemberStatus(value string) bool {
 // breeding_director).
 func validRoleHint(value string) bool {
 	switch value {
-	case "operator", "park_head", "pc_director", "growth_director", "feed_director", "health_director", "breeding_director", "verifier", "supervisor", "cxo", "other":
+	// "manager" / "assistant_manager" are the GROUND TIERS that replace "operator"
+	// (maintainer decision 2026-09-23). They are the tier, not the role key, so this list
+	// stays at two new values however many departments are added later. "operator" is kept
+	// until the last person carrying it has been moved across -- and specifically until the
+	// installed Android app stops gating feed capture on primaryRoleHint == "operator".
+	// Mirrors the CHECK in 000393_ground_tier_roles_cleaning_and_farming.sql; pinned by
+	// TestEveryGrantableRoleHintIsAcceptedByTheColumnCheck.
+	case "operator", "manager", "assistant_manager",
+		"park_head", "pc_director", "growth_director", "feed_director", "health_director", "breeding_director", "verifier", "supervisor", "cxo", "other":
 		return true
 	default:
 		return false
@@ -809,6 +817,14 @@ func validRoleHint(value string) bool {
 // must pass here too, or a role that lands from the form/seed path cannot be added to an
 // existing person from the grants endpoint.
 func validRole(value string) bool {
+	// Every role the Add Person form may grant passes here by construction, rather than by
+	// being spelled out a second time. The two lists drifted the moment the ground-tier
+	// roles were added (2026-09-23): a Feed Manager could be created but not then granted
+	// to an existing person from the grants endpoint. Reading the map is what keeps them
+	// from drifting again; TestEveryGrantableRoleIsAcceptedByTheGrantPreflight pins it.
+	if _, ok := grantablePersonRoles[value]; ok {
+		return true
+	}
 	switch value {
 	case "admin", "park_head", "pc_director", "growth_director", "feed_director", "health_director", "breeding_director", "operator", "verifier", "ceo_internal", "procurement_director", "counts_approver", "toxin_tester":
 		return true
