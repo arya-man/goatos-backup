@@ -22,6 +22,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { containsUnredactedSecret, redactText } from "./lib/redact.mjs";
+import { selfConsistencyFindings } from "./lib/self-consistency.mjs";
 import { API_LATENCY_POLICY_MS, normalizeApiLatencyEndpoints } from "../perf/api-latency-policy.mjs";
 import { reportHtml, toFindings as findingsForReport } from "./lib/finding-kinds/api-contracts.mjs";
 
@@ -779,6 +780,11 @@ export async function checkEntry(entry, context) {
       });
     }
     relationsNotAttempted.push(...relations.notAttempted);
+    // And the rules that hold on EVERY screen, whether or not anyone has written a
+    // relation for this one. An endpoint nobody has got to yet still gets these.
+    for (const problem of selfConsistencyFindings(lastPayload, { pageName: entry.page }).slice(0, 5)) {
+      findings.push({ ...finding(entry, "figures-disagree", `${problem.where}: ${problem.rule}`, requestPath, ""), humanFailure: problem.sentence });
+    }
   }
 
   const sorted = [...durations].sort((a, b) => a - b);
