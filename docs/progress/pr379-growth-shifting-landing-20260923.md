@@ -15,6 +15,6 @@
 - Scope proof after repair:
   - `node tools/ci/ci-scope.mjs --self-test`
   - `node tools/ci/ci-scope.mjs --base origin/main --head HEAD --format json` selected only `common,backend`; `adminWeb=false`, `android=false`, `full=false`.
-- Pending: commit the CI-scope repair/progress update, then rerun the required clean-worktree landing receipt with `make land-main`.
+- Landing receipt after repair: `make land-main` passed at `9bae53f1373f5779f46714803fa6367bddfe63f3`, scoped to `common,backend`, and pushed that SHA to `main`.
 - Known failures: none from focused review tests. First landing attempt exposed pre-existing/forced-full-scope gate drift; stable dashboard guard drift is repaired by parked metadata, and the unrelated Android selection is repaired by CI scope mapping.
-- Deployment state: not pushed to `main`, not deployed to staging.
+- Deployment state: pushed to `main` at `9bae53f1373f5779f46714803fa6367bddfe63f3`; not deployed to staging.
