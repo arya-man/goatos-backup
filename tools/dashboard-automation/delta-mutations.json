@@ -1,0 +1,1120 @@
+{
+  "description": "One illegal overnight transition per delta check, and the legal transition beside it. The prover shows each check stays quiet on the legal change, fires on the illegal one, and says 'not checked' rather than 'pass' when a reading it needs is missing. Pure readings, no database, so a check with no fixture here is a named gap and never coverage.",
+  "provenance": {
+    "schemaVersion": "000377",
+    "databaseName": "delta_throwaway",
+    "farms": [
+      "F1"
+    ],
+    "appVersion": "test"
+  },
+  "days": {
+    "before": "2026-09-21",
+    "after": "2026-09-22"
+  },
+  "mutations": {
+    "work_left_open_against_an_animal_that_left": {
+      "defect": "an animal that left the herd yesterday still has vaccinations booked against it today",
+      "before": {
+        "exited_animals_open_vaccination": {
+          "read": true,
+          "kind": "standing",
+          "capped": false,
+          "rowCount": 1,
+          "rows": [
+            {
+              "farm": "F1",
+              "animal": "A1",
+              "animal_label": "G-0001",
+              "state": "sold",
+              "left_on": "2026-09-20",
+              "still_open": "2"
+            }
+          ]
+        }
+      },
+      "after": {
+        "exited_animals_open_vaccination": {
+          "read": true,
+          "kind": "standing",
+          "capped": false,
+          "rowCount": 1,
+          "rows": [
+            {
+              "farm": "F1",
+              "animal": "A1",
+              "animal_label": "G-0001",
+              "state": "sold",
+              "left_on": "2026-09-20",
+              "still_open": "0"
+            }
+          ]
+        }
+      },
+      "illegalAfter": {
+        "exited_animals_open_vaccination": {
+          "read": true,
+          "kind": "standing",
+          "capped": false,
+          "rowCount": 1,
+          "rows": [
+            {
+              "farm": "F1",
+              "animal": "A1",
+              "animal_label": "G-0001",
+              "state": "sold",
+              "left_on": "2026-09-20",
+              "still_open": "2"
+            }
+          ]
+        }
+      }
+    },
+    "a_pen_that_lost_animals_to_a_sale_was_never_re_fed": {
+      "defect": "the pen animals were sold out of has no feed sheet at all on the day its feed should have come down",
+      "before": {
+        "sale_allocations": {
+          "read": true,
+          "kind": "movement",
+          "capped": false,
+          "rowCount": 0,
+          "rows": []
+        },
+        "park_feed_clocks": {
+          "read": true,
+          "kind": "standing",
+          "capped": false,
+          "rowCount": 1,
+          "rows": [
+            {
+              "farm": "F1",
+              "park": "P1",
+              "workflow": "normal",
+              "corrects_at": "14:00"
+            }
+          ]
+        },
+        "feed_pen_head_counts": {
+          "read": true,
+          "kind": "standing",
+          "capped": false,
+          "rowCount": 3,
+          "rows": [
+            {
+              "farm": "F1",
+              "park": "P1",
+              "pen_shed": "S1",
+              "feed_day": "2026-09-21",
+              "workflow": "normal",
+              "mouths": "20"
+            },
+            {
+              "farm": "F1",
+              "park": "P1",
+              "pen_shed": "S1",
+              "feed_day": "2026-09-22",
+              "workflow": "normal",
+              "mouths": "15"
+            },
+            {
+              "farm": "F1",
+              "park": "P1",
+              "pen_shed": "S2",
+              "feed_day": "2026-09-22",
+              "workflow": "normal",
+              "mouths": "9"
+            }
+          ]
+        }
+      },
+      "after": {
+        "sale_allocations": {
+          "read": true,
+          "kind": "movement",
+          "capped": false,
+          "rowCount": 1,
+          "rows": [
+            {
+              "farm": "F1",
+              "park": "P1",
+              "pen_shed": "S1",
+              "pen_part": "whole",
+              "sold_on": "2026-09-21",
+              "sold_at_time": "10:00",
+              "animals": "5"
+            }
+          ]
+        },
+        "park_feed_clocks": {
+          "read": true,
+          "kind": "standing",
+          "capped": false,
+          "rowCount": 1,
+          "rows": [
+            {
+              "farm": "F1",
+              "park": "P1",
+              "workflow": "normal",
+              "corrects_at": "14:00"
+            }
+          ]
+        },
+        "feed_pen_head_counts": {
+          "read": true,
+          "kind": "standing",
+          "capped": false,
+          "rowCount": 3,
+          "rows": [
+            {
+              "farm": "F1",
+              "park": "P1",
+              "pen_shed": "S1",
+              "feed_day": "2026-09-21",
+              "workflow": "normal",
+              "mouths": "20"
+            },
+            {
+              "farm": "F1",
+              "park": "P1",
+              "pen_shed": "S1",
+              "feed_day": "2026-09-22",
+              "workflow": "normal",
+              "mouths": "15"
+            },
+            {
+              "farm": "F1",
+              "park": "P1",
+              "pen_shed": "S2",
+              "feed_day": "2026-09-22",
+              "workflow": "normal",
+              "mouths": "9"
+            }
+          ]
+        }
+      },
+      "illegalAfter": {
+        "sale_allocations": {
+          "read": true,
+          "kind": "movement",
+          "capped": false,
+          "rowCount": 1,
+          "rows": [
+            {
+              "farm": "F1",
+              "park": "P1",
+              "pen_shed": "S1",
+              "pen_part": "whole",
+              "sold_on": "2026-09-21",
+              "sold_at_time": "10:00",
+              "animals": "5"
+            }
+          ]
+        },
+        "park_feed_clocks": {
+          "read": true,
+          "kind": "standing",
+          "capped": false,
+          "rowCount": 1,
+          "rows": [
+            {
+              "farm": "F1",
+              "park": "P1",
+              "workflow": "normal",
+              "corrects_at": "14:00"
+            }
+          ]
+        },
+        "feed_pen_head_counts": {
+          "read": true,
+          "kind": "standing",
+          "capped": false,
+          "rowCount": 2,
+          "rows": [
+            {
+              "farm": "F1",
+              "park": "P1",
+              "pen_shed": "S1",
+              "feed_day": "2026-09-21",
+              "workflow": "normal",
+              "mouths": "20"
+            },
+            {
+              "farm": "F1",
+              "park": "P1",
+              "pen_shed": "S2",
+              "feed_day": "2026-09-22",
+              "workflow": "normal",
+              "mouths": "9"
+            }
+          ]
+        }
+      }
+    },
+    "a_pen_sold_out_of_is_still_fed_for_the_animals_that_left": {
+      "defect": "the pen is fed for more mouths after the sale than before it, and nothing arrived in it",
+      "before": {
+        "sale_allocations": {
+          "read": true,
+          "kind": "movement",
+          "capped": false,
+          "rowCount": 0,
+          "rows": []
+        },
+        "park_feed_clocks": {
+          "read": true,
+          "kind": "standing",
+          "capped": false,
+          "rowCount": 1,
+          "rows": [
+            {
+              "farm": "F1",
+              "park": "P1",
+              "workflow": "normal",
+              "corrects_at": "14:00"
+            }
+          ]
+        },
+        "feed_pen_head_counts": {
+          "read": true,
+          "kind": "standing",
+          "capped": false,
+          "rowCount": 3,
+          "rows": [
+            {
+              "farm": "F1",
+              "park": "P1",
+              "pen_shed": "S1",
+              "feed_day": "2026-09-21",
+              "workflow": "normal",
+              "mouths": "20"
+            },
+            {
+              "farm": "F1",
+              "park": "P1",
+              "pen_shed": "S1",
+              "feed_day": "2026-09-22",
+              "workflow": "normal",
+              "mouths": "15"
+            },
+            {
+              "farm": "F1",
+              "park": "P1",
+              "pen_shed": "S2",
+              "feed_day": "2026-09-22",
+              "workflow": "normal",
+              "mouths": "9"
+            }
+          ]
+        },
+        "pen_live_counts": {
+          "read": true,
+          "kind": "standing",
+          "capped": false,
+          "rowCount": 1,
+          "rows": [
+            {
+              "farm": "F1",
+              "park": "P1",
+              "pen_shed": "S1",
+              "pen_part": "whole",
+              "living": "20"
+            }
+          ]
+        }
+      },
+      "after": {
+        "sale_allocations": {
+          "read": true,
+          "kind": "movement",
+          "capped": false,
+          "rowCount": 1,
+          "rows": [
+            {
+              "farm": "F1",
+              "park": "P1",
+              "pen_shed": "S1",
+              "pen_part": "whole",
+              "sold_on": "2026-09-21",
+              "sold_at_time": "10:00",
+              "animals": "5"
+            }
+          ]
+        },
+        "park_feed_clocks": {
+          "read": true,
+          "kind": "standing",
+          "capped": false,
+          "rowCount": 1,
+          "rows": [
+            {
+              "farm": "F1",
+              "park": "P1",
+              "workflow": "normal",
+              "corrects_at": "14:00"
+            }
+          ]
+        },
+        "feed_pen_head_counts": {
+          "read": true,
+          "kind": "standing",
+          "capped": false,
+          "rowCount": 3,
+          "rows": [
+            {
+              "farm": "F1",
+              "park": "P1",
+              "pen_shed": "S1",
+              "feed_day": "2026-09-21",
+              "workflow": "normal",
+              "mouths": "20"
+            },
+            {
+              "farm": "F1",
+              "park": "P1",
+              "pen_shed": "S1",
+              "feed_day": "2026-09-22",
+              "workflow": "normal",
+              "mouths": "15"
+            },
+            {
+              "farm": "F1",
+              "park": "P1",
+              "pen_shed": "S2",
+              "feed_day": "2026-09-22",
+              "workflow": "normal",
+              "mouths": "9"
+            }
+          ]
+        },
+        "pen_live_counts": {
+          "read": true,
+          "kind": "standing",
+          "capped": false,
+          "rowCount": 1,
+          "rows": [
+            {
+              "farm": "F1",
+              "park": "P1",
+              "pen_shed": "S1",
+              "pen_part": "whole",
+              "living": "15"
+            }
+          ]
+        }
+      },
+      "illegalAfter": {
+        "sale_allocations": {
+          "read": true,
+          "kind": "movement",
+          "capped": false,
+          "rowCount": 1,
+          "rows": [
+            {
+              "farm": "F1",
+              "park": "P1",
+              "pen_shed": "S1",
+              "pen_part": "whole",
+              "sold_on": "2026-09-21",
+              "sold_at_time": "10:00",
+              "animals": "5"
+            }
+          ]
+        },
+        "park_feed_clocks": {
+          "read": true,
+          "kind": "standing",
+          "capped": false,
+          "rowCount": 1,
+          "rows": [
+            {
+              "farm": "F1",
+              "park": "P1",
+              "workflow": "normal",
+              "corrects_at": "14:00"
+            }
+          ]
+        },
+        "feed_pen_head_counts": {
+          "read": true,
+          "kind": "standing",
+          "capped": false,
+          "rowCount": 3,
+          "rows": [
+            {
+              "farm": "F1",
+              "park": "P1",
+              "pen_shed": "S1",
+              "feed_day": "2026-09-21",
+              "workflow": "normal",
+              "mouths": "20"
+            },
+            {
+              "farm": "F1",
+              "park": "P1",
+              "pen_shed": "S1",
+              "feed_day": "2026-09-22",
+              "workflow": "normal",
+              "mouths": "25"
+            },
+            {
+              "farm": "F1",
+              "park": "P1",
+              "pen_shed": "S2",
+              "feed_day": "2026-09-22",
+              "workflow": "normal",
+              "mouths": "9"
+            }
+          ]
+        },
+        "pen_live_counts": {
+          "read": true,
+          "kind": "standing",
+          "capped": false,
+          "rowCount": 1,
+          "rows": [
+            {
+              "farm": "F1",
+              "park": "P1",
+              "pen_shed": "S1",
+              "pen_part": "whole",
+              "living": "15"
+            }
+          ]
+        }
+      }
+    },
+    "a_pen_move_raised_late_is_treated_as_tomorrows_work": {
+      "defect": "a pen move raised after the afternoon cutoff is counted for the very next day",
+      "before": {
+        "shifting_raised": {
+          "read": true,
+          "kind": "movement",
+          "capped": false,
+          "rowCount": 0,
+          "rows": []
+        }
+      },
+      "after": {
+        "shifting_raised": {
+          "read": true,
+          "kind": "movement",
+          "capped": false,
+          "rowCount": 1,
+          "rows": [
+            {
+              "farm": "F1",
+              "move": "M1",
+              "priority": "normal",
+              "move_kind": "normal",
+              "raised_on": "2026-09-21",
+              "raised_at_time": "15:00",
+              "effective_on": "2026-09-23",
+              "state": "pending"
+            }
+          ]
+        }
+      },
+      "illegalAfter": {
+        "shifting_raised": {
+          "read": true,
+          "kind": "movement",
+          "capped": false,
+          "rowCount": 1,
+          "rows": [
+            {
+              "farm": "F1",
+              "move": "M1",
+              "priority": "normal",
+              "move_kind": "normal",
+              "raised_on": "2026-09-21",
+              "raised_at_time": "15:00",
+              "effective_on": "2026-09-22",
+              "state": "pending"
+            }
+          ]
+        }
+      }
+    },
+    "a_weighing_handed_in_reached_nobody_to_review_it": {
+      "defect": "a weighing job was handed in and no video reached the reviewer",
+      "before": {
+        "weighing_buckets": {
+          "read": true,
+          "kind": "standing",
+          "capped": false,
+          "rowCount": 1,
+          "rows": [
+            {
+              "farm": "F1",
+              "job": "J1",
+              "state": "in_progress",
+              "pen_label": "Castro 1"
+            }
+          ]
+        },
+        "weighing_review_items": {
+          "read": true,
+          "kind": "standing",
+          "capped": false,
+          "rowCount": 0,
+          "rows": []
+        }
+      },
+      "after": {
+        "weighing_buckets": {
+          "read": true,
+          "kind": "standing",
+          "capped": false,
+          "rowCount": 1,
+          "rows": [
+            {
+              "farm": "F1",
+              "job": "J1",
+              "state": "submitted",
+              "pen_label": "Castro 1"
+            }
+          ]
+        },
+        "weighing_review_items": {
+          "read": true,
+          "kind": "standing",
+          "capped": false,
+          "rowCount": 1,
+          "rows": [
+            {
+              "farm": "F1",
+              "job": "J1",
+              "waiting": "1",
+              "altogether": "1"
+            }
+          ]
+        }
+      },
+      "illegalAfter": {
+        "weighing_buckets": {
+          "read": true,
+          "kind": "standing",
+          "capped": false,
+          "rowCount": 1,
+          "rows": [
+            {
+              "farm": "F1",
+              "job": "J1",
+              "state": "submitted",
+              "pen_label": "Castro 1"
+            }
+          ]
+        },
+        "weighing_review_items": {
+          "read": true,
+          "kind": "standing",
+          "capped": false,
+          "rowCount": 0,
+          "rows": []
+        }
+      }
+    },
+    "a_weighing_closed_while_a_video_was_still_waiting": {
+      "defect": "a weighing job closed with a video still waiting on the reviewer",
+      "before": {
+        "weighing_buckets": {
+          "read": true,
+          "kind": "standing",
+          "capped": false,
+          "rowCount": 1,
+          "rows": [
+            {
+              "farm": "F1",
+              "job": "J1",
+              "state": "submitted",
+              "pen_label": "Castro 1"
+            }
+          ]
+        },
+        "weighing_review_items": {
+          "read": true,
+          "kind": "standing",
+          "capped": false,
+          "rowCount": 1,
+          "rows": [
+            {
+              "farm": "F1",
+              "job": "J1",
+              "waiting": "1",
+              "altogether": "1"
+            }
+          ]
+        }
+      },
+      "after": {
+        "weighing_buckets": {
+          "read": true,
+          "kind": "standing",
+          "capped": false,
+          "rowCount": 1,
+          "rows": [
+            {
+              "farm": "F1",
+              "job": "J1",
+              "state": "closed",
+              "pen_label": "Castro 1"
+            }
+          ]
+        },
+        "weighing_review_items": {
+          "read": true,
+          "kind": "standing",
+          "capped": false,
+          "rowCount": 1,
+          "rows": [
+            {
+              "farm": "F1",
+              "job": "J1",
+              "waiting": "0",
+              "altogether": "1"
+            }
+          ]
+        }
+      },
+      "illegalAfter": {
+        "weighing_buckets": {
+          "read": true,
+          "kind": "standing",
+          "capped": false,
+          "rowCount": 1,
+          "rows": [
+            {
+              "farm": "F1",
+              "job": "J1",
+              "state": "closed",
+              "pen_label": "Castro 1"
+            }
+          ]
+        },
+        "weighing_review_items": {
+          "read": true,
+          "kind": "standing",
+          "capped": false,
+          "rowCount": 1,
+          "rows": [
+            {
+              "farm": "F1",
+              "job": "J1",
+              "waiting": "1",
+              "altogether": "1"
+            }
+          ]
+        }
+      }
+    },
+    "a_feed_load_that_arrived_owes_a_strip_test_and_has_none": {
+      "defect": "a feed load recorded as arrived carries no aflatoxin test a day later",
+      "before": {
+        "feed_loads_reached": {
+          "read": true,
+          "kind": "movement",
+          "capped": false,
+          "rowCount": 1,
+          "rows": [
+            {
+              "farm": "F1",
+              "load": "L1",
+              "feed": "maize",
+              "farm_label": "CBE",
+              "arrived_on": "2026-09-20"
+            }
+          ]
+        },
+        "toxin_rounds": {
+          "read": true,
+          "kind": "standing",
+          "capped": false,
+          "rowCount": 0,
+          "rows": []
+        }
+      },
+      "after": {
+        "feed_loads_reached": {
+          "read": true,
+          "kind": "movement",
+          "capped": false,
+          "rowCount": 1,
+          "rows": [
+            {
+              "farm": "F1",
+              "load": "L1",
+              "feed": "maize",
+              "farm_label": "CBE",
+              "arrived_on": "2026-09-20"
+            }
+          ]
+        },
+        "toxin_rounds": {
+          "read": true,
+          "kind": "standing",
+          "capped": false,
+          "rowCount": 1,
+          "rows": [
+            {
+              "farm": "F1",
+              "load": "L1",
+              "rounds": "1",
+              "live_rounds": "1",
+              "accepted_rounds": "0"
+            }
+          ]
+        }
+      },
+      "illegalAfter": {
+        "feed_loads_reached": {
+          "read": true,
+          "kind": "movement",
+          "capped": false,
+          "rowCount": 1,
+          "rows": [
+            {
+              "farm": "F1",
+              "load": "L1",
+              "feed": "maize",
+              "farm_label": "CBE",
+              "arrived_on": "2026-09-20"
+            }
+          ]
+        },
+        "toxin_rounds": {
+          "read": true,
+          "kind": "standing",
+          "capped": false,
+          "rowCount": 0,
+          "rows": []
+        }
+      }
+    },
+    "a_pen_worked_yesterday_is_owed_a_visit_and_has_none": {
+      "defect": "a pen worked in yesterday is owed no visit today",
+      "before": {
+        "pen_care_submitted": {
+          "read": true,
+          "kind": "movement",
+          "capped": false,
+          "rowCount": 0,
+          "rows": []
+        },
+        "pen_visit_tasks": {
+          "read": true,
+          "kind": "standing",
+          "capped": false,
+          "rowCount": 0,
+          "rows": []
+        },
+        "pen_visit_visitors": {
+          "read": true,
+          "kind": "standing",
+          "capped": false,
+          "rowCount": 1,
+          "rows": [
+            {
+              "farm": "F1",
+              "park": "P1",
+              "visitor": "U1"
+            }
+          ]
+        }
+      },
+      "after": {
+        "pen_care_submitted": {
+          "read": true,
+          "kind": "movement",
+          "capped": false,
+          "rowCount": 1,
+          "rows": [
+            {
+              "farm": "F1",
+              "park": "P1",
+              "pen_shed": "S1",
+              "worked_on": "2026-09-21",
+              "handovers": "1"
+            }
+          ]
+        },
+        "pen_visit_tasks": {
+          "read": true,
+          "kind": "standing",
+          "capped": false,
+          "rowCount": 1,
+          "rows": [
+            {
+              "farm": "F1",
+              "park": "P1",
+              "pen_shed": "S1",
+              "worked_on": "2026-09-21",
+              "owed_on": "2026-09-22",
+              "state": "scheduled"
+            }
+          ]
+        },
+        "pen_visit_visitors": {
+          "read": true,
+          "kind": "standing",
+          "capped": false,
+          "rowCount": 1,
+          "rows": [
+            {
+              "farm": "F1",
+              "park": "P1",
+              "visitor": "U1"
+            }
+          ]
+        }
+      },
+      "illegalAfter": {
+        "pen_care_submitted": {
+          "read": true,
+          "kind": "movement",
+          "capped": false,
+          "rowCount": 1,
+          "rows": [
+            {
+              "farm": "F1",
+              "park": "P1",
+              "pen_shed": "S1",
+              "worked_on": "2026-09-21",
+              "handovers": "1"
+            }
+          ]
+        },
+        "pen_visit_tasks": {
+          "read": true,
+          "kind": "standing",
+          "capped": false,
+          "rowCount": 0,
+          "rows": []
+        },
+        "pen_visit_visitors": {
+          "read": true,
+          "kind": "standing",
+          "capped": false,
+          "rowCount": 1,
+          "rows": [
+            {
+              "farm": "F1",
+              "park": "P1",
+              "visitor": "U1"
+            }
+          ]
+        }
+      }
+    },
+    "a_vaccination_round_went_backwards": {
+      "defect": "a vaccination round counts fewer animals done today than yesterday",
+      "before": {
+        "drive_progress": {
+          "read": true,
+          "kind": "standing",
+          "capped": false,
+          "rowCount": 1,
+          "rows": [
+            {
+              "farm": "F1",
+              "round": "B1",
+              "planned_for": "2026-09-20",
+              "animals": "50",
+              "done": "10"
+            }
+          ]
+        }
+      },
+      "after": {
+        "drive_progress": {
+          "read": true,
+          "kind": "standing",
+          "capped": false,
+          "rowCount": 1,
+          "rows": [
+            {
+              "farm": "F1",
+              "round": "B1",
+              "planned_for": "2026-09-20",
+              "animals": "50",
+              "done": "12"
+            }
+          ]
+        }
+      },
+      "illegalAfter": {
+        "drive_progress": {
+          "read": true,
+          "kind": "standing",
+          "capped": false,
+          "rowCount": 1,
+          "rows": [
+            {
+              "farm": "F1",
+              "round": "B1",
+              "planned_for": "2026-09-20",
+              "animals": "50",
+              "done": "8"
+            }
+          ]
+        }
+      }
+    },
+    "an_open_job_was_moved_onto_a_newly_published_procedure": {
+      "defect": "a job already underway is moved onto a newly published version of the written procedure",
+      "before": {
+        "open_workflow_sop_pins": {
+          "read": true,
+          "kind": "standing",
+          "capped": false,
+          "rowCount": 1,
+          "rows": [
+            {
+              "farm": "F1",
+              "workflow": "W1",
+              "kind": "counts.birth",
+              "state": "open",
+              "procedure_version": "V1",
+              "opened_on": "2026-09-19"
+            }
+          ]
+        }
+      },
+      "after": {
+        "open_workflow_sop_pins": {
+          "read": true,
+          "kind": "standing",
+          "capped": false,
+          "rowCount": 1,
+          "rows": [
+            {
+              "farm": "F1",
+              "workflow": "W1",
+              "kind": "counts.birth",
+              "state": "open",
+              "procedure_version": "V1",
+              "opened_on": "2026-09-19"
+            }
+          ]
+        }
+      },
+      "illegalAfter": {
+        "open_workflow_sop_pins": {
+          "read": true,
+          "kind": "standing",
+          "capped": false,
+          "rowCount": 1,
+          "rows": [
+            {
+              "farm": "F1",
+              "workflow": "W1",
+              "kind": "counts.birth",
+              "state": "open",
+              "procedure_version": "V2",
+              "opened_on": "2026-09-19"
+            }
+          ]
+        }
+      }
+    },
+    "the_herd_total_moved_without_anything_leaving_or_arriving": {
+      "defect": "the living total fell by far more animals than are recorded as having left",
+      "before": {
+        "living_total": {
+          "read": true,
+          "kind": "standing",
+          "capped": false,
+          "rowCount": 1,
+          "rows": [
+            {
+              "farm": "F1",
+              "living": "100"
+            }
+          ]
+        },
+        "exited_animals_open_vaccination": {
+          "read": true,
+          "kind": "movement",
+          "capped": false,
+          "rowCount": 0,
+          "rows": []
+        }
+      },
+      "after": {
+        "living_total": {
+          "read": true,
+          "kind": "standing",
+          "capped": false,
+          "rowCount": 1,
+          "rows": [
+            {
+              "farm": "F1",
+              "living": "98"
+            }
+          ]
+        },
+        "exited_animals_open_vaccination": {
+          "read": true,
+          "kind": "movement",
+          "capped": false,
+          "rowCount": 2,
+          "rows": [
+            {
+              "farm": "F1",
+              "animal": "A9",
+              "animal_label": "G-0009",
+              "state": "sold",
+              "left_on": "2026-09-22",
+              "still_open": "0"
+            },
+            {
+              "farm": "F1",
+              "animal": "A8",
+              "animal_label": "G-0008",
+              "state": "dead",
+              "left_on": "2026-09-22",
+              "still_open": "0"
+            }
+          ]
+        }
+      },
+      "illegalAfter": {
+        "living_total": {
+          "read": true,
+          "kind": "standing",
+          "capped": false,
+          "rowCount": 1,
+          "rows": [
+            {
+              "farm": "F1",
+              "living": "90"
+            }
+          ]
+        },
+        "exited_animals_open_vaccination": {
+          "read": true,
+          "kind": "movement",
+          "capped": false,
+          "rowCount": 2,
+          "rows": [
+            {
+              "farm": "F1",
+              "animal": "A9",
+              "animal_label": "G-0009",
+              "state": "sold",
+              "left_on": "2026-09-22",
+              "still_open": "0"
+            },
+            {
+              "farm": "F1",
+              "animal": "A8",
+              "animal_label": "G-0008",
+              "state": "dead",
+              "left_on": "2026-09-22",
+              "still_open": "0"
+            }
+          ]
+        }
+      }
+    }
+  }
+}
