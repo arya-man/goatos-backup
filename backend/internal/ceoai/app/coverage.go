@@ -184,7 +184,7 @@ func identifierHaystack(text string) map[string]bool {
 		// the dimension vocabulary itself names is kept whatever its length;
 		// everything else still needs four letters, so `no`, `id` and `at`
 		// stay out.
-		if len(w) < 4 && dimensionNouns[w] == "" {
+		if len(w) < 4 && dimensionNouns[w] == "" && leaderNouns[w] == "" {
 			continue
 		}
 		stems[coverageStem(w)] = true
@@ -212,7 +212,72 @@ func coverageStem(w string) string {
 	if canonical, ok := dimensionNouns[w]; ok {
 		return canonical
 	}
+	if canonical, ok := leaderNouns[stem]; ok {
+		return wordStem(canonical)
+	}
+	if canonical, ok := leaderNouns[w]; ok {
+		return wordStem(canonical)
+	}
 	return stem
+}
+
+// leaderNouns is THE FARM'S WORDS, given to the catalogue's vocabulary.
+//
+// The gap this closes was measured, not guessed: a 50-question sweep written
+// the way a leader types found that "how much money did we make" and "who owes
+// us money" nominated NOTHING, each killed by one word the schema spells
+// differently. `revenue_rupees`, `outstanding_rupees` and
+// `payment_received_rupees` are all right there on sales_buyer_summary. The
+// question was answerable; only the spelling was not.
+//
+// IT IS A FOLD, NOT A LOOSENING, and the distinction is the whole safety
+// argument. Both sides of every comparison run through coverageStem, exactly
+// as dimensionNouns already does, so an entry here can only make a leader's
+// word MEET a word the catalogue really names. A leader word folded onto
+// something the catalogue does not name stays unmodelled and still makes the
+// question strict — which is why "what is our cash runway" and "how much rent
+// do we owe on the land" are still refused with `cash` and `owe` folded: their
+// SUBJECTS (runway, rent) are named by nothing.
+//
+// The sanctioned way to close a vocabulary gap is to give the cards the farm's
+// word. This map is that, kept in one place instead of scattered through the
+// card definitions, so the schema stays the schema's and the leader's English
+// stays visibly separate from it.
+//
+// Every entry names a word on the RIGHT that the live catalogue really carries
+// (identity entries exist only to lift the four-letter floor in
+// identifierHaystack for a short identifier the catalogue does name). The
+// right-hand side is written as the ENGLISH word and stemmed on lookup, the
+// same way the catalogue's own identifier words are, so `outstanding` here and
+// `outstanding_rupees` on the card meet at the one stem wordStem produces from
+// both. TestTheLeaderFoldOnlyEverMeetsAWordTheCatalogueNames checks every
+// entry against the live catalogue, so a fold onto nothing cannot ship.
+var leaderNouns = map[string]string{
+	// Money. revenue_rupees / outstanding_rupees / payment_received_rupees on
+	// sales_buyer_summary; amount_rupees on sales_deal_lines_closed.
+	"money": "revenue", "monies": "revenue", "cash": "revenue",
+	"owe": "outstanding", "owes": "outstanding", "owed": "outstanding", "owing": "outstanding",
+	"paid": "payment", "pay": "payment", "pays": "payment", "unpaid": "payment",
+	"sell": "sale", "sells": "sale", "sold": "sale", "selling": "sale",
+	// Herd. sex on animal_current_scope / growth_adg_pairs; kid_deaths on
+	// mortality_base and "kids" on the counts tool; births on
+	// counts_movement_daily.
+	"male": "sex", "males": "sex", "female": "sex", "females": "sex",
+	"baby": "kid", "babies": "kid", "young": "kid",
+	"born": "birth", "birth": "birth",
+	"herd": "animal", "flock": "animal",
+	// Operations. shed_capacity_current; overdue on vaccination_operator_status
+	// and workforce_coverage_status; sop_execution_status; load_label on
+	// procurement_loads_base.
+	"full": "capacity", "capacity": "capacity",
+	"behind": "overdue", "late": "overdue",
+	"sop": "sop", "sops": "sop",
+	"truck": "load", "trucks": "load", "lorry": "load", "lorries": "load",
+	"feeding": "feed",
+	// Units. kg is the catalogue's own spelling (directed_kg, fed_kg,
+	// weight_kg, gain_kg) and is two letters, so it needs the floor lifted as
+	// well as the fold.
+	"kg": "kg", "kilo": "kg", "kilos": "kg", "kilogram": "kg", "kilograms": "kg",
 }
 
 // coverageWords is the question's own vocabulary, scored against a source.
@@ -352,11 +417,24 @@ func hasUnmodelledSubject(questionText string, vocab map[string]int) bool {
 	candidates := map[string]bool{}
 	for w := range coverageWords(questionText) {
 		stem := coverageStem(w)
+		// THE CRUDE SINGULAR IS NOT AN INDEPENDENT SUBJECT. questionWords adds
+		// a bare s-stripped form beside every plural, and that form is a
+		// fragment, not a word a leader said: "status" arrives with "statu"
+		// beside it, "statu" is named by nothing in the catalogue, and EVERY
+		// question containing the word "status" was therefore strict — four of
+		// the six schema-vocabulary questions this test suite says must
+		// nominate were strict for that reason alone. coverageWords already
+		// drops the fragment of a KNOWN noise word ("versu"); this judges the
+		// two forms of an unknown one together, which is the general case.
+		if wordFormsAreModelled(w, vocab) {
+			exempt[stem] = true
+			continue
+		}
 		if _, isDimension := dimensionNouns[stem]; isDimension {
 			exempt[stem] = true
 			continue
 		}
-		if isVerbForm(w) {
+		if anyFormIsVerb(w) {
 			exempt[stem] = true
 			continue
 		}
@@ -366,6 +444,39 @@ func hasUnmodelledSubject(questionText string, vocab map[string]int) bool {
 	}
 	for stem := range candidates {
 		if !exempt[stem] {
+			return true
+		}
+	}
+	return false
+}
+
+// wordForms is a question word beside the OTHER form questionWords may have
+// produced it from, or produced beside it. The two are one word to a reader
+// and must be judged as one.
+func wordForms(w string) []string {
+	if strings.HasSuffix(w, "s") {
+		return []string{w, strings.TrimSuffix(w, "s")}
+	}
+	return []string{w, w + "s"}
+}
+
+// wordFormsAreModelled reports that the catalogue names either form of the
+// word.
+func wordFormsAreModelled(w string, vocab map[string]int) bool {
+	for _, form := range wordForms(w) {
+		if vocab[coverageStem(form)] > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// anyFormIsVerb reports that either form of the word is a verb. "owes" and
+// "owe" are the same verb; only one of them is spelled the way the exemption
+// list happens to hold it.
+func anyFormIsVerb(w string) bool {
+	for _, form := range wordForms(w) {
+		if isVerbForm(form) {
 			return true
 		}
 	}
@@ -396,6 +507,11 @@ var coverageVerbWords = map[string]bool{
 	"seen": true, "using": true, "used": true, "book": true, "earn": true,
 	"died": true, "dies": true, "dead": true, "grew": true, "ran": true,
 	"earns": true, "spend": true, "spent": true, "puts": true, "sees": true,
+	// "we DIRECT feed to the sheds" — a verb, and the only reason "how much
+	// feed did we direct versus feed" was strict: the column is `directed_kg`,
+	// whose identifier word stems to `directed`, and wordStem's gerund fold
+	// does not reach a past participle.
+	"direct": true, "directs": true,
 }
 
 // nominates decides whether one source covers the question, and returns the
@@ -430,13 +546,29 @@ func nominates(words map[string]bool, nameHay, fullHay map[string]bool, vocab ma
 	for _, stem := range name {
 		score += stemWeight(stem, vocab)
 	}
+	// STRICT CLOSES BOTH ARMS, and the round-5 review is why. It used to close
+	// only the column arm because the name arm returned first, so
+	// hasUnmodelledSubject was structurally incapable of gating the place
+	// three of five measured false nominations actually got in: "the mortality
+	// rate of our chickens" reached mortality_base on the NAME `mortality`,
+	// "the next audit by the bank" reached audit_activity_summary on `audit`,
+	// "the staff attrition rate" reached vaccination_operator_status on
+	// staff->operator. Each had already been judged to carry a subject the farm
+	// models nowhere, and each overrode that judgement one line later.
+	//
+	// A discriminator that gates half of what it describes is not a
+	// discriminator. Closing the other half is only safe because the same
+	// round made the judgement itself accurate (leaderNouns, and the crude
+	// singular no longer reading as an unmodelled subject): before that, six
+	// of the schema's OWN sweep questions were strict and lived entirely on
+	// this arm.
+	if strict {
+		return 0, false
+	}
 	for _, stem := range name {
 		if !isAxisWord(stem) {
 			return score, true
 		}
-	}
-	if strict {
-		return 0, false
 	}
 	for _, stem := range all {
 		if !isColumnNoiseDimension(stem) {
@@ -488,6 +620,13 @@ var coverageNoiseWords = map[string]bool{
 	"summary": true, "overview": true, "trend": true, "trends": true,
 	"more": true, "less": true, "fewer": true, "biggest": true, "largest": true,
 	"smallest": true, "better": true, "worse": true,
+	// Quantity and shape words a leader reaches for instead of naming the
+	// measure: "what is the outstanding AMOUNT per buyer" is a question about
+	// `outstanding_rupees`, and "the age PROFILE of the herd" is a question
+	// about age. Left in, each read as a subject the farm does not record and
+	// made its whole question strict.
+	"amount": true, "amounts": true, "profile": true, "profiles": true,
+	"ratio": true, "ratios": true, "enough": true,
 }
 
 // wordStem folds a plural onto its singular so the two forms of one word count

@@ -104,6 +104,54 @@ var sweepMustNominate = []struct {
 	{"how many kids do we have", "counts_breakdown"},
 }
 
+// THE LEADER-LANGUAGE HALF OF DIRECTION A, and it exists because the table
+// above could not see the defect round 5 measured.
+//
+// Every question in sweepMustNominate is written in the SCHEMA's vocabulary:
+// "what gain kg did each animal record", "what is the variance kg on feed",
+// "how many animals by sex". Those are column names in question form, and a
+// matcher tuned on them passes while a CEO's own English fails — measured:
+// 11 of 50 plain-leadership questions nominated NOTHING, including "how much
+// money did we make" and "who owes us money", each killed by the single word
+// `money` while ₹325,930 of `outstanding_rupees` sat in the view.
+//
+// So these are written the way a leader types, deliberately using words the
+// schema does not: money, cash, owes, paid, sell, trucks, sops, behind, full,
+// baby, young, males. A question belongs here only if the catalogue really can
+// answer it; `want` is the source that must be named.
+var sweepMustNominateInLeaderEnglish = []struct {
+	question string
+	want     string
+}{
+	// Money, in the words a leader uses for it.
+	{"how much money did we make", "sales_buyer_summary"},
+	{"how much money did we make last month", "sales_buyer_summary"},
+	{"who owes us money", "sales_buyer_summary"},
+	{"how much money is outstanding", "sales_buyer_summary"},
+	{"how much cash is still to be collected", "sales_buyer_summary"},
+	{"how much cash have we collected", "sales_buyer_summary"},
+	{"what did we get paid", "sales_buyer_summary"},
+	{"how much did we sell last month", "sales_buyer_summary"},
+	{"how many animals did we sell", "sales"},
+	{"who are our biggest customers", "sales_buyer_summary"},
+	{"which customers still owe us", "sales_buyer_summary"},
+	// The herd, in the words a leader uses for it.
+	{"how many baby goats were born", "counts_movement_daily"},
+	{"how many young goats do we have", "counts_breakdown"},
+	{"how many males and females do we have", "animal_current_scope"},
+	{"what is the male to female ratio", "animal_current_scope"},
+	{"what is the age profile of the herd", "animal_current_scope"},
+	{"how big is the herd", "animal"},
+	// Operations, in the words a leader uses for them.
+	{"are any sheds too full", "shed_capacity_current"},
+	{"which sops are behind", "sop_execution_status"},
+	{"are we feeding the pens enough", "feed_adherence"},
+	{"how many trucks of goats arrived", "procurement_loads_base"},
+	{"how many trucks came in this week", "procurement_loads_base"},
+	{"how many staff do we have", "operator"},
+	{"how much did we spend on feed", "feed_adherence"},
+}
+
 // mustRefuse: the catalogue models NOTHING that answers these. Each is a real
 // leadership question about a subject a goat farm could plausibly have and this
 // one does not record. A nomination here is the loose failure.
@@ -155,6 +203,18 @@ var sweepMustRefuse = []string{
 	"who will plan and manage the shed",
 	"what is the board meeting schedule",
 	"how many investors have we onboarded",
+	// ROUND 5's MEASURED FALSE NOMINATIONS. Each got in on the source's NAME
+	// while the question had ALREADY been judged to carry a subject the farm
+	// models nowhere — chickens, a bank, turnover, attrition — because
+	// `nominates` returned on the name arm before it read `strict` at all.
+	// Each then reached the system's own "please rephrase" sentence with no
+	// model in the loop.
+	"what is the mortality rate of our chickens",
+	"when is the next audit by the bank",
+	"what is our employee turnover",
+	"what is the staff attrition rate",
+	"how many chickens do we have",
+	"what is the milk yield per doe",
 }
 
 // TestCoverageSweepNominatesEverythingTheCatalogueCarries is direction A.
@@ -199,6 +259,85 @@ func TestCoverageSweepRefusesEverythingTheCatalogueDoesNotCarry(t *testing.T) {
 	}
 }
 
+// TestCoverageSweepNominatesWhenTheLEADERAsksIt is direction A in the
+// leader's own English rather than the schema's. See the table's own comment:
+// a matcher tuned on schema vocabulary passes the table above and still
+// refuses the two highest-value questions in the product.
+func TestCoverageSweepNominatesWhenTheLEADERAsksIt(t *testing.T) {
+	cards, catalog := reporting.Cards(), liveCatalogue()
+	if len(catalog) < 10 || len(cards) < 25 {
+		t.Fatalf("the live catalogue shrank to %d tools / %d cards; this sweep must score against the real one",
+			len(catalog), len(cards))
+	}
+	for _, tc := range sweepMustNominateInLeaderEnglish {
+		covering := coveringSources(tc.question, cards, catalog)
+		if len(covering) == 0 {
+			t.Errorf("ZERO-NOMINATION IN PLAIN ENGLISH: %q nominated nothing — the planner's \"we don't track that\" refusal ships verbatim, and the catalogue carries %s",
+				tc.question, tc.want)
+			continue
+		}
+		if !namesSource(covering, tc.want) {
+			t.Errorf("WRONG-SOURCE: %q nominated %v, expected it to include %s", tc.question, covering, tc.want)
+		}
+	}
+}
+
+// TestStrictGatesBOTHArmsNotOnlyTheColumnArm pins the STRUCTURE of the fix,
+// not a question list. `hasUnmodelledSubject` described itself as "THE
+// STRUCTURAL DISCRIMINATOR this file turns on" while `nominates` returned on
+// the name arm one line before it was read; a question judged to be about
+// something the farm models nowhere could still nominate, and three of five
+// measured false nominations got in exactly there.
+//
+// A tune that re-orders those two lines back fails here whatever the question
+// tables say.
+func TestStrictGatesBOTHArmsNotOnlyTheColumnArm(t *testing.T) {
+	// A source whose NAME is the question's word, and a question carrying a
+	// subject the catalogue never names. Under strict, neither arm may open.
+	words := coverageWords("what is the mortality rate of our chickens")
+	nameHay := identifierHaystack("mortality_base")
+	fullHay := identifierHaystack("mortality_base deaths kid_deaths adult_deaths")
+	vocab := map[string]int{"mortality": 1, "death": 1, "kid": 1, "adult": 1}
+	if _, ok := nominates(words, nameHay, fullHay, vocab, true); ok {
+		t.Error("strict must close the NAME arm too: a name match overrode a question judged to be about something the farm models nowhere")
+	}
+	if _, ok := nominates(words, nameHay, fullHay, vocab, false); !ok {
+		t.Error("the name arm must still open when the question carries no unmodelled subject")
+	}
+}
+
+// TestTheCrudeSingularIsNotAnUnmodelledSubject pins the other half of the
+// accuracy fix. questionWords adds a bare s-stripped form beside every plural,
+// so "status" arrives with the fragment "statu" beside it. Nothing names
+// "statu", so every question containing the word "status" was strict — four of
+// the six schema-vocabulary questions that were strict were strict for that
+// reason and lived entirely on the name arm this round closes.
+func TestTheCrudeSingularIsNotAnUnmodelledSubject(t *testing.T) {
+	vocab := map[string]int{"status": 2, "coverage": 1, "role": 1}
+	if hasUnmodelledSubject("what is the coverage status by role", vocab) {
+		t.Error("the crude singular \"statu\" read as a subject the farm does not record")
+	}
+	// It must not become a blanket exemption: a real unmodelled plural still
+	// makes the question strict.
+	if !hasUnmodelledSubject("how many chickens do we have", vocab) {
+		t.Error("a genuinely unmodelled plural must still be an unmodelled subject")
+	}
+}
+
+// TestTheLeaderFoldOnlyEverMeetsAWordTheCatalogueNames is the safety argument
+// for leaderNouns stated as a test: a fold may make a leader's word MEET a
+// word the catalogue really carries, and may never invent coverage. Every
+// right-hand side must be named by the live catalogue.
+func TestTheLeaderFoldOnlyEverMeetsAWordTheCatalogueNames(t *testing.T) {
+	vocab := catalogueVocabulary(reporting.Cards(), liveCatalogue())
+	for leader, schema := range leaderNouns {
+		if vocab[wordStem(schema)] == 0 {
+			t.Errorf("leaderNouns[%q] = %q, which the live catalogue names nowhere — a fold onto nothing is a synonym list, not a bridge",
+				leader, schema)
+		}
+	}
+}
+
 // TestBothSweepDirectionsAreScoredTogether is the guard on the guard: a future
 // change that deletes or empties either table, or that scores one direction
 // against a stub catalogue, fails here rather than passing quietly.
@@ -206,10 +345,20 @@ func TestBothSweepDirectionsAreScoredTogether(t *testing.T) {
 	if len(sweepMustNominate) < 50 {
 		t.Fatalf("direction A shrank to %d questions; the sweep is the pin, not a sample", len(sweepMustNominate))
 	}
-	if len(sweepMustRefuse) < 35 {
+	if len(sweepMustRefuse) < 40 {
 		t.Fatalf("direction B shrank to %d questions; a one-directional fix must not be able to pass", len(sweepMustRefuse))
 	}
+	if len(sweepMustNominateInLeaderEnglish) < 20 {
+		t.Fatalf("the leader-English half of direction A shrank to %d questions; without it a tune against the schema's own vocabulary passes while a CEO's English fails",
+			len(sweepMustNominateInLeaderEnglish))
+	}
 	seen := map[string]bool{}
+	for _, tc := range sweepMustNominateInLeaderEnglish {
+		if seen[tc.question] {
+			t.Errorf("duplicate question %q inflates the count without widening the sweep", tc.question)
+		}
+		seen[tc.question] = true
+	}
 	for _, tc := range sweepMustNominate {
 		if seen[tc.question] {
 			t.Errorf("duplicate question %q inflates the count without widening the sweep", tc.question)

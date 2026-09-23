@@ -52,7 +52,13 @@ var dimensionNouns = map[string]string{
 	"stage": "stage", "stages": "stage",
 	"sex": "sex", "gender": "sex",
 	"load": "load", "loads": "load", "batch": "load", "batches": "load",
-	"buyer": "buyer", "buyers": "buyer", "customer": "customer", "customers": "customer",
+	// A leader's "customer" is the schema's `buyer`, and dimensionEvidence
+	// already treats the two as the same evidence. Keeping them as separate
+	// CANONICALS split them anyway everywhere the canonical is the key: "who
+	// are our biggest customers" carried a dimension named by nothing in the
+	// catalogue and nominated no source at all, while the same question in the
+	// schema's word reached sales_buyer_summary.
+	"buyer": "buyer", "buyers": "buyer", "customer": "buyer", "customers": "buyer",
 	"vendor": "vendor", "vendors": "vendor", "supplier": "vendor", "suppliers": "vendor", "source": "vendor", "sources": "vendor",
 	"category": "category", "categories": "category", "type": "category", "types": "category", "kind": "category",
 	"status": "status", "state": "status",

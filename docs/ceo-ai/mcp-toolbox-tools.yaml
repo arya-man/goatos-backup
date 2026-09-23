@@ -954,7 +954,12 @@ tools:
         required: false
       - name: coverage_status
         type: string
-        description: Optional exact coverage status (e.g. covered, uncovered, absent).
+        description: >-
+          Optional exact coverage status. The view emits exactly one of
+          'present', 'covered_by_backup', 'uncovered_absence'. A role with
+          nobody covering an absence is 'uncovered_absence'. There is no
+          'covered', 'uncovered' or 'absent' value — filtering on one of those
+          matches nothing, and negating one matches everything.
         required: false
       - name: limit
         type: integer

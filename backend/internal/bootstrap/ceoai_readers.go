@@ -245,6 +245,27 @@ func speciesCountsFromBreeds(points []countsdomain.CountsBreakdownSeriesPoint) (
 	return goats, sheep
 }
 
+// monthlySalesFacts labels the one-month sales read WITH THE MONTH IT READ.
+//
+// These labels used to say "this month" whatever month was bound, and the
+// composer repeated the phrase verbatim: a leader who asked "how much revenue
+// did we make in august" was told "This month, 16 animals were sold … Sales
+// revenue was 291600". The figure was August's and correct; the period was
+// this month's and wrong, and September was 1,669,049 — the same answer read
+// 5.7x low. The month is the one thing this read knows for certain (it is what
+// it matched a row on), so it is what the label says. `Scope` carries it in
+// machine form for the composer; the label carries it for anything that only
+// ever sees a label.
+func monthlySalesFacts(month, animals, sheep, goats, revenue string) []ceodomain.Fact {
+	in := " in " + month
+	return []ceodomain.Fact{
+		{Label: "Sold animals" + in, Value: animals, Scope: month},
+		{Label: "Sold sheep" + in, Value: sheep, Scope: month},
+		{Label: "Sold goats" + in, Value: goats, Scope: month},
+		{Label: "Sales revenue" + in, Value: revenue, Scope: month},
+	}
+}
+
 func buildSalesOverviewReader(svc salesOverviewGetter) func(ctx context.Context, tenantID string, params map[string]any) ([]ceodomain.Fact, error) {
 	return func(ctx context.Context, tenantID string, params map[string]any) ([]ceodomain.Fact, error) {
 		farm := ""
@@ -273,19 +294,10 @@ func buildSalesOverviewReader(svc salesOverviewGetter) func(ctx context.Context,
 				}
 				animals := row.SheepCount + row.GoatCount
 				revenue := row.SheepRevenue + row.GoatRevenue + row.ManureRevenue
-				return []ceodomain.Fact{
-					ceodomain.Fact{Label: "Sold animals this month", Value: formatFloatFact(animals), Scope: month},
-					ceodomain.Fact{Label: "Sold sheep this month", Value: formatFloatFact(row.SheepCount), Scope: month},
-					ceodomain.Fact{Label: "Sold goats this month", Value: formatFloatFact(row.GoatCount), Scope: month},
-					ceodomain.Fact{Label: "Sales revenue this month", Value: formatFloatFact(revenue), Scope: month},
-				}, nil
+				return monthlySalesFacts(month, formatFloatFact(animals), formatFloatFact(row.SheepCount),
+					formatFloatFact(row.GoatCount), formatFloatFact(revenue)), nil
 			}
-			return []ceodomain.Fact{
-				{Label: "Sold animals this month", Value: "0", Scope: month},
-				{Label: "Sold sheep this month", Value: "0", Scope: month},
-				{Label: "Sold goats this month", Value: "0", Scope: month},
-				{Label: "Sales revenue this month", Value: "0", Scope: month},
-			}, nil
+			return monthlySalesFacts(month, "0", "0", "0", "0"), nil
 		}
 
 		facts := []ceodomain.Fact{

@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/vgoats/goatos/backend/internal/ceoai/domain"
 )
@@ -272,34 +273,24 @@ func appendMetricStatus(block string, r domain.ToolResult) string {
 
 func renderSalesAnswer(r domain.ToolResult) string {
 	var soldTotal, soldGoats, soldSheep, revenue, month string
-	thisMonth := false
 	for _, f := range r.Facts {
 		label := strings.ToLower(strings.TrimSpace(f.Label))
 		value := strings.TrimSpace(f.Value)
 		if value == "" {
 			continue
 		}
-		if strings.Contains(label, "this month") {
-			thisMonth = true
+		if m := monthFromFact(f); m != "" && month == "" {
+			month = m
 		}
-		if strings.Contains(label, "sold animals") {
+		switch {
+		case strings.Contains(label, "sold animals"):
 			soldTotal = value
-			month = monthFromLabel(f.Label)
-		} else if strings.Contains(label, "sold goats") {
+		case strings.Contains(label, "sold goats"):
 			soldGoats = value
-			if month == "" {
-				month = monthFromLabel(f.Label)
-			}
-		} else if strings.Contains(label, "sold sheep") {
+		case strings.Contains(label, "sold sheep"):
 			soldSheep = value
-			if month == "" {
-				month = monthFromLabel(f.Label)
-			}
-		} else if strings.Contains(label, "sales revenue") {
+		case strings.Contains(label, "sales revenue"):
 			revenue = value
-			if month == "" {
-				month = monthFromLabel(f.Label)
-			}
 		}
 	}
 	if soldTotal == "" && soldGoats == "" && soldSheep == "" && revenue == "" {
@@ -308,9 +299,7 @@ func renderSalesAnswer(r domain.ToolResult) string {
 
 	var b strings.Builder
 	if month != "" {
-		b.WriteString("For " + month + ", ")
-	} else if thisMonth {
-		b.WriteString("This month, ")
+		b.WriteString("For " + readableMonth(month) + ", ")
 	} else {
 		// No month was bound: the sales reader returns its all-time summary.
 		// Saying "for the selected period" presented that as the period the
@@ -429,19 +418,58 @@ func renderScopedCountSentence(facts []domain.Fact, title string) string {
 	return title + ": " + strings.Join(parts, ", ") + "."
 }
 
-func monthFromLabel(label string) string {
-	fields := strings.Fields(label)
-	for _, field := range fields {
+// monthFromFact is THE ONLY WAY the sales sentence learns its period, and that
+// is the point of it.
+//
+// The period used to come from whether a fact's LABEL contained the substring
+// "this month". The monthly sales read stamped that phrase on every row
+// whatever month it had bound, so "how much revenue did we make in august"
+// answered "This month … 291600" — August's figure under September's name.
+// A label is prose; it is not evidence of what was read. `Scope` is: the
+// reader sets it to the calendar month it matched the row on, so it says what
+// the read actually covered. The label is still parsed, but only for the same
+// machine-shaped YYYY-MM token, never for an English phrase.
+func monthFromFact(f domain.Fact) string {
+	if m := monthToken(f.Scope); m != "" {
+		return m
+	}
+	return monthFromLabel(f.Label)
+}
+
+// monthToken returns the YYYY-MM month a string names, or "".
+func monthToken(text string) string {
+	for _, field := range strings.Fields(text) {
 		field = strings.Trim(field, ".,;:()[]{}")
-		if len(field) == len("2006-01") && field[4] == '-' {
-			if _, err := strconv.Atoi(field[:4]); err == nil {
-				if _, err := strconv.Atoi(field[5:]); err == nil {
-					return field
-				}
-			}
+		if len(field) != len("2006-01") || field[4] != '-' {
+			continue
 		}
+		year, err := strconv.Atoi(field[:4])
+		if err != nil || year < 1000 {
+			continue
+		}
+		mon, err := strconv.Atoi(field[5:])
+		if err != nil || mon < 1 || mon > 12 {
+			continue
+		}
+		return field
 	}
 	return ""
+}
+
+func monthFromLabel(label string) string {
+	return monthToken(label)
+}
+
+// readableMonth turns the bound month into the words a leader reads, so the
+// API route names the same period the SQL route's "Window: …" line does
+// ("Window: last month (01/08/2026 to 31/08/2026)" and "For August 2026" agree
+// about August; "This month" and that line did not).
+func readableMonth(month string) string {
+	t, err := time.Parse("2006-01", month)
+	if err != nil {
+		return month
+	}
+	return t.Format("January 2006")
 }
 
 func renderSingleMetricBreakdown(r domain.ToolResult) string {
@@ -522,9 +550,20 @@ func renderFacts(r domain.ToolResult) string {
 		}
 		var lines []string
 		for _, f := range facts {
-			if f.Scope != "" {
+			// "Castro 1 in Castro 1: 30.25." A model-drafted read is free to
+			// write `SELECT park_label AS label, park_label AS scope, …`, and
+			// then the key lands in the label slot: 12 such lines were counted
+			// across 86 live answers ("Boer in Boer", "Channapatna in
+			// Channapatna"). A category is never "in" itself, so when the two
+			// slots resolve to the same text the row names it once.
+			switch {
+			case f.Scope != "" && !sameSlot(f.Label, f.Scope):
 				lines = append(lines, fmt.Sprintf("%s in %s: %s.", f.Label, f.Scope, sentenceValue(f.Value)))
-			} else {
+			case f.Scope != "":
+				// The scope is the dimension's OWN spelling; the label is the
+				// model's echo of it, so the scope is the one to keep.
+				lines = append(lines, fmt.Sprintf("%s: %s.", f.Scope, sentenceValue(f.Value)))
+			default:
 				lines = append(lines, fmt.Sprintf("%s: %s.", f.Label, sentenceValue(f.Value)))
 			}
 		}
@@ -537,6 +576,13 @@ func renderFacts(r domain.ToolResult) string {
 		b.WriteString(fmt.Sprintf("\n… %d more not shown (aggregate view).", len(r.Facts)-maxRows))
 	}
 	return b.String()
+}
+
+// sameSlot reports that a fact's label and scope are the same text, i.e. that
+// the read put its series KEY in the label slot as well. Compared on trimmed,
+// case-folded text because the two arrive through different columns.
+func sameSlot(label, scope string) bool {
+	return strings.EqualFold(strings.TrimSpace(label), strings.TrimSpace(scope))
 }
 
 func sentenceValue(v string) string {
@@ -641,6 +687,7 @@ func seriesFromFacts(r domain.ToolResult) (*numericSeries, []string) {
 	var labelVals []float64
 	var labelLabels []string
 	commonLabel := ""
+	labelSeen := false
 	scopeUsable := true
 
 	for _, f := range r.Facts {
@@ -648,9 +695,20 @@ func seriesFromFacts(r domain.ToolResult) (*numericSeries, []string) {
 		if !ok {
 			continue
 		}
-		if commonLabel == "" {
-			commonLabel = f.Label
+		// The series NAME is the measure every row shares, and only that. It
+		// used to be the FIRST row's label whatever the others said, so a read
+		// that labelled each row with its own category named the series after
+		// one of its bars — "Castro 1" over a chart whose x axis is Castro 1,
+		// Castro 2, Castro 3. A label that is not common, or that is the row's
+		// own scope, names nothing and is discarded here; seriesName then
+		// falls back to the surface.
+		switch {
+		case commonLabel == "" && !labelSeen:
+			commonLabel = strings.TrimSpace(f.Label)
+		case !strings.EqualFold(commonLabel, strings.TrimSpace(f.Label)):
+			commonLabel = ""
 		}
+		labelSeen = true
 		if s := strings.TrimSpace(f.Scope); s != "" {
 			scopeVals = append(scopeVals, v)
 			scopeLabels = append(scopeLabels, s)

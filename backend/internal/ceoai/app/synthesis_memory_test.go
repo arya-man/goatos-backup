@@ -66,13 +66,13 @@ func TestComposerRendersSalesAsConversationNotFactDump(t *testing.T) {
 	body, _, _ := composer{}.compose([]domain.ToolResult{{
 		Surface: "Mesha read API · Sales overview",
 		Facts: []domain.Fact{
-			{TenantID: "t1", Label: "Sold animals this month in 2026-09", Value: "114"},
-			{TenantID: "t1", Label: "Sold sheep this month in 2026-09", Value: "0"},
-			{TenantID: "t1", Label: "Sold goats this month in 2026-09", Value: "114"},
-			{TenantID: "t1", Label: "Sales revenue this month in 2026-09", Value: "1221067"},
+			{TenantID: "t1", Label: "Sold animals in 2026-09", Value: "114", Scope: "2026-09"},
+			{TenantID: "t1", Label: "Sold sheep in 2026-09", Value: "0", Scope: "2026-09"},
+			{TenantID: "t1", Label: "Sold goats in 2026-09", Value: "114", Scope: "2026-09"},
+			{TenantID: "t1", Label: "Sales revenue in 2026-09", Value: "1221067", Scope: "2026-09"},
 		},
 	}})
-	for _, want := range []string{"For 2026-09", "114 animals were sold", "114 goats", "0 sheep", "1221067"} {
+	for _, want := range []string{"For September 2026", "114 animals were sold", "114 goats", "0 sheep", "1221067"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("answer missing %q: %q", want, body)
 		}

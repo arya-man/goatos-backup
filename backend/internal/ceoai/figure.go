@@ -130,14 +130,69 @@ func readableFigure(rendered, unit, label string) string {
 	if decimalPlaces(s) <= places {
 		return rendered
 	}
-	f, err := strconv.ParseFloat(s, 64)
-	if err != nil {
-		// Unparseable at this width means more integer digits than a float64
-		// carries exactly. Rounding it would CHANGE it, so it is left alone
-		// and the guard stays free to complain about it.
+	// THE SAFETY NET IS THE DIGIT COUNT, NOT THE PARSE ERROR. This used to say
+	// that an unparseable value meant more integer digits than a float64
+	// carries exactly, and leave it alone on that basis. strconv.ParseFloat
+	// returns an error only on SYNTAX or RANGE — never on precision loss — so
+	// the net was never there: 12345678901234567.891 came back as
+	// 12345678901234568, with the INTEGER part changed. Counting the
+	// significant digits is the check the comment always described.
+	if !roundTripIsExact(s, places) {
 		return rendered
 	}
-	return trimDecimalZeros(strconv.FormatFloat(f, 'f', places, 64))
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return rendered
+	}
+	out := trimDecimalZeros(strconv.FormatFloat(f, 'f', places, 64))
+	// A FIGURE THAT IS NOT ZERO MUST NOT BE REPORTED AS ZERO. This function's
+	// contract is that it only ever removes precision the reader cannot use;
+	// for a small magnitude it was removing the figure itself. 0.0412 of a
+	// percent rendered as literal `0`, and a reader cannot tell that from a
+	// measurement that really is nothing. When the allowance rounds a nonzero
+	// value away, the value keeps the precision it needs to stay true — which
+	// is the same rule as "already shorter than its allowance is returned
+	// unchanged", applied at the other end of the scale.
+	if isZeroFigure(out) && !isZeroFigure(s) {
+		return rendered
+	}
+	return out
+}
+
+// roundTripIsExact reports that the digits this figure will KEEP survive a
+// float64 round trip. Discarding the digits below the allowance is the whole
+// job, so only the retained ones matter: the integer part plus `places`. A
+// float64 carries 15 decimal digits exactly, so a figure whose retained part
+// is wider than that is left at the width the database rendered it — which is
+// what the old comment claimed and the old code never did.
+func roundTripIsExact(s string, places int) bool {
+	const float64DecimalDigits = 15
+	return integerDigits(s)+places <= float64DecimalDigits
+}
+
+// integerDigits counts the digits before the decimal point.
+func integerDigits(s string) int {
+	n := 0
+	for _, r := range s {
+		if r == '.' {
+			break
+		}
+		if r >= '0' && r <= '9' {
+			n++
+		}
+	}
+	return n
+}
+
+// isZeroFigure reports a rendered decimal that is numerically zero, whatever
+// its sign or width ("0", "-0", "0.00").
+func isZeroFigure(s string) bool {
+	for _, r := range s {
+		if r >= '1' && r <= '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // decimalPlaces counts the digits after the decimal point of a plainDecimal.
@@ -172,10 +227,43 @@ func figurePlaces(unit, label string) int {
 	if places, ok := familyPlaces(figureWords(unit)); ok {
 		return places
 	}
+	// A RATE QUOTED *PER* A UNIT IS A PRICE. `rate` is in both vocabularies —
+	// a reject rate is a ratio, a rate per kilo is money — and the ratio
+	// family is tested first, so the live answer to "what rate per kilo are we
+	// getting" came back as ₹565.8139: one hundredth of a paisa, from a file
+	// whose own header says "a price per kg that divides out to
+	// 596.71800000000000000000 is 596.72, and any further digit is a fraction
+	// of a paisa nobody can pay". The two halves of the file disagreed and the
+	// reader got the wrong one. Only this shape disambiguates `rate`, so only
+	// this shape is read before the families.
+	if isPricePerUnit(label) {
+		return moneyPlaces
+	}
 	if places, ok := familyPlaces(figureWords(label)); ok {
 		return places
 	}
 	return unknownPlaces
+}
+
+// ratePerUnit matches the "<rate> per <something>" shape.
+var ratePerUnit = regexp.MustCompile(`\b(rate|rates|price|prices|realisation|realization)\s+per\b`)
+
+// isPricePerUnit reports a label that quotes a rate per a unit AND whose
+// numerator names no other family. The numerator test is what keeps "gain rate
+// per day" a ratio: `gain` is a measured quantity, so the phrase is not a
+// price however it is divided.
+func isPricePerUnit(label string) bool {
+	low := strings.ToLower(label)
+	loc := ratePerUnit.FindStringIndex(low)
+	if loc == nil {
+		return false
+	}
+	numerator := figureWords(low[:loc[1]])
+	delete(numerator, "per")
+	if anyWord(numerator, measuredWords) || anyWord(numerator, durationWords) || anyWord(numerator, percentWords) {
+		return false
+	}
+	return true
 }
 
 func familyPlaces(words map[string]bool) (int, bool) {

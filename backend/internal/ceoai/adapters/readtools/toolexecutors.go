@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/vgoats/goatos/backend/internal/ceoai/domain"
 	"github.com/vgoats/goatos/backend/internal/ceoai/ports"
@@ -322,9 +323,16 @@ func (e *salesOverviewExecutor) Execute(ctx context.Context, actor domain.Actor,
 	}
 
 	params := sub.Params
-	if strings.Contains(strings.ToLower(sub.Text), "this month") || strings.Contains(strings.ToLower(sub.Text), "month") {
-		params = cloneParams(params)
-		if _, ok := params["month"]; !ok {
+	if _, ok := params["month"]; !ok {
+		if month := monthFromBoundWindow(params); month != "" {
+			params = cloneParams(params)
+			params["month"] = month
+		} else if mentionsAMonth(sub.Text) {
+			// No resolved window to read: fall back to the calendar month the
+			// question is being asked in. This is the ONLY branch that may
+			// answer "current", and it is reached only when the server
+			// resolved no period at all.
+			params = cloneParams(params)
 			params["month"] = "current"
 		}
 	}
@@ -343,6 +351,46 @@ func (e *salesOverviewExecutor) Execute(ctx context.Context, actor domain.Actor,
 		ToolName: sub.ToolName,
 		Facts:    stampTenant(actor, facts),
 	}, nil
+}
+
+// monthFromBoundWindow reads the calendar month the SERVER already resolved
+// for this question, from the from/to business dates the orchestrator threads
+// into every sub-question (app.injectWindow). It answers only when both dates
+// fall inside ONE calendar month and span it — which is exactly the shape a
+// month question resolves to.
+//
+// It exists because this executor used to bind the month from the question's
+// WORDS: any text containing "month" got month="current", so "how much money
+// did we make last month" asked for THIS month's row. The window the server
+// resolved is the same one the SQL route binds and the same one the answer's
+// period is stated from, so reading it here is what makes the two routes
+// agree about which month they are talking about.
+func monthFromBoundWindow(params map[string]any) string {
+	from, _ := params["from"].(string)
+	to, _ := params["to"].(string)
+	if len(from) != len("2006-01-02") || len(to) != len("2006-01-02") {
+		return ""
+	}
+	start, err := time.Parse("2006-01-02", from)
+	if err != nil {
+		return ""
+	}
+	end, err := time.Parse("2006-01-02", to)
+	if err != nil {
+		return ""
+	}
+	if start.Day() != 1 || end.Year() != start.Year() || end.Month() != start.Month() {
+		return ""
+	}
+	if end.Day() != start.AddDate(0, 1, -1).Day() {
+		return ""
+	}
+	return start.Format("2006-01")
+}
+
+// mentionsAMonth reports that the question is asked in months at all.
+func mentionsAMonth(text string) bool {
+	return strings.Contains(strings.ToLower(text), "month")
 }
 
 func cloneParams(params map[string]any) map[string]any {

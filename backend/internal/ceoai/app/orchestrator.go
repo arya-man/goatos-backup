@@ -26,6 +26,19 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 )
 
+// refusalCouldNotBuildARead is what a leader is told when a "we don't track
+// that" refusal was re-checked against the schema cards, a source was
+// nominated, and the re-planned model declined a second time.
+//
+// IT IS A CONSTANT SO IT CAN BE PINNED. The sentence it replaces —
+// "The underlying records exist, so please rephrase it" — was a factual claim
+// about the farm's data, written by the system with no model in the loop, and
+// live it told a CEO asking for the staff attrition rate that the farm holds
+// attrition records. Nothing on this path establishes that anything exists: a
+// nomination is a word match against a view's name and columns.
+const refusalCouldNotBuildARead = "I couldn't build a read for that question right now, and I may not have a source for it. " +
+	"Try naming the thing you want counted and the period, and I'll see what I can reach."
+
 // Config holds runtime-tunable orchestration knobs (validate-or-reject).
 type Config struct {
 	MaxSteps      int
@@ -300,6 +313,18 @@ func (a *Assistant) ask(ctx context.Context, q domain.Question, opts askOptions)
 		// One re-plan naming the covering views; if the planner still declines,
 		// the reply says the read could not be built rather than asserting the
 		// records do not exist.
+		//
+		// IT ALSO MUST NOT ASSERT THE OPPOSITE. This sentence used to end "The
+		// underlying records exist, so please rephrase it", and a leader who
+		// asked for the staff attrition rate was told the farm holds attrition
+		// records. It does not. Nothing here establishes that the records
+		// exist: a nomination means a view's NAME or COLUMNS carry some of the
+		// question's words, which is a guess at where an answer might live, and
+		// reaching this line at all means the planner looked at those very
+		// sources and declined a second time. The system may say what it could
+		// not do; it may not make a factual claim about the farm's data on the
+		// strength of a word match. This copy is written with no model in the
+		// loop, so there is nobody else to blame it on.
 		if covering := coveringSources(q.Text, reporting.Cards(), catalog); notTrackedRefusal(plan.Refusal) && len(covering) > 0 {
 			fitAudit = append(fitAudit, "refusal_rechecked_against_schema_cards")
 			if alt, altUsage, ok := a.replanForFit(ctx, q, mem, catalog, coverageFeedback(covering)); ok {
@@ -307,8 +332,7 @@ func (a *Assistant) ask(ctx context.Context, q domain.Question, opts askOptions)
 				plan = alt
 				fitAudit = append(fitAudit, "replanned_after_not_tracked_refusal")
 			} else {
-				return a.refusal(requestID, q.ConversationID,
-					"I couldn't build a read for that question right now. The underlying records exist, so please rephrase it and I'll try again."), nil
+				return a.refusal(requestID, q.ConversationID, refusalCouldNotBuildARead), nil
 			}
 		} else {
 			return a.refusal(requestID, q.ConversationID, plan.Refusal), nil

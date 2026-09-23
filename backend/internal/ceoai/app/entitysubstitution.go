@@ -46,6 +46,34 @@ import (
 // bare date cannot match, having no letter prefix.
 var questionEarTag = regexp.MustCompile(`\b[A-Za-z]{2,4}-[0-9]{4,}\b`)
 
+// documentPrefixes are the prefixes of identifiers that are NOT animals.
+//
+// The digit floor above was described as keeping non-animals out; it keeps
+// operational LOCATIONS out and nothing else, so `INV-1001`, `PO-20241`,
+// `SOP-1234` and `ISO-9001` all matched — and a leader who asked about an
+// invoice was then told the read "reports a figure for the whole scope it
+// covers, not for one animal", a sentence about the wrong kind of thing
+// entirely.
+//
+// It names DOCUMENTS, deliberately, not animals: a new ear-tag prefix
+// participates the day it is issued without an edit here, and only a
+// recognised paperwork prefix is excluded. Matching is case-insensitive.
+var documentPrefixes = map[string]bool{
+	"inv": true, "po": true, "pr": true, "so": true, "sop": true, "iso": true,
+	"gst": true, "hsn": true, "ref": true, "txn": true, "rcpt": true,
+	"chq": true, "utr": true, "doc": true, "grn": true, "dc": true,
+}
+
+// isDocumentIdentifier reports that a matched token is paperwork rather than
+// an animal.
+func isDocumentIdentifier(token string) bool {
+	hyphen := strings.IndexByte(token, '-')
+	if hyphen < 0 {
+		return false
+	}
+	return documentPrefixes[strings.ToLower(token[:hyphen])]
+}
+
 // namedEntitySubstitution reports that the question named a specific animal by
 // its ear tag, rows came back, and NOTHING that ran selected that animal -- so
 // whatever figure is about to be composed belongs to something else.
@@ -95,6 +123,9 @@ func earTagsIn(questionText string) []string {
 	seen := make(map[string]bool, len(matches))
 	out := make([]string, 0, len(matches))
 	for _, m := range matches {
+		if isDocumentIdentifier(m) {
+			continue
+		}
 		key := strings.ToUpper(m)
 		if seen[key] {
 			continue
@@ -110,6 +141,21 @@ func earTagsIn(questionText string) []string {
 // The SQL is checked first and is the real evidence -- a read filtered to one
 // animal answers about that animal whether or not it echoes the tag back.
 func readSelectedEntity(sub domain.SubQuestion, r domain.ToolResult, tag string) bool {
+	// WHEN THERE IS A STATEMENT, THE STATEMENT IS THE ANSWER, and the fact
+	// labels do not get a second vote. A model may write
+	//
+	//	SELECT 'MG-100001' AS label, avg(latest_weight_kg) AS value FROM …
+	//
+	// which satisfied BOTH discriminators — the tag is in Params["sql"] and
+	// the fact it produces echoes it — and shipped the herd average wearing
+	// one animal's name, which is the exact defect this file exists to stop.
+	// A literal in the SELECT list is a caption the model wrote; only a
+	// literal the database filtered on is evidence that the read is about the
+	// animal. So a read that came with SQL is judged on whether that SQL
+	// narrows to the tag, full stop.
+	if sql, ok := statementParam(sub.Params); ok {
+		return sqlFiltersOnEntity(sql, tag)
+	}
 	if paramsNameEntity(sub.Params, tag) {
 		return true
 	}
@@ -117,6 +163,72 @@ func readSelectedEntity(sub domain.SubQuestion, r domain.ToolResult, tag string)
 		if containsFold(f.Label, tag) || containsFold(f.Scope, tag) || containsFold(f.Value, tag) {
 			return true
 		}
+	}
+	return false
+}
+
+// statementParam returns the SQL statement this sub-question ran, if it ran
+// one. A read API takes its animal as an ordinary parameter and has no
+// statement; only a SQL read does.
+func statementParam(params map[string]any) (string, bool) {
+	for _, key := range []string{"sql", "statement", "query"} {
+		if s, ok := params[key].(string); ok && looksLikeSelect(s) {
+			return s, true
+		}
+	}
+	return "", false
+}
+
+func looksLikeSelect(s string) bool {
+	trimmed := strings.TrimLeft(strings.TrimSpace(s), "(")
+	return strings.HasPrefix(strings.ToUpper(trimmed), "SELECT")
+}
+
+// sqlFiltersOnEntity reports that the statement mentions the tag somewhere the
+// database can narrow on — that is, anywhere except the outermost SELECT list.
+// The projection is everything between the leading SELECT and its own FROM; a
+// tag that appears only there is a label, not a filter.
+//
+// It is deliberately crude in the SAFE direction: a subquery inside the
+// projection is treated as projection too, so such a read is refused rather
+// than trusted. A refusal says what could not be reached; a wrong figure
+// wearing an animal's name says nothing at all.
+func sqlFiltersOnEntity(sql, tag string) bool {
+	return containsFold(afterProjection(sql), tag)
+}
+
+// afterProjection returns the statement from its outermost FROM onwards, or
+// "" when there is no FROM at all (a projection-only statement can filter on
+// nothing).
+func afterProjection(sql string) string {
+	upper := strings.ToUpper(sql)
+	depth := 0
+	for i := 0; i < len(upper); i++ {
+		switch upper[i] {
+		case '(':
+			depth++
+		case ')':
+			depth--
+		case 'F':
+			if depth != 0 || !strings.HasPrefix(upper[i:], "FROM") {
+				continue
+			}
+			if i > 0 && !isSQLBreak(upper[i-1]) {
+				continue
+			}
+			if i+4 < len(upper) && !isSQLBreak(upper[i+4]) {
+				continue
+			}
+			return sql[i:]
+		}
+	}
+	return ""
+}
+
+func isSQLBreak(b byte) bool {
+	switch b {
+	case ' ', '\t', '\n', '\r', '(', ')', ',', ';':
+		return true
 	}
 	return false
 }

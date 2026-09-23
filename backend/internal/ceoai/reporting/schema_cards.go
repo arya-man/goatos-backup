@@ -782,7 +782,22 @@ var schemaCards = []SchemaCard{
 	},
 	{
 		Name:                "workforce_coverage_status",
-		Purpose:             "Workforce coverage per park and role: owner/backup, coverage status, active and overdue work counts.",
+		// THE VOCABULARY IS IN THE PURPOSE BECAUSE A GUESS AT IT SHIPPED AS A
+		// FALSE ALARM. Asked which roles have no backup coverage, the planner
+		// wrote `coverage_status <> 'covered'`; the view never emits
+		// 'covered', so the predicate matched all 16 rows and the answer named
+		// 10 roles as uncovered when 4 are — the 9 that are `present` and the
+		// 3 that are explicitly `covered_by_backup` were reported as gaps. A
+		// no-op filter is invisible: it returns rows, so nothing downstream
+		// can tell it did nothing. The only place to stop it is before the
+		// statement is written.
+		// The owner/backup and work-count columns are rendered in the card's
+		// own Cols line, so restating them here bought nothing; the VALUES of
+		// coverage_status were not rendered anywhere, and that is what a
+		// planner has to guess. It fits in the prompt's byte bound because it
+		// replaces the redundant half of this sentence rather than adding to
+		// it.
+		Purpose: "Workforce coverage per park/role. coverage_status: present|covered_by_backup|uncovered_absence.",
 		Grain:               "one row per park per role (current state)",
 		ParkColumn:          "park_label",
 		TenantScopedColumns: []string{"tenant_id"},
