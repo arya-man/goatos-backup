@@ -300,8 +300,35 @@ function runWriteJourneys(targetDir) {
   const verdict = classifyWriteTarget(databaseUrl, process.env);
   if (!verdict.allowed) throw new Error(`write journeys refuse ${verdict.target}: ${verdict.reason}`);
   const output = path.join(targetDir, "write-journeys", "write-journeys-receipt.json");
-  runNode(["tools/dashboard-automation/run-write-journeys.mjs", "--out", output]);
   receipt.artifacts.push({ kind: "write-journeys-report", target: verdict.target, targetKind: verdict.kind, path: output });
+  try {
+    runNode(["tools/dashboard-automation/run-write-journeys.mjs", "--out", output]);
+  } catch (error) {
+    const message = redactText(error?.message ?? String(error));
+    // Exit 3 is the runner saying nothing was attempted: no browser and no stand-in, so no
+    // journey could be carried out. That is a gap in cover, not the site being broken, and the
+    // layer message is quoted into the receipt and reaches Slack — so it must already be the
+    // sentence a farm manager reads, and it must not accuse the site of anything.
+    if (/failed with exit 3\b/.test(message)) {
+      throw new Error("None of the checks for things people do on the site could be carried out this time, so nothing is known about them either way. Nothing here says the site is working or that it is broken.");
+    }
+    throw new Error(writeJourneySentence(output) ?? message);
+  }
+}
+
+// "2 checks on the site failed, on the vaccination plan and the tasks board." A place and a
+// problem, never a journey name and never an exit code.
+function writeJourneySentence(reportPath) {
+  try {
+    const report = JSON.parse(readFileSync(reportPath, "utf8"));
+    const failed = (report.journeys ?? []).filter((journey) => journey.status === "fail");
+    if (!failed.length) return null;
+    const pages = [...new Set(failed.map((journey) => journey.page).filter(Boolean))];
+    return `${failed.length} check${failed.length === 1 ? "" : "s"} on the site failed, on ${pages.slice(0, 3).join(", ")}` +
+      `${pages.length > 3 ? ` and ${pages.length - 3} other screen(s)` : ""}. Each one has its own screenshot in the thread.`;
+  } catch {
+    return null;
+  }
 }
 
 function runApiLatency(targetDir) {

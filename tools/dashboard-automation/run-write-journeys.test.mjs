@@ -25,7 +25,9 @@ import {
   runJourney,
   screenDriverMissing,
   summarise,
-  validateCatalogue
+  validateCatalogue,
+  verdictNeedsItsOwnWrite,
+  exitCodeFor
 } from "./run-write-journeys.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -391,6 +393,222 @@ test("the real script takes the headline path and exits 0 when lane 1 found noth
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /Practice data was left changed/, "the restore finding must own the headline");
     assert.ok(!result.stdout.includes("Something could not be checked"), "nothing was dropped on a healthy run");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ---------------------------------------------------------------------------------------------
+// A check that did not run must never render a verdict it did not earn.
+//
+// The defect these pin: with `--simulate-write`, five of the six write journeys have no stand-in
+// for the write their screen makes. No write was applied, so the row assertion found nothing, and
+// the runner reported the journey's product sentence -- "Publishing a new vaccination plan version
+// did not save" -- about a publish that never happened. Five fabricated product defects, posted to
+// Slack as if a manager had lost their work.
+// ---------------------------------------------------------------------------------------------
+
+/** The mode could not do the thing: no browser, no stand-in. Nothing was written. */
+const notAttemptedUi = () => ({
+  ok: true,
+  status: "not-attempted",
+  applied: false,
+  reason: "this run had no stand-in for the write this journey makes on the screen, so the write was never made and nothing about it was checked",
+  screenshot: null
+});
+
+test("a journey whose write this run could not make reports not-attempted, never a failure", () => {
+  const engine = fakeEngine();
+  let asked = 0;
+  const record = runJourney(journey, {
+    engine,
+    driveUi: notAttemptedUi,
+    queryRows: () => { asked += 1; return []; },
+    token: "A1",
+    screenshotDir: "/tmp"
+  });
+  assert.equal(record.status, "not-attempted", "a journey that could not be performed is not a failure");
+  assert.equal(record.humanFailure, null, "a journey that never ran has no product failure sentence to tell");
+  assert.equal(record.failedStep, null);
+  assert.equal(record.database.status, "not-attempted");
+  assert.equal(record.screen.status, "not-attempted");
+  assert.match(record.notAttemptedReason, /no stand-in/, "the receipt must record WHY it was not attempted");
+  assert.equal(asked, 0, "the database must not be asked a question this run could not have earned an answer to");
+  // The safety contract is unchanged: the snapshot is still taken back, and still proved.
+  assert.ok(engine.calls.includes("restore") && engine.calls.includes("verifyRestore"));
+});
+
+test("the live vaccination publish failure is still a failure: a real screen run earns its verdict", () => {
+  // The screen driver really did drive the browser, and the publish really did fail on screen
+  // (the button sticks on "Working…" forever). `applied: true` is what separates this from the
+  // case above, and this sentence is a TRUE product defect that must keep reaching Slack.
+  const publish = catalogue.journeys.find((j) => j.name === "publish-vaccination-plan-version");
+  const engine = fakeEngine();
+  const realScreenFailure = () => ({ ok: false, status: "ran", applied: true, failedStep: "publish it", screenshot: null });
+  const record = runJourney(publish, { engine, driveUi: realScreenFailure, queryRows: () => [], token: "A1", screenshotDir: "/tmp" });
+  assert.equal(record.status, "fail", "a screen that really was driven and really failed is a failure");
+  assert.equal(record.humanFailure, publish.humanFailure);
+  assert.match(record.humanFailure, /Publishing a new vaccination plan version did not save/);
+  assert.equal(record.failedStep, "publish it");
+  assert.equal(record.notAttemptedReason, undefined, "a real failure is never swept into the not-attempted bucket");
+});
+
+test("a rule journey still earns its verdict without a write; a write journey does not", () => {
+  // A rule journey asserts something already true of the data ("the item a ration names is still
+  // there"). Its answer does not depend on the journey having written anything.
+  assert.equal(verdictNeedsItsOwnWrite(catalogue.journeys.find((j) => j.name === "feed-item-in-use-cannot-be-deleted")), false);
+  assert.equal(verdictNeedsItsOwnWrite(catalogue.journeys.find((j) => j.name === "publish-vaccination-plan-version")), true);
+  const engine = fakeEngine();
+  const rule = catalogue.journeys.find((j) => j.name === "feed-item-in-use-cannot-be-deleted");
+  const record = runJourney(rule, { engine, driveUi: notAttemptedUi, queryRows: () => [["row-id"]], token: "A1", screenshotDir: "/tmp" });
+  assert.equal(record.status, "pass");
+  assert.equal(record.screen.status, "parked", "but what a browser would have proved is still recorded as unproved");
+});
+
+test("a run where nothing was attempted is its own status, distinct from a run that failed", () => {
+  const gap = { status: "not-attempted", restore: { attempted: true, restored: true, verified: true } };
+  const pass = { status: "pass", restore: { attempted: true, restored: true, verified: true } };
+  const fail = { status: "fail", restore: { attempted: true, restored: true, verified: true } };
+
+  const nothingRan = summarise([gap, gap, gap]);
+  assert.equal(nothingRan.status, "not-run", "nothing ran is not a pass");
+  assert.equal(nothingRan.failed, 0, "nothing ran is not a failure either");
+  assert.equal(nothingRan.notAttempted, 3);
+  assert.equal(nothingRan.attempted, 0);
+
+  const mixed = summarise([pass, gap, gap]);
+  assert.equal(mixed.status, "pass", "a gap alongside a real pass does not invent a failure");
+  assert.equal(mixed.notAttempted, 2);
+
+  const withFailure = summarise([pass, gap, fail]);
+  assert.equal(withFailure.status, "fail", "a real failure still outranks the gaps");
+  assert.equal(withFailure.failed, 1, "the gaps are never counted as failures");
+});
+
+test("the exit code tells 'nothing ran' apart from 'something failed'", () => {
+  const of = (journeys) => exitCodeFor(summarise(journeys));
+  const gap = { status: "not-attempted", restore: { attempted: true, restored: true, verified: true } };
+  const pass = { status: "pass", restore: { attempted: true, restored: true, verified: true } };
+  const fail = { status: "fail", restore: { attempted: true, restored: true, verified: true } };
+  const unproved = { status: "pass", restore: { attempted: true, restored: true, verified: false } };
+
+  // Lane 5's code for "nothing about this was checked". The layer above must never read this
+  // as a product failure, and must never read it as a clean run either.
+  assert.equal(of([gap, gap, gap]), 3, "nothing ran must exit 3");
+  assert.equal(of([pass, pass]), 0, "a real pass exits 0");
+  assert.equal(of([pass, gap]), 0, "a gap beside a real pass is not a failure");
+  assert.equal(of([pass, gap, fail]), 1, "a real failure exits 1, never 3");
+  assert.equal(of([unproved]), 1, "a clone left changed still exits 1");
+  assert.notEqual(of([gap]), of([fail]), "'nothing ran' and 'something failed' must not share an exit code");
+});
+
+test("the runner still refuses to run at all without a target database", () => {
+  const result = spawnSync(process.execPath, [runner, "--simulate-write"], {
+    cwd: repo,
+    encoding: "utf8",
+    env: { ...process.env, GOATOS_WRITE_JOURNEY_DATABASE_URL: "" }
+  });
+  assert.equal(result.status, 1, "no database URL is a runner error, not a product finding and not a gap");
+  assert.ok(!result.stdout.includes("did not save"), "and it invents no product sentence on the way out");
+});
+
+// ---------------------------------------------------------------------------------------------
+// Slack: a gap is reported as a gap. It is never silent, and it is never an accusation.
+// ---------------------------------------------------------------------------------------------
+
+test("a not-attempted journey produces no failure finding; a real failure still produces one", () => {
+  const gapOnly = toFindingsFromJourneys([{
+    name: "publish-vaccination-plan-version",
+    page: "Vaccination Plan Edit",
+    story: "A manager publishes a new vaccination plan version.",
+    status: "not-attempted",
+    // The receipt still carries the catalogue sentence; Slack must not reach for it.
+    humanFailure: "Publishing a new vaccination plan version did not save. A manager who publishes a plan would be told it worked and find nothing there.",
+    restore: { attempted: true, restored: true, verified: true }
+  }]);
+  assert.equal(gapOnly.filter((f) => f.kind === "journey").length, 0, "a journey that never ran is not a journey failure");
+  assert.equal(gapOnly.filter((f) => f.kind === "not-checked").length, 1);
+  const rendered = JSON.stringify([writeJourneysKind.renderSection(gapOnly), writeJourneysKind.summaryText(gapOnly)]);
+  assert.ok(!rendered.includes("did not save"), "the fabricated product sentence must never reach Slack");
+  assert.ok(!rendered.includes("did not work"), "a gap must not borrow the wording of a real failure");
+
+  const realFailure = toFindingsFromJourneys([{
+    name: "publish-vaccination-plan-version",
+    page: "Vaccination Plan Edit",
+    story: "A manager publishes a new vaccination plan version.",
+    status: "fail",
+    humanFailure: "Publishing a new vaccination plan version did not save. A manager who publishes a plan would be told it worked and find nothing there.",
+    failedStep: "publish it",
+    restore: { attempted: true, restored: true, verified: true }
+  }]);
+  assert.equal(realFailure.filter((f) => f.kind === "journey").length, 1, "a real failure must still be a finding");
+  assert.match(JSON.stringify(writeJourneysKind.renderSection(realFailure)), /Publishing a new vaccination plan version did not save/);
+});
+
+test("a run that checked nothing says so in Slack; silence would read as fine", () => {
+  const gaps = toFindingsFromJourneys([
+    { name: "a", page: "Vaccination Plan Edit", status: "not-attempted", restore: {} },
+    { name: "b", page: "Tasks", status: "not-attempted", restore: {} }
+  ]);
+  const blocks = writeJourneysKind.renderSection(gaps);
+  assert.ok(blocks.length > 0, "a run that checked nothing must not go silent");
+  const text = JSON.stringify(blocks);
+  assert.match(text, /Not checked: things people do on the site/);
+  assert.match(text, /not a fault in the site/, "it must say plainly that this is a gap, not an accusation");
+  // Lane 5's rule, kept here: a run that checked nothing never owns the alert's headline.
+  assert.equal(writeJourneysKind.headline(gaps), null, "a gap must not take the headline");
+  assert.notEqual(writeJourneysKind.summaryText(gaps), "", "the fallback text must carry the gap too");
+  assert.equal(writeJourneysKind.renderReplies(gaps).length, 0, "a gap has no screenshot and gets no threaded reply");
+  assert.doesNotThrow(() => writeJourneysKind.assertPlainEnglish(text, "gap blocks"));
+});
+
+test("a real failure and a gap in the same run stay separate things in Slack", () => {
+  const mixed = toFindingsFromJourneys([
+    {
+      name: "publish-vaccination-plan-version",
+      page: "Vaccination Plan Edit",
+      status: "fail",
+      humanFailure: "Publishing a new vaccination plan version did not save. A manager who publishes a plan would be told it worked and find nothing there.",
+      failedStep: "publish it",
+      restore: { attempted: true, restored: true, verified: true }
+    },
+    { name: "record-a-sale", page: "Sales Loads", status: "not-attempted", restore: {} }
+  ]);
+  const text = JSON.stringify(writeJourneysKind.renderSection(mixed));
+  assert.match(text, /Doing this on the site did not work/);
+  assert.match(text, /Not checked: things people do on the site/);
+  assert.match(writeJourneysKind.headline(mixed), /did not work/, "a real failure owns the headline, not the gap");
+  assert.match(writeJourneysKind.summaryText(mixed), /1 thing a person does on the site did not work/);
+  assert.match(writeJourneysKind.summaryText(mixed), /1 thing a person does on the site was not checked today/);
+});
+
+test("an all-not-attempted receipt reaches Slack as a gap, through the real notifier", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "lane4-gap-slack-"));
+  try {
+    mkdirSync(path.join(dir, "write-journeys"), { recursive: true });
+    writeFileSync(path.join(dir, "write-journeys", "write-journeys-receipt.json"), JSON.stringify({
+      status: "not-run",
+      summary: { total: 6, attempted: 0, failed: 0, notAttempted: 6, restoreProblems: 0, status: "not-run" },
+      journeys: [
+        { name: "publish-vaccination-plan-version", page: "Vaccination Plan Edit", url: "https://dashboard.mesha.sg/vaccination/plan/edit", status: "not-attempted", notAttemptedReason: "no stand-in for the write", humanFailure: null, restore: { attempted: true, restored: true, verified: true } },
+        { name: "record-a-sale", page: "Sales Loads", url: "https://dashboard.mesha.sg/sales", status: "not-attempted", notAttemptedReason: "no stand-in for the write", humanFailure: null, restore: { attempted: true, restored: true, verified: true } }
+      ]
+    }));
+    const receiptPath = path.join(dir, "receipt.json");
+    writeFileSync(receiptPath, JSON.stringify({
+      mode: "write-journeys", status: "fail", repoSha: "abc123456789",
+      runtimePolicy: { browserSmoke: "ran_failed" },
+      layers: [{ name: "write-journeys", status: "fail", message: "write journeys did not run" }],
+      blockers: []
+    }));
+    const result = spawnSync(process.execPath, [path.join(here, "notify-slack.mjs"), "--receipt", receiptPath], {
+      cwd: repo, encoding: "utf8",
+      env: { ...process.env, GOATOS_DASHBOARD_SLACK_DRY_RUN: "1", GOATOS_DASHBOARD_SLACK_STATE_FILE: path.join(dir, "state.json") }
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /Not checked: things people do on the site/);
+    assert.match(result.stdout, /not a fault in the site/);
+    assert.ok(!result.stdout.includes("did not save"), "no fabricated product sentence may reach Slack");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

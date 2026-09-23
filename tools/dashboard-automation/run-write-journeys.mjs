@@ -112,6 +112,42 @@ export function declaredTablesFor(journey) {
 }
 
 /**
+ * The reason this file has a `not-attempted` status at all, in one place.
+ *
+ * A write journey's database assertion looks for the row its OWN action creates. If this run could
+ * not carry that action out -- no browser, and no stand-in for the write -- the assertion finds
+ * nothing, and "found nothing" would then be reported as "publishing a plan did not save". Nothing
+ * was published, so nothing failed to save. That sentence is a fabrication, and a manager reading
+ * it in Slack would go looking for a bug that does not exist.
+ *
+ * So: a journey whose action this run could not perform reports `not-attempted`, never `fail`.
+ * Lane 5 landed the same rule for the phone (`outcome: "not-attempted"`, never a pass, never a
+ * failure); this is that rule for the site. A skip is not a verdict.
+ *
+ * A rule journey is the exception, and deliberately so: it asserts an invariant over data that is
+ * already in the clone ("the item a ration names is still there", "nothing was written to an
+ * already-published version"). Its verdict does not depend on the journey having written anything,
+ * so it is still earned when no write was applied. Its screen half is separately recorded as
+ * parked, because what a rule journey cannot prove without a browser is that the SCREEN refuses.
+ */
+export function verdictNeedsItsOwnWrite(journey) {
+  return journey?.rule !== true;
+}
+
+const DEFAULT_NOT_ATTEMPTED_REASON =
+  "this run could not carry out what this journey does on the screen, so nothing about it was checked";
+
+/** Whether the driver actually performed the journey's action. Drivers that do not say, did. */
+function writeWasApplied(ui) {
+  return ui?.applied !== false;
+}
+
+/** Whether a real screen was driven, as opposed to stood in for or skipped entirely. */
+function screenWasDriven(ui) {
+  return ui?.status !== "parked" && ui?.status !== "simulated" && ui?.status !== "not-attempted";
+}
+
+/**
  * Runs one journey. Pure of process concerns: `engine`, `driveUi` and `queryRows` are injected so
  * the whole failure/restore contract is unit tested without a database or a browser.
  */
@@ -150,24 +186,37 @@ export function runJourney(journey, { engine, driveUi, queryRows, token, screens
 
   try {
     const ui = driveUi(filled, { screenshotDir, token });
-    record.screen = { status: ui.ok ? "pass" : "fail", reason: ui.reason ?? null };
-    record.screenshot = ui.screenshot ?? null;
-    if (ui.status === "parked" || ui.status === "simulated") {
-      record.screen = { status: "parked", reason: ui.reason ?? "the screen was not driven in this run" };
-      record.screenshot = null;
-    } else if (!ui.ok) {
-      record.status = "fail";
-      record.failedStep = ui.failedStep ?? null;
-      record.humanFailure = filled.humanFailure;
-    }
+    const driven = screenWasDriven(ui);
+    record.screenshot = driven ? (ui.screenshot ?? null) : null;
 
-    if (record.screen.status !== "fail") {
-      const rows = queryRows(filled.dbAssertion.sql);
-      const found = dbAssertionHolds(filled.dbAssertion, rows);
-      record.database = { status: found ? "pass" : "fail", reason: found ? null : filled.dbAssertion.description };
-      if (!found) {
-        record.status = "fail";
-        record.humanFailure = filled.humanFailure;
+    if (!writeWasApplied(ui) && verdictNeedsItsOwnWrite(filled)) {
+      // Nothing was done, so nothing is known. The journey's failure sentence is NEVER reached
+      // from here: the database is not asked a question whose answer it could not have earned.
+      const why = ui.reason ?? DEFAULT_NOT_ATTEMPTED_REASON;
+      record.status = "not-attempted";
+      record.notAttemptedReason = why;
+      record.screen = { status: "not-attempted", reason: why };
+      record.database = { status: "not-attempted", reason: why };
+    } else {
+      if (!driven) {
+        record.screen = { status: "parked", reason: ui.reason ?? "the screen was not driven in this run" };
+      } else {
+        record.screen = { status: ui.ok ? "pass" : "fail", reason: ui.reason ?? null };
+        if (!ui.ok) {
+          record.status = "fail";
+          record.failedStep = ui.failedStep ?? null;
+          record.humanFailure = filled.humanFailure;
+        }
+      }
+
+      if (record.screen.status !== "fail") {
+        const rows = queryRows(filled.dbAssertion.sql);
+        const found = dbAssertionHolds(filled.dbAssertion, rows);
+        record.database = { status: found ? "pass" : "fail", reason: found ? null : filled.dbAssertion.description };
+        if (!found) {
+          record.status = "fail";
+          record.humanFailure = filled.humanFailure;
+        }
       }
     }
 
@@ -216,15 +265,37 @@ export function dbAssertionHolds(assertion, rows) {
 }
 
 export function summarise(journeys) {
-  const failed = journeys.filter((j) => j.status !== "pass");
+  // `not-attempted` is counted on its own and is never folded into `failed`. A run that checked
+  // nothing must not read as a run that found nothing wrong, and it must not read as a run that
+  // found five things wrong either.
+  const notAttempted = journeys.filter((j) => j.status === "not-attempted");
+  const failed = journeys.filter((j) => j.status !== "pass" && j.status !== "not-attempted");
   const restoreProblems = journeys.filter((j) => j.restore.attempted && (!j.restore.restored || !j.restore.verified));
+  const attempted = journeys.length - notAttempted.length;
   return {
     total: journeys.length,
+    attempted,
     failed: failed.length,
+    notAttempted: notAttempted.length,
     restoreProblems: restoreProblems.length,
-    // A clone left with test data in it is worse than any journey failure.
-    status: restoreProblems.length ? "blocked" : failed.length ? "fail" : "pass"
+    // A clone left with test data in it is worse than any journey failure. Below that, a real
+    // failure outranks a gap in cover; and a run where nothing at all was attempted is its own
+    // status, so the layer above can tell "nothing ran" from "something failed".
+    status: restoreProblems.length ? "blocked"
+      : failed.length ? "fail"
+        : attempted === 0 ? "not-run"
+          : "pass"
   };
+}
+
+/**
+ * The run's exit code. Separated from `main` so the one thing the layer above depends on is
+ * directly testable: "nothing ran" (3) is distinguishable from "something failed" (1) without
+ * anyone parsing a sentence. Lane 5 uses exit 3 for exactly this.
+ */
+export function exitCodeFor(summary) {
+  if (summary.status === "not-run") return 3;
+  return summary.status === "pass" ? 0 : 1;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -281,7 +352,10 @@ function spawnUiDriver(journey, { screenshotDir, token }) {
   const screenshot = [...stdout.matchAll(/^screenshot_path=(.+)$/gm)].map((m) => path.resolve(repo, m[1].trim())).pop() ?? null;
   const failedStep = stdout.match(/^write_journey_failed_step=(.+)$/m)?.[1]?.trim() ?? null;
   const reason = stdout.match(/^write_journey_reason=(.+)$/m)?.[1]?.trim() ?? null;
-  return { ok: result.status === 0, status: "ran", reason, failedStep, screenshot };
+  // `applied: true` even when the run failed: a real browser really did go and do this on the
+  // screen, so whatever came back is an earned verdict. This is the path the live vaccination
+  // publish failure comes down, and it must stay a failure.
+  return { ok: result.status === 0, status: "ran", applied: true, reason, failedStep, screenshot };
 }
 
 /**
@@ -292,18 +366,28 @@ function spawnUiDriver(journey, { screenshotDir, token }) {
 function simulatedWriteDriver(queryRows) {
   return (journey) => {
     if (!journey.simulatedWrite?.sql) {
-      return { ok: true, status: "parked", reason: "this journey has no stand-in for its screen; only a real browser run can prove it", screenshot: null };
+      // No browser and no stand-in: this journey's write is simply not made in this mode. Saying
+      // `applied: false` is what stops the database assertion from being asked a question it
+      // cannot have earned an answer to.
+      return {
+        ok: true,
+        status: "not-attempted",
+        applied: false,
+        reason: "this run had no stand-in for the write this journey makes on the screen, so the write was never made and nothing about it was checked",
+        screenshot: null
+      };
     }
     queryRows(journey.simulatedWrite.sql);
-    return { ok: true, status: "simulated", reason: `the screen was not driven; ${journey.simulatedWrite.description}`, screenshot: null };
+    return { ok: true, status: "simulated", applied: true, reason: `the screen was not driven; ${journey.simulatedWrite.description}`, screenshot: null };
   };
 }
 
 function parkedUiDriver(journey, context) {
   return {
     ok: true,
-    status: "parked",
-    reason: "the screen was not driven in this run; only the data half of the journey ran",
+    status: "not-attempted",
+    applied: false,
+    reason: "the screen was not driven and no stand-in was applied, so the write this journey makes was never made",
     screenshot: null
   };
 }
@@ -383,8 +467,14 @@ function main() {
   receipt.status = summary.status;
   receipt.summary = summary;
   write(outPath, receipt);
-  console.log(`write journeys ${summary.status}: ${summary.total - summary.failed}/${summary.total} passed, ${summary.restoreProblems} restore problem(s); receipt ${path.relative(repo, outPath)}`);
-  return summary.status === "pass" ? 0 : 1;
+  console.log(`write journeys ${summary.status}: ${summary.attempted - summary.failed}/${summary.attempted} attempted journeys passed, ` +
+    `${summary.failed} failed, ${summary.notAttempted} not attempted, ${summary.restoreProblems} restore problem(s); ` +
+    `receipt ${path.relative(repo, outPath)}`);
+  if (summary.status === "not-run") {
+    // Exit 3, as lane 5 does: nothing ran, so there is nothing to report about the product.
+    console.log("write journeys: nothing was attempted, so nothing is known about any of these journeys. This is a gap in cover, not a finding about the site.");
+  }
+  return exitCodeFor(summary);
 }
 
 function write(file, value) {
