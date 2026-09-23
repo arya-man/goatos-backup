@@ -7477,6 +7477,11 @@ func pageSpecificCopy(id string) map[string]string {
 			// to be told twice, and the second telling is after they have gone looking for the
 			// change on the herd.
 			"note.sheet_writes_a_draft":         "An upload never goes live on its own. It is saved as a draft on this tab; publish it when you have read it through.",
+			// copy() THROWS on a missing key, so a control naming one takes the page down rather
+			// than rendering blank. This screen's Save is declared HERE, beside the controls that
+			// use it, rather than assumed from another page's map -- an earlier attempt to add it
+			// silently landed in a different block and the Add-a-type form rendered nothing at all.
+			"action.save":                       "Save",
 			"action.add_type":                   "Add a type",
 			"action.edit_type":                  "Rename",
 			"action.retire_type":                "Retire",
