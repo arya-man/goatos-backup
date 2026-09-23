@@ -124,15 +124,25 @@ claim of 90%. Weighing/vaccination **18.8%**, raised to 23.0% by work done.
 | 4 write journeys | 9 journeys on the OCI clone, snapshot→write→assert→restore | default OFF | DB half yes, screen half 1 of 9 |
 | 5 Android | 47 journeys, Firebase Test Lab virtual | default OFF | **0 of 47 — harness works, lane proves nothing** |
 
-**Lane 2's live findings (real, on production data):** 139 upcoming vaccinations for animals
-already sold or dead (re-measured 144); 4 feeds issued in greater quantity than ever purchased
-(one item **1,076 kg issued, 0 purchased**); sales screen says 701 sold, herd register says 155
-(re-measured 688 vs 160); 500+ vaccination rounds >2 days overdue; 90 vaccinations naming a pen
-the animal left.
+**Lane 2's live findings (real, on production data).** Numbers below are the ones with a stored
+receipt in `scratchpad/lane2-run/data-sanity.json`; an independent verification pass found several
+figures quoted in conversation were wrong, so trust these and re-measure before quoting onward:
+139 upcoming vaccinations for animals already sold or dead (**re-measured 145**, not 144); 4 feeds
+issued in greater quantity than ever purchased (one item **1,076 kg issued, 0 purchased**); sales
+screen 701 sold vs herd register 155 (**re-measured 706 vs 160**, not 688); 500+ vaccination rounds
+>2 days overdue; 90 vaccinations naming a pen the animal left.
 
 **Lane 3's:** **Operations health returns HTTP 500 on 2 of 20 samples**, median 5,031ms, p95
 15,214ms — the endpoint that reports whether event delivery is stuck is itself the least reliable
-one. Leave-and-cover returns `items: null`. A sales deal returns a null animal count.
+one. Leave-and-cover returns `items: null`. A sales deal returns a null animal count. The 12 real
+findings have two agreeing sources (`scratchpad/slackrun/api-contracts.json` and
+`docs/engineering/lane3-api-contracts.md:401`).
+
+**The noise figure that belongs beside it, and §2 says it matters more than the 12:** lane 3's 62
+history-mined checks, if enabled, produce **1,184 false findings against those 12 real ones** — a
+99:1 ratio. They are parked behind `GOATOS_DASHBOARD_API_CONTRACTS_INCLUDE_HISTORY=1`. Do not
+enable them without measuring first. Judge finding J-010 records the same shape for 57
+history-derived `absent` assertions aimed at the alert channel.
 
 **Lane 5's honest position:** its Kotlin could never launch the app on **any** virtual device —
 `monkey -c LAUNCHER` exits -5 without starting it, so four cold-boot tests were reading the
@@ -230,3 +240,24 @@ shows one of its SQL checks running, so by §2 that is 0 proven, not 49.
   snake_case field name; 5 real bypasses in camelCase were invisible for months.
 - **`pgrep -f` matches your own command string** — it will tell you a sweep is running when it is
   your own `ssh` line.
+
+---
+
+## 9. Numbers in this doc: what is verified
+
+An independent pass scored every headline claim: **13 verified, 7 wrong, 3 unreproducible,
+3 prose-only** (repeated by this work's own writing, not independent evidence).
+
+**Known wrong, corrected above:** the "re-measured" vaccination figure is **145**, not 144; the
+sales reconciliation is **706 vs 160**, not 688 vs 160.
+
+**Known unreproducible — do not quote:** the bug-cluster counts **564 proof/media, 356 verification
+gate, 136 published-version-lock**. A later pass measuring commit *subjects* (one grep, one line,
+no double counting) gives **332, 180, 67**, with pen/partition at **326** not 99. The larger set
+came from matching commit *bodies*, which cross-contaminates: one Slack fix scores as a
+verification fix, a proof/media fix and an idempotency fix because its body mentions all three.
+**Publish the subject-only numbers and state the method.**
+
+Before quoting any figure from this document onward, re-derive it. This session published numbers
+that were true by their own definition and worthless in practice, which is the same failure the
+coverage ledger made — see §3.
