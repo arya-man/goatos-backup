@@ -23,11 +23,19 @@ import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.CountsRepository
+import sg.mesha.goatos.core.data.HealthRepository
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.network.dto.HealthDiagnosisProposalResponseDto
 import sg.mesha.goatos.core.network.dto.HealthObservationContextDto
 import sg.mesha.goatos.core.network.dto.HealthObservationFindingsDto
+import sg.mesha.goatos.feature.health.missing
+import sg.mesha.goatos.feature.health.AuthoredQuestion
+import sg.mesha.goatos.feature.health.AuthoredPage
+import sg.mesha.goatos.feature.health.AuthoredOption
+import sg.mesha.goatos.feature.health.AuthoredAnswers
+import sg.mesha.goatos.feature.health.AuthoredForm
+import sg.mesha.goatos.core.network.dto.HealthObservationFormDto
 import sg.mesha.goatos.feature.health.ObservationFormEvent
 import sg.mesha.goatos.feature.health.ObservationFormState
 import sg.mesha.goatos.feature.health.ObservationScreenState
@@ -45,6 +53,7 @@ import sg.mesha.goatos.feature.health.kidFormClassForStage
 class ObservationFormViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val countsRepository: CountsRepository,
+    private val healthRepository: HealthRepository,
     private val syncRepository: SyncRepository,
     private val analytics: AnalyticsPort,
 ) : ViewModel() {
@@ -69,8 +78,53 @@ class ObservationFormViewModel @Inject constructor(
     private val _state = MutableStateFlow(ObservationScreenState())
     val state: StateFlow<ObservationScreenState> = _state.asStateFlow()
 
+    /**
+     * The form the SERVER published for this animal's type, and the operator's answers to it.
+     *
+     * Held beside the screen state rather than inside it because they are a different thing: the
+     * state describes the animal and the submit, these are the authored questions and what has
+     * been ticked. A refresh replaces the form; the answers survive it, keyed by question id, so
+     * re-fetching does not throw away a half-walked animal.
+     */
+    private val _authoredForm = MutableStateFlow(AuthoredForm())
+    val authoredForm: StateFlow<AuthoredForm> = _authoredForm.asStateFlow()
+
+    private val _answers = MutableStateFlow(AuthoredAnswers())
+    val answers: StateFlow<AuthoredAnswers> = _answers.asStateFlow()
+
+    fun onAnswers(next: AuthoredAnswers) {
+        _answers.value = next
+        _state.value = _state.value.copy(message = null)
+    }
+
     init {
         loadAnimal()
+        loadAuthoredForm()
+    }
+
+    /**
+     * Fetches the questions this animal's type asks.
+     *
+     * A REFUSAL IS THE POINT, not an edge case: an animal whose stage no diagnosis type covers, or
+     * a type whose questions nobody has written, is turned away here -- while the animal is still
+     * in front of the operator -- instead of after the whole form is walked and submitted. The
+     * server's own sentence is shown, because it names the stage or the type and where to fix it.
+     */
+    fun loadAuthoredForm() {
+        if (goatId.isBlank()) return
+        viewModelScope.launch {
+            healthRepository.observationForm(goatId)
+                .onSuccess { dto ->
+                    _authoredForm.value = dto.toAuthoredForm()
+                    _state.value = _state.value.copy(message = null)
+                }
+                .onFailure {
+                    _authoredForm.value = AuthoredForm()
+                    _state.value = _state.value.copy(
+                        message = "Could not load this animal's questions. Pull to refresh once there is signal.",
+                    )
+                }
+        }
     }
 
     /**
@@ -216,14 +270,30 @@ class ObservationFormViewModel @Inject constructor(
 
     private fun submit() {
         val current = _state.value
-        if (!current.form.canSubmit() || current.submitting || goatId.isBlank()) return
+        val authoredNow = _authoredForm.value
+        val complete = if (authoredNow.isEmpty) {
+            current.form.canSubmit()
+        } else {
+            // Every applicable question on every page. The screen gates each page's Next, so this
+            // is the belt to that braces -- a submit reached any other way is still refused here.
+            authoredNow.pages.all {
+                it.missing(_answers.value, current.form.sex, current.form.kidStage).isEmpty()
+            }
+        }
+        if (!complete || current.submitting || goatId.isBlank()) return
         _state.value = current.copy(submitting = true, message = null)
 
         viewModelScope.launch {
+            // The AUTHORED answers when the server published a form, the typed ones otherwise.
+            // Both are sent: `findings` keeps an older server able to read the submit, and the
+            // presence of `answers` is what makes the server evaluate against the published
+            // register rather than the compiled form.
+            val authored = _authoredForm.value
             val result = syncRepository.enqueueHealthObservationSubmit(
                 goatId = goatId,
                 findings = current.form.toFindingsDto(),
-                answers = current.form.toAuthoredAnswersJson(),
+                answers = if (authored.isEmpty) current.form.toAuthoredAnswersJson()
+                else _answers.value.toWireJson(),
                 context = HealthObservationContextDto(),
                 idempotencyKey = idempotencyKey.current(),
                 goatDisplayId = current.goatDisplayId,
@@ -400,3 +470,64 @@ internal fun ObservationFormState.toAuthoredAnswersJson(): JsonObject? {
         }
     }
 }
+
+/**
+ * The answers as the wire carries them: question id -> list of values.
+ *
+ * It lives in the APP module, not beside the form model, because kotlinx-serialization-json is not
+ * on the feature module's classpath -- and should not be. A feature draws questions; turning them
+ * into a request body is the layer that already owns the wire.
+ *
+ * A LIST EITHER WAY, pick-one included. The backend's decoder accepts a bare string or an array,
+ * so one shape on the wire is one shape in the tests -- the same reasoning the typed findings DTO
+ * records for its own multi-value fields.
+ */
+private fun AuthoredAnswers.toWireJson(): JsonObject =
+    JsonObject(
+        values.filterValues { it.isNotEmpty() }.mapValues { (_, picked) ->
+            JsonArray(picked.map { JsonPrimitive(it) })
+        },
+    )
+
+/**
+ * The published form, as this screen holds it.
+ *
+ * It lives in the APP module because feature-health does not depend on core-network, and should
+ * not: a feature that draws questions has no business knowing the wire type they arrived in.
+ *
+ * A straight carry of what the server sent. Nothing is defaulted, reordered or filtered here: a
+ * client that "helpfully" dropped a question it did not recognise would make an authored question
+ * invisible, which is the failure this whole migration exists to end.
+ */
+private fun HealthObservationFormDto.toAuthoredForm(): AuthoredForm =
+    AuthoredForm(
+        goatId = goatId,
+        displayId = displayId,
+        tag = tag,
+        typeKey = typeKey,
+        typeLabel = typeLabel,
+        registerVersion = registerVersion,
+        pages = pages.map { page ->
+            AuthoredPage(
+                id = page.id,
+                title = page.title,
+                hint = page.hint,
+                questions = page.questions.map { q ->
+                    AuthoredQuestion(
+                        id = q.id,
+                        kind = q.kind,
+                        title = q.title,
+                        hint = q.hint,
+                        options = q.options.map { AuthoredOption(it.value, it.label, it.conflictsWith) },
+                        unit = q.unit,
+                        min = q.min,
+                        max = q.max,
+                        onlyIfSex = q.onlyIfSex,
+                        onlyIfStage = q.onlyIfStage,
+                        onlyIfQuestion = q.onlyIf?.questionId.orEmpty(),
+                        onlyIfIn = q.onlyIf?.inValues.orEmpty(),
+                    )
+                },
+            )
+        },
+    )
