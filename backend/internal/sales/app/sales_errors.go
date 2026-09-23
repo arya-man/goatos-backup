@@ -81,6 +81,17 @@ func SalesHTTPError(err error) *Error {
 	case errors.Is(err, ErrSalesIdempotencyKeyRequired):
 		return BadRequest("missing_idempotency_key", "This sale could not be recorded safely. Try again.")
 
+	case errors.Is(err, ports.ErrProductHasSales):
+		return Conflict("product_has_sales",
+			"This item has sales recorded against it, so it cannot be deleted. Untick 'In use' instead: it disappears from every dropdown and its sales stay readable.")
+
+	case errors.Is(err, ports.ErrProductNotFound):
+		return NotFound("Item not found.")
+
+	case errors.Is(err, ports.ErrProductNameTaken):
+		return Conflict("product_name_taken",
+			"Another item already has that name. A sale records the name it was sold under, so two items cannot share one.")
+
 	case errors.Is(err, ports.ErrProductNotSellable):
 		// A CONFLICT, not a validation failure: the body was right when the form opened and the
 		// farm changed its mind in between, so telling the desk to reload is more useful than a
@@ -110,6 +121,14 @@ func SalesHTTPError(err error) *Error {
 				Code:       "feed_stock_confirmation_required",
 				Message:    feedShortfallMessage(short),
 				HTTPStatus: http.StatusUnprocessableEntity,
+			}
+		}
+		var p domain.ErrProductValidation
+		if errors.As(err, &p) {
+			return &Error{
+				Code:       "sellable_product_invalid_" + p.Field,
+				Message:    productFieldLabel(p.Field) + " " + p.Reason + ".",
+				HTTPStatus: http.StatusBadRequest,
 			}
 		}
 		var v domain.ErrDealValidation
@@ -149,6 +168,23 @@ func trimKg(v float64) string {
 	out := strconv.FormatFloat(v, 'f', 3, 64)
 	out = strings.TrimRight(out, "0")
 	return strings.TrimSuffix(out, ".")
+}
+
+// productFieldLabel renders an item-editor field name as the label on screen.
+func productFieldLabel(field string) string {
+	switch field {
+	case "name":
+		return "Item name"
+	case "kind":
+		return "What it is"
+	case "unit":
+		return "Sold by"
+	case "status":
+		return "Status"
+	case "sort_order":
+		return "Order"
+	}
+	return field
 }
 
 // salesFieldLabel renders a storage field name as the label the operator sees on the record-sale

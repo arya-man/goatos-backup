@@ -1300,6 +1300,17 @@ func compileSalesConfigControls(controls []domain.Control, input BootstrapInput,
 		DisabledReason: reason,
 		Action:         "POST /sales/deals",
 	})
+	// WHAT the farm sells is its own list, authored here (maintainer instruction 2026-09-23). It
+	// rides the same authority as recording a sale: deciding the farm now sells sheep tags is the
+	// sales desk's business, not a separate office.
+	controls = upsertControl(controls, domain.Control{
+		ID:             "record_sellable_product",
+		Label:          controlCopy(copy, "action.record_sellable_product.label", "Add item"),
+		Kind:           "primary_action",
+		Enabled:        allowed,
+		DisabledReason: reason,
+		Action:         "POST /sales/products",
+	})
 	allocateAllowed := len(input.Grants) == 0 || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.SalesAllocateAnimals})
 	allocateReason := ""
 	if !allocateAllowed {

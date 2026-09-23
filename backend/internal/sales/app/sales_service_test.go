@@ -14,13 +14,15 @@ import (
 // validation and filter normalization without a database.
 type fakeRepo struct {
 	// what the service handed down, so a test can assert the filter reached the repository
-	buyerFilter   domain.LeadFilter
-	fpoFilter     domain.LeadFilter
-	statusDealID  string
-	dealStatus    string
-	paymentDealID string
-	payment       domain.DealPaymentWrite
-	paymentKey    string
+	savedProduct   domain.ProductWrite
+	deletedProduct string
+	buyerFilter    domain.LeadFilter
+	fpoFilter      domain.LeadFilter
+	statusDealID   string
+	dealStatus     string
+	paymentDealID  string
+	payment        domain.DealPaymentWrite
+	paymentKey     string
 
 	overviewFarm  string
 	listFarm      string
@@ -55,6 +57,25 @@ func (f *fakeRepo) ListProductVariants(_ context.Context, _ string, products []d
 		domain.ProductGoat:   {"Malai", "Sojat", "Osmanabadi", "Beetle", "Sirohi"},
 		domain.ProductManure: {domain.ProductManure},
 	}, nil
+}
+
+// The registry as its editor sees it, and the write behind the Items section.
+func (f *fakeRepo) ListAllSellableProducts(_ context.Context, _ string) ([]domain.ProductRow, error) {
+	return []domain.ProductRow{
+		{Product: domain.Product{Code: domain.ProductCodeSheep, Name: domain.ProductSheep, Kind: domain.KindAnimal, Unit: domain.UnitNumber, SpeciesCode: "sheep", SortOrder: 10}, Status: domain.StatusActive, IsBuiltin: true},
+		{Product: domain.Product{Code: domain.ProductCodeGoat, Name: domain.ProductGoat, Kind: domain.KindAnimal, Unit: domain.UnitNumber, SpeciesCode: "goat", SortOrder: 20}, Status: domain.StatusActive, IsBuiltin: true},
+		{Product: domain.Product{Code: domain.ProductCodeManure, Name: domain.ProductManure, Kind: domain.KindOther, Unit: domain.UnitKg, SortOrder: 30}, Status: domain.StatusActive, IsBuiltin: true},
+	}, nil
+}
+
+func (f *fakeRepo) SaveSellableProduct(_ context.Context, _ string, write domain.ProductWrite, _ string) (domain.Product, error) {
+	f.savedProduct = write
+	return domain.Product{Code: write.Code, Name: write.Name, Kind: write.Kind, Unit: write.Unit, SpeciesCode: write.SpeciesCode, SortOrder: write.SortOrder}, nil
+}
+
+func (f *fakeRepo) DeleteSellableProduct(_ context.Context, _, code, _ string) error {
+	f.deletedProduct = code
+	return nil
 }
 
 func (f *fakeRepo) ListDeals(_ context.Context, _ string, farm string, limit, offset int) (ports.DealPage, error) {

@@ -26,6 +26,9 @@ type SalesService interface {
 	ListDeals(ctx context.Context, tenantID string, q app.DealListQuery) (ports.DealPage, error)
 	CreateDeal(ctx context.Context, tenantID string, write domain.DealWrite, actorID, idempotencyKey string) (domain.Deal, error)
 	SellableProducts(ctx context.Context, tenantID string) ([]domain.Product, map[string][]string, error)
+	ListSellableProducts(ctx context.Context, tenantID string) ([]domain.ProductRow, error)
+	SaveSellableProduct(ctx context.Context, tenantID string, write domain.ProductWrite, actorID string) (domain.Product, error)
+	DeleteSellableProduct(ctx context.Context, tenantID, code, actorID string) error
 	RecordDealPayment(ctx context.Context, tenantID, dealID string, write domain.DealPaymentWrite, actorID, idempotencyKey string) (domain.Deal, error)
 	UpdateDealPayment(ctx context.Context, tenantID, dealID, paymentID string, write domain.DealPaymentWrite, actorID, idempotencyKey string) (domain.Deal, error)
 	DeleteDealPayment(ctx context.Context, tenantID, dealID, paymentID string, actorID, idempotencyKey string) (domain.Deal, error)
@@ -64,6 +67,10 @@ func NewSalesHandler(service SalesService, log ...*slog.Logger) *SalesHandler {
 func Register(mux *http.ServeMux, h *SalesHandler) {
 	mux.HandleFunc("GET /sales/overview", h.GetOverview)
 	mux.HandleFunc("GET /sales/options", h.GetOptions)
+	// The farm's own list of what it sells, authored on Sales Config.
+	mux.HandleFunc("GET /sales/products", h.ListSellableProducts)
+	mux.HandleFunc("POST /sales/products", h.SaveSellableProduct)
+	mux.HandleFunc("DELETE /sales/products/{product_code}", h.DeleteSellableProduct)
 	mux.HandleFunc("GET /sales/valuation-assumptions", h.GetValuationAssumptions)
 	mux.HandleFunc("PUT /sales/valuation-assumptions", h.PutValuationAssumptions)
 	mux.HandleFunc("GET /sales/deals", h.ListDeals)
@@ -125,6 +132,7 @@ func buildSalesOptionsPayload(products []domain.Product, variants map[string][]s
 		names = append(names, p.Name)
 		options = append(options, salesProductOptionPayload{
 			Name: p.Name, Code: p.Code, Kind: p.Kind, Unit: p.Unit,
+			PricedPerUnit: p.PricedPerUnit(),
 		})
 		// The field keeps the name `breeds` so a client written before this still finds its list;
 		// what it holds widened from an animal's breeds to any product's variants, and a feed
@@ -144,6 +152,53 @@ func buildSalesOptionsPayload(products []domain.Product, variants map[string][]s
 		DefaultStatus:        domain.StatusDealClosed,
 		MaxSaleDateDaysAhead: domain.MaxSaleDateDaysAhead,
 	}
+}
+
+// ListSellableProducts serves GET /sales/products: the farm's registry as its editor sees it,
+// archived rows included so a switched-off item can be switched back on.
+func (h *SalesHandler) ListSellableProducts(w http.ResponseWriter, r *http.Request) {
+	rows, err := h.service.ListSellableProducts(r.Context(), tenantID(r))
+	if err != nil {
+		h.writeErr(w, r, app.SalesHTTPError(err))
+		return
+	}
+	out := make([]sellableProductPayload, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, toSellableProductPayload(row))
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, sellableProductPagePayload{
+		Products: out,
+		Kinds:    sellableProductKindPayloads(),
+		Units:    sellableProductUnitPayloads(),
+	})
+}
+
+// SaveSellableProduct serves POST /sales/products: add an item, or edit one.
+func (h *SalesHandler) SaveSellableProduct(w http.ResponseWriter, r *http.Request) {
+	var body sellableProductWritePayload
+	if !decodeBody(h, w, r, &body, "That item could not be read. Check the fields and try again.") {
+		return
+	}
+	saved, err := h.service.SaveSellableProduct(r.Context(), tenantID(r), body.toDomain(),
+		httpmiddleware.ActorIDFromContext(r.Context()))
+	if err != nil {
+		h.writeErr(w, r, app.SalesHTTPError(err))
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, salesProductOptionPayload{
+		Name: saved.Name, Code: saved.Code, Kind: saved.Kind, Unit: saved.Unit,
+		PricedPerUnit: saved.PricedPerUnit(),
+	})
+}
+
+// DeleteSellableProduct serves DELETE /sales/products/{product_code}.
+func (h *SalesHandler) DeleteSellableProduct(w http.ResponseWriter, r *http.Request) {
+	if err := h.service.DeleteSellableProduct(r.Context(), tenantID(r), r.PathValue("product_code"),
+		httpmiddleware.ActorIDFromContext(r.Context())); err != nil {
+		h.writeErr(w, r, app.SalesHTTPError(err))
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
 // ListDeals serves GET /sales/deals.
@@ -309,14 +364,21 @@ func (h *SalesHandler) DeleteDealPayment(w http.ResponseWriter, r *http.Request)
 // DisallowUnknownFields is deliberate: a client sending "sales_valu" must be told, not silently
 // ignored into a zero required field. Same fail-loud rule the fixture loaders use.
 func (h *SalesHandler) decode(w http.ResponseWriter, r *http.Request, dst *dealWritePayload) bool {
+	return decodeBody(h, w, r, dst, "That sale form could not be read. Check the fields and try again.")
+}
+
+// decodeBody reads one bounded JSON body, refusing a field the payload does not declare -- so a
+// client sending something this build does not understand is TOLD, rather than having it dropped
+// and the write silently doing something else.
+func decodeBody[T any](h *SalesHandler, w http.ResponseWriter, r *http.Request, dst *T, message string) bool {
 	dec := json.NewDecoder(io.LimitReader(r.Body, maxSalesRequestBytes))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(dst); err != nil {
-		h.writeErr(w, r, app.BadRequest("invalid_body", "That sale form could not be read. Check the fields and try again."))
+		h.writeErr(w, r, app.BadRequest("invalid_body", message))
 		return false
 	}
 	if err := dec.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		h.writeErr(w, r, app.BadRequest("invalid_body", "That sale form could not be read. Check the fields and try again."))
+		h.writeErr(w, r, app.BadRequest("invalid_body", message))
 		return false
 	}
 	return true

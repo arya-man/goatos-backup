@@ -16,6 +16,9 @@ import {
 } from "@/lib/api/server";
 import type { LoadCostWrite, LoadwiseSales, LoadwiseWeights, BuyerAnalytics, FarmBornSales,
   SalesOptions,
+  SalesProductOption,
+  SellableProductPage,
+  SellableProductWrite,
   AnimalPurchaseAnimal,
   AnimalPurchaseCounts,
   AnimalPurchaseDecisionRequest,
@@ -388,6 +391,37 @@ export async function getSalesOptions(): Promise<ApiResult<SalesOptions>> {
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() => client.request<SalesOptions>("/sales/options", { cache: "no-store" }));
+}
+
+/** The farm's registry, for the Items section that maintains it. */
+export async function listSellableProducts(): Promise<ApiResult<SellableProductPage>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() => client.request<SellableProductPage>("/sales/products", { cache: "no-store" }));
+}
+
+/** Adds an item the farm sells, or edits one. */
+export async function saveSellableProduct(body: SellableProductWrite): Promise<ApiResult<SalesProductOption>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<SalesProductOption>("/sales/products", { method: "POST", cache: "no-store", body }),
+  );
+}
+
+/** Removes an item; refused by the backend when the farm has already sold any of it. */
+export async function deleteSellableProduct(code: string): Promise<ApiResult<{ status?: string }>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<{ status?: string }>(
+      `/sales/products/${encodeURIComponent(code)}` as keyof AppApiPaths & string,
+      { method: "DELETE", cache: "no-store" },
+    ),
+  );
 }
 
 export async function createSalesDeal(

@@ -6877,3 +6877,19 @@ aside.drawer.ltd-drawer{width:min(720px,94vw);overflow-y:auto;overscroll-behavio
 .ffu-result{white-space:nowrap}
 .ffu-result>.tag{display:inline-block}
 .ffu-result>.tag+.tag{display:block;margin-top:4px}
+
+/* WHAT WE SELL on Sales Config (maintainer instruction 2026-09-23): one row per item, each its
+   own form, laid out as a line that WRAPS -- so on a phone the fields stack instead of the row
+   scrolling sideways, and the page body never scrolls with it. */
+.sellable-product-row{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px;padding:10px 0;border-bottom:1px solid var(--line)}
+.sellable-product-row .fld{flex:1 1 150px;min-width:0;margin:0}
+.sellable-product-row .sellable-product-order{flex:0 1 90px}
+/* The In-use tick is the console's own .chkline, sitting on the row's baseline with the fields
+   rather than inside a .fld -- whose label styling turned it into a small-caps header with a bare
+   box beside it. */
+.sellable-product-row .sellable-product-inuse{flex:0 0 auto;white-space:nowrap;padding-bottom:9px}
+.sellable-product-row .sellable-product-actions{flex:0 0 auto;display:flex;gap:6px;padding-bottom:4px}
+.sellable-product-row .btn{flex:0 0 auto}
+/* The controls must be allowed to SHRINK: a select carrying "Feed from the store" keeps its
+   content width otherwise, and the row overflows its own card on a phone. */
+.sellable-product-row input,.sellable-product-row select{max-width:100%;min-width:0;box-sizing:border-box}

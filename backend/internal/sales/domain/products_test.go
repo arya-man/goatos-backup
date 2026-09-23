@@ -140,3 +140,100 @@ func TestAnEmptyRegistrySellsNothing(t *testing.T) {
 		t.Fatal("a tenant with no products must read as empty, never as the built-ins")
 	}
 }
+
+// AN ITEM THE FARM ADDS ITSELF SELLS LIKE ANY OTHER (maintainer instruction 2026-09-23). Sheep
+// tags are a row somebody types on Sales Config -- no code names them -- and selling them asks
+// how many and at what rate, exactly as feed does.
+func TestAnItemTheFarmAddedSellsByNumberAtARate(t *testing.T) {
+	catalog := NewProductCatalog(append(builtinCatalog().Products(),
+		Product{Code: "sheep_tags", Name: "Sheep tags", Kind: KindOther, Unit: UnitNumber, SortOrder: 60},
+	))
+	w := DealWrite{
+		SaleDate: "2026-09-23", Farm: "CBE",
+		BuyerName: "Tag Buyer", BuyerVendorID: "3f1c2a5e-9b04-4d67-8a11-2c7e5d9f0b34",
+		Lines: []DealLineWrite{{ProductType: "Sheep tags", Breed: "Sheep tags", Quantity: f(200), RatePerUnit: f(12)}},
+	}.Normalize(catalog)
+	if err := w.Validate(catalog); err != nil {
+		t.Fatalf("selling 200 tags must record: %v", err)
+	}
+	if w.Lines[0].SalesValue != 2400 {
+		t.Fatalf("200 tags at 12 must be 2400, got %v", w.Lines[0].SalesValue)
+	}
+	// It takes nothing off the feed store: only feed does that.
+	if w.Lines[0].Kind() == KindFeed {
+		t.Fatal("an item the farm added is not feed and must not draw on the feed store")
+	}
+	// And it has no animals, whatever a client sends.
+	missing := w
+	missing.Lines = []DealLineWrite{{ProductType: "Sheep tags", Breed: "Sheep tags", Quantity: f(200)}}
+	missing = missing.Normalize(catalog)
+	var v ErrDealValidation
+	if err := missing.Validate(catalog); !errors.As(err, &v) || v.Field != "lines[1].rate_per_unit" {
+		t.Fatalf("a counted item with no rate must be refused on the rate field, got %#v", err)
+	}
+}
+
+// ANIMALS ARE THE EXCEPTION, ON PURPOSE (maintainer decision 2026-09-23): a lot of goats is
+// haggled as a lot, not at a fixed rate per head, so an animal line keeps its head count and its
+// negotiated lump value and is NOT asked for a rate.
+func TestAnAnimalLineIsStillPricedAsALot(t *testing.T) {
+	w := DealWrite{
+		SaleDate: "2026-09-23", Farm: "CBE",
+		BuyerName: "Irshad Bhai", BuyerVendorID: "3f1c2a5e-9b04-4d67-8a11-2c7e5d9f0b34",
+		Lines: []DealLineWrite{{ProductType: "Goat", Breed: "Sojat", AnimalCount: f(12), SalesValue: 96000}},
+	}.Normalize(builtinCatalog())
+	if err := w.Validate(builtinCatalog()); err != nil {
+		t.Fatalf("an animal lot must record without a rate: %v", err)
+	}
+	if w.Lines[0].SalesValue != 96000 {
+		t.Fatalf("the negotiated value must survive untouched, got %v", w.Lines[0].SalesValue)
+	}
+}
+
+// The code is derived ONCE from the name, so a later rename cannot move yesterday's sales out of
+// their card.
+func TestAnItemCodeIsDerivedOnceAndSurvivesARename(t *testing.T) {
+	for name, want := range map[string]string{
+		"Sheep tags":     "sheep_tags",
+		"  Ear  Tags  ":  "ear_tags",
+		"Manure (dry)":   "manure_dry",
+		"2026 calendars": "item_2026_calendars",
+		"---":            "",
+	} {
+		if got := ProductCodeFromName(name); got != want {
+			t.Fatalf("code for %q = %q, want %q", name, got, want)
+		}
+	}
+	// Adding derives a code; editing keeps the one the row already has.
+	added := ProductWrite{Name: "Sheep tags", Kind: KindOther, Unit: UnitNumber}.Normalize()
+	if added.Code != "sheep_tags" {
+		t.Fatalf("a new item derives its code, got %q", added.Code)
+	}
+	renamed := ProductWrite{Code: "sheep_tags", Name: "Ear tags for sheep", Kind: KindOther, Unit: UnitNumber}.Normalize()
+	if renamed.Code != "sheep_tags" {
+		t.Fatalf("a rename must keep the original code, got %q", renamed.Code)
+	}
+}
+
+// A name with no letter or number in it derives no code, and is refused where a person can see it
+// rather than at a database constraint.
+func TestAnUnnameableItemIsRefusedOnItsName(t *testing.T) {
+	err := ProductWrite{Name: "---", Kind: KindOther, Unit: UnitNumber}.Normalize().Validate()
+	var v ErrProductValidation
+	if !errors.As(err, &v) || v.Field != "name" {
+		t.Fatalf("must be refused on the name, got %#v", err)
+	}
+}
+
+// A species belongs to an animal item alone; the schema refuses it elsewhere, so it is dropped
+// before it can reach that constraint.
+func TestOnlyAnAnimalItemCarriesASpecies(t *testing.T) {
+	w := ProductWrite{Name: "Sheep tags", Kind: KindOther, Unit: UnitNumber, SpeciesCode: "sheep"}.Normalize()
+	if w.SpeciesCode != "" {
+		t.Fatalf("a non-animal item must carry no species, got %q", w.SpeciesCode)
+	}
+	a := ProductWrite{Name: "Buffalo", Kind: KindAnimal, Unit: UnitNumber, SpeciesCode: "buffalo"}.Normalize()
+	if a.SpeciesCode != "buffalo" {
+		t.Fatalf("an animal item keeps its species, got %q", a.SpeciesCode)
+	}
+}

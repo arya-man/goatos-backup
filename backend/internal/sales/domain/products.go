@@ -68,6 +68,15 @@ func (p Product) IsLive() bool { return p.Kind == KindAnimal }
 // DrawsFeedStock reports whether selling this product takes kilograms out of the feed store.
 func (p Product) DrawsFeedStock() bool { return p.Kind == KindFeed }
 
+// ProductRow is one registry row as the EDITOR sees it: the product plus the two facts only the
+// editor needs -- whether it is switched off, and whether it is one of the three the farm cannot
+// switch off.
+type ProductRow struct {
+	Product
+	Status    string
+	IsBuiltin bool
+}
+
 // ProductCatalog is a tenant's active registry, in the order the farm put it in. It is passed to
 // the write path and resolved INSIDE the writing transaction, the feed_item_catalog rule: a
 // product archived between the form opening and the save landing must not get through.
@@ -182,4 +191,152 @@ func (e ErrFeedStockShort) Error() string {
 			s.FarmLabel, s.FeedItem, s.BalanceKg, s.RequestedKg)
 	}
 	return fmt.Sprintf("sales: %d feed lines take more than the store holds", len(e.Shortfalls))
+}
+
+// Units an item may be sold by (maintainer instruction 2026-09-23). The farm answers one plain
+// question -- by the kilogram, or by number -- so the vocabulary is exactly those two answers.
+const (
+	UnitKg     = "kg"
+	UnitNumber = "number"
+)
+
+// Units is the closed set the item form offers.
+var Units = []string{UnitKg, UnitNumber}
+
+// IsUnit reports whether raw is a unit an item may be sold by.
+func IsUnit(raw string) bool { return raw == UnitKg || raw == UnitNumber }
+
+// PricedPerUnit reports whether selling this product asks for a quantity at a rate rather than a
+// negotiated lump value.
+//
+// Animals are the exception and it is deliberate (maintainer decision 2026-09-23): a lot of goats
+// is haggled as a lot, not at a fixed rate per head, and every sale recorded so far reads that
+// way. Everything else -- feed by the kilogram, sheep tags by number -- is quantity times rate.
+func (p Product) PricedPerUnit() bool { return p.Kind != KindAnimal }
+
+// MaxProductNameLength bounds an item name. It is stored on every line of every sale made under
+// it, and rendered in a dropdown.
+const MaxProductNameLength = 60
+
+// ErrProductValidation is a refused item edit, naming the field a person got wrong.
+type ErrProductValidation struct {
+	Field  string
+	Reason string
+}
+
+func (e ErrProductValidation) Error() string {
+	return fmt.Sprintf("sellable product %s: %s", e.Field, e.Reason)
+}
+
+// ProductWrite is an item being added to, or edited in, the farm's registry.
+type ProductWrite struct {
+	// Code is empty when adding: the farm names the item, and the code is derived from that name
+	// once and never changes, so renaming the item later cannot orphan the sales recorded under it.
+	Code   string
+	Name   string
+	Kind   string
+	Unit   string
+	Status string
+	// SpeciesCode narrows an animal item's breeds. Only the animal kind may carry one.
+	SpeciesCode string
+	SortOrder   int
+}
+
+// Normalize trims the fields and, for a new item, derives its code from its name.
+func (w ProductWrite) Normalize() ProductWrite {
+	out := w
+	out.Name = strings.Join(strings.Fields(w.Name), " ")
+	out.Code = strings.TrimSpace(w.Code)
+	out.Kind = strings.TrimSpace(w.Kind)
+	out.Unit = strings.TrimSpace(w.Unit)
+	out.Status = strings.TrimSpace(w.Status)
+	out.SpeciesCode = strings.TrimSpace(w.SpeciesCode)
+	if out.Status == "" {
+		out.Status = StatusActive
+	}
+	if out.Code == "" {
+		out.Code = ProductCodeFromName(out.Name)
+	}
+	if out.Kind != KindAnimal {
+		// A species narrows an animal's breeds and means nothing on feed or an item; the schema
+		// refuses it outright, so it is dropped here rather than carried to a constraint failure.
+		out.SpeciesCode = ""
+	}
+	return out
+}
+
+// Statuses an item row may hold. An item is ARCHIVED rather than deleted: sales recorded under it
+// keep the word they were sold under, and a deleted row would leave them naming nothing.
+const (
+	StatusActive   = "active"
+	StatusArchived = "archived"
+)
+
+// ProductCodeFromName derives a row's stable identity from the name it was created with:
+// lowercase, words joined by underscores, anything else dropped. "Sheep tags" -> "sheep_tags".
+//
+// It is computed ONCE, when the item is added. A later rename leaves it alone, which is the whole
+// point: the code is what a sale line is stamped with, so the farm may call an item whatever it
+// likes tomorrow without moving yesterday's sales out of their card.
+func ProductCodeFromName(name string) string {
+	var b strings.Builder
+	lastUnderscore := true
+	for _, r := range strings.ToLower(strings.TrimSpace(name)) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+			lastUnderscore = false
+		case !lastUnderscore:
+			b.WriteRune('_')
+			lastUnderscore = true
+		}
+	}
+	code := strings.Trim(b.String(), "_")
+	// The column requires a letter first, so a name of digits alone ("2026") gets a prefix rather
+	// than being refused for a reason nobody typing it would understand.
+	if code == "" {
+		return ""
+	}
+	if code[0] < 'a' || code[0] > 'z' {
+		code = "item_" + code
+	}
+	if len(code) > 40 {
+		code = strings.Trim(code[:40], "_")
+	}
+	return code
+}
+
+// Validate checks one item edit, returning the FIRST failure with the field a person can fix.
+func (w ProductWrite) Validate() error {
+	if w.Name == "" {
+		return ErrProductValidation{Field: "name", Reason: "required"}
+	}
+	if len(w.Name) > MaxProductNameLength {
+		return ErrProductValidation{Field: "name", Reason: "too long"}
+	}
+	if w.Code == "" {
+		// A name of punctuation alone ("---") derives no code.
+		return ErrProductValidation{Field: "name", Reason: "must contain a letter or a number"}
+	}
+	if !IsKind(w.Kind) {
+		return ErrProductValidation{Field: "kind", Reason: "must be an animal, feed from the store, or another item"}
+	}
+	if !IsUnit(w.Unit) {
+		return ErrProductValidation{Field: "unit", Reason: "must be sold by the kilogram or by number"}
+	}
+	if w.Status != StatusActive && w.Status != StatusArchived {
+		return ErrProductValidation{Field: "status", Reason: "must be in use or archived"}
+	}
+	if w.SortOrder < 0 {
+		return ErrProductValidation{Field: "sort_order", Reason: "must not be negative"}
+	}
+	return nil
+}
+
+// UnitWord is the unit in the words a sentence needs: "kilogram", or "item" for a counted thing.
+func (p Product) UnitWord() string {
+	if p.Unit == UnitNumber {
+		return "item"
+	}
+	return "kilogram"
 }

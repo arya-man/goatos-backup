@@ -37,7 +37,10 @@ export function SaleLinesEditor({
   products: SalesProductOption[];
   variants: Record<string, string[]>;
 }) {
-  const totals = saleLinesTotals(lines);
+  // What each product IS, for the footer: kilograms of feed and counted pieces are different
+  // facts and must not be added together.
+  const kinds = Object.fromEntries(products.map((p) => [p.name, p.kind]));
+  const totals = saleLinesTotals(lines, kinds);
   const canAdd = lines.length < MAX_SALE_LINES;
   const nextId = lines.reduce((max, line) => Math.max(max, line.id), 0) + 1;
 
@@ -59,7 +62,15 @@ export function SaleLinesEditor({
       {lines.map((line, index) => {
         const product = products.find((candidate) => candidate.name === line.product);
         const isFeed = product?.kind === "feed";
+        // What the line ASKS is the backend's answer, not this component's reading of the kind:
+        // an item the farm adds itself -- sheep tags by number -- asks the same quantity and rate
+        // that feed does, and only animals are sold as a negotiated lot.
+        const pricedPerUnit = product?.priced_per_unit ?? false;
         const variantOptions = variants[line.product] ?? [];
+        // An item with no second dimension -- manure, tags -- has exactly one "variant" and it is
+        // its own name. Offering a dropdown of one is a question with no answer to give, so the
+        // value rides as a hidden field and the reader is not asked it.
+        const variantIsItself = variantOptions.length === 1 && variantOptions[0] === line.product;
         const variantValid = variantOptions.includes(line.breed);
         const computed = saleLineValue(line);
         return (
@@ -111,6 +122,9 @@ export function SaleLinesEditor({
                   ))}
                 </select>
               </div>
+              {variantIsItself ? (
+                <input type="hidden" name={`line_breed_${index}`} value={line.product} />
+              ) : (
               <div className="fld">
                 <label htmlFor={`s-line-breed-${line.id}`}>
                   {copy(pageContract, isFeed ? "field.line_feed_item" : "field.breed")}
@@ -132,28 +146,33 @@ export function SaleLinesEditor({
                   ))}
                 </select>
               </div>
+              )}
             </div>
-            {isFeed ? (
+            {pricedPerUnit ? (
               // A feed sale is kilograms at a rate. The value is a READOUT, not an input: it is
               // computed here exactly as the backend computes it, so the figure the operator
               // watches is the figure that gets recorded.
               <div className="sales-line-grid sales-line-grid-3">
                 <div className="fld">
-                  <label htmlFor={`s-line-quantity-${line.id}`}>{copy(pageContract, "field.line_quantity")}</label>
+                  <label htmlFor={`s-line-quantity-${line.id}`}>
+                    {copy(pageContract, product?.unit === "number" ? "field.line_count" : "field.line_quantity")}
+                  </label>
                   <input
                     id={`s-line-quantity-${line.id}`}
                     name={`line_quantity_${index}`}
                     type="number"
                     inputMode="decimal"
                     min={0}
-                    step="0.001"
+                    step={product?.unit === "number" ? 1 : 0.001}
                     required
                     value={line.quantity}
                     onChange={(event) => update(line.id, { quantity: event.target.value })}
                   />
                 </div>
                 <div className="fld">
-                  <label htmlFor={`s-line-rate-${line.id}`}>{copy(pageContract, "field.line_rate_per_unit")}</label>
+                  <label htmlFor={`s-line-rate-${line.id}`}>
+                    {copy(pageContract, product?.unit === "number" ? "field.line_rate_each" : "field.line_rate_per_unit")}
+                  </label>
                   <input
                     id={`s-line-rate-${line.id}`}
                     name={`line_rate_per_unit_${index}`}
@@ -244,7 +263,7 @@ export function SaleLinesEditor({
             {/* Live weight is dropped only when there is feed weight to show instead: an
                 animal-only sale keeps the "0.0 kg" it has always shown, while a feed-only sale
                 stops claiming zero kilograms of animal beside the kilograms it actually sold. */}
-            {totals.weightKg > 0 || totals.feedKg === 0 ? (
+            {totals.weightKg > 0 || (totals.feedKg === 0 && totals.pieces === 0) ? (
               <>
                 {" · "}
                 {num(totals.weightKg, 1)} {copy(pageContract, "summary.lines.weight")}
@@ -256,6 +275,13 @@ export function SaleLinesEditor({
               <>
                 {" · "}
                 {num(totals.feedKg, 1)} {copy(pageContract, "summary.lines.feed_kg")}
+              </>
+            ) : null}
+            {/* Counted items -- tags, and anything else the farm sells by the piece. */}
+            {totals.pieces > 0 ? (
+              <>
+                {" · "}
+                {num(totals.pieces)} {copy(pageContract, "summary.lines.pieces")}
               </>
             ) : null}{" "}
             · {lines.length} {copy(pageContract, "summary.lines.lines")}
