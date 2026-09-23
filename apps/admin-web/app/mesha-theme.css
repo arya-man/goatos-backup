@@ -3847,7 +3847,20 @@ aside.drawer.wt-feedband-drawer{width:94vw;max-width:960px}
 .lt-page .lt-chips{display:inline-flex;gap:6px;flex-wrap:wrap;align-items:center}
 .lt-page .lt-chips .achip.clr{font:inherit;font-size:11.5px}
 .lt-page .lt-fnote{color:var(--faint);font-size:11px;margin-left:auto;white-space:nowrap}
-.lt-page .lt-fbar.wfbusy{box-shadow:0 0 0 2px var(--ring)}
+/* The busy signal on this bar is the RING ALONE -- never the shared `.wfbusy` dimming.
+   `.wfbusy{opacity:.55;pointer-events:none}` is written for a bar that contains only its own
+   controls. At phone width this one also contains the FILTER SHEET (`.lt-fgroup.open`, a
+   `position:fixed` child), so every pick of an assignee took the whole open sheet to 55% opacity
+   for as long as the transition ran: the Tasks header, "+ New task", the scope tabs and the board
+   card all read straight through it, and the opacity's stacking context stopped `z-index:151`
+   lifting the sheet clear of them. On a fast phone that is a flicker; on a slow one it is the
+   screen the maintainer photographed on 2026-09-23. `pointer-events` goes back too -- ticking a
+   second person while the first is still loading is the normal way this filter is used, and
+   `startTransition` supersedes the in-flight one safely. */
+.lt-page .lt-fbar.wfbusy,
+/* The wider bar is `box-shadow:none` from `@media(min-width:761px)` at a specificity this rule has
+   to clear, or dropping the dimming would leave the laptop with no busy signal at all. */
+.lt-page .lt-fbar.lt-fsheet-host.wfbusy{box-shadow:0 0 0 2px var(--ring);opacity:1;pointer-events:auto}
 
 /* ---- Tasks desk toolbar (/tasks). Same `.lt-fbar` / `.lt-fsel` / `.lt-chips` / `.lt-fnote`
    anatomy as the live-tracker bar above, plus ONE extra behaviour: on a phone the whole control

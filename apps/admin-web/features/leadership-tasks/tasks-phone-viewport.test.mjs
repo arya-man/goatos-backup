@@ -116,3 +116,29 @@ for (const [name, source] of [
 ]) {
   assert.match(source, /useDialogShell\(\{/, `${name} must use the shared dialog shell`);
 }
+
+// ---- The pending filter bar must NOT dim, because at phone width it CONTAINS the fixed sheet.
+// The shared `.wfbusy{opacity:.55;pointer-events:none}` is written for a bar holding only its own
+// controls. Here `.lt-fgroup.open` -- `position:fixed`, `z-index:151` -- is a CHILD of the bar, so
+// every filter change took the whole open sheet to 55% opacity for as long as the transition ran:
+// the page read straight through it, and the opacity's stacking context stopped the z-index
+// lifting it clear. Measured at 390px on 2026-09-23 (before: opacity .55, a second pick while
+// loading silently swallowed by `pointer-events:none`; after: opacity 1, both picks land).
+assert.match(
+  filters,
+  /className=\{`lt-fbar lt-fsheet-host\$\{isPending \? " wfbusy" : ""\}`\}/,
+  "the bar carries wfbusy while pending -- the precondition this rule exists for",
+);
+assert.match(
+  filters,
+  /className=\{`lt-fbar lt-fsheet-host[\s\S]*?className=\{`lt-fgroup\$\{sheetOpen \? " open" : ""\}`\}/,
+  "the fixed filter sheet is a DESCENDANT of the bar, which is why dimming the bar dims the sheet",
+);
+const busyRule = css.match(/\.lt-page \.lt-fbar\.lt-fsheet-host\.wfbusy\{[^}]*\}/)?.[0] ?? "";
+assert.match(busyRule, /opacity:1/, "the pending filter bar must never dim -- it holds the sheet");
+assert.match(
+  busyRule,
+  /pointer-events:auto/,
+  "the sheet must stay tappable while loading, or a second pick is swallowed",
+);
+assert.match(busyRule, /box-shadow:0 0 0 2px var\(--ring\)/, "the ring is the busy signal instead");
