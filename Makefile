@@ -250,6 +250,7 @@ guardrails:
 	$(MAKE) admin-web-server-client-values-guard
 	$(MAKE) admin-web-local-overlay-guard
 	$(MAKE) admin-web-interaction-patterns-guard
+	$(MAKE) interactive-surfaces-guard
 	$(MAKE) date-format-guard
 	$(MAKE) sidebar-typography-guard
 	$(MAKE) sales-pages-guard
@@ -1225,6 +1226,14 @@ admin-web-local-overlay-guard:
 admin-web-interaction-patterns-guard:
 	node tools/agent-hooks/check-admin-web-interaction-patterns.mjs --self-test
 	node tools/agent-hooks/check-admin-web-interaction-patterns.mjs
+
+# interactive-surfaces-guard: every edit form, inline editor, row action and modal in admin-web
+# carries a decision, and anything claimed as coverage carries an assertion the gate re-derives
+# from the source it names and that goes RED on a blank screen. Fails closed if its ledger or the
+# app tree is missing -- a guard whose input vanished has checked nothing.
+.PHONY: interactive-surfaces-guard
+interactive-surfaces-guard:
+	node tools/agent-hooks/check-interactive-surfaces.mjs --self-test
 
 # date-format-guard: every VISIBLE date renders DD/MM/YYYY on every surface —
 # admin-web, Android, and the date strings the backend composes for a screen
