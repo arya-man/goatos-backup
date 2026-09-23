@@ -26,7 +26,7 @@ import { mkdirSync, writeFileSync, openSync, closeSync, unlinkSync, existsSync, 
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { RECEIPT_VERSION } from "./lib/interactive-surfaces.mjs";
-import { buildProbePlan, planSummary, targetRefusal } from "./lib/interactive-surface-probe.mjs";
+import { buildProbePlan, describeLock, navigationRefusal, planSummary, principalRefusal, targetRefusal } from "./lib/interactive-surface-probe.mjs";
 import { contractRevisionRefusal } from "./lib/reading-comparison.mjs";
 
 const adminWeb = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -55,11 +55,12 @@ async function main() {
 
   const refusal = targetRefusal(base);
   if (refusal) die(`${refusal}\nPass --base http://127.0.0.1:3300 (your local stack).`);
-  if (!principal) {
+  const whoRefusal = principalRefusal(principal);
+  if (whoRefusal) {
     die(
-      "refusing to run with no --principal.\n" +
-        "Admin-web compiles a different set of controls per permission set, so a reading that does " +
-        "not say whose screen it is describes nobody.",
+      `${whoRefusal}\n` +
+        "Pass --principal with the role or person the browser is signed in as. Note this is NOT " +
+        "verified: a wrong-but-plausible label is not caught here or later.",
     );
   }
 
@@ -83,8 +84,24 @@ async function main() {
   let lock;
   try {
     lock = openSync(LOCK, "wx");
+    writeFileSync(LOCK, `pid=${process.pid} started=${new Date().toISOString()}\n`);
   } catch {
-    die(`refusing: ${LOCK} exists, so a probe is already running.\nIt does not queue. Remove the lock only if you are sure nothing is open.`);
+    const held = (() => {
+      try {
+        return readFileSync(LOCK, "utf8");
+      } catch {
+        return "";
+      }
+    })();
+    const alive = (pid) => {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    die(`refusing: ${LOCK} exists.\n${describeLock(held, alive)}`);
   }
 
   const entries = JSON.parse(readFileSync(LEDGER, "utf8")).entries.filter(
@@ -107,8 +124,13 @@ async function main() {
       const readingsFor = new Map(step.surfaces.map((surface) => [surface.key, []]));
       // One page load per reading, not one per surface: the second reading exists to prove the
       // value is stable, and reloading between every surface buys nothing for 30x the time.
+      let landedElsewhere = null;
       for (let pass = 0; pass < step.repeats; pass += 1) {
-        await page.goto(new URL(step.route, base).toString(), { waitUntil: "networkidle", timeout: 30_000 });
+        const response = await page.goto(new URL(step.route, base).toString(), { waitUntil: "networkidle", timeout: 30_000 });
+        // A redirect is quiet: the page loads and looks fine. Recording its controls as this
+        // route's is how a sign-in page becomes the thing /people owes.
+        landedElsewhere = navigationRefusal(step.route, page.url(), response?.status() ?? null);
+        if (landedElsewhere) break;
         for (const surface of step.surfaces) {
           readingsFor.get(surface.key).push(
             // Read what a PERSON meets: the accessible names of the controls on this surface, in
@@ -129,14 +151,21 @@ async function main() {
       for (const surface of step.surfaces) {
         observations.push({
           id: `${step.route}|${step.viewport}|${surface.key}`,
+          // Carried, not dropped: a route that could not be reached is a "not checked" the ledger
+          // can read, never an absent observation that looks like nobody tried.
+          notReached: landedElsewhere ?? undefined,
           route: step.route,
           viewport: step.viewport,
           surfaceKey: surface.key,
           subject: `the controls a person meets on the ${surface.kind} at ${surface.where}`,
-          readings: readingsFor.get(surface.key),
+          readings: landedElsewhere ? [] : readingsFor.get(surface.key),
         });
       }
-      console.log(`read ${step.surfaces.length} surfaces on ${step.route} at ${step.viewport}px`);
+      console.log(
+        landedElsewhere
+          ? `NOT CHECKED on ${step.route} at ${step.viewport}px — ${landedElsewhere}`
+          : `read ${step.surfaces.length} surfaces on ${step.route} at ${step.viewport}px`,
+      );
     }
   } finally {
     await browser?.close();
