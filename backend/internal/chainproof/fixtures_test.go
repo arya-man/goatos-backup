@@ -100,3 +100,30 @@ func goatLifecycle(t *testing.T, ctx context.Context, pool *pgxpool.Pool, goatID
 	}
 	return s
 }
+
+// seedDirectorWithPhone makes ONE director reachable by push: a member, the tenant-scoped role
+// grant the audience resolver reads, and a registered device. All three are external HRMS facts.
+// Without a reachable device an upward notifier resolves nobody and logs a warning, so a test
+// asserting the push would pass for the wrong reason -- or fail for a roster gap rather than a
+// broken chain.
+func seedDirectorWithPhone(t *testing.T, ctx context.Context, pool *pgxpool.Pool, memberID, userID, role string) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `
+INSERT INTO workforce_members (workforce_member_id, tenant_id, user_id, display_code, display_name, status, primary_role_hint)
+VALUES ($1::uuid, $2::uuid, $3::uuid, 'DIR', 'Chain Director', 'active', $4)
+ON CONFLICT (workforce_member_id) DO NOTHING`, memberID, chainTenant, userID, role); err != nil {
+		t.Fatalf("seed director: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO user_scope_grants (tenant_id, user_id, role, scope_type, scope_id, status, valid_from)
+VALUES ($1::uuid, $2::uuid, $3, 'tenant', $1::uuid, 'active', now() - interval '30 days')
+ON CONFLICT DO NOTHING`, chainTenant, userID, role); err != nil {
+		t.Fatalf("grant the director role: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO workforce_member_devices (tenant_id, workforce_member_id, app_install_id, app_version, fcm_token, platform, status, notifications_enabled)
+VALUES ($1::uuid, $2::uuid, 'chain-install-' || left($2::text, 8), '1.0.0', 'chain-token-' || left($2::text, 8), 'android', 'active', true)
+ON CONFLICT DO NOTHING`, chainTenant, memberID); err != nil {
+		t.Fatalf("register the director's phone: %v", err)
+	}
+}
