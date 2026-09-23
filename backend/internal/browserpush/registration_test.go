@@ -296,7 +296,7 @@ func TestResolveBrowserRecipientsSkipsAnEmptyLookup(t *testing.T) {
 func TestRecordEventRequiresAuthenticatedCallerAndSupportedEvent(t *testing.T) {
 	service := newService(&fakeRepo{})
 	body := EventRequest{
-		NotificationRequestID: "request-1",
+		NotificationRequestID: "11111111-1111-4111-8111-111111111111",
 		BrowserInstallID:      "web-1",
 		EventType:             "opened",
 	}
@@ -310,12 +310,37 @@ func TestRecordEventRequiresAuthenticatedCallerAndSupportedEvent(t *testing.T) {
 		TenantID: "t",
 		ActorID:  "u",
 		Body: EventRequest{
-			NotificationRequestID: "request-1",
+			NotificationRequestID: "11111111-1111-4111-8111-111111111111",
 			BrowserInstallID:      "web-1",
 			EventType:             "forged",
 		},
 	}); err == nil {
 		t.Fatal("want unsupported event refused")
+	}
+}
+
+func TestRecordEventRefusesMissingBrowserAndInvalidRequestID(t *testing.T) {
+	service := newService(&fakeRepo{})
+	for name, body := range map[string]EventRequest{
+		"missing browser": {
+			NotificationRequestID: "11111111-1111-4111-8111-111111111111",
+			BrowserInstallID:      " ",
+			EventType:             "opened",
+		},
+		"oversized browser": {
+			NotificationRequestID: "11111111-1111-4111-8111-111111111111",
+			BrowserInstallID:      strings.Repeat("x", maxBrowserInstallIDLen+1),
+			EventType:             "opened",
+		},
+		"bad request id": {
+			NotificationRequestID: "not-a-uuid",
+			BrowserInstallID:      "web-1",
+			EventType:             "opened",
+		},
+	} {
+		if _, err := service.RecordEvent(context.Background(), EventCommand{TenantID: "t", ActorID: "u", Body: body}); err == nil {
+			t.Fatalf("%s: want validation refusal", name)
+		}
 	}
 }
 
@@ -326,7 +351,7 @@ func TestRecordEventPassesSanitizedReceiptToRepository(t *testing.T) {
 		TenantID: "tenant-1",
 		ActorID:  "user-1",
 		Body: EventRequest{
-			NotificationRequestID: " request-1 ",
+			NotificationRequestID: " 11111111-1111-4111-8111-111111111111 ",
 			BrowserInstallID:      " web-1 ",
 			EventType:             "opened",
 			TraceID:               " trace-" + strings.Repeat("x", 200),
@@ -338,7 +363,7 @@ func TestRecordEventPassesSanitizedReceiptToRepository(t *testing.T) {
 	if !result.Recorded {
 		t.Fatal("want recorded=true from repository")
 	}
-	if repo.event.NotificationRequestID != "request-1" {
+	if repo.event.NotificationRequestID != "11111111-1111-4111-8111-111111111111" {
 		t.Fatalf("want trimmed request id, got %q", repo.event.NotificationRequestID)
 	}
 	if repo.event.BrowserInstallID != "web-1" {
