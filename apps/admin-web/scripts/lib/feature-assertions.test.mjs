@@ -679,14 +679,55 @@ test("a figure that was never drawn is refused at both readings, for every reduc
   }
 });
 
-test("an empty reading is turned into an absent one before the primitive sees it", () => {
-  // Stated because it is a property of THIS caller, not of the primitive: the
-  // shared comparison refuses null and undefined, and two EMPTY readings still
-  // agree with each other inside it. Reported upward; guarded here meanwhile.
-  assert.equal(compareReadings([], [], { conditions: "deliberate-action", all: "sum" }).agreed, true,
-    "the primitive agrees on two empty readings today");
+test("two empty readings are refused — nothing never agrees with nothing", () => {
+  // A REQUIRED-BEHAVIOUR test. The previous version of this assertion pinned
+  // CURRENT behaviour — it asserted that the primitive AGREED on two empty
+  // readings, which was true when written and was the defect I had just
+  // reported. Builder B then fixed the primitive, on the recommendation that
+  // the refusal belongs there rather than in every caller, and my test went red
+  // for the crime of the bug being fixed.
+  //
+  // The general rule, because this will happen again: a test that pins CURRENT
+  // behaviour is a different thing from a test that pins REQUIRED behaviour,
+  // and only the second kind survives someone fixing the code. If a test of
+  // mine ever pins the first kind deliberately, its name has to say so.
+  for (const all of ["sum", "count", undefined]) {
+    const empty = compareReadings([], [], { conditions: "deliberate-action", label: "the total", all });
+    assert.equal(empty.agreed, false, `reducer ${all ?? "none"}: two readings that found nothing are not an agreement`);
+    assert.ok(empty.verdict.length > 20, "and it says why");
+  }
   assert.equal(compareReadings(null, null, { conditions: "deliberate-action", all: "sum" }).agreed, false,
-    "and refuses two absent ones");
+    "two absent readings likewise");
+  // A real pair still agrees, and a real disagreement is still reported: the
+  // refusal must not have swallowed the comparison it exists to protect.
+  assert.equal(compareReadings([240, 9], [240, 9], { conditions: "deliberate-action", all: "sum" }).agreed, true);
+  assert.equal(compareReadings([240, 9], [31, 9], { conditions: "deliberate-action", all: "sum" }).agreed, false);
+});
+
+test("this caller normalises an empty reading to an absent one, belt on top of braces", () => {
+  // My side turns an empty reading into an absent one BEFORE the primitive sees
+  // it, so the refusal holds whichever version of the primitive is present.
+  // This is deliberately redundant with the test above: the two exist so that
+  // neither one alone is what stands between a page that drew nothing and a
+  // pass. The end-to-end proof is "a figure that was never drawn is refused at
+  // both readings, for every reducer" and "rows that are present but all hidden
+  // are an absent reading, not a zero", which run through the real engine.
+  const engine = readFileSync(join(repoRoot, "apps/admin-web/scripts/lib/feature-assertions.mjs"), "utf8");
+  assert.match(engine, /if \(before\.values === null\) return/, "an empty first reading is refused before comparing");
+  assert.match(engine, /if \(after\.values === null\) \{/, "and an empty second one");
+  // Match the EMPTY-reading branch specifically. A looser pattern matched the
+  // nothing-matched branch instead, which has the same shape, so deleting the
+  // real one left this green — the same too-loose-assertion mistake as the
+  // receipt one earlier in this lane.
+  for (const reducer of ["sum", "count"]) {
+    const branch = new RegExp(`if \\(!values\\.length\\) return \\{ number: null, values: null, how: "${reducer}" \\};`);
+    assert.match(engine, branch, `the ${reducer} reducer must report a reading that found nothing as absent, not as a zero`);
+  }
+  // And both branches exist: nothing matched, and everything hidden.
+  for (const reducer of ["sum", "count"]) {
+    const occurrences = engine.split(`values: null, how: "${reducer}"`).length - 1;
+    assert.ok(occurrences >= 2, `${reducer} must refuse BOTH an unmatched target and an all-hidden one, found ${occurrences}`);
+  }
 });
 
 test("rows that are present but all hidden are an absent reading, not a zero", async () => {
