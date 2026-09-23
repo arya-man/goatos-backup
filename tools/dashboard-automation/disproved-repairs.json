@@ -100,6 +100,14 @@
       "repair": "none needed",
       "mutation": "remove the beforeSparse/afterSparse bucket-count check in computeEventCorrelationFromBatch",
       "result": "RED: TestBatchedCorrelationClipsEachEventToItsOwnWindow"
+    },
+    {
+      "sha": "94e2efaaf",
+      "subject": "keep campaign doses on schedule path",
+      "whyItDidNotBite": "stale verdict \u2014 it bites at the current tip.",
+      "repair": "none needed",
+      "mutation": "make the manual_campaign arm of ruleMatchesSchedulePath return true unconditionally",
+      "result": "RED twice: TestGenerateForVersionCancelsManualCampaignRowsOnWrongSchedulePath ('stale adult row status=scheduled, want canceled') and TestRuleMatchesSchedulePath ('adult manual campaign matched kid path')"
     }
   ],
   "shapeOfTheRemainingJob": {
@@ -111,5 +119,6 @@
     "notAnAncestor": 1,
     "whatTheSamePackageOnesAreNot": "same-package does NOT prove the test is weak. Of the ones hand-checked, 3bd2c61c5, 5bba4d8f0 and 93cb89104 all sit in the same package AND bite at the current tip \u2014 their stored verdict is stale against a moved tree. Each row still has to be opened.",
     "whatTheyMostlyAre": "of thirteen opened by hand, five were genuinely weak tests and are repaired, one was a dead suite, one led to a real unfixed defect in a sibling query, four were stale or mis-scoped, and two are unprovable in their current shape."
-  }
+  },
+  "whatAVerdictMeans": "The prover answers 'did this test bite AT THE MOMENT OF THE COMMIT', by checking that commit out and reverting its own non-test files. That is the right question for a fresh commit and a weaker one for a tree that has moved: five of the rows opened by hand are disproved at their own tree and bite at the current tip, because the code was refactored afterwards and the commit's test was rewritten with it. Both statements are true; the one a reader usually wants is 'is this behaviour protected NOW', and that is what every `mutation` field in this file records."
 }
