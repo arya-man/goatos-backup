@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { compareReadings } from "./reading-comparison.mjs";
 import test from "node:test";
 import { WRITE_WORDS, assertFeaturesPresent, isValueExpect, loadFeatureAssertions, numberIn, reloadCoverage } from "./feature-assertions.mjs";
 import { resolveRoutes } from "./smoke-route-catalogue.mjs";
@@ -626,4 +627,112 @@ test("a page with only one page of results is not attempted, never a pass", asyn
   assert.equal(message, null, "it must not be a finding");
   assert.ok(lines.some((l) => l.startsWith("feature_not_attempted=")), "it must say it was not attempted");
   assert.ok(!lines.some((l) => /feature_assertions=.*:1\/1/.test(l)), "and must never be counted as a pass");
+});
+
+// ---------------------------------------------------------------- the shared comparison
+//
+// `expect.stable` and builder B's promotion rule ask one question — did these
+// two readings of one target agree? — and differ only in the conditions the
+// pair was taken under, and therefore in what a disagreement MEANS.
+
+test("stable asks the shared primitive rather than re-implementing it", () => {
+  const engine = readFileSync(join(repoRoot, "apps/admin-web/scripts/lib/feature-assertions.mjs"), "utf8");
+  assert.match(engine, /import \{ compareReadings \} from "\.\/reading-comparison\.mjs"/,
+    "one comparison, in one place");
+  assert.match(engine, /compareReadings\(before\.values, after\.values, \{/, "and the stable branch calls it");
+  // And no second implementation left behind.
+  assert.ok(!/before\.number === after\.number/.test(engine),
+    "the hand-rolled comparison must be gone, or the two can drift");
+});
+
+test("the two vocabularies stay apart", () => {
+  // Pinned so neither side drifts into the other's wording: they describe
+  // different facts about the page and must keep saying so.
+  const moved = compareReadings([240], [31], { conditions: "deliberate-action", label: "the total" });
+  const varies = compareReadings([240], [31], { conditions: "same", label: "the total" });
+  assert.match(moved.verdict, /it moved when it should not/);
+  assert.ok(!/something the page varies/.test(moved.verdict), "a deliberate-action verdict never borrows the other wording");
+  assert.match(varies.verdict, /something the page varies, not something it owes/);
+  assert.ok(!/it moved when it should not/.test(varies.verdict), "and vice versa");
+});
+
+test("a figure that was never drawn is refused at both readings, for every reducer", async () => {
+  // Builder B's finding, and it was live here: two readings of a figure that was
+  // never drawn are EQUAL, and equal is the pass condition. Measured before the
+  // fix — `count` passed on a page that rendered nothing at both readings, while
+  // `sum` and a single cell already refused it.
+  for (const all of ["sum", "count", undefined]) {
+    const next = () => { const n = { ...vMakeLocator([vCell("Next")]), click: async () => {} }; n.first = () => n; return n; };
+    const page = {
+      locator: (k) => (k === ".nx" ? next() : vMakeLocator([])),
+      getByText: () => vMakeLocator([]),
+      url: () => "x", addStyleTag: async () => {}, screenshot: async () => {}, waitForLoadState: async () => {},
+    };
+    const entry = { sha: "s", title: "t", route: "r", status: "assert",
+      expect: [{ stable: { target: { css: ".kpi .val", ...(all ? { all } : {}) }, through: [{ click: { css: ".nx" } }], label: "the figure" } }] };
+    const log = console.log; console.log = () => {};
+    let message = null;
+    try {
+      await assertFeaturesPresent(page, { routeName: "r", viewportLabel: "laptop", screenshotDir: "/tmp", entries: [entry] });
+    } catch (e) { message = e.message; } finally { console.log = log; }
+    assert.ok(message, `reducer ${all ?? "none"}: a page that drew nothing must not pass`);
+  }
+});
+
+test("an empty reading is turned into an absent one before the primitive sees it", () => {
+  // Stated because it is a property of THIS caller, not of the primitive: the
+  // shared comparison refuses null and undefined, and two EMPTY readings still
+  // agree with each other inside it. Reported upward; guarded here meanwhile.
+  assert.equal(compareReadings([], [], { conditions: "deliberate-action", all: "sum" }).agreed, true,
+    "the primitive agrees on two empty readings today");
+  assert.equal(compareReadings(null, null, { conditions: "deliberate-action", all: "sum" }).agreed, false,
+    "and refuses two absent ones");
+});
+
+test("rows that are present but all hidden are an absent reading, not a zero", async () => {
+  // The `!total` guard covers "nothing matched". This is the other way to get an
+  // empty reading: the elements are in the page and none of them is on screen.
+  const next = () => { const n = { ...vMakeLocator([vCell("Next")]), click: async () => {} }; n.first = () => n; return n; };
+  const hidden = [vCell("50", false), vCell("70", false)];
+  const page = {
+    locator: (k) => (k === ".nx" ? next() : vMakeLocator(hidden)),
+    getByText: () => vMakeLocator([]),
+    url: () => "x", addStyleTag: async () => {}, screenshot: async () => {}, waitForLoadState: async () => {},
+  };
+  for (const all of ["sum", "count"]) {
+    const entry = { sha: "s", title: "t", route: "r", status: "assert",
+      expect: [{ stable: { target: { css: ".kpi .val", all }, through: [{ click: { css: ".nx" } }], label: "the figure" } }] };
+    const log = console.log; console.log = () => {};
+    let message = null;
+    try {
+      await assertFeaturesPresent(page, { routeName: "r", viewportLabel: "laptop", screenshotDir: "/tmp", entries: [entry] });
+    } catch (e) { message = e.message; } finally { console.log = log; }
+    assert.ok(message, `reducer ${all}: rows that are all hidden must not read as zero`);
+  }
+});
+
+test("the stable finding speaks the deliberate-action vocabulary and names its rule", async () => {
+  // Pins BOTH halves at the engine, not just at the primitive: the shared
+  // sentence says what happened, the clause after it says which rule it breaks.
+  let turned = false;
+  const next = () => { const n = { ...vMakeLocator([vCell("Next")]), click: async () => { turned = true; } }; n.first = () => n; return n; };
+  const page = {
+    locator: (k) => {
+      if (k === ".nx") return next();
+      return vMakeLocator(turned ? [vCell("31")] : [vCell("240")]);
+    },
+    getByText: () => vMakeLocator([]),
+    url: () => "x", addStyleTag: async () => {}, screenshot: async () => {}, waitForLoadState: async () => {},
+  };
+  const entry = { sha: "s", title: "t", route: "r", status: "assert",
+    expect: [{ stable: { target: { css: ".kpi .val", all: "sum" }, through: [{ click: { css: ".nx" } }], label: "the total" } }] };
+  const log = console.log; console.log = () => {};
+  let message = null;
+  try {
+    await assertFeaturesPresent(page, { routeName: "r", viewportLabel: "laptop", screenshotDir: "/tmp", entries: [entry] });
+  } catch (e) { message = e.message; } finally { console.log = log; }
+  assert.ok(message, "it reports");
+  assert.match(message, /it moved when it should not/, "the shared sentence, in this caller's vocabulary");
+  assert.ok(!/something the page varies/.test(message), "never the other caller's vocabulary");
+  assert.match(message, /must describe the whole filter/, "and the rule it breaks, or the finding is not actionable");
 });
