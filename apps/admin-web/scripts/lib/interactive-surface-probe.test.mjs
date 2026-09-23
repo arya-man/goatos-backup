@@ -61,6 +61,8 @@ const RECEIPT = {
   version: RECEIPT_VERSION,
   runId: "probe-1",
   principal: "verifier",
+  // The agreed contract revision: the backend build sha, never a placeholder.
+  contractRevision: "9f3c1ab",
   observations: [{ id: "o1", readings: [["Close", "Approve"], ["Close", "Approve"]] }],
 };
 const read = () => RECEIPT;
@@ -80,10 +82,24 @@ test("a reading taken as one principal cannot be claimed for another", () => {
   assert.match(graded.error, /those are different screens/);
 });
 
+test("a receipt with no real build identity is refused before anything is compared", () => {
+  const placeholder = { ...RECEIPT, contractRevision: "unknown" };
+  assert.match(
+    deriveMeasured({ receipt: "r.json", runId: "probe-1", observation: "o1" }, () => placeholder, "verifier").error,
+    /a placeholder makes two different builds look like one/,
+  );
+});
+
 test("an unstable observation cannot become an expectation", () => {
   const wobbly = { ...RECEIPT, observations: [{ id: "o1", readings: [["A"], ["B"]] }] };
   assert.match(
     deriveMeasured({ receipt: "r.json", runId: "probe-1", observation: "o1" }, () => wobbly, "verifier").error,
-    /readings disagree/,
+    /something the page varies, not something it owes/,
+  );
+  // Direction of failure: two absences agree, and agreeing is how a value gets promoted.
+  const empty = { ...RECEIPT, observations: [{ id: "o1", readings: [[], []] }] };
+  assert.match(
+    deriveMeasured({ receipt: "r.json", runId: "probe-1", observation: "o1" }, () => empty, "verifier").error,
+    /"nothing" is not an expectation/,
   );
 });

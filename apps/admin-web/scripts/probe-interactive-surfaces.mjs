@@ -27,6 +27,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { RECEIPT_VERSION } from "./lib/interactive-surfaces.mjs";
 import { buildProbePlan, planSummary, targetRefusal } from "./lib/interactive-surface-probe.mjs";
+import { contractRevisionRefusal } from "./lib/reading-comparison.mjs";
 
 const adminWeb = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const LEDGER = path.join(adminWeb, "scripts/interactive-surface-ledger.json");
@@ -35,6 +36,11 @@ const LOCK = path.join(adminWeb, ".interactive-surface-probe.lock");
 function arg(name) {
   const index = process.argv.indexOf(`--${name}`);
   return index >= 0 ? process.argv[index + 1] : undefined;
+}
+
+function bearerHeaders() {
+  const token = process.env.GOATOS_BEARER_TOKEN;
+  return token ? { authorization: `Bearer ${token}` } : {};
 }
 
 function die(message) {
@@ -56,6 +62,23 @@ async function main() {
         "not say whose screen it is describes nobody.",
     );
   }
+
+  // The contract revision is the BACKEND BUILD SHA, obtained the way every sweep already obtains
+  // it, and refused rather than defaulted. `unknown` on a receipt makes two different builds look
+  // like one, which is worse than not running -- readings would be compared across a contract
+  // change nobody could see.
+  const apiBase = arg("api-base") ?? base.replace(/:\d+$/, ":8080");
+  const apiRefusal = targetRefusal(apiBase);
+  if (apiRefusal) die(`${apiRefusal}\n(--api-base is the local API this probe reads /version from.)`);
+  let apiBuildSha = "";
+  try {
+    const version = await fetch(new URL("/version", apiBase).toString(), { headers: bearerHeaders() }).then((r) => r.json());
+    apiBuildSha = String(version?.build_sha ?? "");
+  } catch (error) {
+    die(`could not read ${apiBase}/version for the build identity: ${error.message}\nStart the local stack first.`);
+  }
+  const revisionRefusal = contractRevisionRefusal(apiBuildSha);
+  if (revisionRefusal) die(`${revisionRefusal}\nThe API must report a real build_sha before a reading is worth recording.`);
 
   let lock;
   try {
@@ -130,8 +153,10 @@ async function main() {
         runId: `probe-${new Date().toISOString()}`,
         principal,
         base,
-        // A later run against a different contract must not be compared to this one.
-        pageContractRevision: arg("contract-revision") ?? "unknown",
+        // The agreed contract revision: coarser than a per-contract hash, real, and never a
+        // placeholder. Defined once in lib/reading-comparison.mjs.
+        contractRevision: apiBuildSha,
+        apiBuildSha,
         observations,
       },
       null,

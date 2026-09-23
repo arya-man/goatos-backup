@@ -1,0 +1,50 @@
+// The shared primitive: one comparison, two verdict vocabularies.
+import test from "node:test";
+import assert from "node:assert/strict";
+import { compareReadings, contractRevisionRefusal } from "./reading-comparison.mjs";
+
+test("same conditions: a disagreement is something the page VARIES, not a finding", () => {
+  const verdict = compareReadings(41, 42, { conditions: "same", label: "the total" });
+  assert.equal(verdict.agreed, false);
+  assert.match(verdict.verdict, /something the page varies, not something it owes/);
+  assert.doesNotMatch(verdict.verdict, /moved when it should not/, "the two vocabularies crossed");
+});
+
+test("a deliberate action between them: the same disagreement is a FINDING", () => {
+  const verdict = compareReadings(41, 42, { conditions: "deliberate-action", label: "the total" });
+  assert.equal(verdict.agreed, false);
+  assert.match(verdict.verdict, /moved when it should not/);
+  assert.doesNotMatch(verdict.verdict, /something the page varies/, "the two vocabularies crossed");
+});
+
+test("agreement is agreement under either set of conditions", () => {
+  for (const conditions of ["same", "deliberate-action"]) {
+    const verdict = compareReadings(42, 42, { conditions });
+    assert.equal(verdict.agreed, true);
+    assert.equal(verdict.value, 42);
+  }
+});
+
+test("the conditions are required — a comparison with no conditions has no verdict to give", () => {
+  assert.throws(() => compareReadings(1, 1, {}), /needs to know the conditions/);
+});
+
+test("a reading that never arrived is refused rather than agreeing with another absence", () => {
+  // Direction of failure: two absences are perfectly consistent, and consistency is how a value
+  // gets promoted. Absence must push toward "not checked", never toward an expectation.
+  assert.equal(compareReadings(null, null, { conditions: "same" }).agreed, false);
+  assert.match(compareReadings(null, null, { conditions: "same" }).verdict, /never arrived/);
+});
+
+test("the sum and count reducers let a list and a number compare through one path", () => {
+  assert.equal(compareReadings(["a", "b"], ["c", "d"], { conditions: "same", all: "count" }).agreed, true);
+  assert.equal(compareReadings(["a", "b"], ["c"], { conditions: "same", all: "count" }).agreed, false);
+  assert.equal(compareReadings([1, 2, 3], [3, 3], { conditions: "same", all: "sum" }).agreed, true);
+});
+
+test("a placeholder contract revision is refused, never defaulted", () => {
+  for (const sha of ["unknown", "dev", "", "  ", undefined, null, "NONE"]) {
+    assert.ok(contractRevisionRefusal(sha), `${JSON.stringify(sha)} was accepted as a build identity`);
+  }
+  assert.equal(contractRevisionRefusal("9f3c1ab"), null);
+});

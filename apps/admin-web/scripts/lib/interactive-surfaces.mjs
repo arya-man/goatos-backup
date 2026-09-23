@@ -622,20 +622,38 @@ export function routesOwningFiles(files) {
 // every principal. `kind: "measured"` is for everything source cannot answer -- which today is
 // 124 of 148 surfaces, because they carry no label of their own.
 
+import { compareReadings, contractRevisionRefusal } from "./reading-comparison.mjs";
+
 export const RECEIPT_VERSION = 1;
 
-/** Readings that disagree cannot become an expectation; readings that agree can. */
-export function stableReading(readings) {
+/**
+ * Readings that disagree cannot become an expectation; readings that agree can.
+ *
+ * The comparison itself is the SHARED primitive (lib/reading-comparison.mjs), agreed with the
+ * feature-assertion engine: one comparison, two verdict vocabularies. This side passes
+ * conditions: "same" -- nothing was done between the readings -- so a disagreement means the page
+ * varies here rather than that something moved when it should not.
+ */
+export function stableReading(readings, { label = "this reading", all } = {}) {
   if (!Array.isArray(readings) || readings.length < 2) {
     return { stable: false, reason: `needs at least two independent readings, got ${readings?.length ?? 0}` };
   }
-  const first = JSON.stringify(readings[0]);
-  const disagreeing = readings.find((r) => JSON.stringify(r) !== first);
-  if (disagreeing !== undefined) {
-    return {
-      stable: false,
-      reason: `readings disagree (${first} vs ${JSON.stringify(disagreeing)}), so this is something the page varies, not something it owes`,
-    };
+  // DIRECTION OF FAILURE. Two absent readings agree with each other, and agreeing is how a value
+  // gets promoted -- so a surface that rendered nothing twice would hand the ledger "nothing" as
+  // the thing that surface owes, and the check would then accuse a correct page of missing it.
+  // Absence must push toward "not checked", never toward an expectation, so an empty reading is
+  // refused here even though it is perfectly consistent.
+  for (const reading of readings) {
+    if (reading === null || reading === undefined) {
+      return { stable: false, reason: `has a reading that never arrived; an absence must not become the thing a page owes` };
+    }
+    if (Array.isArray(reading) && reading.length === 0) {
+      return { stable: false, reason: `read nothing on the screen; "nothing" is not an expectation, it is a surface nobody could read` };
+    }
+  }
+  for (let i = 1; i < readings.length; i += 1) {
+    const compared = compareReadings(readings[0], readings[i], { conditions: "same", label, all });
+    if (!compared.agreed) return { stable: false, reason: compared.verdict };
   }
   return { stable: true, value: readings[0] };
 }
@@ -661,7 +679,9 @@ export function deriveMeasured(provenance, readReceipt, principal) {
   }
   const found = (receipt.observations ?? []).find((o) => o.id === observation);
   if (!found) return { error: `receipt ${path} has no observation ${JSON.stringify(observation)}` };
-  const stable = stableReading(found.readings);
+  const revisionRefusal = contractRevisionRefusal(receipt.contractRevision ?? receipt.apiBuildSha);
+  if (revisionRefusal) return { error: `receipt ${path} ${revisionRefusal}` };
+  const stable = stableReading(found.readings, { label: found.subject ?? "this reading" });
   if (!stable.stable) return { error: `observation ${observation} ${stable.reason}` };
   return { value: stable.value };
 }
