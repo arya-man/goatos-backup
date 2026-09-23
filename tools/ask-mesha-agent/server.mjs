@@ -38,21 +38,24 @@ const BASE_SHA = process.env.GOATOS_BASE_SHA || "HEAD";
 const STG_API = (process.env.GOATOS_STG_API || "https://api.goatos.mesha.sg").replace(/\/$/, "");
 const WORKTREES = path.join(STATE, "worktrees");
 fs.mkdirSync(STATE, { recursive: true });
+let cachedPgEnv = null;
 
 // Read-only PG* vars, loaded per use so a missing/invalid file fails the request
 // (with a clear message) instead of crashing the server at startup.
 function loadPgEnv() {
+  if (cachedPgEnv) return cachedPgEnv;
   const file = path.join(STATE, ".pgenv");
   if (!fs.existsSync(file)) {
     throw new Error(`missing ${file}; create it with read-only PG* variables before asking data questions`);
   }
-  return Object.fromEntries(
+  cachedPgEnv = Object.fromEntries(
     fs.readFileSync(file, "utf8").trim().split("\n").filter(Boolean).map((l) => {
       const i = l.indexOf("=");
       if (i <= 0) throw new Error(`invalid ${file} line: ${l.slice(0, 40)}`);
       return [l.slice(0, i), l.slice(i + 1)];
     }),
   );
+  return cachedPgEnv;
 }
 
 const STARTERS = [
@@ -69,7 +72,7 @@ defined and calculated, but do NOT mention file paths, function names, code, SQL
 your answer unless the user explicitly asks for them. Explain definitions in plain business language.
 You have the full goatos codebase (current working directory, the live commit) and READ-ONLY
 access to the goatos-stg Postgres database. ${READONLY
-  ? "Read code with Read/Grep/Glob. Query data ONLY with the run_sql tool (one SELECT per call). You cannot edit files or run shell commands."
+  ? "Read code with Read/Grep/Glob. Query data ONLY with the run_sql tool (one SELECT per call over ceo_ai.* with an explicit tenant_id filter). You cannot edit files or run shell commands."
   : "Query with `psql -c \"...\"` (connection env vars are set). You may read code and run tests."}
 Answer style: lead with the direct answer in 1-2 sentences, then at most one compact table
 (<= 12 rows) and at most 3 short bullets of context. No preamble, no narration of what you are
@@ -117,14 +120,44 @@ async function recordMetric(m) {
 
 // ---- read-only SQL tool (replaces Bash/psql in read-only mode) --------------
 const SQL_MAX_ROWS = 500;
-function runSql(sql) {
-  return new Promise((resolve) => {
-    const text = String(sql || "").trim();
-    // psql meta-commands (\\!, \\copy, \\o, \\g |cmd …) can reach the shell/filesystem and
-    // psql honours them mid-line, so refuse ANY backslash (same rule as ro-sql.sh).
-    if (!text || text.includes("\\")) {
-      return resolve({ ok: false, out: "Refused: only plain SQL (no psql backslash commands)." });
+const SQL_SOURCE_RE = /\b(?:from|join)\s+([a-z_][\w$]*)(?:\s*\.\s*([a-z_][\w$]*))?/gi;
+const SQL_BANNED_RE = /\b(?:insert|update|delete|merge|alter|create|drop|truncate|grant|revoke|copy|vacuum|analyze|call|do|execute|prepare|set|reset|listen|notify|lock)\b/i;
+function sqlLiteral(s) {
+  return String(s).replace(/'/g, "''");
+}
+function validateReadSql(sql, user) {
+  const text = String(sql || "").trim();
+  if (!text || text.includes("\\")) {
+    return { ok: false, out: "Refused: only plain SQL (no psql backslash commands)." };
+  }
+  if (text.includes('"')) return { ok: false, out: "Refused: double-quoted identifiers are not allowed; use ceo_ai.<view>." };
+  const one = text.replace(/;\s*$/, "");
+  if (one.includes(";")) return { ok: false, out: "Refused: run exactly one SQL statement." };
+  if (!/^select\b/i.test(one)) return { ok: false, out: "Refused: only flat SELECT queries are allowed." };
+  if (SQL_BANNED_RE.test(one)) return { ok: false, out: "Refused: mutating or session-control SQL is not allowed." };
+  const sourceClause = one.match(/\bfrom\b([\s\S]*?)(?:\bwhere\b|\bgroup\s+by\b|\border\s+by\b|\blimit\b|$)/i)?.[1] || "";
+  if (/,\s*[a-z_]/i.test(sourceClause)) return { ok: false, out: "Refused: comma-joined sources are not allowed; use explicit ceo_ai.* JOINs." };
+  if (/\(\s*select\b/i.test(one)) return { ok: false, out: "Refused: subqueries are not allowed in this read-only tool." };
+  let sawSource = false;
+  for (const m of one.matchAll(SQL_SOURCE_RE)) {
+    sawSource = true;
+    if (!m[2] || m[1].toLowerCase() !== "ceo_ai") {
+      return { ok: false, out: "Refused: queries may read only explicitly-qualified ceo_ai.* views." };
     }
+  }
+  if (!sawSource) return { ok: false, out: "Refused: query must read from a ceo_ai.* view." };
+  if (!user?.tenantId) return { ok: false, out: "Refused: missing authenticated tenant scope." };
+  const tenant = sqlLiteral(user.tenantId);
+  const tenantRe = new RegExp(`\\bwhere\\b[\\s\\S]*\\btenant_id\\s*=\\s*'${tenant}'`, "i");
+  if (!tenantRe.test(one)) {
+    return { ok: false, out: `Refused: include tenant_id = '${tenant}' in the top-level WHERE clause.` };
+  }
+  return { ok: true, sql: one };
+}
+function runSql(sql, user) {
+  return new Promise((resolve) => {
+    const checked = validateReadSql(sql, user);
+    if (!checked.ok) return resolve(checked);
     const child = spawn(
       "psql",
       ["-X", "-q", "-v", "ON_ERROR_STOP=1", "-P", "pager=off", "-P", "footer=off", "-A", "-F", "\t", "-f", "-"],
@@ -146,24 +179,26 @@ function runSql(sql) {
       const clipped = lines.length > SQL_MAX_ROWS + 1 ? lines.slice(0, SQL_MAX_ROWS + 1).join("\n") + `\n… (${lines.length - SQL_MAX_ROWS - 1} more rows truncated)` : out;
       resolve({ ok: code === 0, out: code === 0 ? clipped : err.trim() || `psql exited ${code}` });
     });
-    child.stdin.end(`BEGIN READ ONLY;\n${text.replace(/;\s*$/, "")};\nROLLBACK;\n`);
+    child.stdin.end(`BEGIN READ ONLY;\n${checked.sql};\nROLLBACK;\n`);
   });
 }
-const meshaTools = createSdkMcpServer({
-  name: "mesha",
-  version: "1.0.0",
-  tools: [
-    tool(
-      "run_sql",
-      "Run ONE read-only SQL query against goatos-stg (ceo_ai.* views) and return tab-separated rows (max 500). Use the mesha data map to pick the view.",
-      { sql: z.string().describe("A single SELECT/WITH query. No psql backslash commands.") },
-      async ({ sql }) => {
-        const r = await runSql(sql);
-        return { content: [{ type: "text", text: r.out || "(no rows)" }], isError: !r.ok };
-      },
-    ),
-  ],
-});
+function meshaToolsFor(user) {
+  return createSdkMcpServer({
+    name: "mesha",
+    version: "1.0.0",
+    tools: [
+      tool(
+        "run_sql",
+        "Run ONE read-only SQL query against goatos-stg (ceo_ai.* views) and return tab-separated rows (max 500). Include tenant_id = '<authenticated tenant>' in the WHERE clause. Use the mesha data map to pick the view.",
+        { sql: z.string().describe("A single SELECT/WITH query. No psql backslash commands.") },
+        async ({ sql }) => {
+          const r = await runSql(sql, user);
+          return { content: [{ type: "text", text: r.out || "(no rows)" }], isError: !r.ok };
+        },
+      ),
+    ],
+  });
+}
 
 // ---- storage: Postgres (ASK_MESHA_DATABASE_URL) or JSON file (local dev) ----
 // Uploads: GCS (ASK_MESHA_UPLOADS_BUCKET) or $STATE/uploads. See store.mjs / uploads.mjs.
@@ -413,6 +448,15 @@ async function ask(req, res, user) {
   const t0 = Date.now();
   const deep = /^deep:\s*/i.test(question);
   let prompt = question.replace(/^deep:\s*/i, "");
+  const scope = body.page_scope && typeof body.page_scope === "object" ? body.page_scope : {};
+  const pageScope = {
+    park_id: typeof scope.park_id === "string" && scope.park_id ? scope.park_id : "",
+    shed_id: typeof scope.shed_id === "string" && scope.shed_id ? scope.shed_id : "",
+  };
+  prompt += `\n\nAuthenticated tenant scope: tenant_id = '${user.tenantId}'. Every SQL query must include that tenant_id filter.`;
+  if (pageScope.park_id || pageScope.shed_id) {
+    prompt += `\nCurrent page scope: ${pageScope.park_id ? `park_id=${pageScope.park_id}` : ""}${pageScope.park_id && pageScope.shed_id ? ", " : ""}${pageScope.shed_id ? `shed_id=${pageScope.shed_id}` : ""}. If the user's wording does not ask for all parks or another scope, apply this page scope in the SQL.`;
+  }
   let history = [];
   let cleanupUploads = async () => {};
   const metric = {
@@ -477,7 +521,7 @@ async function ask(req, res, user) {
           ? {
               // Only read tools + the read-only SQL tool exist for the agent.
               tools: ["Read", "Grep", "Glob", "Skill", "TodoWrite"],
-              mcpServers: { mesha: meshaTools },
+              mcpServers: { mesha: meshaToolsFor(user) },
               allowedTools: ["mcp__mesha__run_sql"],
               disallowedTools: ["Bash", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Task", "Agent"],
             }

@@ -10,11 +10,11 @@
   <array>
     <string>/bin/bash</string>
     <string>-lc</string>
-    <string>/Users/raviteja/airnd/goatos-pr/tools/ask-mesha-agent/refresh-data-map.sh</string>
+    <string>/Users/raviteja/mesha/goatos/tools/ask-mesha-agent/refresh-data-map.sh</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>
-    <key>GOATOS_REPO</key><string>/Users/raviteja/airnd/goatos-pr</string>
+    <key>GOATOS_REPO</key><string>/Users/raviteja/mesha/goatos</string>
     <key>PGENV_FILE</key><string>/Users/raviteja/airnd/agent-local/.pgenv</string>
   </dict>
   <key>StartCalendarInterval</key>

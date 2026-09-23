@@ -27,6 +27,7 @@ grains and an example per view: `references/views.generated.md` (regenerate with
 | Vaccination due/done now per pen | `vaccination_shed_status` | due, done, next due | none (current) |
 | Vaccination obligations over time | `vaccination_obligations_base` | status, due/completed days | `due_business_day` |
 | Doses to pick / operator load | `vaccination_dose_pickup`, `vaccination_operator_status` | | business / planned day |
+| Pre-arrival vaccination history review / rejected claims | `vaccination_prearrival_history_review` | source_system, schedule_path, review_status, rejection_reason, reviewed_animals | `reviewed_date_ist` |
 | Procurement loads / pipeline / intake | `procurement_pipeline` (now), `procurement_loads_base` (period), `source_entry_health_status` (intake variance) | stage, status, counts | `entered_business_day` (loads_base) |
 | Workforce tasks / overdue / coverage | `workforce_tasks_base`, `workforce_coverage_status` | state, task_type, owner | `due_business_day` |
 | Pen occupancy vs capacity | `shed_capacity_current` | occupancy, capacity, variance | none |
@@ -54,7 +55,7 @@ grains and an example per view: `references/views.generated.md` (regenerate with
 - **Dates in answers:** render `DD/MM/YYYY`.
 - **Base views (`*_base`, `animal_current_scope`)** are one row per entity: aggregate, don't dump rows.
 - **Weighing is isolated** from herd/vaccination: don't join weighing to vaccination to explain it.
-- One tenant on stg; `tenant_id` filter unnecessary for ad-hoc psql.
+- Agent SQL must include the authenticated `tenant_id = '<tenant uuid>'` filter; for ad-hoc one-tenant psql, tenant can be omitted only outside the agent path.
 
 ## Metric definitions (match the dashboard)
 
