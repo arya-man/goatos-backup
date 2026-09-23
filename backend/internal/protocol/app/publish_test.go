@@ -1419,17 +1419,58 @@ func TestPublishMatrixAcceptsValidVaccineValues(t *testing.T) {
 }
 
 func TestPublishMatrixRejectsZ1Z3WithETTTDoseCode(t *testing.T) {
+	// THE FIXTURE MUST BE REJECTABLE FOR EXACTLY ONE REASON.
+	//
+	// This test used to omit eligibility.defer_states, so the publish was refused with
+	// "vaccination matrix eligibility.defer_states required" and never reached the dose-family
+	// check at all. errors.Is(err, ErrNotPublishable) matched that other refusal happily, so the
+	// whole Z1+Z3 guard could be deleted and this test stayed green — verified by disabling it.
+	//
+	// Two changes, and both are needed. The fixture now carries the mandatory clinical defer set
+	// so nothing ELSE refuses it, and the assertion names the dose code in the message instead of
+	// accepting any member of the ErrNotPublishable family. An assertion that matches a family of
+	// branches cannot tell you which branch ran, and here the branch that ran was a different
+	// medical guard masking the one under test.
 	repo := &fakeProtocolRepo{
 		version: validPublishVersion("draft"),
 	}
-	repo.version.RuleDsl = []byte(`{"category":"vaccination","ruleset_family":"vaccination.matrix","vaccine":{"code":"vaccination.matrix","name":"Preventive Care vaccination matrix","type":"matrix"},"eligibility":{"animal_stage":"all","species":["goat","sheep"],"sex":["female","male"],"breed":["all"],"lifecycle":["alive"],"health":["healthy"],"reproductive":["any"]},"matrix_rows":[{"row_id":"z1-z3","vaccine":{"code":"Z1_Z3","name":"Z1+Z3","type":"killed","pathogen_class":"bacterial","compatibility_group":"Z1_Z3","course_type":"booster"},"eligibility":{"species":["goat","sheep"],"animal_stage":["all"],"sex":["female","male"],"breed":["all"],"lifecycle":["alive"],"health":["healthy"],"reproductive":["any"]},"schedule":[{"dose_code":"et_tt_kid_4w","source_dose_code":"et_tt_kid_4w","sequence":1,"trigger_type":"birth_age","offset_days":28,"due_window_days":7,"dose_amount":1,"dose_unit":"ml","route_site":"subcutaneous","max_delay_days":7,"course_lapse_policy":"preventive_care_review","repeat":"none","catch_up":"immediate"}]}],"schedule":[{"dose_code":"et_tt_kid_4w","source_dose_code":"et_tt_kid_4w","sequence":1,"trigger_type":"birth_age","offset_days":28,"due_window_days":7,"dose_amount":1,"dose_unit":"ml","route_site":"subcutaneous","max_delay_days":7,"course_lapse_policy":"preventive_care_review","repeat":"none","catch_up":"immediate"}]}`)
+	repo.version.RuleDsl = []byte(z1z3MatrixRuleDSL("et_tt_kid_4w"))
 	service := NewService(repo)
 
 	err := service.PublishVersion(context.Background(), "tenant-1", "version-1", nil)
 	if !errors.Is(err, ErrNotPublishable) {
 		t.Fatalf("Z1+Z3 with ET+TT dose code should be not publishable, got %v", err)
 	}
+	if !strings.Contains(err.Error(), "et_tt_kid_4w") {
+		t.Fatalf("the refusal must name the ET+TT dose code it rejected, got %v -- "+
+			"any other ErrNotPublishable here means something else refused the fixture first "+
+			"and the Z1+Z3 dose-family rule was never reached", err)
+	}
 	if repo.publishCalls > 0 {
 		t.Fatalf("bad Z1+Z3 dose family must not be published, but publishCalls=%d", repo.publishCalls)
 	}
+}
+
+// The other half: the SAME fixture with a Z1+Z3 dose code PUBLISHES. Without this, the test above
+// is satisfied by a rule that refuses every Z1+Z3 row, which would block the farm's real matrix.
+func TestPublishMatrixAcceptsZ1Z3WithItsOwnDoseCode(t *testing.T) {
+	repo := &fakeProtocolRepo{
+		version: validPublishVersion("draft"),
+	}
+	repo.version.RuleDsl = []byte(z1z3MatrixRuleDSL("z1_z3_kid_4w"))
+	if err := NewService(repo).PublishVersion(context.Background(), "tenant-1", "version-1", nil); err != nil {
+		t.Fatalf("a Z1+Z3 row on its OWN dose code must publish, got %v", err)
+	}
+	if repo.publishCalls != 1 {
+		t.Fatalf("publishCalls = %d, want 1", repo.publishCalls)
+	}
+}
+
+// z1z3MatrixRuleDSL is one Z1+Z3 matrix row whose ONLY variable is the dose code, so the two tests
+// above differ in exactly the fact under test. It carries the mandatory clinical defer set
+// (protocol/domain.MandatoryClinicalDeferStates) because a published rule that omits one of those
+// states is itself refused, and that refusal is what used to mask this one.
+func z1z3MatrixRuleDSL(doseCode string) string {
+	const shape = `{"category":"vaccination","ruleset_family":"vaccination.matrix","vaccine":{"code":"vaccination.matrix","name":"Preventive Care vaccination matrix","type":"matrix"},"eligibility":{"animal_stage":"all","species":["goat","sheep"],"sex":["female","male"],"breed":["all"],"lifecycle":["alive"],"health":["healthy"],"reproductive":["any"],"defer_states":["sick","under_treatment","recovering","quarantine","icu"],"exclude_reproductive_states":["pregnant_late"]},"matrix_rows":[{"row_id":"z1-z3","vaccine":{"code":"Z1_Z3","name":"Z1+Z3","type":"killed","pathogen_class":"bacterial","compatibility_group":"Z1_Z3","course_type":"booster"},"eligibility":{"species":["goat","sheep"],"animal_stage":["all"],"sex":["female","male"],"breed":["all"],"lifecycle":["alive"],"health":["healthy"],"reproductive":["any"],"defer_states":["sick","under_treatment","recovering","quarantine","icu"],"exclude_reproductive_states":["pregnant_late"]},"schedule":[{"dose_code":"%[1]s","source_dose_code":"%[1]s","sequence":1,"trigger_type":"birth_age","offset_days":28,"due_window_days":7,"dose_amount":1,"dose_unit":"ml","route_site":"subcutaneous","max_delay_days":7,"course_lapse_policy":"preventive_care_review","repeat":"none","catch_up":"immediate"}]}],"schedule":[{"dose_code":"%[1]s","source_dose_code":"%[1]s","sequence":1,"trigger_type":"birth_age","offset_days":28,"due_window_days":7,"dose_amount":1,"dose_unit":"ml","route_site":"subcutaneous","max_delay_days":7,"course_lapse_policy":"preventive_care_review","repeat":"none","catch_up":"immediate"}]}`
+	return fmt.Sprintf(shape, doseCode)
 }
