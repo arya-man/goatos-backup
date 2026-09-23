@@ -437,10 +437,17 @@ function pageFamilyKey(issue) {
   }
 }
 
-// What to call a merged finding: the words the merged routes agree on. tasks-overdue +
-// tasks-search -> "Tasks"; feed-analytics-items + feed-analytics-peranimal -> "Feed Analytics".
+// What to call a merged finding: the page itself, read off the path the merged routes share.
+// /tasks -> "Tasks", /feed/analytics -> "Feed Analytics", /counts/sops -> "Counts Sops".
 // One route keeps its own full name, so a lone `tasks-overdue` failure still says "Tasks Overdue".
-function pageLabel(routes, fallback) {
+// A path with an id in it (/goats/<uuid>) names nothing, so those fall through to the route names
+// the variants agree on — as does anything grouped without a link.
+function pageLabel(familyKey, routes, fallback) {
+  const segments = String(familyKey ?? "").split("/").filter(Boolean);
+  if (routes.length > 1 && String(familyKey).startsWith("/") && segments.length > 0
+    && segments.every((segment) => /^[a-z][a-z-]*$/.test(segment))) {
+    return segments.join(" ").replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  }
   const parts = (routes ?? []).filter(Boolean).map((name) => String(name).split("-"));
   if (parts.length === 0) return fallback;
   let shared = parts[0];
@@ -458,16 +465,17 @@ function pageLabel(routes, fallback) {
 function groupVisualIssues(issues) {
   const grouped = [];
   for (const issue of issues) {
-    const key = `${issue.what}|${pageFamilyKey(issue)}`;
+    const family = pageFamilyKey(issue);
+    const key = `${issue.what}|${family}`;
     const seen = grouped.find((existing) => existing.key === key);
     if (seen) {
       if (!seen.deviceLabel.includes(issue.deviceLabel)) seen.deviceLabel += ` ${issue.deviceLabel}`;
       seen.views += 1;
       if (issue.route && !seen.routes.includes(issue.route)) seen.routes.push(issue.route);
-      seen.page = pageLabel(seen.routes, seen.page);
+      seen.page = pageLabel(family, seen.routes, seen.page);
       continue;
     }
-    grouped.push({ ...issue, key, views: 1, routes: issue.route ? [issue.route] : [] });
+    grouped.push({ ...issue, key, family, views: 1, routes: issue.route ? [issue.route] : [] });
   }
   return grouped;
 }
@@ -1300,6 +1308,26 @@ function selfTestRouteVariantGrouping() {
   ].map(humanIssue).filter(Boolean));
   if (weighing.length !== 2) throw new Error(`self-test: /weighing/analytics tabs merge but /weighing/weights is its own page, got ${weighing.length}`);
   if (weighing[0].page !== "Weighing Analytics") throw new Error(`self-test: merged weighing tabs must read "Weighing Analytics", got "${weighing[0].page}"`);
+
+  // A merged finding is named after the page, not after the words its route names happen to
+  // share. `counts-sops` + `counts-sop-flow` are both /counts/sops; calling that finding "Counts"
+  // would point a reader at the wrong screen.
+  const sops = groupVisualIssues([
+    { module: "counts", route: "mobile:counts-sops", url: "https://dashboard.mesha.sg/counts/sops?scope_mode=company", error: 'counts-sops mobile has interactive targets below 40px: [{"tag":"button","text":"x","width":20,"height":20}]' },
+    { module: "counts", route: "mobile:counts-sop-flow", url: "https://dashboard.mesha.sg/counts/sops?scope_mode=company&compose=1&view=flow", error: 'counts-sop-flow mobile has interactive targets below 40px: [{"tag":"button","text":"x","width":20,"height":20}]' }
+  ].map(humanIssue).filter(Boolean));
+  if (sops.length !== 1 || sops[0].page !== "Counts Sops") {
+    throw new Error(`self-test: /counts/sops variants must merge and be named for the page, got ${sops.length} × "${sops[0]?.page}"`);
+  }
+
+  // A path that is mostly an id names nothing, so those fall back to the route names.
+  const passport = groupVisualIssues([
+    { module: "counts", route: "laptop:goat-passport", url: "https://dashboard.mesha.sg/goats/7f3a1c20-0000-4000-8000-000000000001", error: 'goat-passport laptop chip-crushed: "Warmup" cut off' },
+    { module: "counts", route: "mobile:goat-passport", url: "https://dashboard.mesha.sg/goats/7f3a1c20-0000-4000-8000-000000000001", error: 'goat-passport mobile chip-crushed: "Warmup" cut off' }
+  ].map(humanIssue).filter(Boolean));
+  if (passport.length !== 1 || passport[0].page !== "Goat Passport") {
+    throw new Error(`self-test: an id-bearing path must fall back to the route name, got "${passport[0]?.page}"`);
+  }
 
   // A failure with no link must never be merged on a guess about its name.
   const unlinked = groupVisualIssues([
