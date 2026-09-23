@@ -1216,10 +1216,18 @@ const zeroUUID = "00000000-0000-0000-0000-000000000000"
 // many animals a park has gapped. Requires a park (INNER JOIN locations park), matching the same
 // "located park_uuid IS NOT NULL" convention the execution/operations queries already use; a goat with
 // no park at all is out of scope here (not a modeled gap reason).
-// The two LEFT JOINs on goat_identifiers surface the animal's physical tags ("Tag 1"/"Tag 2") for the
+// The two LATERALs on goat_identifiers surface the animal's physical tags ("Tag 1"/"Tag 2") for the
 // mobile card; each is a single indexed lookup on goat_identifiers_goat_status_idx (goat_id, status) over
 // the already-bounded (<= LIMIT) keyset window, not a full-table scan — same idiom as calendar
 // ListDriveTargets. A goat with no active tag of a type yields NULL (rendered as "—" on the card).
+//
+// SCALAR, not a plain join, and that is the whole point (the de4e099b6 shape). goat_identifiers is
+// unique per (goat_id, identifier_type) only for the PRIMARY active row, so one goat may hold
+// several ACTIVE NON-PRIMARY rows of a type — the validation database already does. Plain joins
+// emitted such an animal ONCE PER EXTRA ROW, and on a keyset-paginated scan a duplicate spends one
+// of the LIMIT's slots, so distinct gapped animals fell off the page and the operator's list came
+// back short. The primary row wins and identifier_id only breaks ties, so the pick is also STABLE
+// across reads rather than whichever row the join reached first.
 const vaccinationGapsSQL = `
 SELECT
   g.goat_id::text,
@@ -1240,16 +1248,20 @@ LEFT JOIN locations shed
   ON shed.tenant_id = $1::uuid
  AND shed.location_id = g.shed_id
  AND shed.location_type = 'shed'
-LEFT JOIN goat_identifiers aid1
-  ON aid1.tenant_id = g.tenant_id
- AND aid1.goat_id = g.goat_id
- AND aid1.identifier_type = 'animal_identifier_1'
- AND aid1.status = 'active'
-LEFT JOIN goat_identifiers aid2
-  ON aid2.tenant_id = g.tenant_id
- AND aid2.goat_id = g.goat_id
- AND aid2.identifier_type = 'animal_identifier_2'
- AND aid2.status = 'active'
+LEFT JOIN LATERAL (
+  SELECT gi.identifier_value FROM goat_identifiers gi
+  WHERE gi.tenant_id = g.tenant_id AND gi.goat_id = g.goat_id
+    AND gi.identifier_type = 'animal_identifier_1' AND gi.status = 'active'
+  ORDER BY gi.is_primary_for_goat DESC, gi.identifier_id
+  LIMIT 1
+) aid1 ON true
+LEFT JOIN LATERAL (
+  SELECT gi.identifier_value FROM goat_identifiers gi
+  WHERE gi.tenant_id = g.tenant_id AND gi.goat_id = g.goat_id
+    AND gi.identifier_type = 'animal_identifier_2' AND gi.status = 'active'
+  ORDER BY gi.is_primary_for_goat DESC, gi.identifier_id
+  LIMIT 1
+) aid2 ON true
 WHERE g.tenant_id = $1::uuid
   AND g.lifecycle_status = 'alive'
   AND g.merged_into_goat_id IS NULL
