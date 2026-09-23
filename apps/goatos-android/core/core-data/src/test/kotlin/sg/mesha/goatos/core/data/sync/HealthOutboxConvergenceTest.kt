@@ -51,6 +51,9 @@ class HealthOutboxConvergenceTest {
 
         override suspend fun refreshCaseOptions(ageBand: String, date: String): Result<Unit> = Result.success(Unit)
 
+        override suspend fun observationForm(goatId: String) =
+            Result.success(sg.mesha.goatos.core.network.dto.HealthObservationFormDto())
+
         override suspend fun refreshDetail(healthSessionId: String): Result<Unit> {
             detailRefreshes += healthSessionId
             return Result.success(Unit)

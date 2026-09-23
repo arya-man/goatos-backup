@@ -10,12 +10,15 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.HealthRepository
+import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.network.dto.HealthConfirmableProblemDto
 import sg.mesha.goatos.core.network.dto.HealthDiagnosisProposalResponseDto
@@ -131,6 +134,36 @@ class DiagnosisProposalViewModel @Inject constructor(
     private val _decided = Channel<Unit>(Channel.BUFFERED)
     val decidedEvents: Flow<Unit> = _decided.receiveAsFlow()
 
+    /**
+     * Wait for the queued decision to actually reach the server, then close.
+     *
+     * Offline, the item stays active and this simply never fires, so the decider keeps the
+     * screen and the spinner rather than being returned to a list that still shows the animal.
+     * A refusal puts them back on the screen with the reason, which is the only place the
+     * decision can be made again.
+     */
+    private suspend fun awaitDecisionLanded(outboxItemId: String) {
+        val landed = syncRepository.observeItem(outboxItemId)
+            .mapNotNull { item ->
+                when {
+                    item == null -> null
+                    item.status == SyncItemStatus.SUCCEEDED -> true
+                    !item.isActive -> false
+                    else -> null
+                }
+            }
+            .first()
+        if (landed) {
+            _state.value = _state.value.copy(sending = false, message = null)
+            _decided.send(Unit)
+        } else {
+            _state.value = _state.value.copy(
+                sending = false,
+                message = "Could not record the decision. Try again.",
+            )
+        }
+    }
+
     private fun send() {
         val current = _state.value
         if (!current.canSend || diagnosisRunId.isBlank()) return
@@ -154,8 +187,12 @@ class DiagnosisProposalViewModel @Inject constructor(
                     // Treatment starts once this syncs." sat on a screen the decider had
                     // finished with, and said "once this syncs" for a write that had usually
                     // already synced by the time they read it.
-                    _state.value = _state.value.copy(sending = false, message = null)
-                    _decided.trySend(Unit)
+                    // CLOSE ONLY ONCE THE SERVER HAS IT. The queue behind this screen refreshes
+                    // on resume, so popping the moment the write is QUEUED races the outbox: the
+                    // refresh asks a server that still says "proposed" and the animal just
+                    // decided is still sitting in the list. Waiting for the queued item to land
+                    // means the refresh that follows the pop reads the decided state.
+                    awaitDecisionLanded(result.value)
                 }
                 is AppResult.Err -> {
                     analytics.track(

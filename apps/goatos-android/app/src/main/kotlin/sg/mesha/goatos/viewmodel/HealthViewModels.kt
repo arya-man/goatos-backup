@@ -49,6 +49,9 @@ import sg.mesha.goatos.core.network.dto.HealthSummaryDto
 import sg.mesha.goatos.core.network.dto.HealthTreatmentStepDto
 import sg.mesha.goatos.core.network.dto.HealthWorkItemDto
 import sg.mesha.goatos.core.network.dto.GoatSearchItemDto
+import sg.mesha.goatos.feature.health.StepProofState
+import sg.mesha.goatos.feature.health.TreatmentStepProofs
+import sg.mesha.goatos.feature.health.TreatmentStepProof
 import sg.mesha.goatos.feature.health.AddHealthCaseEvent
 import sg.mesha.goatos.feature.health.AddHealthCaseUiState
 import sg.mesha.goatos.feature.health.HealthGoatUi
@@ -326,6 +329,16 @@ class HealthDetailViewModel @Inject constructor(
     private val message = MutableStateFlow<String?>(null)
     private val video = MutableStateFlow(HealthVideoState())
 
+    /**
+     * ONE VIDEO PER STEP (maintainer decision 2026-09-23).
+     *
+     * A step reads RECORDED only when its REGISTER lands, never when the upload does -- the proof
+     * business-ack contract, written after PC Care showed "Video sent" off an upload row while
+     * the feature row's ref was empty.
+     */
+    private val stepProofs = MutableStateFlow(TreatmentStepProofs())
+    val stepProofState: StateFlow<TreatmentStepProofs> = stepProofs.asStateFlow()
+
     /** Latest Room-backed detail, for the capture/close context (goat, case, band, date). */
     private var latestDetail: HealthWorkItemDetailDto? = null
 
@@ -335,8 +348,8 @@ class HealthDetailViewModel @Inject constructor(
     private var proofStatusJob: Job? = null
 
     val state: StateFlow<HealthDetailUiState> = combine(
-        repo.observeDetail(sessionId), ops, message, video,
-    ) { detail, opsState, notice, videoState ->
+        repo.observeDetail(sessionId), ops, message, video, stepProofs,
+    ) { detail, opsState, notice, videoState, stepProofState ->
         val saving = opsState.submitting
         val closingCase = opsState.closing
         latestDetail = detail
@@ -356,8 +369,15 @@ class HealthDetailViewModel @Inject constructor(
             message = notice,
             // Backend-owned capability gating (can_complete mirrors health.execute): the audit
             // found the button rendering for principals whose tap could only ever 403.
+            // EVERY STEP RECORDED, not one video (maintainer decision 2026-09-23). A card whose
+            // steps carry ids is judged on its step set; a pre-step-proof card keeps the single
+            // clip it was built on, so nothing already in the field becomes unsubmittable.
             canComplete = detail.canComplete && detail.status in OPEN_STATUSES && !saving &&
-                videoState.captured && !videoState.capturing,
+                !videoState.capturing &&
+                run {
+                    val stepIds = detail.steps.map { it.stepId }.filter { it.isNotBlank() }
+                    if (stepIds.isEmpty()) videoState.captured else stepProofState.complete(stepIds)
+                },
             canRecordVideo = detail.canComplete && detail.status in OPEN_STATUSES && !saving,
             canCloseCase = detail.canCloseCase && detail.status !in CLOSED_SESSION_STATUSES && !closingCase,
             // Carried through verbatim, blank included: a blank rule is a PRE-ENGINE case and the
@@ -397,7 +417,9 @@ class HealthDetailViewModel @Inject constructor(
 
     /** MANDATORY treatment video — a LIVE in-app camera clip, enqueued as a PROOF_UPLOAD on the
      *  SESSION group so it drains before the completion that references it. Camera-only. */
-    fun recordVideo(replacing: Boolean = false) {
+    fun recordStepVideo(stepId: String, replacing: Boolean = false) = recordVideo(replacing, stepId)
+
+    fun recordVideo(replacing: Boolean = false, stepId: String = "") {
         val detail = latestDetail ?: return
         if (video.value.capturing) return
         if (!replacing && video.value.captured) return
@@ -419,9 +441,12 @@ class HealthDetailViewModel @Inject constructor(
                 video.update { it.copy(capturing = false) }
                 return@launch
             }
+            // The FIELD KEY carries the step, so each step's clip is its own durable capture row
+            // and a re-shoot replaces only that step. A blank step is the legacy one-video card.
             val slot = EvidenceSlot(
                 identity = ProofIdentity(flow = ProofFlow.HEALTH, taskId = sessionId),
-                fieldKey = FIELD_HEALTH_TREATMENT_VIDEO,
+                fieldKey = if (stepId.isBlank()) FIELD_HEALTH_TREATMENT_VIDEO
+                else FIELD_HEALTH_TREATMENT_VIDEO + ":" + stepId,
             )
             when (
                 val result = proofCaptureRepository.captureReplacingLatest(
@@ -449,11 +474,19 @@ class HealthDetailViewModel @Inject constructor(
                         video.update { it.copy(capturing = false, captured = it.captured, message = PROOF_FAILED) }
                         return@launch
                     }
-                    drafts.putProof(CaptureFlow.HEALTH_TREATMENT, sessionId, STEP_VIDEO, proofOutboxId)
+                    drafts.putProof(
+                        CaptureFlow.HEALTH_TREATMENT, sessionId,
+                        if (stepId.isBlank()) STEP_VIDEO else stepId, proofOutboxId,
+                    )
                     draft = drafts.find(CaptureFlow.HEALTH_TREATMENT, sessionId)
-                    observeProofItem(proofOutboxId)
                     analytics.track(AnalyticsEvents.HEALTH_TREATMENT_VIDEO_CAPTURED)
-                    video.update { it.copy(capturing = false, captured = true, message = VIDEO_QUEUED) }
+                    if (stepId.isBlank()) {
+                        observeProofItem(proofOutboxId)
+                        video.update { it.copy(capturing = false, captured = true, message = VIDEO_QUEUED) }
+                    } else {
+                        registerStepProof(stepId, proofOutboxId)
+                        video.update { it.copy(capturing = false) }
+                    }
                 }
                 is AppResult.Err -> {
                     result.cause?.let { crashReporter.recordException(it, "health treatment video enqueue failed") }
@@ -462,6 +495,85 @@ class HealthDetailViewModel @Inject constructor(
                         mapOf(AnalyticsEvents.Params.KIND to "work_item", AnalyticsEvents.Params.REASON to result.message),
                     )
                     video.update { it.copy(capturing = false, captured = it.captured, message = PROOF_FAILED) }
+                }
+            }
+        }
+    }
+
+    /**
+     * The step's BUSINESS write: attach the uploaded clip to this step.
+     *
+     * Enqueued as its own outbox row referencing the upload by id, so it drains after the bytes
+     * and -- when it fails after a successful upload -- retries BY ITSELF. The video is never
+     * re-uploaded to repair the link.
+     */
+    private fun registerStepProof(stepId: String, proofOutboxItemId: String) {
+        stepProofs.update {
+            it.with(
+                TreatmentStepProof(
+                    stepId = stepId,
+                    state = StepProofState.SENDING,
+                    uploadOutboxItemId = proofOutboxItemId,
+                    message = VIDEO_QUEUED,
+                ),
+            )
+        }
+        viewModelScope.launch {
+            // The UPLOAD row is part of the key: a retry of the same clip replays for free, while
+            // a re-shoot is a NEW act that must not collide with the first register's row.
+            when (
+                val queued = syncRepository.enqueueHealthStepProofRegister(
+                    healthSessionId = sessionId,
+                    healthSessionStepId = stepId,
+                    proofOutboxItemId = proofOutboxItemId,
+                    idempotencyKey = "health-step-proof:" + sessionId + ":" + stepId + ":" + proofOutboxItemId,
+                )
+            ) {
+                is AppResult.Ok -> observeStepRegister(stepId, proofOutboxItemId, queued.value)
+                is AppResult.Err -> stepProofs.update {
+                    it.with(
+                        TreatmentStepProof(
+                            stepId = stepId,
+                            state = StepProofState.FAILED,
+                            uploadOutboxItemId = proofOutboxItemId,
+                            message = queued.message,
+                        ),
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * RECORDED means the server holds this step's clip -- the register SUCCEEDED.
+     *
+     * An upload that landed while this write is still queued, or dead, leaves the step OWED. That
+     * is the proof business-ack contract: a blob reaching storage is not the business fact, and a
+     * screen that says otherwise is how a proof goes missing quietly.
+     */
+    private fun observeStepRegister(stepId: String, uploadItemId: String, registerItemId: String) {
+        viewModelScope.launch {
+            syncRepository.observeItem(registerItemId).collect { item ->
+                if (item == null) return@collect
+                val state = when {
+                    item.status == SyncItemStatus.SUCCEEDED -> StepProofState.RECORDED
+                    !item.isActive -> StepProofState.FAILED
+                    else -> StepProofState.SENDING
+                }
+                stepProofs.update {
+                    it.with(
+                        TreatmentStepProof(
+                            stepId = stepId,
+                            state = state,
+                            uploadOutboxItemId = uploadItemId,
+                            registerOutboxItemId = registerItemId,
+                            message = when (state) {
+                                StepProofState.RECORDED -> ""
+                                StepProofState.FAILED -> item.lastError ?: PROOF_FAILED
+                                else -> VIDEO_QUEUED
+                            },
+                        ),
+                    )
                 }
             }
         }
@@ -515,8 +627,24 @@ class HealthDetailViewModel @Inject constructor(
 
     fun complete() = viewModelScope.launch {
         if (ops.value.submitting) return@launch
+
+        // EVERY STEP OWES ITS VIDEO (maintainer decision 2026-09-23), and owes it RECORDED -- an
+        // upload whose register has not landed is not evidence the server holds, so submitting
+        // would be refused anyway. The server checks the same rule inside its row lock; this one
+        // exists so the operator is told before they tap, with the steps NAMED.
+        val stepIds = latestDetail?.steps.orEmpty().map { it.stepId }.filter { it.isNotBlank() }
+        val proofs = stepProofs.value
+        if (stepIds.isNotEmpty()) {
+            val missing = proofs.missing(stepIds)
+            if (missing.isNotEmpty()) {
+                video.update { it.copy(message = NEED_VIDEO_MESSAGE) }
+                return@launch
+            }
+        }
+
         val videoItem = draft.proofs[STEP_VIDEO]
-        if (videoItem.isNullOrBlank()) {
+        if (stepIds.isEmpty() && videoItem.isNullOrBlank()) {
+            // A card from before per-step video still owes its single session clip.
             video.update { it.copy(message = NEED_VIDEO_MESSAGE) }
             return@launch
         }
@@ -524,10 +652,15 @@ class HealthDetailViewModel @Inject constructor(
         // The PROOF is part of the key: a retry of the same video replays for free, while a
         // rework re-shoot (new video) is a NEW completion that must not collide with the first
         // one's SUCCEEDED outbox row — the exact silent-drop defect of the 2026-08-29 audit.
+        // The key carries WHAT was filmed: the step set for a per-step card, the single clip for
+        // a legacy one. A retry replays for free; a re-shoot is a new act that must not collide
+        // with the first completion's row -- the silent-drop defect of the 2026-08-29 audit.
+        val proofFingerprint = if (stepIds.isEmpty()) videoItem.orEmpty()
+        else stepIds.joinToString(",") { proofs.of(it).uploadOutboxItemId }
         when (val result = syncRepository.enqueueHealthTreatmentComplete(
             healthSessionId = sessionId,
-            idempotencyKey = "health-complete:$sessionId:$videoItem",
-            proofOutboxItemId = videoItem,
+            idempotencyKey = "health-complete:$sessionId:$proofFingerprint",
+            proofOutboxItemId = if (stepIds.isEmpty()) videoItem.orEmpty() else "",
         )) {
             is AppResult.Ok -> {
                 repo.markCompleted(sessionId)
