@@ -700,6 +700,57 @@ ORDER BY mine.requested_at DESC, mine.notification_request_id DESC` + "`" + `
 	}
 }
 
+func TestCTELimitOutsideResolvesDeepComposedNotificationFix(t *testing.T) {
+	fixed := `package p
+
+const sqlTargetMemberCTE = ` + "`" + `
+WITH target_member AS (
+  SELECT COALESCE(
+    (SELECT wm.workforce_member_id FROM workforce_members wm WHERE wm.tenant_id = $1::uuid AND wm.workforce_member_id = $2::uuid),
+    (SELECT wm.workforce_member_id FROM workforce_members wm WHERE wm.tenant_id = $1::uuid AND wm.user_id = $2::uuid)
+  ) AS workforce_member_id
+)` + "`" + `
+const sqlDedupeA = ` + "`" + `COALESCE(NULLIF(` + "`" + `
+const sqlDedupeB = ` + "`" + `nr.context->>'event_key'` + "`" + `
+const sqlDedupeC = ` + "`" + `, ''), nr.notification_request_id::text)` + "`" + `
+const sqlDedupe = sqlDedupeA + sqlDedupeB + sqlDedupeC
+const sqlListNotificationsPrefix = sqlTargetMemberCTE + ` + "`" + `,
+mine AS (
+  SELECT nr.notification_request_id, nr.requested_at, nr.context
+  FROM notification_requests nr, target_member tm
+  WHERE nr.tenant_id = $1::uuid
+    AND tm.workforce_member_id IS NOT NULL
+    AND nr.context->>'member_id' = tm.workforce_member_id::text
+` + "`" + `
+const sqlListNotificationsCursor = ` + "`" + `
+    AND (nr.requested_at, nr.notification_request_id) < ($3::timestamptz, $4::uuid)
+` + "`" + `
+const sqlListNotificationsDedupe = ` + "`" + `
+    AND NOT EXISTS (
+      SELECT 1 FROM notification_requests newer
+      WHERE newer.tenant_id = $1::uuid
+        AND newer.context->>'member_id' = tm.workforce_member_id::text
+        AND COALESCE(NULLIF(newer.context->>'event_key', ''), newer.notification_request_id::text) = ` + "`" + ` + sqlDedupe + ` + "`" + `
+        AND (newer.requested_at, newer.notification_request_id)
+          > (nr.requested_at, nr.notification_request_id)
+    )
+  ORDER BY nr.requested_at DESC, nr.notification_request_id DESC
+  LIMIT $5
+)
+` + "`" + `
+const sqlListNotificationsProjection = ` + "`" + `
+SELECT mine.notification_request_id::text, mine.requested_at
+FROM mine
+ORDER BY mine.requested_at DESC, mine.notification_request_id DESC` + "`" + `
+const sqlListNotifications = sqlListNotificationsPrefix + sqlListNotificationsCursor + sqlListNotificationsDedupe + sqlListNotificationsProjection
+`
+	repo, path := writeGoAt(t, "backend/internal/notificationcentre/adapters/postgres/repository.go", fixed)
+	got := rules(scanFile(repo, path))
+	if got["cte-limit-outside"] != 0 {
+		t.Fatalf("deep composed fixed statement must be resolved and clean, got %v", got)
+	}
+}
+
 // TestCTELimitOutsideNeedsAssembledConsts proves the const resolution is LOAD-BEARING and not
 // incidental engineering. The literal-at-a-time approach every other SQL rule uses cannot see
 // this statement: no single string literal in it contains both the CTE header and the LIMIT.
@@ -813,6 +864,42 @@ FROM scoped s ORDER BY s.at DESC`,
 				t.Fatalf("false positive on correct code: %s", msg)
 			}
 		})
+	}
+}
+
+func TestCTELimitOutsideDoesNotAcceptNestedLimitAsCTEBound(t *testing.T) {
+	sql := `WITH scoped AS (
+  SELECT o.id, o.at,
+    (SELECT n.note FROM notes n WHERE n.owner_id = o.id ORDER BY n.at DESC LIMIT 1) AS latest_note
+  FROM orders o
+  WHERE o.tenant_id = $1::uuid
+)
+SELECT scoped.id FROM scoped ORDER BY scoped.at DESC LIMIT $2`
+	if msg, bad := detectCTELimitOutside(sql); !bad {
+		t.Fatalf("nested LIMIT inside the CTE must not make the scanning CTE bounded; msg=%q", msg)
+	}
+}
+
+func TestCTELimitOutsideDoesNotTreatStatusArrayAsBounded(t *testing.T) {
+	sql := `WITH scoped AS (
+  SELECT o.id, o.at FROM orders o
+  WHERE o.tenant_id = $1::uuid AND o.status = ANY($2::text[])
+)
+SELECT scoped.id FROM scoped ORDER BY scoped.at DESC LIMIT $3`
+	if msg, bad := detectCTELimitOutside(sql); !bad {
+		t.Fatalf("status = ANY($n) can still match a whole tenant and must be flagged; msg=%q", msg)
+	}
+}
+
+func TestCTELimitOutsideFollowsWrapperCTEDependencies(t *testing.T) {
+	sql := `WITH raw AS MATERIALIZED (
+  SELECT o.id, o.at FROM orders o WHERE o.tenant_id = $1::uuid
+), wrapped AS (
+  SELECT raw.id, raw.at FROM raw
+)
+SELECT wrapped.id FROM wrapped ORDER BY wrapped.at DESC LIMIT $2`
+	if msg, bad := detectCTELimitOutside(sql); !bad {
+		t.Fatalf("outer page through a wrapper CTE must still flag the unbounded raw CTE; msg=%q", msg)
 	}
 }
 
