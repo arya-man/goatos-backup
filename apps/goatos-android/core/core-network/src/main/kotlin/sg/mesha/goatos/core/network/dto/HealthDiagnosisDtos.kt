@@ -388,3 +388,25 @@ data class HealthObservationFormDto(
     val stage: String = "",
     val pages: List<HealthFormPageDto> = emptyList(),
 )
+
+
+/**
+ * ONE STEP'S VIDEO (maintainer decision 2026-09-23):
+ * `PUT /app/health/work-items/{session}/steps/{step}/proof`.
+ *
+ * [proofRef] is the SERVER proof id the upload produced, resolved at drain time -- never a local
+ * file. A re-shoot sends the same route again and REPLACES that step's clip.
+ */
+@Serializable
+data class HealthStepProofRequestDto(
+    @SerialName("proof_ref") val proofRef: String,
+)
+
+/** What the server echoes back for one recorded step. */
+@Serializable
+data class HealthStepProofDto(
+    @SerialName("step_id") val stepId: String = "",
+    @SerialName("proof_ref") val proofRef: String = "",
+    @SerialName("captured_by") val capturedBy: String = "",
+    @SerialName("captured_at") val capturedAt: String = "",
+)

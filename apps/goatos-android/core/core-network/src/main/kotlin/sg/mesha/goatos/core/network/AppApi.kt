@@ -1426,6 +1426,17 @@ interface AppApi {
         request: PcCareSlotProofRequestDto,
     )
 
+    /**
+     * PUT /app/health/work-items/{session}/steps/{step}/proof — attach ONE treatment step's
+     * live-camera video (server proof id) to that step. A re-shoot replaces it.
+     */
+    suspend fun registerHealthStepProof(
+        healthSessionId: String,
+        healthSessionStepId: String,
+        idempotencyKey: String,
+        request: sg.mesha.goatos.core.network.dto.HealthStepProofRequestDto,
+    )
+
     suspend fun registerPcCareTaskProof(
         taskId: String,
         slot: String,
@@ -3152,6 +3163,13 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         slot: String,
         idempotencyKey: String,
         request: PcCareSlotProofRequestDto,
+    ) = Unit
+
+    override suspend fun registerHealthStepProof(
+        healthSessionId: String,
+        healthSessionStepId: String,
+        idempotencyKey: String,
+        request: sg.mesha.goatos.core.network.dto.HealthStepProofRequestDto,
     ) = Unit
 
     override suspend fun registerPcCareTaskProof(

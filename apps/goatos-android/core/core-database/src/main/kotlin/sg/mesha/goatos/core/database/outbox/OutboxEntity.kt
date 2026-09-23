@@ -199,6 +199,18 @@ enum class OutboxOpType {
     WORKFLOW_ACTION_COMPLETE,
     /** Opens one disease course for a goat with a stable SavedStateHandle-persisted key. */
     HEALTH_CASE_OPEN,
+    /**
+     * ONE STEP'S VIDEO, attached to one treatment step (maintainer decision 2026-09-23).
+     *
+     * A SEPARATE row from the upload that carries the bytes, for the reason the proof
+     * business-ack contract gives: a blob reaching storage is not the business fact. This row IS
+     * the business fact for that step. It rides by REFERENCE to its PROOF_UPLOAD row
+     * (`proof_outbox_item_id`) on the same group, so the upload drains first and the dispatcher
+     * resolves the server proof id -- and when THIS write fails after a successful upload, only
+     * this small row retries. The video is never re-uploaded to repair the link.
+     */
+    HEALTH_STEP_PROOF_REGISTER,
+
     /** One idempotent Health treatment-session completion. */
     HEALTH_TREATMENT_COMPLETE,
 

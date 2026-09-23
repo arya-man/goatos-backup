@@ -475,6 +475,22 @@ data class HealthTreatmentCompletePayload(
     @SerialName("proof_outbox_item_id") val proofOutboxItemId: String = "",
 )
 
+/**
+ * ONE STEP'S VIDEO (maintainer decision 2026-09-23), attached to one treatment step:
+ * `PUT /app/health/work-items/{session}/steps/{step}/proof`.
+ *
+ * The video rides by REFERENCE to its PROOF_UPLOAD row on the same group (the session), so the
+ * upload drains first and the dispatcher resolves the server proof id at drain time. Carrying the
+ * ref itself would mean re-uploading the video to repair a failed link, which the proof
+ * business-ack contract exists to prevent.
+ */
+@Serializable
+data class HealthStepProofRegisterPayload(
+    @SerialName("health_session_id") val healthSessionId: String,
+    @SerialName("health_session_step_id") val healthSessionStepId: String,
+    @SerialName("proof_outbox_item_id") val proofOutboxItemId: String,
+)
+
 @Serializable
 data class HealthCaseClosePayload(
     @SerialName("health_case_id") val healthCaseId: String,

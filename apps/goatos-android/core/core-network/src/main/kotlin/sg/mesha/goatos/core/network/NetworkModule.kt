@@ -917,6 +917,14 @@ interface AppApiService {
         @Body request: PcCareSlotProofRequestDto,
     ): Unit
 
+    @PUT("app/health/work-items/{health_session_id}/steps/{health_session_step_id}/proof")
+    suspend fun registerHealthStepProof(
+        @Path("health_session_id") healthSessionId: String,
+        @Path("health_session_step_id") healthSessionStepId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: sg.mesha.goatos.core.network.dto.HealthStepProofRequestDto,
+    ): Unit
+
     @PUT("app/pc-care/tasks/{task_id}/proofs/{slot}")
     suspend fun registerPcCareTaskProof(
         @Path("task_id") taskId: String,
@@ -2374,6 +2382,13 @@ class RetrofitAppApi(
         idempotencyKey: String,
         request: PcCareSlotProofRequestDto,
     ) = service.registerPcCareSlotProof(taskId, animalRowId, slot, idempotencyKey, request)
+
+    override suspend fun registerHealthStepProof(
+        healthSessionId: String,
+        healthSessionStepId: String,
+        idempotencyKey: String,
+        request: sg.mesha.goatos.core.network.dto.HealthStepProofRequestDto,
+    ) = service.registerHealthStepProof(healthSessionId, healthSessionStepId, idempotencyKey, request)
 
     override suspend fun registerPcCareTaskProof(
         taskId: String,
