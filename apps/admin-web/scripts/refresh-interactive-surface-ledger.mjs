@@ -39,7 +39,10 @@ export function labelsNear(text, index, limit = 4000) {
     /\bcopy\(\s*[A-Za-z0-9_$.]+\s*,\s*"([A-Za-z0-9_.-]{2,60})"\s*\)/g,
     // Copy handed in as a prop object (features/configuration/row-actions.tsx renders every one of
     // its controls as labels.<slot>). The SLOT is the reference: a blank menu renders none of them.
-    /\b(?:labels|copy|strings|text)\.([A-Za-z][A-Za-z0-9_]{1,29})\b/g,
+    /\b(?:labels|copy|strings|text|[A-Za-z][A-Za-z0-9]*Copy|[A-Za-z][A-Za-z0-9]*Labels)\.([A-Za-z][A-Za-z0-9_]{1,29})\b/g,
+    // The one-letter copy helper the configuration pages use: c("action.close").
+    /\bc\(\s*"([A-Za-z0-9_.-]{2,60})"\s*\)/g,
+    /\b(?:ariaLabel|closeLabel|title|label|heading|placeholder)=\{?"([^"{}]{2,48})"\}?/g,
     // What an edit form actually submits. A form that renders with its fields missing -- the exact
     // shape a degraded payload produces -- no longer carries this set.
     /\bname="([A-Za-z][A-Za-z0-9_.-]{1,39})"/g,
