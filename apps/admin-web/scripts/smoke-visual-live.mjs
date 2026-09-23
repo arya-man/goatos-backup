@@ -4,7 +4,7 @@ import { assertRegressionPatterns } from "./lib/regression-checks.mjs";
 import { controlTextIsCutOff, overlapIsVisibleBreak } from "./lib/visible-break-rules.mjs";
 import { checkCompositingHazards, compositingSummary } from "./lib/compositing-checks.mjs";
 import { exerciseOverlays } from "./lib/overlay-journeys.mjs";
-import { assertFeaturesPresent } from "./lib/feature-assertions.mjs";
+import { assertFeaturesPresent, loadFeatureAssertions, reloadCoverage } from "./lib/feature-assertions.mjs";
 import { validateLocalStackReceipt, validateSmokeActor } from "./lib/local-stack-receipt.mjs";
 import { noRoutesLeftError, planRouteSelection, routeSkippedLine } from "./lib/route-skips.mjs";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -608,6 +608,30 @@ writeFileSync(
 );
 const finalApiVersion = await fetchSmokeJson(`${apiBaseUrl}/version`, bearerToken, tenantId, "Final API build identity");
 if (finalApiVersion.build_sha !== observedApiVersion.build_sha) throw new Error("API build changed during browser E2E");
+// The reload checks' coverage, as a fraction with a reason on every gap.
+//
+// This was computed by a function nothing called: the arithmetic was right, the
+// 115 named reasons were written, and no sweep emitted them, no receipt carried
+// them and nothing reached Slack. A number nobody can see is not a measurement.
+try {
+  const manifestPath = new URL("../../../tools/dashboard-automation/feature-assertions.json", import.meta.url);
+  const coverage = reloadCoverage({
+    routes: routes.map((route) => ({ name: route.name })),
+    viewports: viewports.map((viewport) => viewport.label),
+    runnable: loadFeatureAssertions(),
+    manifest: JSON.parse(readFileSync(manifestPath, "utf8")),
+  });
+  browserEvidence.reload_coverage = coverage;
+  console.log(`reload_coverage=${coverage.fraction}`);
+  for (const gap of coverage.gaps) console.log(`reload_coverage_gap=${gap.viewport}:${gap.route}|${gap.why}`);
+  for (const row of coverage.unreachableEntries) console.log(`reload_coverage_unreachable=${row.sha}|${row.why}`);
+} catch (error) {
+  // A receipt that silently drops its coverage block is the thing this fixes,
+  // so a failure here is stated rather than swallowed.
+  browserEvidence.reload_coverage = { error: String(error?.message ?? error), fraction: "not checked" };
+  console.log(`reload_coverage=not checked (${String(error?.message ?? error).split("\n")[0]})`);
+}
+
 browserEvidence.api_build_sha_end = finalApiVersion.build_sha;
 if (weighingPolicy) {
   browserEvidence.weighing_policy_end = await readWeighingPolicy(weighingPolicyOptions);

@@ -366,3 +366,23 @@ test("a page/width pair with nothing written for it is said out loud, not passed
   assert.ok(lines.some((l) => l.startsWith("feature_assertions_none=tasks:laptop:")),
     `an empty page/width pair must report that it was not checked, it logged ${JSON.stringify(lines)}`);
 });
+
+
+test("the sweep runner actually emits the coverage, and the receipt carries it", () => {
+  // THE DEFECT: reloadCoverage was imported by exactly one file — its own test.
+  // The arithmetic was right, the 115 named reasons were written, and no sweep
+  // emitted them, no receipt carried them, nothing reached Slack. A number
+  // nobody can see is not a measurement.
+  const runner = readFileSync(join(repoRoot, "apps/admin-web/scripts/smoke-visual-live.mjs"), "utf8");
+  assert.match(runner, /import \{[^}]*reloadCoverage[^}]*\} from "\.\/lib\/feature-assertions\.mjs"/,
+    "the sweep runner must import the coverage function");
+  assert.match(runner, /reloadCoverage\(\{/, "and call it");
+  // Match the SUCCESS assignment specifically. A looser pattern was satisfied by
+  // the error branch, so deleting the real one left the check green.
+  assert.match(runner, /browserEvidence\.reload_coverage = coverage;/,
+    "and put the computed coverage in the receipt, not only the error fallback");
+  assert.match(runner, /reload_coverage=\$\{coverage\.fraction\}/, "and print the fraction");
+  assert.match(runner, /reload_coverage_gap=/, "and print every gap's reason, which is the actual product of the work");
+  // A failure to compute it must say "not checked", never vanish.
+  assert.match(runner, /fraction: "not checked"/, "a coverage block that could not be built says so");
+});
