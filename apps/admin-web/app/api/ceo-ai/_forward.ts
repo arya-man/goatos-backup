@@ -21,6 +21,32 @@ type ForwardInit = {
   signal?: AbortSignal;
 };
 
+// Cloud Run service-to-service auth for the coding-agent service. When
+// CEO_AI_AGENT_AUDIENCE is set (STG: the goatos-ask-mesha-stg URL), admin-web mints a
+// Google ID token for its runtime SA from the metadata server and sends it as
+// X-Serverless-Authorization, which Cloud Run IAM checks (roles/run.invoker) and
+// strips — leaving Authorization for the user's Firebase bearer, which the agent
+// validates itself. Unset audience (local dev) => no extra header.
+const METADATA_IDENTITY_URL =
+  "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/identity";
+const ID_TOKEN_TTL_MS = 50 * 60 * 1000;
+const idTokenCache = new Map<string, { token: string; expiresAt: number }>();
+
+async function agentIdToken(audience: string): Promise<string> {
+  const cached = idTokenCache.get(audience);
+  if (cached && cached.expiresAt > Date.now()) return cached.token;
+  const response = await fetch(`${METADATA_IDENTITY_URL}?audience=${encodeURIComponent(audience)}`, {
+    headers: { "Metadata-Flavor": "Google" },
+    cache: "no-store",
+    signal: AbortSignal.timeout(5000),
+  });
+  if (!response.ok) throw new Error(`metadata identity token request failed (${response.status})`);
+  const token = (await response.text()).trim();
+  if (!token) throw new Error("metadata identity token response was empty");
+  idTokenCache.set(audience, { token, expiresAt: Date.now() + ID_TOKEN_TTL_MS });
+  return token;
+}
+
 type BackendCall =
   | { ok: true; response: Response }
   | { ok: false; status: number; error: string; message: string };
@@ -54,6 +80,10 @@ async function callBackend(path: string, init: ForwardInit, accept: string): Pro
     // Feature flag: CEO_AI_AGENT_URL diverts the assistant to the coding-agent
     // service (same /ceo-ai/* contract). Unset => legacy backend ceo-ai.
     const agentUrl = process.env.CEO_AI_AGENT_URL?.replace(/\/$/, "");
+    const agentAudience = process.env.CEO_AI_AGENT_AUDIENCE?.trim();
+    if (agentUrl && agentAudience) {
+      headers["X-Serverless-Authorization"] = `Bearer ${await agentIdToken(agentAudience)}`;
+    }
     const response = await fetch(`${agentUrl ?? baseUrl.replace(/\/$/, "")}${path}`, {
       method: init.method,
       headers,

@@ -10,6 +10,8 @@ import crypto from "node:crypto";
 import { execFileSync, spawn } from "node:child_process";
 import { createSdkMcpServer, query, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
+import { createStore } from "./store.mjs";
+import { createUploads } from "./uploads.mjs";
 
 const PORT = Number(process.env.PORT || 8787);
 // 127.0.0.1 locally; the container sets HOST=0.0.0.0 (Cloud Run fronts it with IAM).
@@ -26,10 +28,10 @@ const READONLY = process.env.ASK_MESHA_READONLY !== "0";
 const BASE_SHA = process.env.GOATOS_BASE_SHA || "HEAD";
 const STG_API = (process.env.GOATOS_STG_API || "https://api.goatos.mesha.sg").replace(/\/$/, "");
 const WORKTREES = path.join(STATE, "worktrees");
-const STORE = path.join(STATE, "chats.json");
-const METRICS = path.join(STATE, "metrics.jsonl");
 fs.mkdirSync(STATE, { recursive: true });
 
+// Read-only PG* vars, loaded per use so a missing/invalid file fails the request
+// (with a clear message) instead of crashing the server at startup.
 function loadPgEnv() {
   const file = path.join(STATE, ".pgenv");
   if (!fs.existsSync(file)) {
@@ -96,37 +98,12 @@ function dataMapCore(cwd) {
 }
 
 // ---- benchmark events -----------------------------------------------------
-function recordMetric(m) {
-  fs.appendFileSync(METRICS, JSON.stringify(m) + "\n");
+async function recordMetric(m) {
+  await store.recordMetric(m).catch((e) => console.error("[metric] store failed:", e.message));
   console.log(
     `[metric] total=${m.total_ms}ms first_progress=${m.first_progress_ms}ms first_tool=${m.first_tool_ms ?? "-"}ms ` +
       `first_token=${m.first_token_ms ?? "-"}ms tools=${m.tool_calls} db=${m.db_queries} model=${m.model} ok=${m.ok}`,
   );
-}
-function pct(xs, p) {
-  if (!xs.length) return null;
-  const s = [...xs].sort((a, b) => a - b);
-  return s[Math.min(s.length - 1, Math.floor((p / 100) * s.length))];
-}
-function metricsSummary() {
-  const rows = fs.existsSync(METRICS)
-    ? fs.readFileSync(METRICS, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l))
-    : [];
-  const ok = rows.filter((r) => r.ok);
-  const stat = (k) => {
-    const xs = ok.map((r) => r[k]).filter((v) => typeof v === "number");
-    return { p50: pct(xs, 50), p90: pct(xs, 90), max: xs.length ? Math.max(...xs) : null };
-  };
-  return {
-    count: rows.length,
-    ok: ok.length,
-    total_ms: stat("total_ms"),
-    first_token_ms: stat("first_token_ms"),
-    first_tool_ms: stat("first_tool_ms"),
-    db_queries: stat("db_queries"),
-    tool_calls: stat("tool_calls"),
-    recent: rows.slice(-25).reverse(),
-  };
 }
 
 // ---- read-only SQL tool (replaces Bash/psql in read-only mode) --------------
@@ -144,7 +121,7 @@ function runSql(sql) {
       {
         env: {
           PATH: process.env.PATH,
-          ...PGENV,
+          ...loadPgEnv(),
           // Belt and braces on top of the read-only DB role.
           PGOPTIONS: "-c default_transaction_read_only=on -c statement_timeout=30000",
         },
@@ -178,13 +155,11 @@ const meshaTools = createSdkMcpServer({
   ],
 });
 
-// ---- tiny JSON store ------------------------------------------------------
-let db = fs.existsSync(STORE) ? JSON.parse(fs.readFileSync(STORE, "utf8")) : { chats: {} };
-// Atomic replace so a crash mid-write can't truncate every CEO's history.
-const save = () => {
-  fs.writeFileSync(STORE + ".tmp", JSON.stringify(db, null, 2));
-  fs.renameSync(STORE + ".tmp", STORE);
-};
+// ---- storage: Postgres (ASK_MESHA_DATABASE_URL) or JSON file (local dev) ----
+// Uploads: GCS (ASK_MESHA_UPLOADS_BUCKET) or $STATE/uploads. See store.mjs / uploads.mjs.
+fs.mkdirSync(STATE, { recursive: true });
+const store = await createStore({ stateDir: STATE });
+const uploads = await createUploads({ stateDir: STATE });
 
 // ---- auth: reuse the live backend's leadership check ----------------------
 const authCache = new Map();
@@ -238,19 +213,12 @@ const readBody = (req) =>
       try { resolve(s ? JSON.parse(s) : {}); } catch { resolve({}); }
     });
   });
-const summary = (c) => ({ id: c.id, title: c.title, updated_at: c.updated_at });
-
+// A chat belongs to the email AND the tenant it was created under.
 function sameOwner(chat, user) {
   return chat?.email === user.email && (chat.tenant_id ?? "") === user.tenantId;
 }
+const summary = (c) => ({ id: c.id, title: c.title, updated_at: c.updated_at });
 
-function newChat(user) {
-  const id = crypto.randomUUID();
-  const now = new Date().toISOString();
-  db.chats[id] = { id, email: user.email, tenant_id: user.tenantId, title: "New chat", session_id: null, worktree: null, created_at: now, updated_at: now, messages: [] };
-  save();
-  return db.chats[id];
-}
 
 // Optional overlay (local testing before the PR lands): copy the latest data map
 // into each chat worktree on every ask so map updates apply immediately.
@@ -268,7 +236,7 @@ function applyOverlay(dir) {
 // byte-identical across chats and served from the prompt cache. Per-chat
 // worktrees are only for code-changing sessions (ASK_MESHA_WORKTREE_PER_CHAT=1).
 const PER_CHAT = process.env.ASK_MESHA_WORKTREE_PER_CHAT === "1";
-function ensureWorktree(chat) {
+async function ensureWorktree(chat) {
   if (!PER_CHAT) {
     applyOverlay(REPO);
     return REPO;
@@ -282,7 +250,7 @@ function ensureWorktree(chat) {
   execFileSync("git", ["-C", REPO, "worktree", "add", "-q", "-B", `agent/${chat.id.slice(0, 8)}`, dir, BASE_SHA]);
   applyOverlay(dir);
   chat.worktree = dir;
-  save();
+  await store.updateChat(chat.id, { worktree: dir });
   return dir;
 }
 
@@ -353,24 +321,6 @@ function extractChart(text) {
   return { clean: text.replace(m[0], "").trim(), chart };
 }
 
-// ---- attachments ----------------------------------------------------------
-const UPLOADS = path.join(STATE, "uploads");
-function saveAttachments(chatId, raw) {
-  if (!Array.isArray(raw)) return [];
-  const dir = path.join(UPLOADS, chatId);
-  const out = [];
-  for (const a of raw.slice(0, 5)) {
-    if (!a || typeof a.name !== "string" || typeof a.data !== "string") continue;
-    const safe = a.name.replace(/[^\w.\- ]+/g, "_").slice(-120) || "file";
-    fs.mkdirSync(dir, { recursive: true });
-    const id = `${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
-    const file = path.join(dir, `${id}-${safe}`);
-    fs.writeFileSync(file, Buffer.from(a.data, "base64"));
-    out.push({ id, path: file, name: a.name, type: typeof a.type === "string" ? a.type : "" });
-  }
-  return out;
-}
-
 // Only these variables reach the agent (and therefore its Bash tool). The server's
 // own environment (cloud credentials, tokens, keys) is never inherited wholesale.
 const AGENT_ENV_ALLOW = ["PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "LC_ALL", "TMPDIR", "TERM", "ANTHROPIC_API_KEY"];
@@ -381,19 +331,30 @@ function agentEnv() {
 }
 
 // ---- ask ------------------------------------------------------------------
-const inFlight = new Set();
+// Replayed as context when the SDK session cannot be resumed.
+function historyPreamble(history) {
+  const turns = history.filter((m) => m.role === "user" || m.role === "assistant").slice(-20);
+  if (!turns.length) return "";
+  return (
+    "Earlier in this conversation (for context; answer only the new question below):\n" +
+    turns.map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${String(m.content).slice(0, 4000)}`).join("\n\n") +
+    "\n\nNew question:\n"
+  );
+}
 async function ask(req, res, user) {
   const body = await readBody(req);
   const question = String(body.question || "").trim();
   if (!question) return json(res, 400, { error: "question_required" });
-  let chat = body.conversation_id && db.chats[body.conversation_id];
+  let chat = body.conversation_id ? await store.getChat(body.conversation_id) : null;
   if (chat && !sameOwner(chat, user)) return json(res, 404, { error: "not_found" });
+  if (!chat) chat = await store.createChat(user.email, user.tenantId);
   // One run per chat: two concurrent resumes of the same session fork it and
-  // race on session_id / message order.
-  if (chat && inFlight.has(chat.id)) return json(res, 409, { error: "chat_busy" });
-  if (!chat) chat = newChat(user);
-  inFlight.add(chat.id);
-  if (chat.title === "New chat") chat.title = question.slice(0, 60);
+  // race on session_id / message order. DB-backed lease in Postgres mode.
+  if (!(await store.tryLock(chat.id))) return json(res, 409, { error: "chat_busy" });
+  if (chat.title === "New chat") {
+    chat.title = question.slice(0, 60);
+    await store.updateChat(chat.id, { title: chat.title });
+  }
 
   res.writeHead(200, {
     "Content-Type": "text/event-stream; charset=utf-8",
@@ -401,27 +362,20 @@ async function ask(req, res, user) {
     Connection: "keep-alive",
   });
   const send = (obj) => res.write(`data: ${JSON.stringify(obj)}\n\n`);
-  const heartbeat = setInterval(() => res.write(": ping\n\n"), 10_000);
+  const heartbeat = setInterval(() => {
+    res.write(": ping\n\n");
+    store.refreshLock(chat.id).catch(() => {});
+  }, 10_000);
   const abort = new AbortController();
   res.on("close", () => abort.abort());
 
   const requestId = crypto.randomUUID();
   const userMsg = { id: crypto.randomUUID(), role: "user", content: question, created_at: new Date().toISOString() };
-  chat.messages.push(userMsg);
-  save();
-
   const t0 = Date.now();
   const deep = /^deep:\s*/i.test(question);
   let prompt = question.replace(/^deep:\s*/i, "");
-  const saved = saveAttachments(chat.id, body.attachments);
-  if (saved.length) {
-    // Persist file refs on the user turn so a reloaded chat can show them again.
-    userMsg.files = saved.map(({ id, name, type }) => ({ id, name, type }));
-    save();
-    prompt +=
-      "\n\nThe user attached these files (open them with the Read tool; images and PDFs are supported):\n" +
-      saved.map((f) => `- ${f.path} (${f.name}${f.type ? `, ${f.type}` : ""})`).join("\n");
-  }
+  let history = [];
+  let cleanupUploads = async () => {};
   const metric = {
     ts: new Date(t0).toISOString(), request_id: requestId, chat_id: chat.id, email: user.email,
     resumed: Boolean(chat.session_id), model: deep ? DEEP_MODEL : MODEL, effort: deep ? "high" : EFFORT,
@@ -442,15 +396,38 @@ async function ask(req, res, user) {
   try {
     send({ type: "progress", phase: "planning", label: "Starting agent" });
     metric.first_progress_ms = since();
-    const cwd = ensureWorktree(chat);
-    const pgEnv = loadPgEnv();
+    // History before this turn, for the resume-miss fallback below.
+    history = await store.getMessages(chat.id);
+    const up = await uploads.save(chat.id, body.attachments);
+    cleanupUploads = up.cleanup;
+    if (up.files.length) {
+      // Persist file refs on the user turn so a reloaded chat can show them again.
+      userMsg.files = up.files.map(({ id, name, type }) => ({ id, name, type }));
+      prompt +=
+        "\n\nThe user attached these files (open them with the Read tool; images and PDFs are supported):\n" +
+        up.files.map((f) => `- ${f.path} (${f.name}${f.type ? `, ${f.type}` : ""})`).join("\n");
+    }
+    await store.addMessage(chat.id, userMsg);
+    metric.question_chars = prompt.length;
+    const cwd = await ensureWorktree(chat);
+    // Session resume. Postgres mode mirrors SDK transcripts via Options.sessionStore,
+    // so any instance can resume. If the transcript is missing (pre-migration chat,
+    // dropped mirror batch), start a fresh session and replay the stored history.
+    let resume = chat.session_id || undefined;
+    if (resume && !(await store.hasSession(resume))) {
+      console.warn(`[resume] session ${resume} not in store; replaying ${history.length} messages`);
+      resume = undefined;
+      metric.resumed = false;
+      prompt = historyPreamble(history) + prompt;
+    }
     const stream = query({
       prompt,
       options: {
         cwd,
         model: metric.model,
         effort: metric.effort,
-        resume: chat.session_id || undefined,
+        resume,
+        ...(store.sessionStore ? { sessionStore: store.sessionStore } : {}),
         systemPrompt: { type: "preset", preset: "claude_code", append: repoInstructions(cwd) + APPEND_PROMPT + dataMapCore(cwd) },
         settingSources: ["project", "local"],
         includePartialMessages: true,
@@ -469,7 +446,7 @@ async function ask(req, res, user) {
         // tooling" nag, which otherwise blocks every tool call in fresh chat worktrees.
         env: {
           ...agentEnv(),
-          ...pgEnv,
+          ...loadPgEnv(),
           GOATOS_AI_SETUP_GUARD: "0",
           CLAUDE_CODE_DISABLE_CLAUDE_MDS: "1", // loaded via repoInstructions() instead
           ENABLE_PROMPT_CACHING_1H: "1", // CEOs ask sporadically; keep the prefix warm for an hour
@@ -479,8 +456,10 @@ async function ask(req, res, user) {
     });
     for await (const msg of stream) {
       if (msg.type === "system" && msg.subtype === "init" && msg.session_id) {
-        chat.session_id = msg.session_id;
-        save();
+        if (chat.session_id !== msg.session_id) {
+          chat.session_id = msg.session_id;
+          await store.updateChat(chat.id, { session_id: msg.session_id });
+        }
       } else if (msg.type === "stream_event") {
         const ev = msg.event;
         if (ev.type === "message_start") {
@@ -528,9 +507,8 @@ async function ask(req, res, user) {
       id: crypto.randomUUID(), role: "assistant", content: clean, chart,
       source: "coding-agent", mode: "agent", request_id: requestId, created_at: new Date().toISOString(),
     };
-    chat.messages.push(assistantMsg);
-    chat.updated_at = assistantMsg.created_at;
-    save();
+    await store.addMessage(chat.id, assistantMsg);
+    await store.updateChat(chat.id, { updated_at: assistantMsg.created_at });
     metric.total_ms = since();
     metric.ok = !metric.error;
     send({
@@ -543,16 +521,26 @@ async function ask(req, res, user) {
     if (!abort.signal.aborted) send({ type: "error", message: metric.error });
   } finally {
     if (metric.total_ms === null) metric.total_ms = since();
-    recordMetric(metric);
     clearInterval(heartbeat);
-    inFlight.delete(chat.id);
+    await cleanupUploads().catch(() => {});
+    await store.unlock(chat.id).catch((e) => console.error("[lock] unlock failed:", e.message));
+    await recordMetric(metric);
     res.end();
   }
 }
 
 // ---- router ---------------------------------------------------------------
 http
-  .createServer(async (req, res) => {
+  .createServer((req, res) =>
+    route(req, res).catch((err) => {
+      console.error("[http] unhandled:", err);
+      if (!res.headersSent) json(res, 500, { error: "internal" });
+      else res.end();
+    }),
+  )
+  .listen(PORT, HOST, () => console.log(`ask-mesha agent on http://127.0.0.1:${PORT} repo=${REPO} store=${store.kind} uploads=${uploads.kind}`));
+
+async function route(req, res) {
     const url = new URL(req.url, "http://x");
     const p = url.pathname;
     console.log(new Date().toISOString(), req.method, p);
@@ -563,7 +551,7 @@ http
       const bench = process.env.ASK_MESHA_BENCH_TOKEN;
       const authz = String(req.headers["authorization"] || "");
       if (HOST !== "127.0.0.1" && !(bench && authz === `Bearer ${bench}`)) return json(res, 403, { error: "forbidden" });
-      return json(res, 200, metricsSummary());
+      return json(res, 200, await store.metricsSummary());
     }
     const user = await authenticate(req);
     if (!user) return json(res, 403, { error: "leadership_required" });
@@ -571,47 +559,46 @@ http
     if (p === "/ceo-ai/starters") return json(res, 200, { starters: STARTERS });
     if (p === "/ceo-ai/ask" && req.method === "POST") return ask(req, res, user);
     if (p === "/ceo-ai/conversations") {
-      if (req.method === "POST") return json(res, 200, summary(newChat(user)));
-      const mine = Object.values(db.chats)
-        .filter((c) => sameOwner(c, user) && c.messages.length && !c.deleted_at)
-        .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+      if (req.method === "POST") return json(res, 200, summary(await store.createChat(user.email, user.tenantId)));
+      const mine = await store.listChats(user.email, user.tenantId);
       return json(res, 200, { conversations: mine.map(summary) });
     }
     const f = p.match(/^\/ceo-ai\/conversations\/([^/]+)\/files\/([\w-]+)$/);
     if (f && req.method === "GET") {
-      const chat = db.chats[decodeURIComponent(f[1])];
+      const chat = await store.getChat(decodeURIComponent(f[1]));
       if (!chat || !sameOwner(chat, user)) return json(res, 404, { error: "not_found" });
-      const ref = chat.messages.flatMap((x) => x.files || []).find((x) => x.id === f[2]);
-      const dir = path.join(UPLOADS, chat.id);
-      const name = ref && fs.existsSync(dir) ? fs.readdirSync(dir).find((n) => n.startsWith(`${ref.id}-`)) : undefined;
-      if (!ref || !name) return json(res, 404, { error: "not_found" });
+      const ref = await store.findFile(chat.id, f[2]);
+      const stream = ref ? await uploads.open(chat.id, ref) : null;
+      if (!ref || !stream) return json(res, 404, { error: "not_found" });
       res.writeHead(200, {
         "Content-Type": ref.type || "application/octet-stream",
         "Cache-Control": "private, max-age=86400",
         "Content-Disposition": `inline; filename="${encodeURIComponent(ref.name)}"`,
       });
-      return fs.createReadStream(path.join(dir, name)).pipe(res);
+      stream.on("error", (e) => { console.error("[uploads] read failed:", e.message); res.destroy(); });
+      return stream.pipe(res);
     }
     const m = p.match(/^\/ceo-ai\/conversations\/([^/]+)(\/messages)?$/);
     if (m) {
-      const chat = db.chats[decodeURIComponent(m[1])];
+      const chat = await store.getChat(decodeURIComponent(m[1]));
       if (!chat || !sameOwner(chat, user) || chat.deleted_at) return json(res, 404, { error: "not_found" });
       if (req.method === "GET") {
-        return json(res, 200, { messages: chat.messages.map((x) => ({ ...x, message_id: x.id })) });
+        const messages = await store.getMessages(chat.id);
+        return json(res, 200, { messages: messages.map((x) => ({ ...x, message_id: x.id })) });
       }
       if (req.method === "PATCH") {
         const b = await readBody(req);
-        if (typeof b.title === "string" && b.title.trim()) chat.title = b.title.trim().slice(0, 120);
-        save();
+        if (typeof b.title === "string" && b.title.trim()) {
+          chat.title = b.title.trim().slice(0, 120);
+          await store.updateChat(chat.id, { title: chat.title });
+        }
         return json(res, 200, summary(chat));
       }
       if (req.method === "DELETE") {
-        // Soft delete: hidden from the list, kept on disk for recovery.
-        chat.deleted_at = new Date().toISOString();
-        save();
+        // Soft delete: hidden from the list, kept in storage for recovery.
+        await store.updateChat(chat.id, { deleted_at: new Date().toISOString() });
         return json(res, 200, { ok: true });
       }
     }
     json(res, 404, { error: "not_found" });
-  })
-  .listen(PORT, HOST, () => console.log(`ask-mesha agent on http://127.0.0.1:${PORT} repo=${REPO}`));
+}

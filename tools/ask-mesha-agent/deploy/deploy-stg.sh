@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+# Deploys goatos-ask-mesha-stg from cloudbuild.stg.yaml (step deploy-ask-mesha-agent).
+# Only runs when the build sets _ASK_MESHA_DEPLOY=true. Preflights the one-time infra
+# from RUNBOOK.md and fails loudly (never creates infra) if any piece is missing.
+set -euo pipefail
+
+PROJECT_ID="${PROJECT_ID:-goatos-stg}"
+REGION="${REGION:-asia-south1}"
+SERVICE="${ASK_MESHA_SERVICE:-goatos-ask-mesha-stg}"
+RUNTIME_SA="${ASK_MESHA_RUNTIME_SA:-goatos-ask-mesha-stg@${PROJECT_ID}.iam.gserviceaccount.com}"
+CLOUDSQL_INSTANCE="${ASK_MESHA_CLOUDSQL_INSTANCE:-goatos-stg:asia-south1:goatos-stg-core-db}"
+UPLOADS_BUCKET="${ASK_MESHA_UPLOADS_BUCKET:-goatos-stg-ask-mesha}"
+# How the agent authenticates to Claude:
+#   vertex    (default) Claude on Vertex AI via the runtime SA; no key, billed to GCP.
+#   api-key   Anthropic Console API key from Secret Manager.
+#   oauth     `claude setup-token` subscription token (personal plans are for the
+#             subscriber's own use; not for a shared multi-user service).
+CLAUDE_AUTH="${ASK_MESHA_CLAUDE_AUTH:-vertex}"
+VERTEX_REGION="${ASK_MESHA_VERTEX_REGION:-us-east5}"
+SECRET_ANTHROPIC="${ASK_MESHA_SECRET_ANTHROPIC:-goatos-stg-ask-mesha-anthropic-api-key}"
+SECRET_OAUTH="${ASK_MESHA_SECRET_OAUTH:-goatos-stg-ask-mesha-claude-oauth-token}"
+SECRET_APP_DB="${ASK_MESHA_SECRET_APP_DB:-goatos-stg-ask-mesha-db-url}"
+SECRET_RO_DB="${ASK_MESHA_SECRET_RO_DB:-mesha-ceo-readonly-db-url}"
+ADMIN_WEB_SERVICE="${ADMIN_WEB_SERVICE:-goatos-admin-web-stg}"
+: "${ASK_MESHA_IMAGE:?ASK_MESHA_IMAGE is required}"
+: "${COMMIT_TAG:?COMMIT_TAG is required}"
+
+die() { echo "ask-mesha deploy: $*" >&2; exit 1; }
+
+echo "ask-mesha deploy: preflight (project=${PROJECT_ID}, service=${SERVICE})"
+gcloud iam service-accounts describe "$RUNTIME_SA" --project="$PROJECT_ID" --format='value(email)' >/dev/null 2>&1 \
+  || die "runtime service account $RUNTIME_SA missing; see tools/ask-mesha-agent/deploy/RUNBOOK.md"
+case "$CLAUDE_AUTH" in
+  vertex)
+    CLAUDE_ENV="CLAUDE_CODE_USE_VERTEX=1,ANTHROPIC_VERTEX_PROJECT_ID=${PROJECT_ID},CLOUD_ML_REGION=${VERTEX_REGION}"
+    CLAUDE_SECRET=""
+    CLAUDE_SECRETS=() ;;
+  api-key)
+    CLAUDE_ENV=""
+    CLAUDE_SECRET="ANTHROPIC_API_KEY=${SECRET_ANTHROPIC}:latest,"
+    CLAUDE_SECRETS=("$SECRET_ANTHROPIC") ;;
+  oauth)
+    CLAUDE_ENV=""
+    CLAUDE_SECRET="CLAUDE_CODE_OAUTH_TOKEN=${SECRET_OAUTH}:latest,"
+    CLAUDE_SECRETS=("$SECRET_OAUTH") ;;
+  *) die "ASK_MESHA_CLAUDE_AUTH must be vertex|api-key|oauth (got $CLAUDE_AUTH)" ;;
+esac
+
+for secret in "${CLAUDE_SECRETS[@]}" "$SECRET_APP_DB" "$SECRET_RO_DB"; do
+  gcloud secrets describe "$secret" --project="$PROJECT_ID" --format='value(name)' >/dev/null 2>&1 \
+    || die "secret $secret missing; see RUNBOOK.md"
+done
+gcloud storage buckets describe "gs://${UPLOADS_BUCKET}" --format='value(name)' >/dev/null 2>&1 \
+  || die "bucket gs://${UPLOADS_BUCKET} missing; see RUNBOOK.md"
+
+gcloud run deploy "$SERVICE" \
+  --project="$PROJECT_ID" \
+  --region="$REGION" \
+  --image="$ASK_MESHA_IMAGE" \
+  --service-account="$RUNTIME_SA" \
+  --no-allow-unauthenticated \
+  --ingress=all \
+  --port=8080 \
+  --cpu=2 \
+  --memory=2Gi \
+  --min-instances=1 \
+  --max-instances=2 \
+  --concurrency=8 \
+  --timeout=3600 \
+  --no-cpu-throttling \
+  --execution-environment=gen2 \
+  --add-cloudsql-instances="$CLOUDSQL_INSTANCE" \
+  --set-env-vars="ASK_MESHA_UPLOADS_BUCKET=${UPLOADS_BUCKET},ASK_MESHA_READONLY=1,GOATOS_BASE_SHA=${COMMIT_TAG}${CLAUDE_ENV:+,${CLAUDE_ENV}}" \
+  --set-secrets="${CLAUDE_SECRET}ASK_MESHA_DATABASE_URL=${SECRET_APP_DB}:latest,ASK_MESHA_READONLY_DB_URL=${SECRET_RO_DB}:latest" \
+  --update-labels="commit_sha=${COMMIT_TAG},deployed_by=cloud-build" \
+  --quiet
+
+url="$(gcloud run services describe "$SERVICE" --project="$PROJECT_ID" --region="$REGION" --format='value(status.url)')"
+[[ -n "$url" ]] || die "could not read $SERVICE URL"
+echo "ask-mesha deploy: $SERVICE ready at $url (image $ASK_MESHA_IMAGE)"
+
+if [[ "${ASK_MESHA_WIRE_ADMIN_WEB:-false}" == "true" ]]; then
+  # --update-env-vars keeps every other admin-web env var; later Cloud Deploy
+  # releases also use --update-env-vars, so these survive normal deploys.
+  gcloud run services update "$ADMIN_WEB_SERVICE" \
+    --project="$PROJECT_ID" \
+    --region="$REGION" \
+    --no-traffic \
+    --update-env-vars="CEO_AI_AGENT_URL=${url},CEO_AI_AGENT_AUDIENCE=${url}" \
+    --quiet
+  rev="$(gcloud run services describe "$ADMIN_WEB_SERVICE" --project="$PROJECT_ID" --region="$REGION" \
+    --format='value(status.latestCreatedRevisionName)')"
+  [[ -n "$rev" ]] || die "admin-web revision not created"
+  gcloud run services update-traffic "$ADMIN_WEB_SERVICE" --project="$PROJECT_ID" --region="$REGION" \
+    "--to-revisions=${rev}=100" --quiet
+  echo "ask-mesha deploy: $ADMIN_WEB_SERVICE -> $rev now forwards /api/ceo-ai/* to $url"
+fi
