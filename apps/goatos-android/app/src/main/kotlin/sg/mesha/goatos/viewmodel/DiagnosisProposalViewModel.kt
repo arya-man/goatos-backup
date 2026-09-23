@@ -5,9 +5,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
@@ -117,6 +120,17 @@ class DiagnosisProposalViewModel @Inject constructor(
         }
     }
 
+    /**
+     * The decision landed, so this screen is finished.
+     *
+     * A one-shot event rather than screen state: the decision is an ACT, and replaying it from
+     * state would re-close the screen every time it recomposed. Maintainer, 2026-09-23: pressing
+     * Approve must CLOSE the assessment, not leave it open under a message -- the animal has been
+     * decided, and a screen that stays put invites a second decision on the same run.
+     */
+    private val _decided = Channel<Unit>(Channel.BUFFERED)
+    val decidedEvents: Flow<Unit> = _decided.receiveAsFlow()
+
     private fun send() {
         val current = _state.value
         if (!current.canSend || diagnosisRunId.isBlank()) return
@@ -136,12 +150,12 @@ class DiagnosisProposalViewModel @Inject constructor(
                         AnalyticsEvents.HEALTH_DIAGNOSIS_CONFIRMED,
                         mapOf(AnalyticsEvents.Params.COUNT to current.selected.size.toString()),
                     )
-                    _state.value = _state.value.copy(
-                        sending = false,
-                        // Does NOT claim a course has opened. That happens on the server and
-                        // may be minutes away; promising it here would be a lie the operator acts on.
-                        message = "Decision recorded. Treatment starts once this syncs.",
-                    )
+                    // No message: the screen is about to close. The old "Decision recorded.
+                    // Treatment starts once this syncs." sat on a screen the decider had
+                    // finished with, and said "once this syncs" for a write that had usually
+                    // already synced by the time they read it.
+                    _state.value = _state.value.copy(sending = false, message = null)
+                    _decided.trySend(Unit)
                 }
                 is AppResult.Err -> {
                     analytics.track(

@@ -1927,6 +1927,12 @@ fun AppNavHost(
         ) {
             val vm: DiagnosisProposalViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
+            // Approving CLOSES the assessment (maintainer, 2026-09-23). The decision is made;
+            // leaving the screen open under a message invites a second decision on the same run
+            // and leaves the decider to work out for themselves that they are finished.
+            LaunchedEffect(vm) {
+                vm.decidedEvents.collect { navController.popBackStack() }
+            }
             DiagnosisProposalScreen(
                 state = state,
                 onEvent = { event ->

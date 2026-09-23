@@ -369,14 +369,38 @@ func TestNewDirectorRolesGetTheirOwnModuleOffer(t *testing.T) {
 		}
 	})
 
+	// CONFIRMING A DIAGNOSIS is this desk's defining job (maintainer decision 2026-08-14, recorded
+	// on the HealthDiagnose grant). The offer was missing while the grant was not: the server said
+	// may_confirm=true and never showed the module, so the one desk that decision moved the job
+	// ONTO was the only holder who could not do it from a phone.
+	containsString := func(hay []string, want string) bool {
+		for _, h := range hay {
+			if h == want {
+				return true
+			}
+		}
+		return false
+	}
+
+	t.Run("health director can reach the module they confirm diagnoses in", func(t *testing.T) {
+		grants := []domain.GrantSummary{grantWithRole(permissions.RoleHealthDirector)}
+		if !permissions.RoleHasPermission(permissions.RoleHealthDirector, permissions.HealthDiagnose) {
+			t.Fatal("health_director no longer holds health.diagnose; this test is checking the wrong thing")
+		}
+		if !containsString(leadershipModuleKeys(grants), "aas_health") {
+			t.Fatalf("health_director is not offered aas_health, so the desk that confirms diagnoses cannot open them: %v",
+				leadershipModuleKeys(grants))
+		}
+	})
+
 	t.Run("health director is offered counts but counts stays OFF without counts.read", func(t *testing.T) {
 		grants := []domain.GrantSummary{grantWithRole(permissions.RoleHealthDirector)}
 		keys := leadershipModuleKeys(grants)
 		if len(keys) == 0 {
 			t.Fatal("health_director resolves ZERO leadership module keys; bootstrap returns an empty nav")
 		}
-		if keys[0] != "counts" {
-			t.Fatalf("health_director module keys = %v, want counts first", keys)
+		if !containsString(keys, "counts") {
+			t.Fatalf("health_director module keys = %v, want counts", keys)
 		}
 		for _, key := range keys {
 			switch key {
