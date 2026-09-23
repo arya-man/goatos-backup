@@ -146,3 +146,84 @@ func TestArithmeticWordsAreNeverMistakenForAnUntrackedSubject(t *testing.T) {
 		}
 	}
 }
+
+// coverageRead is the workforce read a leader's coverage question lands on: the
+// view's own rows, one per park per role, with no filter -- the shape the
+// planner produced live.
+func coverageRead(t *testing.T) (reporting.SchemaCard, []domain.SubQuestion, []domain.ToolResult) {
+	t.Helper()
+	card, ok := reporting.CardByName("workforce_coverage_status")
+	if !ok {
+		t.Skip("the workforce-coverage card is not in the catalogue")
+	}
+	subs := []domain.SubQuestion{sqlSub(
+		"SELECT park_label, role_label, owner_label, backup_label, coverage_status FROM ceo_ai." + card.Name)}
+	results := []domain.ToolResult{{
+		ToolName: "sql_fallback", SourceView: card.Name,
+		Facts: []domain.Fact{
+			{Label: "Feed Director", Value: "covered_by_backup", Scope: "Castro 1"},
+			{Label: "Growth Director", Value: "present", Scope: "Castro 1"},
+			{Label: "Health Officer", Value: "uncovered_absence", Scope: "Gandhi 2"},
+			{Label: "Park Head", Value: "present", Scope: "Gandhi 2"},
+		},
+	}}
+	return card, subs, results
+}
+
+// D2, measured live three runs out of three: "who is the backup for the Feed
+// Director" was REFUSED with "I read workforce_coverage_status, which does not
+// report it" -- while `role_label = 'Feed Director'` is a ROW of that view.
+// `director` is nobody's column name, so the guard read it as a subject the
+// farm does not record: it could see COLUMN names and not ROW VALUES.
+func TestARoleNamedByItsRowValueIsNotRefusedAsUnrecorded(t *testing.T) {
+	_, subs, results := coverageRead(t)
+	for _, question := range []string{
+		"who is the backup for the Feed Director",
+		"is the Growth Director covered today",
+		"who is covering for the Health Officer",
+	} {
+		if substituted, subject, view := subjectSubstitution(
+			question, subs, results, reporting.Cards(), heldOutCatalogue()); substituted {
+			t.Errorf("a role the view reports as a row was refused: %q -> %q from %s", question, subject, view)
+		}
+	}
+}
+
+// The SAME view, the SAME question shape, one word changed: "Feed Inspector"
+// is not a role this view reports. Nothing narrowed on "inspector" and no row
+// carries it, so the refusal stands. This is the pair that shows the fix
+// widens the gate to the view's own ROW VOCABULARY and not to every word
+// standing beside a modelled one -- "Feed Director" answers, "Feed Inspector"
+// does not, and only the data separates them.
+func TestARoleTheCoverageViewDoesNotReportIsStillRefused(t *testing.T) {
+	_, subs, results := coverageRead(t)
+	substituted, subject, view := subjectSubstitution(
+		"who is the backup for the Feed Inspector",
+		subs, results, reporting.Cards(), heldOutCatalogue())
+	if !substituted {
+		t.Fatal("a subject no row of the view carries was answered from it anyway")
+	}
+	if subject != "feed inspector" || view != "workforce_coverage_status" {
+		t.Errorf("the refusal must name the subject and the source that ran, got %q from %s", subject, view)
+	}
+}
+
+// THE CAPTION IS NOT DATA. A statement may write the subject into its own
+// SELECT list -- `SELECT 'milk feeding' AS label, count(*) ...` -- and the fact
+// it produces then echoes the word back. That is the model naming its own
+// answer, not the view reporting the subject, and it must not talk its way past
+// the guard. Same discipline entitysubstitution.go applies to an ear tag.
+func TestASubjectWrittenOnlyIntoTheSelectListIsStillRefused(t *testing.T) {
+	card, _, _ := scopeRead(t)
+	subs := []domain.SubQuestion{sqlSub(
+		"SELECT 'milk feeding' AS label, park_label, count(*) FROM ceo_ai." + card.Name + " GROUP BY 1, 2")}
+	results := []domain.ToolResult{{
+		ToolName: "sql_fallback", SourceView: card.Name,
+		Facts: []domain.Fact{{Label: "milk feeding", Value: "24", Scope: "CBE"}},
+	}}
+	if substituted, _, _ := subjectSubstitution(
+		"Kids on milk feeding per park today (head count)",
+		subs, results, reporting.Cards(), heldOutCatalogue()); !substituted {
+		t.Fatal("a caption the model wrote into its own projection excused the substitution")
+	}
+}

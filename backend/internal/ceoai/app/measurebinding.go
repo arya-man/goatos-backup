@@ -248,6 +248,9 @@ func subjectSubstitution(questionText string, subs []domain.SubQuestion, results
 			if cardModels(card, unmodelled) || cardModels(card, partner) {
 				continue
 			}
+			if cardReportsSubjectAsDimensionValue(card, sub, results[i], unmodelled) {
+				continue
+			}
 			return true, head + " " + tail, card.Name
 		}
 	}
@@ -357,6 +360,95 @@ func cardModels(card reporting.SchemaCard, term string) bool {
 	// If a leader-worded subject is ever measured dying here, close it with a
 	// test that reproduces it first.
 	return cardHasColumnFor(card, term)
+}
+
+// cardReportsSubjectAsDimensionValue reports that the subject the question
+// named is not a MISSING subject at all but a VALUE of a dimension the card
+// that ran carries.
+//
+// THE GATE ABOVE COULD SEE COLUMN NAMES AND NOTHING ELSE, and that is the
+// whole defect. "who is the backup for the Feed Director" was refused with
+// "I read workforce_coverage_status, which does not report it" -- while
+// `role_label = 'Feed Director'` is a ROW of that very view. `director` is not
+// a column of any card and no tool's sentence says it, so it read as a subject
+// the farm does not record; a leader asking about one of sixteen roles the
+// view exists to report was told the farm has no source for it. Same shape as
+// the earlier "sops are behind" refusal: a subject that lives in the DATA, not
+// in the SCHEMA.
+//
+// The principled question is "could this word be a value of a dimension this
+// view groups by or filters on?", and it is answered from evidence THE MODEL
+// DID NOT AUTHOR, never from a word list:
+//
+//   - the card must carry a text DIMENSION column at all (a GroupByColumns
+//     entry of text type -- role_label, park_label, coverage_status). A view
+//     of pure measures groups by nothing and can have no such value, so
+//     nothing here can excuse it;
+//   - the statement NARROWED on the word (`role_label ILIKE '%Feed
+//     Director%'`) -- the database itself selected rows by that value, which
+//     is the strongest evidence there is that the view reports it; or
+//   - a ROW THAT CAME BACK carries it, in its label, its scope or its value.
+//
+// The row evidence is read with the same discipline entitysubstitution.go
+// applies to an ear tag, and for the same reason: a literal the model wrote
+// into the outermost SELECT list is a CAPTION, not data, so
+// `SELECT 'milk feeding' AS label, count(*) …` must not be able to talk its
+// way past this. When the word appears only in the projection the read gets no
+// credit and the refusal stands.
+//
+// What this deliberately does NOT do is excuse a genuinely different entity.
+// "Kids on MILK FEEDING per park" answered `CBE 24, CPT 24` off the
+// animal-scope view still refuses: no row that came back says "milk", nothing
+// in the statement narrows on it, and the subject really is somewhere else.
+func cardReportsSubjectAsDimensionValue(card reporting.SchemaCard, sub domain.SubQuestion, r domain.ToolResult, term string) bool {
+	if term == "" || !cardHasTextDimension(card) {
+		return false
+	}
+	sql, ranSQL := statementParam(sub.Params)
+	if ranSQL {
+		// A value the database narrowed on: anywhere from the outermost FROM
+		// onwards (WHERE, JOIN, GROUP BY), never the projection.
+		if sqlFiltersOnEntity(sql, term) {
+			return true
+		}
+		// The model captioned its own read with the word. That proves nothing
+		// about the rows, so the row check below is not allowed to be fooled
+		// by the value it produced.
+		if containsFold(projectionOf(sql), term) {
+			return false
+		}
+	}
+	for _, f := range r.Facts {
+		if containsFold(f.Label, term) || containsFold(f.Scope, term) || containsFold(f.Value, term) {
+			return true
+		}
+	}
+	return false
+}
+
+// cardHasTextDimension reports that the card declares at least one group-by
+// column of text type -- a dimension whose VALUES are business words a leader
+// can name. Ids, dates and measures are not such a dimension.
+func cardHasTextDimension(card reporting.SchemaCard) bool {
+	for _, name := range card.GroupByColumns {
+		for _, col := range card.Columns {
+			if strings.EqualFold(col.Name, name) && strings.EqualFold(col.Type, "text") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// projectionOf returns the outermost SELECT list -- everything before the
+// statement's own FROM, which is exactly the part afterProjection drops. A
+// statement with no FROM is all projection.
+func projectionOf(sql string) string {
+	rest := afterProjection(sql)
+	if rest == "" {
+		return sql
+	}
+	return sql[:len(sql)-len(rest)]
 }
 
 // leaderFold returns the catalogue's word for a leader's word, or "" when the
