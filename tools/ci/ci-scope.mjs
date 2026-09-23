@@ -20,6 +20,13 @@ function matches(pathname, group = {}) {
     || (group.extensions ?? []).some((extension) => filePath.endsWith(extension));
 }
 
+function matchesExcept(pathname, group = {}) {
+  const filePath = normalized(pathname);
+  if ((group.exceptFiles ?? []).includes(filePath)) return false;
+  if ((group.exceptPrefixes ?? []).some((prefix) => filePath.startsWith(prefix))) return false;
+  return matches(filePath, group);
+}
+
 function allComponents() {
   return { backend: true, adminWeb: true, android: true };
 }
@@ -71,7 +78,7 @@ export function classifyPaths(inputPaths, rules = JSON.parse(readFileSync(rulesP
       continue;
     }
 
-    if (matches(filePath, rules.forceFull)) {
+    if (matchesExcept(filePath, rules.forceFull)) {
       Object.assign(components, allComponents());
       reasons.push(`${filePath}: CI/shared tooling change forces full suite`);
       continue;
@@ -210,6 +217,15 @@ function selfTest() {
     selectedJobs: ["common", "android"],
   });
   assert.deepEqual(pick(["tools/ci/land-main.sh"]), {
+    common: true, backend: false, adminWeb: false, android: false, full: false,
+    selectedJobs: ["common"],
+  });
+  assert.deepEqual(pick(["tools/agent-hooks/postgres-bind-contract-baseline.json"]), {
+    common: true, backend: true, adminWeb: false, android: false, full: false,
+    selectedJobs: ["common", "backend"],
+  });
+  assert.equal(pick(["tools/agent-hooks/check-postgres-bind-contract.mjs"]).full, true);
+  assert.deepEqual(pick(["tools/dashboard-automation/coverage-state.json"]), {
     common: true, backend: false, adminWeb: false, android: false, full: false,
     selectedJobs: ["common"],
   });
