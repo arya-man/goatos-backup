@@ -33,6 +33,16 @@ type ObservationForm struct {
 	// than silently mixing one version's answers into another's rules.
 	RegisterVersion string `json:"register_version"`
 
+	// Sex and Stage are THE ANIMAL'S OWN, normalised exactly as the engine reads them (F/M, and
+	// the herd register's stage). They ride the form because the phone cannot evaluate
+	// `only_if_sex` / `only_if_stage` without them -- and it must evaluate them, or it shows the
+	// operator a form missing the questions the server will then refuse the submit for.
+	//
+	// They are FACTS, never fields: the operator is not asked and cannot change them. A manager
+	// who could type an animal's sex could change which half of the rulebook judges it.
+	Sex   string `json:"sex,omitempty"`
+	Stage string `json:"stage,omitempty"`
+
 	// Pages are what the operator walks, in authored order.
 	Pages []diagnosis.Page `json:"pages"`
 }

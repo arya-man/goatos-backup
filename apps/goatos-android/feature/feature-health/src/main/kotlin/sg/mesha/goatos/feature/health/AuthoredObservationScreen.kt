@@ -73,13 +73,13 @@ fun AuthoredObservationScreen(
     val page = form.pages[pageIndex]
     val isLastPage = pageIndex == form.pages.lastIndex
 
-    val sex = state.form.sex
-    // The SUB-STAGE the register reads inside a type (K1 vs K2 on the milk ladder). It comes from
-    // the animal's record, never from the form: it decides how a missed feed is READ, and a
-    // manager who could type it could turn a real refusal into a learner's miss.
-    val stage = state.form.kidStage
-    val shown = page.applicableQuestions(answers, sex, stage)
-    val missingHere = page.missing(answers, sex, stage)
+    // Sex and sub-stage come from THE SERVED FORM, which carries the animal's own facts normalised
+    // exactly as the engine reads them. They were read off the legacy form state here, which holds
+    // the herd register's `female` while the register speaks `F` -- so every sex-gated question was
+    // silently hidden, the operator walked a form with the udder questions missing, and the submit
+    // was refused after the animal was back in its pen.
+    val shown = form.applicableQuestions(page, answers)
+    val missingHere = form.missing(page, answers)
 
     Column(modifier.fillMaxSize().background(MeshaColors.Bg)) {
         MeshaScreenHeader(
