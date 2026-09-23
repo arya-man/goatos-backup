@@ -221,8 +221,14 @@ async function authenticate(req) {
   if (hit && hit.exp > Date.now()) return hit.user;
   const headers = { Authorization: authz, Accept: "application/json" };
   if (tenantId) headers["X-GoatOS-Tenant-ID"] = tenantId;
-  const res = await fetch(`${STG_API}/ceo-ai/starters`, { headers }).catch(() => null);
-  if (!res || res.status !== 200) return null;
+  const res = await fetch(`${STG_API}/ceo-ai/starters`, { headers }).catch((e) => {
+    console.warn(`[auth] stg leadership check failed: ${e?.message || e}`);
+    return null;
+  });
+  if (!res || res.status !== 200) {
+    if (res) console.warn(`[auth] stg leadership check returned ${res.status} (tenant=${tenantId || "none"})`);
+    return null;
+  }
   // The payload is only trusted because the stg API just accepted this token's
   // signature. No identifiable claim => refuse: a shared fallback id would put
   // every such user's chats in one bucket.
