@@ -245,9 +245,24 @@ func TestSchemaCardsCoverEveryMigrationView(t *testing.T) {
 
 func TestCardForSQLAndViewName(t *testing.T) {
 	cases := map[string]string{
-		"SELECT count(*) FROM ceo_ai.animal_current_scope WHERE tenant_id = 'x' LIMIT 1":       "animal_current_scope",
-		"select 1 from CEO_AI.Mortality_Base m where m.tenant_id = 'x' limit 1":                "mortality_base",
-		"SELECT 'ceo_ai.fake' AS label FROM ceo_ai.feed_adherence WHERE tenant_id='x' LIMIT 1": "fake", // first reference wins; a literal is the model's problem, Validate has the tenant
+		"SELECT count(*) FROM ceo_ai.animal_current_scope WHERE tenant_id = 'x' LIMIT 1": "animal_current_scope",
+		"select 1 from CEO_AI.Mortality_Base m where m.tenant_id = 'x' limit 1":          "mortality_base",
+		// A LITERAL IS NOT A RELATION. The byte-scanning version matched
+		// `'ceo_ai.fake'` inside the projection's string and reported a view
+		// that has no card, so the statement was judged against NOTHING —
+		// a gate that no-ops is indistinguishable from a gate that passed.
+		"SELECT 'ceo_ai.fake' AS label FROM ceo_ai.feed_adherence WHERE tenant_id='x' LIMIT 1": "feed_adherence",
+		// THE SPACED QUALIFIER IS THE SAME RELATION TO POSTGRES, and the
+		// byte scan missed it, which silently disabled every card-derived
+		// rule on the statement.
+		"SELECT count(*) FROM ceo_ai . feed_adherence WHERE tenant_id='x' LIMIT 1":          "feed_adherence",
+		"SELECT count(*) FROM ceo_ai\n  .\n  feed_adherence WHERE tenant_id='x' LIMIT 1":    "feed_adherence",
+		"SELECT count(*) FROM ceo_ai--c\n.feed_adherence WHERE tenant_id='x' LIMIT 1":       "feed_adherence",
+		"SELECT count(*) FROM ceo_ai/* c */.feed_adherence WHERE tenant_id='x' LIMIT 1":     "feed_adherence",
+		`SELECT count(*) FROM "ceo_ai" . "feed_adherence" WHERE tenant_id='x' LIMIT 1`:      "feed_adherence",
+		`SELECT count(*) FROM "CEO_AI"."FEED_ADHERENCE" WHERE tenant_id='x' LIMIT 1`:        "feed_adherence",
+		"SELECT count(*) FROM ceo_ai . \"feed_adherence\" WHERE tenant_id='x' LIMIT 1":      "feed_adherence",
+		"-- ceo_ai.mortality_base\nSELECT 1 FROM ceo_ai.feed_adherence WHERE a='x' LIMIT 1": "feed_adherence",
 		"SELECT 1":   "",
 		"":           "",
 		"x_ceo_ai.y": "",

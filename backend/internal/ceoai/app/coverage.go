@@ -499,22 +499,144 @@ var npBreakers = map[string]bool{
 // later.
 func nounPositionWords(text string) map[string]bool {
 	out := map[string]bool{}
-	inNP, pos := false, 0
-	for _, w := range questionTokens(text) {
+	for _, span := range nounPhraseSpans(questionTokens(text)) {
+		for _, w := range span {
+			out[w] = true
+		}
+	}
+	return out
+}
+
+// nounPhraseSpans groups the words an opener promotes into noun position, in
+// the order the question said them, at most two per opener. It is the same
+// walk nounPositionWords used to do inline; it is a list rather than a set
+// because WHICH WORDS SHARE A NOUN PHRASE is the fact npCompanionsAreNotEvidence
+// needs and a set throws away.
+func nounPhraseSpans(tokens []string) [][]string {
+	var spans [][]string
+	var cur []string
+	inNP := false
+	flush := func() {
+		if len(cur) > 0 {
+			spans = append(spans, cur)
+			cur = nil
+		}
+	}
+	for _, w := range tokens {
 		switch {
 		case npOpeners[w]:
-			inNP, pos = true, 0
+			flush()
+			inNP = true
 		case npBreakers[w]:
-			inNP, pos = false, 0
+			flush()
+			inNP = false
 		case inNP:
-			pos++
-			out[w] = true
-			if pos >= 2 {
-				inNP, pos = false, 0
+			cur = append(cur, w)
+			if len(cur) >= 2 {
+				flush()
+				inNP = false
+			}
+		}
+	}
+	flush()
+	return spans
+}
+
+// npCompanionsAreNotEvidence names the words a noun phrase must NOT contribute
+// as proof that the question is about another company.
+//
+// THE DEFINITE ARTICLE USED TO KILL A QUESTION, and this is the fix. A word is
+// promoted into noun position by an OPENER, and `hasUnmodelledSubject` then
+// reads any promoted word the catalogue does not name as positive evidence of
+// foreign scope. So one English article flipped a question that worked:
+// `sales report` nominated three sources, `the sales report` nominated NOTHING,
+// because `the` promoted `report` — an ordinary English word for a piece of
+// paper, which no card and no tool is named after. Measured the same way:
+// `the sales numbers`, `figures`, `update`, `picture`, `situation`, `snapshot`,
+// `progress`, `chart`, `tally`, and `the weighing progress`,
+// `show the feed usage`, `give me the milk feeding status`,
+// `any health issues today`, `who is covering the morning shift`. Ten of the
+// fifteen ordinary nouns tried behaved this way; the five that survived
+// survived only because they happen to appear in some card's prose. That is a
+// word list wearing a grammar rule's clothes.
+//
+// The repair reads the phrase as English does — a noun phrase has ONE head and
+// the words in front of it modify it — and then asks what KIND of word the head
+// is. An unmodelled head sitting behind a MODELLED modifier is not evidence of
+// foreign scope when the head is a PRESENTATION word: a word for a VIEW of data
+// rather than for a thing the farm could record. "The sales REPORT", "the
+// weighing PROGRESS", "the feed USAGE" all say how the leader wants to see a
+// subject the catalogue already models; they do not name a second subject.
+//
+// THE KIND TEST IS THE LOAD-BEARING HALF, and dropping it was measured. A first
+// version exempted every unmodelled head behind a modelled modifier, and
+// "our employee TURNOVER" and "the staff ATTRITION rate" — both of which the
+// out-of-sample sweep requires to nominate NOTHING — started nominating the
+// workforce views, because `employee` and `staff` are modelled words and
+// turnover and attrition are not presentation words but real facts this farm
+// does not record. A companion version also exempted an unmodelled MODIFIER in
+// front of a modelled head; that turned "what is the CHICKEN rate", "our DIESEL
+// spend", "the PREGNANCY rate", "the EMBRYO transfers" and twenty-eight
+// generated foreign-scope questions into false nominations, because `rate`,
+// `spend` and `transfers` are modelled while the word in front of them is the
+// whole subject. Both are deliberately NOT done.
+//
+// presentationNouns is therefore a closed class and is admitted as one. It is
+// not a catalogue of farm vocabulary — no word in it can ever be a thing the
+// farm records — and that is exactly why listing it is safe where listing farm
+// nouns is not. It replaces an ACCIDENTAL list: before this, `breakdown`,
+// `summary`, `overview`, `totals` and `status` happened to survive only because
+// they appear somewhere in some card's prose, while `report`, `figures` and
+// `chart` happened to die. The set below states the rule instead of leaving it
+// to whatever words a card was written with.
+//
+// A phrase in which NOTHING is modelled is untouched: "our app crash rate",
+// "the next audit by the bank", "how much tax did we pay" all still nominate
+// nothing, which is the honest answer.
+func npCompanionsAreNotEvidence(text string, vocab map[string]int) map[string]bool {
+	out := map[string]bool{}
+	for _, span := range nounPhraseSpans(questionTokens(text)) {
+		if len(span) < 2 {
+			continue
+		}
+		head, modifiers := span[len(span)-1], span[:len(span)-1]
+		if wordFormsAreModelled(head, vocab) || !presentationNouns[head] {
+			continue
+		}
+		for _, w := range modifiers {
+			if wordFormsAreModelled(w, vocab) {
+				out[head] = true
+				break
 			}
 		}
 	}
 	return out
+}
+
+// presentationNouns name a WAY OF LOOKING at something, never a thing the farm
+// records. A leader reaches for one of these when they already have a subject
+// in mind and are saying what shape they want the answer in.
+//
+// Membership test, applied to every word here: could this word ever be the
+// SUBJECT of a farm question — something a card, a column or a tool could be
+// named after? If yes it does not belong in this set. `turnover`, `attrition`,
+// `spend`, `claims` and `rate` are all things a business records, so none of
+// them is here even though each reads like a reporting word in some sentence.
+var presentationNouns = map[string]bool{
+	"report": true, "reports": true, "reporting": true,
+	"number": true, "numbers": true, "figure": true, "figures": true,
+	"update": true, "updates": true, "picture": true, "situation": true,
+	"snapshot": true, "snapshots": true, "progress": true,
+	"chart": true, "charts": true, "graph": true, "graphs": true,
+	"tally": true, "usage": true, "recap": true, "roundup": true,
+	"rundown": true, "readout": true, "outlook": true, "dashboard": true,
+	"summary": true, "overview": true, "breakdown": true, "totals": true,
+	"details": true, "detail": true, "standing": true, "standings": true,
+	// A problem word is the same shape: "any health ISSUES", "the feed
+	// PROBLEMS" — the subject is the modelled word in front, and the head says
+	// the leader wants the bad rows of it rather than all of them.
+	"issue": true, "issues": true, "problem": true, "problems": true,
+	"concern": true, "concerns": true,
 }
 
 // npDeterminers are the subset of npOpeners that are DETERMINERS or
@@ -625,6 +747,15 @@ func hasUnmodelledSubject(questionText string, vocab map[string]int) bool {
 	exempt := map[string]bool{}
 	candidates := map[string]bool{}
 	nounPos := nounPositionWords(questionText)
+	// An opener alone may not promote a word to EVIDENCE of foreign scope when
+	// the noun phrase it opened carries a word the catalogue does model; see
+	// npCompanionsAreNotEvidence. The promotion is dropped rather than exempted
+	// so the word returns to NEUTRAL — absent from the catalogue and saying
+	// nothing about whose farm the question is about — which is what an
+	// unpromoted word already is.
+	for w := range npCompanionsAreNotEvidence(questionText, vocab) {
+		delete(nounPos, w)
+	}
 	headNoun := determinerHeadedNouns(questionText, vocab)
 	// A SHORT WORD IS STILL A SUBJECT. coverageWords keeps a four-letter floor
 	// so that `no`, `id` and `at` cannot nominate anything, but a word too

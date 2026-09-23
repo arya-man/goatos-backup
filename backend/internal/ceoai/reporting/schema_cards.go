@@ -245,35 +245,132 @@ func CardForSQL(sql string) (SchemaCard, bool) {
 }
 
 // ViewNameFromSQL returns the bare view name of the first `ceo_ai.<ident>`
-// reference in sql, or "". It is a plain scan (case-insensitive, whole
-// identifier) — the statement is expected to have passed sqlguard.Validate,
-// which guarantees a single ceo_ai.* relation.
+// reference in sql, or "".
+//
+// IT READS TOKENS, NOT BYTES, AND THAT IS THE WHOLE POINT. The first version
+// scanned for the literal seven characters `ceo_ai.`, so every rule that hangs
+// off the card — the window contract, the per-card column rules, anything that
+// asks "which view is this" — silently no-opped the moment the statement
+// spelled the qualifier any other way. `FROM ceo_ai . workforce_coverage_status`
+// is the same relation to Postgres and returns the same rows; it returned no
+// card here, so the statement was judged against NOTHING. A missed card is the
+// worst failure shape a gate can have, because it is indistinguishable from a
+// clean pass.
+//
+// So the qualifier is matched as SQL sees it: the identifier `ceo_ai`, a dot,
+// and an identifier — with any amount of whitespace, line breaks or comments
+// between them, in any case, and with either side optionally double-quoted.
+// A `ceo_ai.` inside a string literal or a comment is not a relation and is
+// skipped, and a longer identifier that merely ENDS in ceo_ai (`x_ceo_ai`) is
+// a different name and does not match.
 func ViewNameFromSQL(sql string) string {
-	low := strings.ToLower(sql)
-	const prefix = "ceo_ai."
-	idx := 0
-	for {
-		i := strings.Index(low[idx:], prefix)
-		if i < 0 {
-			return ""
-		}
-		start := idx + i
-		// The character before must not be an identifier part (so a column
-		// literally named x_ceo_ai.y is not matched).
-		if start > 0 && isIdentByte(low[start-1]) {
-			idx = start + len(prefix)
+	toks := sqlIdentTokens(sql)
+	for i := 0; i+2 < len(toks); i++ {
+		if !toks[i].ident || toks[i].text != "ceo_ai" {
 			continue
 		}
-		j := start + len(prefix)
-		k := j
-		for k < len(low) && isIdentByte(low[k]) {
-			k++
+		if toks[i+1].ident || toks[i+1].text != "." {
+			continue
 		}
-		if k > j {
-			return low[j:k]
+		if !toks[i+2].ident || toks[i+2].text == "" {
+			continue
 		}
-		idx = k
+		return toks[i+2].text
 	}
+	return ""
+}
+
+// sqlIdentToken is one lexical item of a statement: an identifier (bare or
+// double-quoted, folded to lower case) or a single punctuation byte.
+// Whitespace, comments, string literals and numbers are dropped — none of them
+// can be half of a qualified relation name.
+type sqlIdentToken struct {
+	text  string
+	ident bool
+}
+
+func sqlIdentTokens(sql string) []sqlIdentToken {
+	out := make([]sqlIdentToken, 0, 64)
+	for i := 0; i < len(sql); {
+		c := sql[i]
+		switch {
+		case c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v':
+			i++
+		case c == '-' && i+1 < len(sql) && sql[i+1] == '-':
+			for i < len(sql) && sql[i] != '\n' {
+				i++
+			}
+		case c == '/' && i+1 < len(sql) && sql[i+1] == '*':
+			i += 2
+			depth := 1
+			for i < len(sql) && depth > 0 {
+				switch {
+				case sql[i] == '*' && i+1 < len(sql) && sql[i+1] == '/':
+					depth--
+					i += 2
+				case sql[i] == '/' && i+1 < len(sql) && sql[i+1] == '*':
+					depth++
+					i += 2
+				default:
+					i++
+				}
+			}
+		case c == '\'':
+			i++
+			for i < len(sql) {
+				if sql[i] == '\'' {
+					if i+1 < len(sql) && sql[i+1] == '\'' {
+						i += 2
+						continue
+					}
+					i++
+					break
+				}
+				i++
+			}
+		case c == '"':
+			i++
+			var b strings.Builder
+			for i < len(sql) {
+				if sql[i] == '"' {
+					if i+1 < len(sql) && sql[i+1] == '"' {
+						b.WriteByte('"')
+						i += 2
+						continue
+					}
+					i++
+					break
+				}
+				b.WriteByte(sql[i])
+				i++
+			}
+			// A quoted identifier is case-SENSITIVE in SQL, but every card
+			// name in this repo is lower case, so folding here only ever
+			// makes a match Postgres would also make.
+			out = append(out, sqlIdentToken{text: strings.ToLower(b.String()), ident: true})
+		case isIdentStartByte(c):
+			j := i
+			for j < len(sql) && (isIdentByte(sql[j]) || sql[j] == '$') {
+				j++
+			}
+			out = append(out, sqlIdentToken{text: strings.ToLower(sql[i:j]), ident: true})
+			i = j
+		case c >= '0' && c <= '9':
+			j := i
+			for j < len(sql) && (isIdentByte(sql[j]) || sql[j] == '.') {
+				j++
+			}
+			i = j
+		default:
+			out = append(out, sqlIdentToken{text: string(c)})
+			i++
+		}
+	}
+	return out
+}
+
+func isIdentStartByte(b byte) bool {
+	return b == '_' || (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
 }
 
 func isIdentByte(b byte) bool {

@@ -441,3 +441,83 @@ func TestRecordedVocabularyGapsAreStillGaps(t *testing.T) {
 		}
 	}
 }
+
+// THE DETERMINER SWEEP. It is GENERATED rather than listed, and its head nouns
+// are deliberately OUTSIDE the catalogue — which is the one thing the two
+// tables above cannot do. Every `the <noun>` question in those tables uses
+// catalogue vocabulary as its head noun, so neither could see the class this
+// sweep exists for: a determiner promoting an ordinary English REPORTING word
+// into noun position, where `hasUnmodelledSubject` read it as proof the
+// question was about another company and nominated NOTHING.
+//
+// Measured before the fix, on the real catalogue: `sales report` nominated 3
+// sources, `the sales report` nominated 0. The same for numbers, figures,
+// update, picture, situation, snapshot, progress, chart and tally — ten of the
+// fifteen ordinary nouns tried. `the weighing progress` and `show the feed
+// usage` died the same way.
+//
+// It is an A/B and that is the point: the assertion is that the determiner does
+// not CHANGE the answer. A "fix" that made both sides nominate nothing would
+// satisfy a one-sided list and fails here.
+func TestADeterminerDoesNotKillAQuestionTheCatalogueAnswers(t *testing.T) {
+	cards, catalog := reporting.Cards(), liveCatalogue()
+	// Subjects the catalogue really models, one per area.
+	subjects := []string{"sales", "weighing", "feed", "vaccination", "procurement", "health"}
+	// Ordinary English words for a VIEW of data. None of these is a thing the
+	// farm records, and none may be the reason a question dies.
+	reportNouns := []string{
+		"report", "reports", "numbers", "figures", "update", "picture",
+		"situation", "snapshot", "progress", "chart", "tally", "summary",
+		"overview", "breakdown", "totals", "details", "recap", "rundown",
+		"issues", "problems",
+	}
+	determiners := []string{"the", "this", "that", "our"}
+	var bare, killed int
+	for _, subject := range subjects {
+		for _, noun := range reportNouns {
+			plain := subject + " " + noun
+			plainCovering := coveringSources(plain, cards, catalog)
+			if len(plainCovering) == 0 {
+				// The bare phrase reaches nothing on its own, so there is no
+				// determiner effect to measure here and inventing one would be
+				// the opposite defect.
+				continue
+			}
+			bare++
+			for _, det := range determiners {
+				q := det + " " + plain
+				if covering := coveringSources(q, cards, catalog); len(covering) == 0 {
+					killed++
+					t.Errorf("DETERMINER KILLED THE QUESTION: %q nominates %v but %q nominates nothing — one English article turned a question the catalogue answers into \"we don't track that\"",
+						plain, plainCovering, q)
+				}
+			}
+		}
+	}
+	if bare < 40 {
+		t.Fatalf("only %d of the %d generated phrases nominate anything at all; the sweep has stopped exercising the class it was written for",
+			bare, len(subjects)*len(reportNouns))
+	}
+	t.Logf("determiner sweep: %d bare phrases nominate, %d determiner forms killed", bare, killed)
+}
+
+// The other direction, and it is what stops the fix above from being a
+// loosening. A determiner in front of a phrase the catalogue models NOTHING of
+// must still nominate nothing: the reporting-word exemption may only ever ride
+// on a modelled word standing beside it in the same noun phrase.
+func TestADeterminerDoesNotSmuggleAForeignSubjectIn(t *testing.T) {
+	cards, catalog := reporting.Cards(), liveCatalogue()
+	foreign := []string{"chicken", "loan", "mortgage", "payroll", "attrition", "turnover", "wifi", "instagram", "bitcoin", "rainfall"}
+	reportNouns := []string{"report", "numbers", "figures", "summary", "chart", "issues", "progress"}
+	for _, subject := range foreign {
+		for _, noun := range reportNouns {
+			for _, det := range []string{"the", "our", "this"} {
+				q := det + " " + subject + " " + noun
+				if covering := coveringSources(q, cards, catalog); len(covering) != 0 {
+					t.Errorf("FOREIGN SUBJECT SMUGGLED IN: %q nominated %v — the farm records nothing about %q, so a reporting word beside it must not make it answerable",
+						q, covering, subject)
+				}
+			}
+		}
+	}
+}
