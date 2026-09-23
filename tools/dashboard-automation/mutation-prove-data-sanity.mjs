@@ -92,6 +92,25 @@ function requiredColumns(dsn, table) {
   });
 }
 
+/**
+ * The same check with the farm taken OUT of its grouping - the defect this fix removed.
+ *
+ * Without this, "stays quiet across farms" is filed on zero rows, and a query that can never
+ * return a row at all scores identically: `... where 1=0 ...` passes the same test. The control
+ * is what separates quiet-because-the-farm-is-in-the-key from quiet-because-nothing-matches. For
+ * the three checks where no single-farm defect can be planted, it is the ONLY evidence there is.
+ */
+export function farmBlindSql(sql) {
+  const patterns = [
+    [/\bgroup by\s+(?:[a-z_][a-z0-9_]*\.)?tenant_id\s*,\s*/gi, "group by "],
+    [/\s+and\s+([a-z_][a-z0-9_]*)\.tenant_id\s*=\s*([a-z_][a-z0-9_]*)\.tenant_id\b/gi, " "]
+  ];
+  let out = String(sql);
+  for (const [pattern, replacement] of patterns) out = out.replace(pattern, replacement);
+  out = out.replace(/\s+/g, " ").trim();
+  return out === String(sql).replace(/\s+/g, " ").trim() ? null : out;
+}
+
 export function loadFixtures(file = fixturesPath) {
   if (!existsSync(file)) {
     // Fail closed. §8: 87 guard/input pairs exited 0 when their input file was deleted.
@@ -144,6 +163,7 @@ function main() {
     // was the standard used to strike the checks that cannot fire at all, and it is not the
     // standard met here.
     howProved: "each check fired on the defect it names and went quiet without it, against a synthetic row in an empty clone with referential integrity switched off for the plant; no browser was driven and stg was never contacted",
+    whatThisNumberIs: "coverage of the fixture file: how many checks have a defect written for them that this run could plant and show them discriminate. It is not a measurement of the live data, and it is only true of a run that actually happened - this receipt is that run.",
     caveat: "with foreign keys enforced instead, most of these rows could not be planted without their parent records, so this is a discrimination proof and not a reachability proof",
     totalChecks: catalogue.checks.length,
     proved: [],
@@ -154,7 +174,10 @@ function main() {
     // farms' own business, which is the false accusation §2 says matters more.
     quietAcrossFarms: [],
     notQuietAcrossFarms: [],
-    noCrossFarmCase: []
+    // Filed apart on purpose. "We tried and it stayed quiet" and "we could not try" read the same
+    // when they share a heading, and only one of them is evidence.
+    crossFarmCaseUnreachable: [],
+    comparesNothingAcrossFarms: []
   };
 
   const tableColumns = new Map();
@@ -172,7 +195,7 @@ function main() {
     // farm's duplicate.
     const crossFarm = fixtures.mutations[check.name]?.crossTenant;
     if (!crossFarm?.plant?.length) {
-      report.noCrossFarmCase.push({ name: check.name, reason: crossFarm?.reason ?? "this check does not compare records across farms, so there is nothing to confuse" });
+      report.comparesNothingAcrossFarms.push({ name: check.name, reason: crossFarm?.reason ?? "this check does not compare records across farms, so there is nothing to confuse" });
     } else {
       const capped = cappedSql(check.sql, 500);
       let outcome;
@@ -185,16 +208,41 @@ function main() {
         // The database itself makes the collision impossible: the id is unique across farms, not
         // per farm. The check cannot accuse the wrong farm today, and the farm in its grouping is
         // defence against that key changing rather than a live fix.
-        report.noCrossFarmCase.push({
+        report.crossFarmCaseUnreachable.push({
           name: check.name,
-          reason: "two farms cannot reuse this id at all - the database keeps it unique across farms - so no cross-farm confusion is reachable today"
+          reason: "two farms cannot reuse this id at all - the database keeps it unique across farms - so the two-farm case COULD NOT BE TRIED. The farm in its grouping is defence against that key changing, not something shown to work."
         });
       } else if (outcome.error) {
         report.notQuietAcrossFarms.push({ name: check.name, reason: `the two-farm case could not be set up: ${String(outcome.error).split("\n")[0].slice(0, 200)}` });
       } else if (outcome.rows.length > 0) {
         report.notQuietAcrossFarms.push({ name: check.name, reason: `this check accuses two farms of one farm's duplicate: ${crossFarm.description ?? "the same id used by two farms"}` });
       } else {
-        report.quietAcrossFarms.push({ name: check.name, case: crossFarm.description ?? null });
+        // THE CONTROL. Quiet on zero rows means nothing on its own. Put the defect back into the
+        // CHECK - take the farm out of its grouping - and the same rows must make it fire. If they
+        // do not, the check matches nothing at all and its silence is worth nothing.
+        const blind = farmBlindSql(check.sql);
+        if (!blind) {
+          report.notQuietAcrossFarms.push({
+            name: check.name,
+            reason: "the farm could not be taken back out of this check's grouping, so there is no way to show its silence comes from the farm being there rather than from matching nothing"
+          });
+        } else {
+          const control = psql(dsn, ["begin", "set local session_replication_role = replica", ...insertsFor(crossFarm.plant, check.name), cappedSql(blind, 500), "rollback"].join(";\n"));
+          if (control.error) {
+            report.notQuietAcrossFarms.push({ name: check.name, reason: `the control could not be run: ${String(control.error).split("\n")[0].slice(0, 200)}` });
+          } else if (control.rows.length === 0) {
+            report.notQuietAcrossFarms.push({
+              name: check.name,
+              reason: "the control stayed quiet too: with the farm taken back out of the grouping these rows STILL match nothing, so this check's silence is not evidence the farm is doing the work"
+            });
+          } else {
+            report.quietAcrossFarms.push({
+              name: check.name,
+              case: crossFarm.description ?? null,
+              control: `with the farm taken back out of the grouping the same rows made it fire (${control.rows.length} row(s)), so its silence is the farm doing the work`
+            });
+          }
+        }
       }
     }
 
@@ -269,12 +317,20 @@ function main() {
 
   report.coverage = `${report.proved.length}/${report.totalChecks}`;
   report.crossFarmCoverage = `${report.quietAcrossFarms.length}/${report.quietAcrossFarms.length + report.notQuietAcrossFarms.length}`;
+  report.crossFarmFiling = {
+    provenNotToAccuseTheWrongFarm: report.quietAcrossFarms.length,
+    couldNotBeTried: report.crossFarmCaseUnreachable.length,
+    nothingToConfuse: report.comparesNothingAcrossFarms.length
+  };
   const out = path.resolve(args.out ?? path.join(repo, ".codex-goatos-render/dashboard-automation/data-sanity-mutations.json"));
   mkdirSync(path.dirname(out), { recursive: true });
   writeFileSync(out, `${JSON.stringify(report, null, 2)}\n`);
   console.log(`lane 2 mutation proof: ${report.proved.length} of ${report.totalChecks} checks fired on the defect they name and went quiet without it, against a synthetic row in an empty clone with referential integrity switched off`);
-  console.log(`  two farms, one id: ${report.quietAcrossFarms.length} of ${report.quietAcrossFarms.length + report.notQuietAcrossFarms.length} checks that compare records across farms stayed quiet when the rows were two farms' own business`);
+  console.log(`  two farms, one id: ${report.quietAcrossFarms.length} of ${report.quietAcrossFarms.length + report.notQuietAcrossFarms.length} checks that compare records across farms stayed quiet when the rows were two farms' own business, AND fired on those same rows with the farm taken back out of the grouping`);
   for (const gap of report.notQuietAcrossFarms) console.log(`  accuses the wrong farm — ${gap.name}: ${gap.reason}`);
+  if (report.crossFarmCaseUnreachable.length) {
+    console.log(`  could NOT be tried (${report.crossFarmCaseUnreachable.length}): ${report.crossFarmCaseUnreachable.map((row) => row.name).join(", ")} — the database keeps the id unique across farms, so there is no two-farm case to plant. Not the same as proven.`);
+  }
   for (const gap of report.notProved) console.log(`  not proved — ${gap.name}: ${gap.reason}`);
   return report.notProved.length === 0 && report.notQuietAcrossFarms.length === 0 ? 0 : 1;
 }
@@ -320,6 +376,17 @@ function selfTest() {
   if (covered.length + gaps.length !== catalogue.checks.length) throw new Error("self-test: the fixture coverage does not account for every check");
   for (const gap of gaps) {
     if (!gap.reason || gap.reason.length < 20) throw new Error(`self-test: the gap for ${gap.name} has no named reason`);
+  }
+
+  // The control must actually be a different query, or it proves nothing.
+  if (farmBlindSql("select a from t group by tenant_id, goat_id having count(*) > 1") !== "select a from t group by goat_id having count(*) > 1") {
+    throw new Error("self-test: the control must take the farm out of the grouping");
+  }
+  if (farmBlindSql("select a from t join u on u.id = t.id and u.tenant_id = t.tenant_id") !== "select a from t join u on u.id = t.id") {
+    throw new Error("self-test: the control must take the farm out of the join");
+  }
+  if (farmBlindSql("select a from t group by goat_id") !== null) {
+    throw new Error("self-test: a check with no farm in it has no control, and must say so rather than pass");
   }
 
   const insert = buildInsert("", "goats", { sex: "'f'" }, [{ name: "tenant_id", type: "uuid" }, { name: "sex", type: "text" }]);
