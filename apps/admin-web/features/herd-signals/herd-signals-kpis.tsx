@@ -167,7 +167,10 @@ export function HerdSignalsKpis({ summary, params }: { summary: HerdSignalsSumma
         const filterKey = index === 0 ? undefined : def.key;
         const active = filterKey ? params.kpi === filterKey : false;
         const href = filterKey
-          ? herdSignalsHref(params, { hs_kpi: active ? undefined : filterKey })
+          ? herdSignalsHref(params, {
+              hs_kpi: active ? undefined : filterKey,
+              hs_move: filterKey === "moving_now" || filterKey === "active_1m" ? undefined : params.movementState,
+            })
           : undefined;
         const card = (
           <div className={`kpi k-${def.tone}${active ? " active" : ""}${filterKey ? " kpi-clickable" : ""}`}>

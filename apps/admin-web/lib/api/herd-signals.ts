@@ -197,6 +197,7 @@ export interface HerdSignalsLiveParams {
   parkId?: string;
   shedId?: string;
   movementState?: HerdSignalMovementState;
+  liveState?: "moving_now" | "active_1m";
   mappingState?: HerdSignalMappingState;
   // "not_normal" is a server-side sentinel (backend/internal/herdsignals/adapters/postgres/
   // repository.go herdSignalsLiveFilter), not a literal pattern_state value: it is the whole-fleet
@@ -227,6 +228,7 @@ export async function getHerdSignalsLive(params: HerdSignalsLiveParams = {}): Pr
           park_id: params.parkId,
           shed_id: params.shedId,
           movement_state: params.movementState,
+          live_state: params.liveState,
           mapping_state: params.mappingState,
           pattern: params.pattern,
           risk_state: params.riskState,

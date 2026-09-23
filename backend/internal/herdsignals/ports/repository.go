@@ -18,7 +18,7 @@ type Repository interface {
 	// one bounded page at a time, and re-running the whole-filter summary aggregate on every
 	// page would turn one export into hundreds of full aggregates for a number the CSV does not
 	// carry.
-	ListTagsLatestPage(ctx context.Context, tenantID string, parkID, shedID, movementState, mappingState, pattern, q *string, cursor string, limit int, sort ...domain.LiveSort) ([]domain.TagLatest, error)
+	ListTagsLatestPage(ctx context.Context, tenantID string, parkID, shedID, movementState, liveState, mappingState, pattern, q *string, cursor string, limit int, sort ...domain.LiveSort) ([]domain.TagLatest, error)
 
 	// UpsertGateway updates or inserts a gateway.
 	UpsertGateway(ctx context.Context, tenantID string, gw domain.Gateway) error
@@ -38,7 +38,7 @@ type Repository interface {
 	// parkID, shedID: optional location filters. movementState: filter by "moving", "low", "quiet",
 	// "not_moving", "stale". mappingState: filter by "mapped", "unmapped", "conflict". pattern:
 	// filter by pattern_state. q: free-text search over display id, tag id, MAC, shed, gateway.
-	ListTagsLatest(ctx context.Context, tenantID string, parkID, shedID, movementState, mappingState, pattern, q *string, cursor string, limit int, sort ...domain.LiveSort) (
+	ListTagsLatest(ctx context.Context, tenantID string, parkID, shedID, movementState, liveState, mappingState, pattern, q *string, cursor string, limit int, sort ...domain.LiveSort) (
 		items []domain.TagLatest,
 		summary domain.Summary,
 		nextCursor *string,

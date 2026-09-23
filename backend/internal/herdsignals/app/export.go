@@ -31,7 +31,7 @@ const (
 //
 // BOUNDED: pages of exportPageSize rows, each written out and released before the next is read,
 // capped at maxExportRows total. Nothing collects the whole result set.
-func (s *Service) ExportCSV(ctx context.Context, actor domain.Actor, parkID, shedID, movementState, mappingState, pattern, q *string, w io.Writer) error {
+func (s *Service) ExportCSV(ctx context.Context, actor domain.Actor, parkID, shedID, movementState, liveState, mappingState, pattern, riskState, q *string, w io.Writer) error {
 	if actor.TenantID == "" {
 		return fmt.Errorf("actor tenant_id required")
 	}
@@ -69,9 +69,42 @@ func (s *Service) ExportCSV(ctx context.Context, actor domain.Actor, parkID, she
 
 	cursor := ""
 	written := 0
+	if riskState != nil {
+		tags, err := s.listAllTagsLatest(ctx, actor.TenantID, parkID, shedID, nil, liveState, mappingState, pattern, q, domain.LiveSort{})
+		if err != nil {
+			return fmt.Errorf("export risk cohort read failed: %w", err)
+		}
+		items := s.enrichTagsBatch(ctx, actor.TenantID, tags, nil, true)
+		applyRiskSignals(items, riskGroupStatsFromItems(items))
+		for _, item := range items {
+			if *riskState == "attention" {
+				if item.RiskState == nil {
+					continue
+				}
+			} else if item.RiskState == nil || *item.RiskState != *riskState {
+				continue
+			}
+			if movementState != nil && (item.MovementState == nil || *item.MovementState != *movementState) {
+				continue
+			}
+			if err := csvutil.WriteSafeRow(writer, exportRow(item)); err != nil {
+				return err
+			}
+			written++
+			if written >= maxExportRows {
+				if err := writer.Write([]string{fmt.Sprintf("EXPORT TRUNCATED at %d rows: narrow the filters and export again.", maxExportRows)}); err != nil {
+					return err
+				}
+				writer.Flush()
+				return writer.Error()
+			}
+		}
+		writer.Flush()
+		return writer.Error()
+	}
 	for {
 		// scale-guard:ignore: keyset cursor pagination; each page depends on the prior cursor, cannot be batched into one query
-		tags, err := s.repo.ListTagsLatestPage(ctx, actor.TenantID, parkID, shedID, movementState, mappingState, pattern, q, cursor, exportPageSize)
+		tags, err := s.repo.ListTagsLatestPage(ctx, actor.TenantID, parkID, shedID, movementState, liveState, mappingState, pattern, q, cursor, exportPageSize)
 		if err != nil {
 			return fmt.Errorf("export page read failed: %w", err)
 		}

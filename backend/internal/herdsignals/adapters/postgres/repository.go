@@ -727,7 +727,7 @@ const tagLocationJoin = `
 // movementState is nil for the summary call: the summary reports the BREAKDOWN across movement
 // states for the current park/shed/mapping/pattern/q filter, so movement_state itself must not
 // also be a predicate.
-func herdSignalsLiveFilter(tenantID string, parkID, shedID, movementState, mappingState, pattern, q *string) (string, []interface{}, int) {
+func herdSignalsLiveFilter(tenantID string, parkID, shedID, movementState, liveState, mappingState, pattern, q *string) (string, []interface{}, int) {
 	whereClause := "WHERE tl.tenant_id = $1"
 	args := []interface{}{tenantID}
 	argIndex := 2
@@ -748,6 +748,14 @@ func herdSignalsLiveFilter(tenantID string, parkID, shedID, movementState, mappi
 		whereClause += fmt.Sprintf(" AND ("+effectiveMovementStateExpr+") = $%d", argIndex)
 		args = append(args, *movementState)
 		argIndex++
+	}
+	if liveState != nil {
+		switch *liveState {
+		case "moving_now":
+			whereClause += " AND now() - tl.last_seen_at <= interval '30 seconds' AND COALESCE(tl.last_packet_motion_delta, 0) > 0"
+		case "active_1m":
+			whereClause += " AND now() - tl.last_seen_at <= interval '90 seconds' AND COALESCE(tl.motion_delta_60s, 0) > 0"
+		}
 	}
 
 	if mappingState != nil && *mappingState != "" {
@@ -813,13 +821,13 @@ func herdSignalsLiveFilter(tenantID string, parkID, shedID, movementState, mappi
 	return whereClause, args, argIndex
 }
 
-func (r *Repository) ListTagsLatest(ctx context.Context, tenantID string, parkID, shedID, movementState, mappingState, pattern, q *string, cursor string, limit int, sort ...domain.LiveSort) (
+func (r *Repository) ListTagsLatest(ctx context.Context, tenantID string, parkID, shedID, movementState, liveState, mappingState, pattern, q *string, cursor string, limit int, sort ...domain.LiveSort) (
 	[]domain.TagLatest, domain.Summary, *string, error,
 ) {
 	// Fetch one extra row to detect whether another page exists. The row query itself lives in
 	// ListTagsLatestPage (export.go) so GET /herd-signals/export.csv walks the SAME filtered,
 	// keyset-ordered result this endpoint returns -- the export can never drift from the view.
-	tags, err := r.ListTagsLatestPage(ctx, tenantID, parkID, shedID, movementState, mappingState, pattern, q, cursor, limit+1, sort...)
+	tags, err := r.ListTagsLatestPage(ctx, tenantID, parkID, shedID, movementState, liveState, mappingState, pattern, q, cursor, limit+1, sort...)
 	if err != nil {
 		return nil, domain.Summary{}, nil, err
 	}
@@ -839,7 +847,7 @@ func (r *Repository) ListTagsLatest(ctx context.Context, tenantID string, parkID
 	// Summary: the SAME filter (park/shed/mapping_state/pattern/q), WITHOUT the movement_state
 	// predicate or the cursor/limit, aggregated server-side in one query -- never derived from
 	// the returned page (AGENTS.md operational read model contract rule 3).
-	summaryWhere, summaryArgs, _ := herdSignalsLiveFilter(tenantID, parkID, shedID, nil, mappingState, pattern, q)
+	summaryWhere, summaryArgs, _ := herdSignalsLiveFilter(tenantID, parkID, shedID, nil, liveState, mappingState, pattern, q)
 
 	summary, err := r.computeSummary(ctx, tagLocationJoin, summaryWhere, summaryArgs)
 	if err != nil {

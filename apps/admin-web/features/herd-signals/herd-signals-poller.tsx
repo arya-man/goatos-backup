@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useCallback, useMemo, useEffect, useRef, useState, useSyncExternalStore, useTransition } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { fmtClockSeconds } from "./format";
 
 // LIVE / PAUSED control and the SSE refresh bridge. The initial table remains server-rendered; once
@@ -10,6 +10,56 @@ import { fmtClockSeconds } from "./format";
 
 const STALE_AFTER_MS = 30_000;
 const STREAM_REFRESH_MIN_MS = 15_000;
+
+function liveStateFromKpi(kpi: string | null): "moving_now" | "active_1m" | null {
+  return kpi === "moving_now" || kpi === "active_1m" ? kpi : null;
+}
+
+function appendLiveQueryParam(out: URLSearchParams, from: string, to: string, sp: URLSearchParams): void {
+  const value = sp.get(from);
+  if (value) out.set(to, value);
+}
+
+function currentLiveQuery(search: string): URLSearchParams {
+  const sp = new URLSearchParams(search);
+  const out = new URLSearchParams();
+  const tab = sp.get("hs_tab") || "live";
+  const map: Record<string, string> = {
+    park: "park_id",
+    hs_shed: "shed_id",
+    hs_move: "movement_state",
+    hs_map: "mapping_state",
+    hs_pattern: "pattern",
+    hs_risk: "risk_state",
+    hs_q: "q",
+    hs_cursor: "cursor",
+    hs_sort: "sort",
+    hs_dir: "dir",
+    hs_limit: "limit",
+  };
+  for (const [from, to] of Object.entries(map)) appendLiveQueryParam(out, from, to, sp);
+  if (tab === "live") {
+    const liveState = liveStateFromKpi(sp.get("hs_kpi"));
+    if (liveState) {
+      out.set("live_state", liveState);
+      out.delete("movement_state");
+    }
+  } else {
+    out.delete("live_state");
+  }
+  if (tab === "animals") {
+    out.set("mapping_state", "mapped");
+  } else if (tab === "alerts") {
+    out.set("risk_state", "attention");
+    out.delete("movement_state");
+    out.delete("live_state");
+    out.delete("mapping_state");
+    out.delete("pattern");
+  } else if (tab !== "mapping") {
+    out.delete("mapping_state");
+  }
+  return out;
+}
 
 // Live/paused state is session-only — no localStorage persistence. Fresh page loads are always
 // live. Users can pause within the session using the toggle button, but the pause state is lost
@@ -88,6 +138,21 @@ export function useNowMs(everyMs = 1000): number {
 
 export function HerdSignalsPoller({ generatedAt }: { generatedAt: string }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const searchKey = searchParams.toString();
+  const liveQuery = useMemo(() => currentLiveQuery(searchKey), [searchKey]);
+  const residualKpi = searchParams.get("hs_kpi");
+  const tab = searchParams.get("hs_tab") || "live";
+  const unsupportedExportTab = tab === "gateways" || tab === "insights";
+  const exportDisabled = unsupportedExportTab || residualKpi === "weak_signal" || residualKpi === "missing_signal" || residualKpi === "low_battery";
+  const exportHref = useMemo(() => {
+    const out = new URLSearchParams(liveQuery);
+    out.delete("cursor");
+    out.delete("sort");
+    out.delete("dir");
+    out.delete("limit");
+    return `/api/herd-signals/export.csv${out.toString() ? `?${out.toString()}` : ""}`;
+  }, [liveQuery]);
   const [isPending, startTransition] = useTransition();
   const live = useSyncExternalStore(subscribeLive, readLive, serverLive);
   const tabHidden = useTabHidden();
@@ -130,24 +195,7 @@ export function HerdSignalsPoller({ generatedAt }: { generatedAt: string }) {
   }, []);
 
   function streamHref(): string {
-    const sp = new URLSearchParams(window.location.search);
-    const out = new URLSearchParams();
-    const map: Record<string, string> = {
-      park: "park_id",
-      hs_shed: "shed_id",
-      hs_move: "movement_state",
-      hs_map: "mapping_state",
-      hs_pattern: "pattern",
-      hs_q: "q",
-      hs_cursor: "cursor",
-      hs_sort: "sort",
-      hs_dir: "dir",
-      hs_limit: "limit",
-    };
-    for (const [from, to] of Object.entries(map)) {
-      const value = sp.get(from);
-      if (value) out.set(to, value);
-    }
+    const out = new URLSearchParams(liveQuery);
     return `/api/herd-signals/live/stream${out.toString() ? `?${out.toString()}` : ""}`;
   }
 
@@ -172,7 +220,7 @@ export function HerdSignalsPoller({ generatedAt }: { generatedAt: string }) {
       refresh();
     });
     return () => source.close();
-  }, [live, tabHidden, refresh, overlayOpen]);
+  }, [live, tabHidden, refresh, overlayOpen, liveQuery]);
 
   useEffect(() => {
     function onVisibility() {
@@ -187,20 +235,6 @@ export function HerdSignalsPoller({ generatedAt }: { generatedAt: string }) {
     if (live) return;
     refresh();
   }
-
-  const [exportHref, setExportHref] = useState("/api/herd-signals/export.csv");
-  useEffect(() => {
-    const sync = () => {
-      const sp = new URLSearchParams(window.location.search);
-      const out = new URLSearchParams();
-      const map: Record<string, string> = { park: "park_id", hs_shed: "shed_id", hs_move: "movement_state", hs_map: "mapping_state", hs_pattern: "pattern", hs_q: "q" };
-      for (const [from, to] of Object.entries(map)) { const v = sp.get(from); if (v) out.set(to, v); }
-      setExportHref(`/api/herd-signals/export.csv${out.toString() ? `?${out.toString()}` : ""}`);
-    };
-    sync();
-    window.addEventListener("popstate", sync);
-    return () => window.removeEventListener("popstate", sync);
-  }, []);
 
   const ageMs = nowMs - new Date(generatedAt).getTime();
   const stale = live && !tabHidden && Number.isFinite(ageMs) && ageMs > STALE_AFTER_MS;
@@ -237,15 +271,21 @@ export function HerdSignalsPoller({ generatedAt }: { generatedAt: string }) {
       <button type="button" className="btn" onClick={refresh} disabled={isPending}>
         Refresh
       </button>
-      <a
-        className="btn"
-        href={exportHref}
-        title="Download the current filtered view as CSV"
-        // The file must match what is on screen, so the active filters ride along. Not a
-        // LocalOverlayLink: this is a real download, not an in-page overlay.
-      >
-        Export
-      </a>
+      {exportDisabled ? (
+        <button type="button" className="btn" disabled title={unsupportedExportTab ? "Export is available on table tabs" : "Clear this page-only KPI filter before exporting"}>
+          Export
+        </button>
+      ) : (
+        <a
+          className="btn"
+          href={exportHref}
+          title="Download the current filtered view as CSV"
+          // The file must match what is on screen, so the active filters ride along. Not a
+          // LocalOverlayLink: this is a real download, not an in-page overlay.
+        >
+          Export
+        </a>
+      )}
     </div>
   );
 }

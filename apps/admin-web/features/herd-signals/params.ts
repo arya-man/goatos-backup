@@ -72,6 +72,11 @@ export function kpiToMovementState(kpi: KpiFilterKey | undefined): HerdSignalMov
   return undefined;
 }
 
+export function kpiToLiveState(kpi: KpiFilterKey | undefined): "moving_now" | "active_1m" | undefined {
+  if (kpi === "moving_now" || kpi === "active_1m") return kpi;
+  return undefined;
+}
+
 export function parseHerdSignalsParams(searchParams: RouteSearchParams | undefined): HerdSignalsParams {
   const sp = searchParams ?? {};
   const scope = parseScope(sp);

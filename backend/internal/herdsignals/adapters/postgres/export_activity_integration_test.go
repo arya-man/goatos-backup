@@ -42,7 +42,7 @@ func exportCSV(t *testing.T, ctx context.Context, repo *Repository, filters map[
 		return nil
 	}
 	err := svc.ExportCSV(ctx, domain.Actor{TenantID: hsiTenant, UserID: hsiParty},
-		ptr("park_id"), ptr("shed_id"), ptr("movement_state"), ptr("mapping_state"), ptr("pattern"), ptr("q"), &buf)
+		ptr("park_id"), ptr("shed_id"), ptr("movement_state"), ptr("live_state"), ptr("mapping_state"), ptr("pattern"), ptr("risk_state"), ptr("q"), &buf)
 	if err != nil {
 		t.Fatalf("ExportCSV: %v", err)
 	}

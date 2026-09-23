@@ -181,7 +181,7 @@ func TestIngestAndReadUnmappedTagRendersEveryPacketDerivedField(t *testing.T) {
 
 	// --- ListTagsLatest: unmapped tag must appear with no park/shed filter, and the summary
 	// must count it (KPI summary is packet-derived, not mapped-animal-derived). ---
-	tags, summary, _, err := repo.ListTagsLatest(ctx, hsiTenant, nil, nil, nil, nil, nil, nil, "", 50)
+	tags, summary, _, err := repo.ListTagsLatest(ctx, hsiTenant, nil, nil, nil, nil, nil, nil, nil, "", 50)
 	if err != nil {
 		t.Fatalf("ListTagsLatest: %v", err)
 	}
@@ -207,7 +207,7 @@ func TestIngestAndReadUnmappedTagRendersEveryPacketDerivedField(t *testing.T) {
 	// A park filter, on the other hand, correctly excludes the unmapped tag (it has no
 	// location) -- this is expected, not a bug, and is asserted so a future change doesn't try
 	// to "fix" it by faking a location.
-	parkFiltered, _, _, err := repo.ListTagsLatest(ctx, hsiTenant, sp(hsiPark), nil, nil, nil, nil, nil, "", 50)
+	parkFiltered, _, _, err := repo.ListTagsLatest(ctx, hsiTenant, sp(hsiPark), nil, nil, nil, nil, nil, nil, "", 50)
 	if err != nil {
 		t.Fatalf("ListTagsLatest (park filter): %v", err)
 	}
@@ -253,7 +253,7 @@ func TestListTagsLatestFiltersByMappingStatePatternAndSearch(t *testing.T) {
 		t.Fatalf("ingest: %v", err)
 	}
 
-	mappedOnly, _, _, err := repo.ListTagsLatest(ctx, hsiTenant, nil, nil, nil, sp("mapped"), nil, nil, "", 50)
+	mappedOnly, _, _, err := repo.ListTagsLatest(ctx, hsiTenant, nil, nil, nil, nil, sp("mapped"), nil, nil, "", 50)
 	if err != nil {
 		t.Fatalf("ListTagsLatest(mapping_state=mapped): %v", err)
 	}
@@ -263,7 +263,7 @@ func TestListTagsLatestFiltersByMappingStatePatternAndSearch(t *testing.T) {
 		}
 	}
 
-	unmappedOnly, _, _, err := repo.ListTagsLatest(ctx, hsiTenant, nil, nil, nil, sp("unmapped"), nil, nil, "", 50)
+	unmappedOnly, _, _, err := repo.ListTagsLatest(ctx, hsiTenant, nil, nil, nil, nil, sp("unmapped"), nil, nil, "", 50)
 	if err != nil {
 		t.Fatalf("ListTagsLatest(mapping_state=unmapped): %v", err)
 	}
@@ -280,7 +280,7 @@ func TestListTagsLatestFiltersByMappingStatePatternAndSearch(t *testing.T) {
 		t.Errorf("mapping_state=unmapped did not return %q", hsiUnmappedTag)
 	}
 
-	byQ, _, _, err := repo.ListTagsLatest(ctx, hsiTenant, nil, nil, nil, nil, nil, sp(hsiUnmappedTag), "", 50)
+	byQ, _, _, err := repo.ListTagsLatest(ctx, hsiTenant, nil, nil, nil, nil, nil, nil, sp(hsiUnmappedTag), "", 50)
 	if err != nil {
 		t.Fatalf("ListTagsLatest(q=%s): %v", hsiUnmappedTag, err)
 	}
@@ -342,7 +342,7 @@ func TestStaleAndMissingComputeAtReadTimeWithoutAnotherIngest(t *testing.T) {
 	}
 
 	// --- ListTagsLatest / summary must agree. ---
-	tags, summary, _, err := repo.ListTagsLatest(ctx, hsiTenant, nil, nil, nil, nil, nil, nil, "", 50)
+	tags, summary, _, err := repo.ListTagsLatest(ctx, hsiTenant, nil, nil, nil, nil, nil, nil, nil, "", 50)
 	if err != nil {
 		t.Fatalf("ListTagsLatest: %v", err)
 	}
@@ -365,7 +365,7 @@ func TestStaleAndMissingComputeAtReadTimeWithoutAnotherIngest(t *testing.T) {
 	// --- The movement_state=stale FILTER must actually match it (the reported symptom: clicking
 	// the stale KPI card yielded an empty table because the filter compared against the raw,
 	// stuck column). ---
-	staleFiltered, _, _, err := repo.ListTagsLatest(ctx, hsiTenant, nil, nil, sp("stale"), nil, nil, nil, "", 50)
+	staleFiltered, _, _, err := repo.ListTagsLatest(ctx, hsiTenant, nil, nil, sp("stale"), nil, nil, nil, nil, "", 50)
 	if err != nil {
 		t.Fatalf("ListTagsLatest(movement_state=stale): %v", err)
 	}
@@ -387,6 +387,74 @@ func TestStaleAndMissingComputeAtReadTimeWithoutAnotherIngest(t *testing.T) {
 	if insights.MissingSignalCount < 1 {
 		t.Errorf("insights.MissingSignalCount = %d, want >= 1", insights.MissingSignalCount)
 	}
+}
+
+func TestLiveStateFiltersUseBackendFreshnessWindows(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupHerdSignalsDB(t, ctx)
+
+	gw := domain.Gateway{TenantID: hsiTenant, GatewayID: "gw-hsi-live-state", Status: "active"}
+	now := time.Now().UTC().Truncate(time.Second)
+	if _, _, err := repo.IngestPackets(ctx, hsiTenant, gw, []domain.Packet{
+		makePacket(hsiTenant, "hsi-live-fresh", "AA:BB:CC:DD:10:01", gw.GatewayID, now.Add(-20*time.Second), 1000, -60),
+		makePacket(hsiTenant, "hsi-live-stale", "AA:BB:CC:DD:10:02", gw.GatewayID, now.Add(-2*time.Minute), 2000, -60),
+	}); err != nil {
+		t.Fatalf("first ingest: %v", err)
+	}
+	if _, _, err := repo.IngestPackets(ctx, hsiTenant, gw, []domain.Packet{
+		makePacket(hsiTenant, "hsi-live-fresh", "AA:BB:CC:DD:10:01", gw.GatewayID, now.Add(-10*time.Second), 1008, -60),
+		makePacket(hsiTenant, "hsi-live-stale", "AA:BB:CC:DD:10:02", gw.GatewayID, now.Add(-95*time.Second), 2010, -60),
+	}); err != nil {
+		t.Fatalf("second ingest: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		UPDATE public.herd_signal_tag_latest
+		SET last_seen_at = now() - interval '2 minutes',
+		    motion_delta_60s = 10,
+		    last_packet_motion_delta = 10
+		WHERE tenant_id = $1 AND tag_id = 'hsi-live-stale'
+	`, hsiTenant); err != nil {
+		t.Fatalf("backdate stale latest: %v", err)
+	}
+
+	movingNow := "moving_now"
+	movingRows, movingSummary, _, err := repo.ListTagsLatest(ctx, hsiTenant, nil, nil, nil, &movingNow, nil, nil, nil, "", 50)
+	if err != nil {
+		t.Fatalf("ListTagsLatest(live_state=moving_now): %v", err)
+	}
+	if !containsTagLatest(movingRows, "hsi-live-fresh") {
+		t.Fatal("moving_now did not include the fresh moving row")
+	}
+	if containsTagLatest(movingRows, "hsi-live-stale") {
+		t.Fatal("moving_now included a stale row with old movement deltas")
+	}
+	if movingSummary.TagsSeen != len(movingRows) || movingSummary.MovingNow != len(movingRows) {
+		t.Fatalf("moving_now summary = %+v rows=%d, want summary scoped to backend live_state filter", movingSummary, len(movingRows))
+	}
+
+	active1m := "active_1m"
+	activeRows, activeSummary, _, err := repo.ListTagsLatest(ctx, hsiTenant, nil, nil, nil, &active1m, nil, nil, nil, "", 50)
+	if err != nil {
+		t.Fatalf("ListTagsLatest(live_state=active_1m): %v", err)
+	}
+	if !containsTagLatest(activeRows, "hsi-live-fresh") {
+		t.Fatal("active_1m did not include the fresh active row")
+	}
+	if containsTagLatest(activeRows, "hsi-live-stale") {
+		t.Fatal("active_1m included a stale row with old 60s delta")
+	}
+	if activeSummary.TagsSeen != len(activeRows) || activeSummary.Active1m != len(activeRows) {
+		t.Fatalf("active_1m summary = %+v rows=%d, want summary scoped to backend live_state filter", activeSummary, len(activeRows))
+	}
+}
+
+func containsTagLatest(tags []domain.TagLatest, tagID string) bool {
+	for _, tag := range tags {
+		if tag.TagID == tagID {
+			return true
+		}
+	}
+	return false
 }
 
 func TestAdjacentMinutePacketsCountTowardLiveMovementState(t *testing.T) {

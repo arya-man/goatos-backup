@@ -141,8 +141,8 @@ func liveCursorArg(cursor liveCursor, spec liveSortSpec) interface{} {
 // aggregate for every page -- hundreds of full aggregates to produce a number the CSV does not
 // even carry. Sharing the filter builder is the point: an export whose WHERE clause is a second
 // hand-written copy of the view's is an export that quietly stops matching the screen.
-func (r *Repository) ListTagsLatestPage(ctx context.Context, tenantID string, parkID, shedID, movementState, mappingState, pattern, q *string, cursor string, limit int, sort ...domain.LiveSort) ([]domain.TagLatest, error) {
-	whereClause, args, argIndex := herdSignalsLiveFilter(tenantID, parkID, shedID, movementState, mappingState, pattern, q)
+func (r *Repository) ListTagsLatestPage(ctx context.Context, tenantID string, parkID, shedID, movementState, liveState, mappingState, pattern, q *string, cursor string, limit int, sort ...domain.LiveSort) ([]domain.TagLatest, error) {
+	whereClause, args, argIndex := herdSignalsLiveFilter(tenantID, parkID, shedID, movementState, liveState, mappingState, pattern, q)
 	spec := normalizeLiveSort(sort)
 
 	if cursor != "" {
