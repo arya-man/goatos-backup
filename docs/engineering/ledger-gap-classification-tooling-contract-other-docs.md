@@ -105,10 +105,53 @@ revert to. These ship a `--self-test` and a `guardrail-manifest.json` registrati
 they are covered by construction rather than by revert — but "covered by construction"
 is a weaker claim than the rest of this page and is not counted as proved.
 
+
+## The shell half: 9 rows are commits whose entire content is a test
+
+`prove-shell-test-reverts.mjs` does the same three steps for a commit that ships a
+`*.test.sh` beside the script it tests. Over the 16 such pairs in these areas:
+**0 proved, 0 disproved, 9 test-only, 6 unpaired, 1 no-baseline.**
+
+**`test-only` is the interesting verdict and it is a classifier finding, not a coverage
+one.** Nine of these rows — `6a77f7a5a`, `cebb0d899`, `d7cf14c78`, `a726bd98e`,
+`d1f80e498` (×2), `42622280b`, `6ece9efd7`, `71e2bdb8f` — changed nothing but test
+files and progress notes. They are *test-hardening* commits. The gap detector counted
+each as a behaviour that needs a test, which is backwards: the commit IS the test. Every
+one of them inflates the gap number by one.
+
+**The first run of this prover produced five `disproved` verdicts and every one was
+false.** It had reverted one guard and then run a *different* guard's test — which of
+course passed, and read as "the test does not notice its own fix". `d548ffd2e` changes
+`check-android-screenshot-proof.sh` and was judged by `check-ci-base-provenance.test.sh`;
+`985ca28b9` changes the worktree lock and was judged by the push-hook test. Two rules
+were added and are commented in the file: a test only runs against the script it names,
+and a commit whose only non-test change is markdown has no fix to revert. After them,
+**nothing in this set is disproved.** It is recorded here because the failure mode —
+an assertion that matches a family rather than the thing it is about — is the one this
+branch exists to find, and the prover fell into it first.
+
+`5ad4594fc` is `no-baseline` for an honest reason: the gradle-worktree-lock test scopes
+itself to developer machines and self-hosted runners (that scoping is `985ca28b9`), so a
+detached temp worktree is not an environment it answers in.
+
+## Where the 122 stand
+
+| | rows |
+|---|---|
+| proved by revert | **38** |
+| test-only — the commit is the test, counted as a gap in error | **9** |
+| not worth a test, reason recorded | **19** |
+| real gaps still open | **10** |
+| unreachable by revert (new guard, no baseline, unpaired) | **~18** |
+| not yet classified (herd-signals seeds, phone-QA scripts, AI setup) | **~28** |
+
+The three attempted-and-refused fixtures are inside the 10.
+
 ## Running it
 
 ```
 node tools/dashboard-automation/prove-guard-selftest-reverts.mjs --self-test
+node tools/dashboard-automation/prove-shell-test-reverts.mjs <sha>:<test path> ...
 node tools/dashboard-automation/prove-guard-selftest-reverts.mjs <sha>:<path> ... \
   --receipts=tools/dashboard-automation/guard-selftest-revert-receipts.json
 ```
