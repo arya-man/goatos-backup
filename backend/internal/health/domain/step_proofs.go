@@ -4,6 +4,8 @@ import (
 	"errors"
 	"strings"
 	"time"
+
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 )
 
 var (
@@ -15,6 +17,8 @@ var (
 	ErrStepNotInSession = errors.New("health: that step does not belong to this session")
 	// ErrStepProofsIncomplete is a submit attempted while a step still owes its video.
 	ErrStepProofsIncomplete = errors.New("health: every step needs its video before this session can be submitted")
+	// ErrSessionNotDue is a visit closed before the hour it is meant to happen.
+	ErrSessionNotDue = errors.New("health: this visit has not started yet")
 )
 
 // ONE VIDEO PER TREATMENT STEP (maintainer decision 2026-09-23).
@@ -95,22 +99,55 @@ func MissingStepProofs(steps []ProtocolStep, proofs []StepProof) []ProtocolStep 
 	return missing
 }
 
+// DoseLabel is the dose as a person must read it, and it is the BACKEND's words because a dose
+// is not presentation -- misreading one is a medicine given wrong.
+//
+// Three ways the phone got this wrong by joining the raw columns with a separator:
+//
+//	dosage 5,     denominator NULL   ->  "5 · Oral"        five WHAT
+//	dosage 3,     denominator "none" ->  "3 · none · Oral" the word none printed as a unit
+//	dosage 0.033, denominator "kg"   ->  "0.033 · kg"      reads as a weight of medicine,
+//	                                                       when it means 0.033 PER kg
+//
+// A denominator is a PER-unit, so it is rendered as one. "none" and a blank both mean the dose
+// has no per-unit, and neither is a word an operator should ever see.
+func DoseLabel(dosage, denominator, route *string) string {
+	amount := ptrTrim(dosage)
+	per := ptrTrim(denominator)
+	if strings.EqualFold(per, "none") {
+		per = ""
+	}
+	parts := make([]string, 0, 2)
+	switch {
+	case amount != "" && per != "":
+		parts = append(parts, amount+" per "+per)
+	case amount != "":
+		parts = append(parts, amount)
+	}
+	if r := ptrTrim(route); r != "" {
+		parts = append(parts, r)
+	}
+	return strings.Join(parts, " · ")
+}
+
+func ptrTrim(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return strings.TrimSpace(*v)
+}
+
 // StepLabel is what a step is CALLED, to the operator filming it and to the verifier watching the
 // clip back. The verifier sees a list of videos; without this she cannot tell which injection each
 // one is.
 func StepLabel(s ProtocolStep) string {
-	if s.MedicineName != nil && strings.TrimSpace(*s.MedicineName) != "" {
-		label := strings.TrimSpace(*s.MedicineName)
-		if s.DosageText != nil && strings.TrimSpace(*s.DosageText) != "" {
-			label += " " + strings.TrimSpace(*s.DosageText)
-			if s.DosageDenominator != nil && strings.TrimSpace(*s.DosageDenominator) != "" {
-				label += "/" + strings.TrimSpace(*s.DosageDenominator)
-			}
+	if name := ptrTrim(s.MedicineName); name != "" {
+		// The SAME words the operator read on the card, so the verifier is judging the clip
+		// against the dose the operator was told to give.
+		if dose := DoseLabel(s.DosageText, s.DosageDenominator, s.MedicineRoute); dose != "" {
+			return name + " · " + dose
 		}
-		if s.MedicineRoute != nil && strings.TrimSpace(*s.MedicineRoute) != "" {
-			label += " " + strings.TrimSpace(*s.MedicineRoute)
-		}
-		return label
+		return name
 	}
 	if s.Instruction != nil && strings.TrimSpace(*s.Instruction) != "" {
 		return strings.TrimSpace(*s.Instruction)
@@ -156,4 +193,43 @@ func (e StepProofsMissingError) StepLabels() []string {
 		out = append(out, StepLabel(s))
 	}
 	return out
+}
+
+
+// SessionNotDueError refuses a visit closed before its time, and says WHEN it opens.
+//
+// A card now earns a morning, an afternoon and an evening visit, and all three are visible from
+// first light. Nothing stopped an operator closing the evening one at 07:00 -- a dose recorded as
+// given hours before anyone gives it, with a video proving only that the animal was filmed in the
+// morning.
+type SessionNotDueError struct {
+	Session string
+	DueAt   time.Time
+}
+
+func (e SessionNotDueError) Error() string {
+	return ErrSessionNotDue.Error() + ": " + e.SessionLabel() + " work opens at " + e.DueLabel()
+}
+
+// Is lets callers match the sentinel while still reading the hour off the concrete type.
+func (e SessionNotDueError) Is(target error) bool { return target == ErrSessionNotDue }
+
+// SessionLabel is the visit in farm words.
+func (e SessionNotDueError) SessionLabel() string {
+	switch strings.ToLower(strings.TrimSpace(e.Session)) {
+	case SessionAfternoon:
+		return "Afternoon"
+	case SessionEvening:
+		return "Evening"
+	case SessionMorning:
+		return "Morning"
+	default:
+		return "This"
+	}
+}
+
+// DueLabel is the hour the work opens, on the FARM's clock. A UTC time here would tell an
+// operator in Coimbatore to come back five and a half hours early.
+func (e SessionNotDueError) DueLabel() string {
+	return e.DueAt.In(biztime.DefaultLocation()).Format("15:04")
 }

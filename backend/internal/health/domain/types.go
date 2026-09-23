@@ -74,6 +74,12 @@ type ProtocolStep struct {
 	// which dose each one is. BLANK when the step is on its own session, so an ordinary card
 	// gains no noise.
 	AuthoredSession string `json:"authored_session,omitempty"`
+	// DoseLabel is the dose as a person must read it, composed by the BACKEND.
+	//
+	// A dose is not presentation: joining the raw columns with a separator produced "5 · Oral"
+	// (five what), "3 · none · Oral" (the word none as a unit) and "0.033 · kg" for a dose that
+	// means 0.033 PER kg. Clients render this verbatim.
+	DoseLabel string `json:"dose_label,omitempty"`
 }
 
 type Protocol struct {

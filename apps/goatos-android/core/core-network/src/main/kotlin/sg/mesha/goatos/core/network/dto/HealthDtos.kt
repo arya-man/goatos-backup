@@ -100,6 +100,14 @@ data class HealthTreatmentStepDto(
      * opening sentence. This says which dose each one is. Blank on an ordinary step.
      */
     @SerialName("authored_session") val authoredSession: String = "",
+    /**
+     * The dose as a person must read it, composed by the backend and rendered VERBATIM.
+     *
+     * Joining the raw columns here produced "5 · Oral" (five what), "3 · none · Oral" (the word
+     * none shown as a unit) and "0.033 · kg" for a dose meaning 0.033 PER kg. A dose is not
+     * presentation: misreading one is a medicine given wrong.
+     */
+    @SerialName("dose_label") val doseLabel: String = "",
     val status: String = "",
 )
 

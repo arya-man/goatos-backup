@@ -446,6 +446,7 @@ WHERE ss.tenant_id=$1::uuid AND ss.health_session_id=$2::uuid ORDER BY ss.seq`, 
 		if a := normalizeSession(authored); authored != "" && a != d.Session {
 			s.AuthoredSession = a
 		}
+		s.DoseLabel = domain.DoseLabel(s.DosageText, s.DosageDenominator, s.MedicineRoute)
 		d.Steps = append(d.Steps, s)
 		if s.RecordType == "medication" {
 			d.MedicationCount++
@@ -491,14 +492,16 @@ func (r *Repository) CompleteWorkItem(ctx context.Context, in domain.CompleteInp
 		dayNo                               int
 		parkID, shedID, shedLabel           string
 		partitionLabel                      string
+		session                             string
 	}
 	// projection-review: membership=the ONE locked health_treatment_sessions row; group_key=n/a
 	// (single row); join_cardinality=health_cases and goats join 1:1 on their keys, the locations
 	// join is 1:1 on (tenant_id, location_id), and the shed_partitions side is pre-aggregated to
 	// one row per shed (agree-or-go-bare, HAVING count(*)=1) exactly as GetWorkItem does, so the
 	// FOR UPDATE OF hs target can never fan out; pagination=n/a; scope=the session's own case.
-	err = tx.QueryRow(ctx, `SELECT hs.health_case_id::text,hs.goat_id::text,hc.disease_key,hs.status,hs.completed_at,hs.completion_idempotency_key,hs.completion_fingerprint,
- hc.disease_name,hc.age_band,coalesce((SELECT gi.identifier_value FROM goat_identifiers gi WHERE gi.tenant_id=g.tenant_id AND gi.goat_id=g.goat_id AND gi.identifier_type='animal_identifier_1' AND gi.status='active' ORDER BY gi.is_primary_for_goat DESC,gi.identifier_value LIMIT 1),g.display_id),hs.day_no,coalesce(hc.park_id::text,''),coalesce(hc.shed_id::text,''),coalesce(sl.name,''),coalesce(part.partition_label,'')
+	var dueAt time.Time
+	err = tx.QueryRow(ctx, `SELECT hs.health_case_id::text,hs.goat_id::text,hc.disease_key,hs.status,hs.completed_at,hs.completion_idempotency_key,hs.completion_fingerprint,hs.due_at,
+ hs.session,hc.disease_name,hc.age_band,coalesce((SELECT gi.identifier_value FROM goat_identifiers gi WHERE gi.tenant_id=g.tenant_id AND gi.goat_id=g.goat_id AND gi.identifier_type='animal_identifier_1' AND gi.status='active' ORDER BY gi.is_primary_for_goat DESC,gi.identifier_value LIMIT 1),g.display_id),hs.day_no,coalesce(hc.park_id::text,''),coalesce(hc.shed_id::text,''),coalesce(sl.name,''),coalesce(part.partition_label,'')
 FROM health_treatment_sessions hs JOIN health_cases hc ON hc.health_case_id=hs.health_case_id
 JOIN goats g ON g.goat_id=hs.goat_id
 LEFT JOIN locations sl ON sl.tenant_id=hc.tenant_id AND sl.location_id=hc.shed_id
@@ -511,8 +514,8 @@ LEFT JOIN (
   HAVING count(*) = 1
 ) part ON part.tenant_id = hc.tenant_id AND part.shed_id = hc.shed_id
 WHERE hs.tenant_id=$1::uuid AND hs.health_session_id=$2::uuid FOR UPDATE OF hs`, in.TenantID, in.SessionID).Scan(
-		&caseID, &goatID, &disease, &status, &completedAt, &priorKey, &priorFingerprint,
-		&enqueueCtx.diseaseName, &enqueueCtx.ageBand, &enqueueCtx.goatDisplayID, &enqueueCtx.dayNo,
+		&caseID, &goatID, &disease, &status, &completedAt, &priorKey, &priorFingerprint, &dueAt,
+		&enqueueCtx.session, &enqueueCtx.diseaseName, &enqueueCtx.ageBand, &enqueueCtx.goatDisplayID, &enqueueCtx.dayNo,
 		&enqueueCtx.parkID, &enqueueCtx.shedID, &enqueueCtx.shedLabel, &enqueueCtx.partitionLabel)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.CompleteResult{}, ports.ErrNotFound
@@ -553,6 +556,19 @@ WHERE hs.tenant_id=$1::uuid AND hs.health_session_id=$2::uuid FOR UPDATE OF hs`,
 		// cannot be worked. Distinct from the death states above -- the animal is alive.
 		return domain.CompleteResult{}, ports.ErrCaseNotOpen
 	}
+	// A VISIT CANNOT BE DONE BEFORE ITS TIME (maintainer decision 2026-09-23).
+	//
+	// Now that a card earns a morning, an afternoon and an evening visit, all three are visible
+	// from first light -- and nothing stopped an operator standing in the shed at 07:00 from
+	// closing the evening one. That is a dose recorded as given hours before anyone gives it,
+	// and the video would prove only that the animal was filmed in the morning.
+	//
+	// Checked inside the lock against the session's own due_at (08:00 / 13:00 / 17:00 IST), so
+	// it cannot be raced, and the refusal names the hour the work opens.
+	if r.now().Before(dueAt) {
+		return domain.CompleteResult{}, domain.SessionNotDueError{Session: enqueueCtx.session, DueAt: dueAt}
+	}
+
 	// EVERY STEP OWES ITS VIDEO (maintainer decision 2026-09-23), checked inside the lock so a
 	// capture landing between the check and the write cannot let a session through half-filmed.
 	//
