@@ -102,6 +102,23 @@ export function validateCatalogue(catalogue, { assertPlainEnglish } = writeJourn
     if (!/[.!]$/.test(String(journey.humanFailure ?? ""))) {
       problems.push(`${name} humanFailure must be a sentence a farm manager reads, ending in a full stop`);
     }
+    // A refusal attempt without a reason to match on would count ANY database error as proof that
+    // the guard held, which is a false green with extra steps. It is required, not optional.
+    if (journey.simulatedRefusal) {
+      if (!journey.simulatedRefusal.sql) problems.push(`${name} has a refusal attempt with nothing to attempt`);
+      if (!journey.simulatedRefusal.refusedWhenErrorMatches) {
+        problems.push(`${name} has a refusal attempt that does not say how a real refusal is recognised; without that, any error at all would be read as the rule holding`);
+      } else {
+        try {
+          new RegExp(journey.simulatedRefusal.refusedWhenErrorMatches);
+        } catch {
+          problems.push(`${name} has a refusal attempt whose refusal pattern cannot be read`);
+        }
+      }
+      if (!journey.simulatedRefusal.precondition?.sql) {
+        problems.push(`${name} has a refusal attempt with no precondition; with nothing to attempt it against the rule would never be put to the test and would still report a pass`);
+      }
+    }
   }
   return problems;
 }
@@ -120,20 +137,20 @@ export function declaredTablesFor(journey) {
  * was published, so nothing failed to save. That sentence is a fabrication, and a manager reading
  * it in Slack would go looking for a bug that does not exist.
  *
- * So: a journey whose action this run could not perform reports `not-attempted`, never `fail`.
- * Lane 5 landed the same rule for the phone (`outcome: "not-attempted"`, never a pass, never a
- * failure); this is that rule for the site. A skip is not a verdict.
+ * A rule journey gets the identical treatment, and this is worth spelling out because it was
+ * briefly got wrong in the other direction. A rule journey asserts that a forbidden operation is
+ * REFUSED: that a feed item in use cannot be deleted, that a published plan version cannot be
+ * edited, that a move does not rewrite a pen's label. Its assertion is "and nothing was written",
+ * which is trivially true when nothing was attempted. So a rule journey that never attempts its
+ * forbidden operation reports a clean pass while having tested nothing at all -- a false green,
+ * which is worse than the false red above, because a false red gets investigated and a false
+ * green gets trusted.
  *
- * A rule journey is the exception, and deliberately so: it asserts an invariant over data that is
- * already in the clone ("the item a ration names is still there", "nothing was written to an
- * already-published version"). Its verdict does not depend on the journey having written anything,
- * so it is still earned when no write was applied. Its screen half is separately recorded as
- * parked, because what a rule journey cannot prove without a browser is that the SCREEN refuses.
+ * So the rule is the same for every journey, with no exceptions: if this run did not carry out
+ * the journey's own action, the journey reports `not-attempted`. Only a real attempt earns a
+ * verdict. Lane 5 landed this for the phone (`outcome: "not-attempted"`, never a pass, never a
+ * failure); this is that rule for the site. A skip is not a verdict, in either direction.
  */
-export function verdictNeedsItsOwnWrite(journey) {
-  return journey?.rule !== true;
-}
-
 const DEFAULT_NOT_ATTEMPTED_REASON =
   "this run could not carry out what this journey does on the screen, so nothing about it was checked";
 
@@ -144,7 +161,7 @@ function writeWasApplied(ui) {
 
 /** Whether a real screen was driven, as opposed to stood in for or skipped entirely. */
 function screenWasDriven(ui) {
-  return ui?.status !== "parked" && ui?.status !== "simulated" && ui?.status !== "not-attempted";
+  return !["parked", "simulated", "refused", "refusal-went-through", "not-attempted"].includes(ui?.status);
 }
 
 /**
@@ -189,7 +206,7 @@ export function runJourney(journey, { engine, driveUi, queryRows, token, screens
     const driven = screenWasDriven(ui);
     record.screenshot = driven ? (ui.screenshot ?? null) : null;
 
-    if (!writeWasApplied(ui) && verdictNeedsItsOwnWrite(filled)) {
+    if (!writeWasApplied(ui)) {
       // Nothing was done, so nothing is known. The journey's failure sentence is NEVER reached
       // from here: the database is not asked a question whose answer it could not have earned.
       const why = ui.reason ?? DEFAULT_NOT_ATTEMPTED_REASON;
@@ -200,6 +217,15 @@ export function runJourney(journey, { engine, driveUi, queryRows, token, screens
     } else {
       if (!driven) {
         record.screen = { status: "parked", reason: ui.reason ?? "the screen was not driven in this run" };
+        if (!ui.ok) {
+          // A rule journey's forbidden operation was attempted straight at the database and was
+          // NOT refused. That is an earned failure -- the operation really did go through -- but
+          // it is not a failure of the SCREEN, which nobody opened. The screen stays parked so
+          // the receipt never claims a browser saw anything.
+          record.status = "fail";
+          record.failedStep = ui.failedStep ?? null;
+          record.humanFailure = filled.humanFailure;
+        }
       } else {
         record.screen = { status: ui.ok ? "pass" : "fail", reason: ui.reason ?? null };
         if (!ui.ok) {
@@ -209,7 +235,7 @@ export function runJourney(journey, { engine, driveUi, queryRows, token, screens
         }
       }
 
-      if (record.screen.status !== "fail") {
+      if (record.screen.status !== "fail" && record.status !== "fail") {
         const rows = queryRows(filled.dbAssertion.sql);
         const found = dbAssertionHolds(filled.dbAssertion, rows);
         record.database = { status: found ? "pass" : "fail", reason: found ? null : filled.dbAssertion.description };
@@ -363,8 +389,64 @@ function spawnUiDriver(journey, { screenshotDir, token }) {
  * restore -> prove machinery can be exercised against a real clone with no browser stack up.
  * The receipt records screenDriven: false: this NEVER claims the screen was proved.
  */
+/**
+ * A rule journey exists to prove that a forbidden operation is REFUSED. Where the refusal is
+ * enforced by the database itself, the operation can be genuinely attempted without a browser and
+ * the refusal genuinely observed -- and then the verdict is earned. `published-plan-version-stays-
+ * locked` is such a rule: the database carries a trigger that refuses any change to a dose on a
+ * published version, so attempting one here proves the guard is still there.
+ *
+ * Everything about this function is built to avoid trading one unearned verdict for another:
+ *
+ *  - Nothing to attempt it against is NOT a pass. If the practice copy holds no published version
+ *    with a dose on it, the guard was never put to the test, and that is `not-attempted`.
+ *  - A failure for the WRONG reason is NOT a pass. A missing column or an unrelated constraint
+ *    would also throw, and treating any error as "refused" would be exactly the false green this
+ *    whole change exists to remove. The error has to say what the guard says.
+ *  - The operation going through IS a real failure, and an earned one: the database let a
+ *    published version be changed. The screen stays parked, because no screen was involved.
+ */
+export function attemptRefusal(journey, queryRows, { refusalSpec = journey.simulatedRefusal } = {}) {
+  const notAttempted = (reason) => ({ ok: true, status: "not-attempted", applied: false, reason, screenshot: null });
+
+  if (refusalSpec.precondition?.sql) {
+    let rows;
+    try {
+      rows = queryRows(refusalSpec.precondition.sql);
+    } catch {
+      return notAttempted("the practice copy could not be read to find anything to try this rule against, so the rule was never put to the test");
+    }
+    if (!dbAssertionHolds({ expect: refusalSpec.precondition.expect ?? "at-least-one-row" }, rows)) {
+      return notAttempted("the practice copy held nothing to try this rule against, so the rule was never put to the test");
+    }
+  }
+
+  try {
+    queryRows(refusalSpec.sql);
+  } catch (error) {
+    const detail = String(error?.serverDetail ?? error?.message ?? "");
+    if (new RegExp(refusalSpec.refusedWhenErrorMatches, "i").test(detail)) {
+      // Refused, and refused for the reason the guard gives. The rule holds.
+      return { ok: true, status: "refused", applied: true, reason: `the screen was not driven; ${refusalSpec.description}`, screenshot: null };
+    }
+    return notAttempted("the attempt could not be carried out at all, so the rule was never put to the test");
+  }
+
+  // It went through. The thing this rule exists to prevent is not being prevented.
+  return {
+    ok: false,
+    status: "refusal-went-through",
+    applied: true,
+    failedStep: refusalSpec.failedStep ?? null,
+    reason: null,
+    screenshot: null
+  };
+}
+
 function simulatedWriteDriver(queryRows) {
   return (journey) => {
+    // A rule with a database-enforced refusal is genuinely attemptable without a browser.
+    if (journey.simulatedRefusal?.sql) return attemptRefusal(journey, queryRows);
     if (!journey.simulatedWrite?.sql) {
       // No browser and no stand-in: this journey's write is simply not made in this mode. Saying
       // `applied: false` is what stops the database assertion from being asked a question it
