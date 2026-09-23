@@ -100,48 +100,34 @@ and `context/execution/defect-prevention-execution-contract.md`; a feature that
 cannot yet attach to the shared owner/clock/hierarchy/contact/proof/sign-off
 chain remains shadowed or blocked.
 
-## Scope detection (do this first, before the review pass)
+## Scope detection — the ONE routing mechanism
 
-**Step 0 — route mechanically, then stop.** Do not decide by judgement which rules
-apply; match the target's changed paths against the trigger lines in the ledger.
+Do not decide by judgement which rules apply, and do not route twice. This is the
+only selection step in this skill; everything below is applied to what it selects.
 
 ```bash
 # from the goatos checkout root
-git diff --name-only origin/main...HEAD      # branch / PR target
-git diff --name-only HEAD                    # working-tree target
+git diff --name-only origin/main...HEAD > /tmp/changed        # branch / PR target
+git diff -U0 origin/main...HEAD -- 'apps/admin-web/**/*.css' \
+  | grep '^[+-]' | grep -v '^[+-][+-]' > /tmp/changed-css      # UI diffs only
+sed -n '/^## Machine triggers/,/^```$/p' \
+  .agents/skills/goatos-code-review/references/review-lens-ledger.md
 ```
 
-1. Read `references/review-lens-ledger.md` Part B. Each lens carries a `triggers:`
-   line of paths, symbols and surfaces, and a `covers:` count of how many fix
-   commits that class produced since 2026-08-01.
-2. Select every lens whose triggers match a changed path, plus the two always-on
-   lenses (**LENS-EVIDENCE**, **LENS-SCOPE-OF-CLASS**) and Part A.
-3. Load only the `detail:` chapters the selected lenses name, and apply them in
-   the priority order below.
+1. Match `/tmp/changed` against the `::` path globs in that trigger block, and
+   `/tmp/changed-css` (plus any changed `style=` / `className` lines) against the
+   `css::` token lines. Paths alone cannot route CSS — all admin-web styling lives
+   in two files — so a UI diff needs both halves.
+2. Your lenses are every match, plus the two ALWAYS lenses and
+   `references/toolchain.md`, which applies to every review.
+3. Open only the Part B entries you matched and the `detail:` chapters they name.
+   Scan the ledger's closed-decision index so you do not re-flag a closed item;
+   open a full Part A block only when a selected lens cites it.
 
-A narrow change should select two or three lenses. If your selection is most of
-the table, the scope detection is wrong — re-read the diff, not the ledger.
-Unmatched lenses are not "skipped" findings; say nothing about them.
-
-Then map the changed paths to which reference(s) to load. **A change that touches
-multiple layers loads MULTIPLE references** — do not stop at the first match.
-The four tools (CRG, Graphify, RTK, repowise) apply on **every** review
-regardless of which layer changed.
-
-| Changed path pattern | Load reference(s) |
-|---|---|
-| `apps/admin-web/**`, `packages/ui`, `packages/rbac`, `packages/forms-dsl`, `packages/api-client` | `references/frontend.md` (includes laptop + mobile responsive UI/UX and visual-guard coverage) |
-| `apps/goatos-android/**` (Kotlin/Compose app) | `references/mobile.md` |
-| `backend/internal/**`, `backend/cmd/**`, `backend/migrations/**` | `references/backend.md` **+** `references/kernel-and-scale.md` |
-| Projection/read model/card/summary/calendar/reminder code, or a query combining `JOIN` with aggregation/pagination | `references/aggregates-and-projections.md` **+ producer and consumer lenses** |
-| `contracts/openapi`, event-payload / JSON-schema contracts | `references/backend.md` **+** `references/business-rules.md` **+ every consumer lens the contract reaches** (see consumer auto-pull below) |
-| Any admin dashboard route/page/tab/filter/drawer contract, SQL-bind change, or production-smoke relevant change | `references/frontend.md` **+** `docs/engineering/dashboard-nightly-automation-plan.md`; require `make dashboard-automation-guard` coverage and fail review if the change can reintroduce `backend_down`, `Admin-web contract unavailable`, `The board could not be loaded`, `Weights could not be loaded`, stale hardcoded route inventories, or hardcoded SQL parameter counts |
-| Calendar, Control Tower, Action Center, Protocol Adherence, Workflows, admin/mobile execution/proof screens, or new vertical/module onboarding | `docs/architecture/operational-read-model-contract.md` **+** `docs/decisions/operational-location-convention.md` (partition rule + location-bearing schema) **+** `references/aggregates-and-projections.md` **+ consumer lenses** |
-| `docs/**`, `rule_dsl` / protocol config, vaccination/feed rules | `references/business-rules.md` |
-| `tools/ci/**`, `tools/agent-hooks/check-*`, `tools/dashboard-automation/**`, `apps/admin-web/scripts/**`, `**/*.test.*`, `**/*_test.go`, or any receipt/coverage artifact | `references/verification-and-coverage.md` |
-| `apps/admin-web/app/mesha-theme.css`, overlay/scrim/sticky rules, tab/back/row-click controls, or a UI measurement script | `references/frontend-rendering.md` **+** `references/frontend.md` |
-| Any change (toolchain / tool-driving) | `references/toolchain.md` (always) |
-| **Every review, before flagging anything** | `references/review-lens-ledger.md` (always) — closed decisions + banned patterns; do NOT re-flag a CLOSED/LOCKED item or propose a BANNED one |
+A narrow change selects two or three lenses. If you selected most of the table the
+scope detection is wrong — re-read the diff, not the ledger. If you selected only
+the two ALWAYS lenses, say so; do not reach for a chapter to have something to
+apply.
 
 Multi-layer rule: if a change touches kernel + backend + frontend together (e.g.
 a new obligation type wired from migration → engine → contract → admin-web page),
@@ -479,23 +465,19 @@ not vibes. For consolidated-ledger work, the canonical list lives in
 `context/repo-audits/last-35-commits-consolidated-bug-ledger.md`; reconcile counts
 there rather than inventing a competing list.
 
-## Reference routing
+## Reference chapters (loaded BY the routing step, never chosen here)
 
-Load only the reference(s) the scope-detection step selected — progressive
-disclosure. (Multi-layer changes load multiple; see Scope detection above.)
+Every chapter below is reachable as a `detail:` target of a Part B lens, and the
+trigger block decides which. Do not pick from this list by hand — that was this
+skill's second routing mechanism, and it is what sent a docs-only PR into 494
+lines of vaccination rules.
 
-| Change touches | Load |
-|---|---|
-| Kernel chain, sweepers, scale, idempotency, generic engine | `references/kernel-and-scale.md` |
-| Go backend: modules, layering, pgx/sqlc, migrations, observability, tests | `references/backend.md` |
-| admin-web / Next.js: contracts, mock fidelity, IA, data access | `references/frontend.md` |
-| Goat OS Android (Kotlin/Compose): Room SSOT, pagination, offline, memory, lifecycle | `references/mobile.md` |
-| Aggregate/projection/read-model/card/calendar/reminder summary or paged rail | `references/aggregates-and-projections.md` plus every reached producer/consumer lens |
-| A contract/DTO/list-endpoint consumed by a mobile or admin-web client | consumer lens (`references/mobile.md` / `references/frontend.md`) — see Proportionality & blast radius |
-| Vaccination / obligation / feed / calendar / SOP / org / species rules | `references/business-rules.md` |
-| A test, check, guard, lane, smoke run, receipt, or coverage ledger — or any review asked to trust a green result | `references/verification-and-coverage.md` (**always-on**) |
-| In-app navigation controls (tabs, back links, row-click targets), overlay/scrim/sticky CSS, `mesha-theme.css`, or any measurement of a UI element | `references/frontend-rendering.md` |
-| Which tool to run, how to run it, in what order | `references/toolchain.md` |
+`references/verification-and-coverage.md` (always-on) ·
+`references/frontend-rendering.md` · `references/frontend.md` ·
+`references/mobile.md` · `references/backend.md` ·
+`references/kernel-and-scale.md` · `references/aggregates-and-projections.md` ·
+`references/business-rules.md` · `references/toolchain.md` (always-on) ·
+`references/review-lens-ledger.md` (always-on)
 
 Deeper source-of-truth docs (not duplicated here — read the doc):
 

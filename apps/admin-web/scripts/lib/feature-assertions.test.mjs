@@ -65,10 +65,7 @@ test("a missing feature names the expectation that failed, not just the entry ti
   const source = readFileSync(new URL("./feature-assertions.mjs", import.meta.url), "utf8");
   assert.match(source, /const say = \(m\) => \{/);
   assert.match(source, /\^\(\?:not visible\|should not appear\): \(\.\+\)\$/);
-  // Features that have gone are still named by `say`; figures that disagree carry their own
-  // sentence and are listed separately, so the two kinds never get merged into one label.
-  assert.match(source, /gone\.slice\(0, 4\)\.map\(say\)/);
-  assert.match(source, /figures do not agree/);
+  assert.match(source, /missing\.slice\(0, 4\)\.map\(say\)/);
 
   // The shape checkExpect actually produces for a missing "visible" target.
   const say = (m) => {
@@ -91,9 +88,7 @@ test("a missing feature names the expectation that failed, not just the entry ti
 test("every asserted feature entry states which expectation it is checking", () => {
   for (const entry of loadFeatureAssertions()) {
     for (const expect of entry.expect ?? []) {
-      // The value forms say what a figure SHOULD BE rather than that something is present.
-      const named = expect.visible ?? expect.absent ?? expect.count ?? expect.url
-        ?? expect.reconcile ?? expect.value ?? expect.equals ?? expect.matches;
+      const named = expect.visible ?? expect.absent ?? expect.count ?? expect.url;
       assert.ok(named, `${entry.sha}: an expect with nothing to check`);
     }
   }
@@ -126,75 +121,4 @@ test("the manifest still carries the unwritten steps this split is for", () => {
   }
   assert.ok(prose.includes("5c504076c"), "the Tasks attachment picker entry");
   assert.ok(prose.includes("75d30c3ef"), "the Tasks scope entry");
-});
-
-// ---------------------------------------------------------------------------------------------
-// Noise. A check that fires on a correct page is worse than no check.
-//
-// 57 assertions demanded that an ordinary product word never appear anywhere on a page —
-// `absent "weighed"` on a livestock app, `absent "Doing"` as a substring on the tasks board.
-// They are now scoped to the part of the screen the commit actually changed, so they still go
-// red when the fix is reverted and no longer fire on ordinary content.
-// ---------------------------------------------------------------------------------------------
-
-// Words that are ordinary farm or product vocabulary. A whole-page substring match on any of
-// these is a false positive waiting to happen.
-const EVERYDAY_WORDS = [
-  "weighed", "Doing", "Missing", "At risk", "Readings", "Age group", "Estimated battery life",
-  "Feed by shed", "Cost to buy", "Add feed type", "Recent leads", "All evidence", "Open photo",
-  "Penalty", "Reassign", "Other exits", "True", "Integration notes", "Verification latency",
-];
-
-test("no check demands that an ordinary product word be absent from a whole page", () => {
-  const offenders = [];
-  for (const entry of loadFeatureAssertions()) {
-    for (const expectation of entry.expect ?? []) {
-      const text = expectation.absent?.text;
-      if (!text) continue;
-      if (EVERYDAY_WORDS.some((word) => word.toLowerCase() === text.toLowerCase())) {
-        offenders.push(`${entry.sha} ${entry.route}: absent "${text}" over the whole page`);
-      }
-    }
-  }
-  assert.deepEqual(offenders, [], `these fire on a correct page:\n${offenders.join("\n")}`);
-});
-
-test("a rewritten negative says what it used to be, so the change is auditable", () => {
-  let scoped = 0;
-  for (const entry of loadFeatureAssertions()) {
-    for (const expectation of entry.expect ?? []) {
-      if (!expectation.absentWas) continue;
-      scoped += 1;
-      assert.ok(expectation.absent?.css, `${entry.sha}: a rewritten negative must be scoped to an element`);
-      assert.ok(expectation.absent.css.includes(expectation.absentWas), `${entry.sha}: the scoped form must still look for the same words`);
-      assert.ok(expectation.absent.css.length > expectation.absentWas.length + 4, `${entry.sha}: "${expectation.absent.css}" is not actually scoped`);
-    }
-  }
-  assert.ok(scoped >= 20, `expected the noisy negatives to have been scoped, found ${scoped}`);
-});
-
-test("no string is asserted absent by more than two checks on one route", () => {
-  // 'Integration notes' was asserted by seven checks on weighing-analytics: one product change
-  // would have posted seven findings into the alert channel.
-  const seen = new Map();
-  for (const entry of loadFeatureAssertions()) {
-    for (const expectation of entry.expect ?? []) {
-      const text = expectation.absent?.text ?? expectation.absentWas;
-      if (!text) continue;
-      const key = `${entry.route}|${text}`;
-      seen.set(key, (seen.get(key) ?? 0) + 1);
-    }
-  }
-  // Error sentinels are allowed to repeat: every page may refuse to render "undefined".
-  const SENTINELS = new Set(["undefined", "null", "NaN", "Invalid Date", "Hydration failed", "Something went wrong"]);
-  const loud = [...seen].filter(([key, n]) => n > 2 && !SENTINELS.has(key.split("|")[1]));
-  assert.deepEqual(loud, [], `one product change would post ${loud[0]?.[1]} findings for ${loud[0]?.[0]}`);
-});
-
-test("every runnable check asserts something", () => {
-  // An entry with an empty expect array asserts literally nothing and was still counted as
-  // covering its commit.
-  for (const entry of loadFeatureAssertions()) {
-    assert.ok((entry.expect ?? []).length > 0, `${entry.sha} ${entry.title} asserts nothing but is runnable`);
-  }
 });

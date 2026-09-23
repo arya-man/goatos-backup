@@ -16,6 +16,97 @@ Status vocabulary: **CLOSED** (fixed + proven — do not re-fix) · **BANNED** (
 do not rebuild) · **LOCKED** (maintainer rule — do not change) · **OPEN** (known unresolved —
 safe to work, not a new finding).
 
+## Read budget — do not read this file end to end
+
+Reaching your first check costs about 100 lines, not 700. In order:
+
+1. **`## Machine triggers`** (~45 lines, below) — match it against your changed paths and CSS
+   hunk, get your lens names;
+2. **the closed-decision index** (below, one line per CD) — so you do not re-flag a closed item;
+3. **only** the Part B entries your lenses named (~8 lines each) and the `detail:` chapters
+   they point at.
+
+Open a full Part A block only when a selected lens cites it, or when you are about to flag
+something it covers. Open a Part B entry only when its trigger matched. Everything else in this
+file belongs to a different diff.
+
+### Closed-decision index (always scan, rarely open)
+
+| CD | Status | Do not |
+|---|---|---|
+| `CD-WEB-RESPONSIVE-REVIEW` | LOCKED | approve web/admin UI work without laptop AND phone evidence |
+| `CD-STAGE-REVIEW` | BANNED | rebuild a vaccination stage/age-mismatch review queue |
+| `CD-NO-CROSS-PARK-MOVE` | LOCKED | add a shifting path with a cross-park destination |
+| `CD-PEND1` | CLOSED | re-wire obligation `in_progress` at SOP-submit |
+| `CD-PEND2-R50-022` | CLOSED | repair batch quantities without locking the batch row |
+| `CD-PEND3` | CLOSED | let an authored config value the engine cannot honor publish silently |
+| `CD-PEND5-6-7` | CLOSED | reopen seed cross-park / sweeper business-day / biztime clamp |
+| `CD-R50-011` | CLOSED | reintroduce an unbounded successor-suffix loop |
+| `CD-R50-VERIFICATION` | CLOSED | let a verifier self-verify, or drop verdict/evidence/scope |
+| `CD-R50-019-SCOPE` | CLOSED | replace a scope-specific permission check with a module tick |
+| `CD-R50-033` | CLOSED | send an unbounded or inconsistent notification subject set |
+| `CD-R50-015` | CLOSED | ship a non-CONCURRENT hot-table index migration |
+| `CD-IDEMPOTENCY-UNIQUE-INDEX` | CLOSED | write `ON CONFLICT` with no matching unique index |
+| `CD-R50-002` | CLOSED | point a recipe-coupling test at anything but the real script |
+| `CD-R50-008-010` | CLOSED | reopen Android roster memory / mobile-list-fetch |
+| `CD-ADDITIVE-PUBLISH` | CLOSED | let a publish touch rules it did not change |
+| `CD-PHONE-SCALE-UI` | BANNED | ship the four named Android phone-scale list/picker/loading shapes |
+| `CD-EXISTENCE-ASSERTION` | LOCKED | call a `visible`/`text`/`count>=1` assertion coverage |
+| `CD-UNEARNED-VERDICT` | LOCKED | emit a pass or a finding from a path that never ran |
+| `CD-CHECK-WEAKENING` | BANNED | silence a false positive with a threshold, deletion or exemption |
+| `CD-RAW-ANCHOR-INTERNAL-ROUTE` | BANNED | build an in-app tab/back/row control from a native anchor |
+| `CD-EXAMPLE-IS-NOT-SCOPE` | LOCKED | scope a fix or a check to the page that was reported |
+
+---
+
+## Machine triggers
+
+Match your changed paths (and, for UI, your changed CSS/`style=`/`className` lines) against this
+block; it is generated from the Part B entries below and is the only part of this file the
+routing step needs to read. `::` is a path glob list, `css::` a token list matched against
+changed lines. Two lenses are ALWAYS selected.
+
+```text
+LENS-EVIDENCE              :: ALWAYS
+LENS-SCOPE-OF-CLASS        :: ALWAYS
+LENS-PROOF-MEDIA           :: apps/goatos-android/**/*[Pp]roof* apps/goatos-android/**/*[Cc]apture* apps/goatos-android/**/*[Mm]edia* apps/goatos-android/**/*[Vv]ideo* backend/internal/verification/** backend/internal/**/*proof* apps/admin-web/**/*proof* apps/admin-web/**/*media*
+LENS-ANDROID-PHONE-SCALE   :: apps/goatos-android/feature/** apps/goatos-android/**/*Screen.kt apps/goatos-android/**/*List*.kt apps/goatos-android/**/*Picker*.kt apps/goatos-android/**/ui/**
+LENS-PEN-LABEL             :: apps/admin-web/lib/operational-location.ts backend/internal/platform/oploc/** backend/internal/**/*location* backend/migrations/postgres/**
+                           css:: .pen .shed .partition .loc text-overflow:ellipsis
+LENS-PERMISSION-SCOPE      :: packages/rbac/** apps/admin-web/**/*permission* apps/admin-web/**/*access* backend/internal/**/*authz* backend/internal/**/*permission* backend/internal/identity/** backend/migrations/postgres/**
+LENS-VERIFICATION-SIGNOFF  :: backend/internal/verification/** apps/admin-web/features/verification-review/** apps/goatos-android/**/*[Vv]erif* apps/admin-web/**/*verif*
+LENS-TOTALS-RECONCILE      :: backend/internal/counts/** backend/internal/**/*projection* backend/internal/**/*readmodel* backend/internal/**/*summary* apps/admin-web/**/*summary* apps/admin-web/**/*counts*
+LENS-NAV-ROUTE             :: apps/admin-web/components/mesha-shell.tsx apps/admin-web/**/*nav* apps/admin-web/app/**/layout.tsx apps/goatos-android/**/navigation/** apps/goatos-android/**/*Nav* backend/internal/adminui/**
+                           css:: .top{ .navback .crumb .tabs aria-current .side
+LENS-NOTIFICATION-DELIVERY :: backend/internal/notificationbridge/** backend/internal/**/*notif* backend/internal/**/*outbox* backend/internal/**/*reminder* backend/internal/**/*escalat* apps/goatos-android/**/*[Pp]ush* tools/dashboard-automation/notify-slack.mjs
+LENS-MIGRATION-SCHEMA      :: backend/migrations/postgres/** apps/goatos-android/**/*[Mm]igration* backend/internal/**/*.sql backend/internal/**/queries/**
+LENS-IDEMPOTENCY-OUTBOX    :: backend/internal/**/*outbox* backend/internal/**/*idempot* apps/admin-web/**/actions.ts apps/admin-web/**/*action*.ts backend/internal/**/*repository*.go
+LENS-OVERLAY-PAINT         :: apps/admin-web/app/mesha-theme.css apps/admin-web/**/*overlay* apps/admin-web/**/*drawer* apps/admin-web/**/*modal* packages/ui/**
+                           css:: z-index backdrop-filter position:sticky position:fixed transform opacity will-change veil scrim drawer modal overlay lt-fgroup
+LENS-PHONE-VIEWPORT        :: apps/admin-web/app/mesha-theme.css apps/admin-web/app/globals.css packages/ui/** apps/admin-web/scripts/smoke-visual-live.mjs
+                           css:: width min-width minWidth flex-basis flexBasis grid-template-columns overflow-x white-space position:fixed @media vw --lt-ctl
+LENS-OFFLINE-SYNC          :: apps/goatos-android/core/core-data/** apps/goatos-android/core/core-db/** apps/goatos-android/**/*[Oo]utbox* apps/goatos-android/**/*[Ss]ync* apps/goatos-android/**/*Worker*.kt
+LENS-SCHEDULER-SWEEPER     :: backend/internal/obligation/** backend/internal/vaccination/** backend/internal/vaccinationexecution/** backend/internal/**/*sweeper* backend/internal/**/*scheduler* backend/cmd/*worker*/**
+LENS-PUBLISH-VERSION-LOCK  :: backend/internal/protocol/** backend/internal/configuration/** backend/internal/**/*publish* apps/admin-web/features/config/** apps/admin-web/features/sops/**
+LENS-SQL-BIND              :: backend/internal/**/postgres/** backend/internal/**/*repository*.go backend/internal/platform/sqlbind/** backend/internal/**/*query*.go
+LENS-SEED-FIXTURE          :: backend/cmd/seed-*/** tools/dev/seed-closeout.sh fixtures/** backend/internal/**/*importer* backend/testdata/**
+LENS-CONTRACT-DRIFT        :: contracts/openapi/** contracts/** packages/api-client/** apps/goatos-android/core/core-network/** apps/admin-web/lib/*contract* callers_of
+LENS-FALSE-EMPTY           :: apps/admin-web/**/error.tsx apps/admin-web/**/loading.tsx apps/admin-web/lib/bootstrap* apps/admin-web/**/*empty*
+                           css:: .empty .errorbox .skeleton .shimmer display:none
+LENS-AUTH-SESSION          :: apps/goatos-android/**/*[Aa]uth* apps/goatos-android/**/*[Ss]ession* backend/internal/**/*auth* apps/admin-web/lib/*token* apps/admin-web/lib/*auth*
+LENS-CHART                 :: apps/admin-web/**/*chart* apps/admin-web/**/*graph* apps/admin-web/**/*kpi* apps/admin-web/**/*legend*
+                           css:: .chart .hchart .legend .axis .pie .kpi .spark
+LENS-LATENCY               :: tools/perf/** backend/internal/**/*query*.go apps/admin-web/**/page.tsx backend/internal/commandboard/**
+LENS-COPY                  :: backend/internal/adminui/** apps/admin-web/**/*copy* backend/internal/**/*label* apps/goatos-android/**/res/values/**
+                           css:: ::before ::after text-transform
+LENS-PAGINATION            :: backend/internal/**/*paginat* backend/internal/**/*cursor* apps/goatos-android/**/*Paging* apps/admin-web/**/*cursor*
+LENS-CAPACITY              :: backend/internal/workforce/** backend/internal/**/*capacity* backend/internal/**/*operator*
+LENS-BUSINESS-DATE         :: backend/internal/platform/biztime/** backend/internal/**/*date*.go tools/agent-hooks/check-india-business-date.mjs
+```
+
+Selected nothing but the two ALWAYS lenses? Then the diff touches no class this table knows —
+say that in the review rather than inventing a lens, and consider whether the class belongs here.
+
 ---
 
 ## Part A — Closed-Decisions Registry
@@ -285,12 +376,22 @@ safe to work, not a new finding).
   `useRouter`/`Link`; same-page overlays use `LocalOverlayLink` plus a local controller; `<a>`
   is for external links only. Applies to every tab, sub-tab, modal, drawer, row action and
   inline editor, not to the page the report named.
-- PROOF: `apps/admin-web/features/health/health-config.tsx` builds its Treatment/Diagnosis tabs
-  as two `<a className="btn" href={href(...)}>`, so every tab switch re-downloads the page,
-  while roughly fifty other admin-web files navigate correctly through `useRouter`.
-- ENFORCED-BY: `admin-web-local-overlays` + `admin-web-interaction-patterns` cover the overlay
-  half; no guard yet rejects a raw anchor to an internal ROUTE — GAP, review-time only
+- PROOF: `apps/admin-web/features/health/health-config.tsx:120` is
+  `<a className={tab === "treatment" ? "btn" : "btn ghost"} href={href("treatment")}>`, so every
+  tab switch re-downloads the page. The class is **12 uncorrected sites in 6 files** on
+  `origin/main` (2026-09-23): `health-config.tsx:120,123,312,454,459`,
+  `leadership-tasks-page.tsx:287,419`, `plan-console.tsx:132,289`, `row-drawer.tsx:161`,
+  `health-register.tsx:125`, `live-tracker-board.tsx:349`. Re-derive it, do not trust this list:
+  scan every `<a>` tag in `apps/admin-web/**/*.tsx`, drop external/`target=_blank` hrefs, drop
+  the 9 with `download` (a file download IS an anchor), and drop the 10 carrying an `onClick`
+  interceptor (a real href plus client-side nav is the correct progressive pattern). What
+  remains is the class.
+- ENFORCED-BY: GAP — review-time only
   (`references/frontend-rendering.md#no-raw-anchor-internal-routes`).
+  `admin-web-local-overlays` reports green on ALL 12 by construction: its three regexes key on
+  the literal tokens `veil`, `drawer`, `overlay`, `shedDrawerHref` and `drawerPageHref`, and
+  none of these sites use them — their hrefs are `href("treatment")`, `tasksAliasFixedHref`,
+  `draftHref`, `scheduleHref`, `listHref`, `editElsewhere.href`.
 - DO-NOT: build an in-app tab or back control from an `href()` helper and a native anchor; do
   not accept "the guard is green" as evidence, because this shape is outside it.
 
@@ -340,6 +441,23 @@ qualifier ("a signed-URL path", "any rendered pen label") for cases a glob canno
 express; they widen a lens, never narrow one. Keep globs precise: a bare
 `apps/admin-web/**` on a lens makes every frontend diff select it and the routing
 stops being useful.
+
+**Paths do not resolve CSS — match the hunk.** All admin-web styling lives in two files
+(`apps/admin-web/app/mesha-theme.css`, ~6,800 lines, and `app/globals.css`), so routing by path
+sends every CSS diff to one lens and no CSS diff to any other. UI lenses therefore carry a
+second dimension, `css:`, listing the selectors and properties that select them, matched against
+the CHANGED LINES rather than the file:
+
+```bash
+git diff -U0 origin/main...HEAD -- 'apps/admin-web/**/*.css' \
+  | grep '^[+-]' | grep -v '^[+-][+-]'
+```
+
+A `css:` token is matched **as written**, dots and colons included — that is the word boundary.
+`.tabs` is a token; `tab` is not, because it also matches `table`. A CSS-only diff selects every
+lens whose tokens appear in that output, plus the always-on two. A `.tsx` diff selects them the same way from its own changed lines — inline `style=`
+objects and `className` strings count. If a CSS hunk matches no `css:` line anywhere, that is a
+finding about this table, not a clean bill: say so and route by hand.
 
 `covers:` is the number of `fix`/`revert` commits on `origin/main` since 2026-08-01 whose
 SUBJECT matches that class. One commit can match several lenses, so the numbers rank the
@@ -412,6 +530,7 @@ Apply matched lenses in the SKILL.md priority order (kernel → scale → securi
   `backend/internal/platform/oploc/**`, `backend/internal/**/*location*`,
   `backend/migrations/postgres/**` when a location-bearing column moves — plus any diff that
   renders a location, shed, pen, partition or park label on any surface
+- css: `.pen`, `.shed`, `.partition`, `.loc`, `text-overflow:ellipsis`
 - rule: when a partition exists (`Castro 1` beside `Castro 2`), every surface renders the
   partition label, grouped by `shed_id` + park, never collapsed to the parent unless the
   aggregate is explicit; goats never move between parks
@@ -428,7 +547,7 @@ Apply matched lenses in the SKILL.md priority order (kernel → scale → securi
 - triggers: `packages/rbac/**`, `apps/admin-web/**/*permission*`, `apps/admin-web/**/*access*`,
   `backend/internal/**/*authz*`, `backend/internal/**/*permission*`,
   `backend/internal/identity/**`, `backend/migrations/postgres/**` touching
-  `person_module_access` — plus any route/page/tab/module gate, grant role or `ceo_internal`
+  person_module_access — plus any route/page/tab/module gate, grant role or ceo_internal
   path, and any newly added tenant-scoped query
 - rule: every scoped query filters `tenant_id`; a permission check is scope-specific, never a
   coarse module tick; CEO/CXO business visibility never depends on a later manual HRMS tick
@@ -453,7 +572,7 @@ Apply matched lenses in the SKILL.md priority order (kernel → scale → securi
 - triggers: `backend/internal/counts/**`, `backend/internal/**/*projection*`,
   `backend/internal/**/*readmodel*`, `backend/internal/**/*summary*`,
   `apps/admin-web/**/*summary*`, `apps/admin-web/**/*counts*` — plus any card/KPI/rollup and
-  any query combining `JOIN` with aggregation and pagination
+  any query combining JOIN with aggregation and pagination
 - rule: grain-explicit counts, declared disjoint buckets, page-independent totals, canonical
   membership, stable group key, proven join cardinality — a screen-local fix that hides a
   mismatch is a finding
@@ -467,6 +586,7 @@ Apply matched lenses in the SKILL.md priority order (kernel → scale → securi
   `apps/admin-web/app/**/layout.tsx`, `apps/goatos-android/**/navigation/**`,
   `apps/goatos-android/**/*Nav*`, `backend/internal/adminui/**` — plus any tab, sub-tab,
   breadcrumb, back control, deep link or route registration
+- css: `.top{`, `.navback`, `.crumb`, `.tabs`, `aria-current`, `.side`
 - rule: command lenses are top-level only and fed by `?domain=`/`?category=`; a hosted route
   must also be a supported root destination or every deep link lands on home; in-app navigation
   must not reload the document
@@ -502,7 +622,7 @@ Apply matched lenses in the SKILL.md priority order (kernel → scale → securi
 **LENS-IDEMPOTENCY-OUTBOX** · covers: 90
 - triggers: `backend/internal/**/*outbox*`, `backend/internal/**/*idempot*`,
   `apps/admin-web/**/actions.ts`, `apps/admin-web/**/*action*.ts`,
-  `backend/internal/**/*repository*.go` — plus any write path, `ON CONFLICT`, retry or lease
+  `backend/internal/**/*repository*.go` — plus any write path, ON CONFLICT, retry or lease
 - rule: a stable idempotency key backed by a MATCHING unique index; state + audit + outbox in
   one transaction; claiming or leasing work is not a delivery attempt; a same-key replay returns
   the original result and fires no side effect twice
@@ -514,8 +634,9 @@ Apply matched lenses in the SKILL.md priority order (kernel → scale → securi
 **LENS-OVERLAY-PAINT** · covers: 72 (`flicker-overlay-paint`)
 - triggers: `apps/admin-web/app/mesha-theme.css`, `apps/admin-web/**/*overlay*`,
   `apps/admin-web/**/*drawer*`, `apps/admin-web/**/*modal*`, `packages/ui/**` — plus any
-  scrim/veil/sticky rule and any `z-index`, `backdrop-filter`, `transform` or `position`
-  change
+  scrim/veil/sticky rule and any z-index, backdrop-filter, transform or position change
+- css: `z-index`, `backdrop-filter`, `position:sticky`, `position:fixed`, `transform`,
+  `opacity`, `will-change`, `veil`, `scrim`, `drawer`, `modal`, `overlay`, `lt-fgroup`
 - rule: an ordinary open/close never navigates or requests an RSC payload; an opaque panel holds
   its own stacking context for the whole transition and sits clearly above its dimmer;
   `position:sticky` plus `backdrop-filter` tears on mobile GPUs; a click costs only what it
@@ -523,6 +644,29 @@ Apply matched lenses in the SKILL.md priority order (kernel → scale → securi
 - guard: `admin-web-local-overlays`, `admin-web-interaction-patterns`, `overlay-motion`
 - detail: `references/frontend-rendering.md` + `docs/decisions/admin-web-interaction-patterns.md`
 - note: flicker evidence is a GIF or filmstrip. A still cannot show it (contract §7).
+
+**LENS-PHONE-VIEWPORT** · covers: 44
+- triggers: `apps/admin-web/app/mesha-theme.css`, `apps/admin-web/app/globals.css`,
+  `packages/ui/**`, `apps/admin-web/scripts/smoke-visual-live.mjs`,
+  a .tsx under apps/admin-web/features/ carrying an inline style= width or grid — plus any new page,
+  table, chart, drawer or control a person can open on a phone
+- css: `width`, `min-width`, `minWidth`, `flex-basis`, `flexBasis`, `grid-template-columns`,
+  `overflow-x`, `white-space`, `position:fixed`, `@media`, `vw`, `--lt-ctl`
+- rule: every page, table, chart and drawer renders at ~390px with nothing clipped and the page
+  body never scrolling sideways (maintainer rule 2026-09-14). No fixed `width`/`min-width`/
+  `flex-basis` >= 480px on a box that is not itself a scroll container; no
+  `grid-template-columns` whose px floor exceeds ~360px outside a `min-width` media query; never
+  `overflow-x:hidden` on `html`/`body`/`.main`/`.screen`/`.wrap`/`.page`, which deletes the
+  content instead of fixing the box. A control keeps its own size: a tick is a real checkbox,
+  not a box stretched across its row
+- guard: `admin-web-phone-viewport` (static, count-baselined) + `admin-web-phone-viewport-on-edit`
+  · runtime half: the 390px lane of `npm --prefix apps/admin-web run smoke:visual:live`
+- detail: `docs/decisions/admin-web-phone-viewport.md` + `references/frontend-rendering.md` ·
+  Part A: CD-WEB-RESPONSIVE-REVIEW
+- note: the static guard sees CSS/JSX SHAPES only. A control that is the right width in the
+  stylesheet and wrong on the screen — stretched by its flex parent, clipped by a sibling — is
+  invisible to it. That is what the 390px runtime lane is for; a green static guard is not phone
+  proof, and no other lens in this table can see that defect.
 
 **LENS-OFFLINE-SYNC** · covers: 70
 - triggers: `apps/goatos-android/core/core-data/**`, `apps/goatos-android/core/core-db/**`,
@@ -593,8 +737,8 @@ Apply matched lenses in the SKILL.md priority order (kernel → scale → securi
 
 **LENS-FALSE-EMPTY** · covers: 43
 - triggers: `apps/admin-web/**/error.tsx`, `apps/admin-web/**/loading.tsx`,
-  `apps/admin-web/lib/bootstrap*`, `apps/admin-web/**/*empty*` — plus any `catch` that returns
-  `[]` and any data route's empty/error branch
+  `apps/admin-web/lib/bootstrap*`, `apps/admin-web/**/*empty*` — plus any catch that returns an empty array and any data route's empty/error branch
+- css: `.empty`, `.errorbox`, `.skeleton`, `.shimmer`, `display:none`
 - rule: a swallowed backend failure rendered as an empty array or a collapsed page is a
   merge-blocking product-truth bug — it lies to an operator about herd state. Distinct loading,
   empty-success, permission, contract-unavailable and unexpected-error surfaces, plus an
@@ -619,6 +763,7 @@ Apply matched lenses in the SKILL.md priority order (kernel → scale → securi
 - triggers: `apps/admin-web/**/*chart*`, `apps/admin-web/**/*graph*`,
   `apps/admin-web/**/*kpi*`, `apps/admin-web/**/*legend*` — plus any series membership,
   axis, tooltip or KPI tile change
+- css: `.chart`, `.hchart`, `.legend`, `.axis`, `.pie`, `.kpi`, `.spark`
 - rule: membership is a contract decision, not a rendering one — a membership change must be
   proved by the new member being VISIBLE in frame at 1440 and 390, never by a page that merely
   rendered; labels must survive the phone width
@@ -642,6 +787,7 @@ Apply matched lenses in the SKILL.md priority order (kernel → scale → securi
 - triggers: `backend/internal/adminui/**`, `apps/admin-web/**/*copy*`,
   `backend/internal/**/*label*`, `apps/goatos-android/**/res/values/**` — plus any
   user-visible string, finding sentence or alert line
+- css: `::before`, `::after`, `text-transform`
 - rule: operator-facing copy is plain English and backend-owned; findings and alerts name the
   page, the device and what a person sees — never a selector, property name, element tag, field
   path, status code, SQL or check code (contract §7)
@@ -650,8 +796,7 @@ Apply matched lenses in the SKILL.md priority order (kernel → scale → securi
 
 **LENS-PAGINATION** · covers: 12
 - triggers: `backend/internal/**/*paginat*`, `backend/internal/**/*cursor*`,
-  `apps/goatos-android/**/*Paging*`, `apps/admin-web/**/*cursor*` — plus any keyset,
-  page-size or "load more" path
+  `apps/goatos-android/**/*Paging*`, `apps/admin-web/**/*cursor*` — plus any keyset, page-size or load-more path
 - rule: the cursor is monotonic and the next page cannot regress; page size never silently
   changes the business completeness of a read; a paginated reminder loop reaches every candidate
   or is explicitly marked partial
@@ -660,8 +805,7 @@ Apply matched lenses in the SKILL.md priority order (kernel → scale → securi
 
 **LENS-CAPACITY** · covers: 9
 - triggers: `backend/internal/workforce/**`, `backend/internal/**/*capacity*`,
-  `backend/internal/**/*operator*` — plus `workforce_positions.vaccination_daily_animal_cap`,
-  shift config and assignment config
+  `backend/internal/**/*operator*` — plus workforce_positions.vaccination_daily_animal_cap, shift config and assignment config
 - rule: capacity is HRMS-owned per position; the tenant default is a fallback, never a coercion;
   clearing a cap to null restores the default and must not silently keep the old custom cap; the
   cap fails closed

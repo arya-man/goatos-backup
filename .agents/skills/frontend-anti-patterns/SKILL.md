@@ -123,10 +123,11 @@ chapters below; do not review from the summary.
 - **In-app navigation must not reload the document:** a tab/back/row-click
   control uses `useRouter`/`Link` or the local overlay controller. A raw
   `<a href>` to an internal route — including one built from an `href()` helper —
-  re-downloads the page and discards client state
-  (`features/health/health-config.tsx` does this for its Treatment/Diagnosis
-  tabs). Reject it on every tab, modal, edit and row action, not just the page
-  that was reported.
+  re-downloads the page and discards client state. 12 uncorrected sites in 6 files
+  on main today, five of them in `features/health/health-config.tsx`;
+  `admin-web-local-overlay-guard` is green on all 12 because its regexes key on
+  the tokens `veil`/`drawer`/`overlay`. Reject it on every tab, modal, edit and
+  row action, not just the page that was reported.
 - **`position:sticky` + `backdrop-filter` tears on mobile GPUs:** `.top`,
   `.navback` and `.lt-fbar` are the known baseline in `mesha-theme.css`; do not
   add a fourth. The file already calls `backdrop-filter:none` load-bearing in the
