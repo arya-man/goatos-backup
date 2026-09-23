@@ -3028,6 +3028,52 @@ export type HealthRegisterDocument = {
 
 export type HealthRegisterProblem = { path: string; message: string; fatal: boolean };
 
+export type HealthDiagnosisType = {
+  type_key: string;
+  label: string;
+  status: "active" | "retired";
+  sort_order: number;
+  is_builtin: boolean;
+  route_count: number;
+  has_published_register: boolean;
+  updated_at?: string;
+};
+
+export type HealthDiagnosisStageRoute = {
+  age_band: "adult" | "kid";
+  stage_code: string;
+  type_key: string;
+  sub_stage: string;
+  stage_label: string;
+  type_label: string;
+  is_wildcard: boolean;
+  live_animals: number;
+};
+
+export type HealthUnroutedStage = {
+  age_band: "adult" | "kid";
+  stage_code: string;
+  stage_label: string;
+  live_animals: number;
+  clinical_placement: boolean;
+};
+
+export type HealthDiagnosisRouting = {
+  types: HealthDiagnosisType[];
+  routes: HealthDiagnosisStageRoute[];
+  unrouted_stages: HealthUnroutedStage[];
+};
+
+/** Which diagnosis types exist, who reaches each one, and which stages reach nothing. */
+export async function getHealthConfigDiagnosisTypes(): Promise<ApiResult<HealthDiagnosisRouting>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<HealthDiagnosisRouting>("/health-config/diagnosis-types", { cache: "no-store" }),
+  );
+}
+
 export type HealthRegisterRow = {
   register_version_id: string;
   animal_class: string;
@@ -3116,6 +3162,60 @@ export async function getHealthConfigRegister(
 
 /** Open the editor. Creates the draft from the live register when none is open, which is
  *  why an edit always begins from what is currently diagnosing animals. */
+/** Create a diagnosis type, or relabel/retire one. */
+export async function saveHealthConfigDiagnosisType(
+  body: { type_key: string; label: string; status?: string; sort_order?: number },
+  idempotencyKey = `health-diagnosis-type-${randomUUID()}`,
+): Promise<ApiResult<HealthDiagnosisType>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<HealthDiagnosisType>("/health-config/diagnosis-types/save", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
+/** Point one stage, or a whole age band, at a diagnosis type. */
+export async function saveHealthConfigDiagnosisRoute(
+  body: { age_band: string; stage_code: string; type_key: string; sub_stage?: string },
+  idempotencyKey = `health-diagnosis-route-${randomUUID()}`,
+): Promise<ApiResult<HealthDiagnosisStageRoute>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<HealthDiagnosisStageRoute>("/health-config/diagnosis-routes/save", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
+/** Remove one stage route. */
+export async function deleteHealthConfigDiagnosisRoute(
+  body: { age_band: string; stage_code: string },
+  idempotencyKey = `health-diagnosis-route-del-${randomUUID()}`,
+): Promise<ApiResult<{ deleted: boolean }>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<{ deleted: boolean }>("/health-config/diagnosis-routes/delete", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
 export async function openHealthConfigRegisterDraft(
   animalClass: string,
   idempotencyKey = `health-register-open-${randomUUID()}`,

@@ -12,7 +12,9 @@ const recovery = readFileSync(new URL("./health-stale-version-recovery.tsx", imp
 // retires the draft id the editor URL still holds.
 test("a dead version recovers to the list on both halves, never to a bare notice", () => {
   // Treatment: the catalog is read on the stale path and feeds the normal list render.
-  assert.match(config, /const recoveryCatalogResult = selectedVersionIsGone\s*\?\s*await listHealthConfigProtocols\(/);
+  // Scoped to the Treatment tab: the other two tabs do not read the protocol catalog at all, so
+  // recovering one there would be a backend call for a list nobody is about to see.
+  assert.match(config, /const recoveryCatalogResult = selectedVersionIsGone && tab === "treatment"\s*\?\s*await listHealthConfigProtocols\(/);
   assert.match(config, /const effectiveCatalogResult = catalogResult \?\? recoveryCatalogResult;/);
   assert.match(config, /const catalog = effectiveCatalogResult\?\.ok \? effectiveCatalogResult\.data : null;/);
 

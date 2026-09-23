@@ -19,6 +19,7 @@ import type { RouteSearchParams } from "@/lib/search-params";
 import { WorklistFilters, type WorklistFilterField } from "@/components/worklist-filters";
 import { createDisease, discardDraft, openDraft, publishDraft, saveDraft } from "./health-config-actions";
 import { HealthRegisterSection } from "./health-register";
+import { HealthTypesSection } from "./health-types";
 import { StaleVersionNotice } from "./health-stale-version-recovery";
 import { AddDiseaseForm, BackToListButton, DraftEditor, ProtocolActionButton } from "./health-config-editor";
 
@@ -113,14 +114,14 @@ function RulebookTabs({
   basePath,
   searchParams,
 }: {
-  tab: "treatment" | "diagnosis";
+  tab: "treatment" | "diagnosis" | "types";
   pageContract: AdminUiPageContract;
   basePath: string;
   searchParams: RouteSearchParams;
 }) {
-  const href = (next: "treatment" | "diagnosis") => {
+  const href = (next: "treatment" | "diagnosis" | "types") => {
     const params = paramsWithout(searchParams, ["hc_tab", "hc_version", "hc_register", "hc_cursor"]);
-    if (next === "diagnosis") params.set("hc_tab", "diagnosis");
+    if (next !== "treatment") params.set("hc_tab", next);
     const qs = params.toString();
     return qs ? `${basePath}?${qs}` : basePath;
   };
@@ -131,6 +132,9 @@ function RulebookTabs({
       </Link>
       <Link className={tab === "diagnosis" ? "btn" : "btn ghost"} href={href("diagnosis")}>
         {copy(pageContract, "tab.registers")}
+      </Link>
+      <Link className={tab === "types" ? "btn" : "btn ghost"} href={href("types")}>
+        {copy(pageContract, "tab.types")}
       </Link>
     </div>
   );
@@ -152,14 +156,16 @@ export async function HealthConfigPage({
   // The two halves of the rulebook are two tabs of ONE page: which illness the animal is judged to
   // have, and what it is then given. A second route would let them drift apart in the navigation
   // as well as in the data.
-  const tab = (sp.hc_tab as string | undefined) === "diagnosis" ? "diagnosis" : "treatment";
+  const rawTab = (sp.hc_tab as string | undefined) ?? "";
+  const tab: "treatment" | "diagnosis" | "types" =
+    rawTab === "diagnosis" ? "diagnosis" : rawTab === "types" ? "types" : "treatment";
   const selectedRegisterId = (sp.hc_register as string | undefined) || "";
 
   // The catalog and editor are separate route states. List mode reads exactly one bounded keyset
   // page. Editor mode reads exactly one selected version. Do not fetch the catalog behind the
   // full-screen editor: that turns a simple edit open into unnecessary backend fanout and regresses
   // the latency of the click Ravi is trying to make feel direct.
-  const catalogResult = selectedVersionId || tab === "diagnosis"
+  const catalogResult = selectedVersionId || tab !== "treatment"
     ? null
     : await listHealthConfigProtocols({
         age_band: ageBandFilter === "adult" || ageBandFilter === "kid" ? ageBandFilter : undefined,
@@ -177,7 +183,7 @@ export async function HealthConfigPage({
   // Serialising them put one whole round trip between the author's click and the editor for no
   // reason, and `check-serial-await` cannot see it -- the second line mentions the first binding,
   // which the guard treats as a genuine dependency.
-  const opensProtocolEditor = Boolean(selectedVersionId) && tab !== "diagnosis";
+  const opensProtocolEditor = Boolean(selectedVersionId) && tab === "treatment";
   const [detailResult, medicinesResult] = opensProtocolEditor
     ? await Promise.all([getHealthConfigProtocol(selectedVersionId), listHealthConfigMedicines()])
     : [null, null];
@@ -196,6 +202,7 @@ export async function HealthConfigPage({
   const selectedVersionIsGone =
     Boolean(selectedVersionId) && detailResult !== null && !detailResult.ok && detailResult.error.kind === "not_found";
 
+
   // A dead version recovers TO THE LIST, not to a dead end.
   //
   // This branch used to return the notice ALONE. Because the catalog is deliberately not fetched
@@ -207,7 +214,7 @@ export async function HealthConfigPage({
   // The list is read HERE, in the same render, so the recovery works on a cold load of that URL and
   // costs nothing on every other request. It is one extra read on a rare path, which is the right
   // trade against a screen with nothing on it.
-  const recoveryCatalogResult = selectedVersionIsGone
+  const recoveryCatalogResult = selectedVersionIsGone && tab === "treatment"
     ? await listHealthConfigProtocols({
         age_band: ageBandFilter === "adult" || ageBandFilter === "kid" ? ageBandFilter : undefined,
         search: searchFilter || undefined,
@@ -256,6 +263,29 @@ export async function HealthConfigPage({
   const nextHref = catalog?.next_cursor ? `${PAGE_PATH}?${nextParams.toString()}` : null;
   const listParams = paramsWithout(sp, ["hc_version"]);
   const listHref = listParams.toString() ? `${PAGE_PATH}?${listParams.toString()}` : PAGE_PATH;
+
+  if (tab === "types") {
+    return (
+      <div className="screen on">
+        <div className="phead">
+          <div>
+            <div className="crumb">
+              {copy(pageContract, "crumb")} / <b>{copy(pageContract, "tab.types")}</b>
+            </div>
+            <h1>{pageContract.title}</h1>
+          </div>
+        </div>
+
+        <RulebookTabs tab={tab} pageContract={pageContract} basePath={PAGE_PATH} searchParams={sp} />
+
+        <HealthTypesSection
+          pageContract={pageContract}
+          mayWrite={mayWrite}
+          writeDisabledReason={writeDisabledReason}
+        />
+      </div>
+    );
+  }
 
   if (tab === "diagnosis") {
     const registerListHref = (() => {
