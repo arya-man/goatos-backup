@@ -453,6 +453,17 @@
       "notes": "Hot backend list/dashboard read models must not mint signed GCS proof-media URLs. Return authenticated /app/proofs/{proof_id}/download paths and let the explicit-open route mint/log the short-lived signed URL."
     },
     {
+      "id": "browser-tests",
+      "script": "tools/ci/check-browser-tests.mjs",
+      "makeTarget": "browser-tests-guard",
+      "realCheck": "node tools/ci/check-browser-tests.mjs",
+      "selfTest": "node tools/ci/check-browser-tests.mjs --self-test",
+      "owningDoc": "docs/runbooks/local-ci.md",
+      "requiredInCI": false,
+      "ciStep": "browser-tests-guard",
+      "notes": "Registered on 2026-09-24 because it was shipped unregistered by 627d30964 and the registration meta-guard was RED, which makes ci-local red. Left requiredInCI:false DELIBERATELY and as a question for the maintainer, not as a verdict: the real check derives tools/ci/browser-tests.json by RUNNING all 43 candidate test files under a probe, so wiring it into Makefile:guardrails would put that cost on every ci-local. Its self-test is fast and passes. If the manifest is to be kept honest in both drift directions the check belongs in the admin-web browser lane, not the common job -- that is a runtime budget decision. On a machine with no browser the guard reports NOT CHECKED rather than failing, so it is safe wherever it lands."
+    },
+    {
       "id": "calendar-endpoint-grain",
       "script": "tools/agent-hooks/check-calendar-endpoint-grain.mjs",
       "makeTarget": "calendar-endpoint-grain-guard",
@@ -534,6 +545,17 @@
       "owningDoc": "docs/runbooks/vaccination-command-board-latency.md",
       "requiredInCI": true,
       "ciStep": "commandboard-query-plan-wiring-guard"
+    },
+    {
+      "id": "commit-ledger",
+      "script": "tools/agent-hooks/check-commit-ledger.mjs",
+      "makeTarget": "commit-ledger-guard",
+      "realCheck": "node tools/agent-hooks/check-commit-ledger.mjs",
+      "selfTest": "node tools/agent-hooks/check-commit-ledger.mjs --self-test",
+      "owningDoc": "docs/engineering/commit-coverage-ledger.md",
+      "requiredInCI": true,
+      "ciStep": "commit-ledger-guard",
+      "notes": "Every user-visible (feat/fix) commit on main since 2026-08-01 must have a row in commit-ledger.jsonl, which is DERIVED from git log rather than hand-written. Catches a new commit with no row, a hand-added row, a gap with no reason, `covered` claimed without a revert receipt, and a summary that disagrees with the rows counted while reading them. It cannot judge whether a `claimed` row's test actually bites - only a revert receipt does that."
     },
     {
       "id": "config-validate-or-reject",
@@ -1540,17 +1562,6 @@
       "owningDoc": "docs/decisions/scale-anti-patterns.md",
       "requiredInCI": true,
       "ciStep": "worker-stage-budgets-guard"
-    },
-    {
-      "id": "commit-ledger",
-      "script": "tools/agent-hooks/check-commit-ledger.mjs",
-      "makeTarget": "commit-ledger-guard",
-      "realCheck": "node tools/agent-hooks/check-commit-ledger.mjs",
-      "selfTest": "node tools/agent-hooks/check-commit-ledger.mjs --self-test",
-      "owningDoc": "docs/engineering/commit-coverage-ledger.md",
-      "requiredInCI": true,
-      "ciStep": "commit-ledger-guard",
-      "notes": "Every user-visible (feat/fix) commit on main since 2026-08-01 must have a row in commit-ledger.jsonl, which is DERIVED from git log rather than hand-written. Catches a new commit with no row, a hand-added row, a gap with no reason, `covered` claimed without a revert receipt, and a summary that disagrees with the rows counted while reading them. It cannot judge whether a `claimed` row's test actually bites - only a revert receipt does that."
     }
   ]
 }
