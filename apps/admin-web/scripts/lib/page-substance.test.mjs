@@ -1,11 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { VERDICTS, assessSubstance, contentUnits, gateContentCheck } from "./page-substance.mjs";
+import { VERDICTS, assessSubstance, collectSubstance, contentUnits, gateContentCheck } from "./page-substance.mjs";
 
 // The seven pages every surviving `covered` entry was silent on. Written as
 // snapshots so the gate is proved with no browser anywhere in the test.
-const snap = (o) => ({ rows: 0, cards: 0, cells: 0, chartMarks: 0, controls: 0, headings: 0, figures: 0, textLength: 0, emptyState: [], ...o });
+const snap = (o) => ({ collected: true, rows: 0, cards: 0, cells: 0, chartMarks: 0, controls: 0, headings: 0, figures: 0, textLength: 0, emptyState: [], ...o });
 
 const BLANK_PAGES = {
   "a completely blank page": snap({}),
@@ -122,11 +122,33 @@ test("a real page is filmed", () => {
   assert.equal(verdict.substance, VERDICTS.SUBSTANTIAL);
 });
 
-test("a snapshot that could not be read is not treated as a good page", () => {
-  // page.evaluate failing returns {}; that must not read as a page worth filming.
-  const verdict = judgeLandedPage({ landedOn: "/tasks", snapshot: {} });
-  assert.equal(verdict.film, false);
-  assert.equal(verdict.blankPage, true);
+test("a snapshot that could not be taken is NOT CHECKED, never an accusation", () => {
+  // This test used to assert `blankPage: true` for a failed snapshot, and that
+  // was the wrong direction: page.evaluate failing — a blocked script, a
+  // detached frame, a navigation mid-evaluate — read exactly like a page that
+  // drew nothing, and that is a FINDING against the page. A correct screen
+  // would have been reported broken because the harness stumbled.
+  for (const snapshot of [null, undefined, {}, { rows: 5 }]) {
+    const verdict = judgeLandedPage({ landedOn: "/tasks", snapshot });
+    assert.equal(verdict.film, false, "it is still not filmed");
+    assert.ok(!verdict.blankPage, `a snapshot with no proof it ran must not accuse the page: ${JSON.stringify(snapshot)}`);
+    assert.match(verdict.parked, /could not be run here/);
+  }
+  // And a snapshot that DID run and found nothing is still a finding.
+  const drewNothing = judgeLandedPage({ landedOn: "/tasks", snapshot: snap({ headings: 1, controls: 2 }) });
+  assert.equal(drewNothing.blankPage, true, "a page that demonstrably drew nothing is still reported");
+});
+
+test("only a snapshot that proves it ran is judged", () => {
+  assert.equal(assessSubstance(null).verdict, VERDICTS.UNREADABLE);
+  assert.equal(assessSubstance({}).verdict, VERDICTS.UNREADABLE);
+  // A half-filled object is not proof either: the marker is what the collector
+  // sets, so a stray object cannot pass itself off as a reading.
+  assert.equal(assessSubstance({ rows: 20, cells: 80 }).verdict, VERDICTS.UNREADABLE);
+  assert.equal(assessSubstance(snap({ rows: 20, cells: 80 })).verdict, VERDICTS.SUBSTANTIAL);
+  assert.equal(gateContentCheck(assessSubstance(null)).judge, false);
+  assert.ok(gateContentCheck(assessSubstance(null)).notAttempted, "not checked");
+  assert.ok(!gateContentCheck(assessSubstance(null)).finding, "never a finding");
 });
 
 test("the route sweep itself refuses to judge a page that drew nothing", () => {
@@ -145,4 +167,24 @@ test("the route sweep itself refuses to judge a page that drew nothing", () => {
   const firstCheck = runner.indexOf("assertRegressionPatterns(page");
   assert.ok(gateAt > 0 && firstCheck > 0 && gateAt < firstCheck,
     "the gate must run before the first detector, not after it");
+});
+
+test("the collector proves it ran, and every caller relies on that rather than on its own catch", () => {
+  // The marker is the whole defence: without it a snapshot that never happened
+  // and a page that drew nothing are the same value. collectSubstance runs
+  // inside the browser, so it is pinned at its source.
+  const source = collectSubstance.toString();
+  assert.match(source, /collected:\s*true/, "the collector must stamp proof that it ran");
+
+  // Belt and braces on the callers: whatever they hand over on failure — null,
+  // undefined or {} — the marker check refuses it. That is deliberate, so a
+  // caller changing its catch value cannot reopen the hole.
+  for (const handedOver of [null, undefined, {}]) {
+    assert.equal(assessSubstance(handedOver).verdict, VERDICTS.UNREADABLE, `${JSON.stringify(handedOver)} must be unreadable`);
+  }
+  const capture = readFileSync(new URL("./flicker-capture.mjs", import.meta.url), "utf8");
+  const sweep = readFileSync(new URL("../smoke-visual-live.mjs", import.meta.url), "utf8");
+  for (const [name, text] of [["the capture path", capture], ["the route sweep", sweep]]) {
+    assert.match(text, /page\.evaluate\(collectSubstance\)/, `${name} must take the snapshot`);
+  }
 });

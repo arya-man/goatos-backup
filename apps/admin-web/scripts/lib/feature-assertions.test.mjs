@@ -736,3 +736,15 @@ test("the stable finding speaks the deliberate-action vocabulary and names its r
   assert.ok(!/something the page varies/.test(message), "never the other caller's vocabulary");
   assert.match(message, /must describe the whole filter/, "and the rule it breaks, or the finding is not actionable");
 });
+
+test("reload coverage refuses to count from a manifest it could not read", () => {
+  // A missing manifest returns an empty list, and every page/width pair would
+  // then be reported as a gap — 0 of 292, printed as though it were measured.
+  assert.throws(() => reloadCoverage({ routes: [{ name: "tasks" }], viewports: ["laptop"], runnable: [], manifest: [] }),
+    /counted from nothing/);
+  assert.throws(() => reloadCoverage({ routes: [], viewports: ["laptop"], runnable: [], manifest: [{ sha: "a", route: "tasks", status: "assert" }] }),
+    /no routes at all/);
+  // The real inputs still work.
+  const real = realCoverage();
+  assert.ok(real.pairsExpected > 0);
+});

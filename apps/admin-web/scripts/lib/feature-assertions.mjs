@@ -475,6 +475,15 @@ export const UNRUNNABLE_STATUS_REASONS = Object.freeze({
  * @param {Array} args.manifest every entry in the manifest, runnable or not
  */
 export function reloadCoverage({ routes, viewports, runnable, manifest }) {
+  // Counted from what was READ. A manifest that could not be read returns an
+  // empty list, and every pair would then be reported as a gap — a fraction
+  // counted from nothing, printed as though it were a measurement.
+  if (!Array.isArray(manifest) || manifest.length === 0) {
+    throw new Error("the reload coverage was asked to count from a manifest with no entries in it, so any fraction it produced would be counted from nothing");
+  }
+  if (!Array.isArray(routes) || routes.length === 0) {
+    throw new Error("the reload coverage was asked to count over no routes at all, so any fraction it produced would be counted from nothing");
+  }
   const routeNames = new Set(routes.map((r) => r.name));
   const byPair = new Map();
   for (const entry of runnable) {

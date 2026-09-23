@@ -556,7 +556,7 @@ try {
         // A page that says it is empty is NOT ATTEMPTED; a page that loaded and
         // drew nothing at all is a finding about the page itself. Neither is a
         // pass, and neither is silence.
-        const substanceAssessment = assessSubstance(await page.evaluate(collectSubstance).catch(() => ({})));
+        const substanceAssessment = assessSubstance(await page.evaluate(collectSubstance).catch(() => null));
         const substanceGate = gateContentCheck(substanceAssessment);
         browserEvidence.routes[browserEvidence.routes.length - 1].substance = substanceAssessment.verdict;
         if (!substanceGate.judge) {
