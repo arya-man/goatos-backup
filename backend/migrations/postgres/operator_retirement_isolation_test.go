@@ -191,8 +191,10 @@ func TestOperatorRetirementPendingTargetsOneToManyParksRefuseToGuess(t *testing.
 
 // The aggregate is a one-shot temp table, not a paged read: there is no LIMIT
 // or OFFSET at which an invite could be skipped or double-counted. Seed well
-// past any plausible batch size and assert EVERY invite moved in the one pass.
-func TestOperatorRetirementMigratesEveryPendingGrantWithoutPagination(t *testing.T) {
+// past any plausible batch size and assert every invite moved in the one pass,
+// each resolving to exactly ONE park -- the array the fix aggregates must carry
+// a single element per invite, or the migration would have refused.
+func TestOperatorRetirementPendingInvitesHaveNoPageBoundary(t *testing.T) {
 	ctx := context.Background()
 	exec, scan, id, runUp := opRetirementFixture(t, ctx)
 	names := []string{
@@ -222,12 +224,20 @@ func TestOperatorRetirementMigratesEveryPendingGrantWithoutPagination(t *testing
 	if migrated != len(names) {
 		t.Fatalf("undo recorded %d invites; want %d (one per pending grant, no page boundary)", migrated, len(names))
 	}
+	var offPark int
+	if err := scan(`SELECT count(*) FROM auth_pending_email_grants WHERE status='active' AND (scope_type<>'park' OR scope_id<>$1)`, []any{id(101)}, &offPark); err != nil {
+		t.Fatal(err)
+	}
+	if offPark != 0 {
+		t.Fatalf("%d invite(s) did not land on the single seeded park; every invite must resolve to exactly one park", offPark)
+	}
 }
 
 // The invite must narrow onto the invitee's OWN park. Two people in different
 // parks must not inherit each other's scope, which is what a join that lost its
-// per-person predicate would produce.
-func TestOperatorRetirementPendingInviteLandsOnOwnParkScope(t *testing.T) {
+// per-person predicate would produce -- and the undo row must record that same
+// park, so the rollback restores what the Up half actually changed.
+func TestOperatorRetirementPendingInviteParkScopeIsOwnGrant(t *testing.T) {
 	ctx := context.Background()
 	exec, scan, id, runUp := opRetirementFixture(t, ctx)
 	seedMappedOperator(t, exec, id, 11, "Amit Kumar", 101)
@@ -250,13 +260,20 @@ func TestOperatorRetirementPendingInviteLandsOnOwnParkScope(t *testing.T) {
 		if role != want.role || scopeType != "park" || scopeID != id(want.park) {
 			t.Fatalf("invite %d = %s/%s/%s; want %s/park/%s (its own park)", want.pending, role, scopeType, scopeID, want.role, id(want.park))
 		}
+		var undoPark string
+		if err := scan(`SELECT new_scope_id::text FROM public.operator_retirement_000394_pending_scope_undo WHERE pending_grant_id=$1`, []any{id(want.pending)}, &undoPark); err != nil {
+			t.Fatal(err)
+		}
+		if undoPark != id(want.park) {
+			t.Fatalf("invite %d undo row recorded park %s; want %s", want.pending, undoPark, id(want.park))
+		}
 	}
 }
 
 // Membership is the ACTIVE bucket only. A revoked invite is history and must be
 // left exactly as it is -- neither migrated onto a manager role nor recorded in
 // the undo table, which would resurrect it on rollback.
-func TestOperatorRetirementPendingInviteStatusBuckets(t *testing.T) {
+func TestOperatorRetirementPendingInviteStatusBucketsExcludeRevoked(t *testing.T) {
 	ctx := context.Background()
 	exec, scan, id, runUp := opRetirementFixture(t, ctx)
 	seedMappedOperator(t, exec, id, 11, "Amit Kumar", 101)

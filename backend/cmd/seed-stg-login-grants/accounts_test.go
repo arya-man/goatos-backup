@@ -53,3 +53,30 @@ func TestAuthProfileGroundTiersKeepOperatorHintUntilAPKShips(t *testing.T) {
 		}
 	}
 }
+
+// Migration 000394 narrows a pending ground-manager invite onto the person's
+// park, and REFUSES when one person resolves to more than one park for the same
+// role -- a pending invite carries one scope, so guessing would silently drop a
+// park. The seed roster must never author that shape in the first place: one
+// Account carries one ParkCode, so the only way to produce it is to list the
+// same person under the same role twice with different parks.
+func TestSeedRosterNeverGivesOnePersonTwoParksForTheSameRole(t *testing.T) {
+	type personRole struct{ person, role string }
+	parks := map[personRole]string{}
+	for _, acct := range stgLoginAccounts {
+		person := strings.ToLower(strings.TrimSpace(acct.RosterDisplayNameMatch))
+		if person == "" {
+			person = strings.ToLower(strings.TrimSpace(acct.Email))
+		}
+		park := strings.TrimSpace(acct.ParkCode)
+		if park == "" {
+			continue
+		}
+		key := personRole{person: person, role: acct.Role}
+		if seen, ok := parks[key]; ok && seen != park {
+			t.Fatalf("%s holds role=%s in two parks (%s and %s); migration 000394 refuses a pending invite that resolves to more than one park, so the seed roster must not author one",
+				acct.DisplayName, acct.Role, seen, park)
+		}
+		parks[key] = park
+	}
+}
