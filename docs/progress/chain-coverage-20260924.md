@@ -3,8 +3,8 @@
 A prior audit of the 57 registered chains in `context/architecture/domain-event-registry.json`
 found that all 57 name an E2E proof, but only 22 go red under BOTH mutations — deleting the
 producer's emission and no-op'ing the consumer's handler. The repeated shape is a producer-side
-test that counts an outbox row beside a consumer-side test that hand-builds the event and calls
-the handler directly. Nothing joins them, so the event can stop flowing silently.
+test counting an outbox row beside a consumer-side test that hand-builds the event and calls the
+handler directly. Nothing joins them, so the event can stop flowing in silence.
 
 `AGENTS.md` already states the rule this restores: *separate producer and consumer tests are not
 closure.*
@@ -14,28 +14,97 @@ closure.*
 `backend/internal/platform/chaintest` reads the rows the producer's own transaction committed to
 `outbox_messages`, decodes each with `eventbus.EventFromEnvelope` — the same decode
 `internal/domainconsumer/app` uses on a live Pub/Sub message — and publishes it on the bus the
-production `RegisterXConsumers` wired. It seeds nothing and knows no event type.
+production wiring registered. It seeds nothing and knows no event type.
 
 `backend/internal/chainproof` holds the tests. It is its own package because a chain test imports
 both ends, and a producer's package usually already imports the wiring that registers the
 consumer — putting the test in either end is an import cycle.
 
-## Closed and mutation-proven
+Where a chain's consumers are not all registered by `eventwiring.RegisterWorkflowConsumers`, the
+test drives `domainconsumer/wiring.BuildDomainBus` — the production bus builder — so a consumer
+registered nowhere fails the test too.
 
-| Chain | Test | Emission deleted | Handler no-op'd |
-|---|---|---|---|
+## Chains closed, and what catches each direction
 
-| `sales.deal.recorded` | `TestSaleRecordedChainOpensTheWorkflow` | RED — `DrainExpecting` finds no `sales.deal.recorded`; the outbox carried only `config.changed` | RED — `WorkflowIDBySubjectRef`: `tasks: not found` |
+| Chain | Emission deleted | Handler no-op'd |
+|---|---|---|
+| `sales.deal.recorded` | no `sales.deal.recorded` in the outbox | no workflow for the recorded sale |
+| `goat.sale_allocated` | outbox shows `goat.exited` still going, no `goat.sale_allocated` | tag-animals step stays pending; Feed Director told nothing (2 consumers) |
+| `counts.death.reported` | no `counts.death.reported` | no workflow for the reported death |
+| `counts.death.rejected` | no `counts.death.rejected` | the workflow is still open after the rejection |
+| `procurement.animal_purchase.load_recorded` | no `...load_recorded` | no intake workflow for the load |
+| `procurement.animal_purchase.candidate_recorded` | no `...candidate_recorded` | receipt reads pending 0 decided 0 |
+| `procurement.animal_purchase.decided` | no `...decided` | (same handler as above) |
+| `procurement.feed_purchase.recorded` | no `...feed_purchase.recorded` | no intake workflow for the purchase |
+| `procurement.feed_purchase.reached` | no `...feed_purchase.reached` | reached load owes 0 toxin rounds; reached step stays pending (2 consumers) |
+| `goat.identity.changed` | story red at the outbox assertion | the obligation is not re-anchored |
 
-Under the handler no-op, the chain's previously registered proof
-(`TestSaleWorkflowRunsTheSalesSOP`) stays **green**, which is the audit's finding reproduced: it
-calls `repo.OpenWorkflow` directly, one layer below the handler and two below the producer. That
-test is a good test of the SOP's compiled steps and stays; it simply cannot see whether the event
-still flows.
+Ten chains, every one red under both mutations, each direction caught by a named assertion.
+
+## Defects found on the way
+
+**A production query that could never execute.** `ListRecordedCompletionsByTask` selects
+`DISTINCT c.completion_id::text` and ordered by `c.completion_id` — the uuid, not in the select
+list. Postgres refuses that (42P10), so every call failed and the SOP verify fan-out could not
+list the completions a task review fans out over. Its own dedicated integration test was red at
+HEAD; it needs Postgres, and the Postgres gate is opt-in, which is how a query that cannot run
+reached main.
+
+**A consumer missing from the bus the story suite relays through.**
+`domainconsumer/wiring.BuildDomainBus` carried `FeedPurchaseReachedHandler` on neither half while
+three other bus compositions did. That builder's own comment states the consequence. It has no
+production caller, so this is a test-bus divergence rather than a live drop — but it is exactly
+why the feed-purchase → toxin chain was never measured.
+
+**The whole vaccination SOP E2E path was dead**, for three stacked reasons, each hiding the next:
+no park operator (so the sweeper planned a batch with no drive assignment and the shed read as
+holding no animals), no shed video (the helper dropped its `shedID` argument and submitted
+per-animal clips against a shed-grain SOP), and no shed scope on the submit key. Fixed in the
+helper; `TestKernelStoryY_CrossVaccineGap` and both `VaccRev` stories now pass.
+
+**Two clock-rotten proofs.** `goat.identity.changed`'s story pinned absolute dates while
+`IdentityGoat` stamps `occurred_at` with SERVER time, so once real time passed DOB+28 the
+corrected anchor fell into the past and was clamped. It also asserted the obsolete obligation was
+*superseded*, describing a supersede-and-recreate the kernel does not do — the obligation id is
+identical either side of the correction, so that assertion could never pass and hid the two real
+proofs behind it.
+
+## Live-herd predicates: the sweep
+
+A sweep flagged 20 packages whose production code filters the live herd but whose fixtures build
+only alive animals. That flag is a keyword heuristic, so each was checked properly: neutralise the
+predicate, run the package, see whether anything goes red.
+
+| Package | Result |
+|---|---|
+| `animalpurchase` | **UNPROVEN** — all green; now covered (breed picklist) |
+| `penroutines` | **UNPROVEN** — all green; now covered (occupied-pen flag) |
+| `feedconfig` | proven — `TestRetiredPartitionsAreNeitherListedNorWritable` bites |
+| `protocol` | proven — `TestPublishVersionRetiresPreviousPlanPublishedAnchors` bites |
+| `pccare` | proven — four tests bite |
+| `sop` | proven — four tests bite |
+
+Two of seven were genuinely unmeasured; the heuristic over-flagged the rest, which is why each was
+mutated rather than taken on the flag.
+
+## E2E suite, before and after
+
+Run in full on a local throwaway Postgres, both at the base commit and on this branch:
+
+```
+base commit   31 failing stories
+this branch   28 failing stories
+regressions    0
+```
+
+The three fixed are `TestKernelStoryY_CrossVaccineGap`,
+`TestKernelStoryVaccRev_IdentityCorrectionRecompute` and
+`TestKernelStoryVaccRev_HistoryOutranksDOBCorrection`. The remaining 28 are pre-existing and
+untouched by this work.
 
 ## Running these
 
-They are opt-in Postgres tests against a local throwaway server, never a deployed host:
+Opt-in Postgres tests against a local throwaway server, never a deployed host:
 
 ```
 GOATOS_RUN_POSTGRES_TESTS=1 \
