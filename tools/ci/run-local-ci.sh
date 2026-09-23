@@ -415,6 +415,7 @@ run_common() {
   step "git-identity-guard" make git-identity-guard
   step "org-boundary-guard" make org-boundary-guard
   step "guardrail-registration-guard" make guardrail-registration-guard
+  step "guard-integrity-guard" make guard-integrity-guard
   # Meta-guards. guard-weakening is diff-scoped (one `git diff --name-only` and
   # out when the diff has no guard script, manifest, baseline or source file).
   # guard-input-presence is ~80ms of stat() calls and is NOT diff-scoped on

@@ -1,0 +1,11 @@
+{
+  "description": "Targets that must be reachable from a CI entry point. A target nothing invokes runs nowhere, however complete it looks - and nothing has to be deleted for that to happen.",
+  "targets": [
+    { "target": "dashboard-automation-self-test", "why": "the dashboard automation runners and their tests; none of it ran anywhere while CI stayed green" },
+    { "target": "guardrails", "why": "the whole guard set" },
+    { "target": "guardrail-registration-guard", "why": "the meta-guard that counts registrations" },
+    { "target": "guard-weakening-guard", "why": "the meta-guard that catches a guard being removed" },
+    { "target": "guard-input-presence-guard", "why": "the meta-guard that catches a guard input going missing" },
+    { "target": "guard-integrity-guard", "why": "this meta-guard must not be switchable off the way it exists to catch" }
+  ]
+}
