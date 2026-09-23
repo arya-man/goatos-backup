@@ -88,6 +88,21 @@ func confirmProductsStillSellable(ctx context.Context, tx pgx.Tx, tenantID strin
 	return nil
 }
 
+// breedsBySpeciesSQL reads the active breeds of every species the registry names, in ONE round
+// trip: a query per product would be one round trip per row of a list that grows with the farm.
+const breedsBySpeciesSQL = `
+SELECT species, canonical_name
+FROM public.breeds
+WHERE species = ANY($1::text[]) AND status = 'active'
+ORDER BY species, lower(canonical_name)`
+
+// activeFeedItemsSQL is the feed a farm may sell: its own live catalogue, in the order it keeps it.
+const activeFeedItemsSQL = `
+SELECT feed_item_label
+FROM public.feed_item_catalog
+WHERE tenant_id = $1 AND status = 'active'
+ORDER BY display_order, lower(feed_item_label)`
+
 // ListProductVariants answers what each product may be sold AS -- the line's second dimension.
 //
 // Every list comes from a LIVE vocabulary the farm already maintains, never from a list typed into
@@ -109,46 +124,67 @@ func (r *Repository) ListProductVariants(ctx context.Context, tenantID string, p
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
-	out := make(map[string][]string, len(products))
-	var feeds []string
-	feedsLoaded := false
-
+	// Which vocabularies this registry actually needs, gathered BEFORE any query. A query per
+	// product inside the loop is one round trip per row of a list that grows with the farm; both
+	// reads below are therefore made at most once, whatever the registry holds.
+	species := []string{}
+	seenSpecies := map[string]bool{}
+	wantsFeed := false
 	for _, p := range products {
 		switch p.Kind {
 		case domain.KindAnimal:
+			if p.SpeciesCode != "" && !seenSpecies[p.SpeciesCode] {
+				seenSpecies[p.SpeciesCode] = true
+				species = append(species, p.SpeciesCode)
+			}
+		case domain.KindFeed:
+			wantsFeed = true
+		}
+	}
+
+	breedsBySpecies := map[string][]string{}
+	if len(species) > 0 {
+		rows, err := r.pool.Query(ctx, breedsBySpeciesSQL, species)
+		if err != nil {
+			return nil, fmt.Errorf("sales: list breeds: %w", err)
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var sp, name string
+			if err := rows.Scan(&sp, &name); err != nil {
+				return nil, fmt.Errorf("sales: scan breed: %w", err)
+			}
+			breedsBySpecies[sp] = append(breedsBySpecies[sp], name)
+		}
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("sales: breed rows: %w", err)
+		}
+	}
+
+	feeds := []string{}
+	if wantsFeed {
+		rows, err := r.pool.Query(ctx, activeFeedItemsSQL, tenantID)
+		if err != nil {
+			return nil, fmt.Errorf("sales: list feed items: %w", err)
+		}
+		feeds, err = scanStrings(rows)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	out := make(map[string][]string, len(products))
+	for _, p := range products {
+		switch p.Kind {
+		case domain.KindAnimal:
+			// A product that names no species has no breed list to offer. Left ABSENT rather than
+			// filled with every breed of every species, which would offer a sheep breed on a goat
+			// sale.
 			if p.SpeciesCode == "" {
-				// A product that names no species has no breed list to offer. Left absent rather
-				// than filled with every breed of every species, which would offer a sheep breed
-				// on a goat sale.
 				continue
 			}
-			rows, err := r.pool.Query(ctx, `
-				SELECT canonical_name FROM public.breeds
-				WHERE species = $1 AND status = 'active'
-				ORDER BY lower(canonical_name)`, p.SpeciesCode)
-			if err != nil {
-				return nil, fmt.Errorf("sales: list breeds for %s: %w", p.Name, err)
-			}
-			names, err := scanStrings(rows)
-			if err != nil {
-				return nil, err
-			}
-			out[p.Name] = names
+			out[p.Name] = append([]string(nil), breedsBySpecies[p.SpeciesCode]...)
 		case domain.KindFeed:
-			if !feedsLoaded {
-				rows, err := r.pool.Query(ctx, `
-					SELECT feed_item_label FROM public.feed_item_catalog
-					WHERE tenant_id = $1 AND status = 'active'
-					ORDER BY display_order, lower(feed_item_label)`, tenantID)
-				if err != nil {
-					return nil, fmt.Errorf("sales: list feed items: %w", err)
-				}
-				feeds, err = scanStrings(rows)
-				if err != nil {
-					return nil, err
-				}
-				feedsLoaded = true
-			}
 			out[p.Name] = append([]string(nil), feeds...)
 		default:
 			// `other` sells as itself. Manure's line has stored the word 'Manure' in this column
