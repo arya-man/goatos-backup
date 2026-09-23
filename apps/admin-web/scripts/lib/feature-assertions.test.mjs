@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { WRITE_WORDS, assertFeaturesPresent, isValueExpect, loadFeatureAssertions, reloadCoverage } from "./feature-assertions.mjs";
+import { WRITE_WORDS, assertFeaturesPresent, isValueExpect, loadFeatureAssertions, numberIn, reloadCoverage } from "./feature-assertions.mjs";
 import { resolveRoutes } from "./smoke-route-catalogue.mjs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -385,4 +385,111 @@ test("the sweep runner actually emits the coverage, and the receipt carries it",
   assert.match(runner, /reload_coverage_gap=/, "and print every gap's reason, which is the actual product of the work");
   // A failure to compute it must say "not checked", never vanish.
   assert.match(runner, /fraction: "not checked"/, "a coverage block that could not be built says so");
+});
+
+
+// ---------------------------------------------------------------- comparing VALUES
+//
+// The engine could only ever read one cell, which is why every invariant this
+// product states about itself was inexpressible and 0 of 928 assertions compared
+// a value. These are the shapes that catch a page whose figures are wrong while
+// everything still renders - the class the blank-page gate cannot see.
+
+const vCell = (text, visible = true) => ({ text, visible });
+const vMakeLocator = (items) => ({
+  first: () => vMakeLocator(items.slice(0, 1)),
+  nth: (i) => vMakeLocator(items.slice(i, i + 1)),
+  count: async () => items.length,
+  isVisible: async () => Boolean(items[0]?.visible),
+  innerText: async () => items[0]?.text ?? "",
+  getAttribute: async () => null,
+  click: async () => {},
+  evaluate: async () => {},
+  waitFor: async () => { if (!items[0]?.visible) throw new Error("not visible"); },
+});
+const vFakePage = (screen, onClick) => ({
+  locator: (k) => vMakeLocator(screen[k] ?? []),
+  getByText: (k) => vMakeLocator(screen[k] ?? []),
+  url: () => "https://example.test/x",
+  addStyleTag: async () => {}, screenshot: async () => {},
+  waitForLoadState: async () => {},
+  __click: onClick,
+});
+
+const vRun = async (screen, expects, steps = []) => {
+  const entry = { sha: "s", title: "t", route: "r", status: "assert", expect: expects, steps };
+  const errors = [];
+  const log = console.log; console.log = () => {};
+  try {
+    await assertFeaturesPresent(vFakePage(screen), { routeName: "r", viewportLabel: "laptop", screenshotDir: "/tmp", entries: [entry] });
+  } catch (e) { errors.push(e.message); } finally { console.log = log; }
+  return errors;
+};
+
+test("a total that disagrees with the sum of its rows is reported", async () => {
+  const right = await vRun({ ".total": [vCell("120")], ".row": [vCell("50"), vCell("70")] },
+    [{ compare: { left: { css: ".total" }, right: { css: ".row", all: "sum" } } }]);
+  assert.deepEqual(right, [], "50 + 70 = 120 agrees");
+  const wrong = await vRun({ ".total": [vCell("999")], ".row": [vCell("50"), vCell("70")] },
+    [{ compare: { left: { css: ".total" }, right: { css: ".row", all: "sum" } } }]);
+  assert.equal(wrong.length, 1, "999 does not");
+  assert.match(wrong[0], /999 must equal 120/);
+});
+
+test("a count that disagrees with the rows listed is reported", async () => {
+  const ok = await vRun({ ".tabcount": [vCell("3 items")], ".row": [vCell("a"), vCell("b"), vCell("c")] },
+    [{ compare: { left: { css: ".tabcount" }, right: { css: ".row", all: "count" } } }]);
+  assert.deepEqual(ok, []);
+  const bad = await vRun({ ".tabcount": [vCell("7 items")], ".row": [vCell("a"), vCell("b"), vCell("c")] },
+    [{ compare: { left: { css: ".tabcount" }, right: { css: ".row", all: "count" } } }]);
+  assert.equal(bad.length, 1);
+  assert.match(bad[0], /7 must equal 3/);
+});
+
+test("a row with no figure in it stops the sum instead of counting as zero", async () => {
+  // Treating a blank row as 0 is how a sum quietly drifts under the total it is
+  // checked against, and the page gets accused for the harness's arithmetic.
+  const errors = await vRun({ ".total": [vCell("120")], ".row": [vCell("50"), vCell("—")] },
+    [{ compare: { left: { css: ".total" }, right: { css: ".row", all: "sum" } } }]);
+  assert.equal(errors.length, 1);
+  assert.match(errors[0], /is not on the page/, "it reports as unreadable, never as a disagreement");
+});
+
+test("hidden rows are not summed or counted", async () => {
+  const errors = await vRun({ ".total": [vCell("120")], ".row": [vCell("50"), vCell("70"), vCell("900", false)] },
+    [{ compare: { left: { css: ".total" }, right: { css: ".row", all: "sum" } } }]);
+  assert.deepEqual(errors, [], "a row that is not on the screen is not part of what the screen claims");
+});
+
+test("a summary that changes when the page does is reported", async () => {
+  let clicked = false;
+  const screen = { ".summary": [vCell("240")], ".next": [vCell("Next page")] };
+  const page = vFakePage(screen);
+  // Re-point the locator so the second read sees page two's (wrong) summary.
+  page.locator = (k) => {
+    if (k === ".summary" && clicked) return vMakeLocator([vCell("31")]);
+    if (k === ".next") {
+      const nx = { ...vMakeLocator([vCell("Next page")]), click: async () => { clicked = true; } };
+      nx.first = () => nx;
+      return nx;
+    }
+    return vMakeLocator(screen[k] ?? []);
+  };
+  const entry = { sha: "s", title: "t", route: "r", status: "assert",
+    expect: [{ stable: { target: { css: ".summary" }, through: [{ click: { css: ".next" } }], label: "the total" } }] };
+  const log = console.log; console.log = () => {};
+  let message = null;
+  try {
+    await assertFeaturesPresent(page, { routeName: "r", viewportLabel: "laptop", screenshotDir: "/tmp", entries: [entry] });
+  } catch (e) { message = e.message; } finally { console.log = log; }
+  assert.ok(message, "a summary computed from the rows on screen must be reported");
+  assert.match(message, /reads 240, then 31/);
+  assert.match(message, /must describe the whole filter/);
+});
+
+test("all three new shapes count as references that can fail", () => {
+  assert.equal(isValueExpect({ compare: { left: {}, right: {} } }), true);
+  assert.equal(isValueExpect({ stable: { target: {} } }), true);
+  assert.equal(isValueExpect({ visible: {} }), false, "presence is still smoke");
+  assert.equal(isValueExpect({ count: { css: ".x", min: 1 } }), false, "and so is a floor of one");
 });
