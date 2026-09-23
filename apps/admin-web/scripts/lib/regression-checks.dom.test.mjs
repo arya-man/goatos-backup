@@ -127,6 +127,108 @@ test("an ISO date in a table is still reported even when the cell wraps at its h
   assert.ok(patterns.includes("J-raw-text"));
 });
 
+// ---------------------------------------------------------------- A-chart-label-clipped
+// Every bar label in the app is a two-line clamp (-webkit-box + -webkit-line-clamp), which paints
+// its own "..." where it cuts. On a wrapping box Chromium reports scrollWidth a pixel or two above
+// clientWidth even though each line sits inside the box, so measuring scrollWidth accused labels
+// that were fully on screen, ending in a tidy ellipsis: "2px wide text hidden", on Load wise and
+// Counts Breakdown, for three of nine identical labels.
+const CLAMPED_BAR_LABEL = `
+  <div class="gcols" style="width:400px">
+    <div class="gcb"><i class="gcbar" style="display:block;height:40px;width:20px;background:#7ac143"></i>
+      <span class="gcval">129</span>
+      <span class="gclab" style="font-size:11px;line-height:1.2;text-align:center;white-space:normal;overflow-wrap:anywhere;max-width:86px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">129 (CPT Godel 2 - Part 1, CPT Godel 2 - Part 2)</span>
+    </div>
+  </div>`;
+// The same family's genuine bug: one line, clipped hard, with nothing to say there is more.
+const HARD_CLIPPED_BAR_LABEL = `
+  <div class="gcols" style="width:400px">
+    <div class="gcb"><i class="gcbar" style="display:block;height:40px;width:20px;background:#7ac143"></i>
+      <span class="gcval">129</span>
+      <span class="gclab" style="font-size:11px;display:block;width:86px;white-space:nowrap;overflow:hidden;text-overflow:clip">129 (CPT Godel 2 - Part 1, CPT Godel 2 - Part 2)</span>
+    </div>
+  </div>`;
+
+test("a two-line clamped bar label that ends in its own ellipsis is not reported as cut off", async () => {
+  const { patterns } = await patternsFor(CLAMPED_BAR_LABEL);
+  assert.ok(!patterns.includes("A-chart-label-clipped"), `expected quiet, got ${patterns.join(", ")}`);
+  assert.ok(!patterns.includes("text-cut-off"), `expected quiet, got ${patterns.join(", ")}`);
+});
+
+test("a bar label clipped flat with no ellipsis is still reported as cut off", async () => {
+  const { patterns } = await patternsFor(HARD_CLIPPED_BAR_LABEL);
+  assert.ok(patterns.includes("A-chart-label-clipped"), `expected a finding, got ${patterns.join(", ")}`);
+});
+
+// ---------------------------------------------------------------- text-overlap under a panel
+// The SOP basics row squeezes three bordered panels onto a phone. The middle panel's chip runs
+// out of it and slides UNDER the next panel, whose opaque background paints over it: the reader
+// sees a cut-off chip next to a clean "Kind", never two words printed on each other.
+const CHIP_BURIED_UNDER_NEXT_PANEL = `
+  <div style="position:relative;width:360px;height:44px;font-size:13px;background:#0d120d">
+    <div style="position:absolute;left:8px;top:6px;width:100px;height:32px;border:1px solid #333"></div>
+    <span class="tag t-pur" style="position:absolute;left:16px;top:12px;white-space:nowrap;color:#b79cff">Counts / Herd Operations</span>
+    <div style="position:absolute;left:112px;top:6px;z-index:1;width:120px;height:32px;border:1px solid #333;background:#0d120d">
+      <span class="muted small" style="position:absolute;left:6px;top:6px">Kind</span>
+    </div>
+  </div>`;
+
+test("a chip that runs under the next panel is not reported as text printed on text", async () => {
+  const { patterns } = await patternsFor(CHIP_BURIED_UNDER_NEXT_PANEL);
+  assert.ok(!patterns.includes("text-overlap"), `expected quiet, got ${patterns.join(", ")}`);
+});
+
+test("two texts printed on each other with nothing opaque between them still report", async () => {
+  const { patterns } = await patternsFor(TEXT_PAINTED_OVER_TEXT);
+  assert.ok(patterns.includes("text-overlap"));
+});
+
+// ---------------------------------------------------------------- J-raw-text
+// An SOP's own code, set in the monospace face the product uses for identifiers, is the value a
+// person quotes back to us — the same promise <code> makes. A breeding state printed in the UI
+// face is a leak, and stays one.
+test("an identifier set in the monospace face is not reported as a leaked code", async () => {
+  const { patterns } = await patternsFor(
+    `<div class="muted small">SOP code <span class="mono" style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace">counts.herd_operation</span></div>`,
+  );
+  assert.ok(!patterns.includes("J-raw-text"), `expected quiet, got ${patterns.join(", ")}`);
+});
+
+test("the same code in the ordinary interface face is still reported", async () => {
+  const { patterns } = await patternsFor(`<div class="v">non_pregnant</div>`);
+  assert.ok(patterns.includes("J-raw-text"));
+});
+
+test("a raw code in a closed dropdown is reported against the dropdown a person can see", async () => {
+  const { found } = await patternsFor(
+    `<label>Evidence type <select aria-label="Evidence type"><option>Choose</option><option>source_record</option></select></label>`,
+  );
+  const leak = found.find((f) => f.pattern === "J-raw-text");
+  assert.ok(leak, "a code listed in a dropdown is still a leak");
+  assert.match(leak.element, /^select/, `the outlined element must be the dropdown, not the invisible option: ${leak.element}`);
+  assert.match(leak.detail, /Evidence type/, `the sentence must say where it is: ${leak.detail}`);
+  const marked = await page.evaluate(() => document.querySelector("[data-smoke-issue]")?.tagName ?? null);
+  assert.equal(marked, "SELECT", "the red box must land on something on screen");
+});
+
+// ---------------------------------------------------------------- C-cell-mid-word-wrap
+// Sales Config on a phone squeezes the Load column to about one character: "136 - 16/09/2026"
+// comes out stacked as 1 / 3 / 6 and the farm column as C / B / E.
+test("a load number stacked one digit per line is reported", async () => {
+  const { patterns } = await patternsFor(`
+    <table><tr><td style="white-space:nowrap">
+      <a class="celllink" style="display:flex;width:12px;white-space:normal;overflow-wrap:anywhere;word-break:break-word"><b>136</b><span class="muted small"> &middot; 16/09/2026</span></a>
+    </td></tr></table>`);
+  assert.ok(patterns.includes("C-cell-mid-word-wrap"), `expected a finding, got ${patterns.join(", ")}`);
+});
+
+test("a temporary animal id wrapped at its hyphens is not a broken word", async () => {
+  const { patterns } = await patternsFor(
+    `<table><tr><td style="width:120px;overflow-wrap:anywhere">TEMP-CBE-CASTRO1-003<div class="muted">G-003284</div></td></tr></table>`,
+  );
+  assert.ok(!patterns.includes("C-cell-mid-word-wrap"), `expected quiet, got ${patterns.join(", ")}`);
+});
+
 // ---------------------------------------------------------------- evidence + wording
 test("the element behind the headline sentence is the one the screenshot centres on", async () => {
   await page.setContent(`<!doctype html><html><body><main>${CHART_WITH_NO_MARKS}${TEXT_PAINTED_OVER_TEXT}</main></body></html>`);

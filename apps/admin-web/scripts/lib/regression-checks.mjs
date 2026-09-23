@@ -186,16 +186,44 @@ export function collectRegressionFindings({ mobile = false, limit = 40 } = {}) {
     }
     return null;
   };
+  const monospaced = (el) => /\bmonospace\b|ui-monospace|SFMono|Menlo|Consolas|Courier|"Roboto Mono"|"DejaVu Sans Mono"/i.test(getComputedStyle(el).fontFamily || "");
+  const selectName = (select) => {
+    if (!select) return "";
+    const aria = select.getAttribute("aria-label");
+    if (aria) return `"${aria.trim()}"`;
+    const labelled = select.labels?.[0] ?? select.closest("label");
+    const text = (labelled?.textContent ?? "").replace(/\s+/g, " ").trim();
+    return text ? `"${text.slice(0, 40)}"` : "";
+  };
   const clipsAny = (p) => { const s = getComputedStyle(p); return s.overflowX !== "visible" || s.overflowY !== "visible"; };
   const truncatedWithEllipsis = (el) => {
     const s = getComputedStyle(el);
     return s.textOverflow === "ellipsis" && el.scrollWidth > el.clientWidth + 1;
   };
+  // A multi-line clamp paints its own "..." where it cuts, exactly as text-overflow:ellipsis does,
+  // so a clamped box tells the reader there is more. It is not silent clipping.
+  const lineClamped = (s) => Boolean(s.webkitLineClamp) && s.webkitLineClamp !== "none";
+  // How far the PAINTED text runs past the content box.
+  //
+  // scrollWidth cannot answer this. Every chart label wraps (-webkit-box + line-clamp +
+  // overflow-wrap:anywhere), and on a wrapping box Chromium rounds scrollWidth a pixel or two
+  // above clientWidth while every line still sits inside the box. That rounding is what reported
+  // "2px wide text hidden" against labels that were on screen in full, ending in a tidy "...".
+  // The line rectangles say what is actually drawn, so ask them instead.
+  const textPastRight = (el) => {
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    const box = el.getBoundingClientRect();
+    const contentRight = box.left + el.clientLeft + el.clientWidth;
+    let over = 0;
+    for (const r of range.getClientRects()) if (r.width > 0.5) over = Math.max(over, r.right - contentRight);
+    return over;
+  };
   const clippedNoEllipsis = (el) => {
     const s = getComputedStyle(el);
-    const x = /hidden|clip/.test(s.overflowX) && s.textOverflow !== "ellipsis" && el.scrollWidth > el.clientWidth + 1;
-    const y = /hidden|clip/.test(s.overflowY) && (s.webkitLineClamp === "none" || !s.webkitLineClamp) && el.scrollHeight > el.clientHeight + 1;
-    return x ? `${el.scrollWidth - el.clientWidth}px wide text hidden` : y ? `${el.scrollHeight - el.clientHeight}px tall text hidden` : "";
+    const over = /hidden|clip/.test(s.overflowX) && s.textOverflow !== "ellipsis" ? textPastRight(el) : 0;
+    const y = /hidden|clip/.test(s.overflowY) && !lineClamped(s) && el.scrollHeight > el.clientHeight + 1;
+    return over > 1 ? `${Math.round(over)}px wide text hidden` : y ? `${el.scrollHeight - el.clientHeight}px tall text hidden` : "";
   };
   const root = document.querySelector("main") ?? document.body;
 
@@ -334,10 +362,22 @@ export function collectRegressionFindings({ mobile = false, limit = 40 } = {}) {
       const el = node.parentElement;
       const t = (node.textContent ?? "").trim();
       if (!el || !t || el.closest("code, pre, input, textarea, script, style, noscript, svg title") || hidden(el)) continue;
+      // Text set in a monospace face is an identifier the product means to show, the same promise
+      // <code> makes — an SOP's own code ("counts.herd_operation") beside its plain-English name is
+      // the value a person quotes back to us, not a leak. Decided on the rendered font, never on a
+      // class name, so a page cannot opt out by renaming anything.
+      if (monospaced(el)) continue;
       checked += 1;
+      // An <option> of a closed dropdown has no box at all: no reader can see it and no red box can
+      // point at it. The code in it is still a real leak, so report it against the dropdown, which
+      // IS on screen, and say where it lives.
+      const option = el.closest("option");
+      const select = option?.closest("select");
+      const target = select && !select.multiple && select.size <= 1 ? select : el;
+      const where = target === select ? ` in the ${selectName(select)} dropdown` : "";
       for (const [re, kind] of RAW) {
         const m = t.match(re);
-        if (m && !/@|https?:|\.(com|sg|in|png|jpg|pdf|csv)\b/.test(m[0])) { add("J-raw-text", el, `${kind} "${m[0]}"`); break; }
+        if (m && !/@|https?:|\.(com|sg|in|png|jpg|pdf|csv)\b/.test(m[0])) { add("J-raw-text", target, `${kind} "${m[0]}"${where}`); break; }
       }
       if (el.closest("td") && /\b\d{4}-\d{2}-\d{2}\b/.test(t)) add("J-raw-text", el, `ISO date "${t.match(/\d{4}-\d{2}-\d{2}/)[0]}" in table (farm reads DD-MM-YYYY)`);
     }
@@ -406,12 +446,38 @@ export function collectRegressionFindings({ mobile = false, limit = 40 } = {}) {
         if (hit && (hit === el || el.contains(hit) || hit.contains(el))) boxes.push({ el, rect });
       }
     }
+    // Clipping is not the only way one of two intersecting boxes stops being visible. A chip that
+    // runs out of a squeezed flex row slides UNDER the next panel, and that panel's own opaque
+    // background paints over it: the reader sees a cut-off chip beside a clean neighbour, never
+    // two words printed on each other. Overlap therefore has to be checked where it happens.
+    const opaqueBackground = (el) => {
+      const s = getComputedStyle(el);
+      if (s.backgroundImage && s.backgroundImage !== "none") return true;
+      const parts = /^rgba?\(([^)]+)\)$/.exec(s.backgroundColor || "");
+      if (!parts) return false;
+      const channels = parts[1].split(",").map((n) => parseFloat(n));
+      return channels.length < 4 || channels[3] > 0.5;
+    };
+    // True when `el` is buried at this point under something opaque that is not part of it.
+    const buriedAt = (el, x, y) => {
+      const hit = document.elementFromPoint(x, y);
+      if (!hit) return true;
+      if (hit === el || el.contains(hit) || hit.contains(el)) return false;
+      for (let p = hit; p && p !== document.documentElement; p = p.parentElement) {
+        if (p.contains(el)) break; // reached common ground: nothing between them was opaque
+        if (opaqueBackground(p)) return true;
+      }
+      return false;
+    };
     outer: for (let i = 0; i < boxes.length; i += 1) {
       for (let j = i + 1; j < boxes.length; j += 1) {
         const a = boxes[i], b = boxes[j];
         if (a.el === b.el || a.el.contains(b.el) || b.el.contains(a.el)) continue;
         const o = inter(a.rect, b.rect);
         const smaller = Math.min(a.rect.width * a.rect.height, b.rect.width * b.rect.height);
+        const midX = (Math.max(a.rect.left, b.rect.left) + Math.min(a.rect.right, b.rect.right)) / 2;
+        const midY = (Math.max(a.rect.top, b.rect.top) + Math.min(a.rect.bottom, b.rect.bottom)) / 2;
+        if (o > 12 && (buriedAt(a.el, midX, midY) || buriedAt(b.el, midX, midY))) continue;
         if (o > 12 && o / smaller > 0.25) {
           add("text-overlap", a.el, `overlaps ${describe(b.el)}`, b.el);
           b.el.setAttribute("data-smoke-issue", "text-overlap");
@@ -577,7 +643,11 @@ export async function assertRegressionPatterns(page, { routeName, viewportLabel,
   await page.addStyleTag({ content: "[data-smoke-issue]{outline:3px solid #e11d48 !important;outline-offset:1px}" });
   // Centre the screenshot on the element the headline sentence is about, not on whichever
   // flagged element happens to come first in the document.
-  await page.evaluate(() => (document.querySelector("[data-smoke-issue-first]") ?? document.querySelector("[data-smoke-issue]"))?.scrollIntoView({ block: "center", inline: "center" }));
+  // Vertical only. `inline: "center"` scrolls every horizontal container on the way up to centre
+  // the element — including a card with overflow:hidden, which a finger can never scroll. The
+  // evidence then showed the page in a state no reader can reach: a summary line cut on BOTH
+  // sides, when what a reader actually sees is that line running off the right-hand edge.
+  await page.evaluate(() => (document.querySelector("[data-smoke-issue-first]") ?? document.querySelector("[data-smoke-issue]"))?.scrollIntoView({ block: "center", inline: "nearest" }));
   const issuesPath = join(screenshotDir, `${viewportLabel}-${routeName}-issues.png`);
   await page.screenshot({ path: issuesPath, fullPage: false });
   console.log(`screenshot_path=${relativeToRepo(issuesPath)}`);
