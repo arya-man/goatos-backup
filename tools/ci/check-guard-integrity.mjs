@@ -27,6 +27,7 @@ import { spawnSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { writeShims } from "./lib/guard-probe-shims.mjs";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const MANIFEST = "tools/ci/guardrail-manifest.json";
@@ -34,6 +35,7 @@ const MAKEFILE = "Makefile";
 const RUN_LOCAL_CI = "tools/ci/run-local-ci.sh";
 const RECORDER = "tools/ci/lib/guard-probe-recorder.cjs";
 const FLOOR_FILE = "tools/ci/guard-floor.json";
+const INPUTS_FILE = "tools/ci/guard-inputs.json";
 
 // Targets a CI run enters at. Everything else has to be reachable FROM one of these.
 export const CI_ROOTS = ["guardrails", "check", "ci-local"];
@@ -119,45 +121,52 @@ export function targetInvokesItsScript(recipe, script) {
  * nothing; every real guard reads at least its own inputs. Its own script does not count, because
  * node reads that to run it at all.
  */
-export function probeReads(command, { cwd = repo, timeoutMs = 120000, scriptPath = null } = {}) {
+export function probeReads(command, { cwd = repo, timeoutMs = 180000, scriptPath = null } = {}) {
   const dir = mkdtempSync(path.join(os.tmpdir(), "goatos-guard-probe-"));
   const log = path.join(dir, "reads.txt");
+  const shimLog = path.join(dir, "shim-args.txt");
   writeFileSync(log, "");
+  writeFileSync(shimLog, "");
   try {
+    const shimDir = writeShims(path.join(dir, "bin"), { log: shimLog, realPath: process.env.PATH ?? "" });
     const nodeOptions = `${process.env.NODE_OPTIONS ?? ""} --require ${path.join(repo, RECORDER)}`.trim();
-    const shellTrace = /^\s*(bash|sh)\b/.test(command);
-    const result = spawnSync("bash", [shellTrace ? "-xc" : "-c", command], {
+    const result = spawnSync("bash", ["-c", command], {
       cwd,
       encoding: "utf8",
       timeout: timeoutMs,
       env: {
         ...process.env,
+        // Both of these reach CHILD processes on their own, which is the whole point: a guard's
+        // reading is often not done by the guard's own process.
+        PATH: `${shimDir}:${process.env.PATH ?? ""}`,
         NODE_OPTIONS: nodeOptions,
         GOATOS_GUARD_PROBE_LOG: log,
         GOATOS_GUARD_PROBE_ROOT: repo
       }
     });
     const fromNode = readFileSync(log, "utf8").split("\n").filter(Boolean);
-    // A shell guard does its reading through grep/cat/find rather than through node, so its work
-    // is read out of the execution trace instead.
-    const fromShell = shellTrace ? repoPathsInTrace(result.stderr ?? "") : [];
-    const reads = [...new Set([...fromNode, ...fromShell])]
-      .filter((file) => !scriptPath || path.posix.normalize(file) !== path.posix.normalize(scriptPath));
-    return { ran: result.error == null, status: result.status, reads, stderr: String(result.stderr ?? "").slice(-400) };
+    const fromShims = repoPathsInTrace(readFileSync(shimLog, "utf8"));
+    const reads = [...new Set([...fromNode, ...fromShims])]
+      .map((file) => path.posix.normalize(file))
+      .filter((file) => !scriptPath || file !== path.posix.normalize(scriptPath));
+    return {
+      ran: result.error == null,
+      status: result.status,
+      timedOut: result.error?.code === "ETIMEDOUT",
+      reads,
+      stderr: String(result.stderr ?? "").slice(-400)
+    };
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 }
 
-/**
- * A shell guard reads through grep, cat and find rather than through node, so its work is read
- * out of the execution trace: any token on it that names a file really in the repo. Keyed on the
- * file existing, not on the path looking a particular way, so a guard that reads somewhere nobody
- * anticipated still counts as doing work.
- */
 export function repoPathsInTrace(trace, { root = repo, fileExists = (file) => existsSync(file) } = {}) {
   const found = new Set();
-  for (const token of String(trace ?? "").split(/[\s'"=()]+/)) {
+  // One argument per line from the command wrappers, plus whitespace splitting for anything that
+  // arrived as a single string. Keyed on the file EXISTING, never on the path looking a particular
+  // way, so a guard reading somewhere nobody anticipated still counts.
+  for (const token of String(trace ?? "").split(/[\n\s'"=()]+/)) {
     const candidate = token.replace(/^[+$]+/, "").trim();
     if (!candidate || candidate.startsWith("-")) continue;
     const full = path.isAbsolute(candidate) ? candidate : path.join(root, candidate);
@@ -170,9 +179,54 @@ export function repoPathsInTrace(trace, { root = repo, fileExists = (file) => ex
 
 // ---------------------------------------------------------------- the check
 
-export function validate({ manifest, makefileText, runLocalCiText, probe, changedFiles = null, extraReachable = [], floor = null, exists = (file) => existsSync(path.join(repo, file)) }) {
+/**
+ * What counts as a guard doing its job. NOT "it opened a file": a guard gutted to read
+ * package.json, print ok and exit opens a file, and walked straight past the first version of this
+ * rule. A guard's own declared inputs are the files it is supposed to look at, so reading one of
+ * THOSE is evidence about the thing being checked rather than evidence that a process ran.
+ *
+ * A guard that declares no inputs cannot be judged this way at all. That is said out loud and
+ * counted, never rounded into a pass.
+ */
+export function workVerdict(guard, seen, declaredInputs) {
+  if (!seen.ran || seen.status === 127) {
+    return { kind: "not-run", reason: "its command could not be run here, so it was not watched doing work" };
+  }
+  if (seen.timedOut) {
+    return { kind: "not-run", reason: "its command did not finish in time, so it was not watched doing work" };
+  }
+  const declared = (declaredInputs ?? []).map((file) => path.posix.normalize(file));
+  const read = new Set(seen.reads.map((file) => path.posix.normalize(file)));
+  if (!declared.length) {
+    // REFUSED, not "not checked" and never a pass. A criterion that returns green for a third of
+    // the guard set is the "ok having examined nothing" shape this whole check exists to catch,
+    // arriving inside the thing built to catch it. A guard must say what it reads.
+    //
+    // The 42 that say nothing today are carried on a SHRINK-ONLY list, the way the exception and
+    // telemetry ratchets carry whole-tree debt: the debt is visible, it can only go down, and a
+    // NEW guard without declared inputs is refused outright.
+    return {
+      kind: "undeclared",
+      reason: `declares no inputs, so nothing it opened is evidence it checked anything (it opened ${seen.reads.length} file(s), which proves only that it ran)`
+    };
+  }
+  // A directory counts for the inputs under it: a guard that walks a tree reads the children.
+  const hit = declared.filter((input) => read.has(input) || [...read].some((file) => file.startsWith(`${input}/`) || input.startsWith(`${file}/`)));
+  if (!hit.length) {
+    return {
+      kind: "no-work",
+      reason: `ran and read none of the ${declared.length} file(s) it declares it checks, so whatever it opened, it is not checking them`
+    };
+  }
+  return { kind: "worked", read: hit.length, of: declared.length };
+}
+
+export function validate({ manifest, makefileText, runLocalCiText, probe, changedFiles = null, extraReachable = [], floor = null, guardInputs = new Map(), undeclaredAllowed = new Set(), noTargetAllowed = new Set(), exists = (file) => existsSync(path.join(repo, file)) }) {
   const problems = [];
   const notes = [];
+  // Named out loud rather than folded into the pass: guards this mechanism cannot judge.
+  const unjudged = [];
+  const noTarget = [];
   const targets = parseMakefile(makefileText);
   const roots = new Set([...CI_ROOTS, ...ciEntryTargets(runLocalCiText)]);
   const reachable = reachableTargets(targets, [...roots]);
@@ -188,6 +242,16 @@ export function validate({ manifest, makefileText, runLocalCiText, probe, change
     const target = guard.makeTarget;
 
     // Rule A. The recipe must invoke this guard's own script.
+    if (!target) {
+      // Two of the three rules read the build target, so a guard without one is outside them.
+      // Same answer as for undeclared inputs: carried on a shrink-only list, never silent, and a
+      // NEW guard without a target is refused.
+      if (noTargetAllowed.has(guard.script)) {
+        noTarget.push(id);
+      } else {
+        problems.push(`guard ${id}: declares no build target, so nothing can check that a CI path reaches it or that anything runs its script. Give it a target.`);
+      }
+    }
     if (target) {
       const entry = targets.get(target);
       if (!entry) {
@@ -212,26 +276,31 @@ export function validate({ manifest, makefileText, runLocalCiText, probe, change
     if (guard.script && !exists(guard.script)) continue; // the weakening guard owns deletion
     probed += 1;
     const seen = probe(guard.realCheck, guard.script);
-    if (!seen.ran || seen.status === 127) {
+    const verdict = workVerdict(guard, seen, guardInputs.get(guard.script));
+    if (verdict.kind === "not-run") {
       // Never report "read nothing" for a command that never started. That would be the same
       // false certainty this guard exists to remove, pointed the other way.
-      notes.push(`guard ${id}: its command could not be run here, so it was not watched doing work`);
-      continue;
-    }
-    if (seen.reads.length === 0) {
-      // A guard that only looks at what a diff touched legitimately reads nothing when the diff
-      // touches nothing. That is not the same as a guard that cannot read anything - but it is
-      // also not a pass, so the log says which case it is instead of printing an unqualified ok.
-      if (guard.diffScoped) {
-        notes.push(`guard ${id}: examined no files in this run, because nothing it watches changed - NOT CHECKED, not clean`);
+      notes.push(`guard ${id}: ${verdict.reason}`);
+    } else if (verdict.kind === "undeclared") {
+      if (undeclaredAllowed.has(guard.script)) {
+        unjudged.push({ id, reason: verdict.reason });
       } else {
-        problems.push(`guard ${id}: ran and read nothing at all, so it cannot be checking anything`);
+        problems.push(`guard ${id}: ${verdict.reason}. Declare what it reads in ${INPUTS_FILE}.`);
+      }
+    } else if (verdict.kind === "no-work") {
+      // A guard that only looks at what a diff touched legitimately reads none of them when the
+      // diff touches nothing. That is not clean and not a failure: it is NOT CHECKED, and saying
+      // so is the whole point.
+      if (guard.diffScoped) {
+        notes.push(`guard ${id}: read none of the files it checks, because nothing it watches changed - NOT CHECKED, not clean`);
+      } else {
+        problems.push(`guard ${id}: ${verdict.reason}`);
       }
     } else {
       // Count what was READ, never what was listed. Several guards print a file count taken from
       // their candidate list: with apps/ absent entirely one still printed "539 files scanned"
       // having opened none. A log that asserts a scope nobody examined is worse than a bare "ok".
-      notes.push(`guard ${id}: read ${seen.reads.length} file(s) of the repo`);
+      notes.push(`guard ${id}: read ${verdict.read} of the ${verdict.of} file(s) it declares it checks`);
     }
   }
 
@@ -240,11 +309,23 @@ export function validate({ manifest, makefileText, runLocalCiText, probe, change
   // deletion is in main's history no later branch's diff contains it either. The only thing that
   // survives that is a floor on the count, the way the exception and telemetry ratchets already
   // hold whole-tree debt. Lowering it needs the acknowledgement line those use.
+  // Counted as DISTINCT SCRIPTS, never as rows. Counting rows is padded by adding a second row
+  // pointing at a script that is already registered: delete a guard whole, add the duplicate, and
+  // the total is unchanged. What the floor is protecting is how many things are actually guarded.
+  const scripts = new Set(guards.map((guard) => guard.script).filter(Boolean));
+  const duplicated = new Map();
+  for (const guard of guards) {
+    if (!guard.script) continue;
+    duplicated.set(guard.script, (duplicated.get(guard.script) ?? 0) + 1);
+  }
+  for (const [script, count] of duplicated) {
+    if (count > 1) notes.push(`${count} manifest rows point at ${script}; the floor counts it once`);
+  }
   if (typeof floor === "number") {
-    if (guards.length < floor) {
-      problems.push(`the manifest registers ${guards.length} guards and the recorded floor is ${floor}; ${floor - guards.length} guard(s) were removed whole, which nothing else can see. Raise the floor deliberately with a GUARD-WEAKENING-ACK line, or put them back.`);
-    } else if (guards.length > floor) {
-      notes.push(`the manifest now registers ${guards.length} guards, above the recorded floor of ${floor}; run with --update-floor to record the new one`);
+    if (scripts.size < floor) {
+      problems.push(`the manifest registers ${scripts.size} distinct guard scripts and the recorded floor is ${floor}; ${floor - scripts.size} guard(s) were removed whole, which nothing else can see once the deletion is in main. Raise the floor deliberately with a GUARD-WEAKENING-ACK line, or put them back.`);
+    } else if (scripts.size > floor) {
+      notes.push(`the manifest now registers ${scripts.size} distinct guard scripts, above the recorded floor of ${floor}; run with --update-floor to record the new one`);
     }
   }
 
@@ -257,7 +338,7 @@ export function validate({ manifest, makefileText, runLocalCiText, probe, change
     }
   }
 
-  return { problems, notes, probed };
+  return { problems, notes, probed, unjudged, noTarget };
 }
 
 // ---------------------------------------------------------------- entry point
@@ -265,6 +346,30 @@ export function validate({ manifest, makefileText, runLocalCiText, probe, change
 const args = parse(process.argv.slice(2));
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isMain) process.exit(args.selfTest ? selfTest() : run());
+
+/** What each guard says it reads. Its own answer, so judging it against this is not a new rule. */
+function declaredInputs() {
+  const file = path.join(repo, INPUTS_FILE);
+  if (!existsSync(file)) throw new Error("the declared guard inputs are missing, so no guard can be shown to have looked at anything");
+  const parsed = JSON.parse(readFileSync(file, "utf8"));
+  const map = new Map();
+  for (const row of parsed?.guards ?? []) if (row?.guard) map.set(row.guard, row.inputs ?? []);
+  if (!map.size) throw new Error("the declared guard inputs are empty, so no guard can be shown to have looked at anything");
+  return map;
+}
+
+/**
+ * The debt: guards that cannot be judged yet. Shrink-only - the recorded count is a ceiling, so
+ * the list can lose members and never gain one, and a new guard has to declare itself properly.
+ */
+function carriedDebt() {
+  const file = path.join(repo, FLOOR_FILE);
+  const parsed = JSON.parse(readFileSync(file, "utf8"));
+  return {
+    undeclaredAllowed: new Set(parsed?.guardsWithNoDeclaredInputs ?? []),
+    noTargetAllowed: new Set(parsed?.guardsWithNoBuildTarget ?? [])
+  };
+}
 
 function registeredGuardFloor() {
   const file = path.join(repo, FLOOR_FILE);
@@ -292,29 +397,58 @@ function run() {
   const makefileText = readFileSync(path.join(repo, MAKEFILE), "utf8");
   const runLocalCiText = readFileSync(path.join(repo, RUN_LOCAL_CI), "utf8");
   const changedFiles = args.all ? null : changedAgainstBase();
-  const { problems, notes, probed } = validate({
+  const result = validate({
     manifest,
     makefileText,
     runLocalCiText,
     probe: args.noProbe ? null : (command, script) => probeReads(command, { scriptPath: script }),
     changedFiles,
     extraReachable: mustRunInCi(),
-    floor: registeredGuardFloor()
+    floor: registeredGuardFloor(),
+    guardInputs: declaredInputs(),
+    ...carriedDebt()
   });
+  const { problems, notes, probed } = result;
   if (args.updateFloor) {
     const file = path.join(repo, FLOOR_FILE);
     const current = JSON.parse(readFileSync(file, "utf8"));
-    writeFileSync(file, `${JSON.stringify({ ...current, minimumRegisteredGuards: manifest.guards.length }, null, 2)}\n`);
-    console.log(`recorded a floor of ${manifest.guards.length} registered guards`);
+    const inputs = declaredInputs();
+    const scripts = [...new Set(manifest.guards.map((g) => g.script).filter(Boolean))];
+    const next = {
+      ...current,
+      minimumRegisteredGuards: scripts.length,
+      // Derived from the tree, never hand-listed: a hand-written list is the census defect again.
+      guardsWithNoDeclaredInputs: scripts.filter((script) => !(inputs.get(script) ?? []).length).sort(),
+      guardsWithNoBuildTarget: [...new Set(manifest.guards.filter((g) => !g.makeTarget).map((g) => g.script))].sort()
+    };
+    // An absent list has never been recorded, so the first run establishes it. A list that IS
+    // recorded may only shrink.
+    const grew = (before, after) => Array.isArray(before) && after.length > before.length;
+    if (grew(current.guardsWithNoDeclaredInputs, next.guardsWithNoDeclaredInputs) ||
+        grew(current.guardsWithNoBuildTarget, next.guardsWithNoBuildTarget)) {
+      console.error("refusing to record a LARGER debt list: these may only shrink. Declare the new guard's inputs and give it a build target instead.");
+      return 1;
+    }
+    writeFileSync(file, `${JSON.stringify(next, null, 2)}\n`);
+    console.log(`recorded a floor of ${scripts.length} distinct guard scripts, ${next.guardsWithNoDeclaredInputs.length} with no declared inputs, ${next.guardsWithNoBuildTarget.length} with no build target`);
     return 0;
   }
   for (const note of notes) console.log(`note: ${note}`);
+  // Said out loud, every run, instead of being folded into the pass. These are the guards this
+  // mechanism cannot speak for; a reader must be able to tell them from the ones it cleared.
+  if (result.unjudged.length) {
+    console.log(`CARRIED DEBT — ${result.unjudged.length} guard(s) declare no inputs, so nothing they open is evidence they check anything. This list may only shrink; a new guard without declared inputs is refused.`);
+    for (const row of result.unjudged) console.log(`  - ${row.id}`);
+  }
+  if (result.noTarget.length) {
+    console.log(`CARRIED DEBT — ${result.noTarget.length} guard(s) declare no build target, so the target and reachability rules do not reach them. This list may only shrink: ${result.noTarget.join(", ")}`);
+  }
   if (problems.length) {
     console.error("guard integrity: a guard can be switched off without anything noticing");
     for (const problem of problems) console.error(`  - ${problem}`);
     return 1;
   }
-  console.log(`guard integrity: every registered guard's target runs its own script, every target that must run in CI is reachable, and ${probed} guard(s) were watched doing real work`);
+  console.log(`guard integrity: every registered guard's target runs its own script, every target that must run in CI is reachable, and ${probed} guard(s) were watched reading the files they declare they check`);
   return 0;
 }
 
@@ -363,50 +497,106 @@ function selfTest() {
       { id: "b", script: "tools/ci/check-b.mjs", makeTarget: "b-guard", realCheck: "node tools/ci/check-b.mjs", requiredInCI: true }
     ]
   };
-  const reads = () => ({ ran: true, status: 0, reads: ["backend/x.go"] });
+  // Every synthetic guard declares what it reads, because that is now the criterion.
+  const guardInputs = new Map([
+    ["tools/ci/check-a.mjs", ["backend/x.go", "backend/y.go"]],
+    ["tools/ci/check-b.mjs", ["backend/z.go"]]
+  ]);
+  const reads = () => ({ ran: true, status: 0, reads: ["backend/x.go", "backend/z.go"] });
   const exists = () => true;
   const readsNothing = () => ({ ran: true, status: 0, reads: [] });
-  const clean = validate({ manifest, makefileText: makefile, runLocalCiText: runLocalCi, probe: reads , exists });
+  const clean = validate({ manifest, makefileText: makefile, runLocalCiText: runLocalCi, probe: reads , exists, guardInputs });
   if (clean.problems.length) throw new Error(`self-test: a wired guard must pass, got ${clean.problems.join("; ")}`);
 
   // Row 2 of the table: the target still exists and runs nothing.
   const emptied = makefile.replace("a-guard:\n\tnode tools/ci/check-a.mjs", "a-guard:\n\t@echo ok");
-  const r2 = validate({ manifest, makefileText: emptied, runLocalCiText: runLocalCi, probe: reads , exists });
+  const r2 = validate({ manifest, makefileText: emptied, runLocalCiText: runLocalCi, probe: reads , exists, guardInputs });
   if (!r2.problems.some((p) => p.includes("never runs tools/ci/check-a.mjs"))) {
     throw new Error("self-test: an emptied build target must be caught");
   }
   // A recipe of `true`, or `:`, is the same emptying written another way.
   for (const nothing of ["\ttrue", "\t:", "\t@true"]) {
     const variant = makefile.replace("a-guard:\n\tnode tools/ci/check-a.mjs", `a-guard:\n${nothing}`);
-    const result = validate({ manifest, makefileText: variant, runLocalCiText: runLocalCi, probe: reads , exists });
+    const result = validate({ manifest, makefileText: variant, runLocalCiText: runLocalCi, probe: reads , exists, guardInputs });
     if (!result.problems.some((p) => p.includes("never runs"))) {
       throw new Error(`self-test: an emptied build target written as ${JSON.stringify(nothing.trim())} must be caught`);
     }
   }
 
   // Row 4 of the table: the script is there, the target runs it, and it does nothing.
-  const r4 = validate({ manifest, makefileText: makefile, runLocalCiText: runLocalCi, probe: readsNothing , exists });
-  if (!r4.problems.some((p) => p.includes("read nothing at all"))) {
-    throw new Error("self-test: a guard that reads nothing must be caught");
+  const r4 = validate({ manifest, makefileText: makefile, runLocalCiText: runLocalCi, probe: readsNothing, exists, guardInputs });
+  if (!r4.problems.some((p) => p.includes("read none of the"))) {
+    throw new Error("self-test: a guard that reads none of the files it checks must be caught");
+  }
+
+  // THE ESCAPE THAT WALKED PAST THE FIRST VERSION, one line further on than the naive gutting:
+  // a guard that opens package.json, prints ok and exits. It reads A file, so "opened something"
+  // cleared it. It reads none of ITS OWN declared inputs, which is what is asked now.
+  const opensSomethingElse = () => ({ ran: true, status: 0, reads: ["package.json", "README.md"] });
+  const walkedPast = validate({ manifest, makefileText: makefile, runLocalCiText: runLocalCi, probe: opensSomethingElse, exists, guardInputs });
+  if (!walkedPast.problems.some((p) => p.includes("read none of the"))) {
+    throw new Error("self-test: a guard that opens an unrelated file must not count as doing work");
+  }
+
+  // A guard that declares nothing is REFUSED unless it is on the shrink-only debt list.
+  const undeclared = validate({ manifest, makefileText: makefile, runLocalCiText: runLocalCi, probe: reads, exists, guardInputs: new Map() });
+  if (!undeclared.problems.some((p) => p.includes("declares no inputs"))) {
+    throw new Error("self-test: a guard that declares no inputs must be refused, not passed");
+  }
+  const carried = validate({
+    manifest, makefileText: makefile, runLocalCiText: runLocalCi, probe: reads, exists,
+    guardInputs: new Map(), undeclaredAllowed: new Set(["tools/ci/check-a.mjs", "tools/ci/check-b.mjs"])
+  });
+  if (carried.problems.some((p) => p.includes("declares no inputs"))) {
+    throw new Error("self-test: a guard on the carried-debt list must not fail the build");
+  }
+  if (carried.unjudged.length !== 2) throw new Error("self-test: carried debt must be reported, not hidden");
+
+  // A guard with no build target is refused the same way, and carried the same way.
+  const noTargetManifest = { guards: [{ ...manifest.guards[0], makeTarget: null }] };
+  const refusedNoTarget = validate({ manifest: noTargetManifest, makefileText: makefile, runLocalCiText: runLocalCi, probe: reads, exists, guardInputs });
+  if (!refusedNoTarget.problems.some((p) => p.includes("declares no build target"))) {
+    throw new Error("self-test: a guard with no build target must be refused, not skipped");
+  }
+  const carriedNoTarget = validate({
+    manifest: noTargetManifest, makefileText: makefile, runLocalCiText: runLocalCi, probe: reads, exists,
+    guardInputs, noTargetAllowed: new Set(["tools/ci/check-a.mjs"])
+  });
+  if (carriedNoTarget.problems.some((p) => p.includes("declares no build target"))) {
+    throw new Error("self-test: a guard with no build target on the carried list must not fail the build");
+  }
+
+  // A timed-out command is "not watched", never "read nothing".
+  const timedOut = validate({ manifest, makefileText: makefile, runLocalCiText: runLocalCi, exists, guardInputs, probe: () => ({ ran: false, timedOut: true, status: null, reads: [] }) });
+  if (timedOut.problems.some((p) => p.includes("read none"))) {
+    throw new Error("self-test: a command that did not finish must not be reported as reading nothing");
   }
 
   // A target nothing reaches: the live shape, where nothing was deleted at all.
-  const orphan = validate({ manifest, makefileText: makefile, runLocalCiText: runLocalCi, probe: reads, extraReachable: ["orphan-target"] , exists });
+  const orphan = validate({ manifest, makefileText: makefile, runLocalCiText: runLocalCi, probe: reads, extraReachable: ["orphan-target"] , exists, guardInputs });
   if (!orphan.problems.some((p) => p.includes("no CI path reaches it"))) {
     throw new Error("self-test: a target no CI path reaches must be caught");
   }
-  const wired = validate({ manifest, makefileText: makefile, runLocalCiText: runLocalCi, probe: reads, extraReachable: ["a-guard"] , exists });
+  const wired = validate({ manifest, makefileText: makefile, runLocalCiText: runLocalCi, probe: reads, extraReachable: ["a-guard"] , exists, guardInputs });
   if (wired.problems.length) throw new Error("self-test: a reachable target must pass");
-  const absent = validate({ manifest, makefileText: makefile, runLocalCiText: runLocalCi, probe: reads, extraReachable: ["no-such-target"] , exists });
+  const absent = validate({ manifest, makefileText: makefile, runLocalCiText: runLocalCi, probe: reads, extraReachable: ["no-such-target"] , exists, guardInputs });
   if (!absent.problems.some((p) => p.includes("does not exist"))) {
     throw new Error("self-test: a required target that does not exist must be caught");
   }
 
   // A guard whose target is unreachable is off, however well registered it is.
   const unreachable = makefile.replace("\t$(MAKE) b-guard\n", "");
-  const r5 = validate({ manifest, makefileText: unreachable, runLocalCiText: runLocalCi, probe: reads , exists });
+  const r5 = validate({ manifest, makefileText: unreachable, runLocalCiText: runLocalCi, probe: reads , exists, guardInputs });
   if (!r5.problems.some((p) => p.includes("no CI path reaches its build target"))) {
     throw new Error("self-test: a guard whose target nothing reaches must be caught");
+  }
+
+  // THE PADDING ESCAPE: delete a guard whole and add a duplicate row pointing at a script that is
+  // already registered. Row counts are unchanged; distinct scripts are not.
+  const padded = { guards: [manifest.guards[0], { ...manifest.guards[0], id: "a-copy" }] };
+  const paddedResult = validate({ manifest: padded, makefileText: makefile, runLocalCiText: runLocalCi, probe: reads, exists, guardInputs, floor: 2 });
+  if (!paddedResult.problems.some((p) => p.includes("removed whole"))) {
+    throw new Error("self-test: a duplicate row must not be able to pad the floor back up");
   }
 
   // The floor sees a guard removed whole, which nothing else can.
@@ -415,13 +605,13 @@ function selfTest() {
   if (!below.problems.some((p) => p.includes("removed whole"))) {
     throw new Error("self-test: a guard removed whole must be caught by the floor");
   }
-  if (validate({ manifest, makefileText: makefile, runLocalCiText: runLocalCi, probe: reads, exists, floor: 2 }).problems.length) {
+  if (validate({ manifest, makefileText: makefile, runLocalCiText: runLocalCi, probe: reads, exists, guardInputs, floor: 2 }).problems.length) {
     throw new Error("self-test: a manifest at its floor must pass");
   }
 
   // A guard that only reads what a diff touched is "not checked", not "clean" - and not a failure.
   const diffScoped = { guards: [{ ...manifest.guards[0], diffScoped: true }] };
-  const scoped = validate({ manifest: diffScoped, makefileText: makefile, runLocalCiText: runLocalCi, probe: readsNothing, exists });
+  const scoped = validate({ manifest: diffScoped, makefileText: makefile, runLocalCiText: runLocalCi, probe: readsNothing, exists, guardInputs });
   if (scoped.problems.some((p) => p.includes("read nothing"))) {
     throw new Error("self-test: a diff-scoped guard with nothing to look at must not be a failure");
   }
