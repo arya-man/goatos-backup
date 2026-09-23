@@ -108,6 +108,15 @@
       "repair": "none needed",
       "mutation": "make the manual_campaign arm of ruleMatchesSchedulePath return true unconditionally",
       "result": "RED twice: TestGenerateForVersionCancelsManualCampaignRowsOnWrongSchedulePath ('stale adult row status=scheduled, want canceled') and TestRuleMatchesSchedulePath ('adult manual campaign matched kid path')"
+    },
+    {
+      "sha": "9fe71b380",
+      "subject": "prevent stale sweeper rows",
+      "whyItDidNotBite": "GENUINE, and confirmed at the current tip: deleting the manual_campaign guard in genOneGoat (generation.go, the `ManualCampaignID == \"\" && !isAdultCampaignRule` skip) leaves the whole vaccination/app package green. Every existing manual_campaign test reaches generation through GenerateManualCampaignForVersion*, which by construction SETS ManualCampaignID, so the guard's condition \u2014 a campaign rule with NO campaign id \u2014 never arises in any fixture.",
+      "repair": "NOT CLOSED. An attempt via genOneGoat with empty generationOptions passed with the guard deleted too, because a manual_campaign rule is already skipped by the earlier `if !ok { continue }` branch; the fixture never reached the guard at all. Constructing a rule that gets `ok = true` AND is a manual_campaign kid-course rule needs the anchor/history path understood first, which was not finished here. A test that passes without reaching the code it names would be worse than the gap.",
+      "mutation": "remove the manual_campaign skip at generation.go:1978",
+      "result": "package stays GREEN \u2014 the guard is unprotected",
+      "status": "open"
     }
   ],
   "shapeOfTheRemainingJob": {
