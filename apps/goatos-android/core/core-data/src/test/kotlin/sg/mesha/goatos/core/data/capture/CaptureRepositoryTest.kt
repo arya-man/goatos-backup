@@ -597,6 +597,75 @@ class CaptureRepositoryTest {
     }
 
     @Test
+    fun `delivered goat proofs do not exhaust reopened obligation capture cap`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val repo = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = backgroundScope,
+                reconcileOnStartup = false,
+                dispatchers = unconfinedDispatchers,
+                mediaProcessor = IdentityProofMediaProcessor(),
+            )
+            val policy = ProofPolicy.Default.copy(maximumCountPerSubject = 1)
+
+            val historical = repo.capture(
+                taskId = "task-reopened-proof",
+                fieldKey = "vaccination_goat_proof",
+                subject = ProofSubject.GOAT,
+                subjectId = "goat-reopened",
+                localUri = "file://old-cycle.mp4",
+                mimeType = "video/mp4",
+                caption = null,
+                obligationId = "obl-reopened",
+                obligationRowVersion = 1,
+                scopeType = "task",
+                scopeId = "task-reopened-proof",
+                capturedStartMs = 1_000L,
+                capturedEndMs = 4_000L,
+                capturedByPrincipalId = "operator-1",
+                proofPolicy = policy,
+                awaitUploadEnqueue = true,
+            ) as AppResult.Ok
+            db.proofCaptureDao().updateStatus(
+                id = historical.value.id,
+                status = CaptureSyncStatus.SYNCED.name,
+                serverProofId = "server-proof-old-cycle",
+                lastError = null,
+            )
+
+            val reopenedCycle = repo.capture(
+                taskId = "task-reopened-proof",
+                fieldKey = "vaccination_goat_proof",
+                subject = ProofSubject.GOAT,
+                subjectId = "goat-reopened",
+                localUri = "file://current-cycle.mp4",
+                mimeType = "video/mp4",
+                caption = null,
+                obligationId = "obl-reopened",
+                obligationRowVersion = 2,
+                scopeType = "task",
+                scopeId = "task-reopened-proof",
+                capturedStartMs = 5_000L,
+                capturedEndMs = 8_000L,
+                capturedByPrincipalId = "operator-1",
+                proofPolicy = policy,
+                awaitUploadEnqueue = true,
+            )
+
+            assertTrue(
+                "a server-delivered proof from the older obligation cycle must not consume the current capture cap",
+                reopenedCycle is AppResult.Ok,
+            )
+            assertEquals(2, repo.observeProofs("task-reopened-proof").first().size)
+        } finally {
+            closeDb(db)
+        }
+    }
+
+    @Test
     fun `R50-027 explicit generic shed proof cap is enforced without a subject id`() = runTest {
         val db = newDb()
         try {

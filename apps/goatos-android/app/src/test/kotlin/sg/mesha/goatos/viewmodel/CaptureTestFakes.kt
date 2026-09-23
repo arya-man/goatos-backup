@@ -338,7 +338,8 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
             it.matches(taskId) &&
                 it.row.partitionKey == partitionKey &&
                 it.row.subjectId == subjectId &&
-                it.row.syncStatus != CaptureSyncStatus.FAILED
+                it.row.syncStatus != CaptureSyncStatus.FAILED &&
+                it.row.serverProofId == null
         }
         if (effectiveMaxProofs != null && !allowReplacementOverCap && activeRows >= effectiveMaxProofs) {
             val subjectLabel = when (subject) {
@@ -358,6 +359,10 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
             localUri = localUri,
             mimeType = mimeType,
             caption = caption,
+            rfidTag = rfidTag,
+            obligationId = obligationId,
+            obligationRowVersion = obligationRowVersion,
+            obligationCyclesJson = obligationCyclesJson,
             capturedAtMs = capturedStartMs,
             capturedStartMs = capturedStartMs,
             capturedEndMs = capturedEndMs,

@@ -1565,7 +1565,7 @@ class ScanViewModelTest {
 
         seedSyncedProof(proofRepo, "goat-1")
         seedSyncedProof(proofRepo, "goat-2")
-        proofRepo.capture(taskId = "task-1", fieldKey = "vaccination_goat_proof", subject = ProofSubject.GOAT, subjectId = "goat-3", localUri = "file://g3.mp4", mimeType = "video/mp4", caption = null, scopeType = "task", scopeId = "task-1", capturedStartMs = 1, capturedEndMs = 2, capturedByPrincipalId = "op", proofPolicy = ProofPolicy.Default) // stays PENDING
+        proofRepo.capture(taskId = "task-1", fieldKey = "vaccination_goat_proof", subject = ProofSubject.GOAT, subjectId = "goat-3", localUri = "file://g3.mp4", mimeType = "video/mp4", caption = null, obligationId = "obl-3", obligationRowVersion = 1, scopeType = "task", scopeId = "task-1", capturedStartMs = 1, capturedEndMs = 2, capturedByPrincipalId = "op", proofPolicy = ProofPolicy.Default) // stays PENDING
         advanceUntilIdle()
 
         assertFalse("a pending upload blocks submit", vm.state.value.canSubmit)
@@ -1583,7 +1583,7 @@ class ScanViewModelTest {
         advanceUntilIdle()
 
         seedSyncedProof(proofRepo, "goat-1")
-        val failing = proofRepo.capture(taskId = "task-1", fieldKey = "vaccination_goat_proof", subject = ProofSubject.GOAT, subjectId = "goat-2", localUri = "file://g2.mp4", mimeType = "video/mp4", caption = null, scopeType = "task", scopeId = "task-1", capturedStartMs = 1, capturedEndMs = 2, capturedByPrincipalId = "op", proofPolicy = ProofPolicy.Default) as AppResult.Ok
+        val failing = proofRepo.capture(taskId = "task-1", fieldKey = "vaccination_goat_proof", subject = ProofSubject.GOAT, subjectId = "goat-2", localUri = "file://g2.mp4", mimeType = "video/mp4", caption = null, obligationId = "obl-2", obligationRowVersion = 1, scopeType = "task", scopeId = "task-1", capturedStartMs = 1, capturedEndMs = 2, capturedByPrincipalId = "op", proofPolicy = ProofPolicy.Default) as AppResult.Ok
         proofRepo.markFailed(failing.value.id, "upload failed")
         advanceUntilIdle()
 
@@ -1591,6 +1591,70 @@ class ScanViewModelTest {
         val action = vm.state.value.proofActionNeeded.single()
         assertEquals("goat-2", action.goatId)
         assertEquals(sg.mesha.goatos.feature.scan.ProofUploadStatus.FAILED, action.proofUploadStatus)
+    }
+
+    @Test
+    fun `stale synced proof from older obligation cycle does not satisfy current proof gate`() = runTest(dispatcher) {
+        val proofRepo = FakeProofCaptureRepository()
+        proofRepo.seedProofs(
+            ProofCaptureRow(
+                id = "old-cycle-proof",
+                fieldKey = "vaccination_goat_proof",
+                proofSubject = ProofSubject.GOAT,
+                subjectId = "goat-1",
+                localUri = "file://old-cycle.mp4",
+                mimeType = "video/mp4",
+                caption = null,
+                obligationId = "obl-1",
+                obligationRowVersion = 5,
+                capturedAtMs = 1L,
+                capturedStartMs = 1L,
+                capturedEndMs = 2L,
+                capturedByPrincipalId = "op",
+                syncStatus = CaptureSyncStatus.SYNCED,
+                serverProofId = "server-old-cycle",
+                lastError = null,
+            ),
+        )
+        val repo = rosterRepo(listOf(scanRow("goat-1", "TAG-1", "obl-1", rowVersion = 7).copy(status = "done")))
+        val vm = proofGateVm(repo, proofRepo)
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertFalse("old-cycle proof must not enable submit for the reopened roster cycle", vm.state.value.canSubmit)
+        assertEquals(listOf("goat-1"), vm.state.value.proofActionNeeded.map { it.goatId })
+    }
+
+    @Test
+    fun `synced proof with current obligation cycle satisfies proof gate`() = runTest(dispatcher) {
+        val proofRepo = FakeProofCaptureRepository()
+        proofRepo.seedProofs(
+            ProofCaptureRow(
+                id = "current-cycle-proof",
+                fieldKey = "vaccination_goat_proof",
+                proofSubject = ProofSubject.GOAT,
+                subjectId = "goat-1",
+                localUri = "file://current-cycle.mp4",
+                mimeType = "video/mp4",
+                caption = null,
+                obligationId = "obl-1",
+                obligationRowVersion = 7,
+                capturedAtMs = 1L,
+                capturedStartMs = 1L,
+                capturedEndMs = 2L,
+                capturedByPrincipalId = "op",
+                syncStatus = CaptureSyncStatus.SYNCED,
+                serverProofId = "server-current-cycle",
+                lastError = null,
+            ),
+        )
+        val repo = rosterRepo(listOf(scanRow("goat-1", "TAG-1", "obl-1", rowVersion = 7).copy(status = "done")))
+        val vm = proofGateVm(repo, proofRepo)
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertTrue("current-cycle proof should enable submit", vm.state.value.canSubmit)
+        assertTrue(vm.state.value.proofActionNeeded.isEmpty())
     }
 
     @Test
@@ -1609,6 +1673,8 @@ class ScanViewModelTest {
                 localUri = "file://g1.mp4",
                 mimeType = "video/mp4",
                 caption = null,
+                obligationId = "obl-1",
+                obligationRowVersion = 1,
                 capturedAtMs = 1L,
                 capturedStartMs = 1L,
                 capturedEndMs = 2L,
@@ -1785,6 +1851,8 @@ class ScanViewModelTest {
                     localUri = "file://other-device.mp4",
                     mimeType = "video/mp4",
                     caption = null,
+                    obligationId = "obl-1",
+                    obligationRowVersion = 1,
                     // Captured well BEFORE this session's scan -- e.g. on another device, or in an
                     // earlier session, and already confirmed by the backend.
                     capturedAtMs = 1L,
@@ -2055,10 +2123,17 @@ class ScanViewModelTest {
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
 
-    private suspend fun seedSyncedProof(proofRepo: FakeProofCaptureRepository, goatId: String) {
+    private suspend fun seedSyncedProof(
+        proofRepo: FakeProofCaptureRepository,
+        goatId: String,
+        obligationId: String = "obl-${goatId.removePrefix("goat-")}",
+        obligationRowVersion: Int = 1,
+    ) {
 	        val created = proofRepo.capture(
 	            taskId = "task-1", fieldKey = "vaccination_goat_proof", subject = ProofSubject.GOAT,
 	            subjectId = goatId, localUri = "file://$goatId.mp4", mimeType = "video/mp4", caption = null,
+                obligationId = obligationId,
+                obligationRowVersion = obligationRowVersion,
 	            scopeType = "task", scopeId = "task-1", capturedStartMs = 1, capturedEndMs = 2,
 	            capturedByPrincipalId = "op",
 	            proofPolicy = ProofPolicy.Default,

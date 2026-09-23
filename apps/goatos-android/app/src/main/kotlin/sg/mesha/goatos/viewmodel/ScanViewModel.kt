@@ -26,8 +26,13 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlin.coroutines.cancellation.CancellationException
 import sg.mesha.goatos.BuildConfig
@@ -496,13 +501,15 @@ class ScanViewModel @Inject constructor(
             .asSequence()
             .filter { it.proofSubject == ProofSubject.GOAT && !it.subjectId.isNullOrBlank() }
             .groupBy { it.subjectId.orEmpty() }
-            .mapValues { (_, rows) -> rows.maxByOrNull { it.capturedAtMs } }
+            .mapValues { (_, rows) -> rows.sortedByDescending { it.capturedAtMs } }
         val serverFeed = gate.roster
             .asSequence()
             .filter { it.status == ScanStatus.DONE && !it.scannedAtLabel.isNullOrBlank() }
             .filterNot { it.goatId in proofActionGoatIds }
             .map {
                 val latestProof = latestProofByGoat[it.goatId]
+                    .orEmpty()
+                    .firstOrNull { proof -> proof.matchesCurrentCycle(it) }
                 ScanFeedEntry(
                     primaryTag = it.primaryTag,
                     secondaryTag = it.secondaryTag,
@@ -1555,6 +1562,7 @@ class ScanViewModel @Inject constructor(
     ): RosterRow {
         val locallyDone = obligationId.isNotBlank() && obligationId in localDone
         val goatProofs = goatProofsBySubject[goatId].orEmpty()
+            .filter { proof -> proof.matchesCurrentCycle(this) }
         val latestSyncedProof = goatProofs
             .filter { it.syncStatus == CaptureSyncStatus.SYNCED && !it.serverProofId.isNullOrBlank() }
             .maxByOrNull { it.capturedAtMs }
@@ -1605,6 +1613,7 @@ class ScanViewModel @Inject constructor(
             proofStatusLabel = proofStatusLabel,
             goatId = goatId,
             obligationId = obligationId,
+            obligationRowVersion = obligationRowVersion,
             proofRequired = requireGoatProof,
             proofClipCount = if (hasSyncedProof || latestUploadingProof != null || pendingPreview != null) 1 else 0,
             proofUploadStatus = if (hasServerSyncedProof) ProofUploadStatus.SYNCED else proofStatus(goatProofs, effectiveOptimisticUploadingAtMs),
@@ -1665,6 +1674,17 @@ class ScanViewModel @Inject constructor(
             return base.copy(canSubmit = false, showSubmitAction = !showAutoSubmitOnly, proofActionNeeded = emptyList())
         }
         val proofRows = proofs.orEmpty()
+        val requiredRowsByGoat = if (requiredGoatIds.isEmpty()) {
+            emptyMap()
+        } else {
+            repo.assignmentScanRosterRowsByGoatIds(id, taskId, assignmentId, requiredGoatIds.toList(), partitionLabel)
+                .groupBy { it.goatId }
+                .mapValues { (_, rows) ->
+                    rows.filter { it.status.isCurrentScannableObligationStatus() }
+                        .takeIf { it.isNotEmpty() }
+                        ?: rows
+                }
+        }
         // Split-brain fix: a SYNCED capture with a serverProofId IS the server confirming the
         // proof for this goat -- that is the same truth onTagRead trusts via the obligation's
         // CURRENT server status. The previous `capturedAtMs >= scannedAt(THIS session)` freshness
@@ -1689,22 +1709,27 @@ class ScanViewModel @Inject constructor(
             }
             .map { it.goatId }
             .toSet()
-        val syncedGoatIds = proofRows
-            .filter {
-                val proofGoatId = it.subjectId?.takeIf(String::isNotBlank)
-                it.proofSubject == ProofSubject.GOAT &&
-                    proofGoatId != null &&
-                    it.syncStatus == CaptureSyncStatus.SYNCED &&
-                    !it.serverProofId.isNullOrBlank() &&
-                    proofGoatId != armedReplacementGoatId
+        val syncedGoatIds = requiredRowsByGoat
+            .filter { (goatId, rows) ->
+                goatId != armedReplacementGoatId &&
+                    rows.isNotEmpty() &&
+                    rows.all { row ->
+                        !row.latestProofId.isNullOrBlank() ||
+                            proofRows.any { proof ->
+                                proof.proofSubject == ProofSubject.GOAT &&
+                                    proof.syncStatus == CaptureSyncStatus.SYNCED &&
+                                    !proof.serverProofId.isNullOrBlank() &&
+                                    proof.matchesCurrentCycle(row)
+                            }
+                    }
             }
-            .mapNotNull { it.subjectId }
-            .toSet() + rosterSyncedGoatIds
+            .keys + rosterSyncedGoatIds
         val uploadingGoatIds = proofRows
             .filter { row ->
                 row.proofSubject == ProofSubject.GOAT &&
                     (row.syncStatus == CaptureSyncStatus.PENDING || row.syncStatus == CaptureSyncStatus.IN_FLIGHT) &&
-                    !row.isRetryableVaccinationProof()
+                    !row.isRetryableVaccinationProof() &&
+                    requiredRowsByGoat[row.subjectId].orEmpty().any { rosterRow -> row.matchesCurrentCycle(rosterRow) }
             }
             .mapNotNull { it.subjectId }
             .toSet()
@@ -1790,9 +1815,15 @@ class ScanViewModel @Inject constructor(
             row.goatId == goatId && !row.latestProofId.isNullOrBlank()
         }
         if (hasServerProof) return false
+        val currentRows = sameGoatRows
+            .filter { it.goatId == goatId }
+            .filter { it.status.isCurrentScannableObligationStatus() }
+            .takeIf { it.isNotEmpty() }
+            ?: sameGoatRows.filter { it.goatId == goatId }
         val hasLocalOrSyncedProof = observedProofs.value.orEmpty().any { proof ->
             proof.proofSubject == ProofSubject.GOAT &&
                 proof.subjectId == goatId &&
+                currentRows.any { row -> proof.matchesCurrentCycle(row) } &&
                 (
                     proof.syncStatus == CaptureSyncStatus.PENDING ||
                         proof.syncStatus == CaptureSyncStatus.IN_FLIGHT ||
@@ -2206,8 +2237,15 @@ class ScanViewModel @Inject constructor(
         viewModelScope.launch {
             val row = (state.value.roster + state.value.proofActionNeeded)
                 .firstOrNull { it.goatId == goatId }
+            val currentRows = shedId?.let { id ->
+                repo.assignmentScanRosterRowsByGoatIds(id, taskId, assignmentId, listOf(goatId), partitionLabel)
+            }.orEmpty()
             val failedProofs = observedProofs.value.orEmpty()
-                .filter { proof -> proof.subjectId == goatId && proof.isRetryableVaccinationProof() }
+                .filter { proof ->
+                    proof.subjectId == goatId &&
+                        proof.isRetryableVaccinationProof() &&
+                        currentRows.any { rosterRow -> proof.matchesCurrentCycle(rosterRow) }
+                }
             if (failedProofs.isEmpty()) {
                 analytics.track(
                     AnalyticsEvents.VACCINATION_PROOF_ACTION_TAPPED,
@@ -2364,6 +2402,54 @@ class ScanViewModel @Inject constructor(
                 put("server_proof_ids", it.joinToString(","))
             }
         }
+    }
+
+    private data class ObligationCycle(val obligationId: String, val rowVersion: Int)
+
+    private fun ProofCaptureRow.matchesCurrentCycle(row: ScanRosterRowEntity): Boolean {
+        if (proofSubject != ProofSubject.GOAT) return false
+        if (subjectId?.takeIf(String::isNotBlank) != row.goatId) return false
+        val rowObligationId = row.obligationId.takeIf(String::isNotBlank) ?: return false
+        val cycles = obligationCycles()
+        if (cycles.isNotEmpty()) {
+            return cycles.any { cycle ->
+                cycle.obligationId == rowObligationId &&
+                    cycle.rowVersion.matchesRosterRowVersion(row.obligationRowVersion)
+            }
+        }
+        return obligationId?.takeIf(String::isNotBlank) == rowObligationId &&
+            obligationRowVersion.matchesRosterRowVersion(row.obligationRowVersion)
+    }
+
+    private fun ProofCaptureRow.matchesCurrentCycle(row: RosterRow): Boolean {
+        if (proofSubject != ProofSubject.GOAT) return false
+        if (subjectId?.takeIf(String::isNotBlank) != row.goatId) return false
+        val rowObligationId = row.obligationId.takeIf(String::isNotBlank) ?: return false
+        val cycles = obligationCycles()
+        if (cycles.isNotEmpty()) {
+            return cycles.any { cycle ->
+                cycle.obligationId == rowObligationId &&
+                    cycle.rowVersion.matchesRosterRowVersion(row.obligationRowVersion)
+            }
+        }
+        return obligationId?.takeIf(String::isNotBlank) == rowObligationId &&
+            obligationRowVersion.matchesRosterRowVersion(row.obligationRowVersion)
+    }
+
+    private fun Int.matchesRosterRowVersion(rowVersion: Int): Boolean =
+        rowVersion <= 0 || (this > 0 && this == rowVersion)
+
+    private fun ProofCaptureRow.obligationCycles(): List<ObligationCycle> {
+        val raw = obligationCyclesJson?.takeIf(String::isNotBlank) ?: return emptyList()
+        return runCatching {
+            Json.parseToJsonElement(raw).jsonArray.mapNotNull { element ->
+                val obj = element.jsonObject
+                val obligationId = obj["obligation_id"]?.jsonPrimitive?.content?.takeIf(String::isNotBlank)
+                    ?: return@mapNotNull null
+                val rowVersion = obj["obligation_row_version"]?.jsonPrimitive?.intOrNull ?: 0
+                ObligationCycle(obligationId, rowVersion)
+            }
+        }.getOrDefault(emptyList())
     }
 
     private fun vaccinationProofTraceProps(row: RosterRow?): Map<String, String> =
