@@ -199,7 +199,7 @@ fun HealthListScreen(
                 ) {
                     Icon(
                         imageVector = MeshaIcons.Plus,
-                        contentDescription = "Report sick goat",
+                        contentDescription = "Report sick animal",
                         tint = MeshaColors.OnBrand,
                         modifier = Modifier.size(20.dp),
                     )
