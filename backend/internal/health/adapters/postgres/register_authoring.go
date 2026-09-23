@@ -74,6 +74,22 @@ WHERE tenant_id=$1::uuid AND animal_class=$2 AND status='published'`
 	// The routing read, once per observation, beside the register read above. Retired types are
 	// excluded here rather than at resolution time so the domain never has to know a type can be
 	// retired -- it simply sees no route, and refuses naming the stage.
+	// Who the operator is holding. The RFID is the animal's own permanent tag, falling back to the
+	// display id when it carries none -- the Mesha rule is that a tag question wants
+	// animal_identifier_1, never the G- display id.
+	sqlObservationFormAnimal = `
+SELECT coalesce(g.display_id, ''),
+       coalesce((SELECT gi.identifier_value FROM goat_identifiers gi
+                  WHERE gi.tenant_id = g.tenant_id AND gi.goat_id = g.goat_id
+                    AND gi.identifier_type = 'animal_identifier_1' AND gi.status = 'active'
+                  ORDER BY gi.is_primary_for_goat DESC, gi.identifier_value LIMIT 1), '')
+FROM goats g
+WHERE g.tenant_id=$1::uuid AND g.goat_id=$2::uuid`
+
+	sqlDiagnosisTypeLabel = `
+SELECT label FROM health_diagnosis_types
+WHERE tenant_id=$1::uuid AND type_key=$2`
+
 	sqlStageRoutes = `
 SELECT r.age_band, r.stage_code, r.type_key, r.sub_stage
 FROM health_diagnosis_stage_routes r

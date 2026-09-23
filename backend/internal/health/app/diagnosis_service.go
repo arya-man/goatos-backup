@@ -55,6 +55,17 @@ func NewDiagnosisService(repo ports.DiagnosisRepository) (*DiagnosisService, err
 	return &DiagnosisService{repo: repo}, nil
 }
 
+// ObservationForm is the form for ONE animal: the questions its type asks, in authored pages.
+//
+// The phone calls this before the operator starts, so a stage nothing routes is refused while the
+// animal is still in front of them and nothing has been typed.
+func (s *DiagnosisService) ObservationForm(ctx context.Context, tenantID, goatID string) (domain.ObservationForm, error) {
+	if !validUUID(tenantID) || !validUUID(goatID) {
+		return domain.ObservationForm{}, ErrInvalidInput
+	}
+	return s.repo.ObservationForm(ctx, tenantID, goatID)
+}
+
 // SubmitObservation evaluates one form and stores the proposal.
 //
 // The animal's own facts (species, sex, status, age band, lifecycle) are read

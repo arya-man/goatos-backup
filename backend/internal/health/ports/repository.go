@@ -60,6 +60,10 @@ type EvaluateFunc func(context.Context, *diagnosis.AuthoredRegister, diagnosis.A
 // DiagnosisRepository persists observation runs and opens the courses a
 // confirmation authorises.
 type DiagnosisRepository interface {
+	// ObservationForm is the form ONE animal's type asks, resolved through the same routing the
+	// submit uses so the questions and the rules can never come from different places.
+	ObservationForm(ctx context.Context, tenantID, goatID string) (domain.ObservationForm, error)
+
 	SubmitObservation(context.Context, domain.SubmitObservationInput, EvaluateFunc) (domain.SubmitObservationResult, error)
 	ConfirmDiagnosis(context.Context, domain.ConfirmDiagnosisInput) (domain.ConfirmDiagnosisResult, error)
 	GetDiagnosisRun(context.Context, string, string) (domain.DiagnosisRun, error)

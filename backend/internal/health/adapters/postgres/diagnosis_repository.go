@@ -203,6 +203,79 @@ RETURNING health_diagnosis_run_id::text`,
 // Retired types are EXCLUDED, so retiring a type stops routing animals to it without anyone
 // having to hunt down its routes first -- an animal pointed at a retired type refuses and
 // names its stage, which is the same recoverable state as a stage nobody mapped.
+// ObservationForm resolves ONE animal to the form its type asks.
+//
+// It walks the same three steps the submit does -- the animal's own facts, the farm's authored
+// routing, the published register -- deliberately, so the form an operator is given and the rules
+// their answers are judged against can never come from different places. A second resolution path
+// here would be the cross-surface disagreement this codebase bans, one step earlier.
+//
+// A stage nothing routes is REFUSED with the same sentence the submit gives, and that is the point
+// of serving the form at all: the operator learns before they start rather than after they have
+// walked the whole animal.
+func (r *Repository) ObservationForm(ctx context.Context, tenantID, goatID string) (domain.ObservationForm, error) {
+	var out domain.ObservationForm
+
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return out, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	facts, err := loadGoatFacts(ctx, tx, tenantID, goatID)
+	if err != nil {
+		return out, err
+	}
+	if facts.LifecycleStatus != "alive" {
+		return out, ports.ErrGoatNotAlive
+	}
+
+	routing, err := stageRoutingInTx(ctx, tx, tenantID)
+	if err != nil {
+		return out, err
+	}
+	animal, err := domain.ResolveAnimal(facts, routing)
+	if err != nil {
+		return out, err
+	}
+
+	doc, err := publishedRegisterDocumentInTx(ctx, tx, tenantID, animal.Class)
+	if err != nil {
+		return out, err
+	}
+	if doc == nil {
+		// A type whose rules nobody has written. It is a real state -- it is what a farm has
+		// between creating a type and authoring it -- and it is named rather than served as an
+		// empty form, which would look like an animal with nothing to check.
+		return out, ports.ErrRegisterNotFound
+	}
+
+	var typeLabel string
+	if err := tx.QueryRow(ctx, sqlDiagnosisTypeLabel, tenantID, animal.Class).Scan(&typeLabel); err != nil {
+		typeLabel = animal.Class
+	}
+
+	// The animal's own identifiers, so the phone can show who it is holding. They are not on
+	// GoatFacts -- that struct carries only what the ENGINE reads, and widening it to carry two
+	// display strings would put screen data on the clinical path.
+	var displayID, tag string
+	_ = tx.QueryRow(ctx, sqlObservationFormAnimal, tenantID, goatID).Scan(&displayID, &tag)
+
+	out = domain.ObservationForm{
+		GoatID:          goatID,
+		DisplayID:       displayID,
+		Tag:             tag,
+		TypeKey:         animal.Class,
+		TypeLabel:       typeLabel,
+		RegisterVersion: doc.RegisterVersion,
+		Pages:           doc.Pages(),
+	}
+	return out, nil
+}
+
 func stageRoutingInTx(ctx context.Context, tx pgx.Tx, tenantID string) (domain.StageRouting, error) {
 	bound := sqlbind.MustBind(sqlStageRoutes, tenantID)
 	rows, err := tx.Query(ctx, bound.SQL(), bound.Args()...)
@@ -334,8 +407,35 @@ func loadGoatFacts(ctx context.Context, tx pgx.Tx, tenantID, goatID string) (dom
 	return facts, nil
 }
 
+// THE STAGE DECIDES KID OR ADULT, not the animal's own column and never its birthday.
+//
+// That is the 2026-08-05 rule -- "kid" here means "not yet in a breeding/adult cohort", an
+// operational classification the farm makes by PLACEMENT: F2 fattening animals are kids at 67
+// weeks, and a DOB rule would have flipped 261 of the farm's animals against its own record. The
+// band lives on animal_stage_lookup, which is the tenant's editable stage vocabulary, so a farm
+// adding a cohort tag classifies it without a release.
+//
+// `goats.age_band` is the FALLBACK, not the authority, and reading it that way round is a repair
+// rather than a preference. It is written at seed/import and by the shifting path, so it drifts:
+// on 2026-09-23 this farm held six F2-Female animals whose column said "Kid" where the catalog
+// says "kid", and one K0 kid whose column was EMPTY -- and an empty band routes to nothing, so
+// that animal could not be observed at all. Taking the stage first fixes both without touching a
+// row.
+//
+// The fallback still matters: a CLINICAL placement (ICU, Quarantine) carries a NULL band by
+// design, so that a move into one cannot reclassify a sick animal. For those the column is the
+// only thing left to read -- and they are refused by routing anyway, so it changes nothing except
+// which sentence the operator gets.
 const loadDiagnosisGoatFactsSQL = `
-	SELECT g.species, g.sex, coalesce(g.age_band,''), coalesce(g.management_stage,''), g.lifecycle_status,
+	SELECT g.species, g.sex,
+	       lower(btrim(coalesce(
+	         (SELECT a.age_band FROM animal_stage_lookup a
+	           WHERE a.tenant_id = g.tenant_id
+	             AND lower(btrim(a.stage_code)) = lower(btrim(coalesce(g.management_stage,'')))
+	             AND a.status = 'active'
+	           LIMIT 1),
+	         g.age_band, ''))),
+	       coalesce(g.management_stage,''), g.lifecycle_status,
 	       (SELECT (current_date - max(child.dob))::int
 	          FROM goat_births b
 	          JOIN goats child ON child.tenant_id = b.tenant_id AND child.goat_id = b.child_goat_id

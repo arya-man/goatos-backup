@@ -12,6 +12,10 @@ import (
 
 type fakeDiagnosisRepo struct{}
 
+func (fakeDiagnosisRepo) ObservationForm(context.Context, string, string) (domain.ObservationForm, error) {
+	return domain.ObservationForm{}, nil
+}
+
 func (fakeDiagnosisRepo) SubmitObservation(context.Context, domain.SubmitObservationInput, ports.EvaluateFunc) (domain.SubmitObservationResult, error) {
 	return domain.SubmitObservationResult{}, nil
 }
