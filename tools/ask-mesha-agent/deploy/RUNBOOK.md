@@ -81,6 +81,24 @@ Region: `ASK_MESHA_VERTEX_REGION` (default `us-east5`; use one where the models 
 Pro/Max plans are for the subscriber's own use; a service used by several people should use
 vertex or api-key instead.
 
+## 3c. Spend cap ($100/month)
+
+The agent enforces the cap itself: once this month's summed answer cost reaches
+`ASK_MESHA_MONTHLY_BUDGET_USD` (default 100) new questions get a "budget reached" reply
+without calling Claude; `ASK_MESHA_PER_ANSWER_BUDGET_USD` (default 1) aborts a single
+runaway answer. GCP budgets only alert (they never stop spend), so add one as a backstop:
+
+```bash
+BILLING=$(gcloud billing projects describe $PROJECT --format='value(billingAccountName)' | sed 's#billingAccounts/##')
+gcloud billing budgets create --billing-account=$BILLING \
+  --display-name="Ask Mesha Claude (Vertex) $100" --budget-amount=100USD \
+  --filter-projects=projects/$PROJECT --filter-services=services/aiplatform.googleapis.com \
+  --threshold-rule=percent=0.5 --threshold-rule=percent=0.8 --threshold-rule=percent=1.0
+```
+
+(That filter covers all Vertex AI use in the project; Ask Mesha is the only Claude user today.)
+With `api-key`, also set a $100 monthly limit in the Anthropic Console.
+
 ## 4. Secrets (values piped from stdin, never echoed)
 
 ```bash

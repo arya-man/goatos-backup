@@ -74,6 +74,16 @@ function jsonStore(stateDir) {
     async refreshLock() {},
     async unlock(chatId) { inFlight.delete(chatId); },
     async recordMetric(m) { fs.appendFileSync(METRICS, JSON.stringify(m) + "\n"); },
+    // Sum of per-answer cost since the start of the current UTC month.
+    async monthSpendUsd(since) {
+      if (!fs.existsSync(METRICS)) return 0;
+      return fs.readFileSync(METRICS, "utf8").split("\n").filter(Boolean).reduce((sum, l) => {
+        try {
+          const r = JSON.parse(l);
+          return r.ts >= since ? sum + (Number(r.cost_usd) || 0) : sum;
+        } catch { return sum; }
+      }, 0);
+    },
     async metricsSummary() {
       const rows = fs.existsSync(METRICS)
         ? fs.readFileSync(METRICS, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l))
@@ -228,6 +238,13 @@ export function pgStore(pool) {
     },
     async unlock(chatId) { await q(`UPDATE ask_mesha.chats SET busy_until=NULL WHERE id=$1`, [chatId]); },
     async recordMetric(m) { await q(`INSERT INTO ask_mesha.metrics (ts, row) VALUES ($1, $2::jsonb)`, [m.ts, JSON.stringify(m)]); },
+    async monthSpendUsd(since) {
+      const { rows } = await q(
+        `SELECT COALESCE(SUM((row->>'cost_usd')::numeric), 0) AS usd FROM ask_mesha.metrics WHERE ts >= $1`,
+        [since],
+      );
+      return Number(rows[0].usd) || 0;
+    },
     async metricsSummary() {
       const { rows } = await q(`SELECT row FROM (SELECT id, row FROM ask_mesha.metrics ORDER BY id DESC LIMIT 5000) t ORDER BY id`);
       return summarizeMetrics(rows.map((r) => r.row));

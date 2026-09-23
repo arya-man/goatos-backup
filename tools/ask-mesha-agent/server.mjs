@@ -25,6 +25,14 @@ const EFFORT = process.env.ASK_MESHA_EFFORT || "low";
 // Read-only mode (default): the agent gets Read/Grep/Glob + a read-only SQL tool and
 // NO shell, edit, or write tools. Set ASK_MESHA_READONLY=0 only for local dev.
 const READONLY = process.env.ASK_MESHA_READONLY !== "0";
+// Spend caps (USD). Monthly: hard stop for new questions once reached (resets on the
+// 1st, UTC). Per answer: the SDK aborts a single run that would exceed it.
+const MONTHLY_BUDGET_USD = Number(process.env.ASK_MESHA_MONTHLY_BUDGET_USD || 100);
+const PER_ANSWER_BUDGET_USD = Number(process.env.ASK_MESHA_PER_ANSWER_BUDGET_USD || 1);
+const monthStart = () => {
+  const d = new Date();
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)).toISOString();
+};
 const BASE_SHA = process.env.GOATOS_BASE_SHA || "HEAD";
 const STG_API = (process.env.GOATOS_STG_API || "https://api.goatos.mesha.sg").replace(/\/$/, "");
 const WORKTREES = path.join(STATE, "worktrees");
@@ -347,6 +355,14 @@ async function ask(req, res, user) {
   if (!question) return json(res, 400, { error: "question_required" });
   let chat = body.conversation_id ? await store.getChat(body.conversation_id) : null;
   if (chat && !sameOwner(chat, user)) return json(res, 404, { error: "not_found" });
+  // Hard monthly cap: answer with a plain message instead of calling Claude.
+  const spent = await store.monthSpendUsd(monthStart()).catch(() => 0);
+  if (spent >= MONTHLY_BUDGET_USD) {
+    res.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-store" });
+    const answer = `This month's Ask Mesha budget ($${MONTHLY_BUDGET_USD}) has been used ($${spent.toFixed(2)}). It resets on the 1st; ask Ravi to raise the cap if needed.`;
+    res.end(`data: ${JSON.stringify({ type: "final", answer, mode: "agent", source: "budget" })}\n\n`);
+    return;
+  }
   if (!chat) chat = await store.createChat(user.email, user.tenantId);
   // One run per chat: two concurrent resumes of the same session fork it and
   // race on session_id / message order. DB-backed lease in Postgres mode.
@@ -425,6 +441,7 @@ async function ask(req, res, user) {
       options: {
         cwd,
         model: metric.model,
+        maxBudgetUsd: PER_ANSWER_BUDGET_USD,
         effort: metric.effort,
         resume,
         ...(store.sessionStore ? { sessionStore: store.sessionStore } : {}),
