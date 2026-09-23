@@ -23,6 +23,8 @@ const PUSH_COPY_FALLBACKS: Record<string, string> = {
   "push.enabled": "Notifications on",
   "push.disable_hint": "Turn off notifications in this browser",
   "push.disabling": "Turning off",
+  "push.disable_timed_out":
+    "Turning notifications off took too long. Reload the page and try again.",
   "push.this_browser_only": "This browser only. Each browser and profile is enabled separately.",
   "push.dismissed":
     "No choice was made. Click again when you are ready.",

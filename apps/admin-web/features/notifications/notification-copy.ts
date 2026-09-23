@@ -26,6 +26,7 @@ export const NOTIFICATION_COPY_FALLBACKS: Record<string, string> = {
   "notifications.mark_all_read": "Mark all as read",
   "notifications.mark_read": "Mark as read",
   "notifications.refresh": "Refresh",
+  "notifications.load_older": "Load older",
   "notifications.close": "Close notifications",
   "notifications.unread_one": "unread",
   "notifications.unread_more": "9+",
@@ -49,6 +50,7 @@ export type NotificationCentreCopy = {
   markAllRead: string;
   markRead: string;
   refresh: string;
+  loadOlder: string;
   close: string;
   unreadOne: string;
   unreadMore: string;
@@ -89,6 +91,7 @@ export function resolveNotificationCentreCopy(
     markAllRead: notificationCopy(contractCopy, "notifications.mark_all_read"),
     markRead: notificationCopy(contractCopy, "notifications.mark_read"),
     refresh: notificationCopy(contractCopy, "notifications.refresh"),
+    loadOlder: notificationCopy(contractCopy, "notifications.load_older"),
     close: notificationCopy(contractCopy, "notifications.close"),
     unreadOne: notificationCopy(contractCopy, "notifications.unread_one"),
     unreadMore: notificationCopy(contractCopy, "notifications.unread_more"),

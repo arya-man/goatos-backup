@@ -39,6 +39,7 @@ import {
   idsToMarkAllRead,
   NOTIFICATION_BADGE_MAX,
   notificationBadgeCount,
+  sortNotificationsNewestFirst,
   type NotificationFeed,
 } from "./notification-model";
 import { placeNotificationPanel, type NotificationPanelBox } from "./notification-placement";
@@ -79,6 +80,7 @@ export function NotificationBell({
   const [locallyRead, setLocallyRead] = useState<string[]>([]);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [errorCode, setErrorCode] = useState<string | undefined>(undefined);
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -104,15 +106,28 @@ export function NotificationBell({
   // Applying a loaded page is its own step so that every caller -- the effect below, the open
   // handler, the Refresh button -- reaches state only AFTER the await, never synchronously inside
   // an effect body (react-hooks/set-state-in-effect).
-  const applyFeedResult = useCallback((result: NotificationFeedActionResult) => {
+  const appendFeedPage = useCallback((current: NotificationFeed, page: NotificationFeed): NotificationFeed => {
+    const seen = new Set(current.items.map((item) => item.notification_request_id));
+    return {
+      ...page,
+      items: sortNotificationsNewestFirst([
+        ...current.items,
+        ...page.items.filter((item) => !seen.has(item.notification_request_id)),
+      ]),
+      unread_count: Math.max(current.unread_count, page.unread_count),
+      available: current.available || page.available,
+    };
+  }, []);
+
+  const applyFeedResult = useCallback((result: NotificationFeedActionResult, mode: "replace" | "append" = "replace") => {
     if (!liveRef.current) return;
     if (!result.ok) {
       setErrorCode(result.code);
       return;
     }
     setErrorCode(undefined);
-    setFeed(result.feed);
-  }, []);
+    setFeed((current) => (mode === "append" ? appendFeedPage(current, result.feed) : result.feed));
+  }, [appendFeedPage]);
 
   const refresh = useCallback(async () => {
     try {
@@ -122,6 +137,19 @@ export function NotificationBell({
       // it: the bell simply stays quiet and every screen renders exactly as before.
     }
   }, [applyFeedResult]);
+
+  const loadMore = useCallback(async () => {
+    const cursor = feed.next_cursor;
+    if (!cursor || loadingMore || busy) return;
+    setLoadingMore(true);
+    try {
+      applyFeedResult(await loadNotificationFeedAction(cursor), "append");
+    } catch {
+      // Same silence as refresh: a missed older page must not destabilise the shell.
+    } finally {
+      if (liveRef.current) setLoadingMore(false);
+    }
+  }, [applyFeedResult, busy, feed.next_cursor, loadingMore]);
 
   // Mount + every route change. See the refresh-strategy note above: a leader's session is a walk
   // through screens, so navigation is the revalidation point and there is no interval anywhere.
@@ -345,11 +373,13 @@ export function NotificationBell({
             feed={shownFeed}
             centreCopy={centreCopy}
             busy={busy}
+            loadingMore={loadingMore}
             errorCode={errorCode}
             permissionSlot={permissionSlot}
             onMarkRead={(id) => void markRead([id])}
             onMarkAllRead={() => void markRead(idsToMarkAllRead(feed, locallyRead))}
             onRefresh={() => void refresh()}
+            onLoadMore={() => void loadMore()}
             onClose={closePanel}
           />
           </Suspense>
