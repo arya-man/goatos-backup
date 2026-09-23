@@ -3,7 +3,8 @@
 // Every non-blank line of the pre-split AGENTS.md (default: `git show origin/main:AGENTS.md`,
 // override with --base <git-ref> or --file <path>) must appear verbatim as a line in
 // AGENTS.md or docs/agent-rules/*.md. Leading '#' heading markers are ignored so moved
-// headings may change level; nothing else is normalized.
+// headings may change level; trailing whitespace is ignored so the split can
+// satisfy git's whitespace guard without pretending a rule was dropped.
 import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve, dirname } from "node:path";
@@ -17,7 +18,7 @@ const original = flag("--file")
   ? readFileSync(resolve(flag("--file")), "utf8")
   : execFileSync("git", ["show", `${flag("--base") ?? "origin/main"}:AGENTS.md`], { cwd: root, encoding: "utf8", maxBuffer: 64 << 20 });
 
-const norm = (l) => l.replace(/^#{1,6} /, "");
+const norm = (l) => l.replace(/^#{1,6} /, "").trimEnd();
 const targets = ["AGENTS.md", ...readdirSync(resolve(root, "docs/agent-rules")).filter((f) => f.endsWith(".md")).sort().map((f) => `docs/agent-rules/${f}`)];
 // Multiset: a line that occurs N times in the original must occur >= N times in the split,
 // so a dropped duplicate (e.g. a repeated bullet) is still caught.

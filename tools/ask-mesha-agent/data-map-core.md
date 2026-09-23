@@ -13,7 +13,7 @@ topic -> view -> key columns -> date column
 - births / transfers / shifts -> counts_movement_daily -> per pen counts -> event_date
 - feed directed vs fed -> feed_adherence -> directed_kg, fed_kg, variance_kg, blocked -> feed_day
 - feed plan detail -> feed_direction_current; completions -> feed_completions_base (fed_business_day)
-- vaccination now -> vaccination_shed_status; over time -> vaccination_obligations_base (due_business_day); doses -> vaccination_dose_pickup; operators -> vaccination_operator_status
+- vaccination now -> vaccination_shed_status; over time -> vaccination_obligations_base (due_business_day); doses -> vaccination_dose_pickup; operators -> vaccination_operator_status; pre-arrival history review -> vaccination_prearrival_history_review (reviewed_date_ist)
 - procurement -> procurement_pipeline (now), procurement_loads_base (period, entered_business_day), source_entry_health_status (intake variance)
 - workforce -> workforce_tasks_base (due_business_day), workforce_coverage_status (now)
 - pen capacity -> shed_capacity_current; inventory -> inventory_stock_position
@@ -26,3 +26,4 @@ metrics -> how (exact defs + SQL: SKILL.md "Metric definitions"; never invent a 
 - mortality %: sum(mortality_base.deaths in window)*100 / live 'alive' count now, 1dp (NOT active_population).
 - weighing pending: pending+rework. feed fed_kg is always 0: say fed data missing. vaccination: due/done, no %.
 Full columns + example per view: .agents/skills/mesha-data-map/references/views.generated.md
+Agent SQL must include the authenticated tenant_id filter.

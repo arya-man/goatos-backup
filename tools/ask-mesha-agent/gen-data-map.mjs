@@ -68,7 +68,7 @@ function liveObjects() {
   try {
     out = psql(`SELECT c.table_schema, c.table_name, t.table_type, c.column_name, c.data_type, c.ordinal_position
       FROM information_schema.columns c JOIN information_schema.tables t USING (table_schema, table_name)
-      WHERE c.table_schema NOT IN ('pg_catalog','information_schema')
+      WHERE c.table_schema = 'ceo_ai'
         AND CASE WHEN has_schema_privilege(c.table_schema, 'USAGE') THEN has_table_privilege(quote_ident(c.table_schema)||'.'||quote_ident(c.table_name), 'SELECT') ELSE false END
       ORDER BY 1, 2, 6`);
   } catch (e) {

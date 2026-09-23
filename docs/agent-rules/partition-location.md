@@ -212,7 +212,7 @@ Known blind spots: hardcoded string literals, runtime-composed strings in applic
 
 Before committing a change that adds, modifies, or displays a partition:
 
-1. **SQL layer (backend/migrations/postgres):** 
+1. **SQL layer (backend/migrations/postgres):**
    - [ ] New location-bearing table includes `partition_label` column (nullable for undivided sheds)
    - [ ] If populating from existing data, verify both the source query and the target column read the same grain (test on real seed data)
    - [ ] EXPLAIN on the updated query with ~500k row bounds shows no Seq Scan on large tables
