@@ -1,0 +1,146 @@
+{
+  "description": "How each write journey's screen reads before its write, after it, on a page that never loaded, and - where the journey's promise is that nothing changed - on the wrong outcome it exists to catch. A journey that claims the screen CHANGED must fail on the before page. A journey whose promise is that the screen did NOT change cannot be judged that way, because before and after read alike by design; it must instead fail on the wrong outcome. Both must fail on a page that never loaded. These renderings are the SPEC of what each assertion must tell apart; they are not evidence about the live page, which needs a browser.",
+  "tokens": {
+    "{{token}}": "AC-9137",
+    "{{numericToken}}": "437",
+    "{{penLabelBefore}}": "Godel 1 - Part 3"
+  },
+  "pages": {
+    "publish-vaccination-plan-version": {
+      "blank": {
+        "text": ""
+      },
+      "before": {
+        "text": "Vaccination plan. Live right now: version 4. A draft is waiting to be published. Open the draft. Publish plan."
+      },
+      "after": {
+        "text": "Vaccination plan. Live right now: version 5. Published a moment ago. New version."
+      },
+      "kind": "change"
+    },
+    "change-a-feed-rate": {
+      "blank": {
+        "text": ""
+      },
+      "before": {
+        "text": "Feed configuration. Rations. Kids concentrate 120 grams a head. Adults concentrate 260 grams a head."
+      },
+      "after": {
+        "text": "Feed configuration. Rations. Kids concentrate 437 grams a head. Adults concentrate 260 grams a head."
+      },
+      "kind": "change"
+    },
+    "publish-an-sop": {
+      "blank": {
+        "text": ""
+      },
+      "before": {
+        "text": "Work instructions. Animal purchase inspection. Published. Feed distribution. Published."
+      },
+      "after": {
+        "text": "Work instructions. Animal purchase inspection. Published. Automation check AC-9137. Published."
+      },
+      "kind": "change"
+    },
+    "create-and-move-a-task": {
+      "blank": {
+        "text": "",
+        "columns": {}
+      },
+      "before": {
+        "text": "Tasks. To do: Repair the Castro gate. In progress: Order mineral mix. Done: Fix the water line.",
+        "columns": {
+          "To do": "Repair the Castro gate",
+          "In progress": "Order mineral mix",
+          "Done": "Fix the water line"
+        }
+      },
+      "after": {
+        "text": "Tasks. To do: Repair the Castro gate. In progress: Order mineral mix, Automation check AC-9137. Done: Fix the water line.",
+        "columns": {
+          "To do": "Repair the Castro gate",
+          "In progress": "Order mineral mix, Automation check AC-9137",
+          "Done": "Fix the water line"
+        }
+      },
+      "wrongColumn": {
+        "text": "Tasks. To do: Repair the Castro gate, Automation check AC-9137. In progress: Order mineral mix.",
+        "columns": {
+          "To do": "Repair the Castro gate, Automation check AC-9137",
+          "In progress": "Order mineral mix",
+          "Done": "Fix the water line"
+        }
+      },
+      "kind": "change"
+    },
+    "record-a-sale": {
+      "blank": {
+        "text": ""
+      },
+      "before": {
+        "text": "Loads. Load 101 sold 66 animals. Load 102 sold 41 animals."
+      },
+      "after": {
+        "text": "Loads. Load 101 sold 66 animals. Load 102 sold 41 animals. Automation check AC-9137."
+      },
+      "kind": "change"
+    },
+    "approve-a-verification": {
+      "blank": {
+        "text": ""
+      },
+      "before": {
+        "text": "Verification queue. Waiting for approval: 12. Approved: 340. Rejected: 4."
+      },
+      "after": {
+        "text": "Verification queue. Waiting for approval: 11. Approved: 341. Rejected: 4."
+      },
+      "kind": "change"
+    },
+    "feed-item-in-use-cannot-be-deleted": {
+      "blank": {
+        "text": ""
+      },
+      "before": {
+        "text": "Feed configuration. Items. Kids concentrate. Adults concentrate. Delete."
+      },
+      "after": {
+        "text": "Feed configuration. Items. Kids concentrate is in use by the kids ration and cannot be removed. Delete."
+      },
+      "wrongOutcome": {
+        "text": "Feed configuration. Items. Deleted. Adults concentrate."
+      },
+      "kind": "invariance"
+    },
+    "published-plan-version-stays-locked": {
+      "blank": {
+        "text": ""
+      },
+      "before": {
+        "text": "Vaccination plan editor. Published version 4. Edit. New version."
+      },
+      "after": {
+        "text": "Vaccination plan editor. Published version 4 cannot be changed. New version."
+      },
+      "wrongOutcome": {
+        "text": "Vaccination plan editor. Published version 4. Saved. New version."
+      },
+      "kind": "invariance"
+    },
+    "partition-label-survives-a-move": {
+      "blank": {
+        "text": ""
+      },
+      "before": {
+        "text": "Counts breakdown. Godel 1 - Part 3 holds 13 animals. Mandela 1 - Part 1 holds 9 animals. Move."
+      },
+      "after": {
+        "text": "Counts breakdown. Godel 1 - Part 3 holds 9 animals. Mandela 1 - Part 1 holds 13 animals."
+      },
+      "wrongOutcome": {
+        "text": "Counts breakdown. Godel 1 1 holds 9 animals. Mandela 1 - Part 1 holds 13 animals."
+      },
+      "kind": "invariance"
+    }
+  }
+}
