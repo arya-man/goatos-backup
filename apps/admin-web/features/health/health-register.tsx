@@ -11,6 +11,7 @@ import {
 
 import { RegisterEditor } from "./health-register-editor";
 import { StaleVersionNotice } from "./health-stale-version-recovery";
+import { RegisterSheetControls } from "./health-register-sheet";
 import { OpenRegisterDraftButton } from "./health-register-open";
 
 // Health Config -> Diagnosis. The other half of the rulebook: the questions asked about a sick
@@ -176,12 +177,13 @@ export async function HealthRegisterSection({
                   <th key={col}>{col}</th>
                 ))}
                 <th>{copy(pageContract, "action.edit_register")}</th>
+                <th>{copy(pageContract, "action.download_sheet")}</th>
               </tr>
             </thead>
             <tbody>
               {rows.length === 0 ? (
                 <tr>
-                  <td colSpan={cols.length + 1}>
+                  <td colSpan={cols.length + 2}>
                     <div
                       className="muted small"
                       style={{ padding: "18px 4px", textAlign: "center", lineHeight: 1.6 }}
@@ -232,6 +234,17 @@ export async function HealthRegisterSection({
                           // has run there is nothing to edit, and saying so beats a button that
                           // fails when pressed.
                           openable={Boolean(row.live || row.draft)}
+                        />
+                      </td>
+                      <td>
+                        {/* The sheet is offered per TYPE, in the row that names it, so there is
+                            never a question of which rulebook a download belongs to. */}
+                        <RegisterSheetControls
+                          animalClass={row.animalClass}
+                          typeLabel={shown?.register_label ?? row.animalClass}
+                          pageContract={pageContract}
+                          mayWrite={mayWrite}
+                          disabledReason={writeDisabledReason}
                         />
                       </td>
                     </tr>

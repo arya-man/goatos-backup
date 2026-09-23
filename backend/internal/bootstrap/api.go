@@ -724,8 +724,11 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// authored -- otherwise the screen would mint types nobody could ever write for.
 	healthDiagnosisTypeService := healthapp.NewDiagnosisTypeService(healthRepo)
 	healthDiagnosisTypeHandler := healthhttp.NewDiagnosisTypeHandler(healthDiagnosisTypeService, log)
-	healthRegisterConfigHandler := healthhttp.NewRegisterConfigHandler(
-		healthapp.NewRegisterConfigService(healthRepo).WithTypes(healthRepo), log)
+	healthRegisterConfigService := healthapp.NewRegisterConfigService(healthRepo).WithTypes(healthRepo)
+	healthRegisterConfigHandler := healthhttp.NewRegisterConfigHandler(healthRegisterConfigService, log)
+	// Download a type's rulebook, edit it, upload it back. The same service, because an upload
+	// lands in the ordinary draft and publishes through the ordinary gate.
+	healthRegisterSheetHandler := healthhttp.NewRegisterSheetHandler(healthRegisterConfigService, log)
 	// The diagnosis engine reads the tenant's published Health Config register
 	// inside the observation transaction, with the committed seed as the fallback
 	// for unseeded tenants.
@@ -1520,6 +1523,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	healthhttp.RegisterConfig(protectedMux, healthConfigHandler)
 	healthhttp.RegisterRegisterConfig(protectedMux, healthRegisterConfigHandler)
 	healthhttp.RegisterDiagnosisTypes(protectedMux, healthDiagnosisTypeHandler)
+	healthhttp.RegisterRegisterSheets(protectedMux, healthRegisterSheetHandler)
 	herdsignalshttp.Register(protectedMux, herdSignalsHandler)
 	healthhttp.RegisterDiagnosis(protectedMux, healthDiagnosisHandler)
 	healthhttp.RegisterAnalytics(protectedMux, healthAnalyticsHandler)

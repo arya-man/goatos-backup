@@ -119,6 +119,44 @@ WHERE g.tenant_id = $1::uuid
           AND r.stage_code = '*')
 GROUP BY 1, 2
 ORDER BY 4 DESC, 2`
+
+	// sqlLockDiagnosisType
+	sqlLockDiagnosisType = `
+SELECT is_builtin FROM health_diagnosis_types
+WHERE tenant_id=$1::uuid AND type_key=$2 FOR UPDATE`
+
+	// sqlInsertDiagnosisType
+	sqlInsertDiagnosisType = `
+INSERT INTO health_diagnosis_types (tenant_id, type_key, label, status, sort_order, is_builtin)
+VALUES ($1::uuid, $2, $3, $4, $5, false)`
+
+	// sqlCountRoutesForType
+	sqlCountRoutesForType = `
+SELECT count(*) FROM health_diagnosis_stage_routes
+WHERE tenant_id=$1::uuid AND type_key=$2`
+
+	// sqlUpdateDiagnosisType
+	sqlUpdateDiagnosisType = `
+UPDATE health_diagnosis_types
+SET label=$3, status=$4, sort_order=$5, updated_at=now()
+WHERE tenant_id=$1::uuid AND type_key=$2`
+
+	// sqlDiagnosisTypeStatus
+	sqlDiagnosisTypeStatus = `
+SELECT status FROM health_diagnosis_types
+WHERE tenant_id=$1::uuid AND type_key=$2`
+
+	// sqlUpsertStageRoute
+	sqlUpsertStageRoute = `
+INSERT INTO health_diagnosis_stage_routes (tenant_id, age_band, stage_code, type_key, sub_stage)
+VALUES ($1::uuid, $2, $3, $4, $5)
+ON CONFLICT (tenant_id, age_band, stage_code)
+DO UPDATE SET type_key = EXCLUDED.type_key, sub_stage = EXCLUDED.sub_stage, updated_at = now()`
+
+	// sqlDeleteStageRoute
+	sqlDeleteStageRoute = `
+DELETE FROM health_diagnosis_stage_routes
+WHERE tenant_id=$1::uuid AND age_band=$2 AND stage_code=$3`
 )
 
 // recordRoutingAudit writes the routing audit trail.
@@ -237,18 +275,14 @@ func (r *Repository) SaveDiagnosisType(ctx context.Context, cmd domain.SaveDiagn
 	}()
 
 	var existingBuiltin bool
-	err = tx.QueryRow(ctx, `
-SELECT is_builtin FROM health_diagnosis_types
-WHERE tenant_id=$1::uuid AND type_key=$2 FOR UPDATE`, cmd.TenantID, cmd.TypeKey).Scan(&existingBuiltin)
+	err = tx.QueryRow(ctx, sqlLockDiagnosisType, cmd.TenantID, cmd.TypeKey).Scan(&existingBuiltin)
 
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		// A create. is_builtin is never set from a request: only migration 000395 mints those,
 		// because being built-in means "this type's register is the committed rulebook", which a
 		// farm cannot make true by ticking a box.
-		if _, err := tx.Exec(ctx, `
-INSERT INTO health_diagnosis_types (tenant_id, type_key, label, status, sort_order, is_builtin)
-VALUES ($1::uuid, $2, $3, $4, $5, false)`,
+		if _, err := tx.Exec(ctx, sqlInsertDiagnosisType,
 			cmd.TenantID, cmd.TypeKey, cmd.Label, cmd.Status, cmd.SortOrder); err != nil {
 			var pgErr *pgconn.PgError
 			if errors.As(err, &pgErr) && pgErr.Code == "23505" {
@@ -267,19 +301,14 @@ VALUES ($1::uuid, $2, $3, $4, $5, false)`,
 			// start being refused with "its stage is not mapped" -- true, but naming the wrong
 			// cause. Moving the stages first is one extra act and a legible one.
 			var routed int
-			if err := tx.QueryRow(ctx, `
-SELECT count(*) FROM health_diagnosis_stage_routes
-WHERE tenant_id=$1::uuid AND type_key=$2`, cmd.TenantID, cmd.TypeKey).Scan(&routed); err != nil {
+			if err := tx.QueryRow(ctx, sqlCountRoutesForType, cmd.TenantID, cmd.TypeKey).Scan(&routed); err != nil {
 				return zero, fmt.Errorf("health: count routes: %w", err)
 			}
 			if routed > 0 {
 				return zero, domain.ErrTypeStillRouted
 			}
 		}
-		if _, err := tx.Exec(ctx, `
-UPDATE health_diagnosis_types
-SET label=$3, status=$4, sort_order=$5, updated_at=now()
-WHERE tenant_id=$1::uuid AND type_key=$2`,
+		if _, err := tx.Exec(ctx, sqlUpdateDiagnosisType,
 			cmd.TenantID, cmd.TypeKey, cmd.Label, cmd.Status, cmd.SortOrder); err != nil {
 			return zero, fmt.Errorf("health: update diagnosis type: %w", err)
 		}
@@ -328,9 +357,7 @@ func (r *Repository) SaveStageRoute(ctx context.Context, cmd domain.SaveStageRou
 	// message naming the stage rather than the type -- so this is checked here where the author
 	// can be told the real reason.
 	var status string
-	err = tx.QueryRow(ctx, `
-SELECT status FROM health_diagnosis_types
-WHERE tenant_id=$1::uuid AND type_key=$2`, cmd.TenantID, cmd.TypeKey).Scan(&status)
+	err = tx.QueryRow(ctx, sqlDiagnosisTypeStatus, cmd.TenantID, cmd.TypeKey).Scan(&status)
 	if errors.Is(err, pgx.ErrNoRows) || (err == nil && status != "active") {
 		return zero, domain.ErrRouteTypeUnknown
 	}
@@ -338,11 +365,7 @@ WHERE tenant_id=$1::uuid AND type_key=$2`, cmd.TenantID, cmd.TypeKey).Scan(&stat
 		return zero, fmt.Errorf("health: read diagnosis type: %w", err)
 	}
 
-	if _, err := tx.Exec(ctx, `
-INSERT INTO health_diagnosis_stage_routes (tenant_id, age_band, stage_code, type_key, sub_stage)
-VALUES ($1::uuid, $2, $3, $4, $5)
-ON CONFLICT (tenant_id, age_band, stage_code)
-DO UPDATE SET type_key = EXCLUDED.type_key, sub_stage = EXCLUDED.sub_stage, updated_at = now()`,
+	if _, err := tx.Exec(ctx, sqlUpsertStageRoute,
 		cmd.TenantID, cmd.AgeBand, cmd.StageCode, cmd.TypeKey, cmd.SubStage); err != nil {
 		return zero, fmt.Errorf("health: save stage route: %w", err)
 	}
@@ -385,9 +408,7 @@ func (r *Repository) DeleteStageRoute(ctx context.Context, cmd domain.DeleteStag
 		}
 	}()
 
-	tag, err := tx.Exec(ctx, `
-DELETE FROM health_diagnosis_stage_routes
-WHERE tenant_id=$1::uuid AND age_band=$2 AND stage_code=$3`,
+	tag, err := tx.Exec(ctx, sqlDeleteStageRoute,
 		cmd.TenantID, cmd.AgeBand, cmd.StageCode)
 	if err != nil {
 		return fmt.Errorf("health: delete stage route: %w", err)

@@ -1,0 +1,48 @@
+-- +goose Up
+-- seed-fixture-guard:ignore: removes stale policy rows for a category that can no longer be
+-- sampled; no schema change, no seed contract change, no app-visible projection table.
+--
+-- BLIND WEIGHING VERIFICATION LOCKS WEIGHING SAMPLING AT 100% (maintainer decision 2026-09-21).
+--
+-- Weighing's approve now REQUIRES the verifier's own weight reading
+-- (verificationcatalog.Weighing -> MeasurementCorrection.RequiredForApprove). That flips weighing
+-- to NON-WAIVABLE in domain.CategoryDefinition.SamplingWaivable, which is derived from exactly
+-- that field, so three things changed at once and the third strands work:
+--
+--   1. The Randomization panel now shows weighing LOCKED at 100% and ignores any stored row.
+--   2. SetSamplingPolicy now REFUSES a weighing percentage (sampling_not_available).
+--   3. The closeout no longer settles unsampled weighing items -- it must not, because
+--      auto-approving one would complete a weighing bucket with no verifier reading at all.
+--
+-- But the QUEUE predicate (verification/samplingsql.InSample) knows nothing about waivability: it
+-- reads whatever row verification_sampling_policies holds for the category. So a tenant whose CEO
+-- had set weighing to, say, 40% before today would keep a queue narrowed to 40% while the other
+-- 60% of weighing items are no longer settled by anyone -- pending forever, each one holding its
+-- weighing bucket open against the close gate, which is unconditional by design (ledger D-5).
+--
+-- The rows are DELETED rather than rewritten to 100. A stored row is the record of a choice the
+-- CEO is no longer allowed to make, and leaving one at 100 would read to the next author as a
+-- setting rather than a lock. With no row the predicate's own COALESCE resolves to 100, which is
+-- the behaviour the queue had before sampling existed. The write path refuses new weighing rows,
+-- so this cannot come back.
+--
+-- Past days are not being rewritten in any way that matters: sampling is effective-dated so a
+-- closed day keeps the share it ran at, and every item captured on those days has already been
+-- drawn, settled or decided. What this removes is the share applied to items captured from now on.
+--
+-- GENERAL RULE THIS RECORDS, because the next category to declare a required measurement will hit
+-- the same edge: making a category non-waivable is not complete until its stored
+-- verification_sampling_policies rows are removed in the same change. The write path stops new
+-- ones; only a forward migration clears the ones already written.
+-- The literal is the CATEGORY token, not the module name: weighing's category is 'weighing_proof'
+-- (weighing/domain.VerificationCategoryWeighing), while 'weighing' is its navigation module key.
+-- Writing the module name here would delete nothing and read as done -- which is exactly what the
+-- first draft of this migration did. TestSamplingLockMigrationNamesTheRealWeighingCategory pins
+-- this literal against the Go constant so the two cannot drift.
+DELETE FROM public.verification_sampling_policies
+WHERE category = 'weighing_proof';
+
+-- +goose Down
+-- Intentionally empty. The deleted rows were settings for a category that can no longer be
+-- sampled, and restoring them would re-strand weighing items behind a share nothing applies.
+SELECT 1;
