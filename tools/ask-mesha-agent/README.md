@@ -1,5 +1,7 @@
 # Ask Mesha coding agent
 
+> Full agent/maintainer reference (rules, read-only layers, perf, cost cap, deploy): `docs/agent-rules/ask-mesha.md`.
+
 Backend for the admin-web **Ask Mesha** panel that answers leadership questions the way
 Claude Code does: over the goatos codebase plus **read-only** goatos-stg data. It speaks the
 same `/ceo-ai/*` contract as the Go backend, so admin-web only needs one flag:

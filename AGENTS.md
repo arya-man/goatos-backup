@@ -17,6 +17,7 @@ them away: `docs/architecture/operational-read-model-contract.md`
 (check-critical-animal-action-availability.mjs), `make release-tag`
 (tools/release/check-release-tag-contract.mjs). -->
 
+- Ask Mesha leadership chat (admin-web panel, `CEO_AI_AGENT_URL` flag, `tools/ask-mesha-agent/`, read-only code + read-only stg DB, data map, spend cap, Cloud Run deploy) -> `docs/agent-rules/ask-mesha.md`. Keep all three read-only layers; never modify the legacy backend ceo-ai to make the agent work.
 - Business data / "where is X in the DB" / any stg data question -> `.agents/skills/mesha-data-map/SKILL.md` (topic -> ceo_ai view -> columns -> date column; one query, skip \dt/\d exploration). Short form: `tools/ask-mesha-agent/data-map-core.md`.
 - Android/mobile/APK/Room/device QA -> `docs/agent-rules/android.md`: proof media, CLI bootstrap, APK traceability, who-did-what provenance, offline-first Room reads, refresh-on-open, Room upgrades, one-page fetch cap.
 - Vaccination -> `docs/agent-rules/vaccination.md`: anchor dates, catch-up joins normal drive, safe-window park batching, 200/operator-day packing, source dates.
