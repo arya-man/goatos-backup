@@ -144,10 +144,20 @@ Coverage is 0 of 47 because everything past sign-in needs a backend it can reach
 ## 5. Open work
 
 **PR #375** `automation/lane-fixes` — everything automation. **NOT ready to land.**
-- 2 red tests: `run-android-journeys.test.mjs` (a finding kind changes a lane-1-only message; red
-  for 13 commits, went red at `4b2092e79`) and `lane-coverage.test.mjs` arithmetic.
+- **Tests are GREEN**: 445 tests, 0 failures across `tools/dashboard-automation` and
+  `apps/admin-web/scripts`, verified at PR head and mutation-tested (reverting the fix makes them
+  red, so they bite). `origin/main` by contrast has 260 tests with **1 failure**, which this
+  branch fixes. An earlier reading of "2 red tests" came from a **stale local ref** — always
+  `git fetch` and check `origin/automation/lane-fixes`, not the local branch.
+- **Blocker: `CONFLICTING / DIRTY` against main** in three files both sides changed —
+  `.agents/skills/goatos-build/SKILL.md`, `.agents/skills/goatos-code-review/SKILL.md`,
+  `tools/dashboard-automation/feature-assertions.json`. Another session edits the skills on main
+  while this branch restructured them; resolve by content and keep both sides.
 - **15 of its commits are authored `noreply@anthropic.com`** — `check-git-identity` correctly
   blocks. Needs an author rewrite; six worktrees share the ref, so do it when quiet.
+- Note: 5 tests under `apps/admin-web/scripts` need `apps/admin-web/node_modules`
+  (playwright, typescript) and throw `ERR_MODULE_NOT_FOUND` in a fresh worktree. Symlink the main
+  clone's rather than reporting them red.
 - Flicker + reload checks still only sweep 4 of 146 routes, phone-only, zero dialogs.
 
 **PR #376** `fix/notification-feed-cte-pagination` — the site-slowness fix. Code pushed.
