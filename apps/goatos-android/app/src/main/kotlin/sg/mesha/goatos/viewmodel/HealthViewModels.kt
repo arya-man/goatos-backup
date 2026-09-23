@@ -867,10 +867,10 @@ private fun HealthTreatmentStepDto.toUi(): HealthStepUi {
         whenLabel.isNotBlank() -> whenLabel
         else -> "Care instruction"
     }
+    // The DOSE is the backend's words, rendered verbatim. Composing it here from the raw columns
+    // is what produced "5 · Oral", "3 · none · Oral" and "0.033 · kg" for a per-kg dose.
     val details = listOfNotNull(
-        dosageText?.takeIf(String::isNotBlank),
-        dosageDenominator?.takeIf(String::isNotBlank),
-        medicineRoute?.takeIf(String::isNotBlank),
+        doseLabel.takeIf(String::isNotBlank),
         instruction?.takeIf(String::isNotBlank),
     ).joinToString(" · ")
     return HealthStepUi(stepId.ifBlank { "$dayNo-$session-$seq" }, title, details, criticalActionType != null, status)

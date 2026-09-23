@@ -268,6 +268,15 @@ func (h *Handler) writeDomainError(w http.ResponseWriter, r *http.Request, err e
 			Retryable: false,
 			Errors:    fieldErrors,
 		}, err)
+	// A VISIT CANNOT BE DONE BEFORE ITS TIME. The refusal names the hour, so the operator knows
+	// when to come back rather than tapping again.
+	case errors.Is(err, domain.ErrSessionNotDue):
+		var notDue domain.SessionNotDueError
+		msg := "This visit has not started yet."
+		if errors.As(err, &notDue) {
+			msg = notDue.SessionLabel() + " work opens at " + notDue.DueLabel() + "."
+		}
+		h.writeError(w, r, http.StatusUnprocessableEntity, "session_not_due", msg, err)
 	case errors.Is(err, domain.ErrStepNotInSession):
 		h.writeError(w, r, http.StatusUnprocessableEntity, "step_not_in_session", err.Error(), err)
 	case errors.Is(err, domain.ErrInvalidStepProof):

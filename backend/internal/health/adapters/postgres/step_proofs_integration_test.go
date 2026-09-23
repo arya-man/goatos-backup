@@ -289,3 +289,77 @@ func TestACardAuthoringThreeSessionsEarnsThreeVisits(t *testing.T) {
 			steps[domain.SessionAfternoon], steps[domain.SessionEvening])
 	}
 }
+
+// A VISIT CANNOT BE DONE BEFORE ITS TIME (maintainer decision 2026-09-23).
+//
+// Now that a card earns a morning, an afternoon and an evening visit, all three are visible from
+// first light. Nothing stopped an operator closing the evening one at 07:00 -- a dose recorded as
+// given hours before anyone gives it, with a video proving only that the animal was filmed in the
+// morning.
+func TestAnEveningVisitCannotBeClosedInTheMorning(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedHealthScope(t, ctx, pool)
+
+	morningWork, eveningWork := "Morning check", "Evening check"
+	repo := NewRepository(pool, 10*time.Second)
+	if err := repo.ReplacePublishedProtocols(ctx, healthTenant, healthActor, "health-test", "hash-notdue",
+		[]domain.SourceProtocol{{
+			DiseaseKey: "fever", DisplayName: "Fever", AgeBand: domain.AgeBandAdult, DurationDays: 1,
+			Steps: []domain.ProtocolStep{
+				{DayNo: 1, Session: domain.SessionMorning, Seq: 1, RecordType: "action", Instruction: &morningWork},
+				{DayNo: 1, Session: domain.SessionEvening, Seq: 2, RecordType: "action", Instruction: &eveningWork},
+			},
+		}}); err != nil {
+		t.Fatalf("publish protocol: %v", err)
+	}
+
+	loc, _ := time.LoadLocation("Asia/Kolkata")
+	today := time.Now().In(loc)
+	opened, err := repo.OpenCase(ctx, domain.OpenCaseInput{
+		TenantID: healthTenant, ActorID: healthActor, GoatID: healthGoat,
+		DiseaseKey: "fever", AgeBand: domain.AgeBandAdult, StartDate: today,
+		IdempotencyKey: "open-notdue", RequestFingerprint: "open-notdue",
+	})
+	if err != nil {
+		t.Fatalf("open case: %v", err)
+	}
+
+	var eveningID string
+	if err := pool.QueryRow(ctx,
+		`SELECT health_session_id::text FROM health_treatment_sessions
+		  WHERE tenant_id = $1::uuid AND health_case_id = $2::uuid AND session = 'evening' AND day_no = 1`,
+		healthTenant, opened.CaseID).Scan(&eveningID); err != nil {
+		t.Fatalf("find the evening visit: %v", err)
+	}
+
+	// 09:00 on the farm's clock: the morning round. The evening visit opens at 17:00.
+	morning := time.Date(today.Year(), today.Month(), today.Day(), 9, 0, 0, 0, loc)
+	atMorning := NewRepository(pool, 10*time.Second)
+	atMorning.now = func() time.Time { return morning }
+
+	_, err = atMorning.CompleteWorkItem(ctx, domain.CompleteInput{
+		TenantID: healthTenant, ActorID: healthActor, SessionID: eveningID,
+		IdempotencyKey: "close-evening-early", RequestFingerprint: "close-evening-early",
+	})
+	if !errors.Is(err, domain.ErrSessionNotDue) {
+		t.Fatalf("closing the evening visit at 09:00 = %v, want a refusal", err)
+	}
+	var notDue domain.SessionNotDueError
+	if !errors.As(err, &notDue) || notDue.DueLabel() != "17:00" {
+		t.Fatalf("refusal = %+v, want it to name 17:00 so the operator knows when to come back", notDue)
+	}
+
+	// The same visit closes once its hour has come.
+	evening := time.Date(today.Year(), today.Month(), today.Day(), 17, 30, 0, 0, loc)
+	atEvening := NewRepository(pool, 10*time.Second)
+	atEvening.now = func() time.Time { return evening }
+	if _, err := atEvening.CompleteWorkItem(ctx, domain.CompleteInput{
+		TenantID: healthTenant, ActorID: healthActor, SessionID: eveningID,
+		IdempotencyKey: "close-evening-ontime", RequestFingerprint: "close-evening-ontime",
+	}); err != nil {
+		t.Fatalf("closing the evening visit at 17:30: %v", err)
+	}
+}
