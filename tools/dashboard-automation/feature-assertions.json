@@ -9114,7 +9114,7 @@
   },
   {
     "sha": "22a78bc03",
-    "title": "Herd Signals Live Monitor uses mock status wording (e.g. Missing signal / Weak signal) and \"... only\" mapping filters",
+    "title": "Herd Signals Live Monitor has lost the Missing signal / Weak signal wording and the \"... only\" mapping filter choices",
     "route": "herd-signals",
     "viewports": [
       "laptop",
@@ -9129,13 +9129,20 @@
       },
       {
         "count": {
-          "css": "select[aria-label=\"Movement state\"] option:text-is(\"Missing signal\")",
+          "css": "select[aria-label=\"Mapping state\"] option:text-is(\"Mapped only\")",
+          "min": 1
+        }
+      },
+      {
+        "count": {
+          "css": "select[aria-label=\"Pattern\"] option:text-is(\"Missing signal\")",
           "min": 1
         }
       }
     ],
     "status": "assert",
-    "evidence": "apps/admin-web/features/herd-signals/herd-signals-filters.tsx:128",
+    "note": "\"Missing signal\" is a PATTERN state (format.ts PATTERN_LABEL.missing), offered in the Pattern filter and printed in the table's Status column. The Movement filter only ever lists movement states - Moving, Low, Quiet, No movement, Stale - so asking it for a \"Missing signal\" option failed on a page that had the wording all along, on both viewports, every run.",
+    "evidence": "apps/admin-web/features/herd-signals/herd-signals-filters.tsx:128 (Mapping state) and :144 (Pattern)",
     "group": "B",
     "verdict": "pass"
   },

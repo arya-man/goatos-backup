@@ -1163,16 +1163,45 @@ async function assertLayoutHealthy(page, routeName, viewportLabel) {
           if (halo.content !== 'none' && halo.position === 'absolute'
             && ['top', 'right', 'bottom', 'left'].every((side) => halo[side] === '-5px')) return false;
         }
-        const surface = tapSurface(element, smallTargetMin);
-        return surface.width < smallTargetMin || surface.height < smallTargetMin;
+        const zoom = canvasZoom(element);
+        const surface = tapSurface(element, smallTargetMin * zoom);
+        return surface.width / zoom < smallTargetMin || surface.height / zoom < smallTargetMin;
       })
       .slice(0, 5)
       .map((element) => {
-        const surface = tapSurface(element, smallTargetMin);
+        const zoom = canvasZoom(element);
+        const surface = tapSurface(element, smallTargetMin * zoom);
         // Report the hit box as well as the element's own box, so a reader can see WHICH number
         // failed instead of arguing with a screenshot that looks fine.
-        return { ...describeElement(element), hitWidth: Math.round(surface.width), hitHeight: Math.round(surface.height) };
+        return {
+          ...describeElement(element),
+          hitWidth: Math.round(surface.width / zoom),
+          hitHeight: Math.round(surface.height / zoom),
+        };
       });
+    // A flow diagram the reader can zoom is drawn with a CSS scale on a surface they can pan,
+    // with its own minus / plus / Fit controls right above it. Fitted to a phone that lands
+    // around 39%, and at 39% EVERY control in the canvas measures 39% of itself: the SOP
+    // "insert step" button, which the stylesheet deliberately sizes at 40px below 1100px wide,
+    // measured 16px and was posted as too small to tap. The zoom is the reader's setting, not
+    // the button's size, so measure inside the canvas in the canvas's own units. This reaches
+    // nothing outside a zoomable canvas, and a control that is genuinely small in those units
+    // (a bare 20px icon) still fails, at 20px.
+    function canvasZoom(element) {
+      for (let node = element.parentElement, depth = 0; node && node !== document.body && depth < 12; node = node.parentElement, depth += 1) {
+        const transform = getComputedStyle(node).transform;
+        if (!transform || transform === 'none') continue;
+        const numbers = transform.match(/-?[\d.]+/g);
+        if (!numbers || numbers.length < 4) continue;
+        const scale = Math.hypot(Number(numbers[0]), Number(numbers[1]));
+        if (!(scale > 0) || scale >= 0.999) continue;
+        // Only a surface the reader can actually pan earns this allowance.
+        for (let owner = node.parentElement, up = 0; owner && owner !== document.body && up < 4; owner = owner.parentElement, up += 1) {
+          if (/(auto|scroll)/.test(getComputedStyle(owner).overflowX)) return scale;
+        }
+      }
+      return 1;
+    }
     // The tap target is the control box a finger lands on, not the bare field inside it.
     // A native field is routinely a small <input> inside a padded, bordered wrapper that IS the
     // visible control. Measured on production /tasks at 390px: the search <input> reports
