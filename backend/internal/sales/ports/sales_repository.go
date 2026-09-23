@@ -151,3 +151,17 @@ type FPOLeadPage struct {
 	StatusOptions []string
 	StatusFilters []domain.LeadStatusFilter
 }
+
+// FeedStockReader answers how many kilograms of one feed the store holds at one farm.
+//
+// It is a PORT the sales module declares and the feed module implements, rather than sales reading
+// the purchase ledger itself: the stock arithmetic -- purchased, less fed, less already sold, with
+// the transitional concentrate fold on top -- belongs to feeddirection, and a second
+// implementation of it here would be a number that disagrees with the Stock tab the moment either
+// side changes.
+type FeedStockReader interface {
+	// FeedBalanceKg is the current balance for (farm, feed). known is false when the store has no
+	// ledger for that feed at that farm at all -- which is a different fact from a balance of
+	// zero, and must not be reported to the desk as "you have none left".
+	FeedBalanceKg(ctx context.Context, tenantID, farmLabel, feedItemLabel string) (kg float64, known bool, err error)
+}

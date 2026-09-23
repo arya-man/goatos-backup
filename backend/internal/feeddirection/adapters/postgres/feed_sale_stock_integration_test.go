@@ -113,3 +113,66 @@ VALUES ($1, $2, 'CBE', 'Groundnut Cake', 702, DATE '2026-08-01', 800, 30, 24000,
 	}
 	t.Fatal("an unsold feed dropped off the stock cards entirely")
 }
+
+// The Go twin of feed_config_norm() must agree with the database function label for label. It is
+// hand-written, so this is the only thing standing between it and silent drift -- a sale of
+// "Mesha  Kids-Goat Concentrate" must find the store row that holds "Mesha Kids Goat Concentrate".
+func TestTheGoFeedKeyAgreesWithTheDatabaseFunction(t *testing.T) {
+	ctx := context.Background()
+	_, pool := setupIssueDB(t, ctx)
+
+	for _, label := range []string{
+		"Maize",
+		"Mesha Kids Goat Concentrate",
+		"  Mesha  Kids-Goat_Concentrate  ",
+		"GROUNDNUT CAKE",
+		"UHT Milk",
+		"Silage - Maize",
+		"a",
+	} {
+		var want string
+		if err := pool.QueryRow(ctx, `SELECT feed_config_norm($1)`, label).Scan(&want); err != nil {
+			t.Fatalf("feed_config_norm(%q): %v", label, err)
+		}
+		if got := feedConfigNorm(label); got != want {
+			t.Fatalf("feed key for %q: Go says %q, the database says %q", label, got, want)
+		}
+	}
+}
+
+// A sale is answered at the balance the Stock tab SHOWS, and a feed the ledger has never carried
+// answers "unknown" rather than "nothing left" -- the two are different facts and only one of them
+// is worth warning a person about.
+func TestFeedBalanceAnswersTheStoreAndKnowsWhenItCannot(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupIssueDB(t, ctx)
+
+	park := fdiPark
+	if _, err := pool.Exec(ctx, `
+INSERT INTO feed_purchases (tenant_id, park_id, farm_label, feed_item_label, batch_no,
+                            purchase_date, quantity_kg, per_kg_cost, total_cost,
+                            consumed_at_import_kg, depletes_from, vendor, payment_status,
+                            delivery_status)
+VALUES ($1, $2, 'CBE', 'Maize', 703, DATE '2026-08-01', 5000, 20, 100000, 0,
+        DATE '2026-08-01', 'Navaladi', 'Paid', 'reached')`, fdiTenant, park); err != nil {
+		t.Fatalf("insert purchase: %v", err)
+	}
+
+	kg, known, err := repo.FeedBalanceKg(ctx, fdiTenant, "CBE", "  maize ")
+	if err != nil {
+		t.Fatalf("feed balance: %v", err)
+	}
+	if !known || kg != 5000 {
+		t.Fatalf("CBE maize = %v (known=%v), want 5000 found by the normalised key", kg, known)
+	}
+
+	// Another farm's store is not this farm's store.
+	if _, known, err := repo.FeedBalanceKg(ctx, fdiTenant, "CPT", "Maize"); err != nil || known {
+		t.Fatalf("CPT must not answer from CBE's ledger: known=%v err=%v", known, err)
+	}
+	// A feed the ledger never carried has no opinion. Reporting 0 here would tell the desk the
+	// store is empty of something it has simply never bought.
+	if kg, known, err := repo.FeedBalanceKg(ctx, fdiTenant, "CBE", "Lucerne Hay"); err != nil || known || kg != 0 {
+		t.Fatalf("an unledgered feed must be unknown, got kg=%v known=%v err=%v", kg, known, err)
+	}
+}
