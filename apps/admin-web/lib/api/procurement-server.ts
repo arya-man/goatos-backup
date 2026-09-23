@@ -15,6 +15,7 @@ import {
   type ProcurementVendorForm,
 } from "@/lib/api/server";
 import type { LoadCostWrite, LoadwiseSales, LoadwiseWeights, BuyerAnalytics, FarmBornSales,
+  SalesOptions,
   AnimalPurchaseAnimal,
   AnimalPurchaseCounts,
   AnimalPurchaseDecisionRequest,
@@ -376,6 +377,17 @@ export async function listSalesDeals(
       query: compactQuery({ farm: params.farm, limit: params.limit, offset: params.offset }),
     }),
   );
+}
+
+/**
+ * The vocabularies a record-sale form renders: the farm's sellable products with their kinds, and
+ * each product's variants. One answer, shared with the phone.
+ */
+export async function getSalesOptions(): Promise<ApiResult<SalesOptions>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() => client.request<SalesOptions>("/sales/options", { cache: "no-store" }));
 }
 
 export async function createSalesDeal(

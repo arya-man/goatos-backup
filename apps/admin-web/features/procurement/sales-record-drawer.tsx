@@ -11,7 +11,7 @@ import {
 } from "@/components/local-overlay-link";
 import { Tag } from "@/components/ui-primitives";
 import { controlEnabled, copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
-import type { SalesDeal } from "@/lib/api/procurement";
+import type { SalesDeal, SalesOptions } from "@/lib/api/procurement";
 import type { ProcurementVendorOption, ProcurementVendorOptions } from "@/lib/api/server";
 import { ThemedDatePicker } from "@/components/themed-date-picker";
 import { fmtDate, istDayPlus, todayIso } from "@/lib/format";
@@ -62,12 +62,20 @@ function vendorLabel(vendor: ProcurementVendorOption): string {
  * search param would never open it), and the mock's drawer anatomy — `.scrim`/`.drawer.on`,
  * `.dh`/`.dc`/`.df`, with a RECORD body as a `.metagrid` of `.k`/`.v` cells.
  */
+/** The list URL with the drawer's own deal param on it, so a redirect lands with it open. */
+function addDealParam(href: string, dealId: string): string {
+  return `${href}${href.includes("?") ? "&" : "?"}deal_id=${encodeURIComponent(dealId)}`;
+}
+
 export function SalesRecordDrawer({
   deals,
   pageContract,
   listHref,
   canRecord,
   vendorOptions,
+  salesOptions,
+  stockConfirmNeeded,
+  stockConfirmDetail,
 }: {
   /** The rendered ledger page. The detail view opens from this data — it issues no fetch of its own. */
   deals: SalesDeal[];
@@ -82,6 +90,25 @@ export function SalesRecordDrawer({
    * get different copy: one says the list is unavailable, the other says to go add the buyer.
    */
   vendorOptions: ProcurementVendorOptions | null;
+  /**
+   * What the farm sells and what each may be sold as, read with the page from /sales/options --
+   * the SAME answer the phone's record-sale form reads, so the two surfaces cannot offer different
+   * products. `null` means the read failed; the form then says so rather than rendering an empty
+   * product list that reads as "this farm sells nothing".
+   */
+  salesOptions: SalesOptions | null;
+  /**
+   * The last submit came back asking the desk to confirm a sale that takes more feed than the
+   * store shows. It puts the tick on the form; the sentence itself is backend copy shown in the
+   * page's banner.
+   */
+  stockConfirmNeeded: boolean;
+  /**
+   * The backend's own sentence naming what the store holds. It is rendered HERE, beside the tick,
+   * rather than only in the page banner: the drawer reopens over that banner, so a person being
+   * asked to confirm would have to close their half-filled form to read the question.
+   */
+  stockConfirmDetail?: string;
 }) {
   const closeButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -110,8 +137,11 @@ export function SalesRecordDrawer({
   // ONE sale, MANY lines (maintainer decision 2026-09-12): the product/breed/animals/weight/value
   // live on the lines, one card each; the deal keeps date, farm, buyer, advance, status. Reset
   // during render when the selection changes, not in an effect.
-  const productOptions = optionGroup(pageContract, "sales_product_types");
-  const [lines, setLines] = useState<SaleLineDraft[]>(() => [newSaleLine(1, productOptions[0]?.key ?? "")]);
+  // WHAT THE FARM SELLS IS ITS OWN REGISTRY (migration 000393), read from the backend rather than
+  // compiled into this page's contract, because the phone's form reads the same answer.
+  const products = salesOptions?.products ?? [];
+  const variants = (salesOptions?.breeds ?? {}) as Record<string, string[]>;
+  const [lines, setLines] = useState<SaleLineDraft[]>(() => [newSaleLine(1, products[0]?.name ?? "")]);
   // The vendor IS the buyer, so picking one fills the buyer snapshot fields. They stay EDITABLE
   // (maintainer decision 2026-08-27): the sale is still recorded under the name it was made in,
   // which may differ from the register's spelling, and buyer_name is what the ledger and the buyer
@@ -125,7 +155,7 @@ export function SalesRecordDrawer({
     // Reset during render when the drawer opens on a different record, never in an effect -- an
     // effect would let one submit's values flash into the next form.
     setSyncedSelection(selection);
-    setLines([newSaleLine(1, productOptions[0]?.key ?? "")]);
+    setLines([newSaleLine(1, products[0]?.name ?? "")]);
     setVendorId("");
     setVendorQuery("");
     setBuyerName("");
@@ -255,7 +285,13 @@ export function SalesRecordDrawer({
         {isAdding ? (
           <form action={recordSaleAction} style={{ display: "contents" }}>
             <div className="dc">
-              <input type="hidden" name="return_to" value={listHref} />
+              {/* The record form returns to the OPEN drawer, not to the bare list. A refusal --
+                  a missing field, or the short-feed-stock confirmation -- redirects here, and
+                  landing on a closed drawer would leave the operator reading a banner about a
+                  form they can no longer see. Known gap, recorded rather than hidden: the typed
+                  values are still lost on that bounce, because the submit is a server action that
+                  redirects. */}
+              <input type="hidden" name="return_to" value={addDealParam(listHref, "new")} />
 
               <div className="note">{copy(pageContract, "required.hint")}</div>
 
@@ -295,8 +331,27 @@ export function SalesRecordDrawer({
                 lines={lines}
                 onChange={setLines}
                 pageContract={pageContract}
-                productOptions={productOptions}
+                products={products}
+                variants={variants}
               />
+              {stockConfirmNeeded ? (
+                // The short-feed-sale confirmation (maintainer decision 2026-09-23). It appears
+                // only after the backend has asked for it, and it is NOT checked by default: a
+                // tick the form carries on its own is not a confirmation of anything.
+                <div className="fld sales-stock-ack">
+                  {stockConfirmDetail ? <div className="note warn">{stockConfirmDetail}</div> : null}
+                  <label htmlFor="s-stock_ack">
+                    <input
+                      id="s-stock_ack"
+                      name="stock_shortfall_acknowledged"
+                      type="checkbox"
+                      value="1"
+                    />{" "}
+                    {copy(pageContract, "field.stock_shortfall_ack")}
+                  </label>
+                  <div className="note">{copy(pageContract, "hint.stock_shortfall_ack")}</div>
+                </div>
+              ) : null}
 
               <div className="dgrp">{field("vendor")}</div>
               <div className="fld">

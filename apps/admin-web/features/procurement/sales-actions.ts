@@ -4,7 +4,12 @@
 // envelope) drives the banner the operator sees — no optimistic success.
 import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
-import { actionRedirect, optionalString, requiredString } from "@/lib/action-helpers";
+import {
+  actionRedirect,
+  actionRedirectWithDetail,
+  optionalString,
+  requiredString,
+} from "@/lib/action-helpers";
 // NOTE: every actionKey below MUST start with "action." -- withActionFeedback silently rewrites
 // anything else to "action.error_form" -- and each key needs matching page-contract copy, because
 // actionFeedbackCopy throws on a missing key and takes the whole page down with it.
@@ -59,7 +64,12 @@ function readSaleForm(formData: FormData): SalesDealWrite {
       breed: requiredString(formData, `line_breed_${i}`),
       animal_count: parseOptionalNumber(`line_animal_count_${i}`),
       total_weight_kg: parseOptionalNumber(`line_total_weight_kg_${i}`),
-      sales_value: Number(requiredString(formData, `line_sales_value_${i}`)),
+      // A line priced by the unit (feed, migration 000393) posts kilograms and a rate and NO
+      // value: the backend computes it, so a stale figure on the form can never be recorded as
+      // the money. Its value field is a readout, not an input, and is deliberately absent here.
+      quantity: parseOptionalNumber(`line_quantity_${i}`),
+      rate_per_unit: parseOptionalNumber(`line_rate_per_unit_${i}`),
+      sales_value: Number(formData.get(`line_sales_value_${i}`)?.toString() ?? "0"),
     });
   }
 
@@ -74,6 +84,8 @@ function readSaleForm(formData: FormData): SalesDealWrite {
     // here rather than posting a vendorless deal; the backend re-validates the same rule.
     buyer_vendor_id: requiredString(formData, "buyer_vendor_id"),
     advance_amount: parseOptionalNumber("advance_amount"),
+    // Only ever true because a person ticked it after being shown what the store holds.
+    stock_shortfall_acknowledged: formData.get("stock_shortfall_acknowledged") !== null,
     status: (optionalString(formData, "status") ?? "") as SalesDealWrite["status"],
     comments: optionalString(formData, "comments") ?? "",
   };
@@ -84,6 +96,14 @@ export async function recordSaleAction(formData: FormData): Promise<void> {
   // deliberate second submit records a second deal, which is what the operator asked for.
   const result = await createSalesDeal(readSaleForm(formData), randomUUID());
   if (!result.ok) {
+    // The short-feed-sale CONFIRMATION (maintainer decision 2026-09-23) is not a failure: the sale
+    // may be right and the purchase ledger behind. Keyed on the backend's CODE, never on its
+    // sentence -- the sentence is farm copy and may be reworded -- and that sentence is carried
+    // through so the desk sees what the store actually holds, which is the question it is being
+    // asked to answer.
+    if (result.error.code === "feed_stock_confirmation_required") {
+      actionRedirectWithDetail(formData, "error", "action.sale_feed_stock_confirm", result.error.message);
+    }
     actionRedirect(formData, "error", "action.sale_record_failed");
   }
   revalidatePath(SALES_PATH);
