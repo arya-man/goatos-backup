@@ -1011,8 +1011,18 @@ func leadershipModuleKeys(grants []domain.GrantSummary) []string {
 	if hasRole(grants, permissions.RoleFeedDirector) {
 		keys = appendMissing(keys, "feed_direction")
 	}
+	// Health, because CONFIRMING A DIAGNOSIS is this desk's defining job (maintainer decision
+	// 2026-08-14, recorded on the HealthDiagnose grant in permissions.go). Until now the offer
+	// was missing and the grant was not: the server told a Health Director may_confirm=true and
+	// then never showed them the module, so the one desk the 2026-08-14 decision moved this job
+	// ONTO was the only holder who could not do it from a phone -- while the PC Director it was
+	// moved AWAY from still could, because pc_director is offered aas_health above.
+	//
+	// Counts is OWNERSHIP without access, and stays that way: health_director is the counts owner
+	// so a counts/shifting proof has a leadership recipient, but holds neither counts.read nor
+	// counts.write, so the module is offered and the feature stays off.
 	if hasRole(grants, permissions.RoleHealthDirector) {
-		keys = appendMissing(keys, "counts")
+		keys = appendMissing(keys, "aas_health", "counts")
 	}
 	// Approvals is offered by PERMISSION, not by role (maintainer decision 2026-08-05, "rbac per
 	// person, not per group"). Every entry above asks "which job is this?"; this one asks "may
