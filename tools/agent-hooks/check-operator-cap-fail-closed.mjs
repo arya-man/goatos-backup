@@ -1,7 +1,14 @@
 #!/usr/bin/env node
 
-import { readFileSync } from 'fs';
-import { execSync } from 'child_process';
+import { readFileSync, readdirSync, existsSync } from 'node:fs';
+import { join, resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+// 18 operatorCapacityPlanner*/effectiveOperatorAnimalCap* callsites exist in
+// backend/internal/obligation/app today. The floor is deliberately well below
+// that so a refactor does not trip it, and deliberately above zero so a
+// detector that goes blind cannot report a pass.
+const MIN_CALLSITES = 8;
 
 /**
  * check-operator-cap-fail-closed.mjs
@@ -29,7 +36,7 @@ import { execSync } from 'child_process';
  * and the result flows into a sink (lock/limit call) WITHOUT an exhaustion check nearby.
  */
 
-function checkFile(filepath, source) {
+function checkFile(filepath, source, callsitesSeen = []) {
   const lines = source.split('\n');
   const violations = [];
 
@@ -43,8 +50,15 @@ function checkFile(filepath, source) {
     // Skip if this line has ignore annotation
     if (line.includes('operator-cap-fail-closed:ignore')) continue;
 
-    // Look for operatorCapacityPlanner or effectiveOperatorAnimalCap calls
-    if (/(operatorCapacityPlanner|effectiveOperatorAnimalCap)\s*\(/.test(line)) {
+    // Look for operatorCapacityPlanner* or effectiveOperatorAnimalCap* calls.
+    // The `\w*` is load-bearing: production renamed the planner to
+    // operatorCapacityPlannerForTargets(, so the old anchored spelling matched
+    // NONE of the 11 real callsites in sweeper.go / preflight.go /
+    // park_consolidation.go. Measured 2026-09-23: replacing the canonical
+    // fail-closed check in sweeper.go:1332 with `if false {` left this guard
+    // printing "PASS — all callsites properly guarded".
+    if (/(operatorCapacityPlanner\w*|effectiveOperatorAnimalCap\w*)\s*\(/.test(line)) {
+      callsitesSeen.push(`${filepath}:${i + 1}`);
       // Look ahead up to 30 lines for sink calls or exhaustion checks
       let foundSink = false;
       let foundGuard = false;
@@ -122,6 +136,24 @@ function main() {
       '\t_ = comboBatchExceedsDriveCapacityAtDate(batch, target, effectiveDriveCap, session)',
       '}',
     ].join('\n');
+    // The spelling production ACTUALLY uses. The old fixtures all hand-wrote
+    // `s.operatorCapacityPlanner(`, which is why this guard stayed green while
+    // seeing 1 of 14 real callsites.
+    const realSpellingFixture = [
+      'func (s *SweeperService) real(ctx context.Context) {',
+      '\tcapPlanner, err := s.operatorCapacityPlannerForTargets(ctx, tenantID, parkID, day, planner, session, targetIDs)',
+      '\t_ = limitUnbatchedSelectionByDriveAnimals(now, rows, ids, day, capPlanner, session)',
+      '}',
+    ].join('\n');
+    if (checkFile('selftest-real-spelling.go', realSpellingFixture).length === 0) {
+      console.error('operator-cap-fail-closed self-test FAILED: did NOT flag an unguarded operatorCapacityPlannerForTargets -> limit sink');
+      return 1;
+    }
+    // And the floor: a detector that sees nothing must not be able to pass.
+    if (MIN_CALLSITES < 1) {
+      console.error('operator-cap-fail-closed self-test FAILED: MIN_CALLSITES floor disabled');
+      return 1;
+    }
     const badViolations = checkFile('selftest-bad.go', badFixture);
     const guardedViolations = checkFile('selftest-guarded.go', guardedFixture);
     const comboViolations = checkFile('selftest-combo.go', comboFixture);
@@ -141,22 +173,32 @@ function main() {
     return 0;
   }
 
-  const repoRoot = process.argv[2] || '.';
+  // Script-relative, NOT cwd. `find . ... || true` meant running this guard from
+  // any other directory produced zero files and a PASS.
+  const repoRoot = (args[0] && !args[0].startsWith('--')) ? args[0] : resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
   try {
     // Find all Go files in obligation/app excluding tests
-    const files = execSync(`find ${repoRoot}/backend/internal/obligation/app -name '*.go' ! -name '*_test.go' -type f 2>/dev/null || true`)
-      .toString()
-      .trim()
-      .split('\n')
-      .filter(f => f.length > 0);
+    const scanDir = join(repoRoot, 'backend/internal/obligation/app');
+    if (!existsSync(scanDir)) {
+      console.error(`operator-cap-fail-closed: FAIL — scan directory ${scanDir} does not exist. This guard checked nothing.`);
+      return 1;
+    }
+    const files = readdirSync(scanDir)
+      .filter((f) => f.endsWith('.go') && !f.endsWith('_test.go'))
+      .map((f) => join(scanDir, f));
+    if (files.length === 0) {
+      console.error(`operator-cap-fail-closed: FAIL — no Go files under ${scanDir}. This guard checked nothing.`);
+      return 1;
+    }
 
+    const callsitesSeen = [];
     let totalViolations = 0;
 
     for (const filepath of files) {
       try {
         const source = readFileSync(filepath, 'utf8');
-        const violations = checkFile(filepath, source);
+        const violations = checkFile(filepath, source, callsitesSeen);
 
         if (violations.length > 0) {
           console.error(`operator-cap-fail-closed: ${filepath}`);
@@ -170,8 +212,20 @@ function main() {
       }
     }
 
+    // Floor. A detector that matches nothing reports "all callsites properly
+    // guarded", which is a verdict on a check that did not run (CONTRACT.md §4).
+    // 18 callsites exist today; the floor is set below that so ordinary
+    // refactoring does not trip it, but a detector that goes blind does.
+    if (callsitesSeen.length < MIN_CALLSITES) {
+      console.error(
+        `operator-cap-fail-closed: FAIL — the detector matched ${callsitesSeen.length} callsite(s), expected at least ${MIN_CALLSITES}.`,
+      );
+      console.error('  The planner was probably renamed again. Fix the detector; do not lower the floor.');
+      return 1;
+    }
+
     if (totalViolations === 0) {
-      console.log('operator-cap-fail-closed: PASS — all callsites properly guarded');
+      console.log(`operator-cap-fail-closed: PASS — ${callsitesSeen.length} callsite(s) checked, all properly guarded`);
       return 0;
     } else {
       console.error(`operator-cap-fail-closed: FAIL — ${totalViolations} unguarded callsite(s) found`);

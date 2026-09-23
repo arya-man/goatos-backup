@@ -201,11 +201,26 @@ export function main() {
   }
 
   const findings = [];
+  const missing = [];
   for (const rel of TARGET_FILES) {
     const abs = join(repo, rel);
-    if (!existsSync(abs)) continue;
+    // `continue` used to live here. With only two TARGET_FILES, renaming one
+    // halved this guard and renaming both made it vacuous — and it still printed
+    // its success line. A target that is not there means this guard did not run
+    // on it, and a check that did not run renders no verdict (CONTRACT.md §4).
+    if (!existsSync(abs)) {
+      missing.push(rel);
+      continue;
+    }
     const source = readFileSync(abs, "utf-8");
     findings.push(...checkFile(relative(repo, abs), source));
+  }
+
+  if (missing.length > 0) {
+    console.log("ROLE-SCOPED UI CONTRACT: target file(s) missing — this guard checked nothing for them\n");
+    for (const rel of missing) console.log(`  - ${rel}`);
+    console.log("\nIf the surface moved, update TARGET_FILES. Do not let it skip.");
+    process.exit(1);
   }
 
   if (findings.length > 0) {
