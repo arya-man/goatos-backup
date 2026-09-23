@@ -240,6 +240,13 @@ type ProductWrite struct {
 	// SpeciesCode narrows an animal item's breeds. Only the animal kind may carry one.
 	SpeciesCode string
 	SortOrder   int
+
+	// Adding is set by Normalize when the caller supplied NO code, meaning this is a new item
+	// rather than an edit of an existing one. It matters because the code is DERIVED from the
+	// name: adding an item called "Feed" when a Feed already exists derives the same code, and
+	// without this the write would land on that row and quietly rewrite it. The screen calls that
+	// adding; the farm would call it losing its feed item.
+	Adding bool
 }
 
 // Normalize trims the fields and, for a new item, derives its code from its name.
@@ -255,6 +262,7 @@ func (w ProductWrite) Normalize() ProductWrite {
 		out.Status = StatusActive
 	}
 	if out.Code == "" {
+		out.Adding = true
 		out.Code = ProductCodeFromName(out.Name)
 	}
 	if out.Kind != KindAnimal {

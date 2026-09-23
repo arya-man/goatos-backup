@@ -260,6 +260,23 @@ func (r *Repository) SaveSellableProduct(ctx context.Context, tenantID string, w
 	// never changes. Changing what Goat IS only changes what the NEXT goat sale asks for, which
 	// is exactly what somebody editing this list means to do.
 
+	// AN ADD MUST NOT LAND ON AN EXISTING ROW. The code is derived from the name, so adding an
+	// item called "Feed" when a Feed already exists derives the same code -- and the upsert below,
+	// which is exactly right for an EDIT, would quietly rewrite that row instead. On this farm it
+	// flipped the real Feed item from feed-from-the-store to something else, which would have
+	// stopped every feed sale drawing on the store. Caught by the browser run, 2026-09-23.
+	if write.Adding {
+		var exists bool
+		if err := tx.QueryRow(ctx, `
+SELECT EXISTS (SELECT 1 FROM public.sellable_product_catalog WHERE tenant_id = $1 AND product_code = $2)`,
+			tenantID, write.Code).Scan(&exists); err != nil {
+			return domain.Product{}, fmt.Errorf("sales: check sellable product exists: %w", err)
+		}
+		if exists {
+			return domain.Product{}, ports.ErrProductNameTaken
+		}
+	}
+
 	// NOBODY NUMBERS THE LIST (maintainer instruction 2026-09-23: "just remove it"). A new item is
 	// appended after the last one; an edit keeps the place the row already has. The column stays,
 	// because the list still needs a stable order to be read and offered in -- it simply stopped
@@ -400,4 +417,16 @@ WHERE tenant_id = $1 AND product_code = $2`, tenantID, code)
 		return fmt.Errorf("sales: audit sellable product delete: %w", err)
 	}
 	return tx.Commit(ctx)
+}
+
+// ListFeedItems is the farm's configured feed list: the same feed_item_catalog rows the ration
+// grid and the feed purchases are authored against, which is the only set a feed sale may name.
+func (r *Repository) ListFeedItems(ctx context.Context, tenantID string) ([]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, activeFeedItemsSQL, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("sales: list feed items: %w", err)
+	}
+	return scanStrings(rows)
 }

@@ -237,3 +237,19 @@ func TestOnlyAnAnimalItemCarriesASpecies(t *testing.T) {
 		t.Fatalf("an animal item keeps its species, got %q", a.SpeciesCode)
 	}
 }
+
+// ADDING AN ITEM MUST NEVER BE AN EDIT OF ANOTHER ONE. The code is derived from the name, so a
+// new item called "Feed" derives the same code as an existing Feed -- and the repository's upsert,
+// which is right for an edit, would rewrite that row instead. The browser run on 2026-09-23 did
+// exactly this and flipped the farm's real feed item to something else; the flag below is what
+// lets the write path tell the two apart.
+func TestAddingIsDistinguishableFromEditing(t *testing.T) {
+	adding := ProductWrite{Name: "Feed", Kind: KindOther, Unit: UnitKg}.Normalize()
+	if !adding.Adding || adding.Code != "feed" {
+		t.Fatalf("a write with no code is an ADD deriving its code, got adding=%v code=%q", adding.Adding, adding.Code)
+	}
+	editing := ProductWrite{Code: "feed", Name: "Feed pellets", Kind: KindFeed, Unit: UnitKg}.Normalize()
+	if editing.Adding || editing.Code != "feed" {
+		t.Fatalf("a write carrying a code is an EDIT of that row, got adding=%v code=%q", editing.Adding, editing.Code)
+	}
+}

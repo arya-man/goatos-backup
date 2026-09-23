@@ -5123,6 +5123,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"field.product_species":                  "Species",
 			"field.product_status":                   "Status",
 			"hint.product_code":                      "Renaming an item keeps every sale already recorded under it.",
+			"hint.product_feed_covers":               "Which feed is chosen on the sale itself, from Feed config:",
 			"column.product_name":                    "Item",
 			"column.product_kind":                    "What it is",
 			"column.product_unit":                    "Sold by",

@@ -84,6 +84,11 @@ type sellableProductPagePayload struct {
 	Products []sellableProductPayload       `json:"products"`
 	Kinds    []sellableProductChoicePayload `json:"kinds"`
 	Units    []sellableProductChoicePayload `json:"units"`
+	// FeedItems is the farm's CONFIGURED feed list (feed_item_catalog, the same rows the ration
+	// grid and the feed purchases are authored against). An item of the feed kind must BE one of
+	// these -- a feed is not a name somebody types, and inventing one here would make a sale draw
+	// on a store that does not exist.
+	FeedItems []string `json:"feed_items"`
 }
 
 // sellableProductChoicePayload is one option of a closed vocabulary, with the words for it.

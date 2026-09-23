@@ -10653,6 +10653,8 @@ export interface components {
         /** @description The farm's registry of what it sells, with the vocabularies its editor offers. */
         SellableProductPage: {
             products: components["schemas"]["SellableProduct"][];
+            /** @description The farm's CONFIGURED feeds (feed_item_catalog, the rows the ration grid and the feed purchases are authored against). An item of the feed kind must be one of these: a feed is not a name somebody types, and inventing one would make a sale draw on a store that does not exist. */
+            feed_items: string[];
             /** @description What an item can BE. The hint says what picking it does. */
             kinds: components["schemas"]["SellableProductChoice"][];
             /** @description How an item can be sold -- by the kilogram, or by number. */

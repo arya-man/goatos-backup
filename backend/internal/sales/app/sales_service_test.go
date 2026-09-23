@@ -78,6 +78,10 @@ func (f *fakeRepo) DeleteSellableProduct(_ context.Context, _, code, _ string) e
 	return nil
 }
 
+func (f *fakeRepo) ListFeedItems(_ context.Context, _ string) ([]string, error) {
+	return []string{"Maize", "Groundnut Cake"}, nil
+}
+
 func (f *fakeRepo) ListDeals(_ context.Context, _ string, farm string, limit, offset int) (ports.DealPage, error) {
 	f.listFarm, f.listLimit, f.listOffset = farm, limit, offset
 	return ports.DealPage{Total: 63}, nil

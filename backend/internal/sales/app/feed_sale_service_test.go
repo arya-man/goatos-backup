@@ -50,6 +50,10 @@ func (f *feedRepo) ListAllSellableProducts(_ context.Context, _ string) ([]domai
 	}, nil
 }
 
+func (f *feedRepo) ListFeedItems(_ context.Context, _ string) ([]string, error) {
+	return []string{"Maize", "Groundnut Cake"}, nil
+}
+
 func (f *feedRepo) ListProductVariants(_ context.Context, _ string, _ []domain.Product) (map[string][]string, error) {
 	return map[string][]string{"Feed": {"Maize", "Groundnut Cake"}}, nil
 }
