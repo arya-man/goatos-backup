@@ -218,3 +218,74 @@ func TestAStepFromAnotherSessionIsRefused(t *testing.T) {
 		t.Fatalf("attaching another session's step = %v, want a refusal", err)
 	}
 }
+
+// THE CARD EARNS ITS OWN VISITS, on the production path (maintainer decision 2026-09-23).
+//
+// A ward animal earns one housing visit a day. A card that also authors an afternoon and an
+// evening dose earns those visits too, and each one carries only its own work -- which is the
+// whole point: an evening dose handed to an operator at 07:00 is not an evening dose.
+func TestACardAuthoringThreeSessionsEarnsThreeVisits(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedHealthScope(t, ctx, pool)
+
+	morning, afternoon, evening := "Morning dose", "Afternoon dose", "Evening dose"
+	anytime := "Give with feed"
+	repo := NewRepository(pool, 10*time.Second)
+	if err := repo.ReplacePublishedProtocols(ctx, healthTenant, healthActor, "health-test", "hash-visits",
+		[]domain.SourceProtocol{{
+			DiseaseKey: "fever", DisplayName: "Fever", AgeBand: domain.AgeBandAdult, DurationDays: 1,
+			Steps: []domain.ProtocolStep{
+				{DayNo: 1, Session: domain.SessionMorning, Seq: 1, RecordType: "action", Instruction: &morning},
+				{DayNo: 1, Session: domain.SessionAfternoon, Seq: 2, RecordType: "action", Instruction: &afternoon},
+				{DayNo: 1, Session: domain.SessionEvening, Seq: 3, RecordType: "action", Instruction: &evening},
+				{DayNo: 1, Session: "unscheduled", Seq: 4, RecordType: "action", Instruction: &anytime},
+			},
+		}}); err != nil {
+		t.Fatalf("publish protocol: %v", err)
+	}
+
+	loc, _ := time.LoadLocation("Asia/Kolkata")
+	opened, err := repo.OpenCase(ctx, domain.OpenCaseInput{
+		TenantID: healthTenant, ActorID: healthActor, GoatID: healthGoat,
+		DiseaseKey: "fever", AgeBand: domain.AgeBandAdult, StartDate: time.Now().In(loc),
+		IdempotencyKey: "open-visits", RequestFingerprint: "open-visits",
+	})
+	if err != nil {
+		t.Fatalf("open case: %v", err)
+	}
+
+	rows, err := pool.Query(ctx,
+		`SELECT ts.session, count(st.*)
+		   FROM health_treatment_sessions ts
+		   LEFT JOIN health_session_steps st ON st.health_session_id = ts.health_session_id
+		  WHERE ts.tenant_id = $1::uuid AND ts.health_case_id = $2::uuid AND ts.day_no = 1
+		  GROUP BY ts.session`, healthTenant, opened.CaseID)
+	if err != nil {
+		t.Fatalf("read day 1 visits: %v", err)
+	}
+	defer rows.Close()
+	steps := map[string]int{}
+	for rows.Next() {
+		var session string
+		var n int
+		if err := rows.Scan(&session, &n); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		steps[session] = n
+	}
+	if len(steps) != 3 {
+		t.Fatalf("day 1 produced %v, want a morning, an afternoon and an evening visit", steps)
+	}
+	// Morning carries its own dose AND the one with no hour on it; the other two carry only
+	// their own. Piling all four onto the morning is exactly what this replaced.
+	if steps[domain.SessionMorning] != 2 {
+		t.Errorf("morning holds %d steps, want its dose plus the unscheduled one", steps[domain.SessionMorning])
+	}
+	if steps[domain.SessionAfternoon] != 1 || steps[domain.SessionEvening] != 1 {
+		t.Errorf("afternoon/evening hold %d/%d, want exactly their own dose",
+			steps[domain.SessionAfternoon], steps[domain.SessionEvening])
+	}
+}

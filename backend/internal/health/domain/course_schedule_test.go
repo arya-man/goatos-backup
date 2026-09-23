@@ -53,10 +53,17 @@ func TestSessionsForHousing(t *testing.T) {
 	}
 }
 
-// A ward animal is seen in the morning only, so an afternoon-authored medication
-// must still be given that day. Dropping it would be a medicine silently not
-// administered.
-func TestScheduleCourseRollsUnreachableStepsIntoTheEarliestVisit(t *testing.T) {
+// THE CARD EARNS ITS OWN VISITS (maintainer decision 2026-09-23, superseding the roll-forward
+// this test used to pin).
+//
+// A ward animal earns a morning visit from its housing. A card that also authors an AFTERNOON
+// dose earns an afternoon visit too, and the operator goes twice -- the farm has the people, and
+// the alternative was handing someone an evening dose at 07:00 with nothing saying it was meant
+// for 19:00.
+//
+// `unscheduled` names no time, so it still rides the earliest visit: a medicine with no hour on
+// it is given at the first chance, never dropped and never deferred.
+func TestTheCardEarnsItsOwnVisits(t *testing.T) {
 	steps := []ProtocolStep{
 		step(1, SessionMorning, "action"),
 		step(1, SessionAfternoon, "medication"),
@@ -64,22 +71,45 @@ func TestScheduleCourseRollsUnreachableStepsIntoTheEarliestVisit(t *testing.T) {
 	}
 	got := ScheduleCourse(steps, 1, []string{SessionMorning})
 
-	if len(got) != 1 {
-		t.Fatalf("want one visit for a one-day ward course, got %d", len(got))
+	if len(got) != 2 {
+		t.Fatalf("a card authoring an afternoon dose earns an afternoon visit; got %d visits", len(got))
 	}
-	if got[0].Session != SessionMorning {
-		t.Errorf("visit session = %q, want %q", got[0].Session, SessionMorning)
+	if got[0].Session != SessionMorning || got[1].Session != SessionAfternoon {
+		t.Fatalf("visits = %q/%q, want morning then afternoon in clock order", got[0].Session, got[1].Session)
 	}
-	if len(got[0].Steps) != 3 {
-		t.Fatalf("all three steps must survive, got %d", len(got[0].Steps))
+	// Morning keeps its own step AND the one with no hour on it.
+	if len(got[0].Steps) != 2 {
+		t.Fatalf("morning visit holds %d steps, want its own plus the unscheduled one", len(got[0].Steps))
 	}
-	// Authored order is preserved inside the visit: it is the order the operator
-	// performs them in.
-	wantOrder := []string{SessionMorning, SessionAfternoon, SessionUnscheduled}
-	for i, s := range got[0].Steps {
-		if s.Session != wantOrder[i] {
-			t.Errorf("step %d authored session = %q, want %q", i, s.Session, wantOrder[i])
-		}
+	if got[0].Steps[0].Session != SessionMorning || got[0].Steps[1].Session != SessionUnscheduled {
+		t.Errorf("morning steps = %q/%q, want the authored one then the unscheduled one",
+			got[0].Steps[0].Session, got[0].Steps[1].Session)
+	}
+	// The afternoon dose is given in the afternoon, which is the whole point.
+	if len(got[1].Steps) != 1 || got[1].Steps[0].Session != SessionAfternoon {
+		t.Fatalf("afternoon visit = %+v, want exactly the afternoon dose", got[1].Steps)
+	}
+	// NOTHING IS LOST in the division: every authored step still lands somewhere.
+	total := 0
+	for _, v := range got {
+		total += len(v.Steps)
+	}
+	if total != len(steps) {
+		t.Fatalf("%d of %d authored steps survived the split", total, len(steps))
+	}
+}
+
+// HOUSING IS A FLOOR. An ICU animal is seen morning and evening whatever its card authors,
+// because being in ICU is itself a reason to look at it.
+func TestHousingIsAFloorTheCardCannotLower(t *testing.T) {
+	got := ScheduleCourse([]ProtocolStep{step(1, SessionMorning, "medication")}, 1,
+		[]string{SessionMorning, SessionEvening})
+
+	if len(got) != 2 {
+		t.Fatalf("ICU earns two visits even from a morning-only card; got %d", len(got))
+	}
+	if got[1].Session != SessionEvening || len(got[1].Steps) != 0 {
+		t.Fatalf("the evening visit must still happen and carry no invented work: %+v", got[1])
 	}
 }
 
