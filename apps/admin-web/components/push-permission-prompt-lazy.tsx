@@ -72,7 +72,7 @@ export function PushRegistrationSync() {
     let cancelled = false;
     // Read the permission from the browser global. No import, no work, and it is the whole gate:
     // anything other than "granted" has nothing to re-register.
-    if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+    if (!hasGrantedNotificationPermission()) return;
     void (async () => {
       try {
         const { refreshWebPushRegistration } = await import("@/lib/web-push");
@@ -89,6 +89,10 @@ export function PushRegistrationSync() {
   return null;
 }
 
+function hasGrantedNotificationPermission() {
+  return typeof Notification !== "undefined" && Notification.permission === "granted";
+}
+
 export function PushReceiptSync() {
   const pathname = usePathname() ?? "/";
   const searchParams = useSearchParams();
@@ -97,6 +101,7 @@ export function PushReceiptSync() {
   useEffect(() => {
     let cancelled = false;
     let unsubscribe: (() => void) | undefined;
+    if (!hasGrantedNotificationPermission()) return;
     void (async () => {
       try {
         const { listenForPushReceipts } = await import("@/lib/web-push");
@@ -114,15 +119,23 @@ export function PushReceiptSync() {
   }, []);
 
   useEffect(() => {
-    const notificationRequestId = searchParams?.get("push_open") ?? "";
+    if (!searchParams) return;
+    const notificationRequestId = searchParams.get("push_open") ?? "";
     if (!notificationRequestId) return;
-    void (async () => {
-      const { recordCurrentBrowserPushEvent } = await import("@/lib/web-push");
-      await recordCurrentBrowserPushEvent({ notificationRequestId, eventType: "opened" });
+    const clearPushOpen = () => {
       const next = new URLSearchParams(searchParams.toString());
       next.delete("push_open");
       const query = next.toString();
       router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+    };
+    if (!hasGrantedNotificationPermission()) {
+      clearPushOpen();
+      return;
+    }
+    void (async () => {
+      const { recordCurrentBrowserPushEvent } = await import("@/lib/web-push");
+      await recordCurrentBrowserPushEvent({ notificationRequestId, eventType: "opened" });
+      clearPushOpen();
     })().catch(() => undefined);
   }, [pathname, router, searchParams]);
 

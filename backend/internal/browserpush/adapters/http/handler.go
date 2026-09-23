@@ -198,6 +198,7 @@ func isValidationError(err error) bool {
 	text := err.Error()
 	return strings.Contains(text, "is required") ||
 		strings.Contains(text, "is too long") ||
+		strings.Contains(text, "must be a uuid") ||
 		strings.Contains(text, "contains control characters")
 }
 
