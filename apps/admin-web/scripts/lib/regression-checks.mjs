@@ -2,7 +2,9 @@
 // Each check maps to a bug family the team fixed repeatedly since Aug 2026
 // (see the pattern letters: A charts, B containment, C table cells, chips, J raw text, D page overflow)
 // plus the general text-over-text overlap check that used to live in assertReadableText.
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { collectPenLabelCandidates, penLabelFindings } from "./pen-label-checks.mjs";
 
 export const REGRESSION_PATTERNS = Object.freeze({
   "text-overlap": "text drawn over other unrelated text",
@@ -23,7 +25,28 @@ export const REGRESSION_PATTERNS = Object.freeze({
   "chip-crushed": "chip/badge text wrapped mid-word or clipped",
   "J-raw-text": "raw value/code/copy key/ISO date/doubled label leaked into the UI",
   "D-page-overflow": "element makes the page scroll horizontally",
+  // P: pen / partition labels. See lib/pen-label-checks.mjs for the contract and the
+  // bug history (475312f5d, e2a70f3db, 1a256a225) each of these encodes.
+  "P-pen-part-doubled": 'pen label repeats its worded partition ("Godel 1 - Part 1 - Part 1")',
+  "P-pen-number-doubled": 'pen label repeats its partition numeral ("Castro 1 1")',
+  "P-pen-separator-wrong": 'shed and partition joined the wrong way for the convention ("Godel 1 Part 3", "Castro - 2")',
+  "P-pen-whole-leaked": 'the non-partition sentinel "whole" rendered inside a pen label',
+  "P-pen-partition-missing": "pen rendered bare while siblings in the same column show partitions for that shed",
 });
+
+// The farm's real (shed, partition_label) pairs, refreshed by
+// scripts/refresh-pen-label-vocabulary.mjs. Read once per process.
+let penVocabularyCache;
+export function penLabelVocabulary() {
+  if (penVocabularyCache === undefined) {
+    try {
+      penVocabularyCache = JSON.parse(readFileSync(new URL("./pen-label-vocabulary.json", import.meta.url), "utf8"));
+    } catch {
+      penVocabularyCache = null;
+    }
+  }
+  return penVocabularyCache;
+}
 
 // Runs inside the browser (serialised by page.evaluate). Must stay self-contained.
 export function collectRegressionFindings({ mobile = false, limit = 40 } = {}) {
@@ -332,11 +355,32 @@ export function collectRegressionFindings({ mobile = false, limit = 40 } = {}) {
   return found;
 }
 
+// Pen labels are judged in Node, not in the page: the vocabulary is the farm's own data
+// and the rules are worth unit-testing directly (see pen-label-checks.test.mjs). The page
+// only reports what it renders and where, then gets told which candidates to outline.
+async function collectPenLabelIssues(page) {
+  const manifest = penLabelVocabulary();
+  if (!manifest || !(manifest.sheds ?? []).length) return [];
+  const candidates = await page.evaluate(collectPenLabelCandidates);
+  const issues = penLabelFindings(candidates, manifest);
+  const marks = issues.map((issue) => ({ index: issue.index, pattern: issue.pattern }));
+  await page.evaluate((list) => {
+    for (const el of document.querySelectorAll("[data-pen-candidate]")) {
+      const i = Number(el.getAttribute("data-pen-candidate"));
+      const mark = list.find((m) => m.index === i);
+      if (mark) el.setAttribute("data-smoke-issue", mark.pattern);
+      el.removeAttribute("data-pen-candidate");
+    }
+  }, marks);
+  return issues.map((issue) => ({ pattern: issue.pattern, element: `pen label "${issue.text}"`, detail: issue.detail }));
+}
+
 export async function assertRegressionPatterns(page, { routeName, viewportLabel, screenshotDir, relativeToRepo = (p) => p }) {
   const width = page.viewportSize()?.width ?? 1280;
   let findings = await page.evaluate(collectRegressionFindings, { mobile: width < 768 || /mobile|phone/i.test(viewportLabel) });
   // Audit log / dead-letter queue list event codes by design; they are internal ops tooling.
   if (/^operations-(audit|dlq)/.test(routeName)) findings = findings.filter((f) => f.pattern !== "J-raw-text");
+  findings = findings.concat(await collectPenLabelIssues(page));
   if (findings.length === 0) return [];
   await page.addStyleTag({ content: "[data-smoke-issue]{outline:3px solid #e11d48 !important;outline-offset:1px}" });
   await page.evaluate(() => document.querySelector("[data-smoke-issue]")?.scrollIntoView({ block: "center", inline: "center" }));
