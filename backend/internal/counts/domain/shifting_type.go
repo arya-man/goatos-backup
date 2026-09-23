@@ -242,24 +242,122 @@ func resolveHealthShift(ctx ShiftTypeContext) (ShiftTypeDecision, *ShiftTypeRefu
 }
 
 // resolveGrowthShift: destination tag, forward only. Every animal in the raise must have a ladder
-// edge from its CURRENT stage to the destination tag, and a sexed destination refuses animals of
-// the other or unknown sex. Backward or sideways is refused outright -- "forward only" only means
+// edge from its CURRENT stage to the tag it is stamped with, and a sexed tag refuses animals of the
+// other or unknown sex. Backward or sideways is refused outright -- "forward only" only means
 // something if the system refuses.
+//
+// WHICH tag (maintainer decision 2026-09-23): a live resident already carrying the group's next
+// stage decides it FIRST, ahead of the pen's set stage. The farm moves a K2 into the pen where the
+// K3s are; that pen often has no stage set and holds a sick animal too (K3 + ICU refused "holds a
+// mix of tags" on 2026-09-23), or is still set to a stage its residents have moved past. Clinical
+// residents never count. Only when no resident answers does the pen's set stage (or the residents'
+// single shared stage) decide, exactly as before.
 func resolveGrowthShift(ctx ShiftTypeContext) (ShiftTypeDecision, *ShiftTypeRefusal) {
 	if !ctx.DestinationKnown {
 		return ShiftTypeDecision{}, refuse("destination_not_in_catalog", shiftCopyDestinationUnknown)
 	}
+	for _, animal := range ctx.Animals {
+		if strings.TrimSpace(animal.Stage) == "" {
+			return ShiftTypeDecision{}, refuse("growth_stage_unknown", shiftCopyGrowthStageUnknown)
+		}
+	}
+
+	resident := resolveGrowthFromResidents(ctx)
+	if resident.target != "" {
+		return ShiftTypeDecision{TargetStage: resident.target}, nil
+	}
+
+	// No single resident answer: the pen's set stage (else the residents' one shared stage).
+	decision, refusal := resolveGrowthFromPenTag(ctx)
+	if refusal == nil {
+		return decision, nil
+	}
+	switch {
+	case resident.split:
+		return ShiftTypeDecision{}, refuse("growth_group_needs_split", shiftCopyGrowthGroupNeedsSplit)
+	case resident.tied:
+		return ShiftTypeDecision{}, refuse("growth_next_stage_ambiguous", shiftCopyGrowthNextStageAmbiguous)
+	}
+	return ShiftTypeDecision{}, refusal
+}
+
+// growthResidentOutcome is the resident rule's answer. target is set when exactly one next stage
+// fits every animal. split: every animal has a resident next stage but no single one fits them all.
+// tied: more than one fits them all and the pen's set stage is not among them.
+type growthResidentOutcome struct {
+	target string
+	split  bool
+	tied   bool
+}
+
+// resolveGrowthFromResidents finds, per animal, the next stages a live non-clinical resident
+// already carries (sex-compatible with that animal), and intersects them across the group, since a
+// raise stamps ONE tag. An animal with no such stage leaves the whole group to the pen-tag rule.
+func resolveGrowthFromResidents(ctx ShiftTypeContext) growthResidentOutcome {
+	residents := make([]string, 0, len(ctx.DestinationResidentStages))
+	for _, stage := range ctx.DestinationResidentStages {
+		stage = strings.TrimSpace(stage)
+		if stage == "" || protocoldomain.IsClinicalManagementStage(stage) {
+			continue
+		}
+		if canonical := canonicalWritableStage(stage, ctx.WritableStages); canonical != "" {
+			residents = append(residents, canonical)
+		}
+	}
+	if len(residents) == 0 || len(ctx.Animals) == 0 {
+		return growthResidentOutcome{}
+	}
+	var common []string
+	for i, animal := range ctx.Animals {
+		var fits []string
+		for _, stage := range residents {
+			if !growthEdgeExists(animal.Stage, stage) {
+				continue
+			}
+			if sex := growthStageSexFor(stage); sex != "" && !strings.EqualFold(strings.TrimSpace(animal.Sex), sex) {
+				continue
+			}
+			if !stageListContains(fits, stage) {
+				fits = append(fits, stage)
+			}
+		}
+		if len(fits) == 0 {
+			return growthResidentOutcome{}
+		}
+		if i == 0 {
+			common = fits
+			continue
+		}
+		kept := common[:0:0]
+		for _, stage := range common {
+			if stageListContains(fits, stage) {
+				kept = append(kept, stage)
+			}
+		}
+		common = kept
+	}
+	switch len(common) {
+	case 0:
+		return growthResidentOutcome{split: true}
+	case 1:
+		return growthResidentOutcome{target: common[0]}
+	}
+	if configured := strings.TrimSpace(ctx.DestinationConfiguredStage); configured != "" && stageListContains(common, configured) {
+		return growthResidentOutcome{target: canonicalWritableStage(configured, ctx.WritableStages)}
+	}
+	return growthResidentOutcome{tied: true}
+}
+
+// resolveGrowthFromPenTag is the pre-2026-09-23 growth rule, unchanged: the pen's set stage (else
+// the residents' single shared stage) must be the next stage for every animal, sex permitting.
+func resolveGrowthFromPenTag(ctx ShiftTypeContext) (ShiftTypeDecision, *ShiftTypeRefusal) {
 	tag, refusal := destinationEffectiveTag(ctx, false)
 	if refusal != nil {
 		return ShiftTypeDecision{}, refusal
 	}
 	requiredSex := growthStageSexFor(tag)
 	for _, animal := range ctx.Animals {
-		stage := strings.TrimSpace(animal.Stage)
-		if stage == "" {
-			return ShiftTypeDecision{}, refuse("growth_stage_unknown", shiftCopyGrowthStageUnknown)
-		}
-		if !growthEdgeExists(stage, tag) {
+		if !growthEdgeExists(strings.TrimSpace(animal.Stage), tag) {
 			return ShiftTypeDecision{}, refuse("growth_not_next_stage", shiftCopyGrowthNotNext)
 		}
 		if requiredSex != "" && !strings.EqualFold(strings.TrimSpace(animal.Sex), requiredSex) {
@@ -497,6 +595,9 @@ const (
 	shiftCopyGrowthStageUnknown = "An animal in this group has no tag yet, so its next stage cannot be checked"
 	shiftCopyGrowthNotNext      = "This destination's tag is not the next stage for every animal in the group"
 	shiftCopyGrowthSexMismatch  = "This destination's tag does not match the sex of every animal in the group"
+
+	shiftCopyGrowthGroupNeedsSplit    = "These animals need different next stages. Move each stage in its own shifting"
+	shiftCopyGrowthNextStageAmbiguous = "This pen holds more than one next stage for these animals. Set the pen's stage on Counts Breakdown, or pick another pen"
 
 	shiftCopySpacingSourceUnknown       = "These animals do not share one current pen, so this cannot be a spacing move"
 	shiftCopySpacingPartialGroup        = "Spacing moves the whole pen together. Select every animal in the pen"

@@ -253,6 +253,106 @@ func TestGrowthShiftCanonicalizesCasing(t *testing.T) {
 	wantDecision(t, ctx, ShiftTypeDecision{TargetStage: "Non-Pregnant"})
 }
 
+// --- growth: a resident carrying the next stage (maintainer decision 2026-09-23) -------------
+
+// The case that refused on the farm on 2026-09-23: a K2 animal into a pen with no stage set whose
+// residents are one K3 and one ICU animal. It used to refuse "holds a mix of tags". A live resident
+// already carries K2's next stage, so the move is allowed and the animal becomes K3; the ICU
+// resident is a clinical state and never counts as a match.
+func TestGrowthShiftJoinsAResidentCarryingTheNextStage(t *testing.T) {
+	ctx := knownDest(ShiftTypeContext{
+		Type:                      ShiftTypeGrowth,
+		DestinationResidentStages: []string{"ICU", "K3"},
+		DestinationHeadCount:      2,
+		Animals:                   animals("K2", "male"),
+	})
+	wantDecision(t, ctx, ShiftTypeDecision{TargetStage: "K3"})
+}
+
+// The resident rule wins over the pen's set stage (maintainer answer 2026-09-23): Castro 2 is set
+// to F2 on Counts Breakdown but a K3 still stands in it, so a K2 moving in becomes K3.
+func TestGrowthShiftResidentNextStageWinsOverThePensSetStage(t *testing.T) {
+	ctx := knownDest(ShiftTypeContext{
+		Type:                       ShiftTypeGrowth,
+		DestinationConfiguredStage: "F2",
+		DestinationResidentStages:  []string{"F2", "K3"},
+		DestinationHeadCount:       9,
+		Animals:                    animals("K2", "female"),
+	})
+	wantDecision(t, ctx, ShiftTypeDecision{TargetStage: "K3"})
+}
+
+// A group whose animals need DIFFERENT next stages cannot share the one tag a raise stamps; it is
+// refused with copy telling the operator to split it, not with the generic mixed-pen reason.
+func TestGrowthShiftGroupNeedingTwoNextStagesMustBeSplit(t *testing.T) {
+	ctx := knownDest(ShiftTypeContext{
+		Type:                      ShiftTypeGrowth,
+		DestinationResidentStages: []string{"K2", "K3"},
+		DestinationHeadCount:      6,
+		Animals:                   animals("K1", "male", "K2", "male"),
+	})
+	wantRefusal(t, ctx, "growth_group_needs_split")
+}
+
+// The sex rule still holds on the resident path: a female K3 cannot become F2-Male because an
+// F2-Male lives there.
+func TestGrowthShiftResidentMatchStillHonoursSex(t *testing.T) {
+	ctx := knownDest(ShiftTypeContext{
+		Type:                      ShiftTypeGrowth,
+		DestinationResidentStages: []string{"F2-Male", "ICU"},
+		DestinationHeadCount:      3,
+		Animals:                   animals("K3", "female"),
+	})
+	wantRefusal(t, ctx, "destination_tag_mixed")
+}
+
+// A clinical resident alone is never a match: a K2 into a pen holding only an ICU animal still
+// refuses with the health-team reason, exactly as before.
+func TestGrowthShiftClinicalResidentIsNeverAMatch(t *testing.T) {
+	ctx := knownDest(ShiftTypeContext{
+		Type:                      ShiftTypeGrowth,
+		DestinationResidentStages: []string{"ICU"},
+		DestinationHeadCount:      1,
+		Animals:                   animals("K2", "male"),
+	})
+	wantRefusal(t, ctx, "destination_tag_not_applicable")
+}
+
+// No resident carries the next stage: the old refusal stands (a K2 into a pen of K1 animals).
+func TestGrowthShiftNoResidentNextStageKeepsTheOldRefusal(t *testing.T) {
+	ctx := knownDest(ShiftTypeContext{
+		Type:                      ShiftTypeGrowth,
+		DestinationResidentStages: []string{"K1"},
+		DestinationHeadCount:      5,
+		Animals:                   animals("K2", "male"),
+	})
+	wantRefusal(t, ctx, "growth_not_next_stage")
+}
+
+// Two next stages present for the same animals (a male K3 into a pen holding both F2 and F2-Male)
+// is an honest tie; the pen's set stage breaks it when it is one of them.
+func TestGrowthShiftPensSetStageBreaksAResidentTie(t *testing.T) {
+	ctx := knownDest(ShiftTypeContext{
+		Type:                       ShiftTypeGrowth,
+		DestinationConfiguredStage: "F2-Male",
+		DestinationResidentStages:  []string{"F2", "F2-Male"},
+		DestinationHeadCount:       8,
+		Animals:                    animals("K3", "male"),
+	})
+	wantDecision(t, ctx, ShiftTypeDecision{TargetStage: "F2-Male"})
+}
+
+// With no set stage to break the tie, the raise is refused rather than guessing which rung.
+func TestGrowthShiftUnbrokenResidentTieRefuses(t *testing.T) {
+	ctx := knownDest(ShiftTypeContext{
+		Type:                      ShiftTypeGrowth,
+		DestinationResidentStages: []string{"F2", "F2-Male"},
+		DestinationHeadCount:      8,
+		Animals:                   animals("K3", "male"),
+	})
+	wantRefusal(t, ctx, "growth_next_stage_ambiguous")
+}
+
 // --- breeding -----------------------------------------------------------------------------------
 
 // A breeding jump changes nothing: no target, no adoption, any destination -- even one carrying a

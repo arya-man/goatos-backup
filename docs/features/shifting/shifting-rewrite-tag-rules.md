@@ -21,7 +21,7 @@ unconditional close gate, and the feed projection coupling are all untouched.
 | Type | Tag rule |
 |------|----------|
 | `health` | Destination pen's tag on BOTH legs — the one type allowed to stamp a **clinical state** (`ICU`, `Quarantine`, …). A health shifting IS the health team acting, superseding the 2026-08-15 clinical raise-time lock FOR THIS TYPE ONLY. The return leg is just another health shift into a normal pen; there is no memory of the pre-ICU tag. |
-| `growth` | Destination pen's tag, **FORWARD ONLY** along the authored lifecycle ladder (below). Backward or sideways is refused — "forward only" only means something if the system refuses. A sexed destination stage refuses animals of the other or unknown sex. |
+| `growth` | Destination pen's tag, **FORWARD ONLY** along the authored lifecycle ladder (below). Backward or sideways is refused — "forward only" only means something if the system refuses. A sexed destination stage refuses animals of the other or unknown sex. **A resident carrying the next stage decides first** (2026-09-23, below). |
 | `breeding` | The tag **never changes** — a visitor placed with a mate. Any destination is acceptable because nothing is stamped; the pen briefly holding a foreign tag is an accepted temporary mixed-tag case. |
 | `delivery` | Destination pen's tag, EXCEPT it never stamps the newborn stage (`K0` belongs to the kids — a mother entering the kidding pen keeps her own tag). Into an EMPTY untagged pen (the one-day recovery shed) she keeps her tag and the pen ADOPTS it ("mother only at that time"). |
 | `spacing` | The tag **travels with the animals**; the WHOLE source pen moves ("half-half is not an option") and is left empty. The destination must already carry the same tag, or be EMPTY — an empty pen ADOPTS the group's tag. Anything else refuses at raise. |
@@ -62,6 +62,31 @@ K0 -> K1 -> K2 -> K3 -+- F2 -+- F2-Male   -> Buck
   places them on the ladder. `F2-Male -> Buck` is present per the maintainer's 2026-08-20
   confirmation; most fattening males exit by sale instead, which is not a shifting.
 
+## Growth: a resident carrying the next stage decides first (maintainer decision 2026-09-23)
+
+On 2026-09-23 a K2 animal could not be moved into a pen holding one K3 and one ICU animal: the pen
+had no stage set, so the rule fell back to its residents, saw two tags, and refused "This
+destination holds a mix of tags". The maintainer's rule: **if any live animal already in the
+destination carries the moving animal's next stage, the move happens and the animal takes that
+stage.**
+
+- The resident rule is checked FIRST, ahead of the pen's set stage. A pen set to `F2` on Counts
+  Breakdown that still holds a K3 accepts a K2, which becomes `K3` (maintainer answer, same day).
+- Clinical residents (`ICU`, `Quarantine`, `sick`, ...) never count as a match.
+- The ladder and the sex rule are unchanged: the matched stage must be the animal's next rung, and a
+  sexed stage still refuses the other or unknown sex.
+- A raise stamps ONE tag, so the matched stage must fit EVERY animal. A group needing different
+  next stages (a K1 and a K2 into a pen holding K2 and K3) is refused `growth_group_needs_split`:
+  "These animals need different next stages. Move each stage in its own shifting".
+- Two stages fitting the same group (a male K3 into a pen holding `F2` and `F2-Male`) is broken by
+  the pen's set stage when it is one of them; otherwise refused `growth_next_stage_ambiguous`.
+- When no resident carries the next stage, the pre-2026-09-23 rule applies unchanged (the pen's
+  set stage, else the residents' single shared stage), with its existing refusals.
+
+Code: `domain.resolveGrowthShift` / `resolveGrowthFromResidents`; pinned by the
+`TestGrowthShift*Resident*` tests and `TestGrowthShiftJoinsAResidentCarryingTheNextStage` (the
+farm case, red before the change).
+
 ## Pen-tag adoption ("pen tags follow occupancy")
 
 A spacing / delivery / flushing movement into an EMPTY pen tags THAT PEN with the arriving group's
@@ -81,7 +106,8 @@ Exactly one of (decision, refusal) is meaningful. Every refusal carries a machin
 farm-worded copy rendered VERBATIM by the phone (golden frontend rule — the client never composes
 a reason). Codes: `invalid_category`, `destination_not_in_catalog`, `destination_tag_missing`,
 `destination_tag_mixed`, `destination_tag_not_applicable`, `growth_stage_unknown`,
-`growth_not_next_stage`, `growth_sex_mismatch`, `spacing_source_unresolved`,
+`growth_not_next_stage`, `growth_sex_mismatch`, `growth_group_needs_split`,
+`growth_next_stage_ambiguous`, `spacing_source_unresolved`,
 `spacing_partial_group`, `spacing_destination_occupied`, `spacing_destination_mismatch`,
 `flushing_requires_female`, `flushing_destination_mismatch`, `group_stage_unknown`,
 `group_stage_mixed`, `normal_destination_tag_mismatch`.
