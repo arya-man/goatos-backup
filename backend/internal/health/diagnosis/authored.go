@@ -197,10 +197,32 @@ type Correction struct {
 	Note string `json:"note,omitempty"`
 }
 
+// Section is one PAGE of the observation form.
+//
+// The phone walks the form in pages rather than as one long scroll: a single scroll gives the
+// operator no idea how much is left and reports what is missing only at the bottom. Which page a
+// question sits on used to be a four-value enum in Kotlin, so moving one was a deploy. It is
+// authored here, in the same version as the questions it orders, because a page that names a
+// question the register no longer asks is exactly the drift publishing exists to catch.
+type Section struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+	// Hint is the line under the page heading, for a page that needs one.
+	Hint string `json:"hint,omitempty"`
+}
+
 // AuthoredRegister is one published version: the form, the mapping and the rules.
 type AuthoredRegister struct {
 	RegisterVersion string   `json:"register_version"`
 	AppliesClass    []string `json:"applies_class"`
+
+	// Sections are the form's PAGES, in the order the operator walks them.
+	//
+	// EMPTY IS VALID and is what every register shipped before pages were authorable: the form is
+	// then one page per distinct question `section` in declaration order, which is the shape the
+	// phone already drew. So an existing register needs no edit to keep working, and a farm that
+	// wants to re-order or re-title pages adds them.
+	Sections []Section `json:"sections,omitempty"`
 
 	Questions   []Question   `json:"questions"`
 	Corrections []Correction `json:"corrections,omitempty"`
@@ -416,4 +438,64 @@ func (ps Problems) Error() string {
 // evaluation cannot drift.
 func (a AuthoredRegister) CompileRegister(class string) (*Register, error) {
 	return RegisterForServing(a, class)
+}
+
+// Page is one page of the form as a client should draw it: a heading and the questions on it.
+type Page struct {
+	ID        string     `json:"id"`
+	Title     string     `json:"title"`
+	Hint      string     `json:"hint,omitempty"`
+	Questions []Question `json:"questions"`
+}
+
+// Pages groups the questions into the pages a client walks.
+//
+// AUTHORED SECTIONS WIN, in their authored order. With none, the pages are the distinct question
+// `section` values in DECLARATION order -- not alphabetical, because the form is laid out the way
+// a person walks an animal (vitals, head, down the body) and sorting it would scatter that.
+//
+// A question whose section names no authored page still appears: it is appended to a page of its
+// own rather than dropped, because a question that exists and is never asked is the silent
+// accept-and-discard this codebase refuses everywhere else. Publishing reports it, so the author
+// is told; the operator is not left with a form missing a question in the meantime.
+func (a AuthoredRegister) Pages() []Page {
+	byID := map[string]int{}
+	out := []Page{}
+	add := func(id, title, hint string) int {
+		if at, ok := byID[id]; ok {
+			return at
+		}
+		byID[id] = len(out)
+		out = append(out, Page{ID: id, Title: title, Hint: hint, Questions: []Question{}})
+		return len(out) - 1
+	}
+
+	for _, s := range a.Sections {
+		add(s.ID, s.Title, s.Hint)
+	}
+
+	for _, q := range a.Questions {
+		id := strings.TrimSpace(q.Section)
+		if id == "" {
+			// A question with no section belongs to the first page rather than to a nameless one:
+			// an unsectioned question is an author who has not thought about pages yet, and the
+			// form must still be walkable.
+			id = "general"
+		}
+		at, ok := byID[id]
+		if !ok {
+			at = add(id, id, "")
+		}
+		out[at].Questions = append(out[at].Questions, q)
+	}
+
+	// A page nobody put a question on is not shown. An authored section can outlive the last
+	// question that named it, and an empty page with a Next button is a step that does nothing.
+	kept := out[:0]
+	for _, p := range out {
+		if len(p.Questions) > 0 {
+			kept = append(kept, p)
+		}
+	}
+	return kept
 }

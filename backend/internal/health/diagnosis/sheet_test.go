@@ -122,6 +122,7 @@ func TestEverySheetFieldIsCarried(t *testing.T) {
 	// grow to cover a leaf field somebody forgot.
 	carriedAsRows := map[string]bool{
 		"options": true, "bands": true, "questions": true, "corrections": true, "rules": true,
+		"sections":           true,                                     // its own `page` rows, one per page, written before the questions
 		"severity_modifiers": true,                                     // its own `severity` rows, one per modifier
 		"pathognomonic":      true, "probable": true, "possible": true, // its own `sign` rows, by tier
 		"only_if": true, // flattened into only_if_question / only_if_in
@@ -135,6 +136,7 @@ func TestEverySheetFieldIsCarried(t *testing.T) {
 		{"authored.go", "Option"},
 		{"authored.go", "Band"},
 		{"authored.go", "Correction"},
+		{"authored.go", "Section"},
 		{"authored.go", "AuthoredRegister"},
 		{"authored.go", "Condition"},
 	} {
