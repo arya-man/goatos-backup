@@ -86,25 +86,25 @@ func (f *fakeCampaign) GenerateManualCampaignForVersionWithHTTPRun(_ context.Con
 	}
 	completedAt := time.Date(2026, time.June, 27, 9, 0, 0, 0, time.UTC)
 	return domain.GenerationRun{
-			RunID:                      "70000000-0000-4000-8000-000000000001",
-			ProtocolVersionID:          versionID,
-			TriggerType:                "manual_campaign",
-			TriggerRef:                 campaignID,
-			Status:                     "completed",
-			StartedAt:                  completedAt.Add(-time.Minute),
-			CompletedAt:                &completedAt,
-			Generated:                  4,
-			Deferred:                   1,
-			Reopened:                   3,
-			FailedGoats:                1,
-			SuppressedByTrustedHistory: 2,
-		}, domain.GenerateResult{
-			Generated:                  4,
-			Deferred:                   1,
-			Reopened:                   3,
-			FailedGoats:                1,
-			SuppressedByTrustedHistory: 2,
-		}, nil
+		RunID:                      "70000000-0000-4000-8000-000000000001",
+		ProtocolVersionID:          versionID,
+		TriggerType:                "manual_campaign",
+		TriggerRef:                 campaignID,
+		Status:                     "completed",
+		StartedAt:                  completedAt.Add(-time.Minute),
+		CompletedAt:                &completedAt,
+		Generated:                  4,
+		Deferred:                   1,
+		Reopened:                   3,
+		FailedGoats:                1,
+		SuppressedByTrustedHistory: 2,
+	}, domain.GenerateResult{
+		Generated:                  4,
+		Deferred:                   1,
+		Reopened:                   3,
+		FailedGoats:                1,
+		SuppressedByTrustedHistory: 2,
+	}, nil
 }
 
 func TestRunManualCampaignCallsGenerator(t *testing.T) {
