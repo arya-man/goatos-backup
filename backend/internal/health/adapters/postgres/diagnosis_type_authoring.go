@@ -113,7 +113,17 @@ SELECT lower(btrim(s.stage_code)), s.name, lower(coalesce(s.age_band, '')),
        EXISTS (SELECT 1 FROM health_diagnosis_stage_routes r
                 WHERE r.tenant_id = s.tenant_id
                   AND r.age_band = lower(coalesce(s.age_band, ''))
-                  AND r.stage_code = lower(btrim(s.stage_code)))
+                  AND r.stage_code = lower(btrim(s.stage_code))),
+       coalesce((SELECT r.type_key FROM health_diagnosis_stage_routes r
+                  WHERE r.tenant_id = s.tenant_id
+                    AND r.age_band = lower(coalesce(s.age_band, ''))
+                    AND r.stage_code = lower(btrim(s.stage_code))), ''),
+       coalesce((SELECT t.label FROM health_diagnosis_stage_routes r
+                  JOIN health_diagnosis_types t
+                    ON t.tenant_id = r.tenant_id AND t.type_key = r.type_key
+                  WHERE r.tenant_id = s.tenant_id
+                    AND r.age_band = lower(coalesce(s.age_band, ''))
+                    AND r.stage_code = lower(btrim(s.stage_code))), '')
 FROM animal_stage_lookup s
 WHERE s.tenant_id = $1::uuid AND s.status = 'active'
   AND lower(coalesce(s.age_band, '')) IN ('adult', 'kid')
@@ -271,7 +281,8 @@ func (r *Repository) DiagnosisRouting(ctx context.Context, tenantID string) (dom
 	}
 	for srows.Next() {
 		var a domain.AvailableStage
-		if err := srows.Scan(&a.StageCode, &a.StageLabel, &a.AgeBand, &a.LiveAnimals, &a.Routed); err != nil {
+		if err := srows.Scan(&a.StageCode, &a.StageLabel, &a.AgeBand, &a.LiveAnimals,
+			&a.Routed, &a.RoutedTypeKey, &a.RoutedTypeLabel); err != nil {
 			srows.Close()
 			return out, fmt.Errorf("health: scan stage: %w", err)
 		}

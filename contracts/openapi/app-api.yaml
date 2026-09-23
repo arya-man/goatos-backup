@@ -20296,6 +20296,15 @@ components:
             Animals on this stage right now. Zero is normal and routable -- Milking holds none this
             morning and will tomorrow -- so the list comes from the CATALOG, not from the animals.
         routed: { type: boolean, description: A route already names this stage. }
+        routed_type_key:
+          type: string
+          description: The type this stage is on now, if any.
+        routed_type_label:
+          type: string
+          description: >-
+            Shown in the picker so MOVING a stage is never a surprise. Every stage is offered,
+            including ones already spoken for -- hiding them made it impossible to move a stage
+            onto a new type once its band's stages were all taken.
     HealthDiagnosisRouting:
       type: object
       required: [types, routes, unrouted_stages]
