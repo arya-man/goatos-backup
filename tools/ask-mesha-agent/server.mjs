@@ -191,7 +191,7 @@ function applyOverlay(dir) {
   if (!OVERLAY) return;
   for (const rel of OVERLAY_PATHS) {
     const src = path.join(OVERLAY, rel);
-    if (fs.existsSync(src)) fs.cpSync(src, path.join(dir, rel), { recursive: true, force: true });
+    if (fs.existsSync(src)) fs.cpSync(src, path.join(dir, rel), { recursive: true, force: true, dereference: true });
   }
 }
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { CeoAiMarkdown, CopyButton } from "./ceo-ai-markdown";
+import { Lightbox, type PreviewFile, Thumb, shrinkImage, toPreview } from "./ceo-ai-attachments";
 import {
   Maximize2,
   MessageSquarePlus,
@@ -250,6 +251,8 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [files, setFiles] = useState<File[]>([]);
+  const previews = useMemo(() => files.map(toPreview), [files]);
+  const [lightbox, setLightbox] = useState<{ files: PreviewFile[]; start: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [listening, setListening] = useState(false);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
@@ -294,7 +297,10 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
 
   const addFiles = useCallback((list: FileList | null) => {
     if (!list) return;
-    setFiles((prev) => [...prev, ...Array.from(list)].slice(0, 5));
+    const incoming = Array.from(list);
+    void Promise.all(incoming.map((f) => shrinkImage(f).catch(() => f))).then((shrunk) =>
+      setFiles((prev) => [...prev, ...shrunk].slice(0, 5)),
+    );
   }, []);
   const [dragging, setDragging] = useState(false);
   const [pending, setPending] = useState(false);
@@ -337,12 +343,8 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
     };
   }, [open]);
 
-  const helloMessage = useMemo<ChatMessage>(
-    () => ({ id: "hello", role: "assistant", text: copy.hello, state: "complete", source: copy.helloMeta }),
-    [copy.hello, copy.helloMeta],
-  );
 
-  const shown = messages.length ? messages : [helloMessage];
+  const shown = messages;
 
   const stopGenerating = useCallback(() => {
     abortRef.current?.abort();
@@ -371,7 +373,8 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
         {
           id: newId(),
           role: "user",
-          text: attached.length ? `${question}\n${attached.map((f) => `📎 ${f.name}`).join("\n")}` : question,
+          text: question,
+          files: attached.length ? attached.map(toPreview) : undefined,
           state: "complete",
         },
         { id: assistantId, role: "assistant", text: "", state: "streaming" },
@@ -722,6 +725,13 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
                         ) : (
                           message.text
                         )}
+                        {message.files?.length ? (
+                          <div className="mzai-msg-files">
+                            {message.files.map((f, i) => (
+                              <Thumb key={f.url} file={f} onOpen={() => setLightbox({ files: message.files ?? [], start: i })} />
+                            ))}
+                          </div>
+                        ) : null}
                         {message.state === "streaming" && message.text ? <span className="mzai-caret" /> : null}
                       </div>
                     {message.role === "assistant" && message.state === "complete" && message.id !== "hello" && message.text ? (
@@ -801,20 +811,15 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
                 </div>
               ) : null}
 
-              {files.length ? (
+              {previews.length ? (
                 <div className="mzai-files">
-                  {files.map((f, i) => (
-                    <span key={`${f.name}-${i}`} className="mzai-file">
-                      <Paperclip size={12} />
-                      <span className="mzai-file-name" title={f.name}>{f.name}</span>
-                      <button
-                        type="button"
-                        aria-label={`Remove ${f.name}`}
-                        onClick={() => setFiles((prev) => prev.filter((_, j) => j !== i))}
-                      >
-                        <X size={12} />
-                      </button>
-                    </span>
+                  {previews.map((f, i) => (
+                    <Thumb
+                      key={f.url}
+                      file={f}
+                      onOpen={() => setLightbox({ files: previews, start: i })}
+                      onRemove={() => setFiles((prev) => prev.filter((_, j) => j !== i))}
+                    />
                   ))}
                 </div>
               ) : null}
@@ -881,6 +886,7 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
               </form>
             </div>
           </div>
+          {lightbox ? <Lightbox files={lightbox.files} start={lightbox.start} onClose={() => setLightbox(null)} /> : null}
         </section>
       ) : (
         <>
