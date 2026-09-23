@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import Link from "@/components/no-prefetch-link";
 import { AlertTriangle, Search } from "lucide-react";
 
 import { copy, optionalCopy, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -18,6 +19,7 @@ import type { RouteSearchParams } from "@/lib/search-params";
 import { WorklistFilters, type WorklistFilterField } from "@/components/worklist-filters";
 import { createDisease, discardDraft, openDraft, publishDraft, saveDraft } from "./health-config-actions";
 import { HealthRegisterSection } from "./health-register";
+import { StaleVersionNotice } from "./health-stale-version-recovery";
 import { AddDiseaseForm, BackToListButton, DraftEditor, ProtocolActionButton } from "./health-config-editor";
 
 // Health -> Health Config. The authored treatment rulebook a diagnosis loads from: per disease, per
@@ -94,9 +96,16 @@ function LiveVersion({
 /**
  * The two halves of the rulebook.
  *
- * Plain links, not client state: the tab is part of the URL so a vet can send "the diagnosis
- * register for kids on milk" to someone and have it open there. Switching tabs also drops the
- * other tab's selection, or a stale ?hc_version= would reopen an editor the author has left.
+ * Links, not client state: the tab is part of the URL so a vet can send "the diagnosis register
+ * for kids on milk" to someone and have it open there. Switching tabs also drops the other tab's
+ * selection, or a stale ?hc_version= would reopen an editor the author has left.
+ *
+ * They are the console's own Link, never a bare <a>. The two tabs read DIFFERENT server data --
+ * Treatment lists the protocol catalog, Diagnosis the registers -- so this is a data-changing tab
+ * and it navigates, which `docs/decisions/admin-web-interaction-patterns.md` rule 3 allows. What
+ * it must not do is reload the DOCUMENT: a bare <a> tore down the shell, the sidebar and every
+ * bit of client state to swap one panel, which is what "the whole page is loading" looked like.
+ * A Link makes it an RSC transition of this segment alone; the shell stays mounted.
  */
 function RulebookTabs({
   tab,
@@ -117,12 +126,12 @@ function RulebookTabs({
   };
   return (
     <div className="wftoolbar" style={{ gap: 8, marginBottom: 12 }}>
-      <a className={tab === "treatment" ? "btn" : "btn ghost"} href={href("treatment")}>
+      <Link className={tab === "treatment" ? "btn" : "btn ghost"} href={href("treatment")}>
         {copy(pageContract, "tab.protocols")}
-      </a>
-      <a className={tab === "diagnosis" ? "btn" : "btn ghost"} href={href("diagnosis")}>
+      </Link>
+      <Link className={tab === "diagnosis" ? "btn" : "btn ghost"} href={href("diagnosis")}>
         {copy(pageContract, "tab.registers")}
-      </a>
+      </Link>
     </div>
   );
 }
@@ -159,16 +168,23 @@ export async function HealthConfigPage({
         cursor: cursor || undefined,
         limit: CATALOG_PAGE_SIZE,
       });
-  const detailResult =
-    selectedVersionId && tab !== "diagnosis" ? await getHealthConfigProtocol(selectedVersionId) : null;
-  // The medicine picker's source. Fetched only with the editor: the catalog is of no use to
-  // the list, and reading it there would be one backend call per page view for nothing.
-  const medicinesResult = detailResult ? await listHealthConfigMedicines() : null;
+  // The editor's two reads go together, not one after the other.
+  //
+  // The medicine picker's source is still fetched ONLY with the editor -- the catalog is of no use
+  // to the list, and reading it there would be one backend call per page view for nothing. What
+  // changed is that it no longer WAITS for the version: `detailResult ? await …` read as a data
+  // dependency, but it is only a GATE, and the condition that opens it is known before either call.
+  // Serialising them put one whole round trip between the author's click and the editor for no
+  // reason, and `check-serial-await` cannot see it -- the second line mentions the first binding,
+  // which the guard treats as a genuine dependency.
+  const opensProtocolEditor = Boolean(selectedVersionId) && tab !== "diagnosis";
+  const [detailResult, medicinesResult] = opensProtocolEditor
+    ? await Promise.all([getHealthConfigProtocol(selectedVersionId), listHealthConfigMedicines()])
+    : [null, null];
 
   const authError = firstAuthRequiredError(catalogResult, detailResult);
   if (authError) redirect(INTERNAL_LOGIN_PATH);
 
-  const catalog = catalogResult?.ok ? catalogResult.data : null;
   const detail: HealthConfigProtocolDetail | null =
     detailResult && detailResult.ok ? detailResult.data : null;
   // A selected version that no longer resolves. This is a REAL state, not an edge case: the author
@@ -179,6 +195,28 @@ export async function HealthConfigPage({
   // "this version is gone".
   const selectedVersionIsGone =
     Boolean(selectedVersionId) && detailResult !== null && !detailResult.ok && detailResult.error.kind === "not_found";
+
+  // A dead version recovers TO THE LIST, not to a dead end.
+  //
+  // This branch used to return the notice ALONE. Because the catalog is deliberately not fetched
+  // behind an open editor, "everything below is up to date" sat over an empty screen with a single
+  // link to press -- and the commonest way to reach it is the ordinary one: PUBLISHING retires the
+  // draft id the editor URL is holding. So the author finished a normal edit and landed on a page
+  // that looked broken.
+  //
+  // The list is read HERE, in the same render, so the recovery works on a cold load of that URL and
+  // costs nothing on every other request. It is one extra read on a rare path, which is the right
+  // trade against a screen with nothing on it.
+  const recoveryCatalogResult = selectedVersionIsGone
+    ? await listHealthConfigProtocols({
+        age_band: ageBandFilter === "adult" || ageBandFilter === "kid" ? ageBandFilter : undefined,
+        search: searchFilter || undefined,
+        draft_only: draftOnly || undefined,
+        limit: CATALOG_PAGE_SIZE,
+      })
+    : null;
+  const effectiveCatalogResult = catalogResult ?? recoveryCatalogResult;
+  const catalog = effectiveCatalogResult?.ok ? effectiveCatalogResult.data : null;
 
   const mayWrite = controlEnabled(pageContract, "add_disease", true);
   const writeDisabledReason = control(pageContract, "add_disease").disabled_reason || "";
@@ -288,36 +326,6 @@ export async function HealthConfigPage({
     );
   }
 
-  if (selectedVersionIsGone) {
-    return (
-      <div className="screen on">
-        <div className="phead" style={{ alignItems: "flex-start", gap: 12 }}>
-          <div>
-            <div className="crumb">
-              {copy(pageContract, "crumb")} / <b>{copy(pageContract, "section.catalog.title")}</b>
-            </div>
-            <h1>{pageContract.title}</h1>
-          </div>
-          <div className="sp" style={{ flex: 1 }} />
-          <BackToListButton
-            href={listHref}
-            label={optionalCopy(pageContract, "action.back_to_list") ?? copy(pageContract, "action.back")}
-          />
-        </div>
-        <div className="alert" style={{ marginBottom: 16 }}>
-          <AlertTriangle className="ic" aria-hidden="true" />
-          <div>
-            {optionalCopy(pageContract, "error.stale_version") ??
-              copy(pageContract, "action.error_backend")}{" "}
-            <a href={listHref} style={{ textDecoration: "underline", whiteSpace: "nowrap" }}>
-              {optionalCopy(pageContract, "action.back_to_list") ?? copy(pageContract, "action.back")}
-            </a>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="screen on">
       <div className="phead">
@@ -338,7 +346,17 @@ export async function HealthConfigPage({
 
       <RulebookTabs tab={tab} pageContract={pageContract} basePath={PAGE_PATH} searchParams={sp} />
 
-      <SectionError result={catalogResult} pageContract={pageContract} />
+      {selectedVersionIsGone ? (
+        <StaleVersionNotice
+          message={
+            optionalCopy(pageContract, "error.stale_version") ?? copy(pageContract, "action.error_backend")
+          }
+          linkLabel={optionalCopy(pageContract, "action.back_to_list") ?? copy(pageContract, "action.back")}
+          listHref={listHref}
+        />
+      ) : null}
+
+      <SectionError result={effectiveCatalogResult} pageContract={pageContract} />
 
       {/* ------------------------------------------------------------------ the protocol catalog */}
       <section className="card" style={{ marginBottom: 16 }}>
