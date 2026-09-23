@@ -115,6 +115,23 @@ func (s *RegisterConfigService) RegisterFor(ctx context.Context, tenantID, anima
 	return *seeded, nil
 }
 
+// PublishedRegisterDocument is the live document for one type, for the sheet export.
+//
+// It returns the PUBLISHED version rather than an open draft: a download is a starting point for
+// an edit, and starting from somebody else's half-finished draft would hand one author another's
+// unreviewed work without saying so.
+func (s *RegisterConfigService) PublishedRegisterDocument(ctx context.Context, tenantID, animalClass string) (diagnosis.AuthoredRegister, error) {
+	animalClass = normalizeClass(animalClass)
+	if err := s.validClass(ctx, tenantID, animalClass); err != nil {
+		return diagnosis.AuthoredRegister{}, err
+	}
+	detail, err := s.repo.PublishedRegister(ctx, tenantID, animalClass)
+	if err != nil {
+		return diagnosis.AuthoredRegister{}, err
+	}
+	return detail.Document, nil
+}
+
 func normalizeClass(c string) string {
 	c = strings.ToLower(strings.TrimSpace(c))
 	if c == "" {

@@ -865,6 +865,12 @@ var protectedRoutes = []Route{
 	// Note the READ is on HealthConfigRead rather than something broader even though the
 	// routing screen shows live animal counts: those counts exist to size a clinical change,
 	// not to report the herd, and the herd has its own read.
+	// THE REGISTER AS A SHEET. Download is a READ of the same rulebook the screen shows; upload
+	// is a WRITE, and it writes a DRAFT -- publishing still runs the two-direction check, so the
+	// sheet cannot put a register nobody can be diagnosed against in front of the herd.
+	{OperationID: "getHealthConfigRegisterTemplate", Method: "GET", Pattern: "/health-config/registers/{animal_class}/template", Permissions: []string{HealthConfigRead}},
+	{OperationID: "exportHealthConfigRegister", Method: "GET", Pattern: "/health-config/registers/{animal_class}/export", Permissions: []string{HealthConfigRead}},
+	{OperationID: "importHealthConfigRegister", Method: "POST", Pattern: "/health-config/registers/{animal_class}/import", Permissions: []string{HealthConfigWrite}},
 	{OperationID: "getHealthConfigDiagnosisTypes", Method: "GET", Pattern: "/health-config/diagnosis-types", Permissions: []string{HealthConfigRead}},
 	{OperationID: "saveHealthConfigDiagnosisType", Method: "POST", Pattern: "/health-config/diagnosis-types/save", Permissions: []string{HealthConfigWrite}},
 	{OperationID: "saveHealthConfigDiagnosisRoute", Method: "POST", Pattern: "/health-config/diagnosis-routes/save", Permissions: []string{HealthConfigWrite}},

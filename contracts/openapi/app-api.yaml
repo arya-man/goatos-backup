@@ -16860,6 +16860,123 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "500": { $ref: "#/components/responses/ServerError" }
+  /health-config/registers/{animal_class}/template:
+    get:
+      tags: [Health Config]
+      operationId: getHealthConfigRegisterTemplate
+      summary: A blank sheet for authoring a diagnosis type's rulebook.
+      description: >-
+        One row per node -- a `row` column saying what kind it is, a `parent` naming its owner --
+        because a register is a tree and a tree does not fit a grid. The template carries one
+        worked example of each row kind, marked `#`, which the importer REFUSES as an unknown kind:
+        a template uploaded unchanged is rejected with a sentence rather than quietly importing
+        examples.
+      parameters:
+        - in: path
+          name: animal_class
+          required: true
+          schema: { type: string }
+        - in: query
+          name: format
+          schema: { type: string, enum: [csv, xlsx], default: csv }
+      responses:
+        "200":
+          description: The sheet.
+          content:
+            text/csv: { schema: { type: string } }
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema: { type: string, format: binary }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /health-config/registers/{animal_class}/export:
+    get:
+      tags: [Health Config]
+      operationId: exportHealthConfigRegister
+      summary: This type's LIVE rulebook as a sheet.
+      description: >-
+        The published version, not an open draft: a download is the starting point for an edit, and
+        starting from somebody else's half-finished draft would hand one author another's
+        unreviewed work without saying so. The sheet carries every field, so what is uploaded back
+        can be compared to what came out.
+      parameters:
+        - in: path
+          name: animal_class
+          required: true
+          schema: { type: string }
+        - in: query
+          name: format
+          schema: { type: string, enum: [csv, xlsx], default: csv }
+      responses:
+        "200":
+          description: The sheet.
+          content:
+            text/csv: { schema: { type: string } }
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema: { type: string, format: binary }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundOrNotAllowed" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /health-config/registers/{animal_class}/import:
+    post:
+      tags: [Health Config]
+      operationId: importHealthConfigRegister
+      summary: Read a sheet into this type's DRAFT.
+      description: >-
+        An upload NEVER publishes. It lands in the ordinary draft, on the screen where the author
+        reads it, and publishing runs the same two-direction check every hand edit runs -- a
+        question no rule reads, a rule reading a finding no question asks. That gate is what makes
+        accepting a spreadsheet safe. Nothing is written unless the whole sheet parses: a
+        half-imported register is a rule table with some of its illnesses missing.
+      parameters:
+        - in: path
+          name: animal_class
+          required: true
+          schema: { type: string }
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary, description: A CSV or XLSX sheet. }
+      responses:
+        "200":
+          description: The draft was saved.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [outcome, questions, rules]
+                properties:
+                  outcome: { type: string }
+                  questions: { type: integer }
+                  rules: { type: integer }
+                  warnings:
+                    type: array
+                    description: >-
+                      What a publish WOULD allow through, surfaced now rather than after publishing.
+                    items: { $ref: "#/components/schemas/HealthRegisterProblem" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422":
+          description: >-
+            The sheet cannot be read. EVERY problem from one pass is returned together, each naming
+            its sheet row -- an author told about one mistake per upload would be at it all
+            afternoon.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code: { type: string }
+                  message: { type: string }
+                  problems: { type: array, items: { type: string } }
+        "500": { $ref: "#/components/responses/ServerError" }
   /health-config/diagnosis-types:
     get:
       tags: [Health Config]

@@ -6455,6 +6455,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/health-config/registers/{animal_class}/template": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A blank sheet for authoring a diagnosis type's rulebook.
+         * @description One row per node -- a `row` column saying what kind it is, a `parent` naming its owner -- because a register is a tree and a tree does not fit a grid. The template carries one worked example of each row kind, marked `#`, which the importer REFUSES as an unknown kind: a template uploaded unchanged is rejected with a sentence rather than quietly importing examples.
+         */
+        get: operations["getHealthConfigRegisterTemplate"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/health-config/registers/{animal_class}/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * This type's LIVE rulebook as a sheet.
+         * @description The published version, not an open draft: a download is the starting point for an edit, and starting from somebody else's half-finished draft would hand one author another's unreviewed work without saying so. The sheet carries every field, so what is uploaded back can be compared to what came out.
+         */
+        get: operations["exportHealthConfigRegister"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/health-config/registers/{animal_class}/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Read a sheet into this type's DRAFT.
+         * @description An upload NEVER publishes. It lands in the ordinary draft, on the screen where the author reads it, and publishing runs the same two-direction check every hand edit runs -- a question no rule reads, a rule reading a finding no question asks. That gate is what makes accepting a spreadsheet safe. Nothing is written unless the whole sheet parses: a half-imported register is a rule table with some of its illnesses missing.
+         */
+        post: operations["importHealthConfigRegister"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health-config/diagnosis-types": {
         parameters: {
             query?: never;
@@ -32551,6 +32611,119 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getHealthConfigRegisterTemplate: {
+        parameters: {
+            query?: {
+                format?: "csv" | "xlsx";
+            };
+            header?: never;
+            path: {
+                animal_class: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The sheet. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": string;
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    exportHealthConfigRegister: {
+        parameters: {
+            query?: {
+                format?: "csv" | "xlsx";
+            };
+            header?: never;
+            path: {
+                animal_class: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The sheet. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": string;
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    importHealthConfigRegister: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                animal_class: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /**
+                     * Format: binary
+                     * @description A CSV or XLSX sheet.
+                     */
+                    file: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The draft was saved. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        outcome: string;
+                        questions: number;
+                        rules: number;
+                        /** @description What a publish WOULD allow through, surfaced now rather than after publishing. */
+                        warnings?: components["schemas"]["HealthRegisterProblem"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description The sheet cannot be read. EVERY problem from one pass is returned together, each naming its sheet row -- an author told about one mistake per upload would be at it all afternoon. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code?: string;
+                        message?: string;
+                        problems?: string[];
+                    };
+                };
+            };
             500: components["responses"]["ServerError"];
         };
     };
