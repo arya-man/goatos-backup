@@ -17,6 +17,7 @@
 // save". That distinction is the whole point of this lane.
 import { chromium } from "@playwright/test";
 import fs from "node:fs";
+import { evaluateScreenAssertion, pageFrom } from "../../../tools/dashboard-automation/lib/screen-assertion.mjs";
 import path from "node:path";
 
 const journey = JSON.parse(requiredEnv("GOATOS_WRITE_JOURNEY"));
@@ -87,29 +88,30 @@ try {
   }
   failedStep = null;
 
-  // What a person must see afterwards. This is the half that has never run before today.
-  const missing = [];
-  for (const want of journey.screenAssertion?.visible ?? []) {
-    const found = await page
-      .getByText(String(want.text), { exact: false })
-      .first()
-      .isVisible({ timeout: stepTimeoutMs })
-      .catch(() => false);
-    if (!found) missing.push(want.text);
+  // What a person must see afterwards, judged by the ONE shared evaluator so that every clause
+  // a journey declares is actually read. Before this, `absent`, `inColumn` and `doubledWord` were
+  // declared on four journeys and silently never checked - a declared assertion nobody evaluates
+  // reports green for a page that never changed.
+  const pageText = await page.evaluate(() => document.body?.innerText ?? "").catch(() => "");
+  const columns = {};
+  if (journey.screenAssertion?.inColumn) {
+    const name = String(journey.screenAssertion.inColumn);
+    columns[name] = await page.evaluate((columnName) => {
+      const heading = [...document.querySelectorAll("*")].find(
+        (node) => node.children.length === 0 && (node.textContent ?? "").trim() === columnName
+      );
+      let box = heading;
+      // Walk out to the container that holds both the heading and the rows under it.
+      for (let i = 0; box && i < 4; i += 1) {
+        if (box.parentElement && (box.parentElement.innerText ?? "").length > (box.innerText ?? "").length) box = box.parentElement;
+        else break;
+      }
+      return box ? box.innerText ?? "" : null;
+    }, name).catch(() => null);
+    if (columns[name] == null) delete columns[name];
   }
-  // What must be GONE afterwards. A publish is only proved by the draft no longer being offered:
-  // "Live right now" is on the plan page whenever any version is live, so it passes before the
-  // publish too. Without this, the journey reports a green screen for a publish that never landed.
-  const stillThere = [];
-  for (const want of journey.screenAssertion?.notVisible ?? []) {
-    const gone = await page
-      .getByText(String(want.text), { exact: false })
-      .first()
-      .isHidden({ timeout: stepTimeoutMs })
-      .catch(() => true);
-    if (!gone) stillThere.push(want.text);
-  }
-  for (const text of stillThere) missing.push(`(still on screen) ${text}`);
+  const verdict = evaluateScreenAssertion(journey.screenAssertion, pageFrom(pageText, columns));
+  const missing = verdict.ok ? [] : [...verdict.missing];
   await page.screenshot({ path: shotPath, fullPage: true }).catch(() => {});
   if (missing.length) {
     const shown = await onScreenError(page);

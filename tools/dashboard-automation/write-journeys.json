@@ -527,7 +527,8 @@
         "commitsLinkedBySubject": 8,
         "commitsLinkedByFilePathOnly": 25,
         "note": "Derived from every commit since 2026-08-01 by the history miner. sourceCommits above were read by hand; sourceShas here were routed automatically and a file-path-only link is a weak link."
-      }
+      },
+      "screenGap": "The only thing this assertion looks for is the word the queue shows whether or not anything was approved, so it passes on a screen where nothing happened. Closing it needs the approved item's own identity, and this journey approves whichever item is first rather than one it created."
     },
     {
       "name": "feed-item-in-use-cannot-be-deleted",

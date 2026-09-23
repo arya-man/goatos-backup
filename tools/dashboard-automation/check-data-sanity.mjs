@@ -9,7 +9,9 @@
 // One bad check must never hide the other twenty-nine, so failures are collected and the sweep
 // continues, exactly like lane 1's non-blocking route sweep.
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { closeSync, openSync, readFileSync as readFileSyncRaw, writeSync } from "node:fs";
+import os from "node:os";
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { containsUnredactedSecret, redactText } from "./lib/redact.mjs";
@@ -19,6 +21,69 @@ const cataloguePath = path.join(repo, "tools/dashboard-automation/data-sanity-ch
 // The history miner writes per-commit derived checks here. Consume it when it exists; never block on it.
 const lanePath = path.join(repo, "tools/dashboard-automation/lane-checks.json");
 const config = JSON.parse(readFileSync(path.join(repo, "tools/dashboard-automation/config.json"), "utf8"));
+
+// The rules the 2026-09-23 outage produced, enforced here rather than only in the
+// shell wrapper, because this script is run by hand far more often than through it.
+// Every SQL check goes to the database that serves the product, so these bind
+// whoever starts it and however they start it.
+export const INCIDENT_RULES = {
+  // One sweep at a time. A second one refuses; it does not queue.
+  runLock: true,
+  // Never more than four things asking the product's database at once. This lane
+  // runs its checks one at a time, which is well inside that.
+  maxConcurrency: 4,
+  // A pause between checks, so a sweep cannot become a burst.
+  requestDelayMs: 150,
+  // No single check may hold the database longer than this.
+  statementTimeoutMs: 15000
+};
+
+export function enforcedStatementTimeoutMs(requested) {
+  const asked = Number(requested);
+  if (!Number.isFinite(asked) || asked <= 0) return INCIDENT_RULES.statementTimeoutMs;
+  return Math.min(asked, INCIDENT_RULES.statementTimeoutMs);
+}
+
+// Refuses rather than queues, exactly like the shell wrapper's flock.
+export function acquireRunLock(lockPath = process.env.GOATOS_DASHBOARD_LOCK_FILE
+  || path.join(os.homedir(), ".cache/goatos-dashboard-automation.lock")) {
+  mkdirSync(path.dirname(lockPath), { recursive: true });
+  const holderPath = `${lockPath}.holder`;
+  let fd;
+  try {
+    fd = openSync(holderPath, "wx");
+  } catch (error) {
+    if (error?.code !== "EEXIST") throw error;
+    let holder = "";
+    try { holder = readFileSyncRaw(holderPath, "utf8").trim(); } catch { holder = ""; }
+    const pid = Number(holder.split(" ")[1]);
+    if (Number.isFinite(pid) && pid > 0 && !processIsAlive(pid)) {
+      // The holder is gone. Take the lock rather than refusing forever.
+      try { unlinkSync(holderPath); } catch { /* raced with another taker */ }
+      return acquireRunLock(lockPath);
+    }
+    return { acquired: false, holder, release() {} };
+  }
+  writeSync(fd, `pid ${process.pid} on ${os.hostname()} at ${new Date().toISOString()}\n`);
+  closeSync(fd);
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    try { unlinkSync(holderPath); } catch { /* already gone */ }
+  };
+  process.once("exit", release);
+  return { acquired: true, holder: `pid ${process.pid}`, release };
+}
+
+function processIsAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code === "EPERM";
+  }
+}
 
 // Anything that is not a plain read. Checked against SQL with string literals and comments
 // stripped, so a value like 'Deal Closed' can never trip the guard and a verb inside a literal
@@ -214,6 +279,35 @@ export function loadCatalogue({ cataloguePath: cat = cataloguePath, lanePath: la
 
 // Plain English for Slack and for the runner's layer message. Deliberately free of SQL, table
 // and column names, and check codes — the tests assert that.
+// Every check in the catalogue gets a line, every run: it ran, or it did not and
+// here is why. Silence is not an acceptable answer for a check nobody executed.
+export function startLedger(checks) {
+  return checks.map((check) => ({
+    name: check.name,
+    question: check.question,
+    page: check.page ?? null,
+    ran: false,
+    outcome: "not checked",
+    reason: "this check did not run in this sweep"
+  }));
+}
+
+export function markLedger(ledger, name, entry) {
+  const row = ledger.find((item) => item.name === name);
+  if (!row) return;
+  Object.assign(row, entry);
+}
+
+export function ledgerSummary(ledger) {
+  const ran = ledger.filter((row) => row.ran);
+  return {
+    total: ledger.length,
+    ran: ran.length,
+    notChecked: ledger.length - ran.length,
+    coverage: `${ran.length}/${ledger.length}`
+  };
+}
+
 export function layerSentence(findings, errors) {
   const parts = [];
   if (findings.length) {
@@ -243,15 +337,23 @@ function main() {
   const maxRows = Number(catalogue.maxSampleRows ?? 10);
   const maxOffendingRows = Number(catalogue.maxOffendingRows ?? 500);
   const maxCellChars = Number(catalogue.maxCellChars ?? 80);
-  const timeoutMs = Number(catalogue.statementTimeoutMs ?? 20000);
+  const timeoutMs = enforcedStatementTimeoutMs(catalogue.statementTimeoutMs);
   const outPath = path.resolve(args.out ?? path.join(repo, ".codex-goatos-render/dashboard-automation/data-sanity.json"));
   mkdirSync(path.dirname(outPath), { recursive: true });
+
+  const lock = INCIDENT_RULES.runLock && !args.noRunLock ? acquireRunLock() : { acquired: true, release() {} };
 
   const report = {
     generatedAt: new Date().toISOString(),
     status: "pass",
     productionUrl: config.productionUrl,
     readOnly: { declared: true, proven: false },
+    incidentRules: {
+      ...INCIDENT_RULES,
+      statementTimeoutMs: enforcedStatementTimeoutMs(catalogue.statementTimeoutMs),
+      runLockHeld: lock.acquired
+    },
+    checks: startLedger(catalogue.checks),
     checksRun: 0,
     findings: [],
     passed: [],
@@ -260,7 +362,25 @@ function main() {
   };
   report.parked.push(...(catalogue.laneChecksParked ?? []));
 
+  if (!lock.acquired) {
+    report.status = "parked";
+    for (const row of report.checks) {
+      row.reason = "another sweep was already running, so this one refused to add load to the database that serves the product";
+    }
+    report.parked.push({ name: "run lock", reason: "another sweep is already running; this one refused rather than adding load to the production database" });
+    report.slackLayerMessage = "The figures on the dashboard were not checked because another check of them was already running.";
+    report.ledger = ledgerSummary(report.checks);
+    writeJson(outPath, report);
+    console.error(`data-sanity refused: another sweep holds the run lock; wrote ${path.relative(repo, outPath)}`);
+    return 2;
+  }
+
   const selected = catalogue.checks.filter((check) => !args.only || check.name === args.only);
+  for (const row of report.checks) {
+    if (args.only && row.name !== args.only) {
+      row.reason = `this sweep was asked for ${args.only} only, so this check was not run`;
+    }
+  }
   if (args.only && selected.length === 0) {
     fail(`no check named ${args.only} in the catalogue`);
   }
@@ -278,8 +398,13 @@ function main() {
       name: "connection",
       reason: "no read-only connection to the production replica was available, so no data check could be verified"
     });
+    for (const row of report.checks) {
+      row.reason = "no read-only connection to the production data was available, so this check was not run";
+    }
+    report.ledger = ledgerSummary(report.checks);
     report.slackLayerMessage = "The figures on the dashboard could not be checked because the read-only connection to the production data was not available.";
     writeJson(outPath, report);
+    lock.release();
     console.log(`data-sanity parked; wrote ${path.relative(repo, outPath)}`);
     return 1;
   }
@@ -322,13 +447,22 @@ function main() {
       name: "read-only session",
       reason: "the database session could not be proved read-only, so no check was run against production data"
     });
+    for (const row of report.checks) {
+      row.reason = "the database session could not be proved read-only, so this check was not run";
+    }
+    report.ledger = ledgerSummary(report.checks);
     report.slackLayerMessage = "The figures on the dashboard were not checked because the connection could not be proved read-only.";
     writeJson(outPath, report);
+    lock.release();
     console.error(`data-sanity refused to run: read-only session could not be proved; wrote ${path.relative(repo, outPath)}`);
     return 1;
   }
 
+  let checkIndex = 0;
   for (const check of selected) {
+    // A sweep must not become a burst against the database serving the product.
+    if (checkIndex > 0) sleepMs(INCIDENT_RULES.requestDelayMs);
+    checkIndex += 1;
     report.checksRun += 1;
     const started = Date.now();
     const result = psqlRows(databaseUrl, readOnlySql(cappedSql(check.sql, maxOffendingRows), timeoutMs), { columns: true });
@@ -343,14 +477,22 @@ function main() {
         detail: redactText(result.error).split("\n").slice(0, 3).join(" ").slice(0, 400),
         tookMs
       });
+      markLedger(report.checks, check.name, {
+        ran: false,
+        outcome: "not checked",
+        reason: "this check could not be run against the production replica",
+        tookMs
+      });
       continue;
     }
     const rowCount = result.rows.length;
     const expected = Number(check.expectRows ?? 0);
     if (rowCount === expected) {
       report.passed.push({ name: check.name, question: check.question, tookMs });
+      markLedger(report.checks, check.name, { ran: true, outcome: "adds up", reason: null, rowCount, tookMs });
       continue;
     }
+    markLedger(report.checks, check.name, { ran: true, outcome: "does not add up", reason: null, rowCount, tookMs });
     report.findings.push({
       name: check.name,
       question: check.question,
@@ -367,19 +509,26 @@ function main() {
     });
   }
 
+  report.ledger = ledgerSummary(report.checks);
   report.findings.sort((a, b) => severityRank(a.severity) - severityRank(b.severity) || b.rowCount - a.rowCount);
   report.status = report.findings.length ? "fail" : (report.parked.length ? "degraded" : "pass");
   report.slackLayerMessage = layerSentence(report.findings, report.parked);
   writeJson(outPath, report);
 
   // stdout is quoted verbatim into the receipt and can reach Slack, so it stays plain English.
-  const line = `data-sanity ${report.status}: ${report.slackLayerMessage} (${report.checksRun} checks, report ${path.relative(repo, outPath)})`;
+  lock.release();
+  const line = `data-sanity ${report.status}: ${report.slackLayerMessage} (${report.ledger.ran} of ${report.ledger.total} checks ran, ${report.ledger.notChecked} not checked, report ${path.relative(repo, outPath)})`;
   if (report.status === "pass") {
     console.log(line);
     return 0;
   }
   console.error(line);
   return 1;
+}
+
+function sleepMs(ms) {
+  if (!(ms > 0)) return;
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
 function sqlLimit(sql) {
@@ -429,6 +578,7 @@ function parseArgs(raw) {
     if (arg === "--self-test") parsed.selfTest = true;
     else if (arg === "--out") parsed.out = raw[++i];
     else if (arg === "--only") parsed.only = raw[++i];
+    else if (arg === "--no-run-lock") parsed.noRunLock = true;
     else fail(`unknown argument: ${arg}`);
   }
   return parsed;
@@ -526,6 +676,61 @@ function selfTest() {
   if (!layerSentence([{ rowCount: 3 }], []).includes("does not add up")) throw new Error("self-test: failing layer sentence missing");
   if (!layerSentence([{ rowCount: 3 }, { rowCount: 1 }], []).includes("do not add up")) throw new Error("self-test: plural failing layer sentence missing");
   if (!layerSentence([], [{ name: "x" }]).includes("parked")) throw new Error("self-test: parked layer sentence missing");
+
+  // Every check gets a line every run, and a check nobody ran says so.
+  const ledger = startLedger(catalogue.checks);
+  if (ledger.length !== catalogue.checks.length) throw new Error("self-test: the ledger must carry every check");
+  if (ledger.some((row) => row.ran || row.outcome !== "not checked" || !row.reason)) {
+    throw new Error("self-test: an unrun check must read as not checked, with a reason");
+  }
+  markLedger(ledger, catalogue.checks[0].name, { ran: true, outcome: "adds up", reason: null });
+  if (ledgerSummary(ledger).ran !== 1) throw new Error("self-test: the ledger must count what ran");
+  if (ledgerSummary(ledger).notChecked !== catalogue.checks.length - 1) throw new Error("self-test: the ledger must count what did not");
+
+  // The rules the outage produced, asserted rather than assumed.
+  if (INCIDENT_RULES.statementTimeoutMs !== 15000) throw new Error("self-test: the statement timeout must stay 15s");
+  if (INCIDENT_RULES.requestDelayMs !== 150) throw new Error("self-test: the pause between checks must stay 150ms");
+  if (INCIDENT_RULES.maxConcurrency !== 4) throw new Error("self-test: the concurrency cap must stay 4");
+  if (enforcedStatementTimeoutMs(20000) !== 15000) throw new Error("self-test: a catalogue must not be able to ask for longer than 15s");
+  if (enforcedStatementTimeoutMs(5000) !== 5000) throw new Error("self-test: a shorter timeout must be honoured");
+  if (enforcedStatementTimeoutMs(0) !== 15000 || enforcedStatementTimeoutMs("x") !== 15000) {
+    throw new Error("self-test: a missing timeout must fall back to 15s, never to none");
+  }
+  if (!readOnlySql("select 1 limit 1", enforcedStatementTimeoutMs(20000)).includes("statement_timeout = 15000")) {
+    throw new Error("self-test: the enforced timeout must reach the wrapper");
+  }
+
+  // The run lock refuses a second sweep rather than queueing behind it.
+  const lockPath = path.join(os.tmpdir(), `goatos-data-sanity-self-test-${process.pid}.lock`);
+  const first = acquireRunLock(lockPath);
+  if (!first.acquired) throw new Error("self-test: the first sweep must take the run lock");
+  const second = acquireRunLock(lockPath);
+  if (second.acquired) throw new Error("self-test: a second sweep must be refused the run lock");
+  first.release();
+  const third = acquireRunLock(lockPath);
+  if (!third.acquired) throw new Error("self-test: the lock must be free once the holder releases it");
+  third.release();
+
+  // Fail closed: the mutation fixtures are this lane's proof that its checks can
+  // fail at all, so a missing or short fixture file is an error, never a pass.
+  const fixtureFile = path.join(repo, "tools/dashboard-automation/data-sanity-mutations.json");
+  if (!existsSync(fixtureFile)) {
+    throw new Error("self-test: the lane 2 mutation fixtures are missing, so no check has been shown able to fail");
+  }
+  const fixtures = JSON.parse(readFileSync(fixtureFile, "utf8"))?.mutations ?? {};
+  const uncovered = catalogue.checks.filter((check) => !fixtures[check.name]).map((check) => check.name);
+  if (uncovered.length) {
+    throw new Error(`self-test: ${uncovered.length} check(s) have no defect to plant, so they have never been shown able to fail: ${uncovered.slice(0, 5).join(", ")}`);
+  }
+  for (const [name, entry] of Object.entries(fixtures)) {
+    if (entry?.unprovable) {
+      if (String(entry.unprovable).length < 40) throw new Error(`self-test: ${name} is parked as unprovable without a real reason`);
+      continue;
+    }
+    if (!Array.isArray(entry?.plant) || !entry.plant.length) {
+      throw new Error(`self-test: ${name} has a fixture that plants nothing`);
+    }
+  }
   console.log("dashboard data sanity: self-test passed");
 }
 

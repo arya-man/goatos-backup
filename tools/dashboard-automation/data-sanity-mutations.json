@@ -1,0 +1,1227 @@
+{
+  "description": "One defect per lane 2 check. The mutation prover plants it in a local throwaway clone, shows the check fires, rolls it back, and shows the check goes quiet. A check with no defect here is reported as a named gap, never as coverage.",
+  "mutations": {
+    "herd_total_vs_status_breakdown": {
+      "defect": "an animal in a state the herd screen's four totals do not include",
+      "plant": [
+        {
+          "table": "goats",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "goat_id": "'00000000-0000-4000-8000-0000000000a1'::uuid",
+            "sex": "'f'",
+            "lifecycle_status": "'culled'"
+          }
+        }
+      ]
+    },
+    "park_total_vs_pen_sum": {
+      "defect": "an alive animal standing in a pen that does not belong to the farm it is counted under",
+      "plant": [
+        {
+          "table": "locations",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "location_id": "'00000000-0000-4000-8000-0000000000b1'::uuid",
+            "location_type": "'shed'",
+            "name": "'Fixture Pen'",
+            "status": "'active'",
+            "parent_location_id": "null"
+          }
+        },
+        {
+          "table": "goats",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "goat_id": "'00000000-0000-4000-8000-0000000000a1'::uuid",
+            "sex": "'f'",
+            "lifecycle_status": "'alive'",
+            "shed_id": "'00000000-0000-4000-8000-0000000000b1'::uuid",
+            "park_id": "'00000000-0000-4000-8000-0000000000b2'::uuid"
+          }
+        }
+      ]
+    },
+    "alive_animal_without_pen": {
+      "defect": "an alive animal with no pen",
+      "plant": [
+        {
+          "table": "goats",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "goat_id": "'00000000-0000-4000-8000-0000000000a1'::uuid",
+            "sex": "'f'",
+            "lifecycle_status": "'alive'",
+            "shed_id": "null"
+          }
+        }
+      ]
+    },
+    "animal_in_two_pens": {
+      "unprovable": "the pen sheet holds one row per animal, so the same animal cannot be written into two pens and the check can never fire; it guards against that key being widened, and is not live coverage"
+    },
+    "pen_record_disagrees_with_animal_record": {
+      "defect": "the pen sheet and the animal's own record name different pens",
+      "plant": [
+        {
+          "table": "goats",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "goat_id": "'00000000-0000-4000-8000-0000000000a1'::uuid",
+            "sex": "'f'",
+            "lifecycle_status": "'alive'",
+            "shed_id": "'00000000-0000-4000-8000-0000000000b1'::uuid"
+          }
+        },
+        {
+          "table": "goat_shed_partitions",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "goat_id": "'00000000-0000-4000-8000-0000000000a1'::uuid",
+            "shed_id": "'00000000-0000-4000-8000-0000000000b2'::uuid",
+            "source_shed_name": "'Fixture Pen 2'"
+          }
+        }
+      ]
+    },
+    "register_status_disagrees_with_animal": {
+      "defect": "the herd register shows a different state from the animal's own record",
+      "plant": [
+        {
+          "table": "goats",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "goat_id": "'00000000-0000-4000-8000-0000000000a1'::uuid",
+            "sex": "'f'",
+            "lifecycle_status": "'alive'"
+          }
+        },
+        {
+          "table": "herd_register_goat_projection",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "goat_id": "'00000000-0000-4000-8000-0000000000a1'::uuid",
+            "display_id": "'FIX-1'",
+            "sex": "'f'",
+            "lifecycle_status": "'sold'",
+            "is_kid": "false",
+            "is_untagged": "false"
+          }
+        }
+      ]
+    },
+    "duplicate_animal_tag": {
+      "defect": "one tag number worn by two animals (the check compares tags across the whole database, so the pair is planted under two tenants; one tenant cannot hold a duplicate tag at all)",
+      "plant": [
+        {
+          "table": "goat_identifiers",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "goat_id": "'00000000-0000-4000-8000-0000000000a1'::uuid",
+            "identifier_type": "'animal_identifier_1'",
+            "identifier_value": "'FIXTAG1'",
+            "normalized_value": "'FIXTAG1'",
+            "scope_key": "'fixture'",
+            "status": "'active'",
+            "valid_from": "now()",
+            "normalizer_version": "'v1'"
+          }
+        },
+        {
+          "table": "goat_identifiers",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000002'::uuid",
+            "goat_id": "'00000000-0000-4000-8000-0000000000a2'::uuid",
+            "identifier_type": "'animal_identifier_1'",
+            "identifier_value": "'FIXTAG1'",
+            "normalized_value": "'FIXTAG1'",
+            "scope_key": "'fixture'",
+            "status": "'active'",
+            "valid_from": "now()",
+            "normalizer_version": "'v1'"
+          }
+        }
+      ]
+    },
+    "non_positive_animal_weight": {
+      "unprovable": "the database refuses a weight of zero or less on this table, so the row this check looks for cannot exist and the check can never fire; it guards against that constraint being dropped, and is not live coverage"
+    },
+    "non_positive_pen_weight": {
+      "unprovable": "the database refuses a pen weight of zero or less, so the row this check looks for cannot exist and the check can never fire; it guards against that constraint being dropped, and is not live coverage"
+    },
+    "implausible_weight_jump": {
+      "defect": "the same animal at 20 kg and then 80 kg a day later",
+      "plant": [
+        {
+          "table": "weighing_observations",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "campaign_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
+            "weight_kg": "20",
+            "proof_artifact_id": "'00000000-0000-4000-8000-0000000000c2'::uuid",
+            "recorded_by": "'00000000-0000-4000-8000-0000000000c3'::uuid",
+            "idempotency_key": "'fix-j1'",
+            "scanned_identifier": "'FIXTAG1'",
+            "created_at": "now() - interval '1 day'"
+          }
+        },
+        {
+          "table": "weighing_observations",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "campaign_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
+            "weight_kg": "80",
+            "proof_artifact_id": "'00000000-0000-4000-8000-0000000000c2'::uuid",
+            "recorded_by": "'00000000-0000-4000-8000-0000000000c3'::uuid",
+            "idempotency_key": "'fix-j2'",
+            "scanned_identifier": "'FIXTAG1'",
+            "created_at": "now()"
+          }
+        }
+      ]
+    },
+    "pen_average_disagrees_with_pen_total": {
+      "defect": "a pen average that is not the pen total divided by the animals in it",
+      "plant": [
+        {
+          "table": "weighing_shed_observations",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "campaign_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
+            "campaign_shed_id": "'00000000-0000-4000-8000-0000000000c2'::uuid",
+            "weight_kg": "100",
+            "average_weight_kg": "50",
+            "animal_count": "10",
+            "proof_artifact_id": "'00000000-0000-4000-8000-0000000000c2'::uuid",
+            "recorded_by": "'00000000-0000-4000-8000-0000000000c3'::uuid",
+            "idempotency_key": "'fix-s1'"
+          }
+        }
+      ]
+    },
+    "feed_issued_exceeds_purchased": {
+      "defect": "a feed issued in a quantity that was never bought",
+      "plant": [
+        {
+          "table": "feed_direction_issue_rows",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "feed_direction_issue_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
+            "park_id": "'00000000-0000-4000-8000-0000000000b2'::uuid",
+            "park_label": "'Fixture Farm'",
+            "shed_id": "'00000000-0000-4000-8000-0000000000b1'::uuid",
+            "shed_label": "'Fixture Pen'",
+            "session_no": "1",
+            "head_count": "10",
+            "head_count_informational": "false",
+            "workflow": "'normal'",
+            "feed_item_label": "'Fixture Feed'",
+            "session_total_kg": "10",
+            "overdue_pending": "false",
+            "row_seq": "1",
+            "item_seq": "1",
+            "quantity_kg": "100"
+          }
+        }
+      ]
+    },
+    "negative_feed_quantity": {
+      "defect": "a negative quantity of feed issued",
+      "plant": [
+        {
+          "table": "feed_direction_issue_rows",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "feed_direction_issue_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
+            "park_id": "'00000000-0000-4000-8000-0000000000b2'::uuid",
+            "park_label": "'Fixture Farm'",
+            "shed_id": "'00000000-0000-4000-8000-0000000000b1'::uuid",
+            "shed_label": "'Fixture Pen'",
+            "session_no": "1",
+            "head_count": "10",
+            "head_count_informational": "false",
+            "workflow": "'normal'",
+            "feed_item_label": "'Fixture Feed'",
+            "session_total_kg": "10",
+            "overdue_pending": "false",
+            "row_seq": "1",
+            "item_seq": "1",
+            "quantity_kg": "-5"
+          }
+        }
+      ]
+    },
+    "future_dated_work_record": {
+      "defect": "a feed day dated in the future",
+      "plant": [
+        {
+          "table": "feed_direction_issues",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "feed_direction_issue_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
+            "park_id": "'00000000-0000-4000-8000-0000000000b2'::uuid",
+            "feed_day": "current_date + 5",
+            "workflow": "'normal'",
+            "state": "'issued'"
+          }
+        }
+      ]
+    },
+    "feed_sheet_unlocked_over_2_days": {
+      "defect": "a feed sheet still unlocked more than two days after its day",
+      "plant": [
+        {
+          "table": "feed_direction_issues",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "feed_direction_issue_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
+            "park_id": "'00000000-0000-4000-8000-0000000000b2'::uuid",
+            "feed_day": "current_date - 10",
+            "workflow": "'normal'",
+            "state": "'issued'"
+          }
+        }
+      ]
+    },
+    "feed_sheet_changed_after_it_was_locked": {
+      "defect": "a feed sheet changed after it was locked",
+      "plant": [
+        {
+          "table": "feed_direction_issues",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "feed_direction_issue_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
+            "park_id": "'00000000-0000-4000-8000-0000000000b2'::uuid",
+            "feed_day": "current_date",
+            "workflow": "'normal'",
+            "state": "'locked'",
+            "locked_at": "now() - interval '2 hours'",
+            "amended_at": "now()"
+          }
+        }
+      ]
+    },
+    "feed_carried_to_a_pen_with_no_animals": {
+      "defect": "feed carried to a pen with no animals in it",
+      "plant": [
+        {
+          "table": "feed_direction_issues",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "feed_direction_issue_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
+            "park_id": "'00000000-0000-4000-8000-0000000000b2'::uuid",
+            "feed_day": "current_date",
+            "workflow": "'normal'",
+            "state": "'issued'",
+            "locked_at": "now()"
+          }
+        },
+        {
+          "table": "feed_direction_issue_rows",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "feed_direction_issue_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
+            "park_id": "'00000000-0000-4000-8000-0000000000b2'::uuid",
+            "park_label": "'Fixture Farm'",
+            "shed_id": "'00000000-0000-4000-8000-0000000000b1'::uuid",
+            "shed_label": "'Fixture Pen'",
+            "session_no": "1",
+            "head_count": "0",
+            "head_count_informational": "false",
+            "workflow": "'normal'",
+            "feed_item_label": "'Fixture Feed'",
+            "session_total_kg": "10",
+            "overdue_pending": "false",
+            "row_seq": "1",
+            "item_seq": "1",
+            "quantity_kg": "50"
+          }
+        }
+      ]
+    },
+    "future_dated_animal_record": {
+      "defect": "an animal born in the future",
+      "plant": [
+        {
+          "table": "goats",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "goat_id": "'00000000-0000-4000-8000-0000000000a1'::uuid",
+            "sex": "'f'",
+            "lifecycle_status": "'alive'",
+            "dob": "current_date + 10"
+          }
+        }
+      ]
+    },
+    "death_before_birth": {
+      "defect": "an animal that died before it was born",
+      "plant": [
+        {
+          "table": "goats",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "goat_id": "'00000000-0000-4000-8000-0000000000a1'::uuid",
+            "sex": "'f'",
+            "lifecycle_status": "'dead'",
+            "dob": "current_date",
+            "exited_at": "now() - interval '10 years'",
+            "exit_reason": "'died'"
+          }
+        }
+      ]
+    },
+    "capture_after_submission": {
+      "defect": "a proof captured after the work was submitted",
+      "plant": [
+        {
+          "table": "verification_items",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "module": "'feed'",
+            "status": "'pending'",
+            "created_at": "now() - interval '5 days'",
+            "captured_at": "now()"
+          }
+        }
+      ]
+    },
+    "verification_pending_over_7_days": {
+      "defect": "a check waiting for approval for more than a week",
+      "plant": [
+        {
+          "table": "verification_items",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "module": "'feed'",
+            "status": "'pending'",
+            "created_at": "now() - interval '30 days'"
+          }
+        }
+      ]
+    },
+    "approval_without_who_or_when": {
+      "defect": "an approval with nobody's name on it",
+      "plant": [
+        {
+          "table": "verification_items",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "module": "'feed'",
+            "status": "'approved'",
+            "verified_by": "null",
+            "verified_at": "null"
+          }
+        }
+      ]
+    },
+    "orphan_weighing_record": {
+      "defect": "a weighing that belongs to no weighing run",
+      "plant": [
+        {
+          "table": "weighing_observations",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "campaign_id": "'00000000-0000-4000-8000-0000000000c3'::uuid",
+            "weight_kg": "25",
+            "proof_artifact_id": "'00000000-0000-4000-8000-0000000000c2'::uuid",
+            "recorded_by": "'00000000-0000-4000-8000-0000000000c3'::uuid",
+            "idempotency_key": "'fix-1'",
+            "scanned_identifier": "'FIXTAG1'"
+          }
+        }
+      ]
+    },
+    "orphan_sale_record": {
+      "defect": "a sale line that belongs to no sale",
+      "plant": [
+        {
+          "table": "sales_deal_lines",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "deal_id": "'00000000-0000-4000-8000-0000000000c3'::uuid",
+            "line_no": "1",
+            "product_type": "'Goat'",
+            "breed": "'Fixture'",
+            "sales_value": "0",
+            "weight_estimate_basis": "null",
+            "estimated_weight_kg": "null",
+            "estimated_weight_band": "null"
+          }
+        }
+      ]
+    },
+    "orphan_load_record": {
+      "defect": "an animal on a purchase load that does not exist",
+      "plant": [
+        {
+          "table": "procurement_load_goats",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "load_id": "'00000000-0000-4000-8000-0000000000c3'::uuid",
+            "goat_id": "'00000000-0000-4000-8000-0000000000a1'::uuid",
+            "current_state": "'in_transit'",
+            "animal_identifier_1": "'FIXTAG1'"
+          }
+        }
+      ]
+    },
+    "purchase_load_count_disagrees": {
+      "defect": "a purchase load that expects five animals and lists none",
+      "plant": [
+        {
+          "table": "procurement_loads",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "load_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
+            "purchase_date": "current_date",
+            "status": "'in_transit'",
+            "expected_count": "5"
+          }
+        }
+      ]
+    },
+    "weighing_run_stuck_over_2_days": {
+      "defect": "a weighing run left in progress for ten days",
+      "plant": [
+        {
+          "table": "weighing_campaigns",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "campaign_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
+            "status": "'in_progress'",
+            "start_business_date": "current_date - 10",
+            "created_at": "now() - interval '10 days'",
+            "period_start_date": "current_date - 10"
+          }
+        }
+      ]
+    },
+    "drive_doses_exceed_pen_animals": {
+      "defect": "a vaccination round listing more animals than the pen holds",
+      "plant": [
+        {
+          "table": "vaccination_drive_assignments",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "assignment_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
+            "planned_date": "current_date",
+            "physical_shed": "'Fixture Pen'",
+            "animal_count": "0"
+          }
+        },
+        {
+          "table": "vaccination_drive_assignment_members",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "assignment_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
+            "goat_id": "'00000000-0000-4000-8000-0000000000a1'::uuid",
+            "obligation_id": "'00000000-0000-4000-8000-0000000000c2'::uuid"
+          }
+        }
+      ]
+    },
+    "drive_scheduled_for_exited_animal": {
+      "defect": "a vaccination planned for an animal that has been sold",
+      "plant": [
+        {
+          "table": "goats",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "goat_id": "'00000000-0000-4000-8000-0000000000a1'::uuid",
+            "sex": "'f'",
+            "lifecycle_status": "'sold'"
+          }
+        },
+        {
+          "table": "vaccination_drive_assignments",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "assignment_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
+            "planned_date": "current_date",
+            "physical_shed": "'Fixture Pen'",
+            "animal_count": "1"
+          }
+        },
+        {
+          "table": "vaccination_drive_assignment_members",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "assignment_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
+            "goat_id": "'00000000-0000-4000-8000-0000000000a1'::uuid",
+            "obligation_id": "'00000000-0000-4000-8000-0000000000c2'::uuid"
+          }
+        }
+      ]
+    },
+    "drive_animal_not_in_planned_pen": {
+      "defect": "a vaccination round naming a pen the animal is not in",
+      "plant": [
+        {
+          "table": "goats",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "goat_id": "'00000000-0000-4000-8000-0000000000a1'::uuid",
+            "sex": "'f'",
+            "lifecycle_status": "'alive'",
+            "shed_id": "'00000000-0000-4000-8000-0000000000b2'::uuid"
+          }
+        },
+        {
+          "table": "vaccination_drive_assignments",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "assignment_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
+            "planned_date": "current_date",
+            "physical_shed": "'Fixture Pen'",
+            "animal_count": "1",
+            "shed_id": "'00000000-0000-4000-8000-0000000000b1'::uuid"
+          }
+        },
+        {
+          "table": "vaccination_drive_assignment_members",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "assignment_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
+            "goat_id": "'00000000-0000-4000-8000-0000000000a1'::uuid",
+            "obligation_id": "'00000000-0000-4000-8000-0000000000c2'::uuid"
+          }
+        }
+      ]
+    },
+    "vaccination_round_unfinished_over_2_days": {
+      "defect": "a vaccination round unfinished ten days after its day",
+      "plant": [
+        {
+          "table": "vaccination_drive_assignments",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "assignment_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
+            "planned_date": "current_date - 10",
+            "physical_shed": "'Fixture Pen'",
+            "animal_count": "1"
+          }
+        },
+        {
+          "table": "vaccination_drive_assignment_members",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "assignment_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
+            "goat_id": "'00000000-0000-4000-8000-0000000000a1'::uuid",
+            "obligation_id": "'00000000-0000-4000-8000-0000000000c2'::uuid"
+          }
+        }
+      ]
+    },
+    "vaccination_recorded_twice_for_same_dose": {
+      "unprovable": "the database already refuses a second recorded or accepted dose for the same animal, and those are the only two states this check reads, so it can never fire; it guards against that key being dropped, and is not live coverage"
+    },
+    "same_dose_recorded_twice_in_any_state": {
+      "defect": "the same dose recorded twice for one animal in any state",
+      "plant": [
+        {
+          "table": "vaccination_completions",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "obligation_id": "'00000000-0000-4000-8000-0000000000c2'::uuid",
+            "goat_id": "'00000000-0000-4000-8000-0000000000a1'::uuid",
+            "status": "'recorded'",
+            "administered_at": "now()",
+            "idempotency_key": "'fix-vs-0'"
+          }
+        },
+        {
+          "table": "vaccination_completions",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "obligation_id": "'00000000-0000-4000-8000-0000000000c2'::uuid",
+            "goat_id": "'00000000-0000-4000-8000-0000000000a1'::uuid",
+            "status": "'reversed'",
+            "administered_at": "now() - interval '1 hour'",
+            "idempotency_key": "'fix-vs-1'"
+          }
+        }
+      ]
+    },
+    "sales_sold_count_vs_herd_sold": {
+      "defect": "an animal marked sold in the register with no closed sale to match it",
+      "plant": [
+        {
+          "table": "goats",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "goat_id": "'00000000-0000-4000-8000-0000000000a1'::uuid",
+            "sex": "'f'",
+            "lifecycle_status": "'sold'"
+          }
+        }
+      ]
+    },
+    "dead_animal_without_recorded_cause": {
+      "defect": "a dead animal with no cause recorded",
+      "plant": [
+        {
+          "table": "goats",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "goat_id": "'00000000-0000-4000-8000-0000000000a1'::uuid",
+            "sex": "'f'",
+            "lifecycle_status": "'dead'",
+            "exited_at": "now()"
+          }
+        }
+      ]
+    },
+    "pen_label_not_in_catalogue": {
+      "defect": "a pen sheet naming a pen label the catalogue does not have",
+      "plant": [
+        {
+          "table": "goat_shed_partitions",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "goat_id": "'00000000-0000-4000-8000-0000000000a1'::uuid",
+            "shed_id": "'00000000-0000-4000-8000-0000000000b1'::uuid",
+            "partition_label": "'ZZ'",
+            "source_shed_name": "'Fixture Pen'"
+          }
+        }
+      ]
+    },
+    "treatment_course_open_past_its_length": {
+      "defect": "a treatment still open long past the days it was meant to run",
+      "plant": [
+        {
+          "table": "goats",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "goat_id": "'00000000-0000-4000-8000-0000000000a1'::uuid",
+            "sex": "'f'",
+            "lifecycle_status": "'alive'"
+          }
+        },
+        {
+          "table": "health_cases",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "goat_id": "'00000000-0000-4000-8000-0000000000a1'::uuid",
+            "status": "'active'",
+            "start_date": "current_date - 100",
+            "duration_days": "5",
+            "disease_name": "'Fixture'",
+            "exit_type": "'F'",
+            "age_band": "'adult'"
+          }
+        }
+      ]
+    },
+    "signed_off_feed_work_without_proof": {
+      "defect": "signed-off packing work with no proof attached",
+      "plant": [
+        {
+          "table": "feed_packing_completions",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "park_id": "'00000000-0000-4000-8000-0000000000b2'::uuid",
+            "shed_id": "'00000000-0000-4000-8000-0000000000b1'::uuid",
+            "target_date": "current_date",
+            "status": "'completed'",
+            "verified_at": "now()",
+            "packing_proof_ref": "null",
+            "sop_proofs": "'{\"slot\": \"video\"}'::jsonb",
+            "workflow": "'normal'",
+            "session_no": "1"
+          }
+        }
+      ]
+    },
+    "repeat_dose_with_more_than_one_open_successor": {
+      "defect": "one repeating dose with two open next-due entries",
+      "plant": [
+        {
+          "table": "obligation_instances",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "rule_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
+            "target_type": "'goat'",
+            "target_id": "'00000000-0000-4000-8000-0000000000a1'::uuid",
+            "status": "'due'",
+            "completed_at": "null",
+            "due_at": "now()",
+            "scope_type": "'shed'"
+          }
+        },
+        {
+          "table": "obligation_instances",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "rule_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
+            "target_type": "'goat'",
+            "target_id": "'00000000-0000-4000-8000-0000000000a1'::uuid",
+            "status": "'due'",
+            "completed_at": "null",
+            "due_at": "now() + interval '1 day'",
+            "scope_type": "'shed'"
+          }
+        }
+      ]
+    },
+    "check_filed_under_the_wrong_pen": {
+      "defect": "a check filed under a different pen from the one the work was done in",
+      "plant": [
+        {
+          "table": "sop_tasks",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "task_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
+            "scope_type": "'shed'",
+            "scope_id": "'00000000-0000-4000-8000-0000000000b1'::uuid",
+            "title": "'Fixture task'",
+            "state": "'queued'",
+            "task_type": "'fixture'"
+          }
+        },
+        {
+          "table": "verification_items",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "module": "'feed'",
+            "status": "'pending'",
+            "source_task_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
+            "shed_id": "'00000000-0000-4000-8000-0000000000b2'::uuid"
+          }
+        }
+      ]
+    },
+    "sop_without_exactly_one_published_version": {
+      "defect": "a work instruction with no published version at all (two published versions are impossible: the database allows only one)",
+      "plant": [
+        {
+          "table": "sop_definitions",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "sop_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
+            "name": "'Fixture SOP'",
+            "code": "'fixture.sop'",
+            "kind": "'general'",
+            "status": "'active'"
+          }
+        },
+        {
+          "table": "sop_versions",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "sop_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
+            "sop_version_id": "'00000000-0000-4000-8000-0000000000c2'::uuid",
+            "status": "'draft'",
+            "version_label": "'v1'"
+          }
+        }
+      ]
+    },
+    "open_task_on_an_unpublished_sop": {
+      "defect": "an open task pointing at an unpublished work instruction",
+      "plant": [
+        {
+          "table": "sop_versions",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "sop_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
+            "sop_version_id": "'00000000-0000-4000-8000-0000000000c2'::uuid",
+            "status": "'draft'",
+            "version_label": "'v1'"
+          }
+        },
+        {
+          "table": "sop_tasks",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "task_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
+            "sop_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
+            "sop_version_id": "'00000000-0000-4000-8000-0000000000c2'::uuid",
+            "state": "'queued'",
+            "title": "'Fixture task'",
+            "scope_type": "'shed'",
+            "scope_id": "'00000000-0000-4000-8000-0000000000b1'::uuid",
+            "task_type": "'fixture'"
+          }
+        }
+      ]
+    },
+    "current_feed_rate_names_a_retired_feed": {
+      "defect": "a current feed rate naming a feed the catalogue has retired",
+      "plant": [
+        {
+          "table": "feed_item_catalog",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "feed_item_label": "'Fixture Feed'",
+            "status": "'retired'"
+          }
+        },
+        {
+          "table": "feed_ration_rates",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "feed_item_label": "'Fixture Feed'",
+            "valid_to": "null",
+            "grams_per_head": "100"
+          }
+        }
+      ]
+    },
+    "live_feed_rate_names_a_feed_the_catalogue_does_not_have": {
+      "defect": "a current feed rate naming a feed the catalogue does not have at all",
+      "plant": [
+        {
+          "table": "feed_ration_rates",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "feed_item_label": "'Ghost Feed'",
+            "valid_to": "null",
+            "grams_per_head": "100"
+          }
+        }
+      ]
+    },
+    "count_exception_unresolved_over_7_days": {
+      "defect": "a counting exception nobody resolved for a month",
+      "plant": [
+        {
+          "table": "count_projection_exceptions",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "resolved_at": "null",
+            "created_at": "now() - interval '30 days'",
+            "exception_type": "'count_mismatch'",
+            "status": "'open'",
+            "severity": "'warning'",
+            "work_type": "'counts_projection_exception'",
+            "work_state": "'blocked'"
+          }
+        }
+      ]
+    },
+    "workflow_step_counts_disagree": {
+      "defect": "a workflow whose step counter does not match its own steps",
+      "plant": [
+        {
+          "table": "workflow_instances",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "workflow_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
+            "actions_total": "5",
+            "actions_done": "0",
+            "module": "'birth'",
+            "template_key": "'birth_kid'",
+            "event_date": "current_date",
+            "state": "'open'"
+          }
+        },
+        {
+          "table": "workflow_actions",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "workflow_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
+            "status": "'pending'",
+            "action_type": "'action'",
+            "section": "'main'",
+            "seq": "1"
+          }
+        }
+      ]
+    },
+    "animal_weight_outside_believable_range": {
+      "defect": "an animal recorded at 500 kg",
+      "plant": [
+        {
+          "table": "weighing_observations",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "campaign_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
+            "weight_kg": "500",
+            "proof_artifact_id": "'00000000-0000-4000-8000-0000000000c2'::uuid",
+            "recorded_by": "'00000000-0000-4000-8000-0000000000c3'::uuid",
+            "idempotency_key": "'fix-1'",
+            "scanned_identifier": "'FIXTAG1'"
+          }
+        }
+      ]
+    },
+    "pen_weighing_with_no_average_to_show": {
+      "unprovable": "the database requires an average on every pen weighing, so the row this check looks for cannot exist and the check can never fire; it guards against that requirement being dropped, and is not live coverage"
+    },
+    "pen_weighing_counted_against_nobody": {
+      "unprovable": "the database refuses a pen weighing counted against zero animals, so the row this check looks for cannot exist and the check can never fire; it guards against that constraint being dropped, and is not live coverage"
+    },
+    "sale_totals_disagree_with_its_own_lines": {
+      "defect": "a sale whose own lines add up to a different number of animals",
+      "plant": [
+        {
+          "table": "sales_deals",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
+            "sale_date": "current_date",
+            "buyer_name": "'Fixture Buyer'",
+            "status": "'Deal Closed'",
+            "animal_count": "5",
+            "farm": "'CBE'",
+            "product_type": "'Goat'",
+            "breed": "'Fixture'",
+            "sales_value": "0"
+          }
+        },
+        {
+          "table": "sales_deal_lines",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "deal_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
+            "line_no": "1",
+            "animal_count": "1",
+            "product_type": "'Goat'",
+            "breed": "'Fixture'",
+            "sales_value": "0",
+            "weight_estimate_basis": "null",
+            "estimated_weight_kg": "null",
+            "estimated_weight_band": "null"
+          }
+        }
+      ]
+    },
+    "animals_on_a_closed_sale_are_not_marked_sold": {
+      "defect": "an animal on a closed sale still shown as alive in the register",
+      "plant": [
+        {
+          "table": "sales_deals",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
+            "sale_date": "current_date",
+            "buyer_name": "'Fixture Buyer'",
+            "status": "'Deal Closed'",
+            "animal_count": "5",
+            "farm": "'CBE'",
+            "product_type": "'Goat'",
+            "breed": "'Fixture'",
+            "sales_value": "0"
+          }
+        },
+        {
+          "table": "goats",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "goat_id": "'00000000-0000-4000-8000-0000000000a1'::uuid",
+            "sex": "'f'",
+            "lifecycle_status": "'alive'"
+          }
+        },
+        {
+          "table": "goat_sale_allocations",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "sales_deal_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
+            "goat_id": "'00000000-0000-4000-8000-0000000000a1'::uuid",
+            "released_at": "null",
+            "tag_number": "'FIXTAG1'"
+          }
+        }
+      ]
+    },
+    "purchase_load_state_disagrees_with_its_animals": {
+      "defect": "an accepted purchase load whose animals are still in transit",
+      "plant": [
+        {
+          "table": "procurement_loads",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "load_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
+            "purchase_date": "current_date",
+            "status": "'accepted_intake'",
+            "expected_count": "1"
+          }
+        },
+        {
+          "table": "procurement_load_goats",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "load_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
+            "goat_id": "'00000000-0000-4000-8000-0000000000a1'::uuid",
+            "current_state": "'in_transit'",
+            "animal_identifier_1": "'FIXTAG1'"
+          }
+        }
+      ]
+    },
+    "an_animal_sits_on_more_than_one_purchase_load": {
+      "defect": "one animal claimed by two purchase loads",
+      "plant": [
+        {
+          "table": "goats",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "goat_id": "'00000000-0000-4000-8000-0000000000a1'::uuid",
+            "sex": "'f'",
+            "lifecycle_status": "'alive'"
+          }
+        },
+        {
+          "table": "procurement_loads",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "load_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
+            "purchase_date": "current_date",
+            "status": "'in_transit'",
+            "expected_count": "1",
+            "idempotency_key": "'fix-load-1'"
+          }
+        },
+        {
+          "table": "procurement_loads",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "load_id": "'00000000-0000-4000-8000-0000000000c2'::uuid",
+            "purchase_date": "current_date",
+            "status": "'in_transit'",
+            "expected_count": "1",
+            "idempotency_key": "'fix-load-2'"
+          }
+        },
+        {
+          "table": "procurement_load_goats",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "load_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
+            "goat_id": "'00000000-0000-4000-8000-0000000000a1'::uuid",
+            "current_state": "'in_transit'",
+            "animal_identifier_1": "'FIXTAG1'"
+          }
+        },
+        {
+          "table": "procurement_load_goats",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "load_id": "'00000000-0000-4000-8000-0000000000c2'::uuid",
+            "goat_id": "'00000000-0000-4000-8000-0000000000a1'::uuid",
+            "current_state": "'in_transit'",
+            "animal_identifier_1": "'FIXTAG1'"
+          }
+        }
+      ]
+    },
+    "event_stuck_after_its_retries": {
+      "defect": "an event that failed every retry and was never delivered",
+      "plant": [
+        {
+          "table": "outbox_messages",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "status": "'failed'",
+            "published_at": "null",
+            "created_at": "now() - interval '10 days'",
+            "event_type": "'fixture.event'",
+            "attempt_count": "5"
+          }
+        }
+      ]
+    },
+    "notification_nobody_ever_received": {
+      "defect": "a message whose last delivery attempt failed",
+      "plant": [
+        {
+          "table": "notification_delivery_attempts",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "notification_request_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
+            "attempt_no": "1",
+            "result": "'failed'",
+            "attempted_at": "now()",
+            "channel": "'push_fcm'"
+          }
+        }
+      ]
+    },
+    "notification_still_waiting_to_be_sent": {
+      "defect": "a message queued for ten days and never sent",
+      "plant": [
+        {
+          "table": "notification_requests",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "notification_request_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
+            "status": "'queued'",
+            "requested_at": "now() - interval '10 days'",
+            "notification_type": "'reminder'",
+            "channel": "'push_fcm'"
+          }
+        }
+      ]
+    },
+    "alert_switched_on_with_nobody_to_tell": {
+      "defect": "an alert switched on with nobody set to receive it",
+      "plant": [
+        {
+          "table": "alert_event_rules",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "event_kind": "'fixture.alert'",
+            "enabled": "true",
+            "label": "'Fixture alert'",
+            "severity": "'warning'"
+          }
+        }
+      ]
+    },
+    "pen_work_left_open_past_its_day": {
+      "defect": "pen care work left open ten days past its day",
+      "plant": [
+        {
+          "table": "pc_care_tasks",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "work_state": "'scheduled'",
+            "due_business_date": "current_date - 10",
+            "category": "'deworming'",
+            "status": "'open'",
+            "shed_id": "'00000000-0000-4000-8000-0000000000b1'::uuid",
+            "planned_business_date": "current_date - 10",
+            "vaccine_label": "null",
+            "gates_task_id": "null",
+            "gates_round_id": "null",
+            "closed_by": "null",
+            "close_reason": "null"
+          }
+        }
+      ]
+    },
+    "finished_task_without_a_finish_time": {
+      "defect": "a task marked done with no time it was finished",
+      "plant": [
+        {
+          "table": "leadership_tasks",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "status": "'done'",
+            "done_at": "null",
+            "title": "'Fixture task'",
+            "raised_by": "'00000000-0000-4000-8000-0000000000d1'::uuid",
+            "assignee_user_id": "'00000000-0000-4000-8000-0000000000d2'::uuid"
+          }
+        }
+      ]
+    },
+    "clock_entry_that_cannot_have_happened": {
+      "defect": "a shift recording more minutes than a day holds",
+      "plant": [
+        {
+          "table": "workforce_clock_entries",
+          "row": {
+            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "worked_minutes": "2000",
+            "business_date": "current_date",
+            "status": "'closed'"
+          }
+        }
+      ]
+    }
+  }
+}
