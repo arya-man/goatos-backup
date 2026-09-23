@@ -29,6 +29,7 @@ import sg.mesha.goatos.core.data.CaptureDraftRepository
 import sg.mesha.goatos.core.data.CaptureFlow
 import sg.mesha.goatos.core.data.MilkFeedingRepository
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
+import sg.mesha.goatos.core.data.capture.ProofSubject
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.network.dto.MilkFeedingPageDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictMeasurementDto
@@ -584,6 +585,60 @@ sync = FakeMilkFeedingSyncRepository(),
             "BUG C fix: observeProofChanges subscription must sync UI to durable store state",
             true,
             viewModel.state.value.proofs.first { it.code == "clean_bottles" }.captured,
+        )
+    }
+
+
+    @Test
+    fun `a feeding clip is stamped with the task it proves, and the server accepts that subject`() = runTest(dispatcher) {
+        val proofCaptureRepository = FakeProofCaptureRepository()
+        val viewModel = MilkFeedingViewModel(
+            repo = FakeMilkFeedingRepository(),
+            sync = FakeMilkFeedingSyncRepository(),
+            capture = FakeProofCaptureSource(
+                mutableListOf(CapturedVideo(localUri = "/proof/clean-bottles.mp4", startedAtMs = 1L, endedAtMs = 2L)),
+            ),
+            proofCaptureRepository = proofCaptureRepository,
+            drafts = FakeMilkFeedingDraftRepository(),
+            analytics = FakeAnalyticsPort(),
+            saved = SavedStateHandle(mapOf(MilkFeedingViewModel.ARG_TASK_ID to "task-1")),
+        )
+        backgroundScope.launch { viewModel.state.collect {} }
+
+        viewModel.onEvent(MilkFeedingEvent.CaptureProof("clean_bottles"))
+        advanceUntilIdle()
+
+        val call = proofCaptureRepository.captureCalls.single()
+        assertEquals(
+            "a feeding clip proves that feeding task happened, so it is stamped with the task",
+            ProofSubject.TASK,
+            call.subject,
+        )
+        assertEquals("and with that task's own id", "task-1", call.subjectId)
+        assertBackendAcceptsSubject(call.subject)
+    }
+
+    @Test
+    fun `park is not spellable at a capture site any more`() {
+        assertTrue(
+            "`park` was the refused value; leaving it in the enum lets a future capture site " +
+                "regress to the same silent 400",
+            ProofSubject.entries.none { it.name == "PARK" || it.wireValue == "park" },
+        )
+    }
+
+    // `subject_type` is a CROSS-BOUNDARY vocabulary, and the phone lost an argument with it: both
+    // milk screens stamped their clips `park`, which validateCreate (backend/internal/proof/app/
+    // service.go) has never accepted, so every milk proof upload 400'd (bc2c6c43). The operator
+    // filmed the work and the submission failed -- the damaging direction, because the screen had
+    // no way to say the clip was refused for naming a subject the server does not have. The
+    // accepted set is written out here rather than imported: the point is to fail when the two ends
+    // disagree, and a shared constant would move with whichever end changed.
+    private fun assertBackendAcceptsSubject(subject: ProofSubject) {
+        assertTrue(
+            "subject_type=${subject.wireValue} is not in validateCreate's accepted set, so this " +
+                "upload would be refused 400 invalid_proof after the operator filmed the work",
+            subject.wireValue in setOf("batch", "goat", "shed", "task", "vial_lot", "administration", "other"),
         )
     }
 
