@@ -610,7 +610,7 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
             <div className="mzai-hbtns" onClick={(e) => e.stopPropagation()}>
               <button
                 type="button"
-                className="mzai-icon mzai-hide-mobile"
+                className="mzai-icon"
                 onClick={() => setView(view === "min" ? "normal" : "min")}
                 aria-label={view === "min" ? "Restore" : "Minimize"}
                 title={view === "min" ? "Restore" : "Minimize"}

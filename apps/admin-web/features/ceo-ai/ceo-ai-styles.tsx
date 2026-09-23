@@ -185,6 +185,8 @@ export function CeoAiStyles(): ReactElement {
   .mzai-open .mzai-panel{height:100dvh;border-radius:0;border:0;
     padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)}
   .mzai-hide-mobile{display:none}
+  .mzai-root.mzai-open.mzai-view-min{inset:auto 0 0 0 !important}
+  .mzai-open.mzai-view-min .mzai-panel{height:auto;padding-top:0;border-top:1px solid var(--line)}
   .mzai-body{position:relative}
   .mzai-side{position:absolute;inset:0 auto 0 0;width:min(78vw,280px);z-index:2;box-shadow:8px 0 24px rgba(0,0,0,.25)}
   .mzai-msg.assistant{max-width:calc(100% - 36px)}
