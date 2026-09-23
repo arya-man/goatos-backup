@@ -17,7 +17,8 @@
 //      suggests a many-operators-per-bucket mapping (e.g. `weighing_campaign_shed_operators`).
 //
 // Modes:
-//   (default)     scan weighing migrations + the weighing repository write path.
+//   (default)     scan EVERY postgres migration (relevance comes from the SQL,
+//                 not the filename) + the weighing repository write path.
 //   --self-test   run adversarial good/bad fixtures for all three failure modes and exit.
 //
 // Blind spots (native Grep/Read must still catch these): a second operator relationship
@@ -43,6 +44,27 @@ function upSection(sql) {
   return downIdx < 0 ? sql : sql.slice(0, downIdx);
 }
 
+
+// Every statement in `sql` that is about weighing_campaign_sheds: the balanced
+// body of its CREATE TABLE, and each ALTER TABLE ... ; for it.
+export function weighingCampaignShedStatements(sql) {
+  const blocks = [];
+  const createRe = /CREATE TABLE\s+(?:IF NOT EXISTS\s+)?(?:public\.)?weighing_campaign_sheds\s*\(/gi;
+  let m;
+  while ((m = createRe.exec(sql)) !== null) {
+    let depth = 1;
+    let i = createRe.lastIndex;
+    for (; i < sql.length && depth > 0; i += 1) {
+      if (sql[i] === "(") depth += 1;
+      else if (sql[i] === ")") depth -= 1;
+    }
+    blocks.push(sql.slice(createRe.lastIndex, i));
+  }
+  const alterRe = /ALTER TABLE\s+(?:ONLY\s+)?(?:IF EXISTS\s+)?(?:public\.)?weighing_campaign_sheds\b[^;]*;/gi;
+  while ((m = alterRe.exec(sql)) !== null) blocks.push(m[0]);
+  return blocks;
+}
+
 export function findingsForMigrationSource(rel, sql) {
   const findings = [];
   const up = upSection(sql);
@@ -54,12 +76,20 @@ export function findingsForMigrationSource(rel, sql) {
     });
   }
 
-  const secondColumnRe = /(?:ALTER TABLE\s+(?:public\.)?weighing_campaign_sheds\s+ADD COLUMN(?:\s+IF NOT EXISTS)?\s+|,\s*)([a-z0-9_]*operator[a-z0-9_]*)\s+uuid\b/gi;
-  let scm;
+  // The `,\s*<col> uuid` alternative below is only meaningful INSIDE a statement
+  // about weighing_campaign_sheds. Applied to a whole migration file it matched
+  // any comma-separated uuid column named *operator* in any unrelated table —
+  // which stayed hidden only while this guard scanned migrations by FILENAME.
+  // Scope it to the CREATE TABLE body and the ALTER TABLE statements for this
+  // one table, so widening the file scope adds catches and not noise.
   const seenCols = new Set();
-  while ((scm = secondColumnRe.exec(up)) !== null) {
-    const col = scm[1].toLowerCase();
-    if (col !== "operator_user_id") seenCols.add(col);
+  for (const block of weighingCampaignShedStatements(up)) {
+    const secondColumnRe = /(?:ADD COLUMN(?:\s+IF NOT EXISTS)?\s+|,\s*|\(\s*)([a-z0-9_]*operator[a-z0-9_]*)\s+uuid\b/gi;
+    let scm;
+    while ((scm = secondColumnRe.exec(block)) !== null) {
+      const col = scm[1].toLowerCase();
+      if (col !== "operator_user_id") seenCols.add(col);
+    }
   }
   for (const col of seenCols) {
     findings.push({
@@ -99,8 +129,16 @@ export function findingsForRepositorySource(rel, source) {
   return findings;
 }
 
-function isWeighingMigration(rel) {
-  return rel.startsWith(`${MIGRATIONS_DIR}/`) && /weighing/i.test(rel) && rel.endsWith(".sql");
+// Every migration, not only the ones whose FILENAME says "weighing". The rules
+// below already key on the `weighing_campaign_sheds` table name in the SQL, so
+// the name filter added nothing but a bypass: measured 2026-09-23, the identical
+// `ALTER COLUMN operator_user_id DROP NOT NULL` exited 1 as
+// 000393_weighing_backup_operator.sql and exited 0 as
+// 000393_bucket_backup_operator.sql. Repo migration names routinely omit the
+// module (000391_pen_type_moves_to_the_partition.sql), so the rename is not
+// contrived. 363 files / 3.7 MB, read once: the whole guard stays ~100 ms.
+export function isWeighingMigration(rel) {
+  return rel.startsWith(`${MIGRATIONS_DIR}/`) && rel.endsWith(".sql");
 }
 
 function isWeighingRepoGo(rel) {
@@ -137,10 +175,37 @@ function run() {
     for (const p of problems) console.error(`- ${p}`);
     process.exit(1);
   }
-  console.log(`weighing-one-operator-per-bucket guard: ok (${migrationFiles.length} weighing migrations, ${repoFiles.length} repository files)`);
+  console.log(`weighing-one-operator-per-bucket guard: ok (${migrationFiles.length} migrations scanned, ${repoFiles.length} repository files)`);
 }
 
 function selfTest() {
+  // SCOPE, not just the rules. The bypass this guard shipped with was in the
+  // file filter: the identical SQL exited 1 as 000393_weighing_backup_operator.sql
+  // and 0 as 000393_bucket_backup_operator.sql. Both must be in scope now.
+  for (const name of [
+    "backend/migrations/postgres/000393_weighing_backup_operator.sql",
+    "backend/migrations/postgres/000393_bucket_backup_operator.sql",
+    "backend/migrations/postgres/000391_pen_type_moves_to_the_partition.sql",
+  ]) {
+    if (!isWeighingMigration(name)) throw new Error(`self-test failed: migration out of scope by filename: ${name}`);
+  }
+  if (isWeighingMigration("backend/migrations/postgres/README.md")) {
+    throw new Error("self-test failed: non-SQL file treated as a migration");
+  }
+  // And the rule the widened scope could have made noisy: an operator column on
+  // some OTHER table in the same migration is not a weighing finding.
+  const otherTable = `
+-- +goose Up
+CREATE TABLE public.feed_transport_runs (
+  id uuid PRIMARY KEY,
+  assigned_operator_id uuid NOT NULL
+);
+ALTER TABLE public.weighing_campaign_sheds ADD COLUMN IF NOT EXISTS operator_user_id uuid;
+`;
+  if (findingsForMigrationSource("fake.sql", otherTable).length !== 0) {
+    throw new Error(`self-test failed: operator column on an unrelated table flagged as a weighing finding: ${JSON.stringify(findingsForMigrationSource("fake.sql", otherTable))}`);
+  }
+
   const badMig1 = `
 -- +goose Up
 ALTER TABLE public.weighing_campaign_sheds ALTER COLUMN operator_user_id DROP NOT NULL;
