@@ -82,7 +82,8 @@ func opaqueVal(derived bool) aval         { return aval{kind: avOpaque, derived:
 // ITS ORDER IS A LIE, AND MUST NEVER BE BELIEVED. The byte that makes it
 // uncollidable also makes it sort BELOW every printable string, so every
 // ordering leg answered the opposite of what real data would and
-// `coalesce(backup_label,'') < 'A'` — a perfect blankness test in Postgres —
+// `coalesce(backup_label, the empty string) < 'A'` — a perfect blankness test
+// in Postgres —
 // came back "true for a filled value too", and was allowed. So the filled probe
 // is treated as a GENERIC non-blank value whose position in the collation is
 // simply unknown: see blindOrder below. Equality against it is still meaningful
@@ -1263,8 +1264,9 @@ func judgeBlanknessTest(n *exprNode, guarded map[string]bool) blankVerdict {
 
 // asksWhetherItIsBlank reports whether the expression, read for its SHAPE
 // alone, is pointed at blankness in the affirmative direction — the only
-// direction that produces the ten-versus-four answer. `x IS NULL` and `x = ''`
-// are; their inverses `x IS NOT NULL` and `x <> ''` are the legitimate question
+// direction that produces the ten-versus-four answer. `x IS NULL`, and equality
+// against the empty string, are; their inverses `x IS NOT NULL` and inequality
+// against the empty string are the legitimate question
 // and are not; and `NOT (x IS NOT NULL)` is the affirmative one again.
 //
 // This is a shape test, and it is used for exactly one decision: whether an

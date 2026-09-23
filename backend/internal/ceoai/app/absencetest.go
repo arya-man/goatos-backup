@@ -40,6 +40,29 @@ package app
 // reader cannot evaluate at all, applied to this column, is refused too, and
 // says so.
 //
+// WHAT IT STILL CANNOT SEE, SAID PLAINLY. The three-point test asks what a
+// predicate does to a GENERIC non-blank value. Two things therefore stay
+// outside it, and neither is closed by trying harder:
+//
+//   - A predicate that enumerates the real data. `coalesce(backup_label, '')
+//     NOT IN ('Backup 6','Backup 7','Backup 8')` isolates the blank rows only
+//     because those three happen to be every value the column actually holds.
+//     For a generic filled value the predicate is TRUE, so it is not a
+//     blankness test in any sense this reader has access to — deciding it would
+//     need the rows, which the gate does not have and must not fetch. (Without
+//     the coalesce it is harmless: `backup_label NOT IN (…)` is NULL for a NULL
+//     column and returns none of the rows in question.)
+//   - A wrapper this reader cannot evaluate whose result is compared to a value
+//     that is not blank. `regexp_replace(backup_label, '^$', 'none') = 'none'`
+//     would pass. Refusing everything unreadable instead was tried and was
+//     worse: it refused `backup_label = owner_label` and `substring(backup_label,
+//     1, 6) = 'Backup'` with a message describing a wrapper the statement did
+//     not contain, and a refusal that misdescribes the statement leaves the
+//     re-plan nowhere to go.
+//
+// Both are recorded here rather than in a review note because the next person
+// to widen this gate needs to know which gaps are deliberate.
+//
 // It is still a NARROW gate. It fires only on a column a card explicitly
 // declares, only in a predicate, and never on a comparison to a value:
 // `backup_label = 'Backup 6'` is a perfectly good question and passes — and so
