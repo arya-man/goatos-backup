@@ -184,3 +184,32 @@ func TestMigrationSeedReproducesTheShippedRouting(t *testing.T) {
 		}
 	}
 }
+
+// A ROUTE ON A STAGE THE FARM DOES NOT HAVE IS A DEAD RULE.
+//
+// It matches nothing, for ever, and reports that as a zero in a column. On 2026-09-23 the
+// maintainer typed `mothers` where the farm's stage is `Mother`; the screen accepted it, showed
+// "0 animals", and five does stayed on the adult wildcard behind a rule that looked authored.
+//
+// The refusal itself is enforced in the repository, where the stage catalog is readable. What is
+// pinned here is the CONSEQUENCE, so the reason the refusal exists cannot be argued away: a route
+// whose stage no animal is on changes nothing about which register they reach.
+func TestARouteOnAStageNoAnimalIsOnChangesNothing(t *testing.T) {
+	routing := NewStageRouting([]StageRoute{
+		{AgeBand: AgeBandAdult, StageCode: StageWildcard, TypeKey: diagnosis.ClassAdult},
+		// The typo: the farm's stage is "Mother".
+		{AgeBand: AgeBandAdult, StageCode: "mothers", TypeKey: "mothers"},
+	})
+
+	got, err := ResolveAnimal(routedDoe(AgeBandAdult, "Mother"), routing)
+	if err != nil {
+		t.Fatalf("a real mother must still route: %v", err)
+	}
+	if got.Class != diagnosis.ClassAdult {
+		t.Fatalf("class = %q; a dead route must not divert her, but it must not carry her either", got.Class)
+	}
+	// The whole point: the author believed they had routed mothers, and had not.
+	if got.Class == "mothers" {
+		t.Error("the typo must not be treated as the real stage")
+	}
+}

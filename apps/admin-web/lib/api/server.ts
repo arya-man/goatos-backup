@@ -3048,6 +3048,7 @@ export type HealthDiagnosisStageRoute = {
   type_label: string;
   is_wildcard: boolean;
   live_animals: number;
+  stage_retired: boolean;
 };
 
 export type HealthUnroutedStage = {
@@ -3058,10 +3059,19 @@ export type HealthUnroutedStage = {
   clinical_placement: boolean;
 };
 
+export type HealthAvailableStage = {
+  age_band: "adult" | "kid";
+  stage_code: string;
+  stage_label: string;
+  live_animals: number;
+  routed: boolean;
+};
+
 export type HealthDiagnosisRouting = {
   types: HealthDiagnosisType[];
   routes: HealthDiagnosisStageRoute[];
   unrouted_stages: HealthUnroutedStage[];
+  stages: HealthAvailableStage[];
 };
 
 /** Which diagnosis types exist, who reaches each one, and which stages reach nothing. */

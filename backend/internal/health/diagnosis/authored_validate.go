@@ -3,6 +3,7 @@ package diagnosis
 import (
 	"fmt"
 	"math"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -37,9 +38,19 @@ func (a *AuthoredRegister) Validate() Problems {
 	if len(a.AppliesClass) == 0 {
 		add("applies_class", "name at least one animal class this register serves")
 	}
+	// THE SHAPE IS CHECKED HERE; WHICH TYPES A FARM HAS IS NOT.
+	//
+	// This used to compare against the four classes compiled into the binary, which meant a
+	// register for a type the farm authored itself -- "Mothers", created on the Types tab -- could
+	// never be published, however correct its rules were. This package is PURE and cannot read a
+	// tenant's types, so the membership question moved to where the answer lives:
+	// RegisterConfigService.validClass, which refuses authoring for anything that is not an ACTIVE
+	// authored type. What stays here is the part that is true everywhere -- a class is a machine
+	// key, so a stray space or capital is still caught before it becomes a join that never matches.
 	for i, c := range a.AppliesClass {
-		if !knownClass(c) {
-			add(fmt.Sprintf("applies_class.%d", i), "%q is not an animal class", c)
+		if !wellFormedClass(c) {
+			add(fmt.Sprintf("applies_class.%d", i),
+				"%q is not a usable animal type key -- lower-case letters, digits and underscores", c)
 		}
 	}
 
@@ -50,14 +61,11 @@ func (a *AuthoredRegister) Validate() Problems {
 	return ps
 }
 
-func knownClass(c string) bool {
-	for _, k := range Classes {
-		if k == c {
-			return true
-		}
-	}
-	return false
-}
+// wellFormedClass mirrors the CHECK on health_diagnosis_types.type_key, so a document cannot name
+// a class the types table could never hold.
+func wellFormedClass(c string) bool { return classKeyShape.MatchString(c) }
+
+var classKeyShape = regexp.MustCompile(`^[a-z][a-z0-9_]{0,48}$`)
 
 // validateQuestions checks the form half and returns every token the answers can
 // emit, mapped to the path that emits it.

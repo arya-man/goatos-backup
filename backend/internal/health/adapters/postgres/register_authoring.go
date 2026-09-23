@@ -33,11 +33,31 @@ const (
   health_diagnosis_register_version_id::text, animal_class, version, status,
   register_label, document, published_at, updated_at`
 
+	// ONE ROW PER ACTIVE TYPE, not per register version.
+	//
+	// It used to list versions alone, so a type with no rules yet had no row at all -- you could
+	// create "Mothers" on the Types tab and then find nowhere to write its rules, which is how
+	// the maintainer found it on 2026-09-23. A type IS the thing a person is authoring; whether
+	// it has reached a published version yet is a property of it, not a condition of existing.
+	//
+	// The type row carries nulls for the version columns, which the summary reports as an empty
+	// version id and zero counts -- the honest reading of "nothing written yet" -- and the screen
+	// says so in words rather than leaving a blank row to interpret.
+	//
+	// projection-review: membership=active health_diagnosis_types for the tenant, LEFT JOINed to
+	// its published and draft versions; group_key=(tenant_id, type_key) plus status, and
+	// health_diagnosis_register_one_published_uq / _one_draft make that at most one row per
+	// (type, status), so the join cannot multiply a type; pagination=none, a farm has a handful
+	// of types; scope=tenant_id equality on both sides of the join.
 	sqlListRegisters = `
-SELECT ` + registerColumns + `
-FROM health_diagnosis_register_versions
-WHERE tenant_id=$1::uuid AND status IN ('published','draft')
-ORDER BY animal_class, status DESC, version DESC`
+SELECT v.health_diagnosis_register_version_id::text, t.type_key, v.version, v.status,
+       v.register_label, v.document, v.published_at, coalesce(v.updated_at, t.updated_at)
+FROM health_diagnosis_types t
+LEFT JOIN health_diagnosis_register_versions v
+       ON v.tenant_id = t.tenant_id AND v.animal_class = t.type_key
+      AND v.status IN ('published','draft')
+WHERE t.tenant_id=$1::uuid AND t.status='active'
+ORDER BY t.sort_order, t.type_key, v.status DESC, v.version DESC`
 
 	sqlRegisterByID = `
 SELECT ` + registerColumns + `
@@ -197,10 +217,29 @@ func scanRegister(row rowScanner) (domain.RegisterDetail, error) {
 		d           domain.RegisterDetail
 		raw         []byte
 		publishedAt *time.Time
+		versionID   *string
+		version     *int
+		status      *string
+		label       *string
 	)
-	if err := row.Scan(&d.RegisterVersionID, &d.AnimalClass, &d.Version, &d.Status,
-		&d.RegisterLabel, &raw, &publishedAt, &d.UpdatedAt); err != nil {
+	if err := row.Scan(&versionID, &d.AnimalClass, &version, &status,
+		&label, &raw, &publishedAt, &d.UpdatedAt); err != nil {
 		return domain.RegisterDetail{}, err
+	}
+	d.RegisterVersionID = strOrEmpty(versionID)
+	d.RegisterLabel = strOrEmpty(label)
+	d.Status = strOrEmpty(status)
+	if version != nil {
+		d.Version = *version
+	}
+	// A TYPE WITH NO VERSION YET. The list read is one row per active type, so a type whose rules
+	// nobody has written arrives with every version column null. It is a real and expected state
+	// -- it is what a farm has between creating a type and authoring it -- and it is reported as
+	// an empty version with zero counts rather than being dropped from the list, which is what
+	// left "Mothers" unreachable from the screen that authors it.
+	if raw == nil {
+		d.PublishedAt = publishedAt
+		return d, nil
 	}
 	// The stored document is read with the SAME strict loader the publish used, so a
 	// row that somehow no longer parses fails loudly here rather than being served as
@@ -262,12 +301,19 @@ func (r *Repository) GetRegisterDraftForEdit(ctx context.Context, cmd domain.Reg
 	return detail, nil
 }
 
-// openRegisterDraft copies the live register into a new draft.
+// openRegisterDraft copies the live register into a new draft, or starts an EMPTY one for a type
+// that has none yet.
 //
-// A class with NO published register cannot be drafted here. That is not an oversight:
-// the first version of every class is written by the seed command, which transcribes
-// the committed rule table, and a blank register published by accident would leave a
-// whole class of animals diagnosable against nothing.
+// The empty case used to be refused, and the reasoning was sound while the four shipped classes
+// were the only ones: their first version comes from the seed, and "a blank register published by
+// accident would leave a whole class of animals diagnosable against nothing". A farm can now
+// AUTHOR a type, and an authored type has no seed -- so that refusal meant you could create
+// "Mothers" on the Types tab and never reach a screen that would let you write its rules.
+//
+// WHAT KEEPS THE ORIGINAL CONCERN SATISFIED is the publish gate, not this refusal. An empty
+// document is FATALLY invalid on all three counts -- no version, no questions, no rules, each
+// "can diagnose nothing" -- so it cannot be published however it was created. The draft is a
+// workspace; the gate is what decides whether animals are ever judged against it.
 func openRegisterDraft(ctx context.Context, tx pgx.Tx, cmd domain.RegisterVersionCommand, animalClass string) (string, error) {
 	var (
 		label string
@@ -276,7 +322,21 @@ func openRegisterDraft(ctx context.Context, tx pgx.Tx, cmd domain.RegisterVersio
 	)
 	err := tx.QueryRow(ctx, sqlPublishedDocumentForClass, cmd.TenantID, animalClass).Scan(&label, &doc)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", ports.ErrRegisterNotFound
+		// A type with nothing written yet. The blank document names its own type and version so
+		// the author starts from something that identifies itself rather than from `{}` -- and so
+		// the two fatal "can diagnose nothing" problems are the only things standing between them
+		// and a publish, which is the honest list of what is left to do.
+		blank := diagnosis.AuthoredRegister{
+			RegisterVersion: animalClass + "-1",
+			AppliesClass:    []string{animalClass},
+			Questions:       []diagnosis.Question{},
+			Rules:           []diagnosis.Rule{},
+		}
+		body, mErr := json.Marshal(blank)
+		if mErr != nil {
+			return "", mErr
+		}
+		label, doc, err = blank.RegisterVersion, body, nil
 	}
 	if err != nil {
 		return "", fmt.Errorf("health: read published register: %w", err)
