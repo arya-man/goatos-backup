@@ -276,7 +276,7 @@ func (s *cubeMetricService) Query(ctx context.Context, actor domain.Actor, req p
 		AsOf:         time.Now(),
 	}
 	for _, row := range res.Rows {
-		val := formatMetricValue(req.Metric, scalarString(row[member]))
+		val := readableFigure(formatMetricValue(req.Metric, scalarString(row[member])), "", b.title)
 		scope := joinScope(filterScope, cubeRowScope(row, b.view, q.Dimensions))
 		tr.Facts = append(tr.Facts, domain.Fact{
 			TenantID: actor.TenantID, // from the session actor, never from the Cube row
@@ -465,6 +465,38 @@ func factValueString(v any) string {
 	return s
 }
 
+// earTagText matches a token shaped like the ear tag printed on an animal: a
+// short letter prefix, a hyphen, and at least four digits ("MG-100001"). The
+// digit floor is what keeps an operational location out of it -- sheds and
+// partitions are spelled "Castro 1", "Godel 2 - Part 1", never "AB-1234" -- so
+// no display identity is touched by the fold below. A bare date cannot match
+// either: "2026-09-17" has no letter prefix.
+var earTagText = regexp.MustCompile(`\b[A-Za-z]{2,4}-[0-9]{4,}\b`)
+
+// canonicalTagText prints an ear tag the way it is printed ON THE EAR, which
+// is also how goat_identifiers.normalized_value stores it: upper case.
+//
+// The ceo_ai views key the same tag lower case (animal_key is
+// lower(btrim(...))), and whether a reader sees the stored spelling or the one
+// their own question used depends on which plan the model happened to draft.
+// The reviewer caught one answer echoing BOTH -- "MG-100001" in four lines and
+// "mg-100001" in the fifth -- which reads as two animals.
+//
+// It folds tag-shaped TOKENS INSIDE the string ("Animal mg-100001" is a real
+// label the weighing route writes), and nothing else: the surrounding words,
+// every other label, every scope and every figure survive byte-identical.
+func canonicalTagText(s string) string {
+	if !strings.Contains(s, "-") || uuidText.MatchString(s) {
+		return s
+	}
+	return earTagText.ReplaceAllStringFunc(s, strings.ToUpper)
+}
+
+// uuidText is the one hyphenated shape that can contain a tag-shaped run by
+// coincidence (`...-abcd-1234...`). An id is not a name a reader reads, so a
+// value carrying one is left byte-identical rather than half-upper-cased.
+var uuidText = regexp.MustCompile(`[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}`)
+
 // trimDecimalZeros drops the trailing zeros Postgres carries in a numeric's
 // scale, so a price that divides out to 596.71800000000000000000 is shown as
 // 596.718. It only ever removes zeros AFTER a decimal point: no value is
@@ -570,12 +602,23 @@ func rowsToToolResult(tenantID string, rows []sqlguard.Row, sql string) domain.T
 		}
 		if hasLabel {
 			if hasValue {
-				fact := domain.Fact{TenantID: tenantID, Label: scalarString(label), Value: factValueString(value)}
-				if scope, hasScope := row["scope"]; hasScope {
-					fact.Scope = scalarString(scope)
-				}
+				// The unit is read FIRST because the figure's precision is
+				// derived from it: readableFigure needs the row's own
+				// description of what it measures before it can decide how
+				// much of a 16-decimal avg() a leader is owed.
+				var unitText string
 				if unit, hasUnit := row["unit"]; hasUnit {
-					fact.Unit = scalarString(unit)
+					unitText = scalarString(unit)
+				}
+				labelText := canonicalTagText(scalarString(label))
+				fact := domain.Fact{
+					TenantID: tenantID,
+					Label:    labelText,
+					Unit:     unitText,
+					Value:    readableFigure(canonicalTagText(factValueString(value)), unitText, labelText),
+				}
+				if scope, hasScope := row["scope"]; hasScope {
+					fact.Scope = canonicalTagText(scalarString(scope))
 				}
 				fact.Values = seriesValues(row)
 				tr.Facts = append(tr.Facts, fact)
@@ -583,7 +626,11 @@ func rowsToToolResult(tenantID string, rows []sqlguard.Row, sql string) domain.T
 			}
 		}
 		for k, v := range row {
-			tr.Facts = append(tr.Facts, domain.Fact{TenantID: tenantID, Label: k, Value: scalarString(v)})
+			tr.Facts = append(tr.Facts, domain.Fact{
+				TenantID: tenantID,
+				Label:    k,
+				Value:    readableFigure(canonicalTagText(scalarString(v)), "", k),
+			})
 		}
 	}
 	return tr
@@ -827,7 +874,14 @@ func (a *toolboxAdapter) Call(ctx context.Context, actor domain.Actor, tool stri
 	}
 	for _, row := range rows {
 		for k, v := range row {
-			tr.Facts = append(tr.Facts, domain.Fact{TenantID: actor.TenantID, Label: k, Value: scalarString(v)})
+			// On this route the label IS the source column name, which is the
+			// most precise description of the measure anything downstream
+			// gets: `weight_kg`, `price_per_kg`, `coverage_ratio`.
+			tr.Facts = append(tr.Facts, domain.Fact{
+				TenantID: actor.TenantID,
+				Label:    k,
+				Value:    readableFigure(canonicalTagText(scalarString(v)), "", k),
+			})
 		}
 	}
 	return tr, nil
