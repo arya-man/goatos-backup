@@ -279,6 +279,11 @@ type DiagnosisQueueItem struct {
 	EmergencyCount int `json:"emergency_count"`
 	// UnexplainedCount is how many abnormal findings no diagnosis accounts for.
 	UnexplainedCount int `json:"unexplained_count"`
+	// Accepted says whether the engine read this check at all. A refused run carries no
+	// problems, so a row that only knows the problem list renders it as "Nothing found" -- a
+	// clean bill of health for a check nobody assessed. The list is where a Director decides
+	// what to open first, so it is exactly the place that must not lie about it.
+	Accepted bool `json:"accepted"`
 }
 
 // DiagnosisQueuePage is one keyset page of the queue.

@@ -286,6 +286,8 @@ data class HealthDiagnosisQueueItemDto(
     /** Things that need doing NOW. On the ROW because they do not wait for the Director. */
     @SerialName("emergency_count") val emergencyCount: Int = 0,
     @SerialName("unexplained_count") val unexplainedCount: Int = 0,
+    /** Whether the engine read this check at all. A refused run is never "Nothing found". */
+    val accepted: Boolean = true,
 )
 
 @Serializable

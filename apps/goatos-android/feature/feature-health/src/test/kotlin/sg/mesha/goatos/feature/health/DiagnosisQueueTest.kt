@@ -58,4 +58,13 @@ class DiagnosisQueueTest {
     fun `an assessment that found nothing still says so`() {
         assertEquals("Nothing found", problemHeadline(emptyList()))
     }
+
+    // A REFUSED check has no problems for the same reason a healthy one has none. The row cannot
+    // tell them apart from the list alone, so saying "Nothing found" over a check nobody assessed
+    // tells the Director there is nothing here to open.
+    @Test
+    fun `a check the engine refused is never nothing found`() {
+        assertEquals("Not accepted", problemHeadline(emptyList(), accepted = false))
+        assertEquals("Nothing found", problemHeadline(emptyList(), accepted = true))
+    }
 }

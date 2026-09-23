@@ -970,7 +970,7 @@ func (r *DiagnosisRepository) ListDiagnosisRuns(
 		var problemsJSON, emergenciesJSON, unexplainedJSON []byte
 		if err := rows.Scan(&it.DiagnosisRunID, &it.GoatID, &it.GoatDisplayID, &shedID,
 			&it.ObservedAt, &businessDate, &it.Status,
-			&problemsJSON, &emergenciesJSON, &unexplainedJSON); err != nil {
+			&problemsJSON, &emergenciesJSON, &unexplainedJSON, &it.Accepted); err != nil {
 			return page, err
 		}
 		it.BusinessDate = businessDate.Format("2006-01-02")
@@ -1012,7 +1012,7 @@ func (r *DiagnosisRepository) ListDiagnosisRuns(
 const diagnosisRunsPageSQL = `
 SELECT dr.health_diagnosis_run_id::text, dr.goat_id::text, coalesce((SELECT gi.identifier_value FROM goat_identifiers gi WHERE gi.tenant_id=g.tenant_id AND gi.goat_id=g.goat_id AND gi.identifier_type='animal_identifier_1' AND gi.status='active' ORDER BY gi.is_primary_for_goat DESC,gi.identifier_value LIMIT 1),g.display_id,''),
        COALESCE(g.shed_id::text, ''), dr.observed_at, dr.business_date, dr.status,
-       dr.proposal->'problems', dr.proposal->'emergencies', dr.proposal->'unexplained'
+       dr.proposal->'problems', dr.proposal->'emergencies', dr.proposal->'unexplained', dr.valid
 FROM health_diagnosis_runs dr
 JOIN goats g ON g.tenant_id = dr.tenant_id AND g.goat_id = dr.goat_id
 WHERE dr.tenant_id = $1::uuid
