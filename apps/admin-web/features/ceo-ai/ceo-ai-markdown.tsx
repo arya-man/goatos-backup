@@ -7,7 +7,7 @@ import rehypeHighlight from "rehype-highlight";
 import { Check, Copy } from "lucide-react";
 
 // Rich rendering for coding-agent answers: GFM (tables, lists, links),
-// highlighted code blocks with copy, and sandboxed HTML previews.
+// highlighted code blocks with copy, and opt-in sandboxed HTML previews.
 
 function textOf(node: ReactNode): string {
   if (typeof node === "string" || typeof node === "number") return String(node);
@@ -43,7 +43,7 @@ function CodeBlock({ children }: { children?: ReactNode }) {
   const lang = /language-([\w-]+)/.exec(className)?.[1] ?? "";
   const code = textOf(children).replace(/\n$/, "");
   const isHtml = lang === "html" || lang === "svg";
-  const [preview, setPreview] = useState(isHtml);
+  const [preview, setPreview] = useState(false);
 
   return (
     <div className="mzai-code">
@@ -59,7 +59,7 @@ function CodeBlock({ children }: { children?: ReactNode }) {
         </span>
       </div>
       {isHtml && preview ? (
-        <iframe className="mzai-html" sandbox="allow-scripts" srcDoc={code} title="HTML preview" />
+        <iframe className="mzai-html" sandbox="" srcDoc={code} title="HTML preview" />
       ) : (
         <pre>{children}</pre>
       )}
