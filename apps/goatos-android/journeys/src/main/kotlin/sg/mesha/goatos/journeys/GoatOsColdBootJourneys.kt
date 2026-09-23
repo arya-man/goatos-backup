@@ -58,6 +58,10 @@ class GoatOsColdBootJourneys {
             "The app opens on an empty screen instead of asking the person to sign in.",
             GoatOsJourney.screenIsBlank(),
         )
+        // The app dying or going blank is asserted ABOVE, because those are the app's
+        // fault whatever the backend is doing. Only past that does "no server answered"
+        // become the reason the sign-in screen was never reached.
+        GoatOsJourney.requirePastStartupCheck(name)
         assertTrue(
             "The app does not offer a way to sign in when it is opened, so nobody can get in.",
             reachedSignIn,
@@ -83,6 +87,7 @@ class GoatOsColdBootJourneys {
     fun theSignInScreenIsReadableInEnglish() {
         val name = "sign-in-readable-en"
         GoatOsJourney.awaitText("Sign in")
+        GoatOsJourney.requirePastStartupCheck(name)
         val seen = GoatOsJourney.visibleText()
         GoatOsJourney.captureEvidence(name)
         GoatOsJourney.recordSeen(name, seen)
@@ -113,6 +118,15 @@ class GoatOsColdBootJourneys {
     fun takingTheNetworkAwayReachesTheApp() {
         val name = "offline-lever"
         GoatOsJourney.awaitText("Sign in")
+        // Without this the proof is vacuous, and on the first real run it was: the app
+        // was sitting on its own "Couldn't reach the server. Check your connection and
+        // try again." startup screen the whole time, so the "connection" this test
+        // looks for below was ALREADY on the screen before the network was touched.
+        // It reported the offline lever proven while never exercising it.
+        GoatOsJourney.requirePastStartupCheck(name)
+        // What the screen said BEFORE the network was taken away. A message that was
+        // already there proves nothing about taking the network away.
+        val messageBefore = networkMessageOnScreen()
         GoatOsJourney.setNetwork(connected = false)
 
         val signIn = androidx.test.uiautomator.By.text("Sign in")
@@ -137,8 +151,14 @@ class GoatOsColdBootJourneys {
         )
         assertTrue(
             "With no signal the app gives no reason why signing in did not work, so the person just tries again.",
-            sawNetworkMessage,
+            sawNetworkMessage && !messageBefore,
         )
+    }
+
+    /** The app telling someone the network is why nothing happened. */
+    private fun networkMessageOnScreen(): Boolean {
+        val seen = GoatOsJourney.visibleText()
+        return listOf("connection", "offline", "Network").any { seen.contains(it, ignoreCase = true) }
     }
 
     /** crash-free-on-the-covered-screens (the screens reachable without a session). */
@@ -146,6 +166,13 @@ class GoatOsColdBootJourneys {
     fun theAppSurvivesForceStopRotationAndResume() {
         val name = "crash-free-on-the-covered-screens"
         GoatOsJourney.awaitText("Sign in")
+        // This check's catalogue entry claims "the screens reachable without signing in:
+        // the sign-in screen through rotate, background, resume and force-stop". On the
+        // first real run it passed without ever seeing that screen — it rotated the
+        // app's startup-error screen instead and reported the sign-in screen covered.
+        // Surviving a rotation is worth knowing, but it is not this check, and a pass
+        // here is read as this check.
+        GoatOsJourney.requirePastStartupCheck(name)
 
         GoatOsJourney.rotateAndBack()
         assertFalse(
