@@ -117,6 +117,14 @@
       "mutation": "remove the manual_campaign skip at generation.go:1978",
       "result": "package stays GREEN \u2014 the guard is unprotected",
       "status": "open"
+    },
+    {
+      "sha": "5e7a3635b",
+      "subject": "label parks by their short code on the Weights read",
+      "whyItDidNotBite": "the test it shipped is in the app layer and is served by a fake that mirrors the repository's rule in Go, so it proves the fake. The only Postgres test near it matches the ORDER BY as SOURCE TEXT \u2014 ordering, not the label \u2014 and every other integration test asserts ParkName != \"\" and stops there.",
+      "repair": "backend/internal/weighing/adapters/postgres/shed_weights_park_label_test.go \u2014 one read, rows checked against the code and the filter vocabulary checked against THE ROWS rather than a literal",
+      "mutation": "make the rows fall back to the full name; separately, make only the filter fall back",
+      "result": "RED on each side: 'row park label = \"Coimbatore\", want the short code \"CBE\"' and 'the filter says \"Coimbatore\" while every row says \"CBE\" \u2014 one screen, two names for one park'"
     }
   ],
   "shapeOfTheRemainingJob": {
