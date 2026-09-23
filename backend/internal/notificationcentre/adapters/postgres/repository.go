@@ -125,6 +125,14 @@ const dedupeKeyExpr = `COALESCE(NULLIF(nr.context->>'event_key', ''), nr.notific
 // read_at IS NULL is the canonical test. status <> 'read' is belt and braces for any row
 // written before this module existed that carried the status without the stamp; a row this
 // module marks always gets BOTH.
+// dedupeKeyExprNewer is dedupeKeyExpr against the `newer` alias, for the self anti join in
+// sqlListNotifications ("does a newer row share my dedupe key?"). Both spellings must stay
+// character-identical apart from the alias: they are compared to each other, and the
+// nr-side spelling must also match notification_requests_member_dedupe_idx (migration
+// 000393) exactly or the planner cannot use that index and the anti join degrades to a hash
+// join over the member's whole history.
+const dedupeKeyExprNewer = `COALESCE(NULLIF(newer.context->>'event_key', ''), newer.notification_request_id::text)`
+
 const unreadPredicate = `nr.read_at IS NULL AND nr.status <> 'read'`
 
 // sqlListNotifications reads ONE keyset page of the caller's own notifications, newest first.
@@ -134,21 +142,19 @@ const unreadPredicate = `nr.read_at IS NULL AND nr.status <> 'read'`
 // workforce_member_id ($2 via target_member) -- that per-person equality is the ONLY
 // audience predicate the feed has and there is no parameter, scope or role that can widen
 // it, so a caller cannot address another person's rows at all; grain=one row per
-// NOTIFICATION, not per delivery row, via DISTINCT ON (dedupeKeyExpr) keeping the newest
-// row of each producer event_key group, because QueueRoleNotifications writes one row per
-// recipient DEVICE and a two-phone reader must not see one transition twice;
-// group_key=none on the page read -- the only aggregate is unread_count, computed by
-// sqlUnreadCount over the SAME tenant + member + dedupe grain as the rows so the bell badge
-// can never advertise a notification this feed hides, and computed WHOLE-FEED never
-// page-local so paging does not shrink the badge; join_cardinality=the single
-// workforce_members LEFT JOIN for actor_name is 1:1 on
+// NOTIFICATION, not per delivery row, via the newest-per-dedupe-key anti join below,
+// because QueueRoleNotifications writes one row per recipient DEVICE and a two-phone
+// reader must not see one transition twice; group_key=none on the page read -- the only
+// aggregate is unread_count, computed by sqlUnreadCount over the SAME tenant + member +
+// dedupe grain as the rows so the bell badge can never advertise a notification this feed
+// hides, and computed WHOLE-FEED never page-local so paging does not shrink the badge;
+// join_cardinality=the single workforce_members LEFT JOIN for actor_name is 1:1 on
 // workforce_members_active_user_unique_idx (tenant_id, user_id) WHERE user_id IS NOT NULL
 // AND status = 'active', so it can neither multiply nor drop a page row, and it is joined on
 // requested_by which is nullable -- a system-raised row simply has no actor name;
 // pagination=KEYSET on (requested_at DESC, notification_request_id DESC) with the strict
 // row-comparison predicate (requested_at, notification_request_id) < ($3, $4), matching the
-// column order of the existing per-member feed indexes
-// notification_requests_{weighing,vaccination,feed,counts}_alerts_idx (tenant_id,
+// column order of notification_requests_member_feed_idx (tenant_id,
 // (context->>'member_id'), requested_at DESC, notification_request_id DESC); NO OFFSET
 // anywhere and limit+1 decides "is there a next page" without a second count;
 // scope=tenant_id AND the caller's own member id on EVERY branch -- the page read, the
@@ -158,33 +164,71 @@ const unreadPredicate = `nr.read_at IS NULL AND nr.status <> 'read'`
 // produced per work-state transition per recipient device (bounded by headcount x
 // transitions), never per animal, so this read does not grow with the herd.
 //
-// BUT IT IS NOT "keyset-paged at most 50 rows", and this note used to claim it was.
-// Measured on 5000 rows for one member (EXPLAIN ANALYZE, seeded test db, 2026-09-18): the
-// `mine` CTE has no LIMIT, so the planner seq-scans all 5000 of that member's rows, quicksorts
-// all 5000 for DISTINCT ON and emits all 2501 deduped rows BEFORE the keyset predicate and the
-// LIMIT, which sit outside the CTE. First page 31ms, deep page 25ms, both touching the whole
-// per-member history; the deep page additionally throws away 1002 already-materialised rows
-// (Rows Removed by Filter). None of the notification_requests_{weighing,vaccination,feed,
-// counts}_alerts_idx indexes could serve this read either: every one of them is PARTIAL on
-// (context->>'message_key') LIKE '<prefix>.%', so the unfiltered feed matched none of them and
-// the read was a Seq Scan of the WHOLE table, every module's rows for every tenant.
+// THE LIMIT AND THE KEYSET ARE INSIDE THE SCANNING CTE. That sentence is the whole point of
+// this statement's shape, and it is the thing that was wrong here for a year.
 //
-// MIGRATION 000348 FIXED THE SCAN, NOT THE SHAPE. notification_requests_member_feed_idx is the
-// NON-PARTIAL sibling of those four -- (tenant_id, (context->>'member_id'), requested_at DESC,
-// notification_request_id DESC) with no message_key predicate -- so the read is now an Index
-// Scan bounded by ONE person's rows instead of the table. Re-measured on 54,300 rows / 7,500
-// delivery rows for the hot member: page 1 75.9ms -> 53.5ms, deep page 64.2ms -> 41.6ms,
-// unread count 37.9ms -> 13.6ms, and the scan node itself 28.7ms -> 5.2ms. What is NOT fixed is
-// the CTE: it still materialises the member's entire deduped history (7,500 scanned -> 5,000
-// deduped -> top-N heapsort -> 51 returned) on every page, because the LIMIT and keyset sit
-// outside it. Cost is still linear in one person's lifetime notification count, just with a
-// much smaller constant. The anti-join rewrite proposal (newest-per-dedupe-key as a NOT EXISTS)
-// was measured against 000348's index too and does NOT push the LIMIT down either -- it reads
-// the member's 7,500 rows twice as a Hash Anti Join, 24.8ms -- so it needs rework before it is
-// worth doing.
+// What it used to be: a `mine` CTE with DISTINCT ON and no LIMIT, with the keyset and the
+// LIMIT outside it. Cost was linear in the member's LIFETIME notification count, not in the
+// page size -- every request sorted the whole history and threw away all but 20 rows.
+// Measured at 5,000 rows it looked fine (31ms) and the note here used to call it
+// "keyset-paged at most 50 rows". By 2026-09-23 the production primary held 236,963 rows /
+// 621 MB with 102,291 on the worst single member, and the endpoint was the API's slowest --
+// 27 slow (>3s) requests in a 15-minute window and repeated 500s at a flat 15.0s timeout,
+// still failing after the API was scaled from 2 instances to 4. It was never a capacity
+// problem; it was this CTE.
+//
+// MIGRATION 000354 FIXED THE SCAN, NOT THE SHAPE. notification_requests_member_feed_idx is
+// the NON-PARTIAL sibling of the four per-module alert indexes -- every one of those is
+// PARTIAL on (context->>'message_key') LIKE '<prefix>.%', so the unfiltered feed matched
+// none of them and the read was a Seq Scan of the WHOLE table. 000354 bounded the read to
+// ONE person's rows. It could not bound it to one PAGE, because the LIMIT was outside the
+// CTE; only restructuring the statement can do that, and that is what this is.
+//
+// HOW THE DEDUPE SURVIVES THE PUSHDOWN. DISTINCT ON cannot page: it has to sort a whole
+// group set before the outer keyset can cut it. So the dedupe is re-expressed as the
+// equivalent per-row test -- "no NEWER row shares my dedupe key" -- which a single row can
+// answer on its own, so the planner may stop as soon as $5 rows qualify. Walking
+// notification_requests_member_feed_idx in feed order, the first row of each dedupe group
+// encountered IS that group's DISTINCT ON winner, because the winner is the group's maximum
+// on exactly the (requested_at DESC, notification_request_id DESC) order the index walks.
+//
+// THE ANTI JOIN IS NOT DECORATION -- DO NOT "SIMPLIFY" IT AWAY. The obvious cheaper fix is
+// to push the keyset into the DISTINCT ON and leave the LIMIT outside. It is wrong: a
+// dedupe group whose winner sat on the PREVIOUS page still has older delivery rows below
+// the cursor, so the group comes back a second time under a different row id. Walked 100
+// pages against the 102,291-row fixture, that shape differed from the old query at 1,980 of
+// 2,000 positions. The anti join is what makes an already-emitted group stay emitted.
+//
+// MEASURED, throwaway database seeded to the production primary's worst member (102,291
+// delivery rows / 68,194 notifications / 236,999 rows in the table), EXPLAIN (ANALYZE,
+// BUFFERS), 2026-09-23:
+//
+//	                  rows scanned      time      buffers
+//	first page  before     102,291    355.6ms   8,156 shared + 5,187 temp read / 5,188 written
+//	first page  after           31      0.3ms     154 shared, no temp
+//	deep page   before     102,291    348.8ms   8,156 shared + 5,187 temp read / 5,188 written
+//	deep page   after           32      0.2ms     159 shared, no temp
+//
+// Before, both pages ran an external merge sort spilling 41,496kB to disk and emitted all
+// 68,194 deduped rows into a top-N heapsort that kept 21. After, both pages are a Nested
+// Loop Anti Join under the CTE's own LIMIT and the plan is flat with depth: at
+// representative #60,000 it is still 0.2ms.
+//
+// IDENTICAL RESULTS, PROVEN, NOT REASONED. Over the whole 68,194-notification feed the old
+// DISTINCT ON and this anti join select the same 68,194 rows with an empty symmetric
+// difference. Paged side by side the two agree at every one of 2,000 positions over 100
+// pages with no id emitted twice, and a 1,000-page/20,000-row walk of this statement matches
+// the canonical DISTINCT ON order position for position with nothing missing.
+//
+// THE INNER PROBE NEEDS ITS INDEX. notification_requests_member_dedupe_idx (migration
+// 000393) carries dedupeKeyExpr VERBATIM; an expression index is only usable when it matches
+// the query's expression character for character, so that migration and dedupeKeyExpr must
+// change together or not at all. Without it the planner has no access path for the dedupe
+// key and falls back to a Hash Anti Join that reads the member's whole history twice -- the
+// measurement that got this rewrite shelved the first time it was proposed.
 const sqlListNotifications = sqlTargetMemberCTE + `,
 mine AS (
-  SELECT DISTINCT ON (` + dedupeKeyExpr + `)
+  SELECT
     nr.notification_request_id,
     nr.notification_type,
     nr.title,
@@ -198,7 +242,20 @@ mine AS (
   WHERE nr.tenant_id = $1::uuid
     AND tm.workforce_member_id IS NOT NULL
     AND nr.context->>'member_id' = tm.workforce_member_id::text
-  ORDER BY ` + dedupeKeyExpr + `, nr.requested_at DESC, nr.notification_request_id DESC
+    AND ($3::timestamptz IS NULL
+         OR (nr.requested_at, nr.notification_request_id) < ($3::timestamptz, $4::uuid))
+    AND NOT EXISTS (
+      SELECT 1
+      FROM notification_requests newer
+      WHERE newer.tenant_id = $1::uuid
+        AND newer.context->>'member_id' = tm.workforce_member_id::text
+        AND ` + dedupeKeyExprNewer + `
+          = ` + dedupeKeyExpr + `
+        AND (newer.requested_at, newer.notification_request_id)
+          > (nr.requested_at, nr.notification_request_id)
+    )
+  ORDER BY nr.requested_at DESC, nr.notification_request_id DESC
+  LIMIT $5
 )
 SELECT
   mine.notification_request_id::text,
@@ -222,10 +279,7 @@ LEFT JOIN workforce_members actor
   ON actor.tenant_id = $1::uuid
  AND actor.user_id = mine.requested_by
  AND actor.status = 'active'
-WHERE $3::timestamptz IS NULL
-   OR (mine.requested_at, mine.notification_request_id) < ($3::timestamptz, $4::uuid)
-ORDER BY mine.requested_at DESC, mine.notification_request_id DESC
-LIMIT $5`
+ORDER BY mine.requested_at DESC, mine.notification_request_id DESC`
 
 // sqlUnreadCount is the caller's WHOLE-FEED unread total.
 //
