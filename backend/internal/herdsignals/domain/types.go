@@ -163,29 +163,35 @@ type Packet struct {
 
 // TagLatest represents the per-tag snapshot (latest state).
 type TagLatest struct {
-	TenantID              string
-	TagID                 string
-	TagMAC                *string
-	GatewayID             *string
-	Source                *string
-	LastSeenAt            time.Time
-	LastRSSIdbm           *int16
-	SignalState           string // "strong", "ok", "weak", "unknown"
-	BatteryMV             *int
-	BatteryState          string // "ok", "low", "unknown"
-	TagTemperatureC       *float64
-	MotionCount           *int64
-	MotionDelta           *int64 // 15-minute window delta (motion_window_seconds=900)
-	MotionDelta1h         *int64 // real 1-hour (3600s-tier) delta -- distinct from MotionDelta, see 000194
-	MotionDelta24h        *int64 // rolling 24-hour motion-unit delta; not steps
-	PreviousMotionCount   *int64
-	PreviousSeenAt        *time.Time
-	MotionWindowSeconds   *int
-	MovementState         string // "moving", "low", "quiet", "not_moving", "stale", "unknown"
-	PatternState          string // "no_movement", "quiet_watch", "inactive", "missing", "spike", "recovered", "normal"
-	TemperatureSensorOK   *bool
-	AccelerometerSensorOK *bool
-	MappingState          string // "mapped", "unmapped", "conflict"
+	TenantID                string
+	TagID                   string
+	TagMAC                  *string
+	GatewayID               *string
+	Source                  *string
+	LastSeenAt              time.Time
+	LastRSSIdbm             *int16
+	SignalState             string // "strong", "ok", "weak", "unknown"
+	BatteryMV               *int
+	BatteryState            string // "ok", "low", "unknown"
+	TagTemperatureC         *float64
+	MotionCount             *int64
+	MotionDelta             *int64 // 15-minute window delta (motion_window_seconds=900)
+	MotionDelta1h           *int64 // real 1-hour (3600s-tier) delta -- distinct from MotionDelta, see 000194
+	MotionDelta24h          *int64 // rolling 24-hour motion-unit delta; not steps
+	LastPacketMotionDelta   *int64
+	LastPacketWindowSeconds *int
+	MotionDelta30s          *int64
+	MotionDelta60s          *int64
+	MotionDelta5m           *int64
+	LastMovedAt             *time.Time
+	PreviousMotionCount     *int64
+	PreviousSeenAt          *time.Time
+	MotionWindowSeconds     *int
+	MovementState           string // "moving", "low", "quiet", "not_moving", "stale", "unknown"
+	PatternState            string // "no_movement", "quiet_watch", "inactive", "missing", "spike", "recovered", "normal"
+	TemperatureSensorOK     *bool
+	AccelerometerSensorOK   *bool
+	MappingState            string // "mapped", "unmapped", "conflict"
 	// GapDelta is true when MotionDelta (the 15-minute windowed sum) includes a reconnect lump:
 	// this ingest's received_at was more than Thresholds.ReceptionGapMinutes after the tag's
 	// previous_seen_at, so the delta is a TOTAL over an unknown span, not this window's own
@@ -319,21 +325,27 @@ type LiveItem struct {
 	// BatteryTrendResponse is the compact voltage trend (direction + the two endpoint readings
 	// that justify it), null when there is not enough history to say anything. Never a
 	// remaining-life estimate in any unit -- see domain.BatteryTrendFromHistory's doc comment.
-	BatteryTrend        *BatteryTrendResponse `json:"battery_trend"`
-	TagTemperatureC     *float64              `json:"tag_temperature_c"`
-	MotionCount         *int64                `json:"motion_count"`
-	MotionDelta         *int64                `json:"motion_delta"`
-	MotionDelta1h       *int64                `json:"motion_delta_1h"`
-	MotionDelta24h      *int64                `json:"motion_delta_24h"`
-	MotionWindowSeconds *int                  `json:"motion_window_seconds"`
-	MovementState       *string               `json:"movement_state"`
-	PatternState        *string               `json:"pattern_state"`
-	BaselineDelta       *int64                `json:"baseline_delta"`
-	RiskState           *string               `json:"risk_state"`
-	RiskReasons         []string              `json:"risk_reasons"`
-	OwnMotionDeltaPct   *float64              `json:"own_motion_delta_pct"`
-	GroupMotionDeltaPct *float64              `json:"group_motion_delta_pct"`
-	GroupTempDeltaC     *float64              `json:"group_temp_delta_c"`
+	BatteryTrend            *BatteryTrendResponse `json:"battery_trend"`
+	TagTemperatureC         *float64              `json:"tag_temperature_c"`
+	MotionCount             *int64                `json:"motion_count"`
+	LastPacketMotionDelta   *int64                `json:"last_packet_motion_delta"`
+	LastPacketWindowSeconds *int                  `json:"last_packet_window_seconds"`
+	MotionDelta30s          *int64                `json:"motion_delta_30s"`
+	MotionDelta60s          *int64                `json:"motion_delta_60s"`
+	MotionDelta5m           *int64                `json:"motion_delta_5m"`
+	LastMovedAt             *string               `json:"last_moved_at"`
+	MotionDelta             *int64                `json:"motion_delta"`
+	MotionDelta1h           *int64                `json:"motion_delta_1h"`
+	MotionDelta24h          *int64                `json:"motion_delta_24h"`
+	MotionWindowSeconds     *int                  `json:"motion_window_seconds"`
+	MovementState           *string               `json:"movement_state"`
+	PatternState            *string               `json:"pattern_state"`
+	BaselineDelta           *int64                `json:"baseline_delta"`
+	RiskState               *string               `json:"risk_state"`
+	RiskReasons             []string              `json:"risk_reasons"`
+	OwnMotionDeltaPct       *float64              `json:"own_motion_delta_pct"`
+	GroupMotionDeltaPct     *float64              `json:"group_motion_delta_pct"`
+	GroupTempDeltaC         *float64              `json:"group_temp_delta_c"`
 	// SensorState is a COMPUTED "ok"/"abnormal" summary (contract type HerdSignalSensorState),
 	// never the raw device sensor_state int -- that raw value is stored but intentionally not
 	// exposed on this endpoint; see herd_signal_tag_latest / herd_signal_packets for the raw bits.
@@ -379,6 +391,8 @@ type Summary struct {
 	MappedAnimals  int `json:"mapped_animals"`
 	UnmappedTags   int `json:"unmapped_tags"`
 	Moving         int `json:"moving"`
+	MovingNow      int `json:"moving_now"`
+	Active1m       int `json:"active_1m"`
 	Quiet          int `json:"quiet"`
 	NotMoving      int `json:"not_moving"`
 	Stale          int `json:"stale"`

@@ -4,63 +4,31 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore, useTran
 import { useRouter } from "next/navigation";
 import { fmtClockSeconds } from "./format";
 
-// LIVE / "LIVE - Ns stale" / PAUSED / "PAUSED - tab hidden" control, the interval picker, and the
-// refresh loop. Ported from features/vaccination-live-tracker/live-poller.tsx with two differences
-// required by docs/modules/herd-signals.md Section 7: the default interval is 5s (not 10s) and the
-// option set is fixed at 5s/15s/60s (not a backend-driven option group) since this module owns its
-// own polling contract end to end.
-//
-// The refresh is router.refresh(): it re-runs the same server component tree that produced the
-// page, so there is exactly one renderer and one data path for the live table + KPIs.
+// LIVE / PAUSED control and the SSE refresh bridge. The initial table remains server-rendered; once
+// mounted, EventSource snapshots from /api/herd-signals/live/stream trigger router.refresh() so the
+// same data path paints the page without a blind browser polling interval.
 
-const STORAGE_KEY = "mesha.herd-signals.interval";
-const LIVE_STORAGE_KEY = "mesha.herd-signals.live";
-const DEFAULT_INTERVAL_SECONDS = 5;
-const INTERVAL_OPTIONS = [5, 15, 60];
 const STALE_AFTER_MS = 30_000;
-
-const intervalListeners = new Set<() => void>();
-function subscribeInterval(onChange: () => void): () => void {
-  intervalListeners.add(onChange);
-  return () => intervalListeners.delete(onChange);
-}
-function readInterval(): number {
-  try {
-    const stored = Number(window.localStorage.getItem(STORAGE_KEY));
-    return INTERVAL_OPTIONS.includes(stored) ? stored : DEFAULT_INTERVAL_SECONDS;
-  } catch {
-    return DEFAULT_INTERVAL_SECONDS;
-  }
-}
-function serverInterval(): number {
-  return DEFAULT_INTERVAL_SECONDS;
-}
-function writeInterval(seconds: number): void {
-  try {
-    window.localStorage.setItem(STORAGE_KEY, String(seconds));
-  } catch {
-    // Persistence is a convenience; the chosen interval still applies for this session.
-  }
-  intervalListeners.forEach((listener) => listener());
-}
 
 // Live/paused state is session-only — no localStorage persistence. Fresh page loads are always
 // live. Users can pause within the session using the toggle button, but the pause state is lost
 // on reload (no sticky pause across page reloads). Tab-hidden automatic pause is still an efficiency
 // measure but is not presented as the data's true state (the badge says "PAUSED · tab hidden").
 const liveListeners = new Set<() => void>();
+let liveState = true;
 function subscribeLive(onChange: () => void): () => void {
   liveListeners.add(onChange);
   return () => liveListeners.delete(onChange);
 }
 function readLive(): boolean {
-  return true; // Always live on initial load, session-only toggle
+  return liveState;
 }
 function serverLive(): boolean {
   return true;
 }
-function writeLive(live: boolean): void {
+function writeLive(nextLive: boolean): void {
   // No localStorage persistence — state is session-only.
+  liveState = nextLive;
   liveListeners.forEach((listener) => listener());
 }
 
@@ -86,7 +54,7 @@ function useTabHidden(): boolean {
 // mounted under this hook (the poller AND the tag drawer, both call it) failed the same way.
 //
 // The fix is the standard one: cache the value in a module-level box that is written ONLY by the
-// subscribed side-effect (the interval tick, i.e. the actual external mutation), and have
+// subscribed side-effect (the timer tick, i.e. the actual external mutation), and have
 // getSnapshot do nothing but read that box. Between ticks, repeated getSnapshot calls return the
 // identical cached number.
 let cachedNowMs = 0;
@@ -121,10 +89,10 @@ export function HerdSignalsPoller({ generatedAt }: { generatedAt: string }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const live = useSyncExternalStore(subscribeLive, readLive, serverLive);
-  const intervalSeconds = useSyncExternalStore(subscribeInterval, readInterval, serverInterval);
   const tabHidden = useTabHidden();
   const nowMs = useNowMs();
   const pendingRef = useRef(false);
+  const [streamState, setStreamState] = useState<"connecting" | "open" | "error">("connecting");
 
   useEffect(() => {
     pendingRef.current = isPending;
@@ -159,15 +127,47 @@ export function HerdSignalsPoller({ generatedAt }: { generatedAt: string }) {
     return Boolean(hs_tag || hs_history);
   }, []);
 
+  function streamHref(): string {
+    const sp = new URLSearchParams(window.location.search);
+    const out = new URLSearchParams();
+    const map: Record<string, string> = {
+      park: "park_id",
+      hs_shed: "shed_id",
+      hs_move: "movement_state",
+      hs_map: "mapping_state",
+      hs_pattern: "pattern",
+      hs_q: "q",
+      hs_cursor: "cursor",
+      hs_sort: "sort",
+      hs_dir: "dir",
+      hs_limit: "limit",
+    };
+    for (const [from, to] of Object.entries(map)) {
+      const value = sp.get(from);
+      if (value) out.set(to, value);
+    }
+    return `/api/herd-signals/live/stream${out.toString() ? `?${out.toString()}` : ""}`;
+  }
+
   useEffect(() => {
-    if (!live) return;
-    const timer = window.setInterval(() => {
+    if (!live || tabHidden) return;
+    setStreamState("connecting");
+    const source = new EventSource(streamHref());
+    let first = true;
+    source.onopen = () => setStreamState("open");
+    source.onerror = () => setStreamState("error");
+    source.addEventListener("tick", () => {
+      setStreamState("open");
       if (document.visibilityState !== "visible") return;
       if (overlayOpen()) return;
+      if (first) {
+        first = false;
+        return;
+      }
       refresh();
-    }, intervalSeconds * 1000);
-    return () => window.clearInterval(timer);
-  }, [live, intervalSeconds, refresh, overlayOpen]);
+    });
+    return () => source.close();
+  }, [live, tabHidden, refresh, overlayOpen]);
 
   useEffect(() => {
     function onVisibility() {
@@ -220,27 +220,14 @@ export function HerdSignalsPoller({ generatedAt }: { generatedAt: string }) {
         type="button"
         className={badgeClass}
         onClick={toggleLive}
-        title={live ? "Pause polling" : "Resume polling"}
+        title={live ? "Pause live stream" : "Resume live stream"}
         aria-pressed={live}
       >
         <span className="livedot" aria-hidden="true" />
         {badgeText}
       </button>
       <div className="refreshmeta">
-        Updated <b>{fmtClockSeconds(generatedAt)}</b> IST
-      </div>
-      <div className="intervalpick" role="group" aria-label="Poll interval">
-        {INTERVAL_OPTIONS.map((seconds) => (
-          <button
-            key={seconds}
-            type="button"
-            className={seconds === intervalSeconds ? "on" : undefined}
-            onClick={() => writeInterval(seconds)}
-            aria-pressed={seconds === intervalSeconds}
-          >
-            {seconds}s
-          </button>
-        ))}
+        Updated <b>{fmtClockSeconds(generatedAt)}</b> IST · stream {streamState}
       </div>
       <button type="button" className="btn" onClick={refresh} disabled={isPending}>
         Refresh

@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/vgoats/goatos/backend/internal/herdsignals/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
@@ -67,6 +68,7 @@ func NewHandler(service AppService, log ...*slog.Logger) *Handler {
 func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("POST /herd-signals/packets", h.IngestPackets)
 	mux.HandleFunc("GET /herd-signals/live", h.ListLive)
+	mux.HandleFunc("GET /herd-signals/live/stream", h.StreamLive)
 	mux.HandleFunc("GET /herd-signals/tags/{tag_id}/timeline", h.GetTimeline)
 	mux.HandleFunc("GET /herd-signals/gateways", h.ListGateways)
 	mux.HandleFunc("GET /herd-signals/insights", h.GetInsights)
@@ -211,6 +213,63 @@ func (h *Handler) ListLive(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httpresponse.WriteJSON(w, http.StatusOK, resp)
+}
+
+// StreamLive handles GET /herd-signals/live/stream.
+func (h *Handler) StreamLive(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError,
+			map[string]interface{}{"code": "streaming_unsupported", "message": "streaming unsupported"},
+			nil)
+		return
+	}
+
+	actor := domain.Actor{
+		TenantID: tenantID(r),
+		UserID:   actorID(r),
+	}
+	if actor.TenantID == "" || actor.UserID == "" {
+		httpresponse.WriteError(w, r, h.log, http.StatusUnauthorized,
+			map[string]interface{}{"code": "unauthorized", "message": "authentication required"},
+			nil)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	write := func(event string, payload interface{}) bool {
+		body, err := json.Marshal(payload)
+		if err != nil {
+			h.log.Warn("herd_signals_stream_marshal_failed", "error", err)
+			return true
+		}
+		if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, body); err != nil {
+			return false
+		}
+		flusher.Flush()
+		return true
+	}
+
+	if !write("tick", map[string]interface{}{"at": time.Now().UTC().Format(time.RFC3339Nano)}) {
+		return
+	}
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if !write("tick", map[string]interface{}{"at": time.Now().UTC().Format(time.RFC3339Nano)}) {
+				return
+			}
+		}
+	}
 }
 
 // GetTimeline handles GET /herd-signals/tags/{tag_id}/timeline.

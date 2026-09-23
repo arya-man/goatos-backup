@@ -269,7 +269,7 @@ func (r *Repository) updateTagLatest(ctx context.Context, tx pgx.Tx, tenantID, t
 	// Most recent packet in THIS batch, by received_at (out-of-order safe within the batch).
 	latestPkt := packets[0]
 	for i := 1; i < len(packets); i++ {
-		if packets[i].ReceivedAt.After(latestPkt.ReceivedAt) {
+		if packets[i].ReceivedAt.After(latestPkt.ReceivedAt) || packets[i].ReceivedAt.Equal(latestPkt.ReceivedAt) {
 			latestPkt = packets[i]
 		}
 	}
@@ -278,22 +278,23 @@ func (r *Repository) updateTagLatest(ctx context.Context, tx pgx.Tx, tenantID, t
 	// delta computation see a consistent prior state under concurrent ingests for the same tag.
 	var existing *domain.TagLatest
 	row := tx.QueryRow(ctx, `
-		SELECT last_seen_at, motion_count, pattern_state, mapping_state
+		SELECT last_seen_at, motion_count, pattern_state, mapping_state, last_moved_at
 		FROM public.herd_signal_tag_latest
 		WHERE tenant_id = $1 AND tag_id = $2
 		FOR UPDATE
 	`, tenantID, tagID)
 	var lastSeenAt time.Time
 	var motionCount *int64
+	var lastMovedAtExisting *time.Time
 	var patternState, mappingState string
-	err := row.Scan(&lastSeenAt, &motionCount, &patternState, &mappingState)
+	err := row.Scan(&lastSeenAt, &motionCount, &patternState, &mappingState, &lastMovedAtExisting)
 	switch {
 	case err == pgx.ErrNoRows:
 		existing = nil
 	case err != nil:
 		return false, fmt.Errorf("lock existing tag_latest: %w", err)
 	default:
-		existing = &domain.TagLatest{LastSeenAt: lastSeenAt, MotionCount: motionCount, PatternState: patternState, MappingState: mappingState}
+		existing = &domain.TagLatest{LastSeenAt: lastSeenAt, MotionCount: motionCount, PatternState: patternState, MappingState: mappingState, LastMovedAt: lastMovedAtExisting}
 	}
 
 	if existing != nil && !latestPkt.ReceivedAt.After(existing.LastSeenAt) {
@@ -328,6 +329,41 @@ func (r *Repository) updateTagLatest(ctx context.Context, tx pgx.Tx, tenantID, t
 	// bucket's row is overwritten with THIS total below, specifically because attributing it to
 	// "first packet in bucket minus itself" would silently drop the whole point of gap_delta.
 	rawDelta, _ := domain.MotionDelta(latestPkt.MotionCount, previousMotionCount)
+	var lastPacketWindowSeconds *int
+	if previousSeenAt != nil {
+		seconds := int(latestPkt.ReceivedAt.Sub(*previousSeenAt).Seconds())
+		if seconds < 0 {
+			seconds = 0
+		}
+		lastPacketWindowSeconds = &seconds
+	}
+	lastPacketMotionDelta := rawDelta
+	motionDelta30s, err := r.motionCountWindowDeltaTx(ctx, tx, tenantID, tagID, latestPkt.ReceivedAt.Add(-30*time.Second), latestPkt.ReceivedAt)
+	if err != nil {
+		return false, fmt.Errorf("sum 30s motion delta: %w", err)
+	}
+	motionDelta60s, err := r.motionCountWindowDeltaTx(ctx, tx, tenantID, tagID, latestPkt.ReceivedAt.Add(-60*time.Second), latestPkt.ReceivedAt)
+	if err != nil {
+		return false, fmt.Errorf("sum 60s motion delta: %w", err)
+	}
+	motionDelta5m, err := r.motionCountWindowDeltaTx(ctx, tx, tenantID, tagID, latestPkt.ReceivedAt.Add(-5*time.Minute), latestPkt.ReceivedAt)
+	if err != nil {
+		return false, fmt.Errorf("sum 5m motion delta: %w", err)
+	}
+	var lastMovedAt *time.Time
+	if existing != nil {
+		lastMovedAt = existing.LastMovedAt
+	}
+	if rawDelta > 0 && !gapDelta {
+		movedAt := latestPkt.ReceivedAt
+		lastMovedAt = &movedAt
+	}
+	if gapDelta {
+		lastPacketMotionDelta = 0
+		motionDelta30s = 0
+		motionDelta60s = 0
+		motionDelta5m = 0
+	}
 
 	if gapDelta {
 		// Flag the RECONNECT bucket -- the bucket containing latestPkt.ReceivedAt -- in every
@@ -437,10 +473,11 @@ func (r *Repository) updateTagLatest(ctx context.Context, tx pgx.Tx, tenantID, t
 		INSERT INTO public.herd_signal_tag_latest (
 			tenant_id, tag_id, tag_mac, gateway_id, source, last_seen_at,
 			last_rssi_dbm, signal_state, battery_mv, battery_state, tag_temperature_c,
-			motion_count, motion_delta, motion_delta_1h, previous_motion_count, previous_seen_at,
+			motion_count, last_packet_motion_delta, last_packet_window_seconds, motion_delta_30s,
+			motion_delta_60s, motion_delta_5m, last_moved_at, motion_delta, motion_delta_1h, previous_motion_count, previous_seen_at,
 			motion_window_seconds, movement_state, pattern_state, temperature_sensor_ok,
 			accelerometer_sensor_ok, mapping_state, gap_delta, animal_monitoring_since, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, now())
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, now())
 		ON CONFLICT (tenant_id, tag_id) DO UPDATE
 		SET tag_mac = COALESCE($3, public.herd_signal_tag_latest.tag_mac),
 		    gateway_id = COALESCE($4, public.herd_signal_tag_latest.gateway_id),
@@ -452,28 +489,35 @@ func (r *Repository) updateTagLatest(ctx context.Context, tx pgx.Tx, tenantID, t
 		    battery_state = $10,
 		    tag_temperature_c = COALESCE($11, public.herd_signal_tag_latest.tag_temperature_c),
 		    motion_count = COALESCE($12, public.herd_signal_tag_latest.motion_count),
-		    motion_delta = $13,
-		    motion_delta_1h = $14,
-		    previous_motion_count = $15,
-		    previous_seen_at = $16,
-		    motion_window_seconds = $17,
-		    movement_state = $18,
-		    pattern_state = $19,
-		    temperature_sensor_ok = COALESCE($20, public.herd_signal_tag_latest.temperature_sensor_ok),
-		    accelerometer_sensor_ok = COALESCE($21, public.herd_signal_tag_latest.accelerometer_sensor_ok),
-		    mapping_state = $22,
-		    gap_delta = $23,
+		    last_packet_motion_delta = $13,
+		    last_packet_window_seconds = $14,
+		    motion_delta_30s = $15,
+		    motion_delta_60s = $16,
+		    motion_delta_5m = $17,
+		    last_moved_at = $18,
+		    motion_delta = $19,
+		    motion_delta_1h = $20,
+		    previous_motion_count = $21,
+		    previous_seen_at = $22,
+		    motion_window_seconds = $23,
+		    movement_state = $24,
+		    pattern_state = $25,
+		    temperature_sensor_ok = COALESCE($26, public.herd_signal_tag_latest.temperature_sensor_ok),
+		    accelerometer_sensor_ok = COALESCE($27, public.herd_signal_tag_latest.accelerometer_sensor_ok),
+		    mapping_state = $28,
+		    gap_delta = $29,
 		    -- Denormalised from goat_identifiers.smart_tag_mapped_at so the hot read path never
 		    -- joins to decide whether a number may be attributed to an animal. Assigned, not
 		    -- COALESCEd: an UNMAP must be able to push this back to NULL.
-		    animal_monitoring_since = $24,
+		    animal_monitoring_since = $30,
 		    updated_at = now()
 	`,
 		tenantID, tagID, latestPkt.TagMAC, latestPkt.GatewayID, latestPkt.Source, latestPkt.ReceivedAt,
 		latestPkt.RSSIdbm, signalState,
 		latestPkt.BatteryMV, batteryState,
 		latestPkt.TagTemperatureC,
-		latestPkt.MotionCount, windowDelta, hourDelta,
+		latestPkt.MotionCount, lastPacketMotionDelta, lastPacketWindowSeconds, motionDelta30s,
+		motionDelta60s, motionDelta5m, lastMovedAt, windowDelta, hourDelta,
 		previousMotionCount, previousSeenAt,
 		900, movementState,
 		patternStateComputed,
@@ -606,7 +650,9 @@ func (r *Repository) GetTagLatest(ctx context.Context, tenantID, tagID string) (
 	query := `
 		SELECT tl.tenant_id, tl.tag_id, tl.tag_mac, tl.gateway_id, tl.source, tl.last_seen_at,
 		       tl.last_rssi_dbm, tl.signal_state, tl.battery_mv, tl.battery_state, tl.tag_temperature_c,
-		       tl.motion_count, tl.motion_delta, tl.motion_delta_1h, tl.previous_motion_count, tl.previous_seen_at,
+		       tl.motion_count, tl.last_packet_motion_delta, tl.last_packet_window_seconds,
+		       tl.motion_delta_30s, tl.motion_delta_60s, tl.motion_delta_5m, tl.last_moved_at,
+		       tl.motion_delta, tl.motion_delta_1h, tl.previous_motion_count, tl.previous_seen_at,
 		       tl.motion_window_seconds, ` + effectiveMovementStateExpr + `, ` + effectivePatternStateExpr + `, tl.temperature_sensor_ok,
 		       tl.accelerometer_sensor_ok, tl.mapping_state, tl.gap_delta, tl.updated_at
 		FROM public.herd_signal_tag_latest tl
@@ -616,7 +662,9 @@ func (r *Repository) GetTagLatest(ctx context.Context, tenantID, tagID string) (
 	err := r.db.QueryRow(ctx, query, tenantID, tagID).Scan(
 		&tag.TenantID, &tag.TagID, &tag.TagMAC, &tag.GatewayID, &tag.Source, &tag.LastSeenAt,
 		&tag.LastRSSIdbm, &tag.SignalState, &tag.BatteryMV, &tag.BatteryState, &tag.TagTemperatureC,
-		&tag.MotionCount, &tag.MotionDelta, &tag.MotionDelta1h, &tag.PreviousMotionCount, &tag.PreviousSeenAt,
+		&tag.MotionCount, &tag.LastPacketMotionDelta, &tag.LastPacketWindowSeconds,
+		&tag.MotionDelta30s, &tag.MotionDelta60s, &tag.MotionDelta5m, &tag.LastMovedAt,
+		&tag.MotionDelta, &tag.MotionDelta1h, &tag.PreviousMotionCount, &tag.PreviousSeenAt,
 		&tag.MotionWindowSeconds, &tag.MovementState, &tag.PatternState, &tag.TemperatureSensorOK,
 		&tag.AccelerometerSensorOK, &tag.MappingState, &tag.GapDelta, &tag.UpdatedAt,
 	)
@@ -812,11 +860,13 @@ func (r *Repository) computeSummary(ctx context.Context, join, whereClause strin
 		       count(*) FILTER (WHERE tl.mapping_state = 'mapped'),
 		       count(*) FILTER (WHERE tl.mapping_state = 'unmapped'),
 		       count(*) FILTER (WHERE (`+effectiveMovementStateExpr+`) = 'moving'),
+		       count(*) FILTER (WHERE now() - tl.last_seen_at <= interval '30 seconds' AND COALESCE(tl.last_packet_motion_delta, 0) > 0),
+		       count(*) FILTER (WHERE now() - tl.last_seen_at <= interval '90 seconds' AND COALESCE(tl.motion_delta_60s, 0) > 0),
 		       count(*) FILTER (WHERE (`+effectiveMovementStateExpr+`) = 'quiet'),
 		       count(*) FILTER (WHERE (`+effectiveMovementStateExpr+`) = 'not_moving'),
 		       count(*) FILTER (WHERE (`+effectiveMovementStateExpr+`) = 'stale'),
 		       count(*) FILTER (WHERE tl.signal_state = 'weak'),
-		       count(*) FILTER (WHERE tl.battery_state = 'low'),
+		       count(*) FILTER (WHERE tl.battery_state IN ('low', 'critical')),
 		       count(*) FILTER (WHERE tl.temperature_sensor_ok IS FALSE OR tl.accelerometer_sensor_ok IS FALSE)
 		FROM public.herd_signal_tag_latest tl
 		%s
@@ -826,7 +876,7 @@ func (r *Repository) computeSummary(ctx context.Context, join, whereClause strin
 	var s domain.Summary
 	err := r.db.QueryRow(ctx, query, args...).Scan(
 		&s.TagsSeen, &s.MappedAnimals, &s.UnmappedTags,
-		&s.Moving, &s.Quiet, &s.NotMoving, &s.Stale,
+		&s.Moving, &s.MovingNow, &s.Active1m, &s.Quiet, &s.NotMoving, &s.Stale,
 		&s.WeakSignal, &s.LowBattery, &s.SensorAbnormal,
 	)
 	return s, err

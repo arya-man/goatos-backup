@@ -23,6 +23,19 @@ const PATTERN_OPTIONS: [string, string][] = (["inactive", "quiet_watch", "spike"
   (key) => [key, PATTERN_LABEL[key]],
 );
 const RISK_OPTIONS: [string, string][] = (["high", "watch", "low"] as const).map((key) => [key, RISK_LABEL[key]]);
+const LIVE_WINDOW_OPTIONS = [
+  ["30s", "30 sec"],
+  ["1m", "1 min"],
+  ["5m", "5 min"],
+  ["15m", "15 min"],
+] as const;
+const OWN_BASELINE_OPTIONS = [
+  ["off", "Off"],
+  ["24h", "Last 24h"],
+] as const;
+const SHED_BASELINE_OPTIONS = [
+  ["now", "Now"],
+] as const;
 
 export function HerdSignalsFilters({
   params,
@@ -176,7 +189,52 @@ export function HerdSignalsFilters({
           empty-state action button) — do not invent one here. */}
       <HerdSignalsKpiChip params={params} />
 
-      <span className="fnote">Window: last 15 min &middot; thresholds provisional</span>
+      <span className="fsel">
+        Movement window
+        <select
+          aria-label="Movement window"
+          value={params.liveWindow}
+          onChange={(event) => go(herdSignalsHref(params, { hs_live_window: event.target.value }))}
+        >
+          {LIVE_WINDOW_OPTIONS.map(([key, label]) => (
+            <option key={key} value={key}>
+              {label}
+            </option>
+          ))}
+        </select>
+      </span>
+
+      <span className="fsel">
+        Compare to self
+        <select
+          aria-label="Compare to self"
+          value={params.ownBaseline}
+          onChange={(event) => go(herdSignalsHref(params, { hs_own_base: event.target.value }))}
+        >
+          {OWN_BASELINE_OPTIONS.map(([key, label]) => (
+            <option key={key} value={key}>
+              {label}
+            </option>
+          ))}
+        </select>
+      </span>
+
+      <span className="fsel">
+        Compare to shed
+        <select
+          aria-label="Compare to shed"
+          value={params.shedBaseline}
+          onChange={(event) => go(herdSignalsHref(params, { hs_shed_base: event.target.value }))}
+        >
+          {SHED_BASELINE_OPTIONS.map(([key, label]) => (
+            <option key={key} value={key}>
+              {label}
+            </option>
+          ))}
+        </select>
+      </span>
+
+      <span className="fnote">15m activity is sustained movement &middot; thresholds provisional</span>
     </div>
   );
 }

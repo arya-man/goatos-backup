@@ -178,7 +178,9 @@ func (r *Repository) ListTagsLatestPage(ctx context.Context, tenantID string, pa
 	query := fmt.Sprintf(`
 		SELECT tl.tenant_id, tl.tag_id, tl.tag_mac, tl.gateway_id, tl.source, tl.last_seen_at,
 		       tl.last_rssi_dbm, tl.signal_state, tl.battery_mv, tl.battery_state, tl.tag_temperature_c,
-		       tl.motion_count, tl.motion_delta, tl.motion_delta_1h, tl.previous_motion_count, tl.previous_seen_at,
+		       tl.motion_count, tl.last_packet_motion_delta, tl.last_packet_window_seconds,
+		       tl.motion_delta_30s, tl.motion_delta_60s, tl.motion_delta_5m, tl.last_moved_at,
+		       tl.motion_delta, tl.motion_delta_1h, tl.previous_motion_count, tl.previous_seen_at,
 		       tl.motion_window_seconds, `+effectiveMovementStateExpr+`, `+effectivePatternStateExpr+`, tl.temperature_sensor_ok,
 		       tl.accelerometer_sensor_ok, tl.mapping_state, tl.gap_delta, tl.updated_at
 			FROM public.herd_signal_tag_latest tl
@@ -201,7 +203,9 @@ func (r *Repository) ListTagsLatestPage(ctx context.Context, tenantID string, pa
 		if err := rows.Scan(
 			&tag.TenantID, &tag.TagID, &tag.TagMAC, &tag.GatewayID, &tag.Source, &tag.LastSeenAt,
 			&tag.LastRSSIdbm, &tag.SignalState, &tag.BatteryMV, &tag.BatteryState, &tag.TagTemperatureC,
-			&tag.MotionCount, &tag.MotionDelta, &tag.MotionDelta1h, &tag.PreviousMotionCount, &tag.PreviousSeenAt,
+			&tag.MotionCount, &tag.LastPacketMotionDelta, &tag.LastPacketWindowSeconds,
+			&tag.MotionDelta30s, &tag.MotionDelta60s, &tag.MotionDelta5m, &tag.LastMovedAt,
+			&tag.MotionDelta, &tag.MotionDelta1h, &tag.PreviousMotionCount, &tag.PreviousSeenAt,
 			&tag.MotionWindowSeconds, &tag.MovementState, &tag.PatternState, &tag.TemperatureSensorOK,
 			&tag.AccelerometerSensorOK, &tag.MappingState, &tag.GapDelta, &tag.UpdatedAt,
 		); err != nil {

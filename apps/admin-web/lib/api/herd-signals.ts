@@ -42,6 +42,8 @@ export interface HerdSignalsSummary {
   mapped_animals: number;
   unmapped_tags: number;
   moving: number;
+  moving_now: number;
+  active_1m: number;
   quiet: number;
   not_moving: number;
   stale: number;
@@ -82,6 +84,12 @@ export interface HerdSignalItem {
   battery_trend: HerdSignalBatteryTrend | null;
   tag_temperature_c: number | null;
   motion_count: number | null;
+  last_packet_motion_delta: number | null;
+  last_packet_window_seconds: number | null;
+  motion_delta_30s: number | null;
+  motion_delta_60s: number | null;
+  motion_delta_5m: number | null;
+  last_moved_at: string | null;
   motion_delta: number | null;
   motion_delta_1h: number | null;
   motion_delta_24h: number | null;
