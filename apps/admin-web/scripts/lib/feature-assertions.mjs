@@ -59,7 +59,18 @@ export const STEP_TARGET_PREFIX = "step-target: ";
 export function isValueExpect(expect = {}) {
   if (expect.equals) return true;
   if (expect.compare) return true;
+  // A figure that must not change when the page does is a value claim too: it
+  // fails on a page that renders perfectly and reports a different total on
+  // page two, which is the capped read-time rollup this repo bans by name.
+  if (expect.stable) return true;
   return false;
+}
+
+/** The first number in a piece of text, commas ignored. */
+export function numberIn(text) {
+  if (text === null || text === undefined) return null;
+  const match = String(text).replace(/,/g, "").match(/-?\d+(?:\.\d+)?/);
+  return match ? Number(match[0]) : null;
 }
 
 /** The text of an element, and the first number in it. */
@@ -70,8 +81,56 @@ async function readCell(page, target) {
     () => null,
   );
   if (shown === null) return { text: null, number: null };
-  const match = String(shown).replace(/,/g, "").match(/-?\d+(?:\.\d+)?/);
-  return { text: String(shown).trim(), number: match ? Number(match[0]) : null };
+  return { text: String(shown).trim(), number: numberIn(shown) };
+}
+
+/**
+ * One side of a comparison, as a NUMBER.
+ *
+ * A single cell was the only thing the engine could read, which is why every
+ * invariant worth asserting on this product was inexpressible: the ones that
+ * actually catch wrong figures are "this total equals the sum of those rows"
+ * and "this count equals the number of rows listed".
+ *
+ *   (nothing)      the first number in the first match          — as before
+ *   all: "sum"     every match's number, added up
+ *   all: "count"   how many matches are on the screen
+ *
+ * A side that cannot be read returns null, and a comparison with a null side is
+ * NOT a failure — it is "could not be judged". A page that has not drawn its
+ * rows yet must never be accused of disagreeing with itself.
+ */
+async function readSide(page, target) {
+  if (target?.all === "count") {
+    const loc = locatorFor(page, target);
+    const total = await loc.count().catch(() => null);
+    if (total === null) return { number: null, how: "count" };
+    let seen = 0;
+    for (let i = 0; i < total; i += 1) {
+      if (await loc.nth(i).isVisible().catch(() => false)) seen += 1;
+    }
+    return { number: seen, how: "count" };
+  }
+  if (target?.all === "sum") {
+    const loc = locatorFor(page, target);
+    const total = await loc.count().catch(() => null);
+    if (!total) return { number: null, how: "sum" };
+    let sum = 0;
+    let seen = 0;
+    for (let i = 0; i < total; i += 1) {
+      const one = loc.nth(i);
+      if (!(await one.isVisible().catch(() => false))) continue;
+      const value = numberIn(await one.innerText().catch(() => null));
+      // A row with no number in it is not a zero. Treating it as one is how a
+      // sum quietly drifts below the total it is checked against.
+      if (value === null) return { number: null, how: "sum", why: "one of the rows has no figure in it" };
+      sum += value;
+      seen += 1;
+    }
+    return { number: seen ? sum : null, how: "sum" };
+  }
+  const { number } = await readCell(page, target);
+  return { number, how: "first" };
 }
 
 async function runStep(page, step) {
@@ -121,6 +180,25 @@ async function checkExpect(page, expect) {
   if (expect.url) {
     return page.url().includes(expect.url.contains) ? null : { what: `address should contain ${expect.url.contains}`, loc: null };
   }
+  if (expect.stable) {
+    // Read a figure, do something that must not change it, read it again.
+    //
+    // "Pagination changes rows only, never summary truth." A summary computed
+    // from the rows currently on screen passes every presence check ever
+    // written and still reports a different total on page two.
+    const { target, through = [], label = "this figure" } = expect.stable;
+    const before = await readSide(page, target);
+    if (before.number === null) return { what: `not visible: ${target.text ?? target.css}`, loc: null };
+    for (const step of through) await runStep(page, step);
+    const after = await readSide(page, target);
+    if (after.number === null) {
+      return { what: `${label} disappeared after the page changed`, loc: null };
+    }
+    return before.number === after.number
+      ? null
+      : { what: `${label} reads ${before.number}, then ${after.number} after the page changed — a summary must describe the whole filter, not the rows on screen`, loc: locatorFor(page, target).first() };
+  }
+
   // ------------------------------------------------------------------ expectations that can be wrong
   // Everything above holds on a page whose figures are nonsense. These two do not.
   if (expect.equals) {
@@ -130,10 +208,11 @@ async function checkExpect(page, expect) {
   }
   if (expect.compare) {
     const { left, right, op = "eq", tolerance = 0 } = expect.compare;
-    const a = await readCell(page, left);
-    const b = await readCell(page, right);
+    const a = await readSide(page, left);
+    const b = await readSide(page, right);
     if (a.number === null || b.number === null) {
-      return { what: `not visible: ${(a.number === null ? left : right).text ?? (a.number === null ? left : right).css}`, loc: null };
+      const missing = a.number === null ? left : right;
+      return { what: `not visible: ${missing.text ?? missing.css}`, loc: null };
     }
     const ok = op === "lte" ? a.number <= b.number + tolerance
       : op === "gte" ? a.number + tolerance >= b.number
