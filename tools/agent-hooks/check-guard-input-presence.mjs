@@ -44,11 +44,18 @@ const GUARD_DIRS = ["tools/agent-hooks", "tools/ci"];
 // known extension. Deliberately narrow — a bare "foo.json" with no directory is
 // usually a basename being composed at runtime, not a fixed input.
 const PATH_LITERAL_RE =
-  /["'`]((?:apps|backend|contracts|docs|tools|context|infra|deploy|fixtures|packages|analytics|\.agents)\/[A-Za-z0-9_@./-]+\.(?:json|txt|md|ya?ml|sql|kt|kts|tsx?|jsx?|mjs|go|py|sh))["'`]/g;
+  /["'`]((?:apps|backend|contracts|docs|tools|context|infra|deploy|fixtures|packages|analytics|\.agents|\.agent|\.github|scripts|load-tests|mock)\/[A-Za-z0-9_@./-]+\.(?:json|txt|md|ya?ml|sql|kt|kts|tsx?|jsx?|mjs|go|py|sh))["'`]/g;
+
+// Repo-root files a guard can depend on by bare name. Without these, four of the
+// 87 measured "input went missing and the guard said ok" pairs were outside the
+// manifest — README.md, .agent/scope.json and the two lockfiles.
+const ROOT_FILE_RE =
+  /["'`](README\.md|AGENTS\.md|CLAUDE\.md|CODEX\.md|SKILLS\.md|Makefile|package\.json|package-lock\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|firebase\.json)["'`]/g;
 
 export function extractPathLiterals(source) {
   const out = new Set();
   for (const m of String(source).matchAll(PATH_LITERAL_RE)) out.add(m[1]);
+  for (const m of String(source).matchAll(ROOT_FILE_RE)) out.add(m[1]);
   return [...out];
 }
 
@@ -146,6 +153,7 @@ function selfTest() {
   check("extracts a rooted path literal", lits.includes("backend/internal/weighing/domain/sopseed/weighing_session.json"));
   check("extracts a readFileSync argument", lits.includes("apps/admin-web/components/mesha-shell.tsx"));
   check("ignores a bare basename", !lits.includes("session.json"));
+  check("extracts a repo-root file named bare", extractPathLiterals('read("README.md")').includes("README.md"));
 
   // the manifest that ships must not be empty — an emptied manifest is a guard
   // that can no longer fire, which is the failure mode this whole file exists for.
