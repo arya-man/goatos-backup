@@ -15,7 +15,7 @@ export function matchesResidualKpi(item: HerdSignalItem, kpi: KpiFilterKey | und
   if (kpi === "active_1m") return (item.motion_delta_60s ?? 0) > 0;
   if (kpi === "weak_signal") return item.signal_state === "weak";
   if (kpi === "missing_signal") return item.movement_state === "stale";
-  if (kpi === "low_battery") return item.battery_state === "low";
+  if (kpi === "low_battery") return item.battery_state === "low" || item.battery_state === "critical";
   return true;
 }
 

@@ -30,11 +30,13 @@
   - Low-battery summary includes critical consistently.
   - KPI keys are distinct for moving now, active 1m, and moving last 15m.
   - 5m movement window has a real backend field.
+- Fixed Codex review blockers:
+  - SSE heartbeat now uses a 15s cadence and the client enforces a 15s minimum between full `router.refresh()` calls.
+  - Low-battery KPI row filtering now includes `critical`, matching the backend summary aggregate.
 
 ## Pending
 
 - Browser screenshot in Chrome.
-- Commit, push, PR.
 
 ## Design Notes
 
@@ -42,7 +44,7 @@
 - `last_packet_motion_delta`, `motion_delta_30s`, and `motion_delta_60s` are the realtime movement fields.
 - `last_moved_at` separates a resting animal with fresh packets from a tag/gateway that stopped reporting.
 - Peers mean same shed/pen. Existing risk comparison already groups by shed; UI copy should call it shed peers, not pen group.
-- Current SSE implementation emits lightweight refresh ticks on a short server ticker. It removes browser interval polling and avoids duplicate full live reads. A follow-up hardening should replace the stream ticker with Postgres `LISTEN/NOTIFY` or another cross-instance fanout so Cloud Run instances push only on ingest updates.
+- Current SSE implementation emits lightweight refresh ticks on a bounded 15s server ticker, and the client also refuses full page refreshes more often than every 15s. A follow-up hardening should replace the stream ticker with Postgres `LISTEN/NOTIFY` or another cross-instance fanout so Cloud Run instances push only on ingest updates.
 - Baseline controls are intentionally limited to values backed by the current API: self Off/Last 24h and shed Now. Broader self windows (1h/6h/7d) and shed windows (1h/today) need backend query parameters and aggregates in a follow-up.
 
 ## Proof
@@ -50,6 +52,10 @@
 - `go test ./internal/herdsignals/...` from `backend` - PASS after reviewer fixes.
 - `npm run typecheck` from `apps/admin-web` - PASS after `npm ci` in isolated worktree. Local Node warned v23.1.0 while package asks for 24.x.
 - `node --test --experimental-strip-types features/herd-signals/*.test.mjs` from `apps/admin-web` - PASS after reviewer fixes.
+- Codex review-fix retest:
+  - `go test ./internal/herdsignals/...` from `backend` - PASS.
+  - `node --test --experimental-strip-types features/herd-signals/*.test.mjs` from `apps/admin-web` - PASS (15 tests).
+  - `npm run typecheck` from `apps/admin-web` - PASS after `npm ci`; local Node still warns v23.1.0 while package asks for 24.x.
 - Local browser route attempt:
   - Started admin-web on `http://127.0.0.1:3077` with `GOATOS_LOCAL_DEV_AUTO_AUTH=0` to avoid DB mutation.
   - `/herd-signals?scope_mode=company&hs_live_window=30s&hs_own_base=off&hs_shed_base=now` redirected to `/login`.

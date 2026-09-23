@@ -85,6 +85,17 @@ test("Quiet KPI copy matches its movement-state filter", () => {
   assert.doesNotMatch(kpis, /detail: \(\) => "low or zero delta this window"/, "Quiet card must not describe states outside movement_state=quiet");
 });
 
+test("Low battery KPI filter includes critical battery rows", () => {
+  const rowFilter = read("./herd-signals-row-filter.ts");
+  assert.match(rowFilter, /item\.battery_state === "low" \|\| item\.battery_state === "critical"/, "low_battery must filter low and critical rows");
+});
+
+test("SSE ticks cannot force sub-15-second full page refreshes", () => {
+  const poller = read("./herd-signals-poller.tsx");
+  assert.match(poller, /const STREAM_REFRESH_MIN_MS = 15_000/, "client stream bridge must throttle router.refresh calls");
+  assert.match(poller, /now - lastStreamRefreshAtRef\.current < STREAM_REFRESH_MIN_MS/, "tick handler must enforce the throttle before refresh");
+});
+
 test("live table exposes own-baseline and group-comparison risk signals", () => {
   const params = read("./params.ts");
   assert.match(params, /hs_risk/, "Watchlist filter must round-trip through the live monitor URL");
