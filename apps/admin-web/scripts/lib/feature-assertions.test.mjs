@@ -1,7 +1,19 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { WRITE_WORDS, assertFeaturesPresent, isValueExpect, loadFeatureAssertions } from "./feature-assertions.mjs";
+import { WRITE_WORDS, assertFeaturesPresent, isValueExpect, loadFeatureAssertions, reloadCoverage } from "./feature-assertions.mjs";
+import { resolveRoutes } from "./smoke-route-catalogue.mjs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "../../../..");
+const fullManifest = () => JSON.parse(readFileSync(join(repoRoot, "tools/dashboard-automation/feature-assertions.json"), "utf8"));
+const realCoverage = () => reloadCoverage({
+  routes: resolveRoutes(repoRoot).all,
+  viewports: ["laptop", "mobile"],
+  runnable: loadFeatureAssertions(),
+  manifest: fullManifest(),
+});
 
 // ---------------------------------------------------------------- a page that can be empty
 //
@@ -266,4 +278,91 @@ test("a harness fault is still said out loud when there are real findings too", 
   assert.match(String(run.threw), /feature missing/);
   assert.match(String(run.threw), /1 check\(s\) could not be run at all/);
   assert.equal(run.said("feature_assertion_harness_fault=").length, 1);
+});
+
+
+// ---------------------------------------------------------------- reload coverage
+//
+// Measured against the REAL manifest and the REAL route table, not a fixture: §8 says a
+// self-test that only exercises a stub proves nothing about the path that runs.
+
+test("reload coverage is a fraction over every page at every width", () => {
+  const c = realCoverage();
+  assert.equal(c.pairsExpected, resolveRoutes(repoRoot).all.length * 2,
+    "the denominator is every route the sweep opens, at both widths");
+  assert.match(c.fraction, /^\d+\/\d+ page\/width pairs carry a reload check$/,
+    `coverage must read as a fraction, it reads "${c.fraction}"`);
+  assert.ok(!/\b(tasks|herd-register)\b/.test(c.fraction), "the fraction must not degrade into a list of hits");
+  // Measured on 2026-09-23: 177 of 292. Asserted as a floor so coverage cannot quietly fall.
+  assert.ok(c.pairsWithACheck >= 177, `reload coverage has fallen to ${c.pairsWithACheck}, it was 177`);
+  assert.equal(c.pairsWithACheck + c.gaps.length, c.pairsExpected, "every pair is either covered or a named gap");
+});
+
+test("every uncovered page names its own reason, and no two share one", () => {
+  const c = realCoverage();
+  assert.ok(c.gaps.length > 0, "there are gaps; pretending otherwise is the failure this replaced");
+  const reasons = new Set();
+  for (const gap of c.gaps) {
+    assert.ok(gap.route && gap.viewport, "a gap names the page and the width");
+    assert.ok(gap.why.includes(gap.route), `a gap's reason must name its own page, "${gap.why}" does not`);
+    assert.ok(gap.why.includes(gap.viewport), `a gap's reason must name its own width, "${gap.why}" does not`);
+    assert.ok(gap.why.length > 40, `a gap needs a sentence, not a label: "${gap.why}"`);
+    reasons.add(gap.why);
+  }
+  // One reason per gap. A bulk "not covered" collapses this to a handful.
+  assert.equal(reasons.size, c.gaps.length, `${c.gaps.length} gaps must carry ${c.gaps.length} distinct reasons, they carry ${reasons.size}`);
+});
+
+test("a check aimed at a page the sweep never opens is reported, and an unrouted one is not mistaken for it", () => {
+  const c = realCoverage();
+  // Measured: every orphan-looking entry was simply unrouted. Counting the two together
+  // produced 42 false "can never run" findings, which is exactly the noise §2 forbids.
+  assert.equal(c.unreachableEntries.length, 0, "no check currently names a page the sweep does not open");
+  assert.ok(c.unroutedEntries.length > 0, "entries with no page at all exist and are reported separately");
+  assert.ok(c.unroutedEntries.every((e) => e.why.includes("names no page")), "and say what they are");
+
+  // The check bites: aim one at a page that is not in the table.
+  const planted = reloadCoverage({
+    routes: [{ name: "tasks" }],
+    viewports: ["laptop", "mobile"],
+    runnable: [{ sha: "abc", route: "a-page-that-does-not-exist", status: "assert" }],
+    manifest: [{ sha: "abc", route: "a-page-that-does-not-exist", status: "assert" }],
+  });
+  assert.equal(planted.unreachableEntries.length, 1, "a check aimed at a missing page is found");
+  assert.match(planted.unreachableEntries[0].why, /can never run/);
+});
+
+test("a check written for a width the sweep does not visit is reported, not silently dropped", () => {
+  const planted = reloadCoverage({
+    routes: [{ name: "tasks" }],
+    viewports: ["laptop"],
+    runnable: [{ sha: "abc", route: "tasks", status: "assert", viewports: ["mobile"] }],
+    manifest: [{ sha: "abc", route: "tasks", status: "assert", viewports: ["mobile"] }],
+  });
+  assert.equal(planted.unreachableViewports.length, 1);
+  assert.match(planted.unreachableViewports[0].why, /mobile width, which this sweep does not visit/);
+});
+
+test("a page whose only checks are unrunnable says which statuses and why", () => {
+  const planted = reloadCoverage({
+    routes: [{ name: "tasks" }],
+    viewports: ["laptop"],
+    runnable: [],
+    manifest: [{ sha: "abc", route: "tasks", status: "screenshot-only" }],
+  });
+  assert.equal(planted.gaps.length, 1);
+  assert.match(planted.gaps[0].why, /screenshot-only — its evidence is a screenshot/);
+});
+
+test("a page/width pair with nothing written for it is said out loud, not passed over in silence", async () => {
+  const lines = [];
+  const log = console.log;
+  console.log = (line) => lines.push(String(line));
+  try {
+    await assertFeaturesPresent({}, { routeName: "tasks", viewportLabel: "laptop", entries: [] });
+  } finally {
+    console.log = log;
+  }
+  assert.ok(lines.some((l) => l.startsWith("feature_assertions_none=tasks:laptop:")),
+    `an empty page/width pair must report that it was not checked, it logged ${JSON.stringify(lines)}`);
 });
