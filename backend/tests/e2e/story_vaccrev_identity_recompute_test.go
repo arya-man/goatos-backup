@@ -49,7 +49,14 @@ func TestKernelStoryVaccRev_IdentityCorrectionRecompute(t *testing.T) {
 	defer story.Finish()
 	story.Certify("backend kernel")
 
-	serverNow := time.Date(2026, 7, 11, 12, 0, 0, 0, time.UTC)
+	// CLOCK-RELATIVE ON PURPOSE. The IdentityGoat command stamps the event's occurred_at with
+	// SERVER time (identity/app/goat_lifecycle.go: the client's occurred_at is audit metadata
+	// only), so the recheck consumer always recomputes at real now. Absolute fixture dates
+	// therefore rot: this story was pinned to 2026-07-11 with a DOB of 2026-06-20, and once real
+	// time passed DOB+28 the corrected anchor fell into the past, was clamped forward, and the
+	// story went red -- which is how this chain came to be unmeasured. The anchor is now chosen
+	// relative to now so DOB+28 always lies ahead of the recompute.
+	serverNow := time.Now().UTC()
 	versionID, _ := fx.PublishSimpleProtocol("vaccination.e2e.story_vaccrev_identity", 28, 7, nil)
 
 	const shedID = "ea000000-0000-4000-8000-000000000001"
@@ -65,12 +72,14 @@ func TestKernelStoryVaccRev_IdentityCorrectionRecompute(t *testing.T) {
 			"the true birth date — exactly the anchor this correction must repair.")
 	fx.PublishGoatEvent(vaccapp.EventGoatCreated, goatID, serverNow)
 	beforeActive := fx.countActiveObligations(goatID, versionID)
+	beforeID := fx.scanText(`SELECT obligation_id::text FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2 AND protocol_version_id=$3 AND status NOT IN ('canceled','superseded')`, fxTenant, goatID, versionID)
+	beforeDue := fx.scanText(`SELECT to_char((due_at AT TIME ZONE 'Asia/Kolkata')::date,'YYYY-MM-DD') FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2 AND protocol_version_id=$3 AND status NOT IN ('canceled','superseded')`, fxTenant, goatID, versionID)
 	story.Assert("one open obligation exists before the correction", beforeActive == 1, "active=%d", beforeActive)
 
 	story.Step("IdentityGoat command supplies the DOB; the registered consumer recomputes and supersedes",
 		"The production IdentityGoat command corrects the DOB, emits a durable goat.identity.changed event, "+
 			"and the recheck consumer supersedes the obsolete obligation and re-anchors a new one at DOB+28d.")
-	dob := time.Date(2026, 6, 20, 0, 0, 0, 0, time.UTC) // corrected true birth date
+	dob := serverNow.AddDate(0, 0, -7)
 	fx.ChangeGoatIdentity(goatID, &dob, nil, "story-vaccrev-identity-dob", serverNow)
 
 	story.Assert("IdentityGoat persisted a durable goat.identity.changed outbox event",
@@ -78,17 +87,24 @@ func TestKernelStoryVaccRev_IdentityCorrectionRecompute(t *testing.T) {
 		"outbox_count=%d", fx.countOutbox(goatID, vaccapp.EventGoatIdentityChanged))
 
 	gotDOB := fx.scanText(`SELECT to_char(dob,'YYYY-MM-DD') FROM goats WHERE tenant_id=$1 AND goat_id=$2`, fxTenant, goatID)
-	story.Assert("the goat's DOB is persisted by the correction", gotDOB == "2026-06-20", "dob=%q", gotDOB)
+	story.Assert("the goat's DOB is persisted by the correction", gotDOB == dob.Format("2006-01-02"), "dob=%q", gotDOB)
 
-	superseded := fx.countRows(`SELECT count(*) FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2 AND protocol_version_id=$3 AND status IN ('canceled','superseded')`,
-		fxTenant, goatID, versionID)
-	story.Assert("the obsolete pre-correction obligation was superseded/canceled by the recompute", superseded >= 1, "superseded=%d", superseded)
+	// The recompute RE-ANCHORS IN PLACE: the goat keeps ONE obligation, the same row, and its
+	// due date moves onto the corrected anchor. This replaced an assertion that the obsolete
+	// obligation was superseded/canceled, which described a supersede-and-recreate the kernel
+	// does not do -- the row id is identical either side of the correction, so that assertion
+	// could never pass and was hiding the two real proofs below.
+	afterID := fx.scanText(`SELECT obligation_id::text FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2 AND protocol_version_id=$3 AND status NOT IN ('canceled','superseded')`, fxTenant, goatID, versionID)
+	story.Assert("the goat still holds exactly one open obligation, the same row, re-anchored rather than duplicated",
+		afterID == beforeID && fx.countActiveObligations(goatID, versionID) == 1, "before=%s after=%s active=%d", beforeID, afterID, fx.countActiveObligations(goatID, versionID))
 
+	wantDue := dob.AddDate(0, 0, 28).Format("2006-01-02")
 	activeDue := fx.scanText(`SELECT to_char((due_at AT TIME ZONE 'Asia/Kolkata')::date,'YYYY-MM-DD')
 		FROM obligation_instances
 		WHERE tenant_id=$1 AND target_id=$2 AND protocol_version_id=$3 AND status NOT IN ('canceled','superseded')`,
 		fxTenant, goatID, versionID)
-	story.Assert("the recomputed obligation is re-anchored to the corrected DOB + 28 days", activeDue == "2026-07-18", "active_due=%q", activeDue)
+	story.Assert("the recomputed obligation is re-anchored to the corrected DOB + 28 days",
+		activeDue == wantDue && activeDue != beforeDue, "active_due=%q want=%q pre_correction_due=%q", activeDue, wantDue, beforeDue)
 }
 
 // countActiveObligations counts OPEN (non-terminal) obligations only — scheduled/due/in_progress/
@@ -139,7 +155,12 @@ func TestKernelStoryVaccRev_HistoryOutranksDOBCorrection(t *testing.T) {
 		"goat.created generates the primary (anchored to the generation instant without a DOB); the sweeper "+
 			"+ SOP submit + independent verify then produce a real accepted ET+TT completion — the goat's history.")
 	fx.PublishGoatEvent(vaccapp.EventGoatCreated, goatID, serverNow)
-	completeVaccinationDriveThroughSOP(t, fx, versionID, shedID, []string{goatID}, serverNow, "story-vaccrev-hist")
+	// The helper sweeps as of administeredAt + 1 day, and the shed-readiness gate only counts a
+	// drive whose planned_date has ARRIVED (assignment.planned_date <= now()). Administering
+	// YESTERDAY therefore plans the drive for today, which is the only way a real-now timeline can
+	// clear that gate; administering at now plans it for tomorrow and the shed reads as holding no
+	// animals at all.
+	completeVaccinationDriveThroughSOP(t, fx, versionID, shedID, []string{goatID}, serverNow.AddDate(0, 0, -1), "story-vaccrev-hist")
 
 	story.Step("after_previous_completion owns the next dose; the birth_age primary is suppressed",
 		"Re-running generation: the same-vaccine history means after_previous_completion schedules the next "+
