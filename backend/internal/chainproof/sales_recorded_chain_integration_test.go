@@ -1,8 +1,14 @@
 package chainproof
 
 import (
+	"log/slog"
+	"time"
+
+	consumerwiring "github.com/vgoats/goatos/backend/internal/domainconsumer/wiring"
 	"testing"
 
+	identitypg "github.com/vgoats/goatos/backend/internal/identity/adapters/postgres"
+	identityports "github.com/vgoats/goatos/backend/internal/identity/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/chaintest"
 	salespg "github.com/vgoats/goatos/backend/internal/sales/adapters/postgres"
 	salesdomain "github.com/vgoats/goatos/backend/internal/sales/domain"
@@ -38,7 +44,7 @@ func TestSaleRecordedChainOpensTheWorkflow(t *testing.T) {
 	seedPark(t, ctx, pool, "CBE", "Coimbatore")
 
 	// The production bus, wired by the ONE registration every bus process calls.
-	bus := workflowBus(t, pool)
+	bus := consumerwiring.BuildDomainBus(pool, 10*time.Second, slog.Default())
 
 	// PRODUCER, through its real service path. Nothing about the workflow is seeded.
 	sales := salespg.NewRepository(pool, 0)
@@ -84,5 +90,57 @@ func TestSaleRecordedChainOpensTheWorkflow(t *testing.T) {
 	if workflows != 1 {
 		t.Fatalf("a redelivery opened %d workflows for one sale; want 1", workflows)
 	}
+
+	// ---- goat.sale_allocated: the animals are TAGGED to the sale ----
+	//
+	// One producer, two consumers, and they are the reason this leg lives beside the opener
+	// rather than in its own test: the tag step it completes only exists because the opener
+	// created it, so the two chains cannot be judged apart.
+	//
+	//	tasks/app.SaleAllocatedWorkflowHandler  -> the sale_tag_animals step completes
+	//	notificationbridge.SaleFeedReduceNotifier -> the Feed Director is told which pens shrank
+	//
+	// Its registered proof calls repo.CompleteSaleTagStep directly, so neither the emission nor
+	// the handler is measured by it.
+	// The Feed Director must exist and be reachable, or the notifier resolves nobody.
+	seedDirectorWithPhone(t, ctx, pool, "7c0f1a2b-0000-4000-8000-0000000050fd", "7c0f1a2b-0000-4000-8000-0000000050fe", "feed_director")
+	seedChainGoat(t, ctx, pool, chainSoldGoat, "alive")
+	if _, err := pool.Exec(ctx, `UPDATE goats SET shed_id = $2::uuid, park_id = $2::uuid WHERE tenant_id = $1::uuid AND goat_id = $3::uuid`,
+		chainTenant, chainPark, chainSoldGoat); err != nil {
+		t.Fatalf("place the animal: %v", err)
+	}
+	var rowVersion int
+	if err := pool.QueryRow(ctx, `SELECT row_version FROM goats WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`,
+		chainTenant, chainSoldGoat).Scan(&rowVersion); err != nil {
+		t.Fatalf("read row version: %v", err)
+	}
+	identity := identitypg.NewRepository(pool, 10*time.Second)
+	if _, err := identity.RecordSaleAllocations(ctx, identityports.RecordSaleAllocationsCommand{
+		TenantID: chainTenant, ActorID: chainCustodian,
+		ClientIdempotencyKey: "chain-alloc",
+		StoredIdempotencyKey: chainTenant + ":sale_allocation:" + deal.DealID + ":chain-alloc",
+		RequestHash:          "chain-alloc-hash",
+		SalesDealID:          deal.DealID, DeclaredAnimalCount: 1,
+		Rows:       []identityports.SaleAllocationRow{{GoatID: chainSoldGoat, RowVersion: rowVersion}},
+		Reason:     "Sold to buyer",
+		OccurredAt: chainEventAt,
+	}); err != nil {
+		t.Fatalf("confirm the allocation: %v", err)
+	}
+	chaintest.DrainExpecting(t, ctx, pool, bus, chainTenant, "goat.sale_allocated")
+
+	if status := hookActionStatus(t, ctx, pool, workflowID, string(domain.EngineHookSaleTagAnimals)); status != "completed" {
+		t.Fatalf("the tag-animals step is %q after the allocation confirm; want completed", status)
+	}
+	var feedNotices int
+	if err := pool.QueryRow(ctx, `
+SELECT count(*) FROM notification_requests WHERE tenant_id = $1::uuid AND notification_type LIKE 'feed%'`,
+		chainTenant).Scan(&feedNotices); err != nil {
+		t.Fatalf("count feed notices: %v", err)
+	}
+	if feedNotices == 0 {
+		t.Fatalf("the Feed Director was told nothing about the pens that shrank")
+	}
 }
 
+const chainSoldGoat = "7c0f1a2b-0000-4000-8000-00000000501d"
