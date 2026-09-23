@@ -64,11 +64,14 @@ K0 -> K1 -> K2 -> K3 -+- F2 -+- F2-Male   -> Buck
 
 ## Growth: a resident carrying the next stage decides first (maintainer decision 2026-09-23)
 
-On 2026-09-23 a K2 animal could not be moved into a pen holding one K3 and one ICU animal: the pen
-had no stage set, so the rule fell back to its residents, saw two tags, and refused "This
-destination holds a mix of tags". The maintainer's rule: **if any live animal already in the
-destination carries the moving animal's next stage, the move happens and the animal takes that
-stage.**
+On 2026-09-23 a K2 animal could not be moved into a pen holding a K3 and a sick animal. A pen's
+residents are read with true clinical states (`ICU`, `Quarantine`, `sick`, ...) stripped, so a
+literal `ICU` resident never blocked the move; what did block it was either (a) the pen's Stage
+cell being set to something other than K3 -- the set stage decided, and K3 is not the next rung to
+it -- or (b) the sick animal carrying a pen-name stage such as `ICU-Kid`, which is a pen tag, not a
+clinical state, so the pen read "This destination holds a mix of tags". The maintainer's rule:
+**if any live animal already in the destination carries the moving animal's next stage, the move
+happens and the animal takes that stage.**
 
 - The resident rule is checked FIRST, ahead of the pen's set stage. A pen set to `F2` on Counts
   Breakdown that still holds a K3 accepts a K2, which becomes `K3` (maintainer answer, same day).
@@ -84,8 +87,8 @@ stage.**
   set stage, else the residents' single shared stage), with its existing refusals.
 
 Code: `domain.resolveGrowthShift` / `resolveGrowthFromResidents`; pinned by the
-`TestGrowthShift*Resident*` tests and `TestGrowthShiftJoinsAResidentCarryingTheNextStage` (the
-farm case, red before the change).
+`TestGrowthShift*Resident*` unit tests and the `TestGrowthEndToEnd*` Postgres tests (raise -> approval
+-> completion; the `ICU-Kid` and pen-set-to-F2 cases were red before the change).
 
 ## Growth into an EMPTY pen never stops (maintainer decision 2026-09-23)
 

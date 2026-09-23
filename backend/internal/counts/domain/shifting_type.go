@@ -248,9 +248,9 @@ func resolveHealthShift(ctx ShiftTypeContext) (ShiftTypeDecision, *ShiftTypeRefu
 //
 // WHICH tag (maintainer decision 2026-09-23): a live resident already carrying the group's next
 // stage decides it FIRST, ahead of the pen's set stage. The farm moves a K2 into the pen where the
-// K3s are; that pen often has no stage set and holds a sick animal too (K3 + ICU refused "holds a
-// mix of tags" on 2026-09-23), or is still set to a stage its residents have moved past. Clinical
-// residents never count. Only when no resident answers does the pen's set stage (or the residents'
+// K3s are; that pen may also hold a sick-bay animal staged by a pen name such as ICU-Kid (which
+// read "holds a mix of tags" on 2026-09-23), or still be set to a stage its residents have moved
+// past. Clinical residents never count. Only when no resident answers does the pen's set stage (or the residents'
 // single shared stage) decide, exactly as before.
 func resolveGrowthShift(ctx ShiftTypeContext) (ShiftTypeDecision, *ShiftTypeRefusal) {
 	if !ctx.DestinationKnown {

@@ -268,14 +268,14 @@ func TestGrowthShiftCanonicalizesCasing(t *testing.T) {
 
 // --- growth: a resident carrying the next stage (maintainer decision 2026-09-23) -------------
 
-// The case that refused on the farm on 2026-09-23: a K2 animal into a pen with no stage set whose
-// residents are one K3 and one ICU animal. It used to refuse "holds a mix of tags". A live resident
-// already carries K2's next stage, so the move is allowed and the animal becomes K3; the ICU
-// resident is a clinical state and never counts as a match.
+// The 2026-09-23 farm case: a K2 animal into a pen with no stage set whose residents are one K3 and
+// one sick-bay animal staged by the pen name ICU-Kid (a pen tag, not a clinical state, so the
+// catalog does not strip it). It used to refuse "holds a mix of tags". A live resident already
+// carries K2's next stage, so the move is allowed and the animal becomes K3.
 func TestGrowthShiftJoinsAResidentCarryingTheNextStage(t *testing.T) {
 	ctx := knownDest(ShiftTypeContext{
 		Type:                      ShiftTypeGrowth,
-		DestinationResidentStages: []string{"ICU", "K3"},
+		DestinationResidentStages: []string{"ICU-Kid", "K3"},
 		DestinationHeadCount:      2,
 		Animals:                   animals("K2", "male"),
 	})
