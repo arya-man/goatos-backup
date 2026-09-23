@@ -37,6 +37,18 @@ CREATE TABLE public.operator_retirement_000394_undo (
   PRIMARY KEY (kind, tenant_id, row_id)
 );
 
+CREATE TABLE public.operator_retirement_000394_pending_scope_undo (
+  tenant_id uuid NOT NULL,
+  pending_grant_id uuid NOT NULL,
+  old_role text NOT NULL,
+  old_scope_type text NOT NULL,
+  old_scope_id uuid NOT NULL,
+  new_role text NOT NULL,
+  new_scope_type text NOT NULL,
+  new_scope_id uuid NOT NULL,
+  PRIMARY KEY (tenant_id, pending_grant_id)
+);
+
 -- +goose StatementBegin
 DO $$
 DECLARE
@@ -274,26 +286,47 @@ BEGIN
   --     The assertion below would pass, the console would read clean, and the role would
   --     walk back in the next morning.
   --
-  --     A PARK pending grant is MIGRATED, not revoked: it is a ground manager whose setup is
-  --     still waiting on a first login, and they should land on the right role rather than on
-  --     nothing. Everything still on `operator` after that -- the two tenant director rows,
-  --     and a leaver like Darshan -- is revoked, which is the same treatment their live rows
-  --     got.
+  --     A pending ground-manager grant is MIGRATED, not revoked: it is a ground manager whose
+  --     setup is still waiting on a first login, and they should land on the right role rather
+  --     than on nothing. Historically these pending rows were tenant-scoped because the table
+  --     allowed no other shape, so this step also narrows them onto the person's active park
+  --     grant. Everything still on `operator` after that -- the two tenant director rows, and
+  --     a leaver like Darshan -- is revoked, which is the same treatment their live rows got.
   -- ---------------------------------------------------------------------
-  INSERT INTO public.operator_retirement_000394_undo
-  SELECT 'pending', p.tenant_id, p.pending_grant_id, p.role, t.new_role
+  CREATE TEMP TABLE _op_pending_targets ON COMMIT DROP AS
+  SELECT p.tenant_id, p.pending_grant_id, p.role AS old_role, p.scope_type AS old_scope_type,
+         p.scope_id AS old_scope_id, t.new_role, min(g.scope_id) AS park_id
   FROM auth_pending_email_grants p
   JOIN workforce_members wm ON p.tenant_id = wm.tenant_id AND lower(wm.email) = p.normalized_email
   JOIN _op_targets t ON t.tenant_id = wm.tenant_id AND t.workforce_member_id = wm.workforce_member_id
-  WHERE p.role = 'operator' AND p.status = 'active' AND p.scope_type = 'park';
+  JOIN user_scope_grants g ON g.tenant_id = t.tenant_id AND g.user_id = t.user_id
+                           AND g.role = t.new_role AND g.status = 'active' AND g.scope_type = 'park'
+  WHERE p.role = 'operator' AND p.status = 'active'
+  GROUP BY p.tenant_id, p.pending_grant_id, p.role, p.scope_type, p.scope_id, t.new_role;
+
+  IF EXISTS (
+    SELECT 1
+    FROM _op_pending_targets
+    GROUP BY tenant_id, pending_grant_id
+    HAVING count(*) > 1
+  ) THEN
+    RAISE EXCEPTION 'a pending operator grant resolved to more than one migrated person; refusing to guess which park invite to write';
+  END IF;
+
+  INSERT INTO public.operator_retirement_000394_pending_scope_undo
+  SELECT tenant_id, pending_grant_id, old_role, old_scope_type, old_scope_id,
+         new_role, 'park', park_id
+  FROM _op_pending_targets;
 
   UPDATE auth_pending_email_grants p
-  SET role = t.new_role, updated_at = now()
-  FROM workforce_members wm, _op_targets t
-  WHERE p.tenant_id = wm.tenant_id
-    AND lower(wm.email) = p.normalized_email
-    AND t.workforce_member_id = wm.workforce_member_id
-    AND p.role = 'operator' AND p.status = 'active' AND p.scope_type = 'park';
+  SET role = t.new_role,
+      scope_type = 'park',
+      scope_id = t.park_id,
+      updated_at = now()
+  FROM _op_pending_targets t
+  WHERE p.tenant_id = t.tenant_id
+    AND p.pending_grant_id = t.pending_grant_id
+    AND p.role = 'operator' AND p.status = 'active';
 
   UPDATE auth_pending_email_grants
   SET status = 'revoked', updated_at = now()
@@ -344,10 +377,18 @@ FROM public.operator_retirement_000394_undo u
 WHERE u.kind = 'grant' AND g.tenant_id = u.tenant_id AND g.grant_id = u.row_id
   AND g.status = 'active' AND g.role = u.new_value;
 
-UPDATE public.auth_pending_email_grants p SET role = u.old_value, updated_at = now()
-FROM public.operator_retirement_000394_undo u
-WHERE u.kind = 'pending' AND p.tenant_id = u.tenant_id AND p.pending_grant_id = u.row_id
-  AND p.status = 'active' AND p.role = u.new_value;
+UPDATE public.auth_pending_email_grants p
+SET role = u.old_role,
+    scope_type = u.old_scope_type,
+    scope_id = u.old_scope_id,
+    updated_at = now()
+FROM public.operator_retirement_000394_pending_scope_undo u
+WHERE p.tenant_id = u.tenant_id
+  AND p.pending_grant_id = u.pending_grant_id
+  AND p.status = 'active'
+  AND p.role = u.new_role
+  AND p.scope_type = u.new_scope_type
+  AND p.scope_id = u.new_scope_id;
 
 UPDATE public.person_access pa
 SET designation_code = u.old_value, updated_at = now(), row_version = pa.row_version + 1
@@ -356,3 +397,4 @@ WHERE u.kind = 'designation' AND pa.tenant_id = u.tenant_id AND pa.workforce_mem
   AND pa.designation_code = u.new_value;
 
 DROP TABLE public.operator_retirement_000394_undo;
+DROP TABLE public.operator_retirement_000394_pending_scope_undo;

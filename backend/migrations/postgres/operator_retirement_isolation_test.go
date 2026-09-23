@@ -30,24 +30,28 @@ func TestOperatorRetirementTenantIsolationAndExactRollback(t *testing.T) {
 		exec(`INSERT INTO user_scope_grants (tenant_id,grant_id,user_id,role,scope_type,scope_id,status,valid_from) VALUES ($1,$2,$2,$3,'park',$4,'active',now())`, id(tenant), id(person), role, id(100+tenant))
 		exec(`INSERT INTO person_access (tenant_id,workforce_member_id,scope_mode,designation_code) VALUES ($1,$2,'parks',$3)`, id(tenant), id(person), role)
 	}
-	seed(1, 11, "Amit Kumar", "operator", "active")
-	seed(1, 12, "Darshan Talwar", "operator", "inactive")
-	seed(2, 21, "Amit Kumar", "manager_health", "active")
-	seed(2, 22, "Darshan Talwar", "manager_feed", "active")
-	exec(`INSERT INTO auth_pending_email_grants (tenant_id,pending_grant_id,email,normalized_email,role,scope_type,scope_id,status,valid_from,source) VALUES ($1,$2,'other-operator@example.com','other-operator@example.com','operator','tenant',$1,'active',now(),'test')`, id(2), id(23))
-	_, sql := onlyMigrationWithSuffix(t, "retire_operator_onto_manager_roles")
-	// The harness applies all migrations before fixtures. Replay this data repair.
-	exec(`DROP TABLE IF EXISTS public.operator_retirement_000394_undo`)
-	if _, err := pool.Exec(ctx, migrationUp(sql)); err == nil || !strings.Contains(err.Error(), "live or pending, span 2 tenants") {
-		t.Fatalf("cross-tenant pending operator grant did not block retirement: %v", err)
-	}
+		seed(1, 11, "Amit Kumar", "operator", "active")
+		seed(1, 12, "Darshan Talwar", "operator", "inactive")
+		seed(2, 21, "Amit Kumar", "manager_health", "active")
+		seed(2, 22, "Darshan Talwar", "manager_feed", "active")
+		exec(`UPDATE workforce_members SET email='amit@example.com' WHERE workforce_member_id=$1`, id(11))
+		exec(`INSERT INTO auth_pending_email_grants (tenant_id,pending_grant_id,email,normalized_email,role,scope_type,scope_id,status,valid_from,source) VALUES ($1,$2,'amit@example.com','amit@example.com','operator','tenant',$1,'active',now(),'test')`, id(1), id(15))
+		exec(`INSERT INTO auth_pending_email_grants (tenant_id,pending_grant_id,email,normalized_email,role,scope_type,scope_id,status,valid_from,source) VALUES ($1,$2,'other-operator@example.com','other-operator@example.com','operator','tenant',$1,'active',now(),'test')`, id(2), id(23))
+		_, sql := onlyMigrationWithSuffix(t, "retire_operator_onto_manager_roles")
+		// The harness applies all migrations before fixtures. Replay this data repair.
+		exec(`DROP TABLE IF EXISTS public.operator_retirement_000394_undo`)
+		exec(`DROP TABLE IF EXISTS public.operator_retirement_000394_pending_scope_undo`)
+		if _, err := pool.Exec(ctx, migrationUp(sql)); err == nil || !strings.Contains(err.Error(), "live or pending, span 2 tenants") {
+			t.Fatalf("cross-tenant pending operator grant did not block retirement: %v", err)
+		}
 	var designationStatus string
 	if err := pool.QueryRow(ctx, `SELECT status FROM designation_catalog WHERE designation_code='operator'`).Scan(&designationStatus); err != nil || designationStatus != "active" {
 		t.Fatalf("operator designation after refused retirement = %q, err=%v; want active", designationStatus, err)
-	}
-	exec(`UPDATE auth_pending_email_grants SET status='revoked' WHERE pending_grant_id=$1`, id(23))
-	exec(`DROP TABLE IF EXISTS public.operator_retirement_000394_undo`)
-	exec(migrationUp(sql))
+		}
+		exec(`UPDATE auth_pending_email_grants SET status='revoked' WHERE pending_grant_id=$1`, id(23))
+		exec(`DROP TABLE IF EXISTS public.operator_retirement_000394_undo`)
+		exec(`DROP TABLE IF EXISTS public.operator_retirement_000394_pending_scope_undo`)
+		exec(migrationUp(sql))
 	check := func(person int, role, status, designation string) {
 		t.Helper()
 		var r, s, d string
@@ -63,10 +67,15 @@ func TestOperatorRetirementTenantIsolationAndExactRollback(t *testing.T) {
 	check(12, "operator", "revoked", "operator")
 	check(22, "manager_feed", "active", "manager_feed")
 	var pendingRole, pendingStatus string
-	if err := pool.QueryRow(ctx, `SELECT role,status FROM auth_pending_email_grants WHERE pending_grant_id=$1`, id(23)).Scan(&pendingRole, &pendingStatus); err != nil || pendingRole != "operator" || pendingStatus != "revoked" {
-		t.Fatalf("cross-tenant pending grant got %s/%s, err=%v; want operator/revoked", pendingRole, pendingStatus, err)
-	}
-	// A later same-name hire and a new grant are not undo targets. Renaming the
+		if err := pool.QueryRow(ctx, `SELECT role,status FROM auth_pending_email_grants WHERE pending_grant_id=$1`, id(23)).Scan(&pendingRole, &pendingStatus); err != nil || pendingRole != "operator" || pendingStatus != "revoked" {
+			t.Fatalf("cross-tenant pending grant got %s/%s, err=%v; want operator/revoked", pendingRole, pendingStatus, err)
+		}
+		var pendingScope string
+		var pendingScopeID string
+		if err := pool.QueryRow(ctx, `SELECT role,scope_type,scope_id::text,status FROM auth_pending_email_grants WHERE pending_grant_id=$1`, id(15)).Scan(&pendingRole, &pendingScope, &pendingScopeID, &pendingStatus); err != nil || pendingRole != "manager_health" || pendingScope != "park" || pendingScopeID != id(101) || pendingStatus != "active" {
+			t.Fatalf("ground pending grant got %s/%s/%s/%s, err=%v; want manager_health/park/%s/active", pendingRole, pendingScope, pendingScopeID, pendingStatus, err, id(101))
+		}
+		// A later same-name hire and a new grant are not undo targets. Renaming the
 	// original person must not prevent restoration of their original grant.
 	exec(`UPDATE workforce_members SET display_name='Renamed original' WHERE workforce_member_id=$1`, id(11))
 	seed(1, 13, "Amit Kumar", "manager_health", "active")
@@ -78,7 +87,10 @@ func TestOperatorRetirementTenantIsolationAndExactRollback(t *testing.T) {
 	check(21, "manager_health", "active", "manager_health")
 	check(22, "manager_feed", "active", "manager_feed")
 	var newRole string
-	if err := pool.QueryRow(ctx, `SELECT role FROM user_scope_grants WHERE grant_id=$1`, id(14)).Scan(&newRole); err != nil || newRole != "manager_feed" {
-		t.Fatalf("later grant: %q, %v", newRole, err)
+		if err := pool.QueryRow(ctx, `SELECT role FROM user_scope_grants WHERE grant_id=$1`, id(14)).Scan(&newRole); err != nil || newRole != "manager_feed" {
+			t.Fatalf("later grant: %q, %v", newRole, err)
+		}
+		if err := pool.QueryRow(ctx, `SELECT role,scope_type,scope_id::text,status FROM auth_pending_email_grants WHERE pending_grant_id=$1`, id(15)).Scan(&pendingRole, &pendingScope, &pendingScopeID, &pendingStatus); err != nil || pendingRole != "operator" || pendingScope != "tenant" || pendingScopeID != id(1) || pendingStatus != "active" {
+			t.Fatalf("rollback ground pending grant got %s/%s/%s/%s, err=%v; want operator/tenant/%s/active", pendingRole, pendingScope, pendingScopeID, pendingStatus, err, id(1))
+		}
 	}
-}

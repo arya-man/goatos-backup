@@ -53,3 +53,19 @@ opt-in; the new regression was separately run with PostgreSQL enabled).
 - Review: UI subagent found no further UI issues after focused admin-web review; RBAC subagent found the seed-dev-email-grants gaps fixed above.
 - Diff check: `git diff --check` PASS.
 - Deployment state: none; no main promotion or staging deploy.
+
+2026-09-23 pending ground invite fix:
+- Scope: fix review finding that migration 000394's pending ground-manager branch
+  targeted `scope_type='park'` even though pending email grants were still
+  tenant-only, causing mapped pending operator invites to be revoked instead of
+  migrated.
+- Done: migration 000393 now permits park-scoped pending email grants; migration
+  000394 converts matching pending operator invites to the mapped manager role at
+  the person's active park scope and records exact pending row scope/role undo.
+- Tests: `go test ./internal/permissions ./internal/permissions/adapters/postgres ./internal/workforce/app ./internal/adminui/app ./cmd/seed-dev-grant ./cmd/seed-dev-email-grants ./cmd/seed-stg-login-grants` PASS.
+- Tests: `node --test --experimental-strip-types apps/admin-web/features/feed/feed-follow-up-dates.test.mjs apps/admin-web/features/leadership-tasks/tasks-phone-viewport.test.mjs` PASS.
+- Tests: `go test ./migrations/postgres -run TestOperatorRetirementTenantIsolationAndExactRollback -count=1 -v` PASS but PostgreSQL case skipped because Docker is unavailable in this session; the regression is added and opt-in.
+- Diff check: `git diff --check` PASS.
+- Commit: fix(rbac): preserve pending ground manager invites.
+- Pending: push to PR and remote SHA readback.
+- Deployment state: none; no main promotion or staging deploy.

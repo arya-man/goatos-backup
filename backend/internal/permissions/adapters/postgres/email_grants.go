@@ -100,7 +100,7 @@ FOR UPDATE`, claim.TenantID, normalizedEmail)
 			return permissions.PendingEmailGrantResult{}, err
 		}
 	}
-	// A pending email grant names a scope of its own (tenant, by its CHECK constraint). If
+	// A pending email grant names a scope of its own (tenant, or park for ground roles). If
 	// this person has already been set up on the People screen, that authored scope wins:
 	// re-derive the rows so a login cannot quietly widen someone the editor narrowed
 	// (internal/parkscope).

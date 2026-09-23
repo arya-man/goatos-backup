@@ -121,6 +121,21 @@ ALTER TABLE public.workforce_members
     ])
   );
 
+-- Pending email grants used to be tenant-only because all seeded invite-style roles were tenant
+-- roles. Ground managers are park-scoped jobs, and a pending invite for one of them must claim a
+-- park grant, not a tenant-wide manager grant. ClaimPendingEmailGrant already materialises whatever
+-- scope_type/scope_id the row carries; this CHECK is the table half that lets those rows exist.
+ALTER TABLE public.auth_pending_email_grants
+  DROP CONSTRAINT IF EXISTS auth_pending_email_grants_scope_check;
+
+ALTER TABLE public.auth_pending_email_grants
+  ADD CONSTRAINT auth_pending_email_grants_scope_check
+  CHECK (
+    (scope_type = 'tenant'::text AND scope_id = tenant_id)
+    OR
+    (scope_type = 'park'::text AND scope_id IS NOT NULL AND scope_id <> tenant_id)
+  );
+
 -- +goose Down
 SET lock_timeout = '5s';
 
@@ -144,6 +159,13 @@ ALTER TABLE public.workforce_members
       'other'::text
     ])
   );
+
+ALTER TABLE public.auth_pending_email_grants
+  DROP CONSTRAINT IF EXISTS auth_pending_email_grants_scope_check;
+
+ALTER TABLE public.auth_pending_email_grants
+  ADD CONSTRAINT auth_pending_email_grants_scope_check
+  CHECK ((scope_type = 'tenant'::text) AND (scope_id = tenant_id));
 
 DELETE FROM public.designation_catalog
 WHERE designation_code IN (
