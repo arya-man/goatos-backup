@@ -21,6 +21,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // Status values mirror the CHECK constraint on
@@ -270,6 +272,15 @@ func (s *Service) RecordEvent(ctx context.Context, cmd EventCommand) (EventResul
 	if event.NotificationRequestID == "" {
 		return EventResult{}, fmt.Errorf("browser push event: notification_request_id is required")
 	}
+	if _, err := uuid.Parse(event.NotificationRequestID); err != nil {
+		return EventResult{}, fmt.Errorf("browser push event: notification_request_id must be a uuid")
+	}
+	if event.BrowserInstallID == "" {
+		return EventResult{}, fmt.Errorf("browser push event: browser_install_id is required")
+	}
+	if len(event.BrowserInstallID) > maxBrowserInstallIDLen {
+		return EventResult{}, fmt.Errorf("browser push event: browser_install_id is too long")
+	}
 	if event.EventType == "" {
 		return EventResult{}, fmt.Errorf("browser push event: event_type is required")
 	}
@@ -417,9 +428,6 @@ func sanitizeEvent(in EventRequest) EventRequest {
 	case "displayed", "opened":
 	default:
 		out.EventType = ""
-	}
-	if len(out.BrowserInstallID) > maxBrowserInstallIDLen {
-		out.BrowserInstallID = out.BrowserInstallID[:maxBrowserInstallIDLen]
 	}
 	if len(out.TraceID) > 128 {
 		out.TraceID = out.TraceID[:128]
