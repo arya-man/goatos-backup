@@ -239,9 +239,9 @@ class AddHealthCaseViewModel @Inject constructor(
                         // lazy-list key, which crashes Compose with "Key was already used".
                         matches = eligible.map(GoatSearchItemDto::toHealthGoatUi).distinctBy { it.goatId },
                         lookupMessage = when {
-                            rows.isEmpty() -> "No live goat matched that RFID or tag."
-                            eligible.isEmpty() && ageBand == "adult" -> "That goat belongs in Kids Health."
-                            eligible.isEmpty() -> "That goat belongs in Adults Health."
+                            rows.isEmpty() -> "No live animal matched that RFID or tag."
+                            eligible.isEmpty() && ageBand == "adult" -> "That animal belongs in Kids Health."
+                            eligible.isEmpty() -> "That animal belongs in Adults Health."
                             else -> null
                         },
                     )
@@ -254,7 +254,7 @@ class AddHealthCaseViewModel @Inject constructor(
                             AnalyticsEvents.Params.REASON to (error.message ?: "unknown"),
                         ),
                     )
-                    _state.value = _state.value.copy(lookingUp = false, lookupMessage = "Could not search goats. Check the connection and retry.")
+                    _state.value = _state.value.copy(lookingUp = false, lookupMessage = "Could not search animals. Check the connection and retry.")
                 }
             recompute()
         }
@@ -284,7 +284,7 @@ class AddHealthCaseViewModel @Inject constructor(
                     _state.value = _state.value.copy(
                         submitting = false,
                         returnToList = true,
-                        message = "Sick goat recorded. The treatment plan is queued and will sync automatically.",
+                        message = "Sick animal recorded. The treatment plan is queued and will sync automatically.",
                     )
                 }
                 is AppResult.Err -> {
