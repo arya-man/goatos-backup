@@ -13,6 +13,12 @@ substitutions:
   _GOATOS_STG_ZERO_DOWNTIME_DEPLOY: "true"
   _SLACK_USER_ID: ""
   _TRIGGERED_BY: "unknown Slack user"
+  # Ask Mesha coding agent (tools/ask-mesha-agent). Off until the one-time infra in
+  # tools/ask-mesha-agent/deploy/RUNBOOK.md exists; the Slack bot never sets these,
+  # so existing backend/web/mobile deploys are unchanged. Set "true" per build.
+  _ASK_MESHA_DEPLOY: "false"
+  # Additionally point goatos-admin-web-stg at the agent (CEO_AI_AGENT_URL/AUDIENCE).
+  _ASK_MESHA_WIRE_ADMIN_WEB: "false"
 
 steps:
   - id: notify-slack-started
@@ -159,6 +165,31 @@ steps:
           -t "$${image}" .
         docker push "$${image}"
 
+  - id: build-ask-mesha-agent-image
+    name: gcr.io/cloud-builders/docker
+    entrypoint: sh
+    env:
+      - DEPLOY_STG=${_DEPLOY_STG}
+      - ASK_MESHA_DEPLOY=${_ASK_MESHA_DEPLOY}
+      - REQUESTED_COMMIT_SHA=${_COMMIT_SHA}
+      - RESOLVED_COMMIT_SHA=$REVISION_ID
+      - DOCKER_CONFIG=/workspace/.docker
+      - DOCKER_BUILDKIT=1
+    args:
+      - -ceu
+      - |
+        if [ "$${DEPLOY_STG}" != "true" ] || [ "$${ASK_MESHA_DEPLOY}" != "true" ]; then
+          echo "Ask Mesha agent image build not requested."
+          exit 0
+        fi
+        commit_sha="$${REQUESTED_COMMIT_SHA:-$${RESOLVED_COMMIT_SHA}}"
+        tag="$(printf '%s' "$${commit_sha}" | cut -c1-12)"
+        image="asia-south1-docker.pkg.dev/goatos-stg/goatos/ask-mesha-agent:$${tag}"
+        docker login -u oauth2accesstoken --password-stdin https://asia-south1-docker.pkg.dev < /workspace/.docker/access-token
+        # BuildKit reads tools/ask-mesha-agent/Dockerfile.dockerignore for this image only.
+        docker build --platform linux/amd64 --build-arg GIT_SHA="$${tag}" -f tools/ask-mesha-agent/Dockerfile -t "$${image}" .
+        docker push "$${image}"
+
   - id: stg-cloud-deploy-release
     name: gcr.io/google.com/cloudsdktool/google-cloud-cli:slim
     entrypoint: bash
@@ -216,6 +247,30 @@ steps:
         apt-get update
         apt-get install -y --no-install-recommends ca-certificates curl git python3
         tools/deploy/stg-release-tag-bookkeeping.sh
+
+  - id: deploy-ask-mesha-agent
+    name: gcr.io/google.com/cloudsdktool/google-cloud-cli:slim
+    entrypoint: bash
+    env:
+      - PROJECT_ID=goatos-stg
+      - REGION=asia-south1
+      - DEPLOY_STG=${_DEPLOY_STG}
+      - ASK_MESHA_DEPLOY=${_ASK_MESHA_DEPLOY}
+      - ASK_MESHA_WIRE_ADMIN_WEB=${_ASK_MESHA_WIRE_ADMIN_WEB}
+      - REQUESTED_COMMIT_SHA=${_COMMIT_SHA}
+      - RESOLVED_COMMIT_SHA=$REVISION_ID
+    args:
+      - -ceu
+      - |
+        if [[ "$${DEPLOY_STG}" != "true" || "$${ASK_MESHA_DEPLOY}" != "true" ]]; then
+          echo "Ask Mesha agent deploy not requested."
+          exit 0
+        fi
+        commit_sha="$${REQUESTED_COMMIT_SHA:-$${RESOLVED_COMMIT_SHA}}"
+        tag="$$(printf '%s' "$${commit_sha}" | cut -c1-12)"
+        export COMMIT_TAG="$${tag}"
+        export ASK_MESHA_IMAGE="asia-south1-docker.pkg.dev/goatos-stg/goatos/ask-mesha-agent:$${tag}"
+        tools/ask-mesha-agent/deploy/deploy-stg.sh
 
   - id: android-mobile-distribution
     name: gcr.io/google.com/cloudsdktool/google-cloud-cli:slim

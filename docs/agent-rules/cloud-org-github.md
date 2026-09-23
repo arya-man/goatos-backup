@@ -44,4 +44,4 @@ Current repos:
 - `website/` - public MESHA site; business-context reference only, out of Goat OS core.
 - `slack-automation-scripts/` - legacy Slack/Sheets/App Script automation.
 
-> "Organization boundaries" (Heva/Slice separation, verify account/project before cloud writes, GitHub token path, Mesha-only commit identity) moved to core `AGENTS.md` because it applies to every commit/cloud action.
+> "Organization boundaries" (cross-organization separation, verify account/project before cloud writes, GitHub token path, Mesha-only commit identity) moved to core `AGENTS.md` because it applies to every commit/cloud action.

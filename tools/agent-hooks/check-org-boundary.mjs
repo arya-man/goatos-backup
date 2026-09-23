@@ -29,7 +29,17 @@ function diffFor(args) {
   }
 }
 
-function addedLineFindings(diffText) {
+// Lines removed anywhere in the same diff. An added line identical to a removed
+// one is a pure move (e.g. splitting a doc) and introduces no new mention.
+function removedLines(diffText) {
+  const removed = new Set();
+  for (const line of diffText.split(/\r?\n/)) {
+    if (line.startsWith("-") && !line.startsWith("---")) removed.add(line.slice(1).trim());
+  }
+  return removed;
+}
+
+function addedLineFindings(diffText, moved = removedLines(diffText)) {
   const findings = [];
   let file = "";
   for (const line of diffText.split(/\r?\n/)) {
@@ -39,6 +49,7 @@ function addedLineFindings(diffText) {
     }
     if (!line.startsWith("+") || line.startsWith("+++")) continue;
     const added = line.slice(1);
+    if (moved.has(added.trim())) continue;
     for (const { term, caseSensitive } of blocked) {
       const haystack = caseSensitive ? added : added.toLowerCase();
       const needle = caseSensitive ? term : term.toLowerCase();
@@ -67,7 +78,8 @@ function collectFindings() {
     diffFor(["--cached"]),
     diffFor([]),
   ];
-  return diffs.flatMap(addedLineFindings);
+  const moved = new Set(diffs.flatMap((d) => [...removedLines(d)]));
+  return diffs.flatMap((d) => addedLineFindings(d, moved));
 }
 
 function selfTest() {
@@ -84,6 +96,12 @@ function selfTest() {
   const findings = addedLineFindings(sample);
   if (findings.length !== 3) {
     throw new Error(`expected 3 findings, got ${findings.length}`);
+  }
+  // A verbatim move is not a new mention; an edited "move" still is.
+  const moveSample = ["+++ b/y", `-keep ${a} rule`, `+keep ${a} rule`, `+keep ${a} rule, reworded`].join("\n");
+  const moveFindings = addedLineFindings(moveSample);
+  if (moveFindings.length !== 1) {
+    throw new Error(`expected 1 finding for moved+edited lines, got ${moveFindings.length}`);
   }
   console.log("org-boundary self-test: PASS");
 }
