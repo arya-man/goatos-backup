@@ -459,11 +459,23 @@ lens whose tokens appear in that output, plus the always-on two. A `.tsx` diff s
 objects and `className` strings count. If a CSS hunk matches no `css:` line anywhere, that is a
 finding about this table, not a clean bill: say so and route by hand.
 
-`covers:` is the number of `fix`/`revert` commits on `origin/main` since 2026-08-01 whose
-SUBJECT matches that class. One commit can match several lenses, so the numbers rank the
-classes — they are not a partition. Re-measure rather than trusting a stale number. A class
-with a high count AND a guard is the important case: the guard is not catching what its name
-suggests, and the review is the only catch.
+`covers:` ranks the classes by how much they have cost. It is the number of commits on
+`origin/main` since 2026-08-01 whose SUBJECT starts `fix`/`revert`/`guard` and matches that
+class — measured on subjects only, because a subject says what a commit is and a body says what
+it touched. Re-derive rather than quoting:
+
+```bash
+git log origin/main --since=2026-08-01T00:00:00+05:30 --pretty=%s \
+  | grep -Eic '^(fix|revert|guard)\b.*<the class pattern>'
+```
+
+Denominator for context (2026-09-23): 4,299 commits since that date, 2,201 of them fix-shaped;
+`--no-merges` gives 4,146 and 2,199. One commit can match several lenses, so these numbers rank
+the classes — they are not a partition, and they do not sum to the denominator.
+
+A high count **with** a guard is the important case, not a reassuring one: the guard is not
+catching what its name suggests, and the review is the only catch. Those entries say so in
+their `note:`.
 
 Apply matched lenses in the SKILL.md priority order (kernel → scale → security → architecture
 → business-rule → observability → UI-contract → maintainability).
