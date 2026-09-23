@@ -750,6 +750,9 @@ export function deriveMeasured(provenance, readReceipt, principal) {
   if (!found) return { error: `receipt ${path} has no observation ${JSON.stringify(observation)}` };
   const revisionRefusal = contractRevisionRefusal(receipt.contractRevision ?? receipt.apiBuildSha);
   if (revisionRefusal) return { error: `receipt ${path} ${revisionRefusal}` };
+  // A route that could not be reached is carried on the observation, so it reads as "not
+  // checked" rather than as an observation nobody bothered to take.
+  if (found.notReached) return { error: `observation ${observation} was not taken: ${found.notReached}` };
   const stable = stableReading(found.readings, { label: found.subject ?? "this reading" });
   if (!stable.stable) return { error: `observation ${observation} ${stable.reason}` };
   return { value: stable.value };
