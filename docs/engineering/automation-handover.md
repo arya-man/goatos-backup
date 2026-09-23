@@ -102,6 +102,38 @@ Proved by planting bugs, not by arguing:
 | 29 broken vaccination payloads | **29 accepted** |
 | 276 weighing/vaccination assertions vs a **blank page** | **178 reported green** |
 | `vaccination-plan-edit` vs an empty screen | **17/17 passed** |
+| a page whose figure BOXES drew but whose figures did not, counted | **passed as a stable summary** |
+
+**THE WAYS A CHECK PASSES AGAINST NOTHING, because the list keeps growing.** Read this before
+trusting a green sweep. Each one was found by asking what a check does when it is handed nothing,
+not by reading the check and agreeing with it.
+
+1. **The page drew nothing and the checks are defect FINDERS.** Colliding labels, overpainting
+   cells, leaked raw text — a page with nothing on it has no defects to find, so every finder is
+   silent and the silence reads as clean. This is why a blank-page gate runs BEFORE the first
+   detector rather than beside it.
+2. **The check could not RUN, and that was recorded as the page being empty.** A blocked script or
+   a navigation mid-measurement returned nothing, which looked exactly like a page that drew
+   nothing — and that is a finding *against* the page. A measurement that could not be taken is
+   "not checked", never an accusation. The collector now stamps proof that it ran.
+3. **Two readings of a figure that was never drawn AGREE, and agreeing is the pass.** Nothing
+   equals nothing. Refused now in two places on purpose (see 5).
+4. **The figure's BOX drew and the figure did not.** The newest one, and the least obvious: a
+   summary counted by how many figures are on screen counted the empty boxes instead, got the same
+   answer twice, and reported a stable summary for a screen with no figures on it. The general
+   comparison could not catch it — by the time it sees the pair they are two equal numbers, and
+   nothing in them says they were empty boxes.
+5. **Two defences, deliberately redundant, and neither is decoration.** The shared comparison
+   refuses two readings that found nothing, which protects every caller including ones written
+   later. The individual check refuses an empty reading before the comparison is asked, which
+   protects it whichever version of the shared code is present — not hypothetical, the two landed
+   in separate commits and the branch carried one without the other for a while. Only the second
+   can know that a count of empty boxes is not a reading of figures. Deleting either leaves a real
+   hole, and deleting either fails a test.
+6. **A count of something is not a measurement of it.** Every number above is now counted from what
+   was READ, and a source that could not be read is an error rather than a zero — a listed-but-
+   unread input contributed nothing silently, and in one case made a check recommend MORE work as
+   safe than was true.
 
 **The definition is now fixed.** `covered` requires a discriminating reference — one that can
 fail while the page still loads. Third status `smoke-only` added. Honest recount:
