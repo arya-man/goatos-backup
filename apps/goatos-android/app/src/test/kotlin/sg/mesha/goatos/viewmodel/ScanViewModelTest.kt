@@ -85,6 +85,39 @@ class ScanViewModelTest {
     fun tearDown() = Dispatchers.resetMain()
 
     @Test
+    fun `assignment scoped scan view model loads both mixed batch animals`() = runTest(dispatcher) {
+        val repo = FakeScanExecutionRepository(
+            firstPage = ScanRosterResponseDto(
+                rows = listOf(
+                    scanRow("goat-a", "TAG-A", "obl-from-batch-a"),
+                    scanRow("goat-b", "TAG-B", "obl-from-batch-b"),
+                ),
+            ),
+        )
+        val vm = ScanViewModel(
+            repo = repo,
+            reader = FakeRfidReaderPort(),
+            scanCaptureRepository = FakeScanCaptureRepository(),
+            scanAttemptRepository = FakeScanAttemptRepository(),
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            proofCaptureSource = FakeProofCaptureSource(),
+            bootstrapRepository = FakeCaptureBootstrapRepository(),
+            tasksRepository = FakeTasksRepositoryForCapture(),
+            syncRepository = CapturingSubmitSyncRepository(),
+            analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
+            savedStateHandle = SavedStateHandle(
+                mapOf("shedId" to "shed-1", "taskId" to "task-from-batch-a", "assignmentId" to "assignment-current"),
+            ),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertEquals("assignment-current", repo.lastRefreshAssignmentId)
+        assertEquals(2, vm.state.value.ringTotal)
+        assertEquals(listOf("goat-a", "goat-b"), vm.state.value.roster.map { it.goatId })
+    }
+
+    @Test
     fun `scan screen RFID hit is persisted and included in submit payload`() = runTest(dispatcher) {
         val scanCaptures = FakeScanCaptureRepository()
         val scanAttempts = FakeScanAttemptRepository()
@@ -1596,6 +1629,47 @@ class ScanViewModelTest {
     }
 
     @Test
+    fun `processing failure after capture keeps vaccination pending and emits no capture success`() = runTest(dispatcher) {
+        val proofRepo = FakeProofCaptureRepository().apply { omitNextOutboxItem = true }
+        val scanRepo = FakeScanCaptureRepository()
+        val reader = FakeRfidReaderPort()
+        val analytics = FakeAnalyticsPort()
+        val vm = ScanViewModel(
+            repo = rosterRepo(listOf(scanRow("goat-1", "TAG-100", "obl-1"))),
+            reader = reader,
+            scanCaptureRepository = scanRepo,
+            scanAttemptRepository = FakeScanAttemptRepository(),
+            proofCaptureRepository = proofRepo,
+            proofCaptureSource = autoVideoProofSource(),
+            bootstrapRepository = FakeCaptureBootstrapRepository(),
+            tasksRepository = FakeTasksRepositoryForCapture(),
+            syncRepository = CapturingSubmitSyncRepository(),
+            analytics = analytics,
+            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        reader.emit("TAG-100")
+        advanceUntilIdle()
+
+        assertEquals("failed processing must not persist the vaccination scan", 0, scanRepo.recordScanCalls)
+        assertEquals("failed processing must not mark the animal done", 0, vm.state.value.doneCount)
+        assertEquals(1, vm.state.value.pendingCount)
+        assertTrue(vm.state.value.lastProofCaptureError?.contains("Retry this saved video") == true)
+        assertTrue(
+            analytics.events.none { it.first == AnalyticsEvents.VACCINATION_PROOF_CAPTURE_SUCCESS },
+        )
+        val failure = analytics.events.single {
+            it.first == AnalyticsEvents.VACCINATION_PROOF_CAPTURE_FAILURE &&
+                it.second[AnalyticsEvents.Params.REASON] == "processing_failed_awaiting_saved_proof_retry"
+        }.second
+        assertEquals("true", failure[AnalyticsEvents.Params.PROOF_CAPTURED])
+        assertEquals("false", failure[AnalyticsEvents.Params.PROOF_UPLOADED])
+        assertEquals("proof-0", failure["local_proof_row_id"])
+    }
+
+    @Test
     fun `vaccination capture preview and retry analytics carry proof trace ids`() = runTest(dispatcher) {
         val proofRepo = FakeProofCaptureRepository()
         val reader = FakeRfidReaderPort()
@@ -2293,6 +2367,8 @@ private class FakeScanExecutionRepository(
         private set
     var refreshCount: Int = 0
         private set
+    var lastRefreshAssignmentId: String? = null
+        private set
 
     fun updateResponse(newPage: ScanRosterResponseDto, newRosterUpdatedAtMs: Long = 10_001L) {
         rosterUpdatedAtMs = newRosterUpdatedAtMs
@@ -2442,6 +2518,17 @@ private class FakeScanExecutionRepository(
             }
         }
         rows.value = staged.distinctBy { it.id }
+    }
+
+    override suspend fun refreshAssignmentScanRoster(
+        shedId: String,
+        taskId: String?,
+        assignmentId: String?,
+        limit: Int?,
+        partitionLabel: String?,
+    ): Result<Unit> {
+        lastRefreshAssignmentId = assignmentId
+        return refreshScanRoster(shedId, taskId, limit, partitionLabel)
     }
 
     override suspend fun rows(

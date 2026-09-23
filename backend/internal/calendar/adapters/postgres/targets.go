@@ -157,10 +157,11 @@ LEFT JOIN obligation_batches target_batch
 LEFT JOIN vaccination_drive_assignment_members m
   ON m.tenant_id = oi.tenant_id
  AND m.obligation_id = oi.obligation_id
+ AND m.canceled_at IS NULL
 LEFT JOIN vaccination_drive_assignments assignment
   ON assignment.tenant_id = m.tenant_id
  AND assignment.assignment_id = m.assignment_id
- AND assignment.planned_date = $3::date
+ AND ($15::uuid IS NOT NULL OR assignment.planned_date = $3::date)
 -- Guess path: find assignment via LATERAL when no membership
 LEFT JOIN LATERAL (
   SELECT vda_guess.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata' AS assignment_planned_at
@@ -244,6 +245,11 @@ WHERE oi.tenant_id = $1::uuid
       AND ($7::uuid IS NULL OR oi.rule_id = $7::uuid)
     )
     OR (
+      $15::uuid IS NOT NULL
+      AND assignment.assignment_id = $15::uuid
+      AND oi.status NOT IN ('waived', 'canceled', 'superseded')
+    )
+    OR (
       $12::bool
       AND oi.status NOT IN ('waived', 'canceled', 'superseded')
       AND (
@@ -267,7 +273,23 @@ WHERE oi.tenant_id = $1::uuid
       )
     )
   )
-  AND ($9::bool OR g.park_id = ANY($10::uuid[]) OR g.shed_id = ANY($11::uuid[]))
+  AND (
+    $9::bool
+    OR (
+      $15::uuid IS NOT NULL
+      AND (
+        assignment.park_id = ANY($10::uuid[])
+        OR assignment.shed_id = ANY($11::uuid[])
+      )
+    )
+    OR (
+      $15::uuid IS NULL
+      AND (
+        g.park_id = ANY($10::uuid[])
+        OR g.shed_id = ANY($11::uuid[])
+      )
+    )
+  )
 ),
 animal_targets AS (
   SELECT DISTINCT ON (animal_id)
@@ -347,10 +369,18 @@ func (r *Repository) ListDriveTargets(ctx context.Context, q domain.DriveTargetQ
 	var shedID any
 	var tenantID any
 	var ruleID any
-	dueDay := parsed.DueDay
-	if parsed.BatchID != "" {
+	var assignmentID any
+	var dueDay any
+	if parsed.DueDay != "" {
+		dueDay = parsed.DueDay
+	}
+	if parsed.AssignmentID != "" {
+		assignmentID = parsed.AssignmentID
+		batchID = nil
+		dueDay = nil
+	} else if parsed.BatchID != "" {
 		batchID = parsed.BatchID
-		dueDay = ""
+		dueDay = nil
 	} else {
 		batchID = nil
 		if parsed.ParkID != "" {
@@ -383,7 +413,7 @@ func (r *Repository) ListDriveTargets(ctx context.Context, q domain.DriveTargetQ
 	tenantWide, parkIDs, shedIDs := scopeArgs(q.Scope)
 	rows, err := r.pool.Query(ctx, calendarDriveTargetsSQL,
 		q.TenantID, batchID, dueDay, parkID, shedID, tenantID, ruleID, cursorID,
-		tenantWide, parkIDs, shedIDs, isParkDrive, fetchLimit, q.Search)
+		tenantWide, parkIDs, shedIDs, isParkDrive, fetchLimit, q.Search, assignmentID)
 	if err != nil {
 		return domain.CalendarDriveTargetListResponse{}, fmt.Errorf("calendar: list drive targets: %w", err)
 	}

@@ -129,6 +129,7 @@ class ScanViewModel @Inject constructor(
 
     private val shedId: String? = savedStateHandle.get<String>("shedId")?.takeIf { it.isNotBlank() }
     private val taskId: String? = savedStateHandle.get<String>("taskId")?.takeIf { it.isNotBlank() }
+    private val assignmentId: String? = savedStateHandle.get<String>("assignmentId")?.takeIf { it.isNotBlank() }
     private val partitionLabel: String? = savedStateHandle.get<String>("partitionLabel")?.takeIf { it.isNotBlank() }
     private val sopVersionId: String? = savedStateHandle.get<String>("sopVersionId")?.takeIf { it.isNotBlank() }
     private val taskRowVersion: Int? = savedStateHandle.get<Int>("taskRowVersion")?.takeIf { it > 0 }
@@ -147,28 +148,30 @@ class ScanViewModel @Inject constructor(
     @OptIn(ExperimentalCoroutinesApi::class)
     private val observedRows: StateFlow<List<ScanRosterRowEntity>> =
         (if (shedId != null) {
-            _windowSize.flatMapLatest { size -> repo.observeScanRosterRows(shedId, taskId, windowSize = size, partitionLabel = partitionLabel) }
+            _windowSize.flatMapLatest { size ->
+                repo.observeAssignmentScanRosterRows(shedId, taskId, assignmentId, windowSize = size, partitionLabel = partitionLabel)
+            }
         } else {
             flowOf(emptyList())
         }).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     // Full-roster row count for this scope (page-independent) — drives hasMore and the sync/error gates.
     private val rosterTotal: StateFlow<Int> =
-        (if (shedId != null) repo.observeScanRosterTotal(shedId, taskId, partitionLabel) else flowOf(0))
+        (if (shedId != null) repo.observeAssignmentScanRosterTotal(shedId, taskId, assignmentId, partitionLabel) else flowOf(0))
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
 
     // Every DONE animal across the FULL roster (backend-persisted status), page-independent. The
     // submit proof gate unions this with the session local-done overlay and requires a synced proof
     // for each; see [computeProofGate].
     private val persistedDoneGoatIds: StateFlow<List<String>> =
-        (if (shedId != null) repo.observeScanRosterDoneGoatIds(shedId, taskId, partitionLabel) else flowOf(emptyList()))
+        (if (shedId != null) repo.observeAssignmentScanRosterDoneGoatIds(shedId, taskId, assignmentId, partitionLabel) else flowOf(emptyList()))
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     // R50-008: full-roster status aggregates (Room GROUP BY, page-independent). Re-emits on every
     // roster upsert; combined into [state] so ring/tile counters are identical for page size 1 and 20.
     private val statusCounts: StateFlow<List<StatusCount>> =
         (if (shedId != null) {
-            repo.observeScanRosterStatusCounts(shedId, taskId, partitionLabel)
+            repo.observeAssignmentScanRosterStatusCounts(shedId, taskId, assignmentId, partitionLabel)
         } else {
             flowOf(emptyList())
         }).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -651,7 +654,7 @@ class ScanViewModel @Inject constructor(
         _isRefreshing.value = true
         _refreshError.value = null
         taskId?.let { tasksRepository.refreshTaskDetail(it) }
-        val result = repo.refreshScanRoster(id, taskId, limit = SCAN_PAGE_SIZE, partitionLabel = partitionLabel)
+        val result = repo.refreshAssignmentScanRoster(id, taskId, assignmentId, limit = SCAN_PAGE_SIZE, partitionLabel = partitionLabel)
         refreshShedCompletionSummary()
         _isRefreshing.value = false
         _isOffline.value = result.isFailure
@@ -1023,7 +1026,7 @@ class ScanViewModel @Inject constructor(
             // logic below runs.
             val target = scannedTagResolver.resolve(rawTag, normalizedTag, id, taskId, partitionLabel)
             // R50-007: Find by tag in full shed roster via bounded indexed Room query
-            val dbRow = repo.findScanRosterByTag(id, taskId, target, partitionLabel) ?: run {
+            val dbRow = repo.findAssignmentScanRosterByTag(id, taskId, assignmentId, target, partitionLabel) ?: run {
                 _proofReplacementGoatId.value = null
                 _duplicateNotice.value = null
                 _proofCaptureBusyNotice.value = false
@@ -1049,7 +1052,7 @@ class ScanViewModel @Inject constructor(
             // obligations for that goat, without touching neighbor animals or future cycles that
             // are not part of the active execution roster.
             val activeProofPolicy = proofPolicy.value ?: ProofPolicy.Default
-            val sameGoatRows = repo.scanRosterRowsByGoatIds(id, taskId, listOf(dbRow.goatId), partitionLabel)
+            val sameGoatRows = repo.assignmentScanRosterRowsByGoatIds(id, taskId, assignmentId, listOf(dbRow.goatId), partitionLabel)
             val scannableSameGoatRows = sameGoatRows
                 .filter { it.status.isCurrentScannableObligationStatus() }
             if (scannableSameGoatRows.isEmpty()) {
@@ -1399,7 +1402,7 @@ class ScanViewModel @Inject constructor(
         val extraDone = if (localDone.isEmpty()) {
             0
         } else {
-            repo.getScanRosterStatusCountsFor(id, taskId, localDone.toList(), partitionLabel)
+            repo.getAssignmentScanRosterStatusCountsFor(id, taskId, assignmentId, localDone.toList(), partitionLabel)
                 .filter { statusOf(it.status) != ScanStatus.DONE }
                 .sumOf { it.count }
         }
@@ -1435,7 +1438,7 @@ class ScanViewModel @Inject constructor(
         val windowGoatIds = rows.mapTo(mutableSetOf()) { it.goatId }
         val missingGoatIds = doneGoatIds.filterNot { it in windowGoatIds }
         if (missingGoatIds.isEmpty()) return rows
-        val extra = repo.scanRosterRowsByGoatIds(id, taskId, missingGoatIds, partitionLabel)
+        val extra = repo.assignmentScanRosterRowsByGoatIds(id, taskId, assignmentId, missingGoatIds, partitionLabel)
         if (extra.isEmpty()) return rows
         return (rows + extra).sortedBy { it.seq }
     }
@@ -1718,7 +1721,7 @@ class ScanViewModel @Inject constructor(
         val actionNeeded = if (needsCaptureGoatIds.isEmpty()) {
             emptyList()
         } else {
-            repo.scanRosterRowsByGoatIds(id, taskId, needsCaptureGoatIds.toList(), partitionLabel)
+            repo.assignmentScanRosterRowsByGoatIds(id, taskId, assignmentId, needsCaptureGoatIds.toList(), partitionLabel)
                 .collapseByGoat()
                 .sortedBy { it.seq }
                 .map { row ->
@@ -1966,7 +1969,7 @@ class ScanViewModel @Inject constructor(
                 // Past this point a real, complete recording exists — it must never be discarded,
                 // so from here on this job's own state ownership is no longer cancellable by a
                 // later scan (see the busy-refusal branch above).
-                kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) proofPersist@ {
                     proofCaptureVideoCaptured = true
                     val syncingStartedAtMs = System.currentTimeMillis()
                     _proofSyncingStartedAt.update { it + (row.goatId to syncingStartedAtMs) }
@@ -2021,6 +2024,30 @@ class ScanViewModel @Inject constructor(
                                     proofId = proof.value.id,
                                     capturedAtMs = proof.value.capturedAtMs,
                                 ))
+                            }
+                            val processingFailedWithoutUpload =
+                                proof.value.processingState == ProofProcessingState.PROCESSING_FAILED_AWAITING_RETRY.name &&
+                                    proof.value.outboxItemId.isNullOrBlank() &&
+                                    proof.value.serverProofId.isNullOrBlank()
+                            if (processingFailedWithoutUpload) {
+                                _lastProofCaptureError.update {
+                                    "Proof video was saved locally but processing failed. Retry this saved video; do not vaccinate again."
+                                }
+                                analytics.track(
+                                    AnalyticsEvents.VACCINATION_PROOF_CAPTURE_FAILURE,
+                                    vaccinationActionProps(row, row.primaryTag) +
+                                        mapOf(
+                                            AnalyticsEvents.Params.ACTION to "capture",
+                                            AnalyticsEvents.Params.FIELD to GOAT_PROOF_FIELD_KEY,
+                                            AnalyticsEvents.Params.SOURCE to "room",
+                                            AnalyticsEvents.Params.OUTCOME to "failure",
+                                            AnalyticsEvents.Params.REASON to "processing_failed_awaiting_saved_proof_retry",
+                                            AnalyticsEvents.Params.PROOF_CAPTURED to "true",
+                                            AnalyticsEvents.Params.PROOF_UPLOADED to "false",
+                                        ) +
+                                        vaccinationProofTraceProps(proof.value),
+                                )
+                                return@proofPersist
                             }
                             // B6: Scan row persisted only after proof capture succeeds.
                             // Failed capture leaves no scan record, so re-scan is not blocked as duplicate.

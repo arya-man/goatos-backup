@@ -103,6 +103,7 @@ type ExecutionRow struct {
 	// caller needs the lifetime total of items ever raised for review (pending + rejected), that
 	// must be a separate, explicitly named field.
 	ReviewCount        int                `json:"reviewCount"`
+	AssignmentID       *string            `json:"assignmentId,omitempty"`
 	DriveID            *string            `json:"driveId,omitempty"`
 	DriveName          *string            `json:"driveName,omitempty"`
 	VaccineLabels      []string           `json:"vaccineLabels,omitempty"`
@@ -199,6 +200,7 @@ type VaccineGroupSummary struct {
 type ShedCardSummary struct {
 	ShedID         string                `json:"shedId"`
 	PartitionLabel *string               `json:"partitionLabel,omitempty"`
+	AssignmentID   *string               `json:"assignmentId,omitempty"`
 	TaskID         *string               `json:"taskId,omitempty"`
 	BatchID        *string               `json:"batchId,omitempty"`
 	DriveID        *string               `json:"driveId,omitempty"`
@@ -420,6 +422,7 @@ type DriveAssignmentResponse struct {
 // ScanRosterRow represents a single per-animal vaccination obligation for mobile scan screen.
 // primaryTag and secondaryTag are RFID identifiers; vaccineLabel is the vaccine name and schedule position.
 type ScanRosterRow struct {
+	AssignmentID           *string `json:"assignmentId,omitempty"`
 	GoatID                 string  `json:"goatId"`
 	PrimaryTag             string  `json:"primaryTag"`
 	SecondaryTag           *string `json:"secondaryTag,omitempty"`
@@ -446,6 +449,7 @@ type ScanRosterQuery struct {
 	TenantID             string
 	ShedID               string
 	PartitionLabel       string
+	AssignmentID         string
 	TaskID               string
 	OperatorScopeActorID string
 	Cursor               *ScanRosterCursor
@@ -496,6 +500,7 @@ type ExecutionProjection struct {
 	Partition            string
 	SourceShedName       *string
 	AnimalStage          string
+	AssignmentID         *string
 	BatchID              *string
 	ProtocolName         string
 	DoseCode             string
@@ -1349,7 +1354,8 @@ type CommandBoardQuery struct {
 }
 
 // BuildCardID is the canonical identity string for a shed execution card:
-// shed + partition (whole when blank) + exactly one of task/batch/drive.
+// shed + partition (whole when blank), optionally followed by one task/batch/drive identity for
+// legacy callers. Operator-day summaries deliberately omit those source identities.
 // Shared by the app-layer row fold and the postgres card-summary aggregate so
 // both layers key summaries identically.
 func BuildCardID(shedID, partitionLabel, taskID, batchID, driveID string) string {
@@ -1373,6 +1379,15 @@ func BuildCardID(shedID, partitionLabel, taskID, batchID, driveID string) string
 		sb.WriteString(driveID)
 	}
 	return sb.String()
+}
+
+// BuildAssignmentCardID keeps independently executable assignments separate even when they share
+// one shed and partition. Legacy rows without an assignment retain the established card identity.
+func BuildAssignmentCardID(shedID, partitionLabel, assignmentID, taskID, batchID, driveID string) string {
+	if assignmentID == "" {
+		return BuildCardID(shedID, partitionLabel, taskID, batchID, driveID)
+	}
+	return BuildCardID(shedID, partitionLabel, "", "", "") + "|assignment:" + assignmentID
 }
 
 // StringOrEmpty dereferences an optional string, mapping nil to "".

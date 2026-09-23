@@ -91,21 +91,10 @@ class FirebaseAnalyticsAdapter(
 // AND in the CI guard (tools/agent-hooks/check-firebase-analytics-param-budget.mjs), which now
 // FAILS any allowlist entry count above 25 instead of merely warning.
 //
-// To make room for the proof-flow params without exceeding 25, FIREBASE_PARAM_ALLOWLIST below was
-// re-curated rather than just grown: several pre-existing proof-capture diagnostic params that are
-// redundant with, or lower-value than, what stayed (capture_source, mime_type, processing_attempt,
-// location_status, geocoder_status, original_size_bucket, upload_original, proof_subject, and the
-// duplicate-of-rfid_tag Params.RFID key) were DROPPED from the Firebase envelope, and three
-// proof-flow source params (feed_weight_source, feed_video_source, water_video_source) were
-// dropped too. Firebase/GA4 stays a
-// compact diagnostic surface only -- the FULL payload (every param, no allowlist, no cap) still
-// reaches the backend via BackendAnalyticsAdapter on the same call sites, so nothing is lost for
-// forensic debugging; it just is not duplicated into Firebase where GA4 would drop it past 25
-// anyway. The surviving 25 entries deliberately preserve: split-operator slot info (slot_mask,
-// local_slot_state), submit source (source), retry/failure reason (retry_count,
-// reason, outcome), and live-status transition (previous, next, status), plus the pre-existing
-// proof-capture core diagnostics (proof_id, task_id, field_key, feature_surface, rfid_tag,
-// processing_state, duration_bucket, proof_upload_status, submit_status) and result/failure_kind.
+// The allowlist is curated for proof incident correlation. The full payload still reaches the
+// backend mirror; Firebase keeps the stable proof/outbox/task/obligation chain plus bounded
+// failure stage/class/file-state fields. Lower-value UI dimensions remain backend-only rather
+// than being silently truncated by GA4.
 internal const val FIREBASE_MAX_EVENT_PARAMS = 25
 internal const val FIREBASE_MAX_PARAM_VALUE_LENGTH = 100
 
@@ -125,31 +114,29 @@ private fun String.firebaseParamValue(): String =
 // Exactly 25 entries -- the hard GA4 platform cap. Do not add without removing one; see the
 // FIREBASE_MAX_EVENT_PARAMS comment above for what was traded off and why.
 private val FIREBASE_PARAM_ALLOWLIST = listOf(
-    AnalyticsEvents.Params.DEVICE_ID,
-    AnalyticsEvents.Params.JOURNEY_ID,
-    AnalyticsEvents.UserProps.ROLE,
     AnalyticsEvents.UserProps.PRIMARY_PARK,
     "proof_id",
+    "local_proof_id",
+    AnalyticsEvents.Params.OUTBOX_ITEM_ID,
     "task_id",
     "field_key",
+    "obligation_id",
+    AnalyticsEvents.Params.ATTEMPT,
+    AnalyticsEvents.Params.PROOF_STAGE,
+    "exception_class",
+    "local_file_available",
+    AnalyticsEvents.Params.UPLOAD_ORIGINAL,
+    "trace_id",
+    "server_proof_id",
     "feature_surface",
-    "rfid_tag",
     AnalyticsEvents.Params.OUTCOME,
     AnalyticsEvents.Params.REASON,
     "processing_state",
-    "duration_bucket",
     "proof_upload_status",
-    "submit_status",
-    // proof-flow-integration additions (2026-08-15) -- kept within the 25-cap by trading off the
-    // lower-value legacy params documented in the comment above.
     AnalyticsEvents.Params.RESULT,
-    AnalyticsEvents.Params.SLOT_MASK,
     AnalyticsEvents.Params.RETRY_COUNT,
     AnalyticsEvents.Params.SOURCE,
-    AnalyticsEvents.Params.LOCAL_SLOT_STATE,
     AnalyticsEvents.Params.KIND,
-    AnalyticsEvents.Params.PREVIOUS,
-    AnalyticsEvents.Params.NEXT,
     AnalyticsEvents.Params.STATUS,
     "failure_kind",
 )

@@ -1451,6 +1451,7 @@ class DefaultProofCaptureRepository(
      * Device clock rollback cannot skip recovery. Runs on the caller's dispatcher (the `init`
      * block launches it on [appScope] so it never blocks repository construction). */
     internal suspend fun reconcileRecoverableUploadsNow() {
+        reconcilePendingGalleryCopiesNow()
         var afterCapturedAtMs = 0L
         var afterId = ""
         while (true) {
@@ -1493,6 +1494,27 @@ class DefaultProofCaptureRepository(
         }
     }
 
+    private suspend fun reconcilePendingGalleryCopiesNow() {
+        var afterCapturedAtMs = 0L
+        var afterId = ""
+        while (true) {
+            val page = dao.listPendingGalleryCopiesPage(afterCapturedAtMs, afterId)
+            if (page.isEmpty()) break
+            page.forEach { entity ->
+                val (scopeType, scopeId) = recoveryScope(entity)
+                saveFinalArtifactToGallery(
+                    entity = entity,
+                    request = proofUploadRequest(entity, scopeType, scopeId),
+                    allowProcessingFailedOriginal = true,
+                )
+            }
+            val last = page.last()
+            afterCapturedAtMs = last.capturedAtMs
+            afterId = last.id
+            if (page.size < ProofCaptureDao.RECOVERABLE_UPLOADS_PAGE_SIZE) break
+        }
+    }
+
     /** Queues the metadata-registration write on the app-lifetime scope (never blocks the
      *  caller's [capture] — the Room write above already made the capture durable) and follows
      *  its outbox item to reflect PENDING -> IN_FLIGHT -> SYNCED/FAILED back onto the row. */
@@ -1514,59 +1536,7 @@ class DefaultProofCaptureRepository(
         uploadGroupKey: String? = null,
     ) {
         val uploadEntity = prepareFinalArtifact(entity)
-        val request = ProofUploadRequestDto(
-            proofType = proofTypeForMime(uploadEntity.mimeType),
-            mimeType = uploadEntity.mimeType,
-            scopeType = scopeType,
-            scopeId = scopeId,
-            subjectType = uploadEntity.proofSubject,
-            subjectId = uploadEntity.subjectId,
-            metadata = buildMap {
-                put("field_key", JsonPrimitive(uploadEntity.fieldKey))
-                // Use persisted clientTaskKey if available; this is the application-level session/context
-                // id (e.g. feed workflow id, milk batch id). Recovery re-sends the ORIGINAL key so backend
-                // proof lookup keeps using the shared session identity even when the upload outbox group is
-                // more specific. Legacy null falls back to taskId, not uploadGroupKey.
-                put("client_task_key", JsonPrimitive(
-                    uploadEntity.clientTaskKey?.takeIf { it.isNotBlank() }
-                        ?: uploadEntity.taskId
-                ))
-                // R50-027 SSOT: capture_source is read from the durable row, so the startup-recovery
-                // path (which has no in-memory ProofPolicy) re-sends the ORIGINAL source instead of a
-                // Default fallback that would silently rewrite a non-camera source.
-                put("capture_source", JsonPrimitive(uploadEntity.captureSource))
-                put("upload_original", JsonPrimitive(uploadEntity.uploadOriginal))
-                uploadEntity.caption?.takeIf { it.isNotBlank() }?.let { put("caption", JsonPrimitive(it)) }
-                // Camera-only capture freshness proof (docs/mobile/proof-capture-sync-and-e2e.md
-                // "Camera-only capture"): the verifier can see this was a live, timed,
-                // attributable in-app recording, not an imported file.
-                put("captured_start_ms", JsonPrimitive(uploadEntity.capturedStartMs))
-                put("captured_end_ms", JsonPrimitive(uploadEntity.capturedEndMs))
-                put("duration_ms", JsonPrimitive((uploadEntity.capturedEndMs - uploadEntity.capturedStartMs).coerceAtLeast(0)))
-                uploadEntity.locationStatus?.takeIf { it.isNotBlank() }
-                    ?.let { put("location_status", JsonPrimitive(it)) }
-                uploadEntity.latitude?.let { put("latitude", JsonPrimitive(it)) }
-                uploadEntity.longitude?.let { put("longitude", JsonPrimitive(it)) }
-                uploadEntity.gpsAccuracyM?.let { put("gps_accuracy_m", JsonPrimitive(it)) }
-                uploadEntity.geocoderStatus?.takeIf { it.isNotBlank() }
-                    ?.let { put("geocoder_status", JsonPrimitive(it)) }
-                uploadEntity.geocodedAddress?.takeIf { it.isNotBlank() }
-                    ?.let { put("geocoded_address", JsonPrimitive(it)) }
-                humanRfidTag(uploadEntity)?.let { put("rfid_tag", JsonPrimitive(it)) }
-                uploadEntity.obligationId?.takeIf { it.isNotBlank() }?.let {
-                    put("obligation_id", JsonPrimitive(it))
-                    put("obligation_row_version", JsonPrimitive(uploadEntity.obligationRowVersion))
-                }
-				uploadEntity.obligationCyclesJson?.takeIf { it.isNotBlank() }?.let { raw ->
-					runCatching { syncJson.decodeFromString<JsonElement>(raw) }
-						.onFailure { failureReporter.recordException(it, "proof obligation cycles metadata decode failed") }
-						.getOrNull()
-						?.let { put("obligation_cycles", it) }
-				}
-                uploadEntity.capturedByPrincipalId?.takeIf { it.isNotBlank() }
-                    ?.let { put("captured_by_principal_id", JsonPrimitive(it)) }
-            },
-        )
+        val request = proofUploadRequest(uploadEntity, scopeType, scopeId)
         // P1 fix: a processing failure that left the row AWAITING_RETRY must never proceed to
         // registration/upload yet, but the raw camera clip is still one-time field evidence.
         // Save it to Gallery now so vaccination / PC Care operators keep a local copy even if the
@@ -1629,6 +1599,64 @@ class DefaultProofCaptureRepository(
             }
         }
     }
+
+    private fun proofUploadRequest(
+        uploadEntity: ProofCaptureEntity,
+        scopeType: String,
+        scopeId: String,
+    ) = ProofUploadRequestDto(
+            proofType = proofTypeForMime(uploadEntity.mimeType),
+            mimeType = uploadEntity.mimeType,
+            scopeType = scopeType,
+            scopeId = scopeId,
+            subjectType = uploadEntity.proofSubject,
+            subjectId = uploadEntity.subjectId,
+            metadata = buildMap {
+                put("field_key", JsonPrimitive(uploadEntity.fieldKey))
+                // Use persisted clientTaskKey if available; this is the application-level session/context
+                // id (e.g. feed workflow id, milk batch id). Recovery re-sends the ORIGINAL key so backend
+                // proof lookup keeps using the shared session identity even when the upload outbox group is
+                // more specific. Legacy null falls back to taskId, not uploadGroupKey.
+                put("client_task_key", JsonPrimitive(
+                    uploadEntity.clientTaskKey?.takeIf { it.isNotBlank() }
+                        ?: uploadEntity.taskId
+                ))
+                // R50-027 SSOT: capture_source is read from the durable row, so the startup-recovery
+                // path (which has no in-memory ProofPolicy) re-sends the ORIGINAL source instead of a
+                // Default fallback that would silently rewrite a non-camera source.
+                put("capture_source", JsonPrimitive(uploadEntity.captureSource))
+                put("upload_original", JsonPrimitive(uploadEntity.uploadOriginal))
+                uploadEntity.caption?.takeIf { it.isNotBlank() }?.let { put("caption", JsonPrimitive(it)) }
+                // Camera-only capture freshness proof (docs/mobile/proof-capture-sync-and-e2e.md
+                // "Camera-only capture"): the verifier can see this was a live, timed,
+                // attributable in-app recording, not an imported file.
+                put("captured_start_ms", JsonPrimitive(uploadEntity.capturedStartMs))
+                put("captured_end_ms", JsonPrimitive(uploadEntity.capturedEndMs))
+                put("duration_ms", JsonPrimitive((uploadEntity.capturedEndMs - uploadEntity.capturedStartMs).coerceAtLeast(0)))
+                uploadEntity.locationStatus?.takeIf { it.isNotBlank() }
+                    ?.let { put("location_status", JsonPrimitive(it)) }
+                uploadEntity.latitude?.let { put("latitude", JsonPrimitive(it)) }
+                uploadEntity.longitude?.let { put("longitude", JsonPrimitive(it)) }
+                uploadEntity.gpsAccuracyM?.let { put("gps_accuracy_m", JsonPrimitive(it)) }
+                uploadEntity.geocoderStatus?.takeIf { it.isNotBlank() }
+                    ?.let { put("geocoder_status", JsonPrimitive(it)) }
+                uploadEntity.geocodedAddress?.takeIf { it.isNotBlank() }
+                    ?.let { put("geocoded_address", JsonPrimitive(it)) }
+                humanRfidTag(uploadEntity)?.let { put("rfid_tag", JsonPrimitive(it)) }
+                uploadEntity.obligationId?.takeIf { it.isNotBlank() }?.let {
+                    put("obligation_id", JsonPrimitive(it))
+                    put("obligation_row_version", JsonPrimitive(uploadEntity.obligationRowVersion))
+                }
+				uploadEntity.obligationCyclesJson?.takeIf { it.isNotBlank() }?.let { raw ->
+					runCatching { syncJson.decodeFromString<JsonElement>(raw) }
+						.onFailure { failureReporter.recordException(it, "proof obligation cycles metadata decode failed") }
+						.getOrNull()
+						?.let { put("obligation_cycles", it) }
+				}
+                uploadEntity.capturedByPrincipalId?.takeIf { it.isNotBlank() }
+                    ?.let { put("captured_by_principal_id", JsonPrimitive(it)) }
+            },
+        )
 
     private suspend fun prepareFinalArtifact(entity: ProofCaptureEntity): ProofCaptureEntity {
         if (entity.processingAttempted) {
@@ -1966,13 +1994,11 @@ class DefaultProofCaptureRepository(
         gallerySaveLocks.getOrPut(entity.id) { Mutex() }.withLock {
             val current = dao.findById(entity.id) ?: entity
             if (!current.gallerySavedUri.isNullOrBlank()) return
-            if (dao.countStateEvents(current.id, gallerySaveCompletedStage) > 0) {
-                dao.markGallerySaved(current.id, current.localUri, clock())
-                return
-            }
             check(
                 current.processingState == ProofProcessingState.PROCESSED.name ||
                     current.processingState == ProofProcessingState.PROCESSING_FAILED_ORIGINAL_UPLOAD_QUEUED.name ||
+                    !current.processedUri.isNullOrBlank() ||
+                    current.uploadOriginal ||
                     (
                         allowProcessingFailedOriginal &&
                             current.processingState == ProofProcessingState.PROCESSING_FAILED_AWAITING_RETRY.name
@@ -1983,8 +2009,10 @@ class DefaultProofCaptureRepository(
             val startedAtMs = clock()
             telemetry.track(proofGallerySaveStartedEvent, proofAnalyticsProps(current))
             try {
-                galleryProofSaver.saveProofCopy(current.localUri, request, current.idempotencyKey)
-                dao.markGallerySaved(current.id, current.localUri, clock())
+                val galleryUri = galleryProofSaver.saveProofCopy(current.localUri, request, current.idempotencyKey)
+                    ?: return
+                check(galleryUri.startsWith("content://")) { "Gallery saver returned a non-MediaStore URI" }
+                dao.markGallerySaved(current.id, galleryUri, clock())
                 recordProofEvent(
                     current,
                     gallerySaveCompletedStage,
@@ -1998,12 +2026,12 @@ class DefaultProofCaptureRepository(
                 val errorClass = error::class.java.simpleName.ifBlank { "Throwable" }
                 recordProofEvent(
                     current,
-                    "gallery_save_failed_upload_continues",
+                    "gallery_save_failed_retry_pending",
                     current.processingState,
                     current.stateAttempt,
                     durationMs = clock() - startedAtMs,
                     errorClass = errorClass,
-                    retryable = false,
+                    retryable = true,
                 )
                 telemetry.track(proofGallerySaveFailedEvent, proofAnalyticsProps(current) + ("error_class" to errorClass))
             }

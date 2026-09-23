@@ -41,6 +41,7 @@ data class VaccinationExecutionRowDto(
     @SerialName("acceptedCount") val acceptedCount: Int? = null,
     @SerialName("reviewCount") val reviewCount: Int? = null,
     @SerialName("driveId") val driveId: String? = null,
+    @SerialName("assignmentId") val assignmentId: String? = null,
     @SerialName("driveName") val driveName: String? = null,
     @SerialName("vaccineLabels") val vaccineLabels: List<String> = emptyList(),
     @SerialName("dueDate") val dueDate: String? = null,
@@ -93,6 +94,7 @@ data class VaccineGroupSummaryDto(
 data class ShedCardSummaryDto(
     @SerialName("shedId") val shedId: String = "",
     @SerialName("partitionLabel") val partitionLabel: String? = null,
+    @SerialName("assignmentId") val assignmentId: String? = null,
     @SerialName("taskId") val taskId: String? = null,
     @SerialName("batchId") val batchId: String? = null,
     @SerialName("driveId") val driveId: String? = null,

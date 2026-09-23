@@ -128,8 +128,17 @@ class AnalyticsContractTest {
                 "actor_id" to "operator-1",
                 AnalyticsEvents.UserProps.ROLE to "operator",
                 "proof_id" to "proof-1",
+                "local_proof_id" to "local-proof-1",
+                AnalyticsEvents.Params.OUTBOX_ITEM_ID to "outbox-1",
                 "task_id" to "task-1",
                 "field_key" to "feed_packing_video",
+                "obligation_id" to "obligation-1",
+                AnalyticsEvents.Params.ATTEMPT to "2",
+                AnalyticsEvents.Params.PROOF_STAGE to "upload",
+                "exception_class" to "IOException",
+                "local_file_available" to "true",
+                "trace_id" to "trace-1",
+                "server_proof_id" to "server-proof-1",
                 "rfid_tag" to "RFID-123",
                 AnalyticsEvents.Params.RFID to "RFID-123",
                 AnalyticsEvents.Params.OUTCOME to "uploaded",
@@ -167,19 +176,28 @@ class AnalyticsContractTest {
         assertTrue(params.size <= FIREBASE_MAX_EVENT_PARAMS)
         assertEquals("proof-1", params["proof_id"])
         assertEquals("feed_packing_video", params["field_key"])
-        assertEquals("RFID-123", params["rfid_tag"])
+        assertEquals("local-proof-1", params["local_proof_id"])
+        assertEquals("outbox-1", params[AnalyticsEvents.Params.OUTBOX_ITEM_ID])
+        assertEquals("obligation-1", params["obligation_id"])
+        assertEquals("2", params[AnalyticsEvents.Params.ATTEMPT])
+        assertEquals("upload", params[AnalyticsEvents.Params.PROOF_STAGE])
+        assertEquals("IOException", params["exception_class"])
+        assertEquals("true", params["local_file_available"])
+        assertEquals("false", params[AnalyticsEvents.Params.UPLOAD_ORIGINAL])
+        assertEquals("trace-1", params["trace_id"])
+        assertEquals("server-proof-1", params["server_proof_id"])
         assertEquals("uploaded", params[AnalyticsEvents.Params.OUTCOME])
         assertEquals("ready", params[AnalyticsEvents.Params.REASON])
         assertEquals("feed_packing", params["feature_surface"])
         assertEquals("processed", params["processing_state"])
         assertEquals("synced", params["proof_upload_status"])
-        assertEquals("retrying", params["submit_status"])
+        assertNull(params["submit_status"])
         // Dropped-from-Firebase diagnostics: still not backfilled from arbitrary props.
         assertNull("Params.RFID is a duplicate of rfid_tag; dropped to stay within the 25-cap", params[AnalyticsEvents.Params.RFID])
         assertNull(params["capture_source"])
         assertNull(params["mime_type"])
         assertNull(params["processing_attempt"])
-        assertNull(params["upload_original"])
+        assertNull(params["rfid_tag"])
         assertNull(params["location_status"])
         assertNull(params["geocoder_status"])
         assertNull(params["original_size_bucket"])
@@ -229,13 +247,13 @@ class AnalyticsContractTest {
 
         assertTrue(params.size <= FIREBASE_MAX_EVENT_PARAMS)
         assertEquals("success_slots", params[AnalyticsEvents.Params.RESULT])
-        assertEquals("weight_feed", params[AnalyticsEvents.Params.SLOT_MASK])
+        assertNull(params[AnalyticsEvents.Params.SLOT_MASK])
         assertEquals("2", params[AnalyticsEvents.Params.RETRY_COUNT])
         assertEquals("sync_tap", params[AnalyticsEvents.Params.SOURCE])
-        assertEquals("local_present", params[AnalyticsEvents.Params.LOCAL_SLOT_STATE])
+        assertNull(params[AnalyticsEvents.Params.LOCAL_SLOT_STATE])
         assertEquals("Vaccination stock", params[AnalyticsEvents.Params.KIND])
-        assertEquals("editable", params[AnalyticsEvents.Params.PREVIOUS])
-        assertEquals("readonly", params[AnalyticsEvents.Params.NEXT])
+        assertNull(params[AnalyticsEvents.Params.PREVIOUS])
+        assertNull(params[AnalyticsEvents.Params.NEXT])
         assertEquals("pending_verification", params[AnalyticsEvents.Params.STATUS])
         assertEquals("processed_video_track_truncated", params["failure_kind"])
         assertNull("dropped to fit the 25-cap; full value still reaches the backend mirror", params[AnalyticsEvents.Params.FEED_VIDEO_SOURCE])

@@ -5,6 +5,8 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import sg.mesha.goatos.feature.sheds.ShedRow
+import sg.mesha.goatos.feature.sheds.ShedStatus
 import java.nio.file.Path
 import kotlin.io.path.readText
 
@@ -12,13 +14,14 @@ class ExecutionRouteIdentityTest {
     @Test
     fun `scan and submit routes preserve selected execution identity`() {
         val routes = listOf(
-            Routes.scanRoute("shed A", "drive-a", "batch-a", "task-a", "sop-a", 7, "Gandhi 1 - Part 3", "Part 3"),
-            Routes.submitRoute("shed A", "drive-a", "batch-a", "task-a", "sop-a", 7, "Gandhi 1 - Part 3", "Part 3"),
+            Routes.scanRoute("shed A", "drive-a", "assignment-a", "batch-a", "task-a", "sop-a", 7, "Gandhi 1 - Part 3", "Part 3"),
+            Routes.submitRoute("shed A", "drive-a", "assignment-a", "batch-a", "task-a", "sop-a", 7, "Gandhi 1 - Part 3", "Part 3"),
         )
 
         routes.forEach { route ->
             assertTrue(route.contains("shedId=shed%20A"))
             assertTrue(route.contains("driveId=drive-a"))
+            assertTrue(route.contains("assignmentId=assignment-a"))
             assertTrue(route.contains("batchId=batch-a"))
             assertTrue(route.contains("taskId=task-a"))
             assertTrue(route.contains("sopVersionId=sop-a"))
@@ -42,6 +45,27 @@ class ExecutionRouteIdentityTest {
         val route = Routes.scanRoute("shed-a")
         assertFalse(route.contains("taskId="))
         assertFalse(route.contains("taskRowVersion="))
+    }
+
+    @Test
+    fun `mixed batch assignment card tap carries assignment scope`() {
+        val row = executableRow(taskId = "task-from-old-batch")
+
+        val route = shedExecutionRoute(row, Routes.VACCINATION)
+
+        assertTrue(route.startsWith(Routes.SCAN))
+        assertTrue(route.contains("assignmentId=assignment-current"))
+        assertTrue(route.contains("taskId=task-from-old-batch"))
+        assertTrue(route.contains("batchId=batch-old"))
+    }
+
+    @Test
+    fun `open assignment without task fails closed to record`() {
+        val route = shedExecutionRoute(executableRow(taskId = null), Routes.VACCINATION)
+
+        assertTrue(route.startsWith(Routes.RECORD))
+        assertFalse(route.contains("assignmentId=assignment-current"))
+        assertFalse(route.startsWith(Routes.SCAN))
     }
 
     @Test
@@ -73,4 +97,23 @@ class ExecutionRouteIdentityTest {
         assertTrue(vaccinationRoute.contains("shedExecutionRoute(selected, Routes.VACCINATION)"))
         assertFalse(vaccinationRoute.contains("Leadership"))
     }
+
+    private fun executableRow(taskId: String?) = ShedRow(
+        id = "shed:shed-a|partition:3",
+        name = "Yashoda 3",
+        animalStage = "kid",
+        status = ShedStatus.PENDING,
+        statusLabel = "In progress",
+        vaccineGroups = emptyList(),
+        inShed = "2",
+        due = "2",
+        done = "0",
+        progressLabel = "0%",
+        progressFraction = 0f,
+        shedId = "shed-a",
+        assignmentId = "assignment-current",
+        batchId = "batch-old",
+        taskId = taskId,
+        partitionLabel = "Part 3",
+    )
 }

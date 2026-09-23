@@ -37,11 +37,12 @@ data class QueuedAnalyticsEvent(
  *   stretch loses its OLDEST unsent critical events rather than growing this file unbounded.
  * - [drain] is guarded by a process-local mutex across read/send/remove. Concurrent track() calls
  *   cannot read and send the same persisted entries before either removes them.
- * - No backoff/scheduling of its own: [BackendAnalyticsAdapter.track] calls [drain] opportunistically
- *   on every subsequent track() call (see its kdoc) since any live network attempt is itself
- *   evidence connectivity may be back. This deliberately avoids a second background trigger
- *   (WorkManager job / ConnectivityManager callback) that would need wiring into
- *   `di/AnalyticsModule.kt` or `GoatOsApplication.kt` -- both out of scope for this fix.
+ * - Scheduling stays shared with the existing sync architecture: [BackendAnalyticsAdapter.track]
+ *   drains opportunistically, the connectivity callback drains on reconnect, and `SyncWorker`
+ *   drains from the existing WorkManager pass after process death. This queue owns no timer.
+ * - Persisted properties are bounded before writing: at most [MAX_PROPERTIES] keys and
+ *   [MAX_PROPERTY_VALUE_LENGTH] characters per value. This keeps exception text and identifiers
+ *   useful for correlation without allowing arbitrary analytics payloads to grow the file.
  * - [QueuedAnalyticsEvent.clientEventId] is carried as a normal `client_event_id` request
  *   property (see [BackendAnalyticsAdapter]) so the backend CAN dedupe a resend that races a
  *   local "did it actually persist that removal" crash, if `/app/analytics/events` chooses to;
@@ -71,7 +72,7 @@ class DurableAnalyticsQueue(
         val file = queueFile ?: return
         withContext(ioDispatcher) { lock.withLock {
             runCatching {
-                val entries = readAllLocked(file) + event
+                val entries = readAllLocked(file) + event.boundedForPersistence()
                 val bounded = if (entries.size > maxEntries) entries.takeLast(maxEntries) else entries
                 writeAllLocked(file, bounded)
             }.onFailure { Log.w(TAG, "DurableAnalyticsQueue enqueue failed", it) }
@@ -177,9 +178,28 @@ class DurableAnalyticsQueue(
         }
     }
 
+    private fun QueuedAnalyticsEvent.boundedForPersistence(): QueuedAnalyticsEvent = copy(
+        clientEventId = clientEventId.take(MAX_ID_LENGTH),
+        eventName = eventName.take(MAX_EVENT_NAME_LENGTH),
+        properties = properties.entries
+            .asSequence()
+            .filter { (key, _) -> key.matches(PROPERTY_KEY_PATTERN) }
+            .take(MAX_PROPERTIES)
+            .associate { (key, value) -> key to value.take(MAX_PROPERTY_VALUE_LENGTH) },
+        flavor = flavor.take(MAX_FLAVOR_LENGTH),
+        appVersionName = appVersionName.take(MAX_VERSION_LENGTH),
+    )
+
     private companion object {
         const val TAG = "GoatAnalyticsQueue"
         const val QUEUE_FILE_NAME = "durable_analytics_queue.json"
         const val MAX_QUEUE_ENTRIES = 500
+        const val MAX_PROPERTIES = 64
+        const val MAX_PROPERTY_VALUE_LENGTH = 160
+        const val MAX_ID_LENGTH = 64
+        const val MAX_EVENT_NAME_LENGTH = 80
+        const val MAX_FLAVOR_LENGTH = 32
+        const val MAX_VERSION_LENGTH = 48
+        val PROPERTY_KEY_PATTERN = Regex("^[a-z][a-z0-9_]{0,63}$")
     }
 }

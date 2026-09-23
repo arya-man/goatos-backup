@@ -584,6 +584,7 @@ func rowFromProjection(p domain.ExecutionProjection, q domain.ExecutionQuery) do
 		// operator/CEO/PC-director screens drifted further out of sync with the queue on every
 		// rejection.
 		ReviewCount:          p.CompletionRecorded,
+		AssignmentID:         p.AssignmentID,
 		DriveID:              p.BatchID,
 		DriveName:            driveName(p),
 		VaccineLabels:        vaccineLabels(p),
@@ -805,6 +806,16 @@ func owner(p domain.ExecutionProjection) *domain.Owner {
 }
 
 func driveName(p domain.ExecutionProjection) *string {
+	labels := vaccineLabels(p)
+	if len(labels) > 0 {
+		name := labels[0]
+		if len(labels) == 2 {
+			name = labels[0] + ", " + labels[1]
+		} else if len(labels) > 2 {
+			name = fmt.Sprintf("%s, %s +%d more", labels[0], labels[1], len(labels)-2)
+		}
+		return &name
+	}
 	name := domain.VaccinationDoseDisplayLabel(p.ProtocolName, p.DoseCode)
 	if name == "" {
 		return nil
@@ -816,7 +827,10 @@ func vaccineLabels(p domain.ExecutionProjection) []string {
 	seen := make(map[string]struct{}, len(p.VaccineLabels)+1)
 	labels := make([]string, 0, len(p.VaccineLabels)+1)
 	for _, code := range p.VaccineLabels {
-		label := domain.VaccinationDoseDisplayLabel(p.ProtocolName, code)
+		// VaccineLabels is the canonical vaccine identity projected by SQL. ProtocolName is
+		// retained only for the legacy dose fallback below; prefixing it here leaks internal
+		// protocol titles such as "Per Animal Proof Vaccination QA · BT" onto operator cards.
+		label := domain.VaccinationDoseDisplayLabel("", code)
 		if label == "" {
 			continue
 		}
@@ -825,11 +839,6 @@ func vaccineLabels(p domain.ExecutionProjection) []string {
 		}
 		seen[label] = struct{}{}
 		labels = append(labels, label)
-	}
-	if len(labels) == 0 {
-		if label := driveName(p); label != nil {
-			labels = append(labels, *label)
-		}
 	}
 	return labels
 }

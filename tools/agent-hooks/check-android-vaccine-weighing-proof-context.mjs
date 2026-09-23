@@ -64,7 +64,7 @@ function selfTest() {
     feedPacking: 'ProofCaptureContext(\nfeature = "Feed packing"\nparkLabel = parkLabel.ifBlank { parkId }',
     feedTransport: 'ProofCaptureContext(title=feedTransportProofCaption()\nproofOverlayContextLine("Feed transport",parkLabel,shedLabel.ifBlank{shedId})',
     feedComplete: 'ProofCaptureContext(\nfeature = "Feed direction"',
-    seed: "'Godel 1',   'Part 1', '',    2\n'Yashoda 1', 'Part 1', 'Y1-', 6\n'Castro 1',  'Part 1', 'C1-', 3\nr.sequence = 2 AND d.shed_seq IN (2, 6)\nTHEN ARRAY['91000000-0000-4000-8000-000000000503','91000000-0000-4000-8000-000000000504']::uuid[]",
+    seed: "'Godel 1',   'Part 1', '',    2\n'Yashoda 1', 'Part 1', 'Y1-', 6\n'Castro 1',  'Part 1', 'C1-', 3\nr.sequence = 2 AND d.shed_seq IN (2, 6)\nELSE ARRAY['91000000-0000-4000-8000-000000000503','91000000-0000-4000-8000-000000000504']::uuid[]",
   });
   const ok = bad.length >= 10 && good.length === 0;
   console.log(ok ? "android-vaccine-weighing-proof-context self-test: ok" : "android-vaccine-weighing-proof-context self-test: FAIL");
@@ -123,7 +123,7 @@ function collectFindings({ scan, sheds, weighing, feedPacking = "", feedTranspor
     expect(seed, SEED, "'Yashoda 1', 'Part 1', 'Y1-', 6", "phone QA seed must include a partitioned over-five shed for proof-cap E2E"),
     expect(seed, SEED, "'Castro 1',  'Part 1', 'C1-', 3", "phone QA seed must include partitioned 3-animal sheds"),
     expect(seed, SEED, "r.sequence = 2 AND d.shed_seq IN (2, 6)", "phone QA seed must include selected two-vaccine sheds"),
-    expect(seed, SEED, "THEN ARRAY['91000000-0000-4000-8000-000000000503','91000000-0000-4000-8000-000000000504']::uuid[]", "two-vaccine assignment must advertise both vaccine rules"),
+    expect(seed, SEED, "ELSE ARRAY['91000000-0000-4000-8000-000000000503','91000000-0000-4000-8000-000000000504']::uuid[]", "two-vaccine assignment must advertise both vaccine rules"),
   ].filter(Boolean);
 }
 

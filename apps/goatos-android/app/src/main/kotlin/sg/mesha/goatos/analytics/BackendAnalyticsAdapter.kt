@@ -34,13 +34,9 @@ import javax.inject.Provider
  * P2 backend-analytics-durability fix (2026-08-15): the small, hand-picked
  * [CRITICAL_EVENT_ALLOWLIST] subset -- the forensic events actually used to debug offline/failure
  * incidents -- IS now durable. Those events are handed to [appScope], written to [queue], then
- * delivered from that queue (a minimal, capped, file-backed queue -- see [DurableAnalyticsQueue]'s
- * kdoc for what it does and does NOT do) and retried opportunistically the next time [track] runs on ANY event
- * (see [drainQueuedEvents]). This is intentionally not full parity with the app's existing
- * Room-backed write outbox: no WorkManager-scheduled background drain, no exponential backoff,
- * and only NETWORK-ACTIVITY-triggered draining rather than a dedicated connectivity callback --
- * both would need new DI wiring into `di/AnalyticsModule.kt` / `GoatOsApplication.kt`, which is
- * out of scope for this fix. Non-critical events remain exactly as fire-and-forget as before.
+ * delivered from that queue (a minimal, bounded, file-backed queue -- see [DurableAnalyticsQueue])
+ * and retried by the next [track], the existing connectivity callback, and the existing
+ * WorkManager [sg.mesha.goatos.sync.SyncWorker] pass. Non-critical events remain fire-and-forget.
  *
  * Every request carries a [CLIENT_EVENT_ID_PARAM] property -- a fresh, per-call
  * [UUID.randomUUID] -- carried BOTH as a property and as the first-class

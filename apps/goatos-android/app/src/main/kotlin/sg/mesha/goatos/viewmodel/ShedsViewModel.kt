@@ -410,14 +410,16 @@ class ShedsViewModel @Inject constructor(
         // UI card with one LazyColumn key.
         // Prefer backend-computed card summaries (page-independent) over row-level folds.
         val cardSummaries = cardSummaries
-        val shedRows = rowsForSelectedDay.groupBy { it.executionCardId() }.map { (cardId, group) ->
+        val shedRows = rowsForSelectedDay.groupBy { it.operatorDayCardId() }.map { (cardId, group) ->
             val first = group.first()
+            val execution = group.firstOrNull { !it.sopTaskId.isNullOrBlank() } ?: first
             val scheduleDate = group.mapNotNull { it.currentScheduleDate?.let(::parseExecutionDate) }.minOrNull()
 
             // Prefer backend-computed card summary (page-independent, covers all rows for the card).
             // Fall back to row-level computation for older API responses without cardSummaries.
+            val backendCardIds = group.map { it.backendExecutionCardId() }.distinct()
             val cardSummary = cardSummaries?.get(cardId)
-                ?: cardSummaries?.get(first.backendExecutionCardId())
+                ?: backendCardIds.singleOrNull()?.let { backendCardId -> cardSummaries?.get(backendCardId) }
             val status: ShedStatus
             val statusLabel: String
             val statusChips: List<ShedStatusChip>
@@ -509,11 +511,14 @@ class ShedsViewModel @Inject constructor(
                     needsRedo = group.any { it.needsRedo() },
                 ),
                 shedId = first.shedId,
-                driveId = first.driveId,
-                batchId = first.batchId,
-                taskId = first.sopTaskId,
-                sopVersionId = first.sopVersionId,
-                taskRowVersion = first.sopTaskRowVersion,
+                driveId = execution.driveId,
+                assignmentId = group.mapNotNull { it.assignmentId?.takeIf(String::isNotBlank) }
+                    .distinct()
+                    .singleOrNull(),
+                batchId = execution.batchId,
+                taskId = execution.sopTaskId,
+                sopVersionId = execution.sopVersionId,
+                taskRowVersion = execution.sopTaskRowVersion,
                 opensRecordOnly = group.opensSubmittedRecordOnly(),
                 canOpen = scheduleDate == null || !scheduleDate.isAfter(workWindow.today),
             )
@@ -809,6 +814,19 @@ internal fun VaccinationExecutionRowDto.executionCardId(): String =
         driveId = driveId,
         partitionLabel = partitionLabel ?: partition,
     )
+
+/**
+ * Operator work is one card per business-day operational location. A date override may combine
+ * obligations that originated in different batches/tasks; those identities remain execution
+ * metadata and must not split the visible shed card.
+ */
+internal fun VaccinationExecutionRowDto.operatorDayCardId(): String = buildString {
+    append("shed:")
+    append(shedId)
+    append("|partition:")
+    append(executionPartitionKey(partitionLabel ?: partition))
+    assignmentId?.takeIf(String::isNotBlank)?.let { append("|assignment:").append(it) }
+}
 
 private fun VaccinationExecutionRowDto.backendExecutionCardId(): String =
     buildString {

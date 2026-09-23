@@ -201,6 +201,7 @@ data class ShedRow(
     val actionLabel: String? = null,
     val shedId: String = id,
     val driveId: String? = null,
+    val assignmentId: String? = null,
     val batchId: String? = null,
     val taskId: String? = null,
     val sopVersionId: String? = null,
