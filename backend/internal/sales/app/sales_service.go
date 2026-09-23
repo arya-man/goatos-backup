@@ -3,6 +3,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
@@ -68,15 +69,51 @@ func (s *SalesService) ListDeals(ctx context.Context, tenantID string, q DealLis
 // buyer name of "   " must fail the required check, not pass it because it was non-empty before
 // trimming. The idempotency key is mandatory -- a sale is money, and a retried submit must never
 // record it twice.
+//
+// The registry of what the farm sells (migration 000393) is read here so the desk gets a FIELD
+// error naming the line it got wrong. The repository re-resolves it under the writing
+// transaction, which is where a product archived in between is caught; this read is for the
+// message, never for the guarantee.
 func (s *SalesService) CreateDeal(ctx context.Context, tenantID string, write domain.DealWrite, actorID, idempotencyKey string) (domain.Deal, error) {
 	if strings.TrimSpace(idempotencyKey) == "" {
 		return domain.Deal{}, ErrSalesIdempotencyKeyRequired
 	}
-	normalized := write.Normalize()
-	if err := normalized.Validate(); err != nil {
+	catalog, err := s.productCatalog(ctx, tenantID)
+	if err != nil {
+		return domain.Deal{}, err
+	}
+	normalized := write.Normalize(catalog)
+	if err := normalized.Validate(catalog); err != nil {
 		return domain.Deal{}, err
 	}
 	return s.repo.CreateDeal(ctx, tenantID, normalized, actorID, strings.TrimSpace(idempotencyKey))
+}
+
+// ErrNothingSellable is returned when a tenant's registry carries no active product. A sale is
+// refused rather than recorded against a guess: an empty registry means nobody has said what this
+// farm sells, and defaulting to 'Sheep' on its behalf is how a constant grows back.
+var ErrNothingSellable = errors.New("sales: this farm has no products set up to sell")
+
+// productCatalog reads the tenant's active registry.
+func (s *SalesService) productCatalog(ctx context.Context, tenantID string) (domain.ProductCatalog, error) {
+	rows, err := s.repo.ListSellableProducts(ctx, tenantID)
+	if err != nil {
+		return domain.ProductCatalog{}, err
+	}
+	catalog := domain.NewProductCatalog(rows)
+	if catalog.IsEmpty() {
+		return domain.ProductCatalog{}, ErrNothingSellable
+	}
+	return catalog, nil
+}
+
+// SellableProducts serves the tenant's registry to the forms that offer it.
+func (s *SalesService) SellableProducts(ctx context.Context, tenantID string) ([]domain.Product, error) {
+	rows, err := s.repo.ListSellableProducts(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	return domain.NewProductCatalog(rows).Products(), nil
 }
 
 // SetDealStatus sets a deal's lifecycle status -- the edit that closes an expected sale on the

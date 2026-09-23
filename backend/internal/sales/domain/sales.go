@@ -79,14 +79,10 @@ func StatusTone(status string) string {
 // IsFarm reports whether raw is one of the two farms, exactly as stored.
 func IsFarm(raw string) bool { return raw == FarmCBE || raw == FarmCPT }
 
-// IsProductType reports whether raw is a sellable product type, exactly as stored.
-func IsProductType(raw string) bool {
-	return raw == ProductSheep || raw == ProductGoat || raw == ProductManure
-}
-
-// IsLiveProduct reports whether the product type is a live animal (counts toward animals and
-// live weight) rather than manure.
-func IsLiveProduct(raw string) bool { return raw == ProductSheep || raw == ProductGoat }
+// IsProductType and IsLiveProduct are deliberately GONE (migration 000393). What the farm sells
+// is a tenant registry, so "is this a product" is ProductCatalog.Lookup and "is this alive" is the
+// line's own stamped kind -- DealLine.IsLive. A package-level predicate over three constants is
+// exactly what made a fourth product a deploy, and it must not grow back.
 
 // IsStatus reports whether raw is a recognised deal status, exactly as stored.
 func IsStatus(raw string) bool {
@@ -242,7 +238,7 @@ func (d Deal) Animals() float64 {
 		}
 		return total
 	}
-	if !IsLiveProduct(d.ProductType) {
+	if BuiltinKind(d.ProductType) != KindAnimal {
 		return 0
 	}
 	if d.AnimalCount != nil {
@@ -325,7 +321,14 @@ func (e ErrDealValidation) Error() string {
 
 // Normalize collapses whitespace on the short text fields and trims the prose ones. It does NOT
 // validate; call Validate after, so the rules apply to the values that will actually be stored.
-func (w DealWrite) Normalize() DealWrite {
+// Normalize trims the body and resolves every line's product against the tenant's ACTIVE registry
+// (migration 000393), stamping each line with the code, kind and unit it is being sold under.
+//
+// The catalog is a PARAMETER rather than something this package reads, for the reason the vendor
+// register is: the domain owns the rules, never a table. The caller hands it the farm's answer to
+// "what do we sell", and the same answer is re-resolved inside the writing transaction so a
+// product archived between the form opening and the save landing cannot slip through.
+func (w DealWrite) Normalize(cat ProductCatalog) DealWrite {
 	out := w
 	collapse := func(v string) string { return strings.Join(strings.Fields(v), " ") }
 	out.SaleDate = strings.TrimSpace(w.SaleDate)
@@ -334,11 +337,14 @@ func (w DealWrite) Normalize() DealWrite {
 	out.Breed = collapse(w.Breed)
 	if len(w.Lines) == 0 {
 		out.Lines = out.linesFromLegacy()
+		for i := range out.Lines {
+			out.Lines[i] = out.Lines[i].normalize(cat)
+		}
 		out.legacyLines = true
 	} else {
 		out.Lines = make([]DealLineWrite, 0, len(w.Lines))
 		for _, l := range w.Lines {
-			out.Lines = append(out.Lines, l.normalize())
+			out.Lines = append(out.Lines, l.normalize(cat))
 		}
 	}
 	// The deal row is the rollup of its lines, never a figure of its own. Applied only when there
@@ -369,10 +375,10 @@ func (w DealWrite) Normalize() DealWrite {
 
 // Validate enforces the enums, required fields and bounds, returning the FIRST failure.
 //
-// The enums are validate-or-reject, never silently defaulted: a farm or product type the CHECK
-// constraint would refuse must fail here with a field-specific message, not be rewritten to a
-// value the caller never entered.
-func (w DealWrite) Validate() error {
+// The enums are validate-or-reject, never silently defaulted: a farm the CHECK constraint would
+// refuse, or a product the farm's registry does not carry, must fail here with a field-specific
+// message, not be rewritten to a value the caller never entered.
+func (w DealWrite) Validate(cat ProductCatalog) error {
 	if w.SaleDate == "" {
 		return ErrDealValidation{Field: "sale_date", Reason: "required"}
 	}
@@ -393,7 +399,7 @@ func (w DealWrite) Validate() error {
 		if w.legacyLines {
 			lineNo = 0
 		}
-		if err := l.validate(lineNo); err != nil {
+		if err := l.validate(lineNo, cat); err != nil {
 			return err
 		}
 	}
@@ -538,8 +544,15 @@ type Summary struct {
 	RealizedPricePerKg float64
 	ManureKg           float64
 	ManureRevenue      float64
-	PeriodFrom         string
-	PeriodTo           string
+	// Feed sold off the store, and anything else the farm sells that is neither alive nor feed
+	// (migration 000393). With LiveRevenue and ManureRevenue these are DISJOINT and sum to
+	// Revenue; FeedKg is kilograms of feed, which is a quantity sold and not a live weight.
+	FeedKg       float64
+	FeedRevenue  float64
+	OtherKg      float64
+	OtherRevenue float64
+	PeriodFrom   string
+	PeriodTo     string
 }
 
 // MonthlyRow is one month with at least one closed deal.
@@ -551,6 +564,10 @@ type MonthlyRow struct {
 	SheepCount    float64
 	GoatCount     float64
 	ManureKg      float64
+	FeedRevenue   float64
+	FeedKg        float64
+	OtherRevenue  float64
+	OtherKg       float64
 }
 
 // PriceBand is realized price per kg for one (live product type, breed).

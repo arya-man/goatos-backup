@@ -65,32 +65,60 @@ func BuildDealAggregates(closed []Deal) (Summary, []MonthlyRow, []PriceBand, []B
 			lineAnimals := l.Animals()
 			animals += lineAnimals
 
-			switch l.ProductType {
-			case ProductSheep:
+			// The outer split is by KIND (migration 000393) -- what the product DOES -- and the
+			// inner one by the built-in CODE, so renaming 'Sheep' on screen moves the card's label
+			// and not its number. The four buckets are DISJOINT and together cover every line, so
+			// LiveRevenue + ManureRevenue + FeedRevenue + OtherRevenue equals Revenue.
+			switch {
+			case l.IsLive():
 				summary.LiveRevenue += l.SalesValue
 				summary.Animals += lineAnimals
-				summary.Sheep += lineAnimals
 				summary.LiveWeightKg += weight
-				month.SheepRevenue += l.SalesValue
-				month.SheepCount += lineAnimals
-			case ProductGoat:
-				summary.LiveRevenue += l.SalesValue
-				summary.Animals += lineAnimals
-				summary.Goats += lineAnimals
-				summary.LiveWeightKg += weight
-				month.GoatRevenue += l.SalesValue
-				month.GoatCount += lineAnimals
-			case ProductManure:
+				// A live product the farm added itself counts in Animals and LiveRevenue and in
+				// neither named card: the Sheep card is about sheep. The two cards therefore need
+				// not sum to Animals, which is honest rather than missing -- the alternative is
+				// filing a buffalo under sheep.
+				switch l.Code() {
+				case ProductCodeSheep:
+					summary.Sheep += lineAnimals
+					month.SheepRevenue += l.SalesValue
+					month.SheepCount += lineAnimals
+				case ProductCodeGoat:
+					summary.Goats += lineAnimals
+					month.GoatRevenue += l.SalesValue
+					month.GoatCount += lineAnimals
+				}
+			case l.Kind() == KindFeed:
+				// Feed sells by the kilogram off the store, so its kilograms are the line's
+				// QUANTITY -- never TotalWeightKg, which is weight on the hoof and has no meaning
+				// for a sack of maize.
+				summary.FeedRevenue += l.SalesValue
+				summary.FeedKg += l.QuantityKg()
+				month.FeedRevenue += l.SalesValue
+				month.FeedKg += l.QuantityKg()
+			case l.Code() == ProductCodeManure:
 				// Manure contributes weight and revenue, never animal counts.
 				summary.ManureRevenue += l.SalesValue
 				summary.ManureKg += weight
 				month.ManureRevenue += l.SalesValue
 				month.ManureKg += weight
+			default:
+				// Anything else the farm sells that is neither alive nor feed. Its kilograms are
+				// whichever it recorded: a quantity when it was priced by the unit, its weight
+				// otherwise.
+				kg := l.QuantityKg()
+				if kg == 0 {
+					kg = weight
+				}
+				summary.OtherRevenue += l.SalesValue
+				summary.OtherKg += kg
+				month.OtherRevenue += l.SalesValue
+				month.OtherKg += kg
 			}
 
 			// Price bands: live types only, and only lines where a price per kg is actually
 			// computable.
-			if IsLiveProduct(l.ProductType) && weight > 0 && l.SalesValue > 0 {
+			if l.IsLive() && weight > 0 && l.SalesValue > 0 {
 				liveWeightForPrice += weight
 				liveRevenueForPrice += l.SalesValue
 				key := bandKey{l.ProductType, l.Breed}

@@ -81,7 +81,7 @@ func TestSalesDealLinesPostgresPaths(t *testing.T) {
 	})
 
 	t.Run("exact replay returns the same deal with its lines; a changed line is refused", func(t *testing.T) {
-		replay, err := repo.CreateDeal(ctx, salesTestTenant, write.Normalize(), "", "key-mixed")
+		replay, err := repo.CreateDeal(ctx, salesTestTenant, write.Normalize(builtinCatalog()), "", "key-mixed")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -92,7 +92,7 @@ func TestSalesDealLinesPostgresPaths(t *testing.T) {
 		mutated := write
 		mutated.Lines = append([]domain.DealLineWrite(nil), write.Lines...)
 		mutated.Lines[1].SalesValue = 56001
-		if _, err := repo.CreateDeal(ctx, salesTestTenant, mutated.Normalize(), "", "key-mixed"); !errors.Is(err, ports.ErrIdempotencyConflict) {
+		if _, err := repo.CreateDeal(ctx, salesTestTenant, mutated.Normalize(builtinCatalog()), "", "key-mixed"); !errors.Is(err, ports.ErrIdempotencyConflict) {
 			t.Fatalf("same key, changed line: got %v, want ErrIdempotencyConflict", err)
 		}
 	})
