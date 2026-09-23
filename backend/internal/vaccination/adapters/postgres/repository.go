@@ -1752,10 +1752,11 @@ JOIN obligation_instances oi
 	      JOIN vaccination_drive_assignments assignment
         ON assignment.tenant_id = member.tenant_id
        AND assignment.assignment_id = member.assignment_id
-      WHERE member.tenant_id = si.tenant_id
-	        AND member.goat_id = si.goat_id
-	        AND member.obligation_id = oi.obligation_id
-	        AND assignment.batch_id = ob.batch_id
+		      WHERE member.tenant_id = si.tenant_id
+		        AND member.goat_id = si.goat_id
+		        AND member.obligation_id = oi.obligation_id
+		        AND member.canceled_at IS NULL
+		        AND assignment.batch_id = ob.batch_id
 	        AND assignment.shed_id = NULLIF(substring(ss.idempotency_key FROM ':scope:([0-9a-fA-F-]{36})'), '')::uuid
 	        AND (
 	          nullif(btrim(ss.partition_label), '') IS NULL
@@ -1825,6 +1826,13 @@ WHERE vc.tenant_id = $1
 	if materializedItems > 0 {
 		return materializedItems, nil
 	}
+	activeItems, err := r.submissionActiveCompletionCount(ctx, tenant, task, submission)
+	if err != nil {
+		return 0, err
+	}
+	if activeItems > 0 {
+		return activeItems, nil
+	}
 	return count, nil
 }
 
@@ -1854,6 +1862,17 @@ WITH proof AS (
          NULLIF(p.metadata ->> 'obligation_id', '')::uuid AS proof_obligation_id,
          NULLIF(p.metadata ->> 'obligation_row_version', '')::integer AS proof_obligation_row_version,
          p.metadata -> 'obligation_cycles' AS proof_obligation_cycles,
+         COALESCE(
+           CASE
+             WHEN (p.metadata ->> 'captured_start_ms') ~ '^[0-9]+(\.[0-9]+)?$'
+             THEN to_timestamp((p.metadata ->> 'captured_start_ms')::double precision / 1000.0)
+             ELSE NULL
+           END,
+           p.uploaded_at,
+           p.updated_at,
+           p.created_at,
+           now()
+         ) AS proof_captured_at,
          (
            (
              NULLIF(p.metadata ->> 'obligation_id', '') IS NOT NULL
@@ -1923,14 +1942,58 @@ eligible AS (
         (
           tc.proof_obligation_id IS NOT NULL
           AND oi.obligation_id = tc.proof_obligation_id
-          AND oi.row_version = tc.proof_obligation_row_version
+          AND (
+            oi.row_version = tc.proof_obligation_row_version
+            OR (
+              oi.row_version >= tc.proof_obligation_row_version
+              AND EXISTS (
+                SELECT 1
+                FROM sop_task_scan_captures scan
+                WHERE scan.tenant_id = oi.tenant_id
+                  AND scan.task_id = tc.task_id
+                  AND scan.goat_id = tc.goat_id
+                  AND scan.obligation_id = oi.obligation_id
+                  AND scan.captured_at >= tc.proof_captured_at - INTERVAL '10 minutes'
+              )
+              AND NOT EXISTS (
+                SELECT 1
+                FROM obligation_status_events event
+                WHERE event.tenant_id = oi.tenant_id
+                  AND event.obligation_id = oi.obligation_id
+                  AND event.occurred_at > tc.proof_captured_at
+                  AND event.event_type IN ('scheduled', 'deferred', 'rescoped', 'canceled', 'waived', 'missed', 'became_due')
+              )
+            )
+          )
         )
         OR EXISTS (
           SELECT 1
           FROM jsonb_array_elements(COALESCE(tc.proof_obligation_cycles, '[]'::jsonb)) cycle
           WHERE NULLIF(cycle ->> 'obligation_id', '')::uuid = oi.obligation_id
             AND (cycle ->> 'obligation_row_version') ~ '^[0-9]+$'
-            AND (cycle ->> 'obligation_row_version')::integer = oi.row_version
+            AND (
+              (cycle ->> 'obligation_row_version')::integer = oi.row_version
+              OR (
+                oi.row_version >= (cycle ->> 'obligation_row_version')::integer
+                AND EXISTS (
+                  SELECT 1
+                  FROM sop_task_scan_captures scan
+                  WHERE scan.tenant_id = oi.tenant_id
+                    AND scan.task_id = tc.task_id
+                    AND scan.goat_id = tc.goat_id
+                    AND scan.obligation_id = oi.obligation_id
+                    AND scan.captured_at >= tc.proof_captured_at - INTERVAL '10 minutes'
+                )
+                AND NOT EXISTS (
+                  SELECT 1
+                  FROM obligation_status_events event
+                  WHERE event.tenant_id = oi.tenant_id
+                    AND event.obligation_id = oi.obligation_id
+                    AND event.occurred_at > tc.proof_captured_at
+                    AND event.event_type IN ('scheduled', 'deferred', 'rescoped', 'canceled', 'waived', 'missed', 'became_due')
+                )
+              )
+            )
         )
         OR NOT tc.has_obligation_cycle_metadata
    )
@@ -2033,14 +2096,58 @@ active AS (
         (
           tc.proof_obligation_id IS NOT NULL
           AND oi.obligation_id = tc.proof_obligation_id
-          AND oi.row_version = tc.proof_obligation_row_version
+          AND (
+            oi.row_version = tc.proof_obligation_row_version
+            OR (
+              oi.row_version >= tc.proof_obligation_row_version
+              AND EXISTS (
+                SELECT 1
+                FROM sop_task_scan_captures scan
+                WHERE scan.tenant_id = oi.tenant_id
+                  AND scan.task_id = tc.task_id
+                  AND scan.goat_id = tc.goat_id
+                  AND scan.obligation_id = oi.obligation_id
+                  AND scan.captured_at >= tc.proof_captured_at - INTERVAL '10 minutes'
+              )
+              AND NOT EXISTS (
+                SELECT 1
+                FROM obligation_status_events event
+                WHERE event.tenant_id = oi.tenant_id
+                  AND event.obligation_id = oi.obligation_id
+                  AND event.occurred_at > tc.proof_captured_at
+                  AND event.event_type IN ('scheduled', 'deferred', 'rescoped', 'canceled', 'waived', 'missed', 'became_due')
+              )
+            )
+          )
         )
         OR EXISTS (
           SELECT 1
           FROM jsonb_array_elements(COALESCE(tc.proof_obligation_cycles, '[]'::jsonb)) cycle
           WHERE NULLIF(cycle ->> 'obligation_id', '')::uuid = oi.obligation_id
             AND (cycle ->> 'obligation_row_version') ~ '^[0-9]+$'
-            AND (cycle ->> 'obligation_row_version')::integer = oi.row_version
+            AND (
+              (cycle ->> 'obligation_row_version')::integer = oi.row_version
+              OR (
+                oi.row_version >= (cycle ->> 'obligation_row_version')::integer
+                AND EXISTS (
+                  SELECT 1
+                  FROM sop_task_scan_captures scan
+                  WHERE scan.tenant_id = oi.tenant_id
+                    AND scan.task_id = tc.task_id
+                    AND scan.goat_id = tc.goat_id
+                    AND scan.obligation_id = oi.obligation_id
+                    AND scan.captured_at >= tc.proof_captured_at - INTERVAL '10 minutes'
+                )
+                AND NOT EXISTS (
+                  SELECT 1
+                  FROM obligation_status_events event
+                  WHERE event.tenant_id = oi.tenant_id
+                    AND event.obligation_id = oi.obligation_id
+                    AND event.occurred_at > tc.proof_captured_at
+                    AND event.event_type IN ('scheduled', 'deferred', 'rescoped', 'canceled', 'waived', 'missed', 'became_due')
+                )
+              )
+            )
         )
         OR NOT tc.has_obligation_cycle_metadata
    )
@@ -2213,9 +2320,10 @@ eligible AS (
   JOIN vaccination_drive_assignments assignment
     ON assignment.tenant_id = $1
    AND assignment.batch_id = b.batch_id
-  JOIN vaccination_drive_assignment_members member
-    ON member.tenant_id = assignment.tenant_id
-   AND member.assignment_id = assignment.assignment_id
+	  JOIN vaccination_drive_assignment_members member
+	    ON member.tenant_id = assignment.tenant_id
+	   AND member.assignment_id = assignment.assignment_id
+	   AND member.canceled_at IS NULL
   JOIN obligation_instances oi
     ON oi.tenant_id = member.tenant_id
    AND oi.batch_id = assignment.batch_id
@@ -2730,13 +2838,53 @@ SELECT vc.completion_id::text,
        -- obligation, so this stays one statement rather than a per-row label resolve.
        COALESCE(pd.name, ''),
        COALESCE(pr.dose_code, '')
-FROM vaccination_completions vc
-JOIN sop_submission_items si
-  ON si.tenant_id = vc.tenant_id
- AND si.item_id = vc.sop_submission_item_id
+FROM sop_submission_items si
 JOIN sop_submissions ss
   ON ss.tenant_id = si.tenant_id
  AND ss.submission_id = si.submission_id
+JOIN vaccination_completions vc
+  ON vc.tenant_id = si.tenant_id
+ AND vc.goat_id = si.goat_id
+ AND vc.status IN ('recorded', 'accepted')
+ AND (
+      vc.sop_submission_item_id = si.item_id
+      OR EXISTS (
+        SELECT 1
+        FROM obligation_instances oi_scope
+        LEFT JOIN obligation_batches ob_scope
+          ON ob_scope.tenant_id = oi_scope.tenant_id
+         AND ob_scope.batch_id = oi_scope.batch_id
+        WHERE oi_scope.tenant_id = vc.tenant_id
+          AND oi_scope.obligation_id = vc.obligation_id
+          AND oi_scope.target_type = 'goat'
+          AND oi_scope.target_id = si.goat_id
+	          AND (
+	               oi_scope.sop_task_id = si.task_id
+	               OR ob_scope.sop_task_id = si.task_id
+	          )
+	          AND (
+	               ob_scope.batch_id IS NULL
+	               OR EXISTS (
+	                 SELECT 1
+	                 FROM vaccination_drive_assignment_members member_scope
+	                 JOIN vaccination_drive_assignments assignment_scope
+	                   ON assignment_scope.tenant_id = member_scope.tenant_id
+	                  AND assignment_scope.assignment_id = member_scope.assignment_id
+	                 WHERE member_scope.tenant_id = si.tenant_id
+	                   AND member_scope.goat_id = si.goat_id
+	                   AND member_scope.obligation_id = oi_scope.obligation_id
+	                   AND member_scope.canceled_at IS NULL
+	                   AND assignment_scope.batch_id = ob_scope.batch_id
+	                   AND assignment_scope.shed_id = NULLIF(substring(ss.idempotency_key FROM ':scope:([0-9a-fA-F-]{36})'), '')::uuid
+	                   AND (
+	                     nullif(btrim(ss.partition_label), '') IS NULL
+	                     OR regexp_replace(lower(btrim(assignment_scope.partition_label)), '^part[[:space:]]+', '')
+	                      = regexp_replace(lower(btrim(ss.partition_label)), '^part[[:space:]]+', '')
+	                   )
+	               )
+	          )
+	      )
+	 )
 JOIN goats g
   ON g.tenant_id = vc.tenant_id
  AND g.goat_id = vc.goat_id
@@ -2771,6 +2919,8 @@ LEFT JOIN LATERAL (
 ) proofs ON true
 WHERE vc.tenant_id = $1
   AND si.submission_id = $2
+  AND si.goat_id IS NOT NULL
+  AND si.state IN ('accepted', 'needs_review')
 ORDER BY vc.goat_id, vc.completion_id
 LIMIT 5000`, tenant, submission)
 	if err != nil {
@@ -2934,10 +3084,11 @@ func (r *Repository) submissionFanoutCounts(ctx context.Context, tenant, task, s
 	        JOIN vaccination_drive_assignments assignment
 	          ON assignment.tenant_id = member.tenant_id
 	         AND assignment.assignment_id = member.assignment_id
-	        WHERE member.tenant_id = si.tenant_id
-		          AND member.goat_id = si.goat_id
-		          AND member.obligation_id = oi.obligation_id
-		          AND assignment.batch_id = ob.batch_id
+		        WHERE member.tenant_id = si.tenant_id
+			          AND member.goat_id = si.goat_id
+			          AND member.obligation_id = oi.obligation_id
+			          AND member.canceled_at IS NULL
+			          AND assignment.batch_id = ob.batch_id
 		          AND assignment.shed_id = NULLIF(substring(ss.idempotency_key FROM ':scope:([0-9a-fA-F-]{36})'), '')::uuid
 		          AND (
 		            nullif(btrim(ss.partition_label), '') IS NULL
@@ -2964,6 +3115,80 @@ func (r *Repository) submissionFanoutCounts(ctx context.Context, tenant, task, s
 		return 0, 0, fmt.Errorf("vaccination: count submission fanout rows: %w", err)
 	}
 	return eligibleItems, materializedItems, nil
+}
+
+func (r *Repository) submissionActiveCompletionCount(ctx context.Context, tenant, task, submission pgtype.UUID) (int, error) {
+	var count int
+	err := r.pool.QueryRow(ctx, `
+WITH submitted AS (
+  SELECT si.tenant_id, si.goat_id, ss.partition_label, ss.idempotency_key, st.task_id, sd.code AS sop_code, st.task_type, ob.batch_id
+  FROM sop_submission_items si
+  JOIN sop_submissions ss
+    ON ss.tenant_id = si.tenant_id
+   AND ss.submission_id = si.submission_id
+  JOIN sop_tasks st
+    ON st.tenant_id = si.tenant_id
+   AND st.task_id = si.task_id
+  JOIN sop_definitions sd
+    ON sd.tenant_id = st.tenant_id
+   AND sd.sop_id = st.sop_id
+  LEFT JOIN obligation_batches ob
+    ON ob.tenant_id = st.tenant_id
+   AND ob.sop_task_id = st.task_id
+  WHERE si.tenant_id = $1
+    AND si.task_id = $2
+    AND si.submission_id = $3
+    AND si.goat_id IS NOT NULL
+    AND si.state IN ('accepted', 'needs_review')
+    AND (
+      sd.code IN ('vaccination.drive', 'vaccination.session')
+      OR st.task_type IN ('vaccination', 'vaccination_drive', 'vaccination_session')
+    )
+),
+satisfied AS (
+  SELECT DISTINCT vc.completion_id
+  FROM submitted s
+  JOIN obligation_instances oi
+    ON oi.tenant_id = s.tenant_id
+   AND oi.target_type = 'goat'
+   AND oi.target_id = s.goat_id
+   AND (
+        oi.sop_task_id = s.task_id
+        OR (s.batch_id IS NOT NULL AND oi.batch_id = s.batch_id)
+   )
+   AND oi.status NOT IN ('waived', 'canceled', 'superseded')
+  JOIN vaccination_completions vc
+    ON vc.tenant_id = oi.tenant_id
+   AND vc.obligation_id = oi.obligation_id
+   AND vc.goat_id = s.goat_id
+   AND vc.status IN ('recorded', 'accepted')
+  WHERE (
+    s.batch_id IS NULL
+    OR EXISTS (
+      SELECT 1
+      FROM vaccination_drive_assignment_members member
+      JOIN vaccination_drive_assignments assignment
+        ON assignment.tenant_id = member.tenant_id
+       AND assignment.assignment_id = member.assignment_id
+      WHERE member.tenant_id = s.tenant_id
+        AND member.goat_id = s.goat_id
+        AND member.obligation_id = oi.obligation_id
+        AND member.canceled_at IS NULL
+        AND assignment.batch_id = s.batch_id
+        AND assignment.shed_id = NULLIF(substring(s.idempotency_key FROM ':scope:([0-9a-fA-F-]{36})'), '')::uuid
+        AND (
+          nullif(btrim(s.partition_label), '') IS NULL
+          OR regexp_replace(lower(btrim(assignment.partition_label)), '^part[[:space:]]+', '')
+           = regexp_replace(lower(btrim(s.partition_label)), '^part[[:space:]]+', '')
+        )
+    )
+  )
+)
+SELECT count(*)::int FROM satisfied`, tenant, task, submission).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("vaccination: count existing active submission completions: %w", err)
+	}
+	return count, nil
 }
 
 // ListRecordedCompletions returns completions awaiting review (status='recorded'), earliest

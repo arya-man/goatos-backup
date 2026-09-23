@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	proofdomain "github.com/vgoats/goatos/backend/internal/proof/domain"
 	protodomain "github.com/vgoats/goatos/backend/internal/protocol/domain"
 	"github.com/vgoats/goatos/backend/internal/vaccination/domain"
 )
@@ -281,6 +282,44 @@ func TestApplyGoatVerificationAcceptsMatchingCompletionBeforeProjection(t *testi
 	}
 }
 
+func TestCompletedProofObserverTreatsAlreadyCompletedCloseErrorAsReplay(t *testing.T) {
+	ctx := context.Background()
+	repo := newCompletionRepoFake()
+	repo.completedProofCompletions = []domain.SubmissionCompletion{{
+		CompletionID:   "completion-1",
+		ObligationID:   "obligation-1",
+		GoatID:         "goat-1",
+		AdministeredAt: time.Date(2026, time.September, 24, 8, 0, 0, 0, time.UTC),
+	}}
+	obl := newObligationCompleterFake()
+	obl.completed["obligation-1"] = true
+	obl.completeErrors = map[string]error{
+		"obligation-1": errors.New("obligation: completed idempotency key already reserved"),
+	}
+	svc := NewService(repo).WithProofCompletionObligationCompleter(obl)
+	proofID := "proof-1"
+	goatID := "goat-1"
+
+	err := svc.OnProofCompleted(ctx, proofdomain.Artifact{
+		TenantID:    "tenant-1",
+		ProofID:     proofID,
+		ScopeType:   "task",
+		ScopeID:     "task-1",
+		SubjectType: "goat",
+		SubjectID:   &goatID,
+		ProofType:   "video",
+		UploadState: "completed",
+		Metadata:    map[string]any{"field_key": "vaccination_goat_proof"},
+	})
+
+	if err != nil {
+		t.Fatalf("OnProofCompleted() error = %v, want already-completed close replay swallowed", err)
+	}
+	if repo.completedProofID != proofID {
+		t.Fatalf("completed proof id = %q, want %q", repo.completedProofID, proofID)
+	}
+}
+
 type completionRepoFake struct {
 	byID           map[string]*completionRowFake
 	byKey          map[string]string
@@ -293,9 +332,11 @@ type completionRepoFake struct {
 	dailyCap    int64
 	goatScanned bool // set true if any live goat-count method is ever called (impact must not scan goats)
 	// stage-review re-verify doubles (VACC-REV-10).
-	srGoat          domain.EligibleGoat
-	srGoatLoadFound bool
-	submissionItems []domain.SubmissionCompletion
+	srGoat                    domain.EligibleGoat
+	srGoatLoadFound           bool
+	submissionItems           []domain.SubmissionCompletion
+	completedProofID          string
+	completedProofCompletions []domain.SubmissionCompletion
 }
 
 type completionRowFake struct {
@@ -390,6 +431,10 @@ func (r *completionRepoFake) ListRecordedCompletionsByTask(context.Context, stri
 func (r *completionRepoFake) RecordCompletionsFromSubmission(context.Context, string, string, string, string) (int, error) {
 	return 0, nil
 }
+func (r *completionRepoFake) RecordCompletionsFromCompletedProof(_ context.Context, _, proofID string) ([]domain.SubmissionCompletion, error) {
+	r.completedProofID = proofID
+	return r.completedProofCompletions, nil
+}
 func (r *completionRepoFake) ListSubmissionCompletions(context.Context, string, string) ([]domain.SubmissionCompletion, error) {
 	return r.submissionItems, nil
 }
@@ -453,8 +498,9 @@ func (r *completionRepoFake) ShedCompletionSummary(_ context.Context, _ string, 
 }
 
 type obligationCompleterFake struct {
-	completed     map[string]bool
-	blockComplete map[string]bool
+	completed      map[string]bool
+	blockComplete  map[string]bool
+	completeErrors map[string]error
 }
 
 func newObligationCompleterFake() *obligationCompleterFake {
@@ -462,6 +508,9 @@ func newObligationCompleterFake() *obligationCompleterFake {
 }
 
 func (o *obligationCompleterFake) MarkCompleted(_ context.Context, _, obligationID string) (bool, error) {
+	if err := o.completeErrors[obligationID]; err != nil {
+		return false, err
+	}
 	if o.blockComplete[obligationID] {
 		return false, nil
 	}

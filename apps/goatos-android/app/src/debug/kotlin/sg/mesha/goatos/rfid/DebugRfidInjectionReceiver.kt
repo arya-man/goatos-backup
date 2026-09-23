@@ -37,14 +37,20 @@ class DebugRfidInjectionReceiver : BroadcastReceiver() {
         val reader = EntryPointAccessors
             .fromApplication(context.applicationContext, DebugRfidEntryPoint::class.java)
             .rfidReaderPort()
-        val keyMap = KeyCharacterMap.load(KeyCharacterMap.VIRTUAL_KEYBOARD)
-        val tagEvents = keyMap.getEvents(tag.toCharArray()).orEmpty()
-        var consumed = tagEvents.isNotEmpty()
-        tagEvents.forEach { event -> consumed = reader.onKeyEvent(event) && consumed }
+        var consumed = true
+        val injector = reader as? DebugRfidReadInjector
+        if (injector != null) {
+            consumed = injector.injectCompletedReadForE2E(tag)
+        } else {
+            val keyMap = KeyCharacterMap.load(KeyCharacterMap.VIRTUAL_KEYBOARD)
+            val tagEvents = keyMap.getEvents(tag.toCharArray()).orEmpty()
+            consumed = tagEvents.isNotEmpty()
+            tagEvents.forEach { event -> consumed = reader.onKeyEvent(event) && consumed }
 
-        val now = SystemClock.uptimeMillis()
-        consumed = reader.onKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER, 0)) && consumed
-        consumed = reader.onKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER, 0)) && consumed
+            val now = SystemClock.uptimeMillis()
+            consumed = reader.onKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER, 0)) && consumed
+            consumed = reader.onKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER, 0)) && consumed
+        }
 
         resultCode = if (consumed) RESULT_INJECTED else RESULT_CAPTURE_INACTIVE
         Log.i(TAG, "RFID E2E injection completed: chars=${tag.length} consumed=$consumed")

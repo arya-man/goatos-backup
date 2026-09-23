@@ -180,10 +180,14 @@ interface ScanRosterRowDao {
 
     /** Exact lookup over the canonical tag persisted at refresh time.
      *  ORDER BY: PENDING obligations first (outstanding status), then others.
-     *  This ensures sibling rows (same goat, different obligations) favor the due/open obligation. */
+     *  This ensures sibling rows (same goat, different obligations) favor the due/open obligation.
+     *  A physical/raw tag that matches multiple distinct goats in the same active scan scope must
+     *  fail closed; otherwise one duplicate tag can silently attach a proof to the wrong animal. */
     @Query(
         "SELECT * FROM scan_roster_row WHERE scopeKey = :scopeKey AND " +
             "(normalizedPrimaryTag = :normalizedTag OR normalizedSecondaryTag = :normalizedTag) " +
+            "AND (SELECT COUNT(DISTINCT goatId) FROM scan_roster_row WHERE scopeKey = :scopeKey AND " +
+            "(normalizedPrimaryTag = :normalizedTag OR normalizedSecondaryTag = :normalizedTag)) = 1 " +
             "ORDER BY CASE WHEN status IN ('pending', 'due') THEN 0 ELSE 1 END, rowId ASC " +
             "LIMIT 1"
     )

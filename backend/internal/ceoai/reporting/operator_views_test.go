@@ -233,3 +233,37 @@ func TestOperatorStatusPartitionGrain(t *testing.T) {
 		}
 	}
 }
+
+func TestOperatorStatusLegacyFallbackDoesNotMultiplyVaccineLanes(t *testing.T) {
+	ctx := context.Background()
+	pool, tenant := newDB(t, ctx)
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO vaccination_capacity_config (tenant_id, max_per_day, capacity_scope, max_buffer_days, overflow_policy)
+		 VALUES ($1, 200, 'tenant', 7, 'split_within_safe_window_last_safe_may_exceed_cap')`, tenant); err != nil {
+		t.Fatalf("insert capacity config: %v", err)
+	}
+	pk := park(t, ctx, pool, tenant, "Channapatna")
+	shedID := shed(t, ctx, pool, tenant, pk, "Yashoda", nil)
+	ver := protocolVersion(t, ctx, pool, tenant)
+	op := operatorMember(t, ctx, pool, tenant, "Amit Kumar")
+
+	planned := "2026-09-24"
+	// Legacy/no-member rows cannot identify per-obligation animals. They must therefore stay at
+	// animal grain for the visible lane instead of summing one assignment per vaccine lane.
+	for _, status := range []string{"planned", "planned", "planned"} {
+		batchID := batch(t, ctx, pool, tenant, ver, shedID, planned, status)
+		assignment(t, ctx, pool, tenant, batchID, op, pk, shedID, "Yashoda", "3", planned, 2)
+	}
+
+	var assigned, due, done, dayAssigned int64
+	if err := pool.QueryRow(ctx,
+		`SELECT assigned_animals, due, done, operator_day_assigned
+		 FROM ceo_ai.vaccination_operator_status
+		 WHERE tenant_id=$1 AND operator_id=$2 AND shed_id=$3 AND partition_label='3'`,
+		tenant, op, shedID).Scan(&assigned, &due, &done, &dayAssigned); err != nil {
+		t.Fatalf("query operator status: %v", err)
+	}
+	if assigned != 2 || due != 2 || done != 0 || dayAssigned != 2 {
+		t.Fatalf("legacy no-member vaccine lanes assigned=%d due=%d done=%d day=%d, want 2/2/0/2", assigned, due, done, dayAssigned)
+	}
+}

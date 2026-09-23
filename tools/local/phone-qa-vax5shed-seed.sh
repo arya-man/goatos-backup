@@ -790,6 +790,47 @@ BEGIN
   IF n <> 27 THEN
     RAISE EXCEPTION 'phone-qa-vax5shed expected 27 assignment members, found %', n;
   END IF;
+
+  WITH expected_lane(shed_id, animals, vaccines, obligations, vaccine_labels) AS (
+    VALUES
+      ('91000000-0000-4000-8000-000000000201'::uuid, 2, 1, 2, 'ET+TT'),
+      ('91000000-0000-4000-8000-000000000203'::uuid, 3, 2, 6, 'FMD+PPR'),
+      ('9c000000-0000-4000-8000-000000000301'::uuid, 2, 2, 4, 'FMD+PPR'),
+      ('9c000000-0000-4000-8000-000000000302'::uuid, 3, 3, 9, 'FMD+HS+PPR'),
+      ('91000000-0000-4000-8000-000000000202'::uuid, 2, 3, 6, 'FMD+HS+PPR')
+  ),
+  actual_lane AS (
+    SELECT e.shed_id,
+           count(DISTINCT oi.target_id)::int AS animals,
+           count(DISTINCT oi.rule_id)::int AS vaccines,
+           count(oi.obligation_id)::int AS obligations,
+           string_agg(DISTINCT COALESCE(v.vaccine_code, pr.dose_code), '+' ORDER BY COALESCE(v.vaccine_code, pr.dose_code)) AS vaccine_labels
+    FROM expected_lane e
+    JOIN obligation_instances oi
+      ON oi.tenant_id = '${tenant_id}'::uuid
+     AND oi.batch_id = '91000000-0000-4000-8000-000000000701'
+     AND oi.scope_id = e.shed_id
+     AND oi.status = 'due'
+    JOIN protocol_rules pr
+      ON pr.tenant_id = oi.tenant_id
+     AND pr.rule_id = oi.rule_id
+    LEFT JOIN protocol_rule_dimensions v
+      ON v.tenant_id = pr.tenant_id
+     AND v.protocol_version_id = pr.protocol_version_id
+     AND v.dose_code = pr.dose_code
+    GROUP BY e.shed_id
+  )
+  SELECT count(*) INTO n
+  FROM expected_lane e
+  LEFT JOIN actual_lane a ON a.shed_id = e.shed_id
+  WHERE a.shed_id IS NULL
+     OR a.animals <> e.animals
+     OR a.vaccines <> e.vaccines
+     OR a.obligations <> e.obligations
+     OR a.vaccine_labels <> e.vaccine_labels;
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'phone-qa-vax5shed 1/2/3-vaccine lane matrix drifted; bad lanes=%', n;
+  END IF;
 END
 \$\$;
 

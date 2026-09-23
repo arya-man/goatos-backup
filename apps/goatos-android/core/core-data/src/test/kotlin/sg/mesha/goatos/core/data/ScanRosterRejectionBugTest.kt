@@ -211,6 +211,117 @@ class ScanRosterRejectionBugTest {
     }
 
     @Test
+    fun `tag lookup fails closed when one normalized tag matches multiple goats`() = runTest {
+        val dao = database.scanRosterRowDao()
+        val scopeKey = "gandhi-part-2|vaccination"
+
+        dao.upsertAll(
+            listOf(
+                ScanRosterRowEntity(
+                    id = "$scopeKey#goat-1#et-tt",
+                    scopeKey = scopeKey,
+                    shedId = "gandhi-part-2",
+                    taskId = "vaccination",
+                    goatId = "goat-1",
+                    primaryTag = "901007000504418",
+                    secondaryTag = null,
+                    normalizedPrimaryTag = "901007000504418",
+                    normalizedSecondaryTag = null,
+                    vaccineLabel = "ET+TT",
+                    status = "pending",
+                    scannedAtMs = null,
+                    obligationId = "obl-goat-1-et-tt",
+                    seq = 0L,
+                    updatedAt = 1000L,
+                ),
+                ScanRosterRowEntity(
+                    id = "$scopeKey#goat-2#et-tt",
+                    scopeKey = scopeKey,
+                    shedId = "gandhi-part-2",
+                    taskId = "vaccination",
+                    goatId = "goat-2",
+                    primaryTag = "901007000504418",
+                    secondaryTag = null,
+                    normalizedPrimaryTag = "901007000504418",
+                    normalizedSecondaryTag = null,
+                    vaccineLabel = "ET+TT",
+                    status = "pending",
+                    scannedAtMs = null,
+                    obligationId = "obl-goat-2-et-tt",
+                    seq = 1L,
+                    updatedAt = 1000L,
+                ),
+            ),
+        )
+
+        assertEquals(null, dao.findByTag(scopeKey, "901007000504418"))
+    }
+
+    @Test
+    fun `tag lookup still resolves same goat with multiple vaccine rows`() = runTest {
+        val dao = database.scanRosterRowDao()
+        val scopeKey = "gandhi-part-3|vaccination"
+
+        dao.upsertAll(
+            listOf(
+                ScanRosterRowEntity(
+                    id = "$scopeKey#goat-1#et-tt",
+                    scopeKey = scopeKey,
+                    shedId = "gandhi-part-3",
+                    taskId = "vaccination",
+                    goatId = "goat-1",
+                    primaryTag = "G1-901007000504418",
+                    secondaryTag = null,
+                    normalizedPrimaryTag = "g1901007000504418",
+                    normalizedSecondaryTag = null,
+                    vaccineLabel = "ET+TT",
+                    status = "completed",
+                    scannedAtMs = 1000L,
+                    obligationId = "obl-goat-1-et-tt",
+                    seq = 0L,
+                    updatedAt = 1000L,
+                ),
+                ScanRosterRowEntity(
+                    id = "$scopeKey#goat-1#ppr",
+                    scopeKey = scopeKey,
+                    shedId = "gandhi-part-3",
+                    taskId = "vaccination",
+                    goatId = "goat-1",
+                    primaryTag = "G1-901007000504418",
+                    secondaryTag = null,
+                    normalizedPrimaryTag = "g1901007000504418",
+                    normalizedSecondaryTag = null,
+                    vaccineLabel = "PPR",
+                    status = "pending",
+                    scannedAtMs = null,
+                    obligationId = "obl-goat-1-ppr",
+                    seq = 1L,
+                    updatedAt = 1000L,
+                ),
+                ScanRosterRowEntity(
+                    id = "$scopeKey#goat-1#hs",
+                    scopeKey = scopeKey,
+                    shedId = "gandhi-part-3",
+                    taskId = "vaccination",
+                    goatId = "goat-1",
+                    primaryTag = "G1-901007000504418",
+                    secondaryTag = null,
+                    normalizedPrimaryTag = "g1901007000504418",
+                    normalizedSecondaryTag = null,
+                    vaccineLabel = "HS",
+                    status = "pending",
+                    scannedAtMs = null,
+                    obligationId = "obl-goat-1-hs",
+                    seq = 2L,
+                    updatedAt = 1000L,
+                ),
+            ),
+        )
+
+        assertEquals("obl-goat-1-ppr", dao.findByTag(scopeKey, "g1901007000504418")?.obligationId)
+    }
+
+    @Test
     fun `in progress sibling vaccine keeps the animal open and out of done ids`() = runTest {
         val dao = database.scanRosterRowDao()
         val scopeKey = "castro-1|vaccination"

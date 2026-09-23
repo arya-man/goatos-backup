@@ -386,6 +386,27 @@ func TestRecordCompletionsFromCompletedProofClosesComboObligationsIdempotently(t
 		impTenant, goatID, obA, obB); got != 2 {
 		t.Fatalf("recorded completion rows = %d, want 2", got)
 	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO sop_task_scan_captures (
+		  tenant_id, task_id, goat_id, obligation_id, captured_by, captured_at, idempotency_key
+		) VALUES
+		  ($1, $2, $3, $4, $6, TIMESTAMPTZ '2026-09-22 08:00:10+00', 'proof-replay-scan-a'),
+		  ($1, $2, $3, $5, $6, TIMESTAMPTZ '2026-09-22 08:00:10+00', 'proof-replay-scan-b')
+		ON CONFLICT DO NOTHING`, impTenant, taskID, goatID, obA, obB, impParty); err != nil {
+		t.Fatalf("seed scan captures before proof replay: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		UPDATE obligation_instances
+		   SET status='completed', row_version=row_version+1, updated_at=TIMESTAMPTZ '2026-09-22 08:00:20+00'
+		 WHERE tenant_id=$1 AND obligation_id IN ($2,$3);
+		INSERT INTO obligation_status_events (
+		  tenant_id, obligation_id, event_type, from_status, to_status, occurred_at, actor_id, reason
+		) VALUES
+		  ($1, $2, 'completed', 'scheduled', 'completed', TIMESTAMPTZ '2026-09-22 08:00:20+00', $4, 'proof replay regression'),
+		  ($1, $3, 'completed', 'scheduled', 'completed', TIMESTAMPTZ '2026-09-22 08:00:20+00', $4, 'proof replay regression')`,
+		impTenant, obA, obB, impParty); err != nil {
+		t.Fatalf("mark obligations completed before replay: %v", err)
+	}
 	replay, err := vacc.RecordCompletionsFromCompletedProof(ctx, impTenant, proofID)
 	if err != nil {
 		t.Fatalf("RecordCompletionsFromCompletedProof() replay error = %v", err)
