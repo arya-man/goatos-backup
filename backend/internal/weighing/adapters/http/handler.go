@@ -242,8 +242,12 @@ func (h *Handler) GetShedWeights(w http.ResponseWriter, r *http.Request) {
 		h.respond(w, r, domain.ShedWeights{}, ports.ErrInvalidArgument)
 		return
 	}
+	ctx := r.Context()
+	if r.URL.Query().Get("include_loads") == "false" {
+		ctx = domain.WithShedWeightsOptions(ctx, domain.ShedWeightsOptions{IncludeLoads: false})
+	}
 	result, err := h.service.GetShedWeights(
-		r.Context(),
+		ctx,
 		actor(r),
 		r.URL.Query().Get("park_id"),
 		r.URL.Query().Get("from"),
