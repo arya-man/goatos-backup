@@ -65,6 +65,17 @@ const PLACE_NAMES = new Map([
   [".lt-page .lt-fbar", "the task filter bar"],
 ]);
 
+/**
+ * The panel's own heading is the best name a person could have for it — it is the word
+ * printed on the thing they tapped. It still goes through the jargon guard, because a
+ * heading could be anything, and falls back to a phrase rather than to a class name.
+ */
+function panelName(label) {
+  const clean = String(label ?? "").replace(/\s+/g, " ").trim();
+  if (!clean || clean.length > 32 || engineeringLeaks(clean).length) return "a panel that opens over the page";
+  return `the ${clean.toLowerCase()} panel`;
+}
+
 function placeName(selector) {
   return PLACE_NAMES.get(String(selector ?? "").trim()) ?? "a bar that stays on screen while the page scrolls";
 }
@@ -90,6 +101,33 @@ export function issueRules() {
 export function toFindingsFromReceipt(receipt) {
   if (!receipt || typeof receipt !== "object") return [];
   const findings = [];
+
+  // The clearest finding this lane has, and the one Ravi actually filmed: a panel the
+  // browser says is solid, showing the page behind it. It needs no repetition and no
+  // judgement call — an opaque element can never legitimately be see-through.
+  for (const run of receipt.temporal?.runs ?? []) {
+    for (const panel of run.overlay?.findings ?? []) {
+      const where = panelName(panel.label);
+      const evidence = panel.evidence ?? {};
+      findings.push({
+        kind: "seen",
+        what: `On ${plainEnglish(run.pageName, "one of the screens")}, ${where} goes see-through for a moment when you change a filter on the phone — the list behind it shows straight through and the words sit on top of each other, then it snaps back.`,
+        moving: [evidence.gif, evidence.filmstrip].filter((file) => file && existsSync(file)),
+        stills: (evidence.frames ?? []).filter((file) => file && existsSync(file)).slice(0, 4),
+        note: plainEnglish(evidence.note, ""),
+      });
+    }
+    // An overlay the check could not judge is said out loud rather than counted clean.
+    for (const skipped of run.overlay?.unjudged ?? []) {
+      findings.push({
+        kind: "parked",
+        what: `${panelName(skipped.label)} could not be checked this time, so nothing is known about it.`,
+        moving: [],
+        stills: [],
+        note: "",
+      });
+    }
+  }
 
   // The symptom: a page that was filmed and flickered. This is what a person saw.
   for (const run of receipt.temporal?.runs ?? []) {
@@ -252,6 +290,24 @@ export function selfTest() {
 
   // The map from the stylesheet's name to a place a person knows.
   assert(placeName(".lt-page .lt-fbar") === "the task filter bar", "must name the filter bar in plain English");
+  assert(panelName("Filters") === "the filters panel", "a panel is named by the word printed on it");
+  assert(panelName(".lt-fgroup") === "a panel that opens over the page", "never a selector, even from the page");
+  assert(panelName("") === "a panel that opens over the page", "an unnamed panel still reads as English");
+
+  // The finding Ravi filmed, end to end, from a receipt shaped as the runner writes it.
+  const seeThrough = toFindingsFromReceipt({
+    staticCheck: { onPhone: [] },
+    temporal: { runs: [{
+      pageName: "The Tasks page",
+      result: { flicker: false },
+      overlay: { findings: [{ label: "Filters", events: [{ seconds: 0.2 }], evidence: { gif: "/no/such.gif" } }] },
+    }] },
+  });
+  assert(seeThrough.length === 1, "a panel that showed through is a finding on its own");
+  const said = readable(renderSection(seeThrough), summaryText(seeThrough), headline(seeThrough));
+  assert(engineeringLeaks(said).length === 0, `leaked ${engineeringLeaks(said).join(", ")}: ${said.slice(0, 200)}`);
+  assert(said.includes("filters panel") && said.includes("see-through") && said.includes("phone"),
+    `the sentence must name the panel, what happens and the device: ${said.slice(0, 200)}`);
   assert(!placeName(".something-new").startsWith("."), "an unmapped element must never render as a selector");
 
   // End to end on a receipt shaped exactly like the runner writes.

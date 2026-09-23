@@ -48,6 +48,7 @@ export const PHONE = Object.freeze({
 // not all 146 routes.
 export const FILMED_ROUTES = Object.freeze([
   { name: "tasks", path: "/tasks?scope_mode=company", pageName: "The Tasks page" },
+  { name: "tasks-list", path: "/tasks?scope_mode=company&t_view=list", pageName: "The Tasks list" },
   { name: "herd-register", path: "/herd/register", pageName: "The herd register" },
   { name: "vaccination-plan", path: "/vaccination/plan", pageName: "The vaccination plan" },
 ]);
@@ -176,6 +177,10 @@ async function runLive({ baseUrl, bearerToken, outDir, routes }) {
 export function buildReceipt({ statik, temporal, headless }) {
   const runs = temporal?.runs ?? [];
   const flickering = runs.filter((r) => r.result?.flicker);
+  // A solid panel that showed the page through it is a defect on its own evidence:
+  // the browser said the element is opaque, so one flash is already wrong. It does not
+  // need the repetition the whole-screen shimmer detector insists on.
+  const showedThrough = runs.filter((r) => (r.overlay?.findings ?? []).length);
   // A run that never opened the page it was aimed at is parked with its reason, never
   // counted as a clean page. A lane that quietly checks nothing is the worst outcome
   // available: it goes green exactly when it is blind.
@@ -190,6 +195,7 @@ export function buildReceipt({ statik, temporal, headless }) {
     // Check B: the symptom.
     temporal: temporal ?? null,
     filmed: filmed.length,
+    overlaysShowedThrough: showedThrough.length,
     parked: parked.map((r) => ({ route: r.route, why: r.parked ?? r.error })),
     // Said out loud in the receipt so nobody reads a green temporal result as proof
     // the screen is fine on a real phone. This is a GPU compositing artefact, and a
@@ -197,7 +203,7 @@ export function buildReceipt({ statik, temporal, headless }) {
     headlessCaveat: headless
       ? "Check B ran in headless Chromium on a laptop. Headless composites differently from a phone GPU, so a clean run here is not proof a real phone is clean. Check A is the one that holds on this evidence."
       : "",
-    status: statik?.ok && flickering.length === 0 ? "pass" : "fail",
+    status: statik?.ok && flickering.length === 0 && showedThrough.length === 0 ? "pass" : "fail",
   };
 }
 
@@ -262,6 +268,16 @@ export function selfTest() {
     headless: true,
   });
   assert(blind.filmed === 0, "a parked run is not a filmed page");
+
+  // A solid panel that showed through fails the receipt on its own, with no help from
+  // the whole-screen detector — that is the point of having a second check.
+  const seeThrough = buildReceipt({
+    statik: { ok: true },
+    temporal: { runs: [{ route: "tasks", result: { flicker: false }, overlay: { findings: [{ label: "Filters", events: [{ seconds: 0.2 }] }] } }] },
+    headless: true,
+  });
+  assert(seeThrough.status === "fail", "a panel that showed the page through it must fail the receipt");
+  assert(seeThrough.overlaysShowedThrough === 1, "and be counted");
   assert(blind.parked.length === 2 && blind.parked.every((row) => row.why), "every parked run must carry a reason");
 
   console.log("dashboard mobile flicker: self-test passed");
