@@ -185,6 +185,8 @@ internal fun HealthDiagnosisProposalResponseDto.toProposalState(): DiagnosisProp
             lowCompetition = proposal.housing.lowCompetition,
         ),
         notes = proposal.hints,
+        accepted = proposal.valid,
+        rejectReason = proposal.rejectReason.orEmpty(),
         mayConfirm = mayConfirm,
     )
 }
