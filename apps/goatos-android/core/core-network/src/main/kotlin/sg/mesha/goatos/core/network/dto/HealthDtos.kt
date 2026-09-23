@@ -92,6 +92,14 @@ data class HealthTreatmentStepDto(
     @SerialName("medicine_route") val medicineRoute: String? = null,
     val instruction: String? = null,
     @SerialName("critical_action_type") val criticalActionType: String? = null,
+    /**
+     * The session this step was WRITTEN for, when that is not the visit it landed on.
+     *
+     * An animal seen only in the morning has its afternoon and evening steps rolled onto the
+     * morning card rather than dropped, so three electrolyte doses sit together with the same
+     * opening sentence. This says which dose each one is. Blank on an ordinary step.
+     */
+    @SerialName("authored_session") val authoredSession: String = "",
     val status: String = "",
 )
 

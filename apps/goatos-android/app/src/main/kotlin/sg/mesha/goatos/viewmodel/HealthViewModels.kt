@@ -408,6 +408,7 @@ class HealthDetailViewModel @Inject constructor(
             // before per-step video and keeps the single clip it was built on.
             perStepVideo = detail.steps.any { it.stepId.isNotBlank() },
             isCapturingVideo = videoState.capturing,
+            capturingStepId = videoState.capturingStepId,
             videoMessage = videoState.message,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HealthDetailUiState())
@@ -444,7 +445,7 @@ class HealthDetailViewModel @Inject constructor(
         val detail = latestDetail ?: return
         if (video.value.capturing) return
         if (!replacing && video.value.captured) return
-        video.update { it.copy(capturing = true, message = null) }
+        video.update { it.copy(capturing = true, capturingStepId = stepId, message = null) }
         viewModelScope.launch {
             val captured = try {
                 proofCaptureSource.captureVideo(
@@ -459,7 +460,7 @@ class HealthDetailViewModel @Inject constructor(
                 null
             }
             if (captured == null) {
-                video.update { it.copy(capturing = false) }
+                video.update { it.copy(capturing = false, capturingStepId = "") }
                 return@launch
             }
             // The FIELD KEY carries the step, so each step's clip is its own durable capture row
@@ -492,7 +493,7 @@ class HealthDetailViewModel @Inject constructor(
                 is AppResult.Ok -> {
                     val proofOutboxId = result.value.outboxItemId
                     if (proofOutboxId.isNullOrBlank()) {
-                        video.update { it.copy(capturing = false, captured = it.captured, message = PROOF_FAILED) }
+                        video.update { it.copy(capturing = false, capturingStepId = "", captured = it.captured, message = PROOF_FAILED) }
                         return@launch
                     }
                     drafts.putProof(
@@ -503,10 +504,10 @@ class HealthDetailViewModel @Inject constructor(
                     analytics.track(AnalyticsEvents.HEALTH_TREATMENT_VIDEO_CAPTURED)
                     if (stepId.isBlank()) {
                         observeProofItem(proofOutboxId)
-                        video.update { it.copy(capturing = false, captured = true, message = VIDEO_QUEUED) }
+                        video.update { it.copy(capturing = false, capturingStepId = "", captured = true, message = VIDEO_QUEUED) }
                     } else {
                         registerStepProof(stepId, proofOutboxId)
-                        video.update { it.copy(capturing = false) }
+                        video.update { it.copy(capturing = false, capturingStepId = "") }
                     }
                 }
                 is AppResult.Err -> {
@@ -515,7 +516,7 @@ class HealthDetailViewModel @Inject constructor(
                         AnalyticsEvents.HEALTH_WRITE_FAILURE,
                         mapOf(AnalyticsEvents.Params.KIND to "work_item", AnalyticsEvents.Params.REASON to result.message),
                     )
-                    video.update { it.copy(capturing = false, captured = it.captured, message = PROOF_FAILED) }
+                    video.update { it.copy(capturing = false, capturingStepId = "", captured = it.captured, message = PROOF_FAILED) }
                 }
             }
         }
@@ -739,6 +740,14 @@ class HealthDetailViewModel @Inject constructor(
     private data class HealthVideoState(
         val captured: Boolean = false,
         val capturing: Boolean = false,
+        /**
+         * WHICH step's camera is open. Blank on a pre-step-proof card, whose one control is the
+         * only thing that can be capturing.
+         *
+         * The flag alone is not enough: every step row reads it, so one `capturing = true` made
+         * all seven rows of a card say "Opening camera…" at once.
+         */
+        val capturingStepId: String = "",
         val message: String? = null,
     )
 
@@ -843,8 +852,19 @@ internal fun visiblePendingHealthCases(
 }
 
 private fun HealthTreatmentStepDto.toUi(): HealthStepUi {
-    val title = medicineName ?: when (recordType) {
-        "critical_action" -> "Critical action"
+    // A step ROLLED FORWARD from another session says which one it is. Three electrolyte doses
+    // whose instructions open with the same sentence otherwise read as the same thing written
+    // three times, and the operator cannot tell the morning dose from the evening one.
+    val whenLabel = when (authoredSession.lowercase()) {
+        "morning" -> "Morning dose"
+        "afternoon" -> "Afternoon dose"
+        "evening" -> "Evening dose"
+        "unscheduled" -> "Any time today"
+        else -> ""
+    }
+    val title = medicineName ?: when {
+        recordType == "critical_action" -> "Critical action"
+        whenLabel.isNotBlank() -> whenLabel
         else -> "Care instruction"
     }
     val details = listOfNotNull(

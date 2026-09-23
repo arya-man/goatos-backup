@@ -607,6 +607,11 @@ data class HealthDetailUiState(
     val stepProofs: TreatmentStepProofs = TreatmentStepProofs(),
     val perStepVideo: Boolean = false,
     val isCapturingVideo: Boolean = false,
+    /**
+     * WHICH step's camera is open, so one tap does not put every row into "Opening camera…".
+     * Blank on a pre-step-proof card, whose single control owns the flag on its own.
+     */
+    val capturingStepId: String = "",
     val videoMessage: String? = null,
     val message: String? = null,
 )
@@ -702,7 +707,7 @@ fun HealthDetailScreen(
                             HealthStepVideoRow(
                                 proof = state.stepProofs.of(step.id),
                                 enabled = state.canRecordVideo && !state.isCapturingVideo && !state.submitting,
-                                capturing = state.isCapturingVideo,
+                                capturing = state.capturingStepId == step.id,
                                 onRecord = { onRecordStepVideo(step.id) },
                             )
                         }

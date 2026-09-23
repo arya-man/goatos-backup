@@ -63,6 +63,17 @@ type ProtocolStep struct {
 	Instruction        *string `json:"instruction"`
 	CriticalActionType *string `json:"critical_action_type"`
 	Status             string  `json:"status,omitempty"`
+	// AuthoredSession is the session this step was WRITTEN for, when that is not the visit it
+	// ended up on.
+	//
+	// A course is scheduled onto housing-driven visits: an animal seen only in the morning has
+	// its afternoon, evening and unscheduled steps ROLLED FORWARD onto the morning visit rather
+	// than dropped, because a dropped step is a medicine silently not given (ScheduleCourse).
+	// The consequence on screen is three electrolyte doses whose instructions open with the same
+	// sentence, and an operator reading them as the same thing written three times. This says
+	// which dose each one is. BLANK when the step is on its own session, so an ordinary card
+	// gains no noise.
+	AuthoredSession string `json:"authored_session,omitempty"`
 }
 
 type Protocol struct {

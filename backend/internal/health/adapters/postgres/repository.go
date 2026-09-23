@@ -430,7 +430,14 @@ WHERE hs.tenant_id=$1::uuid AND hs.health_session_id=$2::uuid`, tenantID, sessio
 	if d.Status == "held_death_review" {
 		d.Status = "held"
 	}
-	rows, err := r.pool.Query(ctx, `SELECT health_session_step_id::text,seq,record_type,medicine_name,dosage_text,dosage_denominator,medicine_route,instruction,critical_action_type,status FROM health_session_steps WHERE tenant_id=$1::uuid AND health_session_id=$2::uuid ORDER BY seq`, tenantID, sessionID)
+	// The AUTHORED session rides along so a step rolled forward onto this visit can say which
+	// dose it is. projection-review: membership=this session's own steps; group_key=n/a;
+	// join_cardinality=health_protocol_steps joins 1:1 on its primary key, so the step rows
+	// cannot fan out; pagination=none; scope=the session's own tenant.
+	rows, err := r.pool.Query(ctx, `SELECT ss.health_session_step_id::text,ss.seq,ss.record_type,ss.medicine_name,ss.dosage_text,ss.dosage_denominator,ss.medicine_route,ss.instruction,ss.critical_action_type,ss.status,coalesce(ps.session,'')
+FROM health_session_steps ss
+LEFT JOIN health_protocol_steps ps ON ps.health_protocol_step_id = ss.source_protocol_step_id
+WHERE ss.tenant_id=$1::uuid AND ss.health_session_id=$2::uuid ORDER BY ss.seq`, tenantID, sessionID)
 	if err != nil {
 		return d, err
 	}
@@ -438,11 +445,17 @@ WHERE hs.tenant_id=$1::uuid AND hs.health_session_id=$2::uuid`, tenantID, sessio
 	d.Steps = []domain.ProtocolStep{}
 	for rows.Next() {
 		var s domain.ProtocolStep
-		if err := rows.Scan(&s.StepID, &s.Seq, &s.RecordType, &s.MedicineName, &s.DosageText, &s.DosageDenominator, &s.MedicineRoute, &s.Instruction, &s.CriticalActionType, &s.Status); err != nil {
+		var authored string
+		if err := rows.Scan(&s.StepID, &s.Seq, &s.RecordType, &s.MedicineName, &s.DosageText, &s.DosageDenominator, &s.MedicineRoute, &s.Instruction, &s.CriticalActionType, &s.Status, &authored); err != nil {
 			return d, err
 		}
 		s.DayNo = d.DayNo
 		s.Session = d.Session
+		// Only when it DIFFERS. A step sitting on the visit it was written for needs no label,
+		// and adding one to every row would be noise on the ordinary card.
+		if a := normalizeSession(authored); authored != "" && a != d.Session {
+			s.AuthoredSession = a
+		}
 		d.Steps = append(d.Steps, s)
 		if s.RecordType == "medication" {
 			d.MedicationCount++
