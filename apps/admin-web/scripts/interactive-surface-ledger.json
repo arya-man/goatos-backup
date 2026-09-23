@@ -1,0 +1,3494 @@
+{
+  "note": "Decisions about every edit form, inline editor, row action and modal in admin-web. Statuses: covered (assertion stated AND run, with a receipt), stated-not-executed (assertion stated and proven discriminating, never run -- counts zero), not-checked (with a reason). Regenerate with scripts/refresh-interactive-surface-ledger.mjs; the gate is scripts/check-interactive-surfaces.mjs.",
+  "generated": "2026-09-23",
+  "entries": [
+    {
+      "key": "app/(admin)/people/loading.tsx::edit-form::card",
+      "kind": "edit-form",
+      "where": "app/(admin)/people/loading.tsx:18",
+      "status": "not-checked",
+      "notCheckedReason": "every control on this edit-form is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+    },
+    {
+      "key": "components/auth/google-login.tsx::edit-form::grid gap-3.5",
+      "kind": "edit-form",
+      "where": "components/auth/google-login.tsx:387",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"grid gap-3.5\" (components/auth/google-login.tsx:387)",
+          "operator": "field-set-equals",
+          "expected": [
+            "Email",
+            "Forgot password?",
+            "Password"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "components/auth/password-reset-action.tsx::edit-form::grid gap-4",
+      "kind": "edit-form",
+      "where": "components/auth/password-reset-action.tsx:122",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"grid gap-4\" (components/auth/password-reset-action.tsx:122)",
+          "operator": "field-set-equals",
+          "expected": [
+            "Choose a new password",
+            "Confirm password",
+            "New password"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/alerts/alerts-configure.tsx::modal::unnamed",
+      "kind": "modal",
+      "where": "features/alerts/alerts-configure.tsx:67",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the modal \"unnamed\" (features/alerts/alerts-configure.tsx:67)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.config_saved",
+            "configure.close",
+            "configure.default",
+            "configure.disabled",
+            "configure.enabled",
+            "configure.save",
+            "configure.title",
+            "configure.updated_by"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/approvals/approvals-drawer.tsx::edit-form::btn p",
+      "kind": "edit-form",
+      "where": "features/approvals/approvals-drawer.tsx:280",
+      "status": "not-checked",
+      "notCheckedReason": "every control on this edit-form is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+    },
+    {
+      "key": "features/approvals/approvals-drawer.tsx::edit-form::card",
+      "kind": "edit-form",
+      "where": "features/approvals/approvals-drawer.tsx:271",
+      "status": "not-checked",
+      "notCheckedReason": "every control on this edit-form is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+    },
+    {
+      "key": "features/approvals/approvals-drawer.tsx::edit-form::fld",
+      "kind": "edit-form",
+      "where": "features/approvals/approvals-drawer.tsx:297",
+      "status": "not-checked",
+      "notCheckedReason": "every control on this edit-form is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+    },
+    {
+      "key": "features/calendar/calendar-drive-detail.tsx::edit-form::searchbox",
+      "kind": "edit-form",
+      "where": "features/calendar/calendar-drive-detail.tsx:222",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"searchbox\" (features/calendar/calendar-drive-detail.tsx:222)",
+          "operator": "field-set-equals",
+          "expected": [
+            "calendar.drive.clear_search",
+            "calendar.drive.display_id_header",
+            "calendar.drive.health_header",
+            "calendar.drive.lifecycle_header",
+            "calendar.drive.page_label",
+            "calendar.drive.reason_header",
+            "calendar.drive.rows_label",
+            "calendar.drive.search_action",
+            "calendar.drive.search_placeholder",
+            "calendar.drive.shed_header",
+            "calendar.drive.stage_header",
+            "calendar.drive.status_header",
+            "calendar.drive.tag_1_header",
+            "calendar.drive.tag_2_header"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/calendar/calendar-event-drawer.tsx::edit-form::btn",
+      "kind": "edit-form",
+      "where": "features/calendar/calendar-event-drawer.tsx:812",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"btn\" (features/calendar/calendar-event-drawer.tsx:812)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.close",
+            "action.snooze"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/calendar/calendar-event-drawer.tsx::edit-form::btn p",
+      "kind": "edit-form",
+      "where": "features/calendar/calendar-event-drawer.tsx:803",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"btn p\" (features/calendar/calendar-event-drawer.tsx:803)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.close",
+            "action.send_nudge",
+            "action.snooze"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/calendar/calendar-event-drawer.tsx::modal::dh",
+      "kind": "modal",
+      "where": "features/calendar/calendar-event-drawer.tsx:356",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the modal \"dh\" (features/calendar/calendar-event-drawer.tsx:356)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.open_drive",
+            "action.open_workflow",
+            "drawer.event.aria",
+            "drawer.event.close_label",
+            "drawer.event.eyebrow"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/calendar/calendar-event-drawer.tsx::modal::dh#2",
+      "kind": "modal",
+      "where": "features/calendar/calendar-event-drawer.tsx:439",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the modal \"dh\" (features/calendar/calendar-event-drawer.tsx:439)",
+          "operator": "field-set-equals",
+          "expected": [
+            "calendar.drive.all_day",
+            "calendar.drive.doses",
+            "calendar.drive.packets",
+            "calendar.drive.shed_coverage",
+            "calendar.drive.sheds",
+            "calendar.drive.vaccine_mix",
+            "calendar.drive.vaccines",
+            "drawer.event.aria",
+            "drawer.event.close_label",
+            "drawer.event.eyebrow",
+            "label.channel",
+            "label.not_configured",
+            "label.reminder",
+            "label.when"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/ceo-ai-admin/trace-viewer.tsx::edit-form::flex flex-wrap items-end gap-3",
+      "kind": "edit-form",
+      "where": "features/ceo-ai-admin/trace-viewer.tsx:121",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"flex flex-wrap items-end gap-3\" (features/ceo-ai-admin/trace-viewer.tsx:121)",
+          "operator": "field-set-equals",
+          "expected": [
+            "Question (redacted)",
+            "Rejection reason",
+            "Request ID",
+            "Review verdict",
+            "Source views",
+            "e.g. 9f2c1b7a-..."
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/ceo-ai/ceo-ai-panel.tsx::edit-form::mzai-form",
+      "kind": "edit-form",
+      "where": "features/ceo-ai/ceo-ai-panel.tsx:641",
+      "status": "not-checked",
+      "notCheckedReason": "every control on this edit-form is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+    },
+    {
+      "key": "features/configuration/items-page.tsx::edit-form::tsearch",
+      "kind": "edit-form",
+      "where": "features/configuration/items-page.tsx:528",
+      "status": "not-checked",
+      "notCheckedReason": "every control on this edit-form is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+    },
+    {
+      "key": "features/configuration/items-page.tsx::modal::unnamed",
+      "kind": "modal",
+      "where": "features/configuration/items-page.tsx:653",
+      "status": "not-checked",
+      "notCheckedReason": "every control on this modal is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+    },
+    {
+      "key": "features/configuration/items-page.tsx::row-action::unnamed",
+      "kind": "row-action",
+      "where": "features/configuration/items-page.tsx:627",
+      "status": "not-checked",
+      "notCheckedReason": "every control on this row-action is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+    },
+    {
+      "key": "features/configuration/row-actions.tsx::edit-form::cfg-rowacts-confirm",
+      "kind": "edit-form",
+      "where": "features/configuration/row-actions.tsx:224",
+      "status": "not-checked",
+      "notCheckedReason": "every control on this edit-form is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+    },
+    {
+      "key": "features/configuration/row-actions.tsx::edit-form::statusFormAction",
+      "kind": "edit-form",
+      "where": "features/configuration/row-actions.tsx:212",
+      "status": "not-checked",
+      "notCheckedReason": "every control on this edit-form is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+    },
+    {
+      "key": "features/configuration/row-actions.tsx::row-action::btn sm ghost",
+      "kind": "row-action",
+      "where": "features/configuration/row-actions.tsx:180",
+      "status": "not-checked",
+      "notCheckedReason": "every control on this row-action is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+    },
+    {
+      "key": "features/configuration/row-actions.tsx::row-action::cfg-rowacts-danger",
+      "kind": "row-action",
+      "where": "features/configuration/row-actions.tsx:224",
+      "status": "not-checked",
+      "notCheckedReason": "every control on this row-action is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+    },
+    {
+      "key": "features/configuration/row-actions.tsx::row-action::cfg-rowacts-danger#2",
+      "kind": "row-action",
+      "where": "features/configuration/row-actions.tsx:229",
+      "status": "not-checked",
+      "notCheckedReason": "every control on this row-action is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+    },
+    {
+      "key": "features/configuration/row-actions.tsx::row-action::cfg-rowacts-error",
+      "kind": "row-action",
+      "where": "features/configuration/row-actions.tsx:237",
+      "status": "not-checked",
+      "notCheckedReason": "every control on this row-action is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+    },
+    {
+      "key": "features/configuration/row-actions.tsx::row-action::statusFormAction",
+      "kind": "row-action",
+      "where": "features/configuration/row-actions.tsx:205",
+      "status": "not-checked",
+      "notCheckedReason": "every control on this row-action is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+    },
+    {
+      "key": "features/configuration/row-actions.tsx::row-action::statusFormAction#2",
+      "kind": "row-action",
+      "where": "features/configuration/row-actions.tsx:208",
+      "status": "not-checked",
+      "notCheckedReason": "every control on this row-action is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+    },
+    {
+      "key": "features/configuration/row-actions.tsx::row-action::statusFormAction#3",
+      "kind": "row-action",
+      "where": "features/configuration/row-actions.tsx:206",
+      "status": "not-checked",
+      "notCheckedReason": "every control on this row-action is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+    },
+    {
+      "key": "features/configuration/row-actions.tsx::row-action::unnamed",
+      "kind": "row-action",
+      "where": "features/configuration/row-actions.tsx:190",
+      "status": "not-checked",
+      "notCheckedReason": "every control on this row-action is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+    },
+    {
+      "key": "features/configuration/row-actions.tsx::row-action::unnamed#2",
+      "kind": "row-action",
+      "where": "features/configuration/row-actions.tsx:243",
+      "status": "not-checked",
+      "notCheckedReason": "every control on this row-action is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+    },
+    {
+      "key": "features/configuration/row-drawer.tsx::edit-form::cfg-form",
+      "kind": "edit-form",
+      "where": "features/configuration/row-drawer.tsx:152",
+      "status": "not-checked",
+      "notCheckedReason": "every control on this edit-form is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+    },
+    {
+      "key": "features/configuration/row-drawer.tsx::edit-form::small",
+      "kind": "edit-form",
+      "where": "features/configuration/row-drawer.tsx:290",
+      "status": "not-checked",
+      "notCheckedReason": "every control on this edit-form is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+    },
+    {
+      "key": "features/configuration/row-drawer.tsx::edit-form::statusFormAction",
+      "kind": "edit-form",
+      "where": "features/configuration/row-drawer.tsx:278",
+      "status": "not-checked",
+      "notCheckedReason": "every control on this edit-form is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+    },
+    {
+      "key": "features/counts/census-value-editor.tsx::inline-editor::unnamed",
+      "kind": "inline-editor",
+      "where": "features/counts/census-value-editor.tsx:20",
+      "status": "not-checked",
+      "notCheckedReason": "every control on this inline-editor is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+    },
+    {
+      "key": "features/counts/counts-breakdown-pens-table.tsx::inline-editor::unnamed",
+      "kind": "inline-editor",
+      "where": "features/counts/counts-breakdown-pens-table.tsx:20",
+      "status": "not-checked",
+      "notCheckedReason": "every control on this inline-editor is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+    },
+    {
+      "key": "features/counts/counts-breakdown-table.tsx::inline-editor::unnamed",
+      "kind": "inline-editor",
+      "where": "features/counts/counts-breakdown-table.tsx:10",
+      "status": "not-checked",
+      "notCheckedReason": "every control on this inline-editor is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+    },
+    {
+      "key": "features/counts/counts-breakdown.tsx::inline-editor::unnamed",
+      "kind": "inline-editor",
+      "where": "features/counts/counts-breakdown.tsx:29",
+      "status": "not-checked",
+      "notCheckedReason": "every control on this inline-editor is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+    },
+    {
+      "key": "features/counts/herd-actions-ui.tsx::edit-form::fld",
+      "kind": "edit-form",
+      "where": "features/counts/herd-actions-ui.tsx:341",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"fld\" (features/counts/herd-actions-ui.tsx:341)",
+          "operator": "field-set-equals",
+          "expected": [
+            "field.animal_identifier_1",
+            "field.animal_identifier_2",
+            "field.breed",
+            "field.farm",
+            "field.park_required",
+            "field.shed_required",
+            "field.species",
+            "note.identifier_required",
+            "option.no_parks",
+            "option.no_vaccination_sheds",
+            "option.optional",
+            "option.select_species",
+            "placeholder.animal_identifier_1",
+            "placeholder.animal_identifier_2",
+            "placeholder.breed"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/counts/herd-actions-ui.tsx::edit-form::fld#2",
+      "kind": "edit-form",
+      "where": "features/counts/herd-actions-ui.tsx:528",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"fld\" (features/counts/herd-actions-ui.tsx:528)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.cancel",
+            "action.register_shed",
+            "field.display_order",
+            "field.notes",
+            "field.park_required",
+            "field.shed_code",
+            "field.shed_name_required",
+            "note.shed_create",
+            "option.no_parks",
+            "placeholder.shed_code",
+            "placeholder.shed_name",
+            "placeholder.shed_notes"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/counts/herd-actions-ui.tsx::edit-form::fld#3",
+      "kind": "edit-form",
+      "where": "features/counts/herd-actions-ui.tsx:1181",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"fld\" (features/counts/herd-actions-ui.tsx:1181)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.cancel",
+            "action.save_reproductive",
+            "field.breeding_date",
+            "field.last_delivery_date",
+            "field.reproductive_reason",
+            "field.reproductive_status",
+            "note.reproductive_dates_optional",
+            "option.select_reproductive_status",
+            "placeholder.reproductive_reason"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/counts/herd-actions-ui.tsx::modal::unnamed",
+      "kind": "modal",
+      "where": "features/counts/herd-actions-ui.tsx:200",
+      "status": "not-checked",
+      "notCheckedReason": "every control on this modal is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+    },
+    {
+      "key": "features/counts/herd-filters-modal-client.tsx::edit-form::tsearch",
+      "kind": "edit-form",
+      "where": "features/counts/herd-filters-modal-client.tsx:78",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"tsearch\" (features/counts/herd-filters-modal-client.tsx:78)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.filters",
+            "filter.active_badge",
+            "filter.rows_per_page_aria",
+            "filter.toolbar_aria",
+            "filter.toolbar_placeholder",
+            "label.rows",
+            "pager.page",
+            "state.loading"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/counts/herd-filters-modal.tsx::edit-form::bd",
+      "kind": "edit-form",
+      "where": "features/counts/herd-filters-modal.tsx:129",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"bd\" (features/counts/herd-filters-modal.tsx:129)",
+          "operator": "field-set-equals",
+          "expected": [
+            "filter.apply_filters",
+            "filter.breed_label",
+            "filter.clear_all",
+            "filter.herd_search_label",
+            "filter.herd_search_placeholder",
+            "filter.scope_label",
+            "filter.scope_readonly",
+            "filter.sex_label"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/counts/herd-filters-modal.tsx::modal::hd",
+      "kind": "modal",
+      "where": "features/counts/herd-filters-modal.tsx:115",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the modal \"hd\" (features/counts/herd-filters-modal.tsx:115)",
+          "operator": "field-set-equals",
+          "expected": [
+            "filter.apply_filters",
+            "filter.breed_label",
+            "filter.clear_all",
+            "filter.drawer.close_label",
+            "filter.drawer.title",
+            "filter.herd_search_label",
+            "filter.herd_search_placeholder",
+            "filter.scope_label",
+            "filter.scope_readonly",
+            "filter.sex_label"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/counts/inline-cell-editor.tsx::inline-editor::btn sm",
+      "kind": "inline-editor",
+      "where": "features/counts/inline-cell-editor.tsx:309",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the inline-editor \"btn sm\" (features/counts/inline-cell-editor.tsx:309)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.retag.apply",
+            "action.retag.applying",
+            "action.retag.cancel"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/counts/inline-cell-editor.tsx::inline-editor::btn sm#2",
+      "kind": "inline-editor",
+      "where": "features/counts/inline-cell-editor.tsx:330",
+      "status": "not-checked",
+      "notCheckedReason": "every control on this inline-editor is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+    },
+    {
+      "key": "features/counts/inline-cell-editor.tsx::inline-editor::muted small",
+      "kind": "inline-editor",
+      "where": "features/counts/inline-cell-editor.tsx:265",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the inline-editor \"muted small\" (features/counts/inline-cell-editor.tsx:265)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.retag.animal_noun",
+            "action.retag.animals_noun",
+            "action.retag.apply",
+            "action.retag.applying",
+            "action.retag.cancel",
+            "action.retag.checking",
+            "action.retag.empty_scope",
+            "action.retag.reason_label"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/counts/inline-cell-editor.tsx::inline-editor::muted small tagedit-empty",
+      "kind": "inline-editor",
+      "where": "features/counts/inline-cell-editor.tsx:253",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the inline-editor \"muted small tagedit-empty\" (features/counts/inline-cell-editor.tsx:253)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.retag.animal_noun",
+            "action.retag.animals_noun",
+            "action.retag.apply",
+            "action.retag.applying",
+            "action.retag.cancel",
+            "action.retag.checking",
+            "action.retag.empty_scope",
+            "action.retag.no_matches",
+            "action.retag.reason_label"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/counts/inline-cell-editor.tsx::inline-editor::muted small#2",
+      "kind": "inline-editor",
+      "where": "features/counts/inline-cell-editor.tsx:284",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the inline-editor \"muted small\" (features/counts/inline-cell-editor.tsx:284)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.retag.animal_noun",
+            "action.retag.animals_noun",
+            "action.retag.apply",
+            "action.retag.applying",
+            "action.retag.cancel",
+            "action.retag.empty_scope",
+            "action.retag.reason_label"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/counts/inline-cell-editor.tsx::inline-editor::muted small#3",
+      "kind": "inline-editor",
+      "where": "features/counts/inline-cell-editor.tsx:299",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the inline-editor \"muted small\" (features/counts/inline-cell-editor.tsx:299)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.retag.apply",
+            "action.retag.applying",
+            "action.retag.cancel",
+            "action.retag.reason_label"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/counts/inline-cell-editor.tsx::inline-editor::small",
+      "kind": "inline-editor",
+      "where": "features/counts/inline-cell-editor.tsx:328",
+      "status": "not-checked",
+      "notCheckedReason": "every control on this inline-editor is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+    },
+    {
+      "key": "features/counts/inline-cell-editor.tsx::inline-editor::tagedit-confirm",
+      "kind": "inline-editor",
+      "where": "features/counts/inline-cell-editor.tsx:275",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the inline-editor \"tagedit-confirm\" (features/counts/inline-cell-editor.tsx:275)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.retag.animal_noun",
+            "action.retag.animals_noun",
+            "action.retag.apply",
+            "action.retag.applying",
+            "action.retag.cancel",
+            "action.retag.checking",
+            "action.retag.empty_scope",
+            "action.retag.reason_label"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/counts/inline-cell-editor.tsx::inline-editor::tagedit-confirm-title",
+      "kind": "inline-editor",
+      "where": "features/counts/inline-cell-editor.tsx:281",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the inline-editor \"tagedit-confirm-title\" (features/counts/inline-cell-editor.tsx:281)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.retag.animal_noun",
+            "action.retag.animals_noun",
+            "action.retag.apply",
+            "action.retag.applying",
+            "action.retag.cancel",
+            "action.retag.empty_scope",
+            "action.retag.reason_label"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/counts/inline-cell-editor.tsx::inline-editor::tagedit-option",
+      "kind": "inline-editor",
+      "where": "features/counts/inline-cell-editor.tsx:255",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the inline-editor \"tagedit-option\" (features/counts/inline-cell-editor.tsx:255)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.retag.animal_noun",
+            "action.retag.animals_noun",
+            "action.retag.apply",
+            "action.retag.applying",
+            "action.retag.cancel",
+            "action.retag.checking",
+            "action.retag.empty_scope",
+            "action.retag.no_matches",
+            "action.retag.reason_label"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/counts/inline-cell-editor.tsx::inline-editor::tagedit-option-name",
+      "kind": "inline-editor",
+      "where": "features/counts/inline-cell-editor.tsx:261",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the inline-editor \"tagedit-option-name\" (features/counts/inline-cell-editor.tsx:261)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.retag.animal_noun",
+            "action.retag.animals_noun",
+            "action.retag.apply",
+            "action.retag.applying",
+            "action.retag.cancel",
+            "action.retag.checking",
+            "action.retag.empty_scope",
+            "action.retag.reason_label"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/counts/inline-cell-editor.tsx::inline-editor::tagedit-reason",
+      "kind": "inline-editor",
+      "where": "features/counts/inline-cell-editor.tsx:297",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the inline-editor \"tagedit-reason\" (features/counts/inline-cell-editor.tsx:297)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.retag.apply",
+            "action.retag.applying",
+            "action.retag.cancel",
+            "action.retag.reason_label"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/counts/inline-cell-editor.tsx::inline-editor::tagedit-value",
+      "kind": "inline-editor",
+      "where": "features/counts/inline-cell-editor.tsx:215",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the inline-editor \"tagedit-value\" (features/counts/inline-cell-editor.tsx:215)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.retag.animal_noun",
+            "action.retag.animals_noun",
+            "action.retag.checking",
+            "action.retag.empty_scope",
+            "action.retag.hint",
+            "action.retag.no_matches",
+            "action.retag.reason_label",
+            "action.retag.search_placeholder"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/counts/inline-cell-editor.tsx::inline-editor::unnamed",
+      "kind": "inline-editor",
+      "where": "features/counts/inline-cell-editor.tsx:218",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the inline-editor \"unnamed\" (features/counts/inline-cell-editor.tsx:218)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.retag.animal_noun",
+            "action.retag.animals_noun",
+            "action.retag.checking",
+            "action.retag.empty_scope",
+            "action.retag.hint",
+            "action.retag.no_matches",
+            "action.retag.reason_label",
+            "action.retag.search_placeholder"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/counts/inline-cell-editor.tsx::inline-editor::unnamed#2",
+      "kind": "inline-editor",
+      "where": "features/counts/inline-cell-editor.tsx:236",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the inline-editor \"unnamed\" (features/counts/inline-cell-editor.tsx:236)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.retag.animal_noun",
+            "action.retag.animals_noun",
+            "action.retag.cancel",
+            "action.retag.checking",
+            "action.retag.empty_scope",
+            "action.retag.hint",
+            "action.retag.no_matches",
+            "action.retag.reason_label",
+            "action.retag.search_placeholder"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/counts/inline-cell-editor.tsx::modal::unnamed",
+      "kind": "modal",
+      "where": "features/counts/inline-cell-editor.tsx:240",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the modal \"unnamed\" (features/counts/inline-cell-editor.tsx:240)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.retag.animal_noun",
+            "action.retag.animals_noun",
+            "action.retag.apply",
+            "action.retag.applying",
+            "action.retag.cancel",
+            "action.retag.checking",
+            "action.retag.empty_scope",
+            "action.retag.hint",
+            "action.retag.no_matches",
+            "action.retag.reason_label",
+            "action.retag.search_placeholder"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/counts/shed-tag-editor.tsx::inline-editor::unnamed",
+      "kind": "inline-editor",
+      "where": "features/counts/shed-tag-editor.tsx:16",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the inline-editor \"unnamed\" (features/counts/shed-tag-editor.tsx:16)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.retag.band_adult",
+            "action.retag.band_kid",
+            "action.retag.becomes",
+            "action.retag.failed"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/feed/feed-completion-table.tsx::modal::unnamed",
+      "kind": "modal",
+      "where": "features/feed/feed-completion-table.tsx:288",
+      "status": "not-checked",
+      "notCheckedReason": "every control on this modal is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+    },
+    {
+      "key": "features/feed/feed-config-editor.tsx::edit-form::btn sm p",
+      "kind": "edit-form",
+      "where": "features/feed/feed-config-editor.tsx:152",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"btn sm p\" (features/feed/feed-config-editor.tsx:152)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.apply",
+            "action.cancel",
+            "label.configured_zero_note",
+            "state.loading"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/goat-passport/index.tsx::edit-form::cfgform",
+      "kind": "edit-form",
+      "where": "features/goat-passport/index.tsx:291",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"cfgform\" (features/goat-passport/index.tsx:291)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.add_identifier",
+            "empty.evidence",
+            "field.identifier_type",
+            "field.identifier_value",
+            "field.scope_key",
+            "label.identity_events_table",
+            "label.primary",
+            "label.select",
+            "placeholder.scope_key",
+            "section.add_identifier.title",
+            "section.evidence.title",
+            "section.timeline.title"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/goat-passport/index.tsx::edit-form::retireIdentifierAction",
+      "kind": "edit-form",
+      "where": "features/goat-passport/index.tsx:266",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"retireIdentifierAction\" (features/goat-passport/index.tsx:266)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.add_identifier",
+            "action.retire_identifier",
+            "confirm.retire_identifier",
+            "field.identifier_type",
+            "field.identifier_value",
+            "field.scope_key",
+            "label.primary",
+            "label.select",
+            "placeholder.scope_key",
+            "reason.retire_identifier",
+            "section.add_identifier.title",
+            "section.evidence.title"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/health/health-config-editor.tsx::edit-form::unnamed",
+      "kind": "edit-form",
+      "where": "features/health/health-config-editor.tsx:470",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"unnamed\" (features/health/health-config-editor.tsx:470)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.apply",
+            "action.cancel",
+            "label.disease",
+            "label.duration_days",
+            "note.both_bands",
+            "state.loading"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/health/health-config-editor.tsx::edit-form::unnamed#2",
+      "kind": "edit-form",
+      "where": "features/health/health-config-editor.tsx:553",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"unnamed\" (features/health/health-config-editor.tsx:553)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.cancel",
+            "state.loading"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/health/health-config-editor.tsx::edit-form::unnamed#3",
+      "kind": "edit-form",
+      "where": "features/health/health-config-editor.tsx:714",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"unnamed\" (features/health/health-config-editor.tsx:714)",
+          "operator": "field-set-equals",
+          "expected": [
+            "empty.steps",
+            "label.day_no",
+            "label.disease",
+            "label.duration_days",
+            "note.days_shrink",
+            "note.rename_scope"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/health/health-config.tsx::edit-form::tsearch",
+      "kind": "edit-form",
+      "where": "features/health/health-config.tsx:361",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"tsearch\" (features/health/health-config.tsx:361)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.edit_protocol",
+            "action.error_backend",
+            "empty.catalog",
+            "empty.search",
+            "filter.search_label",
+            "section.catalog.aria",
+            "status.draft_none",
+            "status.draft_open"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/health/health-config.tsx::edit-form::unnamed",
+      "kind": "edit-form",
+      "where": "features/health/health-config.tsx:653",
+      "status": "not-checked",
+      "notCheckedReason": "every control on this edit-form is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+    },
+    {
+      "key": "features/herd-signals/herd-signals-history-fullscreen.tsx::modal::fshd",
+      "kind": "modal",
+      "where": "features/herd-signals/herd-signals-history-fullscreen.tsx:241",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the modal \"fshd\" (features/herd-signals/herd-signals-history-fullscreen.tsx:241)",
+          "operator": "field-set-equals",
+          "expected": [
+            "From",
+            "Full movement history",
+            "History range",
+            "Movement trend",
+            "To",
+            "dd/mm/yyyy"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/herd-signals/herd-signals-mapping-table.tsx::modal::hd",
+      "kind": "modal",
+      "where": "features/herd-signals/herd-signals-mapping-table.tsx:433",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the modal \"hd\" (features/herd-signals/herd-signals-mapping-table.tsx:433)",
+          "operator": "field-set-equals",
+          "expected": [
+            "Cancel",
+            "Close"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/leadership-tasks/edit-task-modal.tsx::edit-form::lt-modal-bd",
+      "kind": "edit-form",
+      "where": "features/leadership-tasks/edit-task-modal.tsx:141",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"lt-modal-bd\" (features/leadership-tasks/edit-task-modal.tsx:141)",
+          "operator": "field-set-equals",
+          "expected": [
+            "edit.attachments",
+            "edit.body_field",
+            "edit.deadline_field",
+            "edit.deadline_hint",
+            "edit.title_field"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/leadership-tasks/edit-task-modal.tsx::modal::lt-modal-hd",
+      "kind": "modal",
+      "where": "features/leadership-tasks/edit-task-modal.tsx:125",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the modal \"lt-modal-hd\" (features/leadership-tasks/edit-task-modal.tsx:125)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.close",
+            "edit.attachments",
+            "edit.body_field",
+            "edit.deadline_field",
+            "edit.deadline_hint",
+            "edit.title",
+            "edit.title_field"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/leadership-tasks/new-task-modal.tsx::edit-form::lt-modal-bd",
+      "kind": "edit-form",
+      "where": "features/leadership-tasks/new-task-modal.tsx:141",
+      "status": "not-checked",
+      "notCheckedReason": "every control on this edit-form is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+    },
+    {
+      "key": "features/leadership-tasks/new-task-modal.tsx::modal::lt-modal-hd",
+      "kind": "modal",
+      "where": "features/leadership-tasks/new-task-modal.tsx:124",
+      "status": "not-checked",
+      "notCheckedReason": "every control on this modal is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+    },
+    {
+      "key": "features/leadership-tasks/task-activity-composer.tsx::edit-form::action",
+      "kind": "edit-form",
+      "where": "features/leadership-tasks/task-activity-composer.tsx:46",
+      "status": "not-checked",
+      "notCheckedReason": "every control on this edit-form is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+    },
+    {
+      "key": "features/leadership-tasks/task-activity-composer.tsx::edit-form::unnamed",
+      "kind": "edit-form",
+      "where": "features/leadership-tasks/task-activity-composer.tsx:238",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"unnamed\" (features/leadership-tasks/task-activity-composer.tsx:238)",
+          "operator": "field-set-equals",
+          "expected": [
+            "note.label",
+            "note.placeholder",
+            "note.send"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/leadership-tasks/task-detail-drawer.tsx::modal::unnamed",
+      "kind": "modal",
+      "where": "features/leadership-tasks/task-detail-drawer.tsx:133",
+      "status": "not-checked",
+      "notCheckedReason": "every control on this modal is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+    },
+    {
+      "key": "features/leadership-tasks/task-status-menu.tsx::edit-form::action",
+      "kind": "edit-form",
+      "where": "features/leadership-tasks/task-status-menu.tsx:131",
+      "status": "not-checked",
+      "notCheckedReason": "every control on this edit-form is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+    },
+    {
+      "key": "features/leadership-tasks/task-status-menu.tsx::row-action::opt",
+      "kind": "row-action",
+      "where": "features/leadership-tasks/task-status-menu.tsx:170",
+      "status": "not-checked",
+      "notCheckedReason": "every control on this row-action is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+    },
+    {
+      "key": "features/leadership-tasks/task-write-forms.tsx::edit-form::action",
+      "kind": "edit-form",
+      "where": "features/leadership-tasks/task-write-forms.tsx:71",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"action\" (features/leadership-tasks/task-write-forms.tsx:71)",
+          "operator": "field-set-equals",
+          "expected": [
+            "note.label",
+            "note.placeholder",
+            "note.send"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/leadership-tasks/task-write-forms.tsx::edit-form::lt-comment-form",
+      "kind": "edit-form",
+      "where": "features/leadership-tasks/task-write-forms.tsx:123",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"lt-comment-form\" (features/leadership-tasks/task-write-forms.tsx:123)",
+          "operator": "field-set-equals",
+          "expected": [
+            "note.label",
+            "note.placeholder",
+            "note.send"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/leave/leave-page.tsx::edit-form::btn primary",
+      "kind": "edit-form",
+      "where": "features/leave/leave-page.tsx:145",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"btn primary\" (features/leave/leave-page.tsx:145)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.approve",
+            "action.next",
+            "action.reject",
+            "filter.status.all",
+            "list.empty",
+            "reject.reason",
+            "reject.reason_hint"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/leave/leave-page.tsx::edit-form::rejectLeaveAction",
+      "kind": "edit-form",
+      "where": "features/leave/leave-page.tsx:152",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"rejectLeaveAction\" (features/leave/leave-page.tsx:152)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.next",
+            "action.reject",
+            "filter.status.all",
+            "list.empty",
+            "reject.reason",
+            "reject.reason_hint"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/notifications/mention-textarea.tsx::edit-form::serverAction",
+      "kind": "edit-form",
+      "where": "features/notifications/mention-textarea.tsx:13",
+      "status": "not-checked",
+      "notCheckedReason": "every control on this edit-form is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+    },
+    {
+      "key": "features/notifications/notification-bell.tsx::modal::unnamed",
+      "kind": "modal",
+      "where": "features/notifications/notification-bell.tsx:320",
+      "status": "not-checked",
+      "notCheckedReason": "every control on this modal is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+    },
+    {
+      "key": "features/operations-audit/audit-log.tsx::edit-form::bd",
+      "kind": "edit-form",
+      "where": "features/operations-audit/audit-log.tsx:309",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"bd\" (features/operations-audit/audit-log.tsx:309)",
+          "operator": "field-set-equals",
+          "expected": [
+            "field.actor_id",
+            "field.category",
+            "field.module",
+            "field.resource_id",
+            "field.resource_type",
+            "filter.apply",
+            "filter.clear_all",
+            "label.flagged_anomaly",
+            "placeholder.accepted_intake",
+            "placeholder.actor_uuid",
+            "placeholder.goat",
+            "placeholder.source_entry",
+            "placeholder.uuid"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/operations-audit/audit-log.tsx::edit-form::spansearch",
+      "kind": "edit-form",
+      "where": "features/operations-audit/audit-log.tsx:228",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"spansearch\" (features/operations-audit/audit-log.tsx:228)",
+          "operator": "field-set-equals",
+          "expected": [
+            "empty.activity",
+            "empty.activity_unavailable",
+            "empty.operators",
+            "empty.operators_filter",
+            "filter.actor_placeholder",
+            "label.append_only_body",
+            "label.append_only_title",
+            "section.activity.title",
+            "table.activity.aria"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/operations-audit/audit-log.tsx::edit-form::tsearch",
+      "kind": "edit-form",
+      "where": "features/operations-audit/audit-log.tsx:185",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"tsearch\" (features/operations-audit/audit-log.tsx:185)",
+          "operator": "field-set-equals",
+          "expected": [
+            "empty.operators",
+            "empty.operators_filter",
+            "filter.actor_placeholder",
+            "filter.anomalies_only",
+            "filter.search_label",
+            "filter.search_placeholder",
+            "label.operators",
+            "section.span.title"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/operations-dlq/dlq-local-drawer.tsx::edit-form::fld",
+      "kind": "edit-form",
+      "where": "features/operations-dlq/dlq-local-drawer.tsx:133",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"fld\" (features/operations-dlq/dlq-local-drawer.tsx:133)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.close",
+            "form.reason_label",
+            "form.reason_placeholder",
+            "reason.discard",
+            "reason.replay"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/operations-dlq/dlq-local-drawer.tsx::edit-form::fld#2",
+      "kind": "edit-form",
+      "where": "features/operations-dlq/dlq-local-drawer.tsx:140",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"fld\" (features/operations-dlq/dlq-local-drawer.tsx:140)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.close",
+            "form.reason_label",
+            "form.reason_placeholder",
+            "reason.discard"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/operations-dlq/index.tsx::edit-form::fld",
+      "kind": "edit-form",
+      "where": "features/operations-dlq/index.tsx:109",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"fld\" (features/operations-dlq/index.tsx:109)",
+          "operator": "field-set-equals",
+          "expected": [
+            "empty.events",
+            "empty.events_unavailable",
+            "filter.apply",
+            "filter.clear_all",
+            "filter.event_type_label",
+            "filter.event_type_placeholder",
+            "filter.topic_label",
+            "filter.topic_placeholder",
+            "label.replay_safe",
+            "pager.fixed_reason",
+            "reason.replay",
+            "section.events.aria",
+            "section.events.title"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/operations-dlq/index.tsx::edit-form::tsearch",
+      "kind": "edit-form",
+      "where": "features/operations-dlq/index.tsx:104",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"tsearch\" (features/operations-dlq/index.tsx:104)",
+          "operator": "field-set-equals",
+          "expected": [
+            "empty.events",
+            "empty.events_unavailable",
+            "filter.apply",
+            "filter.clear_all",
+            "filter.event_type_label",
+            "filter.event_type_placeholder",
+            "filter.search_label",
+            "filter.search_placeholder",
+            "filter.topic_label",
+            "filter.topic_placeholder",
+            "label.replay_safe",
+            "pager.fixed_reason",
+            "reason.replay",
+            "section.events.aria",
+            "section.events.title"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/pen-routines/routine-drawer.tsx::edit-form::pen-routine-form",
+      "kind": "edit-form",
+      "where": "features/pen-routines/routine-drawer.tsx:259",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"pen-routine-form\" (features/pen-routines/routine-drawer.tsx:259)",
+          "operator": "field-set-equals",
+          "expected": [
+            "empty.role_people",
+            "hint.versions"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/pen-routines/routine-drawer.tsx::edit-form::pen-routine-status",
+      "kind": "edit-form",
+      "where": "features/pen-routines/routine-drawer.tsx:682",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"pen-routine-status\" (features/pen-routines/routine-drawer.tsx:682)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.pause",
+            "action.resume",
+            "action.retire",
+            "action.retire.confirm"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/pen-routines/routines-page.tsx::modal::unnamed",
+      "kind": "modal",
+      "where": "features/pen-routines/routines-page.tsx:404",
+      "status": "not-checked",
+      "notCheckedReason": "every control on this modal is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+    },
+    {
+      "key": "features/people/clock-screen.tsx::edit-form::card",
+      "kind": "edit-form",
+      "where": "features/people/clock-screen.tsx:124",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"card\" (features/people/clock-screen.tsx:124)",
+          "operator": "field-set-equals",
+          "expected": [
+            "clock.column.clock_in",
+            "clock.column.clock_out",
+            "clock.column.designation",
+            "clock.column.device",
+            "clock.column.flags",
+            "clock.column.hours",
+            "clock.column.location",
+            "clock.column.park",
+            "clock.column.person",
+            "clock.empty",
+            "clock.filter.date",
+            "clock.tab.title",
+            "column.designation",
+            "filter.all",
+            "filter.park",
+            "filter.search_label",
+            "filter.search_placeholder",
+            "summary.count"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/people/people-board.tsx::edit-form::card",
+      "kind": "edit-form",
+      "where": "features/people/people-board.tsx:114",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"card\" (features/people/people-board.tsx:114)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.add_person",
+            "column.department",
+            "column.display_name",
+            "column.park",
+            "empty.people",
+            "empty.people.unset",
+            "filter.all",
+            "filter.department",
+            "filter.park",
+            "filter.search_label",
+            "filter.search_placeholder",
+            "filter.status",
+            "section.people.aria",
+            "section.people.row_hint",
+            "section.people.title",
+            "summary.count"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/people/person-access-launcher.tsx::modal::vr-modal-bd",
+      "kind": "modal",
+      "where": "features/people/person-access-launcher.tsx:75",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the modal \"vr-modal-bd\" (features/people/person-access-launcher.tsx:75)",
+          "operator": "field-set-equals",
+          "expected": [
+            "access.error.load",
+            "access.loading"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/people/person-access-modal.tsx::modal::vr-modal-hd",
+      "kind": "modal",
+      "where": "features/people/person-access-modal.tsx:206",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the modal \"vr-modal-hd\" (features/people/person-access-modal.tsx:206)",
+          "operator": "field-set-equals",
+          "expected": [
+            "access.designation",
+            "access.designation.none",
+            "access.scope",
+            "access.scope.tenant",
+            "access.summary.count",
+            "access.summary.none",
+            "access.title",
+            "access.warning.title",
+            "action.close"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/people/person-add-drawer.tsx::edit-form::changePersonStatusAction",
+      "kind": "edit-form",
+      "where": "features/people/person-add-drawer.tsx:361",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"changePersonStatusAction\" (features/people/person-add-drawer.tsx:361)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.cancel",
+            "action.confirm"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/people/person-add-drawer.tsx::edit-form::dc",
+      "kind": "edit-form",
+      "where": "features/people/person-add-drawer.tsx:170",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"dc\" (features/people/person-add-drawer.tsx:170)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.save",
+            "password.note",
+            "required.hint"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/people/person-add-drawer.tsx::edit-form::fld",
+      "kind": "edit-form",
+      "where": "features/people/person-add-drawer.tsx:285",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"fld\" (features/people/person-add-drawer.tsx:285)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.save_title",
+            "column.title",
+            "stats.approved",
+            "stats.no_reviews",
+            "stats.none",
+            "stats.not_reviewed",
+            "stats.pending",
+            "stats.rejected",
+            "stats.rejection_rate",
+            "stats.title",
+            "stats.uploaded",
+            "title.hint",
+            "title.placeholder"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/people/vaccination-operators-screen.tsx::modal::dh",
+      "kind": "modal",
+      "where": "features/people/vaccination-operators-screen.tsx:1146",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the modal \"dh\" (features/people/vaccination-operators-screen.tsx:1146)",
+          "operator": "field-set-equals",
+          "expected": [
+            "Add planned leave",
+            "Close"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/people/vaccination-operators-screen.tsx::modal::mh",
+      "kind": "modal",
+      "where": "features/people/vaccination-operators-screen.tsx:1204",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the modal \"mh\" (features/people/vaccination-operators-screen.tsx:1204)",
+          "operator": "field-set-equals",
+          "expected": [
+            "Add leave",
+            "Add planned leave",
+            "Cancel",
+            "Close"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/preventive-care-vaccination/command-board-view.tsx::modal::dh",
+      "kind": "modal",
+      "where": "features/preventive-care-vaccination/command-board-view.tsx:1490",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the modal \"dh\" (features/preventive-care-vaccination/command-board-view.tsx:1490)",
+          "operator": "field-set-equals",
+          "expected": [
+            "command_board.cohort_matrix.detail.close",
+            "command_board.shed_vaccine.drawer.behind_of",
+            "command_board.shed_vaccine.drawer.clip",
+            "command_board.shed_vaccine.drawer.loading",
+            "command_board.shed_vaccine.drawer.no_video",
+            "command_board.shed_vaccine.drawer.rework_of",
+            "command_board.shed_vaccine.drawer.shed_videos",
+            "command_board.shed_vaccine.drawer.unavailable",
+            "command_board.shed_vaccine.drawer.verifying_of",
+            "command_board.shed_vaccine.title"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/preventive-care-vaccination/command-board-view.tsx::modal::dh#2",
+      "kind": "modal",
+      "where": "features/preventive-care-vaccination/command-board-view.tsx:1627",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the modal \"dh\" (features/preventive-care-vaccination/command-board-view.tsx:1627)",
+          "operator": "field-set-equals",
+          "expected": [
+            "command_board.closed_drawer.animals_word",
+            "command_board.closed_drawer.capped",
+            "command_board.closed_drawer.column.animal",
+            "command_board.closed_drawer.column.location",
+            "command_board.closed_drawer.column.reason",
+            "command_board.closed_drawer.column.vaccine",
+            "command_board.cohort_matrix.detail.close",
+            "command_board.kpi.closed_without_dose"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/preventive-care-vaccination/command-board-view.tsx::modal::unnamed",
+      "kind": "modal",
+      "where": "features/preventive-care-vaccination/command-board-view.tsx:1707",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the modal \"unnamed\" (features/preventive-care-vaccination/command-board-view.tsx:1707)",
+          "operator": "field-set-equals",
+          "expected": [
+            "command_board.cohort_matrix.column.animals",
+            "command_board.cohort_matrix.date_unavailable",
+            "command_board.cohort_matrix.detail.animals",
+            "command_board.cohort_matrix.detail.animals_word",
+            "command_board.cohort_matrix.detail.breakdown",
+            "command_board.cohort_matrix.detail.close",
+            "command_board.cohort_matrix.detail.dates",
+            "command_board.cohort_matrix.detail.per_day",
+            "command_board.cohort_matrix.no_farm",
+            "command_board.cohort_matrix.pending_word",
+            "command_board.cohort_matrix.rework_word",
+            "command_board.cohort_matrix.submitted_word",
+            "command_board.cohort_matrix.verified_word"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/preventive-care-vaccination/full-vaccine-schedule-drawer.tsx::edit-form::schedule-drawer-search",
+      "kind": "edit-form",
+      "where": "features/preventive-care-vaccination/full-vaccine-schedule-drawer.tsx:187",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"schedule-drawer-search\" (features/preventive-care-vaccination/full-vaccine-schedule-drawer.tsx:187)",
+          "operator": "field-set-equals",
+          "expected": [
+            "schedule.drawer.empty",
+            "schedule.drawer.next_page",
+            "schedule.drawer.open_roster",
+            "schedule.drawer.page_label",
+            "schedule.drawer.previous_page",
+            "schedule.drawer.rows_label",
+            "schedule.drawer.search",
+            "schedule.drawer.search_action",
+            "schedule.drawer.title",
+            "schedule.unit.animals"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/preventive-care-vaccination/full-vaccine-schedule-drawer.tsx::modal::schedule-drawer-head",
+      "kind": "modal",
+      "where": "features/preventive-care-vaccination/full-vaccine-schedule-drawer.tsx:162",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the modal \"schedule-drawer-head\" (features/preventive-care-vaccination/full-vaccine-schedule-drawer.tsx:162)",
+          "operator": "field-set-equals",
+          "expected": [
+            "label.placeholder",
+            "schedule.drawer.close",
+            "schedule.drawer.empty",
+            "schedule.drawer.next_page",
+            "schedule.drawer.open_roster",
+            "schedule.drawer.page_label",
+            "schedule.drawer.previous_page",
+            "schedule.drawer.rows_label",
+            "schedule.drawer.search",
+            "schedule.drawer.search_action",
+            "schedule.drawer.title",
+            "schedule.unit.animals",
+            "schedule.unit.sheds"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/preventive-care-vaccination/full-vaccine-schedule-move-drawer.tsx::edit-form::schedule-move-form",
+      "kind": "edit-form",
+      "where": "features/preventive-care-vaccination/full-vaccine-schedule-move-drawer.tsx:135",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"schedule-move-form\" (features/preventive-care-vaccination/full-vaccine-schedule-move-drawer.tsx:135)",
+          "operator": "field-set-equals",
+          "expected": [
+            "schedule.move.date_placeholder",
+            "schedule.move.invalid_future_date",
+            "schedule.move.next_month",
+            "schedule.move.previous_month",
+            "schedule.postpone.action",
+            "schedule.postpone.new_date",
+            "schedule.postpone.reason_default",
+            "schedule.postpone.vaccine"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/preventive-care-vaccination/full-vaccine-schedule-move-drawer.tsx::modal::schedule-drawer-head",
+      "kind": "modal",
+      "where": "features/preventive-care-vaccination/full-vaccine-schedule-move-drawer.tsx:122",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the modal \"schedule-drawer-head\" (features/preventive-care-vaccination/full-vaccine-schedule-move-drawer.tsx:122)",
+          "operator": "field-set-equals",
+          "expected": [
+            "schedule.move.close",
+            "schedule.move.date_placeholder",
+            "schedule.move.invalid_future_date",
+            "schedule.move.next_month",
+            "schedule.move.previous_month",
+            "schedule.move.title",
+            "schedule.postpone.action",
+            "schedule.postpone.new_date",
+            "schedule.postpone.reason_default",
+            "schedule.postpone.vaccine",
+            "schedule.unit.animals",
+            "schedule.unit.doses"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/preventive-care-vaccination/sop-quick-view.tsx::modal::fic",
+      "kind": "modal",
+      "where": "features/preventive-care-vaccination/sop-quick-view.tsx:84",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the modal \"fic\" (features/preventive-care-vaccination/sop-quick-view.tsx:84)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.close",
+            "drawer.sop.aria",
+            "drawer.sop.auth_error",
+            "drawer.sop.empty",
+            "drawer.sop.error_prefix",
+            "drawer.sop.eyebrow",
+            "drawer.sop.title",
+            "drawer.sop.video_proof_required",
+            "drawer.sop.window_note"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/preventive-care-vaccination/supplier-warmup-context.tsx::modal::unnamed",
+      "kind": "modal",
+      "where": "features/preventive-care-vaccination/supplier-warmup-context.tsx:266",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the modal \"unnamed\" (features/preventive-care-vaccination/supplier-warmup-context.tsx:266)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.clear_to_ship",
+            "action.import_vaccination_evidence",
+            "action.open_source_entry",
+            "action.record_hf_dose",
+            "action.reject_before_load",
+            "drawer.warmup.actions_label",
+            "drawer.warmup.animals",
+            "drawer.warmup.aria",
+            "drawer.warmup.close_label",
+            "drawer.warmup.eyebrow",
+            "drawer.warmup.hf_vaccination",
+            "drawer.warmup.holding_farm",
+            "drawer.warmup.note",
+            "drawer.warmup.purpose",
+            "drawer.warmup.title_prefix",
+            "drawer.warmup.warmup"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/preventive-care-vaccination/vaccination-filter-modal.tsx::modal::hd",
+      "kind": "modal",
+      "where": "features/preventive-care-vaccination/vaccination-filter-modal.tsx:132",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the modal \"hd\" (features/preventive-care-vaccination/vaccination-filter-modal.tsx:132)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.clear",
+            "action.filters",
+            "filter.apply_filters",
+            "filter.apply_immediately",
+            "filter.available_columns",
+            "filter.close_label",
+            "filter.column_separator",
+            "filter.facets_label",
+            "filter.quick_filters_aria",
+            "filter.search_rows_label",
+            "filter.search_visible_rows",
+            "pager.matching_rows"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/process-integrity/action-center-filters.tsx::modal::hd",
+      "kind": "modal",
+      "where": "features/process-integrity/action-center-filters.tsx:90",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the modal \"hd\" (features/process-integrity/action-center-filters.tsx:90)",
+          "operator": "field-set-equals",
+          "expected": [
+            "filter.clear_all",
+            "filter.clear_local",
+            "filter.close_button_label",
+            "filter.done",
+            "filter.owner_label",
+            "filter.owner_placeholder",
+            "filter.scope_note",
+            "filter.search_label",
+            "filter.search_placeholder",
+            "filter.severity.title",
+            "filter.work_state.title"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/process-integrity/action-center-local-drawer.tsx::edit-form::action",
+      "kind": "edit-form",
+      "where": "features/process-integrity/action-center-local-drawer.tsx:209",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"action\" (features/process-integrity/action-center-local-drawer.tsx:209)",
+          "operator": "field-set-equals",
+          "expected": [
+            "drawer.adherence_status_help",
+            "drawer.adherence_status_label",
+            "drawer.due_label",
+            "drawer.owner_chain_label",
+            "drawer.priority_label",
+            "drawer.work_item.aria",
+            "drawer.work_item.close_label",
+            "drawer.work_item.eyebrow",
+            "label.owner_chain_assign",
+            "label.unassigned"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/process-integrity/action-center.tsx::edit-form::action",
+      "kind": "edit-form",
+      "where": "features/process-integrity/action-center.tsx:72",
+      "status": "not-checked",
+      "notCheckedReason": "every control on this edit-form is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+    },
+    {
+      "key": "features/procurement/animal-purchase-decision-form.tsx::edit-form::ap-decision",
+      "kind": "edit-form",
+      "where": "features/procurement/animal-purchase-decision-form.tsx:60",
+      "status": "not-checked",
+      "notCheckedReason": "every control on this edit-form is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+    },
+    {
+      "key": "features/procurement/animal-purchase-lightbox.tsx::modal::ap-lightbox-scrim",
+      "kind": "modal",
+      "where": "features/procurement/animal-purchase-lightbox.tsx:109",
+      "status": "not-checked",
+      "notCheckedReason": "every control on this modal is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+    },
+    {
+      "key": "features/procurement/animal-purchases.tsx::edit-form::ap-filter-bar",
+      "kind": "edit-form",
+      "where": "features/procurement/animal-purchases.tsx:362",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"ap-filter-bar\" (features/procurement/animal-purchases.tsx:362)",
+          "operator": "field-set-equals",
+          "expected": [
+            "decision.by",
+            "decision.on",
+            "filter.apply",
+            "filter.clear",
+            "filter.decision",
+            "filter.load",
+            "filter.load.all",
+            "filter.recorded_from",
+            "filter.recorded_to"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/procurement/feed-purchase-drawer.tsx::edit-form::dc",
+      "kind": "edit-form",
+      "where": "features/procurement/feed-purchase-drawer.tsx:221",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"dc\" (features/procurement/feed-purchase-drawer.tsx:221)",
+          "operator": "field-set-equals",
+          "expected": [
+            "hint.batch_no",
+            "required.hint"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/procurement/feed-purchase-drawer.tsx::edit-form::dc#2",
+      "kind": "edit-form",
+      "where": "features/procurement/feed-purchase-drawer.tsx:362",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"dc\" (features/procurement/feed-purchase-drawer.tsx:362)",
+          "operator": "field-set-equals",
+          "expected": [
+            "hint.days_of_stock",
+            "hint.edit_identity",
+            "hint.total_cost"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/procurement/feed-purchase-drawer.tsx::edit-form::fld",
+      "kind": "edit-form",
+      "where": "features/procurement/feed-purchase-drawer.tsx:507",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"fld\" (features/procurement/feed-purchase-drawer.tsx:507)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.mark_reached.label",
+            "action.update_delivery.label",
+            "column.payment_status",
+            "hint.mark_reached",
+            "hint.reached_weight",
+            "payments.balance",
+            "payments.column.amount",
+            "payments.column.note",
+            "payments.column.paid_on",
+            "payments.empty",
+            "payments.paid_so_far",
+            "section.payments.title"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/procurement/feed-purchase-drawer.tsx::edit-form::fld#2",
+      "kind": "edit-form",
+      "where": "features/procurement/feed-purchase-drawer.tsx:595",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"fld\" (features/procurement/feed-purchase-drawer.tsx:595)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.record_feed_payment.label",
+            "action.update_payment_status.label",
+            "hint.record_payment"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/procurement/feed-purchase-drawer.tsx::edit-form::fld#3",
+      "kind": "edit-form",
+      "where": "features/procurement/feed-purchase-drawer.tsx:619",
+      "status": "not-checked",
+      "notCheckedReason": "every control on this edit-form is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+    },
+    {
+      "key": "features/procurement/load-cost-drawer.tsx::edit-form::dc",
+      "kind": "edit-form",
+      "where": "features/procurement/load-cost-drawer.tsx:136",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"dc\" (features/procurement/load-cost-drawer.tsx:136)",
+          "operator": "field-set-equals",
+          "expected": [
+            "column.mortality",
+            "column.other_exits",
+            "column.purchased",
+            "column.remaining",
+            "column.sold",
+            "column.sold_value",
+            "column.unaccounted",
+            "loadwise.prior.animals",
+            "loadwise.prior.died",
+            "loadwise.prior.sold",
+            "loadwise.prior.title"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/procurement/load-forms.tsx::edit-form::fld",
+      "kind": "edit-form",
+      "where": "features/procurement/load-forms.tsx:91",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"fld\" (features/procurement/load-forms.tsx:91)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.create_load",
+            "field.animal_identifier_1",
+            "field.expected_count",
+            "field.notes",
+            "field.planned_dispatch",
+            "field.purchase_date",
+            "field.source_location_id",
+            "field.source_party_id",
+            "form.add_goat.title",
+            "location.locations_unavailable",
+            "location.no_parks",
+            "location.no_sheds",
+            "placeholder.animal_identifier_1",
+            "placeholder.optional",
+            "placeholder.source_location",
+            "placeholder.source_party_id",
+            "placeholder.zero"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/procurement/load-forms.tsx::edit-form::fld#2",
+      "kind": "edit-form",
+      "where": "features/procurement/load-forms.tsx:167",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"fld\" (features/procurement/load-forms.tsx:167)",
+          "operator": "field-set-equals",
+          "expected": [
+            "field.animal_identifier_1",
+            "field.animal_identifier_2",
+            "field.health_state",
+            "field.holding_location_id",
+            "field.ownership",
+            "field.purpose",
+            "field.selection_state",
+            "field.sex",
+            "field.species",
+            "field.warmup_days",
+            "note.source_goat_identity",
+            "placeholder.animal_identifier_1",
+            "placeholder.animal_identifier_2",
+            "placeholder.holding_location_id",
+            "placeholder.sex",
+            "placeholder.species",
+            "placeholder.warmup_days"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/procurement/load-forms.tsx::edit-form::fld#3",
+      "kind": "edit-form",
+      "where": "features/procurement/load-forms.tsx:253",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"fld\" (features/procurement/load-forms.tsx:253)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.import_hf_evidence",
+            "empty.hf_evidence",
+            "field.administered_at_hf",
+            "field.dose_code",
+            "field.goat_in_load",
+            "field.lot_number",
+            "field.proof_ref_id",
+            "field.protocol_version_id",
+            "field.rule_id",
+            "field.source_ref",
+            "field.vaccine_name",
+            "placeholder.dose_code",
+            "placeholder.optional",
+            "placeholder.proof_ref_id",
+            "placeholder.protocol_version_id",
+            "placeholder.rule_id",
+            "placeholder.source_ref"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/procurement/load-forms.tsx::edit-form::fld#4",
+      "kind": "edit-form",
+      "where": "features/procurement/load-forms.tsx:431",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"fld\" (features/procurement/load-forms.tsx:431)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.record_dispatch",
+            "field.arrival_rows",
+            "field.dispatch_proof_ref_id",
+            "field.dispatched_at",
+            "field.from_location_id",
+            "field.goat_ids",
+            "field.park_location_id",
+            "field.review_status",
+            "field.to_location_id",
+            "form.arrival_review.title",
+            "note.arrival_rows",
+            "placeholder.arrival_rows",
+            "placeholder.dispatch_proof_ref_id",
+            "placeholder.goat_ids_dispatch",
+            "placeholder.zero"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/procurement/load-forms.tsx::edit-form::fld#5",
+      "kind": "edit-form",
+      "where": "features/procurement/load-forms.tsx:468",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"fld\" (features/procurement/load-forms.tsx:468)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.accept_intake",
+            "action.record_arrival_review",
+            "confirm.accept_intake",
+            "field.arrival_rows",
+            "field.entry_date",
+            "field.goat_ids",
+            "field.intake_health_signal",
+            "field.park_location_id",
+            "field.review_status",
+            "form.accept_intake.title",
+            "label.pc_handoff_note",
+            "note.arrival_rows",
+            "placeholder.arrival_rows",
+            "placeholder.goat_ids_intake",
+            "placeholder.zero"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/procurement/load-forms.tsx::edit-form::fld#6",
+      "kind": "edit-form",
+      "where": "features/procurement/load-forms.tsx:511",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"fld\" (features/procurement/load-forms.tsx:511)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.accept_intake",
+            "confirm.accept_intake",
+            "field.entry_date",
+            "field.goat_ids",
+            "field.intake_health_signal",
+            "label.pc_handoff_note",
+            "placeholder.goat_ids_intake"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/procurement/load-forms.tsx::edit-form::preDispatchDecisionAction",
+      "kind": "edit-form",
+      "where": "features/procurement/load-forms.tsx:403",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"preDispatchDecisionAction\" (features/procurement/load-forms.tsx:403)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.record_decision",
+            "action.record_dispatch",
+            "confirm.pre_dispatch.prefix",
+            "confirm.pre_dispatch.suffix",
+            "field.dispatch_proof_ref_id",
+            "field.dispatched_at",
+            "field.from_location_id",
+            "field.goat_ids",
+            "field.pre_dispatch",
+            "field.reason",
+            "field.to_location_id",
+            "form.dispatch.title",
+            "placeholder.dispatch_proof_ref_id",
+            "placeholder.goat_ids_dispatch",
+            "placeholder.optional"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/procurement/load-forms.tsx::edit-form::recordSourceHealthAction",
+      "kind": "edit-form",
+      "where": "features/procurement/load-forms.tsx:385",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"recordSourceHealthAction\" (features/procurement/load-forms.tsx:385)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.record_decision",
+            "action.record_health",
+            "confirm.pre_dispatch.prefix",
+            "confirm.pre_dispatch.suffix",
+            "field.from_location_id",
+            "field.pre_dispatch",
+            "field.reason",
+            "field.source_health",
+            "field.to_location_id",
+            "form.dispatch.title",
+            "placeholder.optional"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/procurement/load-forms.tsx::edit-form::reviewHFVaccinationEvidenceAction",
+      "kind": "edit-form",
+      "where": "features/procurement/load-forms.tsx:345",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"reviewHFVaccinationEvidenceAction\" (features/procurement/load-forms.tsx:345)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.record_health",
+            "action.review",
+            "empty.pre_dispatch",
+            "field.reason",
+            "field.review_status",
+            "field.source_health",
+            "form.pre_dispatch.title",
+            "placeholder.optional",
+            "placeholder.reason"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/procurement/market-config-form.tsx::edit-form::market-config-line",
+      "kind": "edit-form",
+      "where": "features/procurement/market-config-form.tsx:45",
+      "status": "not-checked",
+      "notCheckedReason": "every control on this edit-form is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+    },
+    {
+      "key": "features/procurement/sale-allocation-drawer.tsx::modal::dh",
+      "kind": "modal",
+      "where": "features/procurement/sale-allocation-drawer.tsx:255",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the modal \"dh\" (features/procurement/sale-allocation-drawer.tsx:255)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.close",
+            "action.tag_animals.label",
+            "empty.parks",
+            "empty.parks_unavailable",
+            "field.park",
+            "field.sale",
+            "field.search_tag",
+            "field.shed",
+            "value.all_sheds",
+            "value.choose_park"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/procurement/sales-record-drawer.tsx::edit-form::dc",
+      "kind": "edit-form",
+      "where": "features/procurement/sales-record-drawer.tsx:256",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"dc\" (features/procurement/sales-record-drawer.tsx:256)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.open_vendors",
+            "date.invalid_sale_date",
+            "date.next_month",
+            "date.prev_month",
+            "date.sale_date.placeholder",
+            "error.vendors_unavailable",
+            "hint.vendor_empty",
+            "hint.vendor_truncated",
+            "required.hint"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/procurement/sales-record-drawer.tsx::edit-form::deleteSalesDealPaymentAction",
+      "kind": "edit-form",
+      "where": "features/procurement/sales-record-drawer.tsx:624",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"deleteSalesDealPaymentAction\" (features/procurement/sales-record-drawer.tsx:624)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.record_deal_payment.label",
+            "action.update_deal_status.label",
+            "hint.record_payment"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/procurement/sales-record-drawer.tsx::edit-form::fld",
+      "kind": "edit-form",
+      "where": "features/procurement/sales-record-drawer.tsx:635",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"fld\" (features/procurement/sales-record-drawer.tsx:635)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.record_deal_payment.label",
+            "action.update_deal_status.label",
+            "hint.record_payment"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/procurement/sales-record-drawer.tsx::edit-form::fld#2",
+      "kind": "edit-form",
+      "where": "features/procurement/sales-record-drawer.tsx:658",
+      "status": "not-checked",
+      "notCheckedReason": "every control on this edit-form is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+    },
+    {
+      "key": "features/procurement/sales-record-drawer.tsx::edit-form::updateSalesDealPaymentAction",
+      "kind": "edit-form",
+      "where": "features/procurement/sales-record-drawer.tsx:619",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"updateSalesDealPaymentAction\" (features/procurement/sales-record-drawer.tsx:619)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.record_deal_payment.label",
+            "action.update_deal_status.label",
+            "hint.record_payment"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/procurement/valuation-section.tsx::edit-form::valuation-form",
+      "kind": "edit-form",
+      "where": "features/procurement/valuation-section.tsx:56",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"valuation-form\" (features/procurement/valuation-section.tsx:56)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.valuation.label",
+            "valuation.bucket",
+            "valuation.fixed_weight",
+            "valuation.fixed_weight.hint",
+            "valuation.fixed_weight.measured",
+            "valuation.price_per_kg",
+            "valuation.unsold_price",
+            "valuation.unsold_price.hint",
+            "valuation.updated"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/procurement/vendor-filter-bar.tsx::edit-form::unnamed",
+      "kind": "edit-form",
+      "where": "features/procurement/vendor-filter-bar.tsx:33",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"unnamed\" (features/procurement/vendor-filter-bar.tsx:33)",
+          "operator": "field-set-equals",
+          "expected": [
+            "filter.search_label",
+            "filter.search_placeholder"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/procurement/vendor-local-drawer.tsx::edit-form::changeVendorStatusAction",
+      "kind": "edit-form",
+      "where": "features/procurement/vendor-local-drawer.tsx:481",
+      "status": "not-checked",
+      "notCheckedReason": "every control on this edit-form is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+    },
+    {
+      "key": "features/procurement/vendor-local-drawer.tsx::edit-form::dc",
+      "kind": "edit-form",
+      "where": "features/procurement/vendor-local-drawer.tsx:204",
+      "status": "not-checked",
+      "notCheckedReason": "every control on this edit-form is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+    },
+    {
+      "key": "features/sops/sop-builder.tsx::modal::cmh",
+      "kind": "modal",
+      "where": "features/sops/sop-builder.tsx:518",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the modal \"cmh\" (features/sops/sop-builder.tsx:518)",
+          "operator": "field-set-equals",
+          "expected": [
+            "builder.preview.close",
+            "builder.preview.title",
+            "modal.builder.eyebrow"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/sops/sop-library.tsx::modal::cmh",
+      "kind": "modal",
+      "where": "features/sops/sop-library.tsx:327",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the modal \"cmh\" (features/sops/sop-library.tsx:327)",
+          "operator": "field-set-equals",
+          "expected": [
+            "label.code",
+            "label.domain",
+            "label.gates",
+            "label.placeholder",
+            "label.render_action_center",
+            "label.steps_questions",
+            "label.trigger",
+            "label.version_status",
+            "modal.detail.aria",
+            "modal.detail.close_label"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/vaccination-execution/execution-board.tsx::modal::unnamed",
+      "kind": "modal",
+      "where": "features/vaccination-execution/execution-board.tsx:507",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the modal \"unnamed\" (features/vaccination-execution/execution-board.tsx:507)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.open_action_center",
+            "action.shed_detail",
+            "drawer.shed_event.aria",
+            "drawer.shed_event.close_label",
+            "drawer.shed_event.eyebrow",
+            "drawer.shed_event.owner_assist",
+            "drawer.shed_event.shed",
+            "drawer.shed_event.shed_event",
+            "drawer.shed_event.status",
+            "drawer.shed_event.stock",
+            "label.owner_chain_to_assign",
+            "label.stock_resolved_action_center"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/vaccination-plan/duration-field.tsx::modal::pn-l",
+      "kind": "modal",
+      "where": "features/vaccination-plan/duration-field.tsx:101",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the modal \"pn-l\" (features/vaccination-plan/duration-field.tsx:101)",
+          "operator": "field-set-equals",
+          "expected": [
+            "How many",
+            "Unit"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/vaccination-plan/plan-editor.tsx::modal::vp-sheet",
+      "kind": "modal",
+      "where": "features/vaccination-plan/plan-editor.tsx:730",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the modal \"vp-sheet\" (features/vaccination-plan/plan-editor.tsx:730)",
+          "operator": "field-set-equals",
+          "expected": [
+            "Add a vaccine to this plan",
+            "Bacterial",
+            "Close",
+            "Goats and sheep",
+            "Goats only",
+            "Killed",
+            "Live",
+            "Procurement purpose",
+            "Sheep only",
+            "Viral",
+            "e.g. BRU",
+            "e.g. Brucella",
+            "e.g. Brucellosis"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/vaccination-plan/version-sheet.tsx::modal::vp-sheet",
+      "kind": "modal",
+      "where": "features/vaccination-plan/version-sheet.tsx:49",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the modal \"vp-sheet\" (features/vaccination-plan/version-sheet.tsx:49)",
+          "operator": "field-set-equals",
+          "expected": [
+            "Close",
+            "First doses",
+            "Repeats",
+            "Vaccine",
+            "Version settings"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/vaccination-sheds/shed-filter-bar.tsx::edit-form::tsearch",
+      "kind": "edit-form",
+      "where": "features/vaccination-sheds/shed-filter-bar.tsx:42",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"tsearch\" (features/vaccination-sheds/shed-filter-bar.tsx:42)",
+          "operator": "field-set-equals",
+          "expected": [
+            "filter.sheds.search",
+            "label.sheds_noun"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/verification-review/randomization.tsx::edit-form::vr-rand-set",
+      "kind": "edit-form",
+      "where": "features/verification-review/randomization.tsx:87",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"vr-rand-set\" (features/verification-review/randomization.tsx:87)",
+          "operator": "field-set-equals",
+          "expected": [
+            "randomization.apply",
+            "randomization.col.share",
+            "randomization.effective",
+            "randomization.set_by"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/verification-review/toxin-review-list.tsx::edit-form::fld",
+      "kind": "edit-form",
+      "where": "features/verification-review/toxin-review-list.tsx:284",
+      "status": "not-checked",
+      "notCheckedReason": "every control on this edit-form is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+    },
+    {
+      "key": "features/verification-review/toxin-review-list.tsx::modal::vr-modal-hd",
+      "kind": "modal",
+      "where": "features/verification-review/toxin-review-list.tsx:206",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the modal \"vr-modal-hd\" (features/verification-review/toxin-review-list.tsx:206)",
+          "operator": "field-set-equals",
+          "expected": [
+            "drawer.close_label",
+            "drawer.media.empty",
+            "drawer.media.open",
+            "feedback.failed"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/verification-review/verification-review-drawer.tsx::edit-form::recordVerificationVerdictAction",
+      "kind": "edit-form",
+      "where": "features/verification-review/verification-review-drawer.tsx:932",
+      "status": "not-checked",
+      "notCheckedReason": "every control on this edit-form is labelled from data, not from its own source, so no expected value can be derived offline; it needs one run against a seeded throwaway dataset to state a reference that could fail"
+    },
+    {
+      "key": "features/verification-review/verification-review-page.tsx::edit-form::vr-filter-form",
+      "kind": "edit-form",
+      "where": "features/verification-review/verification-review-page.tsx:459",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"vr-filter-form\" (features/verification-review/verification-review-page.tsx:459)",
+          "operator": "field-set-equals",
+          "expected": [
+            "filter.date",
+            "filter.date.aria",
+            "filter.date.next_month",
+            "filter.date.previous_month",
+            "filter.date.range",
+            "filter.date.range_end_hint",
+            "filter.date.range_separator",
+            "filter.date.range_start_hint",
+            "filter.date.single",
+            "filter.date.today",
+            "filter.module",
+            "filter.shed"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/verification-review/video-log.tsx::edit-form::vl-frow",
+      "kind": "edit-form",
+      "where": "features/verification-review/video-log.tsx:210",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"vl-frow\" (features/verification-review/video-log.tsx:210)",
+          "operator": "field-set-equals",
+          "expected": [
+            "video_log.filter.all_parks",
+            "video_log.filter.all_sheds",
+            "video_log.filter.apply",
+            "video_log.filter.clear",
+            "video_log.filter.park",
+            "video_log.filter.search",
+            "video_log.filter.search_hint",
+            "video_log.filter.shed"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/work-board/work-board-board.tsx::row-action::unnamed",
+      "kind": "row-action",
+      "where": "features/work-board/work-board-board.tsx:126",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the row-action \"unnamed\" (features/work-board/work-board-board.tsx:126)",
+          "operator": "field-set-equals",
+          "expected": [
+            "card.attention",
+            "card.done",
+            "card.in_review",
+            "card.started",
+            "filter.assignee.clear",
+            "filter.assignee.select_all",
+            "owner.missing",
+            "owner.pool"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/work-board/work-board-modal.tsx::edit-form::flag",
+      "kind": "edit-form",
+      "where": "features/work-board/work-board-modal.tsx:34",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the edit-form \"flag\" (features/work-board/work-board-modal.tsx:34)",
+          "operator": "field-set-equals",
+          "expected": [
+            "action.close",
+            "flag.hint",
+            "flag.note",
+            "flag.note.placeholder",
+            "owner.missing",
+            "owner.pool"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    },
+    {
+      "key": "features/work-board/work-board-modal.tsx::modal::mh",
+      "kind": "modal",
+      "where": "features/work-board/work-board-modal.tsx:105",
+      "status": "stated-not-executed",
+      "viewports": [
+        "1440",
+        "390"
+      ],
+      "notExecutedReason": "no sweep has opened this surface yet; the browser lane is disabled after the 2026-09-23 incident",
+      "assertions": [
+        {
+          "subject": "the controls a person can see on the modal \"mh\" (features/work-board/work-board-modal.tsx:105)",
+          "operator": "field-set-equals",
+          "expected": [
+            "detail.module",
+            "detail.owner",
+            "detail.park",
+            "detail.pen",
+            "detail.status",
+            "drawer.description",
+            "drawer.details",
+            "drawer.open_module",
+            "drawer.status_auto",
+            "drawer.status_auto.title",
+            "drawer.subtasks",
+            "tile.attention",
+            "tile.done",
+            "tile.pending"
+          ],
+          "blankScreenValue": []
+        }
+      ]
+    }
+  ]
+}
