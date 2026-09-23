@@ -2,7 +2,7 @@
   "description": "One defect per lane 2 check. The mutation prover plants it in a local throwaway clone, shows the check fires, rolls it back, and shows the check goes quiet. A check with no defect here is reported as a named gap, never as coverage.",
   "mutations": {
     "herd_total_vs_status_breakdown": {
-      "defect": "an animal whose state is not one of the four the herd screen totals",
+      "defect": "an animal in a state the herd screen's four totals do not include",
       "plant": [
         {
           "table": "goats",
@@ -10,7 +10,7 @@
             "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
             "goat_id": "'00000000-0000-4000-8000-0000000000a1'::uuid",
             "sex": "'f'",
-            "lifecycle_status": "'zombie'"
+            "lifecycle_status": "'culled'"
           }
         }
       ]
@@ -58,27 +58,7 @@
       ]
     },
     "animal_in_two_pens": {
-      "defect": "the same animal on two pen sheets",
-      "plant": [
-        {
-          "table": "goat_shed_partitions",
-          "row": {
-            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
-            "goat_id": "'00000000-0000-4000-8000-0000000000a1'::uuid",
-            "shed_id": "'00000000-0000-4000-8000-0000000000b1'::uuid",
-            "source_shed_name": "'Fixture Pen'"
-          }
-        },
-        {
-          "table": "goat_shed_partitions",
-          "row": {
-            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
-            "goat_id": "'00000000-0000-4000-8000-0000000000a1'::uuid",
-            "shed_id": "'00000000-0000-4000-8000-0000000000b2'::uuid",
-            "source_shed_name": "'Fixture Pen 2'"
-          }
-        }
-      ]
+      "unprovable": "the pen sheet holds one row per animal, so the same animal cannot be written into two pens and the check can never fire; it guards against that key being widened, and is not live coverage"
     },
     "pen_record_disagrees_with_animal_record": {
       "defect": "the pen sheet and the animal's own record name different pens",
@@ -131,14 +111,14 @@
       ]
     },
     "duplicate_animal_tag": {
-      "defect": "one tag number worn by two animals",
+      "defect": "one tag number worn by two animals (the check compares tags across the whole database, so the pair is planted under two tenants; one tenant cannot hold a duplicate tag at all)",
       "plant": [
         {
           "table": "goat_identifiers",
           "row": {
             "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
             "goat_id": "'00000000-0000-4000-8000-0000000000a1'::uuid",
-            "identifier_type": "'rfid'",
+            "identifier_type": "'animal_identifier_1'",
             "identifier_value": "'FIXTAG1'",
             "normalized_value": "'FIXTAG1'",
             "scope_key": "'fixture'",
@@ -150,9 +130,9 @@
         {
           "table": "goat_identifiers",
           "row": {
-            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
+            "tenant_id": "'00000000-0000-4000-8000-000000000002'::uuid",
             "goat_id": "'00000000-0000-4000-8000-0000000000a2'::uuid",
-            "identifier_type": "'rfid'",
+            "identifier_type": "'animal_identifier_1'",
             "identifier_value": "'FIXTAG1'",
             "normalized_value": "'FIXTAG1'",
             "scope_key": "'fixture'",
@@ -164,40 +144,10 @@
       ]
     },
     "non_positive_animal_weight": {
-      "defect": "an animal weighed at zero",
-      "plant": [
-        {
-          "table": "weighing_observations",
-          "row": {
-            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
-            "campaign_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
-            "weight_kg": "0",
-            "proof_artifact_id": "'00000000-0000-4000-8000-0000000000c2'::uuid",
-            "recorded_by": "'00000000-0000-4000-8000-0000000000c3'::uuid",
-            "idempotency_key": "'fix-1'",
-            "scanned_identifier": "'FIXTAG1'"
-          }
-        }
-      ]
+      "unprovable": "the database refuses a weight of zero or less on this table, so the row this check looks for cannot exist and the check can never fire; it guards against that constraint being dropped, and is not live coverage"
     },
     "non_positive_pen_weight": {
-      "defect": "a pen weighed at zero",
-      "plant": [
-        {
-          "table": "weighing_shed_observations",
-          "row": {
-            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
-            "campaign_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
-            "campaign_shed_id": "'00000000-0000-4000-8000-0000000000c2'::uuid",
-            "weight_kg": "0",
-            "average_weight_kg": "10",
-            "animal_count": "10",
-            "proof_artifact_id": "'00000000-0000-4000-8000-0000000000c2'::uuid",
-            "recorded_by": "'00000000-0000-4000-8000-0000000000c3'::uuid",
-            "idempotency_key": "'fix-s1'"
-          }
-        }
-      ]
+      "unprovable": "the database refuses a pen weight of zero or less, so the row this check looks for cannot exist and the check can never fire; it guards against that constraint being dropped, and is not live coverage"
     },
     "implausible_weight_jump": {
       "defect": "the same animal at 20 kg and then 80 kg a day later",
@@ -264,9 +214,8 @@
             "session_no": "1",
             "head_count": "10",
             "head_count_informational": "false",
-            "workflow": "'direction'",
+            "workflow": "'normal'",
             "feed_item_label": "'Fixture Feed'",
-            "feed_item_key": "'fixture_feed'",
             "session_total_kg": "10",
             "overdue_pending": "false",
             "row_seq": "1",
@@ -291,9 +240,8 @@
             "session_no": "1",
             "head_count": "10",
             "head_count_informational": "false",
-            "workflow": "'direction'",
+            "workflow": "'normal'",
             "feed_item_label": "'Fixture Feed'",
-            "feed_item_key": "'fixture_feed'",
             "session_total_kg": "10",
             "overdue_pending": "false",
             "row_seq": "1",
@@ -313,7 +261,7 @@
             "feed_direction_issue_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
             "park_id": "'00000000-0000-4000-8000-0000000000b2'::uuid",
             "feed_day": "current_date + 5",
-            "workflow": "'direction'",
+            "workflow": "'normal'",
             "state": "'issued'"
           }
         }
@@ -329,7 +277,7 @@
             "feed_direction_issue_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
             "park_id": "'00000000-0000-4000-8000-0000000000b2'::uuid",
             "feed_day": "current_date - 10",
-            "workflow": "'direction'",
+            "workflow": "'normal'",
             "state": "'issued'"
           }
         }
@@ -345,8 +293,8 @@
             "feed_direction_issue_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
             "park_id": "'00000000-0000-4000-8000-0000000000b2'::uuid",
             "feed_day": "current_date",
-            "workflow": "'direction'",
-            "state": "'issued'",
+            "workflow": "'normal'",
+            "state": "'locked'",
             "locked_at": "now() - interval '2 hours'",
             "amended_at": "now()"
           }
@@ -363,7 +311,7 @@
             "feed_direction_issue_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
             "park_id": "'00000000-0000-4000-8000-0000000000b2'::uuid",
             "feed_day": "current_date",
-            "workflow": "'direction'",
+            "workflow": "'normal'",
             "state": "'issued'",
             "locked_at": "now()"
           }
@@ -380,9 +328,8 @@
             "session_no": "1",
             "head_count": "0",
             "head_count_informational": "false",
-            "workflow": "'direction'",
+            "workflow": "'normal'",
             "feed_item_label": "'Fixture Feed'",
-            "feed_item_key": "'fixture_feed'",
             "session_total_kg": "10",
             "overdue_pending": "false",
             "row_seq": "1",
@@ -493,7 +440,13 @@
           "row": {
             "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
             "deal_id": "'00000000-0000-4000-8000-0000000000c3'::uuid",
-            "line_no": "1"
+            "line_no": "1",
+            "product_type": "'Goat'",
+            "breed": "'Fixture'",
+            "sales_value": "0",
+            "weight_estimate_basis": "null",
+            "estimated_weight_kg": "null",
+            "estimated_weight_band": "null"
           }
         }
       ]
@@ -661,29 +614,7 @@
       ]
     },
     "vaccination_recorded_twice_for_same_dose": {
-      "defect": "the same dose recorded twice for one animal",
-      "plant": [
-        {
-          "table": "vaccination_completions",
-          "row": {
-            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
-            "obligation_id": "'00000000-0000-4000-8000-0000000000c2'::uuid",
-            "goat_id": "'00000000-0000-4000-8000-0000000000a1'::uuid",
-            "status": "'recorded'",
-            "administered_at": "now()"
-          }
-        },
-        {
-          "table": "vaccination_completions",
-          "row": {
-            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
-            "obligation_id": "'00000000-0000-4000-8000-0000000000c2'::uuid",
-            "goat_id": "'00000000-0000-4000-8000-0000000000a1'::uuid",
-            "status": "'recorded'",
-            "administered_at": "now() - interval '1 hour'"
-          }
-        }
-      ]
+      "unprovable": "the database already refuses a second recorded or accepted dose for the same animal, and those are the only two states this check reads, so it can never fire; it guards against that key being dropped, and is not live coverage"
     },
     "same_dose_recorded_twice_in_any_state": {
       "defect": "the same dose recorded twice for one animal in any state",
@@ -695,7 +626,8 @@
             "obligation_id": "'00000000-0000-4000-8000-0000000000c2'::uuid",
             "goat_id": "'00000000-0000-4000-8000-0000000000a1'::uuid",
             "status": "'recorded'",
-            "administered_at": "now()"
+            "administered_at": "now()",
+            "idempotency_key": "'fix-vs-0'"
           }
         },
         {
@@ -704,8 +636,9 @@
             "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
             "obligation_id": "'00000000-0000-4000-8000-0000000000c2'::uuid",
             "goat_id": "'00000000-0000-4000-8000-0000000000a1'::uuid",
-            "status": "'recorded'",
-            "administered_at": "now() - interval '1 hour'"
+            "status": "'reversed'",
+            "administered_at": "now() - interval '1 hour'",
+            "idempotency_key": "'fix-vs-1'"
           }
         }
       ]
@@ -771,10 +704,12 @@
           "row": {
             "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
             "goat_id": "'00000000-0000-4000-8000-0000000000a1'::uuid",
-            "status": "'open'",
+            "status": "'active'",
             "start_date": "current_date - 100",
             "duration_days": "5",
-            "disease_name": "'Fixture'"
+            "disease_name": "'Fixture'",
+            "exit_type": "'F'",
+            "age_band": "'adult'"
           }
         }
       ]
@@ -791,7 +726,10 @@
             "target_date": "current_date",
             "status": "'completed'",
             "verified_at": "now()",
-            "packing_proof_ref": "null"
+            "packing_proof_ref": "null",
+            "sop_proofs": "'{\"slot\": \"video\"}'::jsonb",
+            "workflow": "'normal'",
+            "session_no": "1"
           }
         }
       ]
@@ -806,9 +744,10 @@
             "rule_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
             "target_type": "'goat'",
             "target_id": "'00000000-0000-4000-8000-0000000000a1'::uuid",
-            "status": "'pending'",
+            "status": "'due'",
             "completed_at": "null",
-            "due_at": "now()"
+            "due_at": "now()",
+            "scope_type": "'shed'"
           }
         },
         {
@@ -818,9 +757,10 @@
             "rule_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
             "target_type": "'goat'",
             "target_id": "'00000000-0000-4000-8000-0000000000a1'::uuid",
-            "status": "'pending'",
+            "status": "'due'",
             "completed_at": "null",
-            "due_at": "now() + interval '1 day'"
+            "due_at": "now() + interval '1 day'",
+            "scope_type": "'shed'"
           }
         }
       ]
@@ -836,7 +776,8 @@
             "scope_type": "'shed'",
             "scope_id": "'00000000-0000-4000-8000-0000000000b1'::uuid",
             "title": "'Fixture task'",
-            "state": "'open'"
+            "state": "'queued'",
+            "task_type": "'fixture'"
           }
         },
         {
@@ -852,14 +793,17 @@
       ]
     },
     "sop_without_exactly_one_published_version": {
-      "defect": "a work instruction with two published versions",
+      "defect": "a work instruction with no published version at all (two published versions are impossible: the database allows only one)",
       "plant": [
         {
           "table": "sop_definitions",
           "row": {
             "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
             "sop_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
-            "name": "'Fixture SOP'"
+            "name": "'Fixture SOP'",
+            "code": "'fixture.sop'",
+            "kind": "'general'",
+            "status": "'active'"
           }
         },
         {
@@ -868,18 +812,8 @@
             "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
             "sop_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
             "sop_version_id": "'00000000-0000-4000-8000-0000000000c2'::uuid",
-            "status": "'published'",
+            "status": "'draft'",
             "version_label": "'v1'"
-          }
-        },
-        {
-          "table": "sop_versions",
-          "row": {
-            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
-            "sop_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
-            "sop_version_id": "'00000000-0000-4000-8000-0000000000c3'::uuid",
-            "status": "'published'",
-            "version_label": "'v2'"
           }
         }
       ]
@@ -904,8 +838,11 @@
             "task_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
             "sop_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
             "sop_version_id": "'00000000-0000-4000-8000-0000000000c2'::uuid",
-            "state": "'open'",
-            "title": "'Fixture task'"
+            "state": "'queued'",
+            "title": "'Fixture task'",
+            "scope_type": "'shed'",
+            "scope_id": "'00000000-0000-4000-8000-0000000000b1'::uuid",
+            "task_type": "'fixture'"
           }
         }
       ]
@@ -917,7 +854,6 @@
           "table": "feed_item_catalog",
           "row": {
             "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
-            "feed_item_key": "'fixture_feed'",
             "feed_item_label": "'Fixture Feed'",
             "status": "'retired'"
           }
@@ -926,7 +862,6 @@
           "table": "feed_ration_rates",
           "row": {
             "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
-            "feed_item_key": "'fixture_feed'",
             "feed_item_label": "'Fixture Feed'",
             "valid_to": "null",
             "grams_per_head": "100"
@@ -941,7 +876,6 @@
           "table": "feed_ration_rates",
           "row": {
             "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
-            "feed_item_key": "'not_in_catalogue'",
             "feed_item_label": "'Ghost Feed'",
             "valid_to": "null",
             "grams_per_head": "100"
@@ -958,8 +892,11 @@
             "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
             "resolved_at": "null",
             "created_at": "now() - interval '30 days'",
-            "exception_type": "'fixture'",
-            "status": "'open'"
+            "exception_type": "'count_mismatch'",
+            "status": "'open'",
+            "severity": "'warning'",
+            "work_type": "'counts_projection_exception'",
+            "work_state": "'blocked'"
           }
         }
       ]
@@ -973,9 +910,9 @@
             "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
             "workflow_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
             "actions_total": "5",
-            "actions_done": "5",
-            "module": "'feed'",
-            "template_key": "'fixture'",
+            "actions_done": "0",
+            "module": "'birth'",
+            "template_key": "'birth_kid'",
             "event_date": "current_date",
             "state": "'open'"
           }
@@ -985,7 +922,10 @@
           "row": {
             "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
             "workflow_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
-            "status": "'pending'"
+            "status": "'pending'",
+            "action_type": "'action'",
+            "section": "'main'",
+            "seq": "1"
           }
         }
       ]
@@ -1008,26 +948,10 @@
       ]
     },
     "pen_weighing_with_no_average_to_show": {
-      "unprovable": "the column this check reads is declared NOT NULL in the schema, so the row it looks for cannot exist and the check can never fire; it is a guard against a schema change, not live coverage"
+      "unprovable": "the database requires an average on every pen weighing, so the row this check looks for cannot exist and the check can never fire; it guards against that requirement being dropped, and is not live coverage"
     },
     "pen_weighing_counted_against_nobody": {
-      "defect": "a pen weight counted against no animals",
-      "plant": [
-        {
-          "table": "weighing_shed_observations",
-          "row": {
-            "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
-            "campaign_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
-            "campaign_shed_id": "'00000000-0000-4000-8000-0000000000c2'::uuid",
-            "weight_kg": "100",
-            "average_weight_kg": "10",
-            "animal_count": "0",
-            "proof_artifact_id": "'00000000-0000-4000-8000-0000000000c2'::uuid",
-            "recorded_by": "'00000000-0000-4000-8000-0000000000c3'::uuid",
-            "idempotency_key": "'fix-s1'"
-          }
-        }
-      ]
+      "unprovable": "the database refuses a pen weighing counted against zero animals, so the row this check looks for cannot exist and the check can never fire; it guards against that constraint being dropped, and is not live coverage"
     },
     "sale_totals_disagree_with_its_own_lines": {
       "defect": "a sale whose own lines add up to a different number of animals",
@@ -1040,7 +964,11 @@
             "sale_date": "current_date",
             "buyer_name": "'Fixture Buyer'",
             "status": "'Deal Closed'",
-            "animal_count": "5"
+            "animal_count": "5",
+            "farm": "'CBE'",
+            "product_type": "'Goat'",
+            "breed": "'Fixture'",
+            "sales_value": "0"
           }
         },
         {
@@ -1049,7 +977,13 @@
             "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
             "deal_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
             "line_no": "1",
-            "animal_count": "1"
+            "animal_count": "1",
+            "product_type": "'Goat'",
+            "breed": "'Fixture'",
+            "sales_value": "0",
+            "weight_estimate_basis": "null",
+            "estimated_weight_kg": "null",
+            "estimated_weight_band": "null"
           }
         }
       ]
@@ -1065,7 +999,11 @@
             "sale_date": "current_date",
             "buyer_name": "'Fixture Buyer'",
             "status": "'Deal Closed'",
-            "animal_count": "5"
+            "animal_count": "5",
+            "farm": "'CBE'",
+            "product_type": "'Goat'",
+            "breed": "'Fixture'",
+            "sales_value": "0"
           }
         },
         {
@@ -1133,7 +1071,8 @@
             "load_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
             "purchase_date": "current_date",
             "status": "'in_transit'",
-            "expected_count": "1"
+            "expected_count": "1",
+            "idempotency_key": "'fix-load-1'"
           }
         },
         {
@@ -1143,7 +1082,8 @@
             "load_id": "'00000000-0000-4000-8000-0000000000c2'::uuid",
             "purchase_date": "current_date",
             "status": "'in_transit'",
-            "expected_count": "1"
+            "expected_count": "1",
+            "idempotency_key": "'fix-load-2'"
           }
         },
         {
@@ -1195,7 +1135,7 @@
             "attempt_no": "1",
             "result": "'failed'",
             "attempted_at": "now()",
-            "channel": "'push'"
+            "channel": "'push_fcm'"
           }
         }
       ]
@@ -1210,8 +1150,8 @@
             "notification_request_id": "'00000000-0000-4000-8000-0000000000c1'::uuid",
             "status": "'queued'",
             "requested_at": "now() - interval '10 days'",
-            "notification_type": "'fixture'",
-            "channel": "'push'"
+            "notification_type": "'reminder'",
+            "channel": "'push_fcm'"
           }
         }
       ]
@@ -1226,7 +1166,7 @@
             "event_kind": "'fixture.alert'",
             "enabled": "true",
             "label": "'Fixture alert'",
-            "severity": "'high'"
+            "severity": "'warning'"
           }
         }
       ]
@@ -1238,8 +1178,17 @@
           "table": "pc_care_tasks",
           "row": {
             "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
-            "work_state": "'pending'",
-            "due_business_date": "current_date - 10"
+            "work_state": "'scheduled'",
+            "due_business_date": "current_date - 10",
+            "category": "'deworming'",
+            "status": "'open'",
+            "shed_id": "'00000000-0000-4000-8000-0000000000b1'::uuid",
+            "planned_business_date": "current_date - 10",
+            "vaccine_label": "null",
+            "gates_task_id": "null",
+            "gates_round_id": "null",
+            "closed_by": "null",
+            "close_reason": "null"
           }
         }
       ]
@@ -1253,19 +1202,21 @@
             "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
             "status": "'done'",
             "done_at": "null",
-            "title": "'Fixture task'"
+            "title": "'Fixture task'",
+            "raised_by": "'00000000-0000-4000-8000-0000000000d1'::uuid",
+            "assignee_user_id": "'00000000-0000-4000-8000-0000000000d2'::uuid"
           }
         }
       ]
     },
     "clock_entry_that_cannot_have_happened": {
-      "defect": "a shift with negative minutes worked",
+      "defect": "a shift recording more minutes than a day holds",
       "plant": [
         {
           "table": "workforce_clock_entries",
           "row": {
             "tenant_id": "'00000000-0000-4000-8000-000000000001'::uuid",
-            "worked_minutes": "-5",
+            "worked_minutes": "2000",
             "business_date": "current_date",
             "status": "'closed'"
           }
