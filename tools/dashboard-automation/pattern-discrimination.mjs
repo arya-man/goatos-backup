@@ -51,18 +51,36 @@ export function scanDiscrimination(source) {
 }
 
 let cached = null;
-export function discrimination(file = DOM_TEST_FILE) {
-  if (cached && cached.file === file) return cached.map;
-  let map;
+
+/**
+ * Read the evidence, and SAY WHAT ARRIVED.
+ *
+ * An evidence file that fails to read used to produce an empty map silently.
+ * That fails CLOSED — nothing is proven, so nothing is wrongly covered — but a
+ * silent zero and a real zero are indistinguishable, and the census behind
+ * "3 of 125" would have been counted from a file nobody read. `census` is
+ * returned beside the map so the number can be traced to what produced it.
+ */
+export function discriminationCensus(file = DOM_TEST_FILE) {
+  if (cached && cached.file === file) return cached;
+  let map = new Map();
+  let census;
   try {
-    map = scanDiscrimination(readFileSync(file, "utf8"));
-  } catch {
-    // No evidence file means NO detector is proven. Failing open here would
-    // restore the exact state this exists to prevent.
-    map = new Map();
+    const text = readFileSync(file, "utf8");
+    map = scanDiscrimination(text);
+    census = { file, characters: text.length, detectors: map.size, error: "" };
+    if (!map.size) {
+      census.error = "the evidence file was read but names no detector at all, so no pattern entry can be covered from it";
+    }
+  } catch (error) {
+    census = { file, characters: 0, detectors: 0, error: `the evidence this guard counts from could not be read: ${String(error?.message ?? error)}` };
   }
-  cached = { file, map };
-  return map;
+  cached = { file, map, census };
+  return cached;
+}
+
+export function discrimination(file = DOM_TEST_FILE) {
+  return discriminationCensus(file).map;
 }
 
 /**

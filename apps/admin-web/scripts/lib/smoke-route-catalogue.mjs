@@ -25,6 +25,11 @@ export const SMOKE_SOURCE = "apps/admin-web/scripts/smoke-visual-live.mjs";
 export function smokeRoutes(repoRoot, source = SMOKE_SOURCE) {
   const text = readFileSync(`${repoRoot}/${source}`, "utf8");
   const routes = [];
+  // Counted from what was READ, never from what was listed. A file that opens
+  // but yields no route would otherwise make every downstream fraction read
+  // "0 of 0 pages judged" — a clean-looking receipt counted from nothing. The
+  // read itself already throws when the file is missing; this catches the file
+  // that is present and says nothing.
   const seen = new Set();
   ROUTE_LINE.lastIndex = 0;
   for (let m = ROUTE_LINE.exec(text); m; m = ROUTE_LINE.exec(text)) {
@@ -36,6 +41,9 @@ export function smokeRoutes(repoRoot, source = SMOKE_SOURCE) {
     if (seen.has(name)) continue;
     seen.add(name);
     routes.push({ name, path, raw, needsFixture });
+  }
+  if (!routes.length) {
+    throw new Error(`${source} was read (${text.length} characters) but no route could be found in it, so any coverage counted from this table would be counted from nothing`);
   }
   return routes;
 }

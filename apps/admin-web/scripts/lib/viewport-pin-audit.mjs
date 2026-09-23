@@ -93,7 +93,33 @@ export function sourcesFor(root, className, cache) {
   return hits;
 }
 
+/** The folders this audit claims to have read. All of them must exist. */
+export const SOURCE_ROOTS = Object.freeze(["app", "features", "components"]);
+
+/**
+ * Read every component source, and SAY WHAT ARRIVED.
+ *
+ * This used to swallow a missing folder — "a missing folder is not a verdict" —
+ * and that was wrong in the most dangerous direction available. A folder that
+ * failed to read contributed zero files silently, every class came back
+ * "no source mentions this", and the audit still printed a fraction. Measured:
+ * with the source root missing it reported 11 of 66 rather than failing, and
+ * with an EMPTY stylesheet it reported 34 of 66 — HIGHER than the true 33,
+ * because nothing looks hidden when there is no CSS. A missing input made it
+ * recommend MORE widening, which is how a check gets widened onto a width that
+ * does not draw the element and accuses a correct page.
+ *
+ * So: a root that cannot be read is an error, not a zero, and the census is
+ * returned beside the answer so a reader can see what the number was counted
+ * from.
+ */
+// Reading 623 files and 5.3 MB on every call made the tests slow enough to
+// matter, and this lane must not add CI time. Cached per root; the census is
+// still reported from what was read, so caching hides nothing.
+const sourceCache = new Map();
+
 function listSources(root) {
+  if (sourceCache.has(root)) return sourceCache.get(root);
   const out = [];
   const walk = (dir) => {
     for (const name of readdirSync(dir)) {
@@ -104,9 +130,18 @@ function listSources(root) {
       else if (/\.(tsx|ts)$/.test(name) && !/\.test\./.test(name)) out.push({ file: full, text: readFileSync(full, "utf8") });
     }
   };
-  for (const sub of ["app", "features", "components"]) {
-    try { walk(path.join(root, sub)); } catch { /* a missing folder is not a verdict */ }
+  for (const sub of SOURCE_ROOTS) {
+    const dir = path.join(root, sub);
+    try {
+      walk(dir);
+    } catch (error) {
+      throw new Error(`this audit claims to read ${sub}/ and could not: ${String(error?.message ?? error)}. A folder that contributes nothing silently would make every class read as "no source mentions this" and the audit would still print a fraction.`);
+    }
   }
+  if (!out.length) {
+    throw new Error(`this audit read no component source at all under ${root}, so any fraction it printed would be counted from nothing`);
+  }
+  sourceCache.set(root, out);
   return out;
 }
 
@@ -152,11 +187,22 @@ export function classifyPin(entry, { css, root, cache }) {
 
 /** Audit every pinned entry. Coverage as a fraction; a reason on every entry that stays pinned. */
 export function auditPins(entries, { css, root }) {
+  if (typeof css !== "string" || css.trim().length === 0) {
+    throw new Error("this audit claims to read the stylesheet and got nothing. With no CSS nothing looks hidden, so it would report MORE checks as safe to widen than are — the one direction that ends in a correct page being accused.");
+  }
   const cache = new Map();
   const pinned = entries.filter((e) => (e.viewports ?? []).length === 1);
   const rows = pinned.map((entry) => ({ sha: entry.sha, route: entry.route, ...classifyPin(entry, { css, root, cache }) }));
   const widenable = rows.filter((r) => r.verdict === "widenable");
+  const files = cache.get("__files__") ?? [];
   return {
+    // What the fraction was counted FROM, printed beside it.
+    read: {
+      sourceFiles: files.length,
+      sourceCharacters: files.reduce((n, f) => n + f.text.length, 0),
+      stylesheetCharacters: css.length,
+      mediaBlocks: mediaBlocks(css).length,
+    },
     entriesPinned: pinned.length,
     widenable: widenable.length,
     stillPinned: rows.filter((r) => r.verdict !== "widenable"),
