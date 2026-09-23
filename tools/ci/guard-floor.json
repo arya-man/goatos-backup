@@ -1,0 +1,4 @@
+{
+  "description": "The fewest guards the manifest may register. A guard removed WHOLE - script, row, build target and CI step together - leaves a tree nothing can see is missing one, and once that deletion is in main no later diff contains it. This floor is the only thing that survives it. Lowering it needs a GUARD-WEAKENING-ACK line, the way the exception and telemetry ratchets do.",
+  "minimumRegisteredGuards": 145
+}

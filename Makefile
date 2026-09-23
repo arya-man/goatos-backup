@@ -17,7 +17,7 @@ export PATH := $(HOME)/.local/bin:$(PATH)
 .PHONY: release-tag release-tag-contract-guard restore-stg-android-release-env stg-zero-downtime-migration-audit
 .PHONY: e2e-image-build e2e-parity e2e-smoke e2e-business-chain scale-cert
 .PHONY: org-boundary-guard
-.PHONY: dashboard-automation-guard dashboard-automation-self-test dashboard-automation-data-parity dashboard-automation-production-smoke dashboard-automation-post-main-certification
+.PHONY: guard-integrity-guard dashboard-automation-guard dashboard-automation-self-test dashboard-automation-data-parity dashboard-automation-production-smoke dashboard-automation-post-main-certification
 setup-crg: ai-setup
 
 ai-setup:
@@ -110,6 +110,12 @@ dashboard-automation-self-test:
 	node tools/dashboard-automation/run-module-journeys.mjs --self-test
 	node tools/dashboard-automation/sync-coverage.mjs --self-test
 	node tools/dashboard-automation/check-mobile-flicker.mjs --self-test
+	node tools/dashboard-automation/check-data-sanity.mjs --self-test
+	node tools/dashboard-automation/mutation-prove-data-sanity.mjs --self-test
+	node tools/dashboard-automation/prove-write-journey-screens.mjs --self-test
+	node tools/dashboard-automation/prove-write-journey-screens.mjs --min 8
+	node tools/dashboard-automation/run-write-journeys.mjs --self-test
+	node --test tools/dashboard-automation/check-data-sanity.test.mjs tools/dashboard-automation/screen-assertion.test.mjs tools/dashboard-automation/run-write-journeys.test.mjs
 	node --test tools/dashboard-automation/sweep-safety.test.mjs tools/dashboard-automation/flicker-calibration.test.mjs tools/dashboard-automation/pattern-discrimination.test.mjs
 	node --test tools/dashboard-automation/sync-coverage.test.mjs
 	node --test tools/dashboard-automation/lane-coverage.test.mjs
@@ -151,6 +157,7 @@ guardrails:
 	$(MAKE) gradle-worktree-lock-guard
 	$(MAKE) grafana-durability-guard
 	$(MAKE) guardrail-registration-guard
+	$(MAKE) guard-integrity-guard
 	$(MAKE) guard-weakening-guard
 	$(MAKE) guard-input-presence-guard
 	$(MAKE) commandboard-query-plan-wiring-guard
@@ -160,6 +167,7 @@ guardrails:
 	$(MAKE) backend-proof-media-egress-guard
 	$(MAKE) admin-web-proof-media-egress-guard
 	$(MAKE) dashboard-automation-guard
+	$(MAKE) dashboard-automation-self-test
 	$(MAKE) test-execution-integrity-guard
 	$(MAKE) operator-cap-fail-closed-guard
 	$(MAKE) stg-operator-scope-guard
@@ -302,6 +310,14 @@ frontend-foundations-guard:
 guardrail-registration-guard:
 	node tools/ci/check-guardrail-registration.mjs --self-test
 	node tools/ci/check-guardrail-registration.mjs
+
+# guard-integrity-guard: meta-guard. Registration counts NAMES; this one asks whether
+# the target actually runs its script, whether the script does any work at all, and
+# whether any CI path reaches the target. A guard can be switched off by emptying its
+# recipe or gutting its body with every other meta-guard still green.
+guard-integrity-guard:
+	node tools/ci/check-guard-integrity.mjs --self-test
+	node tools/ci/check-guard-integrity.mjs
 
 # guard-weakening-guard: meta-guard. A diff that makes a guard protect LESS
 # (guard deleted, manifest entry removed, requiredInCI downgraded, selfTest
