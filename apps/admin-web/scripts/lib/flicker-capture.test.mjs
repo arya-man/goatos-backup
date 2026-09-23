@@ -15,7 +15,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { captureFlicker, writeFlickerEvidence } from "./flicker-capture.mjs";
+import { captureFlicker, captureOverlayPaint, writeFlickerEvidence } from "./flicker-capture.mjs";
 
 /** A still page that paints one wrong frame about once a second. */
 const FLICKERING_PAGE = `<!doctype html><meta name=viewport content="width=device-width">
@@ -138,3 +138,118 @@ test("scrolling a calm page is not reported as flicker", { skip: available ? fal
     await browser.close();
   }
 });
+
+// ---------------------------------------------------------------------------
+// The overlay-paint defect class: an opaque panel showing the page behind it
+// ---------------------------------------------------------------------------
+// This is the bug Ravi actually filmed, reduced to its essentials: a panel the
+// stylesheet declares solid, over a half-transparent dimmer, over a page — and for a
+// fifth of a second after a filter changes, the panel's own background is not painted
+// and the page is legible through the dimmer.
+//
+// The negative controls matter as much as the positive one. A panel closing, a panel
+// whose contents change, and a panel that is translucent by design must all stay
+// silent, or the check is noise.
+function overlayPage({ flashOnChange = true, closeOnChange = false, panelAlpha = 1 } = {}) {
+  return `<!doctype html><meta name=viewport content="width=device-width">
+<style>
+  body{margin:0;background:#0f1411;color:#e8f0eb;font:14px system-ui}
+  .row{padding:11px 12px;border-bottom:1px solid #223}
+  .scrim{position:fixed;inset:0;z-index:150;background:rgba(6,12,9,.42)}
+  .panel{position:fixed;left:0;right:0;bottom:0;height:520px;z-index:151;padding:14px;
+    background:rgba(22,31,26,${panelAlpha})}
+  .panel.ghost{background:transparent}
+  .panel.shut{display:none}
+  .opt{display:block;padding:12px 6px;border-bottom:1px solid #2a3a32}
+</style>
+<div id=list></div>
+<div class=scrim></div>
+<div class=panel id=panel><h3>Filters</h3>
+  <label class=opt><input type=checkbox> All</label>
+  <label class=opt><input type=checkbox> Dinakar</label>
+  <label class=opt><input type=checkbox> Manju</label>
+  <label class=opt><input type=checkbox> Manohark</label>
+  <label class=opt><input type=checkbox> Aryaman</label>
+</div>
+<script>
+  const list = document.getElementById("list");
+  for (let i = 0; i < 120; i += 1) {
+    const row = document.createElement("div");
+    row.className = "row";
+    row.textContent = "Task " + i + " - shift decking sheets on to the platform";
+    list.appendChild(row);
+  }
+  const panel = document.getElementById("panel");
+  panel.addEventListener("change", () => {
+    if (${String(closeOnChange)}) { panel.classList.add("shut"); return; }
+    if (!${String(flashOnChange)}) return;
+    // The defect: the panel's own background stops being painted for ~0.2s.
+    panel.classList.add("ghost");
+    setTimeout(() => panel.classList.remove("ghost"), 200);
+  });
+</script>`;
+}
+
+async function runOverlay(html, options = {}) {
+  const { browser, context } = await phoneBrowser();
+  try {
+    const page = await context.newPage();
+    await page.setContent(html);
+    await page.waitForTimeout(300);
+    return await captureOverlayPaint(page, {
+      // The panel is already open in this fixture, so there is nothing to open.
+      open: async () => true,
+      interact: async (p, mark) => {
+        const boxes = p.locator(".panel input[type=checkbox]");
+        const n = await boxes.count();
+        for (let i = 1; i < Math.min(n, 5); i += 1) {
+          await mark("change the filters", async () => {
+            await boxes.nth(i).click({ timeout: 3_000 }).catch(() => {});
+            await p.waitForTimeout(700);
+          });
+        }
+        return 4;
+      },
+      ...options,
+    });
+  } finally {
+    await context.close();
+    await browser.close();
+  }
+}
+
+test("finds a solid panel that shows the page through it when a filter changes",
+  { skip: available ? false : "no browser on this machine" }, async () => {
+    const result = await runOverlay(overlayPage());
+    assert.ok(result.overlays.length > 0, "the solid panel must be found on the page");
+    const panel = result.findings.find((f) => f.showedThrough);
+    assert.ok(panel, `the defect must be found: ${JSON.stringify(result.findings.map((f) => f.reason))}`);
+    assert.ok(panel.events.length >= 2, `once per change, got ${panel.events.length}`);
+    for (const event of panel.events) {
+      assert.ok(event.seconds <= 1.5, `a flash, not a state: ${event.seconds}s`);
+      assert.ok(event.lowest < event.settled * 0.6, "the background really was missing");
+    }
+    assert.equal(panel.overlay.label, "Filters", "the finding must name the panel a person sees");
+  });
+
+test("a solid panel that stays solid is not reported",
+  { skip: available ? false : "no browser on this machine" }, async () => {
+    const result = await runOverlay(overlayPage({ flashOnChange: false }));
+    assert.ok(!result.findings.some((f) => f.showedThrough),
+      `a panel that behaves must stay quiet: ${JSON.stringify(result.findings.map((f) => f.events))}`);
+  });
+
+test("a panel that closes on a change is not a panel that flickered",
+  { skip: available ? false : "no browser on this machine" }, async () => {
+    const result = await runOverlay(overlayPage({ closeOnChange: true }));
+    assert.ok(!result.findings.some((f) => f.showedThrough), "closing is what a panel is for");
+  });
+
+test("a panel that is see-through by design is never judged at all",
+  { skip: available ? false : "no browser on this machine" }, async () => {
+    // The whole basis of this check is that the browser says the element is opaque.
+    // Something translucent must not even be collected, let alone reported.
+    const result = await runOverlay(overlayPage({ panelAlpha: 0.6 }));
+    assert.ok(!result.overlays.some((o) => o.label === "Filters"),
+      "a translucent panel is not an opaque overlay and must not be picked up");
+  });
