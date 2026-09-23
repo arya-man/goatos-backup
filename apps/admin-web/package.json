@@ -44,7 +44,8 @@
     "check:ui-contract": "node scripts/check-ui-contract-literals.mjs",
     "check:mock-fidelity": "node scripts/check-ia-guard.mjs && node scripts/check-ui-contract-literals.mjs && node scripts/check-serial-await.mjs && node --experimental-strip-types scripts/check-action-center-request-plan.mjs && npm run check:calendar-request-plan && npm run check:request-plan-fanout && npm run check:vaccination-command-lenses && node scripts/check-mock-fidelity.mjs",
     "check:interactive-surfaces": "node scripts/check-interactive-surfaces.mjs --self-test",
-    "refresh:interactive-surfaces": "node scripts/refresh-interactive-surface-ledger.mjs"
+    "refresh:interactive-surfaces": "node scripts/refresh-interactive-surface-ledger.mjs",
+    "probe:interactive-surfaces": "node scripts/probe-interactive-surfaces.mjs"
   },
   "dependencies": {
     "@base-ui/react": "1.5.0",

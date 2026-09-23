@@ -389,3 +389,14 @@ test("a literal dynamic import IS followed, so a lazily loaded panel still names
   ]);
   assert.deepEqual(owners.get("app/(admin)/n/panel.tsx"), ["/n"]);
 });
+
+// ---------------------------------------------- counts are of what was READ (guard-census finding)
+test("a file that was listed but never read is refused, not counted as zero surfaces", () => {
+  // The census found guards printing "539 files scanned" with the tree deleted, because the
+  // number came from the candidate list. A listed-but-unread file must be loud.
+  assert.throws(
+    () => scanInteractiveSurfaces([{ path: "features/a/x.tsx", text: undefined }]),
+    /listed but its contents were never read/,
+  );
+  assert.equal(scanInteractiveSurfaces([]).length, 0, "an empty tree must count zero, not a leftover");
+});

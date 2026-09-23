@@ -75,6 +75,12 @@ export function scanInteractiveSurfaces(files) {
   const found = [];
   const usedKeys = new Map();
   for (const file of [...files].sort((a, b) => a.path.localeCompare(b.path))) {
+    // A file that was LISTED but whose contents never arrived must not quietly contribute nothing.
+    // That is the census defect: a guard reporting "539 files scanned" with the tree deleted,
+    // because it counted its candidate list. A count has to be of what was read.
+    if (typeof file.text !== "string") {
+      throw new Error(`${file.path} was listed but its contents were never read; a count of listed files is not a count of scanned files`);
+    }
     if (!/\.(tsx|jsx)$/.test(file.path)) continue;
     if (/\.(test|spec)\.[^/]+$/.test(file.path)) continue;
     const scannable = blankNonMarkup(file.text);
@@ -281,7 +287,7 @@ export const REQUIRED_VIEWPORTS = ["1440", "390"];
  *
  * The last line is the whole point: a check that cannot go red is not coverage.
  */
-export function gradeAssertion(assertion, readFile = null) {
+export function gradeAssertion(assertion, readFile = null, context = {}) {
   const reasons = [];
   const { operator, expected, blankScreenValue, subject } = assertion ?? {};
   if (!subject || !String(subject).trim()) reasons.push("names no subject a person could read");
@@ -311,7 +317,10 @@ export function gradeAssertion(assertion, readFile = null) {
   // The expected value must be RE-DERIVABLE from the artefact it names. Without this the gate
   // grades an author's declaration rather than a measurement -- the coverage illusion one level up.
   if (readFile) {
-    const derived = deriveExpected(assertion.provenance, readFile);
+    const derived =
+      assertion.provenance?.kind === "measured"
+        ? deriveMeasured(assertion.provenance, context.readReceipt, context.principal)
+        : deriveExpected(assertion.provenance, readFile);
     if (derived.error) {
       reasons.push(derived.error);
       return { ok: false, reasons };
@@ -350,7 +359,7 @@ export function gradeAssertion(assertion, readFile = null) {
  * @param {ReturnType<typeof scanInteractiveSurfaces>} surfaces
  * @param {{entries: Array<object>}} ledger
  */
-export function validateLedger(surfaces, ledger, readFile = null) {
+export function validateLedger(surfaces, ledger, readFile = null, readReceipt = null) {
   const problems = [];
   const entries = Array.isArray(ledger?.entries) ? ledger.entries : null;
   if (!entries) return { problems: ["the interactive-surface ledger has no entries array"], coverage: null };
@@ -405,7 +414,7 @@ export function validateLedger(surfaces, ledger, readFile = null) {
       }
       let good = true;
       for (const assertion of assertions) {
-        const graded = gradeAssertion(assertion, readFile);
+        const graded = gradeAssertion(assertion, readFile, { readReceipt, principal: entry.principal });
         if (!graded.ok) {
           good = false;
           for (const reason of graded.reasons) problems.push(`${entry.key}: assertion ${reason}`);
@@ -534,7 +543,13 @@ export function routeOfPageFile(path) {
   const rel = path
     .replace(/^app\//, "")
     .replace(/\/(?:page|layout|loading|error|not-found|template|default|global-error)\.(t|j)sx?$/, "");
-  const route = `/${rel}`.replaceAll(/\([^)]*\)\//g, "").replaceAll(/\[[^/]+\]/g, "placeholder").replace(/\/$/, "");
+  const route = `/${rel}`
+    .replaceAll(/\([^)]*\)\//g, "")
+    // A route GROUP at the very end has no trailing slash to match on -- app/(admin)/layout.tsx is
+    // the layout of "/", not a route called "/(admin)".
+    .replace(/\/\([^)]*\)$/, "/")
+    .replaceAll(/\[[^/]+\]/g, "placeholder")
+    .replace(/(.)\/$/, "$1");
   return route === "" ? "/" : route;
 }
 
@@ -588,4 +603,65 @@ export function routesOwningFiles(files) {
   const resolved = new Map([...owners].map(([path, routes]) => [path, [...routes].sort()]));
   resolved.unresolvableImportSites = [...unresolvable].sort();
   return resolved;
+}
+
+// ---------------------------------------------------------------------------------------------
+// 5. Measured values — the seam with the feature-assertion engine
+// ---------------------------------------------------------------------------------------------
+//
+// ONE notion of "a value that was actually measured", so neither side ships a second:
+//
+//   A measured value is one a RUN RECORDED while it had the page open. It is copied out of a run
+//   receipt by the grader; it is never typed by an author. It carries the principal it was read
+//   under and the page-contract revision that compiled for them, because on a role-agnostic page
+//   the same surface legitimately reads differently for two people. And it is only promotable to
+//   an expectation when at least two independent readings AGREE -- one reading cannot tell a
+//   stable label from a timestamp, a row id, or whatever the page happened to render once.
+//
+// `kind: "source"` (above) stays what it is: a value re-derived from committed source, true of
+// every principal. `kind: "measured"` is for everything source cannot answer -- which today is
+// 124 of 148 surfaces, because they carry no label of their own.
+
+export const RECEIPT_VERSION = 1;
+
+/** Readings that disagree cannot become an expectation; readings that agree can. */
+export function stableReading(readings) {
+  if (!Array.isArray(readings) || readings.length < 2) {
+    return { stable: false, reason: `needs at least two independent readings, got ${readings?.length ?? 0}` };
+  }
+  const first = JSON.stringify(readings[0]);
+  const disagreeing = readings.find((r) => JSON.stringify(r) !== first);
+  if (disagreeing !== undefined) {
+    return {
+      stable: false,
+      reason: `readings disagree (${first} vs ${JSON.stringify(disagreeing)}), so this is something the page varies, not something it owes`,
+    };
+  }
+  return { stable: true, value: readings[0] };
+}
+
+/**
+ * Look a measured value up in a receipt. Same contract as deriveExpected: the grader reads the
+ * artefact, the author does not get to state the value.
+ * @param {{kind:string, receipt:string, runId:string, observation:string}} provenance
+ * @param {(path:string)=>unknown} readReceipt returns the parsed receipt for a path
+ */
+export function deriveMeasured(provenance, readReceipt, principal) {
+  const { receipt: path, runId, observation } = provenance ?? {};
+  const receipt = readReceipt?.(path);
+  if (!receipt || typeof receipt !== "object") return { error: `names receipt ${JSON.stringify(path)}, which is not a receipt this gate can read` };
+  if (receipt.version !== RECEIPT_VERSION) return { error: `receipt ${path} is version ${receipt.version}, not ${RECEIPT_VERSION}` };
+  if (receipt.runId !== runId) return { error: `receipt ${path} holds run ${receipt.runId}, not ${runId}` };
+  if (String(receipt.principal ?? "") !== String(principal ?? "")) {
+    return {
+      error:
+        `was read as ${JSON.stringify(receipt.principal ?? null)} but the entry describes ` +
+        `${JSON.stringify(principal ?? null)}; on a role-agnostic page those are different screens`,
+    };
+  }
+  const found = (receipt.observations ?? []).find((o) => o.id === observation);
+  if (!found) return { error: `receipt ${path} has no observation ${JSON.stringify(observation)}` };
+  const stable = stableReading(found.readings);
+  if (!stable.stable) return { error: `observation ${observation} ${stable.reason}` };
+  return { value: stable.value };
 }
