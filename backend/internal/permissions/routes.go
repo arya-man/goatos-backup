@@ -855,6 +855,20 @@ var protectedRoutes = []Route{
 	{OperationID: "saveHealthConfigRegisterDraft", Method: "POST", Pattern: "/health-config/registers/drafts/save", Permissions: []string{HealthConfigWrite}},
 	{OperationID: "publishHealthConfigRegisterDraft", Method: "POST", Pattern: "/health-config/registers/{register_version_id}/publish", Permissions: []string{HealthConfigWrite}},
 	{OperationID: "discardHealthConfigRegisterDraft", Method: "POST", Pattern: "/health-config/registers/{register_version_id}/discard", Permissions: []string{HealthConfigWrite}},
+	// WHICH TYPES EXIST, AND WHICH ANIMALS REACH EACH ONE (migration 000395).
+	//
+	// The same two permissions again, and for a sharper version of the reason above: this
+	// decides which rulebook an animal is judged against, which is inseparable from what the
+	// rulebook says. A principal who may rewrite the adult register but not say who is an
+	// adult holds half a decision.
+	//
+	// Note the READ is on HealthConfigRead rather than something broader even though the
+	// routing screen shows live animal counts: those counts exist to size a clinical change,
+	// not to report the herd, and the herd has its own read.
+	{OperationID: "getHealthConfigDiagnosisTypes", Method: "GET", Pattern: "/health-config/diagnosis-types", Permissions: []string{HealthConfigRead}},
+	{OperationID: "saveHealthConfigDiagnosisType", Method: "POST", Pattern: "/health-config/diagnosis-types/save", Permissions: []string{HealthConfigWrite}},
+	{OperationID: "saveHealthConfigDiagnosisRoute", Method: "POST", Pattern: "/health-config/diagnosis-routes/save", Permissions: []string{HealthConfigWrite}},
+	{OperationID: "deleteHealthConfigDiagnosisRoute", Method: "POST", Pattern: "/health-config/diagnosis-routes/delete", Permissions: []string{HealthConfigWrite}},
 	{OperationID: "getFeedDirectionGenerationPreview", Method: "GET", Pattern: "/feed-direction/generation-preview", Permissions: []string{FeedDirectionRead}},
 	{OperationID: "listFeedDirectionCountsProjectionExceptions", Method: "GET", Pattern: "/feed-direction/counts-projection/exceptions", Permissions: []string{FeedDirectionRead}},
 	{OperationID: "resolveFeedDirectionCountsProjectionException", Method: "POST", Pattern: "/feed-direction/counts-projection/exceptions/{exception_id}/resolve", Permissions: []string{FeedDirectionOversee}},

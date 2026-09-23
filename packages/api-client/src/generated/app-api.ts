@@ -6455,6 +6455,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/health-config/diagnosis-types": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The diagnosis types this farm has, and which animals reach each one.
+         * @description A diagnosis TYPE is a rulebook -- adults, kids on milk, or one the farm authors itself -- and a ROUTE says which animals are judged against it. Both were compiled into the binary until migration 000395; adding a type, and pointing a stage at it, is now dashboard work. The response also names every stage that HOLDS LIVE ANIMALS and reaches no type, because that state is invisible otherwise: its only symptom is a manager being refused in a shed.
+         */
+        get: operations["getHealthConfigDiagnosisTypes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/health-config/diagnosis-types/save": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create a diagnosis type, or relabel and retire one.
+         * @description The KEY is set once and never rewritten -- register versions and stored runs carry it, so renaming it would make old proposals unreadable. The LABEL is the farm's own word and may change freely. The four shipped types cannot be retired, and no type may be retired while stages still route to it: those animals would start being refused with a message naming the stage rather than the real cause.
+         */
+        post: operations["saveHealthConfigDiagnosisType"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/health-config/diagnosis-routes/save": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Point one management stage, or a whole age band, at a diagnosis type.
+         * @description A route names a STAGE, or the wildcard `*` for every stage in the band. The exact stage always beats the wildcard, which is what lets a farm peel one cohort off a broad rule without moving anybody else. An animal no route reaches is REFUSED rather than defaulted: the rulebooks disagree about the things most likely to kill an animal, so the wrong one is worse than none.
+         */
+        post: operations["saveHealthConfigDiagnosisRoute"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/health-config/diagnosis-routes/delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Remove one stage route.
+         * @description Removing a band WILDCARD makes that whole age band fail-closed -- every animal in it is refused until its stage is routed. That is a real choice a farm may make and not an error, so it is not refused here; the screen is where the consequence is shown.
+         */
+        post: operations["deleteHealthConfigDiagnosisRoute"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health-config/registers": {
         parameters: {
             query?: never;
@@ -8033,6 +8113,51 @@ export interface components {
             non_specific?: string[];
             vocabulary?: string[];
             rules: components["schemas"]["HealthRegisterRule"][];
+        };
+        HealthDiagnosisType: {
+            /** @description Immutable. Register versions and stored runs carry it. */
+            type_key: string;
+            label: string;
+            /** @enum {string} */
+            status: "active" | "retired";
+            sort_order: number;
+            /** @description One of the four the engine shipped with. They may be relabelled and re-routed, never retired: their registers are the committed rulebook every other type is authored beside. */
+            is_builtin: boolean;
+            /** @description How many stages reach this type. A retire is refused while this is above zero. */
+            route_count: number;
+            /** @description Whether this type can diagnose anything yet. False is a real and expected state -- it is what a farm has between creating a type and authoring its rules. */
+            has_published_register: boolean;
+            /** Format: date-time */
+            updated_at?: string;
+        };
+        HealthDiagnosisStageRoute: {
+            /** @enum {string} */
+            age_band: "adult" | "kid";
+            stage_code: string;
+            type_key: string;
+            sub_stage: string;
+            /** @description The farm's own name for the stage. Blank for the wildcard, and for a stage the catalog no longer holds -- such a route stays visible so it can be removed. */
+            stage_label?: string;
+            type_label?: string;
+            /** @description The band-wide row. Deleting it makes that whole age band fail-closed. */
+            is_wildcard: boolean;
+            /** @description Alive animals this route governs right now. It is what tells a director whether a change touches five animals or seven hundred. */
+            live_animals?: number;
+        };
+        HealthUnroutedStage: {
+            /** @enum {string} */
+            age_band: "adult" | "kid";
+            stage_code: string;
+            stage_label: string;
+            live_animals: number;
+            /** @description An ICU / Quarantine-style stage. It says WHERE an animal is rather than what it eats, so it cannot choose a rulebook and is reported rather than presented as a gap to close. */
+            clinical_placement: boolean;
+        };
+        HealthDiagnosisRouting: {
+            types: components["schemas"]["HealthDiagnosisType"][];
+            routes: components["schemas"]["HealthDiagnosisStageRoute"][];
+            /** @description Stages that hold live animals and reach no active type. */
+            unrouted_stages: components["schemas"]["HealthUnroutedStage"][];
         };
         HealthRegisterSummary: {
             /** Format: uuid */
@@ -32426,6 +32551,142 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getHealthConfigDiagnosisTypes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The types, their routes, and the stages nothing routes. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HealthDiagnosisRouting"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    saveHealthConfigDiagnosisType: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description Lower-case letters, digits and underscores, starting with a letter. */
+                    type_key: string;
+                    label: string;
+                    /** @enum {string} */
+                    status?: "active" | "retired";
+                    sort_order?: number;
+                };
+            };
+        };
+        responses: {
+            /** @description The saved type. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HealthDiagnosisType"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+            422: components["responses"]["UnprocessableEntity"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    saveHealthConfigDiagnosisRoute: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    age_band: "adult" | "kid";
+                    /** @description A management stage code, or `*` for every stage in the band. */
+                    stage_code: string;
+                    type_key: string;
+                    /** @description The cohort the register reads INSIDE the type (K0/K1/K2 for kids on milk). Blank where the type has one cohort. */
+                    sub_stage?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The saved route. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HealthDiagnosisStageRoute"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["UnprocessableEntity"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    deleteHealthConfigDiagnosisRoute: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    age_band: "adult" | "kid";
+                    stage_code: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The route is gone. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        deleted: boolean;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            422: components["responses"]["UnprocessableEntity"];
             500: components["responses"]["ServerError"];
         };
     };
