@@ -11,13 +11,12 @@
  *
  * REFRESH STRATEGY — NO POLLING LOOP.
  *   1. once on mount,
- *   2. on every route change (the shell's `pathname` is the trigger; a leader's session is a walk
- *      through screens, so navigation is the natural revalidation point and costs one read per
- *      screen a person actually visited),
+ *   2. on route changes only when the previous read is at least 60 seconds old,
  *   3. on open, so the list a reader is about to read is the freshest one,
  *   4. on the explicit Refresh button.
  * An interval would multiply by every open tab on every CEO's laptop all day for a feed that
  * changes a few times an hour; navigation-triggered reads cost nothing when nobody is looking.
+ * Concurrent triggers share a single request, including open/Refresh during navigation.
  *
  * FAILURE IS NEVER THE SHELL'S PROBLEM. This component wraps every call in try/catch and holds
  * its own error code: a missing endpoint, a 500, or a thrown action leaves the bell quiet and
@@ -32,6 +31,7 @@ import {
   markNotificationsReadAction,
   type NotificationFeedActionResult,
 } from "./notification-actions";
+import { createNotificationRefreshGate } from "./notification-refresh";
 import { resolveNotificationCentreCopy } from "./notification-copy";
 import {
   applyLocallyRead,
@@ -84,6 +84,7 @@ export function NotificationBell({
   const buttonRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const liveRef = useRef(true);
+  const refreshGateRef = useRef(createNotificationRefreshGate(loadNotificationFeedAction));
   // WHERE THE PANEL SITS. The arithmetic and the reason it exists at all are in
   // `./notification-placement`. What lives here is the MEASUREMENT, and the rule that goes with
   // it: this is never a cached value. It is null whenever the panel is closed and is measured
@@ -114,19 +115,19 @@ export function NotificationBell({
     setFeed(result.feed);
   }, []);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (force = true) => {
     try {
-      applyFeedResult(await loadNotificationFeedAction());
+      const result = await refreshGateRef.current.load(force);
+      if (result) applyFeedResult(result);
     } catch {
       // A thrown Server Action (network drop, a deploy mid-flight) must not take the shell with
       // it: the bell simply stays quiet and every screen renders exactly as before.
     }
   }, [applyFeedResult]);
 
-  // Mount + every route change. See the refresh-strategy note above: a leader's session is a walk
-  // through screens, so navigation is the revalidation point and there is no interval anywhere.
+  // Mount + stale route changes. The gate shares pending reads across navigation,
+  // so a previous route's completion can still update this same mounted bell.
   useEffect(() => {
-    let cancelled = false;
     // The first read must NOT be dispatched from inside the hydration commit. A Server Action goes
     // through the App Router's action queue, and on a fresh page load that queue is not
     // initialised yet -- Next throws `Internal Next.js error: Router action dispatched before
@@ -134,20 +135,10 @@ export function NotificationBell({
     // and the read is lost until the next route change. One macrotask is enough, and the bell has
     // no deadline: nobody is reading an unread badge in the first frame.
     const timer = setTimeout(() => {
-      void (async () => {
-        try {
-          const result = await loadNotificationFeedAction();
-          if (!cancelled) applyFeedResult(result);
-        } catch {
-          // Same silence as above; a failed read is not the shell's problem.
-        }
-      })();
+      void refresh(false);
     }, 0);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [applyFeedResult, pathname]);
+    return () => clearTimeout(timer);
+  }, [refresh, pathname]);
 
   // Closing DROPS the measurement, so a stale box can never be painted on the next open. The
   // layout effect below is the only thing that ever sets one.
