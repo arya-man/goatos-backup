@@ -426,6 +426,11 @@ export function CeoAiStyles(): ReactElement {
   .mzai-starters button{flex:none;max-width:78vw;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 }
 .mzai-md ul{list-style:disc}.mzai-md ol{list-style:decimal}.mzai-md li::marker{color:var(--muted)}
+/* calmer emphasis: same Mesha green tokens, tinted instead of solid fills */
+.mzai-msg.user .mzai-bub{background:var(--brand-soft);color:var(--ink);border:1px solid color-mix(in srgb,var(--brand) 45%,transparent);box-shadow:none}
+.mzai-msg.user .mzai-thumb-open{border-color:var(--line);background:var(--panel);color:var(--ink)}
+.mzai-newbtn{background:transparent;color:var(--brand);border-color:color-mix(in srgb,var(--brand) 55%,transparent);box-shadow:none}
+.mzai-newbtn:hover{background:var(--brand-soft)}
 `}</style>
   );
 }
