@@ -116,3 +116,22 @@ test("classifyPin itself refuses to widen onto a width that hides the element", 
   );
   assert.equal(other.verdict, "widenable", "a laptop does not apply a max-width:760px rule");
 });
+
+test("the audit refuses to count from inputs it did not read", () => {
+  // Measured before this existed: with the source root missing it reported
+  // 11 of 66 rather than failing, and with an EMPTY stylesheet it reported
+  // 34 of 66 — HIGHER than the true 33, because nothing looks hidden when
+  // there is no CSS. A missing input made it recommend MORE widening, which
+  // ends in a check widened onto a width that does not draw the element.
+  const entries = loadFeatureAssertions();
+  assert.throws(() => auditPins(entries, { css: css(), root: "/nonexistent" }), /claims to read app\/ and could not/);
+  assert.throws(() => auditPins(entries, { css: "", root: adminWeb }), /claims to read the stylesheet and got nothing/);
+  assert.throws(() => auditPins(entries, { css: "   ", root: adminWeb }), /got nothing/);
+});
+
+test("the audit prints what its fraction was counted from", () => {
+  const result = auditPins(loadFeatureAssertions(), { css: css(), root: adminWeb });
+  assert.ok(result.read.sourceFiles > 100, `expected the whole component tree, read ${result.read.sourceFiles} files`);
+  assert.ok(result.read.sourceCharacters > 1_000_000, "and its contents");
+  assert.ok(result.read.mediaBlocks > 50, `and the stylesheet's width rules, found ${result.read.mediaBlocks}`);
+});
