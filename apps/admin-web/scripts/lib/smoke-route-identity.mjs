@@ -6,11 +6,6 @@ export function assertSmokeRouteIdentity(expectedUrl, actualUrl) {
   }
   for (const key of new Set(expected.searchParams.keys())) {
     if (canonicalRedirect === "procurement-source-entry" && key === "scope_mode") continue;
-    // /verification redirects STRAIGHT to /verify with no query (see the comment in
-    // app/(admin)/verification/page.tsx: a two-hop chain through /actions costs a round
-    // trip and risks a loop). /actions, the alias that carries deep links, still has to
-    // forward every parameter it was given, and is not exempted here.
-    if (canonicalRedirect === "verification-verify" && key === "scope_mode") continue;
     if (JSON.stringify(expected.searchParams.getAll(key)) !== JSON.stringify(actual.searchParams.getAll(key))) {
       throw new Error(`Smoke route changed requested query parameter ${key}`);
     }
