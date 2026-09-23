@@ -13,9 +13,19 @@ import { staticIssueRules } from "./lib/issue-rules.mjs";
 import writeJourneysKind from "./lib/finding-kinds/write-journeys.mjs";
 import dataSanityKind from "./lib/finding-kinds/data-sanity.mjs";
 import apiContractsKind from "./lib/finding-kinds/api-contracts.mjs";
-import androidJourneysKind from "./lib/finding-kinds/android-journeys.mjs";
 import mobileFlickerKind from "./lib/finding-kinds/mobile-flicker.mjs";
-const FINDING_KINDS = [writeJourneysKind, dataSanityKind, apiContractsKind, androidJourneysKind, mobileFlickerKind];
+import androidJourneysKind from "./lib/finding-kinds/android-journeys.mjs";
+// LANE 5 (android) IS THE LAST ENTRY AND MUST STAY THE LAST ENTRY.
+// run-android-journeys.test.mjs proves the byte-identical-message invariant by building a copy
+// of this file with lane 5 excised: it drops lane 5's import line and then cuts lane 5's name
+// out of the array below by a plain text match that ends at the closing bracket. A lane
+// registered after lane 5 leaves that match unanchored, so the copy keeps a name whose import
+// has just been removed, fails to parse, prints nothing at all, and the test reports
+// "registering lane 5 changed the message" when nothing of the sort happened. That is exactly
+// how this test went red for thirteen commits. Register a new lane BEFORE lane 5, and do not
+// write lane 5's name anywhere above this array. Order carries no other meaning: severity
+// decides who leads the message and who owns the headline (see collectFindingKinds).
+const FINDING_KINDS = [writeJourneysKind, dataSanityKind, apiContractsKind, mobileFlickerKind, androidJourneysKind];
 
 // Only the lanes that actually found something on THIS receipt are active. A registered lane that
 // contributed no findings contributes no rules and no blocks, so it cannot relabel, reorder or

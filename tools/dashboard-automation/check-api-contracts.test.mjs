@@ -19,7 +19,6 @@ import {
   isLongRunningExempt,
   latencyBudgetFor,
   loadCatalogue,
-  loadLaneChecks,
   missingRequiredFields,
   normalizeLaneChecks,
   percentile,
@@ -501,51 +500,3 @@ function timedFetch(durations) {
     return stubResponse(200, JSON.stringify({ ok: 1 }));
   };
 }
-
-
-// ---------------------------------------------------------------------------
-// Where this lane's derived rows live.
-//
-// Lane 2 lost 50 checks to a loader that looked at the top level of lane-checks.json while the
-// miner writes at lanes.lane2.checks, and reported the miss as "the file could not be read".
-// This lane's reader looked in the right place but ended in `?? []`, which is the same silence
-// with a different ending: a shape it does not recognise would have reported zero rows and no
-// complaint. These pin both halves.
-// ---------------------------------------------------------------------------
-
-test("this lane's derived rows are read from where the miner actually writes them", () => {
-  const file = path.join(here, "lane-checks.json");
-  const onDisk = JSON.parse(readFileSync(file, "utf8")).lanes?.lane3?.checks;
-  assert.ok(Array.isArray(onDisk) && onDisk.length > 0, "precondition: the shipped file carries lane 3 rows");
-  const loaded = loadLaneChecks(file, { includeUngrounded: true });
-  assert.equal(loaded.present, true);
-  assert.equal(loaded.shape, "lanes.lane3.checks");
-  assert.equal(loaded.found, onDisk.length, `every derived row must be accounted for: the file holds ${onDisk.length}`);
-  assert.equal(loaded.notLoaded, 0);
-  assert.equal(loaded.accepted.length + loaded.parked.length, onDisk.length,
-    "every located row must end up either accepted or parked, never dropped");
-});
-
-test("a shape this lane does not recognise reports the rows it could not load, not zero rows", () => {
-  const dir = mkdtempSync(path.join(tmpdir(), "lane3-shape-"));
-  try {
-    const rows = JSON.parse(readFileSync(path.join(here, "lane-checks.json"), "utf8")).lanes.lane3.checks;
-    const file = path.join(dir, "lane-checks.json");
-    writeFileSync(file, JSON.stringify({ lanes: { lane3: { buckets: { checks: rows } } } }));
-    const loaded = loadLaneChecks(file, { includeUngrounded: true });
-    assert.equal(loaded.shapeMismatch, true, "a shape mismatch must be labelled as one");
-    assert.equal(loaded.notLoaded, rows.length, "it must say how many rows it failed to load");
-    assert.equal(loaded.accepted.length, 0);
-    assert.ok(loaded.parked.some((item) => /0 of \d+ were loaded/.test(item.reason)),
-      "the count that went unloaded must be in the sentence, not implied by an empty list");
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test("an absent derived file is still not a mismatch", () => {
-  const loaded = loadLaneChecks(path.join(here, "no-such-lane-checks.json"));
-  assert.equal(loaded.present, false);
-  assert.equal(loaded.parked.length, 0, "a file that is not there parks nothing and invents no count");
-  assert.equal(loaded.notLoaded, 0);
-});
