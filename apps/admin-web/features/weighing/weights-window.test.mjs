@@ -102,6 +102,7 @@ test("weights analytics time-wise uses the same selected/default period as every
   // and its caption says so. Every other tab still reads the page's own scope and window.
   assert.match(analyticsSource, /const shedParams = \{\s*\n\s*\.\.\.\(wantsLoads \? \{ park_id: parkFilter \|\| undefined, from: LOAD_TAB_ALL_TIME_FROM, to: today \} : \{ \.\.\.scope, \.\.\.readWindow \}\),/);
   assert.match(analyticsSource, /include_loads: wantsLoads/);
+  assert.match(analyticsSource, /include_dates: false/);
   assert.match(analyticsSource, /getShedWeights\(shedParams\)/);
   assert.match(analyticsSource, /getWeighingGrowth\(\{\s*\n\s*\.\.\.scope,\s*\n\s*\.\.\.readWindow,\s*\n\s*sections: growthSections,\s*\n\s*\.\.\.\(tab === "time" \? \{ bucket: gainBucket, \.\.\.penScope \} : \{\}\),/);
   assert.match(analyticsSource, /getWeightDemographics\(\{\s*\n\s*\.\.\.scope,\s*\n\s*\.\.\.readWindow,\s*\n\s*sections: demographicsSections,\s*\n\s*band_edges_kg: bandEdgesParam\(assumptionRows\),\s*\n\s*\.\.\.\(tab === "time" \? \{ bucket: gainBucket, \.\.\.penScope \} : \{\}\),/);
