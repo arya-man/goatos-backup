@@ -111,7 +111,7 @@ export function toFindingsFromReceipt(receipt) {
       const evidence = panel.evidence ?? {};
       findings.push({
         kind: "seen",
-        what: `On ${plainEnglish(run.pageName, "one of the screens")}, ${where} goes see-through for a moment when you change a filter on the phone — the list behind it shows straight through and the words sit on top of each other, then it snaps back.`,
+        what: `On ${plainEnglish(run.pageName, "one of the screens").replace(/^The /, "the ")}, ${where} goes see-through for a moment when you change a filter on the phone — the list behind it shows straight through and the words sit on top of each other, then it snaps back.`,
         moving: [evidence.gif, evidence.filmstrip].filter((file) => file && existsSync(file)),
         stills: (evidence.frames ?? []).filter((file) => file && existsSync(file)).slice(0, 4),
         note: plainEnglish(evidence.note, ""),

@@ -484,3 +484,72 @@ of the frames either side, and the Slack message says so in as many words.
 entry and one `labelByLayer` line. Lane 4's golden-file test stays green — a lane-1-only receipt
 renders byte-identically. The text carries no selector, CSS property, file, line, check code, frame
 number or timing: *"The Tasks page flickers on the phone."*
+
+### The flicker lane, corrected: what Ravi filmed is a panel going see-through
+
+The section above was written against a CSS reading that turned out to be wrong, and the
+correction is worth keeping in full, because the way it was found is the method.
+
+**The bug.** On `/tasks` at 390px, changing the assignee filter while the filter panel is open
+makes the panel stop painting itself for roughly 0.15-0.3s: the page header, the New task button
+and the task list are drawn through it, the two sets of text sit on top of each other, and then it
+snaps back. Once per filter change. It is a paint-ordering defect, it has nothing to do with
+scrolling, and **it reproduces headless** — so unlike a GPU shimmer it can be a real verdict on
+production rather than only an instrument proof.
+
+**What was wrong in the first version of this lane.** `backdrop-filter` on a sticky bar was never
+the cause. `.lt-fbar` is made `position:static` below 640px and the recording is 576px wide, so the
+filter bar was not sticky in the video at all. `.veil` does not mount on this route. `.navback` was
+tested directly and does not flicker. Check A (sticky + filter) is still worth having on its own
+merits and stays, but it is **not** the explanation for what Ravi filmed, and it is no longer
+presented as one.
+
+**Three bugs in the checking, each found only by holding the check against frames known to contain
+the defect.** This is the part to remember:
+
+1. **A measure that passed every unit test and was blind.** The first version measured the share of
+   pixels inside the panel still matching the panel's own background colour, on the theory that the
+   background is replaced by the page behind. Held against the real frames, that share moves from
+   0.91 to 0.86 — nothing any threshold could catch — because the panel's background is still dark;
+   what leaks through is the page's *text and buttons*, a few per cent of the pixels. Measured
+   instead as an excursion inside the panel that changes and changes straight back, the same frames
+   give six events, one per filter change. **Unit tests cannot tell you that you are measuring the
+   wrong thing. Only frames that contain the bug can.** Both ground truths are now committed
+   fixtures (`testdata/phone-flicker-groundtruth.json.gz`, `panel-showthrough-groundtruth.json.gz`),
+   downsampled to the form the checks consume, so nothing legible from production is in the repo.
+
+2. **A frame count where a duration belonged.** A CDP screencast emits a frame only when the
+   compositor produces one, so a 200ms flash on an otherwise still page is exactly **one** frame.
+   The first version demanded two consecutive frames and threw the real bug away. The same
+   change-driven behaviour is why an excursion is timed from the first changed frame and not from
+   the last settled one, which can be a second earlier.
+
+3. **Three runner settings that each turned a real defect into a clean result.** Filming at 1:1
+   with the phone viewport smears the bleed-through text into the panel's background — it must film
+   at 2x. Loading with `domcontentloaded` films a panel over an empty list, which has nothing behind
+   it to show through. And an opener built from a list of class guesses resolved with `.first()`
+   matched some other button and opened nothing, which reads downstream as "this page has no
+   panel". All three produced confident green results on a page that was defective.
+
+**The check, as it now stands.** It asks the browser which elements are **opaque by design** — a
+computed background colour with no alpha — and watches only inside those. That is what lets it
+speak on a *single* occurrence where the whole-screen detector needs three: an element the
+stylesheet declares solid can never legitimately show what is behind it, so there is no "is this
+just an animation?" judgement to make. It generalises to any drawer, sheet or dialog with an opaque
+background, and it does not know the first one was a filter panel. Negative controls are part of
+the check, not an afterthought: a panel that closes, a panel whose contents change, and a panel
+that is translucent by design must all stay silent, and each is a browser test.
+
+**Verdict on production, through the runner, authenticated:** the filters panel shows the page
+through it on both `/tasks` and `/tasks?t_view=list`. Status fail, with a filmstrip per finding.
+
+**Evidence is never optional here.** Two production runs came back with no picture attached: the
+box has no `ffmpeg` on PATH, and the one Playwright ships beside its browsers is a stripped build
+with no image-sequence demuxer. A finding with no strip is a finding nobody can check, so the
+filmstrip is now stitched in-process with `pngjs` and works everywhere; the GIF is a bonus where a
+real ffmpeg exists.
+
+**Auth.** A production run that lands on `/login` proves nothing and is now **parked with its
+reason** rather than reported as a clean page — the first version of this lane reported "no
+flicker" on three login screens. Authentication is confirmed by the landed path and by real tenant
+data on the page before any result is trusted.
