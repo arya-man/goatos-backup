@@ -18,6 +18,9 @@
     ]
   },
   "ciCommonOnly": {
+    "prefixes": [
+      "tools/dashboard-automation/commit-classification/"
+    ],
     "files": [
       "tools/ci/android-ui-diff.sh",
       "tools/ci/android-screenshot-scope.sh",
@@ -34,8 +37,6 @@
       "tools/ci/land-main.test.sh",
       "tools/ci/run-local-ci.sh",
       "tools/agent-hooks/install-stg-push-guard.sh",
-      "tools/dashboard-automation/commit-classification/needs-lane.jsonl",
-      "tools/dashboard-automation/commit-classification/sync.jsonl",
       "tools/dashboard-automation/coverage-state.json",
       "tools/dashboard-automation/feature-assertions.json"
     ]

@@ -86,7 +86,10 @@ layer1() {
     dispatch_jobs common admin-web; exit "$fail"' >/dev/null 2>&1 \
     && ok "an all-green run stays GREEN" || bad "an all-green run reported RED"
 
-  # group exclusion: backend and query-plans (group `postgres`) never overlap.
+  # group exclusion: backend and query-plans share the `postgres` group ONLY on the
+  # Postgres opt-in path, where backend actually opens a database. Both directions are
+  # asserted below: mutual exclusion WITH the opt-in (the property that protects the
+  # database), and genuine overlap WITHOUT it (the property that buys the wall clock).
   local sched
   sched="$(bash -c '
     set -uo pipefail; . tools/ci/parallel-dispatch.sh
@@ -94,12 +97,47 @@ layer1() {
     run_job() { sleep 0.5; }
     dispatch_jobs backend query-plans common' 2>&1 | grep -c "launched job")"
   [ "$sched" = "3" ] || bad "expected 3 launches, saw ${sched}"
-  bash -c '
+  # (a) WITH the Postgres opt-in: backend opens a database, so it must NOT overlap.
+  GOATOS_RUN_POSTGRES_TESTS=1 bash -c '
     set -uo pipefail; . tools/ci/parallel-dispatch.sh
     declare -a RESULTS TIMINGS FAILED_JOBS; fail=0; screenshots_ran="skipped"
     run_job() { case "$1" in backend|query-plans) [ -e "$rundir/postgres.lock" ] && exit 9; : >"$rundir/postgres.lock"; sleep 0.6; rm -f "$rundir/postgres.lock" ;; esac; }
     dispatch_jobs backend query-plans; exit "$fail"' >/dev/null 2>&1 \
-    && ok "postgres-group jobs never overlap" || bad "backend and query-plans ran concurrently"
+    && ok "postgres opt-in: backend and query-plans never overlap" \
+    || bad "postgres opt-in: backend and query-plans ran concurrently"
+
+  # (b) WITHOUT it: backend runs GOATOS_RUN_POSTGRES_TESTS=0 and touches no database,
+  # so the two are in DIFFERENT groups and are free to overlap. Asserted on
+  # job_group directly, because that -- not observed concurrency -- is the property
+  # this change owns. Observed concurrency also depends on dispatch WIDTH, and at
+  # GOATOS_CI_LOCAL_JOBS=1 (a supported, documented setting: "width 1 degrades to
+  # sequential") nothing can overlap, so asserting overlap unconditionally would
+  # turn a supported configuration into a permanent RED on every tools/ci landing.
+  local g_backend g_plans
+  g_backend="$(GOATOS_RUN_POSTGRES_TESTS=0 bash -c '. tools/ci/parallel-dispatch.sh; job_group backend')"
+  g_plans="$(bash -c '. tools/ci/parallel-dispatch.sh; job_group query-plans')"
+  [ "$g_backend" != "$g_plans" ] \
+    && ok "default path: backend and query-plans are in different groups (${g_backend} vs ${g_plans})" \
+    || bad "default path: backend and query-plans share group '${g_backend}' -- serialised again"
+  [ "$(GOATOS_RUN_POSTGRES_TESTS=1 bash -c '. tools/ci/parallel-dispatch.sh; job_group backend')" = "postgres" ] \
+    && ok "postgres opt-in: backend rejoins the postgres group" \
+    || bad "postgres opt-in: backend did NOT rejoin the postgres group"
+  # `True` is in run-local-ci.sh's accepted set; it must serialise like `1`.
+  [ "$(GOATOS_RUN_POSTGRES_TESTS=True bash -c '. tools/ci/parallel-dispatch.sh; job_group backend')" = "postgres" ] \
+    && ok "postgres opt-in spelled True also serialises" \
+    || bad "GOATOS_RUN_POSTGRES_TESTS=True opened a database unserialised"
+
+  # And with width to spare they really do overlap -- the wall-clock win itself.
+  GOATOS_RUN_POSTGRES_TESTS=0 GOATOS_CI_LOCAL_JOBS=2 bash -c '
+    set -uo pipefail; . tools/ci/parallel-dispatch.sh
+    declare -a RESULTS TIMINGS FAILED_JOBS; fail=0; screenshots_ran="skipped"
+    run_job() { case "$1" in
+      backend)     : >"$rundir/backend.running"; sleep 3; rm -f "$rundir/backend.running" ;;
+      query-plans) sleep 1; [ -e "$rundir/backend.running" ] || exit 9 ;;
+    esac; }
+    dispatch_jobs backend query-plans; exit "$fail"' >/dev/null 2>&1 \
+    && ok "default path at width>=2: the two actually overlap" \
+    || bad "default path at width>=2: no overlap observed"
 }
 
 # ── layer 2: the real script never writes a receipt on a RED parallel run ──

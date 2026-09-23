@@ -29,11 +29,31 @@
 # Jobs in the same group never run concurrently. Scheduling is done by the PARENT
 # (no child-side lock files) so a killed child can never leave a stale lock and
 # deadlock the run.
+# `backend` shares the postgres group ONLY when it actually opens a database.
+# In the DEFAULT path its heavy step is `GOATOS_RUN_POSTGRES_TESTS=0 go test ./...`
+# (run-local-ci.sh) -- Postgres disabled, no admin DSN, nothing to contend for --
+# so pinning it behind query-plans bought no safety and cost the sum of the two
+# instead of the longer one (measured 380s + 326s wall for 380s of work). On the
+# opt-in path (GOATOS_RUN_POSTGRES_TESTS=1) it runs the real Postgres/Docker
+# chain, and there the contention is real, so the grouping stays exactly as it was.
+# THE single definition. run-local-ci.sh sources this file before its first use
+# and no longer defines its own copy: two case-lists that must agree is how
+# `GOATOS_RUN_POSTGRES_TESTS=True` came to run the whole Docker chain while the
+# dispatcher believed no database was open. The accepted set is unchanged from
+# the one run-local-ci.sh has always used.
+postgres_tests_enabled() {
+  case "${GOATOS_RUN_POSTGRES_TESTS:-0}" in
+    1|true|TRUE|True) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 job_group() {
   case "$1" in
-    android)             echo gradle ;;   # Gradle daemon/lock contention
-    backend|query-plans) echo postgres ;; # Postgres/admin-DSN/runtime contention
-    *)                   echo none   ;;   # common, admin-web: freely parallel
+    android)     echo gradle ;;   # Gradle daemon/lock contention
+    query-plans) echo postgres ;; # Postgres/admin-DSN/runtime contention
+    backend)     if postgres_tests_enabled; then echo postgres; else echo none; fi ;;
+    *)           echo none   ;;   # common, admin-web: freely parallel
   esac
 }
 

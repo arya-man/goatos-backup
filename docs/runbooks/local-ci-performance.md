@@ -33,7 +33,11 @@ auto-selected by the classifier, forced to everything, or named explicitly.
 
 **Jobs run in parallel.** `tools/ci/parallel-dispatch.sh` dispatches the selected
 jobs concurrently (default width 3, `GOATOS_CI_LOCAL_JOBS`, hard-clamped 1..4;
-width 1 degrades to sequential). Contending jobs are grouped and never overlap
+width 1 degrades to sequential). Contending jobs are grouped and never overlap.
+`backend` joins `query-plans` in the `postgres` group only when
+`GOATOS_RUN_POSTGRES_TESTS` is set: on the default path its heavy step is
+`GOATOS_RUN_POSTGRES_TESTS=0 go test ./...`, which opens no database, so the two
+run concurrently and the wall clock is the longer of them rather than their sum
 (`android` → `gradle`; `backend` → `docker`; `query-plans` → OCI tunnel /
 `GOATOS_SQLC_PLAN_ADMIN_DSN`). This changes how
 jobs run, never which. Details and the failure-accounting contract:
@@ -79,7 +83,7 @@ authorise a push to `main`?*
 | `GOATOS_BYPASS_LOCAL_CI` | unsupported | Rejected by `land-main`; ignored by the pre-push evidence path | None | **NO.** Main requires a green exact-SHA receipt. |
 | `GOATOS_LAND_MAX_ATTEMPTS` | `3` (`land-main.sh:90`) | How many rebase→full-CI→re-fetch attempts `land-main` will make when `main` moves under it | A contended `main` can pay the **entire** gate up to 3×. This dominates a bad landing | n/a. Lowering it is a failure mode, not a speedup |
 | `GOATOS_LAND_TEST_MODE` / `GOATOS_LAND_TEST_CI_COMMAND` | `0` / unset (`land-main.sh:67`, `:124`) | Used by `tools/ci/land-main.test.sh` to drive `land-main` with a fake CI command | n/a | Test harness only |
-| `GOATOS_CI_LOCAL_JOBS` | `3` (`parallel-dispatch.sh:43`, hard-clamped 1..4) | Parallel job-dispatch width. `1` degrades to sequential. Never changes WHICH jobs run; contending jobs (`android`→gradle, `backend`→docker, `query-plans`→OCI tunnel / `GOATOS_SQLC_PLAN_ADMIN_DSN`) are grouped and never overlap regardless of width | Wall-clock only | Yes — receipt semantics are untouched by dispatch width |
+| `GOATOS_CI_LOCAL_JOBS` | `3` (`parallel-dispatch.sh:43`, hard-clamped 1..4) | Parallel job-dispatch width. `1` degrades to sequential. Never changes WHICH jobs run; contending jobs (`android`→gradle, `query-plans`→OCI tunnel / `GOATOS_SQLC_PLAN_ADMIN_DSN`, and `backend`→docker **only when `GOATOS_RUN_POSTGRES_TESTS` is set**) are grouped and never overlap regardless of width; on the default path `backend` opens no database and overlaps `query-plans` | Wall-clock only | Yes — receipt semantics are untouched by dispatch width |
 | `GOATOS_CI_TRACE_ONLY` | unset (`check-local-ci-evidence.mjs:264`) | Reachability probe used by `check-android-screenshot-proof.sh`: `step` prints `CI-TRACE <name> :: <cmd>` and executes nothing, and the script `exit 3`s **before** the receipt block | Near-zero (nothing executes) | **NO — `--record` independently refuses while it is set.** Not a bypass |
 | `GOATOS_CI_GRADLE_LOCK` | `1` (`gradle-worktree-lock.sh`) | Machine-wide advisory mutex around the Gradle region of the `android` job, so two worktrees QUEUE instead of both crawling. `0` opts out entirely and touches no filesystem | Saves nothing on a solo run (an uncontended `mkdir` succeeds instantly). On an overlapping pair it replaces two mutually-slowed legs (recorded 413 s + 212 s) with two sequential solo-speed ones (recorded solo range 84-181 s), so the second worktree WAITS rather than thrashing — the lock makes no single pass faster | Yes — the lock changes start time only |
 | `GOATOS_CI_GRADLE_LOCK_TIMEOUT` | `1800` | How long `gradle_lock_acquire` waits before it gives up and PROCEEDS UNLOCKED, loudly. It never fails, never skips the job, never returns non-zero | Bounds the worst-case wait | Yes — the lock changes start time only |

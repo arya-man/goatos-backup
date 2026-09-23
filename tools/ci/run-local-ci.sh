@@ -201,12 +201,9 @@ optional_step() { # name, command...
   fi
 }
 
-postgres_tests_enabled() {
-  case "${GOATOS_RUN_POSTGRES_TESTS:-0}" in
-    1|true|TRUE|True) return 0 ;;
-    *) return 1 ;;
-  esac
-}
+# postgres_tests_enabled() is defined in tools/ci/parallel-dispatch.sh (sourced
+# below, before its first use here) so the dispatcher's job grouping and this
+# file's step selection can never disagree about whether a database is open.
 
 # ── CI diff base: ONE resolver, ONE fallback ─────────────────────────────────
 # EVERY consumer (changed_since_base, the Android UI-diff detector, ci-scope.mjs,

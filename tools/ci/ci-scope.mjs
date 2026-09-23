@@ -229,6 +229,45 @@ function selfTest() {
     common: true, backend: false, adminWeb: false, android: false, full: false,
     selectedJobs: ["common"],
   });
+  // The dashboard guard FORCES a commit-ledger edit on every landing, so an
+  // unmapped ledger file made every landing rebuild Android and admin-web. These
+  // rows name shas; they carry no product code.
+  for (const ledger of [
+    "tools/dashboard-automation/commit-classification/lane3.jsonl",
+    "tools/dashboard-automation/commit-classification/lane5-android.jsonl",
+    "tools/dashboard-automation/commit-classification/not-automatable.jsonl",
+    "tools/dashboard-automation/commit-classification/web-A.jsonl",
+  ]) {
+    assert.deepEqual(pick([ledger]), {
+      common: true, backend: false, adminWeb: false, android: false, full: false,
+      selectedJobs: ["common"],
+    }, `${ledger} must stay ledger-only`);
+  }
+  // A ledger edit beside real backend work must not drag the app builds in either.
+  assert.deepEqual(pick([
+    "backend/migrations/postgres/000394_retire_operator_onto_manager_roles.sql",
+    "tools/dashboard-automation/commit-classification/lane4.jsonl",
+  ]), {
+    common: true, backend: true, adminWeb: false, android: false, full: false,
+    selectedJobs: ["common", "backend", "query-plans"],
+  });
+  // ... but a genuinely unmapped path must STILL force the full suite: this
+  // mapping narrows one known directory, it does not weaken the fallback.
+  assert.equal(pick(["tools/dashboard-automation/lane-checks.json"]).full, true);
+  // The ledger mapping is directory-shaped but its justification is content-shaped:
+  // every file there is an append-only row set naming shas. Nothing enforced that,
+  // so a generator script dropped into that directory would have inherited
+  // common-only scoping silently. Pin the invariant the mapping actually relies on.
+  {
+    const ledgerDir = "tools/dashboard-automation/commit-classification";
+    const tracked = execFileSync("git", ["ls-files", ledgerDir], { encoding: "utf8" })
+      .split("\n").filter(Boolean);
+    assert.ok(tracked.length > 0, `${ledgerDir} must be tracked`);
+    const offenders = tracked.filter((f) => !f.endsWith(".jsonl"));
+    assert.deepEqual(offenders, [],
+      `${ledgerDir} is scoped common-only because it holds ONLY .jsonl commit ledgers; `
+      + `${offenders.join(", ")} is not one, so either move it or narrow ciCommonOnly`);
+  }
   assert.deepEqual(pick(["cloudbuild.stg.yaml"]), {
     common: true, backend: false, adminWeb: false, android: false, full: false,
     selectedJobs: ["common"],
