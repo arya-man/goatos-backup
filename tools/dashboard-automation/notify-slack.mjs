@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { containsUnredactedSecret, redactText } from "./lib/redact.mjs";
+import { staticIssueRules } from "./lib/issue-rules.mjs";
 
 // --- finding kinds (additive; one import + one registry entry per lane) ---
 // A lane adds its Slack rendering as a module here and NOTHING else in this file changes.
@@ -375,43 +376,9 @@ function isParityOnlyNoBrowserFailure(value) {
 
 // Turn a raw check failure into something a person reads in two seconds:
 // page, device, what is wrong, and the example text straight from the screen.
-function issueRules() {
+export function issueRules() {
   return [
-  [/A-svg-text-tiny|renders at ~/, "Chart text too small to read"],
-  [/A-chart-label-column-narrow|A-chart-label-ellipsised|A-chart-label-collapsed|A-chart-label-clipped|A-chart-label-overlap|A-svg-text-(overlap|clipped)|A-chart-value-missing|A-chart-empty/, "Chart labels squashed, cut off or missing"],
-  [/text-overlap|overlaps /, "Text drawn on top of other text"],
-  [/chip-crushed/, "Label crushed / cut off"],
-  [/C-cell-mid-word-wrap|split over \d+ lines/, "Word broken across two lines"],
-  [/C-cell-overpaint/, "Table text spilling into the next column"],
-  [/ISO date/, "Date shown as YYYY-MM-DD (farm reads DD/MM/YYYY)"],
-  [/snake_case code|copy key|raw value "NaN|raw value/, "Internal code shown to users"],
-  [/doubled label/, "Label repeated twice"],
-  [/B-container-overflow|past \.card|cut at the viewport edge|panels cut/, "Content spilling out of its card"],
-  [/D-page-overflow|horizontal overflow|scrolls sideways/, "Page scrolls sideways on the phone"],
-  [/cannot be horizontally scrolled/, "Wide table cut off with no sideways scroll"],
-  [/interactive targets below 40px/, "Buttons too small to tap"],
-  [/clipped button\/link text/, "Button text cut off"],
-  [/text-cut-off|text hidden/, "Text cut off"],
-  [/overlay .*did not open|never mounted/, "Clicking it did not open"],
-  [/feature missing/, "Feature missing or broken"],
-  [/header not visible at the top/, "Drawer opens with its title bar scrolled out of view"],
-  [/overlapping interactive elements/, "Buttons overlapping each other"],
-  [/anchored to ancestor|backdrop-f/, "Popup opens in the wrong place (pinned to the header, not the screen)"],
-  [/locator\.click: Timeout/, "A button on the page could not be clicked"],
-  [/Smoke route redirected/, null],
-  [/overlay .*off-screen|outside the viewport|translate/, "Drawer/popup opens off-screen"],
-  [/page load \d+ms exceeded/, "Page slow to load"],
-  [/accessibility violations/, null],
-  [/new commit\(s\) need smoke coverage/, "New work shipped with no smoke check covering it"],
-  [/assertion\(s\) need review/, "Some smoke checks point at screen text that no longer exists"],
-  // Pen / partition labels. The page name and the pen text itself come from the shared
-  // formatting below, so these read as e.g.
-  //   Weights Analytics (phone) — A pen is shown with its part number twice — "Godel 1 - Part 1 - Part 1"
-  [/P-pen-part-doubled/, "A pen is shown with its part number twice"],
-  [/P-pen-number-doubled/, "A pen is shown with its number twice"],
-  [/P-pen-partition-missing/, "A pen is shown without its part number"],
-  [/P-pen-separator-wrong/, "A pen's name is written in the wrong style"],
-  [/P-pen-whole-leaked/, "A pen shows the word whole instead of the shed name"],
+  ...staticIssueRules(),
   ...findingKindRules(), // --- finding kinds (additive) ---
   ];
 }

@@ -57,18 +57,37 @@ export function collectRegressionFindings({ mobile = false, limit = 40 } = {}) {
     const cls = typeof el.className === "string" && el.className.trim() ? "." + el.className.trim().split(/\s+/).slice(0, 2).join(".") : "";
     return `${el.tagName.toLowerCase()}${cls} "${txt(el).slice(0, 40)}"`;
   };
-  const add = (pattern, el, detail) => {
+  // What a person READS off the element. textContent runs the child boxes together, so a bar
+  // label came out as "2026-08-10331 animals" — a string that appears nowhere on screen and
+  // reads as a corrupt number. Join the text boxes with a space and collapse the runs.
+  const readable = (el) => {
+    if (!el) return "";
+    const parts = [];
+    const walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+      const t = (n.textContent ?? "").replace(/\s+/g, " ").trim();
+      if (t) parts.push(t);
+    }
+    return parts.join(" ").replace(/\s+/g, " ").trim();
+  };
+  const add = (pattern, el, detail, peerEl) => {
     if (found.length >= limit) return;
     const key = pattern + "|" + (el ? describe(el) : "");
     if (flagged.has(key)) return;
     flagged.add(key);
+    // The headline of the thrown error is findings[0]. Mark its element so the screenshot can
+    // centre on THAT one: the evidence used to scroll to the first [data-smoke-issue] in DOM
+    // order, which is a different element whenever the checks do not run in document order —
+    // so the sentence named a chart label while the red box sat on a table three cards away.
+    if (el && found.length === 0) el.setAttribute("data-smoke-issue-first", "1");
     if (el) el.setAttribute("data-smoke-issue", pattern);
-    found.push({ pattern, element: el ? describe(el) : "", detail });
+    found.push({ pattern, element: el ? describe(el) : "", detail, text: readable(el).slice(0, 60), peer: peerEl ? readable(peerEl).slice(0, 60) : "" });
   };
   const inter = (a, b) => Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left)) * Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
   const overlapPx = (a, b) => Math.min(Math.min(a.right, b.right) - Math.max(a.left, b.left), Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
 
   const hiddenCache = new Map();
+  const paintedHiddenCache = new Map();
   const srOnly = (el, s) =>
     el.matches(".sr-only, .visually-hidden, .visuallyhidden") ||
     (/rect\(0/.test(s.clip) && s.position === "absolute") ||
@@ -90,6 +109,32 @@ export function collectRegressionFindings({ mobile = false, limit = 40 } = {}) {
       if (!result) result = hidden(el.parentElement);
     }
     hiddenCache.set(el, result);
+    return result;
+  };
+  // Hidden TO THE EYE. Same rules as hidden(), minus aria-hidden.
+  //
+  // aria-hidden="true" removes a node from the ACCESSIBILITY TREE; it says nothing about paint.
+  // Chart components mark their drawing aria-hidden on purpose — the figures are already carried
+  // by the wrapper's role="img"/aria-label — so every bar in an inline-SVG chart is aria-hidden
+  // and fully painted. Judging "does this chart look empty" by hidden() therefore called every
+  // one of those charts an empty frame while the bars were plainly on screen. Anything asking
+  // "what does a person SEE" must use this; anything asking "what does a screen reader get"
+  // keeps using hidden().
+  const paintedHidden = (el) => {
+    if (!el || el === document.documentElement) return false;
+    if (paintedHiddenCache.has(el)) return paintedHiddenCache.get(el);
+    let result = false;
+    if (el.hasAttribute("data-smoke-ignore") || el.hasAttribute("hidden") || el.hasAttribute("inert")) result = true;
+    else {
+      const s = getComputedStyle(el);
+      if (s.display === "none" || s.visibility === "hidden" || s.visibility === "collapse" || Number(s.opacity) === 0 || srOnly(el, s)) result = true;
+      else if (el.tagName === "DETAILS" || el.parentElement?.tagName === "DETAILS") {
+        const d = el.tagName === "DETAILS" ? null : el.parentElement;
+        if (d && !d.open && el.tagName !== "SUMMARY") result = true;
+      }
+      if (!result) result = paintedHidden(el.parentElement);
+    }
+    paintedHiddenCache.set(el, result);
     return result;
   };
   // Painted = has a box, not hidden, and (when its centre is on screen) actually hit by elementFromPoint.
@@ -116,12 +161,19 @@ export function collectRegressionFindings({ mobile = false, limit = 40 } = {}) {
     for (const r of range.getClientRects()) if (r.width > 0.5) tops.add(Math.round(r.top));
     return tops.size;
   };
-  // A single word (no spaces) that the browser split across lines: "Warmu/p", "C/B/E", a hash on 2 lines.
+  // A single word that the browser split across lines WITH NOWHERE LEGAL TO BREAK:
+  // "Warmu/p", "C/B/E", a hash on 2 lines.
+  //
+  // The run deliberately excludes hyphens, dashes and slashes. Those are break opportunities in
+  // normal typography, so "Shed-average plan" wrapping to "Shed-" / "average" is ordinary
+  // wrapping that reads perfectly, not the crushed-cell bug this check is for — and counting it
+  // flagged every hyphenated string in every narrow column. Scanning the runs BETWEEN those
+  // characters keeps "Warmup" a single token, so the real break-all bug still reports.
   const brokenToken = (el) => {
     const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
     for (let node = walker.nextNode(); node; node = walker.nextNode()) {
       const text = node.textContent;
-      const re = /\S{2,}/g;
+      const re = /[^\s\-‐-―−/⁄]{2,}/g;
       for (let m = re.exec(text); m; m = re.exec(text)) {
         const range = document.createRange();
         range.setStart(node, m.index);
@@ -183,7 +235,7 @@ export function collectRegressionFindings({ mobile = false, limit = 40 } = {}) {
     for (let i = 0; i < leaves.length; i += 1) {
       for (let j = i + 1; j < leaves.length; j += 1) {
         const o = overlapPx(leaves[i].getBoundingClientRect(), leaves[j].getBoundingClientRect());
-        if (o > 2) { add("A-chart-label-overlap", leaves[i], `collides with "${txt(leaves[j]).slice(0, 30)}" by ${Math.round(o)}px`); break; }
+        if (o > 2) { add("A-chart-label-overlap", leaves[i], `collides with "${txt(leaves[j]).slice(0, 30)}" by ${Math.round(o)}px`, leaves[j]); break; }
       }
     }
   }
@@ -195,7 +247,8 @@ export function collectRegressionFindings({ mobile = false, limit = 40 } = {}) {
   }
   for (const chart of root.querySelectorAll(CHART)) {
     if (!painted(chart)) continue;
-    const bars = Array.from(chart.querySelectorAll(".gcbar, .mcbar, .hbfill, .wbar, rect, path, circle, polyline, line")).filter((b) => !hidden(b) && b.getBoundingClientRect().height > 0.5 && b.getBoundingClientRect().width > 0.5);
+    // paintedHidden, not hidden: an inline-SVG chart marks its drawing aria-hidden by design.
+    const bars = Array.from(chart.querySelectorAll(".gcbar, .mcbar, .hbfill, .wbar, rect, path, circle, polyline, line")).filter((b) => !paintedHidden(b) && b.getBoundingClientRect().height > 0.5 && b.getBoundingClientRect().width > 0.5);
     if (bars.length === 0 && !/no data|no rows|nothing|no records|empty|0 /i.test(txt(chart.closest(".card") ?? chart))) add("A-chart-empty-frame", chart, "no visible bars and no empty-state text");
   }
 
@@ -216,7 +269,7 @@ export function collectRegressionFindings({ mobile = false, limit = 40 } = {}) {
     for (let i = 0; i < texts.length; i += 1) {
       for (let j = i + 1; j < texts.length; j += 1) {
         const o = overlapPx(texts[i].r, texts[j].r);
-        if (o > 2) { add("A-svg-text-overlap", texts[i].t, `collides with "${txt(texts[j].t).slice(0, 30)}" by ${Math.round(o)}px`); break; }
+        if (o > 2) { add("A-svg-text-overlap", texts[i].t, `collides with "${txt(texts[j].t).slice(0, 30)}" by ${Math.round(o)}px`, texts[j].t); break; }
       }
     }
   }
@@ -318,13 +371,32 @@ export function collectRegressionFindings({ mobile = false, limit = 40 } = {}) {
   // ---------- general text-over-text overlap + cut-off (fixed false positives) ----------
   {
     const boxes = [];
+    // A Range reports where the text WOULD run, ignoring any ancestor that clips it. An
+    // ellipsised label ("Non-elevated pen" in a 112px column) therefore reports its full
+    // untruncated width, which reaches under the icon sitting after the ellipsis — and the
+    // check called that "text drawn over other unrelated text" while the screenshot showed a
+    // clear gap. Intersect every rect with the boxes that actually clip it, so the check
+    // compares what is PAINTED. Genuinely overlapping text is unaffected: clipping only ever
+    // shrinks a rect to its visible part, and two visible texts still intersect.
+    const clipToAncestors = (el, rect) => {
+      let out = { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom };
+      for (let p = el; p && p !== document.documentElement; p = p.parentElement) {
+        const s = getComputedStyle(p);
+        if (!/hidden|clip|auto|scroll/.test(s.overflowX) && !/hidden|clip|auto|scroll/.test(s.overflowY)) continue;
+        const pr = p.getBoundingClientRect();
+        if (/hidden|clip|auto|scroll/.test(s.overflowX)) { out.left = Math.max(out.left, pr.left); out.right = Math.min(out.right, pr.right); }
+        if (/hidden|clip|auto|scroll/.test(s.overflowY)) { out.top = Math.max(out.top, pr.top); out.bottom = Math.min(out.bottom, pr.bottom); }
+      }
+      return { left: out.left, right: out.right, top: out.top, bottom: out.bottom, width: out.right - out.left, height: out.bottom - out.top };
+    };
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
     for (let node = walker.nextNode(); node && boxes.length < 1500; node = walker.nextNode()) {
       const el = node.parentElement;
       if (!el || !node.textContent.trim() || el.closest("svg") || hidden(el)) continue;
       const range = document.createRange();
       range.selectNodeContents(node);
-      for (const rect of range.getClientRects()) {
+      for (const raw of range.getClientRects()) {
+        const rect = clipToAncestors(el, raw);
         if (rect.width < 2 || rect.height < 2) continue;
         const cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2;
         if (cx < 0 || cy < 0 || cx >= innerWidth || cy >= innerHeight) continue; // only what elementFromPoint can confirm
@@ -339,7 +411,7 @@ export function collectRegressionFindings({ mobile = false, limit = 40 } = {}) {
         const o = inter(a.rect, b.rect);
         const smaller = Math.min(a.rect.width * a.rect.height, b.rect.width * b.rect.height);
         if (o > 12 && o / smaller > 0.25) {
-          add("text-overlap", a.el, `overlaps ${describe(b.el)}`);
+          add("text-overlap", a.el, `overlaps ${describe(b.el)}`, b.el);
           b.el.setAttribute("data-smoke-issue", "text-overlap");
           if (found.length >= limit) break outer;
           break;
@@ -375,6 +447,50 @@ async function collectPenLabelIssues(page) {
   return issues.map((issue) => ({ pattern: issue.pattern, element: `pen label "${issue.text}"`, detail: issue.detail }));
 }
 
+// One plain sentence per bug family, for the humans who read the sweep.
+//
+// The rule: name what a person SEES. No selectors, no tag names, no property names, no pattern
+// codes, no pixel counts — those live on the machine-readable `finding_*` log lines and in the
+// red-boxed screenshot, and a farm manager cannot act on `span.wbl ... 18px (<80px)`.
+export function findingSentence(f) {
+  const q = (s) => (s && s.trim() ? `"${s.trim()}"` : "an item");
+  const t = q(f.text);
+  const p = q(f.peer);
+  switch (f.pattern) {
+    case "text-overlap": return `${t} is printed on top of ${p}`;
+    case "text-cut-off": return `${t} is cut off, with no "..." to show there is more`;
+    case "A-chart-label-collapsed": return `the chart label ${t} has been squashed until there is no room to read it`;
+    case "A-chart-label-clipped": return `the chart label ${t} is cut off at the edge of its card`;
+    case "A-chart-label-overlap": return `the chart labels ${t} and ${p} are printed on top of each other`;
+    case "A-chart-label-column-narrow": return `the labels down the side of the chart are squeezed so narrow that ${t} is cut to a couple of characters`;
+    case "A-chart-labels-truncated": return `most of the labels in this chart are cut short`;
+    case "A-chart-value-missing": return `a bar in this chart has no number beside it`;
+    case "A-chart-empty-frame": return `the chart ${t} is an empty frame: nothing is drawn and nothing says why`;
+    case "A-svg-text-clipped": return `the chart text ${t} runs outside the chart`;
+    case "A-svg-text-overlap": return `the chart labels ${t} and ${p} collide`;
+    case "A-svg-text-tiny": return `the chart text ${t} is far too small to read`;
+    case "B-container-overflow": return `${t} runs outside the card it belongs to`;
+    case "C-cell-mid-word-wrap": return `a word in the table cell ${t} is broken across two lines`;
+    case "C-cell-overpaint": return `the table cell ${t} spills over the next column`;
+    case "chip-crushed": return `the label ${t} is crushed out of shape`;
+    case "J-raw-text":
+      if (/ISO date/.test(f.detail ?? "")) return `a date in the table is written year-first, where the farm reads the day first`;
+      if (/doubled label/.test(f.detail ?? "")) return `the label ${t} is printed twice over`;
+      return `${t} shows an internal code instead of wording a person would use`;
+    case "D-page-overflow": return `${t} is wider than the screen, so the page scrolls sideways`;
+    // Pen / partition labels (see lib/pen-label-checks.mjs). These findings arrive with the
+    // pen's own text, so the sentence can quote the name the farm would read.
+    case "P-pen-part-doubled": return `the pen ${t} is shown with its part number twice`;
+    case "P-pen-number-doubled": return `the pen ${t} is shown with its number twice`;
+    case "P-pen-partition-missing": return `the pen ${t} is shown without its part number, while its neighbours show theirs`;
+    case "P-pen-separator-wrong": return `the pen ${t} has its shed and part joined in the wrong style`;
+    case "P-pen-whole-leaked": return `the pen ${t} shows the word whole instead of the shed name`;
+    default: return `${t} does not look right`;
+  }
+}
+
+const VIEWPORT_WORD = (label) => (/mobile|phone/i.test(label) ? "on the phone" : "on the laptop");
+
 export async function assertRegressionPatterns(page, { routeName, viewportLabel, screenshotDir, relativeToRepo = (p) => p }) {
   const width = page.viewportSize()?.width ?? 1280;
   let findings = await page.evaluate(collectRegressionFindings, { mobile: width < 768 || /mobile|phone/i.test(viewportLabel) });
@@ -383,12 +499,22 @@ export async function assertRegressionPatterns(page, { routeName, viewportLabel,
   findings = findings.concat(await collectPenLabelIssues(page));
   if (findings.length === 0) return [];
   await page.addStyleTag({ content: "[data-smoke-issue]{outline:3px solid #e11d48 !important;outline-offset:1px}" });
-  await page.evaluate(() => document.querySelector("[data-smoke-issue]")?.scrollIntoView({ block: "center", inline: "center" }));
+  // Centre the screenshot on the element the headline sentence is about, not on whichever
+  // flagged element happens to come first in the document.
+  await page.evaluate(() => (document.querySelector("[data-smoke-issue-first]") ?? document.querySelector("[data-smoke-issue]"))?.scrollIntoView({ block: "center", inline: "center" }));
   const issuesPath = join(screenshotDir, `${viewportLabel}-${routeName}-issues.png`);
   await page.screenshot({ path: issuesPath, fullPage: false });
   console.log(`screenshot_path=${relativeToRepo(issuesPath)}`);
-  const first = findings[0].pattern;
-  const summary = findings.slice(0, 3).map((f) => `[${f.pattern}] ${f.element} ${f.detail}`).join("; ");
+  // The page's own heading is what a reader recognises; the route id is for the machine log.
+  const pageName = await page
+    .evaluate(() => {
+      const h = document.querySelector("main h1, h1");
+      return (h?.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 60);
+    })
+    .catch(() => "");
+  for (const f of findings) console.log(`finding_pattern=${viewportLabel}:${routeName}|${f.pattern}|${f.element}|${f.detail}`);
+  const summary = findings.slice(0, 3).map(findingSentence).join("; ");
   const more = findings.length > 3 ? ` (+${findings.length - 3} more)` : "";
-  throw new Error(`${routeName} ${viewportLabel} ${first}: ${summary}${more}`);
+  const where = pageName ? `${pageName} ${VIEWPORT_WORD(viewportLabel)}` : `${routeName} ${VIEWPORT_WORD(viewportLabel)}`;
+  throw new Error(`${where}: ${summary}${more}`);
 }

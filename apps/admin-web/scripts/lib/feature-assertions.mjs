@@ -135,5 +135,19 @@ export async function assertFeaturesPresent(page, { routeName, viewportLabel, sc
   const shot = join(screenshotDir, `${viewportLabel}-${routeName}-feature-missing.png`);
   await page.screenshot({ path: shot, fullPage: false }).catch(() => {});
   console.log(`screenshot_path=${relativeToRepo(shot)}`);
-  throw new Error(`${routeName} ${viewportLabel} feature missing: ${missing.slice(0, 4).map((m) => `${m.entry.title} [${m.entry.sha}]`).join("; ")}${missing.length > 4 ? ` (+${missing.length - 4} more)` : ""}`);
+  // Say WHICH expectation failed, not just the entry's title.
+  //
+  // An entry can assert several things at once. "Feed Config has an add feed item control"
+  // covers both the Add feed item button and the Feed items heading, so when only the heading
+  // was gone the sweep still reported the button as missing — and the screenshot showed the
+  // button, several times over. Naming the part that actually failed is the difference between
+  // a finding someone can act on and one they dismiss.
+  const say = (m) => {
+    const what = String(m.miss?.what ?? "");
+    const quoted = what.match(/^(?:not visible|should not appear): (.+)$/);
+    if (quoted) return `${m.entry.title} — "${quoted[1]}" is not on the page`;
+    if (what) return `${m.entry.title} — ${what}`;
+    return m.entry.title;
+  };
+  throw new Error(`${routeName} ${viewportLabel} feature missing: ${missing.slice(0, 4).map(say).join("; ")}${missing.length > 4 ? ` (+${missing.length - 4} more)` : ""}`);
 }
