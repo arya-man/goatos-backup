@@ -3,44 +3,33 @@ package postgres
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/santhosh-tekuri/jsonschema/v6"
+	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 )
 
 const correctionActor = "90000000-0000-4000-8000-000000000001"
 
+// startCorrectionWriteDB starts the package's migrated Postgres and seeds the synthetic register.
+//
+// It used to run `docker run` itself. That bypassed platform/pgtest and therefore ignored
+// GOATOS_PGTEST_ADMIN_DSN -- the sanctioned no-Docker path pgtest exists for, because on a machine
+// where Docker is disallowed the alternative is not "run it another way", it is "the gate never
+// runs". This package is a named proof for four registered chains (goat.created,
+// goat.stage_changed, goat.identity.changed, goat.identifier.added), and on such a machine none of
+// them could execute at all. The package's TestMain already ran pgtest.RunMain, so the conversion
+// was begun and left unfinished.
+//
+// pgtest applies every committed migration to its template, so applyMigrations is gone with it.
 func startCorrectionWriteDB(t *testing.T, ctx context.Context) (*pgxpool.Pool, *Repository) {
 	t.Helper()
-	container := fmt.Sprintf("goatos-identifier-write-test-%d", time.Now().UnixNano())
-	postgresImage := os.Getenv("GOATOS_POSTGRES_IMAGE")
-	if postgresImage == "" {
-		postgresImage = defaultPostgresImage
-	}
-	run(t, "docker", "run", "--rm", "--name", container, "-e", "POSTGRES_PASSWORD=goatos", "-e", "POSTGRES_DB=goatos", "-p", "127.0.0.1::5432", "-d", postgresImage)
-	t.Cleanup(func() {
-		_ = exec.Command("docker", "rm", "-f", container).Run()
-	})
-	ready := false
-	for range 60 {
-		if exec.Command("docker", "exec", container, "pg_isready", "-h", "127.0.0.1", "-U", "postgres", "-d", "goatos").Run() == nil {
-			ready = true
-			break
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
-	if !ready {
-		t.Fatalf("postgres container did not become ready:\n%s", runOutput(t, "docker", "logs", container))
-	}
-	applyMigrations(t, container)
-	seedRepositoryData(t, container)
-	pool := openPool(t, ctx, container)
+	pool := pgtest.StartPostgres(t, ctx)
+	seedRepositoryData(t, ctx, pool)
 	return pool, NewRepository(pool, 5*time.Second)
 }
 
