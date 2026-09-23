@@ -355,7 +355,7 @@ export function gradeAssertion(assertion, readFile = null, context = {}) {
   if (readFile) {
     const derived =
       assertion.provenance?.kind === "measured"
-        ? deriveMeasured(assertion.provenance, context.readReceipt, context.principal)
+        ? deriveMeasured(assertion.provenance, context.readReceipt, context.principal, context.grants)
         : deriveExpected(assertion.provenance, readFile);
     if (derived.error) {
       reasons.push(derived.error);
@@ -478,7 +478,7 @@ export function validateLedger(surfaces, ledger, readFile = null, readReceipt = 
       }
       let good = true;
       for (const assertion of assertions) {
-        const graded = gradeAssertion(assertion, readFile, { readReceipt, principal: entry.principal });
+        const graded = gradeAssertion(assertion, readFile, { readReceipt, principal: entry.principal, grants: entry.grants ?? null });
         if (!graded.ok) {
           good = false;
           for (const reason of graded.reasons) problems.push(`${entry.key}: assertion ${reason}`);
@@ -734,6 +734,7 @@ export function routesOwningFiles(files) {
 // 124 of 148 surfaces, because they carry no label of their own.
 
 import { compareReadings, contractRevisionRefusal } from "./reading-comparison.mjs";
+import { identityRefusal } from "./interactive-surface-probe.mjs";
 
 export const RECEIPT_VERSION = 1;
 
@@ -765,13 +766,19 @@ export function stableReading(readings, { label = "this reading", all } = {}) {
  * @param {{kind:string, receipt:string, runId:string, observation:string}} provenance
  * @param {(path:string)=>unknown} readReceipt returns the parsed receipt for a path
  */
-export function deriveMeasured(provenance, readReceipt, principal) {
+export function deriveMeasured(provenance, readReceipt, principal, expectedGrants = null) {
   const { receipt: path, runId, observation } = provenance ?? {};
   const receipt = readReceipt?.(path);
   if (!receipt || typeof receipt !== "object") return { error: `names receipt ${JSON.stringify(path)}, which is not a receipt this gate can read` };
   if (receipt.version !== RECEIPT_VERSION) return { error: `receipt ${path} is version ${receipt.version}, not ${RECEIPT_VERSION}` };
   if (receipt.runId !== runId) return { error: `receipt ${path} holds run ${receipt.runId}, not ${runId}` };
-  if (String(receipt.principal ?? "") !== String(principal ?? "")) {
+  // The GRANTS decide, when the receipt carries them: a label is what someone typed, and two
+  // matching lies satisfy a label comparison. The label check stays for receipts written before
+  // /app/me was read back.
+  if (Array.isArray(receipt.grants) && Array.isArray(expectedGrants)) {
+    const mismatch = identityRefusal(receipt.grants, expectedGrants);
+    if (mismatch) return { error: `receipt ${path}: ${mismatch}` };
+  } else if (String(receipt.principal ?? "") !== String(principal ?? "")) {
     return {
       error:
         `was read as ${JSON.stringify(receipt.principal ?? null)} but the entry describes ` +
@@ -785,6 +792,16 @@ export function deriveMeasured(provenance, readReceipt, principal) {
   // A route that could not be reached is carried on the observation, so it reads as "not
   // checked" rather than as an observation nobody bothered to take.
   if (found.notReached) return { error: `observation ${observation} was not taken: ${found.notReached}` };
+  // Two readings from either side of a mid-run source edit are not two readings of the same
+  // thing, whatever they say. The probe records the fingerprint in force for each observation.
+  if (receipt.startedFingerprint && found.sourceFingerprint && found.sourceFingerprint !== receipt.startedFingerprint) {
+    return {
+      error:
+        `observation ${observation} was read after the source changed mid-run ` +
+        `(${receipt.startedFingerprint} -> ${found.sourceFingerprint}), so it does not describe the ` +
+        `same ledger the run started against`,
+    };
+  }
   const stable = stableReading(found.readings, { label: found.subject ?? "this reading" });
   if (!stable.stable) return { error: `observation ${observation} ${stable.reason}` };
   return { value: stable.value };
