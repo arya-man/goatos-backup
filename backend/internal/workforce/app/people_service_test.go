@@ -286,3 +286,38 @@ func (f *fakePeopleRepo) SetPersonTitle(_ context.Context, _, personID, _, title
 	}
 	return domain.PersonSummary{PersonID: personID, Title: &title, RowVersion: rowVersion + 1}, nil
 }
+
+// TestGroundTiersKeepTheOperatorHintUntilTheAPKShips pins the one thing about the ground-tier
+// roles that looks like a mistake and is not.
+//
+// Migration 000394 moves each existing person's ROLE and deliberately leaves their
+// primary_role_hint as 'operator', because the INSTALLED Android app gates feed capture on an
+// exact string equality against that hint -- FeedDirectionViewModel.kt:164 and
+// FeedWastageViewModel.kt:146, both `primaryRoleHint == "operator"`, both defaulting to false.
+//
+// The Add Person form is the other half, and it was missed: writing 'manager' here would have
+// reopened the same hole for everybody hired AFTER the deploy. They would be created correctly,
+// look correct in HRMS, hold every feed permission there is, and be unable to record feed on a
+// phone already in their pocket -- the people nobody would think to re-check.
+//
+// Flip this test and the four lines it guards in the SAME change that replaces those two gates
+// with backend capability flags and ships the APK. Not before, and not separately.
+func TestGroundTiersKeepTheOperatorHintUntilTheAPKShips(t *testing.T) {
+	groundTiers := []string{
+		"manager_health", "manager_feed", "manager_cleaning", "manager_farming",
+		"am_health", "am_feed", "am_cleaning", "am_farming",
+	}
+	for _, role := range groundTiers {
+		spec, ok := grantablePersonRoles[role]
+		if !ok {
+			t.Errorf("%s is not grantable; the ground tiers must stay on the Add Person form", role)
+			continue
+		}
+		if spec.RoleHint != "operator" {
+			t.Errorf("%s writes primary_role_hint %q; installed phones gate feed capture on == %q and default to NO capture, so a person created today would silently lose it", role, spec.RoleHint, "operator")
+		}
+		if spec.ScopeType != "park" {
+			t.Errorf("%s is %s-scoped; a ground tier belongs to one park (operator-scope invariant)", role, spec.ScopeType)
+		}
+	}
+}

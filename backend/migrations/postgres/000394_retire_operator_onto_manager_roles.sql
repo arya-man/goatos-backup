@@ -32,6 +32,7 @@ DECLARE
   v_tenant      uuid;
   v_moved       int;
   v_leftover    int;
+  v_tenants     int;
   v_vm_member   uuid;
   v_vm_park     uuid;
   v_peer_member uuid;
@@ -59,10 +60,30 @@ BEGIN
   -- ONE ROW PER PERSON, not per grant: somebody ticked for both parks holds one active grant
   -- per park (Mithun does today), and the updates key on (tenant, user) so both of their
   -- grants move from a single row. Keeping the duplicate would double-count their ticks.
+  -- THE TENANT IS RESOLVED FIRST, and everything below is scoped to it. `display_name` is a
+  -- label, not an identity: joining workforce_members on it alone reaches across every tenant
+  -- in the database, and this mapping is ONE FARM'S ROSTER. A second tenant employing its own
+  -- "Manoj Kumar" would have had him swept into the move -- and, since Manoj is one of the two
+  -- Cleaning Managers, reduced to attendance only.
+  SELECT count(DISTINCT tenant_id) INTO v_tenants
+  FROM user_scope_grants WHERE role = 'operator' AND status = 'active';
+
+  IF v_tenants > 1 THEN
+    RAISE EXCEPTION 'active operator grants span % tenants; this mapping is one farm''s roster and must not be applied by name across tenants', v_tenants;
+  END IF;
+
+  SELECT tenant_id INTO v_tenant
+  FROM user_scope_grants WHERE role = 'operator' AND status = 'active' LIMIT 1;
+
+  IF v_tenant IS NULL THEN
+    RAISE NOTICE 'no active operator grants at all; nothing to migrate';
+    RETURN;
+  END IF;
+
   CREATE TEMP TABLE _op_targets ON COMMIT DROP AS
   SELECT DISTINCT wm.tenant_id, wm.workforce_member_id, wm.user_id, wm.display_name, m.new_role
   FROM _op_mapping m
-  JOIN workforce_members wm ON wm.display_name = m.display_name
+  JOIN workforce_members wm ON wm.tenant_id = v_tenant AND wm.display_name = m.display_name
   JOIN user_scope_grants g  ON g.tenant_id = wm.tenant_id AND g.user_id = wm.user_id
                            AND g.role = 'operator' AND g.status = 'active' AND g.scope_type = 'park';
 
@@ -80,21 +101,24 @@ BEGIN
     -- It says so loudly rather than failing: a throwaway QA database carrying a fixture
     -- operator is not a broken deploy, and hard-failing here would block every local stack
     -- that has one. On STG the mapping matches and the assertion below is the real gate.
-    SELECT count(*) INTO v_leftover FROM user_scope_grants WHERE role = 'operator' AND status = 'active';
+    SELECT (SELECT count(*) FROM user_scope_grants          WHERE role = 'operator' AND status = 'active')
+         + (SELECT count(*) FROM auth_pending_email_grants WHERE role = 'operator' AND status = 'active')
+      INTO v_leftover;
     IF v_leftover > 0 THEN
-      RAISE WARNING 'operator retirement skipped: % active operator grant(s) match no name in the mapping; the designation stays pickable', v_leftover;
-    ELSE
-      RAISE NOTICE 'no active operator grants at all; nothing to migrate';
+      RAISE WARNING 'operator retirement skipped: % active operator grant(s), live or pending, match no name in the mapping; the designation stays pickable', v_leftover;
     END IF;
     RETURN;
   END IF;
 
-  -- A display_name resolving to two different PEOPLE would migrate the wrong person.
-  IF (SELECT count(DISTINCT workforce_member_id) FROM _op_targets) <> v_moved THEN
-    RAISE EXCEPTION 'a display_name resolved to more than one workforce member; refusing to guess';
+  -- A display_name resolving to two different PEOPLE would migrate the wrong person, so this
+  -- counts DISPLAY NAMES against rows. It used to compare count(DISTINCT workforce_member_id)
+  -- against the row count, which could never fail: _op_targets is already DISTINCT over a
+  -- tuple containing the member id, so two people sharing a name give two rows AND two
+  -- distinct ids, and the check passed on exactly the case it was written to catch. Names are
+  -- the thing that can collide here; ids are the thing that cannot.
+  IF (SELECT count(DISTINCT display_name) FROM _op_targets) <> v_moved THEN
+    RAISE EXCEPTION 'a display name resolved to more than one person in this tenant; refusing to guess which one to move';
   END IF;
-
-  SELECT tenant_id INTO v_tenant FROM _op_targets LIMIT 1;
 
   -- ---------------------------------------------------------------------
   -- V Munna Kumar has never been set up: an active grant, but no person_access row, so he
@@ -207,12 +231,43 @@ BEGIN
   WHERE role = 'operator' AND status = 'active' AND scope_type = 'tenant';
 
   -- ---------------------------------------------------------------------
+  -- 4c. THE PENDING GRANTS, which are the other half of every revoke above.
+  --
+  --     auth_pending_email_grants is a grant waiting for its person to log in:
+  --     ClaimPendingEmailGrant materialises it into user_scope_grants the first time that
+  --     email authenticates. So revoking the live rows alone retires `operator` only until
+  --     the next login -- and the two rows that actually exist on the clone today are
+  --     Chandrakant's and Dinakar's, i.e. precisely the two the step above just revoked.
+  --     The assertion below would pass, the console would read clean, and the role would
+  --     walk back in the next morning.
+  --
+  --     A PARK pending grant is MIGRATED, not revoked: it is a ground manager whose setup is
+  --     still waiting on a first login, and they should land on the right role rather than on
+  --     nothing. Everything still on `operator` after that -- the two tenant director rows,
+  --     and a leaver like Darshan -- is revoked, which is the same treatment their live rows
+  --     got.
+  -- ---------------------------------------------------------------------
+  UPDATE auth_pending_email_grants p
+  SET role = t.new_role, updated_at = now()
+  FROM workforce_members wm, _op_targets t
+  WHERE p.tenant_id = wm.tenant_id
+    AND lower(wm.email) = p.normalized_email
+    AND t.workforce_member_id = wm.workforce_member_id
+    AND p.role = 'operator' AND p.status = 'active' AND p.scope_type = 'park';
+
+  UPDATE auth_pending_email_grants
+  SET status = 'revoked', updated_at = now()
+  WHERE role = 'operator' AND status = 'active';
+
+  -- ---------------------------------------------------------------------
   -- 5. Nobody may be left on the role. If anyone is, this release would ship a console that
   --    still says "Operator", so fail the deploy rather than land it half done.
   -- ---------------------------------------------------------------------
-  SELECT count(*) INTO v_leftover FROM user_scope_grants WHERE role = 'operator' AND status = 'active';
+  SELECT (SELECT count(*) FROM user_scope_grants          WHERE role = 'operator' AND status = 'active')
+       + (SELECT count(*) FROM auth_pending_email_grants WHERE role = 'operator' AND status = 'active')
+    INTO v_leftover;
   IF v_leftover > 0 THEN
-    RAISE EXCEPTION 'operator retirement incomplete: % active operator grant(s) remain', v_leftover;
+    RAISE EXCEPTION 'operator retirement incomplete: % active operator grant(s) remain, live or pending', v_leftover;
   END IF;
 
   -- ---------------------------------------------------------------------
@@ -262,6 +317,13 @@ FROM public.workforce_members wm, _op_rollback r
 WHERE wm.tenant_id = g.tenant_id AND wm.user_id = g.user_id AND wm.display_name = r.display_name
   AND g.status = 'active' AND g.scope_type = 'park'
   AND g.role IN ('manager_feed', 'manager_health', 'manager_cleaning');
+
+UPDATE public.auth_pending_email_grants p SET role = 'operator', updated_at = now()
+FROM public.workforce_members wm, _op_rollback r
+WHERE wm.tenant_id = p.tenant_id AND lower(wm.email) = p.normalized_email
+  AND wm.display_name = r.display_name
+  AND p.status = 'active' AND p.scope_type = 'park'
+  AND p.role IN ('manager_feed', 'manager_health', 'manager_cleaning');
 
 UPDATE public.person_access pa
 SET designation_code = 'operator', updated_at = now(), row_version = pa.row_version + 1

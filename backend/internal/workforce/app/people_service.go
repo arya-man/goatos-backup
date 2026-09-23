@@ -45,20 +45,36 @@ var grantablePersonRoles = map[string]personRoleSpec{
 	// PARK-scoped, never tenant: a ground tier belongs to one park, and the operator-scope
 	// invariant this replaces is the same one (check-stg-operator-scope.mjs).
 	//
-	// The hint is the TIER, not the role key, so the set stays at two values however many
-	// verticals are added later. `operator` stays a legal hint until the phone stops reading
-	// it (FeedDirectionViewModel / FeedWastageViewModel gate capture on
-	// primaryRoleHint == "operator"), which is why migrating a person moves their ROLE and
-	// leaves their hint alone.
-	permissions.RoleKey(permissions.TierManager, permissions.VerticalHealth):   {ScopeType: "park", RoleHint: "manager"},
-	permissions.RoleKey(permissions.TierManager, permissions.VerticalFeed):     {ScopeType: "park", RoleHint: "manager"},
-	permissions.RoleKey(permissions.TierManager, permissions.VerticalCleaning): {ScopeType: "park", RoleHint: "manager"},
-	permissions.RoleKey(permissions.TierManager, permissions.VerticalFarming):  {ScopeType: "park", RoleHint: "manager"},
+	// THE HINT IS STILL `operator`, AND IT HAS TO BE UNTIL AN APK SHIPS. This looks wrong and
+	// is deliberate, so read this before "fixing" it to 'manager'.
+	//
+	// The INSTALLED Android app gates feed capture on an exact string equality against the
+	// hint -- FeedDirectionViewModel.kt:164 and FeedWastageViewModel.kt:146, both
+	// `primaryRoleHint == "operator"`, both defaulting the capability to FALSE. A hint of
+	// 'manager' therefore does not degrade gracefully on a phone already in somebody's
+	// pocket: it silently removes feed direction and feed wastage capture from a person who
+	// holds every feed permission there is. GoatOsShell.kt:825 keys on the same string to
+	// decide whether the drawer hides roadmap rows.
+	//
+	// Migration 000394 is careful about exactly this -- it moves each existing person's ROLE
+	// and deliberately leaves their hint alone -- and the Add Person form writing a different
+	// hint would have reopened the same hole for everybody hired AFTER the deploy, who are
+	// precisely the people nobody would think to check. A new Feed Manager would have been
+	// created correctly, looked correct in HRMS, and been unable to record feed.
+	//
+	// The tier hints 'manager' / 'assistant_manager' are already legal in the column CHECK
+	// (000393) and in validRoleHint, so flipping the four lines below is the whole change --
+	// it belongs in the same commit that replaces those two gates with backend capability
+	// flags and ships the APK. Pinned by TestGroundTiersKeepTheOperatorHintUntilTheAPKShips.
+	permissions.RoleKey(permissions.TierManager, permissions.VerticalHealth):   {ScopeType: "park", RoleHint: "operator"},
+	permissions.RoleKey(permissions.TierManager, permissions.VerticalFeed):     {ScopeType: "park", RoleHint: "operator"},
+	permissions.RoleKey(permissions.TierManager, permissions.VerticalCleaning): {ScopeType: "park", RoleHint: "operator"},
+	permissions.RoleKey(permissions.TierManager, permissions.VerticalFarming):  {ScopeType: "park", RoleHint: "operator"},
 
-	permissions.RoleKey(permissions.TierAssistantManager, permissions.VerticalHealth):   {ScopeType: "park", RoleHint: "assistant_manager"},
-	permissions.RoleKey(permissions.TierAssistantManager, permissions.VerticalFeed):     {ScopeType: "park", RoleHint: "assistant_manager"},
-	permissions.RoleKey(permissions.TierAssistantManager, permissions.VerticalCleaning): {ScopeType: "park", RoleHint: "assistant_manager"},
-	permissions.RoleKey(permissions.TierAssistantManager, permissions.VerticalFarming):  {ScopeType: "park", RoleHint: "assistant_manager"},
+	permissions.RoleKey(permissions.TierAssistantManager, permissions.VerticalHealth):   {ScopeType: "park", RoleHint: "operator"},
+	permissions.RoleKey(permissions.TierAssistantManager, permissions.VerticalFeed):     {ScopeType: "park", RoleHint: "operator"},
+	permissions.RoleKey(permissions.TierAssistantManager, permissions.VerticalCleaning): {ScopeType: "park", RoleHint: "operator"},
+	permissions.RoleKey(permissions.TierAssistantManager, permissions.VerticalFarming):  {ScopeType: "park", RoleHint: "operator"},
 }
 
 var validDesignationGrades = map[string]struct{}{
