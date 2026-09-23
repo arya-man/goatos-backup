@@ -123,11 +123,19 @@ async function readSide(page, target) {
     // rendered nothing twice used to pass. Measured: it did.
     if (!total) return { number: null, values: null, how: "count" };
     const values = [];
+    let carriedAFigure = false;
     for (let i = 0; i < total; i += 1) {
-      if (await loc.nth(i).isVisible().catch(() => false)) values.push(1);
+      const one = loc.nth(i);
+      if (!(await one.isVisible().catch(() => false))) continue;
+      if (numberIn(await one.innerText().catch(() => null)) !== null) carriedAFigure = true;
+      values.push(1);
     }
     if (!values.length) return { number: null, values: null, how: "count" };
-    return { number: values.length, values, how: "count" };
+    // Whether anything counted carries a FIGURE is reported, never acted on
+    // here. `compare` legitimately counts rows that hold no number — "this tab
+    // says 3 and lists 3 rows" is a real invariant and those rows may be names.
+    // Only `stable` needs the stricter reading, and it applies it itself.
+    return { number: values.length, values, carriedAFigure, how: "count" };
   }
   if (target?.all === "sum") {
     const loc = locatorFor(page, target);
@@ -198,6 +206,30 @@ async function checkExpect(page, expect) {
     return page.url().includes(expect.url.contains) ? null : { what: `address should contain ${expect.url.contains}`, loc: null };
   }
   if (expect.stable) {
+    // ---------------------------------------------------------------------
+    // TWO DEFENCES AGAINST A PAGE THAT DREW NOTHING, AND BOTH ARE DELIBERATE.
+    //
+    // They look redundant and they are. That is the point, and it is written
+    // here because redundancy nobody labelled gets removed by the next person
+    // tidying up.
+    //
+    //   BRACES - the shared primitive refuses two readings that found nothing.
+    //     It is the general rule and it protects EVERY caller, including ones
+    //     written after this comment. Owned by reading-comparison.mjs.
+    //
+    //   BELT   - this caller turns an empty reading into an ABSENT one before
+    //     the primitive is asked, and applies the stricter reading `stable`
+    //     needs but `compare` must not have. It protects this path whichever
+    //     version of the primitive is present, which is not hypothetical: the
+    //     two landed in different commits, and for a while the lane carried one
+    //     without the other.
+    //
+    // What each catches that the other does not: the primitive cannot know that
+    // a `count` of visible-but-empty boxes is not a reading of figures, because
+    // by the time it sees the pair they are just numbers. This caller cannot
+    // protect anyone else. Deleting either leaves a real hole, so deleting
+    // either should fail a test - and does.
+    // ---------------------------------------------------------------------
     // Read a figure, do something that must not change it, read it again.
     //
     // "Pagination changes rows only, never summary truth." A summary computed
@@ -206,6 +238,20 @@ async function checkExpect(page, expect) {
     const { target, through = [], label = "this figure" } = expect.stable;
     const before = await readSide(page, target);
     if (before.values === null) return { what: `not visible: ${target.text ?? target.css}`, loc: null };
+    // Measured after the primitive's own refusal landed, by asking WHERE each
+    // case is stopped rather than assuming the fix reached this path. It had
+    // not: a page whose figure CONTAINERS drew but whose figures did not still
+    // passed under `count`, because the count counted the empty containers and
+    // both readings agreed. The blank-page defect one layer in — the box drew,
+    // the content did not.
+    //
+    // This belongs to `stable` and not to the shared reader: a `stable`
+    // expectation is about a FIGURE that must not move, whereas `compare`
+    // legitimately counts rows that carry no number. Putting it in the reader
+    // broke exactly that, and the existing test for it caught the over-reach.
+    if (target?.all === "count" && before.carriedAFigure === false) {
+      return { what: `not visible: ${target.text ?? target.css}`, loc: null };
+    }
     for (const step of through) await runStep(page, step);
     const after = await readSide(page, target);
     if (after.values === null) {
