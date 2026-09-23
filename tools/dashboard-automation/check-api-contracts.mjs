@@ -716,6 +716,13 @@ export async function checkEntry(entry, context) {
   let transportError = null;
   let redirected = false;
 
+  // Warm-up answers were thrown away entirely, so a page that fails every time it is
+  // asked cold and works once it is warm reported a clean pass. That is the 6am case:
+  // the first person to open the page is the one who gets the error, and nobody else
+  // ever sees it. Warm-up failures are counted now, and reported when EVERY warm-up
+  // failed — a single cold blip is not worth waking anyone for, but a page that is
+  // reliably broken until something warms it up is.
+  const warmupStatuses = [];
   const once = async (measured) => {
     const started = performance.now();
     try {
@@ -723,6 +730,7 @@ export async function checkEntry(entry, context) {
       const elapsed = performance.now() - started;
       if (hops > 0) redirected = true;
       const text = await response.text();
+      if (!measured) warmupStatuses.push(response.status);
       if (measured) {
         durations.push(elapsed);
         statuses.push(response.status);
@@ -755,6 +763,10 @@ export async function checkEntry(entry, context) {
     findings.push(finding(entry, "not-authorised", `the server answered HTTP ${worstStatus}`, requestPath, lastBodyText));
   } else if (statuses.some((status) => status >= 400)) {
     findings.push(finding(entry, "client-error", `the server answered HTTP ${worstStatus}`, requestPath, lastBodyText));
+  }
+  if (warmup > 0 && warmupStatuses.length === warmup && warmupStatuses.every((status) => status >= 500)
+      && statuses.length > 0 && statuses.every((status) => status < 400)) {
+    findings.push(finding(entry, "cold-start-failure", `every request failed until the page had been asked ${warmup} times`, requestPath, ""));
   }
   if (redirected) {
     findings.push(finding(entry, "redirected", "the server sent the app somewhere else to get this data", requestPath, ""));
