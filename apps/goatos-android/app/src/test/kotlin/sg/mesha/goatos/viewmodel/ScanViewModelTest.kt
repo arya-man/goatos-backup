@@ -237,6 +237,43 @@ class ScanViewModelTest {
     }
 
     @Test
+    fun `taskless combined card still requires per-goat video proof`() = runTest(dispatcher) {
+        for (detail in listOf<TaskDetail?>(null, TaskDetail(
+            task = TaskSummaryDto(taskId = "task-1", scopeType = "shed", scopeId = "shed-1", rowVersion = 1),
+            form = FormSpec.Empty,
+            proofPolicy = ProofPolicy.Default,
+        ))) {
+            val scanVm = ScanViewModel(
+                repo = FakeScanExecutionRepository(
+                    firstPage = ScanRosterResponseDto(rows = listOf(
+                        scanRow("goat-1", "TAG-100", "obl-1", taskId = "task-1"),
+                        scanRow("goat-2", "TAG-200", "obl-2", taskId = "task-2"),
+                    )),
+                ),
+                reader = FakeRfidReaderPort(),
+                scanCaptureRepository = FakeScanCaptureRepository(),
+                scanAttemptRepository = FakeScanAttemptRepository(),
+                proofCaptureRepository = FakeProofCaptureRepository(),
+                proofCaptureSource = autoVideoProofSource(),
+                bootstrapRepository = FakeCaptureBootstrapRepository(),
+                tasksRepository = FakeTasksRepositoryForCapture(detail = detail),
+                syncRepository = CapturingSubmitSyncRepository(),
+                analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
+                savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "plannedDate" to "2026-09-25")),
+            )
+            val job = backgroundScope.launch { scanVm.state.collect {} }
+            advanceUntilIdle()
+
+            assertEquals(2, scanVm.state.value.roster.size)
+            assertTrue(
+                "cached policy=${detail != null}: a combined card with no route task must keep the per-goat proof requirement",
+                scanVm.state.value.roster.all { it.proofRequired },
+            )
+            job.cancel()
+        }
+    }
+
+    @Test
     fun `unknown vaccination RFID scan reports no goat and no proof captured`() = runTest(dispatcher) {
         val scanAttempts = FakeScanAttemptRepository()
         val reader = FakeRfidReaderPort()
