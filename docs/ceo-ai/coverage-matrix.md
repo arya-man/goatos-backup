@@ -583,6 +583,35 @@ not fail with `permission denied`. Access stays read-only (SELECT only +
 `default_transaction_read_only=on`; no write/DDL). This supersedes the "Cube
 never reads raw Postgres" boundary for these two read-only roles.
 
+## Explicit exclusion: STG latency burst hardening (2026-09-24)
+
+The 2026-09-24 STG latency work (`docs/perf/2026-09-24-stg-latency/`) adds
+caching, batching, pool, tracing and rollup plumbing under reads that the
+assistant already covers. None of it adds a leadership KPI, read API route,
+Cube metric, `ceo_ai.*` view or MCP Toolbox tool. The new tables are
+read-model or bookkeeping state behind already-covered aggregates; the new
+functions are either plumbing or batched/cached forms of existing covered
+readers (weighing growth/ADG, shed weights, weight demographics, counts,
+herd signals, notifications). Coverage stays with the existing rows for those
+modules.
+
+| Surface | Decision | Reason |
+|---|---|---|
+| herd_signal_pen_medians | EXCLUDED:detail | Stored per-pen weight medians the Herd Signals risk classifier compares against. Operator-level classifier input behind the existing Herd Signals coverage; no new leadership fact. |
+| notification_member_unread_keys | EXCLUDED:infra | Per-member unread notification key set that backs the unread badge counter. Notification plumbing, not a business fact. |
+| notification_member_unread_counts | EXCLUDED:infra | Materialised unread badge count per member. Notification plumbing. |
+| notification_unread_counter_state | EXCLUDED:infra | Backfill/reconcile state for the unread counters. Bookkeeping. |
+| growth_fcr_pen_feed_days | EXCLUDED:detail | Per-pen, per-day feed rollup that the FCR / cost-per-kg-gain reader sums instead of rescanning raw feed rows. Same numbers as the existing covered FCR read (`cost-per-kg-gain.sql`). |
+| growth_fcr_rollup_dirty | EXCLUDED:infra | Dirty-marker queue for the FCR feed-day rollup refresh. Bookkeeping. |
+| growth_fcr_rollup_reconcile | EXCLUDED:infra | Operator-invisible reconcile checkpoint for the FCR feed-day rollup (rebuild watermark, not a data-repair queue). Bookkeeping. |
+| rollup_day_watermark | EXCLUDED:infra | Per-rollup day watermark. Bookkeeping. |
+| app_events_archive | EXCLUDED:infra | Archive partition for product telemetry events moved out of the hot table. Telemetry. |
+| read-cache, pool and tracing plumbing | EXCLUDED:infra | func:WithCache, func:WithReadCache, func:WithReadCacheInvalidator, func:WithFacetCache, func:ReadCache, func:New, func:DefaultSizer, func:DefaultOptions, func:SetCoherent, func:Coherent, func:Evict, func:EvictAll, func:Stats, func:OnFirstConnect, func:NewListener, func:Start, func:StartWarmup, func:Jitter, func:WithHealthCheck, func:NotifyTx, func:QueueNotify, func:CommitAndEvict, func:NewPair, func:Check, func:FindRowByID, func:Scan, func:Reset, func:Trips, func:Statements, func:SQL, func:String, func:TraceQueryStart, func:TraceQueryEnd, func:TraceBatchStart, func:TraceBatchQuery, func:TraceBatchEnd, func:CountingPool, func:IsDeadlock, func:RetryOnDeadlock, func:RegisterNamedPoolMetrics, func:LogPoolAcquirePressure, func:RecordPoolBootPingFailure, func:AuthPoolConfig, func:ConnectLazy, func:WithRequestDeadline, func:DatabaseUnavailable, func:RecordAnalyticsExportFailure, func:RecordAnalyticsArchiveLeftoverDay, func:NewStatementBatch, func:RunBatch, func:WithStatementBatch, func:ListStatement, func:CountStatement, func:Name, func:Run. Cache, connection-pool, statement-batching and query-tracing infrastructure. |
+| auth access snapshot | EXCLUDED:infra | func:ActiveTenantRoles, func:ActiveTenantGrants, func:ResolvePermissions, func:ResolveParkScope, func:ResolveAccessSnapshot, func:NewAllowedEmailSourceWithLoader, func:EmailAllowedErr, func:AllowsWithDynamicErr. Login/permission resolution batched into one snapshot; auth plumbing, not a leadership read. |
+| batched forms of covered readers | EXCLUDED:detail | func:GetLeadershipGrowthADG, func:GetShedWeights, func:GetWeightDemographics, func:WarmLandingReads, func:ReadCounts, func:ReadRows, func:ListRows, func:ListRoutinesAndParks, func:Catalog, func:ListTagsLatestPage, func:ListTagsLatestKeyset. Cached/batched/keyset versions of already-covered weighing, counts and pen-routine reads; same numbers as the existing covered rows. |
+| herd signals classifier and FCR rollup jobs | EXCLUDED:detail | func:ListLivePenMedians, func:LiveSummary, func:ClassifyRiskBatch, func:ListRiskTenants, func:ApplyPenMedians, func:LoadPenMedians, func:RecomputeRisk, func:RiskTick, func:RunRiskClassifier, func:WithRiskReevaluationFloor, func:InvalidateLive, func:InvalidateAllLive, func:WithFreshLiveRead, func:FreshLiveRead, func:RefreshFCRRollup, func:ReconcileFCRRollup, func:NewGrowthFCRRollupStage. Background jobs that keep the Herd Signals and FCR read models current; the covered reads are unchanged. |
+| notification unread counters | EXCLUDED:infra | func:CounterGateOpen, func:BackfillUnreadCounters, func:ReconcileUnreadCounters. Unread badge counter maintenance. |
+
 ## Explicit exclusion: vaccination proof/label/withdrawal internal fixes (2026-07-23)
 
 The shed-proof scope-recovery fix (`CaptureRepository.kt`), the withdrawal-until
