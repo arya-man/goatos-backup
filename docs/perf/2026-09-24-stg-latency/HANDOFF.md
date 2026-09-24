@@ -124,3 +124,29 @@ Wave 2 is running as 4 parallel builders on top of the 3 already going, 7 in tot
    - `wip/perf-w2-proofs`, `wip/perf-w2-vaccination`, `wip/perf-w2-workboard`, `wip/perf-w2-calendar`: Wave 2; builders had just started
 3. For each branch, `git log origin/perf/stg-burst-and-login..origin/<wip>` shows the builder commits not yet in the PR. Finish them, then cherry-pick onto the PR branch, push, and run an adversarial judge. Loop until the judge is CLEAN. Renumber migrations if they collide.
 4. Keep pushing progress to this file and to `QUEUE.md`. Do not land or deploy until the maintainer says so.
+
+## STOPPED for an account switch (2026-09-24, late evening)
+
+All agents and the 10-minute loop are stopped. Every builder's work (committed, plus uncommitted work saved as "WIP (stopped for account switch)" commits) is pushed to origin. **None of these branches is in the PR yet, and none has been judged unless noted.**
+
+| Branch | Commits beyond the PR | State | Next step |
+|---|---|---|---|
+| `wip/perf-herd-live` | 596220895 | Herd R1–R4 fix (lock-free SQL risk scoring, ingest fast path), not judged | Judge against the R1–R4 list below, then cherry-pick |
+| `wip/perf-read-cache` | 3 | Per-request auth-lookup coalescing, plus cache-writer invalidation in progress (weighing full suite was running) | Finish `audit/cache-correctness.md` items 1–7 (goat, partition, procurement, feed-purchase, feeddirection-local, kernel carry-over, herd mapping, locations/config writers), the stale window to 0–5 s, and the read-your-writes E2E, then judge |
+| `wip/perf-fcr-rollup` | 778ec44b7 | FCR/ADG precomputed rollup, early WIP | Continue (it was paused behind the cache fixes) |
+| `wip/perf-w2-proofs` | 5 (last one WIP) | Proof lookup rewrite, identifiers JOIN, workflows, goats search, index | Finish (it was writing a red test for a narrowing function), then judge |
+| `wip/perf-w2-vaccination` | 1 WIP | Just started: a red test for cache-scoped payloads | Continue the brief in `QUEUE.md` Wave 2 vaccination |
+| `wip/perf-w2-workboard` | 1 WIP | Just started | Continue (it was starting a throwaway PG) |
+| `wip/perf-w2-calendar` | 2 (includes the feeddirection aborted-tx bug fix) | Partial | Continue the calendar + feed rollup brief |
+
+**Herd Signals R1–R4 judge findings,** from judging e96822461. N1–N7 and pen=partition are CLEAN.
+- **R1 (high):** the classifier must not hold `FOR UPDATE` row locks during enrichment. Read without locks and write with an optimistic guard.
+- **R2:** at ingest, set `risk_due_at=now()` when the movement state or pattern changes, or when motion drops far below baseline.
+- **R3:** use a 24h baseline rollup so each batch is one SQL statement, and measure 50k.
+- **R4:** make the tests deterministic by seeding the jitter and adding `ORDER BY tag_id` to the stale subquery.
+
+**Don't go in circles:**
+- Every item above already has its findings written down; don't re-audit.
+- Take the branch, finish the listed step, judge it, cherry-pick it onto `perf/stg-burst-and-login`, and push.
+- Migration numbers used so far: 000400–000404. Parallel branches may collide, so renumber when you integrate.
+- Still no landing or deploy until the maintainer says so.
