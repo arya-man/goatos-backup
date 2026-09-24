@@ -227,6 +227,29 @@ type RecentVaccineAdministration struct {
 	Sequence          int32
 	ProtocolVersionID string
 	ProtocolID        string
+	// Source is the evidence channel (AdministrationSource*). Anchor events chain schedules but are
+	// not proof an individual animal was vaccinated, so clinical gates such as the purpose second
+	// wave count only CountsAsAdministered sources.
+	Source string
+}
+
+const (
+	AdministrationSourceCompletion = "completion"
+	AdministrationSourceTrusted    = "trusted_procurement"
+	AdministrationSourcePrearrival = "prearrival_accepted"
+	AdministrationSourceAnchor     = "anchor_event"
+)
+
+// CountsAsAdministered reports whether the row is individual administration evidence: an
+// accepted+verified completion, trusted proof-backed procurement evidence, or accepted pre-arrival
+// history. Anchor events and unlabelled rows do not count.
+func (a RecentVaccineAdministration) CountsAsAdministered() bool {
+	switch a.Source {
+	case AdministrationSourceCompletion, AdministrationSourceTrusted, AdministrationSourcePrearrival:
+		return true
+	default:
+		return false
+	}
 }
 
 type AnchorScope struct {
