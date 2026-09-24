@@ -516,7 +516,12 @@ export function watchTagsHandler({ runSql, emit = async () => {}, registry, ctx,
       return fail("Too many live watches are running right now. Tell the user live watching is busy and to try again in a few minutes; answer from a one-time run_sql snapshot instead.");
     }
     const spec = parseWatchArgs(args);
-    registry.set(ctx.chatId, { stop: () => {} });
+    // Placeholder until runWatch hands over its real handle: a "Stop watching" / chat delete that
+    // lands in between (the watch_started write) is remembered and applied, not dropped.
+    let pendingStop = null;
+    const placeholder = { stop: (r) => { pendingStop = r || "stopped"; } };
+    registry.set(ctx.chatId, placeholder);
+    if (ctx.run) ctx.run.stopWatch = placeholder.stop;
     await emit("watch_started", ctx.evCtx, {
       filter: spec.filter.join(", ").slice(0, 200), minutes: spec.minutes, interval_s: spec.interval_s,
       compare: spec.compare, stop_when: spec.stop_when,
@@ -525,7 +530,11 @@ export function watchTagsHandler({ runSql, emit = async () => {}, registry, ctx,
     try {
       res = await runWatch({
         args, runSql, send: ctx.send, signal: ctx.signal, tenantId: ctx.tenantId, allowAllTenants: Boolean(ctx.allowAllTenants), stopReason: ctx.stopReason, log,
-        onHandle: (h) => { registry.set(ctx.chatId, h); if (ctx.run) ctx.run.stopWatch = h.stop; },
+        onHandle: (h) => {
+          registry.set(ctx.chatId, h);
+          if (ctx.run) ctx.run.stopWatch = h.stop;
+          if (pendingStop) h.stop(pendingStop);
+        },
       });
       return { content: [{ type: "text", text: res.text }] };
     } finally {

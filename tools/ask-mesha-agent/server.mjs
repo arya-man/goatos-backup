@@ -16,10 +16,10 @@ import { createUploads } from "./uploads.mjs";
 import { createEvents } from "./events.mjs";
 import {
   isDeepQuestion, answerCapUsd, answerCostUsd, friendlyError, STOPPED_NOTE, validateReadSql, clipSqlOutput,
-  toolLabel, describeTableSql, describeTableNames, sqlTableRefs, isMissingColumnError, kindValuesSql, relInfoSql, shouldSampleKinds, makeChartFilter, extractChart, historyPreamble, pathAllowed, ttlCache, inlineDisposition, makeTurnGate, stripLeadingNarration, istNowNote, attachmentPrompt,
+  failedAttemptCostUsd, finalAnswerCost, runOwnedBy, toolLabel, describeTableSql, describeTableNames, sqlTableRefs, isMissingColumnError, kindValuesSql, relInfoSql, shouldSampleKinds, makeChartFilter, extractChart, historyPreamble, pathAllowed, ttlCache, inlineDisposition, makeTurnGate, stripLeadingNarration, istNowNote, attachmentPrompt,
 } from "./lib.mjs";
 import { createWatchRegistry, WATCH_TAGS_DESCRIPTION, watchTagsHandler, watchTagsSchema } from "./watch.mjs";
-import { authMode, combinedCost, createProviderSwitch, envForProvider, probeVertex, shouldFallback } from "./provider.mjs";
+import { authMode, createProviderSwitch, envForProvider, probeVertex, shouldFallback } from "./provider.mjs";
 
 const PORT = Number(process.env.PORT || 8787);
 // 127.0.0.1 locally; the container sets HOST=0.0.0.0 (Cloud Run fronts it with IAM).
@@ -514,8 +514,9 @@ async function stopEvent(req, res, user) {
   if ((b.kind !== "stop_pressed" && b.kind !== "watch_stop") || typeof b.request_id !== "string") return json(res, 400, { error: "invalid_event" });
   const run = activeRuns.get(b.request_id);
   if (!run) { res.writeHead(204); return res.end(); }
-  const chat = await store.getChat(run.chatId);
-  if (!chat || !sameOwner(chat, user)) return json(res, 404, { error: "not_found" });
+  // Recorded against the request (its starter), not the chat: Stop on a brand-new chat can
+  // arrive before the chat row exists, and a 404 there left the run spending until disconnect.
+  if (!runOwnedBy(run, user)) return json(res, 404, { error: "not_found" });
   if (b.kind === "watch_stop") run.stopWatch?.("stopped"); // ends only the live watch; the answer still comes
   else run.stopPressed();
   res.writeHead(204);
@@ -573,7 +574,7 @@ async function ask(req, res, user) {
   let onStopSignal = () => {};
   let onDeleted = () => {};
   const run = {
-    chatId: chat?.id ?? null, capUsd,
+    chatId: chat?.id ?? null, capUsd, email: user.email, tenantId: user.tenantId,
     stopPressed: () => { stopReason = "stop_pressed"; onStopSignal(); },
     // The chat was deleted mid-answer: abort the whole run (spend stops, nothing is saved).
     chatDeleted: () => { stopReason = "chat_deleted"; onDeleted(); },
@@ -645,6 +646,8 @@ async function ask(req, res, user) {
   };
   // SDK cost is cumulative per session; remember the resumed session's previous total.
   let prevSessionCost = chat.session_id ? Number(chat.session_cost_usd) || 0 : 0;
+  // Spend of provider attempts that failed and were retried; counted on every exit path.
+  let failedAttemptCost = 0;
   const since = () => Date.now() - t0;
   const trackCtx = { request_id: requestId, chat_id: chat.id, email: user.email, tenant_id: user.tenantId, provider };
   const track = events.tracker(trackCtx,
@@ -670,6 +673,8 @@ async function ask(req, res, user) {
     // panel on this chat, so asking again continues it instead of starting another.
     send({ type: "progress", phase: "planning", label: "Starting agent", request_id: requestId, conversation_id: chat.id });
     metric.first_progress_ms = since();
+    // Deleted between lock and here: nothing (not even the question) is written into it.
+    if (abort.signal.aborted) throw new Error("client_aborted");
     // Inside try so a store failure still releases the chat lease (finally).
     if (chat.title === "New chat") {
       chat.title = question.slice(0, 60);
@@ -703,7 +708,7 @@ async function ask(req, res, user) {
     // happens when a Vertex run failed quota-ish before any token was shown (shouldFallback).
     const origSessionId = chat.session_id || null;
     const origPrevSessionCost = prevSessionCost;
-    let failedAttemptCost = 0;
+    const origSessionCostUsd = chat.session_cost_usd ?? null;
     if (abort.signal.aborted) throw new Error("client_aborted"); // deleted/closed before Claude started
     for (let attempt = 0; ; attempt++) {
       const attemptAbort = new AbortController();
@@ -845,8 +850,10 @@ async function ask(req, res, user) {
       metric.provider_fallback = true;
       metric.error = null;
       // The failed attempt's spend is real (usually ~0 on a 429); carry it into this answer's cost.
-      failedAttemptCost += metric.cost_usd || 0;
+      // No result message from it: count its cap, never 0 (fail-closed monthly cap).
+      failedAttemptCost += failedAttemptCostUsd(metric.cost_usd, capUsd);
       metric.cost_usd = null;
+      metric.session_cost_usd = null;
       full = "";
       lastTurnText = "";
       turnVisible = false;
@@ -858,8 +865,14 @@ async function ask(req, res, user) {
         chat.session_id = origSessionId;
         await store.updateChat(chat.id, { session_id: origSessionId }).catch(() => {});
       }
+      // The failed attempt's result may have persisted its session total; put the original back
+      // so the retry's (or the next turn's) delta isn't computed against a dropped session.
+      if ((chat.session_cost_usd ?? null) !== origSessionCostUsd) {
+        chat.session_cost_usd = origSessionCostUsd;
+        await store.updateChat(chat.id, { session_cost_usd: origSessionCostUsd }).catch(() => {});
+      }
     }
-    metric.cost_usd = combinedCost(metric.cost_usd, failedAttemptCost);
+    // metric.cost_usd is this attempt's cost only; failed attempts are added in finally (every exit path).
     // Aborted (chat deleted mid-answer, tab closed) but the SDK loop ended without throwing:
     // never save a summary into a deleted chat or present a cut-off run as an answer.
     if (abort.signal.aborted) throw new Error("client_aborted");
@@ -906,12 +919,16 @@ async function ask(req, res, user) {
     if (metric.total_ms === null) metric.total_ms = since();
     // No result message (client closed the tab, crash): the spend is unknown but real.
     // Count the answer's cap so the monthly hard cap stays fail-closed.
-    if (metric.cost_usd === null && started) {
-      metric.cost_usd = capUsd;
-      metric.cost_estimated = true;
-      // The resumed session's next total will include this turn's real spend; pre-credit the
-      // estimate so that answer's delta nets it out instead of counting it twice.
-      if (chat.session_id) await store.updateChat(chat.id, { session_cost_usd: prevSessionCost + capUsd }).catch(() => {});
+    // A retry that throws still carries the failed attempt's cost (finalAnswerCost).
+    {
+      const { cost, estimated } = finalAnswerCost({ costUsd: metric.cost_usd, started, capUsd, failedAttemptCost });
+      metric.cost_usd = cost;
+      if (estimated) {
+        metric.cost_estimated = true;
+        // The resumed session's next total will include this turn's real spend; pre-credit the
+        // estimate so that answer's delta nets it out instead of counting it twice.
+        if (chat.session_id) await store.updateChat(chat.id, { session_cost_usd: prevSessionCost + capUsd }).catch(() => {});
+      }
     }
     clearInterval(heartbeat);
     await cleanupUploads().catch(() => {});

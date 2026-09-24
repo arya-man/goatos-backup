@@ -267,3 +267,32 @@ test("parseWatchArgs: interval/minutes extremes and junk fall back safely", () =
   assert.equal(parseWatchArgs({ minutes: 1e9 }).minutes, LIMITS.minutesMax);
   assert.equal(parseWatchArgs({ minutes: "x" }).minutes, 5);
 });
+
+test("watchTagsHandler: Stop watching during watch_started is applied, not dropped", async () => {
+  const { watchTagsHandler } = await import("../watch.mjs");
+  const reg = createWatchRegistry();
+  const h = harness([1]);
+  const run = {};
+  let release;
+  const gate = new Promise((r) => (release = r));
+  const emit = async (n) => { if (n === "watch_started") await gate; };
+  const handler = watchTagsHandler({ runSql: h.runSql, emit, registry: reg, ctx: { send: h.send, chatId: "c1", tenantId: h.tenantId, run, stopReason: () => null } });
+  const p = handler({ filter: "A1", minutes: 30, interval_s: 5 });
+  await new Promise((r) => setTimeout(r, 5));
+  assert.equal(typeof run.stopWatch, "function", "Stop watching works before the first poll");
+  run.stopWatch("stopped");
+  release();
+  const done = await Promise.race([p, new Promise((r) => setTimeout(() => r("timeout"), 2000))]);
+  assert.notEqual(done, "timeout", "the watch must end instead of running its full 30 min");
+  assert.match(done.content[0].text, /Watch ended: stopped/);
+});
+
+test("events pg sink reads watch_ended and chat_busy too (per-user watches/busy counts)", async () => {
+  const { pgSink, READ_EVENTS } = await import("../events.mjs");
+  const calls = [];
+  const sink = pgSink({ query: async (sql, params) => { calls.push({ sql, params }); return { rows: [] }; } });
+  await sink.since(new Date().toISOString(), null);
+  for (const n of ["ask_started", "ask_completed", "ask_failed", "ask_stopped", "watch_ended", "chat_busy"]) assert.ok(READ_EVENTS.includes(n), n);
+  assert.deepEqual(calls[0].params[2], READ_EVENTS);
+  assert.match(calls[0].sql, /ORDER BY ts DESC/);
+});

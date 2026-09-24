@@ -42,6 +42,29 @@ export function answerCostUsd(total, prevSessionTotal) {
   return Math.max(0, +(t - prev).toFixed(6));
 }
 
+// Cost of a failed provider attempt that is about to be retried. No result message (the
+// SDK died/was aborted mid-retry): the spend is unknown, so count the attempt's cap
+// (conservative, same rule as a run that never returns a result).
+export function failedAttemptCostUsd(costUsd, capUsd, started = true) {
+  if (costUsd != null && Number.isFinite(Number(costUsd))) return Number(costUsd);
+  return started ? capUsd : 0;
+}
+// Final recorded cost of an answer. `costUsd` is the last attempt's cost (null = no result),
+// `failedAttemptCost` what earlier (fallback) attempts spent. Used on every path, including
+// a retry that throws, so an earlier attempt's spend is never dropped.
+export function finalAnswerCost({ costUsd, started, capUsd, failedAttemptCost = 0 }) {
+  let cost = costUsd;
+  let estimated = false;
+  if (cost == null && started) { cost = capUsd; estimated = true; }
+  if (failedAttemptCost) cost = +((cost ?? 0) + failedAttemptCost).toFixed(6);
+  return { cost, estimated };
+}
+// The panel's Stop can land before the chat row exists (new chat): ownership is checked
+// against the user who started the request, not the chat.
+export function runOwnedBy(run, user) {
+  return Boolean(run && user && run.email === user.email && (run.tenantId ?? "") === (user.tenantId ?? ""));
+}
+
 // ---- CEO-facing wording ------------------------------------------------------
 // Never show raw SDK/infra errors or the words budget/tool/session to CEOs.
 export const STOPPED_NOTE =
