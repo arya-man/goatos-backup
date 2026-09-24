@@ -45,6 +45,18 @@ type Repository interface {
 		err error,
 	)
 
+	// ListLivePenMedians aggregates, per pen, the median non-gap 15m motion_delta and median tag
+	// temperature over the WHOLE filtered live cohort (movement_state excluded) in ONE query, so
+	// GET /herd-signals/live's pen-group comparison never has to walk and enrich every tag.
+	ListLivePenMedians(ctx context.Context, tenantID string, parkID, shedID, liveState, mappingState, pattern, q *string) (map[string]PenMedians, error)
+
+	// ListTagsLatestKeyset is ListTagsLatest's page + next cursor without the summary aggregate.
+	ListTagsLatestKeyset(ctx context.Context, tenantID string, parkID, shedID, movementState, liveState, mappingState, pattern, q *string, cursor string, limit int, sort ...domain.LiveSort) ([]domain.TagLatest, *string, error)
+
+	// LiveSummary is ListTagsLatest's whole-filter summary aggregate on its own (movement_state,
+	// live_state, cursor and limit never apply).
+	LiveSummary(ctx context.Context, tenantID string, parkID, shedID, mappingState, pattern, q *string) (domain.Summary, error)
+
 	// ListActivityWindows fetches bucketed motion data for a tag over a date range.
 	// bucketSeconds: defaults to 60 if 0.
 	ListActivityWindows(ctx context.Context, tenantID, tagID string, from, to time.Time, bucketSeconds int) (
@@ -144,6 +156,12 @@ type Repository interface {
 	// herd_signal_activity_windows (bounded, efficient query vs scanning raw packets).
 	// Aggregates: unique tags seen, tags with motion, total packets. Result keyed by gateway_id.
 	GetGatewayWindowStats(ctx context.Context, tenantID string) (map[string]GatewayWindowStats, error)
+}
+
+// PenMedians is the per-pen live comparison baseline. Nil means no qualifying tag in that pen.
+type PenMedians struct {
+	MotionMedian *float64
+	TempMedian   *float64
 }
 
 // GatewayTagStats is the per-gateway tag rollup for GET /herd-signals/gateways.

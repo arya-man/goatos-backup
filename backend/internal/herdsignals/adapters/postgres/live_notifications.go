@@ -6,23 +6,41 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// LiveNotificationSource LISTENs on herd_signals_live over its OWN dedicated pgx.Conn.
+//
+// It used to Acquire a main-pool connection and hold it forever inside WaitForNotification,
+// permanently shrinking the request pool by one on every API instance (and on db-g1-small's
+// small pool that is a real share of capacity). The dedicated conn is built from a COPY of the
+// pool's ConnConfig so it inherits the same auth/dialer (Cloud SQL connector, IAM, TLS) without a
+// second DSN, reconnects with capped exponential backoff, and is closed when ctx is cancelled
+// (bootstrap cancels it before closePools on shutdown).
 type LiveNotificationSource struct {
-	pool *pgxpool.Pool
-	log  *slog.Logger
+	connect func(ctx context.Context) (*pgx.Conn, error)
+	log     *slog.Logger
 }
 
 func NewLiveNotificationSource(pool *pgxpool.Pool, log *slog.Logger) *LiveNotificationSource {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &LiveNotificationSource{pool: pool, log: log}
+	if pool == nil {
+		return &LiveNotificationSource{log: log}
+	}
+	base := pool.Config().ConnConfig
+	return &LiveNotificationSource{
+		connect: func(ctx context.Context) (*pgx.Conn, error) {
+			return pgx.ConnectConfig(ctx, base.Copy())
+		},
+		log: log,
+	}
 }
 
 func (s *LiveNotificationSource) Start(ctx context.Context, publish func(tenantID string), publishAll func()) {
-	if s == nil || s.pool == nil || publish == nil {
+	if s == nil || s.connect == nil || publish == nil {
 		return
 	}
 	go s.listenLoop(ctx, publish, publishAll)
@@ -31,7 +49,11 @@ func (s *LiveNotificationSource) Start(ctx context.Context, publish func(tenantI
 func (s *LiveNotificationSource) listenLoop(ctx context.Context, publish func(tenantID string), publishAll func()) {
 	backoff := time.Second
 	for {
-		if err := s.listenOnce(ctx, publish, publishAll); err != nil && ctx.Err() == nil {
+		connected, err := s.listenOnce(ctx, publish, publishAll)
+		if connected {
+			backoff = time.Second
+		}
+		if err != nil && ctx.Err() == nil {
 			s.log.Warn("herd_signals_live_notify_listener_failed", "error", err.Error())
 		}
 		if ctx.Err() != nil {
@@ -48,15 +70,21 @@ func (s *LiveNotificationSource) listenLoop(ctx context.Context, publish func(te
 	}
 }
 
-func (s *LiveNotificationSource) listenOnce(ctx context.Context, publish func(tenantID string), publishAll func()) error {
-	conn, err := s.pool.Acquire(ctx)
+// listenOnce owns one dedicated connection for its whole life. connected reports whether LISTEN
+// succeeded, so the caller can reset its backoff after a healthy session.
+func (s *LiveNotificationSource) listenOnce(ctx context.Context, publish func(tenantID string), publishAll func()) (connected bool, err error) {
+	conn, err := s.connect(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
-	defer conn.Release()
+	defer func() {
+		closeCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = conn.Close(closeCtx)
+	}()
 
 	if _, err := conn.Exec(ctx, "LISTEN herd_signals_live"); err != nil {
-		return err
+		return false, err
 	}
 	s.log.Info("herd_signals_live_notify_listener_started", "channel", liveNotifyChannel)
 	if publishAll != nil {
@@ -64,9 +92,10 @@ func (s *LiveNotificationSource) listenOnce(ctx context.Context, publish func(te
 	}
 
 	for {
-		notification, err := conn.Conn().WaitForNotification(ctx)
+		// scale-guard:ignore: blocking LISTEN receive owner=herd-signals issue=perf/herd-live reason=WaitForNotification blocks on one dedicated connection for the next async notification; it is a receive loop, not a per-row query expiry=2027-06-30
+		notification, err := conn.WaitForNotification(ctx)
 		if err != nil {
-			return err
+			return true, err
 		}
 		if notification.Channel != liveNotifyChannel {
 			continue

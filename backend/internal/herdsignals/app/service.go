@@ -22,6 +22,9 @@ type Service struct {
 	repo       ports.Repository
 	log        *slog.Logger
 	thresholds domain.Thresholds
+	cohorts    *liveCohortCache[[]domain.LiveItem]
+	penStats   *liveCohortCache[map[string]riskGroupStats]
+	summaries  *liveCohortCache[domain.Summary]
 }
 
 const (
@@ -45,7 +48,25 @@ func NewService(repo ports.Repository, log ...*slog.Logger) *Service {
 		repo:       repo,
 		log:        l,
 		thresholds: domain.DefaultThresholds(),
+		cohorts:    newLiveCohortCache[[]domain.LiveItem](),
+		penStats:   newLiveCohortCache[map[string]riskGroupStats](),
+		summaries:  newLiveCohortCache[domain.Summary](),
 	}
+}
+
+// InvalidateLive marks the cached live cohorts of one tenant stale; wired to the herd_signals_live
+// NOTIFY so the next read revalidates.
+func (s *Service) InvalidateLive(tenantID string) {
+	s.cohorts.invalidate(tenantID)
+	s.penStats.invalidate(tenantID)
+	s.summaries.invalidate(tenantID)
+}
+
+// InvalidateAllLive marks every cached live cohort stale (LISTEN reconnect catch-up).
+func (s *Service) InvalidateAllLive() {
+	s.cohorts.invalidateAll()
+	s.penStats.invalidateAll()
+	s.summaries.invalidateAll()
 }
 
 // WithThresholds overrides the default thresholds.
@@ -184,14 +205,22 @@ func (s *Service) ListLive(ctx context.Context, actor domain.Actor, parkID, shed
 	}
 
 	if riskState != nil {
-		cohortTags, err := s.listAllTagsLatest(ctx, actor.TenantID, parkID, shedID, nil, liveState, mappingState, pattern, q, sort)
+		key := liveCohortKey(actor.TenantID, parkID, shedID, liveState, mappingState, pattern, q, &sort.Key, &sort.Dir)
+		cohortItems, err := s.cohorts.get(ctx, key, domain.FreshLiveRead(ctx), func(ctx context.Context) ([]domain.LiveItem, error) {
+			cohortTags, err := s.listAllTagsLatest(ctx, actor.TenantID, parkID, shedID, nil, liveState, mappingState, pattern, q, sort)
+			if err != nil {
+				return nil, err
+			}
+			items := s.enrichTagsBatch(ctx, actor.TenantID, cohortTags, nil, false)
+			applyRiskSignals(items, riskGroupStatsFromItems(items))
+			return items, nil
+		})
 		if err != nil {
 			s.log.Error("failed to list tags latest for signal filter", "error", err)
 			return domain.LiveResponse{}, fmt.Errorf("list tags failed: %w", err)
 		}
-		cohortItems := s.enrichTagsBatch(ctx, actor.TenantID, cohortTags, nil, false)
-		applyRiskSignals(cohortItems, riskGroupStatsFromItems(cohortItems))
 
+		// cohortItems is the shared cached slice: filter into new slices, never mutate it.
 		filtered := make([]domain.LiveItem, 0, len(cohortItems))
 		for _, item := range cohortItems {
 			if *riskState == "attention" {
@@ -215,31 +244,60 @@ func (s *Service) ListLive(ctx context.Context, actor domain.Actor, parkID, shed
 			filtered = pageItems
 		}
 		summary := summaryFromItems(summaryItems)
-		filtered, nextCursor := pageRiskFilteredItems(filtered, cursor, limit, sort)
-		s.populateMotionDeltas24h(ctx, actor.TenantID, filtered)
+		page, nextCursor := pageRiskFilteredItems(filtered, cursor, limit, sort)
+		page = append([]domain.LiveItem(nil), page...)
+		s.populateMotionDeltas24h(ctx, actor.TenantID, page)
 		return domain.LiveResponse{
 			Summary:    summary,
-			Items:      filtered,
+			Items:      page,
 			NextCursor: nextCursor,
 		}, nil
 	}
 
-	tags, summary, nextCursor, err := s.repo.ListTagsLatest(
+	tags, nextCursor, err := s.repo.ListTagsLatestKeyset(
 		ctx, actor.TenantID, parkID, shedID, movementState, liveState, mappingState, pattern, q, cursor, limit, sort,
 	)
 	if err != nil {
 		s.log.Error("failed to list tags latest", "error", err)
 		return domain.LiveResponse{}, fmt.Errorf("list tags failed: %w", err)
 	}
-
-	cohortTags, err := s.listAllTagsLatest(ctx, actor.TenantID, parkID, shedID, nil, liveState, mappingState, pattern, q, domain.LiveSort{})
+	// Whole-filter summary: one aggregate query, cached per (tenant, filter) and invalidated by
+	// the live NOTIFY, so N viewers / polls inside the window share one aggregate.
+	summaryKey := liveCohortKey(actor.TenantID, parkID, shedID, mappingState, pattern, q)
+	summary, err := s.summaries.get(ctx, summaryKey, domain.FreshLiveRead(ctx), func(ctx context.Context) (domain.Summary, error) {
+		return s.repo.LiveSummary(ctx, actor.TenantID, parkID, shedID, mappingState, pattern, q)
+	})
 	if err != nil {
-		s.log.Warn("failed to fetch live cohort for signal comparisons", "error", err)
-		cohortTags = tags
+		s.log.Error("failed to compute live summary", "error", err)
+		return domain.LiveResponse{}, fmt.Errorf("live summary failed: %w", err)
 	}
-	cohortItems := s.enrichTagsBatch(ctx, actor.TenantID, cohortTags, nil, false)
-	applyRiskSignals(cohortItems, riskGroupStatsFromItems(cohortItems))
-	items := s.enrichTagsBatch(ctx, actor.TenantID, tags, riskGroupStatsFromItems(cohortItems), true)
+
+	// Pen-group comparison baselines come from ONE whole-cohort aggregate query; only the
+	// requested page is enriched. (This used to walk and enrich up to 50k tags per request just
+	// to derive two medians per pen.)
+	groupStats := map[string]riskGroupStats{}
+	if len(tags) > 0 {
+		// Cached per (tenant, filter) with the same stale-while-revalidate policy as the risk
+		// cohort: the medians are a comparison baseline, and at 20k tags the aggregate is ~100ms.
+		key := liveCohortKey(actor.TenantID, parkID, shedID, liveState, mappingState, pattern, q)
+		stats, err := s.penStats.get(ctx, key, domain.FreshLiveRead(ctx), func(ctx context.Context) (map[string]riskGroupStats, error) {
+			medians, err := s.repo.ListLivePenMedians(ctx, actor.TenantID, parkID, shedID, liveState, mappingState, pattern, q)
+			if err != nil {
+				return nil, err
+			}
+			out := make(map[string]riskGroupStats, len(medians))
+			for pen, m := range medians {
+				out[pen] = riskGroupStats{motionMedian: m.MotionMedian, tempMedian: m.TempMedian}
+			}
+			return out, nil
+		})
+		if err != nil {
+			s.log.Warn("failed to aggregate pen medians for signal comparisons", "error", err)
+		} else {
+			groupStats = stats
+		}
+	}
+	items := s.enrichTagsBatch(ctx, actor.TenantID, tags, groupStats, true)
 
 	return domain.LiveResponse{
 		Summary:    summary,

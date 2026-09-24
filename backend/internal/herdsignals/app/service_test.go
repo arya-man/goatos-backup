@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -52,6 +53,10 @@ type fakeRepo struct {
 	resolvedTags     map[string]string
 	motionDeltas24h  map[string]int64
 	shedLocations    map[string]ports.ShedLocation
+	mu               sync.Mutex
+	listLimits       []int
+	resolvedValueCnt int
+	summaryCalls     int
 }
 
 func (f *fakeRepo) IngestPackets(_ context.Context, _ string, _ domain.Gateway, packets []domain.Packet) (int, int, error) {
@@ -67,6 +72,9 @@ func (f *fakeRepo) ListTagsLatestPage(_ context.Context, _ string, _, _, _, _, _
 }
 
 func (f *fakeRepo) ListTagsLatest(_ context.Context, _ string, _, _, movementState, liveState, _, _, _ *string, cursor string, limit int, _ ...domain.LiveSort) ([]domain.TagLatest, domain.Summary, *string, error) {
+	f.mu.Lock()
+	f.listLimits = append(f.listLimits, limit)
+	f.mu.Unlock()
 	livePages := f.filteredLivePages(movementState)
 	if liveState != nil && *liveState != "" {
 		livePages = f.filteredLiveStatePages(livePages, *liveState)
@@ -93,6 +101,18 @@ func (f *fakeRepo) ListTagsLatest(_ context.Context, _ string, _, _, movementSta
 		next = &v
 	}
 	return append([]domain.TagLatest(nil), livePages[start:end]...), domain.Summary{}, next, nil
+}
+
+func (f *fakeRepo) ListTagsLatestKeyset(ctx context.Context, tenantID string, parkID, shedID, movementState, liveState, mappingState, pattern, q *string, cursor string, limit int, sort ...domain.LiveSort) ([]domain.TagLatest, *string, error) {
+	tags, _, next, err := f.ListTagsLatest(ctx, tenantID, parkID, shedID, movementState, liveState, mappingState, pattern, q, cursor, limit, sort...)
+	return tags, next, err
+}
+
+func (f *fakeRepo) LiveSummary(_ context.Context, _ string, _, _, _, _, _ *string) (domain.Summary, error) {
+	f.mu.Lock()
+	f.summaryCalls++
+	f.mu.Unlock()
+	return domain.Summary{TagsSeen: len(f.livePages)}, nil
 }
 
 func (f *fakeRepo) filteredLiveStatePages(tags []domain.TagLatest, liveState string) []domain.TagLatest {
@@ -126,7 +146,48 @@ func (f *fakeRepo) filteredLivePages(movementState *string) []domain.TagLatest {
 	return filtered
 }
 
-func (f *fakeRepo) ResolveTagsBatch(_ context.Context, _ string, _ []string) (map[string]string, error) {
+// ListLivePenMedians mirrors the SQL aggregate: mapped tags resolved to an animal with a pen,
+// whole cohort (movement_state never applied), median non-gap motion_delta and temperature.
+func (f *fakeRepo) ListLivePenMedians(_ context.Context, _ string, _, _, liveState, _, _, _ *string) (map[string]ports.PenMedians, error) {
+	tags := f.livePages
+	if liveState != nil && *liveState != "" {
+		tags = f.filteredLiveStatePages(tags, *liveState)
+	}
+	motions := map[string][]float64{}
+	temps := map[string][]float64{}
+	pens := map[string]struct{}{}
+	for _, tag := range tags {
+		if tag.MappingState != "mapped" {
+			continue
+		}
+		goatID, ok := f.resolvedTags[tag.TagID]
+		if !ok {
+			continue
+		}
+		gd, ok := f.goats[goatID]
+		if !ok || gd.ShedID == nil || *gd.ShedID == "" {
+			continue
+		}
+		pen := *gd.ShedID
+		pens[pen] = struct{}{}
+		if tag.MotionDelta != nil && !tag.GapDelta {
+			motions[pen] = append(motions[pen], float64(*tag.MotionDelta))
+		}
+		if tag.TagTemperatureC != nil {
+			temps[pen] = append(temps[pen], *tag.TagTemperatureC)
+		}
+	}
+	out := map[string]ports.PenMedians{}
+	for pen := range pens {
+		out[pen] = ports.PenMedians{MotionMedian: medianFloat(motions[pen]), TempMedian: medianFloat(temps[pen])}
+	}
+	return out, nil
+}
+
+func (f *fakeRepo) ResolveTagsBatch(_ context.Context, _ string, values []string) (map[string]string, error) {
+	f.mu.Lock()
+	f.resolvedValueCnt += len(values)
+	f.mu.Unlock()
 	if f.resolvedTags != nil {
 		return f.resolvedTags, nil
 	}

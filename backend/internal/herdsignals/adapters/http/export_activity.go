@@ -55,7 +55,8 @@ func (h *Handler) ExportCSV(w http.ResponseWriter, r *http.Request) {
 
 // GetTagActivity handles GET /herd-signals/tags/{tag_id}/activity.
 func (h *Handler) GetTagActivity(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
+	ctx, cancel := readContext(r)
+	defer cancel()
 
 	actor := domain.Actor{TenantID: tenantID(r), UserID: actorID(r)}
 	if actor.TenantID == "" || actor.UserID == "" {
