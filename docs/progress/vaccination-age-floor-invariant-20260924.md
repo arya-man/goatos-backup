@@ -234,3 +234,30 @@ Remove the container when the PR is done: `sudo podman rm -f goatos-pr391-throwa
 - Deploy order: backend before the Android app (the app refuses rows without a server row task id).
 - Follow-ups: combined-card message when task detail fails to load; drop tasks that leave the roster
   mid-session; the attach guard's "not applicable" rows only warn (consider a work queue).
+
+## PR 391 review fixes — 2026-09-24
+
+- Scope: complete card membership independent of list pagination; recover scans/proofs for every card task; release the migration DDL lock before validation. User authorized fixes and push to this PR only.
+- Starting SHA: `1338f872af599d2466439a8785fa17b5c58d1451`; isolated branch `codex/pr391-review-fixes`.
+- Before: selectors contain only loaded assignments; 21 task identities return only 20 to capture observers; migration holds ACCESS EXCLUSIVE through validation.
+- Baseline proof: 136 focused Android tests and focused vaccination/obligation/protocol Go packages pass. Full-tree proof-media-egress and mobile/read-model/location/bind guards pass. Migration checks fail on existing main debt plus new 000402 Down DROP CONSTRAINT.
+- Done: review and failure-path tracing.
+- Pending at review start: implementation, regression tests, real throwaway-Postgres membership/lock proof, final checks, commit and PR push.
+- Judge status: self-review pending; no independent agents requested.
+- Phone/browser E2E: not run. Prior phone signature mismatch remains; no device install or data clearing in scope.
+- Deployment state: not merged or deployed.
+
+- Regression run: real Room test with 21 distinct task ids fails at the original source (only 20 observed). App regression initially failed to compile due to missing assertFalse import in the new test; import corrected and rerun started.
+- Implementation: complete dated assignment/batch/task selectors added to the existing full-filter card summaries and API/Kotlin/TS contracts; old partial cached responses fail closed. Recovery observes the entire pen's task identity set; readiness keys prune by roster membership rather than a fixed 64-key cutoff. Migration uses independent statements with a retry-safe constraint add.
+
+- Red app proof on original source: 78 tests, exactly three new failures (off-page membership, old partial-card fail-closed, and 65-task readiness). Real PostgreSQL combined and separate card-summary regression passed with Limit=1 and both source batches present.
+
+- Green: 139 focused Android tests (61 ScanViewModel, 17 ShedsViewModel, 9 route identity, 26 shed identity/count, 26 Room/repository) via ProdDebug/Debug tasks, max-workers=1. Focused migrate + vaccinationexecution Go packages pass.
+- PostgreSQL final proof: TestCardMembershipIncludesOffPageAssignments passes (95.21s), one-row page with both memberships returned by combined and separate summaries. Tests use pgtest-created databases inside the existing throwaway container, not maintained OCI or STG.
+- Lock proof on 500,000 rows: original DDL transaction blocks a concurrent read at the validation boundary (400ms timeout); revised independent DDL permits the same read. Validation measured 0.176s before / 0.127s after on this synthetic table (not a product latency claim). Reapplying the migration succeeds; invalid schedule_basis is still rejected. Scratch database removed.
+- Guards: mobile, operational-read-model contract, operational-location, PostgreSQL bind, full-tree media egress and diff whitespace pass. The identity-only DAO has a documented scoped exception to the generic unbounded-payload guard; no proof payload limits were relaxed.
+- Migration guard: 000402 complaint removed; pre-existing main migration debt remains. AI doctor initially lacked fresh worktree graph/index artifacts; rebuilding them before push.
+- Self-review: fixed page-dependent roster and record-only routing, task-identity recovery truncation, freshness eviction at 64, and migration lock lifetime. Full local landing CI and phone/browser E2E not run; this is a PR checkpoint, not release certification.
+
+- Final migration correction: the first guard rerun still rejected the redundant Down DROP CONSTRAINT; removing that statement leaves DROP COLUMN to remove its dependent check. The final guard has no 000402 findings; migrate tests pass after this edit.
+- Final PR checkpoint: implementation, red/green regression proof, PostgreSQL membership/lock proof, and scoped guards complete. Source SHA is the commit containing this progress update (starting parent above); pending commit/push readback only. No merge or deployment authorized or performed.

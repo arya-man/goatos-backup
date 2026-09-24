@@ -7,19 +7,30 @@
 -- every later write path (reopen, reschedule, drive override, reconcile, publish carry-over)
 -- re-proves the same basis under the row lock instead of trusting a blanket allow.
 
+-- +goose NO TRANSACTION
+
 -- +goose Up
 
 ALTER TABLE public.obligation_instances
   ADD COLUMN IF NOT EXISTS schedule_basis text NOT NULL DEFAULT 'anchored';
 
-ALTER TABLE public.obligation_instances
-  DROP CONSTRAINT IF EXISTS obligation_instances_schedule_basis_check;
--- Goose runs this file in one transaction, so ADD COLUMN's ACCESS EXCLUSIVE lock is held through
--- VALIDATE. That is acceptable: the constant default is metadata-only and every existing row is
--- already 'anchored', so validation is one sequential read with no rewrite.
-ALTER TABLE public.obligation_instances
-  ADD CONSTRAINT obligation_instances_schedule_basis_check
-  CHECK (schedule_basis IN ('anchored', 'anchor_missing_catch_up')) NOT VALID;
+-- Every statement commits independently: the metadata-only column addition releases its
+-- ACCESS EXCLUSIVE lock before validation scans the populated table. The conditional add
+-- makes an interrupted nontransactional migration retryable without removing enforcement.
+-- +goose StatementBegin
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = 'public.obligation_instances'::regclass
+      AND conname = 'obligation_instances_schedule_basis_check'
+  ) THEN
+    ALTER TABLE public.obligation_instances
+      ADD CONSTRAINT obligation_instances_schedule_basis_check
+      CHECK (schedule_basis IN ('anchored', 'anchor_missing_catch_up')) NOT VALID;
+  END IF;
+END $$;
+-- +goose StatementEnd
 ALTER TABLE public.obligation_instances
   VALIDATE CONSTRAINT obligation_instances_schedule_basis_check;
 
@@ -28,7 +39,5 @@ COMMENT ON COLUMN public.obligation_instances.schedule_basis IS
 
 -- +goose Down
 
-ALTER TABLE public.obligation_instances
-  DROP CONSTRAINT IF EXISTS obligation_instances_schedule_basis_check;
 ALTER TABLE public.obligation_instances
   DROP COLUMN IF EXISTS schedule_basis;

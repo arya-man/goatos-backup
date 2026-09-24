@@ -19,22 +19,23 @@ type executionRows interface {
 	Err() error
 }
 type executionCardSummaryRecord struct {
-	ShedID             string   `json:"shed_uuid"`
-	PartitionLabel     *string  `json:"partition_label"`
-	AssignmentID       *string  `json:"assignment_id"`
-	TaskID             *string  `json:"sop_task_id"`
-	BatchID            *string  `json:"batch_id"`
-	DriveID            *string  `json:"drive_id"`
-	ObligationCount    int64    `json:"obligation_count"`
-	DoneCount          int64    `json:"done_count"`
-	OpenCount          int64    `json:"open_count"`
-	HasMissed          bool     `json:"has_missed"`
-	HasDeferred        bool     `json:"has_deferred"`
-	HasOverdue         bool     `json:"has_overdue"`
-	HasReviewPending   bool     `json:"has_review_pending"`
-	HasRejected        bool     `json:"has_rejected"`
-	VaccineLabels      []string `json:"vaccine_labels"`
-	VaccineLabelCounts []string `json:"vaccine_label_counts"`
+	RosterMemberships  []domain.ExecutionRosterMembership `json:"roster_memberships"`
+	ShedID             string                             `json:"shed_uuid"`
+	PartitionLabel     *string                            `json:"partition_label"`
+	AssignmentID       *string                            `json:"assignment_id"`
+	TaskID             *string                            `json:"sop_task_id"`
+	BatchID            *string                            `json:"batch_id"`
+	DriveID            *string                            `json:"drive_id"`
+	ObligationCount    int64                              `json:"obligation_count"`
+	DoneCount          int64                              `json:"done_count"`
+	OpenCount          int64                              `json:"open_count"`
+	HasMissed          bool                               `json:"has_missed"`
+	HasDeferred        bool                               `json:"has_deferred"`
+	HasOverdue         bool                               `json:"has_overdue"`
+	HasReviewPending   bool                               `json:"has_review_pending"`
+	HasRejected        bool                               `json:"has_rejected"`
+	VaccineLabels      []string                           `json:"vaccine_labels"`
+	VaccineLabelCounts []string                           `json:"vaccine_label_counts"`
 }
 
 func addExecutionCardSummary(summaries map[string]*domain.ShedCardSummary, record executionCardSummaryRecord) {
@@ -119,19 +120,25 @@ func addExecutionCardSummary(summaries map[string]*domain.ShedCardSummary, recor
 	// The operator-day card is an operational location, not a source task/batch. Date overrides
 	// may legitimately combine obligations from several source batches into one assignment.
 	cardID := domain.BuildAssignmentCardID(shedID, domain.StringOrEmpty(partLabel), domain.StringOrEmpty(assignmentID), "", "", "")
+	// A summary key may span source tasks; keep every dated selector when records share it.
+	memberships := append([]domain.ExecutionRosterMembership{}, record.RosterMemberships...)
+	if previous := summaries[cardID]; previous != nil {
+		memberships = append(memberships, previous.RosterMemberships...)
+	}
 	summaries[cardID] = &domain.ShedCardSummary{
-		ShedID:         shedID,
-		PartitionLabel: partLabel,
-		AssignmentID:   assignmentID,
-		TaskID:         taskID,
-		BatchID:        batchID,
-		DriveID:        driveID,
-		Status:         status,
-		DoneCount:      int(doneCount),
-		TargetCount:    int(obligationCount),
-		OpenCount:      int(openCount),
-		NeedsRedo:      hasRejected,
-		VaccineGroups:  vaccineGroups,
+		RosterMemberships: memberships,
+		ShedID:            shedID,
+		PartitionLabel:    partLabel,
+		AssignmentID:      assignmentID,
+		TaskID:            taskID,
+		BatchID:           batchID,
+		DriveID:           driveID,
+		Status:            status,
+		DoneCount:         int(doneCount),
+		TargetCount:       int(obligationCount),
+		OpenCount:         int(openCount),
+		NeedsRedo:         hasRejected,
+		VaccineGroups:     vaccineGroups,
 	}
 }
 

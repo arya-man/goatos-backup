@@ -438,3 +438,37 @@ func TestExtractConcurrentIndexNamesOnRealMigrations(t *testing.T) {
 		t.Fatal("no migrations containing CONCURRENTLY were checked; corpus guard is inert")
 	}
 }
+
+// Validation must release the column DDL lock; check what the production runner loads.
+func TestScheduleBasisValidationDoesNotShareDDLTransaction(t *testing.T) {
+	migrations, err := loadMigrations("../../migrations/postgres")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range migrations {
+		if !strings.HasSuffix(m.Filename, "_obligation_schedule_basis.sql") {
+			continue
+		}
+		if !m.NoTx {
+			t.Fatal("schedule_basis validation retains the column DDL lock until commit")
+		}
+		statements, err := splitSQLStatements(m.SQL)
+		if err != nil {
+			t.Fatal(err)
+		}
+		foundValidation := false
+		for _, statement := range statements {
+			if strings.Contains(statement, "VALIDATE CONSTRAINT obligation_instances_schedule_basis_check") {
+				foundValidation = true
+				if strings.Contains(statement, "ADD COLUMN") || strings.Contains(statement, "ADD CONSTRAINT") {
+					t.Fatal("validation must execute in its own committed statement")
+				}
+			}
+		}
+		if !foundValidation {
+			t.Fatal("schedule_basis constraint is never validated")
+		}
+		return
+	}
+	t.Fatal("schedule_basis migration not found")
+}

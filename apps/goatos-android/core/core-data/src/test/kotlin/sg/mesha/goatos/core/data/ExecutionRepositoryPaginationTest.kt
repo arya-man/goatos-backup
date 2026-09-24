@@ -104,14 +104,14 @@ class ExecutionRepositoryPaginationTest {
                 ScanRosterResponseDto(
                     rows = (start..minOf(start + 19, 21)).map { index ->
                         ScanRosterRowDto(goatId = "goat-$index", primaryTag = "TAG-$index", vaccineLabel = "ET+TT",
-                            status = "due", obligationId = "obl-$index", taskId = if (index <= 20) "task-a" else "task-b")
+                            status = "due", obligationId = "obl-$index", taskId = "task-${index.toString().padStart(2, '0')}")
                     },
                     nextCursor = if (start == 1) "page-2" else null,
                 )
             }
             repository.refreshAssignmentScanRoster(SHED_ID, null, null, PAGE_SIZE, "Part 3").getOrThrow()
             assertEquals(20, repository.observeAssignmentScanRosterRows(SHED_ID, null, null, 20, "Part 3").first().size)
-            assertEquals(listOf("task-a", "task-b"), repository.observeAssignmentScanRosterTaskIds(SHED_ID, null, null, "Part 3").first())
+            assertEquals((1..21).map { "task-${it.toString().padStart(2, '0')}" }, repository.observeAssignmentScanRosterTaskIds(SHED_ID, null, null, "Part 3").first())
             assertEquals(emptyList<String>(), repository.observeAssignmentScanRosterTaskIds(SHED_ID, null, null, "Part 4").first())
         }
     }

@@ -413,9 +413,36 @@ class ShedsViewModel @Inject constructor(
         val shedRows = rowsForSelectedDay.groupBy { it.operatorDayCardId() }.map { (cardId, group) ->
             val first = group.first()
             val execution = group.firstOrNull { !it.sopTaskId.isNullOrBlank() } ?: first
-            val assignmentIds = group.mapNotNull { it.assignmentId?.takeIf(String::isNotBlank) }.distinct()
+            val membershipSummaries = cardSummaries?.values.orEmpty().filter {
+                it.shedId == first.shedId && executionPartitionKey(it.partitionLabel) == executionPartitionKey(first.partitionLabel ?: first.partition)
+            }
+            val hasAuthoritativeMembership = membershipSummaries.isNotEmpty() && membershipSummaries.all { it.rosterMemberships != null }
+            val selectedMemberships = membershipSummaries.flatMap { it.rosterMemberships.orEmpty() }.filter { member ->
+                    val date = parseExecutionDate(member.plannedDate)
+                    date == selectedDay || (selectedDay == workWindow.today && date != null && date.isBefore(selectedDay) && member.includeWhenOverdue)
+                }
+            val selectors = if (hasAuthoritativeMembership) {
+                selectedMemberships.map { member ->
+                    sg.mesha.goatos.core.data.ScanRosterSelector(
+                        assignmentId = member.assignmentId,
+                        batchId = member.batchId.takeIf { member.assignmentId.isNullOrBlank() },
+                        taskId = member.taskId.takeIf { member.assignmentId.isNullOrBlank() && member.batchId.isNullOrBlank() },
+                        plannedDate = member.plannedDate,
+                    )
+                }.distinct()
+            } else group.map { source ->
+                val assignment = source.assignmentId?.takeIf(String::isNotBlank)
+                val batch = source.batchId?.takeIf(String::isNotBlank).takeIf { assignment == null }
+                sg.mesha.goatos.core.data.ScanRosterSelector(
+                    assignmentId = assignment, batchId = batch,
+                    taskId = source.sopTaskId?.takeIf(String::isNotBlank).takeIf { assignment == null && batch == null },
+                    plannedDate = source.currentScheduleDate?.takeIf(String::isNotBlank) ?: selectedDay.toString(),
+                )
+            }.distinct()
+            val membershipComplete = hasAuthoritativeMembership || nextCursor.isNullOrBlank()
+            val assignmentIds = selectors.mapNotNull { it.assignmentId }.distinct()
             val taskIds = group.mapNotNull { it.sopTaskId?.takeIf(String::isNotBlank) }.distinct()
-            val hasMixedExecutionIdentity = assignmentIds.size > 1 || taskIds.size > 1
+            val hasMixedExecutionIdentity = selectors.size > 1 || assignmentIds.size > 1 || taskIds.size > 1
             val scheduleDate = group.mapNotNull { it.currentScheduleDate?.let(::parseExecutionDate) }.minOrNull()
 
             // Prefer backend-computed card summary (page-independent, covers all rows for the card).
@@ -499,19 +526,10 @@ class ShedsViewModel @Inject constructor(
                 // own planned date in rosterSelectors). Sort order keeps the card's earliest date.
                 scheduleDateKey = selectedDay.toString(),
                 sortDateKey = scheduleDate?.toString().orEmpty(),
-                rosterSelectors = sg.mesha.goatos.core.data.encodeScanRosterSelectors(group.map { source ->
-                    val assignment = source.assignmentId?.takeIf(String::isNotBlank)
-                    val batch = source.batchId?.takeIf(String::isNotBlank).takeIf { assignment == null }
-                    sg.mesha.goatos.core.data.ScanRosterSelector(
-                        assignmentId = assignment,
-                        batchId = batch,
-                        taskId = source.sopTaskId?.takeIf(String::isNotBlank).takeIf { assignment == null && batch == null },
-                        plannedDate = source.currentScheduleDate?.takeIf(String::isNotBlank) ?: selectedDay.toString(),
-                    )
-                }),
+                rosterSelectors = sg.mesha.goatos.core.data.encodeScanRosterSelectors(selectors),
                 scheduleDateLabel = scheduleDate?.let(::shortDateLabel).orEmpty(),
                 status = status,
-                statusLabel = statusLabel,
+                statusLabel = if (!membershipComplete) "Load remaining work to open" else statusLabel,
                 statusChips = statusChips,
                 vaccineGroups = vaccineGroups,
                 inShed = counts.target.toString(),
@@ -536,8 +554,8 @@ class ShedsViewModel @Inject constructor(
                 taskId = execution.sopTaskId.takeUnless { hasMixedExecutionIdentity },
                 sopVersionId = execution.sopVersionId.takeUnless { hasMixedExecutionIdentity },
                 taskRowVersion = execution.sopTaskRowVersion.takeUnless { hasMixedExecutionIdentity },
-                opensRecordOnly = group.opensSubmittedRecordOnly(),
-                canOpen = scheduleDate == null || !scheduleDate.isAfter(workWindow.today),
+                opensRecordOnly = if (hasAuthoritativeMembership) selectedMemberships.isNotEmpty() && selectedMemberships.all { it.recordOnly } else group.opensSubmittedRecordOnly(),
+                canOpen = membershipComplete && selectors.isNotEmpty() && (scheduleDate == null || !scheduleDate.isAfter(workWindow.today)),
             )
         }.sortedWith(
             compareBy<ShedRow> { row ->

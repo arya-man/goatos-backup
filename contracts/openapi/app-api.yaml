@@ -33087,6 +33087,32 @@ components:
         full:
           type: boolean
           description: True if all animals done and none pending redo
+    ExecutionRosterMembership:
+      type: object
+      additionalProperties: false
+      required: [plannedDate, includeWhenOverdue, recordOnly]
+      properties:
+        assignmentId:
+          type: string
+          format: uuid
+          nullable: true
+        batchId:
+          type: string
+          format: uuid
+          nullable: true
+        taskId:
+          type: string
+          format: uuid
+          nullable: true
+        plannedDate:
+          type: string
+          format: date
+        recordOnly:
+          type: boolean
+          description: All work for this membership has been finally submitted; opening it shows the record.
+        includeWhenOverdue:
+          type: boolean
+          description: Whether this dated membership remains on today's operator card after its planned date.
     ShedCardSummary:
       type: object
       additionalProperties: false
@@ -33099,6 +33125,15 @@ components:
         - needsRedo
         - vaccineGroups
       properties:
+        rosterMemberships:
+          type: array
+          description: Complete dated membership from the full filtered card, independent of execution-list pagination.
+          items:
+            $ref: "#/components/schemas/ExecutionRosterMembership"
+        assignmentId:
+          type: string
+          format: uuid
+          nullable: true
         shedId:
           type: string
           format: uuid
