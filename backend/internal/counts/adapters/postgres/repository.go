@@ -3185,7 +3185,7 @@ const (
 // LOADS (a catalog that grows with purchases, tens to low hundreds), never by herd size, and the
 // served window is LIMITed to the newest loads.
 //
-// projection-review: membership=procurement_load_goats accepted rows deduped DISTINCT ON (goat_id) by the SAME total order Sales -> Purchase and Born uses (intake_accepted_at DESC NULLS LAST, created_at DESC, load_goat_id DESC), so an animal accepted on two loads lands on exactly one and the two screens name the same one, plus procurement_load_prior_outcomes pre-aggregated to one row per load; group_key=load_id on every side -- tracked GROUP BY m.load_id, prior GROUP BY load_id, live GROUP BY (m.load_id, stage, sex), each attaching 1:1 to procurement_loads on its PK; join_cardinality=goats joined 1:1 on its PK on both branches, goat_shed_partitions 1:{0,1} on its (tenant_id, goat_id) PK for the pen predicate only, parties 1:{0,1} on its PK for the vendor label; pagination=LIMIT newest loads by purchase_date over the whole grouped set, the per-load figures are whole-result and independent of the pen table's limit/offset; scope=tenant on every branch; WHICH loads are listed follows the page's park (park_loads: a load with a register animal of any lifecycle in that park, one row per load, used only as a membership test); the LIVE branch additionally carries the page's lifecycle/park/pen/stage/breed/sex predicates while the PURCHASED branch deliberately does not -- purchased is the load's own fact, and narrowing it would make the load read fewer animals than it brought
+// projection-review: membership=procurement_load_goats accepted rows deduped DISTINCT ON (goat_id) by the SAME total order Sales -> Purchase and Born uses (intake_accepted_at DESC NULLS LAST, created_at DESC, load_goat_id DESC), so an animal accepted on two loads lands on exactly one and the two screens name the same one, plus procurement_load_prior_outcomes pre-aggregated to one row per load; group_key=load_id on every side -- tracked GROUP BY m.load_id, prior GROUP BY load_id, live GROUP BY (m.load_id, stage, sex), each attaching 1:1 to procurement_loads on its PK; join_cardinality=goats joined 1:1 on its PK on both branches, goat_shed_partitions 1:{0,1} on its (tenant_id, goat_id) PK for the pen predicate only, parties 1:{0,1} on its PK for the vendor label; pagination=LIMIT newest loads by purchase_date over the whole grouped set, the per-load figures are whole-result and independent of the pen table's limit/offset; scope=tenant on every branch; WHICH loads are listed is farm_loads, the loads with at least one animal in the lifecycle bucket and park being read (DISTINCT load_id, used only as a membership test), so a sold-out load is not listed; the LIVE branch additionally carries the page's pen/stage/breed/sex predicates while the PURCHASED branch deliberately does not -- purchased is the load's own fact, and narrowing it would make the load read fewer animals than it brought
 //
 // Grain proof, side by side: producer `member` is unique on goat_id (DISTINCT ON); `tracked`
 // groups it by load_id, one row per load; `live` groups it by (load_id, stage, sex) and Go re-rolls
@@ -3233,17 +3233,19 @@ purchased AS (
     WHERE pl.tenant_id = $1::uuid
       AND (t.load_id IS NOT NULL OR pr.load_id IS NOT NULL)
 ),
--- WHICH PARK a load belongs to. procurement_loads records none, but animals never move between
--- parks, so a load belongs to the park(s) its register animals are in -- EVERY lifecycle, so a
--- load that has sold out stays on its own park's card. Only the park is read here: the page's
--- other filters narrow on_farm and never hide a load. A load known only from pre-GoatOS outcomes
--- places no animal in either park and so appears only on the all-parks card.
-park_loads AS (
+-- WHICH loads the card lists: only a load that still has an animal ON THE FARM -- in the lifecycle
+-- bucket being read (live by default) and in the selected park (maintainer, 2026-09-24: load 113
+-- has sold every animal, so it has no place on the card). A load known only from pre-GoatOS
+-- outcomes has nothing on the farm either. The Stage/Breed/Sex/Pen filters do NOT decide which
+-- loads are listed: they narrow on_farm, and a load with animals on the farm that match none of
+-- them still shows, at 0.
+farm_loads AS (
     SELECT DISTINCT m.load_id
     FROM member m
     JOIN goats g ON g.tenant_id = $1::uuid AND g.goat_id = m.goat_id
     WHERE g.merged_into_goat_id IS NULL
-      AND g.park_id = ANY($3::text[]::uuid[])
+      AND ($2 = '' OR g.lifecycle_status = $2)
+      AND (cardinality($3::text[]) = 0 OR g.park_id = ANY($3::text[]::uuid[]))
 ),
 window_loads AS (
     SELECT pl.load_id, COALESCE(pl.context->>'load_ref', '') AS load_ref,
@@ -3254,7 +3256,7 @@ window_loads AS (
     JOIN purchased pu ON pu.load_id = pl.load_id
     LEFT JOIN parties p ON p.party_id = pl.source_party_id
     WHERE pl.tenant_id = $1::uuid
-      AND (cardinality($3::text[]) = 0 OR pl.load_id IN (SELECT load_id FROM park_loads))
+      AND pl.load_id IN (SELECT load_id FROM farm_loads)
     ORDER BY pl.purchase_date DESC NULLS LAST, pl.created_at DESC, pl.load_id
     LIMIT 100
 ),

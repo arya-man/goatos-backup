@@ -2814,18 +2814,19 @@ VALUES ($1::uuid, $2::uuid, 'sold', 2)`, countsTenant, loadA); err != nil {
 	})
 
 	// StatusMatrix: the live default excludes the dead animal; asking for the dead bucket reports
-	// exactly it, on its own load, with the tag it died carrying.
+	// exactly it, on its own load, with the tag it died carrying. Load B holds no dead animal, so
+	// the dead bucket does not list it at all (a load is listed only where it has animals).
 	t.Run("StatusMatrixLifecycleBucketsAreDisjoint", func(t *testing.T) {
 		dead := read(t, domain.CountsBreakdownQuery{LifecycleStatus: strp("dead")})
-		da := dead[1]
+		if len(dead) != 1 {
+			t.Fatalf("dead bucket loads = %+v, want only load A, the one with a dead animal", dead)
+		}
+		da := dead[0]
 		if da.LoadID != loadA || da.OnFarm != 1 || da.Purchased != 6 ||
 			!reflect.DeepEqual(da.Stages, []domain.CountsBreakdownSeriesPoint{{Key: "Fattening", Label: "Fattening", Count: 1}}) ||
 			!reflect.DeepEqual(da.Sexes, []domain.CountsBreakdownSeriesPoint{{Key: "male", Label: "male", Count: 1}}) ||
 			!reflect.DeepEqual(da.CurrentTags, []domain.CountsBreakdownLoadTag{{Type: "animal_identifier_1", Value: "RFID-A-004", Count: 1}}) {
 			t.Errorf("dead bucket load A = %+v, want the one dead Fattening male and bought 6", da)
-		}
-		if dead[0].OnFarm != 0 {
-			t.Errorf("dead bucket load B on_farm = %d, want 0", dead[0].OnFarm)
 		}
 		if a.OnFarm+da.OnFarm != 4 {
 			t.Errorf("alive %d + dead %d on load A, want the 4 tracked animals partitioned exactly", a.OnFarm, da.OnFarm)
@@ -3132,10 +3133,9 @@ UPDATE goats SET lifecycle_status = 'dead' WHERE tenant_id = $1::uuid AND goat_i
 	})
 }
 
-// The Purchased loads card follows the park like every other card on the page. A load records no
-// park of its own, but animals never move between parks, so a load belongs to the park(s) its
-// register animals are in -- sold ones included, so a sold-out load stays on its park's card.
-// Before this, a CPT page listed every CBE load at "on farm 0", which reads as "sold out".
+// The Purchased loads card lists only loads with animals on the farm under the page's filters
+// (maintainer, 2026-09-24), and the park is one of those filters. Before, a CPT page listed every
+// CBE load at "on farm 0", which reads as sold out, and every sold-out load sat on the card too.
 func TestCountsBreakdownLoadsFollowTheSelectedPark(t *testing.T) {
 	ctx := context.Background()
 	repo, pool := newBreakdownRepo(t, ctx)
@@ -3173,10 +3173,10 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'accepted_herd_intake', 'accepted_herd_int
 	parkOneLoad := seedLoad("park-one-load", "201", 5)
 	member(parkOneLoad, 0, countsPark, countsShedCastroOne, "alive")
 	member(parkOneLoad, 1, countsPark, countsShedCastroOne, "alive")
-	// Park two's load is SOLD OUT: it must still be listed on park two's card.
+	// Park two's load is SOLD OUT: nothing of it is on the farm, so no card lists it.
 	parkTwoLoad := seedLoad("park-two-load", "202", 3)
 	member(parkTwoLoad, 2, countsParkTwo, countsShedCastroTwo, "sold")
-	// Known only from pre-GoatOS outcomes: no animal places it in either park.
+	// Known only from pre-GoatOS outcomes: no animal of it is on the farm, so it is not listed.
 	priorOnly := seedLoad("prior-only-load", "203", 0)
 	if _, err := pool.Exec(ctx, `
 INSERT INTO procurement_load_prior_outcomes (tenant_id, load_id, outcome, animal_count)
@@ -3197,15 +3197,15 @@ VALUES ($1::uuid, $2::uuid, 'sold', 4)`, countsTenant, priorOnly); err != nil {
 		return out
 	}
 
-	if got := refs(nil); !reflect.DeepEqual(got, map[string]int64{"201": 5, "202": 3, "203": 4}) {
-		t.Errorf("all parks: loads = %v, want every load", got)
+	if got := refs(nil); !reflect.DeepEqual(got, map[string]int64{"201": 5}) {
+		t.Errorf("all parks: loads = %v, want only load 201, the one with animals on the farm", got)
 	}
 	// Bought is the load's own total and does not shrink with the park.
 	if got := refs([]string{countsPark}); !reflect.DeepEqual(got, map[string]int64{"201": 5}) {
 		t.Errorf("park one: loads = %v, want only load 201 at bought 5", got)
 	}
-	if got := refs([]string{countsParkTwo}); !reflect.DeepEqual(got, map[string]int64{"202": 3}) {
-		t.Errorf("park two: loads = %v, want only the sold-out load 202", got)
+	if got := refs([]string{countsParkTwo}); len(got) != 0 {
+		t.Errorf("park two: loads = %v, want none: its only load has sold out", got)
 	}
 
 	loadRefs := func(q domain.CountsBreakdownQuery) []string {
@@ -3222,14 +3222,14 @@ VALUES ($1::uuid, $2::uuid, 'sold', 4)`, countsTenant, priorOnly); err != nil {
 		return out
 	}
 
-	// StatusMatrix: which loads a park lists does not depend on the lifecycle bucket being read --
-	// a load is placed by its animals of EVERY lifecycle, so the sold-out 202 stays on park two
-	// under the live, sold and dead buckets alike.
-	t.Run("StatusMatrixEveryLifecyclePlacesTheLoad", func(t *testing.T) {
-		for _, status := range []string{"alive", "sold", "dead"} {
+	// StatusMatrix: a load is listed when it has an animal in the lifecycle bucket being read, and
+	// only then -- the live default leaves the sold-out 202 off, the sold bucket lists it, and the
+	// dead bucket (no dead animal) lists nothing.
+	t.Run("StatusMatrixListsALoadOnlyForTheBucketItHasAnimalsIn", func(t *testing.T) {
+		for status, want := range map[string][]string{"alive": nil, "sold": {"202"}, "dead": nil} {
 			status := status
-			if got := loadRefs(domain.CountsBreakdownQuery{ParkIDs: []string{countsParkTwo}, LifecycleStatus: &status, Limit: 50}); !reflect.DeepEqual(got, []string{"202"}) {
-				t.Errorf("park two under %s = %v, want [202]", status, got)
+			if got := loadRefs(domain.CountsBreakdownQuery{ParkIDs: []string{countsParkTwo}, LifecycleStatus: &status, Limit: 50}); !reflect.DeepEqual(got, want) {
+				t.Errorf("park two under %s = %v, want %v", status, got, want)
 			}
 		}
 	})
@@ -3244,8 +3244,8 @@ VALUES ($1::uuid, $2::uuid, 'sold', 4)`, countsTenant, priorOnly); err != nil {
 	})
 
 	// OneToMany: an animal accepted onto TWO loads lands on exactly one (the latest acceptance, the
-	// same DISTINCT ON the Sales load read uses), so an older acceptance row cannot drag load 201
-	// onto park two's card.
+	// same DISTINCT ON the Sales load read uses). This live park-two animal puts 202 back on park
+	// two's card, and its older acceptance onto 201 cannot drag 201 there too.
 	t.Run("OneToManyAcceptanceRowsPlaceALoadOnce", func(t *testing.T) {
 		insertBreakdownGoat(t, ctx, pool, goatUUID(7), goatDisplayID(7),
 			"male", "Beetal", "alive", "Fattening", strp(countsParkTwo), strp(countsShedCastroTwo), nil)
