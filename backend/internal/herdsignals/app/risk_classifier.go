@@ -7,7 +7,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/vgoats/goatos/backend/internal/herdsignals/domain"
 	"github.com/vgoats/goatos/backend/internal/herdsignals/ports"
 )
 
@@ -18,6 +17,9 @@ const (
 	riskMaxQueueBatchesPerTick = 40
 	// riskAgingPerTick is the hourly backstop's per-tick share (oldest evaluations > 1h).
 	riskAgingPerTick = 1500
+	// riskReevaluationFloor: after a classification, new packets alone re-queue a tag only
+	// after a per-tag offset in [floor/2, 3*floor/2). Ingest pulls it forward on a real change.
+	riskReevaluationFloor = 10 * time.Minute
 	// riskPenMedianEvery: pen baselines are re-aggregated at most this often per tenant.
 	riskPenMedianEvery = 5 * time.Minute
 	// A pen is re-scored only when its baseline moves by more than these.
@@ -54,18 +56,12 @@ func (s *Service) RiskTick(ctx context.Context, tenantID string) (RiskPassStats,
 
 func (s *Service) riskPass(ctx context.Context, tenantID string, forceMedians bool, maxQueueBatches int) (RiskPassStats, error) {
 	st := RiskPassStats{Locked: true}
-	stats, err := s.refreshPenBaselines(ctx, tenantID, forceMedians, &st)
-	if err != nil || !st.Locked {
+	if _, err := s.refreshPenBaselines(ctx, tenantID, forceMedians, &st); err != nil || !st.Locked {
 		return st, err
-	}
-	classify := func(ctx context.Context, tags []domain.TagLatest) ([]ports.TagRisk, error) {
-		items := s.enrichTagsBatch(ctx, tenantID, tags, nil, false)
-		applyRiskSignals(items, stats)
-		return riskRowsFromItems(items), nil
 	}
 	for i := 0; i < maxQueueBatches; i++ {
 		// scale-guard:ignore: bounded batch drain owner=herd-signals issue=perf/herd-live reason=each iteration is one short FOR UPDATE SKIP LOCKED batch of riskBatchSize rows whose write removes them from the queue; capped per tick expiry=2027-06-30
-		res, err := s.repo.ClassifyRiskBatch(ctx, tenantID, ports.RiskBatchQueue, riskBatchSize, classify)
+		res, err := s.repo.ClassifyRiskBatch(ctx, tenantID, ports.RiskBatchQueue, riskBatchSize, s.riskFloor)
 		if err != nil {
 			return st, err
 		}
@@ -75,19 +71,19 @@ func (s *Service) riskPass(ctx context.Context, tenantID string, forceMedians bo
 		}
 		st.Processed += res.Processed
 		st.Changed += res.Changed
-		if res.Processed < riskBatchSize {
+		if res.Picked < riskBatchSize {
 			break
 		}
 	}
 	for aged := 0; aged < riskAgingPerTick; aged += riskBatchSize {
 		// scale-guard:ignore: bounded aging share owner=herd-signals issue=perf/herd-live reason=at most riskAgingPerTick/riskBatchSize short batches per tick, each advancing risk_evaluated_at past the aging predicate expiry=2027-06-30
-		res, err := s.repo.ClassifyRiskBatch(ctx, tenantID, ports.RiskBatchAging, riskBatchSize, classify)
+		res, err := s.repo.ClassifyRiskBatch(ctx, tenantID, ports.RiskBatchAging, riskBatchSize, s.riskFloor)
 		if err != nil {
 			return st, err
 		}
 		st.Processed += res.Processed
 		st.Changed += res.Changed
-		if !res.Locked || res.Processed < riskBatchSize {
+		if !res.Locked || res.Picked < riskBatchSize {
 			break
 		}
 	}
@@ -185,20 +181,6 @@ func (s *Service) markPenMediansRead(tenantID string) {
 	s.penMedianAt[tenantID] = time.Now()
 }
 
-func riskRowsFromItems(items []domain.LiveItem) []ports.TagRisk {
-	rows := make([]ports.TagRisk, len(items))
-	for i, item := range items {
-		rows[i] = ports.TagRisk{
-			TagID: item.TagID, State: item.RiskState, Score: item.RiskScore, Reasons: item.RiskReasons,
-			OwnMotionPct: item.OwnMotionDeltaPct, GroupMotionPct: item.GroupMotionDeltaPct, GroupTempDeltaC: item.GroupTempDeltaC,
-		}
-		if item.RiskState == nil {
-			rows[i].Reasons, rows[i].Score = nil, 0
-		}
-	}
-	return rows
-}
-
 // RunRiskClassifier runs a change-driven pass per tenant every interval until ctx ends. A tick
 // is skipped while the previous one is still running, each pass is bounded to 3/4 of the
 // interval, and per-tenant exclusivity comes from the advisory xact lock inside each batch.
@@ -247,4 +229,12 @@ func (s *Service) RunRiskClassifier(ctx context.Context, interval time.Duration)
 			tick()
 		}
 	}
+}
+
+// WithRiskReevaluationFloor overrides the classifier's re-evaluation floor (load harness).
+func (s *Service) WithRiskReevaluationFloor(d time.Duration) *Service {
+	if d > 0 {
+		s.riskFloor = d
+	}
+	return s
 }

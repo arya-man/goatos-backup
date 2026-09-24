@@ -37,6 +37,13 @@ func TestHerdSignalsRiskClassifierSteadyState(t *testing.T) {
 	}
 	defer pool.Close()
 	svc := herdapp.NewService(herdpg.NewRepository(pool))
+	if fm := envInt("LOAD_FLOOR_MIN", 0); fm > 0 {
+		if f, ok := any(svc).(interface {
+			WithRiskReevaluationFloor(time.Duration) *herdapp.Service
+		}); ok {
+			f.WithRiskReevaluationFloor(time.Duration(fm) * time.Minute)
+		}
+	}
 
 	measure := func(label string, fn func() (int, error)) {
 		q0 := tracer.n.Load()
@@ -48,7 +55,7 @@ func TestHerdSignalsRiskClassifierSteadyState(t *testing.T) {
 		fmt.Printf("STEADY tags=%d %-26s tags_classified=%6d queries=%5d wall=%s\n", tags, label, n, tracer.n.Load()-q0, time.Since(start).Round(time.Millisecond))
 	}
 	measure("initial_full_classification", func() (int, error) { return svc.RecomputeRisk(ctx, loadTenant) })
-	for minute := 1; minute <= envInt("LOAD_MINUTES", 8); minute++ {
+	for minute := 1; minute <= envInt("LOAD_MINUTES", 12); minute++ {
 		// Simulate one minute passing for the classifier's clocks, then this minute's packets.
 		if _, err := admin.Exec(ctx, `UPDATE herd_signal_tag_latest SET risk_due_at = risk_due_at - interval '1 minute',
 			risk_evaluated_at = risk_evaluated_at - interval '1 minute', last_seen_at = last_seen_at - interval '1 minute'
