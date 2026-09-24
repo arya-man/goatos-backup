@@ -7,7 +7,7 @@ import path from "node:path";
 // lookups that merely say "check" or "compare" ("check how many goats we sold",
 // "compare sales by park") stay on the fast model. ['’] covers phone keyboards.
 export const DEEP_HINT =
-  /\b(verify|verif(y|ied|ication of)|double[- ]check|check (if|whether|that|this|these|those|why)|bug|wrong|incorrect|explain|investigate|mismatch|discrepanc\w*|reconcile|doesn['’]?t (match|add up|look right)|does ?not (match|add up)|not right|seems? off|is (this|that|it) (right|correct|accurate)|how (is|was|are|do we calculate) .* calculated|dig deeper|check again|are you sure|look again)\b/i;
+  /\b(verify|verif(y|ied|ication of)|double[- ]check|check (if|whether|that|this|these|those|why)|bug|wrong|incorrect|explain|investigate|mismatch|discrepanc\w*|reconcile|doesn['’]?t (match|add up|look right)|does ?not (match|add up)|not right|seems? off|is (this|that|it) (right|correct|accurate)|how (is|was|are|do we calculate) .* calculated|dig deeper|check again|are you sure|look again|root cause|find out|trace|what happened|missing from|left out|only covers?|doesn['’]?t cover|not showing|why (only|not|so (many|few|high|low)))\b/i;
 // "why" is an investigation when it questions a number/state ("why is ADG down?"), but a plain
 // lookup when it asks for the reasons recorded on records ("who rejected approvals and why",
 // "pen visits why delayed"): those reasons are a column away, not a code trace. Seen live: such
