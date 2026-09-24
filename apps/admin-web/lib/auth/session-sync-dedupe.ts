@@ -8,7 +8,9 @@
 // Rules this module enforces:
 // - `auth.sign_in` is recorded at most once per browser session per Firebase uid. The bridge still
 //   records it once for a session restored from Firebase persistence (no explicit login), because
-//   the backend claims pending CEO/CXO email grants only on sign_in.
+//   the backend claims pending CEO/CXO email grants only on sign_in. A grant created mid-session
+//   is claimed at the next sign-in (new tab/browser session or re-login); the backend refuses to
+//   claim on session_refresh by design (authaudit TestHandlerDoesNotClaimPendingEmailGrantOnRefresh).
 // - A token that has already been synced (or is being synced) is never posted again.
 // - Concurrent syncs of the same token share one request.
 
@@ -17,6 +19,7 @@ export type SessionSyncEventType = "auth.sign_in" | "auth.session_refresh";
 export type SessionSyncStore = {
   get(key: string): string | null;
   set(key: string, value: string): void;
+  remove(key: string): void;
 };
 
 const SIGN_IN_KEY_PREFIX = "goatos.admin.auth.sign_in_recorded:";
@@ -28,7 +31,7 @@ function tokenFingerprint(idToken: string): string {
 }
 
 export class SessionSyncDeduper {
-  private readonly inflight = new Map<string, Promise<boolean>>();
+  private readonly inflight = new Map<string, { eventType: SessionSyncEventType; promise: Promise<boolean> }>();
   private readonly store: SessionSyncStore;
 
   constructor(store: SessionSyncStore) {
@@ -40,7 +43,20 @@ export class SessionSyncDeduper {
    * sharing any in-flight sync of the same token.
    */
   signIn(uid: string, idToken: string, post: (eventType: SessionSyncEventType) => Promise<boolean>): Promise<boolean> {
+    const pending = this.inflight.get(idToken);
+    if (pending && pending.eventType !== "auth.sign_in") {
+      // A background refresh of this token is in flight; the login still owes its own sign_in.
+      return pending.promise
+        .catch(() => false)
+        .then(() => this.run(uid, idToken, "auth.sign_in", post));
+    }
     return this.run(uid, idToken, "auth.sign_in", post);
+  }
+
+  /** Sign-out: the next login of this uid in this tab records auth.sign_in again. */
+  forget(uid: string): void {
+    this.remove(SIGN_IN_KEY_PREFIX + uid);
+    this.remove(SYNCED_TOKEN_KEY_PREFIX + uid);
   }
 
   /**
@@ -49,7 +65,7 @@ export class SessionSyncDeduper {
    */
   bridge(uid: string, idToken: string, post: (eventType: SessionSyncEventType) => Promise<boolean>): Promise<boolean> {
     const pending = this.inflight.get(idToken);
-    if (pending) return pending;
+    if (pending) return pending.promise;
     if (this.read(SYNCED_TOKEN_KEY_PREFIX + uid) === tokenFingerprint(idToken)) {
       return Promise.resolve(true);
     }
@@ -64,7 +80,7 @@ export class SessionSyncDeduper {
     post: (eventType: SessionSyncEventType) => Promise<boolean>,
   ): Promise<boolean> {
     const pending = this.inflight.get(idToken);
-    if (pending) return pending;
+    if (pending?.eventType === eventType) return pending.promise;
     const promise = post(eventType)
       .then((ok) => {
         if (ok) {
@@ -74,9 +90,9 @@ export class SessionSyncDeduper {
         return ok;
       })
       .finally(() => {
-        if (this.inflight.get(idToken) === promise) this.inflight.delete(idToken);
+        if (this.inflight.get(idToken)?.promise === promise) this.inflight.delete(idToken);
       });
-    this.inflight.set(idToken, promise);
+    this.inflight.set(idToken, { eventType, promise });
     return promise;
   }
 
@@ -85,6 +101,14 @@ export class SessionSyncDeduper {
       return this.store.get(key);
     } catch {
       return null;
+    }
+  }
+
+  private remove(key: string): void {
+    try {
+      this.store.remove(key);
+    } catch {
+      // Storage unavailable: nothing was persisted to clear.
     }
   }
 
@@ -99,11 +123,19 @@ export class SessionSyncDeduper {
 
 export function memorySessionSyncStore(): SessionSyncStore {
   const values = new Map<string, string>();
-  return { get: (key) => values.get(key) ?? null, set: (key, value) => void values.set(key, value) };
+  return {
+    get: (key) => values.get(key) ?? null,
+    set: (key, value) => void values.set(key, value),
+    remove: (key) => void values.delete(key),
+  };
 }
 
 export function browserSessionSyncStore(): SessionSyncStore {
   if (typeof window === "undefined" || !window.sessionStorage) return memorySessionSyncStore();
   const storage = window.sessionStorage;
-  return { get: (key) => storage.getItem(key), set: (key, value) => storage.setItem(key, value) };
+  return {
+    get: (key) => storage.getItem(key),
+    set: (key, value) => storage.setItem(key, value),
+    remove: (key) => storage.removeItem(key),
+  };
 }

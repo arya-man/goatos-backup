@@ -72,3 +72,33 @@ test("short read cache serves repeat reads inside the ttl and clear() drops them
   assert.deepEqual(await read(), { ok: true, data: { version: 3 } });
   assert.equal(calls, 3);
 });
+
+test("zero-ttl cache keeps coalescing while the first read is still in flight, even as the clock moves", async () => {
+  let now = 1000;
+  let calls = 0;
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const cache = new ShortReadCache(0, () => now);
+  const read = () =>
+    cache.read("assumptions:user-a", async () => {
+      calls += 1;
+      await gate;
+      return { ok: true, data: { version: calls } };
+    });
+  const first = read();
+  now += 5; // a later page load arrives while the first backend call is still running
+  const second = read();
+  now += 50;
+  const third = read();
+  release();
+  assert.deepEqual(await Promise.all([first, second, third]), [
+    { ok: true, data: { version: 1 } },
+    { ok: true, data: { version: 1 } },
+    { ok: true, data: { version: 1 } },
+  ]);
+  assert.equal(calls, 1);
+  now += 1;
+  assert.deepEqual(await read(), { ok: true, data: { version: 2 } });
+});
