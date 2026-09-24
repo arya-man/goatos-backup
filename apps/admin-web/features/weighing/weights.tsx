@@ -546,13 +546,17 @@ export async function WeighingWeightsPage({
   // Daily gain per shed comes from the growth read's own shed leaderboard, which is already
   // restricted to per-animal sheds — a whole-shed total can never produce a per-kid gain.
   // Two different measurements share this chart, and the caption says so. A
-  // per-animal shed reports the median of its kids' own gains. A whole-shed weigh
+  // per-animal shed reports the mean of its kids' own gains (the headline's statistic,
+  // maintainer decision 2026-09-24 -- not the median of leg rates). A whole-shed weigh
   // has no per-animal gain at all, so it reports how fast its AVERAGE is moving —
   // which population change also moves. Merging them silently would be the defect;
   // showing only the first would drop every whole-shed shed from a gain view they
   // now have real history for.
   const perAnimalGainRows = (growth.ok ? growth.data.shed_leaderboard : [])
-      .filter((shed) => shed.adg_pair_count > 0 && visibleRowKeys.has(shedKey(shed.location_id, shed.partition_label)))
+      .filter(
+        (shed): shed is typeof shed & { average_adg_g_per_day: number } =>
+          shed.average_adg_g_per_day != null && shed.adg_animals > 0 && visibleRowKeys.has(shedKey(shed.location_id, shed.partition_label)),
+      )
       .map((shed) => ({
         // Keyed by location AND partition, because that is the grain the leaderboard is
         // grouped at (`GROUP BY location_id, partition_label` in growth.go). A partitioned
@@ -584,7 +588,7 @@ export async function WeighingWeightsPage({
           compositionByShed.get(shedKey(shed.location_id, shed.partition_label)),
           pageContract,
         ),
-        value: Math.round(shed.median_adg_g_per_day),
+        value: Math.round(shed.average_adg_g_per_day),
         modeLabel: copy(pageContract, "value.weighing.individual"),
         modeTone: "info" as const,
       }));

@@ -26,6 +26,7 @@ func TestFCRPenSumsSegmentsAndValuesGainAtTheSpeciesPrice(t *testing.T) {
 		Modes: []string{"per_shed_partition"}, Rounds: 3, FirstWeighDate: "2026-08-03", LastWeighDate: "2026-08-17",
 		FirstAverageKg: f(18.0), LatestAnimals: 100, Residents: 100, Breeds: 1, Breed: "Anantapur Sheep", Sexes: 1, Sex: "male",
 		SpeciesCount: 1, Species: "sheep", ResidentMix: []HeadMix{{Species: "sheep", Animals: 100}}, BoughtResidents: 100,
+		GeneralADGGPerDay: f(72), GeneralADGAnimals: 100,
 	}}
 	segments := []FCRSegmentRow{
 		// 7 days x 100 heads = 700 head-days, 100 g/day -> 70 kg gain; 420 kg feed -> FCR 6
@@ -44,7 +45,9 @@ func TestFCRPenSumsSegmentsAndValuesGainAtTheSpeciesPrice(t *testing.T) {
 	near(t, "fcr", pen.FCR, 8)
 	near(t, "gain", pen.GainKg, 105)
 	near(t, "feed", pen.FeedKg, 840)
-	near(t, "adg", pen.ADGGPerDay, 75) // 105 kg over 1400 head-days
+	// The ADG SHOWN is the General tab's figure for this pen (72), not the ratio's own basis of
+	// 105 kg over 1,400 head-days (75): one pen, one daily gain on every tab.
+	near(t, "adg", pen.ADGGPerDay, 72)
 	near(t, "gain value", pen.GainValueINR, 105*425)
 	near(t, "cost per kg gain", pen.FeedCostPerKgGainINR, 16800.0/105)
 	near(t, "pen margin", pen.MarginINR, 105*425-16800)
@@ -52,7 +55,7 @@ func TestFCRPenSumsSegmentsAndValuesGainAtTheSpeciesPrice(t *testing.T) {
 	if pen.Status != FCRPenOK || pen.BlockedCells != 2 {
 		t.Fatalf("status=%s blocked=%d", pen.Status, pen.BlockedCells)
 	}
-	if pen.Origin != OriginPurchased || pen.Breed != "anantapur sheep" || pen.WeightBand != "15-20" {
+	if pen.Origin != OriginPurchased || pen.Breed != "Anantapur Sheep" || pen.WeightBand != "15-20" {
 		t.Fatalf("cohort: origin=%s breed=%s band=%s", pen.Origin, pen.Breed, pen.WeightBand)
 	}
 	near(t, "summary fcr", got.Summary.FCR, 8)
@@ -140,7 +143,7 @@ func TestFCRPensClusterByParkCodeThenReadAToZ(t *testing.T) {
 	if strings.Join(order, ",") != "cbe2,cbe10,cpt2,cpt10" {
 		t.Fatalf("pen order = %v", order)
 	}
-	if len(got.ByPark) != 2 || got.ByPark[0].Label != "Coimbatore" || got.ByPark[1].Label != "Channapatna" {
+	if len(got.ByPark) != 2 || got.ByPark[0].Label != "CBE" || got.ByPark[1].Label != "CPT" {
 		t.Fatalf("by park = %+v", got.ByPark)
 	}
 }
@@ -314,7 +317,7 @@ func TestEmptiedPenFallsBackToTheWeighedCohort(t *testing.T) {
 	segments := []FCRSegmentRow{{PenKey: "e", StartDate: "2026-08-03", EndDate: "2026-08-10", ADGGPerDay: 100, FeedKg: f(63), FeedCostINR: f(1260), HeadDays: f(63)}}
 	got := BuildFCRReport(pens, segments, SalePrices{Prices: []SalePrice{{Species: "goat", PricePerKgINR: 450}}}, FCRFilters{})
 	pen := got.Pens[0]
-	if pen.Breed != "sirohi" || pen.Sex != "male" || pen.Species != "goat" || pen.Origin != OriginPurchased {
+	if pen.Breed != "Sirohi" || pen.Sex != "male" || pen.Species != "goat" || pen.Origin != OriginPurchased {
 		t.Fatalf("cohort = %+v", pen)
 	}
 	near(t, "gain value from the weighed cohort", pen.GainValueINR, 6.3*450)
@@ -324,7 +327,7 @@ func TestEmptiedPenFallsBackToTheWeighedCohort(t *testing.T) {
 	}
 	// Live residents WIN when present.
 	pens[0].Residents, pens[0].Breeds, pens[0].Breed, pens[0].Sexes, pens[0].Sex = 4, 1, "Beetal", 1, "female"
-	if got := BuildFCRReport(pens, segments, SalePrices{}, FCRFilters{}); got.Pens[0].Breed != "beetal" {
+	if got := BuildFCRReport(pens, segments, SalePrices{}, FCRFilters{}); got.Pens[0].Breed != "Beetal" {
 		t.Fatalf("live residents must win over the weighed cohort, got %s", got.Pens[0].Breed)
 	}
 }
@@ -355,5 +358,51 @@ func TestPriceableStagesAreTheWeighedOnesPlusAnyAlreadyPriced(t *testing.T) {
 	}
 	if got := PriceableStages(all, nil, []SalePrice{{Species: "goat", PricePerKgINR: 425}}); len(got) != 0 {
 		t.Fatalf("nothing weighed and nothing priced must list no stage, got %v", got)
+	}
+}
+
+// ONE DAILY GAIN PER PEN ON EVERY TAB (maintainer decision 2026-09-24). The FCR tab used to show each
+// pen's gain over the feed sheet's head-days, so CBE Castro 1 read 173 g here and 169 g on General,
+// and the farm figure differed from the headline in 64 filter combinations. A pen now SHOWS the
+// General tab's figure, and every group and the summary are the animal-weighted mean of those
+// figures -- the headline's weighting -- while the ratio keeps its own feed-aligned basis.
+func TestFCRShowsTheGeneralTabADGAndWeightsGroupsByAnimals(t *testing.T) {
+	pen := func(key, breed string, adg float64, animals int) FCRPenRow {
+		return FCRPenRow{PenKey: key, LocationID: key, ParkID: "p", ParkCode: "CBE", ShedName: key, Rounds: 2,
+			LatestAnimals: animals, Residents: animals, Breeds: 1, Breed: breed, Sexes: 1, Sex: "male", SpeciesCount: 1, Species: "sheep",
+			GeneralADGGPerDay: f(adg), GeneralADGAnimals: animals}
+	}
+	pens := []FCRPenRow{pen("a", "Anantapur Sheep", 169, 54), pen("b", "Anantapur Sheep", 100, 10), pen("once", "Beetal", 0, 0)}
+	pens[2].GeneralADGGPerDay, pens[2].Rounds = nil, 1
+	// Segment gains deliberately disagree with the General figures, so a head-day ADG would show.
+	segments := []FCRSegmentRow{
+		{PenKey: "a", StartDate: "2026-08-03", EndDate: "2026-08-10", ADGGPerDay: 173, FeedKg: f(500), HeadDays: f(378)},
+		{PenKey: "b", StartDate: "2026-08-03", EndDate: "2026-08-10", ADGGPerDay: 300, FeedKg: f(100), HeadDays: f(70)},
+	}
+	got := BuildFCRReport(pens, segments, SalePrices{}, FCRFilters{})
+	near(t, "pen a shows the General figure", got.Pens[0].ADGGPerDay, 169)
+	near(t, "pen b shows the General figure", got.Pens[1].ADGGPerDay, 100)
+	if got.Pens[2].ADGGPerDay != nil {
+		t.Fatalf("a pen weighed once has no daily gain, got %v", *got.Pens[2].ADGGPerDay)
+	}
+	want := (169.0*54 + 100.0*10) / 64
+	near(t, "summary is the animal-weighted mean of pen figures", got.Summary.ADGGPerDay, want)
+	near(t, "breed group likewise", got.ByBreed[0].ADGGPerDay, want)
+	if got.ByBreed[0].Label != "Anantapur Sheep" || got.ByPark[0].Label != "CBE" {
+		t.Fatalf("labels must read as on every other tab: breed %q park %q", got.ByBreed[0].Label, got.ByPark[0].Label)
+	}
+}
+
+// A band reads as the Weight-wise tab words it, never as its grouping key.
+func TestFCRBandGroupsCarryTheFarmWording(t *testing.T) {
+	pens := []FCRPenRow{{PenKey: "a", LocationID: "a", ParkID: "p", ShedName: "a", Rounds: 2, FirstAverageKg: f(12), LatestAnimals: 5,
+		Residents: 5, Breeds: 1, Breed: "Beetal", Sexes: 1, Sex: "male", SpeciesCount: 1, Species: "goat"}}
+	segments := []FCRSegmentRow{{PenKey: "a", StartDate: "2026-08-03", EndDate: "2026-08-10", ADGGPerDay: 100, FeedKg: f(40), HeadDays: f(35)}}
+	got := BuildFCRReport(pens, segments, SalePrices{}, FCRFilters{})
+	if len(got.ByBand) != 1 || got.ByBand[0].Label != "Under 15 kg" || got.ByBand[0].Key != "<15" {
+		t.Fatalf("band group = %+v", got.ByBand)
+	}
+	if words := BandFarmLabelsFor(nil); words[1] != "15 – 20 kg" || words[len(words)-1] != "35 kg and over" {
+		t.Fatalf("farm band words = %v", words)
 	}
 }

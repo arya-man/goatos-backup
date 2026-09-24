@@ -43,6 +43,7 @@ export function WeightBars({
   size = "tall",
   wide = false,
   domain,
+  reference,
 }: {
   data: readonly WeightBar[];
   /** Resolved from the page contract by the caller. */
@@ -71,6 +72,12 @@ export function WeightBars({
    * values so a value outside the caller's span can never overflow the track.
    */
   domain?: { lo: number; hi: number };
+  /**
+   * An optional reference value (the FCR tab's break-even) drawn as a dashed line across every
+   * track at the same position, so each bar can be read against it. Included in the scale so the
+   * line is never pushed off the track.
+   */
+  reference?: { value: number; label: string };
 }) {
   // A bar can only be drawn with a positive length. Non-positive values are real
   // data, so they are not silently dropped — the caller's empty copy has to explain
@@ -93,8 +100,9 @@ export function WeightBars({
   // read as crossing zero, not as a short positive bar. The axis spans min..max with
   // zero always inside it, so the baseline sits where zero actually falls — hard left
   // when everything is positive, mid-track when the series straddles zero.
-  const lo = Math.min(0, domain?.lo ?? 0, ...bars.map((bar) => bar.value));
-  const hi = Math.max(0, domain?.hi ?? 0, ...bars.map((bar) => bar.value));
+  const refValue = reference && Number.isFinite(reference.value) ? reference.value : null;
+  const lo = Math.min(0, domain?.lo ?? 0, refValue ?? 0, ...bars.map((bar) => bar.value));
+  const hi = Math.max(0, domain?.hi ?? 0, refValue ?? 0, ...bars.map((bar) => bar.value));
   const span = hi - lo || 1;
   const zeroPct = ((0 - lo) / span) * 100;
   const geometry = (value: number) => {
@@ -126,6 +134,9 @@ export function WeightBars({
             {/* The zero rule only appears when the series actually straddles zero;
                 on an all-positive chart it would sit on the axis and read as noise. */}
             {lo < 0 && hi > 0 ? <b className="wbzero" style={{ left: `${zeroPct}%` }} /> : null}
+            {refValue != null ? (
+              <b className="wbref" style={{ left: `${((refValue - lo) / span) * 100}%` }} title={reference?.label} aria-hidden />
+            ) : null}
             <i
               className={geometry(bar.value).negative ? "neg" : undefined}
               style={{

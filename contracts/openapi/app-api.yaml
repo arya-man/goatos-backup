@@ -39673,6 +39673,8 @@ components:
         - median_weight_kg
         - median_adg_g_per_day
         - adg_pair_count
+        - average_adg_g_per_day
+        - adg_animals
       properties:
         location_id:
           type: string
@@ -39700,6 +39702,18 @@ components:
         adg_pair_count:
           type: integer
           description: Can be less than `n` -- a shed can have animals weighed once (no pair yet).
+        average_adg_g_per_day:
+          type: number
+          nullable: true
+          description: >-
+            The pen's daily gain on the headline's statistic: each animal's own gain (total grams
+            over total days across the legs ending in this pen), averaged over those animals. This
+            is the figure the ADG Analytics and Weights pages show for a scanned pen; the median
+            above is of per-leg rates and lets one 1-day re-weigh decide a pen. Null when no animal
+            here was weighed twice in the window.
+        adg_animals:
+          type: integer
+          description: Animals behind `average_adg_g_per_day`.
     WeighingGrowthDistributionBucket:
       type: object
       additionalProperties: false

@@ -189,6 +189,22 @@ func BandLabelsFor(edges []float64) []string {
 	return append(out, trimFloat(edges[len(edges)-1])+"+")
 }
 
+// BandFarmLabelsFor is the farm wording for the same bands, index for index with BandLabelsFor:
+// "Under 15 kg", "15 – 20 kg", "35 kg and over" -- exactly weighing/domain.WeightBandLabel, the
+// words the Weight-wise tab prints, so one band reads the same on every tab of the page. The keys
+// above stay the grouping identity; these are only ever labels.
+func BandFarmLabelsFor(edges []float64) []string {
+	if len(edges) == 0 {
+		edges = DefaultWeightBandEdgesKg
+	}
+	out := make([]string, 0, len(edges)+1)
+	out = append(out, "Under "+trimFloat(edges[0])+" kg")
+	for i := 1; i < len(edges); i++ {
+		out = append(out, trimFloat(edges[i-1])+" – "+trimFloat(edges[i])+" kg")
+	}
+	return append(out, trimFloat(edges[len(edges)-1])+" kg and over")
+}
+
 // BandIndexFor places a weight in the edges the way SQL width_bucket does: 0 below the first
 // edge, len(edges) at or above the last.
 func BandIndexFor(kg float64, edges []float64) int {

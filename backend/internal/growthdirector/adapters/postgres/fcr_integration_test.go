@@ -157,7 +157,7 @@ func TestFCRLumpAndScannedPensThroughTheBridge(t *testing.T) {
 	for _, pen := range got.Pens {
 		byDisplay[pen.OperationalLocationDisplay] = pen
 	}
-	lump, ok := byDisplay["Coimbatore · Lump 1"]
+	lump, ok := byDisplay["CBE · Lump 1"]
 	if !ok {
 		t.Fatalf("no lump pen row; got %v", keysOf(byDisplay))
 	}
@@ -171,13 +171,13 @@ func TestFCRLumpAndScannedPensThroughTheBridge(t *testing.T) {
 	if lump.BlockedCells != 1 || lump.Status != domain.FCRPenOK || lump.Animals != 25 {
 		t.Fatalf("lump: blocked=%d status=%s animals=%d", lump.BlockedCells, lump.Status, lump.Animals)
 	}
-	if lump.Breed != "beetal" || lump.Sex != "male" || lump.Species != "goat" || lump.Origin != domain.OriginFarmBorn || lump.WeightBand != "20-25" {
+	if lump.Breed != "Beetal" || lump.Sex != "male" || lump.Species != "goat" || lump.Origin != domain.OriginFarmBorn || lump.WeightBand != "20-25" {
 		t.Fatalf("lump cohort = breed %s sex %s species %s origin %s band %s", lump.Breed, lump.Sex, lump.Species, lump.Origin, lump.WeightBand)
 	}
 
 	// THE BRIDGE: the bucket named the alias location; the row must be keyed on the PHYSICAL shed
 	// with the sheet's partition label, and must have found the feed rows written there.
-	scan, ok := byDisplay["Coimbatore · Fcr Shed - Part 2"]
+	scan, ok := byDisplay["CBE · Fcr Shed - Part 2"]
 	if !ok {
 		t.Fatalf("no scanned pen row through the bridge; got %v", keysOf(byDisplay))
 	}
@@ -188,7 +188,7 @@ func TestFCRLumpAndScannedPensThroughTheBridge(t *testing.T) {
 	fcrNear(t, "scan gain", scan.GainKg, 2.1)
 	fcrNear(t, "scan feed", scan.FeedKg, 7)
 	fcrNear(t, "scan fcr", scan.FCR, 7.0/2.1)
-	if scan.Animals != 3 || scan.Rounds != 2 || scan.Breed != "sirohi" || scan.Sex != "female" || scan.WeightBand != "<15" {
+	if scan.Animals != 3 || scan.Rounds != 2 || scan.Breed != "Sirohi" || scan.Sex != "female" || scan.WeightBand != "<15" {
 		t.Fatalf("scan pen = animals %d rounds %d breed %s sex %s band %s", scan.Animals, scan.Rounds, scan.Breed, scan.Sex, scan.WeightBand)
 	}
 
@@ -197,9 +197,10 @@ func TestFCRLumpAndScannedPensThroughTheBridge(t *testing.T) {
 	if got.Summary.PensWithFCR != 2 {
 		t.Fatalf("pens with fcr = %d (%+v)", got.Summary.PensWithFCR, got.Summary)
 	}
-	// Worst first.
-	if got.Pens[0].OperationalLocationDisplay != "Coimbatore · Lump 1" {
-		t.Fatalf("worst first, got %s", got.Pens[0].OperationalLocationDisplay)
+	// Park, then pen A to Z (maintainer decision 2026-09-16) -- never worst first: the bars carry the
+	// ratio, the order is where a reader looks a pen up.
+	if got.Pens[0].OperationalLocationDisplay != "CBE · Fcr Shed - Part 2" || got.Pens[1].OperationalLocationDisplay != "CBE · Lump 1" {
+		t.Fatalf("pens A to Z, got %s, %s", got.Pens[0].OperationalLocationDisplay, got.Pens[1].OperationalLocationDisplay)
 	}
 	// Weekly: both segments closed in the week of Jul 13.
 	if len(got.Weekly) != 1 || got.Weekly[0].WeekStart != "2026-07-13" || got.Weekly[0].Pens != 2 {
@@ -211,7 +212,7 @@ func TestFCRLumpAndScannedPensThroughTheBridge(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetFCR male: %v", err)
 	}
-	if len(male.Pens) != 1 || male.Pens[0].OperationalLocationDisplay != "Coimbatore · Lump 1" {
+	if len(male.Pens) != 1 || male.Pens[0].OperationalLocationDisplay != "CBE · Lump 1" {
 		t.Fatalf("male filter pens = %+v", male.Pens)
 	}
 	// Weighing-mode filter narrows the rounds themselves.
@@ -221,7 +222,7 @@ func TestFCRLumpAndScannedPensThroughTheBridge(t *testing.T) {
 		t.Fatalf("GetFCR scanned: %v", err)
 	}
 	for _, pen := range scannedOnly.Pens {
-		if pen.OperationalLocationDisplay == "Coimbatore · Lump 1" {
+		if pen.OperationalLocationDisplay == "CBE · Lump 1" {
 			t.Fatalf("mode filter leaked the lump pen: %+v", scannedOnly.Pens)
 		}
 	}

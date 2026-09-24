@@ -214,6 +214,12 @@ type FCRPenRow struct {
 	WholeShedWeighed    bool
 	WindowFeedKg        *float64 // directed kg over the WHOLE window, for pens with no segment
 	WindowBlockedCells  int
+	// GeneralADGGPerDay is the pen's daily gain on the General tab's own statistic (whole pen:
+	// latest minus first average over the days between; scanned: the mean of each animal's own
+	// gain), and GeneralADGAnimals the animals it speaks for. It is the ADG this tab SHOWS, so a pen
+	// reads one daily gain on every tab (maintainer decision 2026-09-24). nil = weighed once.
+	GeneralADGGPerDay *float64
+	GeneralADGAnimals int
 }
 
 // FCRPen is one pen on the tab.
@@ -266,6 +272,10 @@ type FCRGroup struct {
 	FeedCostPerKgGainINR *float64 `json:"feed_cost_per_kg_gain_inr"`
 	GainValueINR         *float64 `json:"gain_value_inr"`
 	MarginINR            *float64 `json:"margin_inr"`
+
+	// The ADG accumulators: grams/day x animals and the animals, over member pens with an ADG.
+	adgWeighted float64
+	adgAnimals  float64
 }
 
 // FCRWeek is one point of the weekly series: every segment whose LATER round fell in that week.
@@ -359,6 +369,7 @@ func BuildFCRReport(pens []FCRPenRow, segments []FCRSegmentRow, prices SalePrice
 		segs         []FCRSegmentRow
 		parkCode     string
 		breedMembers []FCRCohortMember
+		adgAnimals   int
 	}
 	var aggs []penAgg
 	for _, row := range pens {
@@ -369,7 +380,7 @@ func BuildFCRReport(pens []FCRPenRow, segments []FCRSegmentRow, prices SalePrice
 		}
 		segs := segByPen[row.PenKey]
 		applySegments(&pen, row, segs, prices)
-		aggs = append(aggs, penAgg{pen: pen, segs: segs, parkCode: row.ParkCode, breedMembers: row.BreedMembers})
+		aggs = append(aggs, penAgg{pen: pen, segs: segs, parkCode: row.ParkCode, breedMembers: row.BreedMembers, adgAnimals: row.GeneralADGAnimals})
 	}
 
 	// Pens: clustered by park in CODE order (CBE, then CPT — maintainer decision 2026-09-16 for
@@ -388,11 +399,17 @@ func BuildFCRReport(pens []FCRPenRow, segments []FCRSegmentRow, prices SalePrice
 		parkCodes[agg.pen.ParkID] = agg.parkCode
 	}
 
+	// Band KEYS group; the farm WORDS label (same index, same edges).
+	bandWords := map[string]string{}
+	farmBands := BandFarmLabelsFor(filters.BandEdgesKg)
+	for i, key := range BandLabelsFor(filters.BandEdgesKg) {
+		bandWords[key] = farmBands[i]
+	}
 	groups := map[string]map[string]*FCRGroup{"breed": {}, "estimated_breed": {}, "sex": {}, "band": {}, "park": {}, "origin": {}}
 	weeks := map[string]*FCRWeek{}
 	weekPens := map[string]map[string]struct{}{}
 	var summary FCRSummary
-	var pricedFeedKg float64
+	var pricedFeedKg, summaryADGWeighted, summaryADGAnimals float64
 	for _, agg := range aggs {
 		pen := agg.pen
 		out.Pens = append(out.Pens, pen)
@@ -400,6 +417,12 @@ func BuildFCRReport(pens []FCRPenRow, segments []FCRSegmentRow, prices SalePrice
 		summary.Animals += pen.Animals
 		if pen.BlockedCells > 0 {
 			summary.PensWithBlockedCells++
+		}
+		// The farm ADG spans every pen the table lists that has one, weighted by the animals behind
+		// each pen's figure -- the headline's weighting -- not only the pens that also have feed.
+		if pen.ADGGPerDay != nil && agg.adgAnimals > 0 {
+			summaryADGWeighted += *pen.ADGGPerDay * float64(agg.adgAnimals)
+			summaryADGAnimals += float64(agg.adgAnimals)
 		}
 		switch pen.Status {
 		case FCRPenWeighedOnce:
@@ -427,12 +450,12 @@ func BuildFCRReport(pens []FCRPenRow, segments []FCRSegmentRow, prices SalePrice
 			summary.ValuedPens++
 		}
 
-		addGroup(groups["breed"], pen.Breed, cohortLabel(pen.Breed), pen)
-		addEstimatedBreedGroups(groups["estimated_breed"], agg.breedMembers, pen)
-		addGroup(groups["sex"], pen.Sex, cohortLabel(pen.Sex), pen)
-		addGroup(groups["band"], pen.WeightBand, pen.WeightBand, pen)
-		addGroup(groups["park"], pen.ParkID, pen.ParkName, pen)
-		addGroup(groups["origin"], pen.Origin, pen.Origin, pen)
+		addGroup(groups["breed"], strings.ToLower(pen.Breed), cohortLabel(pen.Breed), pen, agg.adgAnimals)
+		addEstimatedBreedGroups(groups["estimated_breed"], agg.breedMembers, pen, agg.adgAnimals)
+		addGroup(groups["sex"], pen.Sex, cohortLabel(pen.Sex), pen, agg.adgAnimals)
+		addGroup(groups["band"], pen.WeightBand, bandWord(bandWords, pen.WeightBand), pen, agg.adgAnimals)
+		addGroup(groups["park"], pen.ParkID, pen.ParkName, pen, agg.adgAnimals)
+		addGroup(groups["origin"], pen.Origin, pen.Origin, pen, agg.adgAnimals)
 
 		for _, seg := range agg.segs {
 			gain, feed, ok := segmentGainAndFeed(seg)
@@ -461,8 +484,8 @@ func BuildFCRReport(pens []FCRPenRow, segments []FCRSegmentRow, prices SalePrice
 			summary.FeedCostPerKgGainINR = ptr(*summary.FeedCostINR / summary.GainKg)
 		}
 	}
-	if summary.HeadDays > 0 {
-		summary.ADGGPerDay = ptr(summary.GainKg * 1000 / summary.HeadDays)
+	if summaryADGAnimals > 0 {
+		summary.ADGGPerDay = ptr(summaryADGWeighted / summaryADGAnimals)
 	}
 	if summary.FeedCostINR != nil && pricedFeedKg > 0 {
 		summary.FeedCostPerKgINR = ptr(*summary.FeedCostINR / pricedFeedKg)
@@ -535,20 +558,25 @@ func penFromRow(row FCRPenRow, bandEdges []float64) FCRPen {
 		PartitionLabel:             row.PartitionLabel,
 		OperationalLocationDisplay: row.Display,
 		ParkID:                     row.ParkID,
-		ParkName:                   row.ParkName,
-		WeighingModes:              append([]string{}, row.Modes...),
-		Animals:                    row.LatestAnimals,
-		Rounds:                     row.Rounds,
-		FirstWeighDate:             row.FirstWeighDate,
-		LastWeighDate:              row.LastWeighDate,
-		StartWeightKg:              row.FirstAverageKg,
-		WeightBand:                 bandFor(row.FirstAverageKg, bandEdges),
-		Breed:                      cohortValue(row.Residents, row.Breeds, row.Breed),
-		Sex:                        cohortValue(row.Residents, row.Sexes, row.Sex),
-		Species:                    cohortValue(row.Residents, row.SpeciesCount, row.Species),
-		Origin:                     originFor(row.Residents, row.BoughtResidents),
-		BlockedCells:               row.WindowBlockedCells,
-		Status:                     FCRPenWeighedOnce,
+		// The park's CODE (CBE, CPT), the name every other ADG Analytics tab uses; the full name is
+		// only a fallback for a park with no code.
+		ParkName:       ParkLabel(row.ParkCode, row.ParkName),
+		WeighingModes:  append([]string{}, row.Modes...),
+		Animals:        row.LatestAnimals,
+		Rounds:         row.Rounds,
+		FirstWeighDate: row.FirstWeighDate,
+		LastWeighDate:  row.LastWeighDate,
+		StartWeightKg:  row.FirstAverageKg,
+		WeightBand:     bandFor(row.FirstAverageKg, bandEdges),
+		// The breed as the register spells it ("Anantapur Sheep"), the way every other tab shows it.
+		// Grouping lower-cases it for the key only (see addGroup's caller), never for the label.
+		Breed:        cohortDisplay(row.Residents, row.Breeds, row.Breed),
+		Sex:          cohortValue(row.Residents, row.Sexes, row.Sex),
+		Species:      cohortValue(row.Residents, row.SpeciesCount, row.Species),
+		Origin:       originFor(row.Residents, row.BoughtResidents),
+		BlockedCells: row.WindowBlockedCells,
+		Status:       FCRPenWeighedOnce,
+		ADGGPerDay:   row.GeneralADGGPerDay,
 	}
 	if pen.WeighingModes == nil {
 		pen.WeighingModes = []string{}
@@ -607,9 +635,9 @@ func applySegments(pen *FCRPen, row FCRPenRow, segs []FCRSegmentRow, prices Sale
 	pen.HeadDays = ptr(headDays)
 	pen.UnpricedFeedKg = unpriced
 	pen.FeedCostINR = cost
-	if headDays > 0 {
-		pen.ADGGPerDay = ptr(gainKg * 1000 / headDays)
-	}
+	// pen.ADGGPerDay is NOT derived from the segments: it is the General tab's figure, set in
+	// penFromRow. gainKg over headDays stays the ratio's own basis (feed and gain over the same fed
+	// head-days); showing it as the pen's ADG put a second daily gain for one pen on the page.
 	if gainKg <= 0 {
 		pen.Status = FCRPenNoGain
 		return
@@ -636,7 +664,7 @@ func segmentGainAndFeed(seg FCRSegmentRow) (gainKg, feedKg float64, ok bool) {
 	return seg.ADGGPerDay * *seg.HeadDays / 1000, *seg.FeedKg, true
 }
 
-func addGroup(into map[string]*FCRGroup, key, label string, pen FCRPen) {
+func addGroup(into map[string]*FCRGroup, key, label string, pen FCRPen, adgAnimals int) {
 	if key == "" {
 		key = CohortUnknown
 		label = CohortUnknown
@@ -657,9 +685,19 @@ func addGroup(into map[string]*FCRGroup, key, label string, pen FCRPen) {
 	if pen.GainValueINR != nil {
 		g.GainValueINR = addPtr(g.GainValueINR, *pen.GainValueINR)
 	}
+	addADG(g, pen, float64(adgAnimals))
 }
 
-func addEstimatedBreedGroups(into map[string]*FCRGroup, members []FCRCohortMember, pen FCRPen) {
+// addADG folds a pen's General-tab ADG into a group, weighted by the animals behind it.
+func addADG(g *FCRGroup, pen FCRPen, animals float64) {
+	if pen.ADGGPerDay == nil || animals <= 0 {
+		return
+	}
+	g.adgWeighted += *pen.ADGGPerDay * animals
+	g.adgAnimals += animals
+}
+
+func addEstimatedBreedGroups(into map[string]*FCRGroup, members []FCRCohortMember, pen FCRPen, adgAnimals int) {
 	total := 0
 	for _, member := range members {
 		if member.Animals > 0 {
@@ -667,7 +705,7 @@ func addEstimatedBreedGroups(into map[string]*FCRGroup, members []FCRCohortMembe
 		}
 	}
 	if total <= 0 {
-		addGroup(into, pen.Breed, cohortLabel(pen.Breed), pen)
+		addGroup(into, strings.ToLower(pen.Breed), cohortLabel(pen.Breed), pen, adgAnimals)
 		return
 	}
 	for _, member := range members {
@@ -699,6 +737,7 @@ func addEstimatedBreedGroups(into map[string]*FCRGroup, members []FCRCohortMembe
 		if pen.GainValueINR != nil {
 			g.GainValueINR = addPtr(g.GainValueINR, *pen.GainValueINR*share)
 		}
+		addADG(g, pen, float64(adgAnimals)*share)
 	}
 }
 
@@ -712,8 +751,8 @@ func finishGroups(m map[string]*FCRGroup, less func(a, b FCRGroup) bool) []FCRGr
 				row.FeedCostPerKgGainINR = ptr(*row.FeedCostINR / row.GainKg)
 			}
 		}
-		if row.HeadDays > 0 {
-			row.ADGGPerDay = ptr(row.GainKg * 1000 / row.HeadDays)
+		if row.adgAnimals > 0 {
+			row.ADGGPerDay = ptr(row.adgWeighted / row.adgAnimals)
 		}
 		if row.GainValueINR != nil && row.FeedCostINR != nil {
 			row.MarginINR = ptr(*row.GainValueINR - *row.FeedCostINR)
@@ -762,6 +801,33 @@ func bandFor(avgKg *float64, edges []float64) string {
 		edges = DefaultWeightBandEdgesKg
 	}
 	return BandLabelsFor(edges)[BandIndexFor(*avgKg, edges)]
+}
+
+// cohortDisplay is cohortValue without the lower-casing: the agree-or-neither rule, with the value
+// kept in the register's own spelling so a label reads "Anantapur Sheep", not "anantapur sheep".
+func cohortDisplay(residents, distinct int, value string) string {
+	switch v := cohortValue(residents, distinct, value); v {
+	case CohortMixed, CohortUnknown:
+		return v
+	default:
+		return strings.TrimSpace(value)
+	}
+}
+
+// bandWord is a band key's farm wording, or the key itself for a band outside the edges (unknown).
+func bandWord(words map[string]string, key string) string {
+	if word, ok := words[key]; ok {
+		return word
+	}
+	return key
+}
+
+// ParkLabel names a park by its code, falling back to its name when it has none.
+func ParkLabel(code, name string) string {
+	if code = strings.TrimSpace(code); code != "" {
+		return code
+	}
+	return strings.TrimSpace(name)
 }
 
 // cohortValue applies agree-or-neither: the value only when every resident agrees.

@@ -2,6 +2,7 @@
 
 import { DataTable, columnsFromContract } from "@/components/data-table";
 import { Tag } from "@/components/ui-primitives";
+import { cohortWord } from "./fcr-labels";
 import type { AdminUiTableContract } from "@/lib/admin-ui-contract";
 import { fmtDate } from "@/lib/format";
 import type { GrowthFCRPen } from "@/lib/api/server";
@@ -15,8 +16,12 @@ import type { GrowthFCRPen } from "@/lib/api/server";
 export type FCRPensTableLabels = {
   ariaLabel: string;
   noValue: string;
-  mixed: string;
+  mixedBreed: string;
+  mixedSex: string;
   unknown: string;
+  /** The page's own Male / Female words: the backend sends the register's lower-case sex key. */
+  male: string;
+  female: string;
   wholePen: string;
   scanned: string;
   status: { ok: string; blocked: string; weighed_once: string; no_feed: string; no_gain: string };
@@ -28,11 +33,6 @@ export type FCRPensTableLabels = {
 const num = (value: number, digits = 1) =>
   value.toLocaleString("en-IN", { minimumFractionDigits: digits, maximumFractionDigits: digits });
 
-function cohortWord(value: string, labels: FCRPensTableLabels): string {
-  if (value === "mixed") return labels.mixed;
-  if (value === "unknown" || value === "") return labels.unknown;
-  return value;
-}
 
 export function FCRPensTable({
   contract,
@@ -60,8 +60,8 @@ export function FCRPensTable({
     cohort: {
       cell: (row) => (
         <span style={{ display: "inline-flex", gap: 4, flexWrap: "wrap" }}>
-          <Tag tone={row.breed === "mixed" ? "info" : "mut"}>{cohortWord(row.breed, labels)}</Tag>
-          <Tag tone={row.sex === "mixed" ? "info" : "mut"}>{cohortWord(row.sex, labels)}</Tag>
+          <Tag tone={row.breed === "mixed" ? "info" : "mut"}>{cohortWord(row.breed, labels, "breed")}</Tag>
+          <Tag tone={row.sex === "mixed" ? "info" : "mut"}>{cohortWord(row.sex, labels, "sex")}</Tag>
         </span>
       ),
     },

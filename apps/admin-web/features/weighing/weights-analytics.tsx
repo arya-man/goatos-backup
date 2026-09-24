@@ -713,7 +713,7 @@ function GeneralTab({
   // different way, so this card and those charts can never describe different herds.
   // Per-shed daily gain, keyed by (location, partition) -- the SAME two figures the Shed-wise tab
   // draws, so the table and that chart can never disagree about a pen. A scanned shed reports the
-  // median of its kids' own gains; a whole-shed pen reports how fast its average is moving. They
+  // mean of its kids' own gains; a whole-shed pen reports how fast its average is moving. They
   // are different measurements, which is why the row's existing capture-mode chip has to stay
   // beside this column: without it the two would read as one number.
   // The pen's BREED, from the same `shed_composition` chips the Weights table renders as cohort
@@ -737,10 +737,13 @@ function GeneralTab({
     );
   }
 
+  // A scanned pen's gain is the MEAN of its kids' own gains -- the headline's statistic, so the pen
+  // rows add up to the card above and the FCR tab reads the same figure (maintainer decision
+  // 2026-09-24). The leaderboard's median is of per-leg rates, which one 1-day re-weigh can decide.
   const shedGainByKey = new Map<string, number>();
   for (const shed of growth?.shed_leaderboard ?? []) {
-    if (shed.adg_pair_count > 0) {
-      shedGainByKey.set(shedKey(shed.location_id, shed.partition_label), shed.median_adg_g_per_day);
+    if (shed.average_adg_g_per_day != null && shed.adg_animals > 0) {
+      shedGainByKey.set(shedKey(shed.location_id, shed.partition_label), shed.average_adg_g_per_day);
     }
   }
 

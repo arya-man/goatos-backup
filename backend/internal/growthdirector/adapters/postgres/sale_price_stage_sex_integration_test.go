@@ -37,7 +37,7 @@ VALUES ($1::uuid, 'goat', 'kid', 'male', 480, '2026-07-01', 'maintainer')`, gdTe
 	for _, pen := range got.Pens {
 		byDisplay[pen.OperationalLocationDisplay] = pen
 	}
-	lump, scan := byDisplay["Coimbatore · Lump 1"], byDisplay["Coimbatore · Fcr Shed - Part 2"]
+	lump, scan := byDisplay["CBE · Lump 1"], byDisplay["CBE · Fcr Shed - Part 2"]
 	fcrNear(t, "lump gain valued at the kid/male override", lump.GainValueINR, 17.5*480)
 	fcrNear(t, "scanned kid females stay on the goat default", scan.GainValueINR, 2.1*425)
 
@@ -206,7 +206,7 @@ VALUES ($1::uuid, 'goat', 'K3', 'male', 500, '2026-07-01', 'test'), ($1::uuid, '
 	lumps := 0
 	var lump domain.FCRPen
 	for _, pen := range got.Pens {
-		if pen.OperationalLocationDisplay == "Coimbatore · Lump 1" {
+		if pen.OperationalLocationDisplay == "CBE · Lump 1" {
 			lumps++
 			lump = pen
 		}

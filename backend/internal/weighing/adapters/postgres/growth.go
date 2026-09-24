@@ -1101,11 +1101,26 @@ shed_adg AS (
          COUNT(*) AS pair_count
   FROM inperiod
   GROUP BY location_id, partition_label
+),
+-- The headline's statistic cut per pen: one gain per animal (its total grams over its total days
+-- across the legs ending in this pen), then the mean over those animals. Grouped per animal FIRST
+-- so a kid weighed four times counts once, exactly as the headline's animal_gain does.
+shed_animal_gain AS (
+  SELECT location_id, partition_label, avg(g) AS mean_adg, COUNT(*) AS animals
+  FROM (
+    SELECT location_id, partition_label, animal_key,
+           sum((weight_kg - prev_weight) * 1000.0)::float8 / NULLIF(sum(days_between), 0) AS g
+    FROM inperiod
+    GROUP BY location_id, partition_label, animal_key
+  ) per_animal
+  GROUP BY location_id, partition_label
 )
 SELECT sw.location_id, sw.shed_name, sw.partition_label, sw.park_name, sw.n, sw.median_weight_kg,
-       COALESCE(sa.median_adg, 0), COALESCE(sa.pair_count, 0)
+       COALESCE(sa.median_adg, 0), COALESCE(sa.pair_count, 0),
+       sg.mean_adg, COALESCE(sg.animals, 0)
 FROM shed_weight sw
 LEFT JOIN shed_adg sa ON sa.location_id = sw.location_id AND COALESCE(sa.partition_label, '') = COALESCE(sw.partition_label, '')
+LEFT JOIN shed_animal_gain sg ON sg.location_id = sw.location_id AND COALESCE(sg.partition_label, '') = COALESCE(sw.partition_label, '')
 ORDER BY sw.shed_name, sw.partition_label`
 	bound2, bindErr2 := sqlbind.Bind(q, tenantID, parkIDs, lookbackStart, periodEnd, periodStart, sexFiltered, scope.Tags, idMap.Tags, idMap.CanonicalTags, weighingCategory)
 	if bindErr2 != nil {
@@ -1120,7 +1135,7 @@ ORDER BY sw.shed_name, sw.partition_label`
 	for rows.Next() {
 		var row domain.GrowthShedLeaderboardRow
 		if err := rows.Scan(&row.LocationID, &row.DisplayName, &row.PartitionLabel, &row.ParkName, &row.AnimalCount, &row.MedianWeightKg,
-			&row.MedianADGGPerDay, &row.ADGPairCount); err != nil {
+			&row.MedianADGGPerDay, &row.ADGPairCount, &row.AverageADGGPerDay, &row.ADGAnimals); err != nil {
 			return nil, err
 		}
 		// A weighing bucket is often a SYNTHETIC per-partition location whose own name is already
