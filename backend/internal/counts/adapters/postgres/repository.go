@@ -23,6 +23,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/herdstage"
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	platformoutbox "github.com/vgoats/goatos/backend/internal/platform/outbox"
+	"github.com/vgoats/goatos/backend/internal/platform/readcache"
 	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 )
 
@@ -66,6 +67,18 @@ type Repository struct {
 	// deathEvidenceTx proves and releases the two staged death videos inside the same transaction
 	// that applies the approved exit. Injected by composition from the tasks Postgres adapter.
 	deathEvidenceTx DeathEvidenceTxGate
+	// facetCache serves the Counts Breakdown facets (WithFacetCache); nil reads them every time.
+	facetCache *readcache.Cache
+}
+
+// WithFacetCache serves the Counts Breakdown filter facets from a per-(tenant, lifecycle) read
+// cache. The facets ignore paging and every dimension filter by design, so each paging or filter
+// click re-ran the same 6x goats scan (~34 ms plan + exec on the stg clone). Committed writes to
+// every table the facets read announce themselves (migration 000417 triggers, caches=["counts"])
+// and the API's readcache.Listener evicts the tenant's entries on every instance.
+func (r *Repository) WithFacetCache(cache *readcache.Cache) *Repository {
+	r.facetCache = cache
+	return r
 }
 
 func NewRepository(pool *pgxpool.Pool, queryTimeout time.Duration) *Repository {
@@ -3429,7 +3442,29 @@ func (r *Repository) GetCountsBreakdown(ctx context.Context, req domain.CountsBr
 	batch := &pgx.Batch{}
 	batch.Queue(boundPage.SQL(), boundPage.Args()...)
 	batch.Queue(boundCharts.SQL(), boundCharts.Args()...)
-	batch.Queue(boundFacets.SQL(), boundFacets.Args()...)
+	// Facets ride the batch only when there is no facet cache; with one they are loaded (or hit)
+	// beside the batch on their own and the batch carries the three request-shaped reads.
+	type facetResult struct {
+		facets domain.CountsBreakdownFacets
+		err    error
+	}
+	var facetCh chan facetResult
+	if r.facetCache != nil {
+		facetCh = make(chan facetResult, 1)
+		key := readcache.Key{Tenant: req.TenantID, Params: "counts_breakdown_facets|" + lifecycle}
+		go func() {
+			facets, err := readcache.Load(ctx, r.facetCache, key, func(ctx context.Context) (domain.CountsBreakdownFacets, error) {
+				rows, err := r.pool.Query(ctx, boundFacets.SQL(), boundFacets.Args()...)
+				if err != nil {
+					return domain.CountsBreakdownFacets{}, fmt.Errorf("counts breakdown: facets query: %w", err)
+				}
+				return scanCountsBreakdownFacets(rows)
+			})
+			facetCh <- facetResult{facets: facets, err: err}
+		}()
+	} else {
+		batch.Queue(boundFacets.SQL(), boundFacets.Args()...)
+	}
 	batch.Queue(boundLoads.SQL(), boundLoads.Args()...)
 
 	results := r.pool.SendBatch(ctx, batch)
@@ -3539,54 +3574,14 @@ func (r *Repository) GetCountsBreakdown(ctx context.Context, req domain.CountsBr
 		return out.Charts.StageSex[i].Key < out.Charts.StageSex[j].Key
 	})
 
-	facetRows, err := results.Query()
-	if err != nil {
-		return domain.CountsBreakdown{}, fmt.Errorf("counts breakdown: facets query: %w", err)
-	}
-	for facetRows.Next() {
-		var dimension, key, label string
-		var count int64
-		// parkKey and partitionLabel are populated only by the shed branches; every other
-		// dimension selects ''.
-		var parkKey, partitionLabel string
-		if err := facetRows.Scan(&dimension, &key, &label, &count, &parkKey, &partitionLabel); err != nil {
-			facetRows.Close()
-			return domain.CountsBreakdown{}, fmt.Errorf("counts breakdown: facets scan: %w", err)
+	if facetCh == nil {
+		facetRows, err := results.Query()
+		if err != nil {
+			return domain.CountsBreakdown{}, fmt.Errorf("counts breakdown: facets query: %w", err)
 		}
-		if dimension == "stage" {
-			// Same rule as the chart branch: `label` arrived as the configured name and the
-			// reader's label is decided by domain.StageDisplayLabel. The dropdown and the bars
-			// must read alike, or a reader filters on a word the chart never showed them.
-			label = domain.StageDisplayLabel(key, label)
+		if out.Facets, err = scanCountsBreakdownFacets(facetRows); err != nil {
+			return domain.CountsBreakdown{}, err
 		}
-		point := domain.CountsBreakdownSeriesPoint{Key: key, Label: label, Count: count}
-		switch dimension {
-		case "lifecycle":
-			out.Facets.Lifecycle = append(out.Facets.Lifecycle, point)
-		case "stage":
-			out.Facets.Stages = append(out.Facets.Stages, point)
-		case "breed":
-			out.Facets.Breeds = append(out.Facets.Breeds, point)
-		case "park":
-			out.Facets.Parks = append(out.Facets.Parks, point)
-		case "shed":
-			// ShedID is handed over EXPLICITLY rather than leaving the client to parse it back out
-			// of the composite Key. The frontend previously split that string itself, which made the
-			// parent-aggregate option carry a partition key and silently broke partition filtering.
-			shedID := key
-			if idx := strings.Index(shedID, "#"); idx >= 0 {
-				shedID = shedID[:idx]
-			}
-			out.Facets.Sheds = append(out.Facets.Sheds, domain.CountsBreakdownShedFacet{
-				Key: key, Label: label, Count: count, ParkID: parkKey,
-				ShedID: shedID, PartitionLabel: partitionLabel,
-				OperationalLocationDisplay: label,
-			})
-		}
-	}
-	facetRows.Close()
-	if err := facetRows.Err(); err != nil {
-		return domain.CountsBreakdown{}, fmt.Errorf("counts breakdown: facets iterate: %w", err)
 	}
 
 	loadRows, err := results.Query()
@@ -3596,6 +3591,13 @@ func (r *Repository) GetCountsBreakdown(ctx context.Context, req domain.CountsBr
 	out.Loads, err = scanCountsBreakdownLoads(loadRows)
 	if err != nil {
 		return domain.CountsBreakdown{}, err
+	}
+	if facetCh != nil {
+		res := <-facetCh
+		if res.err != nil {
+			return domain.CountsBreakdown{}, res.err
+		}
+		out.Facets = cloneCountsBreakdownFacets(res.facets)
 	}
 
 	if out.Charts.Breed == nil {
@@ -3613,23 +3615,86 @@ func (r *Repository) GetCountsBreakdown(ctx context.Context, req domain.CountsBr
 	if out.Charts.StageSex == nil {
 		out.Charts.StageSex = []domain.CountsBreakdownStageSexPoint{}
 	}
-	if out.Facets.Lifecycle == nil {
-		out.Facets.Lifecycle = []domain.CountsBreakdownSeriesPoint{}
-	}
-	if out.Facets.Stages == nil {
-		out.Facets.Stages = []domain.CountsBreakdownSeriesPoint{}
-	}
-	if out.Facets.Breeds == nil {
-		out.Facets.Breeds = []domain.CountsBreakdownSeriesPoint{}
-	}
-	if out.Facets.Parks == nil {
-		out.Facets.Parks = []domain.CountsBreakdownSeriesPoint{}
-	}
-	if out.Facets.Sheds == nil {
-		out.Facets.Sheds = []domain.CountsBreakdownShedFacet{}
-	}
 
 	out.ProjectedAt = time.Now().UTC()
+	return out, nil
+}
+
+// cloneCountsBreakdownFacets copies a cached facet value so no caller shares its slices.
+func cloneCountsBreakdownFacets(f domain.CountsBreakdownFacets) domain.CountsBreakdownFacets {
+	return domain.CountsBreakdownFacets{
+		Lifecycle: append([]domain.CountsBreakdownSeriesPoint{}, f.Lifecycle...),
+		Stages:    append([]domain.CountsBreakdownSeriesPoint{}, f.Stages...),
+		Breeds:    append([]domain.CountsBreakdownSeriesPoint{}, f.Breeds...),
+		Parks:     append([]domain.CountsBreakdownSeriesPoint{}, f.Parks...),
+		Sheds:     append([]domain.CountsBreakdownShedFacet{}, f.Sheds...),
+	}
+}
+
+// scanCountsBreakdownFacets drains the facets read into the response shape (every list non-nil).
+func scanCountsBreakdownFacets(facetRows pgx.Rows) (domain.CountsBreakdownFacets, error) {
+	defer facetRows.Close()
+	out := domain.CountsBreakdownFacets{}
+	for facetRows.Next() {
+		var dimension, key, label string
+		var count int64
+		// parkKey and partitionLabel are populated only by the shed branches; every other
+		// dimension selects ''.
+		var parkKey, partitionLabel string
+		if err := facetRows.Scan(&dimension, &key, &label, &count, &parkKey, &partitionLabel); err != nil {
+			facetRows.Close()
+			return domain.CountsBreakdownFacets{}, fmt.Errorf("counts breakdown: facets scan: %w", err)
+		}
+		if dimension == "stage" {
+			// Same rule as the chart branch: `label` arrived as the configured name and the
+			// reader's label is decided by domain.StageDisplayLabel. The dropdown and the bars
+			// must read alike, or a reader filters on a word the chart never showed them.
+			label = domain.StageDisplayLabel(key, label)
+		}
+		point := domain.CountsBreakdownSeriesPoint{Key: key, Label: label, Count: count}
+		switch dimension {
+		case "lifecycle":
+			out.Lifecycle = append(out.Lifecycle, point)
+		case "stage":
+			out.Stages = append(out.Stages, point)
+		case "breed":
+			out.Breeds = append(out.Breeds, point)
+		case "park":
+			out.Parks = append(out.Parks, point)
+		case "shed":
+			// ShedID is handed over EXPLICITLY rather than leaving the client to parse it back out
+			// of the composite Key. The frontend previously split that string itself, which made the
+			// parent-aggregate option carry a partition key and silently broke partition filtering.
+			shedID := key
+			if idx := strings.Index(shedID, "#"); idx >= 0 {
+				shedID = shedID[:idx]
+			}
+			out.Sheds = append(out.Sheds, domain.CountsBreakdownShedFacet{
+				Key: key, Label: label, Count: count, ParkID: parkKey,
+				ShedID: shedID, PartitionLabel: partitionLabel,
+				OperationalLocationDisplay: label,
+			})
+		}
+	}
+	facetRows.Close()
+	if err := facetRows.Err(); err != nil {
+		return domain.CountsBreakdownFacets{}, fmt.Errorf("counts breakdown: facets iterate: %w", err)
+	}
+	if out.Lifecycle == nil {
+		out.Lifecycle = []domain.CountsBreakdownSeriesPoint{}
+	}
+	if out.Stages == nil {
+		out.Stages = []domain.CountsBreakdownSeriesPoint{}
+	}
+	if out.Breeds == nil {
+		out.Breeds = []domain.CountsBreakdownSeriesPoint{}
+	}
+	if out.Parks == nil {
+		out.Parks = []domain.CountsBreakdownSeriesPoint{}
+	}
+	if out.Sheds == nil {
+		out.Sheds = []domain.CountsBreakdownShedFacet{}
+	}
 	return out, nil
 }
 
