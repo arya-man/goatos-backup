@@ -1,6 +1,6 @@
 package postgres
 
-// The FCR statements AS THEY WERE before the feed-day rollup (migration 000404): every feed cell
+// The FCR statements AS THEY WERE before the feed-day rollup (migration 000418): every feed cell
 // re-derived from feed_direction_issue_rows and priced per request. Kept verbatim, test-only, as
 // the equivalence oracle -- the rollup path must return the same pens and segments (float
 // tolerance) for any window, park set and weighing category.
