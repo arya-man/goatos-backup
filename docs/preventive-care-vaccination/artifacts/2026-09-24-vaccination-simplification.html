@@ -268,11 +268,17 @@ $('#side').innerHTML=nav.map(([t,i,c,sub,on])=>`<div class="nav"><svg viewBox="0
  (sub?`<div class="subnav">${sub.map(s=>`<div class="${s===on?'on':''}">${s}</div>`).join('')}</div>`:'')).join('');
 
 /* ---------- data ---------- */
-const SPECIES=['Goat','Sheep'];
-const BREEDS=['Tellicherry','Boer','Salem Black','Kanni Adu','Osmanabadi','Sirohi','Jamunapari','Barbari','Kodi Adu','Malabari','Nellore','Mecheri','Madras Red','Deccani','Vembur','Coimbatore'];
-const TAGS=['K1','K2','K3','Breeding','Fattening'];
-const GENDER=['Male','Female'];
-const ORIGIN=['Farm-born','Bought'];
+const it=(n,x)=>({n,on:true,...x});
+const LS={
+ species:{t:'Species',sub:'Every species checkbox (vaccines, programs, breeds) reads this list.',items:['Goat','Sheep'].map(n=>it(n))},
+ breeds:{t:'Breeds',sub:'Each breed belongs to a species. Programs only show breeds of the species you tick.',sp:true,items:[
+  ...['Tellicherry','Boer','Salem Black','Kanni Adu','Osmanabadi','Sirohi','Jamunapari','Barbari','Kodi Adu','Malabari'].map(n=>it(n,{sp:'Goat'})),
+  ...['Nellore','Mecheri','Madras Red','Deccani','Vembur','Coimbatore'].map(n=>it(n,{sp:'Sheep'}))]},
+ gender:{t:'Gender',sub:'Used by program filters.',items:['Male','Female'].map(n=>it(n))},
+ tags:{t:'Tags',sub:'Any tag added here appears as a checkbox in programs.',items:['K1','K2','K3','Breeding','Fattening'].map(n=>it(n))},
+ origin:{t:'Animal origins',sub:'Where an animal came from. Programs filter on it.',items:['Farm-born','Bought'].map(n=>it(n))}};
+const names=k=>LS[k].items.filter(x=>x.on).map(x=>x.n);
+const breedsFor=sp=>LS.breeds.items.filter(b=>b.on&&sp.includes(b.sp)).map(b=>b.n);
 const FROM=['Birth','Arrival at buying spot','Arrival at farm'];
 const REPEAT=['Never','26 weeks','9 months','1 year','3 years'];
 let V=[
@@ -304,7 +310,7 @@ const HOLD=['Sick','Under treatment','Recovering','ICU','Quarantine','Lactating'
 /* ---------- lists ---------- */
 const groups=[
  ['Farm places',[['Parks',2],['Pens',18],['Partitions',117]]],
- ['Animal types',[['Species',2],['Breeds',16],['Gender',2],['Lifecycle stages',19],['Tags',5]]],
+ ['Animal types',[['Species',()=>LS.species.items.length,'l:species'],['Breeds',()=>LS.breeds.items.length,'l:breeds'],['Gender',()=>LS.gender.items.length,'l:gender'],['Lifecycle stages',19],['Tags',()=>LS.tags.items.length,'l:tags'],['Animal origins',()=>LS.origin.items.length,'l:origin']]],
  ['Vaccination',[['Vaccines',()=>V.length,'vax'],['Vaccine programs',()=>P.length,'prog'],['Procurement plans',()=>L.length,'load'],['Farm vaccine rules',7,'rules']],1],
  ['Catalogue',[['Items & categories',45],['Stock',()=>V.filter(v=>v.on).length,'stock']]],
  ['People',[['Roles',12]]],
@@ -324,6 +330,13 @@ const wk=n=>n==null?'—':n===0?'same day':n+(n==1?' week':' weeks');
 function render(){
  renderLists();
  const p=$('#panel');
+ if(cur.startsWith('l:')){const k=cur.slice(2),L2=LS[k];
+  const rows=L2.items.map((x,i)=>[x,i]).filter(([x])=>pass(x,x.n));
+  p.innerHTML=head(L2.t,L2.items.length,L2.sub,'<button class="btn p" id="add">＋ Add</button>')+tools('Search '+L2.t.toLowerCase())+
+  `<div class="tw"><table><thead><tr><th>Name</th>${L2.sp?'<th>Species</th>':''}<th>Used in</th><th>Status</th><th></th></tr></thead><tbody>`+
+  rows.map(([x,i])=>`<tr><td class="n">${x.n}</td>${L2.sp?`<td>${x.sp}</td>`:''}<td class="muted">${usedIn(k,x.n)}</td><td><span class="st ${x.on?'':'off'}">${x.on?'Active':'Inactive'}</span></td><td><div class="act"><button data-e="${i}">Edit</button></div></td></tr>`).join('')+`</tbody></table></div>`;
+  p.querySelectorAll('[data-e]').forEach(b=>b.onclick=()=>editItem(k,+b.dataset.e));$('#add').onclick=()=>editItem(k,-1);
+ }
  if(cur==='vax'){
   const rows=V.map((v,i)=>[v,i]).filter(([v])=>pass(v,v.n));
   p.innerHTML=head('Vaccines',V.length,'Each vaccine once. When it is given lives in programs.','<button class="btn p" id="add">＋ Add vaccine</button>')+tools('Search vaccines')+
@@ -395,7 +408,7 @@ function editVax(i){
   <div class="row2"><div class="fl"><label for="f-n">Name</label><input class="in" id="f-n" value="${v.n}" placeholder="e.g. ET+TT"></div>
   <div class="fl"><label for="f-f">Full name</label><input class="in" id="f-f" value="${v.f}"></div></div>
   <div class="fl"><span class="lb">Type</span>${tg('f-t',['Live','Killed'],v.t)}</div>
-  <div class="fl"><span class="lb">Species</span>${checks('sp',SPECIES,v.sp)}</div>
+  <div class="fl"><span class="lb">Species</span>${checks('sp',names('species'),v.sp)}</div>
   <div class="fl"><span class="lb">Gap</span><div class="inl">Nothing else within <input class="in num" type="number" id="f-gap" value="${v.gap}"> weeks</div><span class="hint">Default from farm rules: live ${R.live}w, killed ${R.killed}w</span></div>
   <div class="fl"><span class="lb">Same day as other vaccines</span>${tg('f-same',['Yes','No'],v.same?'Yes':'No')}</div>
   <div class="fl"><span class="lb">Never on the same day as</span>${checks('nv',V.map(x=>x.n).filter(x=>x!==v.n),v.never)}</div>
@@ -415,11 +428,11 @@ function editProg(i){
  const x=i<0?{n:'',who:{sp:['Goat','Sheep'],br:[],g:['Male','Female'],o:['Farm-born'],tg:[]},age:[0,null],doses:[],on:true}:P[i];
  const w=drawer(i<0?'Add program':'Edit '+x.n,`
   <div class="fl"><label for="p-n">Name</label><input class="in" id="p-n" value="${x.n}" placeholder="e.g. Bought · fattening"></div>
-  <div class="fl"><span class="lb">Origin</span>${checks('o',ORIGIN,x.who.o)}</div>
-  <div class="fl"><span class="lb">Species</span>${checks('psp',SPECIES,x.who.sp)}</div>
-  <div class="fl"><span class="lb">Gender</span>${checks('g',GENDER,x.who.g)}</div>
-  <div class="fl"><span class="lb">Tags</span>${checks('tg',TAGS,x.who.tg)}<span class="hint">Any of these. None ticked = all animals.</span></div>
-  <div class="fl"><span class="lb">Breeds</span>${checks('br',BREEDS,x.who.br)}<span class="hint">None ticked = all breeds.</span></div>
+  <div class="fl"><span class="lb">Origin</span>${checks('o',names('origin'),x.who.o)}</div>
+  <div class="fl"><span class="lb">Species</span>${checks('psp',names('species'),x.who.sp)}</div>
+  <div class="fl"><span class="lb">Gender</span>${checks('g',names('gender'),x.who.g)}</div>
+  <div class="fl"><span class="lb">Tags</span>${checks('tg',names('tags'),x.who.tg)}<span class="hint">Any of these. None ticked = all animals.</span></div>
+  <div class="fl"><span class="lb">Breeds</span><div id="brbox">${checks('br',breedsFor(x.who.sp),x.who.br)}</div><span class="hint">Only breeds of the ticked species. None ticked = all breeds.</span></div>
   <div class="fl"><span class="lb">Age</span><div class="inl">From <input class="in num" type="number" id="p-a0" value="${x.age[0]}"> weeks</div></div>
   <div class="fl"><span class="lb">Doses</span>
    <div class="dose h"><span>Vaccine</span><span>Counted from</span><span>After (w)</span><span>Booster</span><span>Repeat</span><span></span></div>
@@ -431,6 +444,7 @@ function editProg(i){
   const doses=[...w.querySelectorAll('[data-row]')].map(r=>{const b=r.querySelector('.d-boost').value;return d(r.querySelector('.d-v').value,r.querySelector('.d-from').value,+r.querySelector('.d-after').value,b==='No booster'?null:parseInt(b.slice(1)),r.querySelector('.d-rep').value)});
   const o={n,who:{sp:got(w,'psp'),br:got(w,'br'),g:got(w,'g'),o:got(w,'o'),tg:got(w,'tg')},age:[+w.querySelector('#p-a0').value,null],doses,on:w.querySelector('#p-on').dataset.v==='Active'};
   if(i<0)P.push(o);else P[i]=o;toast('Saved · future doses re-planned')});
+ w.querySelectorAll('[name=psp]').forEach(c=>c.onchange=()=>{const keep=got(w,'br');w.querySelector('#brbox').innerHTML=checks('br',breedsFor(got(w,'psp')),keep)});
  const bind=()=>w.querySelectorAll('[data-rm]').forEach(b=>b.onclick=()=>b.parentElement.remove());
  bind();w.querySelector('#addd').onclick=()=>{w.querySelector('#rows').insertAdjacentHTML('beforeend',doseRow(d('PPR','Birth',16,null,'Never')));bind()};
 }
@@ -447,6 +461,21 @@ function editLoad(i){
  w=>{L[i]={...l,spot:got(w,'ls'),day:+w.querySelector('#l-day').value,stay:+w.querySelector('#l-stay').value,boost:got(w,'lb'),bw:+w.querySelector('#l-bw').value,prog:w.querySelector('.l-p').value};toast('Load plan saved')});
 }
 
+function usedIn(k,n){
+ if(k==='species'){const a=V.filter(v=>v.sp.includes(n)).length,b=LS.breeds.items.filter(x=>x.sp===n).length;return `${a} vaccines · ${b} breeds`}
+ const key={breeds:'br',gender:'g',tags:'tg',origin:'o'}[k];const c=P.filter(p=>p.who[key].includes(n)).length;return c?`${c} program${c>1?'s':''}`:'—'}
+function editItem(k,i){
+ const L2=LS[k],x=i<0?{n:'',on:true,sp:names('species')[0]}:L2.items[i];
+ drawer(i<0?'Add to '+L2.t:'Edit '+x.n,`<div class="fl"><label for="i-n">Name</label><input class="in" id="i-n" value="${x.n}"></div>
+  ${L2.sp?`<div class="fl"><span class="lb">Species</span>${tg('i-sp',names('species'),x.sp)}</div>`:''}
+  <div class="fl"><span class="lb">Status</span>${tg('i-on',['Active','Inactive'],x.on?'Active':'Inactive')}</div>
+  <span class="hint">Shows up straight away as a checkbox everywhere this list is used.</span>`,
+ w=>{const n=w.querySelector('#i-n').value.trim();if(!n){w.querySelector('#i-n').focus();return false}
+  const old=x.n,o={...x,n,on:w.querySelector('#i-on').dataset.v==='Active'};if(L2.sp)o.sp=w.querySelector('#i-sp').dataset.v;
+  if(i<0)L2.items.push(o);else{L2.items[i]=o;if(old!==n){const key={species:'sp',breeds:'br',gender:'g',tags:'tg',origin:'o'}[k];
+   P.forEach(p=>{const a=p.who[key==='sp'?'sp':key];const j=a.indexOf(old);if(j>=0)a[j]=n});if(k==='species'){V.forEach(v=>{const j=v.sp.indexOf(old);if(j>=0)v.sp[j]=n});LS.breeds.items.forEach(b=>{if(b.sp===old)b.sp=n})}}}
+  toast(i<0?`${n} added`:'Saved')});
+}
 function toast(m){const t=document.createElement('div');t.className='toast';t.textContent=m;document.body.append(t);setTimeout(()=>t.remove(),1800)}
 
 /* top tabs */

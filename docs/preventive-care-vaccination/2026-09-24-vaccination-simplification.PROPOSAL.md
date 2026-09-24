@@ -27,6 +27,11 @@ Vaccination becomes a group in Configuration → Items and settings:
 | Farm vaccine rules (`farm_vaccine_rules`) | max vaccines/animal/day, live↔live and killed gaps, pregnancy skip, hold-off states, arrival rest, operator cap, batching wait |
 | Stock | existing `inventory_*` (doses, vials, FEFO lots) |
 
+Species, breeds (each tied to a species), gender, tags and animal origins are
+plain config lists; anything added appears immediately as a checkbox wherever
+the list is used (vaccines, programs, procurement plans, stock). Program breed
+choices only show breeds of the ticked species.
+
 No versions: edits save directly with a preview of affected future doses and a
 `config_change_log` entry.
 
