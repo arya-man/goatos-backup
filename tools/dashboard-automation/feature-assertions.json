@@ -13440,7 +13440,7 @@
   },
   {
     "sha": "3eaf956ca",
-    "title": "Mortality rate tables divide by live head count; column reads Animals, not At risk",
+    "title": "Mortality rate tables divide by every animal that was there; column reads Animals, not At risk",
     "route": "counts-mortality",
     "viewports": [
       "laptop",
