@@ -1316,6 +1316,7 @@ func nullableUUID(raw string) *string {
 //
 // projection-review: grain=pen-session (feed_day, park_id, shed_id, partition_key, session_no,
 // workflow) on BOTH sides.
+// projection-review: membership=expected pen-sessions from the sheet UNION done pen-sessions from feed_distribution_completions; group_key=(feed_day, park_id, shed_id, partition_key, session_no, workflow); join_cardinality=keys LEFT JOIN expected 1:0..1 and LEFT JOIN done 1:0..1, locations/workforce 1:0..1 by primary key (park label is the park CODE, one row per park); pagination=completion_limit/completion_offset over the whole-filter bucketed set; scope=tenant_id plus the caller's park set and the park/pen filters
 //
 //	producer `expected` unique columns after GROUP BY: (feed_day, park_id, shed_id, partition_key,
 //	  session_no, workflow) -- exactly the group key, so it is one row per pen-session by
@@ -1646,6 +1647,7 @@ func (r *Repository) ExperimentAnalytics(ctx context.Context, tenantID string, q
 // stock cards should be what active feeds are there"): a card now needs a
 // catalog row that says 'active'. A key with no catalog row used to be SHOWN
 // (fail open); it is now left out, on the cards and the low-stock push alike.
+// projection-review: membership=family_stock at (farm_label, family_key); group_key=(farm_label, family_key); join_cardinality=feed_item_catalog 1:0..1 on (tenant_id, feed_item_key), a filter that fans nothing out; pagination=none, a bounded card list; scope=tenant_id plus the caller's park set
 //
 // NotStarted is that second case: stock on hand, nothing drawn yet. It is
 // deliberately NOT low_stock -- a full untouched load is the opposite of
@@ -2154,6 +2156,7 @@ LEFT JOIN feed_item_catalog c
 WHERE COALESCE(ov.kg_per_day, r.avg_kg) > 0
   -- ACTIVE FEEDS ONLY, the same rule as the stock cards (maintainer decision 2026-09-24): the
   -- push never names a feed the Stock tab has no card for.
+  -- projection-review: membership=family_stock rows at (farm_label, family_key); group_key=(farm_label, family_key) unchanged; join_cardinality=feed_item_catalog 1:0..1 on its (tenant_id, feed_item_key) key, filter only; pagination=none, one row per active (farm, feed); scope=tenant_id
   AND c.status = 'active'
   AND floor(fs.balance_kg / COALESCE(ov.kg_per_day, r.avg_kg)) < $2
 ORDER BY days_left, fs.farm_label, fs.family_label`
