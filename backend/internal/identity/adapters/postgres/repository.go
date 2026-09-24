@@ -17,6 +17,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/identity/domain"
 	"github.com/vgoats/goatos/backend/internal/identity/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 )
 
 type Repository struct {
@@ -173,7 +174,11 @@ func (r *Repository) SearchGoats(ctx context.Context, params ports.SearchGoatsPa
 	}
 
 	query := goatSummarySelect() + " WHERE " + strings.Join(where, " AND ") + " ORDER BY g.display_id ASC LIMIT $2"
-	rows, err := r.pool.Query(ctx, query, args...)
+	bound, err := sqlbind.Bind(query, args...)
+	if err != nil {
+		return nil, nil, err
+	}
+	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -244,7 +249,11 @@ WHERE ` + strings.Join(where, " AND ") + `
 ORDER BY g.display_id ASC
 LIMIT $2`
 
-	rows, err := r.pool.Query(ctx, query, args...)
+	bound, err := sqlbind.Bind(query, args...)
+	if err != nil {
+		return nil, nil, err
+	}
+	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -319,6 +328,9 @@ LEFT JOIN locations farm ON farm.tenant_id = g.tenant_id AND farm.location_id = 
 LEFT JOIN locations park ON park.tenant_id = g.tenant_id AND park.location_id = g.park_id
 LEFT JOIN locations shed ON shed.tenant_id = g.tenant_id AND shed.location_id = g.shed_id
 LEFT JOIN locations cohort ON cohort.tenant_id = g.tenant_id AND cohort.location_id = g.cohort_id
+-- goatSummaryColumns() reads the partition half (gsp.*); without this join every resolve call
+-- failed. 1:{0,1} per animal (goat_shed_partitions PK is (tenant_id, goat_id)) -- no fan-out.
+LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
 LEFT JOIN LATERAL (
   SELECT (gie.payload->>'weight_kg')::float8 AS weight_kg
   FROM goat_identity_events gie
@@ -340,7 +352,11 @@ LEFT JOIN goat_identifiers animal_id_2 ON animal_id_2.tenant_id = g.tenant_id
 WHERE ` + strings.Join(where, " AND ") + `
 ORDER BY CASE gi.status WHEN 'active' THEN 0 WHEN 'disputed' THEN 1 ELSE 2 END, gi.valid_from DESC`
 
-	rows, err := r.pool.Query(ctx, query, args...)
+	bound, err := sqlbind.Bind(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return nil, err
 	}
