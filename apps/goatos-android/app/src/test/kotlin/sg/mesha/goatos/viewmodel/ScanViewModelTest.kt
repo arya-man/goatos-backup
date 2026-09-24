@@ -1357,6 +1357,131 @@ class ScanViewModelTest {
         assertTrue(vm.state.value.proofActionNeeded.isEmpty())
     }
 
+    private class MultiTaskTasksRepository(
+        private val details: Map<String, TaskDetail>,
+        private val readyTaskIds: Set<String>,
+    ) : TasksRepository {
+        private val cachedDetails = mutableMapOf<String, MutableStateFlow<Resource<TaskDetail>>>()
+        private val summaries = mutableMapOf<String, MutableStateFlow<ShedCompletionSummaryDto?>>()
+        val detailRefreshes = mutableListOf<String>()
+        private fun detailFlow(id: String) = cachedDetails.getOrPut(id) { MutableStateFlow(Resource<TaskDetail>(data = null)) }
+        private fun summaryFlow(id: String) = summaries.getOrPut(id) { MutableStateFlow(null) }
+        override suspend fun taskDetail(taskId: String): TaskDetail = details.getValue(taskId)
+        override fun observeTaskDetail(taskId: String): Flow<Resource<TaskDetail>> = detailFlow(taskId)
+        override suspend fun refreshTaskDetail(taskId: String): Result<Unit> {
+            detailRefreshes += taskId
+            details[taskId]?.let { detailFlow(taskId).value = Resource(data = it, lastSyncedAt = 1L) }
+            return Result.success(Unit)
+        }
+        override fun observeShedCompletionSummary(taskId: String, shedId: String?, partitionLabel: String?): Flow<ShedCompletionSummaryDto?> = summaryFlow(taskId)
+        override suspend fun refreshShedCompletionSummary(taskId: String, shedId: String?, partitionLabel: String?): Result<Unit> {
+            val ready = taskId in readyTaskIds
+            summaryFlow(taskId).value = ShedCompletionSummaryDto(
+                taskId = taskId, expectedCount = 1, handledCount = if (ready) 1 else 0, proofReadyCount = if (ready) 1 else 0,
+                proofMode = "per_goat_video", submitEnabled = ready, roundId = "round-$taskId",
+            )
+            return Result.success(Unit)
+        }
+    }
+
+    private fun combinedTaskDetail(id: String, sop: String, rowVersion: Int) = TaskDetail(
+        task = TaskSummaryDto(taskId = id, scopeType = "shed", scopeId = "shed-1", rowVersion = rowVersion, sopVersionId = sop),
+        form = FormSpec.Empty,
+        proofPolicy = ProofPolicy.Default,
+    )
+
+    private suspend fun kotlinx.coroutines.test.TestScope.runCombinedSubmit(readyTaskIds: Set<String>): Pair<CapturingSubmitSyncRepository, ScanViewModel> {
+        val sync = CapturingSubmitSyncRepository()
+        val tasks = MultiTaskTasksRepository(
+            details = mapOf("task-1" to combinedTaskDetail("task-1", "sop-1", 3), "task-2" to combinedTaskDetail("task-2", "sop-2", 5)),
+            readyTaskIds = readyTaskIds,
+        )
+        val vm = ScanViewModel(
+            repo = FakeScanExecutionRepository(
+                firstPage = ScanRosterResponseDto(rows = listOf(
+                    scanRow("goat-1", "TAG-1", "obl-1", status = "done", taskId = "task-1"),
+                    scanRow("goat-2", "TAG-2", "obl-2", status = "done", taskId = "task-2"),
+                )),
+            ),
+            reader = FakeRfidReaderPort(),
+            scanCaptureRepository = FakeScanCaptureRepository(),
+            scanAttemptRepository = FakeScanAttemptRepository(),
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            proofCaptureSource = FakeProofCaptureSource(),
+            bootstrapRepository = FakeCaptureBootstrapRepository(),
+            tasksRepository = tasks,
+            syncRepository = sync,
+            analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
+            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "partitionLabel" to "Part 3", "plannedDate" to "2026-09-24")),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+        vm.refresh()
+        advanceUntilIdle()
+        return sync to vm
+    }
+
+    @Test
+    fun `assignment card row without its own task never borrows the route task`() = runTest(dispatcher) {
+        val scanCaptures = FakeScanCaptureRepository()
+        val scanAttempts = FakeScanAttemptRepository()
+        val reader = FakeRfidReaderPort()
+        val vm = ScanViewModel(
+            repo = FakeScanExecutionRepository(
+                firstPage = ScanRosterResponseDto(rows = listOf(
+                    scanRow("goat-1", "TAG-100", "obl-1", taskId = "task-1"),
+                    scanRow("goat-2", "TAG-200", "obl-2", taskId = ""),
+                )),
+            ),
+            reader = reader,
+            scanCaptureRepository = scanCaptures,
+            scanAttemptRepository = scanAttempts,
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            proofCaptureSource = autoVideoProofSource(),
+            bootstrapRepository = FakeCaptureBootstrapRepository(),
+            tasksRepository = FakeTasksRepositoryForCapture(),
+            syncRepository = CapturingSubmitSyncRepository(),
+            analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
+            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1", "assignmentId" to "assignment-1")),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        reader.emit("TAG-200")
+        advanceUntilIdle()
+
+        assertTrue("no write may borrow task-1 for another batch's row", scanCaptures.recordedTaskIds.isEmpty())
+        assertTrue(scanAttempts.calls.none { it.goatId == "goat-2" })
+        assertEquals(TASKLESS_ANIMAL_MESSAGE, vm.state.value.error?.message)
+    }
+
+    @Test
+    fun `combined card with every task ready queues one submit per task with its own identity`() = runTest(dispatcher) {
+        val (sync, _) = runCombinedSubmit(setOf("task-1", "task-2"))
+        assertEquals(listOf("task-1", "task-2"), sync.submitCalls.map { it.taskId }.sorted())
+        val byTask = sync.submitCalls.associateBy { it.taskId }
+        assertEquals("sop-1", byTask.getValue("task-1").request.sopVersionId)
+        assertEquals("sop-2", byTask.getValue("task-2").request.sopVersionId)
+        assertEquals("Part 3", byTask.getValue("task-1").request.partitionLabel)
+        assertEquals(
+            SubmitViewModel.stableSubmissionKey(combinedTaskDetail("task-1", "sop-1", 3).task, "shed-1", "Part 3"),
+            byTask.getValue("task-1").idempotencyKey,
+        )
+        assertEquals(
+            SubmitViewModel.stableSubmissionKey(combinedTaskDetail("task-2", "sop-2", 5).task, "shed-1", "Part 3"),
+            byTask.getValue("task-2").idempotencyKey,
+        )
+        assertEquals(byTask.getValue("task-1").idempotencyKey, byTask.getValue("task-1").request.idempotencyKey)
+        assertEquals(sg.mesha.goatos.core.data.capture.vaccinationSessionGroupKey("task-2", "Part 3"), byTask.getValue("task-2").groupKey)
+    }
+
+    @Test
+    fun `combined card with only one task ready submits only that task`() = runTest(dispatcher) {
+        val (sync, vm) = runCombinedSubmit(setOf("task-1"))
+        assertEquals(listOf("task-1"), sync.submitCalls.map { it.taskId })
+        assertTrue(vm.state.value.evidenceError.orEmpty(), vm.state.value.evidenceError.orEmpty().contains("1 of 2"))
+    }
+
     @Test
     fun `backend-ready shed auto queues submit with partition label`() = runTest(dispatcher) {
         val sync = CapturingSubmitSyncRepository()
@@ -2808,6 +2933,8 @@ private class CapturingSubmitSyncRepository : SyncRepository {
     var lastIdempotencyKey: String? = null
     var lastGroupKey: String? = null
     var enqueueCount: Int = 0
+    data class ShedSubmitCall(val taskId: String, val groupKey: String, val idempotencyKey: String, val request: SubmitTaskRequestDto)
+    val submitCalls = mutableListOf<ShedSubmitCall>()
     private val status = MutableStateFlow(SyncStatus.empty(online = true))
 
     override fun observeStatus(): StateFlow<SyncStatus> = status
@@ -2847,27 +2974,27 @@ private class CapturingSubmitSyncRepository : SyncRepository {
         request: SubmitTaskRequestDto,
     ): AppResult<String> {
         enqueueCount += 1
+        submitCalls += ShedSubmitCall(taskId, groupKey, idempotencyKey, request)
         lastIdempotencyKey = idempotencyKey
         lastGroupKey = groupKey
         lastRequest = request
+        val itemId = "item-$enqueueCount"
         status.value = status.value.copy(
-            items = listOf(
-                SyncQueueItem(
-                    id = "item-1",
-                    idempotencyKey = "test-idempotency-key",
-                    opType = "shed_submit",
-                    groupKey = groupKey,
-                    status = SyncItemStatus.QUEUED,
-                    attemptCount = 0,
-                    maxAttempts = 5,
-                    conflict = false,
-                    createdAt = 1L,
-                    updatedAt = 1L,
-                    lastError = null,
-                ),
+            items = status.value.items.filterNot { it.id == itemId } + SyncQueueItem(
+                id = itemId,
+                idempotencyKey = "test-idempotency-key",
+                opType = "shed_submit",
+                groupKey = groupKey,
+                status = SyncItemStatus.QUEUED,
+                attemptCount = 0,
+                maxAttempts = 5,
+                conflict = false,
+                createdAt = 1L,
+                updatedAt = 1L,
+                lastError = null,
             ),
         )
-        return AppResult.Ok("item-1")
+        return AppResult.Ok(itemId)
     }
 
     override suspend fun enqueueReschedule(
