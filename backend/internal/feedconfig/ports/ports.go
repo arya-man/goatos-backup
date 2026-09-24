@@ -78,6 +78,15 @@ var (
 	// before the insert rather than surfacing as a constraint violation.
 	ErrSessionNotFound = errors.New("feedconfig: session not found for this park")
 
+	// ErrRationGroupUnknown / ErrShedTagUnknown refuse a rate keyed on a ration group or pen tag the
+	// tenant's vocabulary does not hold. A rate write MAKES a grid cell: an unknown pair authored by
+	// mistake becomes a cell no pen resolves to, and the session gate below counts it toward "every
+	// cell", so one typo through the API refused every later session declaration for the park with
+	// ErrSlotRatesIncomplete. The vocabulary is feed_shed_tags for tags and, for groups, the breed
+	// map (feed_ration_groups) plus any group already authored in the grid ('Kid' lives only there).
+	ErrRationGroupUnknown = errors.New("feedconfig: ration group is not in this tenant's vocabulary")
+	ErrShedTagUnknown     = errors.New("feedconfig: pen tag is not in this tenant's vocabulary")
+
 	// ErrSlotRatesIncomplete refuses to declare a feed the park cannot price everywhere.
 	//
 	// A DECLARED slot is looked up for EVERY shed in the park, and a missing ration rate is BLOCKED

@@ -1157,6 +1157,9 @@ func (r *Repository) UpsertRationRate(ctx context.Context, cmd domain.UpsertRati
 		if err := requireCataloguedFeedItem(ctx, tx, cmd.TenantID, cmd.FeedItemLabel); err != nil {
 			return writeEffect{}, err
 		}
+		if err := requireRationVocabulary(ctx, tx, cmd.TenantID, cmd.ParkID, cmd.RationGroupLabel, cmd.ShedTagLabel); err != nil {
+			return writeEffect{}, err
+		}
 
 		// Lock the currently-open row for this key. FOR UPDATE, so two concurrent edits of the SAME
 		// cell serialize instead of both deciding "no open row" and racing into the
@@ -1556,17 +1559,50 @@ FOR UPDATE`, cmd.TenantID, cmd.ParkID, cmd.SessionNo, cmd.FeedItemLabel).Scan(&o
 	})
 }
 
+// cataloguedFeedItemSQL: is this name a catalog item, in any status? (feed_item_catalog is keyed on
+// (tenant, feed_item_key); one indexed lookup.)
+const cataloguedFeedItemSQL = `
+SELECT true FROM feed_item_catalog
+WHERE tenant_id = $1::uuid AND feed_item_key = feed_config_norm($2)`
+
+// rationVocabularySQL: three EXISTS probes -- the breed map, this park's authored rates (leading
+// prefix of feed_ration_rates_asof_lookup_idx) and the tag vocabulary. Bounded: each is one indexed
+// lookup and the result is two booleans.
+const rationVocabularySQL = `
+SELECT EXISTS (SELECT 1 FROM feed_ration_groups
+               WHERE tenant_id = $1::uuid AND ration_group_key = feed_config_norm($2))
+    OR EXISTS (SELECT 1 FROM feed_ration_rates
+               WHERE tenant_id = $1::uuid AND park_id = $4::uuid AND ration_group_key = feed_config_norm($2)),
+       EXISTS (SELECT 1 FROM feed_shed_tags
+               WHERE tenant_id = $1::uuid AND shed_tag_key = feed_config_norm($3))`
+
 // requireCataloguedFeedItem refuses a feed name the tenant's catalog does not hold, in any status.
 func requireCataloguedFeedItem(ctx context.Context, tx pgx.Tx, tenantID, feedItemLabel string) error {
 	var known bool
-	err := tx.QueryRow(ctx, `
-SELECT true FROM feed_item_catalog
-WHERE tenant_id = $1::uuid AND feed_item_key = feed_config_norm($2)`, tenantID, feedItemLabel).Scan(&known)
+	err := tx.QueryRow(ctx, cataloguedFeedItemSQL, tenantID, feedItemLabel).Scan(&known)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		return ports.ErrFeedItemNotFound
 	case err != nil:
 		return fmt.Errorf("feedconfig: check feed item for rate: %w", err)
+	}
+	return nil
+}
+
+// requireRationVocabulary refuses a rate keyed on a ration group or pen tag outside the tenant's
+// vocabulary (see ports.ErrRationGroupUnknown). Tags come from feed_shed_tags in any status; groups
+// from the breed map OR any group label already authored in THIS PARK's grid, because 'Kid' -- a
+// real group with real rates -- exists in no breed-map row.
+func requireRationVocabulary(ctx context.Context, tx pgx.Tx, tenantID, parkID, rationGroupLabel, shedTagLabel string) error {
+	var groupKnown, tagKnown bool
+	if err := tx.QueryRow(ctx, rationVocabularySQL, tenantID, rationGroupLabel, shedTagLabel, parkID).Scan(&groupKnown, &tagKnown); err != nil {
+		return fmt.Errorf("feedconfig: check ration vocabulary: %w", err)
+	}
+	if !groupKnown {
+		return ports.ErrRationGroupUnknown
+	}
+	if !tagKnown {
+		return ports.ErrShedTagUnknown
 	}
 	return nil
 }

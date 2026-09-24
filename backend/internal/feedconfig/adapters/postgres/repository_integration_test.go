@@ -54,7 +54,30 @@ func setupFeedConfigDB(t *testing.T, ctx context.Context) *pgxpool.Pool {
 	// priced in Concentrate, so every test that authors a rate needs this row; tests that count the
 	// catalog filter by the name they added rather than counting the whole table.
 	fcSeedCatalog(t, ctx, pool, "Concentrate")
+	fcSeedRationVocabulary(t, ctx, pool)
 	return pool
+}
+
+// fcSeedRationVocabulary seeds the tag/group vocabulary the rate write now checks: every tag and
+// group the tests author. Groups a test authors that are NOT in the breed map are covered by the
+// "already authored in the grid" half of the check only once a rate exists, so the ones the tests
+// use are listed here.
+func fcSeedRationVocabulary(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+	t.Helper()
+	for _, tag := range []string{"Pregnant", "Non-Pregnant", "Lactating", "Buck", "Kid", "F1", "F2", "Milking", "Fattening", "Flushing", "Warmup"} {
+		if _, err := pool.Exec(ctx, `
+INSERT INTO feed_shed_tags (tenant_id, shed_tag_label, applies_to, status)
+VALUES ($1::uuid, $2, 'adult', 'active') ON CONFLICT DO NOTHING`, fcTenant, tag); err != nil {
+			t.Fatalf("seed shed tag %s: %v", tag, err)
+		}
+	}
+	for _, group := range []string{"Boer", "Beetal/Sirohi", "Anantapur Sheep", "Malai", "Sojat", "Kid"} {
+		if _, err := pool.Exec(ctx, `
+INSERT INTO feed_ration_groups (tenant_id, breed_label, ration_group_label)
+VALUES ($1::uuid, $2, $2) ON CONFLICT DO NOTHING`, fcTenant, group); err != nil {
+			t.Fatalf("seed ration group %s: %v", group, err)
+		}
+	}
 }
 
 func seedFeedConfigScope(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
@@ -2266,5 +2289,43 @@ func TestUpsertRationRateRefusesAFeedAbsentFromTheCatalog(t *testing.T) {
 	retired.FeedItemLabel = "Baking Soda"
 	if got, err := repo.UpsertRationRate(ctx, retired); err != nil || got.Outcome != domain.OutcomeInserted {
 		t.Fatalf("rate for a retired catalog feed: %+v, %v, want inserted", got, err)
+	}
+}
+
+// A rate keyed on a ration group or pen tag outside the vocabulary is refused, because the write
+// would MAKE a cell: an unknown pair counted toward the session gate's coverage, so one typo through
+// the API ("Nope") refused every later session declaration for the park (found 2026-09-15).
+func TestUpsertRationRateRefusesAnUnknownGroupOrTag(t *testing.T) {
+	ctx := context.Background()
+	pool := setupFeedConfigDB(t, ctx)
+	repo := fcRepo(pool)
+
+	badGroup := rateCommand("key-nope-g", "fp-nope-g", "5.000", "2026-07-19")
+	badGroup.RationGroupLabel = "Nope"
+	if _, err := repo.UpsertRationRate(ctx, badGroup); !errors.Is(err, ports.ErrRationGroupUnknown) {
+		t.Fatalf("unknown group: err = %v, want ErrRationGroupUnknown", err)
+	}
+	badTag := rateCommand("key-nope-t", "fp-nope-t", "5.000", "2026-07-19")
+	badTag.ShedTagLabel = "Nope"
+	if _, err := repo.UpsertRationRate(ctx, badTag); !errors.Is(err, ports.ErrShedTagUnknown) {
+		t.Fatalf("unknown tag: err = %v, want ErrShedTagUnknown", err)
+	}
+	var cells int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM feed_ration_rates WHERE tenant_id = $1::uuid AND (ration_group_key = feed_config_norm('Nope') OR shed_tag_key = feed_config_norm('Nope'))`, fcTenant).Scan(&cells); err != nil || cells != 0 {
+		t.Fatalf("phantom cells = %d (%v), want none", cells, err)
+	}
+	// A group that lives only in the grid (no breed-map row) stays writable once authored.
+	if _, err := pool.Exec(ctx, `DELETE FROM feed_ration_groups WHERE tenant_id = $1::uuid AND ration_group_key = feed_config_norm('Kid')`, fcTenant); err != nil {
+		t.Fatalf("drop Kid from the breed map: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO feed_ration_rates (tenant_id, park_id, ration_group_label, shed_tag_label, feed_item_label, grams_per_head, valid_from)
+VALUES ($1::uuid, $2::uuid, 'Kid', 'Kid', 'Concentrate', 0, '2026-07-01')`, fcTenant, fcPark); err != nil {
+		t.Fatalf("seed an authored-only Kid cell: %v", err)
+	}
+	kid := rateCommand("key-kid", "fp-kid", "120.000", "2026-07-19")
+	kid.RationGroupLabel, kid.ShedTagLabel = "Kid", "Kid"
+	if _, err := repo.UpsertRationRate(ctx, kid); err != nil {
+		t.Fatalf("authored-only group refused: %v", err)
 	}
 }

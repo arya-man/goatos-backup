@@ -1013,6 +1013,12 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, err 
 	case errors.Is(err, ports.ErrFeedItemNotFound):
 		h.writeError(w, r, http.StatusNotFound, "feed_item_not_found",
 			"feed item not found in this tenant", nil)
+	case errors.Is(err, ports.ErrRationGroupUnknown):
+		h.writeError(w, r, http.StatusNotFound, "ration_group_unknown",
+			"ration group not found in this tenant's vocabulary", nil)
+	case errors.Is(err, ports.ErrShedTagUnknown):
+		h.writeError(w, r, http.StatusNotFound, "shed_tag_unknown",
+			"pen tag not found in this tenant's vocabulary", nil)
 	case errors.Is(err, ports.ErrSessionNotFound):
 		h.writeError(w, r, http.StatusNotFound, "session_not_found",
 			"this park does not run that feeding session", nil)
