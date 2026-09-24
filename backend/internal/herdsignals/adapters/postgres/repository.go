@@ -903,7 +903,7 @@ func (r *Repository) ListTagsLatest(ctx context.Context, tenantID string, parkID
 	// Fetch one extra row to detect whether another page exists. The row query itself lives in
 	// ListTagsLatestPage (export.go) so GET /herd-signals/export.csv walks the SAME filtered,
 	// keyset-ordered result this endpoint returns -- the export can never drift from the view.
-	tags, err := r.ListTagsLatestPage(ctx, tenantID, parkID, shedID, movementState, liveState, mappingState, pattern, q, cursor, limit+1, sort...)
+	tags, err := r.ListTagsLatestPage(ctx, tenantID, parkID, shedID, movementState, liveState, mappingState, pattern, nil, q, cursor, limit+1, sort...)
 	if err != nil {
 		return nil, domain.Summary{}, nil, err
 	}

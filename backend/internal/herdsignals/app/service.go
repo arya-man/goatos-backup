@@ -2,13 +2,12 @@ package app
 
 import (
 	"context"
-	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"math"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/herdsignals/domain"
@@ -22,19 +21,10 @@ type Service struct {
 	repo       ports.Repository
 	log        *slog.Logger
 	thresholds domain.Thresholds
-	penStats   *liveCohortCache[map[string]riskGroupStats]
 	summaries  *liveCohortCache[domain.Summary]
-}
 
-const (
-	liveSignalCohortPageSize = 5000
-	liveSignalCohortMaxRows  = 50000
-)
-
-type riskLiveCursor struct {
-	Key   string `json:"key"`
-	Dir   string `json:"dir"`
-	TagID string `json:"tag_id"`
+	penMedianMu sync.Mutex
+	penMedianAt map[string]time.Time // last live pen-median aggregate per tenant (classifier)
 }
 
 // NewService creates a new herd signals service.
@@ -47,45 +37,18 @@ func NewService(repo ports.Repository, log ...*slog.Logger) *Service {
 		repo:       repo,
 		log:        l,
 		thresholds: domain.DefaultThresholds(),
-		penStats:   newLiveCohortCache[map[string]riskGroupStats](),
 		summaries:  newLiveCohortCache[domain.Summary](),
 	}
-}
-
-// tenantPenStats is the per-pen comparison baseline over the tenant's WHOLE pen (not the page
-// filter), read from the classifier's persisted medians so a row's shown pen-group deltas and
-// its persisted risk reasons use the same numbers. Cached per tenant, NOTIFY-invalidated.
-func (s *Service) tenantPenStats(ctx context.Context, tenantID string) (map[string]riskGroupStats, error) {
-	return s.penStats.get(ctx, liveCohortKey(tenantID), domain.FreshLiveRead(ctx), func(ctx context.Context) (map[string]riskGroupStats, error) {
-		// The classifier's persisted medians (the exact baseline the persisted risk used); the
-		// live whole-tenant aggregate only before the classifier's first pass.
-		medians, found, err := s.repo.LoadPenMedians(ctx, tenantID)
-		if err != nil {
-			return nil, err
-		}
-		if !found {
-			if medians, err = s.repo.ListLivePenMedians(ctx, tenantID, nil, nil, nil, nil, nil, nil); err != nil {
-				return nil, err
-			}
-		}
-		out := make(map[string]riskGroupStats, len(medians))
-		for pen, m := range medians {
-			out[pen] = riskGroupStats{motionMedian: m.MotionMedian, tempMedian: m.TempMedian}
-		}
-		return out, nil
-	})
 }
 
 // InvalidateLive marks the cached live cohorts of one tenant stale; wired to the herd_signals_live
 // NOTIFY so the next read revalidates.
 func (s *Service) InvalidateLive(tenantID string) {
-	s.penStats.invalidate(tenantID)
 	s.summaries.invalidate(tenantID)
 }
 
 // InvalidateAllLive marks every cached live cohort stale (LISTEN reconnect catch-up).
 func (s *Service) InvalidateAllLive() {
-	s.penStats.invalidateAll()
 	s.summaries.invalidateAll()
 }
 
@@ -250,122 +213,16 @@ func (s *Service) ListLive(ctx context.Context, actor domain.Actor, parkID, shed
 	// Pen-group comparison baselines come from ONE whole-cohort aggregate query; only the
 	// requested page is enriched. (This used to walk and enrich up to 50k tags per request just
 	// to derive two medians per pen.)
-	groupStats := map[string]riskGroupStats{}
-	if len(tags) > 0 {
-		stats, err := s.tenantPenStats(ctx, actor.TenantID)
-		if err != nil {
-			s.log.Warn("failed to aggregate pen medians for signal comparisons", "error", err)
-		} else {
-			groupStats = stats
-		}
-	}
-	items := s.enrichTagsBatch(ctx, actor.TenantID, tags, groupStats, true)
+	// Risk state, score, reasons and the deltas behind them all come from the persisted
+	// classification (one source); nothing is re-scored per request.
+	items := s.enrichTagsBatch(ctx, actor.TenantID, tags, nil, true)
+	applyPersistedRisk(items, tags)
 
 	return domain.LiveResponse{
 		Summary:    summary,
 		Items:      items,
 		NextCursor: nextCursor,
 	}, nil
-}
-
-func (s *Service) listAllTagsLatest(ctx context.Context, tenantID string, parkID, shedID, movementState, liveState, mappingState, pattern, q *string, sort domain.LiveSort) ([]domain.TagLatest, error) {
-	var all []domain.TagLatest
-	cursor := ""
-	for {
-		// scale-guard:ignore: bounded keyset page walk owner=herd-signals issue=PR-251 reason=risk_state is computed after batched enrichment and must see the whole filtered live cohort; the loop is capped by liveSignalCohortMaxRows and advances by opaque repository cursor expiry=2026-12-31
-		tags, _, nextCursor, err := s.repo.ListTagsLatest(ctx, tenantID, parkID, shedID, movementState, liveState, mappingState, pattern, q, cursor, liveSignalCohortPageSize, sort)
-		if err != nil {
-			return nil, err
-		}
-		all = append(all, tags...)
-		if nextCursor == nil || *nextCursor == "" {
-			return all, nil
-		}
-		if len(all) >= liveSignalCohortMaxRows {
-			return nil, fmt.Errorf("live signal cohort exceeds %d rows", liveSignalCohortMaxRows)
-		}
-		if *nextCursor == cursor {
-			return nil, fmt.Errorf("list tags cursor did not advance")
-		}
-		cursor = *nextCursor
-	}
-}
-
-func pageRiskFilteredItems(items []domain.LiveItem, cursor string, limit int, sort domain.LiveSort) ([]domain.LiveItem, *string) {
-	if limit <= 0 {
-		limit = 25
-	}
-	start := 0
-	if c, ok := decodeRiskLiveCursor(cursor, sort); ok {
-		for i, item := range items {
-			if item.TagID == c.TagID {
-				start = i + 1
-				break
-			}
-		}
-	} else if cursor != "" {
-		// Compatibility for the buggy first version of the risk filter, which emitted a bare tag_id.
-		for i, item := range items {
-			if item.TagID == cursor {
-				start = i + 1
-				break
-			}
-		}
-	}
-
-	if start >= len(items) {
-		return []domain.LiveItem{}, nil
-	}
-	end := start + limit
-	if end >= len(items) {
-		return items[start:], nil
-	}
-	page := items[start:end]
-	next := encodeRiskLiveCursor(page[len(page)-1], sort)
-	return page, &next
-}
-
-func encodeRiskLiveCursor(item domain.LiveItem, sort domain.LiveSort) string {
-	c := riskLiveCursor{Key: normalizedRiskSortKey(sort), Dir: normalizedRiskSortDir(sort), TagID: item.TagID}
-	raw, _ := json.Marshal(c)
-	return "risk.v1." + base64.RawURLEncoding.EncodeToString(raw)
-}
-
-func decodeRiskLiveCursor(raw string, sort domain.LiveSort) (riskLiveCursor, bool) {
-	if !strings.HasPrefix(raw, "risk.v1.") {
-		return riskLiveCursor{}, false
-	}
-	decoded, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(raw, "risk.v1."))
-	if err != nil {
-		return riskLiveCursor{}, false
-	}
-	var c riskLiveCursor
-	if err := json.Unmarshal(decoded, &c); err != nil {
-		return riskLiveCursor{}, false
-	}
-	if c.TagID == "" || c.Key != normalizedRiskSortKey(sort) || c.Dir != normalizedRiskSortDir(sort) {
-		return riskLiveCursor{}, false
-	}
-	return c, true
-}
-
-func normalizedRiskSortKey(sort domain.LiveSort) string {
-	switch sort.Key {
-	case "smart_tag", "tag_temp", "motion_count", "delta_15m", "delta_1h", "last_seen":
-		return sort.Key
-	default:
-		return "last_seen"
-	}
-}
-
-func normalizedRiskSortDir(sort domain.LiveSort) string {
-	if sort.Dir == "desc" {
-		return "desc"
-	}
-	if normalizedRiskSortKey(sort) == "last_seen" && sort.Key == "" {
-		return "desc"
-	}
-	return "asc"
 }
 
 // GetTimeline fetches motion history for a tag.
@@ -821,6 +678,11 @@ func (s *Service) enrichTagsBatch(ctx context.Context, tenantID string, tags []d
 				item.AgeDays = gd.AgeDays
 				item.ParkID = gd.ParkID
 				item.ShedID = gd.ShedID
+				if gd.ShedID != nil && *gd.ShedID != "" {
+					// Risk pen = the partition the animal resides in (goat_shed_partitions via
+					// GetGoatsByIDs), keyed like every other partition grouping.
+					item.PenKey = penKey(*gd.ShedID, gd.PartitionLabel)
+				}
 				if gd.ShedID != nil {
 					if loc, ok := shedLocations[*gd.ShedID]; ok {
 						shedName := loc.ShedName
@@ -853,16 +715,6 @@ func (s *Service) enrichTagsBatch(ctx context.Context, tenantID string, tags []d
 
 	if groupStats != nil {
 		applyRiskSignals(items, groupStats)
-		// The persisted classification (what the risk_state filter and summary use) is the
-		// displayed state/reasons once the classifier has evaluated the tag; the live pct
-		// fields above stay as computed. Never-evaluated tags keep the live classification.
-		for i := range items {
-			if tags[i].RiskEvaluatedAt == nil {
-				continue
-			}
-			items[i].RiskState = tags[i].RiskState
-			items[i].RiskReasons = append([]string{}, tags[i].RiskReasons...)
-		}
 	}
 	if includeMotionDelta24h {
 		s.populateMotionDeltas24h(ctx, tenantID, items)
@@ -896,35 +748,6 @@ type riskGroupStats struct {
 	tempMedian   *float64
 }
 
-func riskGroupStatsFromItems(items []domain.LiveItem) map[string]riskGroupStats {
-	groups := make(map[string][]domain.LiveItem)
-	for _, item := range items {
-		if item.ShedID == nil || *item.ShedID == "" {
-			continue
-		}
-		groups[*item.ShedID] = append(groups[*item.ShedID], item)
-	}
-
-	groupStats := make(map[string]riskGroupStats, len(groups))
-	for shedID, groupItems := range groups {
-		var motions []float64
-		var temps []float64
-		for _, item := range groupItems {
-			if item.MotionDelta != nil && !item.GapDelta {
-				motions = append(motions, float64(*item.MotionDelta))
-			}
-			if item.TagTemperatureC != nil {
-				temps = append(temps, *item.TagTemperatureC)
-			}
-		}
-		groupStats[shedID] = riskGroupStats{
-			motionMedian: medianFloat(motions),
-			tempMedian:   medianFloat(temps),
-		}
-	}
-	return groupStats
-}
-
 func applyRiskSignals(items []domain.LiveItem, groupStats map[string]riskGroupStats) {
 	for i := range items {
 		reasons := make([]string, 0, 4)
@@ -947,8 +770,8 @@ func applyRiskSignals(items []domain.LiveItem, groupStats map[string]riskGroupSt
 			}
 		}
 
-		if item.ShedID != nil {
-			if stats, ok := groupStats[*item.ShedID]; ok {
+		if item.PenKey != "" {
+			if stats, ok := groupStats[item.PenKey]; ok {
 				if item.MotionDelta != nil && stats.motionMedian != nil && *stats.motionMedian > 0 && !item.GapDelta {
 					pct := (float64(*item.MotionDelta) - *stats.motionMedian) / *stats.motionMedian * 100
 					item.GroupMotionDeltaPct = &pct
@@ -1016,57 +839,6 @@ func medianFloat(values []float64) *float64 {
 	return &out
 }
 
-func summaryFromItems(items []domain.LiveItem) domain.Summary {
-	var summary domain.Summary
-	summary.TagsSeen = len(items)
-	mappedGoats := make(map[string]struct{})
-	for _, item := range items {
-		switch item.MappingState {
-		case "mapped":
-			if item.GoatID != nil && *item.GoatID != "" {
-				mappedGoats[*item.GoatID] = struct{}{}
-			} else {
-				summary.MappedAnimals++
-			}
-		case "unmapped":
-			summary.UnmappedTags++
-		}
-		if item.MovementState != nil {
-			switch *item.MovementState {
-			case "moving":
-				summary.Moving++
-			case "quiet":
-				summary.Quiet++
-			case "not_moving":
-				summary.NotMoving++
-			case "stale":
-				summary.Stale++
-			}
-		}
-		if item.LastPacketMotionDelta != nil && *item.LastPacketMotionDelta > 0 && item.LastSeenAt != "" {
-			if seenAt, err := time.Parse(time.RFC3339, item.LastSeenAt); err == nil && time.Since(seenAt) <= 30*time.Second {
-				summary.MovingNow++
-			}
-		}
-		if item.MotionDelta60s != nil && *item.MotionDelta60s > 0 && item.LastSeenAt != "" {
-			if seenAt, err := time.Parse(time.RFC3339, item.LastSeenAt); err == nil && time.Since(seenAt) <= 90*time.Second {
-				summary.Active1m++
-			}
-		}
-		if item.SignalState != nil && *item.SignalState == "weak" {
-			summary.WeakSignal++
-		}
-		if item.BatteryState != nil && (*item.BatteryState == "low" || *item.BatteryState == "critical") {
-			summary.LowBattery++
-		}
-		if item.SensorState != nil && *item.SensorState == "abnormal" {
-			summary.SensorAbnormal++
-		}
-	}
-	summary.MappedAnimals += len(mappedGoats)
-	return summary
-}
-
 // nullableEnum converts a computed state string to a pointer, treating "" and the domain
 // "unknown"-equivalent sentinel as JSON null rather than a literal value the admin-web
 // contract's TS enum types (HerdSignalTone, HerdSignalBatteryState, HerdSignalMovementState,
@@ -1113,4 +885,41 @@ func rawPayloadOrEmpty(p map[string]interface{}) map[string]interface{} {
 		return map[string]interface{}{}
 	}
 	return p
+}
+
+// applyPersistedRisk sets each item's risk from its tag's persisted classification (000402):
+// state, score, reasons and the own/pen deltas they were scored on, all from one source. A tag
+// the classifier has not evaluated yet is marked RiskClassifying with no risk fields -- matching
+// the risk_state filter and summary, which exclude it.
+func applyPersistedRisk(items []domain.LiveItem, tags []domain.TagLatest) {
+	for i := range items {
+		t := tags[i]
+		it := &items[i]
+		it.OwnMotionDeltaPct, it.GroupMotionDeltaPct, it.GroupTempDeltaC = nil, nil, nil
+		it.RiskState, it.RiskReasons, it.RiskScore = nil, []string{}, 0
+		if t.RiskEvaluatedAt == nil {
+			it.RiskClassifying = true
+			continue
+		}
+		it.RiskClassifying = false
+		it.RiskState = t.RiskState
+		it.RiskReasons = append([]string{}, t.RiskReasons...)
+		if t.RiskScore != nil {
+			it.RiskScore = int(*t.RiskScore)
+		}
+		it.OwnMotionDeltaPct = t.RiskOwnMotionDeltaPct
+		it.GroupMotionDeltaPct = t.RiskGroupMotionDeltaPct
+		it.GroupTempDeltaC = t.RiskGroupTempDeltaC
+	}
+}
+
+// penKey is the risk comparison group key: oploc.OperationalLocation.Key() of the animal's
+// shed + its own partition (undivided sheds, 'whole', ” and NULL all key as the whole shed).
+// ListLivePenMedians' SQL key mirrors it exactly.
+func penKey(shedID string, partitionLabel *string) string {
+	label := ""
+	if partitionLabel != nil {
+		label = *partitionLabel
+	}
+	return oploc.OperationalLocation{ShedID: shedID, PartitionLabel: label}.Key()
 }
