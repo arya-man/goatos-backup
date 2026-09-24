@@ -57,3 +57,7 @@ CREATE INDEX IF NOT EXISTS session_entries_session_idx ON ask_mesha.session_entr
 -- Existing installs: add tenant scoping and index it with the owner.
 ALTER TABLE ask_mesha.chats ADD COLUMN IF NOT EXISTS tenant_id text NOT NULL DEFAULT '';
 CREATE INDEX IF NOT EXISTS chats_owner_tenant_idx ON ask_mesha.chats (email, tenant_id, updated_at DESC);
+
+-- SDK total_cost_usd is cumulative per resumed session; the last total is kept per chat
+-- so each answer's metric stores only its own cost (monthly cap sums per-answer costs).
+ALTER TABLE ask_mesha.chats ADD COLUMN IF NOT EXISTS session_cost_usd numeric;

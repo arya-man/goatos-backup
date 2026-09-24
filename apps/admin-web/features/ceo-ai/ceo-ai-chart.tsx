@@ -25,66 +25,74 @@ export function CeoAiChart({ chart }: { chart: CeoAiChartData | undefined }): Re
     <figure className="mzai-chart" role="img" aria-label={label}>
       <figcaption className="mzai-chart-title">{chart.title}</figcaption>
       {layout.kind === "bar" ? (
-        <svg
-          className="mzai-chart-svg"
-          viewBox={`0 0 ${layout.viewWidth} ${layout.viewHeight}`}
-          width="100%"
-          aria-hidden="true"
-        >
+        <ul className="mzai-chart-bars" aria-hidden="true">
           {layout.bars.map((bar) => (
-            <g key={bar.key}>
-              <text x={bar.labelX} y={bar.textY} fontSize="9" fill="var(--muted)">
-                {bar.label}
-              </text>
-              <rect
-                x={bar.x}
-                y={bar.y}
-                width={bar.width}
-                height={bar.height}
-                rx="4"
-                fill={bar.color}
-              >
-                <title>{`${bar.label}: ${bar.value}`}</title>
-              </rect>
-              <text x={bar.valueX} y={bar.textY} fontSize="9" fill="var(--ink)" fontWeight="700">
-                {bar.value}
-              </text>
-            </g>
+            <li key={bar.key} className="mzai-chart-row" title={`${bar.label}: ${bar.valueLabel}`}>
+              <span className="mzai-chart-label">{bar.label}</span>
+              <span className="mzai-chart-track">
+                <span className="mzai-chart-area">
+                  <span className="mzai-chart-bar" style={{ width: `${bar.pct}%`, background: bar.color }} />
+                </span>
+                <span className="mzai-chart-value">{bar.valueLabel}</span>
+              </span>
+            </li>
           ))}
-        </svg>
+        </ul>
       ) : (
-        <svg
-          className="mzai-chart-svg"
-          viewBox={`0 0 ${layout.viewWidth} ${layout.viewHeight}`}
-          width="100%"
-          aria-hidden="true"
-        >
-          <line
-            x1="0"
-            y1={layout.baselineY}
-            x2={layout.viewWidth}
-            y2={layout.baselineY}
-            stroke="var(--line)"
-            strokeWidth="1"
-          />
-          <path d={layout.path} fill="none" stroke={layout.color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+        <div className="mzai-chart-line" aria-hidden="true">
+          <svg
+            className="mzai-chart-svg"
+            viewBox={`0 0 ${layout.viewWidth} ${layout.viewHeight}`}
+            width="100%"
+            preserveAspectRatio="none"
+          >
+            <line
+              x1="0"
+              y1={layout.baselineY}
+              x2={layout.viewWidth}
+              y2={layout.baselineY}
+              stroke="var(--line)"
+              strokeWidth="1"
+              vectorEffect="non-scaling-stroke"
+            />
+            <path
+              d={layout.path}
+              fill="none"
+              stroke={layout.color}
+              strokeWidth="2"
+              strokeLinejoin="round"
+              strokeLinecap="round"
+              vectorEffect="non-scaling-stroke"
+            />
+          </svg>
           {layout.points.map((point) => (
-            <g key={point.key}>
-              <circle cx={point.cx} cy={point.cy} r="2.5" fill={layout.color}>
-                <title>{`${point.label}: ${point.value}`}</title>
-              </circle>
-              <text
-                x={point.cx}
-                y={layout.baselineY + 12}
-                fontSize="8"
-                fill="var(--muted)"
-                textAnchor="middle"
-              >
-                {point.label}
-              </text>
-            </g>
+            <span
+              key={point.key}
+              className="mzai-chart-dot"
+              style={{
+                left: `${(point.cx / layout.viewWidth) * 100}%`,
+                top: `${(point.cy / layout.viewHeight) * 100}%`,
+                background: layout.color,
+              }}
+              title={`${point.label}: ${point.value}`}
+            />
           ))}
-        </svg>
+          <div className="mzai-chart-ticks">
+            {layout.ticks.map((i, k) => {
+              const point = layout.points[i];
+              const edge = k === 0 ? " start" : k === layout.ticks.length - 1 ? " end" : "";
+              return (
+                <span
+                  key={point.key}
+                  className={`mzai-chart-tick${edge}`}
+                  style={{ left: `${(point.cx / layout.viewWidth) * 100}%` }}
+                >
+                  {point.label}
+                </span>
+              );
+            })}
+          </div>
+        </div>
       )}
     </figure>
   );

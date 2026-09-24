@@ -1,0 +1,468 @@
+{
+  "uid": "goatos-stg-ask-mesha",
+  "title": "Goat OS — Ask Mesha agent",
+  "description": "Per-user Ask Mesha observability from ask_mesha.events (tools/ask-mesha-agent/events.mjs). One terminal event per ask: ask_completed | ask_failed | ask_stopped.",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "graphTooltip": 1,
+  "timezone": "Asia/Kolkata",
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
+  "refresh": "5m",
+  "tags": [
+    "goatos",
+    "ask-mesha",
+    "ceo-ai"
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "email",
+        "label": "User",
+        "type": "query",
+        "datasource": {
+          "type": "postgres",
+          "uid": "ask-mesha-postgres"
+        },
+        "includeAll": true,
+        "multi": true,
+        "allValue": "All",
+        "query": "SELECT DISTINCT email FROM ask_mesha.events WHERE email IS NOT NULL ORDER BY 1",
+        "refresh": 2,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Asks",
+      "type": "stat",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "ask-mesha-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "ask-mesha-postgres"
+          },
+          "format": "time_series",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT count(*) AS asks FROM ask_mesha.events WHERE $__timeFilter(ts) AND event_name IN ('ask_completed','ask_failed','ask_stopped') AND ($email = 'All' OR email = ANY(string_to_array($email, ',')))"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Success rate",
+      "type": "stat",
+      "gridPos": {
+        "x": 4,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "ask-mesha-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "ask-mesha-postgres"
+          },
+          "format": "time_series",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT avg((event_name='ask_completed')::int)::float AS success FROM ask_mesha.events WHERE $__timeFilter(ts) AND event_name IN ('ask_completed','ask_failed','ask_stopped') AND ($email = 'All' OR email = ANY(string_to_array($email, ',')))"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.8
+              },
+              {
+                "color": "green",
+                "value": 0.95
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "title": "p50 / p90 total (success)",
+      "type": "stat",
+      "gridPos": {
+        "x": 8,
+        "y": 0,
+        "w": 5,
+        "h": 4
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "ask-mesha-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "ask-mesha-postgres"
+          },
+          "format": "time_series",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY (row->>'total_ms')::numeric)/1000 AS p50, percentile_cont(0.9) WITHIN GROUP (ORDER BY (row->>'total_ms')::numeric)/1000 AS p90 FROM ask_mesha.events WHERE $__timeFilter(ts) AND event_name IN ('ask_completed','ask_failed','ask_stopped') AND ($email = 'All' OR email = ANY(string_to_array($email, ','))) AND event_name='ask_completed'"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "title": "p50 / p90 first token (success)",
+      "type": "stat",
+      "gridPos": {
+        "x": 13,
+        "y": 0,
+        "w": 5,
+        "h": 4
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "ask-mesha-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "ask-mesha-postgres"
+          },
+          "format": "time_series",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY (row->>'first_token_ms')::numeric)/1000 AS p50, percentile_cont(0.9) WITHIN GROUP (ORDER BY (row->>'first_token_ms')::numeric)/1000 AS p90 FROM ask_mesha.events WHERE $__timeFilter(ts) AND event_name IN ('ask_completed','ask_failed','ask_stopped') AND ($email = 'All' OR email = ANY(string_to_array($email, ','))) AND event_name='ask_completed'"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 5,
+      "title": "Spend this month vs $100 cap",
+      "type": "gauge",
+      "gridPos": {
+        "x": 18,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "ask-mesha-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "ask-mesha-postgres"
+          },
+          "format": "time_series",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT COALESCE(sum((row->>'cost_usd')::numeric),0) AS usd FROM ask_mesha.events WHERE event_name IN ('ask_completed','ask_failed','ask_stopped') AND ts >= date_trunc('month', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 80
+              },
+              {
+                "color": "red",
+                "value": 100
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 6,
+      "title": "Asks by outcome",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "ask-mesha-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "ask-mesha-postgres"
+          },
+          "format": "time_series",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT $__timeGroupAlias(ts, 1h), CASE event_name WHEN 'ask_completed' THEN 'success' WHEN 'ask_stopped' THEN 'stopped' ELSE 'failed' END AS metric, count(*) AS asks FROM ask_mesha.events WHERE $__timeFilter(ts) AND event_name IN ('ask_completed','ask_failed','ask_stopped') AND ($email = 'All' OR email = ANY(string_to_array($email, ','))) GROUP BY 1,2 ORDER BY 1"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "stacking": {
+              "mode": "normal"
+            },
+            "fillOpacity": 60
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 7,
+      "title": "Failures by class",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "ask-mesha-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "ask-mesha-postgres"
+          },
+          "format": "time_series",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT $__timeGroupAlias(ts, 1h), coalesce(row->>'error_class','unknown') AS metric, count(*) AS n FROM ask_mesha.events WHERE $__timeFilter(ts) AND event_name IN ('ask_completed','ask_failed','ask_stopped') AND ($email = 'All' OR email = ANY(string_to_array($email, ','))) AND event_name IN ('ask_failed','ask_stopped') GROUP BY 1,2 ORDER BY 1"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "stacking": {
+              "mode": "normal"
+            },
+            "fillOpacity": 60
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 8,
+      "title": "Latency p50 / p90 (success, s)",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "ask-mesha-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "ask-mesha-postgres"
+          },
+          "format": "time_series",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT $__timeGroupAlias(ts, 6h), percentile_cont(0.5) WITHIN GROUP (ORDER BY (row->>'total_ms')::numeric)/1000 AS total_p50, percentile_cont(0.9) WITHIN GROUP (ORDER BY (row->>'total_ms')::numeric)/1000 AS total_p90, percentile_cont(0.5) WITHIN GROUP (ORDER BY (row->>'first_token_ms')::numeric)/1000 AS first_token_p50 FROM ask_mesha.events WHERE $__timeFilter(ts) AND event_name IN ('ask_completed','ask_failed','ask_stopped') AND ($email = 'All' OR email = ANY(string_to_array($email, ','))) AND event_name='ask_completed' GROUP BY 1 ORDER BY 1"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 9,
+      "title": "Tool timing (p50 / p90 ms, errors)",
+      "type": "table",
+      "gridPos": {
+        "x": 12,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "ask-mesha-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "ask-mesha-postgres"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT row->>'tool' AS tool, count(*) AS calls, sum((NOT (row->>'ok')::boolean)::int) AS errors, percentile_cont(0.5) WITHIN GROUP (ORDER BY (row->>'duration_ms')::numeric) AS p50_ms, percentile_cont(0.9) WITHIN GROUP (ORDER BY (row->>'duration_ms')::numeric) AS p90_ms FROM ask_mesha.events WHERE $__timeFilter(ts) AND event_name='ask_tool' AND ($email = 'All' OR email = ANY(string_to_array($email, ','))) GROUP BY 1 ORDER BY calls DESC"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "title": "Per user",
+      "type": "table",
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 24,
+        "h": 8
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "ask-mesha-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "ask-mesha-postgres"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT email, count(*) AS asks, sum((event_name='ask_completed')::int) AS success, sum((event_name='ask_failed')::int) AS failed, sum((event_name='ask_stopped')::int) AS stopped, round(avg((event_name='ask_completed')::int)::numeric*100,1) AS success_pct, percentile_cont(0.5) WITHIN GROUP (ORDER BY (row->>'total_ms')::numeric) FILTER (WHERE event_name='ask_completed')/1000 AS p50_s, percentile_cont(0.9) WITHIN GROUP (ORDER BY (row->>'total_ms')::numeric) FILTER (WHERE event_name='ask_completed')/1000 AS p90_s, round(avg((row->>'tool_calls')::numeric),1) AS avg_tools, round(sum(coalesce((row->>'cost_usd')::numeric,0)),2) AS cost_usd, max(ts) AS last_ask FROM ask_mesha.events WHERE $__timeFilter(ts) AND event_name IN ('ask_completed','ask_failed','ask_stopped') AND ($email = 'All' OR email = ANY(string_to_array($email, ','))) GROUP BY email ORDER BY asks DESC"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "title": "Recent asks",
+      "type": "table",
+      "gridPos": {
+        "x": 0,
+        "y": 28,
+        "w": 24,
+        "h": 10
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "ask-mesha-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "postgres",
+            "uid": "ask-mesha-postgres"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT ts, email, CASE event_name WHEN 'ask_completed' THEN 'success' WHEN 'ask_stopped' THEN 'stopped' ELSE 'failed' END AS status, row->>'error_class' AS error_class, round((row->>'total_ms')::numeric/1000,1) AS total_s, (row->>'tool_calls')::int AS tools, round((row->>'cost_usd')::numeric,3) AS cost_usd, row->>'model' AS model, row->>'question_preview' AS question FROM ask_mesha.events WHERE $__timeFilter(ts) AND event_name IN ('ask_completed','ask_failed','ask_stopped') AND ($email = 'All' OR email = ANY(string_to_array($email, ','))) ORDER BY ts DESC LIMIT 50"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "title": "Raw events (Cloud Logging)",
+      "type": "logs",
+      "gridPos": {
+        "x": 0,
+        "y": 38,
+        "w": 24,
+        "h": 8
+      },
+      "datasource": {
+        "type": "googlecloud-logging-datasource",
+        "uid": "cloud-logging"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "googlecloud-logging-datasource",
+            "uid": "cloud-logging"
+          },
+          "queryText": "resource.type=\"cloud_run_revision\" resource.labels.service_name=\"goatos-ask-mesha-stg\" jsonPayload.component=\"ask-mesha-agent\"",
+          "projectId": "goatos-stg"
+        }
+      ]
+    }
+  ]
+}

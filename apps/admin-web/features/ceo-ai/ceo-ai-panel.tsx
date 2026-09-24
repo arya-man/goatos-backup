@@ -5,6 +5,7 @@ import {
   Lightbox,
   type PreviewFile,
   Thumb,
+  revokePreviews,
   shrinkImage,
   toPreview,
 } from "./ceo-ai-attachments";
@@ -317,9 +318,19 @@ function createTypewriter(render: (shown: string) => void) {
       kick();
     },
     reset() {
+      if (raf) cancelAnimationFrame(raf);
+      raf = 0;
       shown = "";
       pending = "";
       render("");
+    },
+    // cancel stops the reveal where it is (Stop keeps what the user saw) and
+    // releases anyone awaiting drain().
+    cancel() {
+      if (raf) cancelAnimationFrame(raf);
+      raf = 0;
+      pending = "";
+      settle();
     },
     flush() {
       if (raf) cancelAnimationFrame(raf);
@@ -379,7 +390,7 @@ function AgentSteps(props: {
         ) : null}
       </button>
       {expanded ? (
-        <ol>
+        <ol aria-live={live ? "polite" : undefined}>
           {live && steps.length > 4 ? (
             <li className="more">+{steps.length - 4} earlier</li>
           ) : null}
@@ -390,7 +401,7 @@ function AgentSteps(props: {
                 <span className="mzai-step-ic" aria-hidden>
                   {now ? null : <Check size={11} strokeWidth={3} />}
                 </span>
-                {s}
+                <span className="mzai-step-tx">{s}</span>
               </li>
             );
           })}
@@ -494,6 +505,8 @@ export function CeoAiPanel({
   const [input, setInput] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const previews = useMemo(() => files.map(toPreview), [files]);
+  // Composer-tray object URLs are per `files` snapshot: revoke the old set.
+  useEffect(() => () => revokePreviews(previews), [previews]);
   const [lightbox, setLightbox] = useState<{
     files: PreviewFile[];
     start: number;
@@ -564,6 +577,8 @@ export function CeoAiPanel({
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const resumeSeq = useRef(0);
+  const renamingRef = useRef<string | null>(null);
 
   // Leadership capability probe (server-authoritative; replaces client regex).
   useEffect(() => {
@@ -575,9 +590,55 @@ export function CeoAiPanel({
     return () => controller.abort();
   }, []);
 
+  // Follow the answer only while the reader is at the bottom; scrolling up to
+  // re-read is not yanked back down by every streamed frame.
+  const stickRef = useRef(true);
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+    const el = scrollRef.current;
+    if (el && stickRef.current) el.scrollTo({ top: el.scrollHeight });
   }, [messages, open, pending]);
+  useEffect(() => {
+    if (pending) stickRef.current = true;
+  }, [pending]);
+
+  // Release object URLs for sent-message thumbnails once those messages are
+  // gone (new chat / resume / delete) and on unmount.
+  const liveBlobUrls = useRef(new Set<string>());
+  useEffect(() => {
+    const now = new Set<string>();
+    messages.forEach((m) =>
+      m.files?.forEach((f) => {
+        if (f.url.startsWith("blob:")) now.add(f.url);
+      }),
+    );
+    liveBlobUrls.current.forEach((url) => {
+      if (!now.has(url)) URL.revokeObjectURL(url);
+    });
+    liveBlobUrls.current = now;
+  }, [messages]);
+  useEffect(
+    () => () => liveBlobUrls.current.forEach((url) => URL.revokeObjectURL(url)),
+    [],
+  );
+
+  // Keep the dragged launcher on screen after resize / phone rotation.
+  useEffect(() => {
+    const onResize = () =>
+      setBubblePos((p) =>
+        p
+          ? {
+              x: clamp(p.x, 4, Math.max(4, window.innerWidth - 60)),
+              y: clamp(p.y, 4, Math.max(4, window.innerHeight - 60)),
+            }
+          : p,
+      );
+    window.addEventListener("resize", onResize);
+    window.addEventListener("orientationchange", onResize);
+    return () => {
+      window.removeEventListener("resize", onResize);
+      window.removeEventListener("orientationchange", onResize);
+    };
+  }, []);
 
   const refreshThreads = useCallback(() => {
     listConversations()
@@ -602,25 +663,43 @@ export function CeoAiPanel({
 
   const typerRef = useRef<ReturnType<typeof createTypewriter> | null>(null);
   const stopGenerating = useCallback(() => {
-    typerRef.current?.flush();
-    abortRef.current?.abort();
+    const running = abortRef.current;
+    typerRef.current?.cancel();
+    typerRef.current = null;
+    running?.abort();
     abortRef.current = null;
     setPending(false);
-    trackCeoAiEvent(CeoAiEvents.StopGenerating);
+    if (running) trackCeoAiEvent(CeoAiEvents.StopGenerating);
   }, []);
+
+  // Unmount: stop any in-flight answer and its reveal loop.
+  useEffect(
+    () => () => {
+      typerRef.current?.cancel();
+      abortRef.current?.abort();
+    },
+    [],
+  );
 
   const ask = useCallback(
     async (raw: string, attached: File[] = []) => {
       const typed = raw.trim();
       if (!typed && !attached.length) return;
       // Sending while an answer is running interrupts it, like ChatGPT/Claude.
-      if (pending) stopGenerating();
+      if (abortRef.current) stopGenerating();
       recognitionRef.current?.stop();
       const question = typed || "Please look at the attached file(s).";
       const boundedAttached = attached.slice(0, 5);
-      const attachments = boundedAttached.length
-        ? await Promise.all(boundedAttached.map(fileToAttachment)) // request-plan:ignore owner=admin-web issue=CEO-AI-ATTACHMENT-CAP expires=2026-12-31 reason=boundedAttached is capped to the five visible attachment slots before fan-out
-        : undefined;
+      let attachments: Awaited<ReturnType<typeof fileToAttachment>>[] | undefined;
+      try {
+        attachments = boundedAttached.length
+          ? await Promise.all(boundedAttached.map(fileToAttachment)) // request-plan:ignore owner=admin-web issue=CEO-AI-ATTACHMENT-CAP expires=2026-12-31 reason=boundedAttached is capped to the five visible attachment slots before fan-out
+          : undefined;
+      } catch {
+        // Unreadable file (revoked/moved): keep the draft, tell the user.
+        setBanner({ kind: "err", text: "Couldn't read an attached file. Remove it and try again." });
+        return;
+      }
       setFiles([]);
       setInput("");
       setBanner(null);
@@ -649,6 +728,7 @@ export function CeoAiPanel({
 
       const controller = new AbortController();
       abortRef.current = controller;
+      let errored = false;
 
       const patch = (fields: Partial<ChatMessage>) =>
         setMessages((prev) =>
@@ -702,6 +782,7 @@ export function CeoAiPanel({
                 ),
               ),
             onError: (message, status) => {
+              errored = true;
               if (status === 429) {
                 setBanner({ kind: "warn", text: CHROME.rateLimited });
                 patch({ text: CHROME.rateLimited, state: "error" });
@@ -731,7 +812,38 @@ export function CeoAiPanel({
         // Let the typewriter finish revealing what already streamed before the
         // final metadata lands, so the answer never jumps.
         await typer.drain();
-        if (final) {
+        // Stopped (or interrupted by a newer question) while draining: keep
+        // what was shown; the catch-free path must not overwrite it.
+        if (controller.signal.aborted) {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantId
+                ? {
+                    ...m,
+                    text: m.text || "…",
+                    state: "complete",
+                    workedMs: m.startedAt ? Date.now() - m.startedAt : m.workedMs,
+                  }
+                : m,
+            ),
+          );
+        } else if (!final && !errored) {
+          // Stream closed cleanly without a final event: never leave a
+          // perpetual caret/"Working…" behind.
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantId
+                ? m.text
+                  ? {
+                      ...m,
+                      state: "complete",
+                      workedMs: m.startedAt ? Date.now() - m.startedAt : m.workedMs,
+                    }
+                  : { ...m, text: CHROME.degraded, state: "error", mode: "degraded" }
+                : m,
+            ),
+          );
+        } else if (final) {
           if (
             final.conversation_id &&
             final.conversation_id !== conversationId
@@ -767,7 +879,12 @@ export function CeoAiPanel({
           setMessages((prev) =>
             prev.map((m) =>
               m.id === assistantId
-                ? { ...m, text: m.text || "…", state: "complete" }
+                ? {
+                    ...m,
+                    text: m.text || "…",
+                    state: "complete",
+                    workedMs: m.startedAt ? Date.now() - m.startedAt : m.workedMs,
+                  }
                 : m,
             ),
           );
@@ -779,11 +896,15 @@ export function CeoAiPanel({
           trackCeoAiError("ask_throw", message);
         }
       } finally {
-        abortRef.current = null;
-        setPending(false);
+        // An interrupted run must not clear the NEWER run's controller/pending.
+        if (abortRef.current === controller) {
+          abortRef.current = null;
+          typerRef.current = null;
+          setPending(false);
+        }
       }
     },
-    [conversationId, copy, pending, refreshThreads, stopGenerating],
+    [conversationId, copy, refreshThreads, stopGenerating],
   );
 
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {
@@ -792,6 +913,7 @@ export function CeoAiPanel({
   };
 
   const startNewChat = useCallback(async () => {
+    resumeSeq.current += 1;
     stopGenerating();
     setMessages([]);
     setConversationId(undefined);
@@ -809,12 +931,15 @@ export function CeoAiPanel({
     async (id: string) => {
       if (isNarrow()) setShowThreads(false);
       if (id === conversationId) return;
+      const seq = ++resumeSeq.current;
       stopGenerating();
       setConversationId(id);
       setBanner(null);
       setShowStarters(false);
       trackCeoAiEvent(CeoAiEvents.ResumeChat);
       const stored = await loadConversationMessages(id).catch(() => []);
+      // A later click won: drop this stale load.
+      if (seq !== resumeSeq.current) return;
       const restoredMessages: ChatMessage[] = stored.map((m) => {
         const role: ChatMessage["role"] =
           m.role === "user" ? "user" : "assistant";
@@ -862,6 +987,10 @@ export function CeoAiPanel({
 
   const commitRename = useCallback(
     async (id: string) => {
+      // Enter/Escape unmount the input and fire blur: commit only once, and
+      // never after Escape cancelled.
+      if (renamingRef.current !== id) return;
+      renamingRef.current = null;
       const title = renameText.trim();
       setRenaming(null);
       if (title) {
@@ -1025,10 +1154,21 @@ export function CeoAiPanel({
                     <div
                       key={thread.id}
                       className={`mzai-thread${thread.id === conversationId ? " mzai-on" : ""}${confirmDelete === thread.id ? " mzai-confirming" : ""}`}
+                      role="button"
+                      tabIndex={0}
+                      aria-current={thread.id === conversationId ? "true" : undefined}
                       onClick={() =>
                         confirmDelete !== thread.id &&
+                        renaming !== thread.id &&
                         void resumeThread(thread.id)
                       }
+                      onKeyDown={(e) => {
+                        if (e.target !== e.currentTarget) return;
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          void resumeThread(thread.id);
+                        }
+                      }}
                     >
                       {confirmDelete === thread.id ? (
                         <span
@@ -1063,7 +1203,11 @@ export function CeoAiPanel({
                           onChange={(e) => setRenameText(e.target.value)}
                           onKeyDown={(e) => {
                             if (e.key === "Enter") void commitRename(thread.id);
-                            if (e.key === "Escape") setRenaming(null);
+                            if (e.key === "Escape") {
+                              e.stopPropagation();
+                              renamingRef.current = null;
+                              setRenaming(null);
+                            }
                           }}
                           onBlur={() => void commitRename(thread.id)}
                         />
@@ -1081,6 +1225,7 @@ export function CeoAiPanel({
                             title={CHROME.rename}
                             onClick={(e) => {
                               e.stopPropagation();
+                              renamingRef.current = thread.id;
                               setRenaming(thread.id);
                               setRenameText(thread.title);
                             }}
@@ -1108,7 +1253,15 @@ export function CeoAiPanel({
             </aside>
 
             <div className="mzai-main">
-              <div ref={scrollRef} className="mzai-log">
+              <div
+                ref={scrollRef}
+                className="mzai-log"
+                onScroll={(e) => {
+                  const el = e.currentTarget;
+                  stickRef.current =
+                    el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+                }}
+              >
                 {shown.map((message) => (
                   <div
                     key={message.id}
@@ -1176,7 +1329,7 @@ export function CeoAiPanel({
                       !message.text &&
                       !message.steps?.length ? (
                         <div className="mzai-progress">
-                          <div className="mzai-skel" aria-label={copy.checking}>
+                          <div className="mzai-skel" role="status" aria-label={copy.checking}>
                             <span />
                             <span />
                             <span />
@@ -1376,7 +1529,6 @@ export function CeoAiPanel({
         </section>
       ) : (
         <>
-          <CeoAiStyles />
           <button
             type="button"
             className="mzai-bubble"
