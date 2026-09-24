@@ -505,6 +505,17 @@
       "ciStep": "ceo-ai-boundary-guard"
     },
     {
+      "id": "mesha-data-map",
+      "script": "tools/ask-mesha-agent/gen-data-map.mjs",
+      "makeTarget": "mesha-data-map-guard",
+      "realCheck": "node tools/ask-mesha-agent/gen-data-map.mjs --check",
+      "selfTest": "node --test tools/ask-mesha-agent/test/derived-queries.test.mjs",
+      "owningDoc": "docs/agent-rules/ask-mesha.md",
+      "requiredInCI": true,
+      "ciStep": "mesha-data-map-guard",
+      "notes": "Ask Mesha saved queries (ADG, cost/kg gain, feed stock days, load-wise sales, pens, herd weight...) are hand-copied from app code; references/derived-queries.json pins a sha256 of each source. Any change to those backend/migration sources fails until the query is re-derived and rehashed. Runs in run_common with PG env stripped (no DB needed; column-level check skipped). Self-test tampers a hash in a temp manifest and asserts failure."
+    },
+    {
       "id": "ceo-ai-schema-cards",
       "script": "tools/agent-hooks/check-ceo-ai-schema-cards.mjs",
       "makeTarget": "ceo-ai-schema-card-guard",

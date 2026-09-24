@@ -65,11 +65,11 @@ if (process.argv.includes('--rehash-derived')) {
 if (check) {
   const drift = derivedDrift(JSON.parse(readFileSync(DERIVED, 'utf8')));
   if (drift.length) {
-    process.stderr.write('gen-data-map: app logic behind a hand-copied data-map query changed:\n' +
-      drift.map((d) => `  - ${d.query}: ${d.path} (${d.why})\n`).join('') +
-      [...new Set(drift.map((d) => d.on_drift).filter(Boolean))].map((t) => `  >> ${t}\n`).join('') +
-      'Re-derive each listed query from its source (diff the source since the manifest hash), re-verify its numbers against the app,\n' +
-      'update the query + SKILL.md example numbers, then run: node tools/ask-mesha-agent/gen-data-map.mjs --rehash-derived\n');
+    // Plain-language failure: one line per drifted (query, source) pair, then the fix.
+    process.stderr.write(drift.map((d) => `App logic behind an Ask Mesha saved query changed: ${d.query} derived from ${d.path} (${d.why}). ` +
+        "Re-derive the query (see docs/agent-rules/ask-mesha.md 'Data map'), re-check numbers vs the app screen, " +
+        'then run node tools/ask-mesha-agent/gen-data-map.mjs --rehash-derived.\n').join('') +
+      [...new Set(drift.map((d) => d.on_drift).filter(Boolean))].map((t) => `  >> ${t}\n`).join(''));
     process.exitCode = 1;
   } else {
     process.stdout.write(`gen-data-map: derived queries in sync with app sources (${DERIVED})\n`);

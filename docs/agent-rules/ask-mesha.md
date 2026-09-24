@@ -102,6 +102,11 @@ Not the answer: per-tenant copies of tables/schemas (344× duplication and migra
   To clear it: diff the source since it was hashed, re-derive the query, re-check its numbers against the app,
   update the SKILL.md example numbers, then `node tools/ask-mesha-agent/gen-data-map.mjs --rehash-derived`.
   Adding a copied query = add its entry to the manifest, then rehash.
+- The guard is wired into local CI: `run_common` (so `make ci-local` / `make land-main`) runs `make mesha-data-map-guard`
+  for every non-docs change, with PG env stripped (hash + object-set check; column check needs `MESHA_DATA_MAP_LIVE=1`).
+  Registered as `mesha-data-map` in `tools/ci/guardrail-manifest.json`; self-test `tools/ask-mesha-agent/test/derived-queries.test.mjs`.
+  Changing a backend/migration file listed in `derived-queries.json` (growthdirector, weighing, feed, sales, pens...) fails
+  CI with "App logic behind an Ask Mesha saved query changed: <query> derived from <file>" until re-derived + rehashed.
 - Known gap: sex/origin cuts of ADG (need `sex_scope.go`) are not in the SQL. Feed `fed_kg` is always 0.
 
 ### Pens (model-agnostic)

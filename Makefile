@@ -165,6 +165,7 @@ guardrails:
 	$(MAKE) critical-animal-action-availability-guard
 	$(MAKE) leadership-assistant-coverage-guard
 	$(MAKE) ceo-ai-page-contract-drift-guard
+	$(MAKE) mesha-data-map-guard
 	$(MAKE) leadership-verifier-surface-separation-guard
 	$(MAKE) role-scoped-ui-contract-guard
 	$(MAKE) assistant-route-closure-guard
@@ -622,8 +623,13 @@ ceo-ai-schema-card-guard:
 # mesha-data-map-guard: .agents/skills/mesha-data-map/references/views.generated.md
 # must list every ceo_ai object (schema_cards.go + migrations). With PG* env it is
 # a full byte compare against the live DB render; without, column check is skipped.
+# Also fails when app logic an Ask Mesha saved query was copied from changes
+# (references/derived-queries.json source hashes). Local CI runs it with PG env
+# stripped (hash + object-set check, no DB); set MESHA_DATA_MAP_LIVE=1 to keep PG
+# env for the column-level compare. Self-test proves a tampered hash fails.
 mesha-data-map-guard:
-	node tools/ask-mesha-agent/gen-data-map.mjs --check
+	node --test tools/ask-mesha-agent/test/derived-queries.test.mjs
+	$(if $(MESHA_DATA_MAP_LIVE),,env -u PGHOST -u PGDATABASE -u PGSERVICE )node tools/ask-mesha-agent/gen-data-map.mjs --check
 
 vaccination-drive-clubbing-guard:
 	cd backend && go test ./internal/obligation/app -run 'Test(DrivePlanner|BatchSession|Normalized|Pick|Park|Combo|SweepVersionWalksEverySafeOverflowDateWhenShotCapFull|ParkMergeStepWalksEverySafeOverflowDateWhenShotCapFull)' -count=1 -timeout=60s

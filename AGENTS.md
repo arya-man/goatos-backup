@@ -23,6 +23,7 @@ them away: `docs/architecture/operational-read-model-contract.md`
 - Ask Mesha read-only guarantees are four layers (agent tools, run_sql, chat privacy, DB role `mesha_ceo_readonly`); keep all four -> `docs/agent-rules/ask-mesha.md` "Read-only guarantees".
 - Ask Mesha from the hosted MCP (`ask_goatos`, `MESHA_MCP_AGENT_URL` flag, `stream:false`, `_ASK_MESHA_WIRE_MCP`) -> `docs/agent-rules/ask-mesha.md` "MCP".
 - Business data / "where is X in the DB" / any stg data question -> `.agents/skills/mesha-data-map/SKILL.md` (topic -> ceo_ai view -> columns -> date column; one query, skip \dt/\d exploration). Short form: `tools/ask-mesha-agent/data-map-core.md`.
+- Changing backend/migration code an Ask Mesha saved query was derived from (`.agents/skills/mesha-data-map/references/derived-queries.json`) fails `make mesha-data-map-guard` in local CI -> re-derive + `--rehash-derived` per `docs/agent-rules/ask-mesha.md` "Data map".
 - Android/mobile/APK/Room/device QA -> `docs/agent-rules/android.md`: proof media, CLI bootstrap, APK traceability, who-did-what provenance, offline-first Room reads, refresh-on-open, Room upgrades, one-page fetch cap.
 - Vaccination -> `docs/agent-rules/vaccination.md`: anchor dates, catch-up joins normal drive, safe-window park batching, 200/operator-day packing, source dates.
 - Tasks/pen visit -> `docs/agent-rules/tasks-pen-visit.md`: day-after check, pen visit as own task, task-kernel non-deviation lock.

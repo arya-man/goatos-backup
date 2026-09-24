@@ -423,6 +423,9 @@ run_common() {
   step "critical-animal-action-availability-guard" make critical-animal-action-availability-guard
   step "leadership-assistant-coverage-guard" make leadership-assistant-coverage-guard
   step "ceo-ai-page-contract-drift-guard" make ceo-ai-page-contract-drift-guard
+  # Cheap (file hashes, no DB): runs for every non-docs change, so backend/**,
+  # migrations, .agents/skills/mesha-data-map/** and tools/ask-mesha-agent/** all hit it.
+  step "mesha-data-map-guard" make mesha-data-map-guard
   step "leadership-verifier-surface-separation-guard" make leadership-verifier-surface-separation-guard
   step "role-scoped-ui-contract-guard" make role-scoped-ui-contract-guard
   step "dashboard-automation-guard" make dashboard-automation-guard
