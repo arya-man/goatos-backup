@@ -80,6 +80,19 @@ func confirmProductsStillSellable(ctx context.Context, tx pgx.Tx, tenantID strin
 	if err != nil {
 		return err
 	}
+	if len(domain.AggregateFeedDemand(lines)) > 0 {
+		rows, err := tx.Query(ctx, activeFeedItemsSQL, tenantID)
+		if err != nil {
+			return fmt.Errorf("sales: validate feed catalog: %w", err)
+		}
+		items, err := scanStrings(rows)
+		if err != nil {
+			return err
+		}
+		if err := domain.ValidateFeedItems(lines, items); err != nil {
+			return err
+		}
+	}
 	for _, l := range lines {
 		code, kind, _ := l.ResolvedProduct()
 		current, ok := catalog.Lookup(l.ProductType)

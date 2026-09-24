@@ -62,11 +62,6 @@ function vendorLabel(vendor: ProcurementVendorOption): string {
  * search param would never open it), and the mock's drawer anatomy — `.scrim`/`.drawer.on`,
  * `.dh`/`.dc`/`.df`, with a RECORD body as a `.metagrid` of `.k`/`.v` cells.
  */
-/** The list URL with the drawer's own deal param on it, so a redirect lands with it open. */
-function addDealParam(href: string, dealId: string): string {
-  return `${href}${href.includes("?") ? "&" : "?"}deal_id=${encodeURIComponent(dealId)}`;
-}
-
 export function SalesRecordDrawer({
   deals,
   pageContract,
@@ -153,11 +148,14 @@ export function SalesRecordDrawer({
   const [vendorQuery, setVendorQuery] = useState("");
   const [buyerName, setBuyerName] = useState("");
   const [buyerPlace, setBuyerPlace] = useState("");
+  const [recordError, setRecordError] = useState<{ code: string; message: string } | null>(null);
+  const [recordPending, setRecordPending] = useState(false);
   const [syncedSelection, setSyncedSelection] = useState(selection);
   if (syncedSelection !== selection) {
     // Reset during render when the drawer opens on a different record, never in an effect -- an
     // effect would let one submit's values flash into the next form.
     setSyncedSelection(selection);
+    setRecordError(null);
     setLines([newSaleLine(1, products[0]?.name ?? "")]);
     setVendorId("");
     setVendorQuery("");
@@ -286,16 +284,24 @@ export function SalesRecordDrawer({
         </div>
 
         {isAdding ? (
-          <form action={recordSaleAction} style={{ display: "contents" }}>
+          <form onSubmit={async (event) => {
+            event.preventDefault();
+            if (recordPending) return;
+            const data = new FormData(event.currentTarget);
+            setRecordPending(true);
+            setRecordError(null);
+            try {
+              const result = await recordSaleAction(data);
+              setRecordError(result ?? null);
+            } finally {
+              setRecordPending(false);
+            }
+          }} style={{ display: "contents" }}>
             <div className="dc">
-              {/* The record form returns to the OPEN drawer, not to the bare list. A refusal --
-                  a missing field, or the short-feed-stock confirmation -- redirects here, and
-                  landing on a closed drawer would leave the operator reading a banner about a
-                  form they can no longer see. Known gap, recorded rather than hidden: the typed
-                  values are still lost on that bounce, because the submit is a server action that
-                  redirects. */}
-              <input type="hidden" name="return_to" value={addDealParam(listHref, "new")} />
+              {/* Refusals return in place, preserving controlled and native form fields. */}
+              <input type="hidden" name="return_to" value={listHref} />
 
+              {recordError && recordError.code !== "feed_stock_confirmation_required" ? <div role="alert" className="note warn">{recordError.message}</div> : null}
               <div className="note">{copy(pageContract, "required.hint")}</div>
 
               <div className="fld">
@@ -337,12 +343,12 @@ export function SalesRecordDrawer({
                 products={products}
                 variants={variants}
               />
-              {stockConfirmNeeded ? (
+              {stockConfirmNeeded || recordError?.code === "feed_stock_confirmation_required" ? (
                 // The short-feed-sale confirmation (maintainer decision 2026-09-23). It appears
                 // only after the backend has asked for it, and it is NOT checked by default: a
                 // tick the form carries on its own is not a confirmation of anything.
                 <div className="fld sales-stock-ack">
-                  {stockConfirmDetail ? <div className="note warn">{stockConfirmDetail}</div> : null}
+                  {recordError?.message || stockConfirmDetail ? <div role="alert" className="note warn">{recordError?.message || stockConfirmDetail}</div> : null}
                   <label htmlFor="s-stock_ack">
                     <input
                       id="s-stock_ack"
@@ -480,8 +486,8 @@ export function SalesRecordDrawer({
               <button
                 type="submit"
                 className="btn p"
-                disabled={!canPickVendor}
-                aria-disabled={!canPickVendor}
+                disabled={!canPickVendor || recordPending}
+                aria-disabled={!canPickVendor || recordPending}
                 title={
                   canPickVendor
                     ? undefined
