@@ -196,11 +196,22 @@ func animalProofList(obs domain.Observation) []string {
 
 // SQL fragments shared by the read paths. Each is ONE bounded scalar subquery per row: a
 // per-animal row carries at most four captures, a whole-pen row at most ten.
+//
+// animalProofKindsSQL is the {ref: kind} map for the observation row aliased `o` (repository.go
+// inlines the same form for `weighing_observations`, keeping its SQL a compile-time constant for
+// the bind-contract check). The refs are the legacy column plus the slot map's values, matched
+// with `= ANY(uuid[])` so every ref is a proof_artifacts primary-key probe. The old
+// `proof_id = X OR proof_id::text IN (...)` form could not use the key and seq-scanned the register
+// per row (leadership sheds: 5.5 s on stg). Slot values that are not lowercase canonical UUIDs
+// never matched the old text compare (proof_id::text is always lowercase), so the case-sensitive
+// `~` skips exactly those and the output is identical.
 const animalProofKindsSQL = `COALESCE((SELECT jsonb_object_agg(pa.proof_id::text, pa.proof_type)
      FROM proof_artifacts pa
      WHERE pa.tenant_id=o.tenant_id
-       AND (pa.proof_id=o.proof_artifact_id
-            OR pa.proof_id::text IN (SELECT e.value FROM jsonb_each_text(o.sop_proofs) e))), '{}'::jsonb)::text`
+       AND pa.proof_id = ANY(array_append(ARRAY(
+             SELECT e.value::uuid FROM jsonb_each_text(o.sop_proofs) e
+             WHERE e.value ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'),
+           o.proof_artifact_id))), '{}'::jsonb)::text`
 
 const shedProofSlotsSQL = `COALESCE((SELECT jsonb_object_agg(g.slot_key, g.refs)
      FROM (SELECT p.slot_key, jsonb_agg(p.proof_artifact_id::text ORDER BY p.proof_position) AS refs
