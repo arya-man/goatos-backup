@@ -17,6 +17,11 @@ export class ShortReadCache {
     this.now = now;
   }
 
+  /** Drops every cached read. Called after any backend write so no stale read survives it. */
+  clear(): void {
+    this.entries.clear();
+  }
+
   read<T>(
     key: string,
     fn: () => Promise<ShortReadCacheResult<T>>,
