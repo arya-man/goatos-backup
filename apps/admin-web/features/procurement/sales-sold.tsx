@@ -541,6 +541,7 @@ export async function SalesSoldPage({
         // control, so this drawer never renders the record form and has no submit to confirm.
         // Every sales write is made on /sales/config, which is where the confirmation appears.
         stockConfirmNeeded={false}
+        statusStockConfirmNeeded={false}
       />
     </div>
   );

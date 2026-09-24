@@ -63,6 +63,27 @@ fun SaleDetailScreen(
             if (state.editMessage.isNotBlank()) {
                 item(key = "edit_message") { VendorsResultBanner(status = VendorsWriteStatus.QUEUED, message = state.editMessage) }
             }
+            // THE FEED STORE'S QUESTION, and the two ways to answer it. Closing a sale is the
+            // moment its feed leaves the store, so the store may refuse a close it never saw when
+            // the sale was recorded. The sentence is the server's, naming the farm, the feed and
+            // both figures, and is shown verbatim.
+            if (state.stockConfirmMessage.isNotBlank()) {
+                item(key = "stock_confirm") {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        VendorsResultBanner(status = VendorsWriteStatus.FAILED, message = state.stockConfirmMessage)
+                        Text(text = STOCK_CONFIRM_HINT, color = MeshaColors.Muted, style = MeshaType.caption)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            VendorsGhostButton(label = STOCK_CONFIRM_CANCEL, onClick = { onEvent(SaleDetailEvent.DismissStatusStock) })
+                            VendorsPrimaryButton(
+                                label = STOCK_CONFIRM_CLOSE,
+                                enabled = !state.editInFlight,
+                                onClick = { onEvent(SaleDetailEvent.ConfirmStatusStock) },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
+                }
+            }
             items(count = state.sections.size, key = { "section_${state.sections[it].title}" }) { index ->
                 VendorsDetailSection(state.sections[index])
             }
@@ -298,3 +319,7 @@ private const val STEPS_OPEN = "Open the steps"
 private const val STEPS_PENDING = "Steps will appear once the sale is synced."
 private const val STEPS_OFFLINE = "Waiting for network to read the steps."
 private const val TAGGED_NONE = "No animals tagged yet"
+// The feed store's question at the OTHER moment feed leaves it: closing a sale recorded earlier.
+private const val STOCK_CONFIRM_HINT = "Close it anyway only if the feed really did leave. If a load reached the farm and is not recorded yet, record that purchase instead."
+private const val STOCK_CONFIRM_CLOSE = "I checked the store — close it"
+private const val STOCK_CONFIRM_CANCEL = "Leave it"

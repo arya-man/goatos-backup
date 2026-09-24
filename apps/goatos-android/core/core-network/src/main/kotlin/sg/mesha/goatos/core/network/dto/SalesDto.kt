@@ -322,6 +322,13 @@ data class SalesDealPaymentWriteDto(
 @Serializable
 data class SalesDealStatusWriteDto(
     @SerialName("status") val status: String,
+    /**
+     * The desk having seen what the feed store holds and closed the sale anyway. Closing an
+     * expected sale is the moment its feed leaves the store, so it is weighed against today's
+     * balance exactly as recording one is, and answered the same way: refused once with
+     * `feed_stock_confirmation_required`, sent again with this true.
+     */
+    @SerialName("stock_shortfall_acknowledged") val stockShortfallAcknowledged: Boolean = false,
 )
 
 // ---------------------------------------------------------------------------------------------

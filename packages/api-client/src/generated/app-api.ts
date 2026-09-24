@@ -10730,6 +10730,8 @@ export interface components {
         SalesDealStatusWrite: {
             /** @enum {string} */
             status: "Deal Closed" | "Deal Failed" | "In Discussion" | "Advance Paid";
+            /** @description The desk having seen what the feed store holds and closed the sale anyway. Closing an expected sale is the moment its feed leaves the store, so it is weighed against today's balance exactly as recording one is: refused once with `feed_stock_confirmation_required` (422) naming both figures, and re-sent with this true it goes through. Only ever true because a person ticked it after being shown the balance. `Deal Failed`, `In Discussion` and `Advance Paid` take no feed and are never held up. */
+            stock_shortfall_acknowledged?: boolean;
         };
         SalesStatusOption: {
             key: string;
@@ -29559,6 +29561,15 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
+            /** @description Closing this sale takes more feed than the store's ledger holds. The envelope's `feed_stock_confirmation_required` code and its sentence name the balance and what the sale takes; re-send with `stock_shortfall_acknowledged` true to close it anyway. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
             500: components["responses"]["ServerError"];
         };
     };

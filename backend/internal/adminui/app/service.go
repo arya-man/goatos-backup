@@ -5271,9 +5271,13 @@ func pageSpecificCopy(id string) map[string]string {
 			// beneath this line: the desk is being asked whether the purchase ledger is behind,
 			// and cannot answer that without seeing what the ledger says.
 			"action.sale_feed_stock_confirm": "This sale takes more feed than the store shows.",
-			"field.stock_shortfall_ack":      "I checked the store — record it anyway",
-			"hint.stock_shortfall_ack":       "Tick this only if the feed really did leave. If a load reached the farm and is not recorded yet, record that purchase instead.",
-			"action.error_form":              "Could not complete that action.",
+			// The SAME question at the other moment feed leaves the store: closing an expected
+			// sale is when its kilograms are actually taken, and the store may have moved since
+			// the sale was recorded.
+			"action.deal_status_feed_stock_confirm": "Closing this sale takes more feed than the store shows.",
+			"field.stock_shortfall_ack":             "I checked the store — record it anyway",
+			"hint.stock_shortfall_ack":              "Tick this only if the feed really did leave. If a load reached the farm and is not recorded yet, record that purchase instead.",
+			"action.error_form":                     "Could not complete that action.",
 
 			// Load/permission states.
 			"error.load":     "Could not load the sales board. Refresh to try again.",

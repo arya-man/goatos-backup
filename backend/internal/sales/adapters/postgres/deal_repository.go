@@ -15,6 +15,18 @@ import (
 	"github.com/vgoats/goatos/backend/internal/sales/ports"
 )
 
+// completedDealForKeySQL answers "has this exact request already been recorded?" without writing
+// anything. It exists because a REPLAY must be settled before the sale is weighed against the feed
+// store: the first send commits and takes its kilograms off, the response is lost, and the phone
+// re-sends the same key -- at which point the store is genuinely short by the amount this very
+// sale removed, so the stock check refused a sale that had already happened. The phone read that
+// refusal as the short-stock question, minted a fresh key to answer it, and recorded the sale a
+// SECOND time: one sale the operator made once became two deals and twice the depletion.
+const completedDealForKeySQL = `
+SELECT COALESCE(result_id::text, '')
+FROM public.idempotency_keys
+WHERE idempotency_key = $1 AND status = 'completed' AND result_type = 'sales_deal'`
+
 // idemScopeDealCreate namespaces the record-sale idempotency keys.
 const idemScopeDealCreate = "sales.deal.create"
 
@@ -263,6 +275,68 @@ func attachDealLineRows(rows pgx.Rows, deals []domain.Deal, index map[string]int
 		return fmt.Errorf("%s rows: %w", label, err)
 	}
 	return nil
+}
+
+// feedDemandForDealSQL sums a recorded deal's feed lines per feed, keeping the order the farm
+// typed them in so the sentence the desk reads names the row they would look at first.
+//
+// projection-review: membership=public.sales_deal_lines rows of one deal, unique on
+// (tenant_id, line_id); group_key=(d.farm, l.breed) -- many LINES to one FEED by design, which is
+// the fix itself, because asking each line on its own let two lots of one feed through a store
+// neither exceeded alone; join_cardinality=sales_deals joined 1:1 on its primary key
+// (tenant_id, id), so the LEFT JOIN multiplies nothing and a deal with no feed line still returns
+// its farm; pagination=none, one deal is read whole and the caller compares the total per feed
+// against the store, never a page of it; scope=the deal's own (tenant_id, id) and the farm the
+// deal itself carries, never a park inferred from the lines. No ratio or cap is computed here.
+const feedDemandForDealSQL = `
+SELECT d.farm,
+       COALESCE(l.breed, ''),
+       COALESCE(SUM(l.quantity), 0)::float8,
+       MIN(l.line_no)
+FROM public.sales_deals d
+LEFT JOIN public.sales_deal_lines l
+       ON l.tenant_id = d.tenant_id AND l.deal_id = d.id AND l.product_kind = $3
+WHERE d.tenant_id = $1 AND d.id = $2
+GROUP BY d.farm, l.breed
+ORDER BY MIN(l.line_no) NULLS FIRST`
+
+// FeedDemandForDeal reads what a recorded deal's feed lines take off the store.
+func (r *Repository) FeedDemandForDeal(ctx context.Context, tenantID, dealID string) (string, []domain.FeedDemand, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	rows, err := r.pool.Query(ctx, feedDemandForDealSQL, tenantID, dealID, domain.KindFeed)
+	if err != nil {
+		return "", nil, fmt.Errorf("sales: read deal feed demand: %w", err)
+	}
+	defer rows.Close()
+
+	farm := ""
+	demand := []domain.FeedDemand{}
+	for rows.Next() {
+		var feed string
+		var kg float64
+		// NULL for a deal with no feed line at all -- the LEFT JOIN still returns its farm row.
+		var lineNo *int
+		if err := rows.Scan(&farm, &feed, &kg, &lineNo); err != nil {
+			return "", nil, fmt.Errorf("sales: scan deal feed demand: %w", err)
+		}
+		if feed == "" {
+			continue
+		}
+		d := domain.FeedDemand{FeedItem: feed, Kg: kg}
+		if lineNo != nil {
+			d.LineNo = *lineNo
+		}
+		demand = append(demand, d)
+	}
+	if err := rows.Err(); err != nil {
+		return "", nil, fmt.Errorf("sales: read deal feed demand: %w", err)
+	}
+	if farm == "" {
+		return "", nil, ports.ErrDealNotFound
+	}
+	return farm, demand, nil
 }
 
 // SetDealStatus sets a deal's lifecycle status directly -- the edit that closes an expected sale
@@ -965,4 +1039,32 @@ func fpLines(lines []domain.DealLineWrite) string {
 		}, "|"))
 	}
 	return strings.Join(parts, ";")
+}
+
+// CompletedDealForIdempotencyKey implements ports.SalesRepository: the deal a finished write with
+// this key already produced, if there is one. Read-only and outside any transaction -- it decides
+// only whether the caller is looking at a replay; CreateDeal still owns the reservation, the
+// fingerprint check and the race between two first sends.
+func (r *Repository) CompletedDealForIdempotencyKey(ctx context.Context, tenantID, idempotencyKey string) (domain.Deal, bool, error) {
+	key := strings.TrimSpace(idempotencyKey)
+	if key == "" {
+		return domain.Deal{}, false, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	var dealID string
+	err := r.pool.QueryRow(ctx, completedDealForKeySQL, idemScopedKey(tenantID, idemScopeDealCreate, key)).Scan(&dealID)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		return domain.Deal{}, false, nil
+	case err != nil:
+		return domain.Deal{}, false, fmt.Errorf("sales: read completed deal for idempotency key: %w", err)
+	case dealID == "":
+		return domain.Deal{}, false, nil
+	}
+	deal, err := r.getDeal(ctx, tenantID, dealID)
+	if err != nil {
+		return domain.Deal{}, false, err
+	}
+	return deal, true, nil
 }

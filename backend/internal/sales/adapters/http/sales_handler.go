@@ -35,7 +35,7 @@ type SalesService interface {
 	RecordDealPayment(ctx context.Context, tenantID, dealID string, write domain.DealPaymentWrite, actorID, idempotencyKey string) (domain.Deal, error)
 	UpdateDealPayment(ctx context.Context, tenantID, dealID, paymentID string, write domain.DealPaymentWrite, actorID, idempotencyKey string) (domain.Deal, error)
 	DeleteDealPayment(ctx context.Context, tenantID, dealID, paymentID string, actorID, idempotencyKey string) (domain.Deal, error)
-	SetDealStatus(ctx context.Context, tenantID, dealID, status, actorID string) (domain.Deal, error)
+	SetDealStatus(ctx context.Context, tenantID, dealID, status string, stockShortfallAcknowledged bool, actorID string) (domain.Deal, error)
 	ListBuyerLeads(ctx context.Context, tenantID string, q app.LeadListQuery) (ports.BuyerLeadPage, error)
 	CreateBuyerLead(ctx context.Context, tenantID string, write domain.BuyerLeadWrite, actorID, idempotencyKey string) (domain.BuyerLead, error)
 	SetBuyerLeadStatus(ctx context.Context, tenantID, leadID string, write domain.LeadStatusWrite, actorID, idempotencyKey string) (domain.BuyerLead, error)
@@ -298,7 +298,7 @@ func (h *SalesHandler) SetDealStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	updated, err := h.service.SetDealStatus(r.Context(), tenantID(r), r.PathValue("deal_id"),
-		body.Status, httpmiddleware.ActorIDFromContext(r.Context()))
+		body.Status, body.StockShortfallAcknowledged, httpmiddleware.ActorIDFromContext(r.Context()))
 	if err != nil {
 		h.writeErr(w, r, app.SalesHTTPError(err))
 		return

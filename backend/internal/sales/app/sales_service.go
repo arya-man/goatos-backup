@@ -97,10 +97,22 @@ func (s *SalesService) CreateDeal(ctx context.Context, tenantID string, write do
 	if err := normalized.Validate(catalog); err != nil {
 		return domain.Deal{}, err
 	}
+	// A REPLAY IS ANSWERED BEFORE THE STORE IS ASKED. The first send commits and takes its
+	// kilograms off; if its response is lost, the phone re-sends the same key and the store is
+	// now short by exactly what THIS sale removed -- so asking the store first refused a sale that
+	// had already happened. The phone read that refusal as the short-stock question, minted a
+	// fresh key to answer it, and recorded the sale again: one sale, two deals, twice the
+	// depletion. Settling the replay here returns the deal that already exists.
+	key := strings.TrimSpace(idempotencyKey)
+	if existing, found, err := s.repo.CompletedDealForIdempotencyKey(ctx, tenantID, key); err != nil {
+		return domain.Deal{}, err
+	} else if found {
+		return existing, nil
+	}
 	if err := s.confirmFeedStock(ctx, tenantID, normalized); err != nil {
 		return domain.Deal{}, err
 	}
-	return s.repo.CreateDeal(ctx, tenantID, normalized, actorID, strings.TrimSpace(idempotencyKey))
+	return s.repo.CreateDeal(ctx, tenantID, normalized, actorID, key)
 }
 
 // ErrNothingSellable is returned when a tenant's registry carries no active product. A sale is
@@ -148,49 +160,34 @@ func (s *SalesService) SellableProducts(ctx context.Context, tenantID string) ([
 // "The ledger has never heard of this feed" is a different fact from "the ledger says you have
 // none left", and warning on the first would teach the desk to tick past the second.
 func (s *SalesService) confirmFeedStock(ctx context.Context, tenantID string, write domain.DealWrite) error {
-	if s.feedStock == nil || write.StockShortfallAcknowledged {
+	if write.StockShortfallAcknowledged {
 		return nil
 	}
-	// THE SALE IS WEIGHED AGAINST THE STORE ONCE PER FEED, not once per line. One sale may carry
-	// the same feed twice -- two lots at two rates is an ordinary way to write a load -- and asking
-	// each line on its own let two 9,000 kg lines through a 13,790 kg store because neither
-	// exceeded it alone. The store went to -4,289.9 kg with nobody warned, which is exactly what
-	// the confirmation exists to prevent. The lines are summed per feed first, so the question
-	// asked is the one the store will actually answer: does it hold what this SALE takes.
-	//
-	// The order the farm typed is kept: a feed is reported at the first line that names it, so the
-	// sentence the desk reads names the line they would look at first.
-	type feedDemand struct {
-		firstLine int
-		kg        float64
-	}
-	demand := map[string]*feedDemand{}
-	order := []string{}
-	for i, l := range write.Lines {
-		if l.Kind() != domain.KindFeed {
-			continue
-		}
-		d, seen := demand[l.Breed]
-		if !seen {
-			d = &feedDemand{firstLine: i + 1}
-			demand[l.Breed] = d
-			order = append(order, l.Breed)
-		}
-		d.kg += l.QuantityKg()
+	return s.weighAgainstTheStore(ctx, tenantID, write.Farm, domain.AggregateFeedDemand(write.Lines))
+}
+
+// weighAgainstTheStore asks the store, once per feed, whether it holds what is about to leave it.
+//
+// Both moments that take feed off the store come through here -- recording a sale, and CLOSING an
+// expected one, which is when a sale recorded as in-discussion finally depletes. Closing used to
+// skip the question entirely: a sale recorded in March against a full store closed in June against
+// an empty one, and the kilograms came off with nobody told.
+func (s *SalesService) weighAgainstTheStore(ctx context.Context, tenantID, farm string, demand []domain.FeedDemand) error {
+	if s.feedStock == nil || len(demand) == 0 {
+		return nil
 	}
 	short := []domain.FeedStockShortfall{}
-	for _, feed := range order {
-		d := demand[feed]
-		balance, known, err := s.feedStock.FeedBalanceKg(ctx, tenantID, write.Farm, feed)
+	for _, d := range demand {
+		balance, known, err := s.feedStock.FeedBalanceKg(ctx, tenantID, farm, d.FeedItem)
 		if err != nil {
 			return err
 		}
-		if !known || balance >= d.kg {
+		if !known || balance >= d.Kg {
 			continue
 		}
 		short = append(short, domain.FeedStockShortfall{
-			LineNo: d.firstLine, FeedItem: feed, FarmLabel: write.Farm,
-			RequestedKg: d.kg, BalanceKg: balance,
+			LineNo: d.LineNo, FeedItem: d.FeedItem, FarmLabel: farm,
+			RequestedKg: d.Kg, BalanceKg: balance,
 		})
 	}
 	if len(short) == 0 {
@@ -236,7 +233,7 @@ func (s *SalesService) DeleteSellableProduct(ctx context.Context, tenantID, code
 // SetDealStatus sets a deal's lifecycle status -- the edit that closes an expected sale on the
 // day the animals actually leave. The vocabulary is closed; an unrecognised word is rejected,
 // never rewritten to a default.
-func (s *SalesService) SetDealStatus(ctx context.Context, tenantID, dealID, status, actorID string) (domain.Deal, error) {
+func (s *SalesService) SetDealStatus(ctx context.Context, tenantID, dealID, status string, stockShortfallAcknowledged bool, actorID string) (domain.Deal, error) {
 	if strings.TrimSpace(dealID) == "" {
 		return domain.Deal{}, ports.ErrDealNotFound
 	}
@@ -250,6 +247,20 @@ func (s *SalesService) SetDealStatus(ctx context.Context, tenantID, dealID, stat
 	}
 	if canonical == "" {
 		return domain.Deal{}, domain.ErrDealValidation{Field: "status", Reason: "must be Deal Closed, Deal Failed, In Discussion or Advance Paid"}
+	}
+	// CLOSING IS WHEN AN EXPECTED SALE TAKES ITS FEED. The depletion ledger is written only for a
+	// closed deal, so a sale recorded as in-discussion leaves the store untouched until this
+	// moment -- and by this moment the store has moved. The same question the record asked is
+	// asked again here, against today's balance, and answered the same way: shown once, and
+	// re-sent with the acknowledgement by a desk that has checked.
+	if canonical == domain.StatusDealClosed && !stockShortfallAcknowledged {
+		farm, demand, err := s.repo.FeedDemandForDeal(ctx, tenantID, dealID)
+		if err != nil {
+			return domain.Deal{}, err
+		}
+		if err := s.weighAgainstTheStore(ctx, tenantID, farm, demand); err != nil {
+			return domain.Deal{}, err
+		}
 	}
 	return s.repo.SetDealStatus(ctx, tenantID, dealID, canonical, actorID)
 }
