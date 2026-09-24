@@ -6,6 +6,10 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import sg.mesha.goatos.core.common.AppResult
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
@@ -48,11 +52,32 @@ class SyncStatusViewModel @Inject constructor(
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), false)
 
+    private val confirming = MutableStateFlow<Set<String>>(emptySet())
+    val confirmingSales = confirming.asStateFlow()
+    private val confirmationError = MutableStateFlow<String?>(null)
+    val stockConfirmationError = confirmationError.asStateFlow()
+
+    fun confirmSalesStock(itemId: String) {
+        if (itemId in confirming.value) return
+        confirming.update { it + itemId }
+        confirmationError.value = null
+        viewModelScope.launch {
+            try {
+                when (val result = syncRepository.confirmSalesStock(itemId)) {
+                    is AppResult.Ok -> Unit
+                    is AppResult.Err -> confirmationError.value = result.message
+                }
+            } finally {
+                confirming.update { it - itemId }
+            }
+        }
+    }
+
     /** Re-arms every FAILED / dead-letter row (same key, fresh budget) and kicks a drain. */
     fun retryAll() {
         viewModelScope.launch {
             status.value.items
-                .filter { it.status == SyncItemStatus.FAILED }
+                .filter { it.status == SyncItemStatus.FAILED && !it.needsSalesStockConfirmation }
                 .forEach { syncRepository.retry(it.id) }
             syncRepository.triggerDrain()
         }

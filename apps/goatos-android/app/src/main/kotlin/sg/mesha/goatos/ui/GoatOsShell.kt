@@ -216,6 +216,8 @@ fun GoatOsShell(navState: NavState) {
     val clockStatusVm: ClockStatusViewModel = hiltViewModel()
     val clockBanner by clockStatusVm.banner.collectAsStateWithLifecycle()
     val syncStatus by syncVm.status.collectAsStateWithLifecycle()
+    val confirmingSales by syncVm.confirmingSales.collectAsStateWithLifecycle()
+    val stockConfirmationError by syncVm.stockConfirmationError.collectAsStateWithLifecycle()
     var showSyncSheet by remember { mutableStateOf(false) }
 
     // Drawer identity + settings actions (mock `ovl-drawer`). ProfileViewModel already resolves
@@ -430,6 +432,9 @@ fun GoatOsShell(navState: NavState) {
             failedCount = syncStatus.failedCount,
             queue = syncStatus.items,
             onRetryAll = syncVm::retryAll,
+            onConfirmSalesStock = syncVm::confirmSalesStock,
+            confirmingSales = confirmingSales,
+            stockConfirmationError = stockConfirmationError,
             onDismiss = { showSyncSheet = false },
         )
     }

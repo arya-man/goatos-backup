@@ -347,6 +347,17 @@ interface OutboxDao {
     )
     suspend fun markRetryReady(id: String, now: Long): Int
 
+    /** Confirm the saved sale, without creating another write or overwriting a concurrent retry. */
+    @Query(
+        "UPDATE outbox SET status = 'QUEUED', attemptCount = 0, conflict = 0, " +
+            "lastError = NULL, lastErrorCode = NULL, lastErrorField = NULL, " +
+            "nextAttemptAt = :now, updatedAt = :now, payloadJson = :payloadJson, requestFingerprint = :fingerprint " +
+            "WHERE id = :id AND status = 'FAILED' AND conflict = 1 " +
+            "AND lastErrorCode = 'feed_stock_confirmation_required' AND payloadJson = :expectedPayload " +
+            "AND opType IN ('SALES_DEAL_CREATE', 'SALES_DEAL_STATUS_SET')",
+    )
+    suspend fun confirmSalesStock(id: String, expectedPayload: String, payloadJson: String, fingerprint: String, now: Long): Int
+
     /**
      * Re-opens a row that reached a TERMINAL failure (dead-letter conflict OR attempt-exhausted)
      * for a brand-new user-initiated submit under the SAME [OutboxEntity.idempotencyKey] — the

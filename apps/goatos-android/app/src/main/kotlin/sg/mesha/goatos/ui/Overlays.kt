@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.LaunchedEffect
@@ -282,6 +283,7 @@ private data class SyncItem(
     val backendDetail: String?,
     val attemptCount: Int,
     val maxAttempts: Int,
+    val needsSalesStockConfirmation: Boolean,
 )
 
 /**
@@ -301,6 +303,9 @@ fun SyncSheet(
     failedCount: Int = 0,
     queue: List<SyncQueueItem> = emptyList(),
     onRetryAll: () -> Unit = {},
+    onConfirmSalesStock: (String) -> Unit = {},
+    confirmingSales: Set<String> = emptySet(),
+    stockConfirmationError: String? = null,
     onDismiss: () -> Unit,
 ) {
     val syncing = syncingCount
@@ -346,19 +351,24 @@ fun SyncSheet(
                 )
             }
         }
+        stockConfirmationError?.let {
+            Text(it, color = OverlayTokens.danger, modifier = Modifier.padding(horizontal = 20.dp))
+        }
         Spacer(Modifier.height(6.dp))
         LazyColumn(
             Modifier.fillMaxWidth().heightIn(max = 340.dp),
             contentPadding = PaddingValues(horizontal = 20.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            items(items, key = { it.id }) { item -> SyncRow(item) }
+            items(items, key = { it.id }) { item ->
+                SyncRow(item, item.id in confirmingSales) { onConfirmSalesStock(item.id) }
+            }
         }
     }
 }
 
 @Composable
-private fun SyncRow(item: SyncItem) {
+private fun SyncRow(item: SyncItem, confirming: Boolean, onConfirmSalesStock: () -> Unit) {
     val (glyph, fg, bg, labelRes) = when (item.state) {
         SyncItemState.SYNCED -> SyncVisual("✓", OverlayTokens.ok, OverlayTokens.okX, DesignSystemR.string.sync_state_synced)
         SyncItemState.QUEUED -> SyncVisual("◷", OverlayTokens.muted, OverlayTokens.surf3, DesignSystemR.string.sync_state_queued)
@@ -368,6 +378,8 @@ private fun SyncRow(item: SyncItem) {
     }
     val label = stringResource(labelRes)
     val opLabel = when (item.opType) {
+        "SALES_DEAL_CREATE" -> stringResource(DesignSystemR.string.sync_optype_sale)
+        "SALES_DEAL_STATUS_SET" -> stringResource(DesignSystemR.string.sync_optype_sale_status)
         "SHED_SUBMIT" -> stringResource(DesignSystemR.string.sync_optype_shed)
         "PROOF_UPLOAD" -> stringResource(DesignSystemR.string.sync_optype_proof)
         "RESCHEDULE" -> stringResource(DesignSystemR.string.sync_optype_reschedule)
@@ -389,8 +401,13 @@ private fun SyncRow(item: SyncItem) {
                 Text(glyph, color = fg, fontSize = 15.sp, fontWeight = FontWeight.W800)
             }
             Column(Modifier.weight(1f)) {
-                Text("${item.shed} · $opLabel", color = OverlayTokens.ink, fontSize = 13.sp, fontWeight = FontWeight.W700)
+                Text(if (item.opType.startsWith("SALES_DEAL_")) opLabel else "${item.shed} · $opLabel", color = OverlayTokens.ink, fontSize = 13.sp, fontWeight = FontWeight.W700)
                 Text(detail, color = OverlayTokens.muted, fontSize = 11.5.sp)
+                if (item.needsSalesStockConfirmation) {
+                    TextButton(onClick = onConfirmSalesStock, enabled = !confirming) {
+                        Text(stringResource(DesignSystemR.string.sync_confirm_sale_stock))
+                    }
+                }
                 if (showBar) {
                     Spacer(Modifier.height(6.dp))
                     OverlayBar((item.progress * 100).toInt(), fg)
@@ -426,6 +443,7 @@ private fun SyncQueueItem.toSyncItem(): SyncItem {
         backendDetail = lastError,
         attemptCount = attemptCount,
         maxAttempts = maxAttempts,
+        needsSalesStockConfirmation = needsSalesStockConfirmation,
     )
 }
 

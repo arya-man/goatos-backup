@@ -62,6 +62,23 @@ class OutboxExhaustedAndObserveByIdTest {
     )
 
     @Test
+    fun `sale confirmation atomically preserves identity and refuses stale or unrelated rows`() = runTest {
+        val saved = row("sale", OutboxStatus.FAILED, conflict = true).copy(
+            opType = "SALES_DEAL_CREATE", payloadJson = "original", lastErrorCode = "feed_stock_confirmation_required")
+        dao.insert(saved)
+        org.junit.Assert.assertEquals(0, dao.confirmSalesStock("sale", "stale", "confirmed", "fp", 2L))
+        org.junit.Assert.assertEquals(1, dao.confirmSalesStock("sale", "original", "confirmed", "fp", 2L))
+        val updated = dao.observeById("sale").first()!!
+        org.junit.Assert.assertEquals(saved.idempotencyKey, updated.idempotencyKey)
+        org.junit.Assert.assertEquals("confirmed", updated.payloadJson)
+        org.junit.Assert.assertEquals("QUEUED", updated.status)
+        org.junit.Assert.assertNull(updated.lastErrorCode)
+        org.junit.Assert.assertEquals(0, dao.confirmSalesStock("sale", "confirmed", "again", "fp", 3L))
+        dao.insert(saved.copy(id = "other", idempotencyKey = "other", opType = "SHED_SUBMIT"))
+        org.junit.Assert.assertEquals(0, dao.confirmSalesStock("other", "original", "confirmed", "fp", 2L))
+    }
+
+    @Test
     fun `attempt-exhausted FAILED row leaves active and becomes a terminal`() = runTest {
         dao.insert(row("queued", OutboxStatus.QUEUED))
         dao.insert(row("exhausted", OutboxStatus.FAILED, attemptCount = 8, maxAttempts = 8, conflict = false))

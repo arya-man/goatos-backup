@@ -128,4 +128,7 @@
     <string name="push_msg_weighing_work_item_due_today">%1$s ನಲ್ಲಿ ತೂಕ ಇಂದು ಬಾಕಿ ಇದೆ.</string>
     <string name="push_msg_weighing_work_item_rolled_forward">%1$s ನಲ್ಲಿ ತೂಕವನ್ನು ಮುಂದಿನ ಕೆಲಸದ ದಿನಕ್ಕೆ ಮುಂದೂಡಲಾಗಿದೆ.</string>
     <string name="push_msg_weighing_work_item_delayed">%1$s ನಲ್ಲಿ ತೂಕ ವಿಳಂಬವಾಗುತ್ತಿದೆ. ದಯವಿಟ್ಟು ಬೇಗ ಮುಗಿಸಿ.</string>
+    <string name="sync_optype_sale">ಮಾರಾಟ ದಾಖಲಿಸಿ</string>
+    <string name="sync_optype_sale_status">ಮಾರಾಟದ ಸ್ಥಿತಿ ಬದಲಿಸಿ</string>
+    <string name="sync_confirm_sale_stock">ಪರಿಶೀಲಿಸಿದ್ದೇನೆ — ಈ ಮಾರಾಟ ದೃಢಪಡಿಸಿ</string>
 </resources>

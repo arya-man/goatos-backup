@@ -18,6 +18,8 @@ import sg.mesha.goatos.core.network.dto.ValidationIssueDto
 import sg.mesha.goatos.core.network.dto.ValidationReportDto
 import java.io.IOException
 import retrofit2.HttpException
+import retrofit2.Response
+import okhttp3.ResponseBody.Companion.toResponseBody
 
 /**
  * W-23: driving an outbox row to each of its states must EMIT the corresponding lifecycle signal.
@@ -190,7 +192,7 @@ class SyncEngineTelemetryTest {
         val store = FakeOutboxStore()
         store.insert(queuedShedSubmit(maxAttempts = 8))
         val api = ScriptedAppApi().apply {
-            submitAppTaskFn = { _, _, _ -> throw HttpException(403) }
+            submitAppTaskFn = { _, _, _ -> throw HttpException(Response.error<Unit>(403, "".toResponseBody(null))) }
         }
         val telemetry = RecordingTelemetry()
 

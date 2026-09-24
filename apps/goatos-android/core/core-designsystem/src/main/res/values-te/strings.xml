@@ -128,4 +128,7 @@
     <string name="push_msg_weighing_work_item_due_today">%1$s వద్ద బరువు ఈరోజు గడువు.</string>
     <string name="push_msg_weighing_work_item_rolled_forward">%1$s వద్ద బరువు తదుపరి పని దినానికి వాయిదా వేయబడింది.</string>
     <string name="push_msg_weighing_work_item_delayed">%1$s వద్ద బరువు ఆలస్యమవుతోంది. దయచేసి త్వరగా పూర్తి చేయండి.</string>
+    <string name="sync_optype_sale">అమ్మకాన్ని నమోదు చేయండి</string>
+    <string name="sync_optype_sale_status">అమ్మకం స్థితిని మార్చండి</string>
+    <string name="sync_confirm_sale_stock">నేను తనిఖీ చేశాను — ఈ అమ్మకాన్ని నిర్ధారించండి</string>
 </resources>
