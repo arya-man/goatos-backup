@@ -66,6 +66,17 @@ func TestPersistedRiskMatchesInMemoryClassification(t *testing.T) {
 	if _, err := svc.RecomputeRisk(ctx, hsiTenant); err != nil {
 		t.Fatalf("RecomputeRisk: %v", err)
 	}
+	stored, found, err := repo.LoadPenMedians(ctx, hsiTenant)
+	live, err2 := repo.ListLivePenMedians(ctx, hsiTenant, nil, nil, nil, nil, nil, nil)
+	if err != nil || err2 != nil || !found || len(stored) != len(live) {
+		t.Fatalf("persisted pen medians %d (found %v, err %v) vs live %d (err %v)", len(stored), found, err, len(live), err2)
+	}
+	for pen, m := range live {
+		p := stored[pen]
+		if fmt.Sprint(deref(p.MotionMedian), deref(p.TempMedian)) != fmt.Sprint(deref(m.MotionMedian), deref(m.TempMedian)) {
+			t.Fatalf("pen %s persisted %v/%v, live %v/%v", pen, deref(p.MotionMedian), deref(p.TempMedian), deref(m.MotionMedian), deref(m.TempMedian))
+		}
+	}
 	persisted := map[string]string{}
 	cursor := ""
 	for {
@@ -125,4 +136,11 @@ func TestPersistedRiskMatchesInMemoryClassification(t *testing.T) {
 	if changed, err := svc.RecomputeRisk(ctx, hsiTenant); err != nil || changed != 0 {
 		t.Fatalf("second pass changed %d rows (err %v), want 0", changed, err)
 	}
+}
+
+func deref(v *float64) any {
+	if v == nil {
+		return nil
+	}
+	return *v
 }

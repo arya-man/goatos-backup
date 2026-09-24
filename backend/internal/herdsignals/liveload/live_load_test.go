@@ -314,8 +314,20 @@ func seed(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tags, pens int)
 		 FROM generate_series(0, %d) g, generate_series(0, 23) h`, loadTenant, tags-1),
 		`ANALYZE`,
 	}
+	// Bulk synthetic seed: skip per-row triggers (goats carries audit/projection triggers that make
+	// a 50k-row INSERT take tens of minutes). Constraints on the seeded rows are still honoured
+	// by construction; this is a load harness, not a correctness fixture.
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Release()
+	if _, err := conn.Exec(ctx, "SET session_replication_role = replica"); err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Exec(context.Background(), "RESET session_replication_role") //nolint:errcheck
 	for _, s := range stmts {
-		if _, err := pool.Exec(ctx, s); err != nil {
+		if _, err := conn.Exec(ctx, s); err != nil {
 			t.Fatalf("seed: %v\n%s", err, s)
 		}
 	}

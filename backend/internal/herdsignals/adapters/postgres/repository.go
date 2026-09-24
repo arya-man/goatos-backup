@@ -881,7 +881,7 @@ func (r *Repository) ListTagsLatestKeyset(ctx context.Context, tenantID string, 
 func (r *Repository) LiveSummary(ctx context.Context, tenantID string, parkID, shedID, mappingState, pattern, riskState, q *string) (domain.Summary, error) {
 	summaryWhere, summaryArgs, argIndex := herdSignalsLiveFilter(tenantID, parkID, shedID, nil, nil, mappingState, pattern, q)
 	summaryWhere, summaryArgs, _ = withRiskFilter(summaryWhere, summaryArgs, argIndex, riskState)
-	return r.computeSummary(ctx, tagLocationJoin, summaryWhere, summaryArgs)
+	return r.computeSummary(ctx, summaryJoin(parkID, shedID, q), summaryWhere, summaryArgs)
 }
 
 // withRiskFilter appends the persisted risk_state predicate: "attention" = any classified risk,
@@ -925,12 +925,22 @@ func (r *Repository) ListTagsLatest(ctx context.Context, tenantID string, parkID
 	// never derived from the returned page (AGENTS.md operational read model contract rule 3).
 	summaryWhere, summaryArgs, _ := herdSignalsLiveFilter(tenantID, parkID, shedID, nil, nil, mappingState, pattern, q)
 
-	summary, err := r.computeSummary(ctx, tagLocationJoin, summaryWhere, summaryArgs)
+	summary, err := r.computeSummary(ctx, summaryJoin(parkID, shedID, q), summaryWhere, summaryArgs)
 	if err != nil {
 		return nil, domain.Summary{}, nil, err
 	}
 
 	return tags, summary, nextCursor, nil
+}
+
+// summaryJoin returns tagLocationJoin only when a filter reads the animal/pen columns
+// (park/shed/q): the counts themselves are all tag_latest columns, and the per-row LATERAL
+// identifier lookup is most of the aggregate's cost at 20k-50k tags.
+func summaryJoin(parkID, shedID, q *string) string {
+	if (parkID != nil && *parkID != "") || (shedID != nil && *shedID != "") || (q != nil && strings.TrimSpace(*q) != "") {
+		return tagLocationJoin
+	}
+	return ""
 }
 
 // computeSummary computes the whole-filter aggregate counts in a single bounded query.
