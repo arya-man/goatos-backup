@@ -121,6 +121,9 @@ func (l *Listener) apply(ctx context.Context, payload string) {
 		return
 	}
 	for _, c := range l.caches {
+		if !p.affects(c.Name()) {
+			continue
+		}
 		c.Evict(ctx, p.TenantID, p.ParkIDs...)
 	}
 }

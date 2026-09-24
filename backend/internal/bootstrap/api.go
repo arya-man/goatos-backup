@@ -942,8 +942,11 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// its rule config; every alert is derived per request from rows other modules froze --
 	// the feed sheet, the shifting register -- and the stock rule reuses the feed module's
 	// own low-stock read so the page, the Stock tab and the daily push agree.
+	// Per-tenant low-stock value for the alerts stock rule, evicted cross-instance on committed
+	// feed-stock writes (readcache.Listener below; migration 000416 triggers).
+	alertsReadCache := readcache.New(readcache.DefaultOptions("alerts"))
 	alertsRepo := alertspg.NewRepository(pool, cfg.Postgres.QueryTimeout)
-	alertsService := alertsapp.NewService(alertsRepo, alertsRepo, alertsRepo, alertspg.NewLowStockReader(feedDirectionRepo), alertsRepo, log).
+	alertsService := alertsapp.NewService(alertsRepo, alertsRepo, alertsRepo, alertspg.NewLowStockReader(feedDirectionRepo).WithCache(alertsReadCache), alertsRepo, log).
 		// Composed event alerts (maintainer request 2026-09-16): the farm adds "tell me when a
 		// birth / death / sale / shifting / feed purchase happens" from the drawer; the readers
 		// are per catalog kind over the owning module's tables.
@@ -1599,7 +1602,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	go herdSignalsService.RunRiskClassifier(liveNotifyCtx, herdSignalsRiskClassifierInterval)
 	// Cross-instance eviction feed on its own connection (not a pool slot), then a background,
 	// serial warm-up of the landing read every Weights/ADG visit blocks on.
-	readcache.NewListener(pool, log, analyticsReadCache).Start(liveNotifyCtx)
+	readcache.NewListener(pool, log, analyticsReadCache, alertsReadCache).Start(liveNotifyCtx)
 	analyticsReadCache.StartWarmup(liveNotifyCtx, log, 2*time.Second, 20*time.Second, weighingRepo.WarmLandingReads)
 	return &API{
 		Server: server,

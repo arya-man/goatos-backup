@@ -27,6 +27,24 @@ var _ Execer = (pgx.Tx)(nil)
 type evictPayload struct {
 	TenantID string   `json:"tenant_id"`
 	ParkIDs  []string `json:"park_ids,omitempty"`
+	// Caches, when set, names the caches (Options.Name) the write affects; every other cache
+	// keeps its entries. Empty means every cache, which is what NotifyTx sends. The vaccination
+	// write triggers (migration 000409) send ["vaccination"] so a dose record does not evict the
+	// weighing/growth analytics entries.
+	Caches []string `json:"caches,omitempty"`
+}
+
+// affects reports whether a payload applies to the named cache.
+func (p evictPayload) affects(cacheName string) bool {
+	if len(p.Caches) == 0 {
+		return true
+	}
+	for _, name := range p.Caches {
+		if strings.TrimSpace(name) == cacheName {
+			return true
+		}
+	}
+	return false
 }
 
 // NotifyTx queues a scoped eviction on tx. Call it inside the write transaction, then Evict
