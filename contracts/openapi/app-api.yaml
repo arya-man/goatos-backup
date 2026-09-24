@@ -142,6 +142,50 @@ paths:
                 $ref: '#/components/schemas/HerdSignalsLiveResponse'
         '401':
           description: Authentication required.
+  /herd-signals/live/stream:
+    get:
+      tags:
+        - Herd Signals
+      operationId: streamHerdSignalsLive
+      summary: Lightweight realtime tick stream for Herd Signals live refresh.
+      description: >-
+        Emits heartbeat-style `tick` server-sent events. The stream deliberately carries no row
+        snapshot; clients use ticks only to schedule a bounded refresh of GET /herd-signals/live
+        through the normal read path.
+      parameters:
+        - name: park_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: shed_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: movement_state
+          in: query
+          schema: { $ref: '#/components/schemas/HerdSignalMovementState' }
+        - name: live_state
+          in: query
+          schema: { $ref: '#/components/schemas/HerdSignalLiveStateFilter' }
+        - name: mapping_state
+          in: query
+          schema: { $ref: '#/components/schemas/HerdSignalMappingState' }
+        - name: pattern
+          in: query
+          schema: { $ref: '#/components/schemas/HerdSignalPatternFilter' }
+        - name: risk_state
+          in: query
+          schema: { $ref: '#/components/schemas/HerdSignalRiskFilter' }
+        - name: q
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: Server-sent tick stream. Each event is named `tick`.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        '401':
+          description: Authentication required.
   /herd-signals/tags/{tag_id}/timeline:
     get:
       tags:

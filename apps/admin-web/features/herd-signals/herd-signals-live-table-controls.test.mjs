@@ -122,6 +122,8 @@ test("Realtime movement KPI cards use backend live-state filters", () => {
   const openapi = read("../../../../contracts/openapi/app-api.yaml");
   assert.match(openapi, /name: live_state[\s\S]*HerdSignalLiveStateFilter/, "OpenAPI must publish the live_state query parameter");
   assert.match(openapi, /HerdSignalLiveStateFilter:[\s\S]*enum: \[moving_now, active_1m\]/, "OpenAPI must document realtime live_state values");
+  assert.match(openapi, /\/herd-signals\/live\/stream:[\s\S]*operationId: streamHerdSignalsLive/, "OpenAPI must publish the SSE stream route");
+  assert.match(openapi, /Server-sent tick stream[\s\S]*text\/event-stream:/, "OpenAPI must document the SSE response media type");
 
   const rowFilter = read("./herd-signals-row-filter.ts");
   assert.doesNotMatch(rowFilter, /kpi === "moving_now"/, "moving_now must not be a page-only residual filter");
