@@ -67,6 +67,9 @@ vaccination_generation_runs, GuardRejected alerting.
 - Prove repeated sweeper reconciliation cannot recreate the early row.
 - Make the authored `procurement_policy.purpose_plans` authoritative on every schedule path.
 - Canonical fattening rule: ET+TT + PPR, then Goat Pox for goats or Sheep Pox for sheep; exclude FMD, HS, Z1+Z3, and wrong-species pox.
+- Restore the operator execution contract for moved vaccination work: one card per business-day
+  shed/partition, and tapping that card opens the RFID scan roster even when the card combines
+  multiple assignment/task identities.
 
 ## Done
 
@@ -104,12 +107,22 @@ vaccination_generation_runs, GuardRejected alerting.
 
 ## Pending
 
-- Run final judges against the pushed complete-first-wave and fail-closed-anchor checkpoint.
+- Run the focused Android card-identity and route tests, then device E2E for the exact Amit
+  two-animal ET+TT shape before claiming the duplicate-card/scan-route fix complete.
+- Run final judges against the pushed complete-first-wave, fail-closed-anchor, and Android
+  execution checkpoint.
 - Keep the draft PR updated with each verified checkpoint.
 - Repair/read back STG after the durable guard is deployable; do not claim the DB repair durable before deployment.
 
 ## Verification
 
+- Android operator execution checkpoint: 48 focused ProdDebug tests passed across
+  `ExecutionRouteIdentityTest`, `ShedsExecutionIdentityTest`, and `ShedsViewModelTest`, including
+  two assignment rows collapsing to one two-animal card and routing to the shed/partition scan
+  roster without an arbitrary task identity.
+- Adjacent Android scan gates passed: complete `ScanViewModelTest` and
+  `ExecutionRepositoryPaginationTest` suites, including shed-wide, task-scoped, and
+  assignment-scoped Room/network roster isolation.
 - Current base SHA: `5448b81ea`
 - Focused tests: `go test ./internal/protocol/app ./internal/vaccination/app ./cmd/seed-vaccination-real ./internal/obligation/adapters/postgres ./internal/obligation/app ./migrations/postgres` passed.
 - Full tests: `go test ./internal/vaccination/... ./internal/obligation/... ./internal/protocol/... ./internal/vaccinationexecution/... ./cmd/seed-vaccination-real ./tests/e2e -count=1` passed.

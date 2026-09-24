@@ -74,12 +74,12 @@ class ShedsExecutionIdentityTest {
         )
         val secondDose = firstDose.copy(batchId = "batch-moved", sopTaskId = null)
 
-        assertEquals("shed:shed-yashoda-3|partition:3|assignment:assignment-current", firstDose.operatorDayCardId())
+        assertEquals("shed:shed-yashoda-3|partition:3", firstDose.operatorDayCardId())
         assertEquals(firstDose.operatorDayCardId(), secondDose.operatorDayCardId())
     }
 
     @Test
-    fun `operator day card identity separates assignments sharing one shed and partition`() {
+    fun `operator day card identity collapses assignments sharing one shed and partition`() {
         val first = VaccinationExecutionRowDto(
             shedId = "shed-yashoda-3",
             partitionLabel = "3",
@@ -87,7 +87,7 @@ class ShedsExecutionIdentityTest {
         )
         val second = first.copy(assignmentId = "assignment-b")
 
-        assertNotEquals(first.operatorDayCardId(), second.operatorDayCardId())
+        assertEquals(first.operatorDayCardId(), second.operatorDayCardId())
     }
 
     @Test

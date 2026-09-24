@@ -1409,7 +1409,6 @@ private fun shedIdFromTarget(target: String): String? {
 internal fun shedExecutionRoute(selected: ShedRow?, fallbackRoute: String): String = when {
     selected == null -> fallbackRoute
     selected.opensRecordOnly -> fallbackRoute
-    selected.taskId.isNullOrBlank() -> Routes.recordRoute(selected.shedId, selected.partitionLabel)
     else -> Routes.scanRoute(
         shedId = selected.shedId,
         driveId = selected.driveId,
