@@ -25,7 +25,19 @@ const (
 	maxIngestBodyBytes         = 2 << 20 // 2 MiB
 	maxIngestPacketsPerRequest = 2000
 	liveStreamHeartbeat        = 25 * time.Second
+	// liveStreamRecomputeInterval bounds live-stream recomputes to one per (tenant, query) per
+	// API instance per interval, however often ingest NOTIFYs.
+	liveStreamRecomputeInterval = 5 * time.Second
+	// herdSignalsReadTimeout bounds every herd-signals read. The deadline rides the request
+	// context into pgx, which on expiry sends a Postgres cancel request, so the statement is
+	// stopped server-side instead of running on after the client gave up.
+	herdSignalsReadTimeout = 5 * time.Second
 )
+
+// readContext derives the bounded context for a herd-signals read route.
+func readContext(r *http.Request) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(r.Context(), herdSignalsReadTimeout)
+}
 
 func tenantID(r *http.Request) string {
 	return httpmiddleware.TenantIDFromContext(r.Context())
@@ -62,71 +74,221 @@ type LiveNotificationSource interface {
 	Start(ctx context.Context, publish func(tenantID string), publishAll func())
 }
 
+// liveCacheInvalidator is implemented by the app service's per-instance live cohort cache.
+type liveCacheInvalidator interface {
+	InvalidateLive(tenantID string)
+	InvalidateAllLive()
+}
+
 // NewHandler creates a new herd signals HTTP handler.
 func NewHandler(service AppService, log ...*slog.Logger) *Handler {
 	l := slog.Default()
 	if len(log) > 0 && log[0] != nil {
 		l = log[0]
 	}
-	return &Handler{service: service, log: l, liveHub: newLiveStreamHub()}
+	return &Handler{service: service, log: l, liveHub: newLiveStreamHub(liveStreamRecomputeInterval, l)}
 }
 
 func (h *Handler) WithLiveNotifications(ctx context.Context, source LiveNotificationSource) *Handler {
-	if source != nil {
-		source.Start(ctx, h.liveHub.publish, h.liveHub.publishAll)
+	if source == nil {
+		return h
 	}
+	publish, publishAll := h.liveHub.publish, h.liveHub.publishAll
+	if inv, ok := h.service.(liveCacheInvalidator); ok {
+		publish = func(tenantID string) {
+			inv.InvalidateLive(tenantID)
+			h.liveHub.publish(tenantID)
+		}
+		publishAll = func() {
+			inv.InvalidateAllLive()
+			h.liveHub.publishAll()
+		}
+	}
+	source.Start(ctx, publish, publishAll)
 	return h
 }
 
+// liveStreamHub coalesces live-stream recomputes per (tenant, live query) key.
+//
+// The MQTT bridge ingests a batch about every 2s and every batch NOTIFYs. The hub used to fan
+// each NOTIFY out to every open stream and each stream re-ran the full ListLive read, so N viewers
+// meant N full reads every ~2s. Now all viewers with the same tenant + query share one feed; a
+// feed recomputes at most once per interval (leading edge: the first NOTIFY after a quiet period
+// computes immediately; trailing edge: NOTIFYs inside the window collapse into one recompute when
+// it closes), never runs two computes at once (single-flight), and broadcasts the one encoded
+// frame to every viewer on that feed.
 type liveStreamHub struct {
-	mu          sync.Mutex
-	subscribers map[string]map[chan struct{}]struct{}
+	mu       sync.Mutex
+	interval time.Duration
+	log      *slog.Logger
+	feeds    map[string]*liveFeed
+	byTenant map[string]map[*liveFeed]struct{}
 }
 
-func newLiveStreamHub() *liveStreamHub {
-	return &liveStreamHub{subscribers: make(map[string]map[chan struct{}]struct{})}
+type liveFeed struct {
+	key       string
+	tenantID  string
+	compute   func(ctx context.Context) []byte
+	subs      map[chan []byte]struct{}
+	lastRun   time.Time
+	lastFrame []byte
+	timer     *time.Timer
+	running   bool
+	pending   bool
+	closed    bool
 }
 
-func (h *liveStreamHub) subscribe(tenantID string) (<-chan struct{}, func()) {
-	ch := make(chan struct{}, 1)
-	h.mu.Lock()
-	if h.subscribers[tenantID] == nil {
-		h.subscribers[tenantID] = make(map[chan struct{}]struct{})
+func newLiveStreamHub(interval time.Duration, log *slog.Logger) *liveStreamHub {
+	if log == nil {
+		log = slog.Default()
 	}
-	h.subscribers[tenantID][ch] = struct{}{}
+	return &liveStreamHub{
+		interval: interval,
+		log:      log,
+		feeds:    make(map[string]*liveFeed),
+		byTenant: make(map[string]map[*liveFeed]struct{}),
+	}
+}
+
+// subscribe joins (or creates) the feed for key. compute is only used when the feed is created;
+// every later viewer of the same key shares it. The returned channel carries complete SSE frames.
+func (h *liveStreamHub) subscribe(tenantID, key string, compute func(ctx context.Context) []byte) (<-chan []byte, func()) {
+	ch := make(chan []byte, 1)
+	h.mu.Lock()
+	f := h.feeds[key]
+	if f == nil {
+		f = &liveFeed{key: key, tenantID: tenantID, compute: compute, subs: make(map[chan []byte]struct{})}
+		h.feeds[key] = f
+		if h.byTenant[tenantID] == nil {
+			h.byTenant[tenantID] = make(map[*liveFeed]struct{})
+		}
+		h.byTenant[tenantID][f] = struct{}{}
+	}
+	f.subs[ch] = struct{}{}
 	h.mu.Unlock()
 
 	return ch, func() {
 		h.mu.Lock()
-		delete(h.subscribers[tenantID], ch)
-		if len(h.subscribers[tenantID]) == 0 {
-			delete(h.subscribers, tenantID)
+		defer h.mu.Unlock()
+		delete(f.subs, ch)
+		if len(f.subs) > 0 {
+			return
 		}
-		h.mu.Unlock()
+		f.closed = true
+		if f.timer != nil {
+			f.timer.Stop()
+			f.timer = nil
+		}
+		if h.feeds[key] == f {
+			delete(h.feeds, key)
+		}
+		delete(h.byTenant[tenantID], f)
+		if len(h.byTenant[tenantID]) == 0 {
+			delete(h.byTenant, tenantID)
+		}
 	}
+}
+
+// recentFrame returns the feed's last broadcast frame when it is younger than the coalescing
+// interval, so a viewer joining a busy feed does not add its own full read.
+func (h *liveStreamHub) recentFrame(key string) []byte {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	f := h.feeds[key]
+	if f == nil || f.lastFrame == nil || time.Since(f.lastRun) >= h.interval {
+		return nil
+	}
+	return f.lastFrame
 }
 
 func (h *liveStreamHub) publish(tenantID string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	for ch := range h.subscribers[tenantID] {
-		select {
-		case ch <- struct{}{}:
-		default:
-		}
+	for f := range h.byTenant[tenantID] {
+		h.triggerLocked(f)
 	}
 }
 
 func (h *liveStreamHub) publishAll() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	for _, subscribers := range h.subscribers {
-		for ch := range subscribers {
-			select {
-			case ch <- struct{}{}:
-			default:
-			}
+	for _, f := range h.feeds {
+		h.triggerLocked(f)
+	}
+}
+
+func (h *liveStreamHub) triggerLocked(f *liveFeed) {
+	if f.closed {
+		return
+	}
+	if f.running {
+		f.pending = true
+		return
+	}
+	if f.timer != nil {
+		return // trailing edge already scheduled; it will see this change
+	}
+	wait := h.interval - time.Since(f.lastRun)
+	if f.lastRun.IsZero() || wait <= 0 {
+		h.startLocked(f)
+		return
+	}
+	f.timer = time.AfterFunc(wait, func() {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		f.timer = nil
+		if f.closed {
+			return
 		}
+		if f.running {
+			f.pending = true
+			return
+		}
+		h.startLocked(f)
+	})
+}
+
+func (h *liveStreamHub) startLocked(f *liveFeed) {
+	f.running = true
+	f.lastRun = time.Now()
+	go h.runFeed(f)
+}
+
+func (h *liveStreamHub) runFeed(f *liveFeed) {
+	// Detached from any one viewer's request: the frame is shared by every viewer on the feed.
+	ctx, cancel := context.WithTimeout(domain.WithFreshLiveRead(context.Background()), herdSignalsReadTimeout)
+	frame := f.compute(ctx)
+	cancel()
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	f.running = false
+	if frame != nil && !f.closed {
+		f.lastFrame = frame
+		for ch := range f.subs {
+			deliverLatest(ch, frame)
+		}
+	}
+	if f.pending {
+		f.pending = false
+		h.triggerLocked(f)
+	}
+}
+
+// deliverLatest replaces an undelivered older frame: a slow viewer only ever needs the newest.
+func deliverLatest(ch chan []byte, frame []byte) {
+	select {
+	case ch <- frame:
+		return
+	default:
+	}
+	select {
+	case <-ch:
+	default:
+	}
+	select {
+	case ch <- frame:
+	default:
 	}
 }
 
@@ -212,7 +374,8 @@ func (h *Handler) IngestPackets(w http.ResponseWriter, r *http.Request) {
 
 // ListLive handles GET /herd-signals/live.
 func (h *Handler) ListLive(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
+	ctx, cancel := readContext(r)
+	defer cancel()
 
 	// Extract actor from context
 	actor := domain.Actor{
@@ -338,31 +501,39 @@ func (h *Handler) StreamLive(w http.ResponseWriter, r *http.Request) {
 
 	query := parseLiveQuery(r)
 	write := func(event string, payload interface{}) bool {
-		body, err := json.Marshal(payload)
-		if err != nil {
-			h.log.Warn("herd_signals_stream_marshal_failed", "error", err)
-			return true
-		}
-		if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, body); err != nil {
-			return false
-		}
-		if err := controller.Flush(); err != nil {
-			return false
-		}
-		return true
+		return writeFrame(w, controller, encodeEvent(h.log, event, payload))
+	}
+	listSnapshot := func(ctx context.Context) (domain.LiveResponse, error) {
+		return h.service.ListLive(ctx, actor, query.parkID, query.shedID, query.movementState, query.liveState, query.mappingState, query.pattern, query.riskState, query.q, query.cursor, query.limit, query.sort)
 	}
 	writeSnapshot := func() bool {
-		resp, err := h.service.ListLive(ctx, actor, query.parkID, query.shedID, query.movementState, query.liveState, query.mappingState, query.pattern, query.riskState, query.q, query.cursor, query.limit, query.sort)
+		readCtx, cancel := context.WithTimeout(ctx, herdSignalsReadTimeout)
+		defer cancel()
+		resp, err := listSnapshot(readCtx)
 		if err != nil {
 			h.log.Warn("herd_signals_stream_snapshot_failed", "error", err.Error())
 			return write("snapshot_error", map[string]interface{}{"code": "snapshot_failed", "message": "failed to list live tags"})
 		}
 		return write("snapshot", resp)
 	}
+	// The shared feed's compute: one read per coalescing window for every viewer of this key.
+	computeFrame := func(ctx context.Context) []byte {
+		resp, err := listSnapshot(ctx)
+		if err != nil {
+			h.log.Warn("herd_signals_stream_snapshot_failed", "error", err.Error())
+			return encodeEvent(h.log, "snapshot_error", map[string]interface{}{"code": "snapshot_failed", "message": "failed to list live tags"})
+		}
+		return encodeEvent(h.log, "snapshot", resp)
+	}
 
-	updates, unsubscribe := h.liveHub.subscribe(actor.TenantID)
+	key := actor.TenantID + "\x00" + r.URL.Query().Encode()
+	updates, unsubscribe := h.liveHub.subscribe(actor.TenantID, key, computeFrame)
 	defer unsubscribe()
-	if !writeSnapshot() {
+	if frame := h.liveHub.recentFrame(key); frame != nil {
+		if !writeFrame(w, controller, frame) {
+			return
+		}
+	} else if !writeSnapshot() {
 		return
 	}
 	heartbeat := time.NewTicker(liveStreamHeartbeat)
@@ -375,17 +546,37 @@ func (h *Handler) StreamLive(w http.ResponseWriter, r *http.Request) {
 			if !write("tick", map[string]interface{}{"at": time.Now().UTC().Format(time.RFC3339Nano)}) {
 				return
 			}
-		case <-updates:
-			if !writeSnapshot() {
+		case frame := <-updates:
+			if !writeFrame(w, controller, frame) {
 				return
 			}
 		}
 	}
 }
 
+func encodeEvent(log *slog.Logger, event string, payload interface{}) []byte {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		log.Warn("herd_signals_stream_marshal_failed", "error", err)
+		return nil
+	}
+	return []byte(fmt.Sprintf("event: %s\ndata: %s\n\n", event, body))
+}
+
+func writeFrame(w io.Writer, controller *http.ResponseController, frame []byte) bool {
+	if frame == nil {
+		return true
+	}
+	if _, err := w.Write(frame); err != nil {
+		return false
+	}
+	return controller.Flush() == nil
+}
+
 // GetTimeline handles GET /herd-signals/tags/{tag_id}/timeline.
 func (h *Handler) GetTimeline(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
+	ctx, cancel := readContext(r)
+	defer cancel()
 
 	// Extract actor from context
 	actor := domain.Actor{
@@ -450,7 +641,8 @@ func (h *Handler) GetTimeline(w http.ResponseWriter, r *http.Request) {
 
 // ListGateways handles GET /herd-signals/gateways.
 func (h *Handler) ListGateways(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
+	ctx, cancel := readContext(r)
+	defer cancel()
 
 	// Extract actor from context
 	actor := domain.Actor{
@@ -479,7 +671,8 @@ func (h *Handler) ListGateways(w http.ResponseWriter, r *http.Request) {
 
 // GetInsights handles GET /herd-signals/insights.
 func (h *Handler) GetInsights(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
+	ctx, cancel := readContext(r)
+	defer cancel()
 
 	actor := domain.Actor{
 		TenantID: tenantID(r),

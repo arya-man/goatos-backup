@@ -359,6 +359,8 @@ func TestStreamLiveSnapshotsCanBeTriggeredBySharedNotifications(t *testing.T) {
 	svc := &fakeService{liveResp: domain.LiveResponse{Summary: domain.Summary{TagsSeen: 19}}}
 	source := &fakeLiveNotificationSource{}
 	h := NewHandler(svc).WithLiveNotifications(context.Background(), source)
+	// Shrink the coalescing window so the trailing-edge recompute for publishAll lands in-test.
+	h.liveHub.interval = 100 * time.Millisecond
 	if source.publish == nil {
 		t.Fatalf("notification source was not started")
 	}

@@ -843,6 +843,43 @@ func herdSignalsLiveFilter(tenantID string, parkID, shedID, movementState, liveS
 	return whereClause, args, argIndex
 }
 
+// ListTagsLatestKeyset is ListTagsLatest without the whole-filter summary aggregate: one
+// keyset page plus its next cursor. GET /herd-signals/live serves the summary from its own
+// (cached) LiveSummary call so a page read never pays for the full aggregate.
+func (r *Repository) ListTagsLatestKeyset(ctx context.Context, tenantID string, parkID, shedID, movementState, liveState, mappingState, pattern, q *string, cursor string, limit int, sort ...domain.LiveSort) (
+	[]domain.TagLatest, *string, error,
+) {
+	// Fetch one extra row to detect whether another page exists. The row query itself lives in
+	// ListTagsLatestPage (export.go) so GET /herd-signals/export.csv walks the SAME filtered,
+	// keyset-ordered result this endpoint returns -- the export can never drift from the view.
+	tags, err := r.ListTagsLatestPage(ctx, tenantID, parkID, shedID, movementState, liveState, mappingState, pattern, q, cursor, limit+1, sort...)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var nextCursor *string
+	if len(tags) > limit {
+		tags = tags[:limit]
+		lastTag := tags[len(tags)-1]
+		spec := normalizeLiveSort(sort)
+		next := lastTag.TagID
+		if !spec.defaultKey {
+			next = liveCursorFromTag(lastTag, spec)
+		}
+		nextCursor = &next
+	}
+
+	return tags, nextCursor, nil
+}
+
+// LiveSummary is the whole-filter summary aggregate of GET /herd-signals/live: the SAME
+// park/shed/mapping_state/pattern/q filter, WITHOUT movement_state or live_state and without
+// cursor/limit, in one query (AGENTS.md operational read model contract rule 3).
+func (r *Repository) LiveSummary(ctx context.Context, tenantID string, parkID, shedID, mappingState, pattern, q *string) (domain.Summary, error) {
+	summaryWhere, summaryArgs, _ := herdSignalsLiveFilter(tenantID, parkID, shedID, nil, nil, mappingState, pattern, q)
+	return r.computeSummary(ctx, tagLocationJoin, summaryWhere, summaryArgs)
+}
+
 func (r *Repository) ListTagsLatest(ctx context.Context, tenantID string, parkID, shedID, movementState, liveState, mappingState, pattern, q *string, cursor string, limit int, sort ...domain.LiveSort) (
 	[]domain.TagLatest, domain.Summary, *string, error,
 ) {
