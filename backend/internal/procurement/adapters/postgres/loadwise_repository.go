@@ -56,6 +56,10 @@ import (
 // set-based statement over indexed tenant scans (procurement_load_goats_goat_state_idx, goats PK,
 // the goat_sale_allocations live-uniqueness index), and the row set served is LIMITed. Same shape
 // and reasoning as the sales overview read.
+//
+// The ninth CTE (remaining_mix, 2026-09-24) reads no new table: it regroups the rows the outcomes
+// CTE already built, so the statement's scans are the same as with eight.
+// scale-guard:ignore: god-cte -- one bounded, LIMITed, set-based reporting read (reasons above); remaining_mix regroups the outcomes CTE and adds no scan
 const loadwiseSalesSQL = `
 WITH member AS (
     SELECT DISTINCT ON (plg.goat_id)
