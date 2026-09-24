@@ -52,3 +52,17 @@ func TestPlanDelayAndSpecies(t *testing.T) {
 		t.Fatal("species second wave selection")
 	}
 }
+
+func TestSecondWaveUnknownSpeciesFailsClosed(t *testing.T) {
+	plan := Plan{FirstWave: StringList{"ET+TT"}, GoatSecondWave: StringList{"Goat Pox"}, SheepSecondWave: StringList{"Sheep Pox"}}
+	if got := plan.SecondWave("cattle"); got != nil {
+		t.Fatalf("unknown species second wave = %v, want none", got)
+	}
+	if got := plan.SecondWave(""); len(got) != 1 {
+		t.Fatalf("blank species should use the goat default, got %v", got)
+	}
+	d := Resolve(Policy{PurposePlans: map[string]Plan{"fattening": plan}}, "fattening", "cattle", "Goat Pox")
+	if d.Applicable {
+		t.Fatalf("goat pox must not apply to an unknown species: %+v", d)
+	}
+}
