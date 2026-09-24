@@ -143,11 +143,21 @@ Not the answer: per-tenant copies of tables/schemas (344× duplication and migra
 - One run per chat (lease): a second ask on a busy chat gets HTTP 409 `chat_busy` (logged as a `chat_busy` event).
 - Cost = SDK `total_cost_usd` per answer (tokens × list price incl. cache reads/writes), stored with the
   metric; monthly spend = sum since the 1st (UTC). It is an estimate; the GCP bill is authoritative.
-- GCP budgets only alert; RUNBOOK §3c adds a $100 Vertex budget alert as a backstop.
+- GCP budgets only alert; RUNBOOK §3c adds a $100 Vertex budget alert as a backstop (plus an Anthropic Console limit for the key).
 
 ## Claude access
 
-- `ASK_MESHA_CLAUDE_AUTH=vertex` (default on GCP): Claude Sonnet 5 / Opus 5.5 via Vertex AI with the
+- `ASK_MESHA_CLAUDE_AUTH=auto` (deploy default): the service carries both the Vertex env and the
+  Anthropic API key. `provider.mjs` probes Vertex (tiny `rawPredict`, metadata-server token; locally
+  `gcloud auth print-access-token` if installed) at startup and every 15 min while on the key, hourly once
+  on Vertex. Each question uses Vertex iff the last probe passed, else the key; a Vertex 429/403/404 before
+  any token is shown marks Vertex down and reruns that question once on the key. So STG runs on the key
+  now and moves to Vertex by itself when quota is approved — no redeploy. `provider` (`vertex` |
+  `anthropic`) is on every metric row and event, `/healthz` shows it, logs say `[provider] switched to …`.
+  The monthly cap is one cap across both. Force a provider with
+  `gcloud run services update … --update-env-vars=ASK_MESHA_CLAUDE_AUTH=vertex|api-key` (config change,
+  no build); after Vertex is live, switch to `vertex` and disable the key's secret version (RUNBOOK §3b).
+- `ASK_MESHA_CLAUDE_AUTH=vertex`: Claude Sonnet 5 / Opus 5.5 via Vertex AI with the
   runtime service account (`roles/aiplatform.user`), billed to GCP, no key. Model ids `claude-sonnet-5` /
   `claude-opus-5-5` verified GA on Vertex 2026-09-24 **only on the `global` endpoint** (not asia-south1/us-east5;
   `global` is not India-pinned). goatos-stg needs a Claude quota increase first (it returned 429) — RUNBOOK §3b.
@@ -187,3 +197,57 @@ Not the answer: per-tenant copies of tables/schemas (344× duplication and migra
 - Agent: `node tools/ask-mesha-agent/server.mjs` (port 8787). admin-web against live STG API with the flag:
   `tools/ask-mesha-agent/start-admin-web.sh prod` (port 3300; `prod` avoids 20–35 s dev compiles).
 - Visual check every UI change at 390×844 and 1440×900 (normal + maximized) before handing back.
+
+## Playbook: move Ask Mesha from the Anthropic key to Vertex (for Claude/Codex)
+
+Use when Ravi says "Vertex is approved, switch Ask Mesha". Project `goatos-stg`, service
+`goatos-ask-mesha-stg`, region `asia-south1`, secret `goatos-stg-ask-mesha-anthropic-api-key`.
+
+1. **Check Vertex really works** (expect HTTP 200, not 429/404):
+   ```bash
+   T=$(gcloud auth print-access-token); curl -s -o /dev/null -w "%{http_code}\n" -X POST -H "Authorization: Bearer $T" -H "x-goog-user-project: goatos-stg" -H "Content-Type: application/json" "https://aiplatform.googleapis.com/v1/projects/goatos-stg/locations/global/publishers/anthropic/models/claude-sonnet-5:rawPredict" -d '{"anthropic_version":"vertex-2023-10-16","max_tokens":5,"messages":[{"role":"user","content":"hi"}]}'
+   ```
+   Repeat with `claude-opus-5-5`. Both must be 200.
+2. **Auto mode usually switches by itself** within 15 min. Confirm: `curl <service-url>/healthz` (with an
+   ID token) shows `"provider":"vertex"`, or Cloud Logging has `[provider] switched to vertex`.
+3. **Pin it to Vertex** (config change, no build, ~30 s):
+   ```bash
+   gcloud run services update goatos-ask-mesha-stg --project=goatos-stg --region=asia-south1 --update-env-vars=ASK_MESHA_CLAUDE_AUTH=vertex
+   ```
+4. **Make future builds use Vertex:** trigger Cloud Build with `_ASK_MESHA_CLAUDE_AUTH=vertex` (or change the
+   default in `cloudbuild.stg.yaml` via a PR landed with `make land-main`). Do this BEFORE step 5, or the
+   next deploy's preflight fails on a disabled key.
+5. **Retire the key:** `gcloud secrets versions disable 1 --secret=goatos-stg-ask-mesha-anthropic-api-key --project=goatos-stg`,
+   then ask Ravi to revoke the key in console.anthropic.com (never do Console actions yourself).
+6. **Verify:** ask one question in the panel; the metric/event row shows `provider: vertex`; spend keeps
+   counting under the same $100 cap.
+
+Rollback (Vertex failing): `--update-env-vars=ASK_MESHA_CLAUDE_AUTH=auto` (needs an enabled key version) or `=api-key`.
+Never store the key in the repo, env files or logs; it lives only in Secret Manager.
+
+## Code snapshot in the image (what the chat can read)
+
+- The deploy copies the repo at the exact deployed main SHA into the image at `/repo`, read-only
+  (`chmod a-w`). No `.git`, no git/GitHub credentials, no `node_modules`, no build output, no secrets
+  (`.env*`, keys, service-account JSON, `.pgenv`, `.npmrc`, tfstate). See
+  `tools/ask-mesha-agent/Dockerfile.dockerignore`.
+- Also excluded (size, and raw data the chat must not treat as truth): `docs/runbooks/evidence`,
+  `docs/prototypes/config-sop-studio/research`, any `artifacts/` folder, `fixtures/`, the Android
+  screenshot gallery, `tools/dashboard-automation/commit-classification`, and binary/media files
+  (docx, pdf, png, jpg, webp, gif, mp4, apk, aab, ipa). Snapshot ~35 MB (was ~77 MB); image ~450–550 MB.
+- Checked 2026-09-24: every file the agent read in local testing was under `backend/internal/*` or
+  `backend/migrations` — nothing in the excluded set. If you exclude more, re-check the same way
+  (tally Read/Grep paths from the agent's session transcripts) so answers don't lose sources.
+- Why this design: each deploy = one commit, rollback also rolls back what the chat knows, no
+  credentials on the server. The chat only knows deployed code, never unmerged branches.
+
+## Future: if goatos splits into microservices / Kubernetes
+
+1. Each service's CI uploads a source snapshot (same exclusions, no git) at its deployed SHA to a bucket,
+   e.g. `gs://<bucket>/code-snapshots/<service>/<sha>.tar.gz`.
+2. A manifest of live versions (`service -> sha`), updated by each deploy or read from image tags.
+3. The agent stops baking code into its image: at startup and on manifest change it downloads the
+   matching snapshots read-only into `/repo/<service>/` and searches them as one tree.
+4. Data: one read-only login per service DB, or (preferred) one read-only reporting replica/warehouse.
+5. Unchanged: read-only everywhere, no git credentials, deployed-code only, $100 cap, per-user events,
+   chat privacy. Estimate 1–2 days of work at split time.
