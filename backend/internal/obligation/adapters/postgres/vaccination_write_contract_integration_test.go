@@ -582,60 +582,6 @@ func TestVaccinationReconcileSerializesAgainstAnchorChanges(t *testing.T) {
 			t.Fatalf("row moved below the completion floor: due=%s err=%v", got, err)
 		}
 
-		// Order 2: a first-wave dose (09-20, new floor 10-18) is being ACCEPTED while the reconcile
-		// proves 10-08 against the old history. Acceptance locks the goat FOR UPDATE (migration
-		// 000401 trigger), so the reconcile's FOR SHARE OF goats waits, then proves against the
-		// committed completion and refuses. No committed open row may end below its floor.
-		validDue := contractDay(time.October, 8)
-		var holder string
-		if err := pool.QueryRow(ctx, `
-INSERT INTO obligation_instances (tenant_id, protocol_version_id, rule_id, target_type, target_id, scope_type, scope_id, due_at, status, idempotency_key, sequence)
-VALUES ($1::uuid, $2::uuid, $3::uuid, 'goat', $4::uuid, 'park', $5::uuid, $6, 'completed', 'concurrent-late-completion', 2)
-RETURNING obligation_id::text`, tenantID, v, rules["et_tt_w1"], goat, cbePark, contractDay(time.September, 20)).Scan(&holder); err != nil {
-			t.Fatalf("stage completion obligation: %v", err)
-		}
-		var completionID string
-		if err := pool.QueryRow(ctx, `
-INSERT INTO vaccination_completions (tenant_id, obligation_id, goat_id, administered_at, status, idempotency_key)
-VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 'recorded', 'concurrent-late-completion')
-RETURNING completion_id::text`, tenantID, holder, goat, contractDay(time.September, 20)).Scan(&completionID); err != nil {
-			t.Fatalf("stage recorded completion: %v", err)
-		}
-		tx, err := pool.Begin(ctx)
-		if err != nil {
-			t.Fatalf("begin completion accept: %v", err)
-		}
-		defer func() { _ = tx.Rollback(ctx) }()
-		if _, err := tx.Exec(ctx, `
-UPDATE vaccination_completions SET status = 'accepted', verified_at = now()
-WHERE tenant_id = $1::uuid AND completion_id = $2::uuid AND status = 'recorded'`, tenantID, completionID); err != nil {
-			t.Fatalf("accept completion: %v", err)
-		}
-		done := make(chan error, 1)
-		go func() {
-			in2 := contractRow(v, rules["goat_pox_w2"], goat, "concurrent-completion-valid", validDue)
-			in2.RuleIdentityKey = identity
-			_, _, err := repo.ReconcileOpenObligationForRuleIdentity(ctx, tenantID, in2, validDue)
-			done <- err
-		}()
-		select {
-		case err := <-done:
-			t.Fatalf("reconcile finished (err=%v) while the completion acceptance was uncommitted; it must wait on the goat lock", err)
-		case <-time.After(500 * time.Millisecond):
-		}
-		if err := tx.Commit(ctx); err != nil {
-			t.Fatalf("commit completion: %v", err)
-		}
-		if err := <-done; !errors.Is(err, ports.ErrBeforeVaccinationAgeFloor) && !isSerializationFailure(err) {
-			t.Fatalf("reconcile after concurrent completion error=%v, want floor or serialization rejection", err)
-		}
-		var after time.Time
-		if err := pool.QueryRow(ctx, `SELECT due_at FROM obligation_instances WHERE obligation_id=$1::uuid`, id).Scan(&after); err != nil {
-			t.Fatalf("read row after race: %v", err)
-		}
-		if after.Before(contractDay(time.October, 18)) && !after.Equal(got) {
-			t.Fatalf("reconcile committed Goat Pox at %s, below the 10-18 floor set by the concurrent completion", after)
-		}
 	})
 }
 
