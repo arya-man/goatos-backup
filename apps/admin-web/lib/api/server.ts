@@ -1431,12 +1431,15 @@ export async function getGrowthSalePrices(): Promise<ApiResult<GrowthSalePricesR
  * the page -- the Assumptions drawer shows them, and the pages that count "over N kg" take N from
  * here rather than from a constant.
  */
-export async function getGrowthAssumptions(): Promise<ApiResult<GrowthAssumptionsResponse>> {
+export async function getGrowthAssumptions(options: { includeStages?: boolean } = {}): Promise<ApiResult<GrowthAssumptionsResponse>> {
   const config = await getServerConfig();
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
-    client.request<GrowthAssumptionsResponse>("/growth-director/assumptions", { cache: "no-store" }),
+    client.request<GrowthAssumptionsResponse>("/growth-director/assumptions", {
+      cache: "no-store",
+      query: options.includeStages ? { include_stages: "1" } : undefined,
+    }),
   );
 }
 

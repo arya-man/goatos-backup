@@ -89,7 +89,7 @@ func TestPutAssumptionsRejectsSaleReadyLineInversionInsideTheTransaction(t *test
 	repo := NewRepository(pool, 30*time.Second)
 	today := time.Now()
 
-	assumptions, err := repo.GetAssumptions(ctx, gdTenant, today)
+	assumptions, err := repo.GetAssumptions(ctx, gdTenant, today, false)
 	if err != nil {
 		t.Fatalf("GetAssumptions: %v", err)
 	}
@@ -109,7 +109,7 @@ func TestPutAssumptionsRejectsSaleReadyLineInversionInsideTheTransaction(t *test
 	if !errors.Is(err, ports.ErrInvalidArgument) {
 		t.Fatalf("inverted sale lines must be refused in the repository transaction, got %v", err)
 	}
-	after, err := repo.GetAssumptions(ctx, gdTenant, today)
+	after, err := repo.GetAssumptions(ctx, gdTenant, today, false)
 	if err != nil {
 		t.Fatalf("GetAssumptions after rejected write: %v", err)
 	}

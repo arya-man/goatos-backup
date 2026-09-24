@@ -72,7 +72,9 @@ WHERE tenant_id = $1::uuid
 ORDER BY key`
 
 // GetAssumptions returns the prices effective on asOf plus every keyed figure the tenant holds.
-func (r *Repository) GetAssumptions(ctx context.Context, tenantID string, asOf time.Time) (domain.Assumptions, error) {
+// includeStages is reserved for the editor drawer; the stage discovery query walks all-time
+// weighing evidence and must not ride on the normal Weights/ADG page-load assumptions read.
+func (r *Repository) GetAssumptions(ctx context.Context, tenantID string, asOf time.Time, includeStages bool) (domain.Assumptions, error) {
 	prices, err := r.GetSalePrices(ctx, tenantID, asOf)
 	if err != nil {
 		return domain.Assumptions{}, err
@@ -82,6 +84,9 @@ func (r *Repository) GetAssumptions(ctx context.Context, tenantID string, asOf t
 	values, err := readAssumptionValues(ctx, r.pool, tenantID)
 	if err != nil {
 		return domain.Assumptions{}, err
+	}
+	if !includeStages {
+		return domain.Assumptions{SalePrices: prices.Prices, Values: values, Stages: []domain.StageOption{}}, nil
 	}
 	stages, err := readStageOptions(ctx, r.pool, tenantID)
 	if err != nil {
@@ -419,7 +424,7 @@ func (r *Repository) PutAssumptions(ctx context.Context, tenantID, setBy string,
 	if err := tx.Commit(ctx); err != nil {
 		return domain.Assumptions{}, err
 	}
-	return r.GetAssumptions(ctx, tenantID, asOf)
+	return r.GetAssumptions(ctx, tenantID, asOf, true)
 }
 
 // samePrice compares two optional prices: both absent, or both present and equal.

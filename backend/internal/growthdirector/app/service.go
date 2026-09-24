@@ -185,14 +185,15 @@ func (s *Service) GetSalePrices(ctx context.Context, actor domain.Actor) (domain
 	return s.repo.GetSalePrices(ctx, actor.TenantID, biztime.BusinessDayStart(time.Now().In(biztime.DefaultLocation())))
 }
 
-// GetAssumptions serves the Assumptions drawer's read: the prices effective today and every keyed
-// figure. Gated like every other Weights-screen read -- a reader is owed the figures the page
-// is valued at, whether or not they may change them.
-func (s *Service) GetAssumptions(ctx context.Context, actor domain.Actor) (domain.Assumptions, error) {
+// GetAssumptions serves the prices effective today and every keyed figure. Gated like every other
+// Weights-screen read -- a reader is owed the figures the page is valued at, whether or not they
+// may change them. includeStages is only for the editor drawer's stage grid; page-load consumers do
+// not pay for all-time weighing-stage discovery.
+func (s *Service) GetAssumptions(ctx context.Context, actor domain.Actor, includeStages bool) (domain.Assumptions, error) {
 	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
 		return domain.Assumptions{}, ports.ErrForbidden
 	}
-	return s.repo.GetAssumptions(ctx, actor.TenantID, biztime.BusinessDayStart(time.Now().In(biztime.DefaultLocation())))
+	return s.repo.GetAssumptions(ctx, actor.TenantID, biztime.BusinessDayStart(time.Now().In(biztime.DefaultLocation())), includeStages)
 }
 
 // PutAssumptions lands an edit from the drawer. WHO may call this is decided at the route

@@ -97,7 +97,7 @@ ON CONFLICT DO NOTHING`, gdTenant)
 	execGD(t, ctx, pool, `UPDATE goats SET management_stage = 'K2' WHERE tenant_id = $1::uuid AND goat_id::text LIKE '33333333-%'`, gdTenant)
 	stageCodes := func() []string {
 		t.Helper()
-		a, err := repo.GetAssumptions(ctx, gdTenant, today)
+		a, err := repo.GetAssumptions(ctx, gdTenant, today, true)
 		if err != nil {
 			t.Fatalf("GetAssumptions: %v", err)
 		}
