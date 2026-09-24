@@ -1,5 +1,46 @@
 # Vaccination age-floor invariant - 2026-09-24
 
+## READ FIRST - next session: close this fast, do not go in circles
+
+**The bug:** generation moved one 8-day-old animal's ET+TT dose (RFID `901007000506144`, DOB
+2026-09-16) to 2026-09-24, before its DOB + 4-week floor of 2026-10-14. The fix is: no vaccination
+row may ever be saved before its clinical floor (DOB/arrival + offset, previous dose + gap), on any
+write path. That core guard is DONE on this branch.
+
+**What went wrong in the last session (don't repeat it):**
+- Scope creep. Every judge round found another edge case (lock order, carry-over speed, extra
+  race tests) and each was sent straight to a builder instead of asking whether it belonged in
+  this PR. Most of them never make a vaccination date wrong.
+- Builders and judges chased each other. Judges reviewed half-finished working trees, found issues
+  in them, and started another round.
+- ~130 existing obligation integration tests were already failing at session start (fixtures
+  without DOB, now rejected by this PR's fail-closed anchor rule). This was found late instead of
+  being triaged first.
+- Too many parallel builders in one package made integration slow.
+
+**Rules for the next session:**
+1. Scope is frozen: the original age-floor bug plus the 5 P1 blockers below (all implemented).
+   Only a P0/P1 that makes a vaccination date or vaccine choice WRONG blocks this PR. Everything
+   else (performance, lock order, extra races) goes into the follow-up list at the bottom. Don't
+   implement it here.
+2. First run the full OCI suite on the pushed head, and triage failures against origin/main
+   before writing any product code.
+3. Fix test fixtures to be clinically valid; never weaken the guard.
+4. Judge only the exact pushed SHA, once clinical and once persistence, after tests are green.
+   No continuous judging of a moving working tree.
+5. At most 2 builders, on disjoint files.
+6. Then rebase on origin/main (main has 000399; regenerate sqlc schema.sql copies), `make land-main`,
+   deploy, repair the STG row, and read it back.
+
+**Decision for the next session:** the last commit (38281d60a, WIP) contains unverified hardening:
+the shared anchor package, the start of set-based carry-over, migration 000401 (completion locks
+the goat), race tests and fixture edits. Either verify it quickly on OCI or revert the parts that
+are follow-up scope. Don't let it grow.
+
+**Follow-up PR (NOT this PR):** set-based carry-over + goat chunking (P1-13/P2-17), lock ordering
+(P1-16, P2-20, P2-22, P2-23), in_progress carry-over candidates (P2-21), GuardRejected persisted on
+vaccination_generation_runs, GuardRejected alerting.
+
 ## Scope
 
 - Prevent vaccination generation/reconciliation/reschedule from moving a birth-age dose before DOB + rule offset.
