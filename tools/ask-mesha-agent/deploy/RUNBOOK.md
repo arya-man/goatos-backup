@@ -57,8 +57,10 @@ As the instance admin, keep `ask_mesha` confined to its own database:
 -- connected to database ask_mesha
 REVOKE ALL ON DATABASE ask_mesha FROM PUBLIC;
 GRANT CONNECT, CREATE, TEMP ON DATABASE ask_mesha TO ask_mesha;
+-- run the CREATE SCHEMA *as ask_mesha* (goatos_app cannot SET ROLE ask_mesha on PG16):
 CREATE SCHEMA IF NOT EXISTS ask_mesha AUTHORIZATION ask_mesha;
--- connected to database goatos
+-- connected to database goatos (no-op in practice: PUBLIC holds CONNECT on goatos, so ask_mesha can
+-- still connect; it has SELECT on 0 tables there, verified 2026-09-24)
 REVOKE CONNECT ON DATABASE goatos FROM ask_mesha;
 ```
 
@@ -106,12 +108,14 @@ runaway answer. GCP budgets only alert (they never stop spend), so add one as a 
 ```bash
 BILLING=$(gcloud billing projects describe $PROJECT --format='value(billingAccountName)' | sed 's#billingAccounts/##')
 gcloud billing budgets create --billing-account=$BILLING \
-  --display-name="Ask Mesha Claude (Vertex) $100" --budget-amount=100USD \
-  --filter-projects=projects/$PROJECT --filter-services=services/aiplatform.googleapis.com \
+  --display-name="Ask Mesha Claude (Vertex) ~\$100" --budget-amount=8800INR \
+  --filter-projects=projects/$PROJECT --filter-services=services/C7E2-9256-1C43 \
   --threshold-rule=percent=0.5 --threshold-rule=percent=0.8 --threshold-rule=percent=1.0
 ```
 
-(That filter covers all Vertex AI use in the project; Ask Mesha is the only Claude user today.)
+(Billing account 01FEDE-96BCB3-76D992 is INR: a USD amount is rejected with INVALID_ARGUMENT, and
+`--filter-services` needs the billing service ID (`C7E2-9256-1C43` = Vertex AI), not the API name.
+That filter covers all Vertex AI use in the project; Ask Mesha is the only Claude user today.)
 With `api-key`, also set a $100 monthly limit in the Anthropic Console.
 
 ## 3d. Harden the read-only DB role (required before enabling)
@@ -120,8 +124,9 @@ With `api-key`, also set a $100 monthly limit in the Anthropic Console.
 installed and executable by PUBLIC; revoke it (as the DB owner / cloudsqlsuperuser):
 
 ```sql
-REVOKE EXECUTE ON FUNCTION dblink(text, text), dblink(text), dblink_exec(text, text), dblink_exec(text),
-  dblink_connect(text, text), dblink_connect(text) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dblink(text), dblink(text,boolean), dblink(text,text), dblink(text,text,boolean),
+  dblink_exec(text), dblink_exec(text,boolean), dblink_exec(text,text), dblink_exec(text,text,boolean),
+  dblink_connect(text), dblink_connect(text,text) FROM PUBLIC;
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 -- verify: should all be false
 SELECT has_function_privilege('mesha_ceo_readonly', 'dblink_exec(text,text)', 'EXECUTE'),
