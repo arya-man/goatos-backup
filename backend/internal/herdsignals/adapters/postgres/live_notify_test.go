@@ -63,3 +63,22 @@ func TestTenantIDFromLiveNotification(t *testing.T) {
 		t.Fatalf("invalid payload tenant = %q, want empty", got)
 	}
 }
+
+// The LISTEN session must not pin a main-pool connection for the life of the process: it owns a
+// dedicated pgx.Conn (cloned from the pool's ConnConfig), closes it per session, and resets its
+// reconnect backoff after a healthy LISTEN.
+func TestListenerUsesDedicatedConnectionNotPoolConn(t *testing.T) {
+	src, err := os.ReadFile("live_notifications.go")
+	if err != nil {
+		t.Fatalf("read live_notifications.go: %v", err)
+	}
+	text := string(src)
+	if strings.Contains(text, ".Acquire(") {
+		t.Fatalf("listener must not Acquire (and hold forever) a main-pool connection")
+	}
+	for _, want := range []string{"pgx.ConnectConfig(ctx, base.Copy())", "conn.Close(closeCtx)", "backoff = time.Second"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("listener missing %q", want)
+		}
+	}
+}

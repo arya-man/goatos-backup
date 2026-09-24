@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"context"
 	"errors"
 	"time"
 )
@@ -489,3 +490,18 @@ type Actor struct {
 // review, defect 7: invalid bucket_seconds/range previously mapped to 500 like a real failure).
 // Wrap with fmt.Errorf("...: %w", ErrValidation) and check with errors.Is at the handler.
 var ErrValidation = errors.New("herdsignals: validation error")
+
+type freshLiveReadKey struct{}
+
+// WithFreshLiveRead marks ctx as a caller that must not be served a snapshot already known to be
+// stale (the live-stream hub recomputing after a NOTIFY). Plain HTTP reads omit it and may be
+// served stale-while-revalidate.
+func WithFreshLiveRead(ctx context.Context) context.Context {
+	return context.WithValue(ctx, freshLiveReadKey{}, true)
+}
+
+// FreshLiveRead reports whether ctx was marked by WithFreshLiveRead.
+func FreshLiveRead(ctx context.Context) bool {
+	v, _ := ctx.Value(freshLiveReadKey{}).(bool)
+	return v
+}
