@@ -134,7 +134,7 @@ All agents and the 10-minute loop are stopped. Every builder's work (committed, 
 | `wip/perf-herd-live` | 596220895 | Herd R1–R4 fix (lock-free SQL risk scoring, ingest fast path), not judged | Judge against the R1–R4 list below, then cherry-pick |
 | `wip/perf-read-cache` | 3 | Per-request auth-lookup coalescing, plus cache-writer invalidation in progress (weighing full suite was running) | Finish `audit/cache-correctness.md` items 1–7 (goat, partition, procurement, feed-purchase, feeddirection-local, kernel carry-over, herd mapping, locations/config writers), the stale window to 0–5 s, and the read-your-writes E2E, then judge |
 | `wip/perf-fcr-rollup` | 778ec44b7 | FCR/ADG precomputed rollup, early WIP | Continue (it was paused behind the cache fixes) |
-| `wip/perf-w2-proofs` | 5 (last one WIP) | Proof lookup rewrite, identifiers JOIN, workflows, goats search, index | Finish (it was writing a red test for a narrowing function), then judge |
+| ~~`wip/perf-w2-proofs`~~ **IN PR (4e4dda058..e6d29a218), judged CLEAN** | 5 (last one WIP) | Proof lookup rewrite, identifiers JOIN, workflows, goats search, index | Finish (it was writing a red test for a narrowing function), then judge |
 | `wip/perf-w2-vaccination` | 1 WIP | Just started: a red test for cache-scoped payloads | Continue the brief in `QUEUE.md` Wave 2 vaccination |
 | `wip/perf-w2-workboard` | 1 WIP | Just started | Continue (it was starting a throwaway PG) |
 | `wip/perf-w2-calendar` | 2 (includes the feeddirection aborted-tx bug fix) | Partial | Continue the calendar + feed rollup brief |
@@ -150,3 +150,14 @@ All agents and the 10-minute loop are stopped. Every builder's work (committed, 
 - Take the branch, finish the listed step, judge it, cherry-pick it onto `perf/stg-burst-and-login`, and push.
 - Migration numbers used so far: 000400–000404. Parallel branches may collide, so renumber when you integrate.
 - Still no landing or deploy until the maintainer says so.
+
+## Resumed session (frozen-scope rule: max 2 builders, only wrong-result findings block, judge exact SHAs)
+
+- **w2-proofs:** in the PR, judged CLEAN.
+  - Proof lookup, whole herd: 57,561 → 138 ms.
+  - `GetRow` p95: 1,169 → 269 ms.
+  - `/identifiers/resolve` is fixed.
+  - Migration **000405** clashes with `wip/perf-w2-workboard`; renumber that branch at integration.
+- **read-cache** (`wip/perf-read-cache` 18d7c63f1): every writer now invalidates, the stale window is 0, and there's a read-your-writes E2E. Judge running.
+- **herd-live** (`wip/perf-herd-live` 596220895): R1–R4. Judge running.
+- **Follow-up (not blocking):** the newborn placement `ON CONFLICT` bug on main (`tasks/.../newborn_placement.go:258`), handled in a separate task.
