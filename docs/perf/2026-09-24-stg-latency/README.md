@@ -6,6 +6,8 @@ has already been found, so later sessions do not repeat the same analysis.
 
 **PR:** vgoats/goatos#389 (`perf/stg-burst-and-login`). Every fix goes into this PR.
 
+**Continuing in a new session? Read `HANDOFF.md` first.**
+
 ## Budget (maintainer rule, applies to the p95 of every API)
 
 | p95 | Verdict |
