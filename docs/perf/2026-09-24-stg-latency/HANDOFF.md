@@ -210,3 +210,11 @@ All agents died on the account's weekly limit. Their work is saved to origin; ea
 
   Deleting them would resurrect canceled work. Phase B (archive/delete) is dropped. Revisit it only after generation moves the tombstones into a dedicated table.
 - **batching** (leadership/sheds, sales/overview, pen-routines, mortality): builder running.
+- **vaccination Phase A:** IN PR as c6ed5c63d, judged CLEAN.
+  - The kernel worker is restored to min 1 / max 2 (the vaccination integrity contract) at 4 conns each, so the budget is unchanged at 8.
+  - The bind-contract guard's `maxBuffer` was raised for multi-MB diffs.
+- **batching** (sales/overview, leadership/sheds, pen-routines): IN PR, head f1b15f402, judged CLEAN.
+- **LAND NOTE:** origin/main now has its own 000400/000401 (health). Renumber this PR's analytics 000400/000401 at land time.
+- **Remaining:**
+  1. The FCR measure + numbers-identical proof vs origin/main, including after writes and a back-dated purchase. An agent is running this.
+  2. The final real-stg read-only bench re-run.
