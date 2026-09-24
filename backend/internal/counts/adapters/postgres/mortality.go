@@ -15,7 +15,7 @@ import (
 )
 
 // Mortality — the Counts leadership read on deaths. Three canonical SQL reads in one
-// batch: the live population with the window's deaths flagged (every RATE series), the deaths
+// batch: every animal that was there in the window with its deaths flagged (every RATE series), the deaths
 // alone sliced by facts about the death (every COUNT series, the months and the cross
 // tabs), and a bounded most-recent list.
 //
@@ -24,21 +24,35 @@ import (
 // aggregation over the tenant's own rows with no per-row fan-out and no page walk; this
 // screen earns its own projection only under that ADR's scale-out ladder.
 
-// projection-review: membership=canonical goats rows for the tenant with merged_into_goat_id IS NULL that are either LIVE today (the Counts Breakdown head count) or died on an IST day inside the window, each row flagged live / died so a bucket's animals and its deaths are counted off the same rows; group_key=kid/adult band | management_stage | breed | sex | species | park_id | (shed_id, normalized partition) | load_id | vendor party_id, one dimension per UNION branch, each ranging over the SAME per-animal key set as the total branch, with the death flag evaluated per animal BEFORE grouping; join_cardinality=goat_shed_partitions is PK (tenant_id, goat_id) so 1:{0,1}, member is DISTINCT ON goat_id so 1:{0,1} (its own LEFT JOIN to procurement_loads is by primary key, so it cannot multiply a membership row before the DISTINCT ON), and locations / procurement_loads / parties are primary-key label lookups AFTER aggregation; pagination=none, every series is a whole-scope rollup; scope=tenant_id plus one optional park equality predicate
+// projection-review: membership=canonical goats rows for the tenant with merged_into_goat_id IS NULL that were ON THE FARM at some point in the window (arrived on or before its last day and had not left before its first day) plus every animal that died inside it, each row flagged died so deaths and animals are counted off the same rows; group_key=breed | sex | species | park_id | load_id | vendor party_id on the animal row (facts that never change), and management_stage | kid/adult | (park, shed_id, normalized partition) over each animal's HISTORY SPANS for the facts that do (stage_span from goat.stage_changed events, pen_span from goat_location_history), counted DISTINCT per goat so an animal is one head in a bucket however many spans it held there; join_cardinality=goat_shed_partitions is PK (tenant_id, goat_id) so 1:{0,1}, member is DISTINCT ON goat_id so 1:{0,1}, a span row is one per (goat, change) and every span count is count(DISTINCT goat_id), deaths are joined per bucket AFTER both sides are aggregated to that bucket's key, and locations / procurement_loads / parties are primary-key label lookups AFTER aggregation; pagination=none, every series is a whole-scope rollup; scope=tenant_id plus one optional park equality predicate
 //
 // Expanded rationale:
 //
-//	producer key = goats primary key (tenant_id, goat_id). The CTE emits one row per animal;
-//	               the two LEFT JOINs are each 1:{0,1} by primary key / DISTINCT ON, so no
-//	               animal can appear twice and deaths/animals range over identical rows.
-//	ratio keys   = every branch's deaths FILTER and its live FILTER range over the same `pop`
-//	               rows grouped by the same attribute, so rate_pct = deaths / animals divides a
-//	               section's deaths by that same section's head count (maintainer decision
-//	               2026-09-18: the denominator is "how many animals are in that section", i.e.
-//	               the live count Counts Breakdown reports, not an at-risk population).
+//	THE DENOMINATOR IS EVERY ANIMAL THAT WAS THERE (maintainer decision 2026-09-24,
+//	superseding the 2026-09-18 "live head count today"). "Animals" in a bucket is how many
+//	animals were in that bucket at any point in the window -- including those that died,
+//	were shifted out or were sold inside it, and those that arrived during it. Dividing by
+//	today's head count made a shift or a sale move the rate (F2: 1 death of 30, then 15
+//	shifted out, read 1 / 15), made the rate vanish when the only animal in a bucket died
+//	(ICU: 1 / 0), and rewrote every past window whenever animals moved today.
+//
+//	producer key = goats primary key (tenant_id, goat_id). pop emits one row per animal;
+//	               the two LEFT JOINs are each 1:{0,1}, so no animal appears twice.
+//	history      = a stage or pen is read as SPANS worked backwards from the animal's own
+//	               row: the span since its last change holds the row's value (for a dead
+//	               animal, the one it died in), and each earlier span holds the value the
+//	               change that ENDED it replaced. Anchoring on the row means a stage written
+//	               without an event cannot contradict what the page reports as current.
+//	ratio keys   = a death is counted in the bucket on the animal's row (where it died), and
+//	               that value is the animal's LAST span, which overlaps the window because the
+//	               death is inside it -- so every death is also one of its bucket's animals
+//	               and no rate can exceed 100%. Pinned by
+//	               TestMortalityDeathsNeverExceedTheAnimalsThatWereThere.
+//	additivity   = deaths add up across a dimension's buckets; animals do NOT for stage,
+//	               kid/adult and pen, because an animal that moved counts once in every
+//	               bucket it passed through. The total is its own count over pop.
 //	status matrix= died is exit_reason='died' OR (NULL exit_reason AND lifecycle 'dead'), the
-//	               identical predicate Herd Analytics' deaths column uses, so the two Counts
-//	               screens cannot disagree about how many died. Pinned by
+//	               identical predicate Herd Analytics' deaths column uses. Pinned by
 //	               TestMortalityDeathsMatchHerdAnalytics.
 const mortalityPopulationSQL = `
 WITH bounds AS (
@@ -60,7 +74,6 @@ pop AS MATERIALIZED (
     (g.exit_reason = 'died' OR (g.exit_reason IS NULL AND g.lifecycle_status = 'dead'))
       AND COALESCE((g.exited_at AT TIME ZONE 'Asia/Kolkata')::date,
                    (g.updated_at AT TIME ZONE 'Asia/Kolkata')::date) BETWEEN b.from_date AND b.to_date AS died,
-    g.lifecycle_status = 'alive' AS live,
     COALESCE(btrim(g.breed), '')            AS breed,
     COALESCE(btrim(g.management_stage), '') AS stage,
     COALESCE(g.sex, '')                     AS sex,
@@ -72,7 +85,7 @@ pop AS MATERIALIZED (
     CASE WHEN g.origin_type = 'birth' THEN 'farm_born'
          WHEN m.load_id IS NOT NULL THEN m.load_id::text
          ELSE 'no_load' END                 AS load_key,
-    -- projection-review: membership=one row per tenant animal that is live today or died in the
+    -- projection-review: membership=one row per tenant animal that was on the farm in the
     -- window; group_key=none here, this CTE only CARRIES the vendor key its branch groups by;
     -- join_cardinality=member is DISTINCT ON goat_id and joins procurement_loads by primary key,
     -- so an animal gains no row and carries at most one vendor; pagination=none; scope=the
@@ -88,36 +101,121 @@ pop AS MATERIALIZED (
     AND g.merged_into_goat_id IS NULL
     AND ($4 = '' OR g.park_id = NULLIF($4, '')::uuid)
     AND (
-      g.lifecycle_status = 'alive'
-      OR
+      -- Every death in the window is one of the animals that was there, whatever its dates say.
       ((g.exit_reason = 'died' OR (g.exit_reason IS NULL AND g.lifecycle_status = 'dead'))
          AND COALESCE((g.exited_at AT TIME ZONE 'Asia/Kolkata')::date,
                       (g.updated_at AT TIME ZONE 'Asia/Kolkata')::date) BETWEEN b.from_date AND b.to_date)
+      OR (
+        -- Arrived on or before the window's last day. With no entry date or date of birth the
+        -- record's creation stands in, capped at the exit: an animal imported after it left was
+        -- still on the farm up to the day it left.
+        LEAST(COALESCE(g.entry_date, g.dob, (g.created_at AT TIME ZONE 'Asia/Kolkata')::date),
+              (g.exited_at AT TIME ZONE 'Asia/Kolkata')::date) <= b.to_date
+        -- ... and still on the farm, or left on or after its first day. A sick, ICU or
+        -- quarantined animal is still on the farm.
+        AND (
+          g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
+          OR COALESCE((g.exited_at AT TIME ZONE 'Asia/Kolkata')::date,
+                      (g.updated_at AT TIME ZONE 'Asia/Kolkata')::date) >= b.from_date
+        )
+      )
     )
+),
+stage_change AS (
+  SELECT e.goat_id,
+         (e.occurred_at AT TIME ZONE 'Asia/Kolkata')::date AS changed_on,
+         COALESCE(btrim(e.payload->>'previous_management_stage'), '') AS stage_before,
+         lag((e.occurred_at AT TIME ZONE 'Asia/Kolkata')::date)
+           OVER (PARTITION BY e.goat_id ORDER BY e.occurred_at, e.recorded_at, e.identity_event_id) AS previous_change_on,
+         row_number()
+           OVER (PARTITION BY e.goat_id ORDER BY e.occurred_at DESC, e.recorded_at DESC, e.identity_event_id DESC) AS from_last
+  FROM goat_identity_events e
+  JOIN pop p ON p.goat_id = e.goat_id
+  WHERE e.tenant_id = $1::uuid AND e.event_type = 'goat.stage_changed'
+),
+stage_span AS (
+  -- The stage each change REPLACED, held from the change before it (or since the animal
+  -- arrived). A stage that started with "K" is a kid stage whatever the animal is now.
+  SELECT sc.goat_id, sc.stage_before AS stage, sc.previous_change_on AS span_from, sc.changed_on AS span_to,
+         (p.is_kid OR upper(sc.stage_before) ~ '^K[0-9]') AS is_kid
+  FROM stage_change sc
+  JOIN pop p ON p.goat_id = sc.goat_id
+  UNION ALL
+  -- The stage on the animal's own row, held since its last change.
+  SELECT p.goat_id, p.stage, lc.changed_on, NULL::date, p.is_kid
+  FROM pop p
+  LEFT JOIN stage_change lc ON lc.goat_id = p.goat_id AND lc.from_last = 1
+),
+stage_there AS (
+  SELECT s.goat_id, s.stage, s.is_kid
+  FROM stage_span s
+  CROSS JOIN bounds b
+  WHERE (s.span_from IS NULL OR s.span_from <= b.to_date)
+    AND (s.span_to IS NULL OR s.span_to >= b.from_date)
+),
+pen_move AS (
+  SELECT h.goat_id,
+         (h.occurred_at AT TIME ZONE 'Asia/Kolkata')::date AS moved_on,
+         h.from_location_id AS shed_before,
+         COALESCE(h.from_partition_label, '') AS partition_before,
+         lag((h.occurred_at AT TIME ZONE 'Asia/Kolkata')::date)
+           OVER (PARTITION BY h.goat_id ORDER BY h.occurred_at, h.recorded_at, h.location_history_id) AS previous_move_on,
+         row_number()
+           OVER (PARTITION BY h.goat_id ORDER BY h.occurred_at DESC, h.recorded_at DESC, h.location_history_id DESC) AS from_last
+  FROM goat_location_history h
+  JOIN pop p ON p.goat_id = h.goat_id
+  WHERE h.tenant_id = $1::uuid
+),
+pen_span AS (
+  -- The pen each move LEFT, held from the move before it. A first placement has no pen before
+  -- it, so it bounds the span after it and contributes none of its own.
+  SELECT pm.goat_id, pm.shed_before AS shed_id, pm.partition_before AS partition_label,
+         pm.previous_move_on AS span_from, pm.moved_on AS span_to
+  FROM pen_move pm
+  WHERE pm.shed_before IS NOT NULL
+  UNION ALL
+  -- The pen on the animal's own row, held since its last move.
+  SELECT p.goat_id, p.shed_id, p.partition_label, lm.moved_on, NULL::date
+  FROM pop p
+  LEFT JOIN pen_move lm ON lm.goat_id = p.goat_id AND lm.from_last = 1
+),
+pen_there AS (
+  SELECT s.goat_id, p.park_id, s.shed_id,
+         lower(regexp_replace(s.partition_label, '[^A-Za-z0-9]+', '', 'g')) AS partition_key,
+         s.partition_label
+  FROM pen_span s
+  JOIN pop p ON p.goat_id = s.goat_id
+  CROSS JOIN bounds b
+  WHERE (s.span_from IS NULL OR s.span_from <= b.to_date)
+    AND (s.span_to IS NULL OR s.span_to >= b.from_date)
 )
 SELECT 'total'::text AS dim, ''::text AS key, ''::text AS label, ''::text AS extra,
-       count(*) FILTER (WHERE died)::bigint AS deaths, count(*) FILTER (WHERE live)::bigint AS animals
+       count(*) FILTER (WHERE died)::bigint AS deaths, count(*)::bigint AS animals
   FROM pop
 UNION ALL
-SELECT 'kid_adult', CASE WHEN is_kid THEN 'kid' ELSE 'adult' END, '', '',
-       count(*) FILTER (WHERE died)::bigint, count(*) FILTER (WHERE live)::bigint
-  FROM pop GROUP BY 2
+SELECT 'kid_adult', CASE WHEN t.is_kid THEN 'kid' ELSE 'adult' END, '', '',
+       COALESCE(d.deaths, 0), t.animals
+  FROM (SELECT is_kid, count(DISTINCT goat_id)::bigint AS animals FROM stage_there GROUP BY is_kid) t
+  LEFT JOIN (SELECT is_kid, count(*) FILTER (WHERE died)::bigint AS deaths FROM pop GROUP BY is_kid) d
+         ON d.is_kid = t.is_kid
 UNION ALL
-SELECT 'stage', stage, stage, '', count(*) FILTER (WHERE died)::bigint, count(*) FILTER (WHERE live)::bigint
-  FROM pop GROUP BY stage
+SELECT 'stage', t.stage, t.stage, '', COALESCE(d.deaths, 0), t.animals
+  FROM (SELECT stage, count(DISTINCT goat_id)::bigint AS animals FROM stage_there GROUP BY stage) t
+  LEFT JOIN (SELECT stage, count(*) FILTER (WHERE died)::bigint AS deaths FROM pop GROUP BY stage) d
+         ON d.stage = t.stage
 UNION ALL
-SELECT 'breed', breed, breed, '', count(*) FILTER (WHERE died)::bigint, count(*) FILTER (WHERE live)::bigint
+SELECT 'breed', breed, breed, '', count(*) FILTER (WHERE died)::bigint, count(*)::bigint
   FROM pop GROUP BY breed
 UNION ALL
-SELECT 'sex', sex, sex, '', count(*) FILTER (WHERE died)::bigint, count(*) FILTER (WHERE live)::bigint
+SELECT 'sex', sex, sex, '', count(*) FILTER (WHERE died)::bigint, count(*)::bigint
   FROM pop GROUP BY sex
 UNION ALL
-SELECT 'species', species, species, '', count(*) FILTER (WHERE died)::bigint, count(*) FILTER (WHERE live)::bigint
+SELECT 'species', species, species, '', count(*) FILTER (WHERE died)::bigint, count(*)::bigint
   FROM pop GROUP BY species
 UNION ALL
 SELECT 'park', COALESCE(p.park_id::text, ''), COALESCE(NULLIF(loc.location_code, ''), loc.name, ''), '',
        p.deaths, p.animals
-  FROM (SELECT park_id, count(*) FILTER (WHERE died)::bigint AS deaths, count(*) FILTER (WHERE live)::bigint AS animals
+  FROM (SELECT park_id, count(*) FILTER (WHERE died)::bigint AS deaths, count(*)::bigint AS animals
           FROM pop GROUP BY park_id) p
   LEFT JOIN locations loc ON loc.tenant_id = $1::uuid AND loc.location_id = p.park_id
 UNION ALL
@@ -127,24 +225,30 @@ UNION ALL
 -- The key LEADS with the park id so Go can put the park code in front of the pen's name: the
 -- same shed names exist in both farms, and "Castro 1" alone does not say which farm's. A shed sits
 -- in exactly one park, so adding park_id to the GROUP BY splits no pen.
-SELECT 'pen', COALESCE(p.park_id::text, '') || ':' || COALESCE(p.shed_id::text, '') || ':' || p.partition_key,
-       COALESCE(NULLIF(shed.name, ''), shed.location_code, ''), p.partition_label,
-       p.deaths, p.animals
+SELECT 'pen', COALESCE(d.park_id::text, '') || ':' || COALESCE(d.shed_id::text, '') || ':' || d.partition_key,
+       COALESCE(NULLIF(shed.name, ''), shed.location_code, ''), t.partition_label,
+       d.deaths, t.animals
   FROM (SELECT park_id, shed_id,
                lower(regexp_replace(partition_label, '[^A-Za-z0-9]+', '', 'g')) AS partition_key,
-               min(partition_label) AS partition_label,
-               count(*) FILTER (WHERE died)::bigint AS deaths, count(*) FILTER (WHERE live)::bigint AS animals
+               count(*) FILTER (WHERE died)::bigint AS deaths
           FROM pop
          GROUP BY park_id, shed_id, lower(regexp_replace(partition_label, '[^A-Za-z0-9]+', '', 'g'))
-        HAVING count(*) FILTER (WHERE died) > 0) p
-  LEFT JOIN locations shed ON shed.tenant_id = $1::uuid AND shed.location_id = p.shed_id
+        HAVING count(*) FILTER (WHERE died) > 0) d
+  JOIN (SELECT park_id, shed_id, partition_key, min(partition_label) AS partition_label,
+               count(DISTINCT goat_id)::bigint AS animals
+          FROM pen_there
+         GROUP BY park_id, shed_id, partition_key) t
+    ON t.park_id IS NOT DISTINCT FROM d.park_id
+   AND t.shed_id IS NOT DISTINCT FROM d.shed_id
+   AND t.partition_key = d.partition_key
+  LEFT JOIN locations shed ON shed.tenant_id = $1::uuid AND shed.location_id = d.shed_id
 UNION ALL
 SELECT 'load', l.load_key,
        CASE WHEN l.load_key IN ('farm_born', 'no_load') THEN ''
             ELSE COALESCE(NULLIF(pl.context->>'load_ref', ''), to_char(pl.purchase_date, 'DD/MM/YYYY'), '') END,
        COALESCE(pl.purchase_date::text, ''),
        l.deaths, l.animals
-  FROM (SELECT load_key, count(*) FILTER (WHERE died)::bigint AS deaths, count(*) FILTER (WHERE live)::bigint AS animals
+  FROM (SELECT load_key, count(*) FILTER (WHERE died)::bigint AS deaths, count(*)::bigint AS animals
           FROM pop GROUP BY load_key
         HAVING count(*) FILTER (WHERE died) > 0 OR load_key IN ('farm_born', 'no_load')) l
   -- The synthetic keys are not uuids, and a bare cast in the ON clause is evaluated for
@@ -163,7 +267,7 @@ SELECT 'vendor', v.vendor_key,
        '',
        v.deaths, v.animals
   -- projection-review: membership=the same pop rows every other RATE branch ranges over, one
-  -- per animal, each flagged live / died before grouping; group_key=vendor party_id (the load's
+  -- per animal, each flagged died before grouping; group_key=vendor party_id (the load's
   -- source_party_id), with farm-born and load-less animals in their two synthetic keys;
   -- join_cardinality=member is DISTINCT ON goat_id and its procurement_loads join is by primary
   -- key, so an animal carries at most one vendor and cannot fan out; parties is a primary-key
@@ -173,7 +277,7 @@ SELECT 'vendor', v.vendor_key,
   -- quiet buckets because 175 pens of zeros is noise; a farm buys from a handful of vendors
   -- and the whole point of the series is comparing them, so a vendor whose animals are all
   -- alive must be on the board at 0% rather than missing from it.
-  FROM (SELECT vendor_key, count(*) FILTER (WHERE died)::bigint AS deaths, count(*) FILTER (WHERE live)::bigint AS animals
+  FROM (SELECT vendor_key, count(*) FILTER (WHERE died)::bigint AS deaths, count(*)::bigint AS animals
           FROM pop GROUP BY vendor_key) v
   -- parties is keyed by party_id alone (no tenant column); the cast is shape-guarded for
   -- the same reason the load branch guards its own.
