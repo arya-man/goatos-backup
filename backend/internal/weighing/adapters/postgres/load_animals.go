@@ -112,6 +112,12 @@ load_goats AS (
     AND $6::text <> 'farm_born'
   ORDER BY plg.goat_id, pl.purchase_date DESC NULLS LAST, pl.load_id
 ),
+-- A load is shown while at least one of its animals is still on the farm (maintainer decision
+-- 2026-09-24: "show until all animals are sold"). A sold-out load leaves every load chart.
+live_loads AS (
+  SELECT load_ref FROM load_goats GROUP BY load_ref
+  HAVING count(*) FILTER (WHERE exited_at IS NULL) > 0
+),
 -- Scanned weighs of load animals: one per animal per day (the day's last capture).
 -- projection-review: membership=weighing_observations whose tag resolves to a load animal; group_key=(goat_id, d) via DISTINCT ON; join_cardinality=goat_identifiers 0..1 active identifier per normalized value, campaign sheds and campaigns PK; pagination=NONE, bounded by tenant + park + window; scope=tenant + park ANY($2) + half-open window
 scan_pts AS (
@@ -281,6 +287,7 @@ SELECT pl.load_ref, pl.owner_name, pl.animals, pl.avg_kg, pl.gain, pl.gain_anima
                  FROM placed p WHERE p.load_ref = pl.load_ref), '[]'::jsonb)
 FROM per_load pl
 WHERE pl.animals > 0
+  AND pl.load_ref IN (SELECT load_ref FROM live_loads)
 ORDER BY pl.gain DESC NULLS LAST, pl.load_ref`
 
 // loadAnimalsBucketTemplate is the Time-wise per-load series: each animal's gain inside each
@@ -297,6 +304,7 @@ SELECT lg.load_ref, min(lg.owner_name), b.week_start::text, count(*)::bigint, av
 FROM bucketed b
 JOIN load_goats lg ON lg.goat_id = b.goat_id
 WHERE b.g IS NOT NULL
+  AND lg.load_ref IN (SELECT load_ref FROM live_loads)
 GROUP BY lg.load_ref, b.week_start
 ORDER BY lg.load_ref, b.week_start`
 

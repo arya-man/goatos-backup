@@ -31,6 +31,9 @@ weigh, it should come directly — there is no need to add anything separately."
 - **An animal's gain** is its total grams over its total days (the headline's statistic); **a load's
   gain** is the mean over its animals; its **latest weight** is each animal's latest weight in the
   period (its own scan, or the pen average of a pen it was in that day).
+- **Which loads are shown:** a load stays on every load chart while at least one of its animals is
+  on the farm, and leaves once all are sold (maintainer, same day: "show until all animals are
+  sold"). Old loads with a few animals left (Load 100: 1, Load 101: 3) stay.
 - **Filters:** Sex is the animal's own. Every load animal was bought, so *Farm born* shows no load.
 
 ## Surfaces
