@@ -119,6 +119,35 @@ export type CeoAiWatchFrame = {
   changes?: CeoAiWatchChange[];
 };
 
+function parseWatchRow(raw: unknown): CeoAiWatchRow | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  if (typeof r.tag !== "string") return null;
+  const s = (v: unknown) => (typeof v === "string" ? v : null);
+  const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+  const state = s(r.state) ?? "not_moving";
+  return {
+    tag: r.tag,
+    animal: s(r.animal),
+    pen: s(r.pen),
+    park: s(r.park),
+    state,
+    state_label: s(r.state_label) ?? state,
+    live_state: s(r.live_state),
+    motion_count: n(r.motion_count),
+    motion_delta_15m: n(r.motion_delta_15m),
+    delta_since_start: n(r.delta_since_start),
+    still_min: n(r.still_min) ?? 0,
+    last_seen_s: n(r.last_seen_s),
+    rssi: n(r.rssi),
+    battery_mv: n(r.battery_mv),
+    status: s(r.status) ?? "",
+    vs_own_pct: n(r.vs_own_pct) ?? undefined,
+    vs_pen_pct: n(r.vs_pen_pct) ?? undefined,
+    flags: Array.isArray(r.flags) ? r.flags.filter((f): f is string => typeof f === "string") : [],
+  };
+}
+
 function parseWatch(obj: Record<string, unknown>): CeoAiWatchFrame | null {
   const phase = obj.phase;
   if (typeof obj.watch_id !== "string") return null;
@@ -137,14 +166,19 @@ function parseWatch(obj: Record<string, unknown>): CeoAiWatchFrame | null {
     reason: str(obj.reason),
     message: str(obj.message),
     unmatched: Array.isArray(obj.unmatched) ? obj.unmatched.filter((u): u is string => typeof u === "string") : undefined,
-    rows: Array.isArray(obj.rows)
-      ? (obj.rows.filter((r) => !!r && typeof r === "object" && typeof (r as { tag?: unknown }).tag === "string") as CeoAiWatchRow[]).map((r) => ({
-          ...r,
-          flags: Array.isArray(r.flags) ? r.flags : [],
-        }))
-      : undefined,
+    // Rows/changes are rendered as React text: coerce every field so a malformed frame
+    // (object where a string is expected) can't crash the panel. Capped like the server.
+    rows: Array.isArray(obj.rows) ? obj.rows.slice(0, 60).map(parseWatchRow).filter((r): r is CeoAiWatchRow => r !== null) : undefined,
     changes: Array.isArray(obj.changes)
-      ? (obj.changes.filter((c) => !!c && typeof c === "object" && typeof (c as { text?: unknown }).text === "string") as CeoAiWatchChange[])
+      ? obj.changes
+          .slice(0, 200)
+          .filter((c): c is Record<string, unknown> => !!c && typeof c === "object" && typeof (c as { text?: unknown }).text === "string")
+          .map((c) => ({
+            text: String(c.text).slice(0, 300),
+            tag: typeof c.tag === "string" ? c.tag : undefined,
+            tone: typeof c.tone === "string" ? c.tone : undefined,
+            at_min: typeof c.at_min === "number" ? c.at_min : undefined,
+          }))
       : undefined,
   };
 }

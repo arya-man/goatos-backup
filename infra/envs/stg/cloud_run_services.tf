@@ -302,6 +302,9 @@ resource "google_cloud_run_v2_service" "admin_web" {
 
   template {
     service_account = google_service_account.runtime["admin_web"].email
+    # Ask Mesha answers (and live tag watches, max 30 min) stream through /api/ceo-ai/ask;
+    # the default 300s would cut them off. Must stay >= the agent's 30-min watch cap + answer time.
+    timeout = "2100s"
 
     scaling {
       min_instance_count = 1
