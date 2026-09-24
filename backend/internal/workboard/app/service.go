@@ -18,6 +18,14 @@ import (
 // with a global keyset.
 type Service struct {
 	sources []ports.Source
+	batch   ports.StatementBatch
+}
+
+// WithStatementBatch lets the summary send every ports.BatchSource's count (and then its
+// prefetched first lane pages) in ONE round trip per phase instead of one per source.
+func (s *Service) WithStatementBatch(batch ports.StatementBatch) *Service {
+	s.batch = batch
+	return s
 }
 
 // NewService builds the registry. Sources are sorted into board order (module order,
@@ -243,8 +251,32 @@ func (s *Service) Summary(ctx context.Context, q domain.Query) (domain.Summary, 
 	}
 	results := make([]result, len(scoped))
 	var wg sync.WaitGroup
+	batched := map[int]bool{}
+	if s.batch != nil {
+		idx := []int{}
+		for i, src := range scoped {
+			if _, ok := src.(ports.BatchSource); ok {
+				idx = append(idx, i)
+				batched[i] = true
+			}
+		}
+		if len(idx) < 2 {
+			batched = map[int]bool{}
+		} else {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				s.batchedCounts(ctx, q, idx, scoped, sourceIndexes, func(i int, counts map[domain.WorkState]int, degraded bool) {
+					results[i] = result{module: scoped[i].Module(), counts: counts, degraded: degraded}
+				})
+			}()
+		}
+	}
 	sem := make(chan struct{}, maxSummarySourceConcurrency)
 	for i, src := range scoped {
+		if batched[i] {
+			continue
+		}
 		wg.Add(1)
 		go func(i int, src ports.Source) {
 			defer wg.Done()

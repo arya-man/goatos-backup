@@ -77,3 +77,104 @@ func (s *Service) prefetchSourceLanes(ctx context.Context, index int, src ports.
 		_, _ = s.sourceRows(ctx, index, src, ports.SourceQuery{TenantID: query.TenantID, ParkID: query.ParkID, BusinessDate: query.BusinessDate, OwnerUserID: query.OwnerUserID, WorkStates: query.WorkStates, Limit: query.Limit + 1})
 	}
 }
+
+// batchedCounts reads every batchable source's count in ONE round trip, then every populated
+// prefetch lane page of those sources in ONE more, seeding the request memo the lane reads
+// consume. A failed batch falls back to the per-source reads, so a single failing source still
+// degrades alone exactly as before.
+func (s *Service) batchedCounts(ctx context.Context, q domain.Query, idx []int, scoped []ports.Source, sourceIndexes []int, done func(i int, counts map[domain.WorkState]int, degraded bool)) {
+	sourceCtx, cancel := context.WithTimeout(ctx, maxSummarySourceDuration)
+	defer cancel()
+	sq := ports.SourceQuery{TenantID: q.TenantID, ParkID: q.ParkID, BusinessDate: q.BusinessDate, OwnerUserID: q.OwnerUserID, WorkStates: q.WorkStates}
+	counts := make([]map[domain.WorkState]int, len(idx))
+	stmts := make([]ports.Statement, 0, len(idx))
+	ok := true
+	for k, i := range idx {
+		st, err := scoped[i].(ports.BatchSource).CountStatement(sq, &counts[k])
+		if err != nil {
+			ok = false
+			break
+		}
+		stmts = append(stmts, st)
+	}
+	start := time.Now()
+	if ok && s.batch.RunBatch(sourceCtx, stmts) == nil {
+		recordTiming(ctx, "source_count_batch", start)
+		for k, i := range idx {
+			done(i, counts[k], false)
+		}
+		s.batchedPrefetch(sourceCtx, q, idx, scoped, sourceIndexes, counts)
+		return
+	}
+	// Fallback: the per-source reads, sequential inside this one worker's budget.
+	for _, i := range idx {
+		src := scoped[i]
+		c, err := src.CountByState(sourceCtx, sq)
+		if err != nil {
+			done(i, nil, true)
+			continue
+		}
+		done(i, c, false)
+		s.prefetchSourceLanes(sourceCtx, sourceIndexes[i], src, q, c)
+	}
+}
+
+func (s *Service) batchedPrefetch(ctx context.Context, summary domain.Query, idx []int, scoped []ports.Source, sourceIndexes []int, counts []map[domain.WorkState]int) {
+	intents, _ := ctx.Value(lanePrefetchContextKey{}).([]domain.Query)
+	if len(intents) == 0 {
+		return
+	}
+	type pending struct {
+		index int
+		query ports.SourceQuery
+		rows  []domain.Row
+	}
+	var work []*pending
+	for k, i := range idx {
+		src := scoped[i]
+		for _, query := range intents {
+			if query.TenantID != summary.TenantID || query.ParkID != summary.ParkID || query.BusinessDate != summary.BusinessDate || query.OwnerUserID != summary.OwnerUserID || !query.WantsModule(src.Module()) {
+				continue
+			}
+			populated := false
+			for state, count := range counts[k] {
+				if count > 0 && query.WantsState(state) {
+					populated = true
+					break
+				}
+			}
+			if populated {
+				work = append(work, &pending{index: i, query: ports.SourceQuery{TenantID: query.TenantID, ParkID: query.ParkID, BusinessDate: query.BusinessDate, OwnerUserID: query.OwnerUserID, WorkStates: query.WorkStates, Limit: query.Limit + 1}})
+			}
+		}
+	}
+	stmts := make([]ports.Statement, 0, len(work))
+	for _, w := range work {
+		st, err := scoped[w.index].(ports.BatchSource).ListStatement(w.query, &w.rows)
+		if err != nil {
+			return
+		}
+		stmts = append(stmts, st)
+	}
+	start := time.Now()
+	// A failed prefetch batch seeds nothing; the lane reads run their own reads as before.
+	if len(stmts) == 0 || s.batch.RunBatch(ctx, stmts) != nil {
+		return
+	}
+	recordTiming(ctx, "source_prefetch_batch", start)
+	for _, w := range work {
+		rows := w.rows
+		_, _ = s.sourceRows(ctx, sourceIndexes[w.index], seededSource{scoped[w.index], rows}, w.query)
+	}
+}
+
+// seededSource answers ListRows with rows a batch already read, so sourceRows stores them in
+// the request memo under the exact key the lane read looks up.
+type seededSource struct {
+	ports.Source
+	rows []domain.Row
+}
+
+func (s seededSource) ListRows(context.Context, ports.SourceQuery) ([]domain.Row, error) {
+	return s.rows, nil
+}

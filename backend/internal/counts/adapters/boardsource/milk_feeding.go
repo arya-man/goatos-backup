@@ -18,11 +18,11 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 	"github.com/vgoats/goatos/backend/internal/workboard/domain"
 	"github.com/vgoats/goatos/backend/internal/workboard/ports"
 )
@@ -120,48 +120,73 @@ GROUP BY board_state`
 
 // ListRows implements ports.Source.
 func (s *MilkFeedingSource) ListRows(ctx context.Context, q ports.SourceQuery) ([]domain.Row, error) {
-	if err := ports.CheckUUIDSourceID(q.AfterSourceID); err != nil {
+	var out []domain.Row
+	st, err := s.ListStatement(q, &out)
+	if err != nil {
 		return nil, err
 	}
 	ctx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
-	limit := q.Limit
-	if limit <= 0 {
-		limit = domain.DefaultLimit
-	}
-	rows, err := s.pool.Query(ctx, milkListSQL,
-		q.TenantID, q.ParkID, q.BusinessDate, nullUUID(q.OwnerUserID), nullUUID(q.AfterSourceID), statesArg(q.WorkStates), limit)
+	bound := sqlbind.MustBind(st.Query.SQL(), st.Query.Args()...)
+	rows, err := s.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return nil, fmt.Errorf("milk boardsource list: %w", err)
 	}
 	defer rows.Close()
-	out := make([]domain.Row, 0, limit)
-	for rows.Next() {
-		r, err := scanMilkRow(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, r)
-	}
-	if err := rows.Err(); err != nil {
+	if err := st.Read(rows); err != nil {
 		return nil, fmt.Errorf("milk boardsource list rows: %w", err)
 	}
 	return out, nil
 }
 
+// ListStatement implements ports.BatchSource: the exact statement and decoding ListRows runs.
+func (s *MilkFeedingSource) ListStatement(q ports.SourceQuery, out *[]domain.Row) (ports.Statement, error) {
+	if err := ports.CheckUUIDSourceID(q.AfterSourceID); err != nil {
+		return ports.Statement{}, err
+	}
+	limit := q.Limit
+	if limit <= 0 {
+		limit = domain.DefaultLimit
+	}
+	sql, args := milkListSQL, []any{q.TenantID, q.ParkID, q.BusinessDate, nullUUID(q.OwnerUserID), nullUUID(q.AfterSourceID), statesArg(q.WorkStates), limit}
+	return ports.Statement{Query: sqlbind.MustBind(sql, args...), Read: func(rows ports.ResultRows) error {
+		got, err := ports.ReadRows(rows, limit, scanMilkRow)
+		*out = got
+		return err
+	}}, nil
+}
+
 // CountByState implements ports.Source.
 func (s *MilkFeedingSource) CountByState(ctx context.Context, q ports.SourceQuery) (map[domain.WorkState]int, error) {
+	var out map[domain.WorkState]int
+	st, err := s.CountStatement(q, &out)
+	if err != nil {
+		return nil, err
+	}
 	ctx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
-	rows, err := s.pool.Query(ctx, milkCountSQL, q.TenantID, q.ParkID, q.BusinessDate, nullUUID(q.OwnerUserID), statesArg(q.WorkStates))
+	bound := sqlbind.MustBind(st.Query.SQL(), st.Query.Args()...)
+	rows, err := s.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return nil, fmt.Errorf("milk boardsource count: %w", err)
 	}
 	defer rows.Close()
-	return scanCounts(rows, "milk boardsource count")
+	if err := st.Read(rows); err != nil {
+		return nil, fmt.Errorf("milk boardsource count scan: %w", err)
+	}
+	return out, nil
 }
 
-func scanMilkRow(rows pgx.Rows) (domain.Row, error) {
+// CountStatement implements ports.BatchSource: the exact statement CountByState runs.
+func (s *MilkFeedingSource) CountStatement(q ports.SourceQuery, out *map[domain.WorkState]int) (ports.Statement, error) {
+	return ports.Statement{Query: sqlbind.MustBind(milkCountSQL, q.TenantID, q.ParkID, q.BusinessDate, nullUUID(q.OwnerUserID), statesArg(q.WorkStates)), Read: func(rows ports.ResultRows) error {
+		got, err := ports.ReadCounts(rows)
+		*out = got
+		return err
+	}}, nil
+}
+
+func scanMilkRow(rows ports.ResultRows) (domain.Row, error) {
 	var (
 		taskID, parkID, parkName, shedID, shedName string
 		feedingDate, status, boardState            string
@@ -220,19 +245,6 @@ func scanMilkRow(rows pgx.Rows) (domain.Row, error) {
 		// park is the module's web surface (mp_park is its park filter).
 		Href: "/counts/milk-preparation?mp_park=" + url.QueryEscape(parkID),
 	}.Finalize(), nil
-}
-
-func scanCounts(rows pgx.Rows, what string) (map[domain.WorkState]int, error) {
-	out := map[domain.WorkState]int{}
-	for rows.Next() {
-		var state string
-		var n int
-		if err := rows.Scan(&state, &n); err != nil {
-			return nil, fmt.Errorf("%s scan: %w", what, err)
-		}
-		out[domain.WorkState(state)] = n
-	}
-	return out, rows.Err()
 }
 
 func nullUUID(s string) *string {
