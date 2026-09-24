@@ -133,3 +133,7 @@
   - `go test ./internal/herdsignals/... ./internal/permissions/...` from `backend` - PASS after sorted export cursor and Mapping risk-filter fixes.
   - `go test -race ./internal/herdsignals/adapters/http ./internal/herdsignals/adapters/postgres ./internal/herdsignals/app` from `backend` - PASS after sorted export cursor and Mapping risk-filter fixes.
   - `npm --prefix apps/admin-web run typecheck` - PASS after sorted export cursor and Mapping risk-filter fixes.
+- Landing guard repair on 2026-09-24:
+  - `make land-main` at `9690e1b0c9f1ca6b2d41e3c1d0d50db5ce45bae9` - RED; it did not push main. Failing gates were `agent: aggregate-projection` and `admin-web unit tests`.
+  - `make aggregate-projection-guard` - PASS after adding changed projection-review coverage evidence for existing Herd Signals OneToMany, MultiPage, ScopeHierarchy, and StatusMatrix integration tests.
+  - `node --test --experimental-strip-types apps/admin-web/features/herd-signals/herd-signals-live-table-controls.test.mjs` - PASS after updating the SSE reconnect assertion for the memoized `streamHref` dependency.
