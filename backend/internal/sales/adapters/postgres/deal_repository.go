@@ -230,6 +230,12 @@ func (r *Repository) attachDealLines(ctx context.Context, tenantID string, deals
 		return fmt.Errorf("list sales deal lines: %w", err)
 	}
 	defer rows.Close()
+	return attachDealLineRows(rows, deals, index, "list sales deal lines")
+}
+
+// attachDealLineRows scans rows of the dealLines*SQL projection and hangs each line off its own
+// deal (by id), in row order. A line whose deal is not in `index` is skipped.
+func attachDealLineRows(rows pgx.Rows, deals []domain.Deal, index map[string]int, label string) error {
 	for rows.Next() {
 		var (
 			line   domain.DealLine
@@ -238,14 +244,14 @@ func (r *Repository) attachDealLines(ctx context.Context, tenantID string, deals
 		if err := rows.Scan(&line.LineID, &dealID, &line.LineNo, &line.ProductType, &line.Breed,
 			&line.AnimalCount, &line.MaleCount, &line.FemaleCount, &line.TotalWeightKg, &line.SalesValue,
 			&line.EstimatedWeightKg, &line.EstimatedWeightBand, &line.WeightEstimateBasis); err != nil {
-			return fmt.Errorf("list sales deal lines scan: %w", err)
+			return fmt.Errorf("%s scan: %w", label, err)
 		}
 		if i, ok := index[dealID]; ok {
 			deals[i].Lines = append(deals[i].Lines, line)
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return fmt.Errorf("list sales deal lines rows: %w", err)
+		return fmt.Errorf("%s rows: %w", label, err)
 	}
 	return nil
 }

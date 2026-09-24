@@ -5,14 +5,22 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 	"github.com/vgoats/goatos/backend/internal/sales/domain"
-	"golang.org/x/sync/errgroup"
 )
 
 // GetOverview serves the whole sales page in one read: closed-deal aggregates computed in Go over
 // ONE bounded ledger read, plus single-table GROUP BY rollups for the pipeline and evidence
 // panels. Every number is a WHOLE-FILTER aggregate; nothing here is page-local.
+//
+// ONE ROUND TRIP, ONE CONNECTION (P10, docs/perf/2026-09-24-stg-latency): every block below is
+// independent of the others, so they are queued on ONE pgx.Batch and sent together. The page used
+// to fan out 8 goroutines, each holding its own pool connection, with the deal lines read serially
+// after the deals: 2 sequential round trips on the critical path and 8 connections per request,
+// which queued behind each other under concurrent loads. The deal lines are keyed by the SAME
+// deal filter as a subquery, so they no longer wait for the deal ids to come back.
 //
 // projection-review: membership=each block reads exactly ONE sales_* table at ROW grain (one
 // sheet row / one recorded fact -- source_sales_id is a repeating sheet reference and is only ever
@@ -46,50 +54,20 @@ func (r *Repository) GetOverview(ctx context.Context, tenantID, farm string) (do
 		farmValuation    domain.FarmValuation
 	)
 
-	group, gctx := errgroup.WithContext(ctx)
-	group.Go(func() error {
-		var err error
-		closed, err = r.closedDeals(gctx, tenantID, farm)
-		return err
-	})
-	group.Go(func() error {
-		var err error
-		buyerPipeline, err = r.buyerPipeline(gctx, tenantID, farm)
-		return err
-	})
-	group.Go(func() error {
-		var err error
-		fpoPipeline, err = r.fpoPipeline(gctx, tenantID)
-		return err
-	})
-	group.Go(func() error {
-		var err error
-		tagRoster, err = r.tagRoster(gctx, tenantID, farm)
-		return err
-	})
-	group.Go(func() error {
-		var err error
-		weightAudit, err = r.weightAudit(gctx, tenantID)
-		return err
-	})
-	group.Go(func() error {
-		var err error
-		marketBenchmarks, err = r.marketBenchmarks(gctx, tenantID)
-		return err
-	})
-	group.Go(func() error {
-		var err error
-		measuredWeights, err = r.measuredSoldWeights(gctx, tenantID, farm)
-		return err
-	})
-	group.Go(func() error {
-		var err error
-		farmValuation, err = r.farmValuation(gctx, tenantID, farm)
-		return err
-	})
-	if err := group.Wait(); err != nil {
+	batch := &pgx.Batch{}
+	queueClosedDeals(batch, tenantID, farm, &closed)
+	queueBuyerPipeline(batch, tenantID, farm, &buyerPipeline)
+	queueFPOPipeline(batch, tenantID, &fpoPipeline)
+	queueTagRoster(batch, tenantID, farm, &tagRoster)
+	queueWeightAudit(batch, tenantID, &weightAudit)
+	queueMarketBenchmarks(batch, tenantID, &marketBenchmarks)
+	queueMeasuredSoldWeights(batch, tenantID, farm, &measuredWeights)
+	queueFarmValuation(batch, tenantID, farm, &farmValuation)
+	// Close runs every queued callback in queue order and returns the first error.
+	if err := r.pool.SendBatch(ctx, batch).Close(); err != nil {
 		return domain.Overview{}, err
 	}
+
 	overview.Summary, overview.Monthly, overview.PriceBands, overview.Buyers = domain.BuildDealAggregates(closed)
 	overview.BuyerPipeline = buyerPipeline
 	overview.FPOPipeline = fpoPipeline
@@ -103,9 +81,16 @@ func (r *Repository) GetOverview(ctx context.Context, tenantID, farm string) (do
 	return overview, nil
 }
 
-// measuredSoldWeights reads the weight recorded when each animal was TAGGED to its sale, keyed
-// by deal. It is the best evidence the bands have: one animal, one scale reading. Everything else
-// the bands show is derived from a load, and domain.BuildSoldWeightBands keeps the two apart.
+// queueBound queues one sqlbind-checked statement on the batch.
+func queueBound(batch *pgx.Batch, query string, args ...any) *pgx.QueuedQuery {
+	bound := sqlbind.MustBind(query, args...)
+	return batch.Queue(bound.SQL(), bound.Args()...)
+}
+
+// queueMeasuredSoldWeights reads the weight recorded when each animal was TAGGED to its sale,
+// keyed by deal. It is the best evidence the bands have: one animal, one scale reading.
+// Everything else the bands show is derived from a load, and domain.BuildSoldWeightBands keeps
+// the two apart.
 //
 // Keyed by DEAL and not by line because a tag names the sale, not which product line of it the
 // animal belongs to; the domain attaches them to the deal's live lines in line order.
@@ -121,36 +106,32 @@ func (r *Repository) GetOverview(ctx context.Context, tenantID, farm string) (do
 // read; scope=tenant, optionally narrowed to one farm through the deal, the same buildDealFilter
 // and the same status='Deal Closed' the closed-deal read uses, so the two sides of the fold
 // range over one deal set.
-func (r *Repository) measuredSoldWeights(ctx context.Context, tenantID, farm string) (map[string][]float64, error) {
+func queueMeasuredSoldWeights(batch *pgx.Batch, tenantID, farm string, out *map[string][]float64) {
 	where, args := buildDealFilter(tenantID, farm)
-	query := fmt.Sprintf(measuredSoldWeightsSQL, where)
-	boundMeasured := sqlbind.MustBind(query, args...)
-	rows, err := r.pool.Query(ctx, boundMeasured.SQL(), boundMeasured.Args()...)
-	if err != nil {
-		return nil, fmt.Errorf("sales measured sold weights: %w", err)
-	}
-	defer rows.Close()
-
-	out := map[string][]float64{}
-	for rows.Next() {
-		var (
-			dealID string
-			kg     float64
-		)
-		if err := rows.Scan(&dealID, &kg); err != nil {
-			return nil, fmt.Errorf("sales measured sold weights scan: %w", err)
+	queueBound(batch, fmt.Sprintf(measuredSoldWeightsSQL, where), args...).Query(func(rows pgx.Rows) error {
+		weights := map[string][]float64{}
+		for rows.Next() {
+			var (
+				dealID string
+				kg     float64
+			)
+			if err := rows.Scan(&dealID, &kg); err != nil {
+				return fmt.Errorf("sales measured sold weights scan: %w", err)
+			}
+			weights[dealID] = append(weights[dealID], kg)
 		}
-		out[dealID] = append(out[dealID], kg)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("sales measured sold weights rows: %w", err)
-	}
-	return out, nil
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("sales measured sold weights: %w", err)
+		}
+		*out = weights
+		return nil
+	})
 }
 
-// farmValuation computes Manju's Sales farm-value cards from current live herd inventory, not the
-// closed sales ledger. F2/F2-Male/F2-Female are the current fattening vocabulary; their formula
-// uses the average of the latest verified RFID-linked weights and applies it to the bucket count.
+// queueFarmValuation computes Manju's Sales farm-value cards from current live herd inventory,
+// not the closed sales ledger. F2/F2-Male/F2-Female are the current fattening vocabulary; their
+// formula uses the average of the latest verified RFID-linked weights and applies it to the
+// bucket count.
 //
 // projection-review: membership=goats at one row per current animal, filtered to non-terminal and
 // non-merged; latest_purpose is distinct on (tenant_id, goat_id), idmap is reduced by latest_weight
@@ -158,63 +139,57 @@ func (r *Repository) measuredSoldWeights(ctx context.Context, tenantID, farm str
 // mutually-exclusive CASE bucket; farm scope joins locations 1:1 by goat park_id/farm_id and matches
 // the same CBE/CPT code the Sales filter carries; pagination=none, this is a whole-current-inventory card;
 // scope=tenant_id and optional farm code.
-func (r *Repository) farmValuation(ctx context.Context, tenantID, farm string) (domain.FarmValuation, error) {
+func queueFarmValuation(batch *pgx.Batch, tenantID, farm string, out *domain.FarmValuation) {
 	args := []any{tenantID}
 	if farm != "" {
 		args = append(args, farm)
 	}
-
-	query := farmValuationQuery(farm)
-	boundValuation := sqlbind.MustBind(query, args...)
-	rows, err := r.pool.Query(ctx, boundValuation.SQL(), boundValuation.Args()...)
-	if err != nil {
-		return domain.FarmValuation{}, fmt.Errorf("sales farm valuation: %w", err)
-	}
-	defer rows.Close()
-
-	out := domain.FarmValuation{Buckets: []domain.FarmValuationBucket{}, NotValued: []domain.FarmValuationNotValued{}}
-	for rows.Next() {
-		var bucket domain.FarmValuationBucket
-		var totalAnimals int
-		var valuedAnimals int
-		var excludedAnimals int
-		var notValuedJSON []byte
-		if err := rows.Scan(
-			&bucket.Bucket,
-			&bucket.Label,
-			&bucket.AnimalCount,
-			&bucket.WeightKg,
-			&bucket.PricePerKg,
-			&bucket.MeatKg,
-			&bucket.ValueRupees,
-			&bucket.ActualWeight,
-			&bucket.WeighedAnimals,
-			&bucket.MaleCount,
-			&bucket.FemaleCount,
-			&bucket.SexMissingCount,
-			&totalAnimals,
-			&valuedAnimals,
-			&excludedAnimals,
-			&notValuedJSON,
-		); err != nil {
-			return domain.FarmValuation{}, fmt.Errorf("sales farm valuation scan: %w", err)
-		}
-		if len(notValuedJSON) > 0 && len(out.NotValued) == 0 {
-			if err := json.Unmarshal(notValuedJSON, &out.NotValued); err != nil {
-				return domain.FarmValuation{}, fmt.Errorf("sales farm valuation not-valued breakdown: %w", err)
+	queueBound(batch, farmValuationQuery(farm), args...).Query(func(rows pgx.Rows) error {
+		valuation := domain.FarmValuation{Buckets: []domain.FarmValuationBucket{}, NotValued: []domain.FarmValuationNotValued{}}
+		for rows.Next() {
+			var bucket domain.FarmValuationBucket
+			var totalAnimals int
+			var valuedAnimals int
+			var excludedAnimals int
+			var notValuedJSON []byte
+			if err := rows.Scan(
+				&bucket.Bucket,
+				&bucket.Label,
+				&bucket.AnimalCount,
+				&bucket.WeightKg,
+				&bucket.PricePerKg,
+				&bucket.MeatKg,
+				&bucket.ValueRupees,
+				&bucket.ActualWeight,
+				&bucket.WeighedAnimals,
+				&bucket.MaleCount,
+				&bucket.FemaleCount,
+				&bucket.SexMissingCount,
+				&totalAnimals,
+				&valuedAnimals,
+				&excludedAnimals,
+				&notValuedJSON,
+			); err != nil {
+				return fmt.Errorf("sales farm valuation scan: %w", err)
 			}
+			if len(notValuedJSON) > 0 && len(valuation.NotValued) == 0 {
+				if err := json.Unmarshal(notValuedJSON, &valuation.NotValued); err != nil {
+					return fmt.Errorf("sales farm valuation not-valued breakdown: %w", err)
+				}
+			}
+			valuation.TotalMeatKg += bucket.MeatKg
+			valuation.TotalValueRupees += bucket.ValueRupees
+			valuation.TotalAnimals = totalAnimals
+			valuation.ValuedAnimals = valuedAnimals
+			valuation.ExcludedAnimals = excludedAnimals
+			valuation.Buckets = append(valuation.Buckets, bucket)
 		}
-		out.TotalMeatKg += bucket.MeatKg
-		out.TotalValueRupees += bucket.ValueRupees
-		out.TotalAnimals = totalAnimals
-		out.ValuedAnimals = valuedAnimals
-		out.ExcludedAnimals = excludedAnimals
-		out.Buckets = append(out.Buckets, bucket)
-	}
-	if err := rows.Err(); err != nil {
-		return domain.FarmValuation{}, fmt.Errorf("sales farm valuation rows: %w", err)
-	}
-	return out, nil
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("sales farm valuation: %w", err)
+		}
+		*out = valuation
+		return nil
+	})
 }
 
 func farmValuationQuery(farm string) string {
@@ -225,54 +200,67 @@ func farmValuationQuery(farm string) string {
 	return fmt.Sprintf(farmValuationSQL, farmPredicate)
 }
 
-// closedDeals loads every closed deal in the filter -- the ONE bounded read behind the summary,
-// monthly, price-band and buyer blocks, so the four blocks cannot range over different predicates.
+// queueClosedDeals loads every closed deal in the filter -- the ONE bounded read behind the
+// summary, monthly, price-band and buyer blocks, so the four blocks cannot range over different
+// predicates.
 //
 // projection-review: membership=sales_deals at ROW grain (one recorded deal), plus its
-// sales_deal_lines attached by a SEPARATE keyed read (deal_id = ANY) and hung off their own deal,
-// never joined into the deal rows, so a deal with three lines is still one deal here;
-// group_key=deal_id for the deal blocks and (product_type, breed) at LINE grain for the price
-// bands, computed in domain.BuildDealAggregates; join_cardinality=no SQL join at all -- deals
-// 1:N lines is resolved in Go by attaching each line to exactly one deal, and every line's value
-// is summed exactly once while the deal's own sales_value is the same total by construction
-// (RollupLines, one transaction); pagination=none, whole-filter read; scope=tenant_id plus the
-// shared farm predicate (buildDealFilter) and status = 'Deal Closed'.
+// sales_deal_lines read by a SEPARATE statement keyed by the same deal filter (deal_id IN the
+// closed-deal set) and hung off their own deal, never joined into the deal rows, so a deal with
+// three lines is still one deal here; group_key=deal_id for the deal blocks and
+// (product_type, breed) at LINE grain for the price bands, computed in
+// domain.BuildDealAggregates; join_cardinality=no SQL join into the deal rows -- deals 1:N lines
+// is resolved in Go by attaching each line to exactly one deal, and every line's value is summed
+// exactly once while the deal's own sales_value is the same total by construction (RollupLines,
+// one transaction); pagination=none, whole-filter read; scope=tenant_id plus the shared farm
+// predicate (buildDealFilter) and status = 'Deal Closed'.
 // The grouped consumers live in domain.BuildDealAggregates, whose own projection-review note
 // names the group keys and the realized-price ratio's shared key set.
-func (r *Repository) closedDeals(ctx context.Context, tenantID, farm string) ([]domain.Deal, error) {
+func queueClosedDeals(batch *pgx.Batch, tenantID, farm string, out *[]domain.Deal) {
 	where, args := buildDealFilter(tenantID, farm)
 	// scale-guard:ignore: whole-filter read of an authored commercial ledger (63 sheet rows today,
 	// grows by deals closed, never with herd size); the page contract is whole-filter aggregates,
 	// which cannot be computed from a page.
 	query := fmt.Sprintf(`SELECT %s FROM public.sales_deals d WHERE %s AND d.status = 'Deal Closed' ORDER BY d.sale_date, d.id`, dealColumns, where)
-	boundClosed := sqlbind.MustBind(query, args...)
-	rows, err := r.pool.Query(ctx, boundClosed.SQL(), boundClosed.Args()...)
-	if err != nil {
-		return nil, fmt.Errorf("sales overview deals: %w", err)
-	}
-	defer rows.Close()
-
-	deals := make([]domain.Deal, 0, 128)
-	for rows.Next() {
-		d, err := scanDeal(rows)
-		if err != nil {
-			return nil, fmt.Errorf("sales overview deals scan: %w", err)
+	index := map[string]int{}
+	queueBound(batch, query, args...).Query(func(rows pgx.Rows) error {
+		deals := make([]domain.Deal, 0, 128)
+		for rows.Next() {
+			d, err := scanDeal(rows)
+			if err != nil {
+				return fmt.Errorf("sales overview deals scan: %w", err)
+			}
+			index[d.DealID] = len(deals)
+			deals = append(deals, d)
 		}
-		deals = append(deals, d)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("sales overview deals rows: %w", err)
-	}
-	// The product/breed blocks are computed at LINE grain (000296): one batched read.
-	// projection-review: membership=sales_deal_lines keyed by deal_id over the deals read above;
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("sales overview deals: %w", err)
+		}
+		*out = deals
+		return nil
+	})
+	// The product/breed blocks are computed at LINE grain (000296): one read keyed by the SAME
+	// deal filter, queued behind the deals so its callback attaches to the deals just scanned.
+	// projection-review: membership=sales_deal_lines whose deal is in the closed-deal set above;
 	// group_key=deal_id, each line attached to exactly one deal; join_cardinality=1:N resolved in
-	// Go (no SQL join, so the deal rows cannot fan out); pagination=none; scope=tenant_id and the
-	// deals' own farm/status predicate, since only their ids are handed in.
-	if err := r.attachDealLines(ctx, tenantID, deals); err != nil {
-		return nil, err
-	}
-	return deals, nil
+	// Go (the IN semijoin cannot fan out a line, and no deal row is joined); pagination=none;
+	// scope=tenant_id and the deals' own farm/status predicate.
+	linesQuery := fmt.Sprintf(dealLinesForClosedDealsSQL, where)
+	queueBound(batch, linesQuery, args...).Query(func(rows pgx.Rows) error {
+		return attachDealLineRows(rows, *out, index, "sales overview deal lines")
+	})
 }
+
+// dealLinesForClosedDealsSQL is dealLinesForPageSQL keyed by the closed-deal filter instead of an
+// id list. %s is buildDealFilter's WHERE over the deal alias d.
+const dealLinesForClosedDealsSQL = `
+	SELECT l.line_id::text, l.deal_id::text, l.line_no, l.product_type, l.breed,
+	       l.animal_count, l.male_count, l.female_count, l.total_weight_kg, l.sales_value,
+	       l.estimated_weight_kg, coalesce(l.estimated_weight_band, ''), coalesce(l.weight_estimate_basis, '')
+	FROM public.sales_deal_lines l
+	WHERE l.tenant_id = $1
+	  AND l.deal_id IN (SELECT d.id FROM public.sales_deals d WHERE %s AND d.status = 'Deal Closed')
+	ORDER BY l.deal_id, l.line_no`
 
 // buyerLeadFilter is the shared predicate for the buyer-pipeline rollups, so the status buckets
 // and the top-places list range over the same lead set.
@@ -283,16 +271,34 @@ func buyerLeadFilter(tenantID, farm string) (string, []any) {
 	return "tenant_id = $1 AND farm = $2", []any{tenantID, farm}
 }
 
-// buyerPipeline rolls up the buyer-lead demand pipeline.
+// queueStatusCounts queues one (status, count) rollup; the total is the sum of its buckets.
+func queueStatusCounts(batch *pgx.Batch, query string, args []any, label string, out *[]domain.StatusCount, total *int) {
+	queueBound(batch, query, args...).Query(func(rows pgx.Rows) error {
+		for rows.Next() {
+			var bucket domain.StatusCount
+			if err := rows.Scan(&bucket.Status, &bucket.Count); err != nil {
+				return fmt.Errorf("%s scan: %w", label, err)
+			}
+			*out = append(*out, bucket)
+			*total += bucket.Count
+		}
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("%s: %w", label, err)
+		}
+		return nil
+	})
+}
+
+// queueBuyerPipeline rolls up the buyer-lead demand pipeline.
 //
 // projection-review: producer rows are sales_buyer_leads at ROW grain (one lead per sheet row).
 // The status rollup groups by the normalized call_status and the places rollup by buyer_place,
 // each a single-table GROUP BY over the same WHERE -- no join, no fan-out. Total is the sum of
 // the status buckets, which are exhaustive because NULL/blank normalizes to 'uncontacted' rather
 // than being dropped.
-func (r *Repository) buyerPipeline(ctx context.Context, tenantID, farm string) (domain.BuyerPipeline, error) {
+func queueBuyerPipeline(batch *pgx.Batch, tenantID, farm string, out *domain.BuyerPipeline) {
 	where, args := buyerLeadFilter(tenantID, farm)
-	pipeline := domain.BuyerPipeline{Statuses: []domain.StatusCount{}, TopPlaces: []domain.PlaceCount{}}
+	*out = domain.BuyerPipeline{Statuses: []domain.StatusCount{}, TopPlaces: []domain.PlaceCount{}}
 
 	query := fmt.Sprintf(`
 		SELECT COALESCE(nullif(btrim(call_status), ''), '%s') AS status, count(*)
@@ -300,23 +306,7 @@ func (r *Repository) buyerPipeline(ctx context.Context, tenantID, farm string) (
 		WHERE %s
 		GROUP BY 1
 		ORDER BY count(*) DESC, status`, domain.UncontactedStatusKey, where)
-	boundStatus := sqlbind.MustBind(query, args...)
-	rows, err := r.pool.Query(ctx, boundStatus.SQL(), boundStatus.Args()...)
-	if err != nil {
-		return domain.BuyerPipeline{}, fmt.Errorf("sales buyer pipeline statuses: %w", err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var bucket domain.StatusCount
-		if err := rows.Scan(&bucket.Status, &bucket.Count); err != nil {
-			return domain.BuyerPipeline{}, fmt.Errorf("sales buyer pipeline statuses scan: %w", err)
-		}
-		pipeline.Statuses = append(pipeline.Statuses, bucket)
-		pipeline.Total += bucket.Count
-	}
-	if err := rows.Err(); err != nil {
-		return domain.BuyerPipeline{}, fmt.Errorf("sales buyer pipeline statuses rows: %w", err)
-	}
+	queueStatusCounts(batch, query, args, "sales buyer pipeline statuses", &out.Statuses, &out.Total)
 
 	placesQuery := fmt.Sprintf(`
 		SELECT btrim(buyer_place) AS place, count(*)
@@ -325,21 +315,17 @@ func (r *Repository) buyerPipeline(ctx context.Context, tenantID, farm string) (
 		GROUP BY 1
 		ORDER BY count(*) DESC, place
 		LIMIT %d`, where, domain.MaxPipelinePlaces)
-	pipeline.TopPlaces, err = r.placeCounts(ctx, placesQuery, args, "sales buyer pipeline places")
-	if err != nil {
-		return domain.BuyerPipeline{}, err
-	}
-	return pipeline, nil
+	queuePlaceCounts(batch, placesQuery, args, "sales buyer pipeline places", &out.TopPlaces)
 }
 
-// fpoPipeline rolls up the FPO demand pipeline. Company-wide by construction: the source carries
-// no farm column.
+// queueFPOPipeline rolls up the FPO demand pipeline. Company-wide by construction: the source
+// carries no farm column.
 //
 // projection-review: producer rows are sales_fpo_leads at ROW grain; status and district rollups
 // are single-table GROUP BYs over the same tenant predicate -- no join, no fan-out. Total sums
 // the exhaustive status buckets (NULL/blank -> 'uncontacted').
-func (r *Repository) fpoPipeline(ctx context.Context, tenantID string) (domain.FPOPipeline, error) {
-	pipeline := domain.FPOPipeline{Statuses: []domain.StatusCount{}, Districts: []domain.PlaceCount{}}
+func queueFPOPipeline(batch *pgx.Batch, tenantID string, out *domain.FPOPipeline) {
+	*out = domain.FPOPipeline{Statuses: []domain.StatusCount{}, Districts: []domain.PlaceCount{}}
 
 	query := fmt.Sprintf(`
 		SELECT COALESCE(nullif(btrim(call_status), ''), '%s') AS status, count(*)
@@ -347,23 +333,7 @@ func (r *Repository) fpoPipeline(ctx context.Context, tenantID string) (domain.F
 		WHERE tenant_id = $1
 		GROUP BY 1
 		ORDER BY count(*) DESC, status`, domain.UncontactedStatusKey)
-	boundStatus := sqlbind.MustBind(query, tenantID)
-	rows, err := r.pool.Query(ctx, boundStatus.SQL(), boundStatus.Args()...)
-	if err != nil {
-		return domain.FPOPipeline{}, fmt.Errorf("sales fpo pipeline statuses: %w", err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var bucket domain.StatusCount
-		if err := rows.Scan(&bucket.Status, &bucket.Count); err != nil {
-			return domain.FPOPipeline{}, fmt.Errorf("sales fpo pipeline statuses scan: %w", err)
-		}
-		pipeline.Statuses = append(pipeline.Statuses, bucket)
-		pipeline.Total += bucket.Count
-	}
-	if err := rows.Err(); err != nil {
-		return domain.FPOPipeline{}, fmt.Errorf("sales fpo pipeline statuses rows: %w", err)
-	}
+	queueStatusCounts(batch, query, []any{tenantID}, "sales fpo pipeline statuses", &out.Statuses, &out.Total)
 
 	districtsQuery := fmt.Sprintf(`
 		SELECT btrim(district) AS district, count(*)
@@ -372,53 +342,48 @@ func (r *Repository) fpoPipeline(ctx context.Context, tenantID string) (domain.F
 		GROUP BY 1
 		ORDER BY count(*) DESC, district
 		LIMIT %d`, domain.MaxPipelinePlaces)
-	pipeline.Districts, err = r.placeCounts(ctx, districtsQuery, []any{tenantID}, "sales fpo pipeline districts")
-	if err != nil {
-		return domain.FPOPipeline{}, err
-	}
-	return pipeline, nil
+	queuePlaceCounts(batch, districtsQuery, []any{tenantID}, "sales fpo pipeline districts", &out.Districts)
 }
 
-// placeCounts runs one (place, count) rollup query.
-func (r *Repository) placeCounts(ctx context.Context, query string, args []any, label string) ([]domain.PlaceCount, error) {
-	boundPlaces := sqlbind.MustBind(query, args...)
-	rows, err := r.pool.Query(ctx, boundPlaces.SQL(), boundPlaces.Args()...)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", label, err)
-	}
-	defer rows.Close()
-	out := []domain.PlaceCount{}
-	for rows.Next() {
-		var place domain.PlaceCount
-		if err := rows.Scan(&place.Place, &place.Count); err != nil {
-			return nil, fmt.Errorf("%s scan: %w", label, err)
+// queuePlaceCounts queues one (place, count) rollup query.
+func queuePlaceCounts(batch *pgx.Batch, query string, args []any, label string, out *[]domain.PlaceCount) {
+	queueBound(batch, query, args...).Query(func(rows pgx.Rows) error {
+		places := []domain.PlaceCount{}
+		for rows.Next() {
+			var place domain.PlaceCount
+			if err := rows.Scan(&place.Place, &place.Count); err != nil {
+				return fmt.Errorf("%s scan: %w", label, err)
+			}
+			places = append(places, place)
 		}
-		out = append(out, place)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("%s rows: %w", label, err)
-	}
-	return out, nil
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("%s: %w", label, err)
+		}
+		*out = places
+		return nil
+	})
 }
 
-// tagRoster summarises the sold-animal tag evidence.
+// queueTagRoster summarises the sold-animal tag evidence.
 //
 // projection-review: producer rows are sales_sold_animal_tags at ROW grain (one tag per animal
 // handed over). total counts rows; sales_count counts DISTINCT source_sales_id because that
 // column is a sheet REFERENCE that repeats across the tags of one sale and must never be counted
 // at row grain; by_type groups by animal_label over the same WHERE. Single table, no join.
-func (r *Repository) tagRoster(ctx context.Context, tenantID, farm string) (domain.TagRoster, error) {
+func queueTagRoster(batch *pgx.Batch, tenantID, farm string, out *domain.TagRoster) {
 	where, args := buyerLeadFilter(tenantID, farm) // same tenant[/farm] predicate shape
-	roster := domain.TagRoster{ByType: []domain.TagTypeCount{}}
+	*out = domain.TagRoster{ByType: []domain.TagTypeCount{}}
 
 	totalsQuery := fmt.Sprintf(`
 		SELECT count(*), count(DISTINCT source_sales_id)
 		FROM public.sales_sold_animal_tags
 		WHERE %s`, where)
-	boundTotals := sqlbind.MustBind(totalsQuery, args...)
-	if err := r.pool.QueryRow(ctx, boundTotals.SQL(), boundTotals.Args()...).Scan(&roster.Total, &roster.SalesCount); err != nil {
-		return domain.TagRoster{}, fmt.Errorf("sales tag roster totals: %w", err)
-	}
+	queueBound(batch, totalsQuery, args...).QueryRow(func(row pgx.Row) error {
+		if err := row.Scan(&out.Total, &out.SalesCount); err != nil {
+			return fmt.Errorf("sales tag roster totals: %w", err)
+		}
+		return nil
+	})
 
 	byTypeQuery := fmt.Sprintf(`
 		SELECT animal_label, count(*)
@@ -426,82 +391,73 @@ func (r *Repository) tagRoster(ctx context.Context, tenantID, farm string) (doma
 		WHERE %s
 		GROUP BY animal_label
 		ORDER BY count(*) DESC, animal_label`, where)
-	boundByType := sqlbind.MustBind(byTypeQuery, args...)
-	rows, err := r.pool.Query(ctx, boundByType.SQL(), boundByType.Args()...)
-	if err != nil {
-		return domain.TagRoster{}, fmt.Errorf("sales tag roster by type: %w", err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var bucket domain.TagTypeCount
-		if err := rows.Scan(&bucket.Label, &bucket.Count); err != nil {
-			return domain.TagRoster{}, fmt.Errorf("sales tag roster by type scan: %w", err)
+	queueBound(batch, byTypeQuery, args...).Query(func(rows pgx.Rows) error {
+		for rows.Next() {
+			var bucket domain.TagTypeCount
+			if err := rows.Scan(&bucket.Label, &bucket.Count); err != nil {
+				return fmt.Errorf("sales tag roster by type scan: %w", err)
+			}
+			out.ByType = append(out.ByType, bucket)
 		}
-		roster.ByType = append(roster.ByType, bucket)
-	}
-	if err := rows.Err(); err != nil {
-		return domain.TagRoster{}, fmt.Errorf("sales tag roster by type rows: %w", err)
-	}
-	return roster, nil
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("sales tag roster by type: %w", err)
+		}
+		return nil
+	})
 }
 
-// weightAudit buckets every audit row's video-vs-book gap in Go, so the bucket boundaries live in
-// ONE tested place (domain.WeightAuditSummary.BucketWeightGap) rather than being re-derived in SQL.
+// queueWeightAudit buckets every audit row's video-vs-book gap in Go, so the bucket boundaries
+// live in ONE tested place (domain.WeightAuditSummary.BucketWeightGap) rather than being
+// re-derived in SQL.
 //
 // projection-review: producer rows are sales_weight_audit at ROW grain (one audited animal); the
 // consumer buckets each row exactly once into three disjoint gap ranges. Single bounded table
 // (81 rows), tenant-scoped, no join.
-func (r *Repository) weightAudit(ctx context.Context, tenantID string) (domain.WeightAuditSummary, error) {
+func queueWeightAudit(batch *pgx.Batch, tenantID string, out *domain.WeightAuditSummary) {
 	// scale-guard:ignore: whole-filter read of a bounded authored evidence table (81 rows), whose
 	// disjoint gap buckets are a whole-filter aggregate.
-	rows, err := r.pool.Query(ctx, `
+	batch.Queue(`
 		SELECT video_weight_kg, book_weight_kg
 		FROM public.sales_weight_audit
-		WHERE tenant_id = $1`, tenantID)
-	if err != nil {
-		return domain.WeightAuditSummary{}, fmt.Errorf("sales weight audit: %w", err)
-	}
-	defer rows.Close()
-
-	summary := domain.WeightAuditSummary{}
-	for rows.Next() {
-		var videoKg, bookKg float64
-		if err := rows.Scan(&videoKg, &bookKg); err != nil {
-			return domain.WeightAuditSummary{}, fmt.Errorf("sales weight audit scan: %w", err)
+		WHERE tenant_id = $1`, tenantID).Query(func(rows pgx.Rows) error {
+		summary := domain.WeightAuditSummary{}
+		for rows.Next() {
+			var videoKg, bookKg float64
+			if err := rows.Scan(&videoKg, &bookKg); err != nil {
+				return fmt.Errorf("sales weight audit scan: %w", err)
+			}
+			summary.BucketWeightGap(videoKg, bookKg)
 		}
-		summary.BucketWeightGap(videoKg, bookKg)
-	}
-	if err := rows.Err(); err != nil {
-		return domain.WeightAuditSummary{}, fmt.Errorf("sales weight audit rows: %w", err)
-	}
-	return summary, nil
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("sales weight audit: %w", err)
+		}
+		*out = summary
+		return nil
+	})
 }
 
-// marketBenchmarks lists the comparable market quotes, priciest first so the screen reads as a
-// ladder.
-func (r *Repository) marketBenchmarks(ctx context.Context, tenantID string) ([]domain.MarketBenchmark, error) {
-	rows, err := r.pool.Query(ctx, `
+// queueMarketBenchmarks lists the comparable market quotes, priciest first so the screen reads
+// as a ladder.
+func queueMarketBenchmarks(batch *pgx.Batch, tenantID string, out *[]domain.MarketBenchmark) {
+	batch.Queue(`
 		SELECT market, category, breed, source, ex_farm_rate, transport_rate, landing_cost_per_kg, market_price_per_kg
 		FROM public.sales_market_benchmarks
 		WHERE tenant_id = $1
-		ORDER BY market_price_per_kg DESC NULLS LAST, breed`, tenantID)
-	if err != nil {
-		return nil, fmt.Errorf("sales market benchmarks: %w", err)
-	}
-	defer rows.Close()
-
-	out := []domain.MarketBenchmark{}
-	for rows.Next() {
-		var b domain.MarketBenchmark
-		if err := rows.Scan(&b.Market, &b.Category, &b.Breed, &b.Source, &b.ExFarmRate, &b.TransportRate, &b.LandingCostPerKg, &b.MarketPricePerKg); err != nil {
-			return nil, fmt.Errorf("sales market benchmarks scan: %w", err)
+		ORDER BY market_price_per_kg DESC NULLS LAST, breed`, tenantID).Query(func(rows pgx.Rows) error {
+		benchmarks := []domain.MarketBenchmark{}
+		for rows.Next() {
+			var b domain.MarketBenchmark
+			if err := rows.Scan(&b.Market, &b.Category, &b.Breed, &b.Source, &b.ExFarmRate, &b.TransportRate, &b.LandingCostPerKg, &b.MarketPricePerKg); err != nil {
+				return fmt.Errorf("sales market benchmarks scan: %w", err)
+			}
+			benchmarks = append(benchmarks, b)
 		}
-		out = append(out, b)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("sales market benchmarks rows: %w", err)
-	}
-	return out, nil
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("sales market benchmarks: %w", err)
+		}
+		*out = benchmarks
+		return nil
+	})
 }
 
 // measuredSoldWeightsSQL reads one row per individually weighed sold animal. %s is the shared
