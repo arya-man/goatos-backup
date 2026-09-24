@@ -47,6 +47,18 @@ them away: `docs/architecture/operational-read-model-contract.md`
 - Defect/audit-ledger closure -> `docs/agent-rules/defect-ledgers.md`.
 - Morning README, workflow docs, ops mock auto-push -> `docs/agent-rules/engineering-conventions.md`. (Do-not list and validation are in core below.)
 
+## Ops Tooling Lives In `vgoats/mesha-ops` (not this repo)
+
+Cost alerts (`cost-alert-bridge`, Slack `#goatos-stg-cost-alerts`), Grafana
+(grafana.mesha.sg dashboards, Alloy config, log metrics, dashboard smoke) and the
+OCI dashboard automation (Slack `#goatos-automation-alerts`) are owned by the
+`vgoats/mesha-ops` repo. Change them there, gate with its `./check.sh`, and deploy
+with its per-folder `cloudbuild.yaml` (or, for automation, push to mesha-ops
+`main`). Do NOT run `make land-main`, an STG release, or Android for those changes.
+Their infra config (env vars, secrets, IAM, budget, Grafana Terraform) stays in
+this repo's `infra/envs/stg/`. Any leftover copies here are being removed; if both
+exist, mesha-ops wins. Rules and skills: mesha-ops `AGENTS.md`, `.claude/skills/`.
+
 ## PR Review + Land Main Rule
 
 When the maintainer asks to review a GitHub PR and land main, the task is not
