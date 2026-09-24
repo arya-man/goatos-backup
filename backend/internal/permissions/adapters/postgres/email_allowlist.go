@@ -22,7 +22,10 @@ import (
 // most. On a load failure the source serves its last-known-good set (an auth
 // path must not flap on a transient DB hiccup) and fails CLOSED when it has
 // never loaded: the env list still works, so a cold-start DB outage degrades to
-// exactly today's behavior.
+// exactly today's behavior. The last-known-good set is only trusted for
+// allowlistMaxStaleAge: past that, a failed reload refuses (the caller's
+// DB-unavailable / 503 path) rather than keep allowing an email that may have
+// been revoked since.
 type AllowedEmailSource struct {
 	pool    *pgxpool.Pool
 	timeout time.Duration
@@ -55,6 +58,10 @@ func NewAllowedEmailSource(pool *pgxpool.Pool, timeout time.Duration, log *slog.
 		byTenant: map[string]tenantEmailCache{},
 	}
 }
+
+// allowlistMaxStaleAge caps how long a last-known-good allowlist may answer
+// while reloads keep failing.
+const allowlistMaxStaleAge = 10 * time.Minute
 
 var _ authallow.DynamicEmailSource = (*AllowedEmailSource)(nil)
 
@@ -91,6 +98,10 @@ func (s *AllowedEmailSource) activeSet(ctx context.Context, tenantID string) (ma
 	entry, hasLoaded := s.byTenant[tenantID]
 	fresh := hasLoaded && s.now().Sub(entry.loadedAt) < s.ttl
 	cached := entry.emails
+	if hasLoaded && s.now().Sub(entry.loadedAt) >= allowlistMaxStaleAge {
+		// Too old to vouch for anyone if this reload fails.
+		cached = nil
+	}
 	s.mu.Unlock()
 	if fresh {
 		return cached, nil
