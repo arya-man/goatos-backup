@@ -36,12 +36,21 @@ fun Throwable.classifyCallFailure(nowEpochMs: Long = System.currentTimeMillis())
     return if (chain.any { it is IOException }) CallFailure.Transient(null) else CallFailure.Permanent
 }
 
-/** Retry-After is either delta-seconds or an HTTP date (RFC 9110 §10.2.3). */
+/** The longest a server-requested Retry-After is honoured; longer asks are clamped to this. */
+const val MAX_RETRY_AFTER_MS: Long = 120_000L
+
+/**
+ * Retry-After is either delta-seconds or an HTTP date (RFC 9110 §10.2.3). Clamped to
+ * [0, MAX_RETRY_AFTER_MS] BEFORE converting seconds to millis so a huge value cannot overflow.
+ * Returns null when absent or unparseable (the caller then uses its own backoff).
+ */
 internal fun parseRetryAfterMs(value: String?, nowEpochMs: Long): Long? {
     val raw = value?.trim()?.takeIf { it.isNotEmpty() } ?: return null
-    raw.toLongOrNull()?.let { return (it.coerceAtLeast(0) * 1_000) }
+    raw.toLongOrNull()?.let { seconds -> return seconds.coerceIn(0L, MAX_RETRY_AFTER_MS / 1_000) * 1_000 }
+    // exception:exempt an unparseable Retry-After header is not an error: it means "no server hint",
+    // which null encodes, and the caller falls back to its own backoff schedule.
     return runCatching {
         val at = ZonedDateTime.parse(raw, DateTimeFormatter.RFC_1123_DATE_TIME).toInstant().toEpochMilli()
-        Duration.ofMillis(at - nowEpochMs).toMillis().coerceAtLeast(0)
+        Duration.ofMillis(at - nowEpochMs).toMillis().coerceIn(0L, MAX_RETRY_AFTER_MS)
     }.getOrNull()
 }

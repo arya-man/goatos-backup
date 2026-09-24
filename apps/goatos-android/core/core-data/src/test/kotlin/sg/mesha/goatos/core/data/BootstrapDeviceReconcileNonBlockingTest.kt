@@ -107,4 +107,17 @@ class BootstrapDeviceReconcileNonBlockingTest {
         assertEquals("single-flight registration", 1, api.registerCalls)
         assertEquals("device-new", store.deviceId())
     }
+
+    @Test
+    fun `a stale stored id is replaced when the server says this device is not registered`() = runTest {
+        val api = SlowDeviceApi(registered = false, deviceCallDelayMs = 0)
+        val store = FakeDeviceStore().apply { setDeviceId("device-stale") }
+        val repo = DefaultBootstrapRepository(api = api, deviceStore = store, deviceReconcileScope = backgroundScope)
+
+        repo.loadNavState()
+        advanceTimeBy(1_000)
+
+        assertEquals("re-registers exactly once", 1, api.registerCalls)
+        assertEquals("device-new", store.deviceId())
+    }
 }

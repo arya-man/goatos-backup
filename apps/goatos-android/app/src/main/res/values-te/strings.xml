@@ -60,6 +60,13 @@
     <string name="bootstrap_action_retry">మళ్లీ ప్రయత్నించండి</string>
     <string name="bootstrap_action_other_account">వేరే ఖాతాతో సైన్ ఇన్ చేయండి</string>
     <string name="bootstrap_setting_up_access">మీ యాక్సెస్ సిద్ధం చేస్తున్నాం…</string>
+    <string name="bootstrap_switch_account_title">వేరే ఖాతాతో సైన్ ఇన్ చేయాలా?</string>
+    <string name="bootstrap_switch_account_confirm">సైన్ అవుట్</string>
+    <string name="bootstrap_switch_account_cancel">రద్దు చేయండి</string>
+    <plurals name="bootstrap_switch_account_unsynced">
+        <item quantity="one">ఈ ఫోన్ నుండి %1$d అంశం ఇంకా అప్‌లోడ్ కాలేదు. సైన్ అవుట్ చేస్తే అది తొలగిపోతుంది, తిరిగి రాదు.</item>
+        <item quantity="other">ఈ ఫోన్ నుండి %1$d అంశాలు ఇంకా అప్‌లోడ్ కాలేదు. సైన్ అవుట్ చేస్తే అవి తొలగిపోతాయి, తిరిగి రావు.</item>
+    </plurals>
     <string name="bootstrap_error_access_not_provisioned">మీ యాక్సెస్ ఇంకా సెట్ కాలేదు. మిమ్మల్ని చేర్చమని మీ మేనేజర్‌ను అడిగి, మళ్లీ ప్రయత్నించండి.</string>
     <string name="sheds_toast_already_submitted_fmt">%1$s ఇప్పటికే ధృవీకరణ కోసం సమర్పించబడింది</string>
     <string name="proof_photo_toxin_strip_title">స్ట్రిప్ ఫోటో తీయండి</string>
