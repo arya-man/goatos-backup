@@ -977,6 +977,7 @@ object AppModule {
         syncJobsCanceller: SyncJobsCanceller,
         pushLogoutCleanup: PushLogoutCleanup,
         feedCompletionLocalStore: FeedCompletionLocalStore,
+        sessionEvents: sg.mesha.goatos.boot.AuthSessionEventSender,
     ): LogoutCoordinator = LogoutCoordinator(
         api = api,
         deviceStore = deviceStore,
@@ -986,6 +987,7 @@ object AppModule {
         syncJobsCanceller = syncJobsCanceller,
         clearPushAndAnalyticsIdentity = pushLogoutCleanup::clear,
         feedCompletionLocalStore = feedCompletionLocalStore,
+        cancelPendingSessionEvents = sessionEvents::cancel,
     )
 
     @Provides

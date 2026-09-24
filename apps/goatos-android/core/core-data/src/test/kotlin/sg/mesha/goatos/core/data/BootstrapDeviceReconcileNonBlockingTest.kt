@@ -92,4 +92,19 @@ class BootstrapDeviceReconcileNonBlockingTest {
         assertEquals(1, api.registerCalls)
         assertEquals("registration completes in the background", "device-new", store.deviceId())
     }
+
+    @Test
+    fun `rapid bootstraps register the device only once`() = runTest {
+        val api = SlowDeviceApi(registered = false, deviceCallDelayMs = 1_000)
+        val store = FakeDeviceStore()
+        val repo = DefaultBootstrapRepository(api = api, deviceStore = store, deviceReconcileScope = backgroundScope)
+
+        repo.loadNavState()
+        repo.loadNavState()
+        repo.loadNavState()
+        advanceTimeBy(5_000)
+
+        assertEquals("single-flight registration", 1, api.registerCalls)
+        assertEquals("device-new", store.deviceId())
+    }
 }

@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
@@ -82,7 +83,8 @@ class SessionViewModelNonBlockingLoginTest {
         override suspend fun currentIdToken(forceRefresh: Boolean): String? = "firebase-id-token"
         override fun currentEmail(): String? = "operator@mesha.sg"
         override fun currentFirebaseUid(): String? = "uid-1"
-        override fun signOut() = Unit
+        var signedOut = false
+        override fun signOut() { signedOut = true }
     }
 
     /** Session-event endpoint that fails like the field phone did, or hangs. */
@@ -93,18 +95,21 @@ class SessionViewModelNonBlockingLoginTest {
     ) : AppApi by FakeAppApi() {
         var attempts = 0
         var delivered = 0
+        val attemptTimes = mutableListOf<Long>()
+        var clock: () -> Long = { 0L }
         override suspend fun recordAuthSessionEvent(request: AuthSessionEventRequestDto) {
             attempts++
+            attemptTimes += clock()
             if (delayMs > 0) delay(delayMs)
             if (failWith != null && attempts <= failuresBeforeSuccess) throw failWith
             delivered++
         }
     }
 
-    private fun TestScope.buildVm(store: SessionStore, api: AppApi): SessionViewModel =
+    private fun TestScope.buildVm(store: SessionStore, api: AppApi, auth: OkFirebase = OkFirebase()): SessionViewModel =
         SessionViewModel(
             store,
-            OkFirebase(),
+            auth,
             RecordingAnalytics(),
             LogoutCoordinator(
                 api = api,
@@ -212,5 +217,103 @@ class SessionViewModelNonBlockingLoginTest {
         val wrapped = classifyAuthError(RuntimeException("sign-in bridge failed", UnknownHostException("Unable to resolve host")))
         assertEquals(LoginError.NETWORK, wrapped.first)
         assertNull(wrapped.second)
+    }
+
+    private fun httpError(code: Int, retryAfter: String? = null): retrofit2.HttpException {
+        val raw = okhttp3.Response.Builder()
+            .request(okhttp3.Request.Builder().url("https://api.goatos.mesha.sg/auth/session-events").build())
+            .protocol(okhttp3.Protocol.HTTP_1_1)
+            .code(code)
+            .message("HTTP $code")
+            .apply { if (retryAfter != null) header("Retry-After", retryAfter) }
+            .build()
+        val body = okhttp3.ResponseBody.create(null, "{}")
+        return retrofit2.HttpException(retrofit2.Response.error<Any>(body, raw))
+    }
+
+    private suspend fun TestScope.signInAndSettle(vm: SessionViewModel) {
+        vm.signInWithEmail("operator@mesha.sg", "secret")
+        runCurrent()
+        withContext(Dispatchers.IO) { }
+        advanceUntilIdle()
+    }
+
+    @Test
+    fun `session-events 403 (email not allowed) signs the user out with no session marker`() = runTest {
+        assumeFirebaseFlavor()
+        val store = TimedSessionStore { testScheduler.currentTime }
+        val auth = OkFirebase()
+        val api = SessionEventApi(failWith = httpError(403))
+        val vm = buildVm(store, api, auth)
+
+        signInAndSettle(vm)
+
+        assertNull("a denied principal keeps no session marker", store.tokenFlow.value)
+        assertTrue("Firebase is signed out", auth.signedOut)
+        assertEquals("the old login error is shown", LoginError.UNKNOWN, vm.uiState.value.errorReason)
+        assertFalse(vm.uiState.value.errorDetail.orEmpty().contains("HTTP"))
+        assertEquals("a denial is never retried", 1, api.attempts)
+    }
+
+    @Test
+    fun `4xx client errors and serialization errors are never retried`() = runTest {
+        assumeFirebaseFlavor()
+        for (failure in listOf<Throwable>(
+            httpError(400), httpError(404), httpError(409), httpError(422),
+            kotlinx.serialization.SerializationException("bad body"),
+        )) {
+            val store = TimedSessionStore { testScheduler.currentTime }
+            val api = SessionEventApi(failWith = failure)
+            signInAndSettle(buildVm(store, api))
+            assertEquals("no retry for $failure", 1, api.attempts)
+            assertEquals("a non-denial failure keeps the session", FIREBASE_SESSION_MARKER, store.tokenFlow.value)
+        }
+    }
+
+    @Test
+    fun `503 with Retry-After is retried no sooner than the server asked`() = runTest {
+        assumeFirebaseFlavor()
+        val store = TimedSessionStore { testScheduler.currentTime }
+        val api = SessionEventApi(failWith = httpError(503, retryAfter = "20"), failuresBeforeSuccess = 1)
+        api.clock = { testScheduler.currentTime }
+        signInAndSettle(buildVm(store, api))
+
+        assertEquals(2, api.attempts)
+        val gap = api.attemptTimes[1] - api.attemptTimes[0]
+        assertTrue("second attempt honours Retry-After=20s, gap=${gap}ms", gap in 20_000L..25_000L)
+        assertEquals(1, api.delivered)
+    }
+
+    @Test
+    fun `logout cancels an in-flight session-event retry so it never posts for the next user`() = runTest {
+        assumeFirebaseFlavor()
+        val store = TimedSessionStore { testScheduler.currentTime }
+        val api = SessionEventApi(failWith = java.io.IOException("offline"))
+        val sender = AuthSessionEventSender(api, backgroundScope)
+        val vm = SessionViewModel(
+            store, OkFirebase(), RecordingAnalytics(),
+            LogoutCoordinator(
+                api = api,
+                deviceStore = FakeDeviceStore(),
+                sessionStore = store,
+                screenCacheStore = ScreenCacheStore { },
+                outboxWiper = OutboxWiper { },
+                syncJobsCanceller = SyncJobsCanceller { },
+                cancelPendingSessionEvents = sender::cancel,
+            ),
+            SyncJobsScheduler { }, api, SessionRelauncher { }, sender,
+        )
+        vm.signInWithEmail("operator@mesha.sg", "secret")
+        runCurrent()
+        withContext(Dispatchers.IO) { }
+        runCurrent()
+        val attemptsBeforeLogout = api.attempts
+        assertTrue("an attempt was made", attemptsBeforeLogout >= 1)
+
+        vm.signOut()
+        runCurrent()
+        advanceTimeBy(600_000)
+
+        assertEquals("no retry after logout", attemptsBeforeLogout, api.attempts)
     }
 }
