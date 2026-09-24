@@ -16,16 +16,15 @@ import (
 // seconds at the 50k envelope. Before this cache every request AND every SSE viewer on every
 // NOTIFY (~2s) re-ran it. Now:
 //   - a fresh entry (< liveCohortTTL, not invalidated) is served as-is;
-//   - an entry invalidated by a NOTIFY or past its TTL but younger than liveCohortMaxStale is
-//     served immediately while ONE background refresh runs (stale-while-revalidate), unless the
-//     caller asked for a fresh read (the stream hub after a NOTIFY), which waits on the refresh;
+//   - an entry INVALIDATED by a NOTIFY (ingest, mapping write) is a miss for every caller: the
+//     caller waits for a compute that started after the invalidation (a bind followed by a
+//     reload must show the bind);
+//   - an entry merely past its TTL (no invalidation) by at most liveCohortStaleGrace is served
+//     while ONE background refresh runs, unless the caller asked for a fresh read;
 //   - concurrent misses for one key share a single computation (single-flight).
 const (
-	liveCohortTTL = 12 * time.Second
-	// liveCohortMinRefresh stops a NOTIFY every ~2s from turning stale-while-revalidate into a
-	// background cohort walk every ~2s: a stale entry younger than this is served without refresh.
-	liveCohortMinRefresh = 5 * time.Second
-	liveCohortMaxStale   = 60 * time.Second
+	liveCohortTTL        = 12 * time.Second
+	liveCohortStaleGrace = 5 * time.Second
 	liveCohortMaxEntries = 64
 	liveCohortComputeCap = 5 * time.Second
 )
@@ -86,9 +85,11 @@ func (c *liveCohortCache[T]) get(ctx context.Context, key string, requireFresh b
 				c.mu.Unlock()
 				return items, nil
 			}
-			if !requireFresh && age < liveCohortMaxStale {
+			if e.stale {
+				requireFresh = true // invalidated: a miss, never served stale
+			} else if !requireFresh && age < liveCohortTTL+liveCohortStaleGrace {
 				items := e.items
-				if e.inflight == nil && age >= liveCohortMinRefresh {
+				if e.inflight == nil {
 					c.startFlightLocked(key, e, compute)
 				}
 				c.mu.Unlock()
