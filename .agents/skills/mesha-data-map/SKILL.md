@@ -70,7 +70,7 @@ Beware ambiguous `status` when joining locations: qualify it (`t.status`).
 |---|---|---|
 | Deworming, hoof trimming, feed & water removal | pc_care_tasks | category; work_state completed/canceled/delayed/scheduled; planned_business_date, submitted_at (done), verified_at; close_reason (empty for cancels before "Close" existed). Cancelled != done: "when did we deworm X" must list cancelled rows and completed rows at other parks. |
 | Pen visits | pen_visit_tasks | reasons, work_state; `delayed` with submitted_at set = done late, awaiting verification |
-| Pen routines | pen_routine_tasks | work_state (empty on 24/09/2026) |
+| Pen routines | pen_routine_tasks JOIN pen_routine_definitions USING (routine_id) | work_state scheduled/delayed/completed/canceled; status open/pending_verification/completed/rework; planned_business_date; submitted_at=done (empty on 24/09/2026) |
 | Shifts / pen moves | shifting_events | event_status applied (done, applied_at) / authorized / pending / canceled; source_/destination_park_id, _shed_id, _partition_label. counts_movement_daily has no shift rows. |
 | Leadership tasks | leadership_tasks | task_no, title, status open/in_progress/done/cancelled, deadline_at, done_at. Different from workforce_tasks_base. |
 | Animals vaccinated | vaccination_completions | 1 row per goat dose: count(distinct goat_id) = animals, count(*) = doses; administered_at; status accepted |
@@ -78,10 +78,10 @@ Beware ambiguous `status` when joining locations: qualify it (`t.status`).
 | Toxin tests | toxin_test_tasks | farm_label, feed_item_label, vendor, outcome positive = toxin found (fail), status |
 | Feed wastage | feed_wastage_completions | target_date, wastage_kg (only on status completed), park_id, shed_id |
 | Weighing fasting | weighing_fasting_tasks, weighing_fasting_shed_proofs | per pen proof status pending_verification/completed |
-| Attendance / leave | workforce_clock_entries (clock_in_at), workforce_leave_requests | |
+| Attendance / leave | workforce_clock_entries (clock_in_at), workforce_leave_requests | leave: workforce_member_id -> workforce_members.workforce_member_id; status pending/approved/rejected/withdrawn; on leave = approved and date between starts_on..ends_on (empty on 24/09/2026) |
 | Market prices | market_price_entries | city_name, question_label (Goat live price, carcass, offals), price, unit_label, business_date |
-| Health cases | health_cases, health_treatment_sessions, health_medicine_administrations | empty on 24/09/2026 |
-| Stock | inventory_stock + inventory_items | no stock quantities entered on 24/09/2026 |
+| Health cases | health_cases, health_treatment_sessions, health_medicine_administrations | case status active/continued = sick now; start_date; sessions join case for park, business_date, status completed; medicines administered_at (all empty on 24/09/2026) |
+| Stock | inventory_stock JOIN inventory_items USING (item_id) | available = quantity_in_stock - quantity_reserved, status 'active', expiry_date, location_id -> locations (no stock rows on 24/09/2026; 41 catalogue items) |
 | Vendors / suppliers | procurement_vendors | record_type (Butcher, Farmer, Goats Agent, Goat Stockist, Goat Farm, Feed Agent...), status active/inactive/negotiating, city, state |
 | Buyer / FPO leads | sales_buyer_leads, sales_fpo_leads | recorded_date, farm, call_status (mostly empty = not called/logged); FPO: district, state |
 | Purchase candidates | animal_purchase_candidates | decision accepted/rejected, field_verdict, decided_by_name, load_id |
@@ -93,7 +93,7 @@ Beware ambiguous `status` when joining locations: qualify it (`t.status`).
 | Tag / identity decisions | identity_decisions | decision_type (retire_identifier, attach_identifier, exit_goat...), decision_state |
 | RFID sensors | herd_signal_tag_latest | battery_state, signal_state, movement_state, last_seen_at (19 tags) |
 | Sale allocations / growth price | goat_sale_allocations (status tagged), growth_sale_price_assumptions (price_per_kg_inr) | |
-| Births | goat_births (individually registered kids, 2 rows) vs counts_movement_daily births (herd count, ~600) | say which one you used |
+| Births | goat_births (individually registered kids, 2 rows) vs counts_movement_daily births (herd count, ~600) | give both numbers + one line why; herd count includes 458 bulk-entered on 05/08/2026 |
 
 ## Metric definitions (match the dashboard)
 
