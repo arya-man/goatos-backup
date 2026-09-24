@@ -107,10 +107,9 @@ async function syncSignedInUser(user: User): Promise<User> {
     await sessionSyncDeduper.signIn(user.uid, idToken, (eventType) => postFirebaseSession(user, idToken, eventType));
   } catch (error) {
     console.warn("admin_firebase_session_sync_failed", { email: user.email, firebaseUid: user.uid, code: firebaseErrorCode(error) });
-    // A busy auth database is transient: keep the Firebase sign-in so the user can simply retry.
-    if (!isFirebaseSessionError(error, "auth_database_busy")) {
-      await signOut(auth).catch(() => undefined);
-    }
+    // Sign out on every failure, a busy auth database included: a retry re-runs signInWith*,
+    // so keeping this Firebase session would only leave it orphaned.
+    await signOut(auth).catch(() => undefined);
     throw error;
   }
   return user;
