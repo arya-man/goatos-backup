@@ -102,6 +102,13 @@ interface SyncRepository {
     suspend fun unsyncedCountNow(): Int = Int.MAX_VALUE
 
     /**
+     * Re-queues the writes the server refused with 403 while this account had no access, and
+     * kicks a drain. Called once a bootstrap succeeds after the account was parked on the
+     * no-access screen. Other failures keep their state. Returns rows re-queued.
+     */
+    suspend fun requeueAccessDeniedWrites(): Int = 0
+
+    /**
      * Active, locally durable Health reports that do not have backend-created treatment sessions
      * yet. Lightweight fakes default to an empty stream; production projects these directly from
      * Room's outbox so an offline report remains visible after navigation or process recreation.
@@ -2671,6 +2678,12 @@ class DefaultSyncRepository(
 
     override suspend fun triggerDrain() {
         triggerDrainAsync()
+    }
+
+    override suspend fun requeueAccessDeniedWrites(): Int = withContext(dispatchers.io) {
+        val requeued = store.requeueAccessDenied(clock())
+        if (requeued > 0) triggerDrainAsync()
+        requeued
     }
 
     private fun triggerDrainAsync() {

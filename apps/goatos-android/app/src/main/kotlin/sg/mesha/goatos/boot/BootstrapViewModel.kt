@@ -56,6 +56,8 @@ class BootstrapViewModel @Inject constructor(
     private val navRefresh: NavStateRefreshSignal,
     /** Background session-event sender; see [loadNavStateAfterSessionClaim]. */
     private val sessionEvents: AuthSessionEventSender? = null,
+    /** Re-queues 403-refused writes once a parked account is let back in. */
+    private val syncRepository: sg.mesha.goatos.core.data.sync.SyncRepository? = null,
 ) : ViewModel() {
     private companion object {
         const val TAG = "GoatOSBootstrap"
@@ -72,8 +74,23 @@ class BootstrapViewModel @Inject constructor(
      * pays nothing; a real "no access" still surfaces after the one retry.
      */
     private suspend fun loadNavStateAfterSessionClaim(): NavState {
-        // A denied sign-in kept only to protect unsynced work: stay on the no-access screen.
-        if (sessionEvents?.accessDenied?.value == true) throw BootstrapError.AccessNotProvisioned()
+        // A denied sign-in kept only to protect unsynced work. Retry re-sends the sign-in event
+        // (the access may have been restored meanwhile); only a delivered event lets bootstrap on.
+        val sender = sessionEvents
+        if (sender != null && sender.accessDenied.value) {
+            _state.value = BootstrapUiState.SettingUpAccess
+            if (!sender.retryAfterDenial(SESSION_CLAIM_WAIT_MS)) throw BootstrapError.AccessNotProvisioned()
+            val navState = loadNavStateWithClaimWait()
+            // Writes refused with 403 while parked can go now; every other failure stays as is.
+            // exception:exempt a re-queue failure must not undo a recovered shell; the operator can still retry each write
+            runCatching { syncRepository?.requeueAccessDeniedWrites() }
+                .onFailure { logError("Re-queue of access-refused writes failed", it) }
+            return navState
+        }
+        return loadNavStateWithClaimWait()
+    }
+
+    private suspend fun loadNavStateWithClaimWait(): NavState {
         return try {
             repo.loadNavState()
         } catch (denied: BootstrapError.AccessNotProvisioned) {

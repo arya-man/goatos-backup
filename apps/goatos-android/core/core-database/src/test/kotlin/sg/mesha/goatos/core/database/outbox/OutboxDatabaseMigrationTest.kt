@@ -90,6 +90,7 @@ class OutboxDatabaseMigrationTest {
         OUTBOX_MIGRATION_3_4.migrate(db)
         OUTBOX_MIGRATION_4_5.migrate(db)
         OUTBOX_MIGRATION_5_6.migrate(db)
+        OUTBOX_MIGRATION_6_7.migrate(db)
         return db
     }
 
@@ -107,7 +108,7 @@ class OutboxDatabaseMigrationTest {
 
     private companion object {
         const val DB_NAME = "outbox-migration-test.db"
-        const val CURRENT_VERSION = 6
+        const val CURRENT_VERSION = 7
     }
 }
 

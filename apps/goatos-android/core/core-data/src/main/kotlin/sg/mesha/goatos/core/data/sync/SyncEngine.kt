@@ -442,6 +442,9 @@ class SyncEngine(
             // ...and the ONE input it named as refused, so a questionnaire form can mark that
             // question rather than parse the sentence. Null when it named none.
             lastErrorField = error.serverErrorText()?.field?.takeIf { it.isNotBlank() },
+            // The HTTP status, so writes refused for ACCESS (403) can be re-queued once a parked
+            // account gets its access back, without touching any other failure.
+            lastHttpStatus = error.appApiStatusCode(),
             now = clock(),
         )
         // Report only what actually happened: a non-applied transition means another pass /
@@ -514,6 +517,7 @@ class SyncEngine(
             // A proof still uploading is not a server refusal; there is no code to keep.
             lastErrorCode = null,
             lastErrorField = null,
+            lastHttpStatus = null,
             now = clock(),
         )
         if (applied) {
