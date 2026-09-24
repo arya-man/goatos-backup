@@ -514,6 +514,45 @@ class ExecutionRepositoryPaginationTest {
     }
 
     @Test
+    fun `selector card refresh keeps synced unsubmitted scans and never empties a cached roster`() = runTest {
+        withRepositoryAndDatabase { repository, backend, _, database ->
+            fun scan(member: String) = ScannedGoatEntity(
+                id = "scan-$member", taskId = "task-$member", fieldKey = "__scan_roster__", tag = "tag-$member",
+                goatId = "goat-$member", obligationId = "obl-$member", capturedAtMs = 1L,
+                syncStatus = CaptureSyncStatus.SYNCED.name,
+            )
+            listOf("a", "b", "c").forEach { database.scannedGoatDao().insert(scan(it)) }
+            // a: row read without task identity (no capture visibility) -> outstanding status is NOT authoritative.
+            // b: server sees the synced capture on the row's own task -> done.
+            // c: row carries its task and is outstanding -> genuinely sent back, prune.
+            backend.response = { ScanRosterResponseDto(rows = listOf(
+                ScanRosterRowDto(goatId = "goat-a", primaryTag = "tag-a", vaccineLabel = "ET", status = "due", obligationId = "obl-a"),
+                ScanRosterRowDto(goatId = "goat-b", primaryTag = "tag-b", vaccineLabel = "ET", status = "done", obligationId = "obl-b", taskId = "task-b"),
+                ScanRosterRowDto(goatId = "goat-c", primaryTag = "tag-c", vaccineLabel = "ET", status = "due", obligationId = "obl-c", taskId = "task-c"),
+            )) }
+            for (selectors in listOf(
+                listOf(ScanRosterSelector(assignmentId = "assignment-1", plannedDate = "2026-09-24")),
+                listOf(
+                    ScanRosterSelector(assignmentId = "assignment-1", plannedDate = "2026-09-24"),
+                    ScanRosterSelector(batchId = "batch-2", plannedDate = "2026-09-23"),
+                ),
+            )) {
+                repository.refreshAssignmentScanRosterForDate(SHED_ID, null, null, PAGE_SIZE, null, "2026-09-24", selectors).getOrThrow()
+            }
+            assertEquals(listOf("scan-a"), database.scannedGoatDao().listForField("task-a", "whole", "__scan_roster__").map { it.id })
+            assertEquals(listOf("scan-b"), database.scannedGoatDao().listForField("task-b", "whole", "__scan_roster__").map { it.id })
+            assertTrue(database.scannedGoatDao().listForField("task-c", "whole", "__scan_roster__").isEmpty())
+
+            val selectors = listOf(ScanRosterSelector(assignmentId = "assignment-1", plannedDate = "2026-09-24"))
+            val scope = ScanRosterDateScope("2026-09-24", selectors)
+            assertEquals(3, repository.observeAssignmentScanRosterTotal(SHED_ID, null, null, null, scope).first())
+            backend.response = { ScanRosterResponseDto(rows = emptyList()) }
+            assertTrue(repository.refreshAssignmentScanRosterForDate(SHED_ID, null, null, PAGE_SIZE, null, "2026-09-24", selectors).isFailure)
+            assertEquals(3, repository.observeAssignmentScanRosterTotal(SHED_ID, null, null, null, scope).first())
+        }
+    }
+
+    @Test
     fun `refresh keeps synced local scan overlay that backend still reports done`() = runTest {
         withRepositoryAndDatabase { repository, backend, _, database ->
             database.scannedGoatDao().insert(

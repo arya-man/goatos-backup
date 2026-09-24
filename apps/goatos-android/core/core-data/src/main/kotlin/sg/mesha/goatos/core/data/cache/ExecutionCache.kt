@@ -140,10 +140,15 @@ data class ScanRosterRowEntity(
     val latestProofDownloadUrl: String? = null,
 )
 
+/** Hard bound on distinct execution task ids observed for one scan-roster scope. */
+const val SCAN_ROSTER_TASK_ID_LIMIT = 20
+
 @Dao
 interface ScanRosterRowDao {
-    /** Full active roster's execution identities, independent of the visible page. */
-    @Query("SELECT DISTINCT taskId FROM scan_roster_row WHERE scopeKey = :scopeKey AND taskId != '' AND taskId != 'shed-wide' ORDER BY taskId") // mobile-guard:ignore: distinct task IDs bounded by one active pen roster; offscreen proof/scan restoration
+    /** Full active roster's execution identities, independent of the visible page. One pen card
+     *  carries a handful of task ids (one per vaccine write); the LIMIT (20) is a hard bound well above
+     *  that, never a page. */
+    @Query("SELECT DISTINCT taskId FROM scan_roster_row WHERE scopeKey = :scopeKey AND taskId != '' AND taskId != 'shed-wide' ORDER BY taskId LIMIT $SCAN_ROSTER_TASK_ID_LIMIT")
     fun observeTaskIds(scopeKey: String): Flow<List<String>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)

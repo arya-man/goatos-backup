@@ -184,6 +184,8 @@ data class ShedRow(
     val animalStage: String,
     val scheduleDateKey: String = "",
     val rosterSelectors: String? = null,
+    /** Earliest planned date among the card's work; list ordering only, never the roster date. */
+    val sortDateKey: String = "",
     val scheduleDateLabel: String = "",
     val status: ShedStatus,
     val statusLabel: String,
