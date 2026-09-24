@@ -1746,14 +1746,24 @@ func (r *Repository) UpsertExperimentConfig(ctx context.Context, cmd domain.Upse
 		if err := requirePartitionInShed(ctx, tx, cmd.TenantID, cmd.ShedID, cmd.PartitionLabel); err != nil {
 			return writeEffect{}, err
 		}
-		var penConfigured bool
+		// penActive: the pen is ON the experiment right now (holds an active cell). A pen that is
+		// on it may still carry RETIRED cells left from an earlier enrolment -- re-enrolment names
+		// only the items the author chose (UpsertExperimentConfigBatch), so the others stay retired
+		// on purpose -- and an edit to one cell must never switch those back on.
+		var penConfigured, penActive bool
 		boundPenConfigured := sqlbind.MustBind(`
 SELECT EXISTS (
   SELECT 1 FROM feed_experiment_config
   WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
     AND partition_key = `+partitionKeyMatch("$4")+`
+),
+EXISTS (
+  SELECT 1 FROM feed_experiment_config
+  WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
+    AND partition_key = `+partitionKeyMatch("$4")+`
+    AND status = 'active'
 )`, cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.PartitionLabel)
-		if err := tx.QueryRow(ctx, boundPenConfigured.SQL(), boundPenConfigured.Args()...).Scan(&penConfigured); err != nil {
+		if err := tx.QueryRow(ctx, boundPenConfigured.SQL(), boundPenConfigured.Args()...).Scan(&penConfigured, &penActive); err != nil {
 			return writeEffect{}, fmt.Errorf("feedconfig: check experiment pen before cell edit: %w", err)
 		}
 		if !penConfigured {
@@ -1800,11 +1810,14 @@ RETURNING experiment_config_id::text`,
 				strings.TrimSpace(cmd.PartitionLabel)).Scan(&newID); err != nil {
 				return writeEffect{}, fmt.Errorf("feedconfig: insert experiment config: %w", err)
 			}
-			// See reactivateExperimentPen: a brand-new cell inserted 'active' into a pen that
-			// still carries OTHER retired rows would leave the shed mixed-status, which
+			// See reactivateExperimentPen: a brand-new cell inserted 'active' into a WITHDRAWN pen
+			// that still carries other retired rows would leave it mixed-status, which
 			// ExperimentPlanner.Applies reads as "enrolled" while feeding only the active subset.
-			if err := reactivateExperimentPen(ctx, tx, cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.PartitionLabel); err != nil {
-				return writeEffect{}, err
+			// On a pen already on the experiment its retired rows were left out deliberately.
+			if !penActive {
+				if err := reactivateExperimentPen(ctx, tx, cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.PartitionLabel); err != nil {
+					return writeEffect{}, err
+				}
 			}
 			// CR-07: sync the shed-level fact to every OTHER row of this shed. The arm describes the
 			// PEN (see syncExperimentShedMetadata), not the item, even though this table stores one
@@ -1864,8 +1877,15 @@ WHERE experiment_config_id = $1::uuid`,
 		// ("this shed is back on the experiment workflow"), and it cannot race with
 		// SetExperimentShedStatus because both lock the shed's rows with the same
 		// `FOR UPDATE ... WHERE shed_id = $3` pattern.
-		if err := reactivateExperimentPen(ctx, tx, cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.PartitionLabel); err != nil {
-			return writeEffect{}, err
+		//
+		// ONLY FOR A WITHDRAWN PEN (2026-09-24). On a pen that is ON the experiment, its retired
+		// cells are the items the author left out when re-enrolling it; switching them back on here
+		// fed the pen items the screen does not show (Concentrate re-enrolled at 250 g, then an edit
+		// to it brought a retired Bhusa 500 g and Milk back with their old quantities).
+		if !penActive {
+			if err := reactivateExperimentPen(ctx, tx, cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.PartitionLabel); err != nil {
+				return writeEffect{}, err
+			}
 		}
 		return writeEffect{Outcome: domain.OutcomeCorrected, ResultRowID: openID}, nil
 	})

@@ -1271,6 +1271,69 @@ func TestUpsertExperimentConfigReactivatesWholeShedNotJustEditedCell(t *testing.
 	}
 }
 
+// TestEditingACellOfAReEnrolledPenLeavesItsDroppedItemsRetired is the 2026-09-24 regression.
+// A pen is enrolled with three items, shifted to normal feed, and re-enrolled with ONE. The two it
+// was not re-enrolled with stay retired -- that is what the author chose -- and the screen lists
+// only the active cell. Editing that cell, or adding a new item, used to switch the two dropped
+// items back on with their old quantities, so the pen was fed three items while the screen showed
+// one. The whole-pen reactivation stays for a pen that is fully WITHDRAWN (the test above).
+func TestEditingACellOfAReEnrolledPenLeavesItsDroppedItemsRetired(t *testing.T) {
+	ctx := context.Background()
+	pool := setupFeedConfigDB(t, ctx)
+	repo := fcRepo(pool)
+
+	enrollExperimentPen(t, ctx, repo, "key-drop-enrol", fcShed, "", "Arm A", []domain.ExperimentBatchCell{
+		{FeedItemLabel: "Concentrate", GramsPerHead: "200.000"},
+		{FeedItemLabel: "Hybrid", GramsPerHead: "500.000"},
+		{FeedItemLabel: "COFS", GramsPerHead: "300.000"},
+	})
+	if _, err := repo.SetExperimentShedStatus(ctx, domain.SetExperimentShedStatusCommand{
+		WriteIdentity: domain.WriteIdentity{
+			TenantID: fcTenant, ActorRef: "tester", EffectiveFrom: "2026-07-20",
+			IdempotencyKey: "key-drop-withdraw", RequestFingerprint: "fp-drop-withdraw",
+		},
+		ParkID: fcPark, ShedID: fcShed, Status: domain.ExperimentStatusRetired,
+	}); err != nil {
+		t.Fatalf("shift to normal feed: %v", err)
+	}
+	enrollExperimentPen(t, ctx, repo, "key-drop-reenrol", fcShed, "", "Arm A", []domain.ExperimentBatchCell{
+		{FeedItemLabel: "Concentrate", GramsPerHead: "250.000"},
+	})
+
+	want := map[string]string{
+		"Concentrate": domain.ExperimentStatusActive,
+		"Hybrid":      domain.ExperimentStatusRetired,
+		"COFS":        domain.ExperimentStatusRetired,
+	}
+	check := func(step string) {
+		t.Helper()
+		got := experimentShedStatuses(t, ctx, pool)
+		for item, status := range want {
+			if got[item] != status {
+				t.Errorf("%s: %s status = %q, want %q (the pen was re-enrolled without it)", step, item, got[item], status)
+			}
+		}
+	}
+	check("after re-enrolment")
+
+	// An edit to the one active cell.
+	edit := experimentCommand("key-drop-edit", "fp-drop-edit", "Concentrate", "260.000")
+	edit.ExperimentCategory = "Arm A"
+	if _, err := repo.UpsertExperimentConfig(ctx, edit); err != nil {
+		t.Fatalf("edit the active cell: %v", err)
+	}
+	check("after editing the active cell")
+
+	// A brand-new item added to the enrolled pen.
+	add := experimentCommand("key-drop-add", "fp-drop-add", "Dry Maize", "100.000")
+	add.ExperimentCategory = "Arm A"
+	if _, err := repo.UpsertExperimentConfig(ctx, add); err != nil {
+		t.Fatalf("add a new item: %v", err)
+	}
+	want["Dry Maize"] = domain.ExperimentStatusActive
+	check("after adding a new item")
+}
+
 // TestUpsertShedFactorRejectsShedFromDifferentPark is the CR-03 regression: a caller supplying a
 // park that exists and a shed that ALSO exists, but the shed belongs to a DIFFERENT park, must be
 // rejected. Before this fix, UpsertShedFactor validated ParkID and ShedID as two independent
