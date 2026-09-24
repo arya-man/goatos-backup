@@ -412,8 +412,18 @@ SELECT
   -- FALLBACK TO THE OBLIGATION'S SCOPE shed/park when the animal has no current shed. Dropping it
   -- rendered an empty location in a drawer whose whole purpose is telling an operator where to
   -- walk. scope_id is pinned to $5 here, so this is one PK lookup, not a re-scan.
-  COALESCE(current_park.name, scope_park.name, '') AS park_name,
-  COALESCE(current_shed.name, scope_shed.name, '') AS shed_name,
+  -- Each name is a primary-key lookup. Joining locations here let the planner, which cannot
+  -- estimate the page size, nested-loop a full locations scan per animal.
+  COALESCE(
+    (SELECT cpark.name FROM locations cshed JOIN locations cpark ON cpark.location_id = cshed.parent_location_id AND cpark.tenant_id = cshed.tenant_id
+     WHERE cshed.location_id = p.current_shed_id AND cshed.tenant_id = p.tenant_id),
+    (SELECT spark.name FROM locations sshed JOIN locations spark ON spark.location_id = sshed.parent_location_id AND spark.tenant_id = sshed.tenant_id
+     WHERE sshed.location_id = $5::uuid AND sshed.tenant_id = $1::uuid),
+    '') AS park_name,
+  COALESCE(
+    (SELECT cshed.name FROM locations cshed WHERE cshed.location_id = p.current_shed_id AND cshed.tenant_id = p.tenant_id),
+    (SELECT sshed.name FROM locations sshed WHERE sshed.location_id = $5::uuid AND sshed.tenant_id = $1::uuid),
+    '') AS shed_name,
   CASE
     WHEN current_sp.shed_id IS NOT NULL THEN btrim(current_sp.partition_label)
     WHEN lower(btrim(COALESCE(current_gsp.partition_label, 'whole'))) IN ('', 'whole') THEN ''
@@ -423,10 +433,6 @@ SELECT
   p.rework_needed,
   p.recorded_at
 FROM page p
-LEFT JOIN locations scope_shed ON scope_shed.location_id = $5::uuid AND scope_shed.tenant_id = p.tenant_id
-LEFT JOIN locations scope_park ON scope_park.location_id = scope_shed.parent_location_id AND scope_park.tenant_id = scope_shed.tenant_id
-LEFT JOIN locations current_shed ON current_shed.location_id = p.current_shed_id AND current_shed.tenant_id = p.tenant_id
-LEFT JOIN locations current_park ON current_park.location_id = current_shed.parent_location_id AND current_park.tenant_id = current_shed.tenant_id
 LEFT JOIN goat_shed_partitions current_gsp ON current_gsp.tenant_id = p.tenant_id AND current_gsp.goat_id = p.goat_id AND current_gsp.shed_id = p.current_shed_id
 LEFT JOIN shed_partitions current_sp
   ON current_sp.tenant_id = p.tenant_id
