@@ -95,6 +95,7 @@ export function WeightsAssumptionsControl({
   closeHref: string;
 }) {
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const noticeRef = useRef<HTMLParagraphElement>(null);
   const selection = useSyncExternalStore(subscribeToOverlayUrl, readParam, () => "");
   const open = selection !== "";
 
@@ -123,6 +124,12 @@ export function WeightsAssumptionsControl({
       document.removeEventListener("keydown", onKey);
     };
   }, [open, close]);
+
+  // A refusal lands at the foot of a long drawer (the stage x sex grids push it far down), so it is
+  // brought into view -- otherwise Save looks like it did nothing.
+  useEffect(() => {
+    if (notice) noticeRef.current?.scrollIntoView({ block: "nearest" });
+  }, [notice]);
 
   const title = copy(pageContract, "drawer.assumptions.title");
   const setByFor = (key: string) => current.values.find((value) => value.key === key);
@@ -330,7 +337,7 @@ export function WeightsAssumptionsControl({
           ))}
 
           {notice ? (
-            <p className={`small ${notice.tone === "warn" ? "warn" : "muted"}`} role="status">
+            <p ref={noticeRef} className={`small ${notice.tone === "warn" ? "warn" : "muted"}`} role="status">
               {notice.text}
             </p>
           ) : null}
