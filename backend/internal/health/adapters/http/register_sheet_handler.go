@@ -193,8 +193,10 @@ func (h *RegisterSheetHandler) Import(w http.ResponseWriter, r *http.Request) {
 
 	result, err := h.svc.SaveDraft(r.Context(), domain.SaveRegisterDraftCommand{
 		TenantID: tenantID, ActorID: actorID,
-		IdempotencyKey:     idem,
-		RequestFingerprint: configFingerprint(importRegisterSheetCommand, []byte(class)),
+		IdempotencyKey: idem,
+		// The fingerprint carries the SHEET, so a corrected upload under a live key is refused
+		// (409) instead of being replayed back as a success that never applied it.
+		RequestFingerprint: importSheetFingerprint(class, doc),
 		AnimalClass:        class,
 		Document:           *doc,
 	})
@@ -499,4 +501,28 @@ func (h *RegisterSheetHandler) writeSheetError(w http.ResponseWriter, r *http.Re
 	default:
 		(&RegisterConfigHandler{log: h.log}).writeRegisterError(w, r, err)
 	}
+}
+
+// importSheetFingerprint describes the SHEET THAT WAS UPLOADED, not merely the type it was
+// uploaded against.
+//
+// It used to be the animal class alone, so every import for one diagnosis type produced the same
+// fingerprint and the authoring ledger -- which does refuse a same-key/different-payload replay --
+// could never tell two sheets apart. The screen mints one key per chosen file and clears it only
+// ON SUCCESS, so a write that COMMITTED but whose response never reached the browser left the key
+// live: the author corrected the sheet, uploaded again, and was told it succeeded while the
+// correction was never applied.
+//
+// The PARSED DOCUMENT is the subject, not the raw bytes. A workbook re-saved by Excel differs byte
+// for byte while describing the same register, and that is a retry rather than a new request; two
+// documents that differ in any authored field are two requests. Marshalling failure degrades to
+// the class alone, which is the pre-existing behaviour -- weaker, never wrong.
+func importSheetFingerprint(class string, doc *diagnosis.AuthoredRegister) string {
+	body := []byte(class)
+	if doc != nil {
+		if encoded, err := json.Marshal(doc); err == nil {
+			body = append(append(body, 0x1f), encoded...)
+		}
+	}
+	return configFingerprint(importRegisterSheetCommand, body)
 }
