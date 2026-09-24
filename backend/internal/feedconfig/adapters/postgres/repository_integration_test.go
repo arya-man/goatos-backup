@@ -1017,6 +1017,7 @@ ON CONFLICT DO NOTHING`, fcTenant, fcShed); err != nil {
 		if q.Page.Limit == 0 {
 			q.Page.Limit = 50
 		}
+		catalogExperimentFeeds(t, ctx, pool) // retired/uncatalogued feeds are hidden (2026-09-24)
 		page, err := repo.ListExperimentConfig(ctx, q)
 		if err != nil {
 			t.Fatalf("ListExperimentConfig(%+v): %v", q, err)
@@ -1268,6 +1269,20 @@ func TestUpsertExperimentConfigReactivatesWholeShedNotJustEditedCell(t *testing.
 			t.Fatalf("after editing one cell, %s status = %q, want active (whole-shed reactivation)",
 				item, statuses[item])
 		}
+	}
+}
+
+// catalogExperimentFeeds gives every feed the fixture authored an ACTIVE catalog row, as the app's
+// own authoring requires. The experiment list hides feeds the catalog does not call active
+// (maintainer decision 2026-09-24), so an uncatalogued fixture feed would read as an empty list. A
+// row the fixture already set is left as it is.
+func catalogExperimentFeeds(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `
+INSERT INTO feed_item_catalog (tenant_id, feed_item_label, status)
+SELECT DISTINCT tenant_id, feed_item_label, 'active' FROM feed_experiment_config
+ON CONFLICT (tenant_id, feed_item_key) DO NOTHING`); err != nil {
+		t.Fatalf("catalog experiment feeds: %v", err)
 	}
 }
 

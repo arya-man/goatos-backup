@@ -3,6 +3,8 @@ package postgres
 import (
 	"context"
 	"errors"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -489,6 +491,7 @@ func TestExperimentConfigMultiPageOneToManyParkScopeEveryStatus(t *testing.T) {
 		t.Fatalf("retire second page pen: %v", err)
 	}
 
+	catalogExperimentFeeds(t, ctx, pool) // retired/uncatalogued feeds are hidden (2026-09-24)
 	first, err := repo.ListExperimentConfig(ctx, domain.ExperimentConfigQuery{
 		TenantID: fcTenant, ParkID: fcPark, Page: domain.Page{Limit: 1},
 	})
@@ -507,6 +510,7 @@ func TestExperimentConfigMultiPageOneToManyParkScopeEveryStatus(t *testing.T) {
 		}
 	}
 
+	catalogExperimentFeeds(t, ctx, pool) // retired/uncatalogued feeds are hidden (2026-09-24)
 	second, err := repo.ListExperimentConfig(ctx, domain.ExperimentConfigQuery{
 		TenantID: fcTenant, ParkID: fcPark, Page: domain.Page{Limit: 1, Offset: 1},
 	})
@@ -522,6 +526,7 @@ func TestExperimentConfigMultiPageOneToManyParkScopeEveryStatus(t *testing.T) {
 	if second.Items[0].Status != domain.ExperimentStatusRetired {
 		t.Fatalf("second page status = %q, want retired", second.Items[0].Status)
 	}
+	catalogExperimentFeeds(t, ctx, pool) // retired/uncatalogued feeds are hidden (2026-09-24)
 	retiredOnly, err := repo.ListExperimentConfig(ctx, domain.ExperimentConfigQuery{
 		TenantID: fcTenant, ParkID: fcPark, Status: domain.ExperimentStatusRetired, Page: domain.Page{Limit: 1},
 	})
@@ -999,4 +1004,52 @@ func keysOf(m map[string]domain.Pen) []string {
 		out = append(out, k)
 	}
 	return out
+}
+
+// The experiment list (maintainer decisions 2026-09-24): a retired feed's cell is HIDDEN -- the
+// sheet loads only active catalog feeds, so a retired item left at 0 g feeds nothing and must not
+// read as fed -- and pens list in NATURAL order, Part 3, Part 4, Part 10, never Part 10 first.
+func TestExperimentListHidesRetiredFeedsAndOrdersPensNaturally(t *testing.T) {
+	ctx := context.Background()
+	pool := setupPennedDB(t, ctx)
+	repo := fcRepo(pool)
+	if _, err := pool.Exec(ctx, `
+INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, source)
+VALUES ($1::uuid, $2::uuid, 'Part 10', '10', 'manual')
+ON CONFLICT DO NOTHING`, fcTenant, fcPennedShed); err != nil {
+		t.Fatalf("seed Part 10: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO feed_item_catalog (tenant_id, feed_item_label, status)
+VALUES ($1::uuid, 'Hybrid', 'active'), ($1::uuid, 'Concentrate', 'retired')
+ON CONFLICT (tenant_id, feed_item_key) DO UPDATE SET status = EXCLUDED.status`, fcTenant); err != nil {
+		t.Fatalf("seed catalog: %v", err)
+	}
+	cells := []domain.ExperimentBatchCell{
+		{FeedItemLabel: "Hybrid", GramsPerHead: "500.000"},
+		{FeedItemLabel: "Concentrate", GramsPerHead: "0.000"},
+	}
+	// Enrolled out of order on purpose, so insertion order cannot pass for sorting.
+	for i, pen := range []string{"Part 10", fcPenA, fcPenB} {
+		enrollExperimentPen(t, ctx, repo, "key-order-"+strconv.Itoa(i), fcPennedShed, pen, "Arm A", cells)
+	}
+
+	page, err := repo.ListExperimentConfig(ctx, domain.ExperimentConfigQuery{
+		TenantID: fcTenant, Status: domain.ExperimentStatusActive, Page: domain.Page{Limit: 50},
+	})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	var pens []string
+	for _, item := range page.Items {
+		if item.FeedItemLabel == "Concentrate" {
+			t.Errorf("a retired feed's cell is listed: %+v", item)
+		}
+		if len(pens) == 0 || pens[len(pens)-1] != item.PartitionLabel {
+			pens = append(pens, item.PartitionLabel)
+		}
+	}
+	if got, want := strings.Join(pens, ","), "Part 3,Part 4,Part 10"; got != want {
+		t.Errorf("pen order = %s, want %s", got, want)
+	}
 }

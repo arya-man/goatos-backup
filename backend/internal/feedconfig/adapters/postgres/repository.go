@@ -478,12 +478,19 @@ func (r *Repository) attachSessionTemplateItems(ctx context.Context, tenantID, p
 	// scale-guard:ignore: bounded set-based read of ONE park's authored session slots (14 rows live -- 2 sessions x 7 slots), loaded once for the whole page rather than once per session. Covered by feed_session_template_items_current_lookup_idx (tenant_id, park_id, session_no, slot_no); every bind is cast and the indexed columns stay bare.
 	rows, err := r.pool.Query(ctx, `
 SELECT session_template_item_id::text, session_no, slot_no, feed_item_label
-FROM feed_session_template_items
+FROM feed_session_template_items sti
 WHERE tenant_id = $1::uuid
   AND park_id = $2::uuid
   AND status = 'active'
   AND valid_from <= $3::date
   AND (valid_to IS NULL OR valid_to > $3::date)
+  -- RETIRED FEEDS ARE HIDDEN (maintainer decision 2026-09-24): a session still declaring a feed the
+  -- catalog has retired (Baking Soda) serves nothing of it, so the chip must not read as served.
+  AND EXISTS (
+        SELECT 1 FROM feed_item_catalog fic
+        WHERE fic.tenant_id = sti.tenant_id
+          AND fic.feed_item_key = sti.feed_item_key
+          AND fic.status = 'active')
 ORDER BY session_no, slot_no
 LIMIT $4`, tenantID, parkID, asOfDate, maxSessionTemplateItemRows+1)
 	if err != nil {
@@ -662,6 +669,15 @@ func (r *Repository) ListExperimentConfig(ctx context.Context, q domain.Experime
 	// A CONST fragment, never caller input: every value is a bind parameter, and only the shape is
 	// interpolated.
 	const experimentCellPredicate = `
+      -- RETIRED FEEDS ARE HIDDEN (maintainer decision 2026-09-24), the ration grid's rule: the feed
+      -- sheet loads only ACTIVE catalog items, so a retired item's cell -- typically left at 0 g
+      -- after the split concentrates were retired -- feeds nothing and must not read as fed. The
+      -- row itself is untouched and returns if the item is restored.
+      AND EXISTS (
+            SELECT 1 FROM feed_item_catalog fic
+            WHERE fic.tenant_id = c.tenant_id
+              AND fic.feed_item_key = c.feed_item_key
+              AND fic.status = 'active')
       AND ($7::text[] IS NULL OR c.feed_item_key = ANY (
             SELECT feed_config_norm(item) FROM unnest($7::text[]) AS t(item)))
       AND ($8::text IS NULL OR feed_config_norm(c.experiment_category) = feed_config_norm($8))
@@ -682,20 +698,33 @@ func (r *Repository) ListExperimentConfig(ctx context.Context, q domain.Experime
 	// projection-review: membership=distinct authored tenant/park/shed/partition keys matching the requested park, shed, status, feed-item, arm and grams filters, plus a live pen census joined for display only; group_key=(park_id,shed_id,partition_key) operational pen for the page and (tenant_id,shed_id,COALESCE(partition_label,'')) for the census, which is that same pen identity so every cell of a pen reads one count; join_cardinality=each ranked pen joins 1:N authored feed-item cells through the complete natural pen key, each location join is 0:1, goats to goat_shed_partitions is 0:1 on its (tenant_id,goat_id) PK so no animal is counted twice, and the census is LEFT JOINed so an empty pen reports 0 rather than dropping; pagination=rank and page complete pens before joining their cells so limit/offset are pen units and has_more comes from the full filtered pen count, with the census outside the ranking so it can never change which pens a page holds; scope=tenant is mandatory with optional exact park/shed/status filters and cell-level feed-item/arm/grams filters applied IDENTICALLY (one shared const predicate) to the pen membership set and to the returned cells, so the paged pen count and the returned rows range over the same key set
 	query := `
 WITH ranked_pens AS (
-  SELECT p.*,
+  SELECT p.park_id, p.park_name, p.shed_id, p.partition_key,
          row_number() OVER (
-           ORDER BY p.park_name, p.park_id, p.shed_id, p.partition_key
+           -- Parks by CODE (CBE, then CPT) -- the full name put Channapatna first -- then pens by
+           -- NAME with their numbers compared as numbers (Mandela 1 - Part 2 before Part 10). The
+           -- ids close the order so a page boundary never splits or repeats a pen.
+           ORDER BY p.park_sort,
+                    regexp_replace(p.shed_name, '[0-9]+', '', 'g'),
+                    COALESCE((regexp_match(p.shed_name, '([0-9]+)'))[1]::int, 0),
+                    COALESCE((regexp_match(p.partition_label, '([0-9]+)'))[1]::int, 0),
+                    p.partition_label, p.park_id, p.shed_id, p.partition_key
          ) AS pen_number,
          count(*) OVER () AS pen_count
   FROM (
-    SELECT DISTINCT c.park_id,
-           COALESCE(NULLIF(park.name, ''), park.location_code, '') AS park_name,
+    SELECT c.park_id,
+           MAX(COALESCE(NULLIF(park.name, ''), park.location_code, '')) AS park_name,
+           MAX(COALESCE(NULLIF(park.location_code, ''), park.name, '')) AS park_sort,
            c.shed_id,
-           c.partition_key
+           MAX(COALESCE(NULLIF(shed.name, ''), shed.location_code, '')) AS shed_name,
+           c.partition_key,
+           MIN(COALESCE(c.partition_label, '')) AS partition_label
     FROM feed_experiment_config c
     LEFT JOIN locations park
            ON park.tenant_id = c.tenant_id
           AND park.location_id = c.park_id
+    LEFT JOIN locations shed
+           ON shed.tenant_id = c.tenant_id
+          AND shed.location_id = c.shed_id
     WHERE c.tenant_id = $1::uuid
       AND ($2::uuid IS NULL OR c.park_id = $2::uuid)
       AND ($3::uuid IS NULL OR c.shed_id = $3::uuid)
@@ -705,6 +734,7 @@ WITH ranked_pens AS (
       -- shed. An undivided shed needs no partition anyway -- it has exactly one pen, which shed_id
       -- alone already selects.
       AND ($11::text IS NULL OR c.partition_key = ` + partitionKeyMatch("$11") + `)` + experimentCellPredicate + `
+    GROUP BY c.park_id, c.shed_id, c.partition_key
   ) p
 ), page_pens AS (
   SELECT *, pen_count > ($6::bigint + $5::bigint) AS has_more
@@ -1030,6 +1060,9 @@ SELECT shed.parent_location_id::text AS park_id,
                END
        ) AS has_experiment_config
 FROM locations shed
+LEFT JOIN locations park
+       ON park.tenant_id = shed.tenant_id
+      AND park.location_id = shed.parent_location_id
 LEFT JOIN shed_partitions sp
        ON sp.tenant_id = shed.tenant_id
       AND sp.shed_id = shed.location_id
@@ -1054,7 +1087,14 @@ WHERE shed.tenant_id = $1::uuid
       )
     )
   )
-ORDER BY shed.parent_location_id, shed.display_order, shed.name, shed.location_id,
+-- Parks by CODE (CBE, then CPT), then pens by name with numbers compared as numbers (Godel 1 -
+-- Part 2 before Part 10); the ids close the order so a page boundary never splits or repeats a pen.
+ORDER BY COALESCE(NULLIF(park.location_code, ''), park.name), shed.parent_location_id,
+         shed.display_order,
+         regexp_replace(shed.name, '[0-9]+', '', 'g'),
+         COALESCE((regexp_match(shed.name, '([0-9]+)'))[1]::int, 0),
+         shed.name, shed.location_id,
+         COALESCE((regexp_match(sp.partition_label, '([0-9]+)'))[1]::int, 0),
          sp.normalized_label NULLS FIRST
 LIMIT $3 OFFSET $4`
 
