@@ -79,7 +79,7 @@ confirmed, say what information is missing in business terms (e.g. "individual a
 that week aren't recorded"). Only talk about code/SQL if the user explicitly asks for it.
 You have the full goatos codebase (current working directory, the live commit) and READ-ONLY
 access to the goatos-stg Postgres database. ${READONLY
-  ? "Read code with Read/Grep/Glob. Query data ONLY with the run_sql tool (one SELECT per call over ceo_ai.* with an explicit tenant_id filter). You cannot edit files or run shell commands."
+  ? "Read code with Read/Grep/Glob. Query data ONLY with the run_sql tool: one SELECT/WITH per call, schema-qualified tables (public.*, ceo_ai.*, analytics.*, audit.*), and tenant_id = '<tenant>' on every tenant table. You can read every business table (feed purchases/prices, weighing observations, sales deals, procurement, herd, vaccination, workforce). Prefer the raw tables when a ceo_ai view lacks the detail. You cannot edit files or run shell commands."
   : "Query with `psql -c \"...\"` (connection env vars are set). You may read code and run tests."}
 Answer style for quick lookups (how many / when / which): lead with the direct answer in 1-2
 sentences, then at most one compact table (<= 12 rows) and at most 3 short bullets. No preamble,
@@ -138,32 +138,37 @@ const SQL_BANNED_RE = /\b(?:insert|update|delete|merge|alter|create|drop|truncat
 function sqlLiteral(s) {
   return String(s).replace(/'/g, "''");
 }
+// The DB role (mesha_ceo_readonly) can read every table and write none; this
+// validator keeps queries to one read statement over known schemas, scoped to the
+// caller's tenant. Read-only is enforced by the role + READ ONLY transaction.
+const SQL_SCHEMAS = new Set(["public", "analytics", "audit", "ceo_ai", "forensic_repair"]);
 function validateReadSql(sql, user) {
   const text = String(sql || "").trim();
   if (!text || text.includes("\\")) {
     return { ok: false, out: "Refused: only plain SQL (no psql backslash commands)." };
   }
-  if (text.includes('"')) return { ok: false, out: "Refused: double-quoted identifiers are not allowed; use ceo_ai.<view>." };
   const one = text.replace(/;\s*$/, "");
   if (one.includes(";")) return { ok: false, out: "Refused: run exactly one SQL statement." };
-  if (!/^select\b/i.test(one)) return { ok: false, out: "Refused: only flat SELECT queries are allowed." };
+  if (!/^(select|with)\b/i.test(one)) return { ok: false, out: "Refused: only SELECT / WITH queries are allowed." };
   if (SQL_BANNED_RE.test(one)) return { ok: false, out: "Refused: mutating or session-control SQL is not allowed." };
-  const sourceClause = one.match(/\bfrom\b([\s\S]*?)(?:\bwhere\b|\bgroup\s+by\b|\border\s+by\b|\blimit\b|$)/i)?.[1] || "";
-  if (/,\s*[a-z_]/i.test(sourceClause)) return { ok: false, out: "Refused: comma-joined sources are not allowed; use explicit ceo_ai.* JOINs." };
-  if (/\(\s*select\b/i.test(one)) return { ok: false, out: "Refused: subqueries are not allowed in this read-only tool." };
+  const ctes = new Set([...one.matchAll(/(?:\bwith\b|,)\s*([a-z_][\w$]*)\s+as\s*\(/gi)].map((m) => m[1].toLowerCase()));
   let sawSource = false;
   for (const m of one.matchAll(SQL_SOURCE_RE)) {
-    sawSource = true;
-    if (!m[2] || m[1].toLowerCase() !== "ceo_ai") {
-      return { ok: false, out: "Refused: queries may read only explicitly-qualified ceo_ai.* views." };
+    const first = m[1].toLowerCase();
+    const after = one.slice(m.index + m[0].length);
+    if (!m[2]) {
+      // unqualified: a CTE, a subquery alias handled by "(", or a set-returning function
+      if (ctes.has(first) || /^\s*\(/.test(after) || first === "lateral") continue;
+      return { ok: false, out: `Refused: qualify tables with their schema (e.g. public.${first}).` };
     }
+    if (!SQL_SCHEMAS.has(first)) return { ok: false, out: `Refused: schema ${first} is not readable here.` };
+    sawSource = true;
   }
-  if (!sawSource) return { ok: false, out: "Refused: query must read from a ceo_ai.* view." };
+  if (!sawSource) return { ok: false, out: "Refused: query must read from a schema-qualified table or view." };
   if (!user?.tenantId) return { ok: false, out: "Refused: missing authenticated tenant scope." };
   const tenant = sqlLiteral(user.tenantId);
-  const tenantRe = new RegExp(`\\bwhere\\b[\\s\\S]*\\btenant_id\\s*=\\s*'${tenant}'`, "i");
-  if (!tenantRe.test(one)) {
-    return { ok: false, out: `Refused: include tenant_id = '${tenant}' in the top-level WHERE clause.` };
+  if (!new RegExp(`\\btenant_id\\s*=\\s*'${tenant}'`, "i").test(one)) {
+    return { ok: false, out: `Refused: filter by tenant_id = '${tenant}'.` };
   }
   return { ok: true, sql: one };
 }
@@ -202,7 +207,7 @@ function meshaToolsFor(user) {
     tools: [
       tool(
         "run_sql",
-        "Run ONE read-only SQL query against goatos-stg (ceo_ai.* views) and return tab-separated rows (max 500). Include tenant_id = '<authenticated tenant>' in the WHERE clause. Use the mesha data map to pick the view.",
+        "Run ONE read-only SQL query (SELECT/WITH) against goatos-stg — any schema-qualified table or view in public, ceo_ai, analytics, audit — and return tab-separated rows (max 500). Filter tenant tables by tenant_id = '<authenticated tenant>'.",
         { sql: z.string().describe("A single SELECT/WITH query. No psql backslash commands.") },
         async ({ sql }) => {
           const r = await runSql(sql, user);

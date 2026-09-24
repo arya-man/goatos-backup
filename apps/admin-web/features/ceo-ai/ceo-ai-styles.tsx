@@ -447,17 +447,23 @@ export function CeoAiStyles(): ReactElement {
 /* draggable launcher: inline left/top win over the corner defaults */
 .mzai-root.mzai-closed.mzai-free{right:auto !important;bottom:auto !important;transition:none}
 .mzai-closed .mzai-bubble{touch-action:none;user-select:none;-webkit-user-select:none}
-.mzai-steps{margin:0 0 8px;font-size:12px;color:var(--muted);max-width:100%}
-.mzai-steps-head{display:inline-flex;align-items:center;gap:6px;border:0;background:transparent;color:var(--muted);
-  font:inherit;font-size:12px;padding:2px 0;cursor:pointer}
-.mzai-steps.live .mzai-steps-head{cursor:default}
-.mzai-steps-chev{font-size:13px}
-.mzai-steps ol{list-style:none;margin:4px 0 0;padding:0 0 0 2px;border-left:2px solid var(--line)}
-.mzai-steps li{position:relative;padding:3px 0 3px 14px;line-height:1.45}
-.mzai-steps li::before{content:"";position:absolute;left:-5px;top:9px;width:8px;height:8px;border-radius:50%;background:var(--line)}
-.mzai-steps li.done::before{background:var(--brand)}
+.mzai-steps{margin:2px 0 8px;font-size:12.5px;line-height:1.45;color:var(--muted);max-width:100%}
+.mzai-steps-head{display:inline-flex;align-items:center;gap:5px;border:0;background:transparent;color:var(--muted);
+  font:inherit;font-size:12.5px;font-weight:500;padding:3px 0;cursor:pointer}
+.mzai-steps-head:hover{color:var(--ink)}
+.mzai-steps.live .mzai-steps-head{cursor:default;background:linear-gradient(90deg,var(--muted) 0%,var(--ink) 50%,var(--muted) 100%);
+  background-size:200% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:mzai-shimmer 1.8s linear infinite}
+@keyframes mzai-shimmer{from{background-position:100% 0}to{background-position:-100% 0}}
+.mzai-steps-chev{font-size:12px;opacity:.8}
+.mzai-steps ol{list-style:none;margin:2px 0 0;padding:0;display:flex;flex-direction:column;gap:1px}
+.mzai-steps li{display:flex;align-items:center;gap:7px;padding:1px 0;min-width:0}
+.mzai-steps li.more{padding-left:19px;font-size:11.5px;opacity:.7}
+.mzai-step-ic{flex:none;width:12px;height:12px;display:inline-flex;align-items:center;justify-content:center;color:var(--brand)}
 .mzai-steps li.now{color:var(--ink)}
-.mzai-steps li.now::before{background:var(--brand);animation:mzai-pulse 1.2s ease-in-out infinite}
+.mzai-steps li.now .mzai-step-ic{border:1.5px solid color-mix(in srgb,var(--brand) 35%,transparent);border-top-color:var(--brand);
+  border-radius:50%;animation:mzai-spin .8s linear infinite}
+@keyframes mzai-spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.mzai-steps.live .mzai-steps-head,.mzai-steps li.now .mzai-step-ic{animation:none}}
 `}</style>
   );
 }
