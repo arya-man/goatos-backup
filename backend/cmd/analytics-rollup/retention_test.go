@@ -365,3 +365,40 @@ func TestArchiveDeleteBoundedByExportedKeyPostgres(t *testing.T) {
 		t.Fatalf("%d archived rows left undeleted", archived)
 	}
 }
+
+// A leftover (restored) row outside the exported key of an already-deleted day
+// must not block archiving: it is logged/counted and later days still archive.
+func TestArchiveLeftoverRowDoesNotBlockLaterDaysPostgres(t *testing.T) {
+	pool := pgtest.StartPostgres(t, context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	now := time.Date(2026, 9, 24, 21, 45, 0, 0, time.UTC)
+	day1 := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	add := func(at time.Time, name string) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, `INSERT INTO analytics.app_events(tenant_id,event_name,received_at) VALUES($1,$2,$3)`, testTenantID, name, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	add(day1.Add(time.Hour), "archived")
+	logger := observability.New(observability.Config{Service: "analytics-rollup-test"})
+	store := &fakeStore{objects: map[string][]byte{}}
+	cfg := config{RetentionDays: 15, ArchiveMaxDays: 5, PruneBatchSize: 10, PruneMaxRows: 100}
+	if res, err := archiveAndPruneAppEvents(ctx, pool, store, cfg, now, logger); err != nil || res.DaysArchived != 1 {
+		t.Fatalf("day1 %+v %v", res, err)
+	}
+	// A restore lands in the deleted day 1; days 2..4 arrive for archiving.
+	add(day1.Add(20*time.Hour), "restored")
+	for d := 1; d <= 3; d++ {
+		add(day1.AddDate(0, 0, d).Add(time.Hour), "later")
+	}
+	res, err := archiveAndPruneAppEvents(ctx, pool, store, cfg, now, logger)
+	if err != nil || res.DaysArchived != 3 || res.LeftoverDays != 1 {
+		t.Fatalf("leftover blocked later days: %+v err=%v", res, err)
+	}
+	var later, restored int
+	pool.QueryRow(ctx, `SELECT count(*) FILTER (WHERE event_name='later'), count(*) FILTER (WHERE event_name='restored') FROM analytics.app_events`).Scan(&later, &restored)
+	if later != 0 || restored != 1 {
+		t.Fatalf("later=%d restored=%d; want later days archived+deleted, restored row kept", later, restored)
+	}
+}
