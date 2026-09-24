@@ -563,7 +563,16 @@ ANALYZE obligation_instances;
          oi.scope_id AS scope_id_key,
          oi.target_id AS target_id_key,
          CASE WHEN oi.target_type = 'goat' THEN COALESCE(g.species, 'goat')::text ELSE '' END AS target_species,
-         CASE WHEN oi.target_type = 'goat' THEN COALESCE(asl.stage_code, g.management_stage, '')::text ELSE '' END AS target_animal_stage,
+         CASE WHEN oi.target_type = 'goat' THEN COALESCE((
+           SELECT asl.stage_code
+           FROM animal_stage_lookup asl
+           WHERE asl.tenant_id = g.tenant_id
+             AND asl.animal_stage_id = (
+               SELECT sp.animal_stage_id FROM shed_profiles sp
+               WHERE sp.tenant_id = g.tenant_id AND sp.location_id = COALESCE(g.shed_id, CASE WHEN oi.scope_type = 'shed' THEN oi.scope_id END)
+             )
+             AND asl.status = 'active'
+         ), g.management_stage, '')::text ELSE '' END AS target_animal_stage,
          CASE WHEN oi.target_type = 'goat' THEN COALESCE(g.reproductive_status, '')::text ELSE '' END AS target_reproductive_status,
          oi.due_at,
          oi.window_start,
@@ -575,10 +584,6 @@ ANALYZE obligation_instances;
     ON g.tenant_id = oi.tenant_id AND g.goat_id = oi.target_id AND oi.target_type = 'goat'
   LEFT JOIN location_operational_attributes loa
     ON loa.tenant_id = g.tenant_id AND loa.location_id = g.current_location_id
-  LEFT JOIN shed_profiles sp
-    ON sp.tenant_id = g.tenant_id AND sp.location_id = COALESCE(g.shed_id, CASE WHEN oi.scope_type = 'shed' THEN oi.scope_id END)
-  LEFT JOIN animal_stage_lookup asl
-    ON asl.tenant_id = sp.tenant_id AND asl.animal_stage_id = sp.animal_stage_id AND asl.status = 'active'
   WHERE oi.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
     AND oi.protocol_version_id = '10000000-0000-4000-8000-000000000001'::uuid
     AND oi.status IN ('scheduled', 'due', 'missed')

@@ -4438,7 +4438,20 @@ WITH candidates AS (
          END::text AS shed_name,
          oi.target_id AS target_id_key,
          CASE WHEN oi.target_type = 'goat' THEN COALESCE(g.species, 'goat')::text ELSE '' END AS target_species,
-         CASE WHEN oi.target_type = 'goat' THEN COALESCE(asl.stage_code, g.management_stage, '')::text ELSE '' END AS target_animal_stage,
+         CASE WHEN oi.target_type = 'goat' THEN COALESCE((
+           -- Scalar lookup, not a LEFT JOIN: shed_profiles is keyed by location_id (PK) and
+           -- animal_stage_lookup by (tenant_id, animal_stage_id), so this is at most one row. As a
+           -- join the planner could hash shed_profiles and re-sort the keyset tail; as a per-row
+           -- probe it cannot disturb the index order of obligation_instances_unbatched_due_version_idx.
+           SELECT asl.stage_code
+           FROM animal_stage_lookup asl
+           WHERE asl.tenant_id = g.tenant_id
+             AND asl.animal_stage_id = (
+               SELECT sp.animal_stage_id FROM shed_profiles sp
+               WHERE sp.tenant_id = g.tenant_id AND sp.location_id = COALESCE(g.shed_id, CASE WHEN oi.scope_type = 'shed' THEN oi.scope_id END)
+             )
+             AND asl.status = 'active'
+         ), g.management_stage, '')::text ELSE '' END AS target_animal_stage,
          CASE WHEN oi.target_type = 'goat' THEN COALESCE(g.reproductive_status, '')::text ELSE '' END AS target_reproductive_status,
          oi.due_at AS due_at,
          oi.window_start AS window_start,
@@ -4461,10 +4474,6 @@ WITH candidates AS (
    AND gsp.shed_id = shed.location_id
   LEFT JOIN location_operational_attributes loa
     ON loa.tenant_id = g.tenant_id AND loa.location_id = g.current_location_id
-  LEFT JOIN shed_profiles sp
-    ON sp.tenant_id = g.tenant_id AND sp.location_id = COALESCE(g.shed_id, CASE WHEN oi.scope_type = 'shed' THEN oi.scope_id END)
-  LEFT JOIN animal_stage_lookup asl
-    ON asl.tenant_id = sp.tenant_id AND asl.animal_stage_id = sp.animal_stage_id AND asl.status = 'active'
   WHERE oi.tenant_id = $1
     AND oi.protocol_version_id = $2
     AND oi.status IN ('scheduled', 'due', 'missed')
