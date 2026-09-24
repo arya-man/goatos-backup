@@ -170,6 +170,17 @@ func TestLoadFollowsItsAnimalsThroughPenMovesOneToManyParkScopeStatusMatrix(t *t
 	if got := laLoads(t, ctx, repo, []string{"00000000-0000-4000-8000-0000000051ff"}, "", ""); len(got) != 0 {
 		t.Fatalf("another park sees no load, got %#v", got)
 	}
+	// A load stays on the charts until EVERY animal is sold: sell D, L-8 stays (E is still here);
+	// sell E too, and L-8 leaves the chart.
+	execWeighingTestSQL(t, ctx, pool, `UPDATE goats SET lifecycle_status = 'sold', exited_at = $2::timestamptz, exit_reason = 'sold' WHERE goat_id = $1::uuid`, laGoatD, laAt(18))
+	findLoad(t, laLoads(t, ctx, repo, []string{repoPark}, "", ""), "L-8")
+	execWeighingTestSQL(t, ctx, pool, `UPDATE goats SET lifecycle_status = 'sold', exited_at = $2::timestamptz, exit_reason = 'sold' WHERE goat_id = $1::uuid`, laGoatE, laAt(18))
+	for _, load := range laLoads(t, ctx, repo, []string{repoPark}, "", "") {
+		if load.LoadRef == "L-8" {
+			t.Fatalf("a load with every animal sold must leave the chart, got %#v", load)
+		}
+	}
+
 	// Status: a CANCELED round drops out, so B loses its only leg and L-7 is A and C alone.
 	execWeighingTestSQL(t, ctx, pool, `UPDATE weighing_campaign_sheds SET status = 'canceled' WHERE campaign_shed_id = $1::uuid`, laBucketC)
 	after := findLoad(t, laLoads(t, ctx, repo, []string{repoPark}, "", ""), "L-7")

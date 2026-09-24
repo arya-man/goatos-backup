@@ -5834,7 +5834,7 @@ func pageSpecificCopy(id string) map[string]string {
 			// ONLY LOADS WITH A LATEST WEIGHING (maintainer request 2026-09-03): the tab is a
 			// comparison, and a load nobody has weighed since it arrived has nothing to compare.
 			// Said on the tab so a missing load reads as unweighed, never as lost.
-			"note.load.weighed_only": "Only loads whose animals were weighed in the selected period are shown.",
+			"note.load.weighed_only": "Only loads whose animals were weighed in the selected period are shown, and a load stays until every one of its animals is sold.",
 
 			// VALUE (maintainer request 2026-09-03): what the load cost against what the animals
 			// still on farm are worth today at an assumed live-weight rate, and the difference.
