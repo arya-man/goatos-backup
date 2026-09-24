@@ -54,7 +54,17 @@ data class ServerErrorText(
  */
 fun Throwable.serverErrorText(): ServerErrorText? {
     val http = this as? HttpException ?: return null
-    val raw = runCatching { http.response()?.errorBody()?.string() }.getOrNull()
+    // PEEK, never consume. An error body is a stream that can be read ONCE, and the outbox asks
+    // the same throwable three separate questions when it records a refusal: the sentence to
+    // show, the CODE to act on, and the field to mark. With `string()` the first question
+    // answered and the other two came back empty, so a screen that keys on the code -- a feed
+    // sale the store says is short, the verifier's packing-variance confirm -- never saw it and
+    // fell through to its generic "could not save" wording (found on the phone, 2026-09-24).
+    // `peek()` reads the same bytes without taking them, so the answer is the same every time
+    // and any other reader still finds the body intact.
+    val raw = runCatching {
+        http.response()?.errorBody()?.source()?.peek()?.readUtf8()
+    }.getOrNull()
     if (raw.isNullOrBlank()) return null
     val dto = runCatching { LENIENT_JSON.decodeFromString<ServerErrorEnvelopeDto>(raw) }.getOrNull() ?: return null
     val message = dto.message.trim()
