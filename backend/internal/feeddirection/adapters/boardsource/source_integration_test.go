@@ -119,8 +119,8 @@ ON CONFLICT (task_id) DO NOTHING`, x.id, bsTenant, park, x.shed, bsDate, sched, 
 
 	packing := func(id, shed, status, proof, owner string) {
 		exec(t, ctx, pool, `
-INSERT INTO feed_packing_completions (completion_id, tenant_id, park_id, shed_id, session_no, target_date, workflow, status, packing_proof_ref, completed_by, idempotency_key)
-VALUES ($1::uuid,$2::uuid,$3::uuid,$4::uuid,1,$5::date,'normal',$6,NULLIF($7,''),NULLIF($8,'')::uuid,$1::text)
+INSERT INTO feed_packing_completions (completion_id, tenant_id, park_id, shed_id, session_no, target_date, workflow, status, packing_proof_ref, completed_by, idempotency_key, sop_proofs)
+VALUES ($1::uuid,$2::uuid,$3::uuid,$4::uuid,1,$5::date,'normal',$6,NULLIF($7,''),NULLIF($8,'')::uuid,$1::text,'{"packing":["seed"]}'::jsonb)
 ON CONFLICT (completion_id) DO NOTHING`, id, bsTenant, bsPark, shed, bsServeNxt, status, proof, owner)
 	}
 	packing("00000000-0000-4000-8000-0000000092a1", bsShedA, "completed", "proof:pk-a", bsOperator)
@@ -134,8 +134,8 @@ ON CONFLICT (completion_id) DO NOTHING`, "00000000-0000-4000-8000-0000000093a1",
 
 	// Wastage: A completed (experiment-only workflow), measured on D.
 	exec(t, ctx, pool, `
-INSERT INTO feed_wastage_completions (completion_id, tenant_id, park_id, shed_id, target_date, workflow, status, wastage_proof_ref, completed_by, idempotency_key)
-VALUES ($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5::date,'experiment','completed','proof:w-a',$6::uuid,$1::text)
+INSERT INTO feed_wastage_completions (completion_id, tenant_id, park_id, shed_id, target_date, workflow, status, wastage_proof_ref, completed_by, idempotency_key, sop_proofs)
+VALUES ($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5::date,'experiment','completed','proof:w-a',$6::uuid,$1::text,'{"wastage":["seed"]}'::jsonb)
 ON CONFLICT (completion_id) DO NOTHING`, "00000000-0000-4000-8000-0000000094a1", bsTenant, bsPark, bsShedA, bsDate, bsOperator)
 }
 
@@ -335,8 +335,8 @@ ON CONFLICT DO NOTHING`, bsTenant, bsPark, bsShedA, session, session-1)
 	}
 	packing2 := func(id, shed string, session int, status, proof string) {
 		exec(t, ctx, pool, `
-INSERT INTO feed_packing_completions (completion_id, tenant_id, park_id, shed_id, session_no, target_date, workflow, status, packing_proof_ref, completed_by, idempotency_key)
-VALUES ($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5,$6::date,'normal',$7,NULLIF($8,''),$9::uuid,$1::text)
+INSERT INTO feed_packing_completions (completion_id, tenant_id, park_id, shed_id, session_no, target_date, workflow, status, packing_proof_ref, completed_by, idempotency_key, sop_proofs)
+VALUES ($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5,$6::date,'normal',$7,NULLIF($8,''),$9::uuid,$1::text,'{"packing":["seed"]}'::jsonb)
 ON CONFLICT (completion_id) DO NOTHING`, id, bsTenant, bsPark, shed, session, serve2, status, proof, bsOperator)
 	}
 	packing2("00000000-0000-4000-8000-0000000095a1", bsShedA, 1, "completed", "proof:s1")
@@ -403,8 +403,8 @@ ON CONFLICT DO NOTHING`, bsTenant, issueID, bsPark, bsShedA, partitionLabel, row
 	penRow(1, "Part 4")
 	completion := func(id, partitionLabel, status string) {
 		exec(t, ctx, pool, `
-INSERT INTO feed_packing_completions (completion_id, tenant_id, park_id, shed_id, partition_label, session_no, target_date, workflow, status, packing_proof_ref, completed_by, idempotency_key)
-VALUES ($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5,1,$6::date,'normal',$7,'proof:'||$1,$8::uuid,$1::text)
+INSERT INTO feed_packing_completions (completion_id, tenant_id, park_id, shed_id, partition_label, session_no, target_date, workflow, status, packing_proof_ref, completed_by, idempotency_key, sop_proofs)
+VALUES ($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5,1,$6::date,'normal',$7,'proof:'||$1,$8::uuid,$1::text,'{"packing":["seed"]}'::jsonb)
 ON CONFLICT (completion_id) DO NOTHING`, id, bsTenant, bsPark, bsShedA, partitionLabel, serve3, status, bsOperator)
 	}
 	completion("00000000-0000-4000-8000-0000000096c1", "Part 3", "completed")
@@ -502,8 +502,8 @@ ON CONFLICT DO NOTHING`, bsTenant, issueID, bsPark, bsShedA, partitionLabel, ite
 	penItem(0, "Part 3", "Concentrate")
 	penItem(1, "part 3", "Mineral Mix")
 	exec(t, ctx, pool, `
-INSERT INTO feed_packing_completions (completion_id, tenant_id, park_id, shed_id, partition_label, session_no, target_date, workflow, status, packing_proof_ref, completed_by, idempotency_key)
-VALUES ('00000000-0000-4000-8000-0000000097c1'::uuid,$1::uuid,$2::uuid,$3::uuid,'Part 3',1,$4::date,'normal','pending_verification','proof:partition-key',$5::uuid,'partition-key')
+INSERT INTO feed_packing_completions (completion_id, tenant_id, park_id, shed_id, partition_label, session_no, target_date, workflow, status, packing_proof_ref, completed_by, idempotency_key, sop_proofs)
+VALUES ('00000000-0000-4000-8000-0000000097c1'::uuid,$1::uuid,$2::uuid,$3::uuid,'Part 3',1,$4::date,'normal','pending_verification','proof:partition-key',$5::uuid,'partition-key','{"packing":["seed"]}'::jsonb)
 ON CONFLICT (completion_id) DO NOTHING`, bsTenant, bsPark, bsShedA, serve4, bsOperator)
 
 	src := New(pool, 5000000000)
@@ -569,8 +569,8 @@ ON CONFLICT DO NOTHING`, bsTenant, bsPark, bsShedA, part, i)
 	}
 	setPen := func(id, part, status string) {
 		exec(t, ctx, pool, `
-INSERT INTO feed_packing_completions (completion_id, tenant_id, park_id, shed_id, partition_label, session_no, target_date, workflow, status, packing_proof_ref, completed_by, idempotency_key)
-VALUES ($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5,1,$6::date,'normal',$7,'proof:'||$1::text,$8::uuid,$1::text)
+INSERT INTO feed_packing_completions (completion_id, tenant_id, park_id, shed_id, partition_label, session_no, target_date, workflow, status, packing_proof_ref, completed_by, idempotency_key, sop_proofs)
+VALUES ($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5,1,$6::date,'normal',$7,'proof:'||$1::text,$8::uuid,$1::text,'{"packing":["seed"]}'::jsonb)
 ON CONFLICT (completion_id) DO UPDATE SET status = EXCLUDED.status`, id, bsTenant, bsPark, bsShedA, part, serve3, status, bsOperator)
 	}
 	card := func() domain.Row {

@@ -35,7 +35,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -273,31 +272,51 @@ type cardMetrics struct {
 }
 
 type cardReadKey struct {
-	source                              *Source
-	tenant, park, date, owner, activity string
+	source                    *Source
+	tenant, park, date, owner string
 }
 
+// readCard serves one activity's card from the request's single batched read of all four.
 func (s *Source) readCard(ctx context.Context, a activity, q ports.SourceQuery) (cardMetrics, error) {
-	// State and page filters are applied after metrics; all lanes in this request
-	// share the same tenant/park/day/owner/activity facts.
-	key := cardReadKey{s, q.TenantID, q.ParkID, q.BusinessDate, q.OwnerUserID, a.key}
-	return ports.RequestRead(ctx, key, func(ctx context.Context) (cardMetrics, error) {
-		return s.readCardFresh(ctx, a, q)
+	cards, err := s.readCards(ctx, q)
+	if err != nil {
+		return cardMetrics{}, err
+	}
+	return cards[a.rank], nil
+}
+
+// readCards reads the four activity cards as ONE pgx batch: one pool connection and one round
+// trip instead of four parallel statements on four connections (the Work Board page reads the
+// feed cards on every load, and four concurrent acquires per page pressed the pool). State and
+// page filters are applied after metrics; every lane in the request shares the same
+// tenant/park/day/owner facts, so the batch is memoized per request.
+func (s *Source) readCards(ctx context.Context, q ports.SourceQuery) ([]cardMetrics, error) {
+	key := cardReadKey{s, q.TenantID, q.ParkID, q.BusinessDate, q.OwnerUserID}
+	return ports.RequestRead(ctx, key, func(ctx context.Context) ([]cardMetrics, error) {
+		return s.readCardsFresh(ctx, q)
 	})
 }
 
-func (s *Source) readCardFresh(ctx context.Context, a activity, q ports.SourceQuery) (cardMetrics, error) {
-	var m cardMetrics
-	err := s.pool.QueryRow(ctx, metricsSQL(a.units), q.TenantID, q.BusinessDate, q.ParkID, nullUUID(q.OwnerUserID)).
-		Scan(&m.sheds, &m.done, &m.pending, &m.attention, &m.cardRank, &m.anyRejected, &m.parkName)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			m.cardRank = -1
-			return m, nil
-		}
-		return m, err
+func (s *Source) readCardsFresh(ctx context.Context, q ports.SourceQuery) ([]cardMetrics, error) {
+	batch := &pgx.Batch{}
+	for _, a := range activities {
+		batch.Queue(metricsSQL(a.units), q.TenantID, q.BusinessDate, q.ParkID, nullUUID(q.OwnerUserID))
 	}
-	return m, err
+	br := s.pool.SendBatch(ctx, batch)
+	defer br.Close()
+	out := make([]cardMetrics, len(activities))
+	for _, a := range activities {
+		m := &out[a.rank]
+		err := br.QueryRow().Scan(&m.sheds, &m.done, &m.pending, &m.attention, &m.cardRank, &m.anyRejected, &m.parkName)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				*m = cardMetrics{cardRank: -1}
+				continue
+			}
+			return nil, fmt.Errorf("%s: %w", a.key, err)
+		}
+	}
+	return out, br.Close()
 }
 
 // cardState maps a card's rolled-up rank back to one board work state. A card In progress with
@@ -388,28 +407,12 @@ func (s *Source) CountByState(ctx context.Context, q ports.SourceQuery) (map[dom
 	ctx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 	want := stateSet(q.WorkStates)
-	type result struct {
-		key string
-		m   cardMetrics
-		err error
+	cards, err := s.readCards(ctx, q)
+	if err != nil {
+		return nil, fmt.Errorf("feed boardsource count: %w", err)
 	}
-	results := make([]result, len(activities))
-	var wg sync.WaitGroup
-	for i, a := range activities {
-		wg.Add(1)
-		go func(i int, a activity) {
-			defer wg.Done()
-			m, err := s.readCard(ctx, a, q)
-			results[i] = result{key: a.key, m: m, err: err}
-		}(i, a)
-	}
-	wg.Wait()
 	out := map[domain.WorkState]int{}
-	for _, result := range results {
-		if result.err != nil {
-			return nil, fmt.Errorf("feed boardsource count %s: %w", result.key, result.err)
-		}
-		m := result.m
+	for _, m := range cards {
 		if m.cardRank < 0 {
 			continue
 		}
