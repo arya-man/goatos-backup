@@ -453,7 +453,8 @@ normal_observability_deploy() {
   fi
   run gcloud run jobs execute goatos-stg-analytics-rollup --project="$PROJECT_ID" --region="$REGION" \
     --args="-timeout=25m,-source=app_events,-lookback-days=7${pending_args:+,$pending_args}" --wait --quiet
-  observability_apply_and_smoke
+  # Grafana dashboards, Alloy and the live Grafana smoke deploy independently via
+  # cloudbuild.grafana.yaml (docs/runbooks/grafana-deploy.md), not with the release.
 }
 
 grafana_sso_helper() {

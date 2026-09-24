@@ -1,6 +1,8 @@
 # Deployment validity and data readiness
 
-A successful Cloud Deploy rollout validates provisioning, authentication,
+A successful standalone Grafana deploy (`cloudbuild.grafana.yaml`, see
+`docs/runbooks/grafana-deploy.md`; Grafana no longer ships with the Goat OS STG
+release) validates provisioning, authentication,
 all committed datasource queries, and the existing representative/feature data
 checks. Its smoke uses `--query-validity-only`. SQL errors, permission errors,
 missing datasource results, or errors on any individual query reference fail.

@@ -26,6 +26,14 @@ That is an availability recovery path after billing restoration, not a normal
 code deploy. Do not call it fixed until both terminal curls and the live Chrome
 browser surface pass.
 
+## Not In The Release: Grafana
+
+Grafana dashboards, the Alloy collector, Faro log-based metrics and the live
+Grafana dashboard smoke do NOT ship with the Goat OS STG release. They deploy
+independently via `cloudbuild.grafana.yaml`; see
+[`grafana-deploy.md`](./grafana-deploy.md). The release still runs the
+analytics-rollup job.
+
 ## Valid Deploy Path
 
 STG deploy is **manual Google Cloud Deploy**. Cloud Deploy is the deployment

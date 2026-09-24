@@ -3,7 +3,9 @@
 //
 // If infra/grafana/dashboards/*.json exists, CI must prove the files are valid,
 // Terraform still uploads them into the mounted GCS provisioning bucket, and the
-// staging deploy path still runs the live Grafana dashboard smoke.
+// standalone Grafana pipeline (cloudbuild.grafana.yaml) still applies the assets
+// and runs the live Grafana dashboard smoke fail-closed. Grafana is deliberately NOT
+// part of the Goat OS STG release (see docs/runbooks/grafana-deploy.md).
 
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -21,6 +23,7 @@ const defaults = {
   terraform: "infra/envs/stg/observability.tf",
   monitoring: "infra/envs/stg/monitoring.tf",
   secrets: "infra/envs/stg/secrets.tf",
+  grafanaPipeline: "cloudbuild.grafana.yaml",
   deployScript: "tools/deploy/stg-cloudbuild-release.sh",
   cloudDeployReleaseScript: "tools/deploy/stg-clouddeploy-release.sh",
   smokeScript: "tools/deploy/smoke-stg-grafana-dashboards.mjs",
@@ -281,14 +284,25 @@ export function validate(root = repo) {
     'member    = "serviceAccount:${google_service_account.github_deployer.email}"',
   ], defaults.secrets, problems);
 
+  const pipeline = readText(root, defaults.grafanaPipeline);
+  includesAll(pipeline, [
+    "goatos-github-deploy-stg@goatos-stg.iam.gserviceaccount.com",
+    "python3 tools/deploy/stg-observability.py deploy --assets infra/grafana",
+    "--log-metrics infra/observability/faro-log-metrics.json",
+    "grafana-alloy@sha256:[a-f0-9]{64}",
+    "node tools/deploy/smoke-stg-grafana-dashboards.mjs",
+    "--query-validity-only",
+    "--firebase-initial-export-receipt infra/observability/firebase-initial-export.json",
+    "/api/search",
+    "401",
+    "- -ceu",
+  ], defaults.grafanaPipeline, problems);
+  if (/REQUIRE_GRAFANA_SMOKE|allowFailure|\|\|\s*true|set \+e/.test(pipeline)) {
+    problems.push(`${defaults.grafanaPipeline}: Grafana smoke must fail closed; remove warning-only bypass (REQUIRE_GRAFANA_SMOKE / allowFailure / || true / set +e)`);
+  }
   const deployScript = readText(root, defaults.deployScript);
-  includesAll(deployScript, [
-    "smoke-stg-grafana-dashboards.mjs",
-    "smoke_grafana_dashboards",
-    "refusing to report backend/web deploy success",
-  ], defaults.deployScript, problems);
-  if (/REQUIRE_GRAFANA_SMOKE/.test(deployScript)) {
-    problems.push(`${defaults.deployScript}: Grafana smoke must fail closed; remove REQUIRE_GRAFANA_SMOKE warning-only bypass`);
+  if (/smoke-stg-grafana-dashboards\.mjs/.test(deployScript)) {
+    problems.push(`${defaults.deployScript}: Grafana smoke belongs to ${defaults.grafanaPipeline}, not the Goat OS STG release`);
   }
 
   const cloudDeployReleaseScript = readText(root, defaults.cloudDeployReleaseScript);
@@ -398,13 +412,19 @@ resource "google_secret_manager_secret_iam_member" "grafana_admin_password_deplo
 }
 `);
   writeFileSync(path.join(root, defaults.deployScript), overrides.deployScript ?? `
-smoke_grafana_dashboards() {
-  node tools/deploy/smoke-stg-grafana-dashboards.mjs || {
-    echo "refusing to report backend/web deploy success"
-    return 1
-  }
-}
-smoke_grafana_dashboards
+tools/deploy/stg-clouddeploy-release.sh
+`);
+  writeFileSync(path.join(root, defaults.grafanaPipeline), overrides.grafanaPipeline ?? `
+serviceAccount: projects/goatos-stg/serviceAccounts/goatos-github-deploy-stg@goatos-stg.iam.gserviceaccount.com
+steps:
+  - id: resolve
+    args:
+      - -ceu
+      - |
+        [[ "$img" =~ grafana-alloy@sha256:[a-f0-9]{64}$ ]]
+        python3 tools/deploy/stg-observability.py deploy --assets infra/grafana --alloy-image "$img" --log-metrics infra/observability/faro-log-metrics.json
+        [[ "$(curl -o /dev/null -w '%{http_code}' https://grafana.mesha.sg/api/search)" == "401" ]]
+        node tools/deploy/smoke-stg-grafana-dashboards.mjs --no-proxy --query-validity-only --firebase-initial-export-receipt infra/observability/firebase-initial-export.json
 `);
   writeFileSync(path.join(root, defaults.cloudDeployReleaseScript), overrides.cloudDeployReleaseScript ?? `
 docker build --platform linux/amd64 \\
@@ -478,13 +498,26 @@ function selfTest() {
     assert(duplicateProblems.some((problem) => problem.includes("duplicate dashboard uid")));
     assert(duplicateProblems.some((problem) => problem.includes("at least one panel")));
 
-    writeFixture(root, { deployScript: `
-smoke_grafana_dashboards() {
-  node tools/deploy/smoke-stg-grafana-dashboards.mjs || true
-}
-if [[ "\${REQUIRE_GRAFANA_SMOKE:-0}" == "1" ]]; then return 1; fi
+    writeFixture(root, { grafanaPipeline: `
+serviceAccount: projects/goatos-stg/serviceAccounts/goatos-github-deploy-stg@goatos-stg.iam.gserviceaccount.com
+steps:
+  - args:
+      - -ceu
+      - |
+        [[ "$img" =~ grafana-alloy@sha256:[a-f0-9]{64}$ ]]
+        python3 tools/deploy/stg-observability.py deploy --assets infra/grafana --alloy-image "$img" --log-metrics infra/observability/faro-log-metrics.json
+        [[ "$(curl https://grafana.mesha.sg/api/search)" == "401" ]]
+        node tools/deploy/smoke-stg-grafana-dashboards.mjs --no-proxy --query-validity-only --firebase-initial-export-receipt infra/observability/firebase-initial-export.json || true
 ` });
-    assert(validate(root).some((problem) => problem.includes("REQUIRE_GRAFANA_SMOKE")));
+    assert(validate(root).some((problem) => problem.includes("must fail closed")));
+
+    writeFixture(root, { grafanaPipeline: "steps: []\n" });
+    const missingPipeline = validate(root);
+    assert(missingPipeline.some((problem) => problem.includes("smoke-stg-grafana-dashboards.mjs")));
+    assert(missingPipeline.some((problem) => problem.includes("stg-observability.py deploy")));
+
+    writeFixture(root, { deployScript: "node tools/deploy/smoke-stg-grafana-dashboards.mjs --no-proxy\n" });
+    assert(validate(root).some((problem) => problem.includes("not the Goat OS STG release")));
 
     writeFixture(root, {
       cloudDeployReleaseScript: "docker build --platform linux/amd64 --build-arg NEXT_PUBLIC_FIREBASE_PERFORMANCE_ENABLED=1 -f apps/admin-web/Dockerfile -t $admin_web_image .",

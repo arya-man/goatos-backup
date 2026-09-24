@@ -48,9 +48,11 @@ for (const [name, env] of [["pending certificate", { CERT_STATUS: "PROVISIONING"
 }
 
 test("routine deploy smoke follows the protected custom domain", () => {
-  const caller = readFileSync(new URL("./stg-cloudbuild-release.sh", import.meta.url), "utf8");
-  const section = caller.slice(caller.indexOf("smoke_grafana_dashboards()"), caller.indexOf("on_exit()"));
-  assert.match(section, /--url https:\/\/grafana.mesha.sg/);
+  // Routine Grafana deploys run standalone (cloudbuild.grafana.yaml), not in the release.
+  const caller = readFileSync(new URL("../../cloudbuild.grafana.yaml", import.meta.url), "utf8");
+  const section = caller.slice(caller.indexOf("id: smoke-grafana-dashboards"));
+  assert.match(caller, /_GRAFANA_URL: https:\/\/grafana.mesha.sg/);
+  assert.match(section, /--url "\$\{_GRAFANA_URL\}"/);
   assert.match(section, /--no-proxy/);
   assert.doesNotMatch(section, /--direct-iam/);
 });

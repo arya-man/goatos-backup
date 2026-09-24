@@ -1,0 +1,87 @@
+# Independent deploy for Goat OS Grafana (grafana.mesha.sg) + the Alloy collector.
+# NOT part of the Goat OS STG release: it applies the committed infra/grafana
+# dashboards/provisioning, the Faro log-based metrics and the pinned Alloy image via
+# tools/deploy/stg-observability.py, then proves the result: the custom-domain auth
+# boundary (login 200, anonymous /api/search 401) and the fail-closed live dashboard
+# query smoke. Any failing step fails the build.
+#
+# Run: gcloud builds submit --project=goatos-stg --config=cloudbuild.grafana.yaml .
+#   Optional: --substitutions=_ALLOY_IMAGE=asia-south1-docker.pkg.dev/goatos-stg/goatos/grafana-alloy@sha256:<64hex>
+# Runbook: docs/runbooks/grafana-deploy.md
+options:
+  logging: CLOUD_LOGGING_ONLY
+  substitutionOption: ALLOW_LOOSE
+
+serviceAccount: projects/goatos-stg/serviceAccounts/goatos-github-deploy-stg@goatos-stg.iam.gserviceaccount.com
+
+substitutions:
+  _REGION: asia-south1
+  _ALLOY_SERVICE: goatos-stg-grafana-alloy
+  _ALLOY_IMAGE: ""
+  _GRAFANA_URL: https://grafana.mesha.sg
+
+steps:
+  - id: resolve-alloy-image
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        img="${_ALLOY_IMAGE}"
+        if [[ -z "$${img}" ]]; then
+          img="$$(gcloud run services describe "${_ALLOY_SERVICE}" --project="$${PROJECT_ID}" --region="${_REGION}" \
+            --format='value(spec.template.spec.containers[0].image)')"
+        fi
+        [[ -n "$${img}" ]] || { echo "ERROR: could not resolve Alloy image" >&2; exit 1; }
+        if [[ "$${img}" != *@sha256:* ]]; then
+          digest="$$(gcloud artifacts docker images describe "$${img}" --format='value(image_summary.digest)')"
+          [[ "$${digest}" =~ ^sha256:[a-f0-9]{64}$$ ]] || { echo "ERROR: could not resolve digest for $${img}" >&2; exit 1; }
+          img="$${img%%@*}"
+          img="$${img%:*}@$${digest}"
+        fi
+        [[ "$${img}" =~ ^asia-south1-docker\.pkg\.dev/goatos-stg/goatos/grafana-alloy@sha256:[a-f0-9]{64}$$ ]] || {
+          echo "ERROR: Alloy image must be an immutable goatos-stg grafana-alloy digest, got $${img}" >&2; exit 1; }
+        printf '%s' "$${img}" > /workspace/alloy-image.txt
+        echo "Alloy image: $${img}"
+
+  - id: deploy-observability
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        python3 tools/deploy/stg-observability.py deploy --assets infra/grafana \
+          --alloy-image "$$(cat /workspace/alloy-image.txt)" \
+          --log-metrics infra/observability/faro-log-metrics.json
+
+  - id: grafana-auth-boundary
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        code="$$(curl -sS --max-time 60 -o /dev/null -w '%{http_code}' "${_GRAFANA_URL}/login")"
+        [[ "$${code}" == "200" ]] || { echo "ERROR: Grafana custom-domain login returned $${code}" >&2; exit 1; }
+        code="$$(curl -sS --max-time 60 -o /dev/null -w '%{http_code}' "${_GRAFANA_URL}/api/search")"
+        [[ "$${code}" == "401" ]] || { echo "ERROR: Grafana anonymous API must return 401, got $${code}" >&2; exit 1; }
+        echo "Grafana auth boundary ok (login 200, anonymous /api/search 401)"
+
+  - id: smoke-grafana-dashboards
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        apt-get update -qq >/dev/null
+        apt-get install -y -qq nodejs >/dev/null
+        node -e 'if (Number(process.versions.node.split(".")[0]) < 18) { console.error("node >= 18 required, got " + process.version); process.exit(1); }'
+        # Fail closed: a failed smoke fails the build; there is no warning-only bypass.
+        node tools/deploy/smoke-stg-grafana-dashboards.mjs \
+          --project "$${PROJECT_ID}" \
+          --region "${_REGION}" \
+          --service goatos-stg-grafana \
+          --url "${_GRAFANA_URL}" \
+          --no-proxy \
+          --query-validity-only \
+          --firebase-initial-export-receipt infra/observability/firebase-initial-export.json
+        echo "Grafana query validation passed; full-data readiness is pending separate certification."
