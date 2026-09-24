@@ -13,6 +13,7 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -112,6 +113,46 @@ class ShedsViewModelTest {
         assertEquals("batch-old", row.batchId)
         assertEquals("assignment-current", row.assignmentId)
         assertEquals(listOf("ET+TT"), row.vaccineGroups.map { it.label })
+    }
+
+    @Test
+    fun `opening page one uses complete dated card membership including off page assignments`() = runTest(dispatcher) {
+        val today = LocalDate.now()
+        val pageRow = VaccinationExecutionRowDto(shedId = "shed-yashoda", shedName = "Yashoda", partitionLabel = "3",
+            parkId = "park-cpt", dueDate = today.toString(), targetCount = 1, openCount = 0, doneCount = 1, sopStatus = "submitted", operatorCanContinue = false,
+            assignmentId = "a", batchId = "batch-a", sopTaskId = "task-a")
+        fun summary(id: String, day: LocalDate, overdue: Boolean = true, pen: String = "Part 3") =
+            sg.mesha.goatos.core.network.dto.ShedCardSummaryDto(shedId = "shed-yashoda", partitionLabel = pen,
+                rosterMemberships = listOf(sg.mesha.goatos.core.network.dto.ExecutionRosterMembershipDto(
+                    assignmentId = id, taskId = "task-$id", batchId = "batch-$id", plannedDate = day.toString(), includeWhenOverdue = overdue)))
+        val repo = FakeShedsPinVmExecutionRepository(VaccinationExecutionResponseDto(
+            rows = listOf(pageRow), nextCursor = "page-2",
+            cardSummaries = mapOf("a" to summary("a", today), "b" to summary("b", today.minusDays(1)),
+                "closed" to summary("closed", today.minusDays(1), false), "future" to summary("future", today.plusDays(1)),
+                "other-pen" to summary("other-pen", today, pen = "4")),
+        ))
+        val vm = ShedsViewModel(repo = repo, crashReporter = NoopCrashReporter(), analytics = NoopAnalytics(),
+            bootstrapRepository = FakeShedsRoleBootstrapRepository(role = "operator"), savedStateHandle = SavedStateHandle())
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+        val row = vm.state.value.rows.single()
+        assertTrue(row.canOpen)
+        assertFalse("off-page open task must prevent record-only routing", row.opensRecordOnly)
+        assertEquals(null, row.taskId)
+        assertEquals(null, row.assignmentId)
+        assertEquals(setOf("a", "b"), sg.mesha.goatos.core.data.decodeScanRosterSelectors(row.rosterSelectors).map { it.assignmentId }.toSet())
+    }
+
+    @Test
+    fun `older cached partial cards cannot open an incomplete roster`() = runTest(dispatcher) {
+        val repo = FakeShedsPinVmExecutionRepository(VaccinationExecutionResponseDto(
+            rows = listOf(VaccinationExecutionRowDto(shedId = "shed-a", dueDate = LocalDate.now().toString(),
+                openCount = 1, targetCount = 1, assignmentId = "a")), nextCursor = "page-2"))
+        val vm = ShedsViewModel(repo = repo, crashReporter = NoopCrashReporter(), analytics = NoopAnalytics(),
+            bootstrapRepository = FakeShedsRoleBootstrapRepository(role = "operator"), savedStateHandle = SavedStateHandle())
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+        assertFalse(vm.state.value.rows.single().canOpen)
     }
 
     @Test

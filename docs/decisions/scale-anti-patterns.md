@@ -1395,3 +1395,9 @@ with the keyset predicate beside it. `make scale-guard` rule
 `cte-limit-outside` blocks the recurrence — a request-path SQL statement with an
 outer LIMIT, where the row source that LIMIT is applied to is a CTE that scans a
 table with no LIMIT of its own.
+
+### Vaccination card membership is independent of list pages
+
+A visible pen card may combine several assignments, including overdue work. Its roster selectors must come from the backend full-filter summary's dated membership, never just the execution rows loaded so far. A partial older cache without that metadata cannot authorize a narrowed roster.
+
+Room's identity-only task set for a selected pen must remain complete: a LIMIT on distinct task IDs silently hides saved scans and proofs. Keep roster payload windows and task-detail network reads paginated, while pruning small task identity/freshness sets when membership changes. Regression coverage includes 21 distinct tasks, 65 ready tasks, and opening a card before its second list page loads.

@@ -89,7 +89,7 @@ class ScanViewModelTest {
         val scans = FakeScanCaptureRepository()
         val proofs = FakeProofCaptureRepository(maxProofs = 30)
         val roster = (1..21).map { index ->
-            val rowTask = if (index <= 20) "task-1" else "task-2"
+            val rowTask = "task-$index"
             scans.recordScan(taskId = rowTask, fieldKey = ROSTER_SCAN_FIELD_KEY,
                 tag = "TAG-$index", goatId = "goat-$index", obligationId = "obl-$index", capturedAtMs = 20_000L)
             seedSyncedProof(proofs, "goat-$index", taskId = rowTask)
@@ -1471,6 +1471,16 @@ class ScanViewModelTest {
         advanceUntilIdle()
         assertEquals(1, cardA.events.count { it == ScanNavigationEvent.AutoSubmitAccepted })
         assertTrue("card B must not inherit card A's successes", cardB.events.none { it == ScanNavigationEvent.AutoSubmitAccepted })
+    }
+
+    @Test
+    fun `combined card retains every readiness key beyond sixty four tasks`() = runTest(dispatcher) {
+        val ids = (1..65).map { "task-$it" }.toSet()
+        val h = runCombinedSubmit(ids, taskCount = 65)
+        assertEquals(ids, h.sync.submitCalls.map { it.taskId }.toSet())
+        (1..65).forEach { h.sync.succeed("item-$it") }
+        advanceUntilIdle()
+        assertEquals(1, h.events.count { it == ScanNavigationEvent.AutoSubmitAccepted })
     }
 
     @Test

@@ -673,10 +673,8 @@ class ScanViewModel @Inject constructor(
                 combine(combinedSubmitInputs, _operatorAllowed) { inputs, _ -> inputs }
                     .collect { inputs ->
                         inputs.forEach { combinedInputsById[it.taskId] = it }
-                        // Below the DAO bound the observed ids ARE the whole roster: prune now.
-                        if (inputs.size < sg.mesha.goatos.core.data.cache.SCAN_ROSTER_TASK_ID_LIMIT) {
-                            pruneCombinedSubmitState(inputs.mapTo(mutableSetOf()) { it.taskId })
-                        }
+                        // The identity-only DAO observes the complete card, including task 21+.
+                        pruneCombinedSubmitState(inputs.mapTo(mutableSetOf()) { it.taskId })
                         maybeAutoSubmitCombined()
                         checkCombinedAccepted()
                     }
@@ -786,9 +784,6 @@ class ScanViewModel @Inject constructor(
                 tasksRepository.refreshShedCompletionSummary(id, shedId, partitionLabel)
                     .onSuccess {
                         freshShedSummaryKeys += freshnessKey
-                        while (freshShedSummaryKeys.size > MAX_FRESH_SUMMARY_KEYS) {
-                            freshShedSummaryKeys.remove(freshShedSummaryKeys.first())
-                        }
                     }
                     .onFailure { freshShedSummaryKeys -= freshnessKey }
                 combinedInputsById[id] = CombinedTaskSubmitInput(
@@ -809,6 +804,8 @@ class ScanViewModel @Inject constructor(
      *  work was moved/cancelled) must stop counting toward "k of N" and must not keep the card
      *  open, and its entries must not linger for the life of the screen. */
     private fun pruneCombinedSubmitState(rosterTaskIds: Set<String>) {
+        val liveFreshnessKeys = rosterTaskIds.mapTo(mutableSetOf()) { shedSummaryFreshnessKey(it, shedId.orEmpty(), partitionLabel) }
+        freshShedSummaryKeys.retainAll(liveFreshnessKeys)
         combinedInputsById.keys.retainAll(rosterTaskIds)
         combinedSubmitSucceededTaskIds.retainAll(rosterTaskIds)
         combinedFailedKeyByTask.keys.retainAll(rosterTaskIds)
@@ -2966,7 +2963,6 @@ private fun gcsSignedUrlStartSeconds(raw: String): Long? =
 private const val VACCINE_LABEL_SEPARATOR = " · "
 /** Page size for walking a combined card's task ids; every page is processed, none dropped. */
 private const val COMBINED_TASK_PAGE_SIZE = 20
-private const val MAX_FRESH_SUMMARY_KEYS = 64
 internal const val TASKLESS_ANIMAL_MESSAGE = "This animal's batch has no task yet · refresh or ask the supervisor"
 private const val SCAN_PAGE_SIZE = 20
 private const val MAX_SCAN_FEED_ENTRIES = 100
