@@ -209,6 +209,8 @@ type FPOLeadPage struct {
 // implementation of it here would be a number that disagrees with the Stock tab the moment either
 // side changes.
 type FeedStockReader interface {
+	// FeedStockIdentity maps substitutable feeds to one stock key and its display label.
+	FeedStockIdentity(feedItemLabel string) (key, stockLabel string)
 	// FeedBalanceKg is the current balance for (farm, feed). known is false when the store has no
 	// ledger for that feed at that farm at all -- which is a different fact from a balance of
 	// zero, and must not be reported to the desk as "you have none left".

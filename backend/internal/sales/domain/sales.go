@@ -558,6 +558,9 @@ type Summary struct {
 
 // MonthlyRow is one month with at least one closed deal.
 type MonthlyRow struct {
+	Revenue       float64
+	LiveRevenue   float64
+	Animals       float64
 	Month         string // YYYY-MM, derived from sale_date
 	SheepRevenue  float64
 	GoatRevenue   float64

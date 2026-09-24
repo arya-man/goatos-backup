@@ -60,3 +60,40 @@ func TestOverviewSummaryCarriesEveryRevenueBucket(t *testing.T) {
 		t.Fatalf("live + manure + feed + other = %v, but revenue = %v", sum, wire["revenue"])
 	}
 }
+
+func TestMonthlyWirePreservesEveryProductAndReconcilesHeadline(t *testing.T) {
+	quantity, animals := 10.0, 2.0
+	cases := []struct{ code, kind string }{{"feed", domain.KindFeed}, {"tags", domain.KindOther}, {"buffalo", domain.KindAnimal}, {"sheep", domain.KindAnimal}, {"manure", domain.KindOther}}
+	deals := []domain.Deal{}
+	for _, tc := range cases {
+		unit := domain.UnitKg
+		if tc.code == "tags" {
+			unit = domain.UnitNumber
+		}
+		deals = append(deals, domain.Deal{SaleDate: "2026-09-25", SalesValue: 1000, Lines: []domain.DealLine{{ProductType: "Authored " + tc.code, ProductCode: tc.code, ProductKind: tc.kind, Unit: unit, Quantity: &quantity, AnimalCount: &animals, SalesValue: 1000}}})
+	}
+	summary, monthly, _, _ := domain.BuildDealAggregates(deals)
+	payload := toOverviewPayload(domain.Overview{Summary: summary, Monthly: monthly})
+	raw, err := json.Marshal(payload.Monthly[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wire map[string]float64
+	var object map[string]json.RawMessage
+	if err = json.Unmarshal(raw, &object); err != nil {
+		t.Fatal(err)
+	}
+	delete(object, "month")
+	numeric, _ := json.Marshal(object)
+	if err = json.Unmarshal(numeric, &wire); err != nil {
+		t.Fatal(err)
+	}
+	for key, want := range map[string]float64{"revenue": 5000, "live_revenue": 2000, "animals": 4, "feed_revenue": 1000, "feed_kg": 10, "other_revenue": 1000, "other_kg": 0, "manure_revenue": 1000, "manure_kg": 10, "sheep_count": 2} {
+		if got, ok := wire[key]; !ok || got != want {
+			t.Errorf("%s=%v present=%v want %v", key, got, ok, want)
+		}
+	}
+	if wire["revenue"] != summary.Revenue || wire["animals"] != summary.Animals || wire["live_revenue"] != summary.LiveRevenue {
+		t.Fatal("monthly totals differ from headline")
+	}
+}

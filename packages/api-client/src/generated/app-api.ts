@@ -10558,11 +10558,8 @@ export interface components {
              * @description The procurement vendor register row this sale was made to, as an OPAQUE reference -- deliberately not a foreign key, mirroring goat_sale_allocations.sales_deal_id. Null on the imported sheet history, which predates the register. buyer_name stays the snapshot of what the buyer was called at the time of sale.
              */
             buyer_vendor_id?: string | null;
-            /**
-             * @description The ROLLUP of `lines` (maintainer decision 2026-09-12): the one product every line names, or `Mixed` when the lines disagree. `Mixed` is a summary word, never something a line can carry.
-             * @enum {string}
-             */
-            product_type: "Sheep" | "Goat" | "Manure" | "Mixed";
+            /** @description The ROLLUP of `lines` (maintainer decision 2026-09-12): the one product every line names, or `Mixed` when the lines disagree. `Mixed` is a summary word, never something a line can carry. */
+            product_type: string;
             /** @description The one breed every line names, or `Mixed`. */
             breed: string;
             /** @description Rollup of the lines' animal counts (sum of the lines that recorded one; null when none did). Authoritative animal count when recorded; otherwise male_count + female_count applies. */
@@ -10799,9 +10796,10 @@ export interface components {
         /** @description Headline figures over CLOSED deals in the farm scope. */
         SalesOverviewSummary: {
             revenue: number;
-            /** @description Closed Sheep + Goat revenue. Manure is excluded here and carried separately. */
+            /** @description Closed revenue from every animal product, including custom items. Non-animal products are excluded. */
             live_revenue: number;
             deals: number;
+            /** @description Animals sold across every animal product, including custom items. */
             animals: number;
             sheep: number;
             goats: number;
@@ -10814,7 +10812,7 @@ export interface components {
             feed_kg: number;
             /** @description Closed feed revenue. Disjoint from live_revenue and manure_revenue: live + manure + feed + other sum to revenue. */
             feed_revenue: number;
-            /** @description Quantity sold of everything the farm sells that is neither alive, feed, nor manure -- a count for a counted item, kilograms for one sold by weight. */
+            /** @description Kilograms sold of products that are neither animals, feed, nor manure. Uses a kilogram quantity when present, otherwise explicitly recorded weight; counted quantities never contribute kilograms. */
             other_kg: number;
             /** @description Closed revenue for those same items, disjoint from the three buckets above. */
             other_revenue: number;
@@ -10863,6 +10861,16 @@ export interface components {
         };
         /** @description One month with at least one closed deal. Months derive from sale_date. */
         SalesOverviewMonthly: {
+            /** @description Revenue from every closed sale in the month. */
+            revenue: number;
+            /** @description Revenue from all animal products, including custom items. */
+            live_revenue: number;
+            /** @description Animals sold across all animal products. */
+            animals: number;
+            feed_revenue: number;
+            feed_kg: number;
+            other_revenue: number;
+            other_kg: number;
             /** @description YYYY-MM */
             month: string;
             sheep_revenue: number;
@@ -10874,8 +10882,7 @@ export interface components {
         };
         /** @description Realized price per kg for one (live product type, breed), over closed deals with weight and value recorded. Ordered by average price, highest first. */
         SalesPriceBand: {
-            /** @enum {string} */
-            product_type: "Sheep" | "Goat";
+            product_type: string;
             breed: string;
             deals: number;
             animals: number;

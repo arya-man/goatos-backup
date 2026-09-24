@@ -40,7 +40,25 @@ test("mixed sales keep feed kilograms, counted pieces, and animal weight separat
     { ...newSaleLine(3, "Tags"), quantity: "200", rate: "5" },
     { ...newSaleLine(4, "Feed"), quantity: "24.5", rate: "20" },
   ];
-  assert.deepEqual(saleLinesTotals(lines, { Goat: "animal", Feed: "feed", Tags: "other" }), {
+  assert.deepEqual(saleLinesTotals(lines, { Goat: { kind: "animal", unit: "number" }, Feed: { kind: "feed", unit: "kg" }, Tags: { kind: "other", unit: "number" } }), {
     value: 34000, animals: 2, weightKg: 60, feedKg: 150, pieces: 200,
   });
+});
+
+
+test("manure and custom kilogram products remain weight beside counted items", () => {
+  const lines = [
+    { ...newSaleLine(1, "Manure"), quantity: "100", rate: "10" },
+    { ...newSaleLine(2, "Compost"), quantity: "20.5", rate: "20" },
+    { ...newSaleLine(3, "Tags"), quantity: "200", rate: "5" },
+    { ...newSaleLine(4, "Goat"), animals: "2", weightKg: "60", value: "30000" },
+    { ...newSaleLine(5, "Feed"), quantity: "25", rate: "10" },
+  ];
+  assert.deepEqual(saleLinesTotals(lines, {
+    Manure: { kind: "other", unit: "kg" },
+    Compost: { kind: "other", unit: "kg" },
+    Tags: { kind: "other", unit: "number" },
+    Goat: { kind: "animal", unit: "number" },
+    Feed: { kind: "feed", unit: "kg" },
+  }), { value: 32660, animals: 2, weightKg: 180.5, feedKg: 25, pieces: 200 });
 });

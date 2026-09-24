@@ -84,9 +84,11 @@ VALUES ($1,$2,'CBE',$3,$4,$6::date,$5::numeric,20,$5::numeric*20,0,$6::date,'Nav
 		if !found {
 			t.Error("family card missing")
 		}
-		balance, known, err := repo.FeedBalanceKg(ctx, fdiTenant, "CBE", successor)
-		if err != nil || !known || balance != float64(want) {
-			t.Errorf("sale confirmation balance=%v known=%v err=%v", balance, known, err)
+		for _, label := range []string{successor, member, "Mesha Adult Concentrate Sheep"} {
+			balance, known, err := repo.FeedBalanceKg(ctx, fdiTenant, "CBE", label)
+			if err != nil || !known || balance != float64(want) {
+				t.Errorf("sale confirmation %s balance=%v known=%v err=%v", label, balance, known, err)
+			}
 		}
 		farms, err := repo.stockFarmItems(ctx, fdiTenant, nil)
 		if err != nil {
