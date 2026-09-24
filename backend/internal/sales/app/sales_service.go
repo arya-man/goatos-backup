@@ -254,12 +254,16 @@ func (s *SalesService) SetDealStatus(ctx context.Context, tenantID, dealID, stat
 	// asked again here, against today's balance, and answered the same way: shown once, and
 	// re-sent with the acknowledgement by a desk that has checked.
 	if canonical == domain.StatusDealClosed && !stockShortfallAcknowledged {
-		farm, demand, err := s.repo.FeedDemandForDeal(ctx, tenantID, dealID)
+		farm, currentStatus, demand, err := s.repo.FeedDemandForDeal(ctx, tenantID, dealID)
 		if err != nil {
 			return domain.Deal{}, err
 		}
-		if err := s.weighAgainstTheStore(ctx, tenantID, farm, demand); err != nil {
-			return domain.Deal{}, err
+		// A completed close has already depleted stock. A lost response must replay
+		// through the repository's no-op status update, not weigh that sale twice.
+		if currentStatus != domain.StatusDealClosed {
+			if err := s.weighAgainstTheStore(ctx, tenantID, farm, demand); err != nil {
+				return domain.Deal{}, err
+			}
 		}
 	}
 	return s.repo.SetDealStatus(ctx, tenantID, dealID, canonical, actorID)

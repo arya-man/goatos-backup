@@ -105,11 +105,11 @@ type SalesRepository interface {
 	CreateDeal(ctx context.Context, tenantID string, write domain.DealWrite, actorID, idempotencyKey string) (domain.Deal, error)
 
 	// FeedDemandForDeal is what a RECORDED deal's feed lines take off the store, summed per feed,
-	// together with the farm they leave. It answers the close-time stock question: a sale recorded
-	// as expected depletes only when it is closed, and by then the store has moved.
+	// together with the farm they leave and the persisted status. An already-closed deal
+	// needs no further stock check; an expected sale depletes only when it closes.
 	//
 	// A deal with no feed line returns an empty demand and no error.
-	FeedDemandForDeal(ctx context.Context, tenantID, dealID string) (farm string, demand []domain.FeedDemand, err error)
+	FeedDemandForDeal(ctx context.Context, tenantID, dealID string) (farm string, status string, demand []domain.FeedDemand, err error)
 
 	// SetDealStatus sets a deal's lifecycle status directly (closing an expected sale on the day
 	// it happens, or marking one failed). status must already be a canonical vocabulary word.
