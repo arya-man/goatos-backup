@@ -46,8 +46,8 @@ func seedUnbatchedDue(t *testing.T, ctx context.Context, pool *pgxpool.Pool, n i
 	for i := 0; i < n; i++ {
 		goatID := fmt.Sprintf("20000000-0000-4000-8000-0000000000%02x", i)
 		if _, err := pool.Exec(ctx,
-			`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex, current_location_id, park_id)
-			 VALUES ($1, $2, 'alive', 'goat', $3, 'female', $4, $4)`,
+			`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex, current_location_id, park_id, dob)
+			 VALUES ($1, $2, 'alive', 'goat', $3, 'female', $4, $4, '2020-01-01'::date)`,
 			goatID, tenantID, meshaParty, cbePark); err != nil {
 			t.Fatalf("seed goat %d: %v", i, err)
 		}

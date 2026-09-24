@@ -151,7 +151,7 @@ LEFT JOIN LATERAL (
   FROM procurement_load_goats plg
   WHERE plg.tenant_id = g.tenant_id
     AND plg.goat_id = g.goat_id
-  ORDER BY COALESCE(plg.warmup_started_at, plg.intake_accepted_at, plg.created_at) DESC NULLS LAST
+  ORDER BY (plg.intake_accepted_at IS NOT NULL OR plg.current_state = 'accepted_herd_intake' OR plg.selection_state = 'accepted_herd_intake') DESC, (plg.warmup_started_at IS NOT NULL) DESC, COALESCE(plg.warmup_started_at, plg.intake_accepted_at, plg.created_at) DESC, plg.load_goat_id DESC
   LIMIT 1
 ) proc ON true
 LEFT JOIN location_operational_attributes loa
@@ -200,7 +200,7 @@ LEFT JOIN LATERAL (
   FROM procurement_load_goats plg
   WHERE plg.tenant_id = g.tenant_id
     AND plg.goat_id = g.goat_id
-  ORDER BY COALESCE(plg.warmup_started_at, plg.intake_accepted_at, plg.created_at) DESC NULLS LAST
+  ORDER BY (plg.intake_accepted_at IS NOT NULL OR plg.current_state = 'accepted_herd_intake' OR plg.selection_state = 'accepted_herd_intake') DESC, (plg.warmup_started_at IS NOT NULL) DESC, COALESCE(plg.warmup_started_at, plg.intake_accepted_at, plg.created_at) DESC, plg.load_goat_id DESC
   LIMIT 1
 ) proc ON true
 LEFT JOIN location_operational_attributes loa
@@ -247,7 +247,7 @@ LEFT JOIN LATERAL (
   FROM procurement_load_goats plg
   WHERE plg.tenant_id = g.tenant_id
     AND plg.goat_id = g.goat_id
-  ORDER BY COALESCE(plg.warmup_started_at, plg.intake_accepted_at, plg.created_at) DESC NULLS LAST
+  ORDER BY (plg.intake_accepted_at IS NOT NULL OR plg.current_state = 'accepted_herd_intake' OR plg.selection_state = 'accepted_herd_intake') DESC, (plg.warmup_started_at IS NOT NULL) DESC, COALESCE(plg.warmup_started_at, plg.intake_accepted_at, plg.created_at) DESC, plg.load_goat_id DESC
   LIMIT 1
 ) proc ON true
 LEFT JOIN location_operational_attributes loa
@@ -308,7 +308,7 @@ LEFT JOIN LATERAL (
   FROM procurement_load_goats plg
   WHERE plg.tenant_id = g.tenant_id
     AND plg.goat_id = g.goat_id
-  ORDER BY COALESCE(plg.warmup_started_at, plg.intake_accepted_at, plg.created_at) DESC NULLS LAST
+  ORDER BY (plg.intake_accepted_at IS NOT NULL OR plg.current_state = 'accepted_herd_intake' OR plg.selection_state = 'accepted_herd_intake') DESC, (plg.warmup_started_at IS NOT NULL) DESC, COALESCE(plg.warmup_started_at, plg.intake_accepted_at, plg.created_at) DESC, plg.load_goat_id DESC
   LIMIT 1
 ) proc ON true
 LEFT JOIN location_operational_attributes loa
@@ -374,7 +374,7 @@ LEFT JOIN LATERAL (
   FROM procurement_load_goats plg
   WHERE plg.tenant_id = g.tenant_id
     AND plg.goat_id = g.goat_id
-  ORDER BY COALESCE(plg.warmup_started_at, plg.intake_accepted_at, plg.created_at) DESC NULLS LAST
+  ORDER BY (plg.intake_accepted_at IS NOT NULL OR plg.current_state = 'accepted_herd_intake' OR plg.selection_state = 'accepted_herd_intake') DESC, (plg.warmup_started_at IS NOT NULL) DESC, COALESCE(plg.warmup_started_at, plg.intake_accepted_at, plg.created_at) DESC, plg.load_goat_id DESC
   LIMIT 1
 ) proc ON true
 LEFT JOIN location_operational_attributes loa

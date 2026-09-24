@@ -582,40 +582,105 @@ func TestVaccinationReconcileSerializesAgainstAnchorChanges(t *testing.T) {
 			t.Fatalf("row moved below the completion floor: due=%s err=%v", got, err)
 		}
 
-		// Order 2: completion uncommitted while the reconcile proves a VALID date -> reconcile commits
-		// against the committed history and the completion is ordered after it.
+		// Order 2: a first-wave dose (09-20, new floor 10-18) is being ACCEPTED while the reconcile
+		// proves 10-08 against the old history. Acceptance locks the goat FOR UPDATE (migration
+		// 000401 trigger), so the reconcile's FOR SHARE OF goats waits, then proves against the
+		// committed completion and refuses. No committed open row may end below its floor.
 		validDue := contractDay(time.October, 8)
-		tx, err := pool.Begin(ctx)
-		if err != nil {
-			t.Fatalf("begin completion: %v", err)
-		}
 		var holder string
-		if err := tx.QueryRow(ctx, `
+		if err := pool.QueryRow(ctx, `
 INSERT INTO obligation_instances (tenant_id, protocol_version_id, rule_id, target_type, target_id, scope_type, scope_id, due_at, status, idempotency_key, sequence)
 VALUES ($1::uuid, $2::uuid, $3::uuid, 'goat', $4::uuid, 'park', $5::uuid, $6, 'completed', 'concurrent-late-completion', 2)
 RETURNING obligation_id::text`, tenantID, v, rules["et_tt_w1"], goat, cbePark, contractDay(time.September, 20)).Scan(&holder); err != nil {
 			t.Fatalf("stage completion obligation: %v", err)
 		}
-		if _, err := tx.Exec(ctx, `
-INSERT INTO vaccination_completions (tenant_id, obligation_id, goat_id, administered_at, status, verified_at, idempotency_key)
-VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 'accepted', $4, 'concurrent-late-completion')`, tenantID, holder, goat, contractDay(time.September, 20)); err != nil {
-			t.Fatalf("stage completion: %v", err)
+		var completionID string
+		if err := pool.QueryRow(ctx, `
+INSERT INTO vaccination_completions (tenant_id, obligation_id, goat_id, administered_at, status, idempotency_key)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 'recorded', 'concurrent-late-completion')
+RETURNING completion_id::text`, tenantID, holder, goat, contractDay(time.September, 20)).Scan(&completionID); err != nil {
+			t.Fatalf("stage recorded completion: %v", err)
 		}
-		in2 := contractRow(v, rules["goat_pox_w2"], goat, "concurrent-completion-valid", validDue)
-		in2.RuleIdentityKey = identity
-		if _, found, err := repo.ReconcileOpenObligationForRuleIdentity(ctx, tenantID, in2, validDue); err != nil || !found {
-			t.Fatalf("reconcile against committed history found=%v err=%v", found, err)
+		tx, err := pool.Begin(ctx)
+		if err != nil {
+			t.Fatalf("begin completion accept: %v", err)
+		}
+		defer func() { _ = tx.Rollback(ctx) }()
+		if _, err := tx.Exec(ctx, `
+UPDATE vaccination_completions SET status = 'accepted', verified_at = now()
+WHERE tenant_id = $1::uuid AND completion_id = $2::uuid AND status = 'recorded'`, tenantID, completionID); err != nil {
+			t.Fatalf("accept completion: %v", err)
+		}
+		done := make(chan error, 1)
+		go func() {
+			in2 := contractRow(v, rules["goat_pox_w2"], goat, "concurrent-completion-valid", validDue)
+			in2.RuleIdentityKey = identity
+			_, _, err := repo.ReconcileOpenObligationForRuleIdentity(ctx, tenantID, in2, validDue)
+			done <- err
+		}()
+		select {
+		case err := <-done:
+			t.Fatalf("reconcile finished (err=%v) while the completion acceptance was uncommitted; it must wait on the goat lock", err)
+		case <-time.After(500 * time.Millisecond):
 		}
 		if err := tx.Commit(ctx); err != nil {
 			t.Fatalf("commit completion: %v", err)
 		}
-		// The next pass proves against the now-committed completion and refuses the stale date.
-		in3 := contractRow(v, rules["goat_pox_w2"], goat, "concurrent-completion-next-pass", validDue.AddDate(0, 0, 1))
-		in3.RuleIdentityKey = identity
-		if _, _, err := repo.ReconcileOpenObligationForRuleIdentity(ctx, tenantID, in3, validDue); !errors.Is(err, ports.ErrBeforeVaccinationAgeFloor) {
-			t.Fatalf("next pass after ordered completion error=%v, want floor error", err)
+		if err := <-done; !errors.Is(err, ports.ErrBeforeVaccinationAgeFloor) && !isSerializationFailure(err) {
+			t.Fatalf("reconcile after concurrent completion error=%v, want floor or serialization rejection", err)
+		}
+		var after time.Time
+		if err := pool.QueryRow(ctx, `SELECT due_at FROM obligation_instances WHERE obligation_id=$1::uuid`, id).Scan(&after); err != nil {
+			t.Fatalf("read row after race: %v", err)
+		}
+		if after.Before(contractDay(time.October, 18)) && !after.Equal(got) {
+			t.Fatalf("reconcile committed Goat Pox at %s, below the 10-18 floor set by the concurrent completion", after)
 		}
 	})
+}
+
+// P2-18: the procurement row that governs purpose/arrival is the accepted herd intake. A newer
+// re-procurement row that is still pending (or was rejected) must not outrank it.
+func TestVaccinationArrivalAnchorIgnoresNewerPendingLoadRow(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	_ = seed(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+	protoID := seedContractProtocol(t, ctx, pool, "vaccination.canonical_intake")
+	v, rules := seedContractVersion(t, ctx, pool, protoID, 1, `{}`, []contractRule{
+		{dose: "ppr_arrival", code: "PPR", name: "PPR", trigger: "post_arrival", offset: 14, sequence: 1},
+	}, true)
+	const goat = "10000000-0000-4000-8000-0000000000e1"
+	arrival := contractDay(time.September, 1)
+	seedContractGoat(t, ctx, pool, goat, "goat", nil, "breeding", &arrival)
+	// Floor from the accepted intake is 09-15. With the pending row chosen the anchor would be
+	// missing (no entry_date) and the reconcile would fail closed; purpose would be non_breeding.
+	// The DB exclusion trigger blocks NEW rows for such a goat, but an existing row is still
+	// reconciled/rescheduled by date, which is where the guard's row choice governs.
+	identity := "canonical|intake"
+	id := seedLegacyRow(t, ctx, pool, v, rules["ppr_arrival"], goat, "canonical-intake-legacy", identity, contractDay(time.September, 20))
+	for i, state := range []string{"candidate", "rejected"} {
+		if _, err := pool.Exec(ctx, `
+WITH load AS (
+  INSERT INTO procurement_loads (tenant_id, source_party_id, status, idempotency_key)
+  VALUES ($1::uuid, $2::uuid, 'source_warmup', 'contract-reprocure-' || $3::text || $4::text)
+  RETURNING load_id
+)
+INSERT INTO procurement_load_goats (tenant_id, load_id, goat_id, purpose, selection_state, current_state, created_at)
+SELECT $1::uuid, load_id, $3::uuid, 'non_breeding', $4, 'source_candidate', now() + make_interval(days => $5)
+FROM load`, tenantID, meshaParty, goat, state, i+1); err != nil {
+			t.Fatalf("seed newer %s load row: %v", state, err)
+		}
+	}
+	now := time.Now().In(biztime.DefaultLocation())
+	if _, _, err := repo.RescheduleObligationByID(ctx, tenantID, id, "canonical-intake-ok", []string{cbePark}, contractDay(time.September, 16), time.Time{}, nil, now); err != nil {
+		t.Fatalf("reschedule at accepted-intake floor rejected: %v", err)
+	}
+	if _, _, err := repo.RescheduleObligationByID(ctx, tenantID, id, "canonical-intake-early", []string{cbePark}, contractDay(time.September, 10), time.Time{}, nil, now); !errors.Is(err, ports.ErrBeforeVaccinationAgeFloor) {
+		t.Fatalf("reschedule before accepted-intake floor error=%v, want floor error", err)
+	}
 }
 
 // A follow-up dose chained from an attested per-animal vaccination anchor ("BT dose 1 on 12/08")

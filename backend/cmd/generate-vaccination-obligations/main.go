@@ -133,6 +133,11 @@ func run(args []string) error {
 			// duplicated. But its date did not move, so it is worth seeing rather than inferring.
 			fmt.Printf("  %d obligation(s) were claimed but kept a stale due date: the key they would move to is already held by another row (usually their own canceled or completed twin).\n", res.ReconcileDateBlocked)
 		}
+		if res.GuardRejected > 0 {
+			// Generation proposed doses the persistence write guard refused (age floor or purpose
+			// applicability). Each was skipped for that vaccine only; the two must be reconciled.
+			fmt.Printf("  %d dose(s) were refused by the vaccination write guard and skipped; generation and persistence disagree.\n", res.GuardRejected)
+		}
 		if res.AmbiguousOpenWork > 0 {
 			// Named separately from failed_goats because it is not a transient failure: those
 			// animals already hold two open obligations for one dose, and no re-run fixes that.
