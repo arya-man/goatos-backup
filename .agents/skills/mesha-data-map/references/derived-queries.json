@@ -46,6 +46,30 @@
           "sha256": "dfbe040b21e2e25c967f71af520f9dc52fa7b9dab543100a5fe1ffa67591c859"
         }
       ]
+    },
+    {
+      "query": ".agents/skills/mesha-data-map/references/load-wise-sales.sql",
+      "verified": "2026-09-24",
+      "derived_from": [
+        {
+          "path": "backend/internal/procurement/adapters/postgres/loadwise_repository.go",
+          "sha256": "05f48db8d34c69f1d4ae8eeb95c99ef143734a4041b3d524400f4c0a9f24f0cd"
+        },
+        {
+          "path": "backend/internal/procurement/domain/loadwise.go",
+          "sha256": "9467919aba74fe68e532649a77788e5a31d77cd6e93173b4141783445b9eb80c"
+        }
+      ]
+    },
+    {
+      "query": ".agents/skills/mesha-data-map/references/herd-avg-weight.sql",
+      "verified": "2026-09-24",
+      "derived_from": [
+        {
+          "path": "backend/internal/growthdirector/adapters/postgres/fcr.go",
+          "sha256": "bb829136aea14aafde3d86edbdbfb33705a3af61380cf2728e83676cecd3afbf"
+        }
+      ]
     }
   ]
 }
