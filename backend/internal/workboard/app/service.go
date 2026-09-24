@@ -338,6 +338,16 @@ func (s *Service) FindRow(ctx context.Context, q domain.Query, rowKey string) (d
 	if src == nil {
 		return domain.Row{}, false, nil
 	}
+	if finder, ok := src.(ports.SingleRowSource); ok {
+		row, found, err := finder.FindRowByID(ctx, ports.SourceQuery{
+			TenantID: q.TenantID, ParkID: q.ParkID, BusinessDate: q.BusinessDate,
+			OwnerUserID: q.OwnerUserID, Limit: 1,
+		}, key.SourceID)
+		if err != nil {
+			return domain.Row{}, false, fmt.Errorf("workboard: %s/%s: %w", src.Module(), src.SourceType(), err)
+		}
+		return row, found, nil
+	}
 	after := ""
 	// scale-guard:ignore: bounded keyset walk over ONE source for one tenant, park and
 	// business date (maxFindPages pages of MaxLimit), on a rare director write, never a

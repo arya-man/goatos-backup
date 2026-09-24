@@ -72,6 +72,14 @@ type SubtaskSource interface {
 	ListSubtasks(ctx context.Context, q SubtaskQuery) (domain.SubtaskPage, error)
 }
 
+// SingleRowSource is an optional Source capability: resolve ONE row by its source id on the
+// same tenant, park, business date and owner lens ListRows applies, in one bounded read,
+// instead of the board walking the whole source's keyset (Service.FindRow). A source whose
+// read is expensive per page (vaccination's canonical process-integrity SQL) implements it.
+type SingleRowSource interface {
+	FindRowByID(ctx context.Context, q SourceQuery, sourceID string) (domain.Row, bool, error)
+}
+
 // CheckUUIDSourceID is the guard a source whose ids are uuids runs before binding a keyset
 // boundary: a cursor id that is not a uuid is domain.ErrInvalidCursor (400), never a
 // database cast failure (500). Sources whose ids are composite strings (vaccination) compare
