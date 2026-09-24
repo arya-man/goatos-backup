@@ -183,7 +183,8 @@ export async function createEvents({ stateDir, sink, log = (line) => console.log
       tenant_id: ctx.tenant_id ?? null,
       ...fields,
     };
-    try { log(JSON.stringify(e)); } catch {}
+    // question text stays out of Cloud Logging (chat privacy); it is kept in the events store only
+    try { const { question_preview: _q, ...logged } = e; log(JSON.stringify(logged)); } catch {}
     await sink.write(e).catch((err) => console.error(`[events] store failed: ${err.message}`));
     return e;
   }

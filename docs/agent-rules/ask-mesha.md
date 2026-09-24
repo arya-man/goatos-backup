@@ -26,14 +26,19 @@ Read this before touching the admin-web **Ask Mesha** panel, `apps/admin-web/app
 - UI: no citation pill / "coding-agent · Live data" footer on agent answers; no greeting message;
   copy is a small icon under the answer (not a text button); keep Mesha brand tokens (tints, not new colours).
 
-## Read-only guarantees (keep all three layers)
+## Read-only guarantees (keep all four layers)
 
 1. **Tools:** `ASK_MESHA_READONLY=1` (default) gives the agent only `Read/Grep/Glob/Skill/TodoWrite`
-   plus the MCP tool `run_sql`. No Bash, Edit, Write, NotebookEdit, Web*, Task. Read paths are limited
+   plus the MCP tools `run_sql` and `mcp__mesha__describe_table` (fixed catalog read of one table's
+   columns + top category/status values; the name must match `schema.table` identifiers and goes through
+   `run_sql`'s same read-only path). No Bash, Edit, Write, NotebookEdit, Web*, Task. Read paths are limited
    to the repo and upload dirs (no `/proc`, no `.pgenv`).
 2. **run_sql:** no query rules — any SQL over any table/schema, no tenant filter (single tenant). Runs in
-   `BEGIN READ ONLY` with `default_transaction_read_only=on`, 60 s timeout, 500 rows. The only refusal is
-   psql backslash commands (they run programs on the host, e.g. `\!`), not data access.
+   `BEGIN READ ONLY` with `default_transaction_read_only=on`, 60 s timeout, 500 rows. Refusals are only
+   about execution shape, not data access: psql backslash commands (they run programs on the host, e.g.
+   `\!`), more than one statement (`;` inside the query), and statements starting with
+   commit/rollback/end/abort/set/reset/begin/start (so the model can't step out of `BEGIN READ ONLY`).
+   The READ ONLY transaction is still a guard rail, **not** a guarantee; only layer 4 (the role) is.
 3. **Chat privacy:** `mesha_ceo_readonly` has NO access to assistant chat tables (`ceo_ai_conversations`, `ceo_ai_messages`, `ceo_ai_assistant_audit`, `ceo_ai_response_cache`, `ceo_ai_rate_limit`, and never the `ask_mesha` schema); each CEO sees only their own chats (service-enforced ownership).
 4. **Platform (the real guarantee):** DB role `mesha_ceo_readonly` has SELECT on **every table** in public/analytics/audit/ceo_ai/forensic_repair (+ default privileges for new tables) and **no write privilege anywhere** (granted 2026-09-24 via audit.begin_change; revoke `dblink` + `public` CREATE —
    RUNBOOK §3d); container runs non-root with the repo baked **read-only** at `/repo`; no git/GitHub/cloud
