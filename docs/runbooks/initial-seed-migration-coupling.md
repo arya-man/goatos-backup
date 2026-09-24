@@ -365,3 +365,13 @@ a source-data seed. It writes two kinds of rows and a fresh seed needs neither h
 Verify after a seed: `SELECT surface, capabilities, count(*) FROM person_module_access WHERE
 module_key = 'work_board' GROUP BY 1, 2;` returns rows for every role above, and
 `GET /app/bootstrap` for an operator lists module `work_board` with the `/work` item.
+
+## Vaccination Capacity Cap Tightening (PR-378, 2026-09-24)
+
+The clean-slate `vaccination_capacity_config_max_per_day_check` now caps
+`max_per_day` at 200, matching the operator-drive fail-closed cap used by the
+runtime scheduler and CEO reporting. This changes only the schema invariant:
+the existing clean-slate seed row already uses the default 200-animal cap, so no
+seed command, projection recompute, or fixture data needs to change. Verify a
+fresh seed still has `SELECT max_per_day FROM vaccination_capacity_config;` at
+or below 200 before promoting a future edit that changes the default.

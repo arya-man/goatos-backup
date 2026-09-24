@@ -2,6 +2,7 @@
 -- stg-zero-downtime: reporting-view replacement only; no product write path or table lock.
 -- CEO operator status is animal-grain truth. Batch status is not completion truth when one
 -- assignment contains obligations carried from several source batches or closes incrementally.
+-- seed-migration-guard:ignore owner=ravi issue=PR-378 reason=reporting-view-replacement-only-no-seed-path-writes expiry=2026-12-31
 CREATE OR REPLACE VIEW ceo_ai.vaccination_operator_status AS
 -- projection-review: membership=active vaccination_drive_assignment_members joined to live goat obligation_instances, plus legacy assignments only when no active members exist; group_key=tenant/operator/park/shed/partition/planned_date after collapsing member obligations to one goat row in member_animal; join_cardinality=assignment members join one obligation row by obligation_id, completion is an EXISTS scalar, capacity config is tenant 0..1, and workforce/location labels are 0..1 lookups after aggregation; pagination=none, this is a reporting view with complete operator-day totals; scope=tenant_id is carried through every CTE and park/shed/partition remain grouping dimensions.
 WITH member_animal AS (
