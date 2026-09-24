@@ -46,5 +46,15 @@ Module tables (public.*; pen/park names: join public.locations l ON l.location_i
 - feed wastage -> feed_wastage_completions (wastage_kg, target_date, status). weighing fasting -> weighing_fasting_tasks / weighing_fasting_shed_proofs.
 - attendance -> workforce_clock_entries (clock_in_at). leave -> workforce_leave_requests. market prices -> market_price_entries (city_name, question_label, price, business_date).
 - health cases/treatments -> health_cases, health_treatment_sessions, health_medicine_administrations. stock -> inventory_stock (+inventory_items). births (per kid) -> goat_births; herd birth counts -> counts_movement_daily.
+- more modules: vendors -> procurement_vendors (record_type, status, city); buyer/FPO leads -> sales_buyer_leads / sales_fpo_leads (call_status);
+  purchase candidates -> animal_purchase_candidates (decision, decided_by_name); feed transport/packing/distribution -> feed_transport_tasks /
+  feed_packing_completions (packed_total_kg) / feed_distribution_completions; goats in wrong pen -> pen_reconciliation_cards; shift/death/birth
+  approvals -> counts_approval_requests (decision_reason); config changes -> feed_config_write_log (actor_ref); tag/identity -> identity_decisions;
+  RFID sensors -> herd_signal_tag_latest; growth sale price -> growth_sale_price_assumptions; sale allocations -> goat_sale_allocations.
+- WHO: every *_by / *_user_id / actor_ref is a user id -> public.workforce_members.user_id -> display_name (one join, no searching).
+- Pen names repeat across parks (e.g. Castro is in CBE and CPT): always name the park per row; no park given = answer each park separately.
+- Money: feed "paid" = feed_purchase_payments.amount_rupees (paid_on), NOT feed_purchases.total_cost (= bill); owed = bill - payments per
+  feed_purchase_id. Sales dues: payment_received NULL on older deals = payment not tracked, not proof of non-payment; flag received > value; for "who owes most" lead with dues from tracked deals only and list untracked old deals separately (never headline them as owed);
+  payment ledger = sales_deal_payments (deal_id -> sales_deals.id, received_on, amount_rupees; ~11 rows, not empty). Say these caveats.
 Before saying "not recorded"/"none": search table names + information_schema.columns for the keyword (ILIKE '%deworm%'), then category/status values. Only say
 "not recorded" after that search finds nothing; say which park/pen/status you did find (e.g. "all Castro CBE tasks were cancelled").

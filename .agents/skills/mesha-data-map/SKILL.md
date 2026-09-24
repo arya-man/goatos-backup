@@ -55,6 +55,10 @@ grains and an example per view: `references/views.generated.md` (regenerate with
 - **Dates in answers:** render `DD/MM/YYYY`.
 - **Base views (`*_base`, `animal_current_scope`)** are one row per entity: aggregate, don't dump rows.
 - **Weighing is isolated** from herd/vaccination: don't join weighing to vaccination to explain it.
+- **Who did it:** any `*_by`, `*_user_id`, `actor_ref` column -> `workforce_members.user_id` -> `display_name`.
+- **Pen names repeat across parks** (Castro exists in CBE and CPT): always show the park per row; with no park in the question, answer each park.
+- **Money paid vs billed:** feed paid = `feed_purchase_payments`; bill = `feed_purchases.total_cost`. Sales `payment_received` NULL on
+  older deals means not tracked (caveat it); flag rows where received > sale value. Ledger: `sales_deal_payments` (deal_id -> sales_deals.id, received_on, amount_rupees).
 - The agent may read every table; no tenant filter is required (single tenant). Writes are impossible: the login is read-only.
 
 ## Module tables beyond the ceo_ai views (sweep 24/09/2026)
@@ -78,6 +82,17 @@ Beware ambiguous `status` when joining locations: qualify it (`t.status`).
 | Market prices | market_price_entries | city_name, question_label (Goat live price, carcass, offals), price, unit_label, business_date |
 | Health cases | health_cases, health_treatment_sessions, health_medicine_administrations | empty on 24/09/2026 |
 | Stock | inventory_stock + inventory_items | no stock quantities entered on 24/09/2026 |
+| Vendors / suppliers | procurement_vendors | record_type (Butcher, Farmer, Goats Agent, Goat Stockist, Goat Farm, Feed Agent...), status active/inactive/negotiating, city, state |
+| Buyer / FPO leads | sales_buyer_leads, sales_fpo_leads | recorded_date, farm, call_status (mostly empty = not called/logged); FPO: district, state |
+| Purchase candidates | animal_purchase_candidates | decision accepted/rejected, field_verdict, decided_by_name, load_id |
+| Feed transport / packing / distribution | feed_transport_tasks (business_date, status due/verification_due/completed), feed_packing_completions (target_date, packed_total_kg, status), feed_distribution_completions | park_id, shed_id |
+| Goats found in wrong pen | pen_reconciliation_cards | status open/pending_verification, found_display_name, registered_shed_id, raised_at (during weighing) |
+| Shift / death / birth approvals | counts_approval_requests | request_type, status approved/rejected, decided_by_user_id, decision_reason |
+| Feed payments | feed_purchase_payments | paid_on, amount_rupees, feed_purchase_id -> feed_purchases (bill = total_cost) |
+| Config change history | feed_config_write_log (actor_ref, write_kind, created_at), health_config_write_log, audit_log | |
+| Tag / identity decisions | identity_decisions | decision_type (retire_identifier, attach_identifier, exit_goat...), decision_state |
+| RFID sensors | herd_signal_tag_latest | battery_state, signal_state, movement_state, last_seen_at (19 tags) |
+| Sale allocations / growth price | goat_sale_allocations (status tagged), growth_sale_price_assumptions (price_per_kg_inr) | |
 | Births | goat_births (individually registered kids, 2 rows) vs counts_movement_daily births (herd count, ~600) | say which one you used |
 
 ## Metric definitions (match the dashboard)
