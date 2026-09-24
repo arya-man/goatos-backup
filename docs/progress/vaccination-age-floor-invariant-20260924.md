@@ -105,14 +105,35 @@ vaccination_generation_runs, GuardRejected alerting.
 - Carry-over selects and locks candidates, validates each against the new rule in Go, and rebinds valid rows in place (obligation id, batch, drive membership, completions, idempotency key preserved); invalid rows stay on the retired version. Hard-coded fattening SQL and blanket manual second-wave quarantine removed.
 - Generation skips only the guard-rejected vaccine (`GuardRejected`) instead of failing the goat, and reports it in CLI, stage log, HTTP, and seed summaries.
 
+## PR 391 Android continuation — 2026-09-24
+
+- Scope: one Yashoda 3 operational card for two ET+TT animals; direct two-animal RFID roster; four latest judge blockers. No merge or deployment authorized.
+- Rebased cleanly onto `c0b37abf24787b2dc7cb4a3dae94fb0729e938d5`; rebased checkpoint `85cea776746d558ed40e07237edab05f99b1dcee` (not yet pushed).
+- Pending: recapture task identity, all-row task scan/proof observation, legacy 1/2/3-vaccine animal counts, fallback assignment date selection; fresh focused Android/backend tests and two exact-pushed-SHA judges.
+- Before: recapture loses task identity; taskless state observes no durable task captures; legacy day counts sum vaccine rows; fallback can select an older assignment before date filtering.
+- Phone: Infinix user 10; installed release signer differs from local prodDebug; versionCode 91 install failed with `INSTALL_FAILED_UPDATE_INCOMPATIBLE`. No uninstall/data clear authorized. Phone E2E remains unverified, pending judges and compatible release-signed APK.
+- Deployment state: none; no merge, main push, or deployment in this continuation.
+- Red regression run: 29 Android tests, 3 failed — legacy two-vaccine total was 4 instead of 2; restored combined roster had 0 done instead of 21; taskless proof capture regression failed. Test fake now preserves DTO task identities.
+- Real throwaway-Postgres run exposed nullable `row_task_id` decoding before date assertion; fixed NULL decoding and supplied the fixture's missing executable task. Date-specific red rerun pending.
+- Implemented full-roster Room task-ID observation (independent of the visible page), combined durable proofs/scans, replacement-row task identity, and compatible legacy membership count grouping. Green reruns pending.
+- Date SQL red confirmed on real throwaway Postgres: adding an older compatible assignment made the requested 24/06 roster empty. Moved date matching inside the fallback lateral before `ORDER BY/LIMIT`.
+- First green attempt hit a Kotlin nullable/non-null task-ID compile error; now copies `dbRow.taskId` directly. Partition guard could not see the helper-expanded legacy group key; made shed and normalized partition explicit. Rerunning both gates.
+- Focused non-DB Go packages passed. Real scan-roster suite exposed stale fixtures: operator assigned to a shed instead of its park, old tag-only conflict target, and four rosters missing required active assignments. Updated those fixtures to current contracts; the new older-assignment date regression passed in that run.
+- Mobile, operational-read-model, operational-location, PostgreSQL bind guards and full-tree media egress guard passed.
+- 99 focused Android app tests passed (49 ScanViewModel, 26 identity/count, 15 ShedsViewModel, 9 route). Core repository tests failed because their dynamic API fake did not recognize `getScanRosterForDate`; updated fake to the current API and rerunning.
+- Core pagination/Room suite now passes. Adjacent taskless retry regression failed (no retry-success event); retry was returning on null route taskId. Resolve retry task from the proof's matching current-cycle roster row, preserving the existing proof bytes.
+- Final verification: 100 focused ProdDebug app tests and 23 core repository/Room tests pass via `:app:testProdDebugUnitTest` (ExecutionRouteIdentityTest, ShedsExecutionIdentityTest, ShedsViewModelTest, ScanViewModelTest) and `:core:core-data:testDebugUnitTest` (ExecutionRepositoryPaginationTest), `--max-workers=1`.
+- Final backend: `go test ./internal/vaccinationexecution/adapters/http ./internal/vaccinationexecution/adapters/postgres -count=1` passes; explicit real OCI throwaway run with `GOATOS_RUN_POSTGRES_TESTS=1` and `-run 'TestScanRoster|Test.*PlannedDate'` passes (Postgres 120.587s). No STG/maintained OCI data mutations.
+- After: legacy 1/2/3-vaccine groups remain two animals, recreated 21-animal combined roster restores all 21 scans/proofs including page-two task, recapture and retry retain per-row execution task, requested-date SQL returns the current assignment despite older matching assignments.
+- Ready to push for two independent exact-SHA judges. Phone E2E still pending; deployment/merge remain prohibited. Subsequent local judge/device receipts: `.local/pr391-continuation.md`.
+
 ## Pending
 
-- Build/install the final ProdDebug APK and run device E2E for the exact Amit two-animal ET+TT
-  shape before claiming the duplicate-card/scan-route fix complete.
-- Run final judges against the pushed complete-first-wave, fail-closed-anchor, and Android
-  execution checkpoint.
+- Obtain a compatible release-signed APK and run user-10 device E2E for the exact Amit
+  two-animal ET+TT shape only after two judges sign off. Do not clear/uninstall existing data.
+- Run final independent judges against the exact pushed Android execution checkpoint.
 - Keep the draft PR updated with each verified checkpoint.
-- Repair/read back STG after the durable guard is deployable; do not claim the DB repair durable before deployment.
+- STG repair/merge/deployment are outside this continuation's authorization.
 
 ## Verification
 

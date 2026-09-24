@@ -85,6 +85,33 @@ class ScanViewModelTest {
     fun tearDown() = Dispatchers.resetMain()
 
     @Test
+    fun `taskless recreation restores scans and proofs across all roster tasks beyond first page`() = runTest(dispatcher) {
+        val scans = FakeScanCaptureRepository()
+        val proofs = FakeProofCaptureRepository(maxProofs = 30)
+        val roster = (1..21).map { index ->
+            val rowTask = if (index <= 20) "task-1" else "task-2"
+            scans.recordScan(taskId = rowTask, fieldKey = ROSTER_SCAN_FIELD_KEY,
+                tag = "TAG-$index", goatId = "goat-$index", obligationId = "obl-$index", capturedAtMs = 20_000L)
+            seedSyncedProof(proofs, "goat-$index", taskId = rowTask)
+            scanRow("goat-$index", "TAG-$index", "obl-$index", taskId = rowTask)
+        }
+        val vm = ScanViewModel(
+            repo = rosterRepo(roster), reader = FakeRfidReaderPort(),
+            scanCaptureRepository = scans, scanAttemptRepository = FakeScanAttemptRepository(),
+            proofCaptureRepository = proofs, proofCaptureSource = FakeProofCaptureSource(),
+            bootstrapRepository = FakeCaptureBootstrapRepository(), tasksRepository = FakeTasksRepositoryForCapture(),
+            syncRepository = CapturingSubmitSyncRepository(), analytics = NoopAnalytics(),
+            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1")),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+        assertEquals(21, vm.state.value.ringTotal)
+        assertEquals(21, vm.state.value.doneCount)
+        assertTrue(vm.state.value.proofActionNeeded.isEmpty())
+        assertEquals(0, proofs.captureCalls.count { it.localUri.contains("replacement") })
+    }
+
+    @Test
     fun `assignment scoped scan view model loads both mixed batch animals`() = runTest(dispatcher) {
         val repo = FakeScanExecutionRepository(
             firstPage = ScanRosterResponseDto(
@@ -743,7 +770,7 @@ class ScanViewModelTest {
     }
 
     @Test
-    fun `synced proof replacement requires explicit arm and same RFID rescan`() = runTest(dispatcher) {
+    fun `taskless synced proof replacement retains row task identity`() = runTest(dispatcher) {
         val scanCaptures = FakeScanCaptureRepository()
         val scanAttempts = FakeScanAttemptRepository()
         val proofRepo = FakeProofCaptureRepository()
@@ -751,7 +778,7 @@ class ScanViewModelTest {
         val reader = FakeRfidReaderPort()
         val scanVm = ScanViewModel(
             repo = FakeScanExecutionRepository(
-                firstPage = ScanRosterResponseDto(rows = listOf(scanRow("goat-1", "TAG-100", "obl-1"))),
+                firstPage = ScanRosterResponseDto(rows = listOf(scanRow("goat-1", "TAG-100", "obl-1", taskId = "task-1"))),
             ),
             reader = reader,
             scanCaptureRepository = scanCaptures,
@@ -762,7 +789,7 @@ class ScanViewModelTest {
             tasksRepository = FakeTasksRepositoryForCapture(),
             syncRepository = CapturingSubmitSyncRepository(),
             analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
-            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
+            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1")),
         )
         backgroundScope.launch { scanVm.state.collect {} }
         advanceUntilIdle()
@@ -1736,12 +1763,17 @@ class ScanViewModelTest {
     }
 
     @Test
-    fun `vaccination capture preview and retry analytics carry proof trace ids`() = runTest(dispatcher) {
+    fun `vaccination capture preview and retry analytics carry proof trace ids`() = verifyCapturePreviewRetry("task-1")
+
+    @Test
+    fun `taskless capture preview and retry retain row task`() = verifyCapturePreviewRetry(null)
+
+    private fun verifyCapturePreviewRetry(routeTaskId: String?) = runTest(dispatcher) {
         val proofRepo = FakeProofCaptureRepository()
         val reader = FakeRfidReaderPort()
         val analytics = FakeAnalyticsPort()
         val vm = ScanViewModel(
-            repo = rosterRepo(listOf(scanRow("goat-1", "TAG-100", "obl-1"))),
+            repo = rosterRepo(listOf(scanRow("goat-1", "TAG-100", "obl-1", taskId = "task-1"))),
             reader = reader,
             scanCaptureRepository = FakeScanCaptureRepository(),
             scanAttemptRepository = FakeScanAttemptRepository(),
@@ -1751,7 +1783,7 @@ class ScanViewModelTest {
             tasksRepository = FakeTasksRepositoryForCapture(),
             syncRepository = CapturingSubmitSyncRepository(),
             analytics = analytics,
-            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
+            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to routeTaskId)),
         )
         backgroundScope.launch { vm.state.collect {} }
         advanceUntilIdle()
@@ -2128,9 +2160,10 @@ class ScanViewModelTest {
         goatId: String,
         obligationId: String = "obl-${goatId.removePrefix("goat-")}",
         obligationRowVersion: Int = 1,
+        taskId: String = "task-1",
     ) {
 	        val created = proofRepo.capture(
-	            taskId = "task-1", fieldKey = "vaccination_goat_proof", subject = ProofSubject.GOAT,
+	            taskId = taskId, fieldKey = "vaccination_goat_proof", subject = ProofSubject.GOAT,
 	            subjectId = goatId, localUri = "file://$goatId.mp4", mimeType = "video/mp4", caption = null,
                 obligationId = obligationId,
                 obligationRowVersion = obligationRowVersion,
@@ -2459,7 +2492,7 @@ private class FakeScanExecutionRepository(
             id = "$shedId|${taskId ?: "shed-wide"}#${obligationId.ifBlank { "$goatId#$primaryTag" }}",
             scopeKey = "$shedId|${taskId ?: "shed-wide"}",
             shedId = shedId,
-            taskId = taskId ?: "shed-wide",
+            taskId = this.taskId ?: taskId ?: "shed-wide",
             goatId = goatId,
             primaryTag = primaryTag,
             secondaryTag = secondaryTag,
@@ -2496,6 +2529,9 @@ private class FakeScanExecutionRepository(
 
     override fun observeScanRosterTotal(shedId: String, taskId: String?, partitionLabel: String?): Flow<Int> =
         rows.map { list -> list.map { it.goatId }.filter { it.isNotBlank() }.distinct().size }
+
+    override fun observeAssignmentScanRosterTaskIds(shedId: String, taskId: String?, assignmentId: String?, partitionLabel: String?): Flow<List<String>> =
+        rows.map { list -> list.map { it.taskId }.distinct() }
 
     override fun observeScanRosterDoneGoatIds(shedId: String, taskId: String?, partitionLabel: String?): Flow<List<String>> =
         rows.map { list -> list.filter { it.goatId.isNotBlank() && statusIsDone(it.status) }.map { it.goatId }.distinct() }
