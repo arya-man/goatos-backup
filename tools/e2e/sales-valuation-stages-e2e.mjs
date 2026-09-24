@@ -33,6 +33,15 @@ async function farmValue() {
   return page.content();
 }
 
+// The suite asserts from a KNOWN state and must therefore create it: any Warmup stage left by an
+// earlier run is removed first, so a green run means the rules held rather than that the stage
+// happened to be there already.
+sql(`UPDATE sales_valuation_assumptions SET
+       stages = (SELECT COALESCE(jsonb_agg(s), '[]'::jsonb) FROM jsonb_array_elements(stages) s WHERE s->>'stage' <> 'warmup'),
+       buckets = (SELECT COALESCE(jsonb_agg(b), '[]'::jsonb) FROM jsonb_array_elements(buckets) b WHERE b->>'bucket' NOT LIKE 'warmup_%')
+     WHERE stages @> '[{"stage":"warmup"}]'::jsonb`);
+console.log("reset: any Warmup stage from an earlier run removed");
+
 console.log("\n=== A. THE SCREEN SHOWS WHAT NOTHING PRICES ===");
 await goConfig();
 const unvalued = val().locator('[data-testid="valuation-unvalued"]');
