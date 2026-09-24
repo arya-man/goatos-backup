@@ -394,7 +394,13 @@ func uuidFromSuffix(group, suffix string) string {
 // hole apart from a display bug or missing data.
 //
 // The fixture is the smallest shape that reproduces it: one animal still scheduled, one animal
-// cancelled. Before the fix the four tiles summed to 1 under a total of 2.
+// whose dose was waived. Before the fix the four tiles summed to 1 under a total of 2.
+//
+// CANCELED IS NOT A TARGET (maintainer decision 2026-09-24). A canceled obligation is work the
+// planner withdrew -- on stg 88% of obligation_instances are canceled reconciler leftovers -- so an
+// animal whose only obligation was canceled is not on the drive at all: it is excluded from targets
+// and therefore from the closed-without-dose residual. waived/superseded (and completed without a
+// completion row) still land in the residual. The third animal pins that exclusion.
 func TestVaccinationCommandBoardKPIStatusBucketsEveryStatusClosedWithoutDoseReconcilesTargets(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -409,12 +415,14 @@ func TestVaccinationCommandBoardKPIStatusBucketsEveryStatusClosedWithoutDoseReco
 	ruleID := "70000000-0000-4000-8000-0000070000f1"
 	partyID := "70000000-0000-4000-8000-00000a0000f1"
 	scheduledGoat := "70000000-0000-4000-8000-0000030000f1"
-	cancelledGoat := "70000000-0000-4000-8000-0000030000f2"
+	waivedGoat := "70000000-0000-4000-8000-0000030000f2"
+	cancelledGoat := "70000000-0000-4000-8000-0000030000f3"
 
 	seedKPIFixtureBase(t, ctx, pool, tenantID, parkID, shedID, protocolID, protocolVersionID, ruleID, partyID, "f1")
 
 	asOf := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
 	seedKPIGoat(t, ctx, pool, tenantID, shedID, partyID, scheduledGoat)
+	seedKPIGoat(t, ctx, pool, tenantID, shedID, partyID, waivedGoat)
 	seedKPIGoat(t, ctx, pool, tenantID, shedID, partyID, cancelledGoat)
 
 	execProjectionSQL(t, ctx, pool, "obligation still scheduled",
@@ -422,10 +430,16 @@ func TestVaccinationCommandBoardKPIStatusBucketsEveryStatusClosedWithoutDoseReco
 		 VALUES ('70000000-0000-4000-8000-0000080000f1', $1, $2, $3, 'goat', 'shed', $4, $5, 'scheduled', $6::timestamptz, 'kpi-closed-scheduled-f1')`,
 		tenantID, protocolVersionID, scheduledGoat, shedID, ruleID, asOf.Add(3*24*time.Hour))
 
-	// Called off after planning: closed status, and deliberately NO vaccination_completions row.
-	execProjectionSQL(t, ctx, pool, "obligation cancelled without dose",
+	// Waived after planning: closed status, and deliberately NO vaccination_completions row.
+	execProjectionSQL(t, ctx, pool, "obligation waived without dose",
 		`INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, target_id, target_type, scope_type, scope_id, rule_id, status, due_at, idempotency_key)
-		 VALUES ('70000000-0000-4000-8000-0000080000f2', $1, $2, $3, 'goat', 'shed', $4, $5, 'canceled', $6::timestamptz, 'kpi-closed-canceled-f1')`,
+		 VALUES ('70000000-0000-4000-8000-0000080000f2', $1, $2, $3, 'goat', 'shed', $4, $5, 'waived', $6::timestamptz, 'kpi-closed-waived-f1')`,
+		tenantID, protocolVersionID, waivedGoat, shedID, ruleID, asOf.Add(-3*24*time.Hour))
+
+	// Canceled by the planner: not a target at all.
+	execProjectionSQL(t, ctx, pool, "obligation canceled",
+		`INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, target_id, target_type, scope_type, scope_id, rule_id, status, due_at, idempotency_key)
+		 VALUES ('70000000-0000-4000-8000-0000080000f3', $1, $2, $3, 'goat', 'shed', $4, $5, 'canceled', $6::timestamptz, 'kpi-closed-canceled-f1')`,
 		tenantID, protocolVersionID, cancelledGoat, shedID, ruleID, asOf.Add(-3*24*time.Hour))
 
 	repo := NewRepository(pool, 5*time.Second)
@@ -435,13 +449,13 @@ func TestVaccinationCommandBoardKPIStatusBucketsEveryStatusClosedWithoutDoseReco
 	}
 
 	if resp.KPIs.Targets != 2 {
-		t.Fatalf("targets = %d, want 2; a called-off animal is still on the drive's roster", resp.KPIs.Targets)
+		t.Fatalf("targets = %d, want 2; a waived animal is still on the drive's roster, a canceled one is not", resp.KPIs.Targets)
 	}
 	if resp.KPIs.ClosedWithoutDose != 1 {
-		t.Fatalf("closed_without_dose = %d, want 1; the cancelled animal must be NAMED, not left as an unexplained hole", resp.KPIs.ClosedWithoutDose)
+		t.Fatalf("closed_without_dose = %d, want 1; the waived animal must be NAMED, not left as an unexplained hole, and the canceled one must not be counted", resp.KPIs.ClosedWithoutDose)
 	}
 	if resp.KPIs.ScheduledAhead != 1 {
-		t.Fatalf("scheduled_ahead = %d, want 1; the cancelled animal must not leak into outstanding work", resp.KPIs.ScheduledAhead)
+		t.Fatalf("scheduled_ahead = %d, want 1; the waived animal must not leak into outstanding work", resp.KPIs.ScheduledAhead)
 	}
 	if resp.KPIs.OverdueNotGiven != 0 {
 		t.Fatalf("overdue_not_given = %d, want 0; a closed obligation is not outstanding no matter how far past its due date it is", resp.KPIs.OverdueNotGiven)

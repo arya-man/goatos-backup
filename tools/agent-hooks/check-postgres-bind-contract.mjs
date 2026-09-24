@@ -29,6 +29,8 @@ function changedLines(base) {
   const diff = spawnSync("git", ["diff", "--unified=0", "--diff-filter=ACMR", base, "--", "backend"], {
     cwd: root,
     encoding: "utf8",
+    // Long-lived branches produce multi-MB diffs; the 1 MB spawnSync default truncates them.
+    maxBuffer: 256 * 1024 * 1024,
   });
   if (diff.status !== 0) throw new Error(diff.stderr?.trim() || `git diff against ${base} failed`);
   let file = "";
