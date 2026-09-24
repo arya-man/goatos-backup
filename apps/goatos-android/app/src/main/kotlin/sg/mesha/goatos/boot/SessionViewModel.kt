@@ -140,6 +140,11 @@ class SessionViewModel @Inject constructor(
     /** Source of the unsynced-work count shown before "Sign in with another account" wipes it. */
     private val syncRepository: SyncRepository? = null,
 ) : ViewModel() {
+    /** Disk I/O dispatcher. A property, not a constructor parameter, because Hilt ignores Kotlin
+     *  defaults and there is no CoroutineDispatcher binding; JVM tests point it at the scheduler. */
+    @androidx.annotation.VisibleForTesting
+    internal var ioDispatcher: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.IO
+
     private companion object {
         const val TAG = "GoatOSSession"
     }
@@ -188,7 +193,7 @@ class SessionViewModel @Inject constructor(
                     }
                     if (baked.isNotBlank()) {
                         sessionStore.setBearerToken(baked)
-                        withContext(Dispatchers.IO) { syncJobsScheduler.scheduleAll() }
+                        withContext(ioDispatcher) { syncJobsScheduler.scheduleAll() }
                     }
                 }
                 // Do not let bootstrap/network requests race ahead with the previous APK's
@@ -294,11 +299,13 @@ class SessionViewModel @Inject constructor(
      * operator must confirm first; the dialog shows how many items would be lost.
      */
     fun requestSignInWithAnotherAccount() {
-        val unsynced = unsyncedWorkCount()
-        if (unsynced > 0) {
-            _uiState.update { it.copy(switchAccountPendingCount = unsynced) }
-        } else {
-            signOut()
+        viewModelScope.launch {
+            val unsynced = unsyncedWorkCount()
+            if (unsynced > 0) {
+                _uiState.update { it.copy(switchAccountPendingCount = unsynced) }
+            } else {
+                signOut()
+            }
         }
     }
 
@@ -311,10 +318,10 @@ class SessionViewModel @Inject constructor(
         _uiState.update { it.copy(switchAccountPendingCount = null) }
     }
 
-    private fun unsyncedWorkCount(): Int {
-        val status = syncRepository?.observeStatus()?.value ?: return 0
-        return status.pendingCount + status.inFlightCount + status.failedCount + status.deadLetterCount
-    }
+    /** A direct outbox query, never the observeStatus() snapshot: that is 0 on a cold start until
+     *  Room first emits, which would skip the confirm and wipe unsynced work without asking. */
+    private suspend fun unsyncedWorkCount(): Int =
+        withContext(ioDispatcher) { syncRepository?.unsyncedCountNow() ?: 0 }
 
     /**
      * Full clean-slate logout (C35-001): delegates to the shared [LogoutCoordinator] — the
@@ -373,7 +380,7 @@ class SessionViewModel @Inject constructor(
         // (LogoutCoordinator's clean-slate wipe) — re-arm it for this new session.
         // ExistingPeriodicWorkPolicy.KEEP makes this idempotent when it was never cancelled.
         // WorkManager's enqueue does disk I/O on the calling thread, so hop off Main.
-        withContext(Dispatchers.IO) { syncJobsScheduler.scheduleAll() }
+        withContext(ioDispatcher) { syncJobsScheduler.scheduleAll() }
         analytics.track(AnalyticsEvents.LOGIN_SUCCESS, identityProps)
         logInfo("Goat OS login session opened email=${email.orEmpty()} uid=${firebaseUid.orEmpty()} flavor=${BuildConfig.FLAVOR}")
         _uiState.update { it.copy(isLoading = false, errorReason = null, errorDetail = null) }
@@ -420,7 +427,7 @@ class SessionViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(errorReason = null, errorDetail = null) }
             sessionStore.setBearerToken(token)
-            withContext(Dispatchers.IO) { syncJobsScheduler.scheduleAll() }
+            withContext(ioDispatcher) { syncJobsScheduler.scheduleAll() }
         }
     }
 

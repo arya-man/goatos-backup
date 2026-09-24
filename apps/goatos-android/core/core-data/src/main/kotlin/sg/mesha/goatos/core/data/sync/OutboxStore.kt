@@ -39,6 +39,9 @@ interface OutboxStore {
      *  rows. Used for sync-status badges and health monitoring. Emits on any change in counts. */
     fun observeActiveCounts(): Flow<ActiveOutboxCounts>
 
+    /** One-shot count of writes not yet accepted by the server (see OutboxDao.countUnsynced). */
+    suspend fun countUnsynced(): Int = observeActiveCounts().first().total
+
     /** Observes a bounded window of active rows (newest-first, max [limit] rows). Use this
      *  instead of [observeActive] when displaying a subset for UI. */
     fun observeActiveWindow(limit: Int): Flow<List<OutboxEntity>>
@@ -162,6 +165,7 @@ class RoomOutboxStore(private val dao: OutboxDao) : OutboxStore {
     override suspend fun eligibleForDrain(now: Long, limit: Int): List<OutboxEntity> = dao.eligibleForDrain(now, limit)
     override fun observeActive(): Flow<List<OutboxEntity>> = dao.observeActive()
     override fun observeActiveCounts(): Flow<ActiveOutboxCounts> = dao.observeActiveCounts()
+    override suspend fun countUnsynced(): Int = dao.countUnsynced()
     override fun observeActiveByOpType(opType: String): Flow<List<OutboxEntity>> = dao.observeActiveByOpType(opType)
     override fun observeActiveWindow(limit: Int): Flow<List<OutboxEntity>> = dao.observeActiveWindow(limit)
     override suspend fun findActiveForGroup(
