@@ -237,6 +237,59 @@ class ScanViewModelTest {
     }
 
     @Test
+    fun `combined card never queues a shed-wide write for a taskless batch row`() = runTest(dispatcher) {
+        // Before the server backfill the second animal's batch has no SOP task (roster row task
+        // "shed-wide"); after it, both rows carry a real task.
+        for (secondTask in listOf("shed-wide", "task-2")) {
+            val scanCaptures = FakeScanCaptureRepository()
+            val scanAttempts = FakeScanAttemptRepository()
+            val reader = FakeRfidReaderPort()
+            val scanVm = ScanViewModel(
+                repo = FakeScanExecutionRepository(
+                    firstPage = ScanRosterResponseDto(rows = listOf(
+                        scanRow("goat-1", "TAG-100", "obl-1", taskId = "task-1"),
+                        scanRow("goat-2", "TAG-200", "obl-2", taskId = secondTask),
+                    )),
+                ),
+                reader = reader,
+                scanCaptureRepository = scanCaptures,
+                scanAttemptRepository = scanAttempts,
+                proofCaptureRepository = FakeProofCaptureRepository(),
+                proofCaptureSource = FakeProofCaptureSource(mutableListOf(
+                    CapturedVideo(localUri = "content://proof/a.mp4", startedAtMs = 10L, endedAtMs = 20L),
+                    CapturedVideo(localUri = "content://proof/b.mp4", startedAtMs = 30L, endedAtMs = 40L),
+                )),
+                bootstrapRepository = FakeCaptureBootstrapRepository(),
+                tasksRepository = FakeTasksRepositoryForCapture(),
+                syncRepository = CapturingSubmitSyncRepository(),
+                analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
+                savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "plannedDate" to "2026-09-25")),
+            )
+            val job = backgroundScope.launch { scanVm.state.collect {} }
+            advanceUntilIdle()
+
+            reader.emit("TAG-100")
+            advanceUntilIdle()
+            reader.emit("TAG-200")
+            advanceUntilIdle()
+
+            val writtenTasks = scanCaptures.recordedTaskIds + scanAttempts.calls.map { it.taskId }
+            assertFalse("second=$secondTask wrote under $writtenTasks", writtenTasks.any { it.isBlank() || it == "shed-wide" })
+            val accepted = scanAttempts.calls.filter { it.outcome == RfidScanAttemptOutcome.ACCEPTED }
+            if (secondTask == "shed-wide") {
+                assertEquals(listOf("task-1"), accepted.map { it.taskId })
+                assertEquals(listOf("TAG-100"), scanCaptures.rowsForTask("task-1").map { it.tag })
+                assertEquals(TASKLESS_ANIMAL_MESSAGE, scanVm.state.value.error?.message)
+                assertEquals(ScanStatus.DONE, scanVm.state.value.roster.single { it.goatId == "goat-1" }.status)
+            } else {
+                assertEquals("attempts=${scanAttempts.calls}", listOf("task-1", "task-2"), accepted.map { it.taskId })
+                assertEquals(setOf("task-1", "task-2"), scanCaptures.recordedTaskIds.toSet())
+            }
+            job.cancel()
+        }
+    }
+
+    @Test
     fun `taskless combined card still requires per-goat video proof`() = runTest(dispatcher) {
         for (detail in listOf<TaskDetail?>(null, TaskDetail(
             task = TaskSummaryDto(taskId = "task-1", scopeType = "shed", scopeId = "shed-1", rowVersion = 1),
