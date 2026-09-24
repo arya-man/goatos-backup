@@ -112,3 +112,55 @@ test("long line labels get fewer ticks", () => {
   const layout = chartLayout({ type: "line", title: "t", x, series: [{ name: "a", data: x.map((_, i) => i + 1) }] });
   assert.deepEqual(layout.ticks, [0, 6, 11]);
 });
+
+test("draws every series, with a legend, when the chart compares several", () => {
+  const layout = chartLayout({
+    type: "line",
+    title: "Castro 1 weekly gain, Coimbatore vs Channapatna",
+    x: ["27/07", "03/08", "10/08", "17/08"],
+    series: [
+      { name: "Coimbatore", data: [195, 337, 60, 212] },
+      { name: "Channapatna", data: [120, 133, 91, 280] },
+    ],
+  });
+  assert.ok(layout && layout.kind === "line");
+  assert.equal(layout.lines.length, 2);
+  assert.deepEqual(layout.legend.map((l) => l.name), ["Coimbatore", "Channapatna"]);
+  assert.notEqual(layout.lines[0].color, layout.lines[1].color);
+  assert.deepEqual(layout.lines[1].points.map((p) => p.value), [120, 133, 91, 280]);
+  const label = chartAccessibleLabel({ type: "line", title: "t", x: ["a", "b"], series: [{ name: "A", data: [1, 2] }, { name: "B", data: [3, 4] }] });
+  assert.match(label, /A: a 1, b 2; B: a 3, b 4/);
+});
+
+test("a single series draws one line and no legend", () => {
+  const layout = chartLayout({ type: "line", title: "t", x: ["a", "b", "c"], series: [{ name: "s", data: [1, 5, 3] }] });
+  assert.equal(layout.lines.length, 1);
+  assert.equal(layout.legend.length, 0);
+});
+
+test("y-axis labels span the values, and weights are not squashed onto a zero baseline", () => {
+  const layout = chartLayout({ type: "line", title: "kg", x: ["03/08", "10/08", "17/08", "21/09"], series: [{ name: "kg", data: [30.8, 31.3, 32.5, 39.1] }] });
+  const values = layout.yTicks.map((t) => t.value);
+  assert.ok(Math.min(...values) <= 30.8 && Math.max(...values) >= 39.1);
+  assert.ok(Math.min(...values) > 0, "a 30-39 kg band does not start the axis at 0");
+  assert.ok(layout.yTicks.every((t) => t.label.length > 0));
+  // Lowest value sits lowest (largest y), highest sits highest.
+  const ys = layout.points.map((p) => p.cy);
+  assert.equal(Math.max(...ys), layout.points[0].cy);
+  assert.equal(Math.min(...ys), layout.points[3].cy);
+});
+
+test("a negative value is drawn below zero, not clamped to it, with a zero line", () => {
+  const layout = chartLayout({ type: "line", title: "g/day", x: ["a", "b", "c"], series: [{ name: "g", data: [136, -476, 212] }] });
+  assert.ok(layout.zeroY !== null);
+  assert.ok(layout.points[1].cy > layout.zeroY, "-476 sits below the zero line");
+  assert.ok(layout.yTicks.some((t) => t.value < 0));
+});
+
+test("bars compare several series per row", () => {
+  const layout = chartLayout({ type: "bar", title: "t", x: ["Castro 1", "Castro 2"], series: [{ name: "CBE", data: [39.1, 34.2] }, { name: "CPT", data: [31.4, 0] }] });
+  assert.equal(layout.bars[0].parts.length, 2);
+  assert.equal(layout.bars[0].parts[1].name, "CPT");
+  assert.equal(layout.bars[1].parts[1].pct, 1);
+  assert.deepEqual(layout.legend.map((l) => l.name), ["CBE", "CPT"]);
+});

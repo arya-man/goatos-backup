@@ -1252,7 +1252,7 @@ export function CeoAiPanel({
               </button>
             )}
             <span className="mzai-mark">
-              <MeshaLogo width={20} height={20} />
+              <MeshaLogo width={32} height={32} />
             </span>
             <span className="mzai-htext">
               <b>{copy.title}</b>

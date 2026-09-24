@@ -24,23 +24,42 @@ export function CeoAiChart({ chart }: { chart: CeoAiChartData | undefined }): Re
   return (
     <figure className="mzai-chart" role="img" aria-label={label}>
       <figcaption className="mzai-chart-title">{chart.title}</figcaption>
+      {layout.legend.length ? (
+        <ul className="mzai-chart-legend" aria-hidden="true">
+          {layout.legend.map((item) => (
+            <li key={item.name}>
+              <span className="mzai-chart-swatch" style={{ background: item.color }} />
+              {item.name}
+            </li>
+          ))}
+        </ul>
+      ) : null}
       {layout.kind === "bar" ? (
         <ul className="mzai-chart-bars" aria-hidden="true">
           {layout.bars.map((bar) => (
             <li key={bar.key} className="mzai-chart-row" title={`${bar.label}: ${bar.valueLabel}`}>
               <span className="mzai-chart-label">{bar.label}</span>
-              <span className="mzai-chart-track">
-                <span className="mzai-chart-area">
-                  <span className="mzai-chart-bar" style={{ width: `${bar.pct}%`, background: bar.color }} />
+              {(bar.parts ?? [{ name: "", value: bar.value, valueLabel: bar.valueLabel, pct: bar.pct, color: bar.color }]).map((part) => (
+                <span key={part.name || "value"} className="mzai-chart-track" title={part.name ? `${bar.label} · ${part.name}: ${part.valueLabel}` : undefined}>
+                  <span className="mzai-chart-area">
+                    <span className="mzai-chart-bar" style={{ width: `${part.pct}%`, background: part.color }} />
+                  </span>
+                  <span className="mzai-chart-value">{part.valueLabel}</span>
                 </span>
-                <span className="mzai-chart-value">{bar.valueLabel}</span>
-              </span>
+              ))}
             </li>
           ))}
         </ul>
       ) : (
         <div className="mzai-chart-line" aria-hidden="true">
           <div className="mzai-chart-plot">
+          <div className="mzai-chart-yaxis">
+            {layout.yTicks.map((tick) => (
+              <span key={tick.value} className="mzai-chart-ytick" style={{ top: `${tick.pct}%` }}>
+                {tick.label}
+              </span>
+            ))}
+          </div>
           <svg
             className="mzai-chart-svg"
             viewBox={`0 0 ${layout.viewWidth} ${layout.viewHeight}`}
@@ -56,28 +75,45 @@ export function CeoAiChart({ chart }: { chart: CeoAiChartData | undefined }): Re
               strokeWidth="1"
               vectorEffect="non-scaling-stroke"
             />
-            <path
-              d={layout.path}
-              fill="none"
-              stroke={layout.color}
-              strokeWidth="2"
-              strokeLinejoin="round"
-              strokeLinecap="round"
-              vectorEffect="non-scaling-stroke"
-            />
+            {layout.zeroY !== null ? (
+              <line
+                x1="0"
+                y1={layout.zeroY}
+                x2={layout.viewWidth}
+                y2={layout.zeroY}
+                stroke="var(--muted)"
+                strokeWidth="1"
+                strokeDasharray="3 3"
+                vectorEffect="non-scaling-stroke"
+              />
+            ) : null}
+            {layout.lines.map((line) => (
+              <path
+                key={line.name}
+                d={line.path}
+                fill="none"
+                stroke={line.color}
+                strokeWidth="2"
+                strokeLinejoin="round"
+                strokeLinecap="round"
+                vectorEffect="non-scaling-stroke"
+              />
+            ))}
           </svg>
-          {layout.points.map((point) => (
-            <span
-              key={point.key}
-              className="mzai-chart-dot"
-              style={{
-                left: `${(point.cx / layout.viewWidth) * 100}%`,
-                top: `${(point.cy / layout.viewHeight) * 100}%`,
-                background: layout.color,
-              }}
-              title={`${point.label}: ${point.value}`}
-            />
-          ))}
+          {layout.lines.flatMap((line) =>
+            line.points.map((point) => (
+              <span
+                key={point.key}
+                className="mzai-chart-dot"
+                style={{
+                  left: `${(point.cx / layout.viewWidth) * 100}%`,
+                  top: `${(point.cy / layout.viewHeight) * 100}%`,
+                  background: line.color,
+                }}
+                title={`${layout.lines.length > 1 ? `${line.name} · ` : ""}${point.label}: ${point.value}`}
+              />
+            )),
+          )}
           </div>
           <div
             className="mzai-chart-ticks"

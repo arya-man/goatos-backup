@@ -256,7 +256,7 @@ export function CeoAiStyles(): ReactElement {
 /* Neutral wrapper: MeshaLogo renders its own brand disc (matching the sidebar
    brand logo), so the mark container must not add a second disc/ring. */
 .mzai-mark{display:flex;align-items:center;justify-content:center;flex:none}
-.mzai-mark .mzai-goat-icon{width:20px;height:20px}
+.mzai-mark .mzai-goat-icon{width:32px;height:32px}
 .mzai-htext{display:flex;flex-direction:column;min-width:0;flex:1}
 .mzai-htext b{font-size:14px;font-weight:600;color:var(--ink);line-height:1.2}
 .mzai-htext small{font-size:11.5px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -337,9 +337,14 @@ export function CeoAiStyles(): ReactElement {
   font-variant-numeric:tabular-nums;white-space:nowrap}
 .mzai-chart-line{position:relative;padding-bottom:22px;white-space:normal}
 /* Dots are % of the plot box, so the plot box must be exactly the SVG's height. */
-.mzai-chart-plot{position:relative;height:120px}
+.mzai-chart-plot{position:relative;height:120px;margin-left:40px}
+.mzai-chart-yaxis{position:absolute;left:-40px;top:0;bottom:0;width:34px}
+.mzai-chart-ytick{position:absolute;right:0;transform:translateY(-50%);font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+.mzai-chart-legend{list-style:none;margin:0 0 8px;padding:0;display:flex;flex-wrap:wrap;gap:4px 12px;font-size:12px;color:var(--ink)}
+.mzai-chart-legend li{display:flex;align-items:center;gap:6px}
+.mzai-chart-swatch{width:10px;height:10px;border-radius:3px;flex:0 0 auto}
 .mzai-chart-dot{position:absolute;width:6px;height:6px;margin:-3px 0 0 -3px;border-radius:50%}
-.mzai-chart-ticks{position:absolute;left:0;right:0;bottom:0;height:18px}
+.mzai-chart-ticks{position:absolute;left:40px;right:0;bottom:0;height:18px}
 .mzai-chart-tick{position:absolute;bottom:0;transform:translateX(-50%);font-size:11.5px;color:var(--muted);
   white-space:nowrap;max-width:var(--tick-max,30%);overflow:hidden;text-overflow:ellipsis}
 .mzai-chart-tick.start{transform:none}

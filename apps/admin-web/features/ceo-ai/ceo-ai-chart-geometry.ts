@@ -40,11 +40,17 @@ export type ChartBar = {
   // Bar length as a percentage (0-100] of the track; min 1 so zero rows show.
   pct: number;
   color: string;
+  // One entry per series when the chart compares several (Coimbatore vs Channapatna); the
+  // first entry is the bar itself. Absent for a single-series chart.
+  parts?: { name: string; value: number; valueLabel: string; pct: number; color: string }[];
 };
+
+export type ChartLegendItem = { name: string; color: string };
 
 export type ChartBarLayout = {
   kind: "bar";
   bars: ChartBar[];
+  legend: ChartLegendItem[];
 };
 
 export type ChartLinePoint = {
@@ -55,14 +61,26 @@ export type ChartLinePoint = {
   cy: number;
 };
 
+export type ChartLine = { name: string; color: string; path: string; points: ChartLinePoint[] };
+
+// A y-axis label: `pct` is its position from the top of the plot (0-100).
+export type ChartYTick = { value: number; label: string; pct: number };
+
 export type ChartLineLayout = {
   kind: "line";
   viewWidth: number;
   viewHeight: number;
+  // path/points/color are the first series (kept for callers that draw one line).
   path: string;
   points: ChartLinePoint[];
   color: string;
+  // Every series, each with its own colour; the legend names them when there is more than one.
+  lines: ChartLine[];
+  legend: ChartLegendItem[];
+  yTicks: ChartYTick[];
   baselineY: number;
+  // y of the zero line when the values cross zero (a week that LOST weight), else null.
+  zeroY: number | null;
   // Indexes of x labels to show (thinned so they never collide on a phone).
   ticks: number[];
 };
@@ -119,70 +137,125 @@ export function tickBudget(labels: string[]): number {
   return longest > 10 ? 3 : longest > 6 ? 4 : MAX_LINE_TICKS;
 }
 
+// renderableSeries: every series with a finite value for each of the first n x labels (the first
+// series is already guaranteed by isRenderableChart). Capped at the palette size.
+function renderableSeries(chart: CeoAiChart, n: number): CeoAiChartSeries[] {
+  return (chart.series ?? [])
+    .filter((s) => Array.isArray(s?.data) && s.data.length >= n && s.data.slice(0, n).every((v) => Number.isFinite(v)))
+    .slice(0, CHART_PALETTE.length)
+    .map((s, i) => ({ name: String(s.name || `Series ${i + 1}`), data: s.data.slice(0, n) }));
+}
+
 export function chartLayout(chart: CeoAiChart): ChartLayout | null {
   if (!isRenderableChart(chart)) return null;
-  const series = firstSeries(chart);
-  if (!series) return null;
-  const n = Math.min(chart.x.length, series.data.length);
+  const first = firstSeries(chart);
+  if (!first) return null;
+  const n = Math.min(chart.x.length, first.data.length);
   const labels = chart.x.slice(0, n);
-  const data = series.data.slice(0, n);
-  const max = Math.max(...data.map((v) => Math.abs(v)), 1);
+  const series = renderableSeries(chart, n);
+  if (!series.length) return null;
+  const legend = series.length > 1 ? series.map((s, i) => ({ name: s.name, color: CHART_PALETTE[i] })) : [];
 
   if (chart.type === "line") {
-    return lineLayout(labels, data, max);
+    return lineLayout(labels, series, legend);
   }
-  return barLayout(labels, data, max);
+  return barLayout(labels, series, legend);
 }
 
-function barLayout(labels: string[], data: number[], max: number): ChartBarLayout {
-  const bars: ChartBar[] = data.map((value, i) => {
-    const pct = Math.min(100, Math.max((Math.abs(value) / max) * 100, 1));
-    return {
-      key: `${i}-${labels[i]}`,
-      label: String(labels[i] ?? ""),
+function barLayout(labels: string[], series: CeoAiChartSeries[], legend: ChartLegendItem[]): ChartBarLayout {
+  const max = Math.max(...series.flatMap((s) => s.data.map((v) => Math.abs(v))), 1);
+  const pctOf = (value: number) => Number(Math.min(100, Math.max((Math.abs(value) / max) * 100, 1)).toFixed(1));
+  const multi = series.length > 1;
+  const bars: ChartBar[] = labels.map((label, i) => {
+    const value = series[0].data[i];
+    const bar: ChartBar = {
+      key: `${i}-${label}`,
+      label: String(label ?? ""),
       value,
       valueLabel: formatChartValue(value),
-      pct: Number(pct.toFixed(1)),
-      color: CHART_PALETTE[i % CHART_PALETTE.length],
+      pct: pctOf(value),
+      // One series: a colour per row (as before). Several: a colour per series.
+      color: multi ? CHART_PALETTE[0] : CHART_PALETTE[i % CHART_PALETTE.length],
     };
+    if (multi) {
+      bar.parts = series.map((s, k) => ({
+        name: s.name, value: s.data[i], valueLabel: formatChartValue(s.data[i]), pct: pctOf(s.data[i]), color: CHART_PALETTE[k],
+      }));
+    }
+    return bar;
   });
-  return { kind: "bar", bars };
+  return { kind: "bar", bars, legend };
 }
 
-function lineLayout(labels: string[], data: number[], max: number): ChartLineLayout {
+// niceStep rounds a raw tick gap to 1/2/2.5/5 x 10^k so axis labels read cleanly.
+function niceStep(raw: number): number {
+  const p = 10 ** Math.floor(Math.log10(raw));
+  const f = raw / p;
+  return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * p;
+}
+
+// lineDomain: the y range the plot spans. Counts and gains that sit near zero start at zero; a
+// narrow band far from zero (weights 24-39 kg) is not squashed flat against a zero baseline, and a
+// negative value (a week that lost weight) is drawn below zero, never clamped up to it.
+export function lineDomain(values: number[]): { lo: number; hi: number; step: number } {
+  let lo = Math.min(...values);
+  let hi = Math.max(...values);
+  if (lo >= 0 && lo <= hi * 0.5) lo = 0;
+  if (hi <= 0 && hi >= lo * 0.5) hi = 0;
+  if (hi === lo) { hi += Math.abs(hi) || 1; lo -= lo === 0 ? 0 : Math.abs(lo) * 0.1; }
+  const step = niceStep((hi - lo) / 3);
+  return { lo: Math.floor(lo / step) * step, hi: Math.ceil(hi / step) * step, step };
+}
+
+function lineLayout(labels: string[], series: CeoAiChartSeries[], legend: ChartLegendItem[]): ChartLineLayout {
   const innerW = VIEW_WIDTH - LINE_PAD_X * 2;
   const innerH = LINE_HEIGHT - LINE_PAD_TOP - LINE_PAD_BOTTOM;
   const baselineY = LINE_HEIGHT - LINE_PAD_BOTTOM;
-  const step = data.length > 1 ? innerW / (data.length - 1) : 0;
-  const points: ChartLinePoint[] = data.map((value, i) => {
-    const cx = LINE_PAD_X + step * i;
-    const cy = baselineY - (Math.max(value, 0) / max) * innerH;
-    return {
-      key: `${i}-${labels[i]}`,
+  const step = labels.length > 1 ? innerW / (labels.length - 1) : 0;
+  const { lo, hi, step: yStep } = lineDomain(series.flatMap((s) => s.data));
+  const yOf = (v: number) => baselineY - ((v - lo) / (hi - lo)) * innerH;
+  const lines: ChartLine[] = series.map((s, k) => {
+    const points: ChartLinePoint[] = s.data.map((value, i) => ({
+      key: `${k}-${i}-${labels[i]}`,
       label: String(labels[i] ?? ""),
       value,
-      cx: Number(cx.toFixed(1)),
-      cy: Number(cy.toFixed(1)),
-    };
+      cx: Number((LINE_PAD_X + step * i).toFixed(1)),
+      cy: Number(yOf(value).toFixed(1)),
+    }));
+    const path = points.map((p, i) => `${i === 0 ? "M" : "L"}${p.cx} ${p.cy}`).join(" ");
+    return { name: s.name, color: CHART_PALETTE[k], path, points };
   });
-  const path = points.map((p, i) => `${i === 0 ? "M" : "L"}${p.cx} ${p.cy}`).join(" ");
+  const yTicks: ChartYTick[] = [];
+  for (let v = hi; v >= lo - yStep / 2; v -= yStep) {
+    const value = Number(v.toFixed(6));
+    yTicks.push({ value, label: formatChartValue(value), pct: Number(((yOf(value) / LINE_HEIGHT) * 100).toFixed(1)) });
+  }
   return {
     kind: "line",
     viewWidth: VIEW_WIDTH,
     viewHeight: LINE_HEIGHT,
-    path,
-    points,
-    color: CHART_PALETTE[0],
+    path: lines[0].path,
+    points: lines[0].points,
+    color: lines[0].color,
+    lines,
+    legend,
+    yTicks,
     baselineY,
-    ticks: lineTicks(points.length, tickBudget(labels)),
+    zeroY: lo < 0 && hi > 0 ? Number(yOf(0).toFixed(1)) : null,
+    ticks: lineTicks(labels.length, tickBudget(labels)),
   };
 }
 
 // chartAccessibleLabel builds the screen-reader summary from real values.
 export function chartAccessibleLabel(chart: CeoAiChart): string {
-  const series = firstSeries(chart);
-  if (!series) return chart.title;
-  const n = Math.min(chart.x.length, series.data.length);
-  const parts = chart.x.slice(0, n).map((label, i) => `${label}: ${series.data[i]}`);
-  return `${chart.title}. ${parts.join(", ")}`;
+  const first = firstSeries(chart);
+  if (!first) return chart.title;
+  const n = Math.min(chart.x.length, first.data.length);
+  const series = renderableSeries(chart, n);
+  if (series.length <= 1) {
+    const parts = chart.x.slice(0, n).map((label, i) => `${label}: ${first.data[i]}`);
+    return `${chart.title}. ${parts.join(", ")}`;
+  }
+  const parts = series.map((s) => `${s.name}: ${chart.x.slice(0, n).map((label, i) => `${label} ${s.data[i]}`).join(", ")}`);
+  return `${chart.title}. ${parts.join("; ")}`;
 }
