@@ -112,6 +112,15 @@ func (s *SalesService) CreateDeal(ctx context.Context, tenantID string, write do
 	if err := normalized.Validate(catalog); err != nil {
 		return domain.Deal{}, err
 	}
+	if len(domain.AggregateFeedDemand(normalized.Lines)) > 0 {
+		items, err := s.repo.ListFeedItems(ctx, tenantID)
+		if err != nil {
+			return domain.Deal{}, err
+		}
+		if err := domain.ValidateFeedItems(normalized.Lines, items); err != nil {
+			return domain.Deal{}, err
+		}
+	}
 	if err := s.confirmFeedStock(ctx, tenantID, normalized); err != nil {
 		return domain.Deal{}, err
 	}

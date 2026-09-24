@@ -29,6 +29,10 @@ VALUES ($1, 'feed', 'Feed', 'feed', 'kg', NULL, 40, false),
 ON CONFLICT (tenant_id, product_code) DO NOTHING`, salesTestTenant); err != nil {
 		t.Fatalf("seed the farm's sellable products: %v", err)
 	}
+	if _, err := pool.Exec(ctx, `INSERT INTO public.feed_item_catalog (tenant_id, feed_item_label)
+VALUES ($1, 'Maize'), ($1, 'Groundnut Cake') ON CONFLICT (tenant_id, feed_item_key) DO NOTHING`, salesTestTenant); err != nil {
+		t.Fatalf("seed active feed catalog: %v", err)
+	}
 	return NewRepository(pool, 15*time.Second)
 }
 
@@ -309,5 +313,26 @@ func TestFeedCloseReplayUsesPersistedStatusAndDepletesOnlyOnce(t *testing.T) {
 	}
 	if got := soldKg(t, ctx, repo, salesTestTenant, "CPT", "Maize"); got != 0 {
 		t.Fatalf("unconfirmed close depleted %v kg", got)
+	}
+}
+
+func TestFeedSaleRejectsUnknownFeedInsideTransaction(t *testing.T) {
+	ctx := context.Background()
+	repo := feedSaleRepo(t, ctx)
+	write := domain.DealWrite{
+		SaleDate: "2026-09-23", Farm: "CPT", BuyerName: "Unknown feed buyer", BuyerVendorID: feedSaleBuyerVendorID,
+		Lines: []domain.DealLineWrite{{ProductType: "Feed", Breed: "Unknown feed", Quantity: kg(50), RatePerUnit: kg(20)}},
+	}.Normalize(feedProducts())
+	_, err := repo.CreateDeal(ctx, salesTestTenant, write, "", "unknown-feed")
+	var invalid domain.ErrDealValidation
+	if !errors.As(err, &invalid) {
+		t.Fatalf("expected field error, got %v", err)
+	}
+	var count int
+	if err := repo.pool.QueryRow(ctx, `SELECT count(*) FROM sales_deals WHERE tenant_id=$1 AND buyer_name='Unknown feed buyer'`, salesTestTenant).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatal("invalid feed sale committed")
 	}
 }
