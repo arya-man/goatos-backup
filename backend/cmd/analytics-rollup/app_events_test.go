@@ -246,8 +246,9 @@ func TestCameraCohortsDoNotMergeReusedLocalTokensPostgres(t *testing.T) {
 	}
 }
 
-// A provider failure must still leave the full first-party lookback fresh and
-// the audit failed; it must never certify missing Firebase data as success.
+// A provider failure must still leave the full first-party lookback fresh. It is
+// audited 'degraded' (never certified 'succeeded') but exits 0: a BigQuery 403
+// must not make the kernel dispatcher re-run and rescan the Postgres rollup.
 func TestFirebaseFailureDoesNotStrandFirstPartyDatesPostgres(t *testing.T) {
 	pool := pgtest.StartPostgres(t, context.Background())
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -258,8 +259,8 @@ func TestFirebaseFailureDoesNotStrandFirstPartyDatesPostgres(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := runAppEventsAndFinish(ctx, pool, cfg, runID, time.Now()); err == nil {
-		t.Fatal("provider configuration failure must remain visible")
+	if err := runAppEventsAndFinish(ctx, pool, cfg, runID, time.Now()); err != nil {
+		t.Fatalf("optional export failure failed the job: %v", err)
 	}
 	var dates int
 	if err := pool.QueryRow(ctx, `SELECT count(DISTINCT event_date) FROM analytics.engagement_daily WHERE tenant_id=$1 AND event_date BETWEEN $2::date-2 AND $2::date`, testTenantID, day).Scan(&dates); err != nil {
@@ -272,8 +273,19 @@ func TestFirebaseFailureDoesNotStrandFirstPartyDatesPostgres(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT status FROM analytics.rollup_run WHERE run_id=$1`, runID).Scan(&status); err != nil {
 		t.Fatal(err)
 	}
-	if status != "failed" {
-		t.Fatalf("status=%s; want failed", status)
+	var auditErr string
+	if err := pool.QueryRow(ctx, `SELECT status,COALESCE(error,'') FROM analytics.rollup_run WHERE run_id=$1`, runID).Scan(&status, &auditErr); err != nil {
+		t.Fatal(err)
+	}
+	if status != "degraded" || auditErr == "" {
+		t.Fatalf("status=%s error=%q; want degraded with the export error visible", status, auditErr)
+	}
+	var watermarks int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM analytics.rollup_day_watermark WHERE tenant_id=$1`, testTenantID).Scan(&watermarks); err != nil {
+		t.Fatal(err)
+	}
+	if watermarks != 3 {
+		t.Fatalf("watermarks=%d; first-party days must commit independently of the export", watermarks)
 	}
 }
 
@@ -310,6 +322,123 @@ func TestProofDeliveryRecoveryAndOriginalFallbackPostgres(t *testing.T) {
 		}
 		if completed != 2 || dropped != 2 || p50 != 2000 {
 			t.Fatalf("completed=%d dropped=%d p50=%d; want 2,2,2000", completed, dropped, p50)
+		}
+	}
+}
+
+// Steady-state reruns (the kernel refire case) must not rescan the lookback:
+// a day recomputes only when rows arrived after its watermark or it crosses
+// its finalization instant; --force-recompute still backfills every day.
+func TestAppEventsWatermarkSkipsUnchangedDaysPostgres(t *testing.T) {
+	pool := pgtest.StartPostgres(t, context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	day, _ := time.ParseInLocation("2006-01-02", "2020-09-15", biztime.DefaultLocation())
+	cfg := config{TenantID: testTenantID, SourceDate: day, Source: "app_events", LookbackDays: 3}
+	addEvent := func(id string, at time.Time) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, `INSERT INTO analytics.app_events(tenant_id,actor_id,device_id,event_name,properties,client_event_id,client_event_time,received_at)
+   VALUES($1,'00000000-0000-4000-8000-000000000002','d1','route_entered','{"journey_id":"j"}',$2,$3,now())`, testTenantID, id, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rolled := func() map[string]time.Time {
+		t.Helper()
+		out := map[string]time.Time{}
+		r, err := pool.Query(ctx, `SELECT event_date::text,rolled_at FROM analytics.rollup_day_watermark WHERE tenant_id=$1`, testTenantID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer r.Close()
+		for r.Next() {
+			var d string
+			var at time.Time
+			if err := r.Scan(&d, &at); err != nil {
+				t.Fatal(err)
+			}
+			out[d] = at
+		}
+		return out
+	}
+	run := func(c config) {
+		t.Helper()
+		id, err := startRollupRun(ctx, pool, day)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := runAppEventsAndFinish(ctx, pool, c, id, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	addEvent("a", day.Add(time.Hour))
+	run(cfg)
+	first := rolled()
+	if len(first) != 3 {
+		t.Fatalf("first run rolled %d days; want 3", len(first))
+	}
+	// Move the watermarks past the insert slack so the seeded rows count as seen.
+	if _, err := pool.Exec(ctx, `UPDATE analytics.rollup_day_watermark SET received_through=now()`); err != nil {
+		t.Fatal(err)
+	}
+	first = rolled()
+	run(cfg)
+	if again := rolled(); !again["2020-09-13"].Equal(first["2020-09-13"]) || !again["2020-09-15"].Equal(first["2020-09-15"]) {
+		t.Fatalf("unchanged rerun recomputed days: before=%v after=%v", first, again)
+	}
+	// A late event for D-2 (2020-09-13) invalidates D-2 (own day), D-3's D+1
+	// window is outside the lookback, and later days via their 7-day WAU window.
+	addEvent("late", day.AddDate(0, 0, -2).Add(time.Hour))
+	run(cfg)
+	after := rolled()
+	for _, d := range []string{"2020-09-13", "2020-09-14", "2020-09-15"} {
+		if after[d].Equal(first[d]) {
+			t.Fatalf("day %s not recomputed after a late event in its window", d)
+		}
+	}
+	var dau int64
+	if err := pool.QueryRow(ctx, `SELECT dau FROM analytics.engagement_daily WHERE tenant_id=$1 AND event_date='2020-09-13'`, testTenantID).Scan(&dau); err != nil || dau != 1 {
+		t.Fatalf("late event not reflected: dau=%d err=%v", dau, err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE analytics.rollup_day_watermark SET received_through=now()`); err != nil {
+		t.Fatal(err)
+	}
+	before := rolled()
+	cfg.ForceRecompute = true
+	run(cfg)
+	if forced := rolled(); forced["2020-09-14"].Equal(before["2020-09-14"]) {
+		t.Fatal("--force-recompute skipped a day")
+	}
+}
+
+// Every rollup_run terminal status the dispatcher reads: 'succeeded' (all
+// adapters ok), 'degraded' (first-party committed, optional export failed,
+// exit 0) and 'failed' (first-party Postgres rollup failed, exit non-zero).
+func TestRollupRunStatusMatrixPostgres(t *testing.T) {
+	pool := pgtest.StartPostgres(t, context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	day, _ := time.ParseInLocation("2006-01-02", "2020-09-15", biztime.DefaultLocation())
+	for _, tc := range []struct {
+		name    string
+		cfg     config
+		status  string
+		wantErr bool
+	}{
+		{"succeeded", config{TenantID: testTenantID, SourceDate: day, Source: "app_events", LookbackDays: 1}, "succeeded", false},
+		{"degraded", config{TenantID: testTenantID, SourceDate: day, Source: "app_events", LookbackDays: 1, ForceRecompute: true, CrashlyticsTable: "invalid"}, "degraded", false},
+		{"failed", config{TenantID: "not-a-uuid", SourceDate: day, Source: "app_events", LookbackDays: 1, ForceRecompute: true}, "failed", true},
+	} {
+		run, err := startRollupRun(ctx, pool, day)
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = runAppEventsAndFinish(ctx, pool, tc.cfg, run, time.Now())
+		if (err != nil) != tc.wantErr {
+			t.Fatalf("%s: err=%v wantErr=%v", tc.name, err, tc.wantErr)
+		}
+		var status string
+		if err := pool.QueryRow(ctx, `SELECT status FROM analytics.rollup_run WHERE run_id=$1`, run).Scan(&status); err != nil || status != tc.status {
+			t.Fatalf("%s: status=%s err=%v", tc.name, status, err)
 		}
 	}
 }
