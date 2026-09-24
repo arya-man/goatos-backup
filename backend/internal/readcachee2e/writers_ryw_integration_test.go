@@ -89,14 +89,14 @@ ON CONFLICT DO NOTHING`)
 			t.Fatalf("ExitGoat: %v", err)
 		}
 	})
-	pair.Check(t, ctx, "identity CorrectCensusSlice", tenant, parks, true, func(t *testing.T) {
+	pair.Check(t, ctx, "identity census correction", tenant, parks, true, func(t *testing.T) {
 		if _, err := repo.CorrectCensusSlice(ctx, identityports.CorrectCensusSliceCommand{
 			TenantID: tenant, ActorID: operator, ClientIdempotencyKey: "ryw-census", StoredIdempotencyKey: "ryw-census",
-			IdempotencyScope: "correctCensusSlice", RequestHash: "ryw-census", TraceID: "ryw-census",
+			IdempotencyScope: "correctCensusRow", RequestHash: "ryw-census", TraceID: "ryw-census",
 			ShedID: shedLump, ManagementStage: "kid", Breed: "Beetal", Sex: "male", Field: "breed", Value: "Sirohi",
 			Reason: "e2e", OccurredAt: at,
 		}); err != nil {
-			t.Fatalf("CorrectCensusSlice: %v", err)
+			t.Fatalf("census correction: %v", err)
 		}
 	})
 	pair.Check(t, ctx, "identity ReclassifyShedStage", tenant, parks, true, func(t *testing.T) {
