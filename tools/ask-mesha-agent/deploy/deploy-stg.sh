@@ -16,7 +16,9 @@ UPLOADS_BUCKET="${ASK_MESHA_UPLOADS_BUCKET:-goatos-stg-ask-mesha}"
 #   oauth     `claude setup-token` subscription token (personal plans are for the
 #             subscriber's own use; not for a shared multi-user service).
 CLAUDE_AUTH="${ASK_MESHA_CLAUDE_AUTH:-vertex}"
-VERTEX_REGION="${ASK_MESHA_VERTEX_REGION:-us-east5}"
+# claude-sonnet-5 / claude-opus-5-5 are GA only on the Vertex global endpoint (verified 2026-09-24;
+# 404 in asia-south1 and us-east5). global = capacity routing, not pinned to India.
+VERTEX_REGION="${ASK_MESHA_VERTEX_REGION:-global}"
 SECRET_ANTHROPIC="${ASK_MESHA_SECRET_ANTHROPIC:-goatos-stg-ask-mesha-anthropic-api-key}"
 SECRET_OAUTH="${ASK_MESHA_SECRET_OAUTH:-goatos-stg-ask-mesha-claude-oauth-token}"
 SECRET_APP_DB="${ASK_MESHA_SECRET_APP_DB:-goatos-stg-ask-mesha-db-url}"
@@ -70,7 +72,7 @@ gcloud run deploy "$SERVICE" \
   --no-cpu-throttling \
   --execution-environment=gen2 \
   --add-cloudsql-instances="$CLOUDSQL_INSTANCE" \
-  --set-env-vars="ASK_MESHA_UPLOADS_BUCKET=${UPLOADS_BUCKET},ASK_MESHA_READONLY=1,ASK_MESHA_DB_MIGRATE=1,ASK_MESHA_MONTHLY_BUDGET_USD=${ASK_MESHA_MONTHLY_BUDGET_USD:-100},ASK_MESHA_PER_ANSWER_BUDGET_USD=${ASK_MESHA_PER_ANSWER_BUDGET_USD:-1},GOATOS_BASE_SHA=${COMMIT_TAG}${CLAUDE_ENV:+,${CLAUDE_ENV}}" \
+  --set-env-vars="ASK_MESHA_UPLOADS_BUCKET=${UPLOADS_BUCKET},ASK_MESHA_READONLY=1,ASK_MESHA_DB_MIGRATE=1,ASK_MESHA_MONTHLY_BUDGET_USD=${ASK_MESHA_MONTHLY_BUDGET_USD:-100},ASK_MESHA_PER_ANSWER_BUDGET_USD=${ASK_MESHA_PER_ANSWER_BUDGET_USD:-1},ASK_MESHA_DEEP_ANSWER_BUDGET_USD=${ASK_MESHA_DEEP_ANSWER_BUDGET_USD:-5},ASK_MESHA_DB_POOL=${ASK_MESHA_DB_POOL:-5},GOATOS_BASE_SHA=${COMMIT_TAG}${CLAUDE_ENV:+,${CLAUDE_ENV}}" \
   --set-secrets="${CLAUDE_SECRET}ASK_MESHA_DATABASE_URL=${SECRET_APP_DB}:latest,ASK_MESHA_READONLY_DB_URL=${SECRET_RO_DB}:latest" \
   --update-labels="commit_sha=${COMMIT_TAG},deployed_by=cloud-build" \
   --quiet

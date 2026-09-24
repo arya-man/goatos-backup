@@ -132,8 +132,9 @@ Not the answer: per-tenant copies of tables/schemas (344× duplication and migra
 ## Claude access
 
 - `ASK_MESHA_CLAUDE_AUTH=vertex` (default on GCP): Claude Sonnet 5 / Opus 5.5 via Vertex AI with the
-  runtime service account (`roles/aiplatform.user`), billed to GCP, no key. Confirm model ids/region
-  in Model Garden (`ASK_MESHA_MODEL`, `ASK_MESHA_DEEP_MODEL`, `ASK_MESHA_VERTEX_REGION`).
+  runtime service account (`roles/aiplatform.user`), billed to GCP, no key. Model ids `claude-sonnet-5` /
+  `claude-opus-5-5` verified GA on Vertex 2026-09-24 **only on the `global` endpoint** (not asia-south1/us-east5;
+  `global` is not India-pinned). goatos-stg needs a Claude quota increase first (it returned 429) — RUNBOOK §3b.
 - `api-key`: Anthropic Console key in Secret Manager. `oauth`: `claude setup-token` — a personal
   Pro/Max plan is for its owner's own use; do not power the shared service with it.
 - Local laptop testing may use the developer's own Claude login.

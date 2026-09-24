@@ -25,7 +25,14 @@ WORKDIR /app
 COPY --from=deps --chown=root:root /app/node_modules ./node_modules
 COPY --chown=root:root tools/ask-mesha-agent/ ./
 COPY --chown=root:root tools/ask-mesha-agent/deploy/entrypoint.sh /usr/local/bin/ask-mesha-entrypoint
-RUN rm -rf /app/deploy/*.md && chmod 0755 /usr/local/bin/ask-mesha-entrypoint
+# Runtime = server.mjs lib.mjs events.mjs store.mjs uploads.mjs sql/*.sql package*.json;
+# data-map-core.md is read from /repo (GOATOS_REPO). Drop tests, bench, dev tooling.
+RUN rm -rf /app/deploy /app/test /app/*.test.mjs /app/bench.mjs /app/schedule \
+      /app/gen-data-map.mjs /app/refresh-data-map.sh /app/start-admin-web.sh /app/README.md \
+ && for f in server.mjs lib.mjs events.mjs store.mjs uploads.mjs sql/001_init.sql sql/002_events.sql; do \
+      test -f "/app/$f" || { echo "missing runtime file $f" >&2; exit 1; }; done \
+ && test -f /repo/tools/ask-mesha-agent/data-map-core.md \
+ && chmod 0755 /usr/local/bin/ask-mesha-entrypoint
 ENV NODE_ENV=production \
     HOST=0.0.0.0 \
     PORT=8080 \
