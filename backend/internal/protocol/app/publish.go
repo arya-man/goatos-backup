@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -1141,6 +1143,9 @@ func validateVaccinationComboLimits(env ruleDSLEnvelope) error {
 		}
 	}
 	if len(env.ProcurementPolicy) == 0 || string(env.ProcurementPolicy) == "null" {
+		if strings.EqualFold(strings.TrimSpace(env.RulesetFamily), "vaccination.matrix") || strings.EqualFold(strings.TrimSpace(env.Vaccine.Code), "vaccination.matrix") {
+			return fmt.Errorf("%w: procurement_policy.purpose_plans.fattening is required", ErrNotPublishable)
+		}
 		return nil
 	}
 	proc, err := decodeRuleDSLObject(env.ProcurementPolicy, "rule_dsl.procurement_policy", ruleDSLProcurementPolicyKeys)
@@ -1161,6 +1166,7 @@ func validateVaccinationComboLimits(env ruleDSLEnvelope) error {
 		if err := json.Unmarshal(raw, &purposePlans); err != nil {
 			return fmt.Errorf("%w: procurement_policy.purpose_plans must be an object", ErrNotPublishable)
 		}
+		fatteningFound := false
 		for purpose, purposePlan := range purposePlans {
 			if purpose != "breeding" && purpose != "fattening" {
 				return fmt.Errorf("%w: procurement_policy.purpose_plans has unknown purpose %q", ErrNotPublishable, purpose)
@@ -1179,9 +1185,61 @@ func validateVaccinationComboLimits(env ruleDSLEnvelope) error {
 					return err
 				}
 			}
+			if purpose == "fattening" {
+				fatteningFound = true
+				if err := validateFatteningVaccinationPlan(purposePlan); err != nil {
+					return err
+				}
+			}
 		}
+		if !fatteningFound {
+			return fmt.Errorf("%w: procurement_policy.purpose_plans.fattening is required", ErrNotPublishable)
+		}
+	} else {
+		return fmt.Errorf("%w: procurement_policy.purpose_plans.fattening is required", ErrNotPublishable)
 	}
 	return nil
+}
+
+func validateFatteningVaccinationPlan(plan map[string]json.RawMessage) error {
+	var secondWaveAfterDays int32
+	if err := json.Unmarshal(plan["second_wave_after_days"], &secondWaveAfterDays); err != nil || secondWaveAfterDays != 28 {
+		return fmt.Errorf("%w: procurement_policy.purpose_plans.fattening.second_wave_after_days must be 28", ErrNotPublishable)
+	}
+	wave := func(key string) ([]string, error) {
+		var values []string
+		if err := json.Unmarshal(plan[key], &values); err != nil {
+			return nil, fmt.Errorf("%w: procurement_policy.purpose_plans.fattening.%s must be a string array", ErrNotPublishable, key)
+		}
+		for i := range values {
+			values[i] = normalizeVaccinationPlanName(values[i])
+		}
+		sort.Strings(values)
+		return values, nil
+	}
+	require := func(key string, want []string) error {
+		got, err := wave(key)
+		if err != nil {
+			return err
+		}
+		sort.Strings(want)
+		if !slices.Equal(got, want) {
+			return fmt.Errorf("%w: procurement_policy.purpose_plans.fattening.%s must be %v", ErrNotPublishable, key, want)
+		}
+		return nil
+	}
+	if err := require("first_wave", []string{"ettt", "ppr"}); err != nil {
+		return err
+	}
+	if err := require("goat_second_wave", []string{"goatpox"}); err != nil {
+		return err
+	}
+	return require("sheep_second_wave", []string{"sheeppox"})
+}
+
+func normalizeVaccinationPlanName(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	return strings.NewReplacer(" ", "", "_", "", "+", "", "-", "").Replace(value)
 }
 
 func validateProcurementSecondWaveGap(raw json.RawMessage, label string) error {

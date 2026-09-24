@@ -127,6 +127,7 @@ type fakeWriter struct {
 	lastAuthorizedParks   []string
 	lastOverride          *obligationdomain.VaccineDriveDateOverride
 	overrideResult        *obligationdomain.VaccineDriveDateOverride
+	overrideErr           error
 }
 
 func (f *fakeReader) VaccinationOperations(_ context.Context, q domain.OperationsQuery) (domain.OperationsResponse, error) {
@@ -253,10 +254,28 @@ func (w *fakeWriter) RescheduleObligationByID(ctx context.Context, tenantID, obl
 
 func (w *fakeWriter) UpsertVaccinationDriveDateOverride(ctx context.Context, override obligationdomain.VaccineDriveDateOverride) (*obligationdomain.VaccineDriveDateOverride, error) {
 	w.lastOverride = &override
+	if w.overrideErr != nil {
+		return nil, w.overrideErr
+	}
 	if w.overrideResult != nil {
 		return w.overrideResult, nil
 	}
 	return &override, nil
+}
+
+func TestUpsertDriveDateOverrideMapsVaccinationAgeFloorTo422(t *testing.T) {
+	const testTenantID = "00000000-0000-4000-8000-000000000001"
+	writer := &fakeWriter{overrideErr: obligationports.ErrBeforeVaccinationAgeFloor}
+	h := NewHandler(&fakeReader{}, writer).WithClock(func() time.Time {
+		return time.Date(2026, 7, 22, 9, 0, 0, 0, biztime.DefaultLocation())
+	})
+	req := httptest.NewRequest(http.MethodPost, "/vaccination/schedule/drive-date-overrides", strings.NewReader(`{"park_id":"20000000-0000-4000-8000-000000000001","vaccine_code":"ET+TT","original_drive_date":"2026-08-01","override_date":"2026-08-08","reason":"move"}`))
+	req = req.WithContext(httpmiddleware.WithActorID(httpmiddleware.WithTenantID(req.Context(), testTenantID), "30000000-0000-4000-8000-000000000077"))
+	rec := httptest.NewRecorder()
+	h.UpsertDriveDateOverride(rec, req)
+	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "due_at_before_vaccination_age_floor") {
+		t.Fatalf("status=%d body=%s, want age-floor 422", rec.Code, rec.Body.String())
+	}
 }
 
 func TestUpsertDriveDateOverrideReturnsClinicalShiftMetadata(t *testing.T) {
@@ -1175,6 +1194,18 @@ func TestRescheduleObligationMapsNotFoundTo404(t *testing.T) {
 	}
 	if env.Code != "not_found" {
 		t.Fatalf("error code = %q want not_found", env.Code)
+	}
+}
+
+func TestRescheduleObligationMapsVaccinationAgeFloorTo422(t *testing.T) {
+	writer := &fakeWriter{rescheduleErr: obligationports.ErrBeforeVaccinationAgeFloor}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(&fakeReader{}, writer))
+	future := time.Now().Add(48 * time.Hour).UTC().Format(time.RFC3339)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, buildRescheduleRequest(t, rescheduleObligationID, "idem-key-age-floor", `{"due_at":"`+future+`"}`))
+	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "due_at_before_vaccination_age_floor") {
+		t.Fatalf("status=%d body=%s, want age-floor 422", rec.Code, rec.Body.String())
 	}
 }
 

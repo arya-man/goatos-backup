@@ -185,6 +185,52 @@ func syncVaccinationObligationDatesFromAssignmentsTx(ctx context.Context, tx pgx
 	if len(batchIDs) == 0 {
 		return nil
 	}
+	lockedRows, err := tx.Query(ctx, `
+SELECT oi.rule_id, oi.target_type, oi.target_id,
+       (vda.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS planned_at
+FROM vaccination_drive_assignment_members m
+JOIN vaccination_drive_assignments vda
+  ON vda.tenant_id = m.tenant_id AND vda.assignment_id = m.assignment_id
+JOIN obligation_instances oi
+  ON oi.tenant_id = m.tenant_id AND oi.obligation_id = m.obligation_id
+JOIN protocol_rules pr
+  ON pr.tenant_id = oi.tenant_id AND pr.rule_id = oi.rule_id
+JOIN protocol_versions pv
+  ON pv.tenant_id = pr.tenant_id AND pv.protocol_version_id = pr.protocol_version_id
+JOIN protocol_definitions pd
+  ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
+JOIN goats g
+  ON g.tenant_id = oi.tenant_id AND g.goat_id = oi.target_id
+WHERE oi.tenant_id = $1
+  AND oi.batch_id = ANY($2::uuid[])
+  AND oi.target_type = 'goat'
+FOR UPDATE OF m, vda, oi`, tenant, batchIDs)
+	if err != nil {
+		return fmt.Errorf("obligation: lock drive date vaccination age floor rows: %w", err)
+	}
+	defer lockedRows.Close()
+	type lockedVaccinationWrite struct {
+		rule, target pgtype.UUID
+		targetType   string
+		dueAt        time.Time
+	}
+	var writes []lockedVaccinationWrite
+	for lockedRows.Next() {
+		var write lockedVaccinationWrite
+		if err := lockedRows.Scan(&write.rule, &write.targetType, &write.target, &write.dueAt); err != nil {
+			return fmt.Errorf("obligation: scan drive date vaccination age floor: %w", err)
+		}
+		writes = append(writes, write)
+	}
+	if err := lockedRows.Err(); err != nil {
+		return fmt.Errorf("obligation: iterate drive date vaccination age floor: %w", err)
+	}
+	lockedRows.Close()
+	for _, write := range writes {
+		if err := enforceVaccinationWriteConstraints(ctx, tx, tenant, write.rule, write.targetType, write.target, write.dueAt); err != nil {
+			return fmt.Errorf("drive override violates vaccination rule floor: %w", err)
+		}
+	}
 	// scale-guard:ignore: bounded to touched batch IDs inside the date-override transaction; projection-review marker below records membership/date/status grain.
 	if _, err := tx.Exec(ctx, `
 -- projection-review: membership=vaccination_drive_assignment_members is UNIQUE by (tenant_id, obligation_id), so every touched obligation joins to at most one executable assignment; group_key=obligation_id; join_cardinality=members:assignment is N:1 and members:obligation is 1:1 by obligation_id; pagination=bounded by explicit touched batch ids; scope=one tenant and the re-planned batches.
