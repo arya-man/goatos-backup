@@ -38,6 +38,65 @@ import retrofit2.HttpException
 @Config(sdk = [34])
 class ExecutionRepositoryPaginationTest {
     @Test
+    fun `card union includes overdue today and legacy memberships but excludes older closed work`() = runTest {
+        withRepository { repository, backend, requests ->
+            val selectors = listOf(
+                ScanRosterSelector(assignmentId = "assignment-overdue", plannedDate = "2026-09-23"),
+                ScanRosterSelector(assignmentId = "assignment-today", plannedDate = "2026-09-24"),
+                ScanRosterSelector(batchId = "legacy-batch", plannedDate = "2026-09-22"),
+            )
+            val scope = ScanRosterDateScope("2026-09-24", selectors)
+            backend.response = {
+                val request = requests.last()
+                val member = when {
+                    request.assignmentId == "assignment-overdue" && request.plannedDate == "2026-09-23" -> "a"
+                    request.assignmentId == "assignment-today" && request.plannedDate == "2026-09-24" -> "b"
+                    request.batchId == "legacy-batch" && request.plannedDate == "2026-09-22" -> "c"
+                    else -> "closed-unselected"
+                }
+                ScanRosterResponseDto(rows = listOf(ScanRosterRowDto(goatId = "goat-$member", primaryTag = "TAG-$member",
+                    vaccineLabel = "ET+TT", status = "due", obligationId = "obl-$member", taskId = "task-$member")))
+            }
+            repository.refreshAssignmentScanRosterForDate(SHED_ID, null, null, PAGE_SIZE, "3", scope.plannedDate, selectors).getOrThrow()
+            assertEquals(listOf("goat-a", "goat-b", "goat-c"), repository.observeAssignmentScanRosterRows(SHED_ID, null, null, 20, "3", scope).first().map { it.goatId })
+            assertEquals(listOf("task-a", "task-b", "task-c"), repository.observeAssignmentScanRosterTaskIds(SHED_ID, null, null, "3", scope).first())
+            assertNull(repository.findAssignmentScanRosterByTag(SHED_ID, null, null, "tagclosedunselected", "3", scope))
+            assertEquals(3, requests.size)
+            assertEquals(scanRosterRowScopeKey(SHED_ID, null, "3", null, scope), scanRosterRowScopeKey(SHED_ID, null, "3", null, scope.copy(selectors = selectors.reversed())))
+            assertEquals(0, repository.observeAssignmentScanRosterTotal(SHED_ID, null, null, "3", scope.copy(selectors = selectors.take(1))).first())
+            backend.response = { if (requests.last().assignmentId == "assignment-today") throw IOException("offline second member") else ScanRosterResponseDto(rows = emptyList()) }
+            assertTrue(repository.refreshAssignmentScanRosterForDate(SHED_ID, null, null, PAGE_SIZE, "3", scope.plannedDate, selectors).isFailure)
+            assertEquals(3, repository.observeAssignmentScanRosterTotal(SHED_ID, null, null, "3", scope).first())
+        }
+    }
+
+    @Test
+    fun `two dated combined rosters cannot replace or scan each other offline`() = runTest {
+        withRepository { repository, backend, _ ->
+            val first = ScanRosterDateScope("2026-09-23")
+            val second = ScanRosterDateScope("2026-09-24")
+            backend.response = { ScanRosterResponseDto(rows = listOf(ScanRosterRowDto(
+                goatId = "goat-a", primaryTag = "TAG-A", vaccineLabel = "ET+TT", status = "done",
+                obligationId = "obl-a", taskId = "task-a"))) }
+            repository.refreshAssignmentScanRosterForDate(SHED_ID, null, null, PAGE_SIZE, "3", first.plannedDate).getOrThrow()
+            backend.response = { throw IOException("offline") }
+            assertTrue(repository.refreshAssignmentScanRosterForDate(SHED_ID, null, null, PAGE_SIZE, "3", second.plannedDate).isFailure)
+            assertEquals(0, repository.observeAssignmentScanRosterTotal(SHED_ID, null, null, "3", second).first())
+            assertNull(repository.findAssignmentScanRosterByTag(SHED_ID, null, null, "taga", "3", second))
+            assertEquals(emptyList<String>(), repository.observeAssignmentScanRosterTaskIds(SHED_ID, null, null, "3", second).first())
+            backend.response = { ScanRosterResponseDto(rows = listOf(ScanRosterRowDto(
+                goatId = "goat-b", primaryTag = "TAG-B", vaccineLabel = "ET+TT", status = "due",
+                obligationId = "obl-b", taskId = "task-b"))) }
+            repository.refreshAssignmentScanRosterForDate(SHED_ID, null, null, PAGE_SIZE, "3", second.plannedDate).getOrThrow()
+            assertEquals(listOf("goat-a"), repository.observeAssignmentScanRosterRows(SHED_ID, null, null, 20, "3", first).first().map { it.goatId })
+            assertEquals(listOf("goat-b"), repository.observeAssignmentScanRosterRows(SHED_ID, null, null, 20, "3", second).first().map { it.goatId })
+            assertEquals(listOf("goat-a"), repository.observeAssignmentScanRosterDoneGoatIds(SHED_ID, null, null, "3", first).first())
+            assertEquals(emptyList<String>(), repository.observeAssignmentScanRosterDoneGoatIds(SHED_ID, null, null, "3", second).first())
+            assertEquals(emptyList<sg.mesha.goatos.core.data.cache.ScanRosterRowEntity>(), repository.assignmentScanRosterRowsByGoatIds(SHED_ID, null, null, listOf("goat-a"), "3", second))
+        }
+    }
+
+    @Test
     fun `combined roster observes all row task identities outside visible window`() = runTest {
         withRepository { repository, backend, _ ->
             backend.response = { cursor ->
@@ -65,6 +124,8 @@ class ExecutionRepositoryPaginationTest {
         val partitionLabel: String?,
         val assignmentId: String? = null,
         val includeCardSummaries: Boolean? = null,
+        val plannedDate: String? = null,
+        val batchId: String? = null,
     )
 
     @Test
@@ -603,7 +664,7 @@ class ExecutionRepositoryPaginationTest {
             val backend = Backend()
             val api = Proxy.newProxyInstance(AppApi::class.java.classLoader, arrayOf(AppApi::class.java)) { proxy, method, args ->
                 when (method.name) {
-                    "getScanRoster", "getScanRosterForDate" -> {
+                    "getScanRoster", "getScanRosterForDate", "getScanRosterForSelection" -> {
                         val request = Request(
                             shedId = args?.get(0) as String,
                             taskId = args[1] as String?,
@@ -611,6 +672,8 @@ class ExecutionRepositoryPaginationTest {
                             limit = args[3] as Int?,
                             partitionLabel = args[4] as String?,
                             assignmentId = args[5] as String?,
+                            plannedDate = if (method.name != "getScanRoster") args[6] as String? else null,
+                            batchId = if (method.name == "getScanRosterForSelection") args[7] as String? else null,
                         )
                         requests += request
                         if (backend.offlineCursor != null && backend.offlineCursor == request.cursor) {

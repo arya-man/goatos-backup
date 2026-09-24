@@ -137,6 +137,8 @@ class ScanViewModel @Inject constructor(
     private val assignmentId: String? = savedStateHandle.get<String>("assignmentId")?.takeIf { it.isNotBlank() }
     private val partitionLabel: String? = savedStateHandle.get<String>("partitionLabel")?.takeIf { it.isNotBlank() }
     private val plannedDate: String? = savedStateHandle.get<String>("plannedDate")?.takeIf { it.isNotBlank() }
+    private val rosterSelectors = sg.mesha.goatos.core.data.decodeScanRosterSelectors(savedStateHandle.get<String>("rosterSelectors"))
+    private val rosterDateScope = plannedDate?.let { sg.mesha.goatos.core.data.ScanRosterDateScope(it, rosterSelectors) }
     private val sopVersionId: String? = savedStateHandle.get<String>("sopVersionId")?.takeIf { it.isNotBlank() }
     private val taskRowVersion: Int? = savedStateHandle.get<Int>("taskRowVersion")?.takeIf { it > 0 }
     private val routeScanTitle: String? = savedStateHandle.get<String>("scanTitle")?.takeIf { it.isNotBlank() }
@@ -155,7 +157,7 @@ class ScanViewModel @Inject constructor(
     private val observedRows: StateFlow<List<ScanRosterRowEntity>> =
         (if (shedId != null) {
             _windowSize.flatMapLatest { size ->
-                repo.observeAssignmentScanRosterRows(shedId, taskId, assignmentId, windowSize = size, partitionLabel = partitionLabel)
+                repo.observeAssignmentScanRosterRows(shedId, taskId, assignmentId, windowSize = size, partitionLabel = partitionLabel, dateScope = rosterDateScope)
             }
         } else {
             flowOf(emptyList())
@@ -163,27 +165,27 @@ class ScanViewModel @Inject constructor(
 
     // Full-roster row count for this scope (page-independent) — drives hasMore and the sync/error gates.
     private val rosterTotal: StateFlow<Int> =
-        (if (shedId != null) repo.observeAssignmentScanRosterTotal(shedId, taskId, assignmentId, partitionLabel) else flowOf(0))
+        (if (shedId != null) repo.observeAssignmentScanRosterTotal(shedId, taskId, assignmentId, partitionLabel, dateScope = rosterDateScope) else flowOf(0))
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
 
     // Every DONE animal across the FULL roster (backend-persisted status), page-independent. The
     // submit proof gate unions this with the session local-done overlay and requires a synced proof
     // for each; see [computeProofGate].
     private val persistedDoneGoatIds: StateFlow<List<String>> =
-        (if (shedId != null) repo.observeAssignmentScanRosterDoneGoatIds(shedId, taskId, assignmentId, partitionLabel) else flowOf(emptyList()))
+        (if (shedId != null) repo.observeAssignmentScanRosterDoneGoatIds(shedId, taskId, assignmentId, partitionLabel, dateScope = rosterDateScope) else flowOf(emptyList()))
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     // R50-008: full-roster status aggregates (Room GROUP BY, page-independent). Re-emits on every
     // roster upsert; combined into [state] so ring/tile counters are identical for page size 1 and 20.
     private val statusCounts: StateFlow<List<StatusCount>> =
         (if (shedId != null) {
-            repo.observeAssignmentScanRosterStatusCounts(shedId, taskId, assignmentId, partitionLabel)
+            repo.observeAssignmentScanRosterStatusCounts(shedId, taskId, assignmentId, partitionLabel, dateScope = rosterDateScope)
         } else {
             flowOf(emptyList())
         }).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private val rosterTaskIds =
-        (if (shedId != null) repo.observeAssignmentScanRosterTaskIds(shedId, taskId, assignmentId, partitionLabel)
+        (if (shedId != null) repo.observeAssignmentScanRosterTaskIds(shedId, taskId, assignmentId, partitionLabel, dateScope = rosterDateScope)
         else flowOf(emptyList())).map { ids ->
             (ids + listOfNotNull(taskId)).filter { it.isNotBlank() && it != "shed-wide" }.distinct().sorted()
         }.distinctUntilChanged()
@@ -678,7 +680,7 @@ class ScanViewModel @Inject constructor(
         _isRefreshing.value = true
         _refreshError.value = null
         taskId?.let { tasksRepository.refreshTaskDetail(it) }
-        val result = repo.refreshAssignmentScanRosterForDate(id, taskId, assignmentId, limit = SCAN_PAGE_SIZE, partitionLabel = partitionLabel, plannedDate = plannedDate)
+        val result = repo.refreshAssignmentScanRosterForDate(id, taskId, assignmentId, limit = SCAN_PAGE_SIZE, partitionLabel = partitionLabel, plannedDate = plannedDate, selectors = rosterSelectors)
         refreshShedCompletionSummary()
         _isRefreshing.value = false
         _isOffline.value = result.isFailure
@@ -1050,7 +1052,7 @@ class ScanViewModel @Inject constructor(
             // logic below runs.
             val target = scannedTagResolver.resolve(rawTag, normalizedTag, id, taskId, partitionLabel)
             // R50-007: Find by tag in full shed roster via bounded indexed Room query
-            val dbRow = repo.findAssignmentScanRosterByTag(id, taskId, assignmentId, target, partitionLabel) ?: run {
+            val dbRow = repo.findAssignmentScanRosterByTag(id, taskId, assignmentId, target, partitionLabel, dateScope = rosterDateScope) ?: run {
                 _proofReplacementGoatId.value = null
                 _duplicateNotice.value = null
                 _proofCaptureBusyNotice.value = false
@@ -1076,7 +1078,7 @@ class ScanViewModel @Inject constructor(
             // obligations for that goat, without touching neighbor animals or future cycles that
             // are not part of the active execution roster.
             val activeProofPolicy = proofPolicy.value ?: ProofPolicy.Default
-            val sameGoatRows = repo.assignmentScanRosterRowsByGoatIds(id, taskId, assignmentId, listOf(dbRow.goatId), partitionLabel)
+            val sameGoatRows = repo.assignmentScanRosterRowsByGoatIds(id, taskId, assignmentId, listOf(dbRow.goatId), partitionLabel, dateScope = rosterDateScope)
             val scannableSameGoatRows = sameGoatRows
                 .filter { it.status.isCurrentScannableObligationStatus() }
             if (scannableSameGoatRows.isEmpty()) {
@@ -1428,7 +1430,7 @@ class ScanViewModel @Inject constructor(
         val extraDone = if (localDone.isEmpty()) {
             0
         } else {
-            repo.getAssignmentScanRosterStatusCountsFor(id, taskId, assignmentId, localDone.toList(), partitionLabel)
+            repo.getAssignmentScanRosterStatusCountsFor(id, taskId, assignmentId, localDone.toList(), partitionLabel, dateScope = rosterDateScope)
                 .filter { statusOf(it.status) != ScanStatus.DONE }
                 .sumOf { it.count }
         }
@@ -1464,7 +1466,7 @@ class ScanViewModel @Inject constructor(
         val windowGoatIds = rows.mapTo(mutableSetOf()) { it.goatId }
         val missingGoatIds = doneGoatIds.filterNot { it in windowGoatIds }
         if (missingGoatIds.isEmpty()) return rows
-        val extra = repo.assignmentScanRosterRowsByGoatIds(id, taskId, assignmentId, missingGoatIds, partitionLabel)
+        val extra = repo.assignmentScanRosterRowsByGoatIds(id, taskId, assignmentId, missingGoatIds, partitionLabel, dateScope = rosterDateScope)
         if (extra.isEmpty()) return rows
         return (rows + extra).sortedBy { it.seq }
     }
@@ -1697,7 +1699,7 @@ class ScanViewModel @Inject constructor(
         val requiredRowsByGoat = if (requiredGoatIds.isEmpty()) {
             emptyMap()
         } else {
-            repo.assignmentScanRosterRowsByGoatIds(id, taskId, assignmentId, requiredGoatIds.toList(), partitionLabel)
+            repo.assignmentScanRosterRowsByGoatIds(id, taskId, assignmentId, requiredGoatIds.toList(), partitionLabel, dateScope = rosterDateScope)
                 .groupBy { it.goatId }
                 .mapValues { (_, rows) ->
                     rows.filter { it.status.isCurrentScannableObligationStatus() }
@@ -1766,7 +1768,7 @@ class ScanViewModel @Inject constructor(
         val actionNeeded = if (needsCaptureGoatIds.isEmpty()) {
             emptyList()
         } else {
-            repo.assignmentScanRosterRowsByGoatIds(id, taskId, assignmentId, needsCaptureGoatIds.toList(), partitionLabel)
+            repo.assignmentScanRosterRowsByGoatIds(id, taskId, assignmentId, needsCaptureGoatIds.toList(), partitionLabel, dateScope = rosterDateScope)
                 .collapseByGoat()
                 .sortedBy { it.seq }
                 .map { row ->
@@ -2256,7 +2258,7 @@ class ScanViewModel @Inject constructor(
             val row = (state.value.roster + state.value.proofActionNeeded)
                 .firstOrNull { it.goatId == goatId }
             val currentRows = shedId?.let { id ->
-                repo.assignmentScanRosterRowsByGoatIds(id, taskId, assignmentId, listOf(goatId), partitionLabel)
+                repo.assignmentScanRosterRowsByGoatIds(id, taskId, assignmentId, listOf(goatId), partitionLabel, dateScope = rosterDateScope)
             }.orEmpty()
             val failedProofs = observedProofs.value.orEmpty()
                 .filter { proof ->

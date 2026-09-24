@@ -2008,13 +2008,19 @@ INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, op
 VALUES ($1, $2, '2026-06-23', $3, $4, $5, 'TestShed', 'whole', 1, ARRAY[$6::uuid])`,
 		testTenant, testBatch, testOperator, testPark, testShed, etTTRule)
 	dayRoster, err := repo.ScanRoster(ctx, domain.ScanRosterQuery{
-		TenantID: testTenant, ShedID: testShed, PlannedDate: "2026-06-24", Limit: 20,
+		TenantID: testTenant, ShedID: testShed, BatchID: testBatch, PlannedDate: "2026-06-24", Limit: 20,
 	})
 	if err != nil {
 		t.Fatalf("ScanRoster planned date: %v", err)
 	}
 	if len(dayRoster.Rows) != 1 || dayRoster.Rows[0].ObligationID != etTTObl {
 		t.Fatalf("planned-date roster leaked another drive: %#v", dayRoster.Rows)
+	}
+	wrongBatch, err := repo.ScanRoster(ctx, domain.ScanRosterQuery{
+		TenantID: testTenant, ShedID: testShed, BatchID: "70000000-0000-4000-8000-000000009999", PlannedDate: "2026-06-24", Limit: 20,
+	})
+	if err != nil || len(wrongBatch.Rows) != 0 {
+		t.Fatalf("batch-scoped legacy roster leaked another batch: rows=%#v err=%v", wrongBatch.Rows, err)
 	}
 }
 

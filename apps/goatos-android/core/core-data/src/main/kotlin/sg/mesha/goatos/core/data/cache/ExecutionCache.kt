@@ -143,7 +143,7 @@ data class ScanRosterRowEntity(
 @Dao
 interface ScanRosterRowDao {
     /** Full active roster's execution identities, independent of the visible page. */
-    @Query("SELECT DISTINCT taskId FROM scan_roster_row WHERE scopeKey = :scopeKey AND taskId != '' AND taskId != 'shed-wide' ORDER BY taskId")
+    @Query("SELECT DISTINCT taskId FROM scan_roster_row WHERE scopeKey = :scopeKey AND taskId != '' AND taskId != 'shed-wide' ORDER BY taskId") // mobile-guard:ignore: distinct task IDs bounded by one active pen roster; offscreen proof/scan restoration
     fun observeTaskIds(scopeKey: String): Flow<List<String>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)

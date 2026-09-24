@@ -2530,7 +2530,7 @@ private class FakeScanExecutionRepository(
     override fun observeScanRosterTotal(shedId: String, taskId: String?, partitionLabel: String?): Flow<Int> =
         rows.map { list -> list.map { it.goatId }.filter { it.isNotBlank() }.distinct().size }
 
-    override fun observeAssignmentScanRosterTaskIds(shedId: String, taskId: String?, assignmentId: String?, partitionLabel: String?): Flow<List<String>> =
+    override fun observeAssignmentScanRosterTaskIds(shedId: String, taskId: String?, assignmentId: String?, partitionLabel: String?, dateScope: sg.mesha.goatos.core.data.ScanRosterDateScope?): Flow<List<String>> =
         rows.map { list -> list.map { it.taskId }.distinct() }
 
     override fun observeScanRosterDoneGoatIds(shedId: String, taskId: String?, partitionLabel: String?): Flow<List<String>> =

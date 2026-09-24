@@ -183,6 +183,7 @@ data class ShedRow(
     val partitionLabel: String? = null,
     val animalStage: String,
     val scheduleDateKey: String = "",
+    val rosterSelectors: String? = null,
     val scheduleDateLabel: String = "",
     val status: ShedStatus,
     val statusLabel: String,

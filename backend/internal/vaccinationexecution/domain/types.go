@@ -450,6 +450,7 @@ type ScanRosterQuery struct {
 	ShedID               string
 	PartitionLabel       string
 	AssignmentID         string
+	BatchID              string
 	PlannedDate          string
 	TaskID               string
 	OperatorScopeActorID string

@@ -70,8 +70,12 @@ class ExecutionRouteIdentityTest {
 
     @Test
     fun `collapsed mixed assignment card enters shed partition scan`() {
+        val selectors = sg.mesha.goatos.core.data.encodeScanRosterSelectors(listOf(
+            sg.mesha.goatos.core.data.ScanRosterSelector(assignmentId = "a", plannedDate = "2026-09-24"),
+            sg.mesha.goatos.core.data.ScanRosterSelector(batchId = "b", plannedDate = "2026-09-25"),
+        ))
         val route = shedExecutionRoute(
-            executableRow(taskId = null).copy(assignmentId = null, batchId = null),
+            executableRow(taskId = null).copy(assignmentId = null, batchId = null, rosterSelectors = selectors),
             Routes.VACCINATION,
         )
 
@@ -79,6 +83,7 @@ class ExecutionRouteIdentityTest {
         assertTrue(route.contains("shedId=shed-a"))
         assertTrue(route.contains("partitionLabel=Part%203"))
         assertTrue(route.contains("plannedDate=2026-09-25"))
+        assertTrue(route.contains("rosterSelectors=" + android.net.Uri.encode(selectors)))
         assertFalse(route.contains("assignmentId="))
         assertFalse(route.contains("taskId="))
         assertFalse(route.startsWith(Routes.RECORD))

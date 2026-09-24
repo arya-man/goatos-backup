@@ -495,7 +495,17 @@ class ShedsViewModel @Inject constructor(
                 // animalStage is a biological stage supplied by the execution contract.
                 // A drive label is not a cohort/stage and must not be substituted here.
                 animalStage = first.animalStage,
-                scheduleDateKey = scheduleDate?.toString().orEmpty(),
+                scheduleDateKey = selectedDay.toString(),
+                rosterSelectors = sg.mesha.goatos.core.data.encodeScanRosterSelectors(group.map { source ->
+                    val assignment = source.assignmentId?.takeIf(String::isNotBlank)
+                    val batch = source.batchId?.takeIf(String::isNotBlank).takeIf { assignment == null }
+                    sg.mesha.goatos.core.data.ScanRosterSelector(
+                        assignmentId = assignment,
+                        batchId = batch,
+                        taskId = source.sopTaskId?.takeIf(String::isNotBlank).takeIf { assignment == null && batch == null },
+                        plannedDate = source.currentScheduleDate,
+                    )
+                }),
                 scheduleDateLabel = scheduleDate?.let(::shortDateLabel).orEmpty(),
                 status = status,
                 statusLabel = statusLabel,

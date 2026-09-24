@@ -1122,6 +1122,7 @@ object Routes {
     const val EXECUTION_SCAN_TITLE_ARG = "scanTitle"
     const val EXECUTION_PARTITION_ARG = "partitionLabel"
     const val EXECUTION_PLANNED_DATE_ARG = "plannedDate"
+    const val EXECUTION_ROSTER_SELECTORS_ARG = "rosterSelectors"
     /**
      * Names WHICH weighing surface a destination renders, so the screen and its fetch never have
      * to ask who is looking. Set per route via a nav argument default value.
@@ -1163,7 +1164,8 @@ object Routes {
         scanTitle: String? = null,
         partitionLabel: String? = null,
         plannedDate: String? = null,
-    ): String = executionRoute(SCAN, shedId, driveId, assignmentId, batchId, taskId, sopVersionId, taskRowVersion, scanTitle, partitionLabel, plannedDate)
+        rosterSelectors: String? = null,
+    ): String = executionRoute(SCAN, shedId, driveId, assignmentId, batchId, taskId, sopVersionId, taskRowVersion, scanTitle, partitionLabel, plannedDate, rosterSelectors)
 
     fun submitRoute(
         shedId: String?,
@@ -1256,6 +1258,7 @@ object Routes {
         scanTitle: String?,
         partitionLabel: String?,
         plannedDate: String? = null,
+        rosterSelectors: String? = null,
     ): String {
         val args = buildList {
             shedId?.takeIf { it.isNotBlank() }?.let { add(SCAN_SHED_ARG to it) }
@@ -1268,6 +1271,7 @@ object Routes {
             scanTitle?.takeIf { it.isNotBlank() }?.let { add(EXECUTION_SCAN_TITLE_ARG to it) }
             partitionLabel?.takeIf { it.isNotBlank() }?.let { add(EXECUTION_PARTITION_ARG to it) }
             plannedDate?.takeIf { it.isNotBlank() }?.let { add(EXECUTION_PLANNED_DATE_ARG to it) }
+            rosterSelectors?.takeIf { it.isNotBlank() }?.let { add(EXECUTION_ROSTER_SELECTORS_ARG to it) }
         }
         if (args.isEmpty()) return base
         return "$base?" + args.joinToString("&") { (key, value) -> "$key=${Uri.encode(value)}" }
@@ -1425,6 +1429,7 @@ internal fun shedExecutionRoute(selected: ShedRow?, fallbackRoute: String): Stri
         scanTitle = selected.scanDisplayTitle(),
         partitionLabel = selected.partitionLabel,
         plannedDate = selected.scheduleDateKey,
+        rosterSelectors = selected.rosterSelectors,
     )
 }
 
@@ -2483,6 +2488,8 @@ fun AppNavHost(
                     append(":assignment=").append(entry.arguments?.getString(Routes.EXECUTION_ASSIGNMENT_ARG).orEmpty())
                     append(":task=").append(entry.arguments?.getString(Routes.EXECUTION_TASK_ARG).orEmpty())
                     append(":partition=").append(entry.arguments?.getString(Routes.EXECUTION_PARTITION_ARG).orEmpty())
+                    append(":date=").append(entry.arguments?.getString(Routes.EXECUTION_PLANNED_DATE_ARG).orEmpty())
+                    append(":members=").append(entry.arguments?.getString(Routes.EXECUTION_ROSTER_SELECTORS_ARG).orEmpty())
                 }
             }
             val vm: ScanViewModel = hiltViewModel(key = scanVmKey)
@@ -5368,7 +5375,8 @@ private fun executionRoutePattern(base: String): String =
         "&${Routes.EXECUTION_TASK_ROW_VERSION_ARG}={${Routes.EXECUTION_TASK_ROW_VERSION_ARG}}" +
         "&${Routes.EXECUTION_SCAN_TITLE_ARG}={${Routes.EXECUTION_SCAN_TITLE_ARG}}" +
         "&${Routes.EXECUTION_PARTITION_ARG}={${Routes.EXECUTION_PARTITION_ARG}}" +
-        "&${Routes.EXECUTION_PLANNED_DATE_ARG}={${Routes.EXECUTION_PLANNED_DATE_ARG}}"
+        "&${Routes.EXECUTION_PLANNED_DATE_ARG}={${Routes.EXECUTION_PLANNED_DATE_ARG}}" +
+        "&${Routes.EXECUTION_ROSTER_SELECTORS_ARG}={${Routes.EXECUTION_ROSTER_SELECTORS_ARG}}"
 
 /**
  * One PC Care category worklist tab (module pc_care). The four L0 tab routes share this
@@ -5669,6 +5677,7 @@ private fun executionNavArguments() = listOf(
     navArgument(Routes.EXECUTION_SCAN_TITLE_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
     navArgument(Routes.EXECUTION_PARTITION_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
     navArgument(Routes.EXECUTION_PLANNED_DATE_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
+    navArgument(Routes.EXECUTION_ROSTER_SELECTORS_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
 )
 
 private fun String.isClosedWeighingAssignmentStatus(): Boolean =

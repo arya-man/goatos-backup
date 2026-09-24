@@ -692,6 +692,19 @@ func TestScanRosterRequiresTaskIdentityAndReturnsCursor(t *testing.T) {
 	}
 
 	// A MALFORMED task_id is still rejected.
+	for _, batch := range []string{"not-a-uuid", "70000000-0000-4000-8000-000000000001"} {
+		response := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodGet, "/app/vaccination/execution/sheds/"+shedID+"/roster?batch_id="+batch+"&planned_date=2026-09-24", nil)
+		request = request.WithContext(httpmiddleware.WithActorID(httpmiddleware.WithTenantID(request.Context(), tenantID), actorID))
+		mux.ServeHTTP(response, request)
+		if batch == "not-a-uuid" {
+			if response.Code != http.StatusBadRequest {
+				t.Fatalf("invalid batch status=%d", response.Code)
+			}
+		} else if response.Code != http.StatusOK || reader.lastRoster.BatchID != batch || reader.lastRoster.PlannedDate != "2026-09-24" {
+			t.Fatalf("batch/date scope lost: status=%d query=%+v", response.Code, reader.lastRoster)
+		}
+	}
 	badTask := httptest.NewRecorder()
 	badTaskReq := httptest.NewRequest(http.MethodGet, "/app/vaccination/execution/sheds/"+shedID+"/roster?task_id=not-a-uuid", nil)
 	badTaskReq = badTaskReq.WithContext(httpmiddleware.WithActorID(httpmiddleware.WithTenantID(badTaskReq.Context(), tenantID), actorID))
