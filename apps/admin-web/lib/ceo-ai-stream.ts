@@ -76,7 +76,9 @@ export function parseChart(raw: unknown): CeoAiChart | undefined {
 // pipeline runs, instead of a frozen blank placeholder.
 // request_id (coding-agent backend, first frame) identifies the run so a user
 // Stop can be reported via sendCeoAiStopSignal.
-export type CeoAiProgress = { phase: string; label?: string; requestId?: string };
+// conversationId: the chat this run is saved in, sent up front so a stream cut short
+// (server restart, network drop) still leaves the panel on that chat.
+export type CeoAiProgress = { phase: string; label?: string; requestId?: string; conversationId?: string };
 
 // Live BLE ear-tag watch (Ask Mesha watch_tags tool). The agent server polls the
 // Herd Signals live table and streams one frame per poll: the full table and only
@@ -186,7 +188,7 @@ function parseWatch(obj: Record<string, unknown>): CeoAiWatchFrame | null {
 export type CeoAiStreamEvent =
   | { type: "token"; text: string }
   | ({ type: "final" } & CeoAiFinal)
-  | { type: "progress"; phase: string; label?: string; requestId?: string }
+  | { type: "progress"; phase: string; label?: string; requestId?: string; conversationId?: string }
   | { type: "reset" }
   | { type: "watch"; frame: CeoAiWatchFrame }
   | { type: "error"; message: string; status?: number };
@@ -250,6 +252,7 @@ function parseEvent(raw: string): CeoAiStreamEvent | null {
         phase: obj.phase,
         label: typeof obj.label === "string" ? obj.label : undefined,
         requestId: typeof obj.request_id === "string" ? obj.request_id : undefined,
+        conversationId: typeof obj.conversation_id === "string" ? obj.conversation_id : undefined,
       };
     }
     if (type === "watch") {
@@ -257,7 +260,12 @@ function parseEvent(raw: string): CeoAiStreamEvent | null {
       return frame ? { type: "watch", frame } : null;
     }
     if (type === "error") {
-      return { type: "error", message: typeof obj.message === "string" ? obj.message : "assistant_error" };
+      return {
+        type: "error",
+        message: typeof obj.message === "string" ? obj.message : "assistant_error",
+        // In-stream status (e.g. 410: the chat was deleted mid-answer).
+        status: typeof obj.status === "number" ? obj.status : undefined,
+      };
     }
     if (typeof obj.answer === "string" || type === "final") {
       return { type: "final", ...(obj as unknown as CeoAiFinal) };
@@ -427,7 +435,7 @@ async function readComposed(
         } else if (event.type === "watch") {
           handlers.onWatch?.(event.frame);
         } else if (event.type === "progress") {
-          handlers.onProgress?.({ phase: event.phase, label: event.label, requestId: event.requestId });
+          handlers.onProgress?.({ phase: event.phase, label: event.label, requestId: event.requestId, conversationId: event.conversationId });
         } else if (event.type === "final") {
           const { type: _t, ...rest } = event;
           void _t;

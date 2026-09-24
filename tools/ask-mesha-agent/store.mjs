@@ -10,7 +10,10 @@ import os from "node:os";
 import { fileURLToPath } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const LOCK_MS = 15 * 60_000; // a run holding the lock longer than this is presumed dead
+// The /ask heartbeat refreshes the lease every 10s, so a live run never loses it. Short on
+// purpose: an instance killed mid-answer (deploy, crash) must not leave the chat "still
+// answering" for long; the CEO can ask again in the same chat about a minute later.
+export const LOCK_MS = 60_000;
 
 function pct(xs, p) {
   if (!xs.length) return null;
@@ -36,11 +39,42 @@ export function summarizeMetrics(rows) {
 }
 
 // ---- JSON file backend ------------------------------------------------------
+// A corrupt/truncated chats.json (disk full, hand edit, pre-atomic-write crash) must not
+// crash-loop the server: fall back to a complete leftover .tmp, else start empty, and keep
+// the bad file aside (never overwritten) for recovery.
+export function loadJsonDb(file, log = console.error) {
+  const parse = (f) => {
+    const v = JSON.parse(fs.readFileSync(f, "utf8"));
+    if (!v || typeof v !== "object" || !v.chats || typeof v.chats !== "object") throw new Error("no chats map");
+    return v;
+  };
+  if (!fs.existsSync(file)) return { chats: {} };
+  try { return parse(file); } catch (e) {
+    const aside = `${file}.corrupt-${Date.now()}`;
+    try { fs.renameSync(file, aside); } catch {}
+    log(`[store] ${path.basename(file)} unreadable (${e.message}); moved to ${path.basename(aside)}`);
+    try {
+      const tmp = parse(file + ".tmp");
+      log("[store] recovered chats from the last complete .tmp write");
+      return tmp;
+    } catch { return { chats: {} }; }
+  }
+}
+// metrics.jsonl lines, skipping a partial last line from a crash mid-append.
+export function readJsonl(file) {
+  if (!fs.existsSync(file)) return [];
+  const out = [];
+  for (const l of fs.readFileSync(file, "utf8").split("\n")) {
+    if (!l.trim()) continue;
+    try { out.push(JSON.parse(l)); } catch { /* torn line */ }
+  }
+  return out;
+}
 function jsonStore(stateDir) {
   const STORE = path.join(stateDir, "chats.json");
   const METRICS = path.join(stateDir, "metrics.jsonl");
   fs.mkdirSync(stateDir, { recursive: true });
-  const db = fs.existsSync(STORE) ? JSON.parse(fs.readFileSync(STORE, "utf8")) : { chats: {} };
+  const db = loadJsonDb(STORE);
   // Atomic replace so a crash mid-write can't truncate every CEO's history.
   const save = () => {
     fs.writeFileSync(STORE + ".tmp", JSON.stringify(db));
@@ -86,9 +120,7 @@ function jsonStore(stateDir) {
       }, 0);
     },
     async metricsSummary() {
-      const rows = fs.existsSync(METRICS)
-        ? fs.readFileSync(METRICS, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l))
-        : [];
+      const rows = readJsonl(METRICS);
       return summarizeMetrics(rows);
     },
     // The SDK keeps local transcripts in <config>/projects/<cwd-key>/<id>.jsonl. If it is gone

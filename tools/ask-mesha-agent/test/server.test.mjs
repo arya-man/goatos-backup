@@ -6,7 +6,9 @@ import path from "node:path";
 import {
   makeChartFilter, extractChart, toolLabel, validateReadSql, describeTableSql, kindValuesSql, relInfoSql, shouldSampleKinds, clipSqlOutput, isDeepQuestion,
   answerCapUsd, answerCostUsd, friendlyError, STOPPED_NOTE, historyPreamble, pathAllowed, ttlCache,
+  istNowNote, attachmentKind, attachmentPrompt,
 } from "../lib.mjs";
+import { loadJsonDb, readJsonl, LOCK_MS } from "../store.mjs";
 
 const run = (chunks) => {
   let out = "";
@@ -362,4 +364,92 @@ test("stripLeadingNarration drops a working line, keeps real answers", async () 
   g.text("Now I have everything I need.\n\nThe answer is 49 sheep in Castro 1, Coimbatore.");
   g.end();
   assert.equal(out, "The answer is 49 sheep in Castro 1, Coimbatore.");
+});
+
+const SERVER_SRC = fs.readFileSync(new URL("../server.mjs", import.meta.url), "utf8");
+const askSrc = SERVER_SRC.slice(SERVER_SRC.indexOf("async function ask("), SERVER_SRC.indexOf("// ---- router"));
+
+test("unknown / deleted / foreign conversation_id on /ask is a 404, never a silent new chat", () => {
+  const i = askSrc.indexOf("body.conversation_id");
+  const guard = askSrc.slice(i, askSrc.indexOf("}", askSrc.indexOf("return json(res, 404", i)) + 1);
+  assert.match(guard, /!chat \|\| !sameOwner\(chat, user\) \|\| chat\.deleted_at/);
+  assert.match(guard, /conversation_not_found/);
+  // createChat only happens when no id was sent at all.
+  assert.ok(askSrc.indexOf("conversation_not_found") < askSrc.indexOf("store.createChat"));
+  assert.doesNotMatch(friendlyError("chat_gone"), /budget|token|tool|session|sql|query|code|agent|database/i);
+  assert.doesNotMatch(friendlyError("chat_deleted"), /budget|token|tool|session|sql|query|code|agent|database/i);
+});
+
+test("deleting a chat mid-answer aborts the run and nothing is saved into it", () => {
+  const del = SERVER_SRC.slice(SERVER_SRC.indexOf('if (req.method === "DELETE")'));
+  assert.match(del.slice(0, 800), /activeRuns\.values\(\)\) if \(r\.chatId === chat\.id\) r\.chatDeleted/);
+  assert.match(askSrc, /chatDeleted: \(\) => \{ stopReason = "chat_deleted"; onDeleted\(\); \}/);
+  assert.match(askSrc, /onDeleted = \(\) => abort\.abort\(\)/);
+  // The abort check sits between the SDK loop and the assistant message save.
+  const save = askSrc.indexOf("await store.addMessage(chat.id, assistantMsg)");
+  const guard = askSrc.lastIndexOf('if (abort.signal.aborted) throw new Error("client_aborted")', save);
+  assert.ok(guard > askSrc.indexOf("for await (const msg of stream)") && guard < save);
+  // And before Claude is started at all.
+  assert.ok(askSrc.indexOf('if (abort.signal.aborted) throw new Error("client_aborted")') < askSrc.indexOf("const stream = query("));
+});
+
+test("the first progress frame carries the chat id (a cut-off stream stays resumable)", () => {
+  assert.match(askSrc, /label: "Starting agent", request_id: requestId, conversation_id: chat\.id/);
+});
+
+test("chat lease is short so a killed instance doesn't block the chat for long", () => {
+  assert.ok(LOCK_MS <= 120_000 && LOCK_MS >= 30_000); // heartbeat refreshes every 10s
+});
+
+test("istNowNote gives the IST date around IST midnight", () => {
+  assert.match(istNowNote(new Date("2026-09-23T18:45:00Z")), /Thursday 2026-09-24 00:15 IST/);
+  assert.match(istNowNote(new Date("2026-09-23T18:29:00Z")), /Wednesday 2026-09-23 23:59 IST/);
+  assert.match(istNowNote(new Date("2026-12-31T18:30:00Z")), /Friday 2027-01-01 00:00 IST/);
+  assert.match(istNowNote(), /Asia\/Kolkata/);
+  assert.match(askSrc, /let prompt = istNowNote\(\)/);
+});
+
+test("clipSqlOutput: 500-row cap tells the model not to pass it off as the full list", () => {
+  const c = clipSqlOutput(["h", ...Array.from({ length: 1234 }, (_, i) => `r${i}`)].join("\n"));
+  assert.match(c, /only the first 500 of 1234 rows/);
+  assert.match(c, /never present these 500 rows as the full list/);
+});
+
+test("attachments: kinds, unsupported types, and more than 5 files", () => {
+  assert.equal(attachmentKind("a.png", "image/png"), "image");
+  assert.equal(attachmentKind("a.JPG", ""), "image");
+  assert.equal(attachmentKind("a.pdf", "application/pdf"), "pdf");
+  assert.equal(attachmentKind("a.csv", "text/csv"), "text");
+  assert.equal(attachmentKind("a.csv", "application/vnd.ms-excel"), "text"); // Windows labels CSVs as Excel
+  assert.equal(attachmentKind("a.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"), "unsupported");
+  assert.equal(attachmentKind("IMG_1.HEIC", "image/heic"), "unsupported");
+  assert.equal(attachmentKind("a.svg", "image/svg+xml"), "unsupported");
+  const files = [
+    { path: "/t/1-a.png", name: "a.png", type: "image/png" },
+    { path: "/t/2-b.xlsx", name: "b.xlsx", type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" },
+  ];
+  const p = attachmentPrompt(files, 7);
+  assert.match(p, /a\.png, image\/png\)$/m);
+  assert.match(p, /b\.xlsx.*can't be opened here; do not try to Read it/);
+  assert.match(p, /attached 7 files; only the first 2 were kept/);
+  assert.doesNotMatch(attachmentPrompt(files), /only the first/);
+});
+
+test("JSON store: corrupt chats.json doesn't crash-loop; .tmp recovery; torn metrics line skipped", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ask-store-"));
+  const f = path.join(dir, "chats.json");
+  const logs = [];
+  fs.writeFileSync(f, '{"chats":{"a":{"id":"a"');
+  assert.deepEqual(loadJsonDb(f, (l) => logs.push(l)), { chats: {} });
+  assert.ok(fs.readdirSync(dir).some((n) => n.startsWith("chats.json.corrupt-")), "bad file kept aside");
+  fs.writeFileSync(f, "garbage");
+  fs.writeFileSync(f + ".tmp", JSON.stringify({ chats: { x: { id: "x" } } }));
+  assert.deepEqual(Object.keys(loadJsonDb(f, (l) => logs.push(l)).chats), ["x"]);
+  fs.writeFileSync(f, "null");
+  fs.rmSync(f + ".tmp");
+  assert.deepEqual(loadJsonDb(f, () => {}), { chats: {} });
+  assert.ok(logs.some((l) => /unreadable/.test(l)));
+  const m = path.join(dir, "metrics.jsonl");
+  fs.writeFileSync(m, '{"ts":"a","ok":true}\n{"ts":"b","o');
+  assert.deepEqual(readJsonl(m), [{ ts: "a", ok: true }]);
 });

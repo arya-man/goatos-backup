@@ -373,7 +373,7 @@ const defaultSleep = (ms, signal) => new Promise((resolve) => {
 // Runs one watch to completion. Never throws for data errors: a failed poll is reported and
 // retried next tick; 3 in a row end the watch (reason data_error).
 //   signal      the request's abort (client disconnect, or Stop which aborts the whole answer)
-//   stopReason  () => "stop_pressed" | null, to tell Stop from a closed tab
+//   stopReason  () => "stop_pressed" | "chat_deleted" | null, to tell Stop from a closed tab
 //   onHandle    receives {stop(reason)} before the first poll ("Stop watching": ends only
 //               the watch; the model still writes the summary answer)
 export async function runWatch({
@@ -466,7 +466,7 @@ export async function runWatch({
   } finally {
     signal?.removeEventListener("abort", onAbort);
   }
-  if (!reason) reason = signal?.aborted ? (stopReason() === "stop_pressed" ? "stopped" : "client_disconnected") : localReason || "stopped";
+  if (!reason) reason = signal?.aborted ? (stopReason() ? "stopped" : "client_disconnected") : localReason || "stopped";
   const duration_ms = now() - t0;
   sse({ phase: "end", reason, polls, duration_ms, label, rows: rows.slice(0, LIMITS.maxRows), changes: [] });
   log(`[watch] ${watchId} ended reason=${reason} polls=${polls} duration_ms=${duration_ms}`);
