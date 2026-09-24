@@ -90,8 +90,16 @@ Not the answer: per-tenant copies of tables/schemas (344× duplication and migra
   (full check with DB env, object-set check without).
 - Daily refresh job: `tools/ask-mesha-agent/refresh-data-map.sh` (isolated worktree of origin/main,
   read-only SQL via `ro-sql.sh`, opens a PR, **never merges**). Schedules in `tools/ask-mesha-agent/schedule/`.
-- Known gap: per-animal ADG (dashboard 162 g) is not reproducible from `ceo_ai.*`; needs a
-  `ceo_ai.weighing_observations` view (sketch in SKILL.md "Known gaps"). Feed `fed_kg` is always 0.
+- **Copied app queries + drift manifest.** Metrics the map copies from backend logic live as run-as-is SQL in
+  `references/`: `adg-by-park.sql` (Weighing > Growth, `growth.go` + `identity_scope.go`; matches the API exactly),
+  `cost-per-kg-gain.sql` (FCR tab, `fcr.go`; joins pens by shed id + partition like the app and lists weighed
+  pens with no feed rows in `unmatched_pens`), `feed-stock-days-left.sql` (Feed Analytics > Stock).
+  `references/derived-queries.json` lists, per query, the source files it was derived from + a sha256 of each.
+  `gen-data-map.mjs --check` (so `make mesha-data-map-guard`) fails when any source changes or goes missing.
+  To clear it: diff the source since it was hashed, re-derive the query, re-check its numbers against the app,
+  update the SKILL.md example numbers, then `node tools/ask-mesha-agent/gen-data-map.mjs --rehash-derived`.
+  Adding a copied query = add its entry to the manifest, then rehash.
+- Known gap: sex/origin cuts of ADG (need `sex_scope.go`) are not in the SQL. Feed `fed_kg` is always 0.
 
 - **Live table index:** at startup and hourly, `server.mjs` lists every readable table (with approximate row
   counts) from the database catalog into the system prompt. New tables show up without editing the map; the

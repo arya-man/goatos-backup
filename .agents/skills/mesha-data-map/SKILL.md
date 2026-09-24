@@ -15,7 +15,7 @@ grains and an example per view: `references/views.generated.md` (regenerate with
 | Question about | View | Key columns | Date column |
 |---|---|---|---|
 | When did we weigh / weighing done per pen | `weighing_capture_activity` | park_label, shed_label, work_state, weighing_category, animals_weighed, scan_count | `planned_business_date` (also due_business_date) |
-| Weights / weight trend / ADG | `weighing_capture_activity` | scan_weight_avg_kg x scan_count (weighted), shed_weight_avg_kg | `planned_business_date` |
+| Weights / weight trend (ADG: references/adg-by-park.sql) | `weighing_capture_activity` | scan_weight_avg_kg x scan_count (weighted), shed_weight_avg_kg | `planned_business_date` |
 | Weighing verification pending/rework | `weighing_verification_status` | pending, rework, verified, oldest_pending_at | none (current) |
 | Headcount / herd breakdown now | `animal_current_scope` | park_label, shed_label, species, sex, breed, management_stage, lifecycle_status | none (current) |
 | Animals sold / exited / entered in a period | `animals_base` | exit_reason ('sold','died'), lifecycle_status | `exit_business_day`, `entry_date` |
@@ -47,7 +47,7 @@ grains and an example per view: `references/views.generated.md` (regenerate with
   `weighing_category` is `individual_animal` (per-animal scans) or `per_shed_partition` (pen-level weight).
 - **Never average an average.** `scan_weight_avg_kg`, `shed_weight_avg_kg`, medians, rates: weight by `scan_count`
   (`sum(avg*scan_count)/sum(scan_count)`) or report per row.
-- **ADG / daily gain:** see "Metric definitions" below. Never invent a proxy and call it ADG.
+- **ADG / daily gain:** run references/adg-by-park.sql as-is (see "Metric definitions"). Never invent a proxy and call it ADG.
 - **Sales:** no sales/deal view is exposed. "Animals sold" = `animals_base` `exit_reason='sold'` by
   `exit_business_day`. No prices/revenue in ceo_ai.
 - **Parks** in data are full names: `Coimbatore` (CBE), `Channapatna` (CPT). Filter on `park_label`.
@@ -107,30 +107,18 @@ Source of truth is the backend read the admin-web page calls. If the exact defin
 ceo_ai does not expose, say "can't reproduce the dashboard number from read-only data" and give the
 dashboard path; an approximation may follow only if labelled as one. Windows are IST business dates, inclusive.
 
-**ADG / daily gain** (`/weighing/analytics`, `GET /weighing/leadership/growth`,
-`backend/internal/weighing/adapters/postgres/growth.go` growthHeadlineStats). NOT reproducible from ceo_ai.
-- Individual arm: non-rejected individual observations (pending included), keyed per animal (both RFIDs of
-  one animal merged). BOTH weighs must be inside the window. Consecutive weighs are paired; pairs on the
-  same IST day are dropped. Per-animal gain = sum(grams moved) / sum(days) over its pairs.
-- Whole-pen arm: per pen+partition, first and last non-withdrawn, non-rejected shed weigh in the window
-  (need last day > first day): (last avg - first avg) * 1000 / days, weighted by the last head count.
-- Headline = (sum of animal gains + sum(pen head count * pen gain)) / (animals + pen head count).
-  "Kids weighed" is that denominator. Sex/origin filter: tags resolved through the herd register. A pen
-  counts only if its cohort is entirely that sex.
-- Dashboard check 03/08–22/09/2026, Male: all parks 162 g (520 kids), CBE 152 g (292).
-- Best ceo_ai approximation (whole-pen arm only, all sexes, planned date not weigh date, no partitions).
-  It gave 164 g (335 kids) all parks and 153 g (196) CBE. That these are close is coincidence: label it an approximation, never "ADG".
-```sql
-WITH s AS (SELECT park_label, shed_label, planned_business_date d, shed_weight_avg_kg w, shed_animal_count n,
-  row_number() OVER (PARTITION BY park_label, shed_label ORDER BY planned_business_date) a,
-  row_number() OVER (PARTITION BY park_label, shed_label ORDER BY planned_business_date DESC) z
-  FROM ceo_ai.weighing_capture_activity
-  WHERE weighing_category='per_shed_partition' AND work_state IN ('completed','closed')
-    AND shed_weight_avg_kg IS NOT NULL AND planned_business_date BETWEEN :from AND :to),
-p AS (SELECT l.park_label, l.n, (l.w-f.w)*1000/(l.d-f.d) g FROM s l JOIN s f USING (park_label, shed_label)
-  WHERE l.z=1 AND f.a=1 AND l.d>f.d)
-SELECT coalesce(park_label,'ALL'), round(sum(n*g)/sum(n)) g_per_day, sum(n) kids FROM p GROUP BY ROLLUP(park_label);
-```
+**ADG / daily gain** (`/weighing/analytics` Growth tab, `GET /weighing/leadership/growth`,
+`backend/internal/weighing/adapters/postgres/growth.go` growthHeadlineStats / growthParkGainsQuery). Reproducible:
+run `references/adg-by-park.sql` AS-IS (default window = this calendar month to date, IST; for another window edit
+only the two dates in its `w` CTE). Never write your own ADG SQL, never use ceo_ai views for it, never re-weight.
+- Individual arm: non-rejected scans (pending included), one key per animal (both RFIDs merged via goat_identifiers).
+  BOTH weighs inside the window; same-IST-day pairs dropped; per-animal gain = sum(grams)/sum(days) over its pairs.
+- Whole-pen arm: per pen+partition, first and last non-withdrawn, non-rejected shed weigh in the window (last day > first):
+  (last avg - first avg)*1000/days, counted once per animal of the last head count.
+- ADG = (sum animal gains + sum(pen head x pen gain)) / (animals + pen heads); "kids" = that denominator.
+  Answer per park + ALL row with kids, rounded g/day, and the window. Checked 01/09-24/09/2026 against the API:
+  CBE 152 g (382 kids), CPT 148 g (315), all 150 g (697).
+- Sex/origin filters are not in the SQL (needs sex_scope.go); say so if asked for a sex cut.
 
 **Headcount / active animals** (counts herd register): `lifecycle_status='alive'`, merged goats excluded. The view also
 holds sold/dead/inactive rows, so every %/ratio/split needs the alive filter. Pen part counts: `shed_label` + `partition_label`
@@ -156,61 +144,16 @@ Do NOT use `mortality_base.active_population` as the denominator: it counts a br
 `backend/internal/growthdirector/adapters/postgres/fcr.go` fcrSegmentsSQL + `domain/fcr.go`). Segment = two consecutive
 weighing rounds of one pen (part). Feed cost = directed feed on the sheet for that pen between the rounds x the latest same-park
 purchase per_kg_cost on/before each feed day. Gain kg = segment ADG x fed head-days (sheet head counts). Summary = total cost /
-total gain over segments that gained. The SQL below reproduces it for the last 30 days (change `- 30`); on 24/09/2026 it gave
+total gain over segments that gained. references/cost-per-kg-gain.sql reproduces it for the last 30 days (change `- 30`); on 24/09/2026 it gave
 CBE Rs 331/kg (Rs 4,12,490 feed, 1,247 kg), CPT Rs 340/kg (Rs 3,69,181, 1,087 kg), all Rs 335/kg. Answer per park + total, one method line.
-```sql
-WITH w AS (SELECT (now() AT TIME ZONE 'Asia/Kolkata')::date - 30 AS s, (now() AT TIME ZONE 'Asia/Kolkata')::date + 1 AS e),
-bk AS (SELECT cs.campaign_shed_id, cs.campaign_id, c.park_id, cs.weighing_category,
-  regexp_replace(regexp_replace(lower(l.name||' '||coalesce(cs.partition_label,'')),'part','p','g'),'[^a-z0-9]','','g') AS pen
-  FROM weighing_campaign_sheds cs JOIN weighing_campaigns c USING (campaign_id) JOIN locations l ON l.location_id=cs.location_id
-  WHERE cs.status<>'canceled' AND c.status<>'canceled'),
-lump AS (SELECT DISTINCT ON (bk.park_id,bk.pen,bk.campaign_id) bk.park_id,bk.pen,bk.campaign_id,
-  (so.accepted_at AT TIME ZONE 'Asia/Kolkata')::date d, so.average_weight_kg::float8 avg_kg
-  FROM bk JOIN weighing_shed_observations so USING (campaign_shed_id), w
-  WHERE bk.weighing_category='per_shed_partition' AND so.withdrawn_at IS NULL AND so.verification_status<>'rejected'
-    AND so.animal_count>0 AND so.average_weight_kg IS NOT NULL AND (so.accepted_at AT TIME ZONE 'Asia/Kolkata')::date >= w.s
-  ORDER BY bk.park_id,bk.pen,bk.campaign_id,so.accepted_at DESC),
-lseg AS (SELECT park_id,pen,d_prev,d,(avg_kg-avg_prev)*1000/(d-d_prev) adg_g FROM (
-  SELECT *, lag(d) OVER p d_prev, lag(avg_kg) OVER p avg_prev FROM lump WINDOW p AS (PARTITION BY park_id,pen ORDER BY d)) x WHERE d>d_prev),
-scan AS (SELECT DISTINCT ON (bk.park_id,bk.pen,bk.campaign_id,lower(btrim(o.scanned_identifier))) bk.park_id,bk.pen,bk.campaign_id,
-  lower(btrim(o.scanned_identifier)) tag,(o.accepted_at AT TIME ZONE 'Asia/Kolkata')::date d,o.weight_kg::float8 wt
-  FROM bk JOIN weighing_observations o USING (campaign_shed_id), w
-  WHERE bk.weighing_category='individual_animal' AND o.verification_status<>'rejected' AND btrim(o.scanned_identifier)<>''
-    AND (o.accepted_at AT TIME ZONE 'Asia/Kolkata')::date >= w.s
-  ORDER BY bk.park_id,bk.pen,bk.campaign_id,lower(btrim(o.scanned_identifier)),o.accepted_at DESC),
-sr AS (SELECT park_id,pen,campaign_id,max(d) d FROM scan GROUP BY 1,2,3),
-srl AS (SELECT *, lag(campaign_id) OVER p cprev, lag(d) OVER p d_prev FROM sr WINDOW p AS (PARTITION BY park_id,pen ORDER BY d)),
-sseg AS (SELECT s.park_id,s.pen,s.d_prev,s.d,avg((c.wt-p.wt)*1000/(c.d-p.d)) adg_g FROM srl s
-  JOIN scan c ON c.park_id=s.park_id AND c.pen=s.pen AND c.campaign_id=s.campaign_id
-  JOIN scan p ON p.park_id=s.park_id AND p.pen=s.pen AND p.campaign_id=s.cprev AND p.tag=c.tag
-  WHERE s.cprev IS NOT NULL AND s.d>s.d_prev AND c.d>p.d GROUP BY 1,2,3,4),
-seg AS (SELECT * FROM lseg UNION ALL SELECT * FROM sseg),
-fr AS (SELECT i.park_id, i.feed_day, r.feed_item_key, r.quantity_kg, r.head_count, r.shed_tag_key, r.breed_key,
-  regexp_replace(lower(l.name||CASE WHEN r.partition_key='whole' THEN '' WHEN r.partition_key ~ '^[0-9]' THEN ' '||r.partition_key ELSE ' '||r.partition_key END),'[^a-z0-9]','','g') raw
-  FROM feed_direction_issue_rows r JOIN feed_direction_issues i USING (feed_direction_issue_id) JOIN locations l ON l.location_id=r.shed_id, w
-  WHERE i.state IN ('issued','amended','locked') AND i.feed_day>=w.s),
-fr2 AS (SELECT *, replace(raw,'part','p') pen FROM fr),
-price AS (SELECT DISTINCT f.park_id,f.feed_item_key,f.feed_day,(SELECT coalesce(p.per_kg_cost,p.total_cost/nullif(p.quantity_kg,0)) FROM feed_purchases p
-  WHERE p.park_id=f.park_id AND p.feed_item_key=f.feed_item_key AND p.purchase_date<=f.feed_day ORDER BY p.purchase_date DESC, p.batch_no DESC LIMIT 1)::float8 per_kg FROM fr2 f),
-fday AS (SELECT f.park_id,f.pen,f.feed_day,sum(f.quantity_kg*pr.per_kg) cost FROM fr2 f JOIN price pr USING (park_id,feed_item_key,feed_day) GROUP BY 1,2,3),
-hday AS (SELECT park_id,pen,feed_day,sum(h) h FROM (SELECT park_id,pen,feed_day,max(head_count) h FROM fr2 WHERE head_count IS NOT NULL GROUP BY park_id,pen,feed_day,shed_tag_key,breed_key) z GROUP BY 1,2,3),
-segf AS (SELECT s.park_id,s.pen,s.d_prev,s.d,s.adg_g,sum(fd.cost) cost,sum(hd.h) head_days FROM seg s
-  LEFT JOIN hday hd ON hd.park_id=s.park_id AND hd.pen=s.pen AND hd.feed_day>=s.d_prev AND hd.feed_day<s.d
-  LEFT JOIN fday fd ON fd.park_id=hd.park_id AND fd.pen=hd.pen AND fd.feed_day=hd.feed_day
-  GROUP BY 1,2,3,4,5)
-SELECT pk.name park, round(sum(cost) FILTER (WHERE adg_g>0 AND head_days>0)) feed_cost_rs,
-  round((sum(adg_g*head_days/1000) FILTER (WHERE adg_g>0 AND head_days>0 AND cost IS NOT NULL))::numeric,1) gain_kg,
-  round((sum(cost) FILTER (WHERE adg_g>0 AND head_days>0) / nullif(sum(adg_g*head_days/1000) FILTER (WHERE adg_g>0 AND head_days>0 AND cost IS NOT NULL),0))::numeric) rs_per_kg_gain,
-  count(*) FILTER (WHERE cost IS NOT NULL AND head_days>0) segs_priced, count(*) segs
-FROM segf JOIN locations pk ON pk.location_id=segf.park_id GROUP BY ROLLUP(pk.name);
-```
+Run `references/cost-per-kg-gain.sql` as-is. If `unmatched_pens` is non-empty, name those pens in one line (their gain has no feed cost).
 
 **Pending weighing verification:** the dashboard counts every observation not yet verified, INCLUDING rework.
 The view's `pending` excludes rework, so match with `sum(pending)+sum(rework)` from `weighing_verification_status`
 (175+17=192 on 24/09/2026). The source tables also differ, so treat this as close but not exact.
 
 **Animals weighed (bucket):** individual scans + whole-pen head count. Use `animals_weighed` from `weighing_capture_activity`.
-Distinct kids over a period (ADG "kids weighed") is not reproducible: it needs per-animal tags.
+Distinct kids behind ADG: the `kids` column of references/adg-by-park.sql.
 
 **Feed adherence:** there is no dashboard % formula. `feed_adherence.fed_kg` is 0 in every row on stg
 (and `feed_completions_base` is empty), so "fed vs directed" can't be answered. Report directed kg only
@@ -224,7 +167,7 @@ animals = all goats in the load. Sum `animals` by `current_stage`.
 
 ## Known gaps
 
-- ADG / kids weighed need a per-observation view. Minimal sketch (not created):
+- A ceo_ai per-observation view would let ADG run without raw tables. Minimal sketch (not created):
 ```sql
 CREATE VIEW ceo_ai.weighing_observations_base AS  -- one row per non-rejected observation
 SELECT wo.tenant_id, wc.park_id, park_label, wcs.location_id, shed_label, coalesce(wcs.partition_label,'') partition_label,

@@ -6,6 +6,10 @@
 //
 //   node tools/ask-mesha-agent/gen-data-map.mjs          # write
 //   node tools/ask-mesha-agent/gen-data-map.mjs --check  # exit 1 if stale
+//   node tools/ask-mesha-agent/gen-data-map.mjs --rehash-derived  # after re-deriving a reference query
+//     --check also verifies references/derived-queries.json: every hand-copied query
+//     (ADG, cost per kg gain, feed stock days left) lists the app source files it was
+//     derived from + a sha256 of each; any change fails until the query is re-derived.
 //     with DB env: byte-for-byte compare against a fresh render.
 //     without DB env: only the object SET (schema_cards.go + migrations vs the
 //     objects listed in the file) is checked; column-level check is skipped.
@@ -14,6 +18,7 @@
 // and the `psql` CLI. Without PG env it falls back to schema_cards.go +
 // migrations only and says so in the header. Never writes to the DB.
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -24,6 +29,40 @@ const CARDS = join(ROOT, 'backend/internal/ceoai/reporting/schema_cards.go');
 const MIGR = join(ROOT, 'backend/migrations/postgres');
 const OUT = join(ROOT, '.agents/skills/mesha-data-map/references/views.generated.md');
 const check = process.argv.includes('--check');
+const DERIVED = process.env.GEN_DATA_MAP_DERIVED ? resolve(process.env.GEN_DATA_MAP_DERIVED) : join(ROOT, '.agents/skills/mesha-data-map/references/derived-queries.json');
+
+// --- derived-query drift ----------------------------------------------------
+const fileSha = (rel) => { const f = join(ROOT, rel); return existsSync(f) ? createHash('sha256').update(readFileSync(f)).digest('hex') : 'MISSING'; };
+function derivedDrift(manifest, sha = fileSha) {
+  const out = [];
+  for (const q of manifest.queries) {
+    if (!existsSync(join(ROOT, q.query))) out.push({ query: q.query, path: q.query, why: 'reference query file missing' });
+    for (const src of q.derived_from) {
+      const now = sha(src.path);
+      if (now !== src.sha256) out.push({ query: q.query, path: src.path, why: now === 'MISSING' ? 'source file missing (moved/renamed?)' : 'source changed' });
+    }
+  }
+  return out;
+}
+if (process.argv.includes('--rehash-derived')) {
+  const m = JSON.parse(readFileSync(DERIVED, 'utf8'));
+  for (const q of m.queries) for (const src of q.derived_from) src.sha256 = fileSha(src.path);
+  writeFileSync(DERIVED, JSON.stringify(m, null, 2) + '\n');
+  process.stdout.write(`gen-data-map: rehashed ${DERIVED}\n`);
+  process.exit(0);
+}
+if (check) {
+  const drift = derivedDrift(JSON.parse(readFileSync(DERIVED, 'utf8')));
+  if (drift.length) {
+    process.stderr.write('gen-data-map: app logic behind a hand-copied data-map query changed:\n' +
+      drift.map((d) => `  - ${d.query}: ${d.path} (${d.why})\n`).join('') +
+      'Re-derive each listed query from its source (diff the source since the manifest hash), re-verify its numbers against the app,\n' +
+      'update the query + SKILL.md example numbers, then run: node tools/ask-mesha-agent/gen-data-map.mjs --rehash-derived\n');
+    process.exitCode = 1;
+  } else {
+    process.stdout.write(`gen-data-map: derived queries in sync with app sources (${DERIVED})\n`);
+  }
+}
 
 function sourceSha() {
   try {
