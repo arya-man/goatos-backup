@@ -67,7 +67,7 @@ test("admin weighing reads are short-cached per user and cleared on writes", () 
 	assert.match(
 		serverSource,
 		/async function timedBackendFetch[\s\S]*?method\.toUpperCase\(\) !== "GET"[\s\S]*?clearBackendReadCaches\(\)/,
-		"a write through the backend fetch must clear cached reads",
+		"a write through the backend fetch must clear cached and in-flight reads",
 	);
 });
 
