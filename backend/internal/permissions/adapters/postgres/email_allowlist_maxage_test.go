@@ -2,10 +2,14 @@ package postgres
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"testing"
 	"time"
+
+	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 )
 
 const maxAgeTestTenant = "20000000-0000-4000-8000-000000000001"
@@ -46,32 +50,46 @@ func TestAllowedEmailSourceRefusesLastKnownGoodPastMaxAge(t *testing.T) {
 }
 
 // Past max age during an outage, a failed reload backs off briefly: the next
-// requests fail closed immediately instead of re-querying the saturated pool.
+// requests fail closed immediately instead of re-querying the saturated pool,
+// and the backoff error still reads as "database unavailable" (503, not 403).
 func TestAllowedEmailSourceBacksOffAfterFailedReloadPastMaxAge(t *testing.T) {
-	src := NewAllowedEmailSource(unreachablePool(t, "postgres://u:p@10.255.255.1:5432/none?sslmode=disable&connect_timeout=30"),
-		300*time.Millisecond, slog.New(slog.NewTextHandler(os.Stderr, nil)))
-	now := time.Now()
-	src.now = func() time.Time { return now }
-	src.byTenant[maxAgeTestTenant] = tenantEmailCache{
-		emails:   map[string]struct{}{"a@mesha.sg": {}},
-		loadedAt: now.Add(-allowlistMaxStaleAge - time.Second),
+	now := time.Unix(1_800_000_000, 0)
+	loads := 0
+	fail := false
+	outage := fmt.Errorf("pool: %w", context.DeadlineExceeded)
+	src := NewAllowedEmailSourceWithLoader(func(context.Context, string) (map[string]struct{}, error) {
+		loads++
+		if fail {
+			return nil, outage
+		}
+		return map[string]struct{}{"a@mesha.sg": {}}, nil
+	}, func() time.Time { return now }, nil)
+	ctx := context.Background()
+	if ok, err := src.EmailAllowedErr(ctx, maxAgeTestTenant, "a@mesha.sg"); !ok || err != nil {
+		t.Fatalf("warm: ok=%v err=%v", ok, err)
 	}
-	if allowed, err := src.EmailAllowedErr(context.Background(), maxAgeTestTenant, "a@mesha.sg"); allowed || err == nil {
-		t.Fatalf("first: allowed=%v err=%v; want refusal", allowed, err)
+	fail = true
+	now = now.Add(allowlistMaxStaleAge + time.Second)
+	if ok, err := src.EmailAllowedErr(ctx, maxAgeTestTenant, "a@mesha.sg"); ok || err == nil {
+		t.Fatalf("first past max age: ok=%v err=%v; want refusal", ok, err)
 	}
-	start := time.Now()
-	allowed, err := src.EmailAllowedErr(context.Background(), maxAgeTestTenant, "a@mesha.sg")
-	if allowed || err == nil {
-		t.Fatalf("backoff: allowed=%v err=%v; want fail-closed error", allowed, err)
+	if loads != 2 {
+		t.Fatalf("loads=%d; want 2", loads)
 	}
-	if took := time.Since(start); took > 100*time.Millisecond {
-		t.Fatalf("within backoff the pool was queried again (took %s)", took)
+	now = now.Add(allowlistFailureBackoff / 2)
+	ok, err := src.EmailAllowedErr(ctx, maxAgeTestTenant, "a@mesha.sg")
+	if ok || err == nil {
+		t.Fatalf("backoff: ok=%v err=%v; want fail-closed error", ok, err)
 	}
-	// After the backoff the source tries the database again.
-	now = now.Add(allowlistFailureBackoff + time.Millisecond)
-	start = time.Now()
-	_, _ = src.EmailAllowedErr(context.Background(), maxAgeTestTenant, "a@mesha.sg")
-	if took := time.Since(start); took < 200*time.Millisecond {
-		t.Fatalf("after backoff the source must retry the load (took %s)", took)
+	if loads != 2 {
+		t.Fatalf("within backoff the loader ran again (loads=%d)", loads)
+	}
+	if !errors.Is(err, outage) || !httpmiddleware.DatabaseUnavailable(ctx, err) {
+		t.Fatalf("backoff err %v must wrap the last reload error and read as DB-unavailable", err)
+	}
+	now = now.Add(allowlistFailureBackoff)
+	_, _ = src.EmailAllowedErr(ctx, maxAgeTestTenant, "a@mesha.sg")
+	if loads != 3 {
+		t.Fatalf("after backoff the source must retry the load (loads=%d)", loads)
 	}
 }
