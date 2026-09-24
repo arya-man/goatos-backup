@@ -70,6 +70,7 @@ function evidenceForAgent(receipt, receiptPath) {
     path: redactText(path.relative(repo, path.resolve(receiptPath))),
     mode: redactText(receipt.mode ?? "unknown"),
     repoSha: redactText(receipt.repoSha ?? "unknown"),
+    toolingSha: redactText(receipt.toolingSha ?? receipt.repoSha ?? "unknown"),
     productionUrl: redactText(receipt.productionUrl ?? receipt.dashboardUrl ?? "unknown"),
     status: redactText(receipt.status ?? "unknown")
   });
@@ -180,6 +181,8 @@ function buildPrompt({ receipt, receiptPath, evidenceItems }) {
     mode: receipt.mode,
     status: receipt.status,
     repoSha: receipt.repoSha,
+    toolingRef: receipt.toolingRef,
+    toolingSha: receipt.toolingSha,
     productionUrl: receipt.productionUrl ?? receipt.dashboardUrl,
     layers: receipt.layers,
     blockers: receipt.blockers,

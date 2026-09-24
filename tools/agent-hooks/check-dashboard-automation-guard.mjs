@@ -21,6 +21,17 @@ if (selfTest) {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+  // Tooling-ref contract: the live scripts pass, and the retired main-only wrapper fails.
+  assert.deepEqual(toolingRefFindings(readToolingRefSources()), [], "live tooling-ref scripts must satisfy the contract");
+  const legacy = readToolingRefSources();
+  legacy.runOci = 'if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then die "refusing dirty tracked checkout"; fi\norigin_sha="$(git rev-parse origin/main)"\n';
+  legacy.postMain = 'git checkout --quiet main\ngit reset --quiet --hard "$remote_sha"\n';
+  const legacyFindings = toolingRefFindings(legacy);
+  assert.ok(legacyFindings.some((f) => f.includes("GOATOS_DASHBOARD_TOOLING_REF")), "guard must reject a run-oci.sh without the tooling ref");
+  assert.ok(legacyFindings.some((f) => f.includes("reset")), "guard must reject post-main resetting the tooling checkout to main");
+  const dirty = readToolingRefSources();
+  dirty.runOci = dirty.runOci.replace("refusing dirty tracked checkout", "");
+  assert.ok(toolingRefFindings(dirty).some((f) => f.includes("dirty")), "guard must keep the dirty-checkout refusal");
   coverageSelfTest();
   // Lanes 2-5: the read-only SQL contract, plain-English failure sentences, and the
   // exactly-once accounting that makes "every commit since Aug 1" a checkable claim.
@@ -105,6 +116,7 @@ for (const file of [
   if (!existsSync(file)) failures.push(`required dashboard automation file missing: ${file}`);
 }
 failures.push(...dashboardRuntimeFindings());
+failures.push(...toolingRefFindings(readToolingRefSources()));
 failures.push(...dashboardModuleJourneyFindings());
 failures.push(...dashboardStateContractFindings());
 
@@ -453,6 +465,53 @@ function walkFiles(path, files) {
     if (entry === "node_modules" || entry.startsWith(".")) continue;
     walkFiles(`${path}/${entry}`, files);
   }
+}
+
+function readToolingRefSources() {
+  const read = (file) => (existsSync(file) ? readFileSync(file, "utf8") : "");
+  return {
+    runOci: read("tools/dashboard-automation/run-oci.sh"),
+    postMain: read("tools/dashboard-automation/run-post-main-if-new.sh"),
+    installer: read("tools/dashboard-automation/install-oci-user-timer.sh"),
+    runner: read("tools/dashboard-automation/run.mjs"),
+    runbook: read("docs/runbooks/dashboard-automation-oci.md")
+  };
+}
+
+// The VM tooling tracks origin/<GOATOS_DASHBOARD_TOOLING_REF> (default ops/dashboard-automation)
+// so automation fixes do not need a Goat OS landing, while post-main certification still
+// certifies the exact origin/main SHA from a separate app-source worktree.
+function toolingRefFindings({ runOci, postMain, installer, runner, runbook }) {
+  const findings = [];
+  const ociRel = "tools/dashboard-automation/run-oci.sh";
+  const postRel = "tools/dashboard-automation/run-post-main-if-new.sh";
+  const need = (source, rel, fragment, why) => {
+    if (!source.includes(fragment)) findings.push(`${rel}: ${why} (missing ${fragment})`);
+  };
+  need(runOci, ociRel, "GOATOS_DASHBOARD_TOOLING_REF", "tooling checkout must track origin/<GOATOS_DASHBOARD_TOOLING_REF>");
+  need(runOci, ociRel, "ops/dashboard-automation", "default tooling ref must be ops/dashboard-automation");
+  need(runOci, ociRel, "refusing dirty tracked checkout", "OCI runner must refuse a dirty tracked checkout");
+  need(runOci, ociRel, 'does not match origin/${TOOLING_REF}', "OCI runner must prove HEAD == origin/<tooling ref>");
+  need(runOci, ociRel, "GOATOS_DASHBOARD_CERTIFY_MAIN_SHA", "OCI runner must accept the pinned main SHA to certify");
+  need(runOci, ociRel, "merge-base --is-ancestor", "certified SHA must be proven to be on origin/main");
+  need(runOci, ociRel, "git worktree add", "main's application source must come from a separate worktree, not the tooling checkout");
+  need(runOci, ociRel, "is not at main", "OCI runner must prove the app-source worktree is exactly the main SHA");
+  need(runOci, ociRel, "GOATOS_DASHBOARD_TOOLING_SHA", "OCI runner must hand the tooling SHA to the receipt");
+  need(runOci, ociRel, "GOATOS_DASHBOARD_CERTIFIED_MAIN_SHA", "OCI runner must hand the certified main SHA to the receipt");
+  need(postMain, postRel, "GOATOS_DASHBOARD_CERTIFY_MAIN_SHA", "post-main trigger must pin the origin/main SHA it certifies");
+  need(postMain, postRel, "last-post-main-sha", "post-main must keep once-per-SHA state");
+  need(postMain, postRel, "refusing dirty tracked checkout", "post-main must refuse a dirty tracked checkout");
+  if (/git (checkout --quiet main|reset[^\n]*remote_sha)/.test(postMain)) {
+    findings.push(`${postRel}: post-main must not reset the tooling checkout to main; run-oci.sh syncs it to the tooling ref`);
+  }
+  need(installer, "tools/dashboard-automation/install-oci-user-timer.sh", "Environment=GOATOS_DASHBOARD_TOOLING_REF=", "systemd units must pin the tooling ref");
+  for (const field of ["toolingSha", "certifiedMainSha", "toolingRef"]) {
+    need(runner, "tools/dashboard-automation/run.mjs", field, "receipt must record both tooling and certified main identity");
+  }
+  for (const fragment of ["GOATOS_DASHBOARD_TOOLING_REF", "ops/dashboard-automation", "notify-slack.mjs", "GOATOS_DASHBOARD_TOOLING_REF=main", "unreviewed"]) {
+    need(runbook, "docs/runbooks/dashboard-automation-oci.md", fragment, "runbook must document the tooling ref workflow, revert and trade-off");
+  }
+  return findings;
 }
 
 function joinWithDirs(root, ...parts) {

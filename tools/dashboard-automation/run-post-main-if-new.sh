@@ -3,8 +3,14 @@
 #
 # This is intentionally OCI-local instead of GitHub-hosted: the production auth,
 # OCI parity DB, and Slack delivery env live on the runner, not in GitHub.
+#
+# The trigger and the certified SHA are still origin/main. The tooling itself is
+# NOT reset to main here: run-oci.sh syncs this checkout to
+# origin/${GOATOS_DASHBOARD_TOOLING_REF} and certifies the pinned main SHA from
+# a separate app-source worktree (runbook "Tooling ref").
 set -euo pipefail
 
+main() {
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 ENV_FILE="${GOATOS_DASHBOARD_AUTOMATION_ENV_FILE:-${HOME}/.config/goatos/dashboard-automation.env}"
@@ -36,7 +42,7 @@ if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
   die "refusing dirty tracked checkout"
 fi
 
-git fetch --quiet origin main
+git fetch --quiet origin "+refs/heads/main:refs/remotes/origin/main"
 remote_sha="$(git rev-parse origin/main)"
 last_sha=""
 if [[ -f "$LAST_SHA_FILE" ]]; then
@@ -48,11 +54,14 @@ if [[ "$remote_sha" == "$last_sha" ]]; then
   exit 0
 fi
 
-git checkout --quiet main
-git reset --quiet --hard "$remote_sha"
-
+# Not exec: the state file is written only after run-oci.sh succeeds.
 GOATOS_DASHBOARD_AUTOMATION_MODE=post-main-certification \
+GOATOS_DASHBOARD_CERTIFY_MAIN_SHA="$remote_sha" \
   "${REPO_ROOT}/tools/dashboard-automation/run-oci.sh"
 
 printf '%s\n' "$remote_sha" >"$LAST_SHA_FILE"
 echo "dashboard-automation-post-main: certified ${remote_sha}"
+}
+
+main "$@"
+exit $?

@@ -27,6 +27,9 @@ const receipt = {
   startedAt: new Date().toISOString(),
   repoSha: git(["rev-parse", "HEAD"]),
   originMainSha: git(["rev-parse", "origin/main"]),
+  // run-oci.sh runs the tooling from origin/<tooling ref> against an app-source worktree of
+  // the main SHA under certification; the receipt records both identities.
+  ...toolingIdentity(),
   productionUrl: config.productionUrl,
   runtimePolicy: runtimePolicyForMode(mode),
   layers: [],
@@ -494,6 +497,21 @@ function git(args) {
   return execFileSync("git", args, { cwd: repo, encoding: "utf8" }).trim();
 }
 
+// Receipt identity: which tooling SHA ran, and which main SHA it certified. run-oci.sh exports
+// both; a direct/local run falls back to this checkout's HEAD for both. The app source this
+// runner reads (HEAD of `repo`) must BE the certified main SHA, or the run refuses.
+export function toolingIdentity(env = process.env, headSha = git(["rev-parse", "HEAD"])) {
+  const certifiedMainSha = env.GOATOS_DASHBOARD_CERTIFIED_MAIN_SHA || headSha;
+  if (certifiedMainSha !== headSha) {
+    throw new Error(`app source HEAD ${headSha} is not the certified main SHA ${certifiedMainSha}`);
+  }
+  return {
+    toolingRef: env.GOATOS_DASHBOARD_TOOLING_REF || "unset",
+    toolingSha: env.GOATOS_DASHBOARD_TOOLING_SHA || headSha,
+    certifiedMainSha
+  };
+}
+
 function parseArgs(raw) {
   const parsed = {};
   for (let i = 0; i < raw.length; i += 1) {
@@ -532,6 +550,15 @@ function runtimePolicyForMode(value) {
 }
 
 function selfTest() {
+  const main = "a".repeat(40);
+  const tool = "b".repeat(40);
+  const id = toolingIdentity({ GOATOS_DASHBOARD_TOOLING_REF: "ops/dashboard-automation", GOATOS_DASHBOARD_TOOLING_SHA: tool, GOATOS_DASHBOARD_CERTIFIED_MAIN_SHA: main }, main);
+  if (id.toolingSha !== tool || id.certifiedMainSha !== main || id.toolingRef !== "ops/dashboard-automation") {
+    throw new Error("self-test: receipt must record both the tooling SHA and the certified main SHA");
+  }
+  let refused = false;
+  try { toolingIdentity({ GOATOS_DASHBOARD_CERTIFIED_MAIN_SHA: main }, tool); } catch { refused = true; }
+  if (!refused) throw new Error("self-test: runner must refuse when app-source HEAD is not the certified main SHA");
   if (!containsUnredactedSecret("Bearer abc.def")) throw new Error("self-test: bearer should be detected before redaction");
   const redacted = redactText("postgres://user:pass@example/db?token=secret");
   if (redacted.includes("pass") || redacted.includes("secret")) throw new Error("self-test: redaction failed");

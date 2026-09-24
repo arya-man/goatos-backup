@@ -20,6 +20,8 @@ ON_CALENDAR="${GOATOS_DASHBOARD_AUTOMATION_ON_CALENDAR:-*-*-* 04:00:00 Asia/Kolk
 POST_MAIN_ON_CALENDAR="${GOATOS_DASHBOARD_POST_MAIN_ON_CALENDAR:-*:0/10}"
 MODE="${GOATOS_DASHBOARD_AUTOMATION_MODE:-production-smoke}"
 ENV_FILE="${GOATOS_DASHBOARD_AUTOMATION_ENV_FILE:-${HOME}/.config/goatos/dashboard-automation.env}"
+# Branch the VM tooling checkout tracks (runbook "Tooling ref"); "main" = legacy main-only.
+TOOLING_REF="${GOATOS_DASHBOARD_TOOLING_REF:-ops/dashboard-automation}"
 
 die() {
   echo "dashboard-automation-timer: $*" >&2
@@ -45,6 +47,7 @@ Type=oneshot
 WorkingDirectory=${REPO_ROOT}
 Environment=GOATOS_DASHBOARD_AUTOMATION_MODE=${MODE}
 Environment=GOATOS_DASHBOARD_AUTOMATION_ENV_FILE=${ENV_FILE}
+Environment=GOATOS_DASHBOARD_TOOLING_REF=${TOOLING_REF}
 ExecStart=${REPO_ROOT}/tools/dashboard-automation/run-oci.sh
 Nice=10
 IOSchedulingClass=best-effort
@@ -66,12 +69,13 @@ TIMER
 
 cat >"${POST_MAIN_SERVICE_PATH}.tmp" <<SERVICE
 [Unit]
-Description=Goat OS dashboard post-main certification
+Description=Goat OS dashboard post-main certification (tooling from ${TOOLING_REF})
 
 [Service]
 Type=oneshot
 WorkingDirectory=${REPO_ROOT}
 Environment=GOATOS_DASHBOARD_AUTOMATION_ENV_FILE=${ENV_FILE}
+Environment=GOATOS_DASHBOARD_TOOLING_REF=${TOOLING_REF}
 ExecStart=${REPO_ROOT}/tools/dashboard-automation/run-post-main-if-new.sh
 Nice=10
 IOSchedulingClass=best-effort

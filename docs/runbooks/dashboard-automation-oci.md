@@ -15,7 +15,8 @@ The installed OCI timers are:
 - daily production smoke at `04:00 Asia/Kolkata` and `20:00 Asia/Kolkata` by default;
 - post-main certification poll every 10 minutes by default. It fetches `origin/main`, runs once per
   new SHA, and records the last certified SHA under
-  `~/.local/state/goatos/dashboard-automation/last-post-main-sha`.
+  `~/.local/state/goatos/dashboard-automation/last-post-main-sha`. The automation code itself runs
+  from the tooling ref (see "Tooling ref" below), not from `main`.
 
 Both timers use the same local env file and the same Slack notifier. They do not create OCI
 resources.
@@ -40,6 +41,69 @@ Change these in `~/.config/goatos/dashboard-automation.env`, then rerun
 reload the user systemd timer. No Goat OS deploy is required. Do not put this schedule in the product
 database: the automation must still be able to run when the product database or API is exactly what
 is broken.
+
+## Tooling ref
+
+The automation CODE (`tools/dashboard-automation/`) on the OCI VM updates from its own branch, not
+from Goat OS `main`. The branch is `GOATOS_DASHBOARD_TOOLING_REF`, default
+`ops/dashboard-automation`. Fixing a Slack card or a runner bug therefore does not need a
+`make land-main` (no Android slice, no full `ci-local`).
+
+What each run does (`tools/dashboard-automation/run-oci.sh`):
+
+1. Refuses a dirty tracked checkout (`refusing dirty tracked checkout`).
+2. Fetches `origin/main` and `origin/<tooling ref>`, moves the VM checkout to
+   `origin/<tooling ref>` (`git checkout -B` + `reset --hard`), re-execs itself once, and refuses
+   unless `HEAD == origin/<tooling ref>`.
+3. Picks the main SHA to certify: the SHA pinned by `run-post-main-if-new.sh`
+   (`GOATOS_DASHBOARD_CERTIFY_MAIN_SHA`), otherwise `origin/main`. It must be on `origin/main`.
+4. Checks that main SHA out into a separate app-source worktree
+   (`~/.local/state/goatos/dashboard-automation/app-main`, override with
+   `GOATOS_DASHBOARD_APP_SOURCE_DIR`), overlays the tooling SHA's `tools/dashboard-automation/`
+   onto it, and symlinks the tooling checkout's `node_modules` and `apps/admin-web/node_modules`
+   into it. It proves the worktree is exactly the main SHA outside the overlay, and exactly the
+   tooling SHA inside it.
+5. Runs `run.mjs` from that worktree. Route discovery, static inventory, coverage sync, backend
+   vaccination tests and the `--expected-sha` API check all see main's application source. The
+   receipt records `repoSha`/`certifiedMainSha` (the main SHA) and `toolingRef`/`toolingSha` (the
+   automation code that ran).
+
+`run-post-main-if-new.sh` still triggers once per new `origin/main` SHA and still writes
+`last-post-main-sha` only after a successful certification of that SHA. It no longer resets the
+checkout to `main`.
+
+Create the branch the first time, from `main` (run from any clean Goat OS checkout):
+
+```sh
+git fetch origin main
+git push origin origin/main:refs/heads/ops/dashboard-automation
+```
+
+Then on the VM, add `GOATOS_DASHBOARD_TOOLING_REF=ops/dashboard-automation` to the env file (optional,
+it is the default) and rerun
+`GOATOS_DASHBOARD_AUTOMATION_INSTALL=1 tools/dashboard-automation/install-oci-user-timer.sh` so the
+systemd units carry `Environment=GOATOS_DASHBOARD_TOOLING_REF=...`. Until the branch exists, every run
+fails with `origin/ops/dashboard-automation does not exist`.
+
+Change a Slack card:
+
+1. Edit `tools/dashboard-automation/notify-slack.mjs` on a checkout of `ops/dashboard-automation`.
+2. Run `node tools/dashboard-automation/notify-slack.mjs --self-test` and
+   `make dashboard-automation-self-test`.
+3. `git push origin HEAD:ops/dashboard-automation`. The next timer run (production smoke, or the
+   10-minute post-main poll when `main` moves) picks it up. No Goat OS landing.
+
+Keep the branch close to `main`: periodically merge `origin/main` into it, and upstream tooling fixes
+to `main` through a normal landing so the two do not drift. Only `tools/dashboard-automation/` is
+taken from the tooling ref; every other file (including `tools/agent-hooks/`, `tools/perf/` and
+`apps/admin-web/scripts/`) comes from the certified main SHA.
+
+Revert to main-only: set `GOATOS_DASHBOARD_TOOLING_REF=main` in the env file and rerun the installer.
+The checkout then tracks `origin/main` and certification runs in place, as before.
+
+Trade-off: anything pushed to `ops/dashboard-automation` runs on the VM, with the automation's
+production read tokens, Slack token and OCI access, on the next timer tick, unreviewed and without
+`make land-main`. Restrict who can push that branch (GitHub ruleset) and treat it as privileged.
 
 ## Commands
 
