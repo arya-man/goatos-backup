@@ -421,6 +421,9 @@ class SyncEngine(
 
     private suspend fun recordFailure(item: OutboxEntity, error: Throwable): Long? {
         val attempt = item.attemptCount + 1
+        // Parsed ONCE and shared by the three fields below. They are three questions about one
+        // refusal, and asking the throwable three times parses the same envelope three times.
+        val serverError = error.serverErrorText()
         // Terminal = a definitive server rejection (validation) OR a non-retryable 4xx: neither
         // changes by re-sending the same payload, so don't burn the backoff budget on it.
         val conflict = error is NonRetryableSyncException || error.isTerminalAppApiError()
@@ -438,10 +441,10 @@ class SyncEngine(
             lastError = error.outboxLastError(),
             // The server's own code beside its sentence, so a screen can key on WHAT was refused
             // (the verifier's confirm guard) instead of parsing the wording. Null when it did not say.
-            lastErrorCode = error.serverErrorText()?.code?.takeIf { it.isNotBlank() },
+            lastErrorCode = serverError?.code?.takeIf { it.isNotBlank() },
             // ...and the ONE input it named as refused, so a questionnaire form can mark that
             // question rather than parse the sentence. Null when it named none.
-            lastErrorField = error.serverErrorText()?.field?.takeIf { it.isNotBlank() },
+            lastErrorField = serverError?.field?.takeIf { it.isNotBlank() },
             now = clock(),
         )
         // Report only what actually happened: a non-applied transition means another pass /
