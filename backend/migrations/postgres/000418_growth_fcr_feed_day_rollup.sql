@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS public.growth_fcr_pen_feed_days (
 );
 
 COMMENT ON TABLE public.growth_fcr_pen_feed_days IS
-  'FCR feed-day rollup: one row per (tenant, park, pen, business day) of live feed-direction rows, priced at the same-farm latest load. Maintained incrementally from growth_fcr_rollup_dirty; see migration 000404.';
+  'FCR feed-day rollup: one row per (tenant, park, pen, business day) of live feed-direction rows, priced at the same-farm latest load. Maintained incrementally from growth_fcr_rollup_dirty; see migration 000418.';
 
 -- Window reads: tenant + park ANY + business-day range, then pen.
 CREATE INDEX IF NOT EXISTS growth_fcr_pen_feed_days_window_idx

@@ -9,7 +9,7 @@ import (
 	growthdirectorpg "github.com/vgoats/goatos/backend/internal/growthdirector/adapters/postgres"
 )
 
-// GrowthFCRRollupStage keeps the FCR feed-day rollup (migration 000404) current off the request
+// GrowthFCRRollupStage keeps the FCR feed-day rollup (migration 000418) current off the request
 // path: every tick it drains the dirty log (parks whose feed sheet or feed loads changed), and
 // once per business day it reconciles every park against a fresh recompute, re-marking any park
 // whose stored rows drifted (a writer that bypassed the triggers) so the next drain repairs it.

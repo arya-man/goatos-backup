@@ -161,7 +161,7 @@ pen_rounds AS (
   UNION ALL
   SELECT pen_shed_id, pen_key, campaign_id, period_start_date, d, avg_kg, animals, 'individual_animal' FROM scan_pen_rounds
 ),
--- The feed side, from the feed-day rollup (migration 000404): one pre-priced row per
+-- The feed side, from the feed-day rollup (migration 000418): one pre-priced row per
 -- (park, pen, business day) instead of every feed cell of the window. Only the sheds the scoped
 -- buckets resolved to. Every column is additive over days, so a window or a segment [d_prev, d)
 -- is the sum of its day rows -- see fcr_rollup.go for the grain and the refresh contract.

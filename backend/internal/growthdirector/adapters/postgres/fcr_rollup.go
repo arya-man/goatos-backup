@@ -12,7 +12,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 )
 
-// THE FCR FEED-DAY ROLLUP (migration 000404).
+// THE FCR FEED-DAY ROLLUP (migration 000418).
 //
 // growth_fcr_pen_feed_days holds, per (tenant, park, pen, business day), the feed the sheet
 // directed to the pen that day, already priced at the same-farm latest load on or before it, and
