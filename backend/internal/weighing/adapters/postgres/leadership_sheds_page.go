@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 	"github.com/vgoats/goatos/backend/internal/weighing/domain"
 	"github.com/vgoats/goatos/backend/internal/weighing/ports"
 )
@@ -190,10 +191,12 @@ LIMIT $6`,
 	// pgx.Batch: the whole gallery page is two round trips however many buckets it holds (P10).
 	batch := &pgx.Batch{}
 	if len(individualSheds) > 0 {
-		batch.Queue(leadershipIndividualEvidenceSQL, tenantID, individualCampaigns, individualSheds, perShedLimit+1)
+		bound := sqlbind.MustBind(leadershipIndividualEvidenceSQL, tenantID, individualCampaigns, individualSheds, perShedLimit+1)
+		batch.Queue(bound.SQL(), bound.Args()...)
 	}
 	if len(lumpSheds) > 0 {
-		batch.Queue(leadershipLumpEvidenceSQL, tenantID, lumpCampaigns, lumpSheds)
+		bound := sqlbind.MustBind(leadershipLumpEvidenceSQL, tenantID, lumpCampaigns, lumpSheds)
+		batch.Queue(bound.SQL(), bound.Args()...)
 	}
 	results := r.pool.SendBatch(ctx, batch)
 	defer func() { _ = results.Close() }()
