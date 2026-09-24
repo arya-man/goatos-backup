@@ -671,7 +671,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// Deliberately its OWN module, outside backend/internal/weighing, because
 	// weighing is isolated from the herd and these widgets need breed/sex and
 	// the feed sheet.
-	growthDirectorService := growthdirectorapp.NewService(growthdirectorpg.NewRepository(pool, cfg.Postgres.QueryTimeout).WithReadCache(analyticsReadCache))
+	growthDirectorRepo := growthdirectorpg.NewRepository(pool, cfg.Postgres.QueryTimeout).WithReadCache(analyticsReadCache)
+	growthDirectorService := growthdirectorapp.NewService(growthDirectorRepo)
 	growthDirectorHandler := growthdirectorhttp.NewHandler(growthDirectorService, log)
 	calendarService := calendarapp.NewService(calendarpg.NewRepository(pool, cfg.Postgres.QueryTimeout))
 	calendarHandler := calendarhttp.NewHandler(calendarService, log)
@@ -1609,7 +1610,11 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// it loads), then starts after a per-instance jitter and runs its reads one at a time.
 	analyticsListener := readcache.NewListener(pool, log, analyticsReadCache, alertsReadCache, countsReadCache)
 	analyticsListener.OnFirstConnect(func(ctx context.Context) {
-		analyticsReadCache.StartWarmup(ctx, log, readcache.Jitter(time.Second, 10*time.Second), 20*time.Second, weighingRepo.WarmLandingReads)
+		analyticsReadCache.StartWarmup(ctx, log, readcache.Jitter(time.Second, 10*time.Second), 20*time.Second,
+			weighingRepo.WarmLandingReads,
+			// Build/drain the FCR feed-day rollup so the first FCR read after a deploy is not the
+			// one that pays for it.
+			func(ctx context.Context) error { _, err := growthDirectorRepo.RefreshFCRRollup(ctx, ""); return err })
 	})
 	analyticsListener.Start(liveNotifyCtx)
 	return &API{
