@@ -11,10 +11,10 @@ It never writes. Every request is a GET against `https://api.goatos.mesha.sg`.
 
 | Thing | Where |
 |---|---|
-| Catalogue | `tools/dashboard-automation/api-contract-checks.json` (58 endpoints) |
-| Runner | `tools/dashboard-automation/check-api-contracts.mjs` |
-| Tests | `tools/dashboard-automation/check-api-contracts.test.mjs` (37 tests) |
-| Slack rendering | `tools/dashboard-automation/lib/finding-kinds/api-contracts.mjs` |
+| Catalogue | `mesha-ops/dashboard-automation/tooling/api-contract-checks.json` (58 endpoints) |
+| Runner | `mesha-ops/dashboard-automation/tooling/check-api-contracts.mjs` |
+| Tests | `mesha-ops/dashboard-automation/tooling/check-api-contracts.test.mjs` (37 tests) |
+| Slack rendering | `mesha-ops/dashboard-automation/tooling/lib/finding-kinds/api-contracts.mjs` |
 | Layer | `run.mjs`, layer `api-contracts`, env `GOATOS_DASHBOARD_API_CONTRACTS` |
 
 ---
@@ -84,7 +84,7 @@ it. The check was not raised.
 ## 2. Why each assertion exists
 
 Every check is tied to a repeat bug pattern in
-`tools/dashboard-automation/bug-pattern-coverage.json` and to named commits. The catalogue
+`mesha-ops/dashboard-automation/tooling/bug-pattern-coverage.json` and to named commits. The catalogue
 carries `sourceCommits` and `bugPatterns` per entry.
 
 | Assertion | The repeat bug it comes from | Named commits |
@@ -97,7 +97,7 @@ carries `sourceCommits` and `bugPatterns` per entry.
 
 ### Attribution from the history miner
 
-`tools/dashboard-automation/lane-checks.json` (branch `auto/hist-20260923`) derives 62
+`mesha-ops/dashboard-automation/tooling/lane-checks.json` (branch `auto/hist-20260923`) derives 62
 lane-3 checks from 609 commits. **42 of those 62 were folded into this catalogue**, by
 matching endpoint path, which raised the catalogue's attribution from 24 unique SHAs to
 **275 unique SHAs**. All 275 resolve to real commits in this repo.
@@ -132,7 +132,7 @@ a miner row would print a bullet reading `undefined` to a farm manager.
 
 ## 3. Latency: the budgets, and the noise problem
 
-Budgets come from `tools/dashboard-automation/config.json` `apiLatencyPolicy`:
+Budgets come from `mesha-ops/dashboard-automation/tooling/config.json` `apiLatencyPolicy`:
 `hotPathP90Ms: 300`, `hotPathP95Ms: 500`, `normalDashboardApisMustStayUnderMs: 500`. No
 threshold is invented here, and `latencyBudgetFor` caps any per-entry budget at the policy
 ceiling so nothing can quietly buy itself more headroom.
@@ -292,7 +292,7 @@ to change and that is lane 4's call, not lane 3's.
 
 ## 6. Proof
 
-Tests: `node --test tools/dashboard-automation/check-api-contracts.test.mjs` — **37 tests,
+Tests: `node --test mesha-ops/dashboard-automation/tooling/check-api-contracts.test.mjs` — **37 tests,
 all passing**. They cover, in order of what they protect:
 
 - the GET-only guard refusing every other method, `checkEntry` refusing a non-GET entry

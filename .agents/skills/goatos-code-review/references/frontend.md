@@ -207,7 +207,7 @@ error, or a stale page.
 Dashboard-wide production smoke coverage is a standing review lens, not a
 weighing-only rule. Any route/page/tab/filter/drawer/detail overlay, admin
 contract, SQL-bind, generated-client, request fanout, or visible error-state
-change must also satisfy `make dashboard-automation-guard`. That guard derives
+change must also satisfy the mesha-ops dashboard-automation guard (`mesha-ops/dashboard-automation/tooling/guard/`). That guard derives
 admin routes from `apps/admin-web/app/(admin)/**/page.tsx` and checks the
 production smoke inventory plus the known bad strings:
 `backend_down`, `Admin-web contract unavailable`,

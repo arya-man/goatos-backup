@@ -5,7 +5,7 @@ way a stockman uses it: open the app, record what you did, lose your signal, hav
 the app killed under you, and find your morning's work still there when the signal
 comes back.
 
-It is built from `tools/dashboard-automation/lane-checks.json` — **47 deduplicated
+It is built from `mesha-ops/dashboard-automation/tooling/lane-checks.json` — **47 deduplicated
 checks derived from 1051 Android commits since 2026-08-01**, each carrying the
 commits it covers. Nothing here is a hand-written wish list; every journey traces
 back to work the team actually did.
@@ -26,7 +26,7 @@ to prevent.
 | Physical-device only — a virtual run may never claim these | 5 |
 | **Total** | **47** |
 
-`tools/dashboard-automation/android-journeys.json` carries this per journey in
+`mesha-ops/dashboard-automation/tooling/android-journeys.json` carries this per journey in
 `automation.tier`, and `check-static-inventory.mjs` fails the build if a physical
 journey ever picks up a test class, if something claimed as covered stops saying
 which half it proves, or if parked work loses its reason.
@@ -132,28 +132,28 @@ project.
 
 ```bash
 # plan and check the budget, submit nothing
-node tools/dashboard-automation/run-android-journeys.mjs --dry-run
+node mesha-ops/dashboard-automation/tooling/run-android-journeys.mjs --dry-run
 
 # one journey
-node tools/dashboard-automation/run-android-journeys.mjs --only login-and-session --dry-run
+node mesha-ops/dashboard-automation/tooling/run-android-journeys.mjs --only login-and-session --dry-run
 
 # a real run (see "The live run is parked" below for why this is not yet possible here)
-node tools/dashboard-automation/run-android-journeys.mjs \
+node mesha-ops/dashboard-automation/tooling/run-android-journeys.mjs \
   --app-apk  apps/goatos-android/app/build/outputs/apk/dev/debug/app-dev-debug.apk \
   --test-apk apps/goatos-android/journeys/build/outputs/apk/dev/debug/journeys-dev-debug.apk \
   --out .codex-goatos-render/android-journeys/receipt.json
 
 # inside the whole automation run
-GOATOS_DASHBOARD_ANDROID_JOURNEYS=1 node tools/dashboard-automation/run.mjs --mode post-main-certification
+GOATOS_DASHBOARD_ANDROID_JOURNEYS=1 node mesha-ops/dashboard-automation/tooling/run.mjs --mode post-main-certification
 ```
 
 Self-tests and tests:
 
 ```bash
-node tools/dashboard-automation/run-android-journeys.mjs --self-test
-node --test tools/dashboard-automation/run-android-journeys.test.mjs
-node tools/dashboard-automation/notify-slack.mjs --self-test
-node tools/dashboard-automation/check-static-inventory.mjs --self-test
+node mesha-ops/dashboard-automation/tooling/run-android-journeys.mjs --self-test
+node --test mesha-ops/dashboard-automation/tooling/run-android-journeys.test.mjs
+node mesha-ops/dashboard-automation/tooling/notify-slack.mjs --self-test
+node mesha-ops/dashboard-automation/tooling/check-static-inventory.mjs --self-test
 ```
 
 ## How the tests drive the phone
@@ -187,7 +187,7 @@ known to work. A test counts as coverage only when the catalogue names it.
 ## What a finding looks like in Slack
 
 All of lane 5's rendering lives in
-`tools/dashboard-automation/lib/finding-kinds/android-journeys.mjs`. `notify-slack.mjs`
+`mesha-ops/dashboard-automation/tooling/lib/finding-kinds/android-journeys.mjs`. `notify-slack.mjs`
 gains exactly **one import and one registry entry** — nothing else in that file
 changes, and a test proves a lane-1-only receipt renders **byte-identically** with
 lane 5 registered.
@@ -394,7 +394,7 @@ obstacle: they need a backend, and no backend may be used.
 Ordered by the team's own repeat bugs, worst first. Proof/media and the offline sync
 queue are the two biggest in this lane, so the sync architecture and the upload-failure
 set lead and everything else follows by how much work has gone into it. The full story,
-flow and assertion for each is in `tools/dashboard-automation/android-journeys.json`.
+flow and assertion for each is in `mesha-ops/dashboard-automation/tooling/android-journeys.json`.
 
 | # | Journey | Screen | Repeat bugs behind it | Commits | Where it can run | Status |
 |---:|---|---|---|---:|---|---|

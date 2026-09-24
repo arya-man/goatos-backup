@@ -7,7 +7,9 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const manifestPath = join(here, "../../../../tools/dashboard-automation/feature-assertions.json");
+// Owned by vgoats/mesha-ops (dashboard-automation/tooling/feature-assertions.json); present only
+// when that tooling is overlaid at tools/dashboard-automation. Absent => no assertions.
+export const manifestPath = join(here, "../../../../tools/dashboard-automation/feature-assertions.json");
 
 // Same write-guard as the overlay journeys: steps may only open, switch or reveal.
 export const WRITE_WORDS = /\b(save|approve|reject|delete|remove|retire|submit|upload|download|export|assign|mark|confirm|create|add|publish|send|record|register|apply changes|sign out|log ?out)\b/i;

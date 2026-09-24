@@ -1,5 +1,10 @@
 # Budget Slack delivery
 
+> Code, image and deploy for `cost-alert-bridge` live in
+> [`vgoats/mesha-ops`](https://github.com/vgoats/mesha-ops) (`cost-alert-bridge/`). Env vars,
+> secrets, IAM and the budget stay in Goat OS Terraform (`infra/envs/stg/cost_alerts.tf`,
+> `cloud_run_services.tf`, which ignores the service image).
+
 The budget Pub/Sub stream sends periodic status, not only threshold transitions.
 `cost-alert-bridge` stores one small JSON object per billing account, budget ID
 (display-name fallback for direct payloads), and billing interval. State lives in
@@ -48,7 +53,7 @@ the repository's local CI receipt, followed by live revision/config readback and
 notification delivery verification. Do not send synthetic messages into Slack
 without maintainer authorization.
 
-Focused proof: `cd backend && go test -race ./cmd/cost-alert-bridge`.
-The package is included in the ordinary backend `go test ./...` CI job.
+Focused proof: `./cost-alert-bridge/check.sh` in mesha-ops (its `cloudbuild.yaml` also runs
+`go test -race ./...` before every deploy).
 Runtime generation fencing plus handler replay/concurrency/failure tests are the
 recurrence control; a literal source grep would not establish those properties.

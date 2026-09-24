@@ -18,7 +18,7 @@ are not built. This document is the handover.
   obligations). Refresh only stable business tables; report parity as a note.
   Blocking the browser sweep on parity is what made the old alerts useless.
 - OCI cost is **0.00 SGD** (Always Free, at the 4 OCPU / 24 GB limit). Check with
-  `tools/dashboard-automation/oci-billing-report.sh`.
+  `mesha-ops/dashboard-automation/tooling/oci-billing-report.sh`.
 - Disk: 83 GB root, ~27 GB free (the 44 GB clone dominates), plus an unused
   15 GB `/var/oled`. **No `/dev/kvm`**, so an Android emulator cannot run there.
 - Both OCI timers (`goatos-dashboard-automation.timer`,
@@ -35,7 +35,7 @@ are not built. This document is the handover.
   looks like missing access. A `goatos-oci` Host alias was added on 2026-09-23. Do not conclude
   access is missing without trying that key.
 - On the box: `/home/opc/goatos-automation/goatos` is the checkout
-  `goatos-dashboard-automation.service` runs from (via `tools/dashboard-automation/run-oci.sh`),
+  `goatos-dashboard-automation.service` runs from (via `mesha-ops/dashboard-automation/tooling/run-oci.sh`),
   `pr-350-dashboard-parity/` is a checkout of PR #350's head, and `reports/` holds past runs.
   `/home/opc/.config/goatos/dashboard-automation.env` (mode 0600) carries `GOATOS_BEARER_TOKEN`,
   `GOATOS_FIREBASE_REFRESH_TOKEN`, `GOATOS_FIREBASE_WEB_CONFIG` and `ANTHROPIC_API_KEY`. Load it
@@ -57,15 +57,15 @@ journeys, per-commit feature assertions. A failing page no longer stops the rest
 - Overlays (drawers, dialogs, sheets) are opened read-only and proved on screen.
   `apps/admin-web/scripts/lib/overlay-journeys.mjs`
 - **919 per-commit feature assertions** (608 runnable) cover every user-visible
-  web commit since Aug 1. `tools/dashboard-automation/feature-assertions.json`,
+  web commit since Aug 1. `mesha-ops/dashboard-automation/tooling/feature-assertions.json`,
   runner `apps/admin-web/scripts/lib/feature-assertions.mjs`.
-- **Self-updating coverage**: `tools/dashboard-automation/sync-coverage.mjs`
+- **Self-updating coverage**: `mesha-ops/dashboard-automation/tooling/sync-coverage.mjs`
   fails the guard when new commits are uncovered or an assertion's on-screen
-  target disappears. Ledger: `tools/dashboard-automation/commit-classification/`
+  target disappears. Ledger: `mesha-ops/dashboard-automation/tooling/commit-classification/`
   (2041 commits). `--write` parks new work as `needs-assertion`.
 - Slack: summary grouped by cause + slow pages with seconds and links, then one
   threaded reply per issue with its link and its own red-boxed screenshot, plus
-  an HTML report. `tools/dashboard-automation/notify-slack.mjs`
+  an HTML report. `mesha-ops/dashboard-automation/tooling/notify-slack.mjs`
 - Android app commits (571 since Aug 1) are **not covered by this lane**.
 
 Remaining for lane 1: land PR #350 via `make land-main`, re-enable both timers,
@@ -110,7 +110,7 @@ Analytics, telemetry and obligations tables are never touched.
 The flows production cannot test. Point an API + admin-web instance at the OCI
 Postgres (the box already runs API processes on 127.0.0.1:18873/18874 for
 preview Playwright; see `runPreviewPlaywright` in
-`tools/dashboard-automation/run.mjs`).
+`mesha-ops/dashboard-automation/tooling/run.mjs`).
 
 1. Refresh only stable business tables from STG (herd, pens, feed config, SOPs,
    sales, procurement). Never sync analytics/telemetry/obligations.
@@ -164,7 +164,7 @@ Progress on lanes 2-5 is appended here as it lands, so the PR is the record.
   non-frontend commit since 2026-08-01 into per-lane check specs (the same method that produced
   lane 1's 919 assertions; full reconciliation, never a sample).
 - **Slack message contract:** each lane owns
-  `tools/dashboard-automation/lib/finding-kinds/<lane>.mjs` and touches `notify-slack.mjs` with one
+  `mesha-ops/dashboard-automation/tooling/lib/finding-kinds/<lane>.mjs` and touches `notify-slack.mjs` with one
   import plus one `FINDING_KINDS` registry entry. `formatVisualIssuesMessage`, `formatSlackMessage`,
   `humanIssue` and `groupSlowPages` stay untouched, and every lane's self-test must prove a
   lane-1-only receipt still renders byte-identically. Slack text carries no SQL, table or column
@@ -172,7 +172,7 @@ Progress on lanes 2-5 is appended here as it lands, so the PR is the record.
 - **Coverage ledger for lanes 2-5 built and independently verified.** Every commit on `origin/main`
   since 2026-08-01 is now classified exactly once, by the same method that produced lane 1's 919
   frontend assertions. Branch `auto/hist-20260923`,
-  `tools/dashboard-automation/commit-classification/lane{2,3,4}.jsonl`, `lane5-android.jsonl`,
+  `mesha-ops/dashboard-automation/tooling/commit-classification/lane{2,3,4}.jsonl`, `lane5-android.jsonl`,
   `not-automatable.jsonl`, consolidated into `lane-checks.json` with
   `LANE-COVERAGE-REPORT.md`.
 
@@ -209,19 +209,19 @@ Progress on lanes 2-5 is appended here as it lands, so the PR is the record.
 - **The ledger drifts, so coverage is being made self-updating.** The classification above was taken
   at main `e4edc073f`; main is now `faa622283` and 58 commits landed within two hours, leaving ~52
   already unclassified. Counting by hand does not survive a moving main, so
-  `tools/dashboard-automation/sync-coverage.mjs` — which already fails the guard when a new
+  `mesha-ops/dashboard-automation/tooling/sync-coverage.mjs` — which already fails the guard when a new
   user-visible web commit has no assertion — is being extended to the four new lane ledgers. From
   then on a commit that no lane covers fails the guard instead of quietly eroding the
   "every commit since 2026-08-01" guarantee.
 - **Coverage is now self-updating for lanes 2-5, and the count is pinned.** `sync-coverage.mjs` has
-  a lanes-2-5 half beside lane 1's, running inside `make dashboard-automation-guard`. It fails on:
+  a lanes-2-5 half beside lane 1's, running inside the mesha-ops dashboard-automation guard (`mesha-ops/dashboard-automation/tooling/guard/`). It fails on:
   an uncovered commit; a sha in two lane ledgers; a `checkId` with no check behind it; a row in the
   wrong lane file; parked work with no reason; a row naming a commit outside the window; a lane 2
   SQL that stops being a single read-only `SELECT` with a `LIMIT`; a lane 3 check that stops being
   `GET`; a lane 4 check that stops naming its tables; and a failure sentence that picks up SQL, a
   selector, a check code or a stack trace. `--write` parks new work as `needs-lane` — counted for
   the reconciliation, covered by no check. Tests: `lane-coverage.test.mjs` (23 cases) plus the
-  existing 14 in `sync-coverage.test.mjs`, both wired into `make dashboard-automation-self-test`,
+  existing 14 in `sync-coverage.test.mjs`, both wired into mesha-ops `./check.sh`,
   and verified live by deleting a ledger row and watching the guard name the exact sha.
 
   Reconciled against main `faa622283`: lane 1 1023, lane 2 170, lane 3 609, lane 4 426, lane 5 1051,

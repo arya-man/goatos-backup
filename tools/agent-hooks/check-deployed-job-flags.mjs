@@ -102,7 +102,9 @@ function braceBlockFrom(text, openBraceIdx) {
 // `containers { }` block but are separated by ports/resources/env blocks, so
 // this brace-matches the container rather than relying on adjacency. Services
 // that run the Dockerfile ENTRYPOINT (no command, e.g. api) are intentionally
-// not extracted — their deployment is not command-reconciled here.
+// not extracted — their deployment is not command-reconciled here. Neither are
+// containers whose image is not local.backend_image (e.g. cost-alert-bridge, built
+// and deployed from vgoats/mesha-ops): Goat OS does not build those binaries.
 function extractServices(tfText) {
   const services = [];
   const re = /resource\s+"google_cloud_run_v2_service"\s+"[a-zA-Z0-9_]+"\s*\{/g;
@@ -115,6 +117,7 @@ function extractServices(tfText) {
       const cbody = braceBlockFrom(body, body.indexOf("{", cm.index + cm[0].length - 1));
       const cmd = cbody.match(/command\s*=\s*\[\s*"\/app\/bin\/([a-zA-Z0-9_-]+)"/);
       if (!cmd) continue;
+      if (!/\bimage\s*=\s*local\.backend_image\b/.test(cbody)) continue;
       const argsM = cbody.match(/args\s*=\s*\[([^\]]*)\]/);
       services.push({ binary: cmd[1], argsRaw: argsM ? argsM[1] : "" });
     }
@@ -377,6 +380,11 @@ resource "google_cloud_run_v2_service" "kernel_worker" {
   }
   if (argTokensFromArgsRaw(extracted[0].argsRaw).join(" ") !== "-timeout=0s") {
     throw new Error("self-test: extractServices grabbed the sidecar args instead of the app container's");
+  }
+
+  const externalImageTf = serviceTf.replace("local.backend_image", "local.cost_alert_bridge_image");
+  if (extractServices(externalImageTf).length !== 0) {
+    throw new Error("self-test: a service built outside Goat OS (not local.backend_image) must not be reconciled");
   }
 
   const goodManifest = [{ name: "kernel_worker", binary: "kernel-worker", args: ["-timeout=0s"], deployed_environments: ["dev", "stg"] }];

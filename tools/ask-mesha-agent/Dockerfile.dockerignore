@@ -62,7 +62,6 @@ docs/runbooks/evidence
 docs/prototypes/config-sop-studio/research
 **/artifacts
 apps/goatos-android/docs/screenshot-gallery
-tools/dashboard-automation/commit-classification
 fixtures
 **/*.docx
 **/*.pdf

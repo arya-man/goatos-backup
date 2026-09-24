@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
-import { WRITE_WORDS, loadFeatureAssertions } from "./feature-assertions.mjs";
+import { WRITE_WORDS, loadFeatureAssertions, manifestPath } from "./feature-assertions.mjs";
+
+// The manifest is owned by vgoats/mesha-ops and exists only when its dashboard-automation tooling is
+// overlaid at tools/dashboard-automation (the OCI runner); its data checks skip otherwise.
+const needsManifest = { skip: existsSync(manifestPath) ? false : "mesha-ops feature-assertions.json not overlaid" };
 
 test("feature assertion steps refuse anything that writes", () => {
   for (const word of ["Save", "Approve", "Reject", "Delete", "Submit", "Upload", "Download", "Assign", "Publish", "Mark reached", "Create task"]) {
@@ -23,7 +27,7 @@ test("smoke runs feature assertions on every route after overlays", () => {
   assert.match(smoke, /await check\(\(\) => assertFeaturesPresent\(page,/);
 });
 
-test("the triaged PR350 entries assert the screen, not the sidebar, and are still present", () => {
+test("the triaged PR350 entries assert the screen, not the sidebar, and are still present", needsManifest, () => {
   const entries = new Map(loadFeatureAssertions().map((entry) => [entry.sha, entry]));
 
   // 798497220 failed on laptop only because getByText("Mortality").first() resolved to the
@@ -58,7 +62,7 @@ test("a clicking entry is replayed once before it is reported missing", () => {
   assert.match(source, /if \(miss && entry\.steps\?\.length && reload\) miss = await attempt\(\);/);
 });
 
-test("FCR phone bar assertion checks layout, not only DOM presence", () => {
+test("FCR phone bar assertion checks layout, not only DOM presence", needsManifest, () => {
   const entries = new Map(loadFeatureAssertions().map((entry) => [entry.sha, entry]));
   const fcr = entries.get("e311ef24c");
   assert.ok(fcr, "e311ef24c FCR assertion must stay runnable");
