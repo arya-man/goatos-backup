@@ -276,18 +276,34 @@ export function inlineDisposition(type) {
 // clearly the answer (the turn ended without a tool call, or it grew past a narration-sized
 // prefix); a turn that turns into a tool call is dropped without ever being shown.
 export const NARRATION_HOLD_CHARS = 280;
+// A working line the model sometimes writes before the answer in the SAME turn
+// ("Confirming there's genuinely no weighing activity…", "Let me pull the pen list."). Only the
+// FIRST paragraph, only when it opens with a working verb, is short, and more text follows it.
+const NARRATION_START = /^(?:(?:now|next|first|then),? )?(?:let me|let's|i'll|i will|i'm going to|i am going to|i need to|i'm now|i now have|i have everything|now i have|okay[,.]|ok[,.]|alright[,.]|good[,.—-]|great[,.—-]|got it|perfect[,.—-]|(?:re-?|double-)?(?:confirming|checking|verifying|looking|querying|pulling|fetching|searching|reading|running|gathering|digging|cross-checking)\b)/i;
+export function stripLeadingNarration(text) {
+  const t = String(text || "");
+  const m = t.match(/^\s*([^\n]*)\n+/);
+  if (!m) return t;
+  const first = m[1].trim();
+  const rest = t.slice(m[0].length);
+  if (!rest.trim() || first.length > 220 || first.startsWith("|") || first.startsWith("#") || first.includes("**")) return t;
+  return NARRATION_START.test(first) ? stripLeadingNarration(rest) : t;
+}
+
 export function makeTurnGate(emit, hold = NARRATION_HOLD_CHARS) {
   let held = "";
   let released = false;
+  // Releasing held text for the first time: drop a leading working line if it is complete.
+  const release = (h) => emit(stripLeadingNarration(h));
   return {
     text(t) {
       if (released) return emit(t);
       held += t;
-      if (held.length >= hold) { released = true; const h = held; held = ""; emit(h); }
+      if (held.length >= hold) { released = true; const h = held; held = ""; release(h); }
     },
     // A tool call started: drop held narration. Returns true if text was already on screen.
     toolStart() { const shown = released; held = ""; released = false; return shown; },
     // The turn ended without a tool call (or the run ended): release what is held.
-    end() { if (held) { const h = held; held = ""; emit(h); } released = false; },
+    end() { if (held) { const h = held; held = ""; release(h); } released = false; },
   };
 }

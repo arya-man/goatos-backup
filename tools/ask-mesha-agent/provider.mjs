@@ -76,8 +76,15 @@ export function isVertexUnavailable({ status = null, error = "" } = {}) {
 
 // Retry once on the API key only when: auto mode, the run was on Vertex, the failure is
 // Vertex-availability-shaped, nothing reached the user yet, and we haven't retried already.
-export function shouldFallback({ mode, provider, status = null, error = "", streamed = false, attempt = 0, aborted = false }) {
-  return mode === "auto" && provider === "vertex" && !streamed && attempt === 0 && !aborted && isVertexUnavailable({ status, error });
+// toolCalls > 0: the run already did work (queries, a live watch); rerunning would repeat it.
+export function shouldFallback({ mode, provider, status = null, error = "", streamed = false, attempt = 0, aborted = false, toolCalls = 0 }) {
+  return mode === "auto" && provider === "vertex" && !streamed && attempt === 0 && !aborted && !toolCalls && isVertexUnavailable({ status, error });
+}
+
+// Answer cost after a fallback: the failed attempt's spend is added once to the retry's.
+export function combinedCost(retryCost, failedAttemptCost) {
+  if (!failedAttemptCost) return retryCost;
+  return (retryCost ?? 0) + failedAttemptCost;
 }
 
 // Access token: GCE/Cloud Run metadata server first; locally gcloud if installed; else null.
