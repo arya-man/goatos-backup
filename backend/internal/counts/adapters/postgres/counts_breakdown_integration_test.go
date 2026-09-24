@@ -2797,17 +2797,19 @@ VALUES ($1::uuid, $2::uuid, 'sold', 2)`, countsTenant, loadA); err != nil {
 		}
 	})
 
-	// ParkScopeHierarchy: a park predicate narrows on-farm to that park's animals and leaves
-	// bought -- the load's own fact -- untouched. Every animal here sits in countsPark, so an
-	// unrelated park empties on-farm without dropping a load.
-	t.Run("ParkScopeHierarchyNarrowsOnFarmButNeverBought", func(t *testing.T) {
+	// ParkScopeHierarchy: the park decides WHICH loads are listed -- a load belongs to the park its
+	// animals are in -- and never what a listed load bought, which is the load's own fact. Every
+	// animal here sits in countsPark, so its own park keeps both loads whole, and a park holding
+	// none of them lists no load at all rather than both at "on farm 0", which read as sold out
+	// (TestCountsBreakdownLoadsFollowTheSelectedPark covers loads split across two parks).
+	t.Run("ParkScopeHierarchyPicksTheLoadsButNeverNarrowsBought", func(t *testing.T) {
 		same := read(t, domain.CountsBreakdownQuery{ParkIDs: []string{countsPark}})
 		if !reflect.DeepEqual(same, got.Loads) {
 			t.Errorf("own-park scope changed the loads: %+v", same)
 		}
 		other := read(t, domain.CountsBreakdownQuery{ParkIDs: []string{"00000000-0000-4000-8000-000000003999"}})
-		if len(other) != 2 || other[0].OnFarm != 0 || other[1].OnFarm != 0 || other[1].Purchased != 6 || other[0].Purchased != 10 {
-			t.Errorf("other-park scope = %+v, want both loads listed, on_farm 0, bought 6 and 10", other)
+		if len(other) != 0 {
+			t.Errorf("other-park scope = %+v, want no load listed: none of their animals are in that park", other)
 		}
 	})
 
@@ -3128,4 +3130,81 @@ UPDATE goats SET lifecycle_status = 'dead' WHERE tenant_id = $1::uuid AND goat_i
 			t.Errorf("pens sum to %d, want on_farm %d after the death", animals, row.OnFarm)
 		}
 	})
+}
+
+// The Purchased loads card follows the park like every other card on the page. A load records no
+// park of its own, but animals never move between parks, so a load belongs to the park(s) its
+// register animals are in -- sold ones included, so a sold-out load stays on its park's card.
+// Before this, a CPT page listed every CBE load at "on farm 0", which reads as "sold out".
+func TestCountsBreakdownLoadsFollowTheSelectedPark(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newBreakdownRepo(t, ctx)
+	seedSameNamedShedsInTwoParks(t, ctx, pool)
+
+	var vendor string
+	if err := pool.QueryRow(ctx, `
+INSERT INTO parties (party_type, display_name, status) VALUES ('org', 'Park vendor', 'active')
+RETURNING party_id::text`).Scan(&vendor); err != nil {
+		t.Fatalf("seed vendor: %v", err)
+	}
+	seedLoad := func(key, ref string, expected int) string {
+		t.Helper()
+		var id string
+		if err := pool.QueryRow(ctx, `
+INSERT INTO procurement_loads (tenant_id, source_party_id, purchase_date, status, expected_count, idempotency_key, context)
+VALUES ($1::uuid, $2::uuid, '2026-08-01'::date, 'accepted_intake', $3, $4, jsonb_build_object('load_ref', $5::text))
+RETURNING load_id::text`, countsTenant, vendor, expected, key, ref).Scan(&id); err != nil {
+			t.Fatalf("seed load %s: %v", ref, err)
+		}
+		return id
+	}
+	member := func(load string, i int, park, shed, status string) {
+		t.Helper()
+		insertBreakdownGoat(t, ctx, pool, goatUUID(i), goatDisplayID(i),
+			"male", "Beetal", status, "Fattening", strp(park), strp(shed), nil)
+		if _, err := pool.Exec(ctx, `
+INSERT INTO procurement_load_goats (tenant_id, load_id, goat_id, selection_state, current_state, intake_accepted_at)
+VALUES ($1::uuid, $2::uuid, $3::uuid, 'accepted_herd_intake', 'accepted_herd_intake', '2026-08-01T10:00:00Z'::timestamptz)`,
+			countsTenant, load, goatUUID(i)); err != nil {
+			t.Fatalf("seed load goat: %v", err)
+		}
+	}
+
+	parkOneLoad := seedLoad("park-one-load", "201", 5)
+	member(parkOneLoad, 0, countsPark, countsShedCastroOne, "alive")
+	member(parkOneLoad, 1, countsPark, countsShedCastroOne, "alive")
+	// Park two's load is SOLD OUT: it must still be listed on park two's card.
+	parkTwoLoad := seedLoad("park-two-load", "202", 3)
+	member(parkTwoLoad, 2, countsParkTwo, countsShedCastroTwo, "sold")
+	// Known only from pre-GoatOS outcomes: no animal places it in either park.
+	priorOnly := seedLoad("prior-only-load", "203", 0)
+	if _, err := pool.Exec(ctx, `
+INSERT INTO procurement_load_prior_outcomes (tenant_id, load_id, outcome, animal_count)
+VALUES ($1::uuid, $2::uuid, 'sold', 4)`, countsTenant, priorOnly); err != nil {
+		t.Fatalf("seed prior outcome: %v", err)
+	}
+
+	refs := func(parks []string) map[string]int64 {
+		t.Helper()
+		got, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, ParkIDs: parks, Limit: 50})
+		if err != nil {
+			t.Fatalf("GetCountsBreakdown(%v): %v", parks, err)
+		}
+		out := map[string]int64{}
+		for _, l := range got.Loads {
+			out[l.LoadRef] = l.Purchased
+		}
+		return out
+	}
+
+	if got := refs(nil); !reflect.DeepEqual(got, map[string]int64{"201": 5, "202": 3, "203": 4}) {
+		t.Errorf("all parks: loads = %v, want every load", got)
+	}
+	// Bought is the load's own total and does not shrink with the park.
+	if got := refs([]string{countsPark}); !reflect.DeepEqual(got, map[string]int64{"201": 5}) {
+		t.Errorf("park one: loads = %v, want only load 201 at bought 5", got)
+	}
+	if got := refs([]string{countsParkTwo}); !reflect.DeepEqual(got, map[string]int64{"202": 3}) {
+		t.Errorf("park two: loads = %v, want only the sold-out load 202", got)
+	}
 }
