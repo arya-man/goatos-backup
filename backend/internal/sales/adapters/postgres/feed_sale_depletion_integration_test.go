@@ -2,10 +2,12 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
+	salesapp "github.com/vgoats/goatos/backend/internal/sales/app"
 	"github.com/vgoats/goatos/backend/internal/sales/domain"
 )
 
@@ -203,9 +205,12 @@ func TestFeedDemandForDealSumsPerFeedNotPerLine(t *testing.T) {
 		t.Fatalf("create: %v", err)
 	}
 
-	farm, demand, err := repo.FeedDemandForDeal(ctx, salesTestTenant, deal.DealID)
+	farm, status, demand, err := repo.FeedDemandForDeal(ctx, salesTestTenant, deal.DealID)
 	if err != nil {
 		t.Fatalf("read demand: %v", err)
+	}
+	if status != domain.StatusInDiscussion {
+		t.Fatalf("status = %q, want In Discussion", status)
 	}
 	if farm != "CPT" {
 		t.Fatalf("farm = %q, want CPT: the store asked is the one the sale leaves", farm)
@@ -242,11 +247,67 @@ func TestFeedDemandForADealWithNoFeedLineIsEmptyAndNotAnError(t *testing.T) {
 		t.Fatalf("create: %v", err)
 	}
 
-	farm, demand, err := repo.FeedDemandForDeal(ctx, salesTestTenant, deal.DealID)
+	farm, status, demand, err := repo.FeedDemandForDeal(ctx, salesTestTenant, deal.DealID)
 	if err != nil {
 		t.Fatalf("an animal sale must read cleanly: %v", err)
 	}
+	if status != domain.StatusDealClosed {
+		t.Fatalf("status = %q, want Deal Closed", status)
+	}
 	if farm != "CBE" || len(demand) != 0 {
 		t.Fatalf("farm/demand = %q/%+v, want CBE and nothing owed to the store", farm, demand)
+	}
+}
+
+type closeReplayStore struct {
+	balance float64
+	calls   int
+}
+
+func (s *closeReplayStore) FeedBalanceKg(context.Context, string, string, string) (float64, bool, error) {
+	s.calls++
+	return s.balance, true, nil
+}
+
+func TestFeedCloseReplayUsesPersistedStatusAndDepletesOnlyOnce(t *testing.T) {
+	ctx := context.Background()
+	repo := feedSaleRepo(t, ctx)
+	write := domain.DealWrite{
+		SaleDate: "2026-09-24", Farm: "CPT", Status: domain.StatusInDiscussion,
+		BuyerName: "Replay buyer", BuyerVendorID: feedSaleBuyerVendorID,
+		Lines: []domain.DealLineWrite{{ProductType: "Feed", Breed: "Maize", Quantity: kg(600), RatePerUnit: kg(20)}},
+	}.Normalize(feedProducts())
+	deal, err := repo.CreateDeal(ctx, salesTestTenant, write, "", "close-replay")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stock := &closeReplayStore{balance: 1000}
+	service := salesapp.NewSalesService(repo).WithFeedStock(stock)
+	if _, err := service.SetDealStatus(ctx, salesTestTenant, deal.DealID, domain.StatusDealClosed, false, ""); err != nil {
+		t.Fatal(err)
+	}
+	stock.balance = 1000 - soldKg(t, ctx, repo, salesTestTenant, "CPT", "Maize")
+	if _, err := service.SetDealStatus(ctx, salesTestTenant, deal.DealID, domain.StatusDealClosed, false, ""); err != nil {
+		t.Fatalf("replayed close: %v", err)
+	}
+	if stock.calls != 1 {
+		t.Fatalf("stock reads = %d, want 1", stock.calls)
+	}
+	if got := soldKg(t, ctx, repo, salesTestTenant, "CPT", "Maize"); got != 600 {
+		t.Fatalf("depleted %v kg, want 600", got)
+	}
+	if _, err := service.SetDealStatus(ctx, salesTestTenant, deal.DealID, domain.StatusInDiscussion, false, ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := soldKg(t, ctx, repo, salesTestTenant, "CPT", "Maize"); got != 0 {
+		t.Fatalf("reopening left %v kg depleted", got)
+	}
+	_, err = service.SetDealStatus(ctx, salesTestTenant, deal.DealID, domain.StatusDealClosed, false, "")
+	var short domain.ErrFeedStockShort
+	if !errors.As(err, &short) {
+		t.Fatalf("reopened sale must check current stock: %v", err)
+	}
+	if got := soldKg(t, ctx, repo, salesTestTenant, "CPT", "Maize"); got != 0 {
+		t.Fatalf("unconfirmed close depleted %v kg", got)
 	}
 }

@@ -275,7 +275,7 @@ func (r *Repository) attachDealLines(ctx context.Context, tenantID string, deals
 // typed them in so the sentence the desk reads names the row they would look at first.
 //
 // projection-review: membership=public.sales_deal_lines rows of one deal, unique on
-// (tenant_id, line_id); group_key=(d.farm, l.breed) -- many LINES to one FEED by design, which is
+// (tenant_id, line_id); group_key=(d.farm, d.status, l.breed) -- many LINES to one FEED by design, which is
 // the fix itself, because asking each line on its own let two lots of one feed through a store
 // neither exceeded alone; join_cardinality=sales_deals joined 1:1 on its primary key
 // (tenant_id, id), so the LEFT JOIN multiplies nothing and a deal with no feed line still returns
@@ -283,7 +283,7 @@ func (r *Repository) attachDealLines(ctx context.Context, tenantID string, deals
 // against the store, never a page of it; scope=the deal's own (tenant_id, id) and the farm the
 // deal itself carries, never a park inferred from the lines. No ratio or cap is computed here.
 const feedDemandForDealSQL = `
-SELECT d.farm,
+SELECT d.farm, d.status,
        COALESCE(l.breed, ''),
        COALESCE(SUM(l.quantity), 0)::float8,
        MIN(l.line_no)
@@ -291,29 +291,29 @@ FROM public.sales_deals d
 LEFT JOIN public.sales_deal_lines l
        ON l.tenant_id = d.tenant_id AND l.deal_id = d.id AND l.product_kind = $3
 WHERE d.tenant_id = $1 AND d.id = $2
-GROUP BY d.farm, l.breed
+GROUP BY d.farm, d.status, l.breed
 ORDER BY MIN(l.line_no) NULLS FIRST`
 
-// FeedDemandForDeal reads what a recorded deal's feed lines take off the store.
-func (r *Repository) FeedDemandForDeal(ctx context.Context, tenantID, dealID string) (string, []domain.FeedDemand, error) {
+// FeedDemandForDeal reads the persisted status and what the deal's feed lines take off the store.
+func (r *Repository) FeedDemandForDeal(ctx context.Context, tenantID, dealID string) (string, string, []domain.FeedDemand, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
 	rows, err := r.pool.Query(ctx, feedDemandForDealSQL, tenantID, dealID, domain.KindFeed)
 	if err != nil {
-		return "", nil, fmt.Errorf("sales: read deal feed demand: %w", err)
+		return "", "", nil, fmt.Errorf("sales: read deal feed demand: %w", err)
 	}
 	defer rows.Close()
 
-	farm := ""
+	farm, status := "", ""
 	demand := []domain.FeedDemand{}
 	for rows.Next() {
 		var feed string
 		var kg float64
 		// NULL for a deal with no feed line at all -- the LEFT JOIN still returns its farm row.
 		var lineNo *int
-		if err := rows.Scan(&farm, &feed, &kg, &lineNo); err != nil {
-			return "", nil, fmt.Errorf("sales: scan deal feed demand: %w", err)
+		if err := rows.Scan(&farm, &status, &feed, &kg, &lineNo); err != nil {
+			return "", "", nil, fmt.Errorf("sales: scan deal feed demand: %w", err)
 		}
 		if feed == "" {
 			continue
@@ -325,12 +325,12 @@ func (r *Repository) FeedDemandForDeal(ctx context.Context, tenantID, dealID str
 		demand = append(demand, d)
 	}
 	if err := rows.Err(); err != nil {
-		return "", nil, fmt.Errorf("sales: read deal feed demand: %w", err)
+		return "", "", nil, fmt.Errorf("sales: read deal feed demand: %w", err)
 	}
 	if farm == "" {
-		return "", nil, ports.ErrDealNotFound
+		return "", "", nil, ports.ErrDealNotFound
 	}
-	return farm, demand, nil
+	return farm, status, demand, nil
 }
 
 // SetDealStatus sets a deal's lifecycle status directly -- the edit that closes an expected sale
