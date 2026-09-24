@@ -321,6 +321,9 @@ func ProductCodeFromName(name string) string {
 
 // Validate checks one item edit, returning the FIRST failure with the field a person can fix.
 func (w ProductWrite) Validate() error {
+	if strings.EqualFold(w.Name, ProductMixed) {
+		return ErrProductValidation{Field: "name", Reason: "Mixed describes a sale with several items; choose an item name"}
+	}
 	if w.Name == "" {
 		return ErrProductValidation{Field: "name", Reason: "required"}
 	}

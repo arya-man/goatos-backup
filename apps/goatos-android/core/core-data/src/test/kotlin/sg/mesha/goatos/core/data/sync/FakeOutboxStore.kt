@@ -239,6 +239,12 @@ class FakeOutboxStore : OutboxStore {
             )
         }
 
+    override suspend fun confirmSalesStock(id: String, expectedPayload: String, payloadJson: String, fingerprint: String, now: Long): Boolean {
+        val row = findById(id) ?: return false
+        if (!row.toSyncQueueItem().needsSalesStockConfirmation || row.payloadJson != expectedPayload) return false
+        return reopenTerminalForRetry(id, payloadJson, fingerprint, now)
+    }
+
     override suspend fun reopenTerminalForRetry(id: String, payloadJson: String, fingerprint: String, now: Long): Boolean {
         val current = rows.value.firstOrNull { it.id == id } ?: return false
         val isTerminal = current.status == OutboxStatus.FAILED.name &&

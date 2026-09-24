@@ -6,6 +6,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import retrofit2.HttpException
+import retrofit2.Response
+import okhttp3.ResponseBody.Companion.toResponseBody
 import sg.mesha.goatos.core.common.DispatcherProvider
 import sg.mesha.goatos.core.database.outbox.OutboxEntity
 import sg.mesha.goatos.core.database.outbox.OutboxOpType
@@ -47,7 +49,7 @@ class SyncEngineWorkflowAlreadyRecordedTest {
             request: WorkflowActionCompleteRequestDto,
         ): WorkflowActionWriteResponseDto {
             completeKeys += idempotencyKey
-            if (actionId == STEP) throw HttpException(409)
+            if (actionId == STEP) throw HttpException(Response.error<Unit>(409, "".toResponseBody(null)))
             return WorkflowActionWriteResponseDto(workflowId = workflowId, actionId = actionId, status = "completed")
         }
 

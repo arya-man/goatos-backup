@@ -80,6 +80,8 @@ dependencies {
     // wires WorkManager as a thin trigger/backstop around SyncEngine.drainOnce().
     testImplementation("junit:junit:4.13.2")
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.retrofit)
+    testImplementation(libs.okhttp)
     // Room migration + cache round-trip test (GoatDatabaseCacheTest) needs a real
     // (shadowed) android.database.sqlite + Context — see the libs.versions.toml note.
     testImplementation(libs.robolectric)

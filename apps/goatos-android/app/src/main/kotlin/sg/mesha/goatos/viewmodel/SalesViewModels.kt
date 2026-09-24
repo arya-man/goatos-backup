@@ -285,6 +285,7 @@ class SaleDetailViewModel @Inject constructor(
         // when the sale was recorded.
         val stockConfirmMessage: String = "",
         val stockPendingStatus: String = "",
+        val stockPendingItemId: String = "",
     )
 
     private val local = MutableStateFlow(Local())
@@ -365,11 +366,19 @@ class SaleDetailViewModel @Inject constructor(
             is SaleDetailEvent.ChangeStatus -> changeStatus(event.status)
             SaleDetailEvent.ConfirmStatusStock -> {
                 val pending = local.value.stockPendingStatus
-                local.update { it.copy(stockConfirmMessage = "", stockPendingStatus = "") }
-                if (pending.isNotBlank()) changeStatus(pending, acknowledgeStock = true)
+                val itemId = local.value.stockPendingItemId
+                if (itemId.isNotBlank()) enqueueEdit(null, MESSAGE_STATUS_SAVED, "sale confirmation failed", pending) {
+                    when (val result = syncRepository.confirmSalesStock(itemId)) {
+                        is AppResult.Ok -> {
+                            local.update { it.copy(stockConfirmMessage = "", stockPendingStatus = "", stockPendingItemId = "") }
+                            AppResult.Ok(itemId)
+                        }
+                        is AppResult.Err -> result
+                    }
+                }
             }
             SaleDetailEvent.DismissStatusStock ->
-                local.update { it.copy(stockConfirmMessage = "", stockPendingStatus = "") }
+                local.update { it.copy(stockConfirmMessage = "", stockPendingStatus = "", stockPendingItemId = "") }
         }
     }
 
@@ -513,6 +522,7 @@ class SaleDetailViewModel @Inject constructor(
                             message = null,
                             stockConfirmMessage = outcome.reason.orEmpty(),
                             stockPendingStatus = stockStatus,
+                            stockPendingItemId = outboxItemId,
                         )
                     }
                     when (outcome) {
@@ -667,6 +677,7 @@ class SaleCreateViewModel @Inject constructor(
         val submitInFlight: Boolean = false,
         val message: String? = null,
         val buyersRefreshed: Boolean = false,
+        val stockPendingItemId: String = "",
         /** The feed store asked for this sale to be confirmed; its sentence, shown verbatim. */
         val stockConfirmMessage: String = "",
     )
@@ -758,8 +769,13 @@ class SaleCreateViewModel @Inject constructor(
     fun onEvent(event: SaleCreateEvent) {
         // A queued or accepted write is read-only: the last step stays on screen for the banner
         // and closes by itself, so an edit or a second submit in that window has nothing to land on.
-        val locked = local.value.writeStatus == VendorsWriteStatus.QUEUED || local.value.writeStatus == VendorsWriteStatus.SYNCED
+        val locked = local.value.submitInFlight || local.value.writeStatus == VendorsWriteStatus.QUEUED || local.value.writeStatus == VendorsWriteStatus.SYNCED
         if (locked && event !is SaleCreateEvent.Back && event !is SaleCreateEvent.RecordAnother && event !is SaleCreateEvent.DismissMessage) return
+        if (event is SaleCreateEvent.FieldChanged || event is SaleCreateEvent.LineChanged ||
+            event is SaleCreateEvent.BuyerPicked || event is SaleCreateEvent.RemoveLine || event == SaleCreateEvent.AddLine) {
+            // Editing means a new question must be checked; never confirm an older saved payload.
+            local.update { it.copy(stockConfirmMessage = "", stockPendingItemId = "") }
+        }
         when (event) {
             is SaleCreateEvent.FieldChanged -> local.update { l ->
                 l.copy(values = l.values + (event.field to event.value), fieldErrors = l.fieldErrors - event.field)
@@ -797,12 +813,19 @@ class SaleCreateViewModel @Inject constructor(
             SaleCreateEvent.Previous -> local.update { it.copy(step = (it.step - 1).coerceAtLeast(0)) }
             SaleCreateEvent.Submit -> submit()
             SaleCreateEvent.ConfirmStockAndSubmit -> {
-                // The same sale, sent again with the answer attached. A NEW client id, because the
-                // first attempt is a settled write and this one is a different request -- reusing
-                // the key would read as a replay and return the refusal it already got.
-                savedStateHandle[KEY_CLIENT_ID] = UUID.randomUUID().toString()
-                local.update { it.copy(stockConfirmMessage = "") }
-                submit(acknowledgeStock = true)
+                val itemId = local.value.stockPendingItemId
+                if (itemId.isNotBlank() && !local.value.submitInFlight) {
+                    local.update { it.copy(submitInFlight = true) }
+                    viewModelScope.launch {
+                        when (val result = syncRepository.confirmSalesStock(itemId)) {
+                            is AppResult.Ok -> {
+                                local.update { it.copy(submitInFlight = false, stockConfirmMessage = "", writeStatus = VendorsWriteStatus.QUEUED) }
+                                followWrite(itemId)
+                            }
+                            is AppResult.Err -> local.update { it.copy(submitInFlight = false, message = result.message) }
+                        }
+                    }
+                }
             }
             SaleCreateEvent.DismissStockConfirm -> local.update { it.copy(stockConfirmMessage = "") }
             SaleCreateEvent.RecordAnother -> {
@@ -887,6 +910,7 @@ class SaleCreateViewModel @Inject constructor(
                                     writeMessage = "",
                                     closeAfterSave = false,
                                     stockConfirmMessage = outcome.reason.orEmpty(),
+                                    stockPendingItemId = itemId,
                                 )
                             } else {
                                 it.copy(writeStatus = VendorsWriteStatus.FAILED, writeMessage = MESSAGE_NOT_SAVED)

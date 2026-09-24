@@ -17,6 +17,8 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import retrofit2.HttpException
+import retrofit2.Response
+import okhttp3.ResponseBody.Companion.toResponseBody
 import sg.mesha.goatos.core.data.cache.PcCareScanStatus
 import sg.mesha.goatos.core.data.sync.DefaultSyncRepository
 import sg.mesha.goatos.core.data.sync.FakeOutboxStore
@@ -118,7 +120,7 @@ class PcCareRepositoryDuplicateScanTest {
                 scanCalls += idempotencyKey
                 // duplicate_scan / task_locked both arrive as a 409 — terminal by
                 // isTerminalAppApiError, never burned against the backoff budget.
-                throw HttpException(409)
+                throw HttpException(Response.error<Unit>(409, "".toResponseBody(null)))
             }
         }
         val engine = SyncEngine(
@@ -139,10 +141,9 @@ class PcCareRepositoryDuplicateScanTest {
         assertTrue("a 409 must terminalize the row (conflict), not schedule a retry", row.conflict)
         assertEquals(listOf("pc-care:scan:task-1:rf-042"), scanCalls)
 
-        // The durable animal row stopped reading as still-queued work. (On this JVM harness the
-        // stubbed HttpException carries no server body, so the duplicate_scan body classification
-        // cannot run; the generic terminal arm marks FAILED. The body-driven DUPLICATE marking is
-        // covered by the DAO-guard test below.)
+        // The durable animal row stopped reading as still-queued work. This empty-body 409
+        // deliberately exercises the generic terminal arm, which marks FAILED. The body-driven
+        // DUPLICATE marking is covered by the DAO-guard test below.
         val animal = db.pcCareAnimalRowDao().getByTag("task-1", "rf-042")
         assertEquals(PcCareScanStatus.FAILED, animal?.scanSyncStatus)
 

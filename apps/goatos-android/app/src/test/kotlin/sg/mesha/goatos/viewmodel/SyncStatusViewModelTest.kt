@@ -43,6 +43,11 @@ class SyncStatusViewModelTest {
         val status = MutableStateFlow(initial)
         val retried = mutableListOf<String>()
         var drainCount = 0
+        val confirmed = mutableListOf<String>()
+        override suspend fun confirmSalesStock(itemId: String): AppResult<Unit> {
+            confirmed += itemId
+            return AppResult.Ok(Unit)
+        }
 
         override fun observeStatus(): StateFlow<SyncStatus> = status
         override fun observeItem(itemId: String): kotlinx.coroutines.flow.Flow<SyncQueueItem?> = kotlinx.coroutines.flow.flowOf(null)
@@ -125,6 +130,23 @@ class SyncStatusViewModelTest {
 
         assertEquals("only FAILED rows are retried", listOf("a", "c"), repo.retried)
         assertEquals("a drain is kicked once", 1, repo.drainCount)
+    }
+
+    @Test
+    fun `recreated sync sheet keeps stock question separate from retry all`() = runTest {
+        val item = queueItem("sale", SyncItemStatus.FAILED).copy(opType = "SALES_DEAL_CREATE", conflict = true,
+            lastErrorCode = "feed_stock_confirmation_required", lastError = "20 kg sold against 10 kg stock")
+        val repo = FakeSyncRepository(online().copy(items = listOf(item)))
+        val vm = SyncStatusViewModel(repo)
+        assertTrue(vm.status.value.items.single().needsSalesStockConfirmation)
+        vm.retryAll()
+        advanceUntilIdle()
+        assertTrue(repo.retried.isEmpty())
+        vm.confirmSalesStock("sale")
+        vm.confirmSalesStock("sale")
+        advanceUntilIdle()
+        assertEquals(listOf("sale"), repo.confirmed)
+        assertTrue(vm.confirmingSales.value.isEmpty())
     }
 
     private fun queueItem(id: String, status: SyncItemStatus) = SyncQueueItem(
