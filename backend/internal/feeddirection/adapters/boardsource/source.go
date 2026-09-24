@@ -40,6 +40,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 	"github.com/vgoats/goatos/backend/internal/workboard/domain"
 	"github.com/vgoats/goatos/backend/internal/workboard/ports"
 )
@@ -300,13 +301,15 @@ func (s *Source) readCards(ctx context.Context, q ports.SourceQuery) ([]cardMetr
 func (s *Source) readCardsFresh(ctx context.Context, q ports.SourceQuery) ([]cardMetrics, error) {
 	batch := &pgx.Batch{}
 	for _, a := range activities {
-		batch.Queue(metricsSQL(a.units), q.TenantID, q.BusinessDate, q.ParkID, nullUUID(q.OwnerUserID))
+		bound := sqlbind.MustBind(metricsSQL(a.units), q.TenantID, q.BusinessDate, q.ParkID, nullUUID(q.OwnerUserID))
+		batch.Queue(bound.SQL(), bound.Args()...)
 	}
 	br := s.pool.SendBatch(ctx, batch)
 	defer br.Close()
 	out := make([]cardMetrics, len(activities))
 	for _, a := range activities {
 		m := &out[a.rank]
+		// scale-guard:ignore: drains the ONE batch's four queued results in order; no round trip per iteration
 		err := br.QueryRow().Scan(&m.sheds, &m.done, &m.pending, &m.attention, &m.cardRank, &m.anyRejected, &m.parkName)
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
