@@ -3,6 +3,8 @@
 > Moved verbatim from `AGENTS.md` (split 2026-09-24 to keep session start small).
 > These rules are as binding as `AGENTS.md` itself. Only file location changed.
 
+> **Active program (2026-09-24):** API p95 budget is 50-100ms target, 200-300ms acceptable, hard max 500ms. Findings, per-endpoint audits and the fix queue live in `docs/perf/2026-09-24-stg-latency/README.md` - read it before any perf work.
+
 - Treat scale-safe design as a hard requirement on every design, prompt, and
   code change, sized to the current release scale target. Per
   `docs/decisions/operational-kernel-5k-50k-scale-envelope.md`, the present
