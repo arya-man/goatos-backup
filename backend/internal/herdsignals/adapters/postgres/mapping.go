@@ -387,6 +387,9 @@ func (r *Repository) BindTagMapping(ctx context.Context, tenantID, actorID strin
 	if err := syncTagLatestMonitoring(ctx, tx, tenantID, values, &effective); err != nil {
 		return out, err
 	}
+	if err := notifyLiveUpdateTx(ctx, tx, tenantID); err != nil {
+		return out, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return out, fmt.Errorf("commit bind tag mapping: %w", err)
 	}
@@ -512,6 +515,9 @@ func (r *Repository) UnmapTagMapping(ctx context.Context, tenantID, actorID stri
 	if err := syncTagLatestMonitoring(ctx, tx, tenantID, releasedValues, nil); err != nil {
 		return out, err
 	}
+	if err := notifyLiveUpdateTx(ctx, tx, tenantID); err != nil {
+		return out, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return out, fmt.Errorf("commit unmap tag mapping: %w", err)
 	}
@@ -623,6 +629,9 @@ func (r *Repository) ReplaceTagMapping(ctx context.Context, tenantID, actorID st
 		return out, err
 	}
 	if err := syncTagLatestMonitoring(ctx, tx, tenantID, values, &effective); err != nil {
+		return out, err
+	}
+	if err := notifyLiveUpdateTx(ctx, tx, tenantID); err != nil {
 		return out, err
 	}
 	if err := tx.Commit(ctx); err != nil {

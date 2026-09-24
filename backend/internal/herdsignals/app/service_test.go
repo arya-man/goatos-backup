@@ -2,13 +2,45 @@ package app
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/herdsignals/domain"
 	"github.com/vgoats/goatos/backend/internal/herdsignals/ports"
 )
+
+func TestExportCursorUsesSortedCursorForExplicitSort(t *testing.T) {
+	temp := 39.5
+	tag := domain.TagLatest{TagID: "tag-1", TagTemperatureC: &temp, LastSeenAt: time.Date(2026, 9, 24, 9, 0, 0, 0, time.UTC)}
+
+	cursor := exportCursorFromTag(tag, domain.LiveSort{Key: "tag_temp", Dir: "desc"})
+	if !strings.HasPrefix(cursor, "v1.") {
+		t.Fatalf("cursor = %q, want encoded sorted cursor", cursor)
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(cursor, "v1."))
+	if err != nil {
+		t.Fatalf("decode cursor: %v", err)
+	}
+	var decoded struct {
+		Key   string `json:"key"`
+		Dir   string `json:"dir"`
+		Value string `json:"value"`
+		TagID string `json:"tag_id"`
+	}
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatalf("unmarshal cursor: %v", err)
+	}
+	if decoded.Key != "tag_temp" || decoded.Dir != "desc" || decoded.TagID != "tag-1" || decoded.Value == "" {
+		t.Fatalf("decoded cursor = %+v, want tag_temp desc cursor for tag-1", decoded)
+	}
+	if got := exportCursorFromTag(tag, domain.LiveSort{}); got != "tag-1" {
+		t.Fatalf("default cursor = %q, want legacy tag id", got)
+	}
+}
 
 // fakeRepo implements only what IngestPackets needs; every other method panics if called, so a
 // test that exercises an unexpected path fails loudly instead of silently returning zero values.

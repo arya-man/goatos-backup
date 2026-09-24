@@ -2,10 +2,13 @@ package app
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/csv"
+	"encoding/json"
 	"fmt"
 	"io"
 	"strconv"
+	"time"
 
 	"github.com/vgoats/goatos/backend/internal/herdsignals/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/csvutil"
@@ -31,7 +34,7 @@ const (
 //
 // BOUNDED: pages of exportPageSize rows, each written out and released before the next is read,
 // capped at maxExportRows total. Nothing collects the whole result set.
-func (s *Service) ExportCSV(ctx context.Context, actor domain.Actor, parkID, shedID, movementState, liveState, mappingState, pattern, riskState, q *string, w io.Writer) error {
+func (s *Service) ExportCSV(ctx context.Context, actor domain.Actor, parkID, shedID, movementState, liveState, mappingState, pattern, riskState, q *string, sort domain.LiveSort, w io.Writer) error {
 	if actor.TenantID == "" {
 		return fmt.Errorf("actor tenant_id required")
 	}
@@ -70,7 +73,7 @@ func (s *Service) ExportCSV(ctx context.Context, actor domain.Actor, parkID, she
 	cursor := ""
 	written := 0
 	if riskState != nil {
-		tags, err := s.listAllTagsLatest(ctx, actor.TenantID, parkID, shedID, nil, liveState, mappingState, pattern, q, domain.LiveSort{})
+		tags, err := s.listAllTagsLatest(ctx, actor.TenantID, parkID, shedID, nil, liveState, mappingState, pattern, q, sort)
 		if err != nil {
 			return fmt.Errorf("export risk cohort read failed: %w", err)
 		}
@@ -104,7 +107,7 @@ func (s *Service) ExportCSV(ctx context.Context, actor domain.Actor, parkID, she
 	}
 	for {
 		// scale-guard:ignore: keyset cursor pagination; each page depends on the prior cursor, cannot be batched into one query
-		tags, err := s.repo.ListTagsLatestPage(ctx, actor.TenantID, parkID, shedID, movementState, liveState, mappingState, pattern, q, cursor, exportPageSize)
+		tags, err := s.repo.ListTagsLatestPage(ctx, actor.TenantID, parkID, shedID, movementState, liveState, mappingState, pattern, q, cursor, exportPageSize, sort)
 		if err != nil {
 			return fmt.Errorf("export page read failed: %w", err)
 		}
@@ -143,11 +146,75 @@ func (s *Service) ExportCSV(ctx context.Context, actor domain.Actor, parkID, she
 		if len(tags) < exportPageSize {
 			break
 		}
-		cursor = tags[len(tags)-1].TagID
+		cursor = exportCursorFromTag(tags[len(tags)-1], sort)
 	}
 
 	writer.Flush()
 	return writer.Error()
+}
+
+type exportLiveCursor struct {
+	Key   string `json:"key"`
+	Dir   string `json:"dir"`
+	Value string `json:"value"`
+	TagID string `json:"tag_id"`
+	Null  bool   `json:"null"`
+}
+
+func exportCursorFromTag(tag domain.TagLatest, sort domain.LiveSort) string {
+	key, dir := normalizedExportSort(sort)
+	if key == "last_seen" && dir == "desc" {
+		return tag.TagID
+	}
+	cursor := exportLiveCursor{Key: key, Dir: dir, TagID: tag.TagID}
+	switch key {
+	case "smart_tag":
+		cursor.Value = tag.TagID
+	case "tag_temp":
+		if tag.TagTemperatureC == nil {
+			cursor.Null = true
+		} else {
+			cursor.Value = strconv.FormatFloat(*tag.TagTemperatureC, 'g', -1, 64)
+		}
+	case "motion_count":
+		if tag.MotionCount == nil {
+			cursor.Null = true
+		} else {
+			cursor.Value = strconv.FormatInt(*tag.MotionCount, 10)
+		}
+	case "delta_15m":
+		if tag.MotionDelta == nil {
+			cursor.Null = true
+		} else {
+			cursor.Value = strconv.FormatInt(*tag.MotionDelta, 10)
+		}
+	case "delta_1h":
+		if tag.MotionDelta1h == nil {
+			cursor.Null = true
+		} else {
+			cursor.Value = strconv.FormatInt(*tag.MotionDelta1h, 10)
+		}
+	default:
+		cursor.Value = tag.LastSeenAt.Format(time.RFC3339Nano)
+	}
+	raw, _ := json.Marshal(cursor)
+	return "v1." + base64.RawURLEncoding.EncodeToString(raw)
+}
+
+func normalizedExportSort(sort domain.LiveSort) (string, string) {
+	key := "last_seen"
+	dir := "desc"
+	switch sort.Key {
+	case "smart_tag", "tag_temp", "motion_count", "delta_15m", "delta_1h":
+		key = sort.Key
+		dir = "asc"
+	case "last_seen":
+		dir = "asc"
+	}
+	if sort.Dir == "desc" {
+		dir = "desc"
+	}
+	return key, dir
 }
 
 func exportRow(item domain.LiveItem) []string {

@@ -1,4 +1,4 @@
-import type { AppApiPaths } from "@goatos/api-client";
+import type { AppApiComponents, AppApiPaths } from "@goatos/api-client";
 import { createAppApiClient } from "@goatos/api-client";
 import {
   apiClientOptions,
@@ -9,48 +9,20 @@ import {
   type ApiResult,
 } from "@/lib/api/server";
 
-// Hand-written DTOs for the Herd Signals module (BLE ear-tag telemetry). The backend endpoints
-// (`backend/internal/herdsignals`) and this admin-web surface were built in the same worktree
-// before `contracts/openapi/app-api.yaml` / `@goatos/api-client` were regenerated to cover them —
-// same sanctioned pattern as Counts Approvals below (server.ts, "predate the OpenAPI contract").
-// Once the client regenerates with `HerdSignals*` schemas, these aliases should be swapped for
-// `AppApiComponents["schemas"][...]` the same way every other module in lib/api/server.ts is, and
-// the `as keyof AppApiPaths & string` casts below can drop.
-//
 // Field names are fixed by the contract handed to every agent working this feature: never rename
 // them locally to "fix" a naming preference — a rename here silently breaks the wire shape.
 
-export type HerdSignalMovementState = "moving" | "low" | "quiet" | "not_moving" | "stale";
-export type HerdSignalMappingState = "mapped" | "unmapped" | "conflict";
-export type HerdSignalPatternState = "no_movement" | "quiet_watch" | "inactive" | "missing" | "spike" | "recovered" | "normal";
-export type HerdSignalRiskState = "low" | "watch" | "high";
-export type HerdSignalTone = "strong" | "ok" | "weak";
-// Backend contract as of the live-stack round: four states, not two. A stale two-state DTO here
-// makes every real "watch"/"critical" reading resolve to undefined label/tone client-side.
-export type HerdSignalBatteryState = "healthy" | "watch" | "low" | "critical";
-export type HerdSignalBatteryTrendDirection = "rising" | "falling" | "flat";
-export interface HerdSignalBatteryTrend {
-  direction: HerdSignalBatteryTrendDirection;
-  window_seconds: number;
-  first_mv: number | null;
-  last_mv: number | null;
-}
-export type HerdSignalSensorState = "ok" | "abnormal";
+type AppSchemas = AppApiComponents["schemas"];
 
-export interface HerdSignalsSummary {
-  tags_seen: number;
-  mapped_animals: number;
-  unmapped_tags: number;
-  moving: number;
-  moving_now: number;
-  active_1m: number;
-  quiet: number;
-  not_moving: number;
-  stale: number;
-  weak_signal: number;
-  low_battery: number;
-  sensor_abnormal: number;
-}
+export type HerdSignalMovementState = AppSchemas["HerdSignalMovementState"];
+export type HerdSignalMappingState = AppSchemas["HerdSignalMappingState"];
+export type HerdSignalPatternState = AppSchemas["HerdSignalPatternState"];
+export type HerdSignalRiskState = AppSchemas["HerdSignalRiskState"];
+export type HerdSignalTone = AppSchemas["HerdSignalTone"];
+export type HerdSignalBatteryState = AppSchemas["HerdSignalBatteryState"];
+export type HerdSignalBatteryTrend = AppSchemas["HerdSignalBatteryTrend"];
+export type HerdSignalSensorState = AppSchemas["HerdSignalSensorState"];
+export type HerdSignalsSummary = AppSchemas["HerdSignalsSummary"];
 
 // last_seen_at (and every other rendered timestamp in this file) is sourced from received_at —
 // OUR server clock, the only trusted one (docs/modules/herd-signals.md "Time, clocks, and what
@@ -59,68 +31,8 @@ export interface HerdSignalsSummary {
 // here that surfaces gateway_seen_at as a rendered "when" — if it is ever needed on screen it must
 // be explicitly labelled as the gateway's own reported clock, never presented as when something
 // happened.
-export interface HerdSignalItem {
-  tag_id: string;
-  tag_mac: string;
-  goat_id: string | null;
-  display_id: string | null;
-  animal_identifier_1: string | null;
-  animal_identifier_2: string | null;
-  breed: string | null;
-  sex: string | null;
-  age_days: number | null;
-  park_id: string | null;
-  park_name: string | null;
-  shed_id: string | null;
-  shed_name: string | null;
-  partition_label: string | null;
-  operational_location_display: string | null;
-  gateway_id: string | null;
-  last_seen_at: string | null;
-  rssi_dbm: number | null;
-  signal_state: HerdSignalTone | null;
-  battery_mv: number | null;
-  battery_state: HerdSignalBatteryState | null;
-  battery_trend: HerdSignalBatteryTrend | null;
-  tag_temperature_c: number | null;
-  motion_count: number | null;
-  last_packet_motion_delta: number | null;
-  last_packet_window_seconds: number | null;
-  motion_delta_30s: number | null;
-  motion_delta_60s: number | null;
-  motion_delta_5m: number | null;
-  last_moved_at: string | null;
-  motion_delta: number | null;
-  motion_delta_1h: number | null;
-  motion_delta_24h: number | null;
-  motion_window_seconds: number | null;
-  movement_state: HerdSignalMovementState | null;
-  pattern_state: HerdSignalPatternState | null;
-  baseline_delta: number | null;
-  risk_state: HerdSignalRiskState | null;
-  risk_reasons: string[];
-  own_motion_delta_pct: number | null;
-  group_motion_delta_pct: number | null;
-  group_temp_delta_c: number | null;
-  sensor_state: HerdSignalSensorState | null;
-  temperature_sensor_ok: boolean | null;
-  accelerometer_sensor_ok: boolean | null;
-  mapping_state: HerdSignalMappingState;
-  // True when motion_delta was computed across a reception gap (no packets received, then
-  // reconnect) rather than between two consecutive normal readings. The delta is a real,
-  // recoverable TOTAL (motion_count is cumulative) but its distribution across the gap is unknown
-  // — never render it as a normal 15m/1h reading and never let it drive a "spike" claim.
-  gap_delta: boolean;
-  // Mapping provenance: who bound this tag and when. Populated only when mapped_state is 'mapped'.
-  mapped_by: string | null;
-  mapped_at: string | null;
-}
-
-export interface HerdSignalsLiveResponse {
-  summary: HerdSignalsSummary;
-  items: HerdSignalItem[];
-  next_cursor: string | null;
-}
+export type HerdSignalItem = AppSchemas["HerdSignalItem"];
+export type HerdSignalsLiveResponse = AppSchemas["HerdSignalsLiveResponse"];
 
 export interface HerdSignalTimelineBucket {
   bucket_start: string;

@@ -47,7 +47,7 @@ type AppService interface {
 	UnmapTagMapping(ctx context.Context, actor domain.Actor, req domain.UnmapTagMappingRequest) (domain.TagMappingResponse, error)
 	ReplaceTagMapping(ctx context.Context, actor domain.Actor, req domain.ReplaceTagMappingRequest) (domain.TagMappingResponse, error)
 	RecordGatewayHeartbeat(ctx context.Context, actor domain.Actor, req domain.GatewayHeartbeatRequest) (domain.GatewayHeartbeatResponse, error)
-	ExportCSV(ctx context.Context, actor domain.Actor, parkID, shedID, movementState, liveState, mappingState, pattern, riskState, q *string, w io.Writer) error
+	ExportCSV(ctx context.Context, actor domain.Actor, parkID, shedID, movementState, liveState, mappingState, pattern, riskState, q *string, sort domain.LiveSort, w io.Writer) error
 	GetTagActivity(ctx context.Context, actor domain.Actor, tagID, from, to string) (domain.ActivityResponse, error)
 }
 
@@ -59,7 +59,7 @@ type Handler struct {
 }
 
 type LiveNotificationSource interface {
-	Start(ctx context.Context, publish func(tenantID string))
+	Start(ctx context.Context, publish func(tenantID string), publishAll func())
 }
 
 // NewHandler creates a new herd signals HTTP handler.
@@ -73,7 +73,7 @@ func NewHandler(service AppService, log ...*slog.Logger) *Handler {
 
 func (h *Handler) WithLiveNotifications(ctx context.Context, source LiveNotificationSource) *Handler {
 	if source != nil {
-		source.Start(ctx, h.liveHub.publish)
+		source.Start(ctx, h.liveHub.publish, h.liveHub.publishAll)
 	}
 	return h
 }
@@ -113,6 +113,19 @@ func (h *liveStreamHub) publish(tenantID string) {
 		select {
 		case ch <- struct{}{}:
 		default:
+		}
+	}
+}
+
+func (h *liveStreamHub) publishAll() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, subscribers := range h.subscribers {
+		for ch := range subscribers {
+			select {
+			case ch <- struct{}{}:
+			default:
+			}
 		}
 	}
 }
@@ -342,16 +355,16 @@ func (h *Handler) StreamLive(w http.ResponseWriter, r *http.Request) {
 		resp, err := h.service.ListLive(ctx, actor, query.parkID, query.shedID, query.movementState, query.liveState, query.mappingState, query.pattern, query.riskState, query.q, query.cursor, query.limit, query.sort)
 		if err != nil {
 			h.log.Warn("herd_signals_stream_snapshot_failed", "error", err.Error())
-			return write("error", map[string]interface{}{"code": "snapshot_failed", "message": "failed to list live tags"})
+			return write("snapshot_error", map[string]interface{}{"code": "snapshot_failed", "message": "failed to list live tags"})
 		}
 		return write("snapshot", resp)
 	}
 
+	updates, unsubscribe := h.liveHub.subscribe(actor.TenantID)
+	defer unsubscribe()
 	if !writeSnapshot() {
 		return
 	}
-	updates, unsubscribe := h.liveHub.subscribe(actor.TenantID)
-	defer unsubscribe()
 	heartbeat := time.NewTicker(liveStreamHeartbeat)
 	defer heartbeat.Stop()
 	for {

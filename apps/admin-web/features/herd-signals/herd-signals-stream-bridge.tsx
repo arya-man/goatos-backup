@@ -11,55 +11,71 @@ import { useHerdSignalsLiveSnapshot, writeHerdSignalsLiveSnapshot } from "./herd
 // disguised as SSE and cause the full-page flicker operators reported.
 
 const STALE_AFTER_MS = 30_000;
+const DEFAULT_SORT = "smart_tag";
+const DEFAULT_SORT_DIR = "asc";
+const DEFAULT_LIMIT = "25";
 
 function liveStateFromKpi(kpi: string | null): "moving_now" | "active_1m" | null {
   return kpi === "moving_now" || kpi === "active_1m" ? kpi : null;
 }
 
-function appendLiveQueryParam(out: URLSearchParams, from: string, to: string, sp: URLSearchParams): void {
-  const value = sp.get(from);
-  if (value) out.set(to, value);
+function movementStateFromKpi(kpi: string | null): "moving" | "quiet" | null {
+  if (kpi === "moving_15m") return "moving";
+  if (kpi === "quiet") return "quiet";
+  return null;
 }
 
 function currentLiveQuery(search: string): URLSearchParams {
-  const sp = new URLSearchParams(search);
-  const out = new URLSearchParams();
-  const tab = sp.get("hs_tab") || "live";
-  const map: Record<string, string> = {
-    park: "park_id",
-    hs_shed: "shed_id",
-    hs_move: "movement_state",
-    hs_map: "mapping_state",
-    hs_pattern: "pattern",
-    hs_risk: "risk_state",
-    hs_q: "q",
-    hs_cursor: "cursor",
-    hs_sort: "sort",
-    hs_dir: "dir",
-    hs_limit: "limit",
-  };
-  for (const [from, to] of Object.entries(map)) appendLiveQueryParam(out, from, to, sp);
-  if (tab === "live") {
-    const liveState = liveStateFromKpi(sp.get("hs_kpi"));
-    if (liveState) {
-      out.set("live_state", liveState);
-      out.delete("movement_state");
-    }
-  } else {
-    out.delete("live_state");
-  }
-  if (tab === "animals") {
-    out.set("mapping_state", "mapped");
-  } else if (tab === "alerts") {
-    out.set("risk_state", "attention");
-    out.delete("movement_state");
-    out.delete("live_state");
-    out.delete("mapping_state");
-    out.delete("pattern");
-  } else if (tab !== "mapping") {
-    out.delete("mapping_state");
-  }
-  return out;
+	const sp = new URLSearchParams(search);
+	const tab = sp.get("hs_tab") || "live";
+	const out = new URLSearchParams();
+	const parkId = sp.get("park");
+	const shedId = sp.get("hs_shed");
+	const q = sp.get("hs_q");
+	const cursor = sp.get("hs_cursor");
+	const sort = sp.get("hs_sort") || DEFAULT_SORT;
+	const dir = sp.get("hs_dir") || DEFAULT_SORT_DIR;
+	const limit = sp.get("hs_limit") || DEFAULT_LIMIT;
+	let movementState = sp.get("hs_move");
+	let liveState: string | null = null;
+	let mappingState = sp.get("hs_map");
+	let pattern = sp.get("hs_pattern");
+	let riskState = sp.get("hs_risk");
+	if (tab === "live") {
+		const kpi = sp.get("hs_kpi");
+		liveState = liveStateFromKpi(kpi);
+		movementState = liveState ? null : (movementStateFromKpi(kpi) ?? movementState);
+	} else if (tab === "animals") {
+		liveState = null;
+		mappingState = "mapped";
+	} else if (tab === "mapping") {
+		liveState = null;
+		movementState = null;
+		pattern = null;
+		riskState = null;
+	} else if (tab === "alerts") {
+		liveState = null;
+		movementState = null;
+		mappingState = null;
+		pattern = null;
+		riskState = "attention";
+	} else if (tab !== "mapping" && tab !== "live") {
+		liveState = null;
+		mappingState = null;
+	}
+	if (parkId) out.set("park_id", parkId);
+	if (shedId) out.set("shed_id", shedId);
+	if (q) out.set("q", q);
+	if (cursor) out.set("cursor", cursor);
+	out.set("sort", sort);
+	out.set("dir", dir);
+	out.set("limit", limit);
+	if (movementState) out.set("movement_state", movementState);
+	if (liveState) out.set("live_state", liveState);
+	if (mappingState) out.set("mapping_state", mappingState);
+	if (pattern) out.set("pattern", pattern);
+	if (riskState) out.set("risk_state", riskState);
+	return out;
 }
 
 // Live/paused state is session-only — no localStorage persistence. Fresh page loads are always
@@ -144,14 +160,13 @@ export function HerdSignalsStreamBridge({ generatedAt }: { generatedAt: string }
   const liveKey = liveQuery.toString();
   const residualKpi = searchParams.get("hs_kpi");
   const tab = searchParams.get("hs_tab") || "live";
-  const streamConsumesLiveSnapshot = tab === "live" || tab === "animals" || tab === "alerts";
+  const streamConsumesLiveSnapshot = tab === "live" || tab === "animals";
   const unsupportedExportTab = tab === "gateways" || tab === "insights";
-  const exportDisabled = unsupportedExportTab || residualKpi === "weak_signal" || residualKpi === "missing_signal" || residualKpi === "low_battery";
+  const pageOnlyKpiExportDisabled = tab === "live" && (residualKpi === "weak_signal" || residualKpi === "missing_signal" || residualKpi === "low_battery");
+  const exportDisabled = unsupportedExportTab || pageOnlyKpiExportDisabled;
   const exportHref = useMemo(() => {
     const out = new URLSearchParams(liveQuery);
     out.delete("cursor");
-    out.delete("sort");
-    out.delete("dir");
     out.delete("limit");
     return `/api/herd-signals/export.csv${out.toString() ? `?${out.toString()}` : ""}`;
   }, [liveQuery]);
@@ -159,7 +174,8 @@ export function HerdSignalsStreamBridge({ generatedAt }: { generatedAt: string }
   const liveSnapshot = useHerdSignalsLiveSnapshot(liveKey);
   const tabHidden = useTabHidden();
   const nowMs = useNowMs();
-  const [streamState, setStreamState] = useState<"connecting" | "open" | "error">("connecting");
+  const [streamState, setStreamState] = useState<"connecting" | "open" | "error" | "snapshot_error">("connecting");
+  const [lastStreamEventAtMs, setLastStreamEventAtMs] = useState(() => new Date(generatedAt).getTime());
 
   function streamHref(): string {
     const out = new URLSearchParams(liveQuery);
@@ -169,10 +185,15 @@ export function HerdSignalsStreamBridge({ generatedAt }: { generatedAt: string }
   useEffect(() => {
     if (!live || tabHidden || !streamConsumesLiveSnapshot) return;
     setStreamState("connecting");
+    setLastStreamEventAtMs(Date.now());
     const source = new EventSource(streamHref());
-    source.onopen = () => setStreamState("open");
+    source.onopen = () => {
+      setLastStreamEventAtMs(Date.now());
+      setStreamState("open");
+    };
     source.onerror = () => setStreamState("error");
     source.addEventListener("snapshot", (event) => {
+      setLastStreamEventAtMs(Date.now());
       setStreamState("open");
       try {
         writeHerdSignalsLiveSnapshot(liveKey, JSON.parse(event.data) as HerdSignalsLiveResponse);
@@ -180,8 +201,10 @@ export function HerdSignalsStreamBridge({ generatedAt }: { generatedAt: string }
         setStreamState("error");
       }
     });
+    source.addEventListener("snapshot_error", () => setStreamState("snapshot_error"));
     source.addEventListener("tick", () => {
-      setStreamState("open");
+      setLastStreamEventAtMs(Date.now());
+      setStreamState((current) => (current === "snapshot_error" ? current : "open"));
     });
     return () => source.close();
   }, [live, tabHidden, streamConsumesLiveSnapshot, liveKey, liveQuery]);
@@ -191,7 +214,7 @@ export function HerdSignalsStreamBridge({ generatedAt }: { generatedAt: string }
   }
 
   const updatedAtMs = liveSnapshot?.receivedAt ?? new Date(generatedAt).getTime();
-  const ageMs = nowMs - updatedAtMs;
+  const ageMs = nowMs - lastStreamEventAtMs;
   const stale = live && streamConsumesLiveSnapshot && !tabHidden && Number.isFinite(ageMs) && ageMs > STALE_AFTER_MS;
   const staleSeconds = Math.max(0, Math.round(ageMs / 1000));
 
@@ -206,6 +229,9 @@ export function HerdSignalsStreamBridge({ generatedAt }: { generatedAt: string }
   } else if (!streamConsumesLiveSnapshot) {
     badgeClass = "livebadge paused";
     badgeText = "LIVE · not used on this tab";
+  } else if (streamState === "snapshot_error") {
+    badgeClass = "livebadge stale";
+    badgeText = "LIVE · snapshot error";
   } else if (stale) {
     badgeClass = "livebadge stale";
     badgeText = `LIVE · ${staleSeconds}s stale`;

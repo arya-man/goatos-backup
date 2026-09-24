@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -49,6 +50,7 @@ type fakeService struct {
 	exportErr  error
 	exportGot  struct {
 		parkID, shedID, movementState, mappingState, pattern, q *string
+		sort                                                    domain.LiveSort
 	}
 
 	mappingResp domain.TagMappingResponse
@@ -67,11 +69,13 @@ type fakeService struct {
 }
 
 type fakeLiveNotificationSource struct {
-	publish func(tenantID string)
+	publish    func(tenantID string)
+	publishAll func()
 }
 
-func (f *fakeLiveNotificationSource) Start(_ context.Context, publish func(tenantID string)) {
+func (f *fakeLiveNotificationSource) Start(_ context.Context, publish func(tenantID string), publishAll func()) {
 	f.publish = publish
+	f.publishAll = publishAll
 }
 
 // The mapping WRITES (MAP / REPLACE / UNMAP) and the gateway heartbeat. Recorded rather than
@@ -135,10 +139,11 @@ func (f *fakeService) GetInsights(_ context.Context, _ domain.Actor) (domain.Ins
 	return f.insightsResp, f.insightsErr
 }
 
-func (f *fakeService) ExportCSV(_ context.Context, _ domain.Actor, parkID, shedID, movementState, liveState, mappingState, pattern, riskState, q *string, w io.Writer) error {
+func (f *fakeService) ExportCSV(_ context.Context, _ domain.Actor, parkID, shedID, movementState, liveState, mappingState, pattern, riskState, q *string, sort domain.LiveSort, w io.Writer) error {
 	f.exportGot.parkID, f.exportGot.shedID = parkID, shedID
 	f.exportGot.movementState, f.exportGot.mappingState = movementState, mappingState
 	f.exportGot.pattern, f.exportGot.q = pattern, q
+	f.exportGot.sort = sort
 	if f.exportErr != nil {
 		return f.exportErr
 	}
@@ -259,12 +264,12 @@ func TestStreamLiveWritesSnapshotEventFromLiveQuery(t *testing.T) {
 	}()
 
 	deadline := time.After(2 * time.Second)
-	for !strings.Contains(w.Body.String(), "event: snapshot") {
+	for svc.liveCallCount() < 1 {
 		select {
 		case <-deadline:
 			cancel()
 			<-done
-			t.Fatalf("stream body = %q, want snapshot event", w.Body.String())
+			t.Fatalf("stream did not call live service")
 		default:
 			time.Sleep(10 * time.Millisecond)
 		}
@@ -272,6 +277,9 @@ func TestStreamLiveWritesSnapshotEventFromLiveQuery(t *testing.T) {
 	cancel()
 	<-done
 
+	if body := w.Body.String(); !strings.Contains(body, "event: snapshot") {
+		t.Fatalf("stream body = %q, want snapshot event", body)
+	}
 	if ct := w.Header().Get("Content-Type"); ct != "text/event-stream" {
 		t.Fatalf("content-type = %q, want text/event-stream", ct)
 	}
@@ -392,8 +400,57 @@ func TestStreamLiveSnapshotsCanBeTriggeredBySharedNotifications(t *testing.T) {
 		}
 	}
 
+	source.publishAll()
+	deadline = time.After(2 * time.Second)
+	for svc.liveCallCount() < 3 {
+		select {
+		case <-deadline:
+			cancel()
+			<-done
+			t.Fatalf("stream did not write broadcast catch-up snapshot; calls=%d body=%q", svc.liveCallCount(), w.Body.String())
+		default:
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+
 	cancel()
 	<-done
+}
+
+func TestStreamLiveEventNamesStayContracted(t *testing.T) {
+	src, err := os.ReadFile("handler.go")
+	if err != nil {
+		t.Fatalf("read handler.go: %v", err)
+	}
+	text := string(src)
+	for _, want := range []string{
+		`write("snapshot", resp)`,
+		`write("snapshot_error", map[string]interface{}{"code": "snapshot_failed", "message": "failed to list live tags"})`,
+		`write("tick", map[string]interface{}{"at": time.Now().UTC().Format(time.RFC3339Nano)})`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("StreamLive SSE contract missing %s", want)
+		}
+	}
+}
+
+func TestExportCSVForwardsSort(t *testing.T) {
+	svc := &fakeService{exportBody: "tag_id\n"}
+	h := NewHandler(svc)
+	req := authedRequest("GET", "/herd-signals/export.csv?sort=smart_tag&dir=asc&movement_state=moving", nil)
+	w := httptest.NewRecorder()
+
+	h.ExportCSV(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%q", w.Code, w.Body.String())
+	}
+	if svc.exportGot.sort.Key != "smart_tag" || svc.exportGot.sort.Dir != "asc" {
+		t.Fatalf("export sort = %+v, want smart_tag asc", svc.exportGot.sort)
+	}
+	if svc.exportGot.movementState == nil || *svc.exportGot.movementState != "moving" {
+		t.Fatalf("movement_state = %v, want moving", svc.exportGot.movementState)
+	}
 }
 
 func TestGetTimelineRequiresFromAndTo(t *testing.T) {

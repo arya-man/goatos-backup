@@ -89,6 +89,15 @@ var activityWindowTiers = []int{60, 300, 3600}
 
 const liveNotifyChannel = "herd_signals_live"
 
+func notifyLiveUpdateTx(ctx context.Context, tx pgx.Tx, tenantID string) error {
+	if _, err := tx.Exec(ctx, `
+		SELECT pg_notify($1, json_build_object('tenant_id', $2::text)::text)
+	`, liveNotifyChannel, tenantID); err != nil {
+		return fmt.Errorf("notify live update: %w", err)
+	}
+	return nil
+}
+
 // IngestPackets stores raw packets and updates tag latest state in ONE transaction: packet
 // insert, gateway last_seen_at upsert, activity-window rollups (all tiers), and tag_latest
 // (movement_state/pattern_state/signal_state/battery_state) all commit or roll back together.
@@ -248,10 +257,8 @@ func (r *Repository) IngestPackets(ctx context.Context, tenantID string, gw doma
 	}
 
 	if latestUpdated > 0 {
-		if _, err := tx.Exec(ctx, `
-			SELECT pg_notify($1, json_build_object('tenant_id', $2::text)::text)
-		`, liveNotifyChannel, tenantID); err != nil {
-			return stored, latestUpdated, fmt.Errorf("notify live update: %w", err)
+		if err := notifyLiveUpdateTx(ctx, tx, tenantID); err != nil {
+			return stored, latestUpdated, err
 		}
 	}
 
