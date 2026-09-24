@@ -1,6 +1,6 @@
 # Mesha Goat Exchange: problem, investigation, and proposed model
 
-Research dates: 20–21 September 2026. Latest discussion and technical findings: sections 13–19. Status: research and design proposal, not an approved offering, legal opinion, investment recommendation, implemented product, or forecast. This document preserves the founder's original problem and subsequent clarifications, both supplied Claude evaluations, the audio brief, and the investigation's corrections. It does not authorise fundraising or trading.
+Research dates: 20–24 September 2026. Latest discussion and technical findings: sections 13–20 (section 20: clickable prototype and 24 September follow-up). Status: research and design proposal, not an approved offering, legal opinion, investment recommendation, implemented product, or forecast. This document preserves the founder's original problem and subsequent clarifications, both supplied Claude evaluations, the audio brief, and the investigation's corrections. It does not authorise fundraising or trading.
 
 **Project name: Mesha Goat Exchange.** The name covers the full vision: investment ownership and asset accounting first, Mesha-supported buying and selling initially, and participation by other buyers and multiple verified asset pools over time. Its scope includes land, infrastructure, livestock and future permitted assets. “Exchange” names the intended platform; the applicable legal permissions and trading arrangements remain subject to the staged model described below.
 
@@ -386,3 +386,35 @@ Additional sources checked during the 21 September follow-up; dates below descri
 - **S29:** [CattleProof congressional testimony, 9 April 2025](https://www.congress.gov/119/meeting/house/118098/witnesses/HHRG-119-AG22-Wstate-TagueM-20250409.pdf).
 
 Follow-up boundaries: public code/chain inspection and desk research only; no production contract audit, legal opinion, investment transaction, independent animal inspection or Mesha financial audit. Earlier Reddit material remains anecdotal. This update does not claim a new exhaustive internet search or revalidation of every historical legal/news source at commit time.
+
+## 20. Clickable prototype and 24 September follow-up
+
+**Prototype:** [Mesha Goat Exchange — clickable web portal and Android app](https://claude.ai/artifact/HwvWLr4vy7TbGNuV9dW6vB). **Research write-up:** [Goat Exchange — Research & Prototype](https://claude.ai/code/artifact/e5ee56e6-946f-4ead-afd7-458162319aac). Both are private Claude artifacts; share from their Share menu before sending to anyone. All names, figures, tags and on-chain records in the prototype are illustrative sample data, not an offer or a real holding.
+
+The prototype follows the pooled equal-unit model in section 4 and reuses Goat OS styling (`apps/admin-web/app/mesha-theme.css`, `goatos-android/core/core-designsystem`). Web and app share one state, so a request placed on one appears on the other. It covers:
+
+| Area | What it shows |
+|---|---|
+| Overview and allocation | Investor NAV, invested vs received, MOIC and dated-cash-flow XIRR (not annualised under 12 months); split across livestock, land, infrastructure, vetted industries and working capital, less accrued fees, carry and payables |
+| Drill-down | Asset class → farm → shed → single left-ear RFID goat with weight history, daily gain, health and per-animal valuation (live kg × realised ₹/kg − 6% selling costs) |
+| Sales and payouts | Per batch: gross − feed, vet, transport and market fees − Mesha operating fee = cash to pool; investor share uses units held on the sale date |
+| Exchange | Quarterly Mesha buy-back (NAV − 3%) and Mesha-approved LP-to-LP transfers; fair-range guide from bid, NAV and growth-projected value after feed cost |
+| Verify | Proof of herd (RFID register vs units issued, vet and auditor sign-off), public QR trace page for meat buyers, salted daily fingerprint check |
+| Investor protection | Fund manager, VCC wrapper, independent trustee, administrator, auditor and valuer (to be appointed); 24-month lock-up, 5%-per-window cap, fees in rupees, key risks |
+| Architecture and blockchain tabs | Same decision as section 17: PostgreSQL authoritative ledger, optional public fingerprint, tokens only through a licensed venue |
+
+Prototype numbers were checked by independent reviewers for internal consistency (statement roll-forward, DPI/RVPI/TVPI, sale waterfalls). They are illustrative and not a forecast.
+
+### 24 September follow-up findings
+
+| Lead | Finding (24 Sep 2026) | Take for Mesha |
+|---|---|---|
+| FarmChain (`farmchain.uk`), re-inspected | Bundle still on Algorand TestNet with demo cattle. Beyond section 15: an investor "My Ranch" dashboard (investment, projected value, ROI, health score), whitelisted admin console for minting ARC-69 animal NFTs, vaccination records, a Gemini "AI analysis" panel, slaughter payout split farmer/platform/owner by configured percentages, MeatHouse QR verify page, and a "coming soon" NFT resale market priced from weight and health | Copy the payout waterfall and public trace page (both in the prototype); do not copy per-animal NFTs or browser key handling |
+| Farm Chain (`farmchain.org`) | Separate project: own EVM chain (ID 165, coin FMC) on Polygon Edge. Explorer shows about 110k transactions ever and none on 24 Sep (empty blocks). Polygon Labs stopped Edge development in Dec 2023. No named operator or validators | Nothing to build on; confirms section 17 on single-industry chains |
+| Agrotoken, now Justoken | Grain tokens (1 token = 1 tonne) on Algorand, Ethereum and Polygon, minted only after an elevator certifies stock; Santander loans (2022) and a Visa card pilot. Rebranded and pivoted to other assets; a June 2026 review found near-zero on-chain transfer volume | "Certify first, then issue": new units only against a signed head count |
+| LP portal benchmarks | Juniper Square (IRR, multiples, capital accounts, per-investor visibility), AcreTrader/FarmTogether (farm LLCs, limited liquidity), Livestock Wealth (per-animal purchase with farmer buy-back at harvest), Masterworks (own secondary market, no price guarantee) | Standard LP metrics, exit windows before open trading, buy-back as the first liquidity route |
+| LinkedIn FarmChain post and Aug 2026 ResearchGate FarmChain paper | Not found; appear unrelated to either FarmChain | None |
+
+Sources: [farmchain.org](https://farmchain.org), [Chainlist chain 165](https://chainlist.org/chain/165), [fmcscan explorer](https://fmcscan.com), [The Block on Polygon Edge](https://www.theblock.co/post/267883/polygon-labs-to-discontinue-edge-development-in-favor-of-expanding-cdk-use), [Justoken](https://www.justoken.com/), [Algorand Agrotoken case study](https://algorand.co/case-studies/how-agrotoken-uses-algorand-to-cultivate-a-fairer-agricultural-future), [Santander and Agrotoken](https://www.santander.com/en/press-room/press-releases/2022/03/santander-and-agrotoken-join-forces-to-offer-loans-secured-by-cryptoassets), [Juniper Square portal](https://www.junipersquare.com/platform/portal), [Livestock Wealth](https://livestockwealth.com/how-it-works/), [GoQuorum support status](https://docs.goquorum.consensys.io/support).
+
+Next build step, unchanged by this follow-up: asset register plus livestock valuation engine and NAV snapshots (reporting only), before any buy-back or transfer feature. Section 11's legal and evidence gates still apply.
