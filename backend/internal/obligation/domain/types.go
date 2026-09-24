@@ -51,7 +51,20 @@ type NewObligation struct {
 	// else, and the partial unique indexes apply only where it is set, so non-repeat work
 	// is untouched.
 	RepeatCycle *RepeatCycleSource
+
+	// ScheduleBasis records WHY a vaccination row may exist without its clinical anchor.
+	// Empty means ScheduleBasisAnchored: the repository proves the due date against DOB,
+	// accepted intake, or previous completion and fails closed when that anchor is missing.
+	// ScheduleBasisAnchorMissingCatchUp is set only by generation's approved adult catch-up
+	// (Contract §89 option 4) for a blank vaccine family whose DOB/entry date is unknown; it is
+	// persisted on obligation_instances.schedule_basis so the exception is auditable.
+	ScheduleBasis string
 }
+
+const (
+	ScheduleBasisAnchored             = "anchored"
+	ScheduleBasisAnchorMissingCatchUp = "anchor_missing_catch_up"
+)
 
 // RepeatCycleSource identifies the administration a repeat obligation descends from.
 //
