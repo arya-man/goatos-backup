@@ -77,6 +77,45 @@ measured with the same capture script as the baseline.
 - Landing is only through `make land-main`, then the exact main SHA is
   deployed to stg. See AGENTS.md "Main Merge Requires Exact-SHA CI Evidence".
 
+
+## Banned patterns (every agent, Claude or Codex, and every human)
+
+These caused this incident. Reviewers and judges must BLOCK a change that adds one.
+
+1. **Aggregating an unbounded, ever-growing history on a request path.** Example:
+   the notification unread count ran `COUNT(DISTINCT ...)` over every notification a
+   user ever got, on every page load. Keep a stored counter or read-state, updated
+   in the same transaction as the write, and read it with one primary-key lookup.
+   Every history table must have read/expiry semantics, such as mark-read,
+   auto-resolve when the source item is decided, or retention.
+2. **Operational Postgres used as an analytics or event store.** Event, log and
+   telemetry tables need a retention job that archives to cold storage before
+   pruning. Analytics are computed in BigQuery, not by rescanning Postgres.
+3. **Joins that multiply rows before they filter.** FCR compared 16,922 × 649
+   rows. Resolve 1:1 lookups first, then aggregate.
+4. **Per-viewer recompute on every event.** Coalesce by key and time window, and
+   broadcast one result to all viewers.
+5. **Cache keys containing the request time.** Such a cache never hits. Key on
+   business date, plus a time bucket where the data changes.
+6. **Connections held forever from the shared pool.** Use a dedicated
+   connection or a dedicated pool.
+7. **Jobs that crash-loop on an outside dependency, or rescan everything each
+   run.** Use a watermark, make outside failures non-fatal, and back off.
+8. **Full copies of the stg DB to other environments.** Use a delta-only sync that
+   skips junk tables (see "OCI sync" below).
+
+## OCI sync (delta-only)
+
+The OCI clone is refreshed from stg by a **delta-only** sync:
+- Rows are copied per table since a watermark (`updated_at` or primary key).
+- The data of `analytics.app_events`, `outbox_messages`, `audit_log` and
+  delivered `notification_*` is excluded.
+- Transfers are compressed.
+
+Full `pg_dump`s over the internet are banned: they cost about ₹18/GB in Cloud SQL
+egress, with 13–16 GB days on 4 and 21 Sep. The tool and its runbook are tracked
+in `QUEUE.md` (Wave O).
+
 ## Pending maintainer decisions
 
 - IAM: grant `roles/bigquery.dataViewer` on the `firebase_crashlytics`,
