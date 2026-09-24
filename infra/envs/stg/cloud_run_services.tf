@@ -174,6 +174,28 @@ resource "google_cloud_run_v2_service" "api" {
         value = "15s"
       }
 
+      # Postgres connection budget (maintainer decision 2026-09-24, db-g1-small
+      # kept for cost): ~47 usable connections (50 max_connections minus
+      # reserved superuser slots). Worst case with every service at max scale:
+      # api 4 x (6 main + 2 auth) + kernel-worker 2 x 4 + analytics-events 1 x 2
+      # + mqtt-bridge 1 x 3 = 45. Raising any of these needs the sum re-checked.
+      env {
+        name  = "GOATOS_PG_MAX_CONNS"
+        value = "6"
+      }
+
+      # Dedicated pool for POST /auth/session-events so dashboard reads that
+      # fill the main pool cannot starve sign-in (incident 2026-09-24).
+      env {
+        name  = "GOATOS_PG_AUTH_MAX_CONNS"
+        value = "2"
+      }
+
+      env {
+        name  = "GOATOS_PG_AUTH_QUERY_TIMEOUT"
+        value = "3s"
+      }
+
       env {
         name  = "MESHA_AI_PROVIDER"
         value = "vertex"
@@ -888,6 +910,12 @@ resource "google_cloud_run_v2_service" "herd_signals_mqtt_bridge" {
       env {
         name  = "GOATOS_ENV"
         value = "stg"
+      }
+
+      # Postgres connection budget: see the api service (45 <= ~47 usable).
+      env {
+        name  = "GOATOS_PG_MAX_CONNS"
+        value = "3"
       }
 
       env {

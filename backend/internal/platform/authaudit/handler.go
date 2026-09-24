@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	platformauth "github.com/vgoats/goatos/backend/internal/platform/auth"
@@ -47,6 +48,39 @@ type Handler struct {
 	emailConfigErr   error
 	rateLimiter      *RateLimiter
 	grantClaimer     permissions.PendingEmailGrantClaimer
+	requestDeadline  time.Duration
+}
+
+// WithRequestDeadline bounds the whole session-event request -- allowlist
+// lookup, pending-grant claim and audit insert, pool acquires included -- by
+// ONE deadline, so the three database steps share a budget rather than each
+// getting its own. Zero leaves the caller's context untouched.
+func WithRequestDeadline(d time.Duration) Option {
+	return func(h *Handler) { h.requestDeadline = d }
+}
+
+// authDatabaseBusyRetryAfter is the Retry-After (seconds) sent when the auth
+// database path timed out or was canceled: the client should retry shortly.
+const authDatabaseBusyRetryAfter = "2"
+
+// databaseUnavailable reports whether err (or the request context) means the
+// database step ran out of time / was canceled -- a transient 503, not a 500.
+func databaseUnavailable(r *http.Request, err error) bool {
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return true
+	}
+	return r.Context().Err() != nil
+}
+
+func writeDatabaseBusy(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Retry-After", authDatabaseBusyRetryAfter)
+	httpresponse.WriteJSON(w, http.StatusServiceUnavailable, errorEnvelope{
+		Code:        "auth_database_busy",
+		Message:     "sign-in is busy, please retry",
+		FieldErrors: []fieldError{},
+		TraceID:     traceID(r),
+		Retryable:   true,
+	})
 }
 
 type Option func(*Handler)
@@ -117,6 +151,11 @@ func Register(mux *http.ServeMux, h *Handler) {
 }
 
 func (h *Handler) RecordSessionEvent(w http.ResponseWriter, r *http.Request) {
+	if h.requestDeadline > 0 {
+		ctx, cancel := context.WithTimeout(r.Context(), h.requestDeadline)
+		defer cancel()
+		r = r.WithContext(ctx)
+	}
 	if h.verifier == nil || h.recorder == nil {
 		writeError(w, r, http.StatusServiceUnavailable, "auth_audit_unconfigured", "auth audit is not configured")
 		return
@@ -154,6 +193,12 @@ func (h *Handler) RecordSessionEvent(w http.ResponseWriter, r *http.Request) {
 
 	tenantID, tenantSource := tenantFromClaimsOrHeader(claims, r)
 	if !authallow.AllowsWithDynamic(r.Context(), h.allowedEmails, h.dynamicEmails, tenantID, claims.Email, claims.EmailVerified) {
+		if r.Context().Err() != nil {
+			// The dynamic allowlist could not be read in time; that is not a
+			// "not allowed" answer, so do not 403 (or audit a failed sign-in).
+			writeDatabaseBusy(w, r)
+			return
+		}
 		requestedTenantID := strings.TrimSpace(r.Header.Get(httpmiddleware.TenantContextHeader))
 		if !h.allowRateLimited(r, claims, "email_not_allowed|"+tenantID) {
 			writeError(w, r, http.StatusTooManyRequests, "auth_session_rate_limited", "too many auth session events")
@@ -269,6 +314,10 @@ func (h *Handler) RecordSessionEvent(w http.ResponseWriter, r *http.Request) {
 			slog.String("tenant_id", tenantID),
 			slog.String("error", err.Error()),
 		)
+		if databaseUnavailable(r, err) {
+			writeDatabaseBusy(w, r)
+			return
+		}
 		writeError(w, r, http.StatusInternalServerError, "auth_pending_email_grant_failed", "pending email grant could not be claimed")
 		return
 	}
@@ -301,6 +350,10 @@ func (h *Handler) RecordSessionEvent(w http.ResponseWriter, r *http.Request) {
 			slog.String("source", cleanMetadataString(body.Source, 64)),
 			slog.String("error", err.Error()),
 		)
+		if databaseUnavailable(r, err) {
+			writeDatabaseBusy(w, r)
+			return
+		}
 		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError, errorEnvelope{
 			Code:        "auth_audit_write_failed",
 			Message:     "auth audit event could not be recorded",

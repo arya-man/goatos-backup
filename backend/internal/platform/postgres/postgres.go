@@ -72,6 +72,38 @@ func AuthPoolConfig(cfg Config) Config {
 	return auth
 }
 
+// ConnectLazy opens a pgx pool WITHOUT making boot depend on it: the pool is
+// built (no connections are dialed while MinConns is 0) and one boot ping is
+// attempted, but a ping failure -- e.g. Postgres at max_connections while a
+// new instance rolls out -- is returned as pingErr for the caller to log and
+// count, never as a fatal error. The pool dials again on first use.
+func ConnectLazy(ctx context.Context, cfg Config) (pool *pgxpool.Pool, pingErr error, err error) {
+	if cfg.DatabaseURL == "" {
+		return nil, nil, errors.New("DATABASE_URL is required")
+	}
+	cfg = normalizedConfig(cfg)
+	cfg.MinConns = 0
+	poolCfg, err := pgxpool.ParseConfig(cfg.DatabaseURL)
+	if err != nil {
+		return nil, nil, fmt.Errorf("parse postgres config: %w", err)
+	}
+	poolCfg.MaxConns = cfg.MaxConns
+	poolCfg.MinConns = 0
+	configureOLTPRuntime(poolCfg)
+	applyApplicationName(poolCfg, cfg.ApplicationName)
+	poolCfg.ConnConfig.Tracer = otelpgx.NewTracer()
+	pool, err = pgxpool.NewWithConfig(ctx, poolCfg)
+	if err != nil {
+		return nil, nil, fmt.Errorf("open postgres pool: %w", err)
+	}
+	pingCtx, cancel := context.WithTimeout(ctx, cfg.ConnectTimeout)
+	defer cancel()
+	if perr := pool.Ping(pingCtx); perr != nil {
+		pingErr = fmt.Errorf("ping postgres: %w", perr)
+	}
+	return pool, pingErr, nil
+}
+
 // Connect opens and verifies a pgx pool.
 func Connect(ctx context.Context, cfg Config) (*pgxpool.Pool, error) {
 	if cfg.DatabaseURL == "" {
