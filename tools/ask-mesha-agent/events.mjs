@@ -234,8 +234,9 @@ export async function createEvents({ stateDir, sink, log = (line) => console.log
         }
       },
       setAnswer(text, chart) { s.answer_chars = String(text || "").length; s.chart = Boolean(chart); },
-      // metric: the server's metric object. stopped: the client closed mid-run.
-      async finish(metric, { aborted = false } = {}) {
+      // metric: the server's metric object. aborted: the client closed mid-run.
+      // stopReason: "stop_pressed" when the panel signalled Stop before aborting.
+      async finish(metric, { aborted = false, stopReason = null } = {}) {
         if (s.finished) return;
         s.finished = true;
         for (const [id] of open) this.toolEnd(id, true, "unfinished");
@@ -247,7 +248,7 @@ export async function createEvents({ stateDir, sink, log = (line) => console.log
           question_preview: String(info.question || "").slice(0, 80),
         };
         if (aborted || metric.error === "client_aborted") {
-          return emit("ask_stopped", ctx, { ...base, error_class: "client_aborted", reason: "client_closed" });
+          return emit("ask_stopped", ctx, { ...base, error_class: "client_aborted", reason: stopReason === "stop_pressed" ? "stop_pressed" : "client_closed" });
         }
         if (metric.ok && !metric.error) {
           return emit("ask_completed", ctx, { ...base, answer_chars: s.answer_chars, chart: s.chart });
