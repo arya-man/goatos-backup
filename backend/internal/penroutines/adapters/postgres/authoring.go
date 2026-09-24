@@ -698,9 +698,11 @@ ORDER BY location_code, name`
 // keys. It used to be a correlated EXISTS that re-scanned goat_shed_partitions (and re-ran the
 // regexp over every row) once per pen: 67 pens x 746 rows on the OCI clone, 26 ms of a 34 ms read.
 // The set is built from the same live goats with the same normalization, so the flag is identical.
+// occ is an OCCUPANCY set (which pens hold a live goat), not the partition catalog: the catalog
+// rows come from shed_partitions below, so empty partitions still appear with occupied=false.
 var sqlAuthoring9 = `
 WITH occ AS MATERIALIZED (
-  SELECT DISTINCT g.shed_id,
+  SELECT g.shed_id,
          regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '') AS norm
   FROM goats g
   LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
@@ -709,6 +711,7 @@ WITH occ AS MATERIALIZED (
     AND g.shed_id IN (SELECT s.location_id FROM locations s
                       WHERE s.tenant_id = $1::uuid AND s.location_type = 'shed'
                         AND ($2::uuid IS NULL OR s.parent_location_id = $2::uuid))
+  GROUP BY 1, 2
 )
 SELECT shed.parent_location_id::text,
        shed.location_id::text,
