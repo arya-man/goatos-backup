@@ -35,6 +35,8 @@ type carryOverVaccine struct {
 	sequence int32
 	offset   int32
 	minGap   int32
+	trigger  string
+	repeat   string
 }
 
 func fiveVaccines() []carryOverVaccine {
@@ -65,10 +67,18 @@ func seedCarryOverVersion(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 		if sequence == 0 {
 			sequence = 1
 		}
+		trigger := v.trigger
+		if trigger == "" {
+			trigger = "birth_age"
+		}
+		repeat := v.repeat
+		if repeat == "" {
+			repeat = "yearly"
+		}
 		ruleID, err := proto.CreateRule(ctx, protodomain.NewRule{
 			TenantID: tenantID, ProtocolVersionID: versionID, DoseCode: v.doseCode, Sequence: sequence,
-			TriggerType: "birth_age", OffsetDays: v.offset, DueWindowDays: 7, MinGapDays: v.minGap,
-			Repeat: "yearly", CatchUp: "immediate",
+			TriggerType: trigger, OffsetDays: v.offset, DueWindowDays: 7, MinGapDays: v.minGap,
+			Repeat: repeat, CatchUp: "immediate",
 			EligibilityJSON: []byte(fmt.Sprintf(`{"vaccine":{"code":%q},"eligibility":{"animal_stage":"adult"}}`, v.code)),
 			ProofPolicy:     []byte(`{"mode":"per_goat"}`),
 			// Deliberately different between versions: sort_order is not rule content, and
@@ -332,6 +342,101 @@ FROM load`, tenantID, meshaParty, carryOverGoat); err != nil {
 		if after[dose].versionID != v1 {
 			t.Fatalf("inapplicable %s carried over to the fattening goat", dose)
 		}
+	}
+}
+
+func seedTrustedCarryOverEvidence(t *testing.T, ctx context.Context, pool *pgxpool.Pool, goatID, versionID, ruleID string, administeredAt time.Time) {
+	t.Helper()
+	var loadID string
+	if err := pool.QueryRow(ctx, `
+INSERT INTO procurement_loads (tenant_id, source_party_id, status, idempotency_key)
+VALUES ($1::uuid, $2::uuid, 'accepted_intake', 'carry-over-trusted-history-' || $3::text)
+RETURNING load_id::text`, tenantID, meshaParty, goatID).Scan(&loadID); err != nil {
+		t.Fatalf("seed evidence load: %v", err)
+	}
+	proofID := "10000000-0000-4000-8000-0000000000e1"
+	if _, err := pool.Exec(ctx, `
+INSERT INTO proof_artifacts (
+  proof_id, tenant_id, storage_provider, object_key, upload_state,
+  scope_type, scope_id, subject_type, proof_type, content_hash, mime_type, size_bytes
+) VALUES ($1::uuid, $2::uuid, 'local', 'carry-over-trusted-proof', 'completed',
+          'tenant', $2::uuid, 'other', 'video', 'carry-over-trusted-hash', 'video/mp4', 100)`, proofID, tenantID); err != nil {
+		t.Fatalf("seed evidence proof: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO procurement_hf_vaccination_evidence (
+  tenant_id, load_id, goat_id, protocol_version_id, rule_id, dose_code,
+  administered_at, vaccine_name, proof_ref_id, source_ref, review_status,
+  reviewed_at, idempotency_key, metadata
+) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, 'trusted-primary',
+          $6, 'Blue Tongue', $7::uuid, 'procurement_holding_park', 'trusted',
+          $6, 'carry-over-trusted-evidence', '{"vaccine_code":"BLUE TONGUE"}'::jsonb)`,
+		tenantID, loadID, goatID, versionID, ruleID, administeredAt, proofID); err != nil {
+		t.Fatalf("seed trusted evidence: %v", err)
+	}
+}
+
+func TestStrictCarryOverHonorsTrustedPreviousCompletionFloor(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	_ = seed(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+	seedCapacityGoatInPark(t, ctx, pool, carryOverGoat, cptPark)
+	proto := protopg.NewRepository(pool, 5*time.Second)
+	protoID, err := proto.CreateDefinition(ctx, protodomain.NewDefinition{TenantID: tenantID, Code: "vaccination.trusted.carryover", Name: "Trusted CarryOver", Category: "vaccination", Status: "draft"})
+	if err != nil {
+		t.Fatalf("definition: %v", err)
+	}
+	vaccine := carryOverVaccine{code: "BLUE_TONGUE", doseCode: "blue_tongue_adult_repeat", sequence: 2, offset: 28, minGap: 28, trigger: "after_previous_completion", repeat: "every_n_days"}
+	v1, rules1 := seedCarryOverVersion(t, ctx, pool, protoID, 1, []carryOverVaccine{vaccine})
+	if err := proto.PublishVersion(ctx, tenantID, v1, nil); err != nil {
+		t.Fatalf("publish old version: %v", err)
+	}
+	due := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	insertObligationForRule(t, ctx, repo, v1, rules1[vaccine.doseCode], carryOverGoat, "trusted-floor-legacy-row", due)
+	seedTrustedCarryOverEvidence(t, ctx, pool, carryOverGoat, v1, rules1[vaccine.doseCode], time.Date(2026, 9, 20, 0, 0, 0, 0, time.UTC))
+	v2, _ := seedCarryOverVersion(t, ctx, pool, protoID, 2, []carryOverVaccine{vaccine})
+	moved, err := repo.CarryOverUnchangedVaccinationObligations(ctx, tenantID, []string{carryOverGoat}, []string{v2})
+	if err != nil {
+		t.Fatalf("carry over: %v", err)
+	}
+	if moved != 0 {
+		t.Fatalf("carried over %d, want 0 because trusted history sets floor to 2026-10-18", moved)
+	}
+}
+
+func TestMedicalCarryOverRejectsIncompatibleTriggerTransition(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	_ = seed(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+	seedCapacityGoatInPark(t, ctx, pool, carryOverGoat, cptPark)
+	proto := protopg.NewRepository(pool, 5*time.Second)
+	protoID, err := proto.CreateDefinition(ctx, protodomain.NewDefinition{TenantID: tenantID, Code: "vaccination.trigger.carryover", Name: "Trigger CarryOver", Category: "vaccination", Status: "draft"})
+	if err != nil {
+		t.Fatalf("definition: %v", err)
+	}
+	oldRule := carryOverVaccine{code: "BLUE_TONGUE", doseCode: "blue_tongue_adult_repeat", sequence: 2, offset: 28, minGap: 28, trigger: "post_arrival", repeat: "none"}
+	v1, rules1 := seedCarryOverVersion(t, ctx, pool, protoID, 1, []carryOverVaccine{oldRule})
+	if err := proto.PublishVersion(ctx, tenantID, v1, nil); err != nil {
+		t.Fatalf("publish old version: %v", err)
+	}
+	insertObligationForRule(t, ctx, repo, v1, rules1[oldRule.doseCode], carryOverGoat, "incompatible-trigger-row", time.Date(2026, 10, 20, 0, 0, 0, 0, time.UTC))
+	newRule := oldRule
+	newRule.trigger = "after_previous_completion"
+	newRule.repeat = "every_n_days"
+	newRule.offset = 35
+	v2, _ := seedCarryOverVersion(t, ctx, pool, protoID, 2, []carryOverVaccine{newRule})
+	moved, err := repo.CarryOverUnchangedVaccinationObligations(ctx, tenantID, []string{carryOverGoat}, []string{v2})
+	if err != nil {
+		t.Fatalf("carry over: %v", err)
+	}
+	if moved != 0 {
+		t.Fatalf("carried over %d, want 0 across post_arrival -> after_previous_completion transition", moved)
 	}
 }
 

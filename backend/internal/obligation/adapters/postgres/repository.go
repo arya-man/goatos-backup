@@ -358,14 +358,20 @@ func (r *Repository) InsertObligation(ctx context.Context, in domain.NewObligati
 	if err != nil {
 		return "", false, fmt.Errorf("obligation: target id: %w", err)
 	}
-	if err := enforceVaccinationWriteConstraints(ctx, r.pool, tenant, rule, in.TargetType, target, in.DueAt); err != nil {
-		return "", false, err
-	}
 	scope, err := pgconv.UUID(in.ScopeID)
 	if err != nil {
 		return "", false, fmt.Errorf("obligation: scope id: %w", err)
 	}
-	id, err := r.queries.InsertObligationInstance(ctx, obligationdb.InsertObligationInstanceParams{
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		return "", false, fmt.Errorf("obligation: begin insert transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	if err := enforceVaccinationWriteConstraints(ctx, tx, tenant, rule, in.TargetType, target, in.DueAt); err != nil {
+		return "", false, err
+	}
+	qtx := r.queries.WithTx(tx)
+	id, err := qtx.InsertObligationInstance(ctx, obligationdb.InsertObligationInstanceParams{
 		TenantID:                      tenant,
 		ProtocolVersionID:             version,
 		RuleID:                        rule,
@@ -392,7 +398,10 @@ func (r *Repository) InsertObligation(ctx context.Context, in domain.NewObligati
 		// Refused because something is already there. If that something is this rule's own work
 		// carried across a publish, it still answers to the key it was minted under; give it the
 		// one generation now owns so the row stays addressable.
-		r.adoptCarriedOverObligation(ctx, r.pool, tenant, in)
+		r.adoptCarriedOverObligation(ctx, tx, tenant, in)
+		if err := tx.Commit(ctx); err != nil {
+			return "", false, fmt.Errorf("obligation: commit carried-over address repair: %w", err)
+		}
 		return "", false, nil // already generated for this idempotency key
 	}
 	if isRepeatCycleConflict(err) {
@@ -402,6 +411,9 @@ func (r *Repository) InsertObligation(ctx context.Context, in domain.NewObligati
 	}
 	if err != nil {
 		return "", false, fmt.Errorf("obligation: insert instance: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return "", false, fmt.Errorf("obligation: commit insert instance: %w", err)
 	}
 	return id, true, nil
 }
@@ -2880,16 +2892,16 @@ WITH administrations AS (
   JOIN protocol_rules history_rule ON history_rule.tenant_id=oi.tenant_id AND history_rule.rule_id=oi.rule_id
   JOIN protocol_versions history_version ON history_version.tenant_id=oi.tenant_id AND history_version.protocol_version_id=oi.protocol_version_id
   WHERE vc.tenant_id=$1 AND vc.goat_id=$2 AND vc.status='accepted' AND vc.verified_at IS NOT NULL
-    AND lower(replace(replace(replace(COALESCE(NULLIF(history_rule.eligibility_json->'vaccine'->>'code',''), NULLIF(history_version.rule_dsl->'vaccine'->>'code',''), ''), '_',''), '+',''), '-',''))
-      = lower(replace(replace(replace($3, '_',''), '+',''), '-',''))
+    AND lower(replace(replace(replace(replace(COALESCE(NULLIF(history_rule.eligibility_json->'vaccine'->>'code',''), NULLIF(history_version.rule_dsl->'vaccine'->>'code',''), ''), ' ',''), '_',''), '+',''), '-',''))
+      = lower(replace(replace(replace(replace($3, ' ',''), '_',''), '+',''), '-',''))
   UNION ALL
   SELECT ev.administered_at
   FROM procurement_hf_vaccination_evidence ev
   JOIN proof_artifacts proof ON proof.tenant_id=ev.tenant_id AND proof.proof_id=ev.proof_ref_id AND proof.upload_state='completed'
   LEFT JOIN protocol_rules history_rule ON history_rule.tenant_id=ev.tenant_id AND history_rule.rule_id=ev.rule_id
   WHERE ev.tenant_id=$1 AND ev.goat_id=$2 AND ev.review_status='trusted' AND ev.reviewed_at IS NOT NULL
-    AND lower(replace(replace(replace(COALESCE(NULLIF(history_rule.eligibility_json->'vaccine'->>'code',''), NULLIF(ev.metadata->>'vaccine_code',''), NULLIF(ev.vaccine_name,''), ''), '_',''), '+',''), '-',''))
-      = lower(replace(replace(replace($3, '_',''), '+',''), '-',''))
+    AND lower(replace(replace(replace(replace(COALESCE(NULLIF(history_rule.eligibility_json->'vaccine'->>'code',''), NULLIF(ev.metadata->>'vaccine_code',''), NULLIF(ev.vaccine_name,''), ''), ' ',''), '_',''), '+',''), '-',''))
+      = lower(replace(replace(replace(replace($3, ' ',''), '_',''), '+',''), '-',''))
 )
 SELECT max(administered_at) FROM administrations`, tenant, target, vaccineCode).Scan(&administeredAt)
 		if err != nil {
@@ -3213,14 +3225,27 @@ WHERE oi.tenant_id = $1::uuid
           ORDER BY COALESCE(plg.warmup_started_at, plg.intake_accepted_at, plg.created_at) DESC NULLS LAST LIMIT 1
         ), true)
         WHEN 'after_previous_completion' THEN COALESCE(oi.due_at >= (
-          SELECT CASE WHEN er.repeat='yearly' THEN max(vc.administered_at)+interval '1 year'
-                      ELSE max(vc.administered_at)+make_interval(days=>greatest(er.offset_days,er.min_gap_days)) END
-          FROM vaccination_completions vc
-          JOIN obligation_instances history_oi ON history_oi.tenant_id=vc.tenant_id AND history_oi.obligation_id=vc.obligation_id
-          JOIN protocol_rules history_rule ON history_rule.tenant_id=history_oi.tenant_id AND history_rule.rule_id=history_oi.rule_id
-          JOIN protocol_versions history_version ON history_version.tenant_id=history_oi.tenant_id AND history_version.protocol_version_id=history_oi.protocol_version_id
-          WHERE vc.tenant_id=oi.tenant_id AND vc.goat_id=oi.target_id AND vc.status='accepted' AND vc.verified_at IS NOT NULL
-            AND lower(btrim(COALESCE(NULLIF(history_rule.eligibility_json->'vaccine'->>'code',''),NULLIF(history_version.rule_dsl->'vaccine'->>'code',''),'')))=er.vaccine_code
+          SELECT CASE WHEN er.repeat='yearly' THEN max(administered_at)+interval '1 year'
+                      ELSE max(administered_at)+make_interval(days=>greatest(er.offset_days,er.min_gap_days)) END
+          FROM (
+            SELECT vc.administered_at
+            FROM vaccination_completions vc
+            JOIN obligation_instances history_oi ON history_oi.tenant_id=vc.tenant_id AND history_oi.obligation_id=vc.obligation_id
+            JOIN protocol_rules history_rule ON history_rule.tenant_id=history_oi.tenant_id AND history_rule.rule_id=history_oi.rule_id
+            JOIN protocol_versions history_version ON history_version.tenant_id=history_oi.tenant_id AND history_version.protocol_version_id=history_oi.protocol_version_id
+            WHERE vc.tenant_id=oi.tenant_id AND vc.goat_id=oi.target_id AND vc.status='accepted' AND vc.verified_at IS NOT NULL
+              AND lower(replace(replace(replace(replace(COALESCE(NULLIF(history_rule.eligibility_json->'vaccine'->>'code',''),NULLIF(history_version.rule_dsl->'vaccine'->>'code',''),''),' ',''),'_',''),'+',''),'-',''))
+                = lower(replace(replace(replace(replace(er.vaccine_code,' ',''),'_',''),'+',''),'-',''))
+            UNION ALL
+            SELECT ev.administered_at
+            FROM procurement_hf_vaccination_evidence ev
+            JOIN proof_artifacts proof ON proof.tenant_id=ev.tenant_id AND proof.proof_id=ev.proof_ref_id AND proof.upload_state='completed'
+            LEFT JOIN protocol_rules history_rule ON history_rule.tenant_id=ev.tenant_id AND history_rule.rule_id=ev.rule_id
+            WHERE ev.tenant_id=oi.tenant_id AND ev.goat_id=oi.target_id
+              AND ev.review_status='trusted' AND ev.reviewed_at IS NOT NULL
+              AND lower(replace(replace(replace(replace(COALESCE(NULLIF(history_rule.eligibility_json->'vaccine'->>'code',''),NULLIF(ev.metadata->>'vaccine_code',''),NULLIF(ev.vaccine_name,''),''),' ',''),'_',''),'+',''),'-',''))
+                = lower(replace(replace(replace(replace(er.vaccine_code,' ',''),'_',''),'+',''),'-',''))
+          ) administrations
         ), true)
         ELSE true
       END
@@ -3385,6 +3410,8 @@ JOIN effective_rule er
  ON er.vaccine_code = rr.vaccine_code
  AND er."sequence" = rr."sequence"
  AND er.dose_family = rr.dose_family
+ AND er.trigger_type = rr.trigger_type
+ AND er.repeat = rr.repeat
 WHERE oi.tenant_id = $1::uuid
   AND oi.target_type = 'goat'
   AND oi.target_id = ANY($2::uuid[])
