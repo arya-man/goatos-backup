@@ -16,7 +16,25 @@ export type ValuationBucket = {
   display_order: number;
 };
 
+// THE STAGES ARE AUTHORED (maintainer instruction 2026-09-24). A stage says what it is called and
+// which entries of the farm's own herd register it covers; `buckets` carries two rows per stage.
+export type ValuationStage = {
+  stage: string;
+  label: string;
+  display_order: number;
+  matches: string[];
+};
+
+// One row of the herd register offered to pick from, with the animals standing in it now.
+export type StageRegisterEntry = {
+  code: string;
+  label: string;
+  live_animals: number;
+};
+
 export type ValuationAssumptions = {
+  stages: ValuationStage[];
+  stage_register?: StageRegisterEntry[];
   buckets: ValuationBucket[];
   unsold_stock_price_rupees: number | null;
   row_version: number;
@@ -32,7 +50,7 @@ export type ValuationAssumptions = {
   };
 };
 
-export type ValuationWrite = Pick<ValuationAssumptions, "buckets" | "unsold_stock_price_rupees" | "row_version">;
+export type ValuationWrite = Pick<ValuationAssumptions, "stages" | "buckets" | "unsold_stock_price_rupees" | "row_version">;
 
 const PATH = "/sales/valuation-assumptions" as keyof AppApiPaths & string;
 

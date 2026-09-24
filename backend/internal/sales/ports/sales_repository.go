@@ -158,6 +158,9 @@ type SalesRepository interface {
 	// no row exists); PutValuationAssumptions replaces them under a row_version fence.
 	GetValuationAssumptions(ctx context.Context, tenantID string) (domain.ValuationAssumptions, error)
 	PutValuationAssumptions(ctx context.Context, tenantID string, write domain.ValuationAssumptions, actorID string) (domain.ValuationAssumptions, error)
+	// ListStageRegister reads the herd's own stage register with each entry's live head count, so
+	// the valuation screen offers the farm's stages rather than a typed string.
+	ListStageRegister(ctx context.Context, tenantID string) ([]domain.StageRegisterEntry, error)
 }
 
 // ErrValuationVersionConflict is a valuation write carrying a row_version the row has moved past.

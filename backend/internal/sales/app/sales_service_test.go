@@ -165,6 +165,10 @@ func (f *fakeRepo) CreateSoldTags(_ context.Context, _ string, write domain.Sold
 	return len(write.Rows), nil
 }
 
+func (f *fakeRepo) ListStageRegister(_ context.Context, _ string) ([]domain.StageRegisterEntry, error) {
+	return []domain.StageRegisterEntry{{Code: "Warmup", Label: "Warmup", LiveAnimals: 58}}, nil
+}
+
 func (f *fakeRepo) GetValuationAssumptions(_ context.Context, _ string) (domain.ValuationAssumptions, error) {
 	return domain.DefaultValuationAssumptions(), nil
 }
