@@ -28,10 +28,13 @@
 - Added age-floor enforcement to nil-reschedule recovery reopen and mapped user-facing date violations to a stable HTTP 422 contract.
 - Added age-floor and purpose/species enforcement to both unchanged-rule and medically-equivalent carry-over paths.
 - Added OCI regressions proving under-age rows do not carry across a republish and fattening goats carry ET+TT, PPR, and Goat Pox while excluding FMD and Sheep Pox.
+- Anchored protocol second-wave pox timing to the latest actual ET+TT/PPR administration; no first-wave history means no second-wave assignment yet.
+- Added trusted procurement evidence to strict carry-over floors, canonicalized spaced vaccine names, and blocked medical carry-over across incompatible trigger/repeat semantics.
+- Made validation plus ordinary obligation insert one serializable transaction so concurrent anchor corrections cannot commit an invalid row between the floor read and write.
 
 ## Pending
 
-- Rerun the full focused suite and final judges after the carry-over fix.
+- Rerun the full focused suite and final judges after the trusted-history/second-wave fix.
 - Keep the draft PR updated with each verified checkpoint.
 - Repair/read back STG after the durable guard is deployable; do not claim the DB repair durable before deployment.
 
@@ -42,8 +45,9 @@
 - Full tests: `go test ./internal/vaccination/... ./internal/obligation/... ./internal/protocol/... ./internal/vaccinationexecution/... ./cmd/seed-vaccination-real ./tests/e2e -count=1` passed.
 - OCI Postgres: `TestVaccinationBirthAgeFloorGuardsEveryWritePath` passed against the throwaway database in 165.15s, including nil-reschedule recovery reopen.
 - OCI Postgres: carry-over collision, repeat-cause collision, valid BT dose-2 rebind, under-age rejection, and fattening purpose/species tests passed against disposable databases.
+- OCI Postgres: strict trusted-history floor, incompatible trigger-transition rejection, and valid BT medical rebind all passed in 130.287s.
 - E2E/readback: STG repair and deployed repeated-sweep readback pending; no deployment from this branch.
-- Judge status: clinical judge signed off; DB judge's strict carry-over bypass is fixed and awaiting final review.
+- Judge status: second judge pass found trusted-history, trigger-transition, and second-wave-anchor gaps; all are fixed and awaiting final review.
 - Deployment state: not deployed
 
 ## Known failure and before metric

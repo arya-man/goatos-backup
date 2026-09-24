@@ -114,8 +114,8 @@ func TestGenerateForVersionUsesProcurementPurposePlans(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generate: %v", err)
 	}
-	if result.Generated != 8 || len(obl.inserted) != 8 {
-		t.Fatalf("result=%#v inserted=%#v, want eight purpose-filtered obligations", result, obl.inserted)
+	if result.Generated != 5 || len(obl.inserted) != 5 {
+		t.Fatalf("result=%#v inserted=%#v, want five first-wave purpose-filtered obligations", result, obl.inserted)
 	}
 	got := map[string]map[string]bool{}
 	for _, in := range obl.inserted {
@@ -124,14 +124,14 @@ func TestGenerateForVersionUsesProcurementPurposePlans(t *testing.T) {
 		}
 		got[in.TargetID][in.RuleID] = true
 	}
-	if !got["breeding-goat"]["rule-et"] || !got["breeding-goat"]["rule-fmd"] || len(got["breeding-goat"]) != 2 {
-		t.Fatalf("breeding rules = %#v, want ET+TT and FMD only", got["breeding-goat"])
+	if !got["breeding-goat"]["rule-et"] || len(got["breeding-goat"]) != 1 {
+		t.Fatalf("breeding rules = %#v, want ET+TT only until first-wave completion anchors FMD", got["breeding-goat"])
 	}
-	if !got["fattening-goat"]["rule-et"] || !got["fattening-goat"]["rule-ppr"] || !got["fattening-goat"]["rule-goat-pox"] || len(got["fattening-goat"]) != 3 {
-		t.Fatalf("fattening rules = %#v, want ET+TT, PPR, and Goat Pox only", got["fattening-goat"])
+	if !got["fattening-goat"]["rule-et"] || !got["fattening-goat"]["rule-ppr"] || len(got["fattening-goat"]) != 2 {
+		t.Fatalf("fattening rules = %#v, want ET+TT and PPR until first-wave completion anchors Goat Pox", got["fattening-goat"])
 	}
-	if !got["fattening-sheep"]["rule-et"] || !got["fattening-sheep"]["rule-ppr"] || !got["fattening-sheep"]["rule-sheep-pox"] || len(got["fattening-sheep"]) != 3 {
-		t.Fatalf("fattening sheep rules = %#v, want ET+TT, PPR, and Sheep Pox only", got["fattening-sheep"])
+	if !got["fattening-sheep"]["rule-et"] || !got["fattening-sheep"]["rule-ppr"] || len(got["fattening-sheep"]) != 2 {
+		t.Fatalf("fattening sheep rules = %#v, want ET+TT and PPR until first-wave completion anchors Sheep Pox", got["fattening-sheep"])
 	}
 }
 
@@ -192,6 +192,37 @@ func TestFatteningPurposePlanSupportsOneTwoAndThreeVaccinesWithoutChangingIdenti
 				t.Fatalf("applicable vaccines=%d, want %d", got, tc.applicable)
 			}
 		})
+	}
+}
+
+func TestFatteningSecondWaveWaitsForActualFirstWaveAdministration(t *testing.T) {
+	days := int32(28)
+	entry := time.Date(2026, time.September, 1, 0, 0, 0, 0, time.UTC)
+	goat := domain.EligibleGoat{Species: "goat", ProcurementPurpose: "fattening", WarmingEntryAt: &entry}
+	policy := genProcurementPolicy{PurposePlans: map[string]genProcurementPurposePlan{
+		"fattening": {
+			FirstWave: genStringList{"ET+TT", "PPR"}, SecondWaveAfterDays: &days,
+			GoatSecondWave: genStringList{"Goat Pox"}, SheepSecondWave: genStringList{"Sheep Pox"},
+		},
+	}}
+	rule := protodomain.Rule{TriggerType: "manual_campaign", DueWindowDays: 7}
+	vaccine := vaccineProfile{Code: "GOAT_POX", Name: "Goat Pox"}
+
+	if _, ok := procurementPurposePrimaryDue(goat, rule, vaccine, policy, nil); ok {
+		t.Fatal("second wave became schedulable before any first-wave administration")
+	}
+	lateETTT := time.Date(2026, time.September, 20, 15, 30, 0, 0, time.UTC)
+	latePPR := time.Date(2026, time.September, 22, 9, 0, 0, 0, time.UTC)
+	due, ok := procurementPurposePrimaryDue(goat, rule, vaccine, policy, []domain.RecentVaccineAdministration{
+		{AdministeredAt: lateETTT, VaccineCode: "ET_TT"},
+		{AdministeredAt: latePPR, VaccineCode: "PPR"},
+	})
+	if !ok {
+		t.Fatal("second wave did not become schedulable after first-wave administration")
+	}
+	want := businessDayStart(latePPR).AddDate(0, 0, 28)
+	if !due.Equal(want) {
+		t.Fatalf("second-wave due=%s, want latest actual first-wave administration + 28d = %s", due, want)
 	}
 }
 
