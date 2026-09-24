@@ -37247,7 +37247,7 @@ components:
     GrowthFCRResponse:
       type: object
       additionalProperties: false
-      required: [period, parks, basis, sale_prices, summary, pens, by_breed, by_sex, by_weight_band, by_park, by_origin, weekly]
+      required: [period, parks, basis, sale_prices, summary, pens, by_breed, estimated_by_breed, by_sex, by_weight_band, by_park, by_origin, weekly]
       properties:
         period: {$ref: "#/components/schemas/GrowthDirectorPeriod"}
         parks:
@@ -37263,6 +37263,10 @@ components:
           items: {$ref: "#/components/schemas/GrowthFCRPen"}
         by_breed:
           type: array
+          items: {$ref: "#/components/schemas/GrowthFCRGroup"}
+        estimated_by_breed:
+          type: array
+          description: Mixed-pen feed, gain, cost, and value allocated by breed headcount share. Estimated, not measured intake by breed.
           items: {$ref: "#/components/schemas/GrowthFCRGroup"}
         by_sex:
           type: array

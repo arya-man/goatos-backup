@@ -90,6 +90,14 @@ type HeadMix struct {
 	Animals         int    `json:"animals"`
 }
 
+// FCRCohortMember is a headcount slice inside one pen cohort. It is used only for the explicitly
+// labelled estimated breed view: the official breed view keeps the agree-or-mixed pen rule.
+type FCRCohortMember struct {
+	Key     string `json:"key"`
+	Label   string `json:"label"`
+	Animals int    `json:"animals"`
+}
+
 // PenPrice is the sale price a pen's gain is valued at: the HEAD-WEIGHTED price of the animals in
 // it, each at its own (species, stage, sex) price. A pen holding 10 K3 males and 5 F2 females is
 // priced at (10 x K3-male + 5 x F2-female) / 15, so a mixed pen is valued rather than left blank.
@@ -185,25 +193,27 @@ type FCRPenRow struct {
 	SpeciesCount    int
 	Species         string
 	ResidentMix     []HeadMix // live residents per (species, stage, sex), for the head-weighted sale price
+	BreedMembers    []FCRCohortMember
 	BoughtResidents int
 	// Weighed* describe the animals actually SCANNED in this pen during the window, resolved
 	// through the register regardless of where they are now or whether they are still alive. They
 	// are the fallback cohort for a pen that has NO live residents today -- kids sold or moved after
 	// the last round -- so a pen that was fed and weighed all month is not rendered as "unknown" and
 	// unvalued because it happens to be empty on the day the tab is read.
-	WeighedAnimals     int
-	WeighedBreeds      int
-	WeighedBreed       string
-	WeighedSexes       int
-	WeighedSex         string
-	WeighedSpeciesN    int
-	WeighedSpecies     string
-	WeighedMix         []HeadMix
-	WeighedBought      int
-	IndividualScanned  bool
-	WholeShedWeighed   bool
-	WindowFeedKg       *float64 // directed kg over the WHOLE window, for pens with no segment
-	WindowBlockedCells int
+	WeighedAnimals      int
+	WeighedBreeds       int
+	WeighedBreed        string
+	WeighedSexes        int
+	WeighedSex          string
+	WeighedSpeciesN     int
+	WeighedSpecies      string
+	WeighedMix          []HeadMix
+	WeighedBreedMembers []FCRCohortMember
+	WeighedBought       int
+	IndividualScanned   bool
+	WholeShedWeighed    bool
+	WindowFeedKg        *float64 // directed kg over the WHOLE window, for pens with no segment
+	WindowBlockedCells  int
 }
 
 // FCRPen is one pen on the tab.
@@ -296,18 +306,19 @@ type FCRSummary struct {
 
 // FCRReport is the whole tab.
 type FCRReport struct {
-	Period     Period      `json:"period"`
-	Parks      []Park      `json:"parks"`
-	Basis      string      `json:"basis"`
-	SalePrices []SalePrice `json:"sale_prices"`
-	Summary    FCRSummary  `json:"summary"`
-	Pens       []FCRPen    `json:"pens"`
-	ByBreed    []FCRGroup  `json:"by_breed"`
-	BySex      []FCRGroup  `json:"by_sex"`
-	ByBand     []FCRGroup  `json:"by_weight_band"`
-	ByPark     []FCRGroup  `json:"by_park"`
-	ByOrigin   []FCRGroup  `json:"by_origin"`
-	Weekly     []FCRWeek   `json:"weekly"`
+	Period           Period      `json:"period"`
+	Parks            []Park      `json:"parks"`
+	Basis            string      `json:"basis"`
+	SalePrices       []SalePrice `json:"sale_prices"`
+	Summary          FCRSummary  `json:"summary"`
+	Pens             []FCRPen    `json:"pens"`
+	ByBreed          []FCRGroup  `json:"by_breed"`
+	EstimatedByBreed []FCRGroup  `json:"estimated_by_breed"`
+	BySex            []FCRGroup  `json:"by_sex"`
+	ByBand           []FCRGroup  `json:"by_weight_band"`
+	ByPark           []FCRGroup  `json:"by_park"`
+	ByOrigin         []FCRGroup  `json:"by_origin"`
+	Weekly           []FCRWeek   `json:"weekly"`
 }
 
 // FCRFilters are the page filters applied at PEN grain. Feed is directed to a whole pen and cannot
@@ -324,15 +335,16 @@ type FCRFilters struct {
 // BuildFCRReport turns repository rows into the tab. Pens and segments are joined on PenKey.
 func BuildFCRReport(pens []FCRPenRow, segments []FCRSegmentRow, prices SalePrices, filters FCRFilters) FCRReport {
 	out := FCRReport{
-		Basis:      FCRBasisDirectedFeed,
-		SalePrices: append([]SalePrice{}, prices.Prices...),
-		Pens:       []FCRPen{},
-		ByBreed:    []FCRGroup{},
-		BySex:      []FCRGroup{},
-		ByBand:     []FCRGroup{},
-		ByPark:     []FCRGroup{},
-		ByOrigin:   []FCRGroup{},
-		Weekly:     []FCRWeek{},
+		Basis:            FCRBasisDirectedFeed,
+		SalePrices:       append([]SalePrice{}, prices.Prices...),
+		Pens:             []FCRPen{},
+		ByBreed:          []FCRGroup{},
+		EstimatedByBreed: []FCRGroup{},
+		BySex:            []FCRGroup{},
+		ByBand:           []FCRGroup{},
+		ByPark:           []FCRGroup{},
+		ByOrigin:         []FCRGroup{},
+		Weekly:           []FCRWeek{},
 	}
 	if out.SalePrices == nil {
 		out.SalePrices = []SalePrice{}
@@ -343,9 +355,10 @@ func BuildFCRReport(pens []FCRPenRow, segments []FCRSegmentRow, prices SalePrice
 	}
 
 	type penAgg struct {
-		pen      FCRPen
-		segs     []FCRSegmentRow
-		parkCode string
+		pen          FCRPen
+		segs         []FCRSegmentRow
+		parkCode     string
+		breedMembers []FCRCohortMember
 	}
 	var aggs []penAgg
 	for _, row := range pens {
@@ -356,7 +369,7 @@ func BuildFCRReport(pens []FCRPenRow, segments []FCRSegmentRow, prices SalePrice
 		}
 		segs := segByPen[row.PenKey]
 		applySegments(&pen, row, segs, prices)
-		aggs = append(aggs, penAgg{pen: pen, segs: segs, parkCode: row.ParkCode})
+		aggs = append(aggs, penAgg{pen: pen, segs: segs, parkCode: row.ParkCode, breedMembers: row.BreedMembers})
 	}
 
 	// Pens: clustered by park in CODE order (CBE, then CPT — maintainer decision 2026-09-16 for
@@ -375,7 +388,7 @@ func BuildFCRReport(pens []FCRPenRow, segments []FCRSegmentRow, prices SalePrice
 		parkCodes[agg.pen.ParkID] = agg.parkCode
 	}
 
-	groups := map[string]map[string]*FCRGroup{"breed": {}, "sex": {}, "band": {}, "park": {}, "origin": {}}
+	groups := map[string]map[string]*FCRGroup{"breed": {}, "estimated_breed": {}, "sex": {}, "band": {}, "park": {}, "origin": {}}
 	weeks := map[string]*FCRWeek{}
 	weekPens := map[string]map[string]struct{}{}
 	var summary FCRSummary
@@ -415,6 +428,7 @@ func BuildFCRReport(pens []FCRPenRow, segments []FCRSegmentRow, prices SalePrice
 		}
 
 		addGroup(groups["breed"], pen.Breed, cohortLabel(pen.Breed), pen)
+		addEstimatedBreedGroups(groups["estimated_breed"], agg.breedMembers, pen)
 		addGroup(groups["sex"], pen.Sex, cohortLabel(pen.Sex), pen)
 		addGroup(groups["band"], pen.WeightBand, pen.WeightBand, pen)
 		addGroup(groups["park"], pen.ParkID, pen.ParkName, pen)
@@ -465,6 +479,7 @@ func BuildFCRReport(pens []FCRPenRow, segments []FCRSegmentRow, prices SalePrice
 	out.Summary = summary
 
 	out.ByBreed = finishGroups(groups["breed"], sortByFCRDesc)
+	out.EstimatedByBreed = finishGroups(groups["estimated_breed"], sortByFCRDesc)
 	out.BySex = finishGroups(groups["sex"], sortByFCRDesc)
 	out.ByBand = finishGroups(groups["band"], sortByBandFor(filters.BandEdgesKg))
 	out.ByPark = finishGroups(groups["park"], func(a, b FCRGroup) bool {
@@ -508,6 +523,7 @@ func cohortSource(row FCRPenRow) FCRPenRow {
 	row.Sexes, row.Sex = row.WeighedSexes, row.WeighedSex
 	row.SpeciesCount, row.Species = row.WeighedSpeciesN, row.WeighedSpecies
 	row.ResidentMix = row.WeighedMix
+	row.BreedMembers = row.WeighedBreedMembers
 	row.BoughtResidents = row.WeighedBought
 	return row
 }
@@ -640,6 +656,49 @@ func addGroup(into map[string]*FCRGroup, key, label string, pen FCRPen) {
 	}
 	if pen.GainValueINR != nil {
 		g.GainValueINR = addPtr(g.GainValueINR, *pen.GainValueINR)
+	}
+}
+
+func addEstimatedBreedGroups(into map[string]*FCRGroup, members []FCRCohortMember, pen FCRPen) {
+	total := 0
+	for _, member := range members {
+		if member.Animals > 0 {
+			total += member.Animals
+		}
+	}
+	if total <= 0 {
+		addGroup(into, pen.Breed, cohortLabel(pen.Breed), pen)
+		return
+	}
+	for _, member := range members {
+		if member.Animals <= 0 {
+			continue
+		}
+		key := strings.TrimSpace(member.Key)
+		label := strings.TrimSpace(member.Label)
+		if key == "" {
+			key = CohortUnknown
+		}
+		if label == "" {
+			label = key
+		}
+		share := float64(member.Animals) / float64(total)
+		g := into[key]
+		if g == nil {
+			g = &FCRGroup{Key: key, Label: label}
+			into[key] = g
+		}
+		g.Pens++
+		g.Animals += member.Animals
+		g.FeedKg += *pen.FeedKg * share
+		g.GainKg += *pen.GainKg * share
+		g.HeadDays += *pen.HeadDays * share
+		if pen.FeedCostINR != nil {
+			g.FeedCostINR = addPtr(g.FeedCostINR, *pen.FeedCostINR*share)
+		}
+		if pen.GainValueINR != nil {
+			g.GainValueINR = addPtr(g.GainValueINR, *pen.GainValueINR*share)
+		}
 	}
 }
 

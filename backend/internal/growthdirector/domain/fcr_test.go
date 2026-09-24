@@ -167,6 +167,9 @@ func TestFCRCohortsAreAgreeOrNeitherAndFiltersApplyPerPen(t *testing.T) {
 	if len(got.ByBreed) != 2 || got.ByBreed[0].Key != CohortMixed || got.ByBreed[1].Key != "sirohi" {
 		t.Fatalf("by breed = %+v", got.ByBreed) // worst FCR first: mixed 10, sirohi 5
 	}
+	if len(got.EstimatedByBreed) != 2 {
+		t.Fatalf("estimated by breed = %+v", got.EstimatedByBreed)
+	}
 	if len(got.ByBand) != 2 || got.ByBand[0].Key != "<15" || got.ByBand[1].Key != "30-35" {
 		t.Fatalf("by band = %+v", got.ByBand)
 	}
@@ -183,6 +186,58 @@ func TestFCRCohortsAreAgreeOrNeitherAndFiltersApplyPerPen(t *testing.T) {
 	if len(byOrigin.Pens) != 0 {
 		t.Fatalf("a pen with 4 of 12 bought is claimed by neither origin, got %+v", byOrigin.Pens)
 	}
+}
+
+func TestFCRMixedPenEstimatedBreedRollupSplitsByHeadcount(t *testing.T) {
+	pens := []FCRPenRow{
+		{PenKey: "mixed", LocationID: "mixed", ParkID: "p", ParkName: "P", ShedName: "Mixed", Rounds: 2, LatestAnimals: 10, Residents: 10, Breeds: 2, Breed: "Beetal", Sexes: 1, Sex: "male", SpeciesCount: 1, Species: "goat", ResidentMix: []HeadMix{{Species: "goat", Animals: 10}}, BreedMembers: []FCRCohortMember{
+			{Key: "beetal", Label: "Beetal", Animals: 6},
+			{Key: "sirohi", Label: "Sirohi", Animals: 4},
+		}},
+		{PenKey: "pure", LocationID: "pure", ParkID: "p", ParkName: "P", ShedName: "Pure", Rounds: 2, LatestAnimals: 5, Residents: 5, Breeds: 1, Breed: "Beetal", Sexes: 1, Sex: "male", SpeciesCount: 1, Species: "goat", ResidentMix: []HeadMix{{Species: "goat", Animals: 5}}, BreedMembers: []FCRCohortMember{
+			{Key: "beetal", Label: "Beetal", Animals: 5},
+		}},
+	}
+	segments := []FCRSegmentRow{
+		// Mixed pen: gain 20 kg, feed 100 kg, margin ₹8,000. Split 60/40 by headcount.
+		{PenKey: "mixed", StartDate: "2026-08-03", EndDate: "2026-08-10", ADGGPerDay: 200, FeedKg: f(100), FeedCostINR: f(1000), HeadDays: f(100)},
+		// Pure Beetal pen: gain 10 kg, feed 30 kg, margin ₹4,500.
+		{PenKey: "pure", StartDate: "2026-08-03", EndDate: "2026-08-10", ADGGPerDay: 200, FeedKg: f(30), FeedCostINR: f(500), HeadDays: f(50)},
+	}
+	got := BuildFCRReport(pens, segments, SalePrices{Prices: []SalePrice{{Species: "goat", PricePerKgINR: 500}}}, FCRFilters{})
+	official := map[string]FCRGroup{}
+	for _, group := range got.ByBreed {
+		official[group.Key] = group
+	}
+	if _, ok := official[CohortMixed]; !ok {
+		t.Fatalf("official by-breed must keep the mixed pen grouped as mixed: %+v", got.ByBreed)
+	}
+	estimated := map[string]FCRGroup{}
+	for _, group := range got.EstimatedByBreed {
+		estimated[group.Key] = group
+	}
+	beetal, ok := estimated["beetal"]
+	if !ok {
+		t.Fatalf("estimated by breed missing Beetal: %+v", got.EstimatedByBreed)
+	}
+	if sirohi, ok := estimated["sirohi"]; !ok {
+		t.Fatalf("estimated by breed missing Sirohi: %+v", got.EstimatedByBreed)
+	} else {
+		if sirohi.Pens != 1 || sirohi.Animals != 4 {
+			t.Fatalf("sirohi allocation count = %+v", sirohi)
+		}
+		near(t, "sirohi feed", &sirohi.FeedKg, 40)
+		near(t, "sirohi gain", &sirohi.GainKg, 8)
+		near(t, "sirohi fcr", sirohi.FCR, 5)
+		near(t, "sirohi margin", sirohi.MarginINR, 3600)
+	}
+	if beetal.Pens != 2 || beetal.Animals != 11 {
+		t.Fatalf("beetal allocation count = %+v", beetal)
+	}
+	near(t, "beetal feed", &beetal.FeedKg, 90)
+	near(t, "beetal gain", &beetal.GainKg, 22)
+	near(t, "beetal fcr", beetal.FCR, 90.0/22.0)
+	near(t, "beetal margin", beetal.MarginINR, 9900)
 }
 
 func mix(pairs ...any) []HeadMix {

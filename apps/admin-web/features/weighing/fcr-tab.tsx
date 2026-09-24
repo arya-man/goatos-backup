@@ -87,10 +87,11 @@ function GroupCard({
   rupee: string;
 }) {
   const caption = copy(pageContract, `section.fcr.${id}.caption`, "");
+  const safeGroups = groups ?? [];
   // Two series on two scales: the ratio, and the money the group made over its feed. A group
   // whose gain is unpriced or whose feed is unpriced shows the ratio alone.
-  const bars = groupBars(pageContract, groups).map((group) => {
-    const src = groups.find((g) => g.key === group.key);
+  const bars = groupBars(pageContract, safeGroups).map((group) => {
+    const src = safeGroups.find((g) => g.key === group.key);
     if (!src || src.margin_inr == null) return group;
     return {
       ...group,
@@ -292,24 +293,25 @@ export function FCRTab({
       </section>
 
       <div className="grid g2">
-        <GroupCard pageContract={pageContract} id="breed" groups={fcr.by_breed} icon={<Sprout className="ic" size={15} aria-hidden />} rupee={rupee} />
-        <GroupCard pageContract={pageContract} id="sex" groups={fcr.by_sex} icon={<Sprout className="ic" size={15} aria-hidden />} rupee={rupee} />
+        <GroupCard pageContract={pageContract} id="breed" groups={fcr.estimated_by_breed ?? fcr.by_breed} icon={<Sprout className="ic" size={15} aria-hidden />} rupee={rupee} />
+        <div style={{ display: "grid", gap: 14, alignSelf: "start" }}>
+          <GroupCard pageContract={pageContract} id="sex" groups={fcr.by_sex} icon={<Sprout className="ic" size={15} aria-hidden />} rupee={rupee} />
+          <section className="card wchart" aria-label={copy(pageContract, "section.fcr.weekly.aria")}>
+            <h2 className="h">
+              <CalendarRange className="ic" size={15} aria-hidden /> {copy(pageContract, "section.fcr.weekly.title")}
+            </h2>
+            <p className="muted small">{copy(pageContract, "section.fcr.weekly.caption")}</p>
+            <WeightBars
+              data={weekBars}
+              emptyLabel={copy(pageContract, "empty.fcr.body")}
+              unit={copy(pageContract, "unit.fcr")}
+              chartLabel={copy(pageContract, "section.fcr.weekly.aria")}
+              size="bands"
+              wide
+            />
+          </section>
+        </div>
       </div>
-
-      <section className="card wchart" aria-label={copy(pageContract, "section.fcr.weekly.aria")}>
-        <h2 className="h">
-          <CalendarRange className="ic" size={15} aria-hidden /> {copy(pageContract, "section.fcr.weekly.title")}
-        </h2>
-        <p className="muted small">{copy(pageContract, "section.fcr.weekly.caption")}</p>
-        <WeightBars
-          data={weekBars}
-          emptyLabel={copy(pageContract, "empty.fcr.body")}
-          unit={copy(pageContract, "unit.fcr")}
-          chartLabel={copy(pageContract, "section.fcr.weekly.aria")}
-          size="bands"
-          wide
-        />
-      </section>
 
       <div className="grid g2">
         <GroupCard pageContract={pageContract} id="band" groups={fcr.by_weight_band} icon={<Scale className="ic" size={15} aria-hidden />} rupee={rupee} />
