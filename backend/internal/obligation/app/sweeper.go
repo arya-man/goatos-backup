@@ -2376,6 +2376,52 @@ func (s *SweeperService) finalizePlannedBatches(ctx context.Context, tenantID, v
 	if !needsTask && !needsStock {
 		return nil
 	}
+	if err := s.finalizeSweptPlannedBatches(ctx, tenantID, versionID, cfg, needsTask, needsStock); err != nil {
+		return err
+	}
+	if !needsTask {
+		return nil
+	}
+	return s.finalizeAssignedTasklessBatches(ctx, tenantID, versionID, cfg)
+}
+
+// assignedTasklessBatchLister finds open batches that reached an operator's drive assignment
+// without an SOP task (e.g. a manual/runbook drive restore, or a batch already in_progress).
+type assignedTasklessBatchLister interface {
+	ListAssignedBatchesMissingSOPTask(ctx context.Context, tenantID, versionID string, after *domain.PlannedBatchFinalizationCursor, limit int32) ([]domain.PlannedBatchFinalization, error)
+}
+
+// finalizeAssignedTasklessBatches gives every assigned-but-taskless batch its SOP task through the
+// same idempotent create+link path as planned batches (SetBatchSOPTasks only fills a NULL task),
+// so every RFID scan and proof on the operator roster has a real task to be written against. It
+// also backfills existing taskless assigned batches on the sweeper's next pass.
+func (s *SweeperService) finalizeAssignedTasklessBatches(ctx context.Context, tenantID, versionID string, cfg SweepConfig) error {
+	lister, ok := s.repo.(assignedTasklessBatchLister)
+	if !ok {
+		return nil
+	}
+	var after *domain.PlannedBatchFinalizationCursor
+	for pages := 0; pages < maxPlannedFinalizationPagesPerSweep; pages++ {
+		batches, err := lister.ListAssignedBatchesMissingSOPTask(ctx, tenantID, versionID, after, s.page)
+		if err != nil {
+			return err
+		}
+		if len(batches) == 0 {
+			return nil
+		}
+		if err := s.finalizePlannedBatchTasks(ctx, tenantID, batches, cfg); err != nil {
+			return err
+		}
+		if int32(len(batches)) < s.page {
+			return nil
+		}
+		last := batches[len(batches)-1]
+		after = &domain.PlannedBatchFinalizationCursor{CreatedAt: last.CreatedAt, BatchID: last.BatchID}
+	}
+	return fmt.Errorf("obligation: assigned taskless batch finalization exceeded %d pages without draining", maxPlannedFinalizationPagesPerSweep)
+}
+
+func (s *SweeperService) finalizeSweptPlannedBatches(ctx context.Context, tenantID, versionID string, cfg SweepConfig, needsTask, needsStock bool) error {
 	var after *domain.PlannedBatchFinalizationCursor
 	for pages := 0; pages < maxPlannedFinalizationPagesPerSweep; pages++ {
 		batches, err := s.repo.ListPlannedBatchesNeedingFinalization(ctx, tenantID, versionID, needsTask, needsStock, after, s.page)

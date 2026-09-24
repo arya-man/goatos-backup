@@ -40,6 +40,9 @@ class FakeScanCaptureRepository : ScanCaptureRepository {
     var enqueuePendingScansCalls: Int = 0
         private set
 
+    /** Every task id a scan write was queued under (the server rejects blank/"shed-wide"). */
+    val recordedTaskIds = mutableListOf<String>()
+
     /** Test hook: flip every stored capture to SYNCED — the precondition for any server-side
      *  reconciliation (a PENDING capture is offline evidence the server has not seen). */
     fun markAllSynced() {
@@ -71,6 +74,7 @@ class FakeScanCaptureRepository : ScanCaptureRepository {
         partitionLabel: String?,
     ) {
         recordScanCalls++
+        recordedTaskIds += taskId
         val partitionKey = testPartitionKey(partitionLabel)
         if (rows.none {
             it.partitionKey == partitionKey &&
