@@ -1224,6 +1224,77 @@
         "male"
       ],
       "max_seconds": 60
+    },
+    {
+      "id": "castro-weekly-avg-weight",
+      "tags": [
+        "weighing",
+        "explanation",
+        "regression-2026-09-25"
+      ],
+      "question": "Castro 1, 2 and 3 in Coimbatore: on the weekly growth timeline from 03/08 to 21/09, give me the average weight per sheep for each week.",
+      "truth": {
+        "sql": "SELECT l.name pen, round((array_agg(so.average_weight_kg ORDER BY so.accepted_at DESC) FILTER (WHERE so.accepted_at AT TIME ZONE 'Asia/Kolkata' >= '2026-08-10' AND so.accepted_at AT TIME ZONE 'Asia/Kolkata' < '2026-08-17'))[1]::numeric,1) wk_10_08, round((array_agg(so.average_weight_kg ORDER BY so.accepted_at DESC) FILTER (WHERE so.accepted_at AT TIME ZONE 'Asia/Kolkata' >= '2026-09-21' AND so.accepted_at AT TIME ZONE 'Asia/Kolkata' < '2026-09-28'))[1]::numeric,1) wk_21_09 FROM weighing_shed_observations so JOIN weighing_campaign_sheds cs USING (campaign_shed_id) JOIN locations l ON l.location_id=cs.location_id JOIN locations pk ON pk.location_id=cs.park_id WHERE l.name IN ('Castro 1','Castro 2','Castro 3') AND pk.location_code='CBE' AND so.withdrawn_at IS NULL AND so.verification_status<>'rejected' GROUP BY 1 ORDER BY 1"
+      },
+      "expect": [
+        {
+          "label": "Castro 1 wk_10_08",
+          "col": "wk_10_08",
+          "row": {
+            "pen": "Castro 1"
+          },
+          "tol": 0.1
+        },
+        {
+          "label": "Castro 1 wk_21_09",
+          "col": "wk_21_09",
+          "row": {
+            "pen": "Castro 1"
+          },
+          "tol": 0.1
+        },
+        {
+          "label": "Castro 2 wk_10_08",
+          "col": "wk_10_08",
+          "row": {
+            "pen": "Castro 2"
+          },
+          "tol": 0.1
+        },
+        {
+          "label": "Castro 2 wk_21_09",
+          "col": "wk_21_09",
+          "row": {
+            "pen": "Castro 2"
+          },
+          "tol": 0.1
+        },
+        {
+          "label": "Castro 3 wk_10_08",
+          "col": "wk_10_08",
+          "row": {
+            "pen": "Castro 3"
+          },
+          "tol": 0.1
+        },
+        {
+          "label": "Castro 3 wk_21_09",
+          "col": "wk_21_09",
+          "row": {
+            "pen": "Castro 3"
+          },
+          "tol": 0.1
+        }
+      ],
+      "must_not_mention": [
+        "two low weeks",
+        "both (low )?weeks",
+        "all (three )?pens (were|are) low",
+        "31\\.75",
+        "27\\.40",
+        "25\\.16"
+      ],
+      "max_seconds": 120
     }
   ]
 }

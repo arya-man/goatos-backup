@@ -20,6 +20,7 @@ import {
   askClient, jsonAskCollector, NON_STREAM_NOTE, REFERENCE_FILES, referencePath, buildReferenceSql,
 } from "./lib.mjs";
 import { createWatchRegistry, WATCH_TAGS_DESCRIPTION, watchTagsHandler, watchTagsSchema } from "./watch.mjs";
+import { checkAnswer, makeEvidence } from "./checker.mjs";
 import { authMode, createProviderSwitch, envForProvider, probeVertex, shouldFallback } from "./provider.mjs";
 
 const PORT = Number(process.env.PORT || 8787);
@@ -31,6 +32,10 @@ const REPO = process.env.GOATOS_REPO || path.join(process.env.HOME, "airnd/goato
 const MODEL = process.env.ASK_MESHA_MODEL || "claude-sonnet-5";
 const DEEP_MODEL = process.env.ASK_MESHA_DEEP_MODEL || "claude-opus-5-5";
 const EFFORT = process.env.ASK_MESHA_EFFORT || "low";
+// Answer checker (checker.mjs): a second, tool-less call that checks the draft's wording against the
+// query results before the final answer lands. ASK_MESHA_CHECKER=0 turns it off.
+const CHECKER_ON = process.env.ASK_MESHA_CHECKER !== "0";
+const CHECK_MODEL = process.env.ASK_MESHA_CHECK_MODEL || "claude-sonnet-5";
 // Read-only mode (default): the agent gets Read/Grep/Glob + a read-only SQL tool and
 // NO shell, edit, or write tools. Set ASK_MESHA_READONLY=0 only for local dev.
 const READONLY = process.env.ASK_MESHA_READONLY !== "0";
@@ -158,7 +163,12 @@ When a chart would help, add exactly one fenced block at the end of your answer:
 \`\`\`chart
 {"type":"bar"|"line","title":"...","x":["label1","label2",...],"series":[{"name":"...","data":[1,2,...]}]}
 \`\`\`
-Use real numbers from queries only. x needs at least 2 labels.
+Use real numbers from queries only. x needs at least 2 labels. One series per pen / park / breed compared
+(three pens = three series), and the title must name exactly what is plotted.
+Claims around the numbers: every "why" / "because" must point at the rows that show it ("Castro 1, Coimbatore:
+31.75 kg on 10/08 then 31.27 kg on 11/08"); never write "all", "every", "both" or "the two weeks" unless you
+checked each item; otherwise name exactly which ones. Show the figures the app screen uses; raw or superseded
+rows (an earlier weighing the screen ignores) only when the user asks for them, labelled as such.
 Use the mesha-data-map skill / cheat-sheet and the table list below as STARTING POINTS, never as limits.
 You have the entire codebase (Grep/Read) and every table. When the map covers a question, start there; when
 it doesn't, or the mapped view can't fully answer it, or a follow-up pushes further ("why", "who", "check
@@ -530,6 +540,39 @@ function canUseToolFor(chatId) {
 const AGENT_ENV_ALLOW = ["PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "LC_ALL", "TMPDIR", "TERM", "ANTHROPIC_API_KEY",
   // deploy-stg.sh auth modes: vertex (runtime SA via metadata server) and oauth.
   "CLAUDE_CODE_USE_VERTEX", "ANTHROPIC_VERTEX_PROJECT_ID", "CLOUD_ML_REGION", "CLAUDE_CODE_OAUTH_TOKEN"];
+// One tool-less model call for the answer checker; stops on timeout or when the user stops.
+async function runCheck(prompt, signal, userSignal, provider) {
+  const ac = new AbortController();
+  const stop = () => ac.abort();
+  signal.addEventListener("abort", stop, { once: true });
+  userSignal.addEventListener("abort", stop, { once: true });
+  let text = "";
+  let costUsd = 0;
+  try {
+    for await (const m of query({
+      prompt,
+      options: {
+        cwd: os.tmpdir(),
+        model: CHECK_MODEL,
+        maxTurns: 1,
+        tools: [],
+        settingSources: [],
+        systemPrompt: "You check answers against query results. Reply with JSON only.",
+        abortController: ac,
+        env: { ...agentEnv(provider), CLAUDE_CODE_DISABLE_CLAUDE_MDS: "1", CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS: "1" },
+      },
+    })) {
+      if (m.type === "assistant") {
+        for (const b of m.message?.content || []) if (b.type === "text") text += b.text;
+      } else if (m.type === "result") costUsd = m.total_cost_usd || 0;
+    }
+  } finally {
+    signal.removeEventListener("abort", stop);
+    userSignal.removeEventListener("abort", stop);
+  }
+  return { text, costUsd };
+}
+
 function agentEnv(provider) {
   const env = {};
   for (const k of AGENT_ENV_ALLOW) if (process.env[k] !== undefined) env[k] = process.env[k];
@@ -693,6 +736,7 @@ async function ask(req, res, user) {
   const track = events.tracker(trackCtx,
     { t0, question, deep, model: metric.model, effort: metric.effort, resumed: metric.resumed });
   let full = "";
+  let evidence = makeEvidence(); // query results the checker verifies the draft against
   // Only the answer should stay on screen: text streamed before a tool call is
   // narration ("let me check…"), so the client is told to clear it ("reset").
   let turnVisible = false;
@@ -851,6 +895,8 @@ async function ask(req, res, user) {
                 send({ type: "progress", phase: "querying", label: toolLabel(block.name, block.input || {}) });
               }
             }
+          } else if (msg.type === "user") {
+            evidence.addMessage(msg);
           } else if (msg.type === "result") {
             metric.turns = msg.num_turns ?? null;
             metric.session_cost_usd = msg.total_cost_usd ?? null;
@@ -895,6 +941,7 @@ async function ask(req, res, user) {
       metric.cost_usd = null;
       metric.session_cost_usd = null;
       full = "";
+      evidence = makeEvidence();
       lastTurnText = "";
       turnVisible = false;
       filter = makeChartFilter(emitVisible);
@@ -935,6 +982,29 @@ async function ask(req, res, user) {
     if (metric.error) {
       clean += STOPPED_NOTE;
       emitVisible(STOPPED_NOTE);
+    }
+    // Check the wording against the rows the agent actually got; a flagged draft is replaced
+    // on screen by the corrected one before the final lands. Fail-open: errors keep the draft.
+    if (CHECKER_ON && !metric.error && clean && !evidence.empty() && !abort.signal.aborted) {
+      send({ type: "progress", phase: "synthesizing", label: "Checking the answer" });
+      const checkT0 = Date.now();
+      const draft = chart ? `${clean}\n\n\`\`\`chart\n${JSON.stringify(chart)}\n\`\`\`` : clean;
+      const chk = await checkAnswer({
+        question, answer: draft, evidence: evidence.text(),
+        run: (p, signal) => runCheck(p, signal, abort.signal, provider),
+      });
+      metric.check_ms = Date.now() - checkT0;
+      metric.check = chk.skipped ? "skipped" : chk.error ? `error:${chk.error}` : chk.ok ? "ok" : "revised";
+      metric.check_issues = chk.issues || [];
+      if (metric.cost_usd != null) metric.cost_usd += chk.costUsd;
+      if (!chk.ok && !abort.signal.aborted) {
+        const fixed = extractChart(chk.revised);
+        clean = stripLeadingNarration(fixed.clean);
+        chart = fixed.chart;
+        send({ type: "reset" });
+        emitVisible(clean);
+        track.setAnswer(clean, chart);
+      }
     }
     const assistantMsg = {
       id: crypto.randomUUID(), role: "assistant", content: clean, chart,
