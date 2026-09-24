@@ -66,8 +66,20 @@ directed AS (
      AND lc.feed_day >= b.depletes_from
     GROUP BY b.farm_label, b.feed_item_key
 ),
+-- SOLD FEED IS OFF THE STORE (maintainer instruction 2026-09-23). Feed sold to
+-- an outside buyer leaves the farm, so it is subtracted from the balance beside
+-- what was fed. It is NOT consumption and deliberately never reaches the burn
+-- rate below: a truck sale is not a day's feeding, and averaging it in would
+-- collapse days-left for every pen. Mirrors `feedSoldCTESQL`.
+sold AS (
+    SELECT farm_label, feed_item_key, SUM(quantity_kg) AS kg
+    FROM feed_sale_depletions
+    WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+    GROUP BY farm_label, feed_item_key
+),
 -- Each item keeps its OWN ledger arithmetic -- net purchased minus everything
--- directed since ITS depletion date -- and only the finished balance is folded
+-- directed since ITS depletion date, minus anything sold -- and only the
+-- finished balance is folded
 -- into the family. Merging the purchases first would have collapsed the members'
 -- differing depletes_from into one MIN and counted consumption that predates a
 -- member's own load.
@@ -78,9 +90,10 @@ item_balance AS (
            b.park_id_text,
            b.latest_batch,
            b.depletes_from,
-           b.net_kg - d.kg                              AS balance_kg
+           b.net_kg - d.kg - COALESCE(s.kg, 0)          AS balance_kg
     FROM bought b
     JOIN directed d USING (farm_label, feed_item_key)
+    LEFT JOIN sold s USING (farm_label, feed_item_key)
     LEFT JOIN merge_map mm ON mm.member_key = b.feed_item_key
 ),
 family_stock AS (
