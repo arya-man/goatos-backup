@@ -12,7 +12,7 @@
 // see docs/ceo-ai/access-policy.md / mascot note.
 
 import type { ReactElement } from "react";
-import { WATCH_CSS } from "./ceo-ai-watch";
+import { WATCH_CSS } from "./ceo-ai-watch-css";
 
 
 // The Twemoji goat artwork, shared by the avatar and the walking-button variant.

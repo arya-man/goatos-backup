@@ -597,15 +597,15 @@ export function CeoAiPanel({
       notes.push(
         CHROME.unsupportedFile(unsupported.map((f) => f.name).join(", ")),
       );
-    void Promise.all(incoming.map((f) => shrinkImage(f).catch(() => f))).then(
-      // request-plan:ignore owner=admin-web issue=CEO-AI-ATTACHMENT-CAP expires=2026-12-31 reason=incoming is sliced to the five visible attachment slots before fan-out
-      (shrunk) =>
-        setFiles((prev) => {
-          const next = [...prev, ...shrunk];
-          if (next.length > MAX_FILES) notes.push(CHROME.tooManyFiles);
-          if (notes.length) setBanner({ kind: "warn", text: notes.join(" ") });
-          return next.slice(0, MAX_FILES);
-        }),
+    // Bounded: incoming is sliced to MAX_FILES above, and shrinkImage is local (no network).
+    const shrinking = incoming.map((f) => shrinkImage(f).catch(() => f));
+    void Promise.all(shrinking).then((shrunk) =>
+      setFiles((prev) => {
+        const next = [...prev, ...shrunk];
+        if (next.length > MAX_FILES) notes.push(CHROME.tooManyFiles);
+        if (notes.length) setBanner({ kind: "warn", text: notes.join(" ") });
+        return next.slice(0, MAX_FILES);
+      }),
     );
   }, []);
   const [dragging, setDragging] = useState(false);
