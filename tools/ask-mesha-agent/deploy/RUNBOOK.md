@@ -167,6 +167,17 @@ restore gets them and CI can assert the no-write invariant. Keep the role's *pas
 migrations. Single-tenant only: before a 2nd tenant, replace this blanket grant with the
 per-tenant `ceo_readers` + RLS plan in `docs/agent-rules/ask-mesha.md` ("Multi-tenant isolation").
 
+**Chat privacy (required, right after the grant):** each CEO may read only their own chats. The read-everything
+role must NOT see any assistant chat history:
+
+```sql
+REVOKE SELECT ON public.ceo_ai_conversations, public.ceo_ai_messages, public.ceo_ai_assistant_audit,
+  public.ceo_ai_response_cache, public.ceo_ai_rate_limit FROM mesha_ceo_readonly;
+-- never GRANT the ask_mesha schema (chat store) to mesha_ceo_readonly
+```
+(Applied on goatos-stg 2026-09-24 via audit.begin_change.) Per-user isolation of the agent's own chats is
+enforced by the service (email + tenant ownership on every chat/file route).
+
 ## 3f. Events table + Grafana
 
 `ASK_MESHA_DB_MIGRATE=1` (set by `deploy-stg.sh`) applies `sql/001_init.sql` (store) and
