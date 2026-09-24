@@ -3522,10 +3522,7 @@ func (r *Repository) GetCountsBreakdown(ctx context.Context, req domain.CountsBr
 			// shed is undivided, "Shed - Pen" when it is not), then the park in front of it. Both
 			// halves always travel together: a bar reading just "Gandhi" cannot say which park's
 			// Gandhi it is, and 66 of 154 real shed names exist in both.
-			label = oploc.OperationalLocation{ShedName: label, PartitionLabel: partitionLabel}.Display()
-			if parkLabel != "" && label != "" {
-				label = parkLabel + " · " + label
-			}
+			label = parkQualifiedPen(parkLabel, oploc.OperationalLocation{ShedName: label, PartitionLabel: partitionLabel}.Display())
 		}
 		point := domain.CountsBreakdownSeriesPoint{Key: key, Label: label, Count: count}
 		switch dimension {

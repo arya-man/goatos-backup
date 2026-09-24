@@ -124,21 +124,24 @@ UNION ALL
 -- Pens: only those that saw a death. 175 pens with a zero apiece is noise; the rate a pen
 -- carries is what the reader compares. Key is shed_id + normalized partition so two
 -- same-named sheds in different parks never merge (Rule 4), label parts compose in Go.
-SELECT 'pen', COALESCE(p.shed_id::text, '') || ':' || p.partition_key,
+-- The key LEADS with the park id so Go can put the park code in front of the pen's name: the
+-- same shed names exist in both farms, and "Castro 1" alone does not say which farm's. A shed sits
+-- in exactly one park, so adding park_id to the GROUP BY splits no pen.
+SELECT 'pen', COALESCE(p.park_id::text, '') || ':' || COALESCE(p.shed_id::text, '') || ':' || p.partition_key,
        COALESCE(NULLIF(shed.name, ''), shed.location_code, ''), p.partition_label,
        p.deaths, p.animals
-  FROM (SELECT shed_id,
+  FROM (SELECT park_id, shed_id,
                lower(regexp_replace(partition_label, '[^A-Za-z0-9]+', '', 'g')) AS partition_key,
                min(partition_label) AS partition_label,
                count(*) FILTER (WHERE died)::bigint AS deaths, count(*) FILTER (WHERE live)::bigint AS animals
           FROM pop
-         GROUP BY shed_id, lower(regexp_replace(partition_label, '[^A-Za-z0-9]+', '', 'g'))
+         GROUP BY park_id, shed_id, lower(regexp_replace(partition_label, '[^A-Za-z0-9]+', '', 'g'))
         HAVING count(*) FILTER (WHERE died) > 0) p
   LEFT JOIN locations shed ON shed.tenant_id = $1::uuid AND shed.location_id = p.shed_id
 UNION ALL
 SELECT 'load', l.load_key,
        CASE WHEN l.load_key IN ('farm_born', 'no_load') THEN ''
-            ELSE COALESCE(NULLIF(pl.context->>'load_ref', ''), to_char(pl.purchase_date, 'DD Mon YYYY'), '') END,
+            ELSE COALESCE(NULLIF(pl.context->>'load_ref', ''), to_char(pl.purchase_date, 'DD/MM/YYYY'), '') END,
        COALESCE(pl.purchase_date::text, ''),
        l.deaths, l.animals
   FROM (SELECT load_key, count(*) FILTER (WHERE died)::bigint AS deaths, count(*) FILTER (WHERE live)::bigint AS animals
@@ -327,7 +330,7 @@ SELECT 'season_by_stage', season, '', stage, stage, count(*)::bigint, 0
 UNION ALL
 SELECT 'load_by_cause', f.load_key,
        CASE WHEN f.load_key IN ('farm_born', 'no_load') THEN ''
-            ELSE COALESCE(NULLIF(pl.context->>'load_ref', ''), to_char(pl.purchase_date, 'DD Mon YYYY'), '') END,
+            ELSE COALESCE(NULLIF(pl.context->>'load_ref', ''), to_char(pl.purchase_date, 'DD/MM/YYYY'), '') END,
        f.cause_col_key, f.cause_col_label, f.deaths, 0
   FROM (SELECT load_key, cause_col_key, cause_col_label, count(*)::bigint AS deaths
           FROM facts GROUP BY load_key, cause_col_key, cause_col_label) f
@@ -388,7 +391,7 @@ SELECT d.goat_id::text, d.display_id,
        COALESCE(NULLIF(pk.location_code, ''), pk.name, ''),
        COALESCE(NULLIF(shed.name, ''), shed.location_code, ''),
        COALESCE(gsp.partition_label, ''),
-       COALESCE(NULLIF(pl.context->>'load_ref', ''), to_char(pl.purchase_date, 'DD Mon YYYY'), ''),
+       COALESCE(NULLIF(pl.context->>'load_ref', ''), to_char(pl.purchase_date, 'DD/MM/YYYY'), ''),
        COALESCE(dc.cause_key, ''),
        COALESCE(inferred.disease_label, '')
 FROM dead d
@@ -532,6 +535,16 @@ func (r *Repository) GetMortality(ctx context.Context, req domain.MortalityQuery
 	popRows.Close()
 	if err := popRows.Err(); err != nil {
 		return domain.Mortality{}, fmt.Errorf("mortality: population rows: %w", err)
+	}
+	// Every pen's park is in the park series (that branch groups the same population with no
+	// HAVING), so its code is read from there rather than joined twice.
+	parkCodes := make(map[string]string, len(out.Park))
+	for _, park := range out.Park {
+		parkCodes[park.Key] = park.Label
+	}
+	for i := range out.Pen {
+		parkID, _, _ := strings.Cut(out.Pen[i].Key, ":")
+		out.Pen[i].Label = parkQualifiedPen(parkCodes[parkID], out.Pen[i].Label)
 	}
 
 	// ---- 2. deaths: every COUNT series, months and cross tabs --------------------------

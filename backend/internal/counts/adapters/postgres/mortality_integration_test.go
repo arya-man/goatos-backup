@@ -129,8 +129,15 @@ func TestMortalityMultipleDimensionsMatchHerdAnalyticsAndPartitionAnimals(t *tes
 	}
 	// A pen bucket carries the backend-composed operational location, never an id, and only
 	// pens that saw a death are listed.
-	if len(mort.Pen) != 1 || mort.Pen[0].Label != "CPT Shed 1" || mort.Pen[0].Deaths != 3 {
-		t.Fatalf("pen series %+v, want one CPT Shed 1 row with 3 deaths", mort.Pen)
+	// Its label carries the park code in front, from the park series of the same response.
+	parkCode := ""
+	for _, park := range mort.Park {
+		if park.Key == countsPark {
+			parkCode = park.Label
+		}
+	}
+	if len(mort.Pen) != 1 || parkCode == "" || mort.Pen[0].Label != parkCode+" · CPT Shed 1" || mort.Pen[0].Deaths != 3 {
+		t.Fatalf("pen series %+v, want one %q row with 3 deaths", mort.Pen, parkCode+" · CPT Shed 1")
 	}
 	// The month spine covers the window and the kid/adult split rides each month.
 	if len(mort.Months) != 3 {
@@ -840,5 +847,101 @@ INSERT INTO health_death_causes (tenant_id, goat_id, cause_key, cause_kind) VALU
 	}
 	if crossTotal != mort.Totals.Deaths {
 		t.Fatalf("vendor x cause totals %d != deaths %d", crossTotal, mort.Totals.Deaths)
+	}
+}
+
+// A pen names its farm, the way Breakdown does ("CPT · Castro 1"): both farms have a "Castro 1",
+// and with All parks on screen the two rows were indistinguishable. And a load recorded without a
+// load number is named by its purchase date in DD/MM/YYYY, on the load table and the deaths list
+// alike -- never "01 Jun 2026".
+func TestMortalityPensNameTheirParkAndLoadDatesReadDDMMYYYY(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newHerdAnalyticsRepo(t, ctx)
+	seedSameNamedShedsInTwoParks(t, ctx, pool)
+	from, to := monthsBack(2), thisMonthDay(1)
+	died := thisMonthDay(1)
+
+	var vendor, unnumbered string
+	if err := pool.QueryRow(ctx, `
+INSERT INTO parties (party_type, display_name, status) VALUES ('org', 'Date vendor', 'active')
+RETURNING party_id::text`).Scan(&vendor); err != nil {
+		t.Fatalf("seed vendor: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `
+INSERT INTO procurement_loads (tenant_id, source_party_id, purchase_date, status, idempotency_key, context)
+VALUES ($1::uuid, $2::uuid, '2026-06-01', 'accepted_intake', 'unnumbered-load', '{}'::jsonb)
+RETURNING load_id::text`, countsTenant, vendor).Scan(&unnumbered); err != nil {
+		t.Fatalf("seed load: %v", err)
+	}
+	dead := func(n int, park, shed string) string {
+		t.Helper()
+		id := mortalityGoatID(n)
+		if _, err := pool.Exec(ctx, `
+INSERT INTO goats (
+  goat_id, tenant_id, display_id, species, breed, sex, lifecycle_status, age_band, dob, origin_type,
+  custodian_party_id, park_id, shed_id, management_stage, exit_reason, exited_at
+) VALUES (
+  $1::uuid, $2::uuid, $3, 'goat', 'Beetal', 'male', 'dead', 'adult', '2025-01-01'::date, 'procured',
+  '00000000-0000-4000-8000-000000001001'::uuid, $4::uuid, $5::uuid, 'F2-Male', 'died',
+  ($6::date + time '10:00') AT TIME ZONE 'Asia/Kolkata'
+)`, id, countsTenant, fmt.Sprintf("G-88%04d", n), park, shed, died); err != nil {
+			t.Fatalf("seed goat %d: %v", n, err)
+		}
+		return id
+	}
+	dead(1, countsPark, countsShedCastroOne)
+	onLoad := dead(2, countsParkTwo, countsShedCastroTwo)
+	if _, err := pool.Exec(ctx, `
+INSERT INTO procurement_load_goats (tenant_id, load_id, goat_id, selection_state, current_state, intake_accepted_at)
+VALUES ($1::uuid, $2::uuid, $3::uuid, 'accepted_herd_intake', 'accepted_herd_intake', now())`, countsTenant, unnumbered, onLoad); err != nil {
+		t.Fatalf("attach goat to load: %v", err)
+	}
+
+	mort, err := repo.GetMortality(ctx, domain.MortalityQuery{TenantID: countsTenant, FromDate: from, ToDate: to})
+	if err != nil {
+		t.Fatalf("mortality: %v", err)
+	}
+	codes := map[string]string{}
+	for _, park := range mort.Park {
+		codes[park.Key] = park.Label
+	}
+	one, two := codes[countsPark], codes[countsParkTwo]
+	if one == "" || two == "" || one == two {
+		t.Fatalf("park series did not resolve two park codes: %+v", mort.Park)
+	}
+	pens := map[string]bool{}
+	for _, pen := range mort.Pen {
+		pens[pen.Label] = true
+	}
+	for _, want := range []string{one + " · Castro 1", two + " · Castro 1"} {
+		if !pens[want] {
+			t.Errorf("pen rows = %v, want %q: the same-named pens of two farms must each name their farm", pens, want)
+		}
+	}
+
+	const wantLoad = "Load 01/06/2026"
+	var loadSeen bool
+	for _, load := range mort.Load {
+		if load.Key == unnumbered {
+			loadSeen = load.Label == wantLoad
+			if !loadSeen {
+				t.Errorf("unnumbered load label = %q, want %q", load.Label, wantLoad)
+			}
+		}
+	}
+	if !loadSeen {
+		t.Errorf("load series %+v has no row for the unnumbered load", mort.Load)
+	}
+	var listed bool
+	for _, d := range mort.Deaths {
+		if d.GoatID == onLoad {
+			listed = true
+			if d.LoadRef != wantLoad {
+				t.Errorf("deaths list load = %q, want %q", d.LoadRef, wantLoad)
+			}
+		}
+	}
+	if !listed {
+		t.Errorf("deaths list %+v is missing the animal on the unnumbered load", mort.Deaths)
 	}
 }
