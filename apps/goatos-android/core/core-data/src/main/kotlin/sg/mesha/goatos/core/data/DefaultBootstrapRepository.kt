@@ -2,6 +2,8 @@ package sg.mesha.goatos.core.data
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import sg.mesha.goatos.core.network.BootstrapError
 
@@ -48,6 +50,9 @@ class DefaultBootstrapRepository(
     companion object {
         const val DEVICE_RECONCILE_BUDGET_MS: Long = 2_000
     }
+
+    /** Single-flight: rapid bootstraps (resume, quiet refresh) must not register twice. */
+    private val reconcileMutex = Mutex()
 
     override suspend fun loadNavState(): NavState =
         try {
@@ -105,7 +110,9 @@ class DefaultBootstrapRepository(
         )?.feedWaterRemovalCutoffTime?.ifBlank { null }
 
     /** Remember a known device id, or register this install when the backend needs it. */
-    private suspend fun reconcileDevice(dto: BootstrapDto) {
+    private suspend fun reconcileDevice(dto: BootstrapDto) = reconcileMutex.withLock { reconcileDeviceLocked(dto) }
+
+    private suspend fun reconcileDeviceLocked(dto: BootstrapDto) {
         val store = deviceStore ?: return
         if (!dto.deviceState.required) return
 
@@ -134,6 +141,9 @@ class DefaultBootstrapRepository(
         // Not registered yet — register this install. Best-effort: a failure here must not
         // fail the whole bootstrap (nav still renders), so it is swallowed and the next
         // launch retries.
+        // A concurrent bootstrap (queued on the mutex) may have registered this install already;
+        // its dto predates that, so trust the store rather than registering a second time.
+        if (!store.deviceId().isNullOrBlank()) return
         // exception:exempt best-effort device registration; the next bootstrap retries it
         runCatching {
             val response = api.registerDevice(

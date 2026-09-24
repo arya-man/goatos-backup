@@ -58,6 +58,8 @@
     <string name="bootstrap_error_connectivity">ಸರ್ವರನ್ನು ತಲುಪಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ. ನಿಮ್ಮ ಸಂಪರ್ಕ ಪರಿಶೀಲಿಸಿ ಮತ್ತು ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.</string>
     <string name="bootstrap_action_sign_in_again">ಮತ್ತೆ ಸೈನ್ ಇನ್ ಮಾಡಿ</string>
     <string name="bootstrap_action_retry">ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ</string>
+    <string name="bootstrap_action_other_account">ಬೇರೆ ಖಾತೆಯಿಂದ ಸೈನ್ ಇನ್ ಮಾಡಿ</string>
+    <string name="bootstrap_setting_up_access">ನಿಮ್ಮ ಪ್ರವೇಶವನ್ನು ಸಿದ್ಧಪಡಿಸಲಾಗುತ್ತಿದೆ…</string>
     <string name="bootstrap_error_access_not_provisioned">ನಿಮ್ಮ ಪ್ರವೇಶ ಇನ್ನೂ ಸಿದ್ಧವಾಗಿಲ್ಲ. ನಿಮ್ಮ ಮ್ಯಾನೇಜರ್‌ಗೆ ಸೇರಿಸಲು ಹೇಳಿ, ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.</string>
     <string name="sheds_toast_already_submitted_fmt">%1$s ಈಗಾಗಲೇ ಪರಿಶೀಲನೆಗಾಗಿ ಸಲ್ಲಿಸಲಾಗಿದೆ</string>
     <string name="proof_photo_toxin_strip_title">ಸ್ಟ್ರಿಪ್ ಫೋಟೋ ತೆಗೆಯಿರಿ</string>
