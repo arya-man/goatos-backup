@@ -173,7 +173,12 @@ export function collectRegressionFindings({ mobile = false, limit = 40 } = {}) {
   for (const chart of root.querySelectorAll(CHART)) {
     if (!painted(chart)) continue;
     const bars = Array.from(chart.querySelectorAll(".gcbar, .mcbar, .hbfill, .wbar, rect, path, circle, polyline, line")).filter((b) => !hidden(b) && b.getBoundingClientRect().height > 0.5 && b.getBoundingClientRect().width > 0.5);
-    if (bars.length === 0 && !/no data|no rows|nothing|no records|empty|0 /i.test(txt(chart.closest(".card") ?? chart))) add("A-chart-empty-frame", chart, "no visible bars and no empty-state text");
+    // A chart card may draw its figures as a GRID rather than bars (the Time-wise pen and load
+    // week tables are .wchart cards): visible table rows are painted data, not an empty frame.
+    // Without this the rule passed those grids only when some cell happened to contain "0 ", and
+    // flagged the 30-day load grid as empty while it showed seven loads (2026-09-24).
+    const tableRows = Array.from(chart.querySelectorAll("tbody tr")).filter((row) => !hidden(row) && row.getBoundingClientRect().height > 0.5);
+    if (bars.length === 0 && tableRows.length === 0 && !/no data|no rows|nothing|no records|empty|0 /i.test(txt(chart.closest(".card") ?? chart))) add("A-chart-empty-frame", chart, "no visible bars and no empty-state text");
   }
 
   // ---------- A: SVG charts ----------
