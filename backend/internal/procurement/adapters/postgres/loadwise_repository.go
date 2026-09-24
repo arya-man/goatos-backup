@@ -102,7 +102,7 @@ sale_weight_sample AS (
     SELECT m.load_id,
            sum(a.weight_kg)::float8 AS sold_weight_kg,
            count(*)::int AS sold_weighed_animals,
-           sum(a.weight_kg * (d.sales_value / d.total_weight_kg))::float8 AS sold_weighed_value
+           sum(a.weight_kg * lp.price_per_kg)::float8 AS sold_weighed_value
     FROM member m
     JOIN public.goat_sale_allocations a
       ON a.tenant_id = $1
@@ -110,12 +110,50 @@ sale_weight_sample AS (
      AND a.status = 'tagged'
      AND a.weight_kg > 0
     JOIN public.sales_deals d
-      ON d.tenant_id = a.tenant_id
+     ON d.tenant_id = a.tenant_id
      AND d.id = a.sales_deal_id
      AND d.status = 'Deal Closed'
-     AND d.product_type IN ('Goat', 'Sheep')
      AND d.total_weight_kg > 0
      AND d.sales_value > 0
+    JOIN LATERAL (
+        -- Allocations point at the deal, not a specific product/breed line. A mixed live deal can
+        -- still feed a truthful per-kg sample only when all live-animal lines share one recorded
+        -- price. If goat and sheep lines differ, the allocation has no line key to choose the
+        -- right price, so the fallback stays absent instead of blending two markets.
+        SELECT min(l.sales_value / l.total_weight_kg) FILTER (
+                   WHERE l.product_type IN ('Goat', 'Sheep')
+                     AND l.total_weight_kg > 0
+                     AND l.sales_value > 0
+               )::float8 AS price_per_kg
+        FROM public.sales_deal_lines l
+        WHERE l.tenant_id = d.tenant_id
+          AND l.deal_id = d.id
+        GROUP BY l.tenant_id, l.deal_id
+        HAVING count(*) FILTER (
+               WHERE l.product_type IN ('Goat', 'Sheep')
+                 AND l.total_weight_kg > 0
+                 AND l.sales_value > 0
+           ) > 0
+           AND count(*) FILTER (WHERE l.product_type NOT IN ('Goat', 'Sheep')) = 0
+           AND min(l.sales_value / l.total_weight_kg) FILTER (
+                   WHERE l.product_type IN ('Goat', 'Sheep')
+                     AND l.total_weight_kg > 0
+                     AND l.sales_value > 0
+               ) =
+               max(l.sales_value / l.total_weight_kg) FILTER (
+                   WHERE l.product_type IN ('Goat', 'Sheep')
+                     AND l.total_weight_kg > 0
+                     AND l.sales_value > 0
+               )
+           AND (
+               d.product_type = 'Mixed'
+               OR (
+                   d.product_type IN ('Goat', 'Sheep')
+                   AND count(*) = 1
+                   AND min(l.product_type) = d.product_type
+               )
+           )
+    ) lp ON true
     GROUP BY m.load_id
 ),
 outcomes AS (

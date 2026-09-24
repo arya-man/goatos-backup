@@ -133,14 +133,22 @@ VALUES ($1, $2::uuid, $3::uuid, 'rejected', 'source_rejected', 'canceled')`,
 		t.Fatalf("seed rejected load goat: %v", err)
 	}
 
-	// One deal, 30000, three TAGGED animals (share 10000 each) + one RELEASED allocation that
-	// must not dilute the share.
+	// One mixed live-animal deal, 30000, three TAGGED animals (share 10000 each) + one RELEASED
+	// allocation that must not dilute the share. Deal-level product_type is "Mixed" once a sale has
+	// both goat and sheep lines, but the tagged-animal sale weight fallback must still read it when
+	// every line is a live animal at the same recorded price per kg.
 	var dealID string
 	if err := pool.QueryRow(ctx, `
 INSERT INTO sales_deals (tenant_id, sale_date, farm, buyer_name, product_type, breed, animal_count, total_weight_kg, sales_value, status)
-VALUES ($1, '2026-08-20', 'CPT', 'Loadwise Buyer', 'Sheep', 'Nari Suvarna', 3, 60, 30000, 'Deal Closed')
+VALUES ($1, '2026-08-20', 'CPT', 'Loadwise Buyer', 'Mixed', 'Mixed', 3, 60, 30000, 'Deal Closed')
 RETURNING id::text`, testTenant).Scan(&dealID); err != nil {
 		t.Fatalf("seed deal: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO sales_deal_lines (tenant_id, deal_id, line_no, product_type, breed, animal_count, total_weight_kg, sales_value)
+VALUES ($1, $2::uuid, 1, 'Sheep', 'Nari Suvarna', 2, 40, 20000),
+       ($1, $2::uuid, 2, 'Goat', 'Malai', 1, 20, 10000)`, testTenant, dealID); err != nil {
+		t.Fatalf("seed deal lines: %v", err)
 	}
 	tag := func(goatID, status, key string, weight float64) {
 		t.Helper()
@@ -382,6 +390,55 @@ RETURNING load_id::text`, testTenant, fx.loadA).Scan(&soldOut); err != nil {
 		// released allocation excluded from both the share and the average).
 		if out.OverallAvgSoldPrice == nil || math.Abs(*out.OverallAvgSoldPrice-10000) > 0.01 {
 			t.Fatalf("overall avg = %v, want 10000", out.OverallAvgSoldPrice)
+		}
+	})
+
+	t.Run("MixedLiveDealWithUnequalLineRatesDoesNotBlendSalePricePerKg", func(t *testing.T) {
+		var loadD, goatD, dealD string
+		if err := pool.QueryRow(ctx, `
+	INSERT INTO goats (tenant_id, sex, lifecycle_status, exit_reason, custodian_party_id, park_id)
+	SELECT tenant_id, 'female', 'sold', 'sold', source_party_id, NULL
+	FROM procurement_loads WHERE tenant_id = $1 AND load_id = $2::uuid
+	RETURNING goat_id::text`, testTenant, fx.loadA).Scan(&goatD); err != nil {
+			t.Fatalf("seed unequal-rate goat: %v", err)
+		}
+		if err := pool.QueryRow(ctx, `
+	INSERT INTO procurement_loads (tenant_id, source_party_id, purchase_date, status, idempotency_key)
+	SELECT tenant_id, source_party_id, '2026-08-12', status, 'lw-load-unequal-rates'
+	FROM procurement_loads WHERE tenant_id = $1 AND load_id = $2::uuid
+	RETURNING load_id::text`, testTenant, fx.loadA).Scan(&loadD); err != nil {
+			t.Fatalf("seed unequal-rate load: %v", err)
+		}
+		if _, err := pool.Exec(ctx, `
+	INSERT INTO procurement_load_goats (tenant_id, load_id, goat_id, selection_state, current_state, intake_accepted_at)
+	VALUES ($1, $2::uuid, $3::uuid, 'accepted_herd_intake', 'accepted_herd_intake', '2026-08-12T10:00:00Z')`,
+			testTenant, loadD, goatD); err != nil {
+			t.Fatalf("seed unequal-rate load goat: %v", err)
+		}
+		if err := pool.QueryRow(ctx, `
+	INSERT INTO sales_deals (tenant_id, sale_date, farm, buyer_name, product_type, breed, animal_count, total_weight_kg, sales_value, status)
+	VALUES ($1, '2026-08-21', 'CPT', 'Unequal Rate Buyer', 'Mixed', 'Mixed', 3, 60, 36000, 'Deal Closed')
+	RETURNING id::text`, testTenant).Scan(&dealD); err != nil {
+			t.Fatalf("seed unequal-rate deal: %v", err)
+		}
+		if _, err := pool.Exec(ctx, `
+	INSERT INTO sales_deal_lines (tenant_id, deal_id, line_no, product_type, breed, animal_count, total_weight_kg, sales_value)
+	VALUES ($1, $2::uuid, 1, 'Sheep', 'Nari Suvarna', 2, 40, 20000),
+	       ($1, $2::uuid, 2, 'Goat', 'Malai', 1, 20, 16000);
+	INSERT INTO goat_sale_allocations (tenant_id, goat_id, sales_deal_id, status, idempotency_key, weight_kg)
+	VALUES ($1, $3::uuid, $2::uuid, 'tagged', 'lw-alloc-unequal-rates', 20)`,
+			testTenant, dealD, goatD); err != nil {
+			t.Fatalf("seed unequal-rate allocation: %v", err)
+		}
+
+		next, err := repo.LoadwiseSales(ctx, testTenant, "", 60)
+		if err != nil {
+			t.Fatalf("loadwise sales after unequal-rate deal: %v", err)
+		}
+		row := loadByID(next, loadD)
+		if row.SoldWeightKg != nil || row.SoldWeighedAnimals != nil || row.SoldWeighedValue != nil || row.SalePricePerKg != nil {
+			t.Fatalf("unequal mixed line rates must not produce blended sale kg/value/price: weight=%v animals=%v value=%v price=%v",
+				row.SoldWeightKg, row.SoldWeighedAnimals, row.SoldWeighedValue, row.SalePricePerKg)
 		}
 	})
 
