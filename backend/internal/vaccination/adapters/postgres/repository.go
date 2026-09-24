@@ -21,6 +21,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	platformoutbox "github.com/vgoats/goatos/backend/internal/platform/outbox"
 	"github.com/vgoats/goatos/backend/internal/platform/pgconv"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 	"github.com/vgoats/goatos/backend/internal/platform/vaccinationanchor"
 	vaccinationdb "github.com/vgoats/goatos/backend/internal/vaccination/adapters/postgres/sqlc"
 	"github.com/vgoats/goatos/backend/internal/vaccination/domain"
@@ -4296,7 +4297,7 @@ func (r *Repository) RecentVaccineAdministrationsForGoats(ctx context.Context, t
 		}
 		uuids = append(uuids, id)
 	}
-	rows, err := r.pool.Query(ctx, `
+	recentAdmins, err := sqlbind.Bind(`
 WITH completion_admins AS (
   SELECT vc.goat_id::text AS goat_id,
          vc.administered_at,
@@ -4455,6 +4456,10 @@ FROM (
   SELECT * FROM anchor_admins
 ) admins
 ORDER BY goat_id, administered_at DESC`, tenant, uuids, pgconv.Timestamptz(before))
+	if err != nil {
+		return nil, fmt.Errorf("vaccination: recent vaccine administrations: %w", err)
+	}
+	rows, err := r.pool.Query(ctx, recentAdmins.SQL(), recentAdmins.Args()...)
 	if err != nil {
 		return nil, fmt.Errorf("vaccination: recent vaccine administrations: %w", err)
 	}

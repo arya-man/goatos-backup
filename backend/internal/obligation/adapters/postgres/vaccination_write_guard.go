@@ -15,6 +15,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/obligation/domain"
 	"github.com/vgoats/goatos/backend/internal/obligation/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 	"github.com/vgoats/goatos/backend/internal/platform/vaccinationanchor"
 	"github.com/vgoats/goatos/backend/internal/platform/vaccinepurpose"
 )
@@ -338,7 +339,11 @@ JOIN goats g
 WHERE pd.category = 'vaccination'`
 
 func scanGoatFamilyLatest(ctx context.Context, q vaccinationFloorQueryer, sql string, tenant pgtype.UUID, goats []pgtype.UUID, into map[[16]byte]*vaccinationGoatHistory, anchors bool) error {
-	rows, err := q.Query(ctx, sql, tenant, goats)
+	bound, err := sqlbind.Bind(sql, tenant, goats)
+	if err != nil {
+		return err
+	}
+	rows, err := q.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return err
 	}
