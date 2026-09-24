@@ -319,11 +319,11 @@ func TestVaccinationBoardCountsUseAggregateAndBoundSlowProcessIntegrity(t *testi
 func TestVaccinationDueWorkPrecheckMatchesEffectiveExecutionDateSources(t *testing.T) {
 	for _, needle := range []string{
 		"obligation_batches ob",
-		"ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata'",
+		"ob.planned_date >= $6::date",
 		"vaccination_drive_assignment_members vdam",
-		"vdam.obligation_id = oi.obligation_id",
+		"oi.obligation_id = vdam.obligation_id",
 		"vaccination_drive_assignments vda",
-		"vda.batch_id = oi.batch_id",
+		"oi.batch_id = vda.batch_id",
 		"vda.park_id = $2::uuid",
 	} {
 		if !strings.Contains(vaccinationDueWorkPrecheckSQL, needle) {
