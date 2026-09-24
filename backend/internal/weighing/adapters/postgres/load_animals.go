@@ -40,9 +40,10 @@ import (
 // statistic), and a load's gain is the mean over its animals -- so one load reads one figure
 // whichever pens it passed through.
 //
-// WHERE AN ANIMAL WAS ON A DAY: its last goat_location_history move on or before that day; before
-// its first recorded move, the pen that move took it FROM; with no move at all, where the register
-// has it now. Move history starts 2026-08-13, so earlier days fall back the same way.
+// WHERE AN ANIMAL WAS ON A DAY: the stay covering that day -- in the pen its last move on or before
+// that day put it in; before its first recorded move, the pen that move took it FROM; with no move
+// at all, where the register has it now. Move history starts 2026-08-13, so earlier days fall back
+// the same way.
 //
 // PEN IDENTITY: the same pen reaches this file three ways -- a weighing bucket often names a legacy
 // per-pen location ("Castro 1", no partition), the register names the building plus a partition
@@ -122,7 +123,7 @@ live_loads AS (
 -- projection-review: membership=weighing_observations whose tag resolves to a load animal; group_key=(goat_id, d) via DISTINCT ON; join_cardinality=goat_identifiers 0..1 active identifier per normalized value, campaign sheds and campaigns PK; pagination=NONE, bounded by tenant + park + window; scope=tenant + park ANY($2) + half-open window
 scan_pts AS (
   SELECT DISTINCT ON (lg.goat_id, (o.accepted_at AT TIME ZONE 'Asia/Kolkata')::date)
-         lg.goat_id, (o.accepted_at AT TIME ZONE 'Asia/Kolkata')::date AS d, o.weight_kg::float8 AS w,
+         lg.goat_id, lg.load_ref, (o.accepted_at AT TIME ZONE 'Asia/Kolkata')::date AS d, o.weight_kg::float8 AS w,
          cs.location_id AS bloc, COALESCE(cs.partition_label, '') AS bpart
   FROM weighing_observations o
   JOIN weighing_campaign_sheds cs ON cs.campaign_shed_id = o.campaign_shed_id AND cs.tenant_id = o.tenant_id
@@ -142,7 +143,7 @@ scan_pts AS (
   ORDER BY lg.goat_id, (o.accepted_at AT TIME ZONE 'Asia/Kolkata')::date, o.accepted_at DESC, o.observation_id DESC
 ),
 scan_legs AS (
-  SELECT goat_id, d, bloc, bpart,
+  SELECT goat_id, load_ref, d, bloc, bpart,
          (w - LAG(w) OVER x) * 1000.0 AS grams,
          d - LAG(d) OVER x AS days
   FROM scan_pts
@@ -179,51 +180,61 @@ pen_legs AS (
   FROM pen_obs
   WINDOW w AS (PARTITION BY phys_id, pen_key ORDER BY d)
 ),
--- Where each load animal was on each day a pen was weighed.
--- projection-review: membership=load_goats x the distinct pen-weigh days; group_key=(goat_id, d); join_cardinality=the LATERAL returns exactly one source row (ORDER BY pri LIMIT 1) and alias is 0..1 per location; pagination=NONE, bounded by load animals x weigh days in one window; scope=tenant
-pos AS (
-  SELECT lg.goat_id, dd.d, ` + loadPenKey("src.loc", "src.part", "ha") + `
-  FROM load_goats lg
-  CROSS JOIN (SELECT DISTINCT d FROM pen_obs) dd
-  CROSS JOIN LATERAL (
-    SELECT loc, part FROM (
-      (SELECT 1 AS pri, h.to_location_id AS loc, h.to_partition_label AS part
-       FROM goat_location_history h
-       WHERE h.tenant_id = $1::uuid AND h.goat_id = lg.goat_id
-         AND h.occurred_at < ((dd.d + 1)::timestamp AT TIME ZONE 'Asia/Kolkata')
-       ORDER BY h.occurred_at DESC LIMIT 1)
-      UNION ALL
-      (SELECT 2, h.from_location_id, h.from_partition_label
-       FROM goat_location_history h
-       WHERE h.tenant_id = $1::uuid AND h.goat_id = lg.goat_id AND h.from_location_id IS NOT NULL
-         AND h.occurred_at >= ((dd.d + 1)::timestamp AT TIME ZONE 'Asia/Kolkata')
-       ORDER BY h.occurred_at ASC LIMIT 1)
-      UNION ALL
-      (SELECT 3, g.shed_id, gsp.partition_label
-       FROM goats g
-       LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
-       WHERE g.tenant_id = $1::uuid AND g.goat_id = lg.goat_id)
-    ) candidates
-    ORDER BY pri
-    LIMIT 1
-  ) src
-  LEFT JOIN alias ha ON ha.location_id = src.loc
-  -- Only days the animal was on the farm: bought on or before, not yet exited.
-  WHERE (lg.purchase_date IS NULL OR dd.d >= lg.purchase_date)
-    AND (lg.exited_at IS NULL OR (lg.exited_at AT TIME ZONE 'Asia/Kolkata')::date >= dd.d)
+-- Where each load animal was, as STAYS: "in pen X from day A until day B". A stay starts on the
+-- day of the move that put the animal there and ends on the day of its next move; before its first
+-- recorded move it was in the pen that move took it FROM; with no move at all, where the register
+-- has it now. Kept as a few hundred intervals rather than one row per (animal, weigh day): the
+-- planner cannot estimate a per-day position table, and joining one twice cost seconds on STG.
+-- projection-review: membership=goat_location_history of load animals plus one register row per never-moved load animal; group_key=(goat_id, from_day); join_cardinality=alias 0..1 per location, goats/goat_shed_partitions PK; pagination=NONE, bounded by the load animals' moves; scope=tenant
+moves AS (
+  SELECT h.goat_id, h.from_location_id, h.from_partition_label, h.to_location_id, h.to_partition_label,
+         (h.occurred_at AT TIME ZONE 'Asia/Kolkata')::date AS day,
+         row_number() OVER w AS n,
+         LEAD((h.occurred_at AT TIME ZONE 'Asia/Kolkata')::date) OVER w AS next_day
+  FROM goat_location_history h
+  JOIN load_goats lg ON lg.goat_id = h.goat_id
+  WHERE h.tenant_id = $1::uuid
+  WINDOW w AS (PARTITION BY h.goat_id ORDER BY h.occurred_at, h.location_history_id)
 ),
-pos_keyed AS (
-  SELECT goat_id, d, phys_id, pen_key
-  FROM pos p(goat_id, d, phys_id, pen_key)
-),
--- A pen leg counts for a load animal present at BOTH its ends.
-legs AS (
-  SELECT goat_id, d, bloc, bpart, grams, days FROM scan_legs WHERE days > 0
+stays_raw AS (
+  SELECT goat_id, to_location_id AS loc, to_partition_label AS part, day AS from_day,
+         COALESCE(next_day, DATE '9999-12-31') AS to_day
+  FROM moves
   UNION ALL
-  SELECT p2.goat_id, pl.d, pl.bloc, pl.bpart, pl.grams, pl.d - pl.d1
+  SELECT goat_id, from_location_id, from_partition_label, DATE '0001-01-01', day
+  FROM moves WHERE n = 1 AND from_location_id IS NOT NULL
+  UNION ALL
+  SELECT lg.goat_id, g.shed_id, gsp.partition_label, DATE '0001-01-01', DATE '9999-12-31'
+  FROM load_goats lg
+  JOIN goats g ON g.tenant_id = $1::uuid AND g.goat_id = lg.goat_id
+  LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
+  WHERE NOT EXISTS (SELECT 1 FROM moves m WHERE m.goat_id = lg.goat_id)
+),
+stays AS MATERIALIZED (
+  SELECT st.goat_id, st.from_day, st.to_day, ` + loadPenKey("st.loc", "st.part", "ha") + `
+  FROM stays_raw st
+  LEFT JOIN alias ha ON ha.location_id = st.loc
+),
+-- A stay covers day d when from_day <= d < to_day; an animal counts for a day only while it was on
+-- the farm (bought on or before, not yet exited).
+covered AS (
+  SELECT s.goat_id, lg.load_ref, s.from_day, s.to_day, s.phys_id, s.pen_key, lg.purchase_date,
+         (lg.exited_at AT TIME ZONE 'Asia/Kolkata')::date AS exit_day
+  FROM stays s(goat_id, from_day, to_day, phys_id, pen_key)
+  JOIN load_goats lg ON lg.goat_id = s.goat_id
+),
+-- A pen leg counts for a load animal whose ONE stay covers both ends of it.
+legs AS (
+  -- Each leg carries its animal's LOAD, so no read downstream joins back to the animals.
+  SELECT goat_id, load_ref, d, bloc, bpart, grams, days FROM scan_legs WHERE days > 0
+  UNION ALL
+  SELECT c.goat_id, c.load_ref, pl.d, pl.bloc, pl.bpart, pl.grams, pl.d - pl.d1
   FROM pen_legs pl
-  JOIN pos_keyed p1 ON p1.d = pl.d1 AND p1.phys_id = pl.phys_id AND p1.pen_key = pl.pen_key
-  JOIN pos_keyed p2 ON p2.d = pl.d AND p2.goat_id = p1.goat_id AND p2.phys_id = pl.phys_id AND p2.pen_key = pl.pen_key
+  JOIN covered c
+    ON c.phys_id = pl.phys_id AND c.pen_key = pl.pen_key
+   AND c.from_day <= pl.d1 AND pl.d < c.to_day
+   AND (c.purchase_date IS NULL OR pl.d1 >= c.purchase_date)
+   AND (c.exit_day IS NULL OR c.exit_day >= pl.d)
   WHERE pl.d1 IS NOT NULL AND pl.d > pl.d1
 ),
 scoped_legs AS (
@@ -246,9 +257,13 @@ points AS (
   SELECT goat_id, d, w, 0 AS pref FROM scan_pts
   WHERE $8::text = '' OR (bloc::text = $8::text AND bpart = $9::text)
   UNION ALL
-  SELECT p.goat_id, po.d, po.avg_kg, 1
+  SELECT c.goat_id, po.d, po.avg_kg, 1
   FROM pen_obs po
-  JOIN pos_keyed p ON p.d = po.d AND p.phys_id = po.phys_id AND p.pen_key = po.pen_key
+  JOIN covered c
+    ON c.phys_id = po.phys_id AND c.pen_key = po.pen_key
+   AND c.from_day <= po.d AND po.d < c.to_day
+   AND (c.purchase_date IS NULL OR po.d >= c.purchase_date)
+   AND (c.exit_day IS NULL OR c.exit_day >= po.d)
   WHERE $8::text = '' OR (po.bloc::text = $8::text AND po.bpart = $9::text)
 ),
 latest AS (
@@ -296,17 +311,20 @@ ORDER BY pl.gain DESC NULLS LAST, pl.load_ref`
 var loadAnimalsBucketTemplate = ` -- scale-guard:ignore: bounded tenant + authorized-park reporting read; one round trip per Time-wise load table
 WITH ` + loadAnimalLegsCTE + `,
 bucketed AS (
-  SELECT {{BUCKET_D}} AS week_start, goat_id, sum(grams) / NULLIF(sum(days), 0) AS g
+  SELECT {{BUCKET_D}} AS week_start, load_ref, goat_id, sum(grams) / NULLIF(sum(days), 0) AS g
   FROM scoped_legs
-  GROUP BY 1, 2
+  GROUP BY 1, 2, 3
+),
+owners AS (
+  SELECT load_ref, min(owner_name) AS owner_name FROM load_goats GROUP BY load_ref
 )
-SELECT lg.load_ref, min(lg.owner_name), b.week_start::text, count(*)::bigint, avg(b.g)::float8
+SELECT b.load_ref, COALESCE((SELECT o.owner_name FROM owners o WHERE o.load_ref = b.load_ref), ''),
+       b.week_start::text, count(*)::bigint, avg(b.g)::float8
 FROM bucketed b
-JOIN load_goats lg ON lg.goat_id = b.goat_id
 WHERE b.g IS NOT NULL
-  AND lg.load_ref IN (SELECT load_ref FROM live_loads)
-GROUP BY lg.load_ref, b.week_start
-ORDER BY lg.load_ref, b.week_start`
+  AND b.load_ref IN (SELECT load_ref FROM live_loads)
+GROUP BY b.load_ref, b.week_start
+ORDER BY b.load_ref, b.week_start`
 
 // loadAnimalWindow is the per-load window read behind every load chart (the Weights load bars, the
 // ADG Analytics Comparison tab, Sales › Loads).
