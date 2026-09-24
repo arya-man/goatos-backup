@@ -44,7 +44,7 @@ const READONLY = process.env.ASK_MESHA_READONLY !== "0";
 // Spend caps (USD). Monthly: hard stop for new questions once reached (resets on the
 // 1st, UTC). Per answer: the SDK aborts a single run that would exceed it.
 const MONTHLY_BUDGET_USD = Number(process.env.ASK_MESHA_MONTHLY_BUDGET_USD || 100);
-const PER_ANSWER_BUDGET_USD = Number(process.env.ASK_MESHA_PER_ANSWER_BUDGET_USD || 2);
+const PER_ANSWER_BUDGET_USD = Number(process.env.ASK_MESHA_PER_ANSWER_BUDGET_USD || 1);
 const DEEP_ANSWER_BUDGET_USD = Number(process.env.ASK_MESHA_DEEP_ANSWER_BUDGET_USD || 5);
 // Claude provider (provider.mjs). auto: Vertex once a probe succeeds, the API key until then;
 // the $100 monthly cap above covers both (spend is summed from metrics regardless of provider).
