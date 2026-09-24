@@ -3601,6 +3601,16 @@ func (r *Repository) GetCountsBreakdown(ctx context.Context, req domain.CountsBr
 	if err := facetRows.Err(); err != nil {
 		return domain.CountsBreakdown{}, fmt.Errorf("counts breakdown: facets iterate: %w", err)
 	}
+	// The Farm dropdown lists parks by CODE (CBE, then CPT -- maintainer decision 2026-09-16), the
+	// same order as the park pickers and the other Counts pages. The facet query's shared ORDER BY
+	// ranks every dimension by its key, which for a park is its uuid, so the order here was an
+	// accident of the ids rather than the rule.
+	sort.SliceStable(out.Facets.Parks, func(i, j int) bool {
+		if out.Facets.Parks[i].Label != out.Facets.Parks[j].Label {
+			return out.Facets.Parks[i].Label < out.Facets.Parks[j].Label
+		}
+		return out.Facets.Parks[i].Key < out.Facets.Parks[j].Key
+	})
 
 	loadRows, err := results.Query()
 	if err != nil {

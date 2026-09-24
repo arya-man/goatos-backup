@@ -71,6 +71,10 @@ UNION ALL
 SELECT 'kids', '', '', count(*) FILTER (WHERE is_kid)::bigint FROM live
 UNION ALL
 SELECT 'adults', '', '', count(*) FILTER (WHERE NOT is_kid)::bigint FROM live
+-- A stable order for every bar list, which the page renders as served. The park branch's label is
+-- the park CODE, so parks come out CBE then CPT (maintainer decision 2026-09-16: by code, never by
+-- name); without an ORDER BY they came out in hash order, CPT first on this herd.
+ORDER BY 1, 3, 2
 `
 
 // projection-review: membership=three DISJOINT canonical sources never joined to each other -- an animal's own origin columns (a birth), an animal's own exit columns (a death, sale or other exit), and an APPLIED shifting_events row (a movement); group_key=the IST calendar month of the event's own date on every branch, LEFT JOINed onto a generated month spine so a quiet month is a real zero rather than a dropped row; join_cardinality=imp pre-aggregates shifting_event_impacts to ONE row per event before it is joined, so the many side is collapsed and never counted through, and the month spine joins each aggregate 1:{0,1} on the month key; pagination=none, the whole window is returned and bounded to at most 36 months; scope=tenant_id plus one optional park predicate, matched on EITHER end for a movement because a movement out of a park is that park's movement too

@@ -621,10 +621,14 @@ func (r *Repository) GetMortality(ctx context.Context, req domain.MortalityQuery
 	}
 	// Rate series: most deaths first, then most animals, then label, so the chart reads
 	// top-down and two equal buckets keep a stable order across reloads.
-	for _, series := range []*[]domain.MortalityBucket{&out.Stage, &out.Breed, &out.Sex, &out.Species, &out.Park, &out.Pen, &out.Load, &out.Vendor, &out.KidAdult} {
+	for _, series := range []*[]domain.MortalityBucket{&out.Stage, &out.Breed, &out.Sex, &out.Species, &out.Pen, &out.Load, &out.Vendor, &out.KidAdult} {
 		sortBuckets(*series)
 	}
 	sortBuckets(out.Cause)
+	// Parks are the one series NOT ranked by deaths: under All parks every Counts read lists the
+	// farms in one fixed order, by CODE (CBE, then CPT -- maintainer decision 2026-09-16), so the
+	// park table here reads in the same order as Herd Analytics and the park pickers.
+	sortParkBuckets(out.Park)
 
 	// ---- 3. recent list ---------------------------------------------------------------
 	recentRows, err := results.Query()
@@ -706,6 +710,17 @@ func vendorBucketLabel(key, label string) string {
 		return "Vendor " + key[:8]
 	}
 	return key
+}
+
+// sortParkBuckets orders the park series by its label, which is the park CODE (the SQL labels a
+// park COALESCE(NULLIF(location_code, ”), name)), with the key as a tiebreak.
+func sortParkBuckets(buckets []domain.MortalityBucket) {
+	sort.SliceStable(buckets, func(i, j int) bool {
+		if buckets[i].Label != buckets[j].Label {
+			return buckets[i].Label < buckets[j].Label
+		}
+		return buckets[i].Key < buckets[j].Key
+	})
 }
 
 func sortBuckets(buckets []domain.MortalityBucket) {

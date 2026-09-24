@@ -126,7 +126,10 @@ WHERE tenant_id = $1::uuid
         AND vda.park_id = locations.location_id
     )
   )
-ORDER BY display_order, name, location_id
+-- Parks sort by their CODE after display_order, never by name (maintainer decision 2026-09-16:
+-- CBE, then CPT). Both farms carry display_order 0, and by name Channapatna sorts before
+-- Coimbatore, so every park picker fed from here listed CPT first.
+ORDER BY display_order, COALESCE(NULLIF(location_code, ''), name), location_id
 LIMIT 500`, tenantID, localVaccinationScope)
 	if err != nil {
 		return nil, "", fmt.Errorf("adminui: list parks: %w", err)

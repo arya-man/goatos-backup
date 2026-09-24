@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"testing"
 	"time"
 
@@ -196,5 +197,105 @@ func TestHerdAnalyticsPageBoundaryReportsAQuietMonthAsZeroRatherThanDroppingIt(t
 	}
 	if got.Months[len(got.Months)-1].Month != time.Now().In(biztime.DefaultLocation()).Format("2006-01") {
 		t.Fatalf("last month=%q, want the month in progress", got.Months[len(got.Months)-1].Month)
+	}
+}
+
+// Under All parks every Counts read lists the farms by CODE, CBE then CPT (maintainer decision
+// 2026-09-16) -- never by name, never by id, never in hash order, and on Mortality never by deaths.
+// Two fresh parks make every one of those wrong answers put the SAME park first: "PKB" has the
+// lower id, the alphabetically first name, and more animals and deaths, while "PKA" sorts first by
+// code. (The seeded CBE/CPT parks cannot be renamed -- location_seeded_scope_guard -- and which of
+// them carries which code depends on seed order, so they cannot pin this.)
+func TestCountsReadsListParksByCodeCBEBeforeCPT(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newHerdAnalyticsRepo(t, ctx)
+	const (
+		parkB = "00000000-0000-4000-8000-00000000a701" // code PKB, name "Alpha farm"
+		parkA = "00000000-0000-4000-8000-00000000a702" // code PKA, name "Zulu farm"
+		shedB = "00000000-0000-4000-8000-00000000a711"
+		shedA = "00000000-0000-4000-8000-00000000a712"
+	)
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
+VALUES ($2::uuid, $1::uuid, 'park', 'PKB', 'Alpha farm', NULL, 'active'),
+       ($3::uuid, $1::uuid, 'park', 'PKA', 'Zulu farm', NULL, 'active'),
+       ($4::uuid, $1::uuid, 'shed', 'PKB-S1', 'Shed 1', $2::uuid, 'active'),
+       ($5::uuid, $1::uuid, 'shed', 'PKA-S1', 'Shed 1', $3::uuid, 'active')`,
+		countsTenant, parkB, parkA, shedB, shedA); err != nil {
+		t.Fatalf("seed parks: %v", err)
+	}
+	from, to := monthsBack(2), thisMonthDay(1)
+	died := thisMonthDay(1)
+	goat := func(n int, park, shed, status string) {
+		t.Helper()
+		var exitedAt, reason *string
+		if status == "dead" {
+			exitedAt, reason = &died, strp("died")
+		}
+		if _, err := pool.Exec(ctx, `
+INSERT INTO goats (
+  goat_id, tenant_id, display_id, species, breed, sex, lifecycle_status, age_band, dob, origin_type,
+  custodian_party_id, park_id, shed_id, management_stage, exit_reason, exited_at
+) VALUES (
+  $1::uuid, $2::uuid, $3, 'goat', 'Beetal', 'male', $4, 'adult', '2025-01-01'::date, 'procured',
+  '00000000-0000-4000-8000-000000001001'::uuid, $5::uuid, $6::uuid, 'F2-Male', $7,
+  CASE WHEN $8::text IS NULL THEN NULL ELSE ($8::date + time '10:00') AT TIME ZONE 'Asia/Kolkata' END
+)`, mortalityGoatID(n), countsTenant, fmt.Sprintf("G-87%04d", n), status, park, shed, reason, exitedAt); err != nil {
+			t.Fatalf("seed goat %d: %v", n, err)
+		}
+	}
+	goat(1, parkB, shedB, "alive")
+	goat(2, parkB, shedB, "alive")
+	goat(3, parkB, shedB, "dead")
+	goat(4, parkB, shedB, "dead")
+	goat(5, parkA, shedA, "alive")
+	goat(6, parkA, shedA, "dead")
+
+	// Only the two fresh parks are compared; the shared fixture's own parks may also be present.
+	ours := func(labels []string) []string {
+		var out []string
+		for _, l := range labels {
+			if l == "PKA" || l == "PKB" {
+				out = append(out, l)
+			}
+		}
+		return out
+	}
+	want := []string{"PKA", "PKB"}
+
+	herd, err := repo.GetHerdAnalytics(ctx, domain.HerdAnalyticsQuery{TenantID: countsTenant, FromDate: from, ToDate: to})
+	if err != nil {
+		t.Fatalf("herd analytics: %v", err)
+	}
+	var herdParks []string
+	for _, p := range herd.Park {
+		herdParks = append(herdParks, p.Label)
+	}
+	if got := ours(herdParks); !reflect.DeepEqual(got, want) {
+		t.Errorf("Herd Analytics parks = %v, want %v", got, want)
+	}
+
+	mort, err := repo.GetMortality(ctx, domain.MortalityQuery{TenantID: countsTenant, FromDate: from, ToDate: to})
+	if err != nil {
+		t.Fatalf("mortality: %v", err)
+	}
+	var mortParks []string
+	for _, p := range mort.Park {
+		mortParks = append(mortParks, p.Label)
+	}
+	if got := ours(mortParks); !reflect.DeepEqual(got, want) {
+		t.Errorf("Mortality parks = %v, want %v (by code, not by deaths)", got, want)
+	}
+
+	bd, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, Limit: 50})
+	if err != nil {
+		t.Fatalf("breakdown: %v", err)
+	}
+	var farmOptions []string
+	for _, p := range bd.Facets.Parks {
+		farmOptions = append(farmOptions, p.Label)
+	}
+	if got := ours(farmOptions); !reflect.DeepEqual(got, want) {
+		t.Errorf("Breakdown Farm options = %v, want %v", got, want)
 	}
 }
