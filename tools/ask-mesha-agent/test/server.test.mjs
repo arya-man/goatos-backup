@@ -187,7 +187,7 @@ test("server source: budget pause wording and file headers", () => {
   assert.match(src, /Ask Mesha is paused for this month\. Please contact the Mesha team\./);
   assert.match(src, /filename\*=UTF-8''\$\{encodeURIComponent/);
   assert.match(src, /"X-Content-Type-Options": "nosniff"/);
-  assert.match(src, /cost_usd === null && started/);
+  assert.match(src, /finalAnswerCost\(\{ costUsd: metric\.cost_usd, started, capUsd/); // no-result runs count the cap
 });
 
 test("deep routing: recorded-reason lookups stay fast", async () => {
@@ -452,4 +452,56 @@ test("JSON store: corrupt chats.json doesn't crash-loop; .tmp recovery; torn met
   const m = path.join(dir, "metrics.jsonl");
   fs.writeFileSync(m, '{"ts":"a","ok":true}\n{"ts":"b","o');
   assert.deepEqual(readJsonl(m), [{ ts: "a", ok: true }]);
+});
+
+// ---- fallback cost / stop / delete races ------------------------------------
+import { failedAttemptCostUsd, finalAnswerCost, runOwnedBy } from "../lib.mjs";
+
+test("fallback then crash: the failed attempt's cost is still counted when the retry throws", () => {
+  // Attempt 0 (Vertex) reported $0.04, retry crashed with no result: cap estimate + attempt 0.
+  assert.deepEqual(finalAnswerCost({ costUsd: null, started: true, capUsd: 1, failedAttemptCost: 0.04 }), { cost: 1.04, estimated: true });
+  // Retry got a result then threw later: its real cost + attempt 0.
+  assert.deepEqual(finalAnswerCost({ costUsd: 0.2, started: true, capUsd: 1, failedAttemptCost: 0.04 }), { cost: 0.24, estimated: false });
+  // Never started: nothing spent.
+  assert.deepEqual(finalAnswerCost({ costUsd: null, started: false, capUsd: 1 }), { cost: null, estimated: false });
+  // The finally block (every exit path, incl. throw) is where failed attempts are added.
+  const fin = askSrc.slice(askSrc.lastIndexOf("} finally {"));
+  assert.match(fin, /finalAnswerCost\(\{ costUsd: metric\.cost_usd, started, capUsd, failedAttemptCost \}\)/);
+  assert.ok(askSrc.indexOf("let failedAttemptCost = 0") < askSrc.indexOf("\n  try {\n    // conversation_id up front"), "declared outside the try");
+});
+
+test("fallback: a failed attempt with no result message counts its cap, not 0", () => {
+  assert.equal(failedAttemptCostUsd(null, 1.5), 1.5);
+  assert.equal(failedAttemptCostUsd(undefined, 1.5), 1.5);
+  assert.equal(failedAttemptCostUsd(0, 1.5), 0, "a real $0 result is kept");
+  assert.equal(failedAttemptCostUsd(0.03, 1.5), 0.03);
+  assert.match(askSrc, /failedAttemptCost \+= failedAttemptCostUsd\(metric\.cost_usd, capUsd\)/);
+});
+
+test("fallback: the failed attempt's session_cost_usd is rolled back", () => {
+  const rb = askSrc.slice(askSrc.indexOf("providerSwitch.markVertexDown"), askSrc.indexOf("// metric.cost_usd is this attempt's cost only"));
+  assert.match(rb, /chat\.session_cost_usd = origSessionCostUsd/);
+  assert.match(rb, /updateChat\(chat\.id, \{ session_cost_usd: origSessionCostUsd \}\)/);
+  assert.match(rb, /metric\.session_cost_usd = null/);
+});
+
+test("Stop pressed before the chat exists is recorded against the request's owner", () => {
+  const run = { chatId: null, email: "ceo@x", tenantId: "t1" };
+  assert.equal(runOwnedBy(run, { email: "ceo@x", tenantId: "t1" }), true);
+  assert.equal(runOwnedBy(run, { email: "ceo@x", tenantId: "t2" }), false);
+  assert.equal(runOwnedBy(run, { email: "other@x", tenantId: "t1" }), false);
+  assert.equal(runOwnedBy(null, { email: "ceo@x", tenantId: "t1" }), false);
+  const stop = SERVER_SRC.slice(SERVER_SRC.indexOf("async function stopEvent("), SERVER_SRC.indexOf("// ---- ask"));
+  assert.doesNotMatch(stop, /store\.getChat/, "no chat lookup: the chat may not exist yet");
+  assert.match(stop, /runOwnedBy\(run, user\)/);
+  assert.match(askSrc, /chatId: chat\?\.id \?\? null, capUsd, email: user\.email, tenantId: user\.tenantId/);
+});
+
+test("chat deleted between lock and stream start: aborted before anything is written or Claude runs", () => {
+  assert.ok(askSrc.indexOf('if (stopReason === "chat_deleted") abort.abort()') > askSrc.indexOf("store.tryLock"));
+  const tryStart = askSrc.indexOf('label: "Starting agent"');
+  const guard = askSrc.indexOf('if (abort.signal.aborted) throw new Error("client_aborted")', tryStart);
+  assert.ok(guard > tryStart);
+  for (const write of ["store.updateChat(chat.id, { title", "store.addMessage(chat.id, userMsg)", "uploads.save(", "const stream = query("])
+    assert.ok(guard < askSrc.indexOf(write), write);
 });

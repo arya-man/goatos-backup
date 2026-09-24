@@ -12,7 +12,10 @@ Read this before touching the admin-web **Ask Mesha** panel, `apps/admin-web/app
   Unset => legacy backend `ceo-ai`, unchanged. Never modify the legacy backend to make the agent work.
 - Same HTTP contract as the backend: `/ceo-ai/starters`, `/conversations` (list/create/get/patch/soft
   delete), `/conversations/:id/messages`, `/conversations/:id/files/:fileId`, `/ask` (SSE: `progress`,
-  `token`, `final{answer, chart, conversation_id, message_id}`, `error`), `/metrics`, `/healthz`.
+  `token`, `reset`, `watch`, `final{answer, chart, conversation_id, message_id}`, `error`), `/events`
+  (`stop_pressed` / `watch_stop` for a `request_id`; checked against the user who started that request,
+  so Stop works before the chat row exists), `/metrics`, `/metrics/users`, `/metrics/recent`, `/healthz`
+  (`{ok, provider}`).
 
 ## Audience rules (non-negotiable)
 
@@ -29,15 +32,16 @@ Read this before touching the admin-web **Ask Mesha** panel, `apps/admin-web/app
 ## Read-only guarantees (keep all four layers)
 
 1. **Tools:** `ASK_MESHA_READONLY=1` (default) gives the agent only `Read/Grep/Glob/Skill/TodoWrite`
-   plus the MCP tools `run_sql` and `mcp__mesha__describe_table` (fixed catalog read of up to 6 tables per
+   plus the MCP tools `run_sql`, `mcp__mesha__watch_tags` (live tag watch, below) and `mcp__mesha__describe_table` (fixed catalog read of up to 6 tables per
    call — `table` comma list and/or `tables` array — returning columns, FK join targets and, for base tables
    <= ~2M rows, top values of up to 6 category/status-like text columns; every name must match strict
    `schema.table` identifiers before it is interpolated, and all reads go through `run_sql`'s same read-only
    path). A `run_sql` "column/relation does not exist" error comes back with the real column lists of up to
-   4 tables the query referenced (same validated describe path). No Bash, Edit, Write, NotebookEdit, Web*, Task. Read paths are limited
+   4 tables the query referenced (same validated describe path). No Bash, Edit, Write, NotebookEdit, Web*, Task, Agent. Read paths are limited
    to the repo and upload dirs (no `/proc`, no `.pgenv`).
 2. **run_sql:** no query rules — any SQL over any table/schema, no tenant filter (single tenant). Runs in
-   `BEGIN READ ONLY` with `default_transaction_read_only=on`, 60 s timeout, 500 rows. Refusals are only
+   `BEGIN READ ONLY` with `default_transaction_read_only=on`, 60 s `statement_timeout` (psql process
+   killed at 75 s), 500 rows / 100,000 characters of output. Refusals are only
    about execution shape, not data access: psql backslash commands (they run programs on the host, e.g.
    `\!`), more than one statement (`;` inside the query), and statements starting with
    commit/rollback/end/abort/set/reset/begin/start (so the model can't step out of `BEGIN READ ONLY`).
@@ -97,7 +101,7 @@ Not the answer: per-tenant copies of tables/schemas (344× duplication and migra
 
 - Every answer records a timing event (first progress/tool/token, total, tool + DB-query counts, tokens,
   cost) to the metrics store; `GET /metrics` returns p50/p90. `node tools/ask-mesha-agent/bench.mjs`
-  drives the real `/ask` path (local only; `ASK_MESHA_BENCH_TOKEN` is ignored on Cloud Run).
+  drives the real `/ask` path (local only: the token's `/ask` login bypass is off on Cloud Run; there it only unlocks `/metrics*`).
 - Why it's fast: `CLAUDE.md`/`AGENTS.md` are injected into the **system prompt** (cached, 1 h TTL via
   `ENABLE_PROMPT_CACHING_1H=1`, `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1`) and all chats share one checkout,
   so the large prefix is read from cache instead of re-written per chat. Per-chat worktrees break the
@@ -121,14 +125,20 @@ Not the answer: per-tenant copies of tables/schemas (344× duplication and migra
   tool_errors, sql_errors, turns, model, effort, deep, cost_usd, input/output tokens, answer_chars, chart),
   `ask_failed` (`error_class`: auth | budget_blocked | per_answer_cap | sdk_error | db_error | timeout |
   unknown, + `error`), `ask_stopped` (client closed the stream; `error_class=client_aborted`).
+  `ask_stopped.reason` is `stop_pressed` (panel Stop), `chat_deleted` or `client_closed`; `cost_estimated=true`
+  means no SDK result arrived and the answer's cap was charged.
   Signals: `ask_started` (model, effort, deep, question_preview = first 80 chars), `ask_first_token`,
   `ask_tool` (tool, plain label, duration_ms tool_use→tool_result, ok, error), `budget_warning` (>= 80 %,
-  once per month per instance), `budget_blocked`, `auth_denied` (path), `attachment_saved`.
-- Where to look: `GET /metrics/users` (per email, today/7d/30d: asks, success, failed by class, stopped,
-  success rate, p50/p90 total and first-token, avg tools, cost) and `GET /metrics/recent?email=` (last 50
-  asks: status, duration, question preview). Same auth as `/metrics`. Cloud Logging:
+  once per month per instance), `budget_blocked`, `auth_denied` (path), `attachment_saved`, `chat_busy`
+  (409), `provider_fallback` (from, to, reason), `watch_started` / `watch_ended`.
+- Where to look: `GET /metrics/users` (per email, today (IST)/7d/30d: asks, success, failed by class, stopped,
+  success rate, p50/p90 total and first-token, avg tools, cost, watches, busy) and `GET /metrics/recent?email=` (last 50
+  asks: status, duration, question preview). Same auth as `/metrics`: open on a 127.0.0.1 bind; on Cloud Run
+  (`HOST=0.0.0.0`) only with `Authorization: Bearer $ASK_MESHA_BENCH_TOKEN` (the token's `/ask` login bypass is
+  still off there because `K_SERVICE` is set). Cloud Logging:
   `jsonPayload.component="ask-mesha-agent"`. Grafana: `tools/ask-mesha-agent/deploy/grafana/` (import steps).
-- Stop vs. navigation away both appear as `ask_stopped` until the panel reports which one it was.
+- Stop vs. navigation away: the panel POSTs `/ceo-ai/events {kind:"stop_pressed"}` before aborting; the server
+  waits up to 1.5 s for it, else the stop is recorded as `client_closed`.
 - Tests: `node --test tools/ask-mesha-agent/events.test.mjs`. `bench.mjs` accepts
   `ASK_MESHA_BENCH_ABORT_MS=N` to simulate Stop.
 
@@ -138,7 +148,8 @@ Not the answer: per-tenant copies of tables/schemas (344× duplication and migra
 moving" and one-shot "which goats are slower than their pen / own pace right now" go to the read-only MCP tool
 `watch_tags` (`tools/ask-mesha-agent/watch.mjs`, registered in `server.mjs` next to `run_sql`).
 
-- **Server polls, not the model.** Every `interval_s` (5-30, default 10) the agent server reads
+- **Server polls, not the model.** Every `interval_s` (5-30, default 10) for `minutes` (default 5, max 30; 0 = one
+  snapshot) the agent server reads
   `herd_signal_tag_latest` (+ the live table's tag -> goat -> pen join) through the same READ ONLY `runSql` path as
   `run_sql` and streams SSE `{type:"watch", phase:start|tick|end|error, rows, changes}` frames. No model call per
   tick; the model gets one compact summary at the end and writes a 2-4 sentence answer. Cost ~ one normal answer.
@@ -151,11 +162,14 @@ moving" and one-shot "which goats are slower than their pen / own pace right now
   columns from origin/main (probed per watch).
 - **Stops**: time up (default 5 min), `stop_when` met, "Stop watching" (`/ceo-ai/events` kind `watch_stop`: ends the
   watch only, the answer still arrives), Stop (aborts the answer), client disconnect (request close aborts polling
-  immediately), 30-min hard cap. No background continuation; one active watch per chat.
+  immediately), 30-min hard cap, 3 failed polls in a row (`data_error`). `stop_when` "stopped moving" = no motion for
+  `still_minutes` (1-30, default 5). No background continuation; one active watch per chat, at most 4 per server
+  instance (`MAX_WATCHES`); the table shows at most 60 tags.
 - **Request timeouts bound the real watch length.** The answer SSE passes through `goatos-admin-web-stg`, whose
-  Cloud Run request timeout is 300 s (checked 2026-09-24; `goatos-ask-mesha-stg` is 3600 s). A watch plus the
-  model turns around it longer than ~5 min is cut there and ends as `client_disconnected`. Raising admin-web's
-  timeout (infra, `cloud_run_services.tf`) to >= 2100 s is required before promising 10-30 min watches.
+  Cloud Run request timeout was 300 s (checked 2026-09-24; `goatos-ask-mesha-stg` is 3600 s). The admin-web wiring
+  step in `deploy/deploy-stg.sh` sets it to 2100 s; if Terraform (`cloud_run_services.tf`) manages admin-web it
+  must say >= 2100 s too, or the next apply drops it back and watches longer than ~5 min end as
+  `client_disconnected`. The agent's `MCP_TOOL_TIMEOUT` is 2100 s for the same reason.
 - **Tenant:** the watch query filters `tenant_id` only when `X-GoatOS-Tenant-ID` is a UUID; see
   "Multi-tenant isolation" — like `run_sql`, it is not isolation until the DB enforces it.
 - **Events**: `watch_started` / `watch_ended` (reason, duration_ms, polls, tags) per user; `/metrics/users` shows
@@ -166,12 +180,18 @@ moving" and one-shot "which goats are slower than their pen / own pace right now
 ## Cost controls
 
 - `ASK_MESHA_MONTHLY_BUDGET_USD` (default **100**): once this month's summed answer cost reaches it,
-  `/ask` replies "budget reached" without calling Claude. Fails closed if spend can't be read.
+  `/ask` replies "Ask Mesha is paused for this month. Please contact the Mesha team." without calling Claude.
+  Fails closed if spend can't be read ("unavailable for a moment").
 - Per-answer caps (SDK `maxBudgetUsd`, counted inside the monthly cap): `ASK_MESHA_PER_ANSWER_BUDGET_USD`
   (default 1) for lookups, `ASK_MESHA_DEEP_ANSWER_BUDGET_USD` (default 5) for investigations.
   Each running answer reserves its cap: a new ask is refused when spent + in-flight caps >= the monthly
   cap, and its own cap is clipped to what is left.
-- One run per chat (lease): a second ask on a busy chat gets HTTP 409 `chat_busy` (logged as a `chat_busy` event).
+- One run per chat (lease, 60 s TTL refreshed by the 10 s SSE heartbeat): a second ask on a busy chat gets HTTP 409
+  `chat_busy` (logged as a `chat_busy` event).
+- Input limits: question <= 20,000 characters (413 `question_too_long`); at most 5 attachments, ~10 MB together
+  (request body cap 15 MB incl. base64, 413 `too_large`).
+- No SDK result (tab closed, crash): the answer's cap is charged (`cost_estimated`). A Vertex attempt that fails
+  over to the key adds its own cost (its cap when it produced no result) to the answer, on every exit path.
 - Cost = SDK `total_cost_usd` per answer (tokens × list price incl. cache reads/writes), stored with the
   metric; monthly spend = sum since the 1st (UTC). It is an estimate; the GCP bill is authoritative.
 - GCP budgets only alert; RUNBOOK §3c adds a $100 Vertex budget alert as a backstop (plus an Anthropic Console limit for the key).
@@ -182,8 +202,9 @@ moving" and one-shot "which goats are slower than their pen / own pace right now
   Anthropic API key. `provider.mjs` probes Vertex (tiny `rawPredict`, metadata-server token; locally
   `gcloud auth print-access-token` if installed) at startup and every 15 min while on the key, hourly once
   on Vertex. Each question uses Vertex iff the last probe passed, else the key; a Vertex 429/403/404 before
-  any token is shown marks Vertex down and reruns that question once on the key (tool calls from the failed
-  attempt — including a live watch — may already have run and run again; its Vertex spend is not in the metric row). So STG runs on the key
+  any token is shown and before any tool call (so no query or live watch runs twice) marks Vertex down and
+  reruns that question once on the key (the failed attempt's Vertex spend — or its cap when it returned no
+  result — is added to that answer's cost; its session and session cost are rolled back). So STG runs on the key
   now and moves to Vertex by itself when quota is approved — no redeploy. `provider` (`vertex` |
   `anthropic`) is on every metric row and event, `/healthz` shows it, logs say `[provider] switched to …`.
   The monthly cap is one cap across both. Force a provider with

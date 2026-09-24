@@ -161,7 +161,10 @@ function jsonSink(stateDir) {
   };
 }
 
-function pgSink(pool) {
+// Every event the read side needs: ask_started (preview/model for recentAsks), the terminal
+// events, and the side counters summarizeUsers shows (watch_ended -> watches, chat_busy -> busy).
+export const READ_EVENTS = ["ask_started", ...TERMINAL, "watch_ended", "chat_busy"];
+export function pgSink(pool) {
   return {
     kind: "postgres",
     async migrate() { await pool.query(fs.readFileSync(path.join(HERE, "sql/002_events.sql"), "utf8")); },
@@ -175,9 +178,9 @@ function pgSink(pool) {
     async since(iso, email) {
       const { rows } = await pool.query(
         `SELECT row FROM ask_mesha.events WHERE ts >= $1 AND ($2::text IS NULL OR email = $2)
-           AND event_name IN ('ask_started','ask_completed','ask_failed','ask_stopped')
-         ORDER BY ts LIMIT 100000`,
-        [iso, email ?? null],
+           AND event_name = ANY($3::text[])
+         ORDER BY ts DESC LIMIT 100000`, // newest first: a cap drops the oldest rows, never today's
+        [iso, email ?? null, READ_EVENTS],
       );
       return rows.map((r) => r.row);
     },

@@ -71,12 +71,13 @@ REVOKE CONNECT ON DATABASE goatos FROM ask_mesha;
 probes Vertex (one `rawPredict`, `max_tokens` 1, token from the metadata server) at startup and every
 15 min while on the key; once Vertex answers (quota approved) new questions use Vertex with no
 redeploy, and it re-checks hourly. A Vertex 429/403/404 during a question marks Vertex down and reruns
-that question once on the key (only if nothing was shown yet). Logs: `[provider] switched to vertex`;
+that question once on the key (only if nothing was shown yet and no tool ran); the failed attempt's cost (or its
+cap if it returned no result) is added to that answer. Logs: `[provider] switched to vertex`;
 every metric/event row carries `provider` (`vertex` | `anthropic`); `/healthz` shows the current one:
 
 ```bash
 curl -s -H "Authorization: Bearer $(gcloud auth print-identity-token)" "$URL/healthz"
-# {"ok":true,"provider":"anthropic","claude":{"mode":"auto","vertex_ok":false,"last_probe_reason":"quota_429",...}}
+# {"ok":true,"provider":"anthropic"}   (probe reasons are in the logs: [provider] ...)
 ```
 
 Force one provider (a config change -> new revision of the same image, not a build):
@@ -102,7 +103,7 @@ gcloud projects add-iam-policy-binding $PROJECT \
   --member="serviceAccount:goatos-ask-mesha-stg@$PROJECT.iam.gserviceaccount.com" --role=roles/aiplatform.user
 ```
 
-Region: `ASK_MESHA_VERTEX_REGION` defaults to **`global`**. Verified 2026-09-24 against the Vertex publisher-model API:
+Region: `ASK_MESHA_VERTEX_REGION` (a `deploy-stg.sh` input, passed to the service as `CLOUD_ML_REGION`) defaults to **`global`**. Verified 2026-09-24 against the Vertex publisher-model API:
 `claude-sonnet-5` and `claude-opus-5-5` are GA **only on `global`** (404 in `asia-south1` and `us-east5`).
 `global` routes inference to available capacity (not pinned to India); chats, files and the database stay in asia-south1.
 
@@ -129,8 +130,8 @@ vertex or api-key instead.
 
 The agent enforces the cap itself: once this month's summed answer cost reaches
 `ASK_MESHA_MONTHLY_BUDGET_USD` (default 100) new questions get a "budget reached" reply
-without calling Claude; `ASK_MESHA_PER_ANSWER_BUDGET_USD` (default 1) aborts a single
-runaway answer. GCP budgets only alert (they never stop spend), so add one as a backstop:
+without calling Claude; `ASK_MESHA_PER_ANSWER_BUDGET_USD` (default 1) and, for investigations,
+`ASK_MESHA_DEEP_ANSWER_BUDGET_USD` (default 5) abort a single runaway answer. GCP budgets only alert (they never stop spend), so add one as a backstop:
 
 ```bash
 BILLING=$(gcloud billing projects describe $PROJECT --format='value(billingAccountName)' | sed 's#billingAccounts/##')
