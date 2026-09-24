@@ -349,17 +349,6 @@ func finalizeLoadwise(loads []LoadwiseLoad, totalLoads int, overallAvg *float64,
 		// Price per kg on the SAME rows the weight came from -- numerator and denominator must
 		// range over one key set, or the ratio describes no real set of sales.
 		row.SalePricePerKg = landedPricePerKg(row.SoldWeighedValue, row.SoldWeightKg)
-		if len(prices.Prices) > 0 {
-			row.RemainingValue = remainingLiveWeightValue(row.RemainingMix, row.AvgSaleWeightKg, prices)
-			if row.Remaining > 0 {
-				row.AvgSoldPrice = nil
-				if row.RemainingValue != nil {
-					row.PriceBasis = LoadwisePriceBasisLiveWeight
-				} else {
-					row.PriceBasis = LoadwisePriceBasisNone
-				}
-			}
-		}
 		row.DaysSincePurchase = DaysSincePurchase(row.PurchaseDate, asOf)
 		row.DaysOnFarmSoFar = DaysOnFarmSoFar(row.ArrivedOn, asOf, row.Remaining)
 		row.ProfitLoss = profitLoss(row.PurchaseValue, row.SoldValue, row.RemainingValue)
