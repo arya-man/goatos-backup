@@ -437,7 +437,6 @@ run_common() {
   step "ask-mesha-agent-tests" bash -c 'cd tools/ask-mesha-agent && node --test test/*.test.mjs events.test.mjs'
   step "leadership-verifier-surface-separation-guard" make leadership-verifier-surface-separation-guard
   step "role-scoped-ui-contract-guard" make role-scoped-ui-contract-guard
-  step "dashboard-automation-guard" make dashboard-automation-guard
   step "assistant-route-closure-guard" make assistant-route-closure-guard
   step "telemetry-guard"           make telemetry-guard
   # Token-saving/index tooling should stay visible, but stale local AI indexes

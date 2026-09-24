@@ -135,17 +135,6 @@
       "notes": "Admin-web drawers/lists/details must not mint signed GCS proof URLs or render proof media tags on load. Use backend proof routes and explicit open/play actions."
     },
     {
-      "id": "dashboard-automation",
-      "script": "tools/agent-hooks/check-dashboard-automation-guard.mjs",
-      "makeTarget": "dashboard-automation-guard",
-      "realCheck": "node tools/agent-hooks/check-dashboard-automation-guard.mjs",
-      "selfTest": "node tools/agent-hooks/check-dashboard-automation-guard.mjs --self-test",
-      "owningDoc": "docs/runbooks/dashboard-automation-oci.md",
-      "requiredInCI": true,
-      "ciStep": "dashboard-automation-guard",
-      "notes": "Daily/post-main dashboard automation guard: compares admin-web filesystem routes with deterministic smoke coverage, keeps Work Board/Weights/risky surfaces present, and requires the OCI/free-tier/receipt runner files. This catches future route additions/removals by source discovery instead of hard-coding a route count."
-    },
-    {
       "id": "agent-write-scope",
       "script": "tools/agent-hooks/check-write-scope.sh",
       "makeTarget": null,

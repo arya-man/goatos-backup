@@ -1,9 +1,12 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
 const smokeSource = readFileSync(new URL("./smoke-visual-live.mjs", import.meta.url), "utf8");
-const journeyManifest = JSON.parse(readFileSync(new URL("../../../tools/dashboard-automation/module-journeys.json", import.meta.url), "utf8"));
+// module-journeys.json is owned by vgoats/mesha-ops (dashboard-automation/tooling) and only
+// exists here when that tooling is overlaid at tools/dashboard-automation (the OCI runner).
+const journeyManifestUrl = new URL("../../../tools/dashboard-automation/module-journeys.json", import.meta.url);
+const journeyManifest = existsSync(journeyManifestUrl) ? JSON.parse(readFileSync(journeyManifestUrl, "utf8")) : null;
 const smokeRouteBlock = smokeSource.match(/function buildRoutes\(\{[^)]*\}\) \{[\s\S]*?const pagerMinimums = new Map/)?.[0] ?? "";
 const routeEntries = Array.from(
   smokeRouteBlock.matchAll(/name:\s*"([^"]+)"[\s\S]{0,500}?path:\s*([`"])([^`"]+)/g),
@@ -155,7 +158,9 @@ test("visual smoke visits every live sidebar navigation leaf", () => {
   }
 });
 
-test("dashboard automation has a module-wise read-only journey contract for every smoke route", () => {
+test("dashboard automation has a module-wise read-only journey contract for every smoke route", {
+  skip: journeyManifest ? false : "mesha-ops dashboard-automation tooling not overlaid",
+}, () => {
   assert.ok(Array.isArray(journeyManifest.journeys), "journey manifest must expose journeys");
   assert.ok(journeyManifest.journeys.length >= 10, "journey manifest must stay module-wise, not one generic smoke bucket");
   const routeNames = new Set(routeEntries.map(([name]) => name));

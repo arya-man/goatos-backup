@@ -9,27 +9,27 @@ not add up"** — naming the screen a person opens, the question that was asked,
 plain-English consequence, and how many rows are wrong. The rows themselves never go into
 Slack; they go into an HTML report attached in the thread.
 
-- Catalogue: `tools/dashboard-automation/data-sanity-checks.json`
-- Runner: `tools/dashboard-automation/check-data-sanity.mjs`
-- Tests: `tools/dashboard-automation/check-data-sanity.test.mjs`
-- Slack rendering (all of it): `tools/dashboard-automation/lib/finding-kinds/data-sanity.mjs`
-- Wired into `tools/dashboard-automation/run.mjs` as the layer `data-sanity`
+- Catalogue: `mesha-ops/dashboard-automation/tooling/data-sanity-checks.json`
+- Runner: `mesha-ops/dashboard-automation/tooling/check-data-sanity.mjs`
+- Tests: `mesha-ops/dashboard-automation/tooling/check-data-sanity.test.mjs`
+- Slack rendering (all of it): `mesha-ops/dashboard-automation/tooling/lib/finding-kinds/data-sanity.mjs`
+- Wired into `mesha-ops/dashboard-automation/tooling/run.mjs` as the layer `data-sanity`
 
 ## How to run it
 
 ```sh
 # The connection is built from Secret Manager at run time and is never written to a file.
 export GOATOS_STG_READONLY_DATABASE_URL='…'    # via the local cloud-sql-proxy
-node tools/dashboard-automation/check-data-sanity.mjs --out /tmp/data-sanity.json
-node tools/dashboard-automation/check-data-sanity.mjs --only feed_issued_exceeds_purchased --out /tmp/one.json
-node tools/dashboard-automation/check-data-sanity.mjs --self-test
-node --test tools/dashboard-automation/check-data-sanity.test.mjs
+node mesha-ops/dashboard-automation/tooling/check-data-sanity.mjs --out /tmp/data-sanity.json
+node mesha-ops/dashboard-automation/tooling/check-data-sanity.mjs --only feed_issued_exceeds_purchased --out /tmp/one.json
+node mesha-ops/dashboard-automation/tooling/check-data-sanity.mjs --self-test
+node --test mesha-ops/dashboard-automation/tooling/check-data-sanity.test.mjs
 ```
 
 Inside the automation it runs as a layer, on by default because it is seconds of pure reads:
 
 ```sh
-GOATOS_DASHBOARD_DATA_SANITY=0 node tools/dashboard-automation/run.mjs --mode production-smoke   # to turn it off
+GOATOS_DASHBOARD_DATA_SANITY=0 node mesha-ops/dashboard-automation/tooling/run.mjs --mode production-smoke   # to turn it off
 ```
 
 Exit code is 0 only when every check came back with no rows and nothing was parked.
@@ -284,20 +284,20 @@ Run, on 2026-09-23 against the STG-backed production replica, read-only:
   catalogue was verified against the live `information_schema` before the check was written.
 - `transaction_read_only = on` and `default_transaction_read_only = on` were read back out of
   the session and are in the report.
-- `node tools/dashboard-automation/check-data-sanity.mjs --self-test` — pass.
-- `node --test tools/dashboard-automation/check-data-sanity.test.mjs` — 17/17 pass, including
+- `node mesha-ops/dashboard-automation/tooling/check-data-sanity.mjs --self-test` — pass.
+- `node --test mesha-ops/dashboard-automation/tooling/check-data-sanity.test.mjs` — 17/17 pass, including
   the CTE-LIMIT bypass regression and the two end-to-end Slack rendering tests.
-- `node tools/dashboard-automation/notify-slack.mjs --self-test` — pass, with lane 4's registry
+- `node mesha-ops/dashboard-automation/tooling/notify-slack.mjs --self-test` — pass, with lane 4's registry
   and both lanes registered.
 - Lane 4's `a lane-1-only receipt renders byte-identically to the pre-registry rendering` golden
   test, run against this branch — pass.
-- `node tools/dashboard-automation/run.mjs --self-test` — pass.
+- `node mesha-ops/dashboard-automation/tooling/run.mjs --self-test` — pass.
 - The Slack message was rendered with `GOATOS_DASHBOARD_SLACK_DRY_RUN=1` to a file. **Nothing
   was posted to Slack.**
 
 Not run:
 
-- `node tools/dashboard-automation/run.mjs --mode production-smoke` end to end. The laptop was
+- `node mesha-ops/dashboard-automation/tooling/run.mjs --mode production-smoke` end to end. The laptop was
   at load average ~124 with another session running `make land-main`, and a full run starts the
   browser sweep. The `data-sanity` layer's wiring is covered by `run.mjs --self-test` and by
   running the check exactly as that layer invokes it, but **the layer has not been exercised

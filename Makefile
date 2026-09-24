@@ -10,7 +10,7 @@ REPO_ROOT ?= $(shell git rev-parse --show-toplevel 2>/dev/null || pwd)
 AI_BACKEND ?= auto
 export PATH := $(HOME)/.local/bin:$(PATH)
 
-.PHONY: pc-care-sop-guard weighing-sop-guard shifting-sop-guard commandboard-query-plan-guard commandboard-query-plan-wiring-guard additive-publish-guard seed-state-guard check guardrails herd-signals-language-guard exception-guard-ratchet telemetry-guard-ratchet exception-guard-ratchet-regenerate telemetry-guard-ratchet-regenerate exception-guard-ratchet-v2 telemetry-guard-ratchet-v2 exception-guard-ratchet-v2-regenerate telemetry-guard-ratchet-v2-regenerate git-identity-guard guardrail-registration-guard stg-deploy-scripts-test grafana-provisioning-guard backend-foundations-guard postgres-bind-contract-guard test-execution-integrity-guard operator-cap-fail-closed-guard stg-operator-scope-guard cascade-event-wiring-guard frontend-foundations-guard domain-event-architecture-guard operational-read-model-contract-guard critical-animal-action-availability-guard leadership-assistant-coverage-guard ceo-ai-page-contract-drift-guard assistant-route-closure-guard local-ci-evidence-guard kernel-worker-retirement-gate-guard stg-disposable-topology-guard stg-promotion-guard stg-promotion-guard-install e2e-integrity-guard aggregate-projection-guard vaccination-schedule-canonical-guard vaccination-shared-source-sync-guard calendar-endpoint-grain-guard goat-shed-scope-guard operational-partition-identity-guard role-scoped-ui-contract-guard goat-shed-integrity-db-proof scale-certification-docs-guard scale-guard clinical-defer-guard ceo-ai-boundary-guard ceo-ai-schema-card-guard operational-location-guard vaccination-drive-clubbing-guard vaccination-adult-drive-contract-guard vaccination-drive-clubbing-db-proof vaccination-shed-ack-guard vaccination-hrms-seed-fixture-guard vaccination-hrms-source-audit fcm-recipient-routing-guard sweeper-deployment-guard deployed-job-flags-guard secret-accessors-guard worker-stage-budgets-guard idempotency-writes-guard atomic-readmodel-sync-guard config-validate-guard ui-vaccine-labels-guard notification-specificity-guard review-lens-ledger-guard seed-migration-guard india-date-guard offline-first-guard local-single-db-guard local-gcp-kernel-parity-guard dashboard-automation-guard ci-local ci-local-screenshots screenshot-remediation-guard push-hook-freshness-guard parallel-dispatch-cleanup-guard gradle-worktree-lock-guard land-main land-main-self-test java21-self-test gradle-home-self-test mobile-guard mobile-guard-audit backend-proof-media-egress-guard android-runtime-permission-sdk-gates-guard android-runtime-permission-sdk-gates-guard-audit android-row-action-scope-guard android-vaccination-submit-gate-guard android-navigation-stack-guard nav-entry-point-placement-guard nav-entry-point-placement-guard-audit telemetry-guard telemetry-guard-audit admin-web-request-reads-guard admin-web-request-reads-guard-audit admin-web-phone-viewport-guard admin-web-phone-viewport-guard-list admin-web-phone-viewport-baseline-update admin-web-prefetch-guard admin-web-server-client-values-guard admin-web-server-client-values-guard-audit android-bounded-memory-guard android-bounded-memory-guard-audit nav-composition-guard nav-composition-guard-audit mobile-contract-ownership-guard mobile-contract-ownership-guard-audit weighing-partition-composition-guard exception-guard exception-guard-audit test api-client-generate api-client-check sqlc-generate sqlc-check validate-hot-index-migrations validate-migrations validate-sqlc-plans pre-google-readiness seed-calendar-vaccination-dev seed-dev-email-grants seed-stg-email-grants seed-stg-firebase-password-users seed-stg-9-person-login seed-stg-postflight verify-stg-9-person-login seed-closeout seed-closeout-dry-run seed-vaccination-source-full seed-checkout-staleness-gate seed-vaccination-cpt-operator-drive legacy-god-sheet-sync-dry-run legacy-god-sheet-sync-apply verify-google-dev-seed-fixtures api-latency-policy-test api-latency-gate high-scale-kernel-e2e-all high-scale-kernel-e2e-data high-scale-kernel-e2e-certification bulk-status-kernel-it scale-kernel-gate scale-kernel-gate-smoke admin-web-e2e-smoke docker-storage-report docker-cleanup-goatos-dry-run docker-cleanup-goatos-execute docker-storage-scripts-test db-mutation-guard-test local-stack-service-guard dev-local dev-local-kernel-up dev-local-kernel-status dev-local-kernel-logs dev-local-kernel-smoke dev-local-service-install dev-local-service-start dev-local-service-stop dev-local-service-restart dev-local-service-status dev-local-service-logs dev-local-service-uninstall setup-crg update-docs-graph kernel-worker-cutover-guard seed-feed-ration ceo-ai-eval ceo-ai-eval-selftest e2e-mcp-smoke oci-stg-db-parity grant-assistant-public-read
+.PHONY: pc-care-sop-guard weighing-sop-guard shifting-sop-guard commandboard-query-plan-guard commandboard-query-plan-wiring-guard additive-publish-guard seed-state-guard check guardrails herd-signals-language-guard exception-guard-ratchet telemetry-guard-ratchet exception-guard-ratchet-regenerate telemetry-guard-ratchet-regenerate exception-guard-ratchet-v2 telemetry-guard-ratchet-v2 exception-guard-ratchet-v2-regenerate telemetry-guard-ratchet-v2-regenerate git-identity-guard guardrail-registration-guard stg-deploy-scripts-test grafana-provisioning-guard backend-foundations-guard postgres-bind-contract-guard test-execution-integrity-guard operator-cap-fail-closed-guard stg-operator-scope-guard cascade-event-wiring-guard frontend-foundations-guard domain-event-architecture-guard operational-read-model-contract-guard critical-animal-action-availability-guard leadership-assistant-coverage-guard ceo-ai-page-contract-drift-guard assistant-route-closure-guard local-ci-evidence-guard kernel-worker-retirement-gate-guard stg-disposable-topology-guard stg-promotion-guard stg-promotion-guard-install e2e-integrity-guard aggregate-projection-guard vaccination-schedule-canonical-guard vaccination-shared-source-sync-guard calendar-endpoint-grain-guard goat-shed-scope-guard operational-partition-identity-guard role-scoped-ui-contract-guard goat-shed-integrity-db-proof scale-certification-docs-guard scale-guard clinical-defer-guard ceo-ai-boundary-guard ceo-ai-schema-card-guard operational-location-guard vaccination-drive-clubbing-guard vaccination-adult-drive-contract-guard vaccination-drive-clubbing-db-proof vaccination-shed-ack-guard vaccination-hrms-seed-fixture-guard vaccination-hrms-source-audit fcm-recipient-routing-guard sweeper-deployment-guard deployed-job-flags-guard secret-accessors-guard worker-stage-budgets-guard idempotency-writes-guard atomic-readmodel-sync-guard config-validate-guard ui-vaccine-labels-guard notification-specificity-guard review-lens-ledger-guard seed-migration-guard india-date-guard offline-first-guard local-single-db-guard local-gcp-kernel-parity-guard ci-local ci-local-screenshots screenshot-remediation-guard push-hook-freshness-guard parallel-dispatch-cleanup-guard gradle-worktree-lock-guard land-main land-main-self-test java21-self-test gradle-home-self-test mobile-guard mobile-guard-audit backend-proof-media-egress-guard android-runtime-permission-sdk-gates-guard android-runtime-permission-sdk-gates-guard-audit android-row-action-scope-guard android-vaccination-submit-gate-guard android-navigation-stack-guard nav-entry-point-placement-guard nav-entry-point-placement-guard-audit telemetry-guard telemetry-guard-audit admin-web-request-reads-guard admin-web-request-reads-guard-audit admin-web-phone-viewport-guard admin-web-phone-viewport-guard-list admin-web-phone-viewport-baseline-update admin-web-prefetch-guard admin-web-server-client-values-guard admin-web-server-client-values-guard-audit android-bounded-memory-guard android-bounded-memory-guard-audit nav-composition-guard nav-composition-guard-audit mobile-contract-ownership-guard mobile-contract-ownership-guard-audit weighing-partition-composition-guard exception-guard exception-guard-audit test api-client-generate api-client-check sqlc-generate sqlc-check validate-hot-index-migrations validate-migrations validate-sqlc-plans pre-google-readiness seed-calendar-vaccination-dev seed-dev-email-grants seed-stg-email-grants seed-stg-firebase-password-users seed-stg-9-person-login seed-stg-postflight verify-stg-9-person-login seed-closeout seed-closeout-dry-run seed-vaccination-source-full seed-checkout-staleness-gate seed-vaccination-cpt-operator-drive legacy-god-sheet-sync-dry-run legacy-god-sheet-sync-apply verify-google-dev-seed-fixtures api-latency-policy-test api-latency-gate high-scale-kernel-e2e-all high-scale-kernel-e2e-data high-scale-kernel-e2e-certification bulk-status-kernel-it scale-kernel-gate scale-kernel-gate-smoke admin-web-e2e-smoke docker-storage-report docker-cleanup-goatos-dry-run docker-cleanup-goatos-execute docker-storage-scripts-test db-mutation-guard-test local-stack-service-guard dev-local dev-local-kernel-up dev-local-kernel-status dev-local-kernel-logs dev-local-kernel-smoke dev-local-service-install dev-local-service-start dev-local-service-stop dev-local-service-restart dev-local-service-status dev-local-service-logs dev-local-service-uninstall setup-crg update-docs-graph kernel-worker-cutover-guard seed-feed-ration ceo-ai-eval ceo-ai-eval-selftest e2e-mcp-smoke oci-stg-db-parity grant-assistant-public-read
 
 .PHONY: ai-setup ai-doctor ai-rebuild ai-rebuild-code ai-rebuild-docs ai-rebuild-repowise ai-repowise-coverage docs-graph-open ai-telemetry ai-telemetry-ui
 .PHONY: mcp-full-e2e
@@ -18,7 +18,6 @@ export PATH := $(HOME)/.local/bin:$(PATH)
 .PHONY: e2e-image-build e2e-parity e2e-smoke e2e-business-chain scale-cert
 .PHONY: org-boundary-guard
 .PHONY: mesha-data-map-guard
-.PHONY: dashboard-automation-guard dashboard-automation-self-test dashboard-automation-data-parity dashboard-automation-production-smoke dashboard-automation-post-main-certification
 setup-crg: ai-setup
 
 ai-setup:
@@ -102,31 +101,6 @@ update-docs-graph:
 stg-zero-downtime-migration-audit:
 	node tools/deploy/audit-stg-zero-downtime-migrations.mjs --enforce
 
-dashboard-automation-self-test:
-	node tools/dashboard-automation/run.mjs --self-test
-	node tools/dashboard-automation/preflight-oci-free.mjs --self-test
-	node tools/dashboard-automation/agent-review.mjs --self-test
-	node tools/dashboard-automation/self-heal-pr.mjs --self-test
-	node tools/dashboard-automation/check-business-data-parity.mjs --self-test
-	node tools/dashboard-automation/check-module-journeys.mjs --self-test
-	node tools/dashboard-automation/run-module-journeys.mjs --self-test
-	node tools/dashboard-automation/sync-coverage.mjs --self-test
-	node --test tools/dashboard-automation/sync-coverage.test.mjs
-	node --test tools/dashboard-automation/lane-coverage.test.mjs
-	node tools/agent-hooks/check-dashboard-automation-guard.mjs --self-test
-	bash -n tools/dashboard-automation/run-oci.sh
-	bash -n tools/dashboard-automation/run-post-main-if-new.sh
-	bash -n tools/dashboard-automation/install-oci-user-timer.sh
-
-dashboard-automation-data-parity:
-	node tools/dashboard-automation/check-business-data-parity.mjs
-
-dashboard-automation-production-smoke:
-	node tools/dashboard-automation/run.mjs --mode production-smoke
-
-dashboard-automation-post-main-certification:
-	node tools/dashboard-automation/run.mjs --mode post-main-certification
-
 ai-telemetry:
 	python3 tools/ai/analyze-transcripts.py
 
@@ -156,7 +130,6 @@ guardrails:
 	$(MAKE) postgres-bind-contract-guard
 	$(MAKE) backend-proof-media-egress-guard
 	$(MAKE) admin-web-proof-media-egress-guard
-	$(MAKE) dashboard-automation-guard
 	$(MAKE) test-execution-integrity-guard
 	$(MAKE) operator-cap-fail-closed-guard
 	$(MAKE) stg-operator-scope-guard
@@ -1148,10 +1121,6 @@ admin-web-request-reads-guard-audit:
 admin-web-proof-media-egress-guard:
 	node tools/agent-hooks/check-admin-web-proof-media-egress.mjs --self-test
 	node tools/agent-hooks/check-admin-web-proof-media-egress.mjs
-
-dashboard-automation-guard:
-	node tools/agent-hooks/check-dashboard-automation-guard.mjs --self-test
-	node tools/agent-hooks/check-dashboard-automation-guard.mjs
 
 # admin-web-phone-viewport-guard: the dashboard is opened on PHONES (maintainer rule 2026-09-14).
 # Static half: fixed px widths >= 480 on non-scrolling boxes, grids whose px floor exceeds a

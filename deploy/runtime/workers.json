@@ -109,20 +109,6 @@
         "stg"
       ],
       "notes": "Long-running staging MQTT bridge for HoneyComm BLE gateway telemetry. It connects to the TLS Mosquitto broker, decodes GwData scan reports, and writes through herdsignals app.Service.IngestPackets rather than a second write path. Initial deployment must run as a single Cloud Run instance until duplicate handling and shared subscription semantics are proven."
-    },
-    {
-      "name": "cost_alert_bridge",
-      "binary": "cost-alert-bridge",
-      "kind": "service",
-      "args": [],
-      "health_signal": "GET /readyz returns 200; Monitoring webhooks and forced billing anomaly checks return 204 after posting. Budget Pub/Sub returns 204 after sending or suppressing unchanged state, and 503 on retryable delivery failures.",
-      "deployed_environments": [
-        "stg"
-      ],
-      "service_tf_files": {
-        "stg": "infra/envs/stg/cloud_run_services.tf"
-      },
-      "notes": "Staging cost alert bridge for Cloud Monitoring media alerts, Cloud Billing budget Pub/Sub notifications, and BigQuery billing-export anomaly checks. Terraform runs /app/bin/cost-alert-bridge from the backend image and reads Slack bot credentials from Secret Manager. GOATOS_COST_ALERT_STATE_BUCKET is required for durable budget suppression and 24-hour reminders; see docs/runbooks/cost-alert-budget-delivery.md."
     }
   ],
   "environments": {
