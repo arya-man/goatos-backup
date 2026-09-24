@@ -54,7 +54,7 @@ export function RegisterSheetControls({
   const [problems, setProblems] = useState<Problem[]>([]);
   const [note, setNote] = useState("");
 
-  const href = (action: "template" | "export", format: "csv" | "xlsx") =>
+  const href = (action: "template" | "export", format: "csv" | "xlsx" | "json") =>
     registerSheetHref(animalClass, action, format);
 
   async function upload(file: File) {
@@ -88,7 +88,11 @@ export function RegisterSheetControls({
         `${copy(pageContract, "action.sheet_imported")} — ${payload?.questions ?? 0} / ${payload?.rules ?? 0}`,
       );
       // Warnings a publish WOULD allow through, surfaced now rather than after publishing.
-      if (Array.isArray(payload?.warnings)) setProblems(payload.warnings);
+      if (Array.isArray(payload?.warnings)) {
+        setProblems(payload.warnings.map((warning: string | Problem) =>
+          typeof warning === "string" ? { message: warning } : warning,
+        ));
+      }
       onImported?.();
     } catch {
       setProblems([{ message: copy(pageContract, "action.error_backend") }]);
