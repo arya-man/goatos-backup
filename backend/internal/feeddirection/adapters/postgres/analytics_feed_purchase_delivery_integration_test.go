@@ -50,6 +50,7 @@ VALUES ($1, $2, 'CBE', 'UHT Milk', $3::date, $4::numeric, 326, 'test')`, fdiTena
 
 	balance := func() string {
 		t.Helper()
+		activatePurchasedFeeds(t, ctx, pool) // only ACTIVE catalog feeds have stock cards (2026-09-24)
 		got, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{ParkIDs: []uuid.UUID{uuid.MustParse(fdiPark)}})
 		if err != nil {
 			t.Fatalf("StockAnalytics: %v", err)
@@ -80,6 +81,7 @@ WHERE tenant_id = $1 AND batch_no = 327`, fdiTenant); err != nil {
 	}
 
 	// Park scope: another park's caller sees neither load, reached or not.
+	activatePurchasedFeeds(t, ctx, pool) // only ACTIVE catalog feeds have stock cards (2026-09-24)
 	other, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{ParkIDs: []uuid.UUID{uuid.New()}})
 	if err != nil {
 		t.Fatalf("StockAnalytics other park: %v", err)

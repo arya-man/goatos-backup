@@ -1642,9 +1642,10 @@ func (r *Repository) ExperimentAnalytics(ctx context.Context, tenantID string, q
 // intention had two opposite outcomes.) And a feed just bought and not yet fed
 // has no burn rate at all, so a full sack in the store showed nowhere. The
 // catalog is the farm's own switch for this and needs no invented recency
-// threshold. A key with NO catalog row is SHOWN (fail open): hiding a balance
-// because its catalog row is missing loses stock, which is worse than one
-// noisy card on a tab whose whole question is "do we have feed".
+// threshold. SUPERSEDED 2026-09-24 on the missing-row case (maintainer: "the
+// stock cards should be what active feeds are there"): a card now needs a
+// catalog row that says 'active'. A key with no catalog row used to be SHOWN
+// (fail open); it is now left out, on the cards and the low-stock push alike.
 //
 // NotStarted is that second case: stock on hand, nothing drawn yet. It is
 // deliberately NOT low_stock -- a full untouched load is the opposite of
@@ -1814,11 +1815,14 @@ LEFT JOIN recent r
 LEFT JOIN rate_override ov
   ON ov.farm_label = fs.farm_label
  AND ov.feed_item_key = fs.family_key
--- The retired check reads the FAMILY key, so a retired MEMBER still contributes
--- its leftover stock while a retired feed with no successor still drops out.
+-- ACTIVE FEEDS ONLY (maintainer decision 2026-09-24: "the stock cards should be what active
+-- feeds are there"): a card needs a catalog row that says 'active'. A feed with no catalog row
+-- used to be shown (fail open); it is not a feed the farm buys today, so it has no card. The
+-- check reads the FAMILY key, so a retired MEMBER still contributes its leftover stock to its
+-- active successor's card.
 LEFT JOIN feed_item_catalog c
   ON c.tenant_id = $1 AND c.feed_item_key = fs.family_key
-WHERE COALESCE(c.status, 'active') <> 'retired'
+WHERE c.status = 'active'
 ORDER BY days_left NULLS LAST, fs.family_label, fs.farm_label`
 
 // Next-7-days requirement and cost (maintainer decision 2026-08-23), at
@@ -2148,7 +2152,9 @@ LEFT JOIN feed_item_catalog c
 -- A feed with no recent consumption has no burn rate to divide by, so it has no days-left to be
 -- low: it is joined INNER on purpose. Alerting on it would be a guess.
 WHERE COALESCE(ov.kg_per_day, r.avg_kg) > 0
-  AND COALESCE(c.status, 'active') <> 'retired'
+  -- ACTIVE FEEDS ONLY, the same rule as the stock cards (maintainer decision 2026-09-24): the
+  -- push never names a feed the Stock tab has no card for.
+  AND c.status = 'active'
   AND floor(fs.balance_kg / COALESCE(ov.kg_per_day, r.avg_kg)) < $2
 ORDER BY days_left, fs.farm_label, fs.family_label`
 

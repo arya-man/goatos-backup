@@ -103,14 +103,17 @@ test("stock-only feed analytics hides full controls and item graphs", () => {
   // carries Stock AND Purchased vs consumed (both ride the stock permission), so the rule keys on
   // the tab that needs the full feed read rather than on a count of one.
   assert.match(source, /const stockOnly = !allowedTabs\.includes\("overview"\);/);
-  assert.match(source, /const wantDirected = !stockOnly && \(tab === "overview" \|\| tab === "items" \|\| tab === "peranimal"\);/);
+  // The Stock tab never reads the daily sheet (maintainer request 2026-09-24): its cards come from
+  // the stock read alone, for the stock-only reader and the full reader alike.
+  assert.match(source, /const wantDirected = !stockOnly && \(tab === "overview" \|\| tab === "peranimal"\);/);
   assert.match(source, /\{!stockOnly \? \(\s*<>\s*<p className="muted small"[\s\S]*?<SegmentedLinks[\s\S]*?<SegmentedLinks[\s\S]*?<\/>\s*\) : null\}/);
   assert.match(source, /const nonNull = \[directed, execution, experiment, stock, shedFeed, executionDay, loads, followUp\]\.filter/s);
-  assert.match(source, /const gated = \[directed, execution, experiment, shedFeed, loads, followUp, tab === "execution" \? executionDay : null, stockOnly \? stock : null\];/s);
+  assert.match(source, /const gated = \[directed, execution, experiment, shedFeed, loads, followUp, tab === "execution" \? executionDay : null, stockOnly \|\| tab === "items" \? stock : null\];/s);
   // Feed follow-up reads the herd register's purchases, sales and deaths, so it rides the FULL
   // feed gate: a stock-only reader must never fetch it.
   assert.match(source, /const wantFollowUp = !stockOnly && tab === "followup";/);
-  assert.match(source, /\{stockOnly && tab === "items" && !failed \? \(\s*<StockCards stock=\{stock\?\.ok \? stock\.data : null\} pageContract=\{pageContract\} \/>/s);
+  assert.match(source, /\{tab === "items" && !failed \? \(\s*<StockCards stock=\{stock\?\.ok \? stock\.data : null\} pageContract=\{pageContract\} \/>/s);
+  assert.doesNotMatch(source, /\{tab === "items" \? <StockCards stock=\{stock\}/);
   // The per-feed money cards moved to the Consumption tab (maintainer request 2026-09-04). A
   // stock-only reader's contract offers no such tab, so the Stock tab carries the stock table alone.
   assert.match(source, /\{tab === "overview" \? \(\s*\/\/ Consumption tab/);

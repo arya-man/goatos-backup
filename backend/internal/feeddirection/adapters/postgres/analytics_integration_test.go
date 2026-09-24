@@ -478,6 +478,7 @@ VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 41.5266, 1000, 0, DATE '2026-
 		t.Fatalf("persist issued day: %v", err)
 	}
 
+	activatePurchasedFeeds(t, ctx, pool) // only ACTIVE catalog feeds have stock cards (2026-09-24)
 	got, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{})
 	if err != nil {
 		t.Fatalf("StockAnalytics: %v", err)
@@ -490,6 +491,7 @@ VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 41.5266, 1000, 0, DATE '2026-
 	if len(got.FarmItems) != 3 {
 		t.Fatalf("want 3 farm rows (two families at CBE, one at XYZ; non-Mesha excluded), got %d: %+v", len(got.FarmItems), got.FarmItems)
 	}
+	activatePurchasedFeeds(t, ctx, pool) // only ACTIVE catalog feeds have stock cards (2026-09-24)
 	emptyScope, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{ParkIDs: []uuid.UUID{}})
 	if err != nil {
 		t.Fatalf("StockAnalytics empty park scope: %v", err)
@@ -609,6 +611,7 @@ VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 41.5266, 1000, 0, DATE '2026-
 	// (batch_no alone must break the tie for last-load).
 	t.Run("OneToManyLoadsSameDateTieBreaksOnBatch", func(t *testing.T) {
 		insertPurchase("CBE", "Mesha Kids Goat Concentrate", 340, "2026-08-08", "50.000", &park)
+		activatePurchasedFeeds(t, ctx, pool) // only ACTIVE catalog feeds have stock cards (2026-09-24)
 		again, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{})
 		if err != nil {
 			t.Fatalf("StockAnalytics: %v", err)
@@ -627,10 +630,12 @@ VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 41.5266, 1000, 0, DATE '2026-
 	// above have since added a load.
 	t.Run("PageBoundaryFreeWindowIndependence", func(t *testing.T) {
 		day := time.Date(2026, 8, 12, 0, 0, 0, 0, biztime.DefaultLocation())
+		activatePurchasedFeeds(t, ctx, pool) // only ACTIVE catalog feeds have stock cards (2026-09-24)
 		narrow, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{DateFrom: day, DateTo: day})
 		if err != nil {
 			t.Fatalf("StockAnalytics narrow: %v", err)
 		}
+		activatePurchasedFeeds(t, ctx, pool) // only ACTIVE catalog feeds have stock cards (2026-09-24)
 		full, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{})
 		if err != nil {
 			t.Fatalf("StockAnalytics full: %v", err)
@@ -657,6 +662,7 @@ VALUES ($1, $2, 'CBE', 'Mesha Kids Goat Concentrate', 350,
 			fdiTenant, park); err != nil {
 			t.Fatalf("insert newer load: %v", err)
 		}
+		activatePurchasedFeeds(t, ctx, pool) // only ACTIVE catalog feeds have stock cards (2026-09-24)
 		after, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{})
 		if err != nil {
 			t.Fatalf("StockAnalytics: %v", err)
@@ -684,6 +690,7 @@ DELETE FROM feed_purchases WHERE tenant_id = $1 AND farm_label = 'CBE'
   AND feed_item_key = 'mesha_kids_goat_concentrate' AND batch_no IN (330, 340)`, fdiTenant); err != nil {
 			t.Fatalf("drop interim loads: %v", err)
 		}
+		activatePurchasedFeeds(t, ctx, pool) // only ACTIVE catalog feeds have stock cards (2026-09-24)
 		crossed, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{})
 		if err != nil {
 			t.Fatalf("StockAnalytics: %v", err)
@@ -701,6 +708,7 @@ DELETE FROM feed_purchases WHERE tenant_id = $1 AND farm_label = 'CBE'
 	// purchases nor the park-less XYZ farm row.
 	t.Run("ParkScopeFilterExcludesOtherParksAndParklessFarms", func(t *testing.T) {
 		other := uuid.New()
+		activatePurchasedFeeds(t, ctx, pool) // only ACTIVE catalog feeds have stock cards (2026-09-24)
 		scoped, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{ParkIDs: []uuid.UUID{other}})
 		if err != nil {
 			t.Fatalf("StockAnalytics scoped: %v", err)
@@ -765,6 +773,7 @@ VALUES ($1, $2, $3, 'Mesha Kids Goat Concentrate', $4, $5::date, 1000, $6::numer
 	persist(parkCPT, "CPT", "price-cpt", fdiShedB)
 
 	day := time.Date(2026, 8, 15, 0, 0, 0, 0, biztime.DefaultLocation())
+	activatePurchasedFeeds(t, ctx, pool) // only ACTIVE catalog feeds have stock cards (2026-09-24)
 	got, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{DateFrom: day, DateTo: day})
 	if err != nil {
 		t.Fatalf("StockAnalytics: %v", err)
@@ -790,6 +799,7 @@ VALUES ($1, $2, $3, 'Mesha Kids Goat Concentrate', $4, $5::date, 1000, $6::numer
 		t.Fatalf("item expenditure must carry farm-priced rupees beside the priced kg, got %+v", ie)
 	}
 
+	activatePurchasedFeeds(t, ctx, pool) // only ACTIVE catalog feeds have stock cards (2026-09-24)
 	cbeScoped, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{
 		DateFrom: day,
 		DateTo:   day,
@@ -801,6 +811,7 @@ VALUES ($1, $2, $3, 'Mesha Kids Goat Concentrate', $4, $5::date, 1000, $6::numer
 	if len(cbeScoped.Expenditure) != 1 || cbeScoped.Expenditure[0].Rupees != "1000" {
 		t.Fatalf("CBE scope must keep only CBE price and kg, got %+v", cbeScoped.Expenditure)
 	}
+	activatePurchasedFeeds(t, ctx, pool) // only ACTIVE catalog feeds have stock cards (2026-09-24)
 	outsideWindow, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{
 		DateFrom: day.AddDate(0, 0, 1),
 		DateTo:   day.AddDate(0, 0, 1),
@@ -1143,6 +1154,7 @@ VALUES ($1, NULL, 'XYZ', 'UHT Milk', DATE '2026-08-21', 999, 'test')`,
 		t.Fatalf("insert park-less consumption: %v", err)
 	}
 
+	activatePurchasedFeeds(t, ctx, pool) // only ACTIVE catalog feeds have stock cards (2026-09-24)
 	got, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{})
 	if err != nil {
 		t.Fatalf("StockAnalytics: %v", err)
@@ -1173,6 +1185,7 @@ VALUES ($1, NULL, 'XYZ', 'UHT Milk', DATE '2026-08-21', 999, 'test')`,
 	// Expenditure prices the day's external consumption at the ledger rate:
 	// 26 kg × 63.64 = 1655.
 	day := time.Date(2026, 8, 21, 0, 0, 0, 0, biztime.DefaultLocation())
+	activatePurchasedFeeds(t, ctx, pool) // only ACTIVE catalog feeds have stock cards (2026-09-24)
 	windowed, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{DateFrom: day, DateTo: day})
 	if err != nil {
 		t.Fatalf("StockAnalytics windowed: %v", err)
@@ -1212,6 +1225,7 @@ VALUES ($1, NULL, 'XYZ', 'UHT Milk', DATE '2026-08-21', 999, 'test')`,
 	// ParkScope: a caller scoped to a foreign park sees no UHT card and no UHT
 	// spend — both sides of the union carry the park filter.
 	t.Run("ParkScopeFilterExcludesExternalConsumption", func(t *testing.T) {
+		activatePurchasedFeeds(t, ctx, pool) // only ACTIVE catalog feeds have stock cards (2026-09-24)
 		scoped, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{ParkIDs: []uuid.UUID{uuid.New()}})
 		if err != nil {
 			t.Fatalf("StockAnalytics scoped: %v", err)
@@ -1260,6 +1274,7 @@ VALUES ($1, $2, 'CBE', 'Mesha Kids Goat Concentrate', DATE '2026-08-18', 5, 'tes
 		// counts. 1000 − 5 = 995.0.
 		read := func() string {
 			t.Helper()
+			activatePurchasedFeeds(t, ctx, pool) // only ACTIVE catalog feeds have stock cards (2026-09-24)
 			res, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{})
 			if err != nil {
 				t.Fatalf("StockAnalytics: %v", err)
@@ -1365,6 +1380,7 @@ VALUES ($1, $2, 'CBE', 'UHT Milk', $3::date, $4::numeric, 326, 'test')`,
 	// 08-22 is in rework: the proof gets re-shot, the milk was still drunk.
 	prepare("2026-08-22", "30.000", "rework")
 
+	activatePurchasedFeeds(t, ctx, pool) // only ACTIVE catalog feeds have stock cards (2026-09-24)
 	got, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{})
 	if err != nil {
 		t.Fatalf("StockAnalytics: %v", err)
@@ -1392,6 +1408,7 @@ VALUES ($1, $2, 'CBE', 'UHT Milk', $3::date, $4::numeric, 326, 'test')`,
 
 	uhtBalance := func(t *testing.T, q domain.DirectedAnalyticsQuery) string {
 		t.Helper()
+		activatePurchasedFeeds(t, ctx, pool) // only ACTIVE catalog feeds have stock cards (2026-09-24)
 		res, err := repo.StockAnalytics(ctx, fdiTenant, q)
 		if err != nil {
 			t.Fatalf("StockAnalytics: %v", err)
@@ -1597,6 +1614,7 @@ VALUES ($1, $2, 'CBE', 'UHT Milk', $3::date, 20.000, 326, 'test')`, fdiTenant, p
 		}
 	}
 
+	activatePurchasedFeeds(t, ctx, pool) // only ACTIVE catalog feeds have stock cards (2026-09-24)
 	got, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{})
 	if err != nil {
 		t.Fatalf("StockAnalytics: %v", err)
@@ -1666,6 +1684,7 @@ VALUES ($1, $2, 'CBE', 'UHT Milk', $3::date, 20.000, 326, 'test')`, fdiTenant, p
 
 	// A park filter naming a different park must empty the table rather than
 	// leak another park's requirement.
+	activatePurchasedFeeds(t, ctx, pool) // only ACTIVE catalog feeds have stock cards (2026-09-24)
 	other, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{
 		ParkIDs: []uuid.UUID{uuid.MustParse("11111111-1111-4111-8111-111111111111")},
 	})
@@ -1742,6 +1761,7 @@ VALUES ($1, $2, 'CBE', 'Concentrate', 400, DATE '2026-08-16', 130.000, 25.0000, 
 			t.Fatalf("lock %s = (%v, %v)", day, lock.Outcome, err)
 		}
 	}
+	activatePurchasedFeeds(t, ctx, pool) // only ACTIVE catalog feeds have stock cards (2026-09-24)
 	got, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{})
 	if err != nil {
 		t.Fatalf("StockAnalytics: %v", err)
@@ -1788,6 +1808,7 @@ VALUES ($1, $2, 'CBE', 'Concentrate', 400, DATE '2026-08-16', 130.000, 25.0000, 
 			t.Fatalf("lock %s = (%v, %v)", day, lock.Outcome, err)
 		}
 	}
+	activatePurchasedFeeds(t, ctx, pool) // only ACTIVE catalog feeds have stock cards (2026-09-24)
 	got, err = repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{})
 	if err != nil {
 		t.Fatalf("StockAnalytics after: %v", err)
@@ -1899,6 +1920,7 @@ ON CONFLICT (location_id) DO NOTHING`, fdiTenant, parkCPT); err != nil {
 			"Mesha Kids Goat Concentrate": "8.000"})
 	}
 
+	activatePurchasedFeeds(t, ctx, pool) // only ACTIVE catalog feeds have stock cards (2026-09-24)
 	got, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{})
 	if err != nil {
 		t.Fatalf("StockAnalytics: %v", err)
@@ -1920,6 +1942,7 @@ ON CONFLICT (location_id) DO NOTHING`, fdiTenant, parkCPT); err != nil {
 		t.Errorf("CPT kids feed avg = %q, want 8.0", got.Forecast[1].AvgDailyKg)
 	}
 
+	activatePurchasedFeeds(t, ctx, pool) // only ACTIVE catalog feeds have stock cards (2026-09-24)
 	cbeOnly, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{
 		ParkIDs: []uuid.UUID{uuid.MustParse(parkCBE)},
 	})
@@ -2404,6 +2427,8 @@ func mustFloat(t *testing.T, raw string) float64 {
 // BOUGHT and not yet fed has no burn rate at all, so a full sack in the store
 // showed nowhere. Output strings are asserted on a real DB round trip.
 func TestStockCardsActiveVocabularyOneToManyPageBoundaryParkScopeStatusBucketsNotBurnRate(t *testing.T) {
+	// This test is about WHICH feeds get a card, not CBE's pinned Concentrate rate.
+	withoutStockRateOverrides(t)
 	ctx := context.Background()
 	repo, pool := setupIssueDB(t, ctx)
 
@@ -2445,6 +2470,10 @@ VALUES ($1, $2, 'CBE', $3, $4, DATE '2026-08-09', $5::numeric, 40, 1000, 0, DATE
 	purchase("Toor Dal Bhusa Pellet", 302, "3864.800")
 	catalog("Hedge Lucerne", "retired")
 	purchase("Hedge Lucerne", 303, "500.000")
+	// NO CATALOG ROW at all (maintainer decision 2026-09-24: cards and the push are the ACTIVE
+	// feeds only). Bought AND fed, so it carries a balance and a burn rate -- it used to be shown
+	// by the fail-open rule and would page leadership as low stock. It must do neither.
+	purchase("Hay", 304, "100.000")
 
 	// One locked day feeding the kids concentrate and the (later) retired
 	// Hedge Lucerne, so both own a burn rate at the moment of the read.
@@ -2467,6 +2496,7 @@ VALUES ($1, $2, 'CBE', $3, $4, DATE '2026-08-09', $5::numeric, 40, 1000, 0, DATE
 		Cells: []domain.StoredCell{
 			cell("Concentrate", "concentrate", "120.000"),
 			cell("Hedge Lucerne", "hedge_lucerne", "50.000"),
+			cell("Hay", "hay", "50.000"),
 		},
 	}); err != nil {
 		t.Fatalf("persist locked day: %v", err)
@@ -2490,7 +2520,7 @@ VALUES ($1, $2, 'CBE', $3, $4, DATE '2026-08-09', $5::numeric, 40, 1000, 0, DATE
 	if len(byItem) != 2 {
 		t.Fatalf("want exactly the 2 ACTIVE feeds as cards, got %d: %+v", len(byItem), got.Items)
 	}
-	for _, retired := range []string{"toor_dal_bhusa_pellet", "hedge_lucerne"} {
+	for _, retired := range []string{"toor_dal_bhusa_pellet", "hedge_lucerne", "hay"} {
 		if it, ok := byItem[retired]; ok {
 			t.Errorf("retired feed %q must not be served as a card (its burn rate is frozen, not current): %+v", retired, it)
 		}
@@ -2533,8 +2563,8 @@ VALUES ($1, $2, 'CBE', $3, $4, DATE '2026-08-09', $5::numeric, 40, 1000, 0, DATE
 		t.Fatalf("LowStockFeeds: %v", err)
 	}
 	for _, f := range low {
-		if f.FeedItemKey == "hedge_lucerne" {
-			t.Errorf("low-stock push must use the same retired-feed filter as the stock cards, got %+v", f)
+		if f.FeedItemKey == "hedge_lucerne" || f.FeedItemKey == "hay" {
+			t.Errorf("low-stock push names only ACTIVE catalog feeds, the stock cards' rule; got %+v", f)
 		}
 	}
 }
@@ -2648,6 +2678,7 @@ VALUES ($1, $2, 'CBE', $3, $4, DATE '2026-08-09', $5::numeric, 40, 1000, 0, DATE
 		cell(1, "Mesha Kids Goat Concentrate", "mesha_kids_goat_concentrate", "50.000"),
 	)
 
+	activatePurchasedFeeds(t, ctx, pool) // only ACTIVE catalog feeds have stock cards (2026-09-24)
 	got, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{})
 	if err != nil {
 		t.Fatalf("StockAnalytics: %v", err)
@@ -2806,6 +2837,7 @@ VALUES ($1, $2, 'CBE', $3, $4, DATE '2026-08-09', $5::numeric, 40, 1000, 0, DATE
 		// own expenditure window must not move it — the whole family set comes
 		// back on a one-day window exactly as on the default one.
 		day := time.Date(2026, 8, 12, 0, 0, 0, 0, biztime.DefaultLocation())
+		activatePurchasedFeeds(t, ctx, pool) // only ACTIVE catalog feeds have stock cards (2026-09-24)
 		narrow, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{DateFrom: day, DateTo: day})
 		if err != nil {
 			t.Fatalf("StockAnalytics narrow: %v", err)
@@ -2816,6 +2848,7 @@ VALUES ($1, $2, 'CBE', $3, $4, DATE '2026-08-09', $5::numeric, 40, 1000, 0, DATE
 
 		// PARK SCOPE: the fold must not leak a family across the scope filter.
 		// A foreign park serves nothing; this park serves the same two rows.
+		activatePurchasedFeeds(t, ctx, pool) // only ACTIVE catalog feeds have stock cards (2026-09-24)
 		foreign, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{ParkIDs: []uuid.UUID{uuid.New()}})
 		if err != nil {
 			t.Fatalf("StockAnalytics foreign scope: %v", err)
@@ -2823,6 +2856,7 @@ VALUES ($1, $2, 'CBE', $3, $4, DATE '2026-08-09', $5::numeric, 40, 1000, 0, DATE
 		if len(foreign.FarmItems) != 0 {
 			t.Errorf("foreign park scope must serve zero family rows, got %+v", foreign.FarmItems)
 		}
+		activatePurchasedFeeds(t, ctx, pool) // only ACTIVE catalog feeds have stock cards (2026-09-24)
 		scoped, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{ParkIDs: []uuid.UUID{uuid.MustParse(fdiPark)}})
 		if err != nil {
 			t.Fatalf("StockAnalytics scoped: %v", err)
@@ -2913,6 +2947,7 @@ VALUES ($1, $2, $3, $4, $5, DATE '2026-08-09', $6::numeric, 40, 1000, 0, DATE '2
 
 	cards := func(t *testing.T, q domain.DirectedAnalyticsQuery) map[string]domain.StockItem {
 		t.Helper()
+		activatePurchasedFeeds(t, ctx, pool) // only ACTIVE catalog feeds have stock cards (2026-09-24)
 		got, err := repo.StockAnalytics(ctx, fdiTenant, q)
 		if err != nil {
 			t.Fatalf("StockAnalytics: %v", err)
@@ -3022,6 +3057,7 @@ VALUES ($1, $2, $3, 'Concentrate', $4, DATE '2026-08-09', 1100, 40, 1000, 0, DAT
 		}
 	}
 
+	activatePurchasedFeeds(t, ctx, pool) // only ACTIVE catalog feeds have stock cards (2026-09-24)
 	got, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{})
 	if err != nil {
 		t.Fatalf("StockAnalytics: %v", err)
