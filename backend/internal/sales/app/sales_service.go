@@ -81,7 +81,7 @@ func (s *SalesService) ListDeals(ctx context.Context, tenantID string, q DealLis
 // trimming. The idempotency key is mandatory -- a sale is money, and a retried submit must never
 // record it twice.
 //
-// The registry of what the farm sells (migration 000393) is read here so the desk gets a FIELD
+// The registry of what the farm sells (migration 000402) is read here so the desk gets a FIELD
 // error naming the line it got wrong. The repository re-resolves it under the writing
 // transaction, which is where a product archived in between is caught; this read is for the
 // message, never for the guarantee.

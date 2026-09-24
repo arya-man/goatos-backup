@@ -70,7 +70,7 @@ type SalesRepository interface {
 	ListDeals(ctx context.Context, tenantID, farm string, limit, offset int) (DealPage, error)
 
 	// ListSellableProducts is the tenant's ACTIVE registry of what the farm sells (migration
-	// 000393), in farm order. It is read for validation before the write and RE-READ inside the
+	// 000402), in farm order. It is read for validation before the write and RE-READ inside the
 	// writing transaction: a product archived between the form opening and the save landing must
 	// not get through, which is the feed_item_catalog rule one layer up.
 	ListSellableProducts(ctx context.Context, tenantID string) ([]domain.Product, error)

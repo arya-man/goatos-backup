@@ -1663,7 +1663,7 @@ func (r *Repository) ExperimentAnalytics(ctx context.Context, tenantID string, q
 // small purchase ledger and windowed locked sheets, canonical-indexed-SQL default.
 const feedPurchaseStockKgSQL = `stock_kg`
 
-// FEED SOLD OFF THE STORE (migration 000393). One row per (farm, feed) of kilograms the farm
+// FEED SOLD OFF THE STORE (migration 000402). One row per (farm, feed) of kilograms the farm
 // The producer's unique columns are (tenant_id, line_id) and the consumer groups by
 // (farm_label, feed_item_key): the SUM ranges over whole rows and counts each line once, so two
 // sales of one feed ADD UP rather than one overwriting the other. That group key is EXACTLY the
@@ -2419,7 +2419,7 @@ stock_balance AS (
            l.net_kg,
            l.depletes_from,
            -- projection-review: membership=the sold CTE above, already one row per (farm_label, feed_item_key); group_key=(farm_label, feed_item_key) on all three sides; join_cardinality=1:1 by construction, so the LEFT JOIN can neither fan a row out nor drop an unsold feed; pagination=none, a balance is a whole-ledger aggregate no page can compute; scope=tenant_id plus the park narrowing inherited from the purchase CTE
-           -- Purchased, less fed, less SOLD (migration 000393). The farm card reports the same
+           -- Purchased, less fed, less SOLD (migration 000402). The farm card reports the same
            -- store the Stock cards do, so the two must subtract the same things.
            round(l.net_kg - COALESCE(dep.total_directed_kg, 0) - COALESCE(sd.kg, 0), 1) AS ledger_stock_kg
     FROM loads l

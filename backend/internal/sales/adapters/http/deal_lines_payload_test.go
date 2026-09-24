@@ -68,7 +68,7 @@ func TestDealPayloadCarriesLinesNeverNull(t *testing.T) {
 	}
 }
 
-// builtinCatalog is the registry every tenant starts with (migration 000393): the three products
+// builtinCatalog is the registry every tenant starts with (migration 000402): the three products
 // that used to be constants in the sales domain.
 func builtinCatalog() domain.ProductCatalog {
 	return domain.NewProductCatalog([]domain.Product{

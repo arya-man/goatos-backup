@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// builtinCatalog is the registry every tenant starts with (migration 000393): the exact three
+// builtinCatalog is the registry every tenant starts with (migration 000402): the exact three
 // products that used to be constants in this package. Tests written before the registry existed
 // pass it, so they keep asserting what they always asserted.
 func builtinCatalog() ProductCatalog {
