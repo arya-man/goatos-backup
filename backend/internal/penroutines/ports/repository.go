@@ -211,7 +211,9 @@ type WriteParams struct {
 // Repository persists routines and their tasks.
 type Repository interface {
 	// --- routines (authoring) ---
-	ListRoutines(ctx context.Context, p RoutineListParams) ([]RoutineListRow, error)
+	// ListRoutinesAndParks lists the routines of one park (or every park) with their counts and
+	// role holders, plus the tenant's active park options -- one round trip.
+	ListRoutinesAndParks(ctx context.Context, p RoutineListParams) ([]RoutineListRow, []Park, error)
 	GetRoutine(ctx context.Context, tenantID, routineID string) (domain.Definition, error)
 	// CreateRoutine writes the definition (with its assignee roles), version 1 and the pens in
 	// one transaction. The definition must already be normalized and validated.
@@ -220,15 +222,13 @@ type Repository interface {
 	// roles, fenced on d.RowVersion. Open tasks keep the version they pinned.
 	UpdateRoutine(ctx context.Context, w WriteParams, d domain.Definition) (domain.Definition, error)
 	SetRoutineStatus(ctx context.Context, w WriteParams, routineID, status string, rowVersion int) (domain.Definition, error)
-	ListParks(ctx context.Context, tenantID string) ([]Park, error)
-	// CatalogPens lists every ACTIVE pen of a park from the partition catalog -- the same
-	// source the herd-register write pickers use -- with an occupied flag from live animals.
-	CatalogPens(ctx context.Context, tenantID, parkID string) ([]CatalogPen, error)
-	// RoleHoldersForPark answers, for every assignable role in vocabulary order, who holds it
-	// for the park -- the SAME resolution every task read uses (an active grant on an active
-	// member; park scope on the park, tenant scope everywhere, except a tenant-scoped
+	// Catalog is the authoring drawer's read for one park, in one round trip: every ACTIVE pen
+	// from the partition catalog -- the same source the herd-register write pickers use -- with
+	// an occupied flag from live animals, and, for every assignable role in vocabulary order,
+	// who holds it for the park -- the SAME resolution every task read uses (an active grant on
+	// an active member; park scope on the park, tenant scope everywhere, except a tenant-scoped
 	// park_head who covers only his HRMS home park).
-	RoleHoldersForPark(ctx context.Context, tenantID, parkID string) ([]RoleHolders, error)
+	Catalog(ctx context.Context, tenantID, parkID string) ([]CatalogPen, []RoleHolders, error)
 	// ListRoutineAssignees is the batched preview of who currently holds each routine's roles
 	// in its park, keyed by routine id, bounded per routine.
 	ListRoutineAssignees(ctx context.Context, tenantID string, routineIDs []string) (map[string][]domain.Assignee, error)
