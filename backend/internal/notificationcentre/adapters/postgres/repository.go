@@ -282,7 +282,7 @@ const sqlListNotifications = sqlNotificationPagePrefix + `
 // projection-review: membership=the SAME set as sqlListNotifications -- tenant_id = $1 AND
 // context->>'member_id' = the caller's own resolved ACTIVE workforce_member_id -- so the
 // badge and the list can never disagree about which notifications exist;
-// group_key=none, the aggregate is a single COUNT(DISTINCT dedupeKeyExpr) at the same
+// group_key=none, the aggregate is a single count of DISTINCT dedupeKeyExpr at the same
 // NOTIFICATION grain the list renders, so a two-phone reader's one transition counts once;
 // join_cardinality=none, no join at all; pagination=none, this is deliberately NOT
 // page-local -- the whole point of the number is the bell badge, which must not shrink when
@@ -291,13 +291,24 @@ const sqlListNotifications = sqlNotificationPagePrefix + `
 //
 // scale-guard:ignore: workforce-scale aggregate -- one person's own unread notifications,
 // served by the same per-member feed indexes as the page read. Never herd-scale.
+//
+// DISTINCT IN A SUBQUERY, COUNTED OUTSIDE, NOT COUNT(DISTINCT ...). The two are the same number
+// here -- dedupeKeyExpr can never be NULL, because its fallback is the primary key -- but
+// COUNT(DISTINCT) is always executed as a SORT of its input, and the planner feeds that sort the
+// whole ~830-byte row. On goatos-stg (2026-09-24) the incident actor's 32,209 unread rows sorted as
+// a 27MB external merge on disk: 805ms warm, 4.1s cold, and >8s under the dashboard reload burst
+// that 500'd /app/notifications. SELECT DISTINCT lets the planner HASH just the key: 232ms warm on
+// the same rows, no temp files. Nothing marks these rows read today, so "unread" is the member's
+// whole history and this aggregate still grows with it -- see the follow-up in the commit.
 const sqlUnreadCount = sqlTargetMemberCTE + `
-SELECT COUNT(DISTINCT ` + dedupeKeyExpr + `)
-FROM notification_requests nr, target_member tm
-WHERE nr.tenant_id = $1::uuid
-  AND tm.workforce_member_id IS NOT NULL
-  AND nr.context->>'member_id' = tm.workforce_member_id::text
-  AND ` + unreadPredicate
+SELECT count(*) FROM (
+  SELECT DISTINCT ` + dedupeKeyExpr + `
+  FROM notification_requests nr, target_member tm
+  WHERE nr.tenant_id = $1::uuid
+    AND tm.workforce_member_id IS NOT NULL
+    AND nr.context->>'member_id' = tm.workforce_member_id::text
+    AND ` + unreadPredicate + `
+) unread_keys`
 
 // sqlMarkRead marks the caller's own notifications read and answers how many NOTIFICATIONS
 // (not delivery rows) moved from unread to read.
@@ -322,7 +333,7 @@ WHERE nr.tenant_id = $1::uuid
 // path uses, so nothing can be marked that could not be listed; grain=every delivery row of
 // each affected notification is stamped together, which is what keeps the notification's
 // read state homogeneous across a two-phone reader's rows and therefore keeps
-// COUNT(DISTINCT) in sqlUnreadCount exact; group_key=none, the returned aggregate is
+// the distinct-key count in sqlUnreadCount exact; group_key=none, the returned aggregate is
 // COUNT(DISTINCT dedupeKeyExpr) over the rows that actually transitioned, at the same
 // NOTIFICATION grain the list renders, so read_count matches the number of cards the UI
 // dims; join_cardinality=the `requested` CTE is at most 200 ids and joins by dedupe key,
