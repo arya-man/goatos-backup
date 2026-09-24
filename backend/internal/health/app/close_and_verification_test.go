@@ -217,3 +217,62 @@ func (*completingRepo) RecordStepProof(context.Context, domain.RecordStepProofIn
 func (*completingRepo) StepProofs(context.Context, string, string) ([]domain.StepProof, error) {
 	return nil, nil
 }
+
+// stepMediaRepo completes a card the way a CURRENT phone does: every step carries its own clip
+// and the session carries NO video of its own, so `CompleteInput.ProofRef` is empty.
+type stepMediaRepo struct{ completingRepo }
+
+func (r *stepMediaRepo) CompleteWorkItem(ctx context.Context, in domain.CompleteInput) (domain.CompleteResult, error) {
+	res, err := r.completingRepo.CompleteWorkItem(ctx, in)
+	if err != nil {
+		return res, err
+	}
+	res.StepMedia = []domain.StepMedia{
+		{StepID: "s1", Label: "Prepare electrolyte solution", ProofRef: "clip-1"},
+		{StepID: "s2", Label: "Assess first attempt intake", ProofRef: "clip-2"},
+		{StepID: "s3", Label: "Tonoboost", ProofRef: "clip-3"},
+	}
+	return res, nil
+}
+
+// A PER-STEP CARD MUST STILL REACH THE VERIFIER.
+//
+// The enqueue was gated on the SESSION's own proof ref, which is exactly the field a per-step
+// completion does not send: the phone passes it only for a legacy one-video card. So an operator
+// filmed every step, the session completed, the clips sat on the server -- and nothing was ever
+// queued for review. Found on a real device on 2026-09-24, after five clips and a green submit
+// produced no verification item at all.
+func TestPerStepCompletionWithNoSessionVideoStillReachesTheVerifier(t *testing.T) {
+	repo := &stepMediaRepo{}
+	enq := &recordingEnqueuer{}
+	_, err := NewService(repo).WithVerificationEnqueuer(enq).CompleteWorkItem(context.Background(), domain.CompleteInput{
+		TenantID: testTenant, ActorID: testActor, SessionID: testSession, IdempotencyKey: "k1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(enq.calls) != 1 {
+		t.Fatalf("enqueue calls=%d want 1 -- a session filmed step by step must still be reviewed", len(enq.calls))
+	}
+	got := enq.calls[0]
+	if len(got.MediaRefs) != 3 {
+		t.Fatalf("media refs=%v want all three clips, in step order", got.MediaRefs)
+	}
+	for i, want := range []string{"clip-1", "clip-2", "clip-3"} {
+		if got.MediaRefs[i] != want {
+			t.Fatalf("media ref %d=%q want %q -- the verifier steps through them in the order the work was done", i, got.MediaRefs[i], want)
+		}
+	}
+	if len(got.Captures) != 3 || got.Captures[0].Title != "Prepare electrolyte solution" {
+		t.Fatalf("captures=%+v want one per step, each named by the step it proves", got.Captures)
+	}
+	// The key must carry WHAT was filmed. An empty tail collapses every re-shoot of this session
+	// onto one queue row, and CreateItem is ON CONFLICT DO NOTHING -- so the replacement item is
+	// silently dropped and the rework is never reviewed.
+	if got.IdempotencyKey == "health-treatment-verification:"+testSession+":" {
+		t.Fatalf("idempotency key=%q has an empty proof tail; a re-shoot would be dropped", got.IdempotencyKey)
+	}
+	if got.IdempotencyKey != "health-treatment-verification:"+testSession+":clip-1,clip-2,clip-3" {
+		t.Fatalf("idempotency key=%q want the step clip set", got.IdempotencyKey)
+	}
+}

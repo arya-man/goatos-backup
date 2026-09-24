@@ -156,7 +156,11 @@ func (s *Service) CompleteWorkItem(ctx context.Context, in domain.CompleteInput)
 	}
 	// Enqueue one evidence-review item, on replays too: CreateItem is idempotent on the key, so a
 	// retry that crashed between commit and enqueue heals here instead of stranding the video.
-	if in.ProofRef != "" {
+	//
+	// THE GATE IS "IS THERE EVIDENCE", NOT "IS THERE A SESSION VIDEO". A per-step card sends no
+	// session proof of its own -- the clips hang off the STEPS -- so gating on `in.ProofRef`
+	// alone completed the session and queued nothing: five clips on the server and no reviewer.
+	if in.ProofRef != "" || len(res.StepMedia) > 0 {
 		subject := "Day " + strconv.Itoa(res.DayNo) + " · " + res.DiseaseName + " · " + res.GoatDisplayID
 		if loc := (oploc.OperationalLocation{ShedName: res.ShedLabel, PartitionLabel: res.PartitionLabel}).Display(); loc != "" {
 			subject += " · " + loc
@@ -189,7 +193,11 @@ func (s *Service) CompleteWorkItem(ctx context.Context, in domain.CompleteInput)
 			CapturedAt:   res.CompletedAt,
 			// Keyed to the SESSION + proof so a retry collapses onto one queue item while a
 			// rework re-shoot (new proof ref) creates the replacement item.
-			IdempotencyKey: "health-treatment-verification:" + in.SessionID + ":" + in.ProofRef,
+			// The key carries WHAT was filmed, so a retry replays onto one row while a re-shoot
+			// is a NEW item. For a per-step card that is the step clip set; an empty tail would
+			// collapse every rework of this session onto one row, and CreateItem is ON CONFLICT
+			// DO NOTHING -- the replacement would be dropped and never reviewed.
+			IdempotencyKey: "health-treatment-verification:" + in.SessionID + ":" + strings.Join(mediaRefs, ","),
 		}); err != nil {
 			return domain.CompleteResult{}, err
 		}
