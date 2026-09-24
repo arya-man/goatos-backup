@@ -1208,7 +1208,7 @@ func campaignDueOverrides(plans []goatGenerationPlan, asOf time.Time, vaccineHis
 			if hasVaccineAdministrationHistory(ruleVaccine, history) {
 				continue
 			}
-			procDue, procOK := procurementPurposePrimaryDue(plan.goat, rule, ruleVaccine, plan.policies.Procurement)
+			procDue, procOK := procurementPurposePrimaryDue(plan.goat, rule, ruleVaccine, plan.policies.Procurement, history)
 			if !procOK {
 				continue
 			}
@@ -1270,7 +1270,7 @@ func campaignDueOverrides(plans []goatGenerationPlan, asOf time.Time, vaccineHis
 	return out, aligned, nil
 }
 
-func procurementPurposePrimaryDue(g domain.EligibleGoat, rule protodomain.Rule, vaccine vaccineProfile, policy genProcurementPolicy) (time.Time, bool) {
+func procurementPurposePrimaryDue(g domain.EligibleGoat, rule protodomain.Rule, vaccine vaccineProfile, policy genProcurementPolicy, history []domain.RecentVaccineAdministration) (time.Time, bool) {
 	plan, applicable := procurementPurposePlanForGoat(g, vaccine, policy)
 	if !applicable {
 		return time.Time{}, false
@@ -1291,11 +1291,21 @@ func procurementPurposePrimaryDue(g domain.EligibleGoat, rule protodomain.Rule, 
 		secondWave = plan.SheepSecondWave
 	}
 	if containsProcurementVaccine(secondWave, vaccineName) {
+		var firstWaveCompletedAt time.Time
+		for _, administration := range history {
+			if !containsProcurementVaccine(plan.FirstWave, administration.VaccineCode) || !administration.AdministeredAt.After(firstWaveCompletedAt) {
+				continue
+			}
+			firstWaveCompletedAt = administration.AdministeredAt
+		}
+		if firstWaveCompletedAt.IsZero() {
+			return time.Time{}, false
+		}
 		days := int32(28)
 		if plan.SecondWaveAfterDays != nil {
 			days = *plan.SecondWaveAfterDays
 		}
-		return adjustPostArrivalDue(g, protodomain.Rule{TriggerType: "post_arrival", OffsetDays: days, DueWindowDays: rule.DueWindowDays}, policy), true
+		return businessDayStart(firstWaveCompletedAt).AddDate(0, 0, int(days)), true
 	}
 	return time.Time{}, false
 }
@@ -1818,7 +1828,7 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			}
 			continue
 		}
-		procPurposeDue, procPurposeOK := procurementPurposePrimaryDue(g, rule, ruleVaccine, policies.Procurement)
+		procPurposeDue, procPurposeOK := procurementPurposePrimaryDue(g, rule, ruleVaccine, policies.Procurement, vaccineHistory)
 		if path == schedulePathAdultProcurement && isAdultCampaignRule(rule) &&
 			(strings.EqualFold(strings.TrimSpace(rule.TriggerType), "post_arrival") ||
 				strings.EqualFold(strings.TrimSpace(rule.TriggerType), "manual_campaign")) &&
