@@ -16,18 +16,24 @@ package domain
 //     tagged to it (goat_sale_allocations), summed by the load those animals came from. A sold
 //     animal with no tagged deal contributes nothing and is counted as unpriced — the row says
 //     how much of its sold count is actually priced rather than pretending full attribution.
-//   - Remaining stock value = remaining count x the load's own average sold price; a load with no
-//     priced sales yet falls back to the overall average sold price across every tagged sale, and
-//     with no basis at all the estimate is absent, never invented.
+//   - Remaining stock value = remaining head mix x latest live weight x the Weighing sale-price
+//     assumptions. A load holding an animal with no price basis reports no remaining-stock estimate
+//     rather than silently valuing only the priced animals.
 
 // Price bases for the remaining-stock estimate. The basis travels with the number so the screen
 // can say WHICH average priced it.
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 const (
 	LoadwisePriceBasisLoad    = "load"
 	LoadwisePriceBasisOverall = "overall"
 	LoadwisePriceBasisNone    = "none"
+	// LoadwisePriceBasisLiveWeight: the unsold stock is valued at the live-weight sale price the
+	// farm set in the Weighing assumptions, optionally overridden by management stage and sex.
+	LoadwisePriceBasisLiveWeight = "live_weight"
 	// LoadwisePriceBasisAssumed: the unsold stock is valued at the price the farm SET on Sales
 	// Config (sales_valuation_assumptions.unsold_stock_price_rupees, maintainer instruction
 	// 2026-09-19), for every load alike, instead of a load's own or the overall average.
@@ -283,6 +289,18 @@ func DaysOnFarmSoFar(arrivedOn, asOf string, remaining int) *int {
 // FinalizeLoadwise takes asOf as the current Asia/Kolkata business date so the age clock is
 // derived, never stored: a stored age is wrong the next morning.
 func FinalizeLoadwise(loads []LoadwiseLoad, totalLoads int, overallAvg *float64, asOf string, assumedUnsoldPrice ...*float64) LoadwiseSales {
+	return finalizeLoadwise(loads, totalLoads, overallAvg, asOf, LoadSalePrices{}, assumedUnsoldPrice...)
+}
+
+// FinalizeLoadwiseWithSalePrices is the current Load-wise path: remaining stock is valued the same
+// way the Weighing comparison chart values it, at latest live weight times the animal's
+// species/stage/sex sale-price assumption. FinalizeLoadwise remains for legacy callers and tests
+// that exercise the older sold-average fallback rule directly.
+func FinalizeLoadwiseWithSalePrices(loads []LoadwiseLoad, totalLoads int, overallAvg *float64, asOf string, prices LoadSalePrices, assumedUnsoldPrice ...*float64) LoadwiseSales {
+	return finalizeLoadwise(loads, totalLoads, overallAvg, asOf, prices, assumedUnsoldPrice...)
+}
+
+func finalizeLoadwise(loads []LoadwiseLoad, totalLoads int, overallAvg *float64, asOf string, prices LoadSalePrices, assumedUnsoldPrice ...*float64) LoadwiseSales {
 	// An ASSUMED unsold price (Sales Config) replaces both fallbacks: every unsold animal on
 	// every load is carried at it. Passed variadic so the existing callers and tests keep their
 	// shape; nil or absent keeps the load-then-overall rule.
@@ -331,6 +349,17 @@ func FinalizeLoadwise(loads []LoadwiseLoad, totalLoads int, overallAvg *float64,
 		// Price per kg on the SAME rows the weight came from -- numerator and denominator must
 		// range over one key set, or the ratio describes no real set of sales.
 		row.SalePricePerKg = landedPricePerKg(row.SoldWeighedValue, row.SoldWeightKg)
+		if len(prices.Prices) > 0 {
+			row.RemainingValue = remainingLiveWeightValue(row.RemainingMix, row.AvgSaleWeightKg, prices)
+			if row.Remaining > 0 {
+				row.AvgSoldPrice = nil
+				if row.RemainingValue != nil {
+					row.PriceBasis = LoadwisePriceBasisLiveWeight
+				} else {
+					row.PriceBasis = LoadwisePriceBasisNone
+				}
+			}
+		}
 		row.DaysSincePurchase = DaysSincePurchase(row.PurchaseDate, asOf)
 		row.DaysOnFarmSoFar = DaysOnFarmSoFar(row.ArrivedOn, asOf, row.Remaining)
 		row.ProfitLoss = profitLoss(row.PurchaseValue, row.SoldValue, row.RemainingValue)
@@ -354,6 +383,39 @@ func FinalizeLoadwise(loads []LoadwiseLoad, totalLoads int, overallAvg *float64,
 		}
 	}
 	return out
+}
+
+// LoadSalePrice is one live-weight sale-price assumption served to Procurement. Stage and sex are
+// both blank for the species default; an override names both.
+type LoadSalePrice struct {
+	Species         string
+	ManagementStage string
+	Sex             string
+	PricePerKgINR   float64
+}
+
+type LoadSalePrices struct {
+	Prices []LoadSalePrice
+}
+
+func (p LoadSalePrices) PriceForAnimal(species, stage, sex string) (float64, bool) {
+	species = strings.ToLower(strings.TrimSpace(species))
+	stage = strings.TrimSpace(stage)
+	sex = strings.ToLower(strings.TrimSpace(sex))
+	if stage != "" && sex != "" {
+		for _, row := range p.Prices {
+			if row.ManagementStage != "" && strings.EqualFold(row.Species, species) &&
+				strings.EqualFold(row.ManagementStage, stage) && strings.EqualFold(row.Sex, sex) {
+				return row.PricePerKgINR, true
+			}
+		}
+	}
+	for _, row := range p.Prices {
+		if row.ManagementStage == "" && row.Sex == "" && strings.EqualFold(row.Species, species) {
+			return row.PricePerKgINR, true
+		}
+	}
+	return 0, false
 }
 
 // loadPurchaseValue derives the landed value of one load. animal_cost is the anchor: without it
@@ -441,6 +503,29 @@ func remainingValue(remaining int, avg *float64) *float64 {
 		return nil
 	}
 	value := float64(remaining) * *avg
+	return &value
+}
+
+func remainingLiveWeightValue(mix []LoadHeadMix, avgKg *float64, prices LoadSalePrices) *float64 {
+	if avgKg == nil {
+		return nil
+	}
+	var value float64
+	seen := false
+	for _, group := range mix {
+		if group.Animals <= 0 {
+			continue
+		}
+		price, ok := prices.PriceForAnimal(group.Species, group.ManagementStage, group.Sex)
+		if !ok {
+			return nil
+		}
+		seen = true
+		value += float64(group.Animals) * *avgKg * price
+	}
+	if !seen {
+		return nil
+	}
 	return &value
 }
 

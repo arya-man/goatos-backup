@@ -660,3 +660,40 @@ func TestFinalizeLoadwiseAssumedUnsoldPriceReplacesEveryBasis(t *testing.T) {
 		t.Fatal("a nil assumption keeps the overall basis")
 	}
 }
+
+func TestFinalizeLoadwiseWithSalePricesValuesRemainingMixAtLiveWeight(t *testing.T) {
+	overall := 10000.0
+	weighed := 3
+	out := FinalizeLoadwiseWithSalePrices([]LoadwiseLoad{{
+		LoadID:             "load-a",
+		Purchased:          3,
+		Remaining:          3,
+		SoldWeightKg:       lw(90),
+		SoldWeighedAnimals: &weighed,
+		AnimalCost:         lw(1000),
+		RemainingMix: []LoadHeadMix{
+			{Species: "goat", ManagementStage: "K3", Sex: "male", Animals: 2},
+			{Species: "goat", ManagementStage: "F2", Sex: "female", Animals: 1},
+		},
+	}}, 1, &overall, testAsOf, LoadSalePrices{Prices: []LoadSalePrice{
+		{Species: "goat", PricePerKgINR: 400},
+		{Species: "goat", ManagementStage: "K3", Sex: "male", PricePerKgINR: 500},
+	}})
+
+	row := out.Loads[0]
+	// Avg live weight is 30 kg. Two K3 males use the override (500); the F2 female falls back to
+	// the goat default (400). The old overall per-head value would have been 3 x 10000.
+	want := 2*30.0*500 + 1*30.0*400
+	if row.PriceBasis != LoadwisePriceBasisLiveWeight {
+		t.Fatalf("basis = %s, want live_weight", row.PriceBasis)
+	}
+	if row.RemainingValue == nil || *row.RemainingValue != want {
+		t.Fatalf("remaining value = %v, want %v", row.RemainingValue, want)
+	}
+	if row.ProfitLoss == nil || *row.ProfitLoss != want-1000 {
+		t.Fatalf("profit = %v, want %v", row.ProfitLoss, want-1000)
+	}
+	if out.Summary.RemainingValue != want || out.Summary.ProfitLoss != want-1000 {
+		t.Fatalf("summary = %+v, want remaining/profit from live-weight value", out.Summary)
+	}
+}
