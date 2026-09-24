@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/jackc/pgx/v5"
 	"sort"
 	"strings"
 	"sync"
@@ -616,9 +617,22 @@ func (r *Repository) directedDaysAndItems(
 //
 // scale-guard:ignore: 5k-50k-envelope — bounded windowed status counts over
 // indexed date columns, the ADR's canonical-indexed-SQL default.
-const executionStatusSQL = `
+// The two completion tables are counted the same way, and the table used to be interpolated
+// into one shared statement. A table name is not a bind, so that made the query DYNAMIC to
+// every reader and to the bind-contract guard, for two call sites that were both literals.
+// Written out, each statement is fixed text with four positional binds -- which is what the
+// guard is asking for, and what a query-plan test can reach.
+const executionPackingStatusSQL = `
 SELECT target_date::text AS d, status, COUNT(*)
-FROM %s
+FROM feed_packing_completions
+WHERE tenant_id = $1
+  AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR park_id = ANY ($2::uuid[]))
+  AND target_date BETWEEN $3 AND $4
+GROUP BY target_date, status`
+
+const executionDistributionStatusSQL = `
+SELECT target_date::text AS d, status, COUNT(*)
+FROM feed_distribution_completions
 WHERE tenant_id = $1
   AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR park_id = ANY ($2::uuid[]))
   AND target_date BETWEEN $3 AND $4
@@ -913,8 +927,10 @@ func (r *Repository) ExecutionAnalytics(ctx context.Context, tenantID string, q 
 			apply(e)
 		}
 
-		countInto := func(sql string, apply func(*domain.ExecutionDay, string, int64)) error {
-			rows, err := r.pool.Query(ctx, sql, tenantID, parkIDs, fromArg, toArg)
+		// The QUERY stays at each call site with its own const, and only the row handling is
+		// shared. Passing the statement into a helper made every one of these reads dynamic SQL
+		// to a static reader -- the text could no longer be tied to the query that runs it.
+		countRows := func(rows pgx.Rows, err error, apply func(*domain.ExecutionDay, string, int64)) error {
 			if err != nil {
 				return err
 			}
@@ -934,7 +950,8 @@ func (r *Repository) ExecutionAnalytics(ctx context.Context, tenantID string, q 
 
 		// Keep these reads sequential. They are individually tiny, and over the OCI SSH tunnel
 		// running them in parallel made one request queue against itself and pushed p95 over 1s.
-		if err := countInto(fmt.Sprintf(executionStatusSQL, "feed_packing_completions"), func(e *domain.ExecutionDay, status string, n int64) {
+		packingRows, packingErr := r.pool.Query(ctx, executionPackingStatusSQL, tenantID, parkIDs, fromArg, toArg)
+		if err := countRows(packingRows, packingErr, func(e *domain.ExecutionDay, status string, n int64) {
 			switch status {
 			case "completed":
 				e.PackingVerified += n
@@ -946,7 +963,8 @@ func (r *Repository) ExecutionAnalytics(ctx context.Context, tenantID string, q 
 		}); err != nil {
 			return nil, fmt.Errorf("feed analytics packing statuses: %w", err)
 		}
-		if err := countInto(fmt.Sprintf(executionStatusSQL, "feed_distribution_completions"), func(e *domain.ExecutionDay, status string, n int64) {
+		distributionRows, distributionErr := r.pool.Query(ctx, executionDistributionStatusSQL, tenantID, parkIDs, fromArg, toArg)
+		if err := countRows(distributionRows, distributionErr, func(e *domain.ExecutionDay, status string, n int64) {
 			switch status {
 			case "completed":
 				e.DistributionVerified += n
@@ -958,7 +976,8 @@ func (r *Repository) ExecutionAnalytics(ctx context.Context, tenantID string, q 
 		}); err != nil {
 			return nil, fmt.Errorf("feed analytics distribution statuses: %w", err)
 		}
-		if err := countInto(executionTransportSQL, func(e *domain.ExecutionDay, status string, n int64) {
+		transportRows, transportErr := r.pool.Query(ctx, executionTransportSQL, tenantID, parkIDs, fromArg, toArg)
+		if err := countRows(transportRows, transportErr, func(e *domain.ExecutionDay, status string, n int64) {
 			switch status {
 			case "completed":
 				e.TransportCompleted += n
