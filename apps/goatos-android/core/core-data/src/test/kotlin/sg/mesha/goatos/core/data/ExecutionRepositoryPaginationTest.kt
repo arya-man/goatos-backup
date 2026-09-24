@@ -37,6 +37,26 @@ import retrofit2.HttpException
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class ExecutionRepositoryPaginationTest {
+    @Test
+    fun `combined roster observes all row task identities outside visible window`() = runTest {
+        withRepository { repository, backend, _ ->
+            backend.response = { cursor ->
+                val start = if (cursor == null) 1 else 21
+                ScanRosterResponseDto(
+                    rows = (start..minOf(start + 19, 21)).map { index ->
+                        ScanRosterRowDto(goatId = "goat-$index", primaryTag = "TAG-$index", vaccineLabel = "ET+TT",
+                            status = "due", obligationId = "obl-$index", taskId = if (index <= 20) "task-a" else "task-b")
+                    },
+                    nextCursor = if (start == 1) "page-2" else null,
+                )
+            }
+            repository.refreshAssignmentScanRoster(SHED_ID, null, null, PAGE_SIZE, "Part 3").getOrThrow()
+            assertEquals(20, repository.observeAssignmentScanRosterRows(SHED_ID, null, null, 20, "Part 3").first().size)
+            assertEquals(listOf("task-a", "task-b"), repository.observeAssignmentScanRosterTaskIds(SHED_ID, null, null, "Part 3").first())
+            assertEquals(emptyList<String>(), repository.observeAssignmentScanRosterTaskIds(SHED_ID, null, null, "Part 4").first())
+        }
+    }
+
     private data class Request(
         val shedId: String,
         val taskId: String?,
@@ -583,7 +603,7 @@ class ExecutionRepositoryPaginationTest {
             val backend = Backend()
             val api = Proxy.newProxyInstance(AppApi::class.java.classLoader, arrayOf(AppApi::class.java)) { proxy, method, args ->
                 when (method.name) {
-                    "getScanRoster" -> {
+                    "getScanRoster", "getScanRosterForDate" -> {
                         val request = Request(
                             shedId = args?.get(0) as String,
                             taskId = args[1] as String?,

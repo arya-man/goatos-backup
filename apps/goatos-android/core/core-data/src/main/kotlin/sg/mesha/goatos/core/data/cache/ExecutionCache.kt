@@ -142,6 +142,10 @@ data class ScanRosterRowEntity(
 
 @Dao
 interface ScanRosterRowDao {
+    /** Full active roster's execution identities, independent of the visible page. */
+    @Query("SELECT DISTINCT taskId FROM scan_roster_row WHERE scopeKey = :scopeKey AND taskId != '' AND taskId != 'shed-wide' ORDER BY taskId")
+    fun observeTaskIds(scopeKey: String): Flow<List<String>>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entity: ScanRosterRowEntity)
 

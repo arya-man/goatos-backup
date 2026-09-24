@@ -15,6 +15,22 @@ import java.time.ZonedDateTime
 class ShedsExecutionIdentityTest {
 
     @Test
+    fun `legacy one two and three vaccine rows count animals once per operational identity`() {
+        for (vaccines in 1..3) {
+            val rows = (1..vaccines).map { vaccine ->
+                VaccinationExecutionRowDto(
+                    parkId = "park-1", shedId = "yashoda", partitionLabel = "3",
+                    batchId = "batch-1", sopTaskId = "task-1", dueDate = "2026-09-24",
+                    driveName = "vaccine-$vaccine", targetCount = 2, openCount = 1, doneCount = 1,
+                )
+            }
+            assertEquals("$vaccines vaccines", ExecutionCounts(2, 1, 1), executionCounts(rows))
+            assertEquals(ExecutionCounts(4, 2, 2), executionCounts(rows + rows.map { it.copy(partitionLabel = "4") }))
+            assertEquals(ExecutionCounts(4, 2, 2), executionCounts(rows + rows.map { it.copy(dueDate = "2026-09-25") }))
+        }
+    }
+
+    @Test
     fun `one park task spanning two sheds produces distinct stable card keys`() {
         val gandhiOne = executionCardId("shed-gandhi-1", "task-park", "batch-park", "drive-park")
         val gandhiTwo = executionCardId("shed-gandhi-2", "task-park", "batch-park", "drive-park")
