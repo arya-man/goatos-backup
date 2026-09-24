@@ -34,7 +34,8 @@ Read this before touching the admin-web **Ask Mesha** panel, `apps/admin-web/app
 2. **run_sql:** no query rules — any SQL over any table/schema, no tenant filter (single tenant). Runs in
    `BEGIN READ ONLY` with `default_transaction_read_only=on`, 60 s timeout, 500 rows. The only refusal is
    psql backslash commands (they run programs on the host, e.g. `\!`), not data access.
-3. **Platform (the real guarantee):** DB role `mesha_ceo_readonly` has SELECT on **every table** in public/analytics/audit/ceo_ai/forensic_repair (+ default privileges for new tables) and **no write privilege anywhere** (granted 2026-09-24 via audit.begin_change; revoke `dblink` + `public` CREATE —
+3. **Chat privacy:** `mesha_ceo_readonly` has NO access to assistant chat tables (`ceo_ai_conversations`, `ceo_ai_messages`, `ceo_ai_assistant_audit`, `ceo_ai_response_cache`, `ceo_ai_rate_limit`, and never the `ask_mesha` schema); each CEO sees only their own chats (service-enforced ownership).
+4. **Platform (the real guarantee):** DB role `mesha_ceo_readonly` has SELECT on **every table** in public/analytics/audit/ceo_ai/forensic_repair (+ default privileges for new tables) and **no write privilege anywhere** (granted 2026-09-24 via audit.begin_change; revoke `dblink` + `public` CREATE —
    RUNBOOK §3d); container runs non-root with the repo baked **read-only** at `/repo`; no git/GitHub/cloud
    credentials; agent env is an allow-list (`agentEnv()` in `server.mjs`).
 - Proof to re-run after changes: ask "edit AGENTS.md" and "git push --force" — both must be refused and
