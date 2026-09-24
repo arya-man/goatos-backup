@@ -116,10 +116,11 @@ sale_weight_sample AS (
      AND d.total_weight_kg > 0
      AND d.sales_value > 0
     JOIN LATERAL (
-        -- Allocations point at the deal, not a specific product/breed line. A mixed live deal can
-        -- still feed a truthful per-kg sample only when all live-animal lines share one recorded
-        -- price. If goat and sheep lines differ, the allocation has no line key to choose the
-        -- right price, so the fallback stays absent instead of blending two markets.
+        -- Allocations point at the deal, not a specific product/breed line. A mixed deal can still
+        -- feed a truthful per-kg sample only when the live-animal lines share one recorded price.
+        -- Non-live lines (for example manure) have no allocation target, so they do not make a
+        -- live allocation ambiguous. If goat and sheep lines differ, the allocation has no line key
+        -- to choose the right price, so the fallback stays absent instead of blending two markets.
         SELECT min(l.sales_value / l.total_weight_kg) FILTER (
                    WHERE l.product_type IN ('Goat', 'Sheep')
                      AND l.total_weight_kg > 0
@@ -134,7 +135,6 @@ sale_weight_sample AS (
                  AND l.total_weight_kg > 0
                  AND l.sales_value > 0
            ) > 0
-           AND count(*) FILTER (WHERE l.product_type NOT IN ('Goat', 'Sheep')) = 0
            AND min(l.sales_value / l.total_weight_kg) FILTER (
                    WHERE l.product_type IN ('Goat', 'Sheep')
                      AND l.total_weight_kg > 0
@@ -149,8 +149,8 @@ sale_weight_sample AS (
                d.product_type = 'Mixed'
                OR (
                    d.product_type IN ('Goat', 'Sheep')
-                   AND count(*) = 1
-                   AND min(l.product_type) = d.product_type
+                   AND count(*) FILTER (WHERE l.product_type IN ('Goat', 'Sheep')) = 1
+                   AND min(l.product_type) FILTER (WHERE l.product_type IN ('Goat', 'Sheep')) = d.product_type
                )
            )
     ) lp ON true

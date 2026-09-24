@@ -442,6 +442,60 @@ RETURNING load_id::text`, testTenant, fx.loadA).Scan(&soldOut); err != nil {
 		}
 	})
 
+	t.Run("MixedDealWithOneLiveLineAndManureKeepsTaggedLiveSalePricePerKg", func(t *testing.T) {
+		var loadE, goatE, dealE string
+		if err := pool.QueryRow(ctx, `
+	INSERT INTO goats (tenant_id, sex, lifecycle_status, exit_reason, custodian_party_id, park_id)
+	SELECT tenant_id, 'female', 'sold', 'sold', source_party_id, NULL
+	FROM procurement_loads WHERE tenant_id = $1 AND load_id = $2::uuid
+	RETURNING goat_id::text`, testTenant, fx.loadA).Scan(&goatE); err != nil {
+			t.Fatalf("seed live-plus-manure goat: %v", err)
+		}
+		if err := pool.QueryRow(ctx, `
+	INSERT INTO procurement_loads (tenant_id, source_party_id, purchase_date, status, idempotency_key)
+	SELECT tenant_id, source_party_id, '2026-08-13', status, 'lw-load-live-plus-manure'
+	FROM procurement_loads WHERE tenant_id = $1 AND load_id = $2::uuid
+	RETURNING load_id::text`, testTenant, fx.loadA).Scan(&loadE); err != nil {
+			t.Fatalf("seed live-plus-manure load: %v", err)
+		}
+		if _, err := pool.Exec(ctx, `
+	INSERT INTO procurement_load_goats (tenant_id, load_id, goat_id, selection_state, current_state, intake_accepted_at)
+	VALUES ($1, $2::uuid, $3::uuid, 'accepted_herd_intake', 'accepted_herd_intake', '2026-08-13T10:00:00Z')`,
+			testTenant, loadE, goatE); err != nil {
+			t.Fatalf("seed live-plus-manure load goat: %v", err)
+		}
+		if err := pool.QueryRow(ctx, `
+	INSERT INTO sales_deals (tenant_id, sale_date, farm, buyer_name, product_type, breed, animal_count, total_weight_kg, sales_value, status)
+	VALUES ($1, '2026-08-22', 'CPT', 'Live Plus Manure Buyer', 'Mixed', 'Mixed', 1, 1020, 112000, 'Deal Closed')
+	RETURNING id::text`, testTenant).Scan(&dealE); err != nil {
+			t.Fatalf("seed live-plus-manure deal: %v", err)
+		}
+		if _, err := pool.Exec(ctx, `
+	INSERT INTO sales_deal_lines (tenant_id, deal_id, line_no, product_type, breed, animal_count, total_weight_kg, sales_value)
+	VALUES ($1, $2::uuid, 1, 'Goat', 'Malai', 1, 20, 10000),
+	       ($1, $2::uuid, 2, 'Manure', 'Manure', NULL, 1000, 102000);
+	INSERT INTO goat_sale_allocations (tenant_id, goat_id, sales_deal_id, status, idempotency_key, weight_kg)
+	VALUES ($1, $3::uuid, $2::uuid, 'tagged', 'lw-alloc-live-plus-manure', 20)`,
+			testTenant, dealE, goatE); err != nil {
+			t.Fatalf("seed live-plus-manure allocation: %v", err)
+		}
+
+		next, err := repo.LoadwiseSales(ctx, testTenant, "", 60)
+		if err != nil {
+			t.Fatalf("loadwise sales after live-plus-manure deal: %v", err)
+		}
+		row := loadByID(next, loadE)
+		if row.SoldWeightKg == nil || math.Abs(*row.SoldWeightKg-20) > 0.01 {
+			t.Fatalf("live-plus-manure tagged sale kg = %v, want 20 from the allocation", row.SoldWeightKg)
+		}
+		if row.SoldWeighedValue == nil || math.Abs(*row.SoldWeighedValue-10000) > 0.01 {
+			t.Fatalf("live-plus-manure tagged weighed value = %v, want 20kg at the live line's 500/kg", row.SoldWeighedValue)
+		}
+		if row.SalePricePerKg == nil || math.Abs(*row.SalePricePerKg-500) > 0.01 {
+			t.Fatalf("live-plus-manure sale price/kg = %v, want 500 from the live line", row.SalePricePerKg)
+		}
+	})
+
 	t.Run("CostLinesRollUpOverStoredColumns", func(t *testing.T) {
 		if _, err := pool.Exec(ctx, `
 UPDATE procurement_loads
