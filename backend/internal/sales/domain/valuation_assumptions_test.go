@@ -48,15 +48,19 @@ func TestValidateValuationAssumptions(t *testing.T) {
 // missing one would value that slice of the herd at nothing, and a stage present for only one
 // gender would value half of it.
 func TestEveryStageIsPricedByGender(t *testing.T) {
-	if len(ValuationBucketKeys) != len(ValuationStages)*len(ValuationGenders) {
-		t.Fatalf("expected %d buckets, got %d", len(ValuationStages)*len(ValuationGenders), len(ValuationBucketKeys))
+	// The stage list is the farm's now (2026-09-24), so the closed set is derived from it rather
+	// than fixed; what must hold is that it is still CLOSED and still covers both genders.
+	stages := SeededValuationStages
+	keys := BucketKeysForStages(stages)
+	if len(keys) != len(stages)*len(ValuationGenders) {
+		t.Fatalf("expected %d buckets, got %d", len(stages)*len(ValuationGenders), len(keys))
 	}
 	seen := map[string]bool{}
-	for _, stage := range ValuationStages {
+	for _, stage := range stages {
 		for _, gender := range ValuationGenders {
-			key := ValuationBucketKey(stage.Key, gender.Key)
+			key := ValuationBucketKey(stage.Stage, gender.Key)
 			found := false
-			for _, k := range ValuationBucketKeys {
+			for _, k := range keys {
 				if k == key {
 					found = true
 				}
@@ -67,7 +71,7 @@ func TestEveryStageIsPricedByGender(t *testing.T) {
 			seen[key] = true
 		}
 	}
-	for _, k := range ValuationBucketKeys {
+	for _, k := range keys {
 		if !seen[k] {
 			t.Fatalf("%s is a bucket no stage and gender produce", k)
 		}

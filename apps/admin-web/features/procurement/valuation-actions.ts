@@ -1,14 +1,16 @@
 "use server";
 
 // Server action for the FARM VALUATION section on /sales/config (maintainer instruction
-// 2026-09-19). One whole-set PUT: every bucket's weight and price, the sale-ready line and the
-// unsold-stock price, fenced on the row_version the form loaded. Lands in place (useActionState):
-// the SAVED ROW comes back on the state and the section applies it -- new row_version, stored
-// figures -- so the next save is fenced on what was just written without a route re-read. The
-// backend's refusal message is returned verbatim because it names the field and the band. The
-// Farm value / Load wise pages re-read the assumptions per request, so nothing to revalidate.
+// 2026-09-19; the stage list became authored on 2026-09-24). One whole-set PUT: the stages the herd
+// is valued in, every stage's two gendered rows, and the unsold-stock price, fenced on the
+// row_version the form loaded. Lands in place (useActionState): the SAVED ROW comes back on the
+// state and the section applies it -- new row_version, stored figures, the stage keys the backend
+// assigned to rows that were added -- so the next save is fenced on what was just written without a
+// route re-read. The backend's refusal message is returned verbatim because it names the field and
+// the reason. The Farm value / Load wise pages re-read the assumptions per request, so nothing to
+// revalidate.
 
-import { putValuationAssumptions, type ValuationAssumptions, type ValuationBucket } from "@/lib/api/sales-valuation-server";
+import { putValuationAssumptions, type ValuationAssumptions, type ValuationBucket, type ValuationStage } from "@/lib/api/sales-valuation-server";
 
 export type ValuationActionState = {
   status: "idle" | "success" | "error";
@@ -29,15 +31,32 @@ function num(raw: FormDataEntryValue | null): number | null {
 
 export async function saveValuationAction(previous: ValuationActionState, formData: FormData): Promise<ValuationActionState> {
   const ticket = previous.ticket + 1;
-  const keys = (formData.get("bucket_keys") as string | null)?.split(",").filter(Boolean) ?? [];
-  const buckets: ValuationBucket[] = keys.map((key, i) => ({
-    bucket: key,
-    label: ((formData.get(`label_${key}`) as string | null) ?? "").trim(),
-    fixed_weight_kg: num(formData.get(`weight_${key}`)),
-    price_per_kg: num(formData.get(`price_${key}`)) ?? Number.NaN,
-    display_order: i + 1,
-  }));
+  // The stage list travels as one field because it is one decision: which stages exist, in what
+  // order, covering which register entries. Splitting it across named inputs would let a half-read
+  // form post a stage with no coverage.
+  let stages: ValuationStage[] = [];
+  try {
+    stages = JSON.parse((formData.get("stages") as string | null) ?? "[]") as ValuationStage[];
+  } catch {
+    return { status: "error", code: "failed", message: "The stages could not be read.", ticket };
+  }
+  const buckets: ValuationBucket[] = [];
+  stages.forEach((stage, si) => {
+    ["female", "male"].forEach((gender, gi) => {
+      const key = `${stage.stage}_${gender}`;
+      buckets.push({
+        bucket: key,
+        // The card's words are composed by the backend from the stage's own label, so a stage
+        // renamed here renames both its cards and nothing has to be kept in step.
+        label: "",
+        fixed_weight_kg: num(formData.get(`weight_${key}`)),
+        price_per_kg: num(formData.get(`price_${key}`)) ?? Number.NaN,
+        display_order: si * 2 + gi + 1,
+      });
+    });
+  });
   const body = {
+    stages: stages.map((s, i) => ({ ...s, display_order: i + 1 })),
     buckets,
     unsold_stock_price_rupees: num(formData.get("unsold_stock_price_rupees")),
     row_version: Number(formData.get("row_version") ?? 0),

@@ -103,6 +103,16 @@ async function recordSale({ farm, lines, buyer, ack = false, status }) {
   return { status: u.searchParams.get("action_status"), key: u.searchParams.get("action_key"), detail: u.searchParams.get("action_detail") };
 }
 
+// The store's balance, computed here INDEPENDENTLY of the code under test: what reached the farm,
+// less what was fed, less what was sold. A test that asked the API for the number it is checking
+// would pass whatever the API said.
+//
+// projection-review: membership=public.feed_purchases for one (farm, feed), one row per load;
+// group_key=(farm_label, feed_item_key) in every branch, the same pair the three sides are joined
+// and compared on; join_cardinality=each of f, d and s is GROUPED to one row per key BEFORE it is
+// joined, so the loads side can never be fanned out by a feed day or a sale line -- b LEFT JOIN d
+// LEFT JOIN s is 1:0..1 twice over; pagination=none, a whole-store figure; scope=one tenant, one
+// farm label and one feed key, applied inside each branch rather than after the join.
 const balance = (farm, feedKey) => num(`
 WITH b AS (SELECT farm_label,feed_item_key,SUM(quantity_kg-consumed_at_import_kg) net,MIN(depletes_from) df,MIN(park_id::text) pk
            FROM feed_purchases WHERE tenant_id='00000000-0000-4000-8000-000000000001' AND delivery_status='reached' AND feed_item_key='${feedKey}' AND farm_label='${farm}' GROUP BY 1,2),

@@ -18,6 +18,15 @@
 -- adult_male_buck becomes adult_male. The old key spelled the animal ("bucks") where every other
 -- key spells the stage and the gender; carrying one odd name into a set built from stage + gender
 -- would leave the join key unguessable. The LABEL still says whatever the farm typed.
+--
+-- projection-review: membership=public.sales_valuation_assumptions, ONE row per tenant (tenant_id
+-- is its primary key), which is both the source and the target of this rewrite; group_key=
+-- a.tenant_id, the same key the outer UPDATE joins back on, so each tenant's twelve rows are built
+-- from that tenant's own rows and no other; join_cardinality=every CROSS JOIN LATERAL here is a
+-- scalar VALUES list over the row itself -- it reads NO table, so it multiplies the one tenant row
+-- by a fixed count rather than by anything data-dependent, and jsonb_agg therefore collects exactly
+-- the intended twelve entries; pagination=none, a whole-table one-shot migration; scope=every
+-- tenant, deliberately, because the split must reach farms this developer cannot enumerate.
 UPDATE public.sales_valuation_assumptions a
 SET buckets = split.buckets,
     row_version = a.row_version + 1,
