@@ -19,7 +19,7 @@ func TestVaccinationExecutionDeploymentContracts(t *testing.T) {
 		"min_instance_count = 1", "max_instance_count = 2")
 	assertFileContains(t, repo, "backend/migrations/postgres/000001_goatos_clean_slate_baseline.sql",
 		"vaccination_capacity_config_max_per_day_check CHECK (((max_per_day >= 1) AND (max_per_day <= 200)))")
-	assertFileContains(t, repo, "backend/migrations/postgres/000393_vaccination_operator_status_obligation_truth.sql",
+	assertFileContains(t, repo, "backend/migrations/postgres/000397_vaccination_operator_status_obligation_truth.sql",
 		"vaccination_drive_assignment_members", "m.canceled_at IS NULL", "vaccination_completions")
 
 	if !strings.Contains(executionClassifiedCTE, "COALESCE(assignment.assignment_id, oi.batch_id) AS execution_card_id") {

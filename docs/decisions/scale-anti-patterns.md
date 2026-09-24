@@ -1359,7 +1359,7 @@ a LIMIT into a CTE.
 The fix (PR #376) pushes the LIMIT and the keyset INSIDE the CTE and
 re-expresses `DISTINCT ON` as the equivalent per-row `NOT EXISTS` anti join ("no
 newer row shares my dedupe key"), supported by the new expression index
-`notification_requests_member_dedupe_idx` (migration `000393`). Measured on a
+`notification_requests_member_dedupe_idx` (migration `000396`). Measured on a
 throwaway local database seeded to 102,291 delivery rows / 68,194 notifications
 / 236,999 rows in the table, `EXPLAIN (ANALYZE, BUFFERS)`:
 

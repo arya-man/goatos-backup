@@ -35,7 +35,7 @@
 - Deployment-integrity guards pass for the worker tenant projection, today's assigned-drive cancellation protection, assignment-grain execution SQL, Terraform min 1/max 2, CEO obligation-truth migration, and clean-slate capacity contract.
 - Integrated the calendar, Android, and backend assignment-identity implementations: calendar events now use assignment identity; Android carries assignment identity through navigation/cache/API; and the roster resolves all active assignment members across source batches.
 - Combined focused backend and Android suites pass after integration.
-- Replayed the disposable local phone-QA database through migration `000393` on `127.0.0.1:15544` and reseeded the exact widened vaccination fixture.
+- Replayed the disposable local phone-QA database through the PR-local vaccination operator-status migration (renumbered to `000397` in the clubbed main candidate) on `127.0.0.1:15544` and reseeded the exact widened vaccination fixture.
 - Verified on physical Infinix as Amit against the throwaway backend: one Castro 1 card carries three vaccines for three animals, one Castro 2 ET+TT card carries two animals, and tapping Castro 2 opens the scan roster with `0/2` and `2 PENDING` instead of the taskless record screen.
 - Verified on physical Poco as CEO against the same throwaway backend: ET+TT renders `0 / 2 Animals` and `2 animals in this drive`, ET+TT/PPR renders `0 / 6 Animals` and `6 animals in this drive`, with no Z1/Z3 leakage onto the ET+TT card.
 
