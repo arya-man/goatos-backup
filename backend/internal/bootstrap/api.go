@@ -679,7 +679,10 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	adminUIHandler := adminuihttp.NewHandler(adminUIService)
 	appAnalyticsHandler := appanalyticshttp.NewHandler(pool, log)
 	appConfigHandler := appconfighttp.NewHandler(appconfigapp.NewService(appconfigapp.ConfigFromEnv()), log)
-	countsRepo := countspg.NewRepository(pool, cfg.Postgres.QueryTimeout)
+	// Counts Breakdown filter facets, evicted cross-instance on committed herd-register writes
+	// (readcache.Listener below; migration 000417 triggers).
+	countsReadCache := readcache.New(readcache.DefaultOptions("counts"))
+	countsRepo := countspg.NewRepository(pool, cfg.Postgres.QueryTimeout).WithFacetCache(countsReadCache)
 	countsService := countsapp.NewService(countsRepo)
 	countsProofValidator := countsproof.NewValidator(proofRepo)
 	// The cause-of-death vocabulary: the diagnosis register, folded once into a searchable
@@ -1612,7 +1615,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	go herdSignalsService.RunRiskClassifier(liveNotifyCtx, herdSignalsRiskClassifierInterval)
 	// Cross-instance eviction feed on its own connection (not a pool slot), then a background,
 	// serial warm-up of the landing read every Weights/ADG visit blocks on.
-	readcache.NewListener(pool, log, analyticsReadCache, alertsReadCache).Start(liveNotifyCtx)
+	readcache.NewListener(pool, log, analyticsReadCache, alertsReadCache, countsReadCache).Start(liveNotifyCtx)
 	analyticsReadCache.StartWarmup(liveNotifyCtx, log, 2*time.Second, 20*time.Second, weighingRepo.WarmLandingReads)
 	return &API{
 		Server: server,
