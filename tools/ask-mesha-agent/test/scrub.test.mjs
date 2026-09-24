@@ -33,3 +33,9 @@ test("scrub deletes by name and content, keeps the rest", () => {
   assert.deepEqual(removed.sort(), [["a/.env", "name"], ["a/b/notes.txt", "content"], ["outside", "symlink outside snapshot"]]);
   assert.ok(fs.existsSync(path.join(d, "a/b/main.go")));
 });
+
+test("newer token kinds caught; placeholders and loopback kept", () => {
+  assert.ok(contentIsSecret("token=github_pat_" + "A".repeat(60)));
+  assert.ok(!contentIsSecret("postgres://u:<password>@host/db"));
+  assert.ok(!contentIsSecret("postgres://goatos:devpass123@[::1]:5432/goatos"));
+});

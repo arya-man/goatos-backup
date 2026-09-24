@@ -7,7 +7,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 export const NAME_PATTERNS = [
-  /^\.env(\..*)?$/i, /\.(pem|key|p12|pfx|jks|keystore|kdbx|ovpn|ppk|asc|gpg)$/i,
+  /^\.env(\..*)?$/i, /^\.envrc$/i, /\.env$/i, /\.tfvars\.json$|^secrets?\.auto\.tfvars$/i, /^kubeconfig$/i, /\.(pem|key|p12|pfx|jks|keystore|kdbx|ovpn|ppk|asc|gpg)$/i,
   /^id_(rsa|dsa|ecdsa|ed25519)$/i,
   // secret/credential in the NAME only for data files (code/docs/terraform that merely mention secrets stay)
   /(^|[-_.])(secret|secrets|credential|credentials)([-_.][^.]*)?\.(json|ya?ml|txt|env|ini|cfg|conf|properties|csv)$/i,
@@ -25,8 +25,15 @@ export const CONTENT_PATTERNS = [
   /\bAKIA[0-9A-Z]{16}\b/,                         // AWS access key id
   /\bAIza[0-9A-Za-z_-]{35}\b/,                    // Google API key
   /\bgh[pousr]_[A-Za-z0-9]{36,}\b/,               // GitHub tokens
+  /\bgithub_pat_[A-Za-z0-9_]{60,}\b/,             // GitHub fine-grained PATs
+  /\bglpat-[A-Za-z0-9_-]{20,}\b/,                 // GitLab PATs
+  /\bGOCSPX-[A-Za-z0-9_-]{24,}\b/,                // Google OAuth client secret
+  /\b[rs]k_live_[A-Za-z0-9]{20,}\b/,              // Stripe live keys
+  /\bnpm_[A-Za-z0-9]{36}\b/,                      // npm tokens
+  /\bhooks\.slack\.com\/services\/T[A-Z0-9]+\/B[A-Z0-9]+\/[A-Za-z0-9]{20,}/, // Slack webhooks
   /\bxox[abprs]-[A-Za-z0-9-]{10,}/,               // Slack tokens
-  /\bpostgres(ql)?:\/\/[^\s:@/'"]+:[^\s@/'"$]{6,}@(?!localhost|127\.0\.0\.1|db:|postgres:)/i, // real DSN with password
+  // Real DSN with a password; <placeholder>, loopback and example hosts are docs/tests, not secrets.
+  /\bpostgres(ql)?:\/\/[^\s:@/'"]+:[^\s@/'"$<>{}]{6,}@(?!localhost|127\.0\.0\.1|\[::1\]|db[:/]|postgres:|[^\s/@]*example\.(com|org|net)\b)/i,
 ];
 
 const MAX_SCAN = 2 * 1024 * 1024;
@@ -54,11 +61,11 @@ export function scrub(dir, { dryRun = false } = {}) {
       if (!ent.isFile()) continue;
       let why = nameIsSecret(ent.name) ? "name" : null;
       if (!why) {
-        const st = fs.statSync(p);
-        if (st.size <= MAX_SCAN) {
-          const buf = fs.readFileSync(p);
-          if (!buf.subarray(0, 8000).includes(0) && contentIsSecret(buf.toString("utf8"))) why = "content";
-        }
+        // Large files are scanned too (their first MAX_SCAN bytes): skipping them was a false negative.
+        const fd = fs.openSync(p, "r");
+        const buf = Buffer.alloc(Math.min(fs.fstatSync(fd).size, MAX_SCAN));
+        try { fs.readSync(fd, buf, 0, buf.length, 0); } finally { fs.closeSync(fd); }
+        if (!buf.subarray(0, 8000).includes(0) && contentIsSecret(buf.toString("utf8"))) why = "content";
       }
       if (why) { removed.push([p, why]); if (!dryRun) fs.rmSync(p, { force: true }); }
     }

@@ -103,6 +103,7 @@ if [[ "${ASK_MESHA_WIRE_ADMIN_WEB:-false}" == "true" ]]; then
     --project="$PROJECT_ID" \
     --region="$REGION" \
     --no-traffic \
+    --timeout=2100 \
     --update-env-vars="CEO_AI_AGENT_URL=${url},CEO_AI_AGENT_AUDIENCE=${url}" \
     --quiet
   rev="$(gcloud run services describe "$ADMIN_WEB_SERVICE" --project="$PROJECT_ID" --region="$REGION" \

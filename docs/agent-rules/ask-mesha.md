@@ -152,6 +152,12 @@ moving" and one-shot "which goats are slower than their pen / own pace right now
 - **Stops**: time up (default 5 min), `stop_when` met, "Stop watching" (`/ceo-ai/events` kind `watch_stop`: ends the
   watch only, the answer still arrives), Stop (aborts the answer), client disconnect (request close aborts polling
   immediately), 30-min hard cap. No background continuation; one active watch per chat.
+- **Request timeouts bound the real watch length.** The answer SSE passes through `goatos-admin-web-stg`, whose
+  Cloud Run request timeout is 300 s (checked 2026-09-24; `goatos-ask-mesha-stg` is 3600 s). A watch plus the
+  model turns around it longer than ~5 min is cut there and ends as `client_disconnected`. Raising admin-web's
+  timeout (infra, `cloud_run_services.tf`) to >= 2100 s is required before promising 10-30 min watches.
+- **Tenant:** the watch query filters `tenant_id` only when `X-GoatOS-Tenant-ID` is a UUID; see
+  "Multi-tenant isolation" — like `run_sql`, it is not isolation until the DB enforces it.
 - **Events**: `watch_started` / `watch_ended` (reason, duration_ms, polls, tags) per user; `/metrics/users` shows
   `watches` per window.
 - **Panel**: `features/ceo-ai/ceo-ai-watch.tsx` live card (table, change feed, countdown, Stop watching); frames
@@ -176,7 +182,8 @@ moving" and one-shot "which goats are slower than their pen / own pace right now
   Anthropic API key. `provider.mjs` probes Vertex (tiny `rawPredict`, metadata-server token; locally
   `gcloud auth print-access-token` if installed) at startup and every 15 min while on the key, hourly once
   on Vertex. Each question uses Vertex iff the last probe passed, else the key; a Vertex 429/403/404 before
-  any token is shown marks Vertex down and reruns that question once on the key. So STG runs on the key
+  any token is shown marks Vertex down and reruns that question once on the key (tool calls from the failed
+  attempt — including a live watch — may already have run and run again; its Vertex spend is not in the metric row). So STG runs on the key
   now and moves to Vertex by itself when quota is approved — no redeploy. `provider` (`vertex` |
   `anthropic`) is on every metric row and event, `/healthz` shows it, logs say `[provider] switched to …`.
   The monthly cap is one cap across both. Force a provider with
