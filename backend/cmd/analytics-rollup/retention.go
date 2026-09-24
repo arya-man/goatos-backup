@@ -15,6 +15,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/vgoats/goatos/backend/internal/platform/kmetrics"
 )
 
 // analytics.app_events is a short hot buffer for the daily rollup (Grafana and
@@ -65,12 +66,21 @@ type objectInfo struct {
 	MD5  []byte
 }
 
+// errLeftoverRows: a fully deleted (archived) day still holds rows outside its
+// exported key (restore/backfill). They are kept, logged and counted; archiving
+// continues with the next day.
+var errLeftoverRows = errors.New("leftover rows outside the archived key")
+
+// maxLeftoverSkipsPerRun bounds how many leftover days one run steps over.
+const maxLeftoverSkipsPerRun = 31
+
 var errObjectExists = errors.New("archive object already exists")
 
 type archiveResult struct {
 	DaysArchived int
 	RowsDeleted  int64
 	Capped       bool
+	LeftoverDays int
 }
 
 // Keyset page over one received_at day. to_jsonb gives every column with
@@ -109,10 +119,13 @@ func archiveAndPruneAppEvents(ctx context.Context, pool *pgxpool.Pool, store obj
 	if maxDays <= 0 {
 		maxDays = defaultArchiveMaxDays
 	}
-	for res.DaysArchived < maxDays {
+	// from advances past days whose only remaining rows are leftovers outside
+	// their exported key, so one restored row never blocks later days.
+	from := time.Time{}
+	for iter := 0; res.DaysArchived < maxDays && iter < maxDays+maxLeftoverSkipsPerRun; iter++ {
 		var oldest *time.Time
-		// scale-guard:ignore: bounded by ArchiveMaxDays (<=31); min(received_at) is one index probe.
-		if err := pool.QueryRow(ctx, `SELECT min(received_at) FROM analytics.app_events`).Scan(&oldest); err != nil {
+		// scale-guard:ignore: bounded by ArchiveMaxDays+maxLeftoverSkipsPerRun; min(received_at) is one index probe.
+		if err := pool.QueryRow(ctx, `SELECT min(received_at) FROM analytics.app_events WHERE received_at >= $1`, from).Scan(&oldest); err != nil {
 			return res, fmt.Errorf("oldest app_events row: %w", err)
 		}
 		if oldest == nil || !oldest.UTC().Before(cutoff) {
@@ -122,6 +135,13 @@ func archiveAndPruneAppEvents(ctx context.Context, pool *pgxpool.Pool, store obj
 		deleted, done, err := archiveDay(ctx, pool, store, cfg, day, budget, logger)
 		res.RowsDeleted += deleted
 		budget -= deleted
+		if errors.Is(err, errLeftoverRows) {
+			res.LeftoverDays++
+			logger.WarnContext(ctx, "app_events_archive_leftover_rows", slog.String("day", day.Format("2006-01-02")), slog.String("detail", err.Error()))
+			kmetrics.RecordAnalyticsArchiveLeftoverDay(ctx)
+			from = day.AddDate(0, 0, 1)
+			continue
+		}
 		if err != nil {
 			return res, err
 		}
@@ -132,7 +152,7 @@ func archiveAndPruneAppEvents(ctx context.Context, pool *pgxpool.Pool, store obj
 		res.DaysArchived++
 	}
 	logger.InfoContext(ctx, "app_events_archive_complete", slog.String("cutoff", cutoff.Format("2006-01-02")),
-		slog.Int("days", res.DaysArchived), slog.Int64("deleted", res.RowsDeleted), slog.Bool("capped", res.Capped))
+		slog.Int("days", res.DaysArchived), slog.Int64("deleted", res.RowsDeleted), slog.Bool("capped", res.Capped), slog.Int("leftover_days", res.LeftoverDays))
 	return res, nil
 }
 
@@ -199,7 +219,7 @@ func archiveDay(ctx context.Context, pool *pgxpool.Pool, store objectStore, cfg 
 		return deleted, false, err
 	}
 	if unarchived > 0 {
-		return deleted, false, fmt.Errorf("app_events %s: %d rows arrived after the verified export and were kept; clear its app_events_archive row to re-archive the day", day.Format("2006-01-02"), unarchived)
+		return deleted, false, fmt.Errorf("%w: app_events %s: %d rows arrived after the verified export and were kept; clear its app_events_archive row to re-archive the day", errLeftoverRows, day.Format("2006-01-02"), unarchived)
 	}
 	logger.InfoContext(ctx, "app_events_day_archived", slog.String("day", day.Format("2006-01-02")), slog.Int64("rows", archived), slog.Int64("deleted", deleted))
 	return deleted, true, nil
