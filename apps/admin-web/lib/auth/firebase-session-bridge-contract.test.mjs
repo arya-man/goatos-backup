@@ -42,14 +42,10 @@ assert.match(
   /export async function syncBridgeSession\(user: User, forceRefresh = false\)[\s\S]*?user\.getIdToken\(forceRefresh\)/,
   "bridge sync forces a refresh only when the timer asks for one",
 );
-// A busy auth database (503 auth_database_busy) is transient: tell the user to retry and keep
-// the Firebase sign-in so a retry does not need the credentials again.
+// A busy auth database (503 auth_database_busy) is transient: tell the user to retry. A retry
+// re-runs signInWith*, so a failed login still signs out (no orphan Firebase session).
 assert.match(client, /case "auth_database_busy":\s*return "[^"]*busy[^"]*retry[^"]*"/i);
-assert.match(
-  client,
-  /async function syncSignedInUser[\s\S]*?isFirebaseSessionError\(error, "auth_database_busy"\)[\s\S]*?signOut\(auth\)/,
-  "an explicit login that hits a busy auth database must not sign the user out of Firebase",
-);
+assert.doesNotMatch(client, /isFirebaseSessionError\(error, "auth_database_busy"\)/);
 const route = readFileSync(join(here, "../../app/api/auth/session/route.ts"), "utf8");
 assert.match(route, /authEventFailure\(/, "the route maps backend failures through authEventFailure");
 assert.match(route, /"Retry-After"/, "the route passes Retry-After through to the browser");

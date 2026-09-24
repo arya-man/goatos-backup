@@ -59,7 +59,9 @@ export function authEventFailure(
 ): Extract<AuthEventResult, { ok: false }> {
   const error = code ?? "auth_audit_failed";
   if (status === 503) {
-    return { ok: false, status: 503, error, ...(retryAfter ? { retryAfter } : {}) };
+    // Forward only delta-seconds of sane size; anything else is dropped, never echoed as a header.
+    const safe = retryAfter !== null && /^\d{1,4}$/.test(retryAfter) ? retryAfter : null;
+    return { ok: false, status: 503, error, ...(safe ? { retryAfter: safe } : {}) };
   }
   return { ok: false, status: status >= 400 && status < 500 ? status : 502, error };
 }
