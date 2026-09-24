@@ -281,3 +281,24 @@ func TestWeekStartOfIsMonday(t *testing.T) {
 		}
 	}
 }
+
+// Maintainer decision 2026-09-24: the drawer lists "only those stages for which weighing done",
+// plus any stage already carrying a price (so it can be read and cleared), in the vocabulary's order.
+func TestPriceableStagesAreTheWeighedOnesPlusAnyAlreadyPriced(t *testing.T) {
+	all := []StageOption{{Code: "K0"}, {Code: "K3"}, {Code: "F2-Male"}, {Code: "ICU"}, {Code: "Warmup"}}
+	prices := []SalePrice{
+		{Species: "goat", PricePerKgINR: 425},
+		{Species: "sheep", ManagementStage: "warmup", Sex: "male", PricePerKgINR: 400},
+	}
+	got := PriceableStages(all, []string{"F2-Male", "k3"}, prices)
+	var codes []string
+	for _, s := range got {
+		codes = append(codes, s.Code)
+	}
+	if strings.Join(codes, ",") != "K3,F2-Male,Warmup" {
+		t.Fatalf("priceable stages = %v, want K3,F2-Male,Warmup in vocabulary order", codes)
+	}
+	if got := PriceableStages(all, nil, []SalePrice{{Species: "goat", PricePerKgINR: 425}}); len(got) != 0 {
+		t.Fatalf("nothing weighed and nothing priced must list no stage, got %v", got)
+	}
+}

@@ -86,17 +86,33 @@ ON CONFLICT DO NOTHING`, gdTenant)
 		return 0, false
 	}
 
-	// The drawer offers the ACTIVE stages only.
-	a, err := repo.GetAssumptions(ctx, gdTenant, today)
-	if err != nil {
-		t.Fatalf("GetAssumptions: %v", err)
+	// The drawer offers only stages weighed animals sit in (2026-09-24) -- through BOTH arms:
+	// the lump pen's goats reached through the bucket->pen bridge, the scanned kids through their
+	// tags -- plus any stage already carrying a price. Retired stages never.
+	execGD(t, ctx, pool, `
+INSERT INTO animal_stage_lookup (tenant_id, stage_code, name, sort_order, status)
+VALUES ($1::uuid, 'kid', 'Kid', 1, 'active'), ($1::uuid, 'K2', 'Kid 2', 2, 'active'), ($1::uuid, 'ICU', 'ICU', 8, 'active')
+ON CONFLICT DO NOTHING`, gdTenant)
+	// The scanned kids move to K2, so K2 can only come from the scanned arm, 'kid' only from the pen.
+	execGD(t, ctx, pool, `UPDATE goats SET management_stage = 'K2' WHERE tenant_id = $1::uuid AND goat_id::text LIKE '33333333-%'`, gdTenant)
+	stageCodes := func() []string {
+		t.Helper()
+		a, err := repo.GetAssumptions(ctx, gdTenant, today)
+		if err != nil {
+			t.Fatalf("GetAssumptions: %v", err)
+		}
+		var codes []string
+		for _, s := range a.Stages {
+			codes = append(codes, s.Code)
+		}
+		return codes
 	}
-	var codes []string
-	for _, s := range a.Stages {
-		codes = append(codes, s.Code)
+	codes := stageCodes()
+	if !containsString(codes, "kid") || !containsString(codes, "K2") {
+		t.Fatalf("stages = %v, want 'kid' (whole-pen arm) and 'K2' (scanned arm)", codes)
 	}
-	if !containsString(codes, "K3") || containsString(codes, "OLD") {
-		t.Fatalf("stage vocabulary = %v, want K3 and not the retired OLD", codes)
+	if containsString(codes, "K3") || containsString(codes, "ICU") || containsString(codes, "OLD") {
+		t.Fatalf("stages = %v, want no unweighed stage (K3, ICU) and no retired one (OLD)", codes)
 	}
 
 	// Set, typed in another case: stored as the vocabulary spells it.
@@ -105,6 +121,10 @@ ON CONFLICT DO NOTHING`, gdTenant)
 	}
 	if got, ok := override(); !ok || got != 500 {
 		t.Fatalf("override after set = %v %v", got, ok)
+	}
+	// A stage with a price in force stays listed even though no weighed animal sits in it.
+	if codes := stageCodes(); !containsString(codes, "K3") {
+		t.Fatalf("stages = %v, want K3 listed while its price is in force", codes)
 	}
 	// A stage outside the vocabulary (or retired) is refused, never stored.
 	for _, stage := range []string{"K9", "OLD"} {

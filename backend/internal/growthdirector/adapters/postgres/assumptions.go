@@ -13,6 +13,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/growthdirector/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 )
 
 // The Assumptions drawer (maintainer decision 2026-09-19). Two tables, two shapes:
@@ -86,7 +87,93 @@ func (r *Repository) GetAssumptions(ctx context.Context, tenantID string, asOf t
 	if err != nil {
 		return domain.Assumptions{}, err
 	}
-	return domain.Assumptions{SalePrices: prices.Prices, Values: values, Stages: stages}, nil
+	weighed, err := r.weighedStageCodes(ctx, tenantID)
+	if err != nil {
+		return domain.Assumptions{}, err
+	}
+	return domain.Assumptions{SalePrices: prices.Prices, Values: values, Stages: domain.PriceableStages(stages, weighed, prices.Prices)}, nil
+}
+
+// weighedStagesSQL answers "which stages do the weighed animals sit in" (maintainer decision
+// 2026-09-24: the drawer lists "only those stages for which weighing done"). Two arms, all time,
+// every weighing park:
+//
+//	scanned   the CURRENT stage of each live animal a scanned tag resolves to;
+//	whole pen the current stage of every live animal now in a pen a whole-pen weigh landed on,
+//	          through the SAME bucket -> pen bridge the FCR tab uses (fcrScopeCTEs.bucket_pen), because
+//	          whole-pen buckets name legacy alias locations that hold no animal of their own.
+//
+// Only bucket_pen and the two arms are read; Postgres does not evaluate the fragment's other CTEs,
+// so the window parameters they carry ($3/$4/$8/$9) are passed wide and cost nothing.
+//
+// projection-review: membership=distinct stage codes of live goats reached by either arm;
+// group_key=management_stage (DISTINCT, no count is reported); join_cardinality=goat_identifiers
+// 0..1 per scanned tag (lifetime-unique per tenant), goat_shed_partitions 0..1 per goat (PK), a goat
+// reached twice collapses in the DISTINCT; pagination=NONE, the output is bounded by the tenant's
+// stage vocabulary; scope=tenant_id on every table and the tenant's weighing parks.
+var weighedStagesSQL = ` -- scale-guard:ignore: drawer-open reporting read, output bounded by the stage vocabulary; the scanned arm reads the tenant's weighing rows once, set-based
+WITH ` + fcrScopeCTEs + `,
+weighed_pens AS (
+  SELECT DISTINCT bp.pen_shed_id, bp.pen_key
+  FROM bucket_pen bp
+  JOIN weighing_shed_observations so ON so.tenant_id = $1::uuid AND so.campaign_shed_id = bp.campaign_shed_id
+  WHERE bp.weighing_category = 'per_shed_partition'
+    AND so.withdrawn_at IS NULL
+    AND so.verification_status <> 'rejected'
+),
+weighed_stages AS (
+  SELECT g.management_stage
+  FROM weighed_pens wp
+  JOIN goats g ON g.tenant_id = $1::uuid AND g.lifecycle_status = 'alive' AND g.shed_id = wp.pen_shed_id
+  LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = $1::uuid AND gsp.goat_id = g.goat_id
+  WHERE ` + fcrScrubGoatLabel + ` = wp.pen_key
+  UNION
+  SELECT g.management_stage
+  -- One row per distinct tag first (an animal is weighed round after round), on the predicate of
+  -- weighing_observations_demo_tag_window_idx; only then resolved through the register.
+  FROM (
+    SELECT DISTINCT upper(btrim(o.scanned_identifier)) AS tag
+    FROM weighing_observations o
+    WHERE o.tenant_id = $1::uuid
+      AND btrim(o.scanned_identifier) <> ''
+      AND o.verification_status <> 'rejected'
+  ) t
+  JOIN goat_identifiers gi ON gi.tenant_id = $1::uuid AND gi.normalized_value = t.tag
+  JOIN goats g ON g.tenant_id = $1::uuid AND g.goat_id = gi.goat_id AND g.lifecycle_status = 'alive'
+)
+SELECT DISTINCT management_stage FROM weighed_stages
+WHERE management_stage IS NOT NULL AND management_stage <> ''`
+
+const weighingParksSQL = `SELECT COALESCE(array_agg(DISTINCT park_id::text), '{}') FROM weighing_campaigns WHERE tenant_id = $1::uuid AND park_id IS NOT NULL`
+
+func (r *Repository) weighedStageCodes(ctx context.Context, tenantID string) ([]string, error) {
+	var parks []string
+	if err := r.pool.QueryRow(ctx, weighingParksSQL, tenantID).Scan(&parks); err != nil {
+		return nil, err
+	}
+	if len(parks) == 0 {
+		return []string{}, nil
+	}
+	from := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2100, 1, 1, 0, 0, 0, 0, time.UTC)
+	bound, err := sqlbind.Bind(weighedStagesSQL, tenantID, parks, from, to, "", []string{}, []string{}, "2000-01-01", "2100-01-01")
+	if err != nil {
+		return nil, fmt.Errorf("weighed stages bind: %w", err)
+	}
+	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []string{}
+	for rows.Next() {
+		var code string
+		if err := rows.Scan(&code); err != nil {
+			return nil, err
+		}
+		out = append(out, code)
+	}
+	return out, rows.Err()
 }
 
 func readStageOptions(ctx context.Context, q querier, tenantID string) ([]domain.StageOption, error) {

@@ -94,7 +94,13 @@ past day keeps the price that was in force. A species default can never be NULL 
 service validation). An override must name BOTH a stage and a sex, and the stage must be an ACTIVE
 `animal_stage_lookup.stage_code` for the tenant (stored in the vocabulary's own spelling so it
 matches `goats.management_stage`). The drawer's stage rows come from that vocabulary on the
-assumptions response (`stages`), never from a list in the page.
+assumptions response (`stages`), never from a list in the page -- and (same day, second answer:
+"only those stages for which weighing done") only the stages weighed animals sit in NOW: the
+current stage of every live animal a scanned tag resolves to, and of every live animal in a pen
+weighed whole (through the FCR tab's bucket -> pen bridge, since whole-pen buckets name legacy alias
+locations). All time, every weighing park. A stage already carrying a price stays listed so it can
+be read and cleared. On the 2026-09-24 data this is 5 of 19 stages (ICU-Kid, K3, F2-Male, F2-Female,
+Warmup); ICU-Kid is there because three kids that were weighed are in ICU now.
 
 Resolution is one rule in two places that must agree: backend
 `growthdirector/domain.SalePrices.PriceForAnimal` (FCR) and admin-web `lib/sale-price.ts`
