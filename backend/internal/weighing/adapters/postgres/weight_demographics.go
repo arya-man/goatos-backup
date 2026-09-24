@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
+	"github.com/vgoats/goatos/backend/internal/platform/readcache"
 	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 	"github.com/vgoats/goatos/backend/internal/weighing/domain"
 	"github.com/vgoats/goatos/backend/internal/weighing/ports"
@@ -337,7 +338,7 @@ func weightDemographicsPruneInactiveSectionSelects(query string, sections map[st
 // than by_stage: a whole-shed weigh has no tags, so it reaches the stage rows via
 // its shed's cohort but never the breed or sex rows. The resolved / unresolved /
 // lump-sum counts are returned so that gap is legible rather than looking broken.
-func (r *Repository) GetWeightDemographics(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory, sections string, bandEdgesKg []float64, timeScope domain.TimeScope) (out domain.WeightDemographics, err error) {
+func (r *Repository) GetWeightDemographics(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory, sections string, bandEdgesKg []float64, timeScope domain.TimeScope) (domain.WeightDemographics, error) {
 	// The band edges are the CALLER's (the tenant's weight_band_edges_kg assumption, maintainer
 	// decision 2026-09-19); this read names no assumptions table. width_bucket gives 0 below the
 	// first edge .. len(edges) at or above the last; key and farm label come from the same edges.
@@ -353,30 +354,14 @@ func (r *Repository) GetWeightDemographics(ctx context.Context, tenantID string,
 		edgeKey = append(edgeKey, strconv.FormatFloat(e, 'f', -1, 64))
 	}
 	cacheKey := weighingAnalyticsCacheKey("weight_demographics:"+sectionKey+":bands="+strings.Join(edgeKey, ",")+":"+timeScope.CacheKey(), tenantID, parkIDs, periodStart, periodEnd, sex, origin, weighingCategory)
-	if cached, ok := r.getReadCache(cacheKey); ok {
-		return cached.(domain.WeightDemographics), nil
-	}
-	cacheEpoch := r.readCacheEpoch()
+	return readcache.Load(ctx, r.cache, analyticsReadKey(tenantID, parkIDs, cacheKey), func(ctx context.Context) (domain.WeightDemographics, error) {
+		ctx, cancel := r.timeout(ctx)
+		defer cancel()
+		return r.getWeightDemographicsUncached(ctx, tenantID, parkIDs, periodStart, periodEnd, sex, origin, weighingCategory, sectionSet, bandEdgesKg, timeScope)
+	})
+}
 
-	ctx, cancel := r.timeout(ctx)
-	defer cancel()
-	flight, ownsFlight, flightErr := r.beginReadFlight(ctx, cacheKey)
-	if flightErr != nil {
-		return domain.WeightDemographics{}, flightErr
-	}
-	if !ownsFlight {
-		if flight.value == nil {
-			return domain.WeightDemographics{}, nil
-		}
-		return flight.value.(domain.WeightDemographics), nil
-	}
-	defer func() {
-		if err == nil {
-			r.finishReadFlight(cacheKey, flight, out, nil)
-			return
-		}
-		r.finishReadFlight(cacheKey, flight, nil, err)
-	}()
+func (r *Repository) getWeightDemographicsUncached(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string, sectionSet map[string]bool, bandEdgesKg []float64, timeScope domain.TimeScope) (out domain.WeightDemographics, err error) {
 
 	out = domain.WeightDemographics{
 		GainThresholdsByBreed: []domain.WeightGainThresholdBucket{},
@@ -450,7 +435,6 @@ func (r *Repository) GetWeightDemographics(ctx context.Context, tenantID string,
 		if err != nil {
 			return domain.WeightDemographics{}, err
 		}
-		r.setReadCacheIfEpoch(cacheKey, out, cacheEpoch)
 		return out, nil
 	}
 	// The same-animal map (identity_scope.go), widened by the SAME 90-day lookback the gain arm below
@@ -1591,7 +1575,6 @@ SELECT
 	if out.ShedComposition, err = decodeShedComposition(compositionJSON); err != nil {
 		return domain.WeightDemographics{}, err
 	}
-	r.setReadCacheIfEpoch(cacheKey, out, cacheEpoch)
 	return out, nil
 }
 

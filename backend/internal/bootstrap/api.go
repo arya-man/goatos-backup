@@ -4,18 +4,20 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	countssoppg "github.com/vgoats/goatos/backend/internal/countssop/adapters/postgres"
-	countssopapp "github.com/vgoats/goatos/backend/internal/countssop/app"
-	feedsoppg "github.com/vgoats/goatos/backend/internal/feedsop/adapters/postgres"
-	feedsopapp "github.com/vgoats/goatos/backend/internal/feedsop/app"
-	shiftingsoppg "github.com/vgoats/goatos/backend/internal/shiftingsop/adapters/postgres"
-	shiftingsopapp "github.com/vgoats/goatos/backend/internal/shiftingsop/app"
 	"log/slog"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+
+	countssoppg "github.com/vgoats/goatos/backend/internal/countssop/adapters/postgres"
+	countssopapp "github.com/vgoats/goatos/backend/internal/countssop/app"
+	feedsoppg "github.com/vgoats/goatos/backend/internal/feedsop/adapters/postgres"
+	feedsopapp "github.com/vgoats/goatos/backend/internal/feedsop/app"
+	"github.com/vgoats/goatos/backend/internal/platform/readcache"
+	shiftingsoppg "github.com/vgoats/goatos/backend/internal/shiftingsop/adapters/postgres"
+	shiftingsopapp "github.com/vgoats/goatos/backend/internal/shiftingsop/app"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
@@ -645,8 +647,14 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	vaccExecHandler := vaccexechttp.NewHandler(vaccExecService, obligationRepo, log).
 		WithOperatorAssignmentConfigWriter(vaccExecService).
 		WithCapacityConfigWriter(vaccExecService)
+	// ONE process-wide read cache for the heavy weighing / Growth Director analytics reads
+	// (platform/readcache): single-flight, stale-while-revalidate, bounded LRU, and scoped
+	// eviction on committed weighing / feed-issue / assumptions writes -- locally after commit and
+	// on sibling instances through the dedicated LISTEN connection started below.
+	analyticsReadCache := readcache.New(readcache.DefaultOptions("analytics"))
 	weighingRepo := weighingpg.NewRepository(pool, cfg.Postgres.QueryTimeout).
-		WithProofURLResolver(newWeighingExportProofURLResolver(proofService, cfg.HTTPAddr))
+		WithProofURLResolver(newWeighingExportProofURLResolver(proofService, cfg.HTTPAddr)).
+		WithReadCache(analyticsReadCache)
 	// PHASE 2: the same repository also serves the Calendar / Control Tower
 	// weighing process-state read model (declared `weighing_work_item` grain).
 	weighingService := weighingapp.NewService(weighingRepo).
@@ -663,7 +671,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// Deliberately its OWN module, outside backend/internal/weighing, because
 	// weighing is isolated from the herd and these widgets need breed/sex and
 	// the feed sheet.
-	growthDirectorService := growthdirectorapp.NewService(growthdirectorpg.NewRepository(pool, cfg.Postgres.QueryTimeout))
+	growthDirectorService := growthdirectorapp.NewService(growthdirectorpg.NewRepository(pool, cfg.Postgres.QueryTimeout).WithReadCache(analyticsReadCache))
 	growthDirectorHandler := growthdirectorhttp.NewHandler(growthDirectorService, log)
 	calendarService := calendarapp.NewService(calendarpg.NewRepository(pool, cfg.Postgres.QueryTimeout))
 	calendarHandler := calendarhttp.NewHandler(calendarService, log)
@@ -1586,6 +1594,10 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	}
 	liveNotifyCtx, cancelLiveNotify := context.WithCancel(ctx)
 	herdSignalsHandler.WithLiveNotifications(liveNotifyCtx, herdsignalspg.NewLiveNotificationSource(pool, log))
+	// Cross-instance eviction feed on its own connection (not a pool slot), then a background,
+	// serial warm-up of the landing read every Weights/ADG visit blocks on.
+	readcache.NewListener(pool, log, analyticsReadCache).Start(liveNotifyCtx)
+	analyticsReadCache.StartWarmup(liveNotifyCtx, log, 2*time.Second, 20*time.Second, weighingRepo.WarmLandingReads)
 	return &API{
 		Server: server,
 		Close: func() {

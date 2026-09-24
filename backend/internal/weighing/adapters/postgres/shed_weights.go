@@ -8,6 +8,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
+	"github.com/vgoats/goatos/backend/internal/platform/readcache"
 	"github.com/vgoats/goatos/backend/internal/weighing/domain"
 )
 
@@ -68,35 +69,19 @@ import (
 // weighing_observations_campaign_scanned_identifier_idx rather than seq-scanning
 // once per bucket — the same fix measured in 000080 (3873ms -> 554ms at 400
 // buckets x 300 observations).
-func (r *Repository) GetShedWeights(ctx context.Context, tenantID string, scopeParkIDs []string, selectedParkID string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string, saleThresholdToleranceKg, saleLowerKg, saleUpperKg float64) (out domain.ShedWeights, err error) {
+func (r *Repository) GetShedWeights(ctx context.Context, tenantID string, scopeParkIDs []string, selectedParkID string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string, saleThresholdToleranceKg, saleLowerKg, saleUpperKg float64) (domain.ShedWeights, error) {
 	options := domain.ShedWeightsOptionsFromContext(ctx)
 	includeLoads := options.IncludeLoads
 	includeDates := options.IncludeDates
 	cacheKey := weighingAnalyticsCacheKey("shed_weights:"+selectedParkID+":"+fmt.Sprintf("%.3f|%.3f|%.3f|loads=%t|dates=%t", saleThresholdToleranceKg, saleLowerKg, saleUpperKg, includeLoads, includeDates), tenantID, scopeParkIDs, periodStart, periodEnd, sex, origin, weighingCategory)
-	if cached, ok := r.getReadCache(cacheKey); ok {
-		return cached.(domain.ShedWeights), nil
-	}
-	cacheEpoch := r.readCacheEpoch()
+	return readcache.Load(ctx, r.cache, analyticsReadKey(tenantID, scopeParkIDs, cacheKey), func(ctx context.Context) (domain.ShedWeights, error) {
+		ctx, cancel := r.timeout(ctx)
+		defer cancel()
+		return r.getShedWeightsUncached(ctx, tenantID, scopeParkIDs, selectedParkID, periodStart, periodEnd, sex, origin, weighingCategory, saleThresholdToleranceKg, saleLowerKg, saleUpperKg, includeLoads, includeDates)
+	})
+}
 
-	ctx, cancel := r.timeout(ctx)
-	defer cancel()
-	flight, ownsFlight, flightErr := r.beginReadFlight(ctx, cacheKey)
-	if flightErr != nil {
-		return domain.ShedWeights{}, flightErr
-	}
-	if !ownsFlight {
-		if flight.value == nil {
-			return domain.ShedWeights{}, nil
-		}
-		return flight.value.(domain.ShedWeights), nil
-	}
-	defer func() {
-		if err == nil {
-			r.finishReadFlight(cacheKey, flight, out, nil)
-			return
-		}
-		r.finishReadFlight(cacheKey, flight, nil, err)
-	}()
+func (r *Repository) getShedWeightsUncached(ctx context.Context, tenantID string, scopeParkIDs []string, selectedParkID string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string, saleThresholdToleranceKg, saleLowerKg, saleUpperKg float64, includeLoads, includeDates bool) (out domain.ShedWeights, err error) {
 
 	weighingCategory = strings.TrimSpace(weighingCategory)
 	// The two sale lines are the CALLER's (the tenant's sale_ready_lower_kg / sale_ready_threshold_kg
@@ -643,6 +628,5 @@ ORDER BY COALESCE(NULLIF(location_code, ''), name, ''), display_order, name, loc
 	out.Summary = summary
 	out.ByLoad = byLoad
 	out.LoadUnattributedSheds = unattributed
-	r.setReadCacheIfEpoch(cacheKey, out, cacheEpoch)
 	return out, nil
 }

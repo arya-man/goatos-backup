@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/platform/readcache"
+
 	"github.com/vgoats/goatos/backend/internal/growthdirector/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
@@ -405,7 +407,19 @@ ORDER BY sg.pen_shed_id, sg.pen_key, sg.d`
 )
 
 // GetFCR builds the FCR tab. See the file comment for the grain rules.
+//
+// Served through the shared read cache. The key carries today's business date because the report
+// is priced at TODAY's rate (below); weighing, feed-issue and assumptions writes evict it.
 func (r *Repository) GetFCR(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string) (domain.FCRReport, error) {
+	loc := biztime.DefaultLocation()
+	today := biztime.BusinessDayStart(time.Now().In(loc)).Format("2006-01-02")
+	params := growthDirectorReadKey("fcr", periodStart.UTC().Format(time.RFC3339), periodEnd.UTC().Format(time.RFC3339), sex, origin, weighingCategory, "priced="+today)
+	return readcache.Load(ctx, r.cache, gdReadKey(tenantID, parkIDs, params), func(ctx context.Context) (domain.FCRReport, error) {
+		return r.getFCRUncached(ctx, tenantID, parkIDs, periodStart, periodEnd, sex, origin, weighingCategory)
+	})
+}
+
+func (r *Repository) getFCRUncached(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string) (domain.FCRReport, error) {
 	loc := biztime.DefaultLocation()
 	period := domain.Period{
 		Start:      periodStart.In(loc).Format("2006-01-02"),

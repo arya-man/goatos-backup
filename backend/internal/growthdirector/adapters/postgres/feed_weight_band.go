@@ -9,6 +9,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
+
+	"github.com/vgoats/goatos/backend/internal/platform/readcache"
+
 	"github.com/vgoats/goatos/backend/internal/growthdirector/ports"
 	weighingpg "github.com/vgoats/goatos/backend/internal/weighing/adapters/postgres"
 	weighingdomain "github.com/vgoats/goatos/backend/internal/weighing/domain"
@@ -422,35 +426,9 @@ func (r *Repository) GetFeedWeightBandSource(ctx context.Context, tenantID strin
 	}
 	cacheKey := growthDirectorReadKey("feed_weight_band", tenantID, strings.Join(append([]string{}, parkIDs...), ","),
 		periodStart.UTC().Format(time.RFC3339), periodEnd.UTC().Format(time.RFC3339), sex, origin, weighingCategory, "bands="+strings.Join(edgeKey, ","))
-	if cached, ok := r.getCachedRead(cacheKey); ok {
-		if hit, ok := cached.(ports.FeedWeightBandSource); ok {
-			return hit, nil
-		}
-	}
-	flight, owner := r.beginReadFlight(cacheKey)
-	if !owner {
-		select {
-		case <-ctx.Done():
-			return out, ctx.Err()
-		case <-flight.done:
-			if flight.err != nil {
-				return out, flight.err
-			}
-			if hit, ok := flight.val.(ports.FeedWeightBandSource); ok {
-				return hit, nil
-			}
-			return out, fmt.Errorf("growthdirector: cached feed weight band had unexpected type")
-		}
-	}
-	var flightErr error
-	defer func() {
-		if flightErr == nil {
-			r.setCachedRead(cacheKey, out)
-		}
-		r.finishReadFlight(cacheKey, flight, out, flightErr)
-	}()
-	out, flightErr = r.readFeedWeightBandSource(ctx, tenantID, parkIDs, periodStart, periodEnd, sex, origin, weighingCategory, bandEdgesKg)
-	return out, flightErr
+	return readcache.Load(ctx, r.cache, gdReadKey(tenantID, parkIDs, cacheKey), func(ctx context.Context) (ports.FeedWeightBandSource, error) {
+		return r.readFeedWeightBandSource(ctx, tenantID, parkIDs, periodStart, periodEnd, sex, origin, weighingCategory, bandEdgesKg)
+	})
 }
 
 // readFeedWeightBandSource is the uncached read behind GetFeedWeightBandSource. The two scope
@@ -540,10 +518,11 @@ func (r *Repository) readFeedWeightBandSource(ctx context.Context, tenantID stri
 	scope = weighingpg.IntersectScopes(scope, sexApplied, originScope, originApplied)
 	filtered := sexApplied || originApplied
 
-	rows, err := r.pool.Query(ctx, feedWeightBandSQL,
+	fwbBind519 := sqlbind.MustBind(feedWeightBandSQL,
 		tenantID, parkIDs, periodStart, periodEnd,
 		filtered, scope.Tags, scope.LocationIDs, scope.PartitionLabels,
 		idMap.Tags, idMap.CanonicalTags, feedWeightBandLookbackDays, weighingCategory, bandEdgesKg)
+	rows, err := r.pool.Query(ctx, fwbBind519.SQL(), fwbBind519.Args()...)
 	if err != nil {
 		return out, fmt.Errorf("growthdirector: feed weight band: %w", err)
 	}
@@ -621,7 +600,8 @@ func (r *Repository) readFeedWeightBandSource(ctx context.Context, tenantID stri
 }
 
 func (r *Repository) readFeedWeightBandExits(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string) ([]ports.FeedExitedAnimal, error) {
-	exitedRows, err := r.pool.Query(ctx, feedWeightBandExitedSQL, tenantID, parkIDs, periodStart, periodEnd, strings.TrimSpace(sex), strings.TrimSpace(origin), weighingCategory)
+	fwbBind600 := sqlbind.MustBind(feedWeightBandExitedSQL, tenantID, parkIDs, periodStart, periodEnd, strings.TrimSpace(sex), strings.TrimSpace(origin), weighingCategory)
+	exitedRows, err := r.pool.Query(ctx, fwbBind600.SQL(), fwbBind600.Args()...)
 	if err != nil {
 		return nil, fmt.Errorf("growthdirector: feed weight band exits: %w", err)
 	}

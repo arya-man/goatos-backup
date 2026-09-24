@@ -9,8 +9,9 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
+
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	"github.com/vgoats/goatos/backend/internal/platform/readcache"
 	"github.com/vgoats/goatos/backend/internal/weighing/domain"
 	"github.com/vgoats/goatos/backend/internal/weighing/ports"
 )
@@ -28,28 +30,27 @@ type Repository struct {
 	pool         *pgxpool.Pool
 	queryTimeout time.Duration
 	proofURLs    ProofURLResolver
-	cacheMu      sync.Mutex
-	readCache    map[string]readCacheEntry
-	readFlight   map[string]*readFlight
-	cacheEpoch   uint64
+	// cache is the shared platform read cache (readcache). NewRepository gives each repository a
+	// private, non-coherent instance (30 s TTL, no stale serving) so tests and one-off tools behave
+	// exactly like the old burst cache; the API wires the process-wide coherent one via
+	// WithReadCache.
+	cache *readcache.Cache
 }
 
 func NewRepository(pool *pgxpool.Pool, queryTimeout time.Duration) *Repository {
 	if queryTimeout <= 0 {
 		queryTimeout = defaultQueryTimeout
 	}
-	return &Repository{pool: pool, queryTimeout: queryTimeout, readCache: map[string]readCacheEntry{}, readFlight: map[string]*readFlight{}}
+	return &Repository{pool: pool, queryTimeout: queryTimeout, cache: readcache.New(readcache.DefaultOptions("weighing"))}
 }
 
-type readCacheEntry struct {
-	expiresAt time.Time
-	value     any
-}
-
-type readFlight struct {
-	done  chan struct{}
-	value any
-	err   error
+// WithReadCache swaps in the process-wide read cache shared with Growth Director, whose
+// evictions arrive from every API instance (readcache.Listener).
+func (r *Repository) WithReadCache(cache *readcache.Cache) *Repository {
+	if cache != nil {
+		r.cache = cache
+	}
+	return r
 }
 
 // WithProofURLResolver wires the CSV export's proof-video URL resolution. Without it,
@@ -259,7 +260,7 @@ RETURNING campaign_shed_id::text, $1::text, $3::text, $4, $5, expected_animal_co
 	if err := r.enqueue(ctx, tx, cmd.TenantID, "weighing.campaign_created", c.CampaignID, cmd.IdempotencyKey, requestFingerprint, c); err != nil {
 		return domain.Campaign{}, err
 	}
-	if err := r.commitAndInvalidateReadCache(ctx, tx); err != nil {
+	if err := r.commitAndEvict(ctx, tx, cmd.TenantID, ""); err != nil {
 		return domain.Campaign{}, err
 	}
 	c.Progress = progress(c.Sheds, 0, 0, 0, 0)
@@ -537,7 +538,7 @@ RETURNING campaign_shed_id::text`, campaignID, cmd.TenantID, shed.LocationID, sh
 	if err := r.enqueue(ctx, tx, cmd.TenantID, "weighing.campaign_updated", campaignID, cmd.IdempotencyKey, fingerprint, c); err != nil {
 		return domain.Campaign{}, err
 	}
-	return c, r.commitAndInvalidateReadCache(ctx, tx)
+	return c, r.commitAndEvict(ctx, tx, cmd.TenantID, campaignID)
 }
 
 func (r *Repository) PublishCampaign(ctx context.Context, tenantID, campaignID, actorID, idempotencyKey string) (domain.Campaign, error) {
@@ -614,7 +615,7 @@ func (r *Repository) PublishCampaign(ctx context.Context, tenantID, campaignID, 
 	}); err != nil {
 		return domain.Campaign{}, err
 	}
-	return c, r.commitAndInvalidateReadCache(ctx, tx)
+	return c, r.commitAndEvict(ctx, tx, tenantID, campaignID)
 }
 
 func (r *Repository) ListCampaigns(ctx context.Context, tenantID, parkID string, filter domain.CampaignListFilter, cursor string, limit int) (domain.CampaignPage, error) {
@@ -736,7 +737,7 @@ func (r *Repository) listCampaigns(ctx context.Context, tenantID, operatorUserID
 	if ascending {
 		orderDirection = "ASC"
 	}
-	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+	repoBind738 := sqlbind.MustBind(fmt.Sprintf(`
 SELECT weighing_campaigns.campaign_id::text, weighing_campaigns.tenant_id::text, weighing_campaigns.park_id::text, COALESCE(park.name, '') AS park_name,
   weighing_campaigns.period_start_date::text, weighing_campaigns.period_end_date::text,
   weighing_campaigns.start_business_date::text, weighing_campaigns.status, weighing_campaigns.planned_cap_per_day,
@@ -847,6 +848,7 @@ LIMIT $5`, orderDirection), tenantID, nullableString(cur.PeriodStartDate), nulla
 		accessApplies, accessUnrestricted, accessParkIDs, nullableString(accessAssignee),
 		statusFilter, nullableString(windowFrom), nullableString(windowTo), nullableString(penShed), penPartition, ascending,
 		nullableString(strings.TrimSpace(filter.Today)))
+	rows, err := r.pool.Query(ctx, repoBind738.SQL(), repoBind738.Args()...)
 	if err != nil {
 		return domain.CampaignPage{}, err
 	}
@@ -1731,7 +1733,7 @@ WHERE cs.tenant_id=$1::uuid AND cs.campaign_id=$2::uuid AND cs.campaign_shed_id=
 	if result.WeighingCategory == "per_shed_partition" {
 		var lump domain.Observation
 		var lumpAnswersText, lumpSlotsText, lumpKindsText string
-		err = r.pool.QueryRow(ctx, `
+		repoBind1733 := sqlbind.MustBind(`
 SELECT
   wso.shed_observation_id::text,
   wso.campaign_id::text,
@@ -1754,7 +1756,8 @@ FROM weighing_shed_observations wso
 WHERE wso.tenant_id=$1::uuid AND wso.campaign_id=$2::uuid AND wso.campaign_shed_id=$3::uuid
   -- Superseded by a reopen: history, not the bucket's current submission.
   AND wso.withdrawn_at IS NULL`,
-			tenantID, campaignID, campaignShedID).Scan(
+			tenantID, campaignID, campaignShedID)
+		err = r.pool.QueryRow(ctx, repoBind1733.SQL(), repoBind1733.Args()...).Scan(
 			&lump.ObservationID,
 			&lump.CampaignID,
 			&lump.CampaignShedID,
@@ -1791,7 +1794,7 @@ WHERE wso.tenant_id=$1::uuid AND wso.campaign_id=$2::uuid AND wso.campaign_shed_
 	// the rows beyond the page. A row inserted mid-page lands after the cursor
 	// (accepted_at only moves forward), so it appears on a later page instead of
 	// shifting or duplicating rows already returned.
-	rows, err := r.pool.Query(ctx, `
+	repoBind1793 := sqlbind.MustBind(`
 SELECT
   o.observation_id::text,
   o.campaign_id::text,
@@ -1812,6 +1815,7 @@ WHERE o.tenant_id=$1::uuid AND o.campaign_id=$2::uuid AND o.campaign_shed_id=$3:
 ORDER BY o.accepted_at, o.observation_id
 LIMIT $6`, tenantID, campaignID, campaignShedID,
 		nullableTime(cur.AcceptedAt), nullableString(cur.ObservationID), limit+1)
+	rows, err := r.pool.Query(ctx, repoBind1793.SQL(), repoBind1793.Args()...)
 	if err != nil {
 		return domain.LeadershipShedVideos{}, err
 	}
@@ -1953,7 +1957,7 @@ func (r *Repository) observationByIdemPool(ctx context.Context, tenantID, eventT
 	if !ok {
 		return domain.Observation{}, ports.ErrNotFound
 	}
-	return obs, r.commitAndInvalidateReadCache(ctx, tx)
+	return obs, r.commitAndEvict(ctx, tx, tenantID, "")
 }
 
 // observationTagHasOpenRow reports whether ANY row -- regardless of which
@@ -2024,7 +2028,7 @@ func (r *Repository) recordAnimalObservationAttempt(ctx context.Context, cmd dom
 		if err != nil {
 			return domain.Observation{}, err
 		}
-		if err := r.commitAndInvalidateReadCache(ctx, tx); err != nil {
+		if err := r.commitAndEvict(ctx, tx, cmd.TenantID, cmd.CampaignID); err != nil {
 			return domain.Observation{}, mapObservationUniqueViolation(err)
 		}
 		return existing, nil
@@ -2414,7 +2418,7 @@ SELECT observation_id, campaign_id, campaign_shed_id_text, scanned_identifier_te
 	// exactly when PostgreSQL's SSI conflict detection fires relative to the
 	// row-lock wait -- so this Commit error is mapped through the same
 	// translator as the write query's error, not returned raw.
-	if err := r.commitAndInvalidateReadCache(ctx, tx); err != nil {
+	if err := r.commitAndEvict(ctx, tx, cmd.TenantID, cmd.CampaignID); err != nil {
 		return domain.Observation{}, mapObservationUniqueViolation(err)
 	}
 	return obs, nil
@@ -2533,7 +2537,7 @@ func (r *Repository) RecordShedObservation(ctx context.Context, cmd domain.Recor
 		if err != nil {
 			return domain.Observation{}, err
 		}
-		return existing, r.commitAndInvalidateReadCache(ctx, tx)
+		return existing, r.commitAndEvict(ctx, tx, cmd.TenantID, cmd.CampaignID)
 	}
 	// Lock-ordering convention (see lockCampaignRowForNoKeyUpdate): campaign
 	// row before bucket row, always. Must happen before the query below,
@@ -2716,7 +2720,7 @@ WHERE tenant_id=$1::uuid
 	if err := r.enqueue(ctx, tx, cmd.TenantID, "weighing.shed_observation_accepted", obs.ObservationID, cmd.IdempotencyKey, fingerprint, obs); err != nil {
 		return domain.Observation{}, err
 	}
-	return obs, r.commitAndInvalidateReadCache(ctx, tx)
+	return obs, r.commitAndEvict(ctx, tx, cmd.TenantID, cmd.CampaignID)
 }
 
 // markScopeInProgressOnCapture moves a bucket from 'pending' to 'in_progress' the
@@ -2973,7 +2977,7 @@ func (r *Repository) SubmitIndividualScope(ctx context.Context, tenantID, campai
 		if resourceType != "weighing_campaign_shed" {
 			return ports.ErrIdempotencyConflict
 		}
-		return r.commitAndInvalidateReadCache(ctx, tx)
+		return r.commitAndEvict(ctx, tx, tenantID, campaignID)
 	}
 	result, err := tx.Exec(ctx, `
 UPDATE weighing_campaign_sheds cs
@@ -3074,7 +3078,7 @@ WHERE tenant_id=$1::uuid
 	}); err != nil {
 		return err
 	}
-	return r.commitAndInvalidateReadCache(ctx, tx)
+	return r.commitAndEvict(ctx, tx, tenantID, campaignID)
 }
 
 // ReopenScope returns the shed-observation ids whose submissions this reopen
@@ -3108,7 +3112,7 @@ func (r *Repository) ReopenScope(ctx context.Context, tenantID, campaignID, camp
 		if err != nil {
 			return nil, err
 		}
-		return alreadyWithdrawn, r.commitAndInvalidateReadCache(ctx, tx)
+		return alreadyWithdrawn, r.commitAndEvict(ctx, tx, tenantID, campaignID)
 	}
 	result, err := tx.Exec(ctx, `
 UPDATE weighing_campaign_sheds cs
@@ -3252,7 +3256,7 @@ WHERE tenant_id=$1::uuid
 	}); err != nil {
 		return nil, err
 	}
-	return superseded, r.commitAndInvalidateReadCache(ctx, tx)
+	return superseded, r.commitAndEvict(ctx, tx, tenantID, campaignID)
 }
 
 // withdrawnShedObservationIDs re-reports the submissions a previous run of this
@@ -3311,7 +3315,7 @@ func (r *Repository) reopenStaleCompletedCampaign(ctx context.Context, tenantID,
 	if err := r.reopenCampaignIfShedStillOpen(ctx, tx, tenantID, campaignID); err != nil {
 		return err
 	}
-	return r.commitAndInvalidateReadCache(ctx, tx)
+	return r.commitAndEvict(ctx, tx, tenantID, campaignID)
 }
 
 func (r *Repository) reopenCampaignIfShedStillOpen(ctx context.Context, tx pgx.Tx, tenantID, campaignID string) error {
@@ -3915,7 +3919,7 @@ func (r *Repository) getCampaignTx(ctx context.Context, tx pgx.Tx, tenantID, cam
 	// keys). Before this join neither this query nor hydrateCampaigns below
 	// selected the name at all, so admin-web always fell back to its
 	// "Roster gap (operator not found)" placeholder for every assigned shed.
-	rows, err := tx.Query(ctx, `
+	repoBind3917 := sqlbind.MustBind(`
 SELECT cs.campaign_shed_id::text, cs.campaign_id::text, cs.location_id::text, cs.location_type, cs.display_name, COALESCE(cs.partition_label, ''), cs.expected_animal_count, cs.weighing_category, cs.operator_user_id::text, COALESCE(op.display_name, ''),
   CASE WHEN cs.status IN ('in_progress','completed','closed','canceled') THEN cs.status ELSE COALESCE(wi.work_state, cs.status) END,
   COALESCE(wi.planned_business_date::text, ''), COALESCE(wi.due_business_date::text, ''),
@@ -3928,6 +3932,7 @@ LEFT JOIN weighing_work_items wi
  AND wi.campaign_shed_id=cs.campaign_shed_id
 WHERE cs.tenant_id=$1::uuid AND cs.campaign_id=$2::uuid
 ORDER BY cs.display_name`, tenantID, campaignID)
+	rows, err := tx.Query(ctx, repoBind3917.SQL(), repoBind3917.Args()...)
 	if err != nil {
 		return domain.Campaign{}, err
 	}
@@ -3963,7 +3968,7 @@ func (r *Repository) hydrateCampaigns(ctx context.Context, tenantID string, ids 
 	// B21-SQL: see getCampaignTx's identical join above -- reusing
 	// ListCampaignSheds' join, not inventing a second way to resolve an
 	// operator's display name.
-	rows, err := r.pool.Query(ctx, `
+	repoBind3965 := sqlbind.MustBind(`
 SELECT cs.campaign_shed_id::text, cs.campaign_id::text, cs.location_id::text, cs.location_type, cs.display_name, COALESCE(cs.partition_label, ''), cs.expected_animal_count, cs.weighing_category, cs.operator_user_id::text, COALESCE(op.display_name, ''),
   CASE WHEN cs.status IN ('in_progress','completed','closed','canceled') THEN cs.status ELSE COALESCE(wi.work_state, cs.status) END,
   COALESCE(wi.planned_business_date::text, ''), COALESCE(wi.due_business_date::text, ''),
@@ -3978,6 +3983,7 @@ WHERE cs.tenant_id=$1::uuid
   AND cs.campaign_id = ANY($2::uuid[])
   AND ($3::uuid IS NULL OR cs.operator_user_id=$3::uuid)
 ORDER BY cs.campaign_id, cs.display_name`, tenantID, ids, nullableString(operatorFilter))
+	rows, err := r.pool.Query(ctx, repoBind3965.SQL(), repoBind3965.Args()...)
 	if err != nil {
 		return err
 	}
@@ -4170,7 +4176,7 @@ func (r *Repository) observationByIdem(ctx context.Context, tx pgx.Tx, tenantID,
 	if !ok {
 		return domain.Observation{}, ports.ErrNotFound
 	}
-	return obs, r.commitAndInvalidateReadCache(ctx, tx)
+	return obs, r.commitAndEvict(ctx, tx, tenantID, "")
 }
 
 func (r *Repository) observationByIdemTx(ctx context.Context, tx pgx.Tx, tenantID, eventType, idem, fingerprint string) (domain.Observation, bool, error) {
