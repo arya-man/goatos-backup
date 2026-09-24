@@ -168,3 +168,23 @@ All agents and the 10-minute loop are stopped. Every builder's work (committed, 
     - a stored 24h baseline rollup;
     - 000402 was edited in place, so any dev DB that already applied it must re-migrate;
     - `page_limit25` p95 is about 415 ms at 5k tags, close to the 500 ms max.
+
+## STOPPED again: weekly usage limit (resets 2026-09-29 06:30 IST)
+
+All agents died on the account's weekly limit. Their work is saved to origin; each branch's top commit may be a "WIP (stopped: weekly usage limit)" save.
+
+| Branch | Ahead of PR | State | Next step |
+|---|---|---|---|
+| `wip/perf-read-cache` | 4 | Complete (all writers invalidate, stale window 0, read-your-writes E2E). Judge was mid-run. | Judge the exact SHA with the frozen scope, then cherry-pick |
+| `wip/perf-w2-workboard` | 7 | Most fixes done; builder was about to run guards | Run guards and triage; renumber its 000405 to 000415+; judge |
+| `wip/perf-w2-vaccination` | 2 | Early: canceled treated as waived in fixtures | Continue the brief, including the maintainer decision to **archive to GCS, then delete ALL canceled obligations**; map every FK/reader first |
+| `wip/perf-w2-calendar` | 2 | The aborted-tx bug fix plus a WIP save | Continue: calendar rewrites, feed daily rollup |
+| `wip/perf-w2-batching` | 0 | Not started (it was reading `ListLeadershipSheds`) | leadership/sheds, sales/overview, pen-routines, counts/mortality into 1–2 round trips |
+| (none) | – | "Who scans obligations/goats" investigation died before writing | Re-run it using Query Insights (enabled 2026-09-24) |
+
+**Latest real-stg read-only bench** (`REAL-STG-READONLY-BENCH.md`, 2nd run):
+- Budget fails dropped from 14 to 6.
+- Still failing: vaccination/command, shed-dose-matrix, work-board/page, leadership/sheds, cohort-matrix and vaccination/execution.
+- 4 endpoints can only be measured once their migrations are on stg.
+
+**Can use Codex meanwhile:** the same files and branches work, and all the rules are in AGENTS.md and this folder.
