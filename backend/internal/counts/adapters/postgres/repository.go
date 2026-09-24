@@ -3001,7 +3001,7 @@ WHERE g.tenant_id = $1::uuid
   AND g.merged_into_goat_id IS NULL
 GROUP BY g.lifecycle_status
 UNION ALL
--- projection-review: membership=canonical live goats for the tenant, deliberately WITHOUT a stage predicate (a facet must never filter by its own dimension); group_key=the FOLDED stage code plus sl.name, which is FUNCTIONALLY DEPENDENT on it (the fold maps the three fattening codes onto one and is disjoint, so the folded row's count is exactly the sum of the rows it replaces) -- animal_stage_lookup is unique on (tenant_id, stage_code), so adding the name to the GROUP BY cannot split one stage into two rows; join_cardinality=animal_stage_lookup LEFT JOINed once on that unique key, a strict 1:{0,1} LABEL-ONLY lookup that supplies no identity and cannot multiply the COUNT (a stage with no lookup row keeps its code, which is what StageDisplayLabel falls back to); pagination=whole-result rollup, never paged and never capped; scope=tenant_id plus the lifecycle predicate shared by every facet branch
+-- projection-review: membership=canonical live goats for the tenant, deliberately WITHOUT a stage predicate (a facet must never filter by its own dimension); group_key=the FOLDED stage code plus sl.name, which is FUNCTIONALLY DEPENDENT on it (the fold maps the three fattening codes onto one and is disjoint, so the folded row's count is exactly the sum of the rows it replaces) -- animal_stage_lookup is unique on (tenant_id, stage_code), so adding the name to the GROUP BY cannot split one stage into two rows; join_cardinality=animal_stage_lookup LEFT JOINed once on that unique key, a strict 1:{0,1} LABEL-ONLY lookup that supplies no identity and cannot multiply the COUNT (a stage with no lookup row keeps its code, which is what StageDisplayLabel falls back to); pagination=whole-result rollup, never paged and never capped; scope=tenant_id plus the lifecycle predicate shared by every facet branch, plus the selected park
 SELECT 'stage' AS dimension, folded.code AS series_key,
        COALESCE(sl.name, '') AS series_label, count(*) AS series_count,
        ''::text AS park_key, ''::text AS partition_key
@@ -3023,14 +3023,18 @@ LEFT JOIN animal_stage_lookup sl
 WHERE g.tenant_id = $1::uuid
   AND g.merged_into_goat_id IS NULL
   AND ($2 = '' OR g.lifecycle_status = $2)
+  -- The selected park ($5). Only the stage and breed options follow it: an option naming a stage
+  -- the park does not hold returned an empty table. The park facet below never does.
+  AND (cardinality($5::text[]) = 0 OR g.park_id = ANY($5::text[]::uuid[]))
 GROUP BY folded.code, sl.name
 UNION ALL
--- projection-review: membership=canonical live goats for the tenant, deliberately WITHOUT a breed predicate (a facet must never filter by its own dimension); group_key=breed alone -- this branch carries no location grain at all, and the two trailing ''::text columns exist only to keep every UNION branch the same arity now that the shed branches also emit a partition label; join_cardinality=no joins in this branch, so nothing can fan out; pagination=whole-result rollup, never paged and never capped; scope=tenant_id plus the lifecycle predicate shared by every facet branch
+-- projection-review: membership=canonical live goats for the tenant, deliberately WITHOUT a breed predicate (a facet must never filter by its own dimension); group_key=breed alone -- this branch carries no location grain at all, and the two trailing ''::text columns exist only to keep every UNION branch the same arity now that the shed branches also emit a partition label; join_cardinality=no joins in this branch, so nothing can fan out; pagination=whole-result rollup, never paged and never capped; scope=tenant_id plus the lifecycle predicate shared by every facet branch, plus the selected park
 SELECT 'breed', COALESCE(g.breed, ''), COALESCE(g.breed, ''), count(*), ''::text, ''::text
 FROM goats g
 WHERE g.tenant_id = $1::uuid
   AND g.merged_into_goat_id IS NULL
   AND ($2 = '' OR g.lifecycle_status = $2)
+  AND (cardinality($5::text[]) = 0 OR g.park_id = ANY($5::text[]::uuid[]))
 GROUP BY COALESCE(g.breed, '')
 UNION ALL
 -- projection-review: membership=canonical live goats for the tenant, deliberately WITHOUT a park predicate (a facet must never filter by its own dimension); group_key=park_id alone -- no shed or partition grain in this branch; join_cardinality=locations LEFT JOINed once on its (tenant_id, location_id) primary key for the park label, 1:{0,1}, no fan-out; pagination=whole-result rollup, never paged and never capped; scope=tenant_id plus the lifecycle predicate shared by every facet branch. The two trailing ''::text columns keep UNION arity aligned with the shed branches, which now also emit a partition label.
@@ -3436,7 +3440,7 @@ func (r *Repository) GetCountsBreakdown(ctx context.Context, req domain.CountsBr
 	// rather than at the database.
 	boundPage := sqlbind.MustBind(pageSQL, append(append([]any{}, grainArgs...), limit, offset)...)
 	boundCharts := sqlbind.MustBind(countsBreakdownChartsSQL, grainArgs...)
-	boundFacets := sqlbind.MustBind(countsBreakdownFacetsSQL, req.TenantID, lifecycle, herdstage.LowerMembers(), herdstage.FatteningKey)
+	boundFacets := sqlbind.MustBind(countsBreakdownFacetsSQL, req.TenantID, lifecycle, herdstage.LowerMembers(), herdstage.FatteningKey, compactStrings(req.ParkIDs))
 	boundLoads := sqlbind.MustBind(countsBreakdownLoadsSQL, grainArgs...)
 
 	batch := &pgx.Batch{}

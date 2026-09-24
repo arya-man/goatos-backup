@@ -3207,4 +3207,115 @@ VALUES ($1::uuid, $2::uuid, 'sold', 4)`, countsTenant, priorOnly); err != nil {
 	if got := refs([]string{countsParkTwo}); !reflect.DeepEqual(got, map[string]int64{"202": 3}) {
 		t.Errorf("park two: loads = %v, want only the sold-out load 202", got)
 	}
+
+	loadRefs := func(q domain.CountsBreakdownQuery) []string {
+		t.Helper()
+		q.TenantID = countsTenant
+		got, err := repo.GetCountsBreakdown(ctx, q)
+		if err != nil {
+			t.Fatalf("GetCountsBreakdown(%+v): %v", q, err)
+		}
+		var out []string
+		for _, l := range got.Loads {
+			out = append(out, l.LoadRef)
+		}
+		return out
+	}
+
+	// StatusMatrix: which loads a park lists does not depend on the lifecycle bucket being read --
+	// a load is placed by its animals of EVERY lifecycle, so the sold-out 202 stays on park two
+	// under the live, sold and dead buckets alike.
+	t.Run("StatusMatrixEveryLifecyclePlacesTheLoad", func(t *testing.T) {
+		for _, status := range []string{"alive", "sold", "dead"} {
+			status := status
+			if got := loadRefs(domain.CountsBreakdownQuery{ParkIDs: []string{countsParkTwo}, LifecycleStatus: &status, Limit: 50}); !reflect.DeepEqual(got, []string{"202"}) {
+				t.Errorf("park two under %s = %v, want [202]", status, got)
+			}
+		}
+	})
+
+	// Pagination: the pen table's limit/offset never touch which loads a park lists.
+	t.Run("PaginationOfThePenTableLeavesTheParkLoadsWhole", func(t *testing.T) {
+		whole := loadRefs(domain.CountsBreakdownQuery{ParkIDs: []string{countsPark}, Limit: 50})
+		paged := loadRefs(domain.CountsBreakdownQuery{ParkIDs: []string{countsPark}, GroupByPen: true, Limit: 1, Offset: 1})
+		if !reflect.DeepEqual(paged, whole) || !reflect.DeepEqual(whole, []string{"201"}) {
+			t.Errorf("park one loads paged = %v, whole = %v, want [201] both", paged, whole)
+		}
+	})
+
+	// OneToMany: an animal accepted onto TWO loads lands on exactly one (the latest acceptance, the
+	// same DISTINCT ON the Sales load read uses), so an older acceptance row cannot drag load 201
+	// onto park two's card.
+	t.Run("OneToManyAcceptanceRowsPlaceALoadOnce", func(t *testing.T) {
+		insertBreakdownGoat(t, ctx, pool, goatUUID(7), goatDisplayID(7),
+			"male", "Beetal", "alive", "Fattening", strp(countsParkTwo), strp(countsShedCastroTwo), nil)
+		if _, err := pool.Exec(ctx, `
+INSERT INTO procurement_load_goats (tenant_id, load_id, goat_id, selection_state, current_state, intake_accepted_at)
+VALUES ($1::uuid, $2::uuid, $4::uuid, 'accepted_herd_intake', 'accepted_herd_intake', '2026-07-01T10:00:00Z'::timestamptz),
+       ($1::uuid, $3::uuid, $4::uuid, 'accepted_herd_intake', 'accepted_herd_intake', '2026-08-02T10:00:00Z'::timestamptz)`,
+			countsTenant, parkOneLoad, parkTwoLoad, goatUUID(7)); err != nil {
+			t.Fatalf("seed double acceptance: %v", err)
+		}
+		if got := loadRefs(domain.CountsBreakdownQuery{ParkIDs: []string{countsParkTwo}, Limit: 50}); !reflect.DeepEqual(got, []string{"202"}) {
+			t.Errorf("park two = %v, want [202]: the animal's older acceptance onto 201 must not place 201 in park two", got)
+		}
+	})
+}
+
+// With a park selected, the Stage and Breed dropdowns offer only what that park holds. They used to
+// list the whole tenant's vocabulary, so a CBE-only stage or breed stayed on a CPT page and picking
+// it returned an empty table. The Farm dropdown itself is never narrowed by the park (a facet must
+// not filter by its own dimension), so the reader can always switch park.
+func TestCountsBreakdownStageAndBreedOptionsFollowTheSelectedPark(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newBreakdownRepo(t, ctx)
+	seedSameNamedShedsInTwoParks(t, ctx, pool)
+
+	insertBreakdownGoat(t, ctx, pool, goatUUID(0), goatDisplayID(0), "female", "Beetal", "alive", "K1", strp(countsPark), strp(countsShedCastroOne), nil)
+	insertBreakdownGoat(t, ctx, pool, goatUUID(1), goatDisplayID(1), "female", "Malai", "alive", "Mother", strp(countsParkTwo), strp(countsShedCastroTwo), nil)
+
+	keys := func(points []domain.CountsBreakdownSeriesPoint) map[string]bool {
+		out := map[string]bool{}
+		for _, p := range points {
+			out[p.Key] = true
+		}
+		return out
+	}
+	got, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, ParkIDs: []string{countsPark}, Limit: 50})
+	if err != nil {
+		t.Fatalf("GetCountsBreakdown: %v", err)
+	}
+	stages, breeds, parks := keys(got.Facets.Stages), keys(got.Facets.Breeds), keys(got.Facets.Parks)
+	if !stages["K1"] || stages["Mother"] {
+		t.Errorf("stage options for park one = %v, want K1 and not the other park's Mother", stages)
+	}
+	if !breeds["Beetal"] || breeds["Malai"] {
+		t.Errorf("breed options for park one = %v, want Beetal and not the other park's Malai", breeds)
+	}
+	if !parks[countsPark] || !parks[countsParkTwo] {
+		t.Errorf("farm options = %v, want both parks: the park facet never filters by the park", parks)
+	}
+
+	all, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, Limit: 50})
+	if err != nil {
+		t.Fatalf("GetCountsBreakdown(all): %v", err)
+	}
+	if s, b := keys(all.Facets.Stages), keys(all.Facets.Breeds); !s["K1"] || !s["Mother"] || !b["Beetal"] || !b["Malai"] {
+		t.Errorf("all parks: stages %v breeds %v, want both parks' values", s, b)
+	}
+
+	// MultipleDimensions: the park narrows the options' COUNTS too, and a second animal of the
+	// same stage in the other park never inflates this park's option.
+	t.Run("MultipleDimensionsCountOnlyTheSelectedPark", func(t *testing.T) {
+		insertBreakdownGoat(t, ctx, pool, goatUUID(2), goatDisplayID(2), "male", "Beetal", "alive", "K1", strp(countsParkTwo), strp(countsShedCastroTwo), nil)
+		got, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, ParkIDs: []string{countsPark}, Limit: 50})
+		if err != nil {
+			t.Fatalf("GetCountsBreakdown: %v", err)
+		}
+		for _, p := range append(append([]domain.CountsBreakdownSeriesPoint{}, got.Facets.Stages...), got.Facets.Breeds...) {
+			if (p.Key == "K1" || p.Key == "Beetal") && p.Count != 1 {
+				t.Errorf("option %s counts %d in park one, want 1", p.Key, p.Count)
+			}
+		}
+	})
 }
