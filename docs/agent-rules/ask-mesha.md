@@ -238,6 +238,83 @@ moving" and one-shot "which goats are slower than their pen / own pace right now
 - **Panel**: `features/ceo-ai/ceo-ai-watch.tsx` live card (table, change feed, countdown, Stop watching); frames
   parsed in `lib/ceo-ai-stream.ts` (`onWatch`); keeps updating while the panel is minimized.
 
+## CEO actions (propose -> confirm; `ASK_MESHA_ACTIONS`)
+
+The chat can PREPARE a small set of changes; the CEO executes them by pressing Confirm. Code:
+`tools/ask-mesha-agent/actions.mjs` (service, pending store, confirm/cancel), `action-specs.mjs`
+(one entry per action: zod schema, read-only prepare, exact request), `action-resolver.mjs`
+(read-only name -> id SQL), `sql/003_actions.sql`, tests in `test/actions.test.mjs`.
+
+Rules (do not weaken):
+1. **The model never executes.** Its only write-shaped tool is `propose_action {action, params_json}`:
+   schema check -> read-only resolution (pens via `pens.sql` CTEs, people via `workforce_members`,
+   SOPs/tasks/plans by id) -> current `row_version` read where the handler needs it -> a pending
+   row `{id, email, tenant, chat, action, request{method,path,body}, title, summary, risk, expires +10 min}`
+   and an SSE `action_proposal {proposal_id, title, summary[], risk, requires_double_confirm, expires_at, dry_run}`.
+2. `POST /ceo-ai/actions/{id}/confirm` (and `/cancel`): owner = same email AND tenant (else 404),
+   not expired (410), single use (atomic claim; 409 after), high risk needs body
+   `{"confirm_text":"CONFIRM"}` (428 without). Executes against `ASK_MESHA_ACTIONS_API` (default
+   `GOATOS_STG_API`, the same base that validates tokens) with the confirm request's own
+   `Authorization` (used once, never stored/logged), `X-GoatOS-Tenant-ID`, `Idempotency-Key: <proposal_id>`
+   (stable across retries: a transport failure leaves the proposal re-confirmable with the SAME key),
+   `X-Mesha-Client: ask-mesha-action`. Result is posted into the chat as an assistant message and
+   emitted as `action_executed` / `action_failed` (plus `action_proposed`, `action_cancelled`).
+3. The backend stays the authority (permissions, validation, audit). No SQL writes anywhere; the
+   resolver goes through the read-only `runSql` path.
+4. Kill switch `ASK_MESHA_ACTIONS=off|dry|on` (deploy default `off`); `dry` = proposals + confirm
+   returns the exact request (bearer redacted) without sending. `ASK_MESHA_ACTIONS_ALLOW=a,b` narrows
+   the list. The hosted MCP connector (`X-Mesha-Client: mcp`) and `stream:false` never get
+   `propose_action`. With the switch off the system prompt is byte-identical to before (cache).
+5. Shifting approvals: propose refuses unless `counts_approval_requests.request_type='shifting'` and
+   pending; at confirm the server re-reads `GET /admin-web/counts/approvals?status=pending` with the
+   CEO's bearer and refuses unless this id is still a pending `shifting` item. Birth/death approvals
+   and creating births/deaths/shifts are never offered. Nothing deletes.
+6. Verification: never create real STG records from tests. `node --test` runs everything against a
+   local fake backend; use `ASK_MESHA_ACTIONS=dry` to see the exact request on STG.
+
+The admin-web panel (other owner) needs: render `action_proposal` cards (Confirm / Cancel, a CONFIRM
+text box when `requires_double_confirm`), and proxy `POST /api/ceo-ai/actions/{id}/(confirm|cancel)`
+to the agent with the CEO's `Authorization` + `X-GoatOS-Tenant-ID`, like `/ceo-ai/ask`.
+
+### Action -> backend request (mapped from origin/main handlers)
+
+Paths are under `backend/internal/`. Idem = the handler requires `Idempotency-Key` (we always send it).
+High = typed CONFIRM.
+
+| Action | Request | Body (json) | Handler (origin/main) | Notes |
+|---|---|---|---|---|
+| pc_care_plan_round | POST /app/pc-care/rounds | category, park_id, pens[{shed_id, partition_label}], planned_business_date, assignee_user_ids[], feed_removal_required?, removal_operator_user_ids? | pccare/adapters/http/handler.go:75, rounds.go:17 (struct), :162 | Idem. Round categories: deworming, ticks_removal, hoof_trimming, hair_trimming (000256). 1-100 pens |
+| pc_care_plan_task | POST /app/pc-care/tasks | category, park_id, shed_id, partition_label, planned_business_date, assignee_user_ids[], feed_removal_required?, removal_operator_user_ids? | handler.go:78, :389 (struct), :563 | Idem. + anti_protozoan |
+| pc_care_close_task | POST /app/pc-care/tasks/{task_id}/close | reason | handler.go:82, :600 (closeRequest), :604 | close = cancel (service.go:572) |
+| pc_care_reopen_task | POST /app/pc-care/tasks/{task_id}/reopen | (none) | handler.go:83, :621 | |
+| pc_care_close_round | POST /app/pc-care/rounds/{round_id}/close | reason | handler.go:84, :633 | High. Refused while evidence awaits a verdict (app/rounds.go:165) |
+| weighing_create_plan | POST /weighing/campaigns | park_id, period_start_date = period_end_date = start_business_date, planned_cap_per_day, operator_user_id, fasting_operator_user_id?, feed_water_removal_requested?, sheds[{location_id, location_type:"shed", display_name, partition_label, weighing_category}] | weighing/adapters/http/handler.go:91, :332 (struct), :467; validateCreate app/service.go:1674 | Idem. Draft only |
+| weighing_edit_plan | PUT /weighing/campaigns/{campaign_id} | same full body, prefilled from the current plan (+ weighing_fasting_tasks operator, per-shed operator kept) | handler.go:92, :481; repo UpdateCampaign postgres/repository.go:330 | Idem. No version check server-side |
+| weighing_publish_plan | POST /weighing/campaigns/{campaign_id}/publish | {} | handler.go:93, :550 | High. Idem |
+| weighing_close_pen | POST /app/weighing/campaigns/{id}/sheds/{campaign_shed_id}/close | reason, idempotency_key (= proposal id) | handler.go:112, :391 (closeRequest), :766 | Body key wins over header |
+| weighing_reopen_pen | POST /app/weighing/campaigns/{id}/sheds/{campaign_shed_id}/reopen | reason (may be "") | handler.go:111, :750 | Empty body is refused, so always {reason} |
+| weighing_close_round | POST /app/weighing/campaigns/{id}/close | reason (or all_buckets_accepted / open_buckets_closed), idempotency_key | handler.go:113, :782 | High |
+| vaccination_postpone_drive | POST /vaccination/schedule/drive-date-overrides | park_id, vaccine_code, original_drive_date, override_date, reason | vaccinationexecution/adapters/http/handler.go:190, :209 (struct), :235 | Upsert; server may auto-shift (applied_override_date) |
+| vaccination_reschedule_obligation | POST /app/vaccination/obligations/{obligation_id}/reschedule | due_at, window_start (= due_at), window_end? | handler.go:204, :904 (struct), :923 | Idem required; unknown fields refused |
+| vaccination_operator_config | PUT /vaccination/operator-assignment/config | parkId, activeOperatorsPerDay, defaultOperatorId, selectedOperatorIds[], rowVersion (0 = create) | handler.go:198, :1536 (struct), :1546 | ids are workforce_member_id; 409 row_version_conflict |
+| vaccination_capacity_config | PUT /vaccination/capacity-config | maxPerDay, capacityScope, maxBufferDays, overflowPolicy, rowVersion, maxShotsPerAnimalPerDrive | handler.go:196, :1375 (struct), :1385 | current row read for unchanged fields + rowVersion |
+| leadership_task_raise | POST /app/leadership-tasks | title, body, assignee_user_id, deadline_at, attachments[] | leadershiptasks/adapters/http/handler.go:68, :210; payloads.go raisePayload | Idem. 201. Not self |
+| leadership_task_edit | POST /app/leadership-tasks/{task_id}/edit | title, body, attachments (current ones re-sent), row_version, deadline_at ("" keeps) | handler.go:69, :244; payloads.go editPayload | Idem. Edit REPLACES attachments, so we resend them |
+| leadership_task_status | POST /app/leadership-tasks/{task_id}/status | status, row_version | handler.go:70, :279 | Idem. Raiser may only cancel |
+| leadership_task_comment | POST /app/leadership-tasks/{task_id}/comment | comment, mentions[{user_id}] | handler.go:71, :305 | Idem |
+| sop_task_create | POST /admin/tasks | sop_code, task_type, title, description, assigned_to?, scope_type (park/shed), scope_id, priority, due_at?, context | sop/adapters/http/handler.go:42, :194; domain/types.go CreateTaskRequest | 200 |
+| sop_task_assign | POST /admin/tasks/{task_id}/assign | assigned_to, reason, row_version | handler.go:44, :219 | |
+| sop_task_verify | POST /admin/tasks/{task_id}/verify | reason, row_version | handler.go:45, :233 | |
+| sop_task_rework | POST /admin/tasks/{task_id}/rework | reason, row_version | handler.go:46, :237 | |
+| sop_create | POST /admin/sops | code, name, description, kind, module_key | handler.go:34, :97 | |
+| sop_draft_version | POST /admin/sops/{sop_id}/versions | version_label, form_dsl, proof_policy, compatibility | handler.go:36, :111 | "Edit" = new draft version (no draft-edit endpoint exists) |
+| sop_publish_version | POST /admin/sops/{sop_id}/versions/{sop_version_id}/publish | row_version | handler.go:39, :144 | High. Retires the previous published version |
+| shifting_approve | POST /admin-web/counts/approvals/{request_id}/approve | {} | counts/adapters/http/approval_handler.go:95, :299 (body), :327 | High. Idem required (8-200). Shifting-only guard |
+| shifting_reject | POST /admin-web/counts/approvals/{request_id}/reject | reason | approval_handler.go:96, :332; missing_reason :374 | High. Shifting-only guard |
+
+Deliberately absent: SOP delete / retire, `DELETE /admin/configuration/...`, births, deaths, shift
+creation, birth/death approvals, herd edits, money, people/access, any other config.
+
 ## Cost controls
 
 - `ASK_MESHA_MONTHLY_BUDGET_USD` (default **100**): once this month's summed answer cost reaches it,

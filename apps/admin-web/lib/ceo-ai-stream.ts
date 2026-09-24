@@ -8,6 +8,9 @@
 //                       "request_id", "conversation_id",
 //                       "message_id", "citations": [...] }
 //   { "type": "error",  "message": "..." }                    honest failure
+//   { "type": "action_proposal", "proposal_id", "title",        CEO write action
+//     "summary": [...], "risk", "requires_double_confirm",      awaiting Confirm /
+//     "expires_at" }                                            Cancel in the panel
 //   { "type": "watch",  "phase": "start"|"tick"|"end"|"error", live BLE tag watch
 //                       "watch_id", "rows", "changes", ... }   (watch_tags tool)
 //
@@ -185,12 +188,54 @@ function parseWatch(obj: Record<string, unknown>): CeoAiWatchFrame | null {
   };
 }
 
+// Write-action proposal (Ask Mesha actions). The agent never writes on its own: it
+// proposes, the CEO confirms or cancels in the panel. Everything here is rendered
+// as plain React text, so parsing coerces and caps every field.
+export type CeoAiActionProposal = {
+  proposalId: string;
+  title: string;
+  summary: string[];
+  risk: "normal" | "high";
+  requiresDoubleConfirm: boolean;
+  expiresAt?: string;
+};
+
+const MAX_ACTION_SUMMARY_LINES = 12;
+
+export function parseActionProposal(raw: unknown): CeoAiActionProposal | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const id = typeof o.proposal_id === "string" ? o.proposal_id.trim() : "";
+  // Used in a URL path: keep it to a safe id alphabet.
+  if (!id || id.length > 100 || !/^[A-Za-z0-9_.:-]+$/.test(id)) return null;
+  const title = typeof o.title === "string" ? o.title.trim().slice(0, 200) : "";
+  if (!title) return null;
+  const summary = Array.isArray(o.summary)
+    ? o.summary
+        .filter((l): l is string => typeof l === "string" && l.trim() !== "")
+        .slice(0, MAX_ACTION_SUMMARY_LINES)
+        .map((l) => l.trim().slice(0, 300))
+    : [];
+  const risk = o.risk === "high" ? "high" : "normal";
+  const expires = typeof o.expires_at === "string" && !Number.isNaN(Date.parse(o.expires_at)) ? o.expires_at : undefined;
+  return {
+    proposalId: id,
+    title,
+    summary,
+    risk,
+    // High risk always needs the typed CONFIRM, even if the flag is missing.
+    requiresDoubleConfirm: o.requires_double_confirm === true || risk === "high",
+    expiresAt: expires,
+  };
+}
+
 export type CeoAiStreamEvent =
   | { type: "token"; text: string }
   | ({ type: "final" } & CeoAiFinal)
   | { type: "progress"; phase: string; label?: string; requestId?: string; conversationId?: string }
   | { type: "reset" }
   | { type: "watch"; frame: CeoAiWatchFrame }
+  | { type: "action_proposal"; proposal: CeoAiActionProposal }
   | { type: "error"; message: string; status?: number };
 
 export type CeoAiStreamHandlers = {
@@ -201,6 +246,8 @@ export type CeoAiStreamHandlers = {
   onReset?: () => void;
   // Live tag watch frames (watch_tags). Absent handler = frames are ignored.
   onWatch?: (frame: CeoAiWatchFrame) => void;
+  // Write-action proposal awaiting the CEO's Confirm / Cancel.
+  onActionProposal?: (proposal: CeoAiActionProposal) => void;
   onError?: (message: string, status?: number) => void;
 };
 
@@ -258,6 +305,10 @@ function parseEvent(raw: string): CeoAiStreamEvent | null {
     if (type === "watch") {
       const frame = parseWatch(obj);
       return frame ? { type: "watch", frame } : null;
+    }
+    if (type === "action_proposal") {
+      const proposal = parseActionProposal(obj);
+      return proposal ? { type: "action_proposal", proposal } : null;
     }
     if (type === "error") {
       return {
@@ -434,6 +485,8 @@ async function readComposed(
           handlers.onReset?.();
         } else if (event.type === "watch") {
           handlers.onWatch?.(event.frame);
+        } else if (event.type === "action_proposal") {
+          handlers.onActionProposal?.(event.proposal);
         } else if (event.type === "progress") {
           handlers.onProgress?.({ phase: event.phase, label: event.label, requestId: event.requestId, conversationId: event.conversationId });
         } else if (event.type === "final") {

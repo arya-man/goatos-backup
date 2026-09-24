@@ -21,6 +21,9 @@ import {
 } from "./lib.mjs";
 import { createWatchRegistry, WATCH_TAGS_DESCRIPTION, watchTagsHandler, watchTagsSchema } from "./watch.mjs";
 import { authMode, createProviderSwitch, envForProvider, probeVertex, shouldFallback } from "./provider.mjs";
+import { actionsMode, actionsEnabledFor, allowedActions, createActionService, createPendingStore } from "./actions.mjs";
+import { ACTION_SPECS } from "./action-specs.mjs";
+import { createSqlResolver } from "./action-resolver.mjs";
 
 const PORT = Number(process.env.PORT || 8787);
 // 127.0.0.1 locally; the container sets HOST=0.0.0.0 (Cloud Run fronts it with IAM).
@@ -171,6 +174,25 @@ rows and the code path behind the number); "check again" = re-run with fresh que
 audit_log for those exact records. When the user disputes an answer ("that's wrong", "we did X"), neither
 agree nor repeat yourself: treat their claim as a hypothesis, search for it (keyword ILIKE across table names,
 category/status values and notes, wider dates, other parks), then say plainly what the data shows and where.`;
+
+// CEO write actions (actions.mjs). Only appended when ASK_MESHA_ACTIONS=on|dry, so the default
+// read-only prompt stays byte-identical (prompt cache). The model can only PROPOSE; the CEO confirms.
+function actionsPrompt() {
+  const names = allowedActions(ACTION_SPECS);
+  return `
+
+# Changes from chat (proposals only)
+This overrides "decline requests to change data" for the actions listed below ONLY. When the CEO asks you to plan,
+edit, close, reopen, publish, postpone, reschedule, assign, verify, approve or reject one of these, look up the ids
+you need with read-only queries first, then call propose_action ONCE with the action name and params_json. You never
+execute anything: the CEO sees a card and presses Confirm (high-risk ones need them to type CONFIRM). After
+proposing, reply in ONE short sentence saying what will change and to press Confirm below; never say it is done.
+If propose_action returns an error (unknown pen, two people with that name, past date), ask the CEO the one
+question that fixes it. Anything not in this list (herd edits, births/deaths/shift creation, money, people/access,
+other settings, deleting anything, birth/death approvals) you still decline in one sentence: do it in the app.
+Actions:
+${names.map((n) => `- ${n}: ${ACTION_SPECS[n].describe}`).join("\n")}`;
+}
 
 // Repo instructions (CLAUDE.md + its @imports, i.e. AGENTS.md) go into the SYSTEM
 // prompt instead of Claude Code's per-session context message. The system prompt is
@@ -369,6 +391,23 @@ function meshaToolsFor(user, watchCtx) {
         },
         RO,
       ),
+      // CEO write actions: PROPOSE only (validates, resolves read-only, stores a pending request and
+      // streams an action_proposal card). Execution happens only on the CEO's Confirm (actions.mjs).
+      ...(watchCtx.actionsOn ? [tool(
+        "propose_action",
+        "Prepare (NOT execute) one change for the CEO to confirm. action = one of the listed action names; params_json = a JSON object with that action's params (names for parks/pens/people, ids for tasks/plans/requests). Returns the preview, or an error to fix/ask about. Call once per change.",
+        {
+          action: z.enum(allowedActions(ACTION_SPECS)).describe("Action name"),
+          params_json: z.string().describe("JSON object of the action's params, e.g. {\"park\":\"CBE\",\"pens\":[\"G1P3\"],\"date\":\"2026-09-30\"}"),
+        },
+        async ({ action, params_json }) => {
+          let params;
+          try { params = JSON.parse(params_json || "{}"); } catch { return { content: [{ type: "text", text: "params_json is not valid JSON." }], isError: true }; }
+          const r = await actionService.propose({ action, params }, { email: watchCtx.email, tenantId: watchCtx.tenantId, chatId: watchCtx.chatId, send: watchCtx.send, resolver: actionResolverFor(watchCtx.tenantId) });
+          return { content: [{ type: "text", text: r.text }], isError: !r.ok };
+        },
+        { annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false } },
+      )] : []),
       // Live BLE tag watch: the server polls via runSql and streams `watch` SSE events (watch.mjs).
       tool("watch_tags", WATCH_TAGS_DESCRIPTION, watchTagsSchema(z),
         watchTagsHandler({ runSql, emit: (n, c, f) => events.emit(n, c, f), registry: watches, ctx: watchCtx, log: (m) => console.log(m) }), RO),
@@ -382,6 +421,19 @@ fs.mkdirSync(STATE, { recursive: true });
 const store = await createStore({ stateDir: STATE });
 const uploads = await createUploads({ stateDir: STATE });
 const events = await createEvents({ stateDir: STATE }); // per-user lifecycle events (events.mjs)
+// CEO write actions (actions.mjs). Executes against the same backend the agent validates tokens
+// with, using the CEO's own bearer from the confirm request. ASK_MESHA_ACTIONS=off|dry|on.
+const pendingActions = await createPendingStore();
+const actionResolverFor = (tenantId) => createSqlResolver({
+  runSql, tenantId,
+  pensSql: () => fs.readFileSync(referencePath(REPO, "pens.sql").file, "utf8"),
+});
+const actionService = createActionService({
+  specs: ACTION_SPECS, pending: pendingActions, backendBase: process.env.ASK_MESHA_ACTIONS_API || STG_API,
+  emit: (n, c, f) => events.emit(n, c, f),
+  addMessage: async (chatId, m) => { await store.addMessage(chatId, m); await store.updateChat(chatId, { updated_at: m.created_at }); },
+});
+console.log(`[actions] mode=${actionsMode()} store=${pendingActions.kind}`);
 
 // ---- auth: reuse the live backend's leadership check ----------------------
 // Bounded (expired entries pruned) so a stream of distinct tokens can't grow memory forever.
@@ -562,6 +614,8 @@ async function ask(req, res, user) {
   // stream:false (the hosted MCP's ask_goatos): same pipeline, one JSON response at the end.
   const streaming = body.stream !== false;
   const client = askClient(req.headers);
+  // Proposals only on the streaming admin-web panel; the MCP connector stays read-only.
+  const actionsOn = actionsEnabledFor({ mode: actionsMode(), client, streaming });
   // A pasted wall of text costs real money on every resumed turn; 20k chars is ~10 pages.
   if (question.length > 20_000) {
     return json(res, 413, { error: "question_too_long", message: "That question is too long. Please shorten it or attach the text as a file." });
@@ -761,7 +815,7 @@ async function ask(req, res, user) {
             effort: metric.effort,
             resume,
             ...(store.sessionStore ? { sessionStore: store.sessionStore } : {}),
-            systemPrompt: { type: "preset", preset: "claude_code", append: repoInstructions(cwd) + APPEND_PROMPT + dataMapCore(cwd) + tableIndexPrompt() },
+            systemPrompt: { type: "preset", preset: "claude_code", append: repoInstructions(cwd) + APPEND_PROMPT + (actionsOn ? actionsPrompt() : "") + dataMapCore(cwd) + tableIndexPrompt() },
             settingSources: ["project", "local"],
             includePartialMessages: true,
             canUseTool: canUseToolFor(chat.id),
@@ -771,8 +825,8 @@ async function ask(req, res, user) {
                   // Only read tools + the read-only SQL tool exist for the agent.
                   tools: ["Read", "Grep", "Glob", "Skill", "TodoWrite"],
                   // The attempt's signal: a provider fallback aborts attempt 0, which must end its watch too.
-                  mcpServers: { mesha: meshaToolsFor(user, { send, signal: attemptAbort.signal, stopReason: () => stopReason, chatId: chat.id, tenantId: user.tenantId, allowAllTenants: user.email === "bench@local", evCtx: trackCtx, run, snapshotOnly: !streaming }) },
-                  allowedTools: ["mcp__mesha__run_sql", "mcp__mesha__run_reference", "mcp__mesha__describe_table", "mcp__mesha__watch_tags"],
+                  mcpServers: { mesha: meshaToolsFor(user, { send, signal: attemptAbort.signal, stopReason: () => stopReason, chatId: chat.id, tenantId: user.tenantId, allowAllTenants: user.email === "bench@local", evCtx: trackCtx, run, snapshotOnly: !streaming, actionsOn, email: user.email }) },
+                  allowedTools: ["mcp__mesha__run_sql", "mcp__mesha__run_reference", "mcp__mesha__describe_table", "mcp__mesha__watch_tags", ...(actionsOn ? ["mcp__mesha__propose_action"] : [])],
                   disallowedTools: ["Bash", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Task", "Agent"],
                 }
               : {}),
@@ -1018,6 +1072,15 @@ async function route(req, res) {
     if (p === "/ceo-ai/starters") return json(res, 200, { starters: STARTERS });
     if (p === "/ceo-ai/ask" && req.method === "POST") return ask(req, res, user);
     if (p === "/ceo-ai/events" && req.method === "POST") return stopEvent(req, res, user);
+    const act = p.match(/^\/ceo-ai\/actions\/([0-9a-f-]{36})\/(confirm|cancel)$/i);
+    if (act && req.method === "POST") {
+      const b = await readBody(req);
+      // The bearer is passed through for this one backend call and never stored.
+      const r = act[2] === "confirm"
+        ? await actionService.confirm(act[1], user, req.headers["authorization"], b)
+        : await actionService.cancel(act[1], user);
+      return json(res, r.status, r.body);
+    }
     if (p === "/ceo-ai/conversations") {
       if (req.method === "POST") return json(res, 200, summary(await store.createChat(user.email, user.tenantId)));
       const mine = await store.listChats(user.email, user.tenantId);

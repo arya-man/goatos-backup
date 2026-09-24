@@ -42,6 +42,7 @@ import {
   sendCeoAiWatchStop,
 } from "@/lib/ceo-ai-stream";
 import { CeoAiWatchCard, mergeWatch } from "./ceo-ai-watch";
+import { CeoAiActionCard, restoreAction } from "./ceo-ai-action";
 import {
   createConversation,
   deleteConversation,
@@ -837,6 +838,15 @@ export function CeoAiPanel({
                       : m,
                   ),
                 ),
+              // Write-action proposal: the card waits for the CEO's Confirm / Cancel.
+              onActionProposal: (proposal) =>
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === assistantId
+                      ? { ...m, action: { ...proposal, status: "pending" } }
+                      : m,
+                  ),
+                ),
               onProgress: (progress) => {
                 if (progress.requestId && abortRef.current === controller)
                   runRequestIdRef.current = progress.requestId;
@@ -1105,6 +1115,7 @@ export function CeoAiPanel({
           messageId: m.message_id ?? m.id,
           citations: m.citations,
           chart: m.chart,
+          action: restoreAction(m.action_proposal ?? m.action),
           files: m.files?.map((f) => ({
             name: f.name,
             type: f.type ?? "",
@@ -1451,6 +1462,20 @@ export function CeoAiPanel({
                               ? () =>
                                   sendCeoAiWatchStop(runRequestIdRef.current)
                               : undefined
+                          }
+                        />
+                      ) : null}
+                      {message.role === "assistant" && message.action ? (
+                        <CeoAiActionCard
+                          action={message.action}
+                          onChange={(next) =>
+                            setMessages((prev) =>
+                              prev.map((m) =>
+                                m.id === message.id && m.action
+                                  ? { ...m, action: { ...m.action, ...next } }
+                                  : m,
+                              ),
+                            )
                           }
                         />
                       ) : null}

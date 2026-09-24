@@ -1,4 +1,4 @@
-import type { CeoAiChart, CeoAiCitation, CeoAiFinal, CeoAiWatchChange, CeoAiWatchRow } from "@/lib/ceo-ai-stream";
+import type { CeoAiActionProposal, CeoAiChart, CeoAiCitation, CeoAiFinal, CeoAiWatchChange, CeoAiWatchRow } from "@/lib/ceo-ai-stream";
 
 export type { CeoAiChart, CeoAiCitation, CeoAiFinal };
 
@@ -17,6 +17,17 @@ export type WatchState = {
   ended: boolean;
   reason?: string;
   error?: string;
+};
+
+// Ask Mesha write-action card. `pending` = awaiting Confirm/Cancel; `executing`
+// while the confirm/cancel request is in flight; the rest are terminal.
+export type ActionStatus = "pending" | "executing" | "succeeded" | "failed" | "cancelled" | "expired";
+export type ActionLink = { text: string; href?: string };
+export type ActionState = CeoAiActionProposal & {
+  status: ActionStatus;
+  // Plain-words outcome or backend error for the card footer.
+  message?: string;
+  link?: ActionLink;
 };
 
 // One rendered chat turn. Assistant turns accumulate streamed tokens into
@@ -47,6 +58,8 @@ export type ChatMessage = {
   workedMs?: number;
   // Live BLE tag watch card (watch_tags tool), updated every poll.
   watch?: WatchState;
+  // Write-action proposal card (Confirm / Cancel).
+  action?: ActionState;
 };
 
 // A conversation thread summary in the sidebar (backend-owned list).
@@ -69,6 +82,11 @@ export type StoredMessage = {
   mode?: string;
   request_id?: string;
   citations?: CeoAiCitation[];
+  // Coding-agent backend: the write-action proposal this answer carried, with its
+  // current status, so the card survives a reload. Same wire shape as the SSE event
+  // plus optional status / message / result.
+  action_proposal?: unknown;
+  action?: unknown;
 };
 
 // All user-visible copy for the assistant surface. The subset shared with the

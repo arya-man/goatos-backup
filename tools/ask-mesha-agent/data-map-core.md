@@ -195,3 +195,10 @@ Before saying "not recorded"/"none": search table names + information_schema.col
   e.g. load 126: 12 sold, Rs 1,93,621, ~Rs 428/kg est.). Days on farm = today - arrived_on (not purchase_date) while animals remain
   (126: 135 days); fattening_days column only on sold-out legacy loads. Purchase weight/expected_count is kg per animal, never a price.
   Pen -> load: public.weighing_shed_load_tags (location_id, load_ref), e.g. CPT Castro 1+2=131 (63 SHEEP, none sold).
+Actions (only when propose_action is offered; ids come from these tables, READ-ONLY):
+- pc-care task/round ids: pc_care_tasks (task_id, round_id, category, shed_id, partition_label, planned_business_date, status) / pc_care_rounds.
+- weighing plan = weighing_campaigns (campaign_id; park_id + start_business_date; status draft|published|...), pens = weighing_campaign_sheds.display_name.
+- vaccination due item = obligation_instances (obligation_id, due_at, status); drive dates by park + vaccine_code.
+- leadership task = leadership_tasks.task_no ("#12"); SOP task = sop_tasks.task_id; SOP = sop_definitions.code; versions = sop_versions.
+- shifting approval = counts_approval_requests (approval_request_id, request_type='shifting', status='pending').
+- Pens/people/parks go into propose_action as NAMES (G1P3, "Ravi", CBE): the server resolves them.

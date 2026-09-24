@@ -13,6 +13,7 @@
 
 import type { ReactElement } from "react";
 import { WATCH_CSS } from "./ceo-ai-watch";
+import { ACTION_CSS } from "./ceo-ai-action";
 
 
 // The Twemoji goat artwork, shared by the avatar and the walking-button variant.
@@ -516,6 +517,7 @@ export function CeoAiStyles(): ReactElement {
 :root.light .mzai-code .hljs-meta{color:var(--warn)}
 :root.light .mzai-code .hljs-deletion{color:var(--danger)}
 ${WATCH_CSS}
+${ACTION_CSS}
 `}</style>
   );
 }
