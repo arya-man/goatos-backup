@@ -2786,7 +2786,7 @@ SELECT
     ELSE '/app/proofs/' || goat_proof.proof_id::text || '/download'
   END AS latest_proof_download_url,
   COALESCE(exact_assignment.assignment_id, vda.assignment_id)::text AS assignment_id,
-  COALESCE(oi.sop_task_id, ob.sop_task_id)::text AS row_task_id
+  COALESCE(COALESCE(oi.sop_task_id, ob.sop_task_id)::text, '') AS row_task_id
 FROM obligation_instances oi
 LEFT JOIN obligation_batches ob
   ON ob.tenant_id = oi.tenant_id
@@ -2847,6 +2847,7 @@ LEFT JOIN LATERAL (
   WHERE assignment.tenant_id = oi.tenant_id
     AND assignment.batch_id = oi.batch_id
     AND assignment.shed_id = g.shed_id
+    AND ($12::text = '' OR assignment.planned_date = NULLIF($12::text, '')::date)
     AND (
       assignment.partition_label = 'whole'
       OR regexp_replace(lower(btrim(assignment.partition_label)), '^part[[:space:]]+', '')

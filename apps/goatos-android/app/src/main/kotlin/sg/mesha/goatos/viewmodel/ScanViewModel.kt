@@ -182,8 +182,20 @@ class ScanViewModel @Inject constructor(
             flowOf(emptyList())
         }).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    private val rosterTaskIds =
+        (if (shedId != null) repo.observeAssignmentScanRosterTaskIds(shedId, taskId, assignmentId, partitionLabel)
+        else flowOf(emptyList())).map { ids ->
+            (ids + listOfNotNull(taskId)).filter { it.isNotBlank() && it != "shed-wide" }.distinct().sorted()
+        }.distinctUntilChanged()
+
+    @OptIn(ExperimentalCoroutinesApi::class)
     private val observedProofs: StateFlow<List<ProofCaptureRow>?> =
-        (taskId?.let { proofCaptureRepository.observeProofs(it, partitionLabel) } ?: flowOf(emptyList()))
+        rosterTaskIds.flatMapLatest { ids ->
+            if (ids.isEmpty()) flowOf(emptyList())
+            else combine(ids.map { proofCaptureRepository.observeProofs(it, partitionLabel) }) { rows ->
+                rows.flatMap { it }.distinctBy { it.id }
+            }
+        }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     // R50-027: this task's SOP proof policy (Room-backed via TasksRepository), driving the
@@ -209,10 +221,14 @@ class ScanViewModel @Inject constructor(
      * source of truth: a killed/restarted app must render scanned goats as done instead of resetting
      * the operator to 0/N while the outbox and backend still contain those captures.
      */
+    @OptIn(ExperimentalCoroutinesApi::class)
     private val persistedScans: StateFlow<List<ScannedGoatRow>> =
-        (taskId?.let { id ->
-            scanCaptureRepository.observeScannedTags(id, ROSTER_SCAN_FIELD_KEY, partitionLabel)
-        } ?: flowOf(emptyList()))
+        rosterTaskIds.flatMapLatest { ids ->
+            if (ids.isEmpty()) flowOf(emptyList())
+            else combine(ids.map { scanCaptureRepository.observeScannedTags(it, ROSTER_SCAN_FIELD_KEY, partitionLabel) }) { rows ->
+                rows.flatMap { it }.distinct()
+            }
+        }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private val _operatorAllowed = MutableStateFlow<Boolean?>(null)
@@ -1090,6 +1106,7 @@ class ScanViewModel @Inject constructor(
                         goatId = dbRow.goatId,
                         obligationId = dbRow.obligationId,
                         obligationRowVersion = dbRow.obligationRowVersion,
+                        executionTaskId = dbRow.taskId,
                         proofRequired = true,
                     )
                     _proofReplacementGoatId.value = null
@@ -2234,7 +2251,6 @@ class ScanViewModel @Inject constructor(
         }
 
     private fun retryGoatProof(goatId: String) {
-        val selectedTaskId = taskId ?: return
         if (_operatorAllowed.value != true || goatId.isBlank()) return
         viewModelScope.launch {
             val row = (state.value.roster + state.value.proofActionNeeded)
@@ -2264,6 +2280,9 @@ class ScanViewModel @Inject constructor(
                 return@launch
             }
             failedProofs.forEach { proof ->
+                val selectedTaskId = currentRows.firstOrNull { proof.matchesCurrentCycle(it) }
+                    ?.taskId?.takeIf { it.isNotBlank() && it != "shed-wide" }
+                    ?: taskId ?: return@forEach
                 analytics.track(
                     AnalyticsEvents.VACCINATION_PROOF_ACTION_TAPPED,
                     vaccinationActionProps(row, row?.primaryTag.orEmpty()) +

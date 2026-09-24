@@ -148,6 +148,9 @@ interface ExecutionRepository {
     ): Flow<List<ScanRosterRowEntity>> = observeScanRosterRows(shedId, taskId, windowSize, partitionLabel)
 
     /** Full-roster row count for this shed/task scope — drives `hasMore` (window < total). */
+    fun observeAssignmentScanRosterTaskIds(shedId: String, taskId: String?, assignmentId: String?, partitionLabel: String? = null): Flow<List<String>> =
+        kotlinx.coroutines.flow.flowOf(listOfNotNull(taskId))
+
     fun observeScanRosterTotal(shedId: String, taskId: String?, partitionLabel: String? = null): Flow<Int>
     fun observeAssignmentScanRosterTotal(shedId: String, taskId: String?, assignmentId: String?, partitionLabel: String? = null): Flow<Int> =
         observeScanRosterTotal(shedId, taskId, partitionLabel)
@@ -436,6 +439,9 @@ class DefaultExecutionRepository(
 
     override fun observeScanRosterTotal(shedId: String, taskId: String?, partitionLabel: String?): Flow<Int> =
         scanRosterRowDao.observeScopeTotal(scanRosterRowScopeKey(shedId, taskId, partitionLabel)).flowOn(Dispatchers.Default)
+
+    override fun observeAssignmentScanRosterTaskIds(shedId: String, taskId: String?, assignmentId: String?, partitionLabel: String?): Flow<List<String>> =
+        scanRosterRowDao.observeTaskIds(scanRosterRowScopeKey(shedId, taskId, partitionLabel, assignmentId)).flowOn(Dispatchers.Default)
 
     override fun observeAssignmentScanRosterTotal(shedId: String, taskId: String?, assignmentId: String?, partitionLabel: String?): Flow<Int> =
         scanRosterRowDao.observeScopeTotal(scanRosterRowScopeKey(shedId, taskId, partitionLabel, assignmentId)).flowOn(Dispatchers.Default)

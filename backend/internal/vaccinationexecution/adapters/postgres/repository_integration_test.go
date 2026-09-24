@@ -1614,7 +1614,7 @@ VALUES ($1,$2,$3,$4,'vaccination_drive','Partition roster','in_progress',$5,'she
 	execProjectionSQL(t, ctx, pool, "other roster partition operator",
 		`INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, display_name, status, primary_role_hint, primary_location_id)
 		 VALUES ($1, $2, 'OP-ROSTER-PART-B', 'Operator B', 'active', 'operator', $3)`,
-		otherOperator, testTenant, testShed)
+		otherOperator, testTenant, testPark)
 	execProjectionSQL(t, ctx, pool, "first roster goat partition",
 		`INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
 		 VALUES ($1, $2, $3, 'Part 1', 'K1 Shed - Part 1')`,
@@ -1673,6 +1673,7 @@ func TestScanRosterOneToManyPageBoundaryExecutionDateParkScopeStatusBucketsRetur
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
 	seedVaccinationExecutionProjection(t, ctx, pool)
+	seedScanRosterAssignment(t, ctx, pool)
 
 	const (
 		secondGoat = "70000000-0000-4000-8000-000000000091"
@@ -1699,15 +1700,12 @@ INSERT INTO sop_task_scan_captures
   (tenant_id, task_id, field_key, tag, normalized_tag, goat_id, obligation_id, captured_by, idempotency_key, captured_at)
 VALUES ($1,$2,'goat_ids','RFID-SCAN-ONE','rfid-scan-one',$3,$4,$5,'scan-roster-old','2026-07-22 03:29:00+05:30')`,
 		testTenant, testTask, testGoat, testObl, testOperator)
-	// A rescan of the same tag is an upsert, not a second row: the baseline unique index
-	// sop_task_scan_captures_task_field_tag_unique_idx (tenant_id, task_id, field_key, normalized_tag)
-	// dedups captures by tag, so the latest scan updates captured_at in place. This preserves the
-	// "latest scan wins" intent under the real dedup constraint instead of inserting a duplicate.
+	// Rescans upsert at tag + obligation grain, matching the current capture index.
 	execProjectionSQL(t, ctx, pool, "latest exact scan timestamp", `
 INSERT INTO sop_task_scan_captures
   (tenant_id, task_id, field_key, tag, normalized_tag, goat_id, obligation_id, captured_by, idempotency_key, captured_at)
 VALUES ($1,$2,'goat_ids','RFID-SCAN-ONE','rfid-scan-one',$3,$4,$5,'scan-roster-latest','2026-07-22 03:31:05.123+05:30')
-ON CONFLICT (tenant_id, task_id, field_key, normalized_tag)
+ON CONFLICT (tenant_id, task_id, field_key, normalized_tag, COALESCE(obligation_id, '00000000-0000-0000-0000-000000000000'::uuid))
   DO UPDATE SET captured_at = EXCLUDED.captured_at, idempotency_key = EXCLUDED.idempotency_key`,
 		testTenant, testTask, testGoat, testObl, testOperator)
 
@@ -1737,6 +1735,7 @@ func TestScanRosterRehydratesProofWhenUploadRowPrecedesScanCapture(t *testing.T)
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
 	seedVaccinationExecutionProjection(t, ctx, pool)
+	seedScanRosterAssignment(t, ctx, pool)
 
 	const proofID = "70000000-0000-4000-8000-000000000095"
 	execProjectionSQL(t, ctx, pool, "task for proof rehydrate roster", `
@@ -1780,6 +1779,7 @@ func TestScanRosterParkScopePinsDriveTaskToSelectedShed(t *testing.T) {
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
 	seedVaccinationExecutionProjection(t, ctx, pool)
+	seedScanRosterAssignment(t, ctx, pool)
 
 	execProjectionSQL(t, ctx, pool, "park-scoped drive task", `
 INSERT INTO sop_tasks (task_id, tenant_id, sop_id, sop_version_id, task_type, title, state,
@@ -1866,6 +1866,7 @@ func TestScanRosterParkScopedTaskResolvesTenantScopedBatch(t *testing.T) {
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
 	seedVaccinationExecutionProjection(t, ctx, pool)
+	seedScanRosterAssignment(t, ctx, pool)
 
 	execProjectionSQL(t, ctx, pool, "park-scoped task with tenant batch", `
 INSERT INTO sop_tasks (task_id, tenant_id, sop_id, sop_version_id, task_type, title, state,
@@ -1904,6 +1905,12 @@ func TestScanRosterExcludesFutureAssignmentWhenSameTaskBatchHasMultipleVaccinesW
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
 	seedVaccinationExecutionProjection(t, ctx, pool)
+	execProjectionSQL(t, ctx, pool, "legacy roster task", `
+INSERT INTO sop_tasks (task_id, tenant_id, sop_id, sop_version_id, task_type, title, state,
+  assigned_to, scope_type, scope_id, context)
+VALUES ($1,$2,$3,$4,'vaccination_drive','Legacy roster','in_progress',$5,'shed',$6,
+  jsonb_build_object('obligation_batch_id',$7::text))`, testTask, testTenant, testVaccinationSOP, testVaccinationSOPVer, testOperator, testShed, testBatch)
+	execProjectionSQL(t, ctx, pool, "link legacy roster batch", `UPDATE obligation_batches SET sop_task_id=$1 WHERE tenant_id=$2 AND batch_id=$3`, testTask, testTenant, testBatch)
 
 	// Setup: Create two rules and obligations with different assignment dates in the same batch
 	const (
@@ -1994,6 +2001,12 @@ VALUES ($1, $2, '2026-07-15', $3, $4, $5, 'TestShed', 'whole', 1, ARRAY[$6::uuid
 		t.Fatalf("taskless roster must retain each row's write identity, got ET+TT=%q PPR=%q", etTTRow.TaskID, pprRow.TaskID)
 	}
 
+	// Legacy assignment fallback must select the requested day before LIMIT 1, even
+	// when an older assignment exists for this same batch, location, and vaccine.
+	execProjectionSQL(t, ctx, pool, "older ET+TT assignment", `
+INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count, vaccine_rule_ids)
+VALUES ($1, $2, '2026-06-23', $3, $4, $5, 'TestShed', 'whole', 1, ARRAY[$6::uuid])`,
+		testTenant, testBatch, testOperator, testPark, testShed, etTTRule)
 	dayRoster, err := repo.ScanRoster(ctx, domain.ScanRosterQuery{
 		TenantID: testTenant, ShedID: testShed, PlannedDate: "2026-06-24", Limit: 20,
 	})
@@ -2772,6 +2785,14 @@ func TestVaccinationOperationsProductionQueryPlanUsesIndexes(t *testing.T) {
 		!strings.Contains(plan, "Bitmap Index Scan") {
 		t.Fatalf("production vaccination operations plan did not use an index scan:\n%s", plan)
 	}
+}
+
+func seedScanRosterAssignment(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+	t.Helper()
+	execProjectionSQL(t, ctx, pool, "active scan roster assignment", `
+INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count)
+VALUES ($1, $2, '2026-06-24', $3, $4, $5, 'K1 Shed', 'whole', 2)`,
+		testTenant, testBatch, testOperator, testPark, testShed)
 }
 
 func seedVaccinationExecutionProjection(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {

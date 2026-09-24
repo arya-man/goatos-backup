@@ -768,22 +768,24 @@ private fun executionCardCounts(rows: List<VaccinationExecutionRowDto>): Executi
 
 /** Vaccine rows inside one assignment repeat the animal count, while separate assignments in the
  * same operational card represent distinct animal memberships. Collapse the former, sum the
- * latter. Legacy rows without assignment identity retain the previous MAX behavior. */
+ * latter. Compatible legacy vaccine rows share date, location and execution membership;
+ * their animal totals repeat too. Rows without any membership identity remain independent. */
 private inline fun List<VaccinationExecutionRowDto>.assignmentAwareCardCounts(
     legacyMax: Boolean = true,
     count: (VaccinationExecutionRowDto) -> Int,
 ): Int {
     val assigned = filter { !it.assignmentId.isNullOrBlank() }
-    if (assigned.isEmpty()) {
-        return if (legacyMax) maxOfOrNull { count(it).coerceAtLeast(0) }.orZero()
-        else sumOf { count(it).coerceAtLeast(0) }
-    }
     val assignedTotal = assigned.groupBy { it.assignmentId!! }
         .values
         .sumOf { assignmentRows -> assignmentRows.maxOf { count(it).coerceAtLeast(0) } }
     val legacyRows = filter { it.assignmentId.isNullOrBlank() }
-    val legacyTotal = if (legacyMax) legacyRows.maxOfOrNull { count(it).coerceAtLeast(0) }.orZero()
-    else legacyRows.sumOf { count(it).coerceAtLeast(0) }
+    val legacyTotal = legacyRows.withIndex().groupBy { (index, row) ->
+        val membership = row.batchId?.takeIf(String::isNotBlank)
+            ?: row.sopTaskId?.takeIf(String::isNotBlank)
+            ?: row.driveId?.takeIf(String::isNotBlank)
+        if (membership == null) listOf("unknown", if (legacyMax) "card" else index.toString())
+        else listOf(row.parkId, row.shedId, executionPartitionKey(row.partitionLabel ?: row.partition), row.currentScheduleDate, membership)
+    }.values.sumOf { group -> group.maxOf { count(it.value).coerceAtLeast(0) } }
     return assignedTotal + legacyTotal
 }
 
