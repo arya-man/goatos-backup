@@ -98,6 +98,27 @@ Not the answer: per-tenant copies of tables/schemas (344× duplication and migra
 - Repo hook `ai-setup-guard` blocks tools in fresh clones; the agent sets the documented
   `GOATOS_AI_SETUP_GUARD=0`.
 
+## Observability (per user)
+
+- `tools/ask-mesha-agent/events.mjs` emits one structured JSON line per event on stdout
+  (`{severity, message, event_name, component:"ask-mesha-agent", ts, request_id, chat_id, email, tenant_id, ...}`,
+  same shape as admin-web's `admin_backend_api_fetch`) and persists it: Postgres `ask_mesha.events`
+  (`sql/002_events.sql`, idempotent, applied with `ASK_MESHA_DB_MIGRATE=1`) or `$STATE/events.jsonl`.
+- Exactly one terminal event per ask: `ask_completed` (total_ms, first_token_ms, tool_calls, db_queries,
+  tool_errors, sql_errors, turns, model, effort, deep, cost_usd, input/output tokens, answer_chars, chart),
+  `ask_failed` (`error_class`: auth | budget_blocked | per_answer_cap | sdk_error | db_error | timeout |
+  unknown, + `error`), `ask_stopped` (client closed the stream; `error_class=client_aborted`).
+  Signals: `ask_started` (model, effort, deep, question_preview = first 80 chars), `ask_first_token`,
+  `ask_tool` (tool, plain label, duration_ms tool_use→tool_result, ok, error), `budget_warning` (>= 80 %,
+  once per month per instance), `budget_blocked`, `auth_denied` (path), `attachment_saved`.
+- Where to look: `GET /metrics/users` (per email, today/7d/30d: asks, success, failed by class, stopped,
+  success rate, p50/p90 total and first-token, avg tools, cost) and `GET /metrics/recent?email=` (last 50
+  asks: status, duration, question preview). Same auth as `/metrics`. Cloud Logging:
+  `jsonPayload.component="ask-mesha-agent"`. Grafana: `tools/ask-mesha-agent/deploy/grafana/` (import steps).
+- Stop vs. navigation away both appear as `ask_stopped` until the panel reports which one it was.
+- Tests: `node --test tools/ask-mesha-agent/events.test.mjs`. `bench.mjs` accepts
+  `ASK_MESHA_BENCH_ABORT_MS=N` to simulate Stop.
+
 ## Cost controls
 
 - `ASK_MESHA_MONTHLY_BUDGET_USD` (default **100**): once this month's summed answer cost reaches it,

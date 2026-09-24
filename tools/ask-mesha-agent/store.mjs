@@ -6,6 +6,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
+import os from "node:os";
 import { fileURLToPath } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -42,7 +43,7 @@ function jsonStore(stateDir) {
   const db = fs.existsSync(STORE) ? JSON.parse(fs.readFileSync(STORE, "utf8")) : { chats: {} };
   // Atomic replace so a crash mid-write can't truncate every CEO's history.
   const save = () => {
-    fs.writeFileSync(STORE + ".tmp", JSON.stringify(db, null, 2));
+    fs.writeFileSync(STORE + ".tmp", JSON.stringify(db));
     fs.renameSync(STORE + ".tmp", STORE);
   };
   const inFlight = new Set();
@@ -90,7 +91,14 @@ function jsonStore(stateDir) {
         : [];
       return summarizeMetrics(rows);
     },
-    async hasSession() { return true; },
+    // The SDK keeps local transcripts in <config>/projects/<cwd-key>/<id>.jsonl. If it is gone
+    // (wiped ~/.claude, other machine), resuming would fail on every later ask in that chat.
+    async hasSession(sessionId) {
+      const dir = path.join(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), ".claude"), "projects");
+      try {
+        return fs.readdirSync(dir).some((d) => fs.existsSync(path.join(dir, d, `${sessionId}.jsonl`)));
+      } catch { return false; }
+    },
     async close() {},
   };
 }
@@ -100,6 +108,7 @@ const iso = (v) => (v instanceof Date ? v.toISOString() : v ?? null);
 const chatRow = (r) => r && ({
   id: r.id, email: r.email, tenant_id: r.tenant_id ?? "", title: r.title, session_id: r.session_id, worktree: r.worktree,
   created_at: iso(r.created_at), updated_at: iso(r.updated_at), deleted_at: iso(r.deleted_at),
+  session_cost_usd: r.session_cost_usd == null ? null : Number(r.session_cost_usd),
 });
 const msgRow = (r) => {
   const m = { id: r.id, role: r.role, content: r.content, created_at: iso(r.created_at) };
@@ -207,7 +216,7 @@ export function pgStore(pool) {
       );
     },
     async updateChat(chatId, fields) {
-      const allowed = ["title", "session_id", "worktree", "updated_at", "deleted_at"];
+      const allowed = ["title", "session_id", "session_cost_usd", "worktree", "updated_at", "deleted_at"];
       const keys = Object.keys(fields).filter((k) => allowed.includes(k));
       if (!keys.length) return;
       await q(

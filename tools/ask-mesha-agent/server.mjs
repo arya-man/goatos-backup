@@ -13,6 +13,11 @@ import { createSdkMcpServer, query, tool } from "@anthropic-ai/claude-agent-sdk"
 import { z } from "zod";
 import { createStore } from "./store.mjs";
 import { createUploads } from "./uploads.mjs";
+import { createEvents } from "./events.mjs";
+import {
+  isDeepQuestion, answerCapUsd, answerCostUsd, friendlyError, STOPPED_NOTE, validateReadSql, clipSqlOutput,
+  toolLabel, makeChartFilter, extractChart, historyPreamble, pathAllowed, ttlCache,
+} from "./lib.mjs";
 
 const PORT = Number(process.env.PORT || 8787);
 // 127.0.0.1 locally; the container sets HOST=0.0.0.0 (Cloud Run fronts it with IAM).
@@ -31,7 +36,6 @@ const READONLY = process.env.ASK_MESHA_READONLY !== "0";
 const MONTHLY_BUDGET_USD = Number(process.env.ASK_MESHA_MONTHLY_BUDGET_USD || 100);
 const PER_ANSWER_BUDGET_USD = Number(process.env.ASK_MESHA_PER_ANSWER_BUDGET_USD || 1);
 const DEEP_ANSWER_BUDGET_USD = Number(process.env.ASK_MESHA_DEEP_ANSWER_BUDGET_USD || 5);
-const DEEP_HINT = /\b(verify|check|why|bug|wrong|explain|investigate|compare|mismatch|doesn'?t match|is this (right|correct)|how is .* calculated)\b/i;
 const monthStart = () => {
   const d = new Date();
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)).toISOString();
@@ -135,40 +139,52 @@ async function recordMetric(m) {
 }
 
 // ---- read-only SQL tool (replaces Bash/psql in read-only mode) --------------
-const SQL_MAX_ROWS = 500;
-// No query rules: the DB role (mesha_ceo_readonly) can read every table and write
-// none, and every call runs in a READ ONLY transaction. The only refusal is psql
-// backslash commands, which run programs on the server rather than read data.
-function validateReadSql(sql) {
-  const text = String(sql || "").trim();
-  if (!text) return { ok: false, out: "Empty query." };
-  if (text.includes("\\")) return { ok: false, out: "Refused: psql backslash commands are not allowed." };
-  return { ok: true, sql: text.replace(/;\s*$/, "") };
-}
-function runSql(sql, user) {
+// Runs one query in a READ ONLY transaction. Output is decoded as UTF-8 per stream (no
+// split multibyte chars), bounded in memory, and the process is killed on a hard timeout.
+const SQL_KILL_MS = 75_000;
+function runSql(sql) {
   return new Promise((resolve) => {
     const checked = validateReadSql(sql);
     if (!checked.ok) return resolve(checked);
-    const child = spawn(
-      "psql",
-      ["-X", "-q", "-v", "ON_ERROR_STOP=1", "-P", "pager=off", "-P", "footer=off", "-A", "-F", "\t", "-f", "-"],
-      {
-        env: {
-          PATH: process.env.PATH,
-          ...loadPgEnv(),
-          // Belt and braces on top of the read-only DB role.
-          PGOPTIONS: "-c default_transaction_read_only=on -c statement_timeout=60000",
+    let pgEnv;
+    try { pgEnv = loadPgEnv(); } catch (e) { return resolve({ ok: false, out: `Database connection is not configured: ${e.message}` }); }
+    let child;
+    try {
+      child = spawn(
+        "psql",
+        ["-X", "-q", "-v", "ON_ERROR_STOP=1", "-P", "pager=off", "-P", "footer=off", "-A", "-F", "\t", "-f", "-"],
+        {
+          env: {
+            PATH: process.env.PATH,
+            ...pgEnv,
+            PGCONNECT_TIMEOUT: "10",
+            // Belt and braces on top of the read-only DB role.
+            PGOPTIONS: "-c default_transaction_read_only=on -c statement_timeout=60000",
+          },
         },
-      },
-    );
+      );
+    } catch (e) {
+      return resolve({ ok: false, out: `psql could not start: ${e.message}` });
+    }
     let out = "";
     let err = "";
-    child.stdout.on("data", (c) => (out.length < 200_000 ? (out += c) : null));
-    child.stderr.on("data", (c) => (err += c));
+    let capped = false;
+    let done = false;
+    const finish = (r) => { if (!done) { done = true; clearTimeout(killer); resolve(r); } };
+    const killer = setTimeout(() => {
+      child.kill("SIGKILL");
+      finish({ ok: false, out: `Query cancelled after ${SQL_KILL_MS / 1000}s (timeout). Narrow it (date range, aggregate) and retry.` });
+    }, SQL_KILL_MS);
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (c) => { if (out.length < 400_000) out += c; else capped = true; });
+    child.stderr.on("data", (c) => { if (err.length < 8_000) err += c; });
+    child.stdin.on("error", () => {}); // EPIPE if psql exits before reading the query
+    child.on("error", (e) => finish({ ok: false, out: e.code === "ENOENT" ? "psql is not installed on this server." : `psql failed: ${e.message}` }));
     child.on("close", (code) => {
-      const lines = out.split("\n");
-      const clipped = lines.length > SQL_MAX_ROWS + 1 ? lines.slice(0, SQL_MAX_ROWS + 1).join("\n") + `\n… (${lines.length - SQL_MAX_ROWS - 1} more rows truncated)` : out;
-      resolve({ ok: code === 0, out: code === 0 ? clipped : err.trim() || `psql exited ${code}` });
+      if (code === 0) return finish({ ok: true, out: clipSqlOutput(out, { capped }) });
+      const msg = err.trim() || `psql exited ${code}`;
+      finish({ ok: false, out: /statement timeout/i.test(msg) ? "Query cancelled after 60s (statement timeout). Narrow it (date range, aggregate) and retry." : msg });
     });
     child.stdin.end(`BEGIN READ ONLY;\n${checked.sql};\nROLLBACK;\n`);
   });
@@ -183,7 +199,7 @@ function meshaToolsFor(user) {
         "Run read-only SQL against goatos-stg (any table/view in any schema) and return tab-separated rows (max 500).",
         { sql: z.string().describe("A single SELECT/WITH query. No psql backslash commands.") },
         async ({ sql }) => {
-          const r = await runSql(sql, user);
+          const r = await runSql(sql);
           return { content: [{ type: "text", text: r.out || "(no rows)" }], isError: !r.ok };
         },
       ),
@@ -196,9 +212,12 @@ function meshaToolsFor(user) {
 fs.mkdirSync(STATE, { recursive: true });
 const store = await createStore({ stateDir: STATE });
 const uploads = await createUploads({ stateDir: STATE });
+const events = await createEvents({ stateDir: STATE }); // per-user lifecycle events (events.mjs)
 
 // ---- auth: reuse the live backend's leadership check ----------------------
-const authCache = new Map();
+// Bounded (expired entries pruned) so a stream of distinct tokens can't grow memory forever.
+const authCache = ttlCache(2000);
+const AUTH_TIMEOUT_MS = Number(process.env.ASK_MESHA_AUTH_TIMEOUT_MS || 8000);
 async function authenticate(req) {
   const authz = req.headers["authorization"] || "";
   const token = authz.replace(/^Bearer\s+/i, "");
@@ -209,10 +228,10 @@ async function authenticate(req) {
   if (process.env.ASK_MESHA_BENCH_TOKEN && !process.env.K_SERVICE && token === process.env.ASK_MESHA_BENCH_TOKEN) return { email: "bench@local", tenantId };
   const cacheKey = `${tenantId}\0${token}`;
   const hit = authCache.get(cacheKey);
-  if (hit && hit.exp > Date.now()) return hit.user;
+  if (hit) return hit;
   const headers = { Authorization: authz, Accept: "application/json" };
   if (tenantId) headers["X-GoatOS-Tenant-ID"] = tenantId;
-  const res = await fetch(`${STG_API}/ceo-ai/starters`, { headers }).catch((e) => {
+  const res = await fetch(`${STG_API}/ceo-ai/starters`, { headers, signal: AbortSignal.timeout(AUTH_TIMEOUT_MS) }).catch((e) => {
     console.warn(`[auth] stg leadership check failed: ${e?.message || e}`);
     return null;
   });
@@ -230,7 +249,7 @@ async function authenticate(req) {
   } catch {}
   if (typeof email !== "string" || !email) return null;
   const user = { email, tenantId };
-  authCache.set(cacheKey, { user, exp: Date.now() + 5 * 60_000 });
+  authCache.set(cacheKey, user, 5 * 60_000);
   return user;
 }
 
@@ -243,16 +262,22 @@ const json = (res, status, body) => {
 const MAX_BODY = 15 * 1024 * 1024;
 const readBody = (req) =>
   new Promise((resolve) => {
-    let s = "";
+    // Collect Buffers: string += chunk splits multibyte UTF-8 (Tamil/Chinese/emoji) at chunk edges.
+    const parts = [];
+    let size = 0;
     req.on("data", (c) => {
-      s += c;
-      if (s.length > MAX_BODY) {
-        s = "";
+      size += c.length;
+      if (size > MAX_BODY) {
+        parts.length = 0;
         req.destroy();
         resolve({});
+        return;
       }
+      parts.push(c);
     });
+    req.on("error", () => resolve({}));
     req.on("end", () => {
+      const s = Buffer.concat(parts).toString("utf8");
       try { resolve(s ? JSON.parse(s) : {}); } catch { resolve({}); }
     });
   });
@@ -306,99 +331,26 @@ const DENY = [
   /goatos-stg-deploy/i,
   /\brm\s+-rf\s+(\/|~)(\s|$)/,
 ];
-async function canUseTool(toolName, input) {
-  if (toolName === "Bash" && DENY.some((re) => re.test(String(input.command || "")))) {
-    return { behavior: "deny", message: "Blocked by Ask Mesha policy (no deploys/merges to main)." };
-  }
-  // Read-only mode: file tools stay inside the repo snapshot and this run's uploads.
-  // Outside paths (/proc/*/environ, the state dir's .pgenv, $HOME) hold secrets.
-  if (READONLY && ["Read", "Grep", "Glob"].includes(toolName)) {
-    const p = input.file_path || input.path;
-    if (p) {
-      let real;
-      try { real = fs.realpathSync(path.resolve(REPO, String(p))); } catch { real = path.resolve(REPO, String(p)); }
-      const roots = [REPO, path.join(os.tmpdir(), "ask-mesha"), path.join(STATE, "uploads")].map((r) => {
-        try { return fs.realpathSync(r); } catch { return path.resolve(r); }
-      });
-      if (!roots.some((r) => real === r || real.startsWith(r + path.sep))) {
+function canUseToolFor(chatId) {
+  // Only THIS chat's attachments (not other CEOs' uploads); per-chat worktrees when enabled.
+  const roots = [REPO, WORKTREES, path.join(os.tmpdir(), "ask-mesha", chatId), path.join(STATE, "uploads", chatId)];
+  return async (toolName, input) => {
+    if (toolName === "Bash" && DENY.some((re) => re.test(String(input.command || "")))) {
+      return { behavior: "deny", message: "Blocked by Ask Mesha policy (no deploys/merges to main)." };
+    }
+    // Read-only mode: file tools stay inside the repo snapshot and this chat's uploads.
+    // Outside paths (/proc/*/environ, the state dir's .pgenv, $HOME) hold secrets.
+    if (READONLY && ["Read", "Grep", "Glob"].includes(toolName)) {
+      const paths = [input.file_path, input.path].filter(Boolean);
+      // Glob patterns can be absolute or climb out ("/etc/*", "../../x"): check their fixed prefix.
+      const pat = toolName === "Glob" ? String(input.pattern || "") : "";
+      if (pat.startsWith("/") || pat.includes("..")) paths.push(path.resolve(String(input.path || REPO), pat.split(/[*?[{]/)[0] || "."));
+      if (paths.some((p) => !pathAllowed(p, REPO, roots))) {
         return { behavior: "deny", message: "Ask Mesha can only read the goatos repo and this chat's attachments." };
       }
     }
-  }
-  return { behavior: "allow", updatedInput: input };
-}
-
-// Plain-English step labels for the CEO-facing activity trail (no file paths/SQL).
-const TOPIC_WORDS = [
-  [/weigh/i, "weighing"], [/sale|sold|animals_base|exit/i, "sales and exits"], [/feed/i, "feed"],
-  [/vacc/i, "vaccination"], [/mortal|death/i, "mortality"], [/procure|load/i, "procurement"],
-  [/verif/i, "verification"], [/workforce|task/i, "workforce"], [/count|movement|current_scope/i, "headcount"],
-  [/growth|adg|gain/i, "daily gain"],
-];
-function topicOf(text) {
-  const hit = TOPIC_WORDS.find(([re]) => re.test(text));
-  return hit ? hit[1] : null;
-}
-function toolLabel(name, input) {
-  if (name === "mcp__mesha__run_sql" || (name === "Bash" && /\bpsql\b/.test(String(input.command || "")))) {
-    const sql = String(input.sql || input.command || "");
-    const views = [...sql.matchAll(/ceo_ai\.(\w+)/g)].map((m) => m[1]);
-    const topic = topicOf(views.join(" ") || sql);
-    return topic ? `Checking ${topic} records` : "Checking the records";
-  }
-  if (name === "Read") {
-    const f = String(input.file_path || "");
-    if (/uploads|ask-mesha\//.test(f)) return /\.(png|jpe?g|gif|webp)$/i.test(f) ? "Looking at your screenshot" : "Reading your file";
-    if (/mesha-data-map|data-map-core/.test(f)) return "Using the Mesha data map";
-    const topic = topicOf(f);
-    return topic ? `Looking up how ${topic} is worked out` : "Looking up how it's worked out";
-  }
-  if (name === "Grep" || name === "Glob") {
-    const topic = topicOf(String(input.pattern || "") + " " + String(input.path || ""));
-    return topic ? `Looking up how ${topic} is worked out` : "Looking up the definitions";
-  }
-  if (name === "Skill") return "Using the Mesha data map";
-  if (name === "TodoWrite") return "Planning the checks";
-  if (name === "Bash") return "Double-checking the numbers";
-  return "Working";
-}
-
-// Streams text while hiding ```chart ... ``` fences from the visible tokens.
-function makeChartFilter(emit) {
-  let pending = "";
-  let inChart = false;
-  const OPEN = "```chart";
-  const CLOSE = "```";
-  return (chunk, flush = false) => {
-    pending += chunk;
-    if (flush) {
-      if (!inChart) emit(pending);
-      pending = "";
-      return;
-    }
-    for (;;) {
-      if (!inChart) {
-        const i = pending.indexOf(OPEN);
-        if (i >= 0) { emit(pending.slice(0, i)); pending = pending.slice(i + OPEN.length); inChart = true; continue; }
-        const keep = Math.min(pending.length, OPEN.length - 1);
-        emit(pending.slice(0, pending.length - keep));
-        pending = pending.slice(pending.length - keep);
-        return;
-      }
-      const j = pending.indexOf(CLOSE);
-      if (j < 0) return;
-      pending = pending.slice(j + CLOSE.length);
-      inChart = false;
-    }
+    return { behavior: "allow", updatedInput: input };
   };
-}
-
-function extractChart(text) {
-  const m = text.match(/```chart\s*([\s\S]*?)```/);
-  if (!m) return { clean: text.trim(), chart: undefined };
-  let chart;
-  try { chart = JSON.parse(m[1]); } catch {}
-  return { clean: text.replace(m[0], "").trim(), chart };
 }
 
 // Only these variables reach the agent (and therefore its Bash tool). The server's
@@ -413,16 +365,6 @@ function agentEnv() {
 }
 
 // ---- ask ------------------------------------------------------------------
-// Replayed as context when the SDK session cannot be resumed.
-function historyPreamble(history) {
-  const turns = history.filter((m) => m.role === "user" || m.role === "assistant").slice(-20);
-  if (!turns.length) return "";
-  return (
-    "Earlier in this conversation (for context; answer only the new question below):\n" +
-    turns.map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${String(m.content).slice(0, 4000)}`).join("\n\n") +
-    "\n\nNew question:\n"
-  );
-}
 async function ask(req, res, user) {
   const body = await readBody(req);
   const question = String(body.question || "").trim();
@@ -432,7 +374,10 @@ async function ask(req, res, user) {
   // Hard monthly cap: answer with a plain message instead of calling Claude.
   // Fail closed: if spend can't be read, don't risk running past the cap.
   const spent = await store.monthSpendUsd(monthStart()).catch(() => Infinity);
+  const evCtx = { request_id: crypto.randomUUID(), chat_id: chat?.id ?? null, email: user.email, tenant_id: user.tenantId };
+  events.budgetCheck(evCtx, spent, MONTHLY_BUDGET_USD);
   if (spent >= MONTHLY_BUDGET_USD) {
+    await events.budgetBlocked(evCtx, spent, MONTHLY_BUDGET_USD, question);
     res.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-store" });
     const answer = Number.isFinite(spent)
       ? `This month's Ask Mesha budget ($${MONTHLY_BUDGET_USD}) has been used ($${spent.toFixed(2)}). It resets on the 1st; ask Ravi to raise the cap if needed.`
@@ -443,11 +388,7 @@ async function ask(req, res, user) {
   if (!chat) chat = await store.createChat(user.email, user.tenantId);
   // One run per chat: two concurrent resumes of the same session fork it and
   // race on session_id / message order. DB-backed lease in Postgres mode.
-  if (!(await store.tryLock(chat.id))) return json(res, 409, { error: "chat_busy" });
-  if (chat.title === "New chat") {
-    chat.title = question.slice(0, 60);
-    await store.updateChat(chat.id, { title: chat.title });
-  }
+  if (!(await store.tryLock(chat.id))) return json(res, 409, { error: "chat_busy", message: friendlyError("busy") });
 
   res.writeHead(200, {
     "Content-Type": "text/event-stream; charset=utf-8",
@@ -460,17 +401,17 @@ async function ask(req, res, user) {
     store.refreshLock(chat.id).catch(() => {});
   }, 10_000);
   const abort = new AbortController();
-  res.on("close", () => abort.abort());
+  // 'close' also fires after a normal res.end(); only a real disconnect aborts the SDK run.
+  res.on("close", () => { if (!res.writableFinished) abort.abort(); });
 
   const requestId = crypto.randomUUID();
   const userMsg = { id: crypto.randomUUID(), role: "user", content: question, created_at: new Date().toISOString() };
   const t0 = Date.now();
   // Investigations (screenshots, "verify/why/bug…") get the deep model, high effort and
   // a larger per-answer budget; quick lookups stay fast and cheap.
-  const deep =
-    /^deep:\s*/i.test(question) ||
-    (Array.isArray(body.attachments) && body.attachments.length > 0) ||
-    DEEP_HINT.test(question);
+  const deep = isDeepQuestion(question, body.attachments);
+  // Per-answer cap, clipped to what is left this month so one run can't overshoot the hard cap.
+  const capUsd = answerCapUsd({ deep, perAnswer: PER_ANSWER_BUDGET_USD, deepAnswer: DEEP_ANSWER_BUDGET_USD, monthly: MONTHLY_BUDGET_USD, spent });
   let prompt = question.replace(/^deep:\s*/i, "");
   // Resumed chats can carry stale conclusions from when access was narrower
   // ("prices aren't readable"). A turn-level note beats the system prompt there.
@@ -496,9 +437,13 @@ async function ask(req, res, user) {
     resumed: Boolean(chat.session_id), model: deep ? DEEP_MODEL : MODEL, effort: deep ? "high" : EFFORT,
     question_chars: prompt.length, first_progress_ms: null, first_tool_ms: null, first_token_ms: null,
     total_ms: null, tool_calls: 0, db_queries: 0, turns: 0, input_tokens: null, output_tokens: null,
-    cost_usd: null, ok: false, error: null,
+    cost_usd: null, cost_estimated: false, session_cost_usd: null, cap_usd: capUsd, ok: false, error: null,
   };
+  // SDK cost is cumulative per session; remember the resumed session's previous total.
+  let prevSessionCost = chat.session_id ? Number(chat.session_cost_usd) || 0 : 0;
   const since = () => Date.now() - t0;
+  const track = events.tracker({ request_id: requestId, chat_id: chat.id, email: user.email, tenant_id: user.tenantId },
+    { t0, question, deep, model: metric.model, effort: metric.effort, resumed: metric.resumed });
   let full = "";
   // Only the answer should stay on screen: text streamed before a tool call is
   // narration ("let me check…"), so the client is told to clear it ("reset").
@@ -506,6 +451,7 @@ async function ask(req, res, user) {
   const emitVisible = (t) => {
     if (!t) return;
     if (metric.first_token_ms === null) metric.first_token_ms = since();
+    track.firstToken();
     turnVisible = true;
     send({ type: "token", text: t });
   };
@@ -515,10 +461,16 @@ async function ask(req, res, user) {
   try {
     send({ type: "progress", phase: "planning", label: "Starting agent" });
     metric.first_progress_ms = since();
+    // Inside try so a store failure still releases the chat lease (finally).
+    if (chat.title === "New chat") {
+      chat.title = question.slice(0, 60);
+      await store.updateChat(chat.id, { title: chat.title });
+    }
     // History before this turn, for the resume-miss fallback below.
     history = await store.getMessages(chat.id);
     const up = await uploads.save(chat.id, body.attachments);
     cleanupUploads = up.cleanup;
+    track.attachments(up.files);
     if (up.files.length) {
       // Persist file refs on the user turn so a reloaded chat can show them again.
       userMsg.files = up.files.map(({ id, name, type }) => ({ id, name, type }));
@@ -537,6 +489,7 @@ async function ask(req, res, user) {
       console.warn(`[resume] session ${resume} not in store; replaying ${history.length} messages`);
       resume = undefined;
       metric.resumed = false;
+      prevSessionCost = 0;
       prompt = historyPreamble(history) + prompt;
     }
     const stream = query({
@@ -544,14 +497,14 @@ async function ask(req, res, user) {
       options: {
         cwd,
         model: metric.model,
-        maxBudgetUsd: deep ? DEEP_ANSWER_BUDGET_USD : PER_ANSWER_BUDGET_USD,
+        maxBudgetUsd: capUsd,
         effort: metric.effort,
         resume,
         ...(store.sessionStore ? { sessionStore: store.sessionStore } : {}),
         systemPrompt: { type: "preset", preset: "claude_code", append: repoInstructions(cwd) + APPEND_PROMPT + dataMapCore(cwd) },
         settingSources: ["project", "local"],
         includePartialMessages: true,
-        canUseTool,
+        canUseTool: canUseToolFor(chat.id),
         permissionMode: "default",
         ...(READONLY
           ? {
@@ -568,6 +521,9 @@ async function ask(req, res, user) {
           ...agentEnv(),
           ...loadPgEnv(),
           GOATOS_AI_SETUP_GUARD: "0",
+          // Same for the one-time "graph-first" speed bump: it fails the first Grep/Glob/Read of every
+          // chat (seen live: "PreToolUse:Grep hook error"), costing a turn on every investigation.
+          GOATOS_GRAPH_GUARD: "0",
           CLAUDE_CODE_DISABLE_CLAUDE_MDS: "1", // loaded via repoInstructions() instead
           ENABLE_PROMPT_CACHING_1H: "1", // CEOs ask sporadically; keep the prefix warm for an hour
         },
@@ -575,8 +531,10 @@ async function ask(req, res, user) {
       },
     });
     for await (const msg of stream) {
+      track.onMessage(msg, toolLabel);
       if (msg.type === "system" && msg.subtype === "init" && msg.session_id) {
         if (chat.session_id !== msg.session_id) {
+          if (resume !== msg.session_id) prevSessionCost = 0; // new session: its cost starts at 0
           chat.session_id = msg.session_id;
           await store.updateChat(chat.id, { session_id: msg.session_id });
         }
@@ -609,7 +567,12 @@ async function ask(req, res, user) {
         }
       } else if (msg.type === "result") {
         metric.turns = msg.num_turns ?? null;
-        metric.cost_usd = msg.total_cost_usd ?? null;
+        metric.session_cost_usd = msg.total_cost_usd ?? null;
+        metric.cost_usd = answerCostUsd(msg.total_cost_usd, prevSessionCost);
+        if (metric.session_cost_usd != null) {
+          chat.session_cost_usd = metric.session_cost_usd;
+          await store.updateChat(chat.id, { session_cost_usd: metric.session_cost_usd }).catch(() => {});
+        }
         metric.input_tokens = msg.usage?.input_tokens ?? null;
         metric.output_tokens = msg.usage?.output_tokens ?? null;
         if (msg.subtype !== "success") metric.error = msg.subtype;
@@ -618,12 +581,20 @@ async function ask(req, res, user) {
     filter("", true); // flush
     // Live tokens showed the whole run; the stored/final answer is only the
     // last assistant turn (drops "now querying…" narration between tool calls).
-    const { clean, chart } = extractChart(lastTurnText.trim() ? lastTurnText : full);
+    let { clean, chart } = extractChart(lastTurnText.trim() ? lastTurnText : full);
+    track.setAnswer(clean, chart);
     // Failed run with nothing to show: send an error, not an empty final (the
     // panel lets a later final overwrite an error). Partial answers still land.
+    // Error text is CEO-facing: no "budget"/"agent_error_max_budget_usd".
     if (metric.error && !clean) {
-      send({ type: "error", message: `agent_${metric.error}` });
+      send({ type: "error", message: friendlyError(metric.error) });
       return;
+    }
+    // Cut short (per-answer cap / turn limit) after some text: say so instead of
+    // presenting a half answer as complete. The note is also streamed.
+    if (metric.error) {
+      clean += STOPPED_NOTE;
+      emitVisible(STOPPED_NOTE);
     }
     const assistantMsg = {
       id: crypto.randomUUID(), role: "assistant", content: clean, chart,
@@ -640,13 +611,25 @@ async function ask(req, res, user) {
     });
   } catch (err) {
     metric.error = abort.signal.aborted ? "client_aborted" : String(err?.message || err).slice(0, 300);
-    if (!abort.signal.aborted) send({ type: "error", message: metric.error });
+    console.error(`[ask] ${requestId} failed: ${metric.error}`);
+    // Raw SDK/process errors stay in logs/metrics; the CEO sees plain wording.
+    if (!abort.signal.aborted) send({ type: "error", message: friendlyError(metric.error) });
   } finally {
     if (metric.total_ms === null) metric.total_ms = since();
+    // No result message (client closed the tab, crash): the spend is unknown but real.
+    // Count the answer's cap so the monthly hard cap stays fail-closed.
+    if (metric.cost_usd === null && (metric.first_token_ms !== null || metric.first_tool_ms !== null)) {
+      metric.cost_usd = capUsd;
+      metric.cost_estimated = true;
+      // The resumed session's next total will include this turn's real spend; pre-credit the
+      // estimate so that answer's delta nets it out instead of counting it twice.
+      if (chat.session_id) await store.updateChat(chat.id, { session_cost_usd: prevSessionCost + capUsd }).catch(() => {});
+    }
     clearInterval(heartbeat);
     await cleanupUploads().catch(() => {});
     await store.unlock(chat.id).catch((e) => console.error("[lock] unlock failed:", e.message));
     await recordMetric(metric);
+    await track.finish(metric, { aborted: abort.signal.aborted });
     res.end();
   }
 }
@@ -669,14 +652,19 @@ async function route(req, res) {
     if (p === "/healthz") return json(res, 200, { ok: true });
     // Benchmark: local-only (server binds 127.0.0.1).
     // Benchmark summary: open on a loopback bind; otherwise requires the bench token.
-    if (p === "/metrics") {
+    if (p === "/metrics" || p === "/metrics/users" || p === "/metrics/recent") {
       const bench = process.env.ASK_MESHA_BENCH_TOKEN;
       const authz = String(req.headers["authorization"] || "");
       if (HOST !== "127.0.0.1" && !(bench && authz === `Bearer ${bench}`)) return json(res, 403, { error: "forbidden" });
+      if (p === "/metrics/users") return json(res, 200, await events.usersSummary());
+      if (p === "/metrics/recent") return json(res, 200, await events.recent(url.searchParams.get("email") || "", 50));
       return json(res, 200, await store.metricsSummary());
     }
     const user = await authenticate(req);
-    if (!user) return json(res, 403, { error: "leadership_required" });
+    if (!user) {
+      await events.authDenied({ email: null, tenant_id: String(req.headers["x-goatos-tenant-id"] || "") || null }, p);
+      return json(res, 403, { error: "leadership_required" });
+    }
 
     if (p === "/ceo-ai/starters") return json(res, 200, { starters: STARTERS });
     if (p === "/ceo-ai/ask" && req.method === "POST") return ask(req, res, user);

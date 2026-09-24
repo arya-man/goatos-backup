@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, FileText, X } from "lucide-react";
 
 // A file shown in the composer tray or on a sent message. `url` is an object URL
@@ -11,6 +11,13 @@ export function toPreview(file: File): PreviewFile {
   return { name: file.name, type: file.type, url: URL.createObjectURL(file) };
 }
 
+// revokePreviews releases object URLs (server-backed URLs are left alone).
+export function revokePreviews(files: PreviewFile[] | undefined): void {
+  files?.forEach((f) => {
+    if (f.url.startsWith("blob:")) URL.revokeObjectURL(f.url);
+  });
+}
+
 const isImage = (f: PreviewFile) => f.type.startsWith("image/");
 const isPdf = (f: PreviewFile) => f.type === "application/pdf";
 
@@ -18,14 +25,25 @@ const isPdf = (f: PreviewFile) => f.type === "application/pdf";
 // before upload so the request stays small and the model reads them faster.
 export async function shrinkImage(file: File, maxSide = 2000): Promise<File> {
   if (!file.type.startsWith("image/") || file.type === "image/gif" || file.type === "image/svg+xml") return file;
+  if (typeof createImageBitmap !== "function") return file;
   const bitmap = await createImageBitmap(file).catch(() => null);
   if (!bitmap) return file;
   const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
-  if (scale === 1 && file.size < 1_500_000) return file;
+  if (scale === 1 && file.size < 1_500_000) {
+    bitmap.close();
+    return file;
+  }
   const canvas = document.createElement("canvas");
   canvas.width = Math.round(bitmap.width * scale);
   canvas.height = Math.round(bitmap.height * scale);
-  canvas.getContext("2d")?.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  const ctx = canvas.getContext("2d");
+  // No 2D context (memory-starved webview): upload the original, never a blank image.
+  if (!ctx) {
+    bitmap.close();
+    return file;
+  }
+  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close();
   const type = file.type === "image/png" && file.size < 3_000_000 ? "image/png" : "image/jpeg";
   const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, type, 0.88));
   if (!blob) return file;
@@ -60,14 +78,30 @@ export function Lightbox({ files, start, onClose }: { files: PreviewFile[]; star
   const [i, setI] = useState(start);
   const n = files.length;
   const file = files[i];
+  const closeRef = useRef<HTMLButtonElement>(null);
+  // Modal focus: move focus in on open, give it back to the opener on close.
+  useEffect(() => {
+    const opener = document.activeElement as HTMLElement | null;
+    closeRef.current?.focus();
+    return () => opener?.focus?.();
+  }, []);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
+        e.preventDefault();
         e.stopPropagation();
         onClose();
+        return;
       }
-      if (e.key === "ArrowRight") setI((v) => (v + 1) % n);
-      if (e.key === "ArrowLeft") setI((v) => (v - 1 + n) % n);
+      if (n < 2) return;
+      if (e.key === "ArrowRight") {
+        e.preventDefault();
+        setI((v) => (v + 1) % n);
+      }
+      if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        setI((v) => (v - 1 + n) % n);
+      }
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
@@ -91,11 +125,11 @@ export function Lightbox({ files, start, onClose }: { files: PreviewFile[]; star
   }, [file]);
   if (!file) return null;
   return (
-    <div className="mzai-lb" role="dialog" aria-label={file.name} onClick={onClose}>
+    <div className="mzai-lb" role="dialog" aria-modal="true" aria-label={file.name} onClick={onClose}>
       <div className="mzai-lb-top" onClick={(e) => e.stopPropagation()}>
         <span className="mzai-lb-name">{file.name}</span>
         {n > 1 ? <span className="mzai-lb-count">{i + 1} / {n}</span> : null}
-        <button type="button" onClick={onClose} aria-label="Close preview">
+        <button ref={closeRef} type="button" onClick={onClose} aria-label="Close preview">
           <X size={18} />
         </button>
       </div>

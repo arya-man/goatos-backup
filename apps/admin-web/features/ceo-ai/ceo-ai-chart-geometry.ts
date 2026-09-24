@@ -28,24 +28,22 @@ export const CHART_PALETTE = [
   "var(--ok)",
 ] as const;
 
+// Bars render as HTML rows (label above a proportional track) rather than SVG
+// text: real text keeps category labels at a readable 12-13px, wraps long
+// names instead of truncating them ("Mesha Kids Conc…" twice looked identical),
+// and never overflows a 390px phone bubble.
 export type ChartBar = {
   key: string;
   label: string;
   value: number;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  labelX: number;
-  valueX: number;
-  textY: number;
+  valueLabel: string;
+  // Bar length as a percentage (0-100] of the track; min 1 so zero rows show.
+  pct: number;
   color: string;
 };
 
 export type ChartBarLayout = {
   kind: "bar";
-  viewWidth: number;
-  viewHeight: number;
   bars: ChartBar[];
 };
 
@@ -65,6 +63,8 @@ export type ChartLineLayout = {
   points: ChartLinePoint[];
   color: string;
   baselineY: number;
+  // Indexes of x labels to show (thinned so they never collide on a phone).
+  ticks: number[];
 };
 
 export type ChartLayout = ChartBarLayout | ChartLineLayout;
@@ -72,14 +72,11 @@ export type ChartLayout = ChartBarLayout | ChartLineLayout;
 // Geometry constants tuned for a chat bubble (~narrow). A single viewBox scales
 // uniformly to the container width.
 const VIEW_WIDTH = 320;
-const BAR_ROW_HEIGHT = 20;
-const BAR_ROW_GAP = 8;
-const BAR_LABEL_GUTTER = 92;
-const BAR_VALUE_GUTTER = 34;
-const LINE_HEIGHT = 150;
+const LINE_HEIGHT = 130;
+const MAX_LINE_TICKS = 5;
 const LINE_PAD_X = 10;
 const LINE_PAD_TOP = 12;
-const LINE_PAD_BOTTOM = 26;
+const LINE_PAD_BOTTOM = 8;
 
 // firstSeries returns the single rendered series (the composer emits one).
 function firstSeries(chart: CeoAiChart): CeoAiChartSeries | null {
@@ -99,9 +96,20 @@ export function isRenderableChart(chart: CeoAiChart | undefined | null): chart i
   return s.data.slice(0, n).every((v) => Number.isFinite(v));
 }
 
-function clip(label: string, maxChars: number): string {
-  if (label.length <= maxChars) return label;
-  return `${label.slice(0, Math.max(1, maxChars - 1))}…`;
+// formatChartValue keeps value labels short and readable (1,234 / 12.5).
+export function formatChartValue(value: number): string {
+  const rounded = Math.abs(value) >= 100 ? Math.round(value) : Math.round(value * 10) / 10;
+  return rounded.toLocaleString("en-US");
+}
+
+// lineTicks picks at most `max` evenly spaced label indexes, always including
+// the first and last point.
+export function lineTicks(n: number, max = MAX_LINE_TICKS): number[] {
+  if (n <= 0) return [];
+  if (n <= max) return Array.from({ length: n }, (_, i) => i);
+  const out = new Set<number>();
+  for (let k = 0; k < max; k += 1) out.add(Math.round((k * (n - 1)) / (max - 1)));
+  return [...out].sort((a, b) => a - b);
 }
 
 export function chartLayout(chart: CeoAiChart): ChartLayout | null {
@@ -111,7 +119,7 @@ export function chartLayout(chart: CeoAiChart): ChartLayout | null {
   const n = Math.min(chart.x.length, series.data.length);
   const labels = chart.x.slice(0, n);
   const data = series.data.slice(0, n);
-  const max = Math.max(...data, 1);
+  const max = Math.max(...data.map((v) => Math.abs(v)), 1);
 
   if (chart.type === "line") {
     return lineLayout(labels, data, max);
@@ -120,27 +128,18 @@ export function chartLayout(chart: CeoAiChart): ChartLayout | null {
 }
 
 function barLayout(labels: string[], data: number[], max: number): ChartBarLayout {
-  const barMaxWidth = VIEW_WIDTH - BAR_LABEL_GUTTER - BAR_VALUE_GUTTER;
-  const viewHeight = data.length * (BAR_ROW_HEIGHT + BAR_ROW_GAP) + 4;
-  const maxChars = Math.floor(BAR_LABEL_GUTTER / 5.4);
   const bars: ChartBar[] = data.map((value, i) => {
-    const y = i * (BAR_ROW_HEIGHT + BAR_ROW_GAP) + 2;
-    const width = Math.max((value / max) * barMaxWidth, 1);
+    const pct = Math.min(100, Math.max((Math.abs(value) / max) * 100, 1));
     return {
       key: `${i}-${labels[i]}`,
-      label: clip(labels[i], maxChars),
+      label: String(labels[i] ?? ""),
       value,
-      x: BAR_LABEL_GUTTER,
-      y,
-      width: Number(width.toFixed(1)),
-      height: BAR_ROW_HEIGHT,
-      labelX: 0,
-      valueX: Number((BAR_LABEL_GUTTER + width + 4).toFixed(1)),
-      textY: y + BAR_ROW_HEIGHT / 2 + 3,
+      valueLabel: formatChartValue(value),
+      pct: Number(pct.toFixed(1)),
       color: CHART_PALETTE[i % CHART_PALETTE.length],
     };
   });
-  return { kind: "bar", viewWidth: VIEW_WIDTH, viewHeight, bars };
+  return { kind: "bar", bars };
 }
 
 function lineLayout(labels: string[], data: number[], max: number): ChartLineLayout {
@@ -150,10 +149,10 @@ function lineLayout(labels: string[], data: number[], max: number): ChartLineLay
   const step = data.length > 1 ? innerW / (data.length - 1) : 0;
   const points: ChartLinePoint[] = data.map((value, i) => {
     const cx = LINE_PAD_X + step * i;
-    const cy = baselineY - (value / max) * innerH;
+    const cy = baselineY - (Math.max(value, 0) / max) * innerH;
     return {
       key: `${i}-${labels[i]}`,
-      label: labels[i],
+      label: String(labels[i] ?? ""),
       value,
       cx: Number(cx.toFixed(1)),
       cy: Number(cy.toFixed(1)),
@@ -168,6 +167,7 @@ function lineLayout(labels: string[], data: number[], max: number): ChartLineLay
     points,
     color: CHART_PALETTE[0],
     baselineY,
+    ticks: lineTicks(points.length),
   };
 }
 

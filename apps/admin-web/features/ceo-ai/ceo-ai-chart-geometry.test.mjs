@@ -23,8 +23,8 @@ test("renders a bar chart whose bars match the tool rows", () => {
     [12, 7, 3],
   );
   // Bar widths are proportional: the max value (12) is the widest bar.
-  const widest = Math.max(...layout.bars.map((b) => b.width));
-  assert.equal(layout.bars[0].width, widest);
+  const widest = Math.max(...layout.bars.map((b) => b.pct));
+  assert.equal(layout.bars[0].pct, widest);
 });
 
 test("renders a line chart for a trend series with one point per x label", () => {
@@ -67,4 +67,42 @@ test("accessible label enumerates real values", () => {
   assert.match(label, /Vaccination overdue/);
   assert.match(label, /Castro 1: 12/);
   assert.match(label, /Gandhi 2: 7/);
+});
+
+test("long category labels are kept whole so distinct bars never look identical", () => {
+  const long = {
+    type: "bar",
+    title: "Revenue by customer",
+    x: [
+      "Mesha Kids Concept Store Orchard Road",
+      "Mesha Kids Concept Store Jurong East",
+      "A",
+    ],
+    series: [{ name: "Revenue", data: [1200.456, 800, 0] }],
+  };
+  const layout = chartLayout(long);
+  assert.ok(layout && layout.kind === "bar");
+  const labels = layout.bars.map((b) => b.label);
+  assert.deepEqual(labels, long.x);
+  assert.equal(new Set(labels).size, 3);
+  assert.ok(labels.every((l) => !l.includes("…")));
+  // Proportional percentages; zero still shows a sliver; max is 100%.
+  assert.equal(layout.bars[0].pct, 100);
+  assert.ok(Math.abs(layout.bars[1].pct - 66.6) < 0.2);
+  assert.equal(layout.bars[2].pct, 1);
+  assert.equal(layout.bars[0].valueLabel, "1,200");
+});
+
+test("line ticks are thinned for many points and keep first and last", () => {
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const layout = chartLayout({
+    type: "line",
+    title: "t",
+    x: months,
+    series: [{ name: "s", data: months.map((_, i) => i + 1) }],
+  });
+  assert.ok(layout && layout.kind === "line");
+  assert.ok(layout.ticks.length <= 5);
+  assert.equal(layout.ticks[0], 0);
+  assert.equal(layout.ticks.at(-1), 11);
 });

@@ -32,6 +32,10 @@ export async function createUploads({ stateDir, storage } = {}) {
       const files = [];
       if (!Array.isArray(raw)) return { files, cleanup: async () => {} };
       const dir = bucket ? path.join(os.tmpdir(), "ask-mesha", chatId, crypto.randomUUID()) : path.join(LOCAL, chatId);
+      const cleanup = async () => {
+        if (bucket) fs.rmSync(dir, { recursive: true, force: true });
+      };
+      try {
       for (const a of raw.slice(0, 5)) {
         if (!a || typeof a.name !== "string" || typeof a.data !== "string") continue;
         fs.mkdirSync(dir, { recursive: true });
@@ -48,9 +52,11 @@ export async function createUploads({ stateDir, storage } = {}) {
         }
         files.push({ id, path: file, name: a.name, type });
       }
-      const cleanup = async () => {
-        if (bucket) fs.rmSync(dir, { recursive: true, force: true });
-      };
+      } catch (e) {
+        // A failed GCS upload must not leave the temp copies behind.
+        await cleanup().catch(() => {});
+        throw e;
+      }
       return { files, cleanup };
     },
     // Readable stream for a stored file ref ({ id, name }) or null if missing.

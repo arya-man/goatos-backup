@@ -131,7 +131,8 @@ export function CeoAiStyles(): ReactElement {
 .mzai-md h1,.mzai-md h2,.mzai-md h3,.mzai-md h4{font-weight:700;line-height:1.3;margin:1em 0 .45em}
 .mzai-md h1{font-size:1.25em}.mzai-md h2{font-size:1.12em}.mzai-md h3,.mzai-md h4{font-size:1em}
 .mzai-md strong{font-weight:700}
-.mzai-md a{color:var(--brand);text-decoration:underline;text-underline-offset:2px}
+.mzai-md a{color:var(--brand);text-decoration:underline;text-underline-offset:2px;overflow-wrap:anywhere}
+.mzai-md p,.mzai-md li{overflow-wrap:anywhere}
 .mzai-md blockquote{margin:0 0 .7em;padding:.1em .9em;border-left:3px solid var(--brand);opacity:.9}
 .mzai-md hr{border:0;border-top:1px solid var(--line);margin:1em 0}
 .mzai-md :not(pre)>code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.86em;padding:.12em .38em;border-radius:5px;background:rgba(127,127,127,.18)}
@@ -318,9 +319,25 @@ export function CeoAiStyles(): ReactElement {
 @keyframes mzai-type-caret{0%,49%{opacity:1}50%,100%{opacity:0}}
 .mzai-chart{margin:8px 0 2px;padding:10px 12px;background:var(--panel-2);border:1px solid var(--line);
   border-radius:14px;max-width:100%;overflow:hidden}
-.mzai-chart-title{font-size:11px;font-weight:600;color:var(--muted);margin:0 0 6px;
-  letter-spacing:.01em}
-.mzai-chart-svg{display:block;width:100%;height:auto}
+.mzai-chart-title{font-size:12px;font-weight:600;color:var(--muted);margin:0 0 8px;
+  letter-spacing:.01em;white-space:normal}
+.mzai-chart-svg{display:block;width:100%;height:120px;overflow:visible}
+.mzai-chart-bars{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:9px;white-space:normal}
+.mzai-chart-row{display:flex;flex-direction:column;gap:3px;min-width:0}
+.mzai-chart-label{font-size:12.5px;line-height:1.3;color:var(--ink);overflow-wrap:anywhere;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.mzai-chart-track{display:flex;align-items:center;gap:8px;min-width:0}
+.mzai-chart-area{flex:1 1 auto;min-width:0}
+.mzai-chart-bar{display:block;height:12px;border-radius:4px;min-width:2px}
+.mzai-chart-value{flex:0 0 auto;min-width:3ch;text-align:right;font-size:12.5px;font-weight:700;color:var(--ink);
+  font-variant-numeric:tabular-nums;white-space:nowrap}
+.mzai-chart-line{position:relative;padding-bottom:22px;white-space:normal}
+.mzai-chart-dot{position:absolute;width:6px;height:6px;margin:-3px 0 0 -3px;border-radius:50%}
+.mzai-chart-ticks{position:absolute;left:0;right:0;bottom:0;height:18px}
+.mzai-chart-tick{position:absolute;bottom:0;transform:translateX(-50%);font-size:11.5px;color:var(--muted);
+  white-space:nowrap;max-width:30%;overflow:hidden;text-overflow:ellipsis}
+.mzai-chart-tick.start{transform:none}
+.mzai-chart-tick.end{transform:translateX(-100%)}
 .mzai-cites{display:flex;flex-wrap:wrap;gap:6px;margin-top:2px}
 .mzai-cite{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:500;
   border:1px solid var(--line);border-radius:20px;padding:4px 11px;color:var(--muted);background:var(--panel);
@@ -456,9 +473,10 @@ export function CeoAiStyles(): ReactElement {
 @keyframes mzai-shimmer{from{background-position:100% 0}to{background-position:-100% 0}}
 .mzai-steps-chev{font-size:12px;opacity:.8}
 .mzai-steps ol{list-style:none;margin:2px 0 0;padding:0;display:flex;flex-direction:column;gap:1px}
-.mzai-steps li{display:flex;align-items:center;gap:7px;padding:1px 0;min-width:0}
+.mzai-steps li{display:flex;align-items:flex-start;gap:7px;padding:1px 0;min-width:0}
+.mzai-step-tx{min-width:0;overflow-wrap:anywhere}
 .mzai-steps li.more{padding-left:19px;font-size:11.5px;opacity:.7}
-.mzai-step-ic{flex:none;width:12px;height:12px;display:inline-flex;align-items:center;justify-content:center;color:var(--brand)}
+.mzai-step-ic{flex:none;width:12px;height:12px;margin-top:3px;display:inline-flex;align-items:center;justify-content:center;color:var(--brand)}
 .mzai-steps li.now{color:var(--ink)}
 .mzai-steps li.now .mzai-step-ic{border:1.5px solid color-mix(in srgb,var(--brand) 35%,transparent);border-top-color:var(--brand);
   border-radius:50%;animation:mzai-spin .8s linear infinite}
