@@ -106,13 +106,16 @@ func batchPlannedDateStart(d time.Time) time.Time {
 	return time.Date(d.Year(), d.Month(), d.Day(), 0, 0, 0, 0, biztime.DefaultLocation())
 }
 
+// batchDriveAssignmentIDsSQL lists the drive assignment rows of one batch.
+const batchDriveAssignmentIDsSQL = `
+SELECT assignment_id
+FROM vaccination_drive_assignments
+WHERE tenant_id = $1 AND batch_id = $2`
+
 // recomputeBatchDriveAssignmentCountersTx re-derives animal_count/total_doses of every drive
 // assignment row of one batch from its exact membership ledger (dropping rows left empty).
 func recomputeBatchDriveAssignmentCountersTx(ctx context.Context, tx pgx.Tx, tenant, batch pgtype.UUID) error {
-	rows, err := tx.Query(ctx, `
-SELECT assignment_id
-FROM vaccination_drive_assignments
-WHERE tenant_id = $1 AND batch_id = $2`, tenant, batch)
+	rows, err := tx.Query(ctx, batchDriveAssignmentIDsSQL, tenant, batch)
 	if err != nil {
 		return fmt.Errorf("obligation: read batch drive assignments: %w", err)
 	}
