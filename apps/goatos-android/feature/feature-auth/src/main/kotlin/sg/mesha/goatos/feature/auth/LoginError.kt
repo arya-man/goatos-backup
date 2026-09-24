@@ -12,5 +12,9 @@ enum class LoginError {
     GOOGLE_CANCELLED,
     NO_GOOGLE_ACCOUNT,
     NO_DEV_BACKEND,
+    /** Firebase signed in but issued no ID token. */
+    NO_SESSION_TOKEN,
+    /** Signed in, but Goat OS refused this account (session-event 403). */
+    WORKSPACE_UNAVAILABLE,
     UNKNOWN,
 }

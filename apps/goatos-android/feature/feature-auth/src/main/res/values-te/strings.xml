@@ -29,6 +29,8 @@
     <string name="login_error_no_google_account">ఈ పరికరంలో Google ఖాతా కనుగొనబడలేదు.</string>
     <string name="login_error_no_dev_backend">ఈ బిల్డ్‌లో బ్యాకెండ్ సెషన్ కాన్ఫిగర్ చేయలేదు. goatosDevBearerToken సెట్ చేసిన డెవ్ బిల్డ్ లేదా Firebase-ధృవీకరించిన బిల్డ్‌ను ఇన్‌స్టాల్ చేయండి.</string>
     <string name="login_error_generic">సైన్-ఇన్ విఫలమైంది. మళ్లీ ప్రయత్నించండి.</string>
+    <string name="login_error_no_session_token">సైన్ ఇన్ అయింది, కానీ సెషన్ రాలేదు. మళ్లీ ప్రయత్నించండి.</string>
+    <string name="login_error_workspace_unavailable">సైన్ ఇన్ అయింది, కానీ Mesha మీ వర్క్‌స్పేస్ తెరవలేకపోయింది. మీ యాక్సెస్ చూడమని మీ మేనేజర్‌ను అడగండి.</string>
 
     <string name="perm_gate_title">పరికర అనుమతులు</string>
     <string name="perm_gate_subtitle">స్కాన్, అలర్ట్‌లు, రుజువు ఫోటోల కోసం ఒకసారి అనుమతించండి.</string>
