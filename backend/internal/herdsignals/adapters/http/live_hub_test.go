@@ -89,11 +89,11 @@ func TestLiveHubIsTenantScoped(t *testing.T) {
 	hub := newLiveStreamHub(time.Millisecond, nil)
 	var mu sync.Mutex
 	calls := 0
-	_, unsub := hub.subscribe("t1", "t1\x00", func(context.Context) []byte {
+	_, unsub := hub.subscribe("t1", "t1\x00", func(context.Context) ([]byte, bool) {
 		mu.Lock()
 		calls++
 		mu.Unlock()
-		return []byte("x")
+		return []byte("x"), true
 	})
 	defer unsub()
 	hub.publish("t2")
@@ -102,5 +102,45 @@ func TestLiveHubIsTenantScoped(t *testing.T) {
 	defer mu.Unlock()
 	if calls != 0 {
 		t.Fatalf("other-tenant NOTIFY recomputed feed %d times", calls)
+	}
+}
+
+// F2: a new viewer's first snapshot must not be served from a stale-while-revalidate cache
+// entry: nothing would ever push the refreshed result to it.
+func TestStreamLiveInitialSnapshotIsFreshRead(t *testing.T) {
+	svc := &fakeService{liveResp: domain.LiveResponse{}}
+	h := NewHandler(svc)
+	base := authedRequest("GET", "/herd-signals/live/stream?limit=3", nil)
+	ctx, cancel := context.WithCancel(base.Context())
+	done := make(chan struct{})
+	go func() { h.StreamLive(httptest.NewRecorder(), base.WithContext(ctx)); close(done) }()
+	deadline := time.Now().Add(2 * time.Second)
+	for svc.liveCallCount() < 1 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	cancel()
+	<-done
+	svc.mu.Lock()
+	defer svc.mu.Unlock()
+	if len(svc.liveFresh) == 0 || !svc.liveFresh[0] {
+		t.Fatalf("initial stream snapshot fresh flags = %v, want a WithFreshLiveRead context", svc.liveFresh)
+	}
+}
+
+// F4: a failed recompute (snapshot_error frame) must not become the feed's reusable frame.
+func TestLiveHubDoesNotCacheErrorFrame(t *testing.T) {
+	hub := newLiveStreamHub(time.Hour, nil)
+	ch, unsub := hub.subscribe("t1", "k", func(context.Context) ([]byte, bool) {
+		return []byte("event: snapshot_error\n\n"), false
+	})
+	defer unsub()
+	hub.publish("t1")
+	select {
+	case <-ch:
+	case <-time.After(time.Second):
+		t.Fatal("error frame not delivered")
+	}
+	if f := hub.recentFrame("k"); f != nil {
+		t.Fatalf("recentFrame = %q, want nil after a failed compute", f)
 	}
 }

@@ -35,3 +35,39 @@ func TestListLivePenMediansIntegration(t *testing.T) {
 		t.Fatalf("pen medians = %+v, want motion 40 temp 37.5", m)
 	}
 }
+
+// F3: when a tag's id and its MAC are claimed by DIFFERENT animals, the location join must pick
+// the tag-id animal (the same precedence enrichment uses), so pen medians, the summary and the
+// park/shed filters agree with the displayed row.
+func TestTagLocationJoinPrefersTagIDOverMAC(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupHerdSignalsDB(t, ctx)
+	const shed2 = "45000000-0000-4000-8000-000000004002"
+	const goat2 = "45000000-0000-4000-8000-000000002002"
+	for _, q := range []string{
+		`INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
+		 VALUES ('` + shed2 + `', '` + hsiTenant + `', 'shed', 'HSI-SHED-2', 'HSI Shed 2', '` + hsiPark + `', 'active')`,
+		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, current_location_id, park_id, shed_id, breed, sex)
+		 VALUES ('` + goat2 + `', '` + hsiTenant + `', 'alive', 'goat', '` + hsiParty + `', '` + shed2 + `', '` + hsiPark + `', '` + shed2 + `', 'Boer', 'male')`,
+		`INSERT INTO goat_identifiers (tenant_id, goat_id, identifier_type, identifier_value, normalized_value, scope_key, is_primary_for_goat, status, valid_from, normalizer_version, smart_tag_capable)
+		 VALUES ('` + hsiTenant + `', '` + goat2 + `', 'animal_identifier_1', '` + hsiMappedMAC + `', '` + hsiMappedMAC + `', 'global', true, 'active', now(), 'test_v1', true)`,
+		`INSERT INTO herd_signal_tag_latest (tenant_id, tag_id, tag_mac, last_seen_at, motion_delta, tag_temperature_c, mapping_state, gap_delta)
+		 VALUES ('` + hsiTenant + `', '` + hsiMappedTag + `', '` + hsiMappedMAC + `', now(), 10, 37.0, 'mapped', false)`,
+	} {
+		if _, err := pool.Exec(ctx, q); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+	}
+	got, err := repo.ListLivePenMedians(ctx, hsiTenant, nil, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := got[hsiShed]; !ok || len(got) != 1 {
+		t.Fatalf("pens = %v, want only the tag-id animal's pen %s", got, hsiShed)
+	}
+	shed := hsiShed
+	tags, err := repo.ListTagsLatestPage(ctx, hsiTenant, nil, &shed, nil, nil, nil, nil, nil, "", 10)
+	if err != nil || len(tags) != 1 {
+		t.Fatalf("shed filter rows = %d err %v, want the tag under the tag-id animal's pen", len(tags), err)
+	}
+}

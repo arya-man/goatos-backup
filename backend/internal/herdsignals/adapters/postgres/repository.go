@@ -734,6 +734,9 @@ const tagLocationJoin = `
 		  -- already-tenant-narrowed tl side rather than the indexed gi.normalized_value column,
 		  -- so the (tenant_id, normalized_value) index on goat_identifiers stays usable.
 		  AND gi.normalized_value IN (UPPER(BTRIM(tl.tag_id)), UPPER(BTRIM(COALESCE(tl.tag_mac, ''))))
+		-- Tag id wins over MAC when they resolve to different animals: the same precedence the
+		-- page enrichment uses, so filters, summary and pen medians agree with the shown row.
+		ORDER BY (gi.normalized_value = UPPER(BTRIM(tl.tag_id))) DESC
 		LIMIT 1
 	) mapped_goat ON true
 	LEFT JOIN public.goats g ON g.tenant_id = tl.tenant_id AND g.goat_id = mapped_goat.goat_id
