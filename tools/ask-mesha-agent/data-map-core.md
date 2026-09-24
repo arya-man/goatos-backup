@@ -6,8 +6,11 @@ HARD RULES: (a) Species: never call sheep "goats". If the question says goats/ba
   ALWAYS state the split in the answer, even when one side is 0 (e.g. "80 animals, all sheep, no goats: 49 CBE, 31 CPT").
 (b) Arithmetic: every total, difference, %, ratio, per-day or per-animal figure is computed IN SQL (sum/-/ /round) and read back; never add or subtract by hand.
 (c) Simple lookups (headcount, one pen, one number) = ONE query, answer immediately; no exploration, no re-check.
-PENS: the animal lives in a PART = the "pen" (G1P3 = Godel 1 Part 3, Castro 1 = Castro part 1); shed_label (Godel 1, Castro) is the
-  "shed"/group. Answers say "pen Godel 1 Part 3" and name the shed only as a group. Show dates DD/MM/YYYY. Never average *_avg_* columns; weight by scan_count.
+PENS (model-agnostic): pen = G1P3 "Godel 1 Part 3", C1 "Castro 1"; group = Godel 1 / Castro (a GROUP, never call it a shed). ALWAYS resolve
+  pens via .agents/skills/mesha-data-map/references/pens.sql (copy its CTEs + ONE lateral join on (location_id, partition_label)); never assume
+  animals/weighs sit on the group row or on the pen row ("Godel 1 - Part 3"): the data may use either. If a pen looks empty, check both placements
+  (pens.sql does). Show "Godel 1 Part 3 (G1P3)" + park. Dates DD/MM/YYYY. Never average *_avg_* columns; weight by scan_count.
+  Pen LAST WEIGHING (any pen/group) = run references/pen-weighing-latest.sql once (edit its last WHERE): individual + whole-pen, no other query.
 Comparisons ("compare CBE and CPT", "how are we doing"): <=8 short lines, one per topic, numbers from SQL; every comparative word
 (more/less/bigger) must match the numbers. Vague "how are we doing" = headcount, sales, deaths, weighing, feed, open issues, this month.
 No date column = current-state view: answer "as of now".
@@ -24,9 +27,9 @@ topic -> view -> key columns -> date column
 - headcount now -> animal_current_scope -> park_label, species, sex, breed, management_stage, lifecycle_status='alive' -> none.
   The view ALSO holds sold/dead/inactive rows: every count, %, ratio or split MUST filter lifecycle_status='alive' (CBE alive=850, not 995).
   ONE-QUERY headcount: SELECT park_label, species, count(*) FROM ceo_ai.animal_current_scope WHERE lifecycle_status='alive'
-  [AND shed_label='Castro' AND partition_label='1'] GROUP BY ROLLUP(park_label, species). No park named = both parks, park named per row.
-  Pen counts: shed_label + partition_label ('1','2' or 'Part 10'); "Castro 1" = shed_label 'Castro' AND partition_label '1'
-  (legacy location rows 'Castro 1' / 'Godel 1 - Part 3' hold 0 animals). Always name the park and species split per row.
+  GROUP BY ROLLUP(park_label, species). No park named = both parks, park named per row.
+  Per-PEN counts / "which pen has most": pens.sql demo SELECT (alive per pen, both placements) - never filter shed_label/partition_label by hand.
+  Always name the park and species split per row.
 - sold / exits / entries -> animals_base -> exit_reason ('sold','died'), park_label -> exit_business_day / entry_date
 - deaths -> public.goats: (exit_reason='died' OR (exit_reason IS NULL AND lifecycle_status='dead')) AND merged_into_goat_id IS NULL,
   date = (exited_at AT TIME ZONE 'Asia/Kolkata')::date; split park + species (Sep 2026: 3, all CBE: 1 goat, 2 sheep). Not mortality_base (see traps).
@@ -56,9 +59,9 @@ metrics -> how (exact defs + SQL: SKILL.md "Metric definitions"; never invent a 
 - ADG / daily-gain ANSWER SHAPE: headline g/day per park (and total), how many animals/pens it covers, then ONE line of method
   ("from animals/pens weighed twice this month, gain / days between weighings"). NO per-pen table of first/last avg/days unless asked;
   at most name the 1-2 outlier pens in one "Worth checking" line.
-- "Which pen has the most/least X" (animals, deaths, weight...): rank PENS = park_label + shed_label + partition_label
-  (GROUP BY all three), e.g. most animals = pen Castro 2, Coimbatore: 73 (all sheep). Pen + park + number + species first; the shed
-  total (Castro, Coimbatore 181 across 3 pens) only as context after. Rank whole sheds only if the user says "shed".
+- "Which pen has the most/least X" (animals, deaths, weight...): rank PENS = pens.sql pen_key (park + group + part),
+  e.g. most animals = pen Castro 2 (C2), Coimbatore: 73 (all sheep). Pen + park + number + species first; the group
+  total (Castro, Coimbatore 181 across 3 pens) only as context after. Rank groups only if the user says "group"/"shed".
 - mortality %: deaths in window (goats rule above) *100 / live 'alive' count now, 1dp (NOT mortality_base.active_population).
 - weighing pending: pending+rework. feed fed_kg is always 0: say fed data missing. vaccination: due/done, no %.
 Full columns + example per view: .agents/skills/mesha-data-map/references/views.generated.md
@@ -68,7 +71,7 @@ Raw tables (all readable): feed prices -> public.feed_purchases (feed_item_label
 purchase_date, quantity_kg, reached_weight_kg, feed_cost, transport_cost, loading_cost, unloading_cost, total_cost, per_kg_cost;
 "assumed price" = latest per_kg_cost for that feed+farm on/before the day). Per-weigh data -> public.weighing_observations /
 weighing_shed_observations. Sales money -> public.sales_deals / sales_deal_lines / sales_deal_payments. Prefer these when a view lacks detail.
-Module tables (public.*; pen/park names: join public.locations l ON l.location_id = shed_id / park_id, l.name; partition_label = pen part no.):
+Module tables (public.*; park name: locations via park_id; PEN = pens.sql lateral join on (shed_id, partition_label), never locations.name alone):
 - preventive care (deworming, hoof trimming, feed & water removal) -> pc_care_tasks: category, work_state completed|canceled|delayed|scheduled,
   planned_business_date=planned, submitted_at=done, verified_at=verified, close_reason (often empty for old cancels). Cancelled != done.
   work_state LAGS status: DONE = submitted_at set (status pending_verification = awaiting check, completed = verified), even when work_state
@@ -167,7 +170,7 @@ TWO-SOURCE TRAPS (pick the source below; details + SQL in SKILL.md "Two-source t
 - births: never goats.dob / created_at / origin_type counts over time (placeholder DOBs 09/05/2026 x403, 21/07/2024 x77; bulk import 04/08).
 - species: public.goats holds sheep too; always split species. "goats" in a load/pen with only sheep = say sheep.
 - alive: 'alive' only for headcount; "on farm" incl. sick/under_treatment/quarantine/icu (0 today). Base views include exited rows.
-- pen of an animal: goats.shed_id + goat_shed_partitions.partition_label, NOT current_location_id (18 differ).
+- pen of an animal: pens.sql on (goats.shed_id, goat_shed_partitions.partition_label), NOT current_location_id (18 differ).
 - vaccination done: in-app (sop_submission_item_id) vs imported; due = obligations scheduled|deferred only.
 - feed: stock = purchase ledger SQL (not inventory_*); fed_kg is empty; packed != directed != fed. Owed: payment_status 'Paid' = 0 owed;
   NULL status (40 sheet-import rows, no bill) = unknown, list separately.
@@ -180,7 +183,7 @@ Before saying "not recorded"/"none": search table names + information_schema.col
 "not recorded" after that search finds nothing; say which park/pen/status you did find (e.g. "all Castro CBE tasks were cancelled").
 - Who changed/corrected a record: public.audit_log WHERE resource_id = <record id> (action e.g. pc_care.task.canceled / sales.deal.payment_record), actor_id -> workforce_members.user_id for the name; always name them in the first answer.
 - When advance_amount equals the ledger total and both are counted, state it as a double count (not "possible").
-- Pen shorthand: users write pens as initials + numbers: C1 = Castro 1, G2P1 = Godel 2 Part 1, M1P3 = Mandela 1 Part 3, S2 = Sumathi 2, Y1 = Yashoda part 1 (CBE and CPT) and Old Yashoda part 1 (CPT only) - give each with its park, H1 = Ho Chi Minh 1, Q1 = Q1. Resolve any code by matching public.locations (location_type='shed') names; if a letter fits two pens (G = Godel or Gandhi), pick the one that exists in the asked park, say which you assumed. Castro/Godel/Mandela etc. exist in BOTH parks (CBE = Coimbatore, CPT = Channapatna): split by park unless named.
+- Pen shorthand: users write pens as initials + numbers: C1 = Castro 1, G2P1 = Godel 2 Part 1, M1P3 = Mandela 1 Part 3, S2 = Sumathi 2, Y1 = Yashoda part 1 (CBE and CPT) and Old Yashoda part 1 (CPT only) - give each with its park, H1 = Ho Chi Minh 1, Q1 = Q1. Resolve any code with pens.sql pen_code (+ park_code); if a letter fits two pens (G = Godel or Gandhi), pick the one that exists in the asked park, say which you assumed. Castro/Godel/Mandela etc. exist in BOTH parks (CBE = Coimbatore, CPT = Channapatna): split by park unless named.
 - "Load wise" / per purchase load (Sales > Load-wise): run .agents/skills/mesha-data-map/references/load-wise-sales.sql (set the load no.
   in the last WHERE). Load no. = procurement_loads.context->>'load_ref', farm = context->>'farm'. sold = GoatOS-tagged sales + pre-GoatOS
   prior outcomes; sold value = deal value split over its tagged animals + prior value; SCREEN price/kg = sold_weighed_value/sold_weight_kg

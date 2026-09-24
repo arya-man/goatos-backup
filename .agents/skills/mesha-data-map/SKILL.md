@@ -51,8 +51,10 @@ grains and an example per view: `references/views.generated.md` (regenerate with
 - **Sales:** no sales/deal view in ceo_ai; money is in `public.sales_deals` (see Two-source traps). "Animals sold" = `animals_base`
   `exit_reason='sold'` by `exit_business_day` (= goats register = tagged allocations).
 - **Parks** in data are full names: `Coimbatore` (CBE), `Channapatna` (CPT). Filter on `park_label`.
-- **Pen vs shed:** the PEN is the part (`shed_label` + `partition_label`, e.g. Godel 1 Part 3 = G1P3, Castro 1 = Castro part '1');
-  `shed_label` alone is the shed/group. "Which pen has most" ranks parts (with park); shed totals are context only.
+- **Pens (model-agnostic):** pen = G1P3 "Godel 1 Part 3" / C1 "Castro 1"; group = Godel 1 / Castro (never "shed").
+  ALWAYS resolve via `references/pens.sql` (animals, weighing buckets, verification items, feed rows, pc care tasks); never assume
+  records sit on the group row or on the pen row. Pen last weighing: `references/pen-weighing-latest.sql` (1 query).
+  Self-test after any pen-model migration: `references/pens-selftest.sql`. "Which pen has most" ranks pen_key (with park).
 - **Dates in answers:** render `DD/MM/YYYY`.
 - **Base views (`*_base`, `animal_current_scope`)** are one row per entity: aggregate, don't dump rows.
 - **Weighing is isolated** from herd/vaccination: don't join weighing to vaccination to explain it.
@@ -99,7 +101,7 @@ Beware ambiguous `status` when joining locations: qualify it (`t.status`).
 ## Answer hard rules
 - Never call sheep "goats". "goats"/"bakre" without an explicit species contrast = all animals: "N animals (X goats, Y sheep)".
 - Compute every total/difference/%/per-unit in SQL; never do arithmetic by hand in the answer.
-- Simple headcount = one query on animal_current_scope (alive, shed_label + partition_label, GROUP BY park, species).
+- Simple headcount = one query on animal_current_scope (alive, GROUP BY park, species); per pen = references/pens.sql.
 - Vaccination "due": vaccination_obligations_base status IN ('scheduled','deferred') only (~90% of rows are canceled re-plans).
 
 ## Metric definitions (match the dashboard)
@@ -201,7 +203,7 @@ UNION ALL  -- whole-pen weighs: weighing_shed_observations, withdrawn_at IS NULL
 | Vaccinations done | `vaccination_completions`, split `sop_submission_item_id` NOT NULL (in app) vs imported | total only | Aug 2026: 1,073 doses / 710 animals in app; 1,672 / 1,055 incl. imports |
 | Vaccinations due | `vaccination_obligations_base` status scheduled/deferred | canceled rows (76k), `vaccination_shed_status.due` sums | this week (21-27/09): 3, CPT Yashoda; overdue 0 |
 | Headcount | `lifecycle_status='alive'` | base views unfiltered | 1,562 (693 goats, 869 sheep) |
-| Animal's pen | `goats.shed_id` + `goat_shed_partitions.partition_label` | `current_location_id` (18 differ) | legacy 'Godel 1 - Part N' rows hold 0 animals |
+| Animal's pen | `references/pens.sql` on (`goats.shed_id`, `goat_shed_partitions.partition_label`) | `current_location_id` (18 differ) | animals may sit on the group row (today) or a pen row (future): pens.sql handles both |
 | Avg herd weight | `references/herd-avg-weight.sql` | averaging `weighing_capture_activity` rows | 28.2 kg over 723 of 1,562 alive |
 | Feed stock / days | `references/feed-stock-days-left.sql` | `inventory_stock_position` | CBE concentrates 15 days (adult 201, kids 454 kg/day) |
 | Feed owed | `payment_status='Pending'` bills: total_cost - greatest(payment_released, ledger) | 'Paid' rows (owed = 0, `procurement/domain/feed_purchase.go`) | NULL status = 40 sheet imports with no bill: unknown |
