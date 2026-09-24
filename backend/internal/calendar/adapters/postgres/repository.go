@@ -20,6 +20,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 )
 
 const defaultQueryTimeout = 3 * time.Second
@@ -106,9 +107,10 @@ func (r *Repository) ListEvents(ctx context.Context, q domain.Query) (domain.Cal
 	}
 	dateMarkers := []domain.CalendarDateMarker{}
 	if q.IncludeDateMarkers {
-		markerRows, err := r.pool.Query(ctx, calendarDateMarkersSQL,
+		bound := sqlbind.MustBind(calendarDateMarkersSQL,
 			q.TenantID, q.DateFrom, requestedToExclusive, ownerKey, status, parkID, shedID,
 			tenantWide, parkIDs, shedIDs, vaccine)
+		markerRows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 		if err != nil {
 			return domain.CalendarEventListResponse{}, fmt.Errorf("calendar: list date markers: %w", err)
 		}
@@ -284,8 +286,9 @@ const reminderRailLimit = 20
 // blank here -- the app-layer service fills it from the same CalendarPresentation.Week.ReminderEmptyMessage
 // copy the week view already renders, so there is exactly one backend-owned literal, not a duplicate.
 func (r *Repository) reminderRail(ctx context.Context, tenantID string, dateFrom, dateToExclusive time.Time, ownerKey, status, parkID, shedID, vaccine string, tenantWide bool, parkIDs, shedIDs []string) (domain.CalendarReminderRail, error) {
-	rows, err := r.pool.Query(ctx, calendarReminderRailSQL,
+	bound := sqlbind.MustBind(calendarReminderRailSQL,
 		tenantID, dateFrom, dateToExclusive, ownerKey, status, parkID, shedID, tenantWide, parkIDs, shedIDs, reminderRailLimit, vaccine)
+	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return domain.CalendarReminderRail{}, fmt.Errorf("calendar: list reminder rail: %w", err)
 	}
@@ -390,11 +393,8 @@ func (r *Repository) GetEventDetail(ctx context.Context, q domain.EventQuery) (d
 	if _, err = tx.Exec(ctx, "SET LOCAL goatos.include_drive_summary = 'true'"); err != nil {
 		return domain.CalendarEventDetail{}, fmt.Errorf("calendar: enable drive summary detail: %w", err)
 	}
-	event, err := scanCalendarEventWithDetail(
-		tx.QueryRow(ctx, calendarCanonicalDetailSQL, q.TenantID, from, to, q.EventID, tenantWide, parkIDs, shedIDs),
-		&detailRaw,
-		&linksRaw,
-	)
+	bound := sqlbind.MustBind(calendarCanonicalDetailSQL, q.TenantID, from, to, q.EventID, tenantWide, parkIDs, shedIDs)
+	event, err := scanCalendarEventWithDetail(tx.QueryRow(ctx, bound.SQL(), bound.Args()...), &detailRaw, &linksRaw)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.CalendarEventDetail{}, ports.ErrNotFound
 	}
@@ -1118,7 +1118,8 @@ func (r *Repository) selectDueReminderEvents(ctx context.Context, tenantID strin
 	now := time.Now()
 	from, _ := canonicalUnboundedWindow(now)
 	dueBefore := now.Add(time.Hour)
-	rows, err := r.pool.Query(ctx, calendarReminderCandidatesSQL, tenantID, from, dueBefore, limit)
+	bound := sqlbind.MustBind(calendarReminderCandidatesSQL, tenantID, from, dueBefore, limit)
+	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return nil, fmt.Errorf("calendar: select reminder sweep: %w", err)
 	}
@@ -1147,7 +1148,8 @@ func (r *Repository) queueDueReminder(ctx context.Context, tenantID, eventID str
 	now := time.Now()
 	from, _ := canonicalUnboundedWindow(now)
 	dueBefore := now.Add(time.Hour)
-	if err := tx.QueryRow(ctx, calendarReminderCandidateBySeq, tenantID, from, dueBefore, eventID).Scan(
+	bound := sqlbind.MustBind(calendarReminderCandidateBySeq, tenantID, from, dueBefore, eventID)
+	if err := tx.QueryRow(ctx, bound.SQL(), bound.Args()...).Scan(
 		&e.EventID, &e.Title, &e.TargetType, &e.TargetID, &e.PrimaryChannel, &e.Timezone); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return false, nil
@@ -1332,8 +1334,9 @@ func (r *Repository) selectEscalationEvents(ctx context.Context, in ports.SweepE
 		return r.selectEscalationEventForObligation(ctx, in, obligationID, level1Cutoff, level2Cutoff, level3Cutoff, level4Cutoff)
 	}
 	from, _ := canonicalUnboundedWindow(in.Now)
-	rows, err := r.pool.Query(ctx, calendarEscalationCandidatesSQL,
+	bound := sqlbind.MustBind(calendarEscalationCandidatesSQL,
 		in.TenantID, from, in.Now, level1Cutoff, level2Cutoff, level3Cutoff, level4Cutoff, in.Limit)
+	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return nil, fmt.Errorf("calendar: select escalation sweep: %w", err)
 	}
@@ -1355,8 +1358,9 @@ func (r *Repository) selectEscalationEvents(ctx context.Context, in ports.SweepE
 func (r *Repository) selectEscalationEventForObligation(ctx context.Context, in ports.SweepEscalations, obligationID string, level1Cutoff, level2Cutoff, level3Cutoff, level4Cutoff time.Time) ([]escalationEvent, error) {
 	var event escalationEvent
 	from, _ := canonicalUnboundedWindow(in.Now)
-	err := r.pool.QueryRow(ctx, calendarEscalationCandidateForObligationSQL,
-		in.TenantID, from, in.Now, level1Cutoff, level2Cutoff, level3Cutoff, level4Cutoff, obligationID).Scan(&event.EventID, &event.Level)
+	bound := sqlbind.MustBind(calendarEscalationCandidateForObligationSQL,
+		in.TenantID, from, in.Now, level1Cutoff, level2Cutoff, level3Cutoff, level4Cutoff, obligationID)
+	err := r.pool.QueryRow(ctx, bound.SQL(), bound.Args()...).Scan(&event.EventID, &event.Level)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return []escalationEvent{}, nil
 	}
@@ -1417,7 +1421,8 @@ func (r *Repository) queueEscalation(ctx context.Context, tenantID, eventID stri
 	defer func() { _ = tx.Rollback(ctx) }()
 	var target escalationTarget
 	from, _ := canonicalUnboundedWindow(now)
-	if err := tx.QueryRow(ctx, calendarEscalationTargetSQL, tenantID, from, now, eventID).Scan(
+	bound := sqlbind.MustBind(calendarEscalationTargetSQL, tenantID, from, now, eventID)
+	if err := tx.QueryRow(ctx, bound.SQL(), bound.Args()...).Scan(
 		&target.EventID,
 		&target.Title,
 		&target.Status,
@@ -1818,7 +1823,8 @@ func (r *Repository) eventExists(ctx context.Context, tenantID, eventID string, 
 	var exists bool
 	tenantWide, parkIDs, shedIDs := scopeArgs(scope)
 	from, to := canonicalUnboundedWindow(time.Now())
-	if err := r.pool.QueryRow(ctx, calendarCanonicalExistsSQL, tenantID, from, to, eventID, tenantWide, parkIDs, shedIDs).Scan(&exists); err != nil {
+	bound := sqlbind.MustBind(calendarCanonicalExistsSQL, tenantID, from, to, eventID, tenantWide, parkIDs, shedIDs)
+	if err := r.pool.QueryRow(ctx, bound.SQL(), bound.Args()...).Scan(&exists); err != nil {
 		return err
 	}
 	if !exists {
@@ -1930,7 +1936,8 @@ func loadActionTarget(ctx context.Context, tx pgx.Tx, tenantID, eventID string, 
 	var sourceBacked, system bool
 	tenantWide, parkIDs, shedIDs := scopeArgs(scope)
 	from, to := canonicalUnboundedWindow(time.Now())
-	err := tx.QueryRow(ctx, calendarActionTargetSQL, tenantID, from, to, eventID, tenantWide, parkIDs, shedIDs).Scan(
+	bound := sqlbind.MustBind(calendarActionTargetSQL, tenantID, from, to, eventID, tenantWide, parkIDs, shedIDs)
+	err := tx.QueryRow(ctx, bound.SQL(), bound.Args()...).Scan(
 		&out.EventID, &out.EventType, &out.Title, &out.TargetType, &targetID, &out.PrimaryChannel,
 		&assignee, &executor, &verifier, &out.ParkID, &out.ShedID, &sourceBacked, &system,
 	)

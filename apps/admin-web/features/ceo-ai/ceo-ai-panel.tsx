@@ -539,8 +539,8 @@ export function CeoAiPanel({
 
   const addFiles = useCallback((list: FileList | null) => {
     if (!list) return;
-    const incoming = Array.from(list);
-    void Promise.all(incoming.map((f) => shrinkImage(f).catch(() => f))).then(
+    const incoming = Array.from(list).slice(0, 5);
+    void Promise.all(incoming.map((f) => shrinkImage(f).catch(() => f))).then( // request-plan:ignore owner=admin-web issue=CEO-AI-ATTACHMENT-CAP expires=2026-12-31 reason=incoming is sliced to the five visible attachment slots before fan-out
       (shrunk) => setFiles((prev) => [...prev, ...shrunk].slice(0, 5)),
     );
   }, []);
@@ -607,8 +607,9 @@ export function CeoAiPanel({
       if ((!typed && !attached.length) || pending) return;
       recognitionRef.current?.stop();
       const question = typed || "Please look at the attached file(s).";
-      const attachments = attached.length
-        ? await Promise.all(attached.map(fileToAttachment))
+      const boundedAttached = attached.slice(0, 5);
+      const attachments = boundedAttached.length
+        ? await Promise.all(boundedAttached.map(fileToAttachment)) // request-plan:ignore owner=admin-web issue=CEO-AI-ATTACHMENT-CAP expires=2026-12-31 reason=boundedAttached is capped to the five visible attachment slots before fan-out
         : undefined;
       setFiles([]);
       setInput("");

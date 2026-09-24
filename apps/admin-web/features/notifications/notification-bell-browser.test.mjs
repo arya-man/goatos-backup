@@ -52,7 +52,7 @@ async function bundle(dir) {
 async function navigate(page, route) {
   await page.evaluate(async (route) => {
     window.bell.navigate(route);
-    await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(resolve,0))));
+    await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
   }, route);
 }
 

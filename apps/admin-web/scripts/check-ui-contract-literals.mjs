@@ -58,6 +58,7 @@ const ALLOW_LINE = [
   /\.displayName\s*=\s*["']/,  // React component displayName assignments (technical identifiers for DevTools)
   /\bmethod:\s*["'](?:GET|POST|PUT|PATCH|DELETE)["']/,  // an HTTP verb on a fetch init is a wire constant, never rendered copy
   /^type\s+[a-z]\w*</,  // private generic helper aliases, not rendered copy
+  /^async function\s+[a-z]\w*</,  // private generic helper functions, not rendered copy
 ];
 const JSX_TEXT = />\s*[A-Z][^<{}`]{2,}\s*</;
 const VISIBLE_ATTR = /\b(?:placeholder|aria-label|title)=["'][A-Z][^"']{2,}["']/;

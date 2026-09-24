@@ -759,6 +759,8 @@ func boundedByUniqueIDList(maskedBody string) bool {
 // materialises the whole underlying set, sorts or dedupes it, and throws all but a page away.
 // It is fast at 1k rows, survives review because the statement DOES say LIMIT somewhere, and
 // becomes a timeout at 100k -- see docs/decisions/scale-anti-patterns.md.
+//
+// projection-review: membership=CTE definitions in one assembled SQL statement whose outer query has LIMIT; group_key=CTE name plus outer FROM/JOIN references, not runtime table rows; join_cardinality=top-level FROM/JOIN refs are parsed once per CTE body and nested subselects are skipped so scalar lookups do not multiply the candidate set; pagination=the scanner specifically compares CTE-local LIMIT against outer LIMIT before reporting; scope=static analysis over one SQL statement string and repo file path, with no tenant/data scope.
 func detectCTELimitOutside(text string) (string, bool) {
 	masked := maskSQLNoise(text)
 	loc := withRe.FindStringIndex(masked)

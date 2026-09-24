@@ -258,7 +258,7 @@ test("the bell measures placement in a layout effect, never inside a state updat
   // goes through the App Router's action queue, which is not initialised yet on a fresh load.
   assert.match(
     bell,
-    /setTimeout\(\(\) => \{[\s\S]{0,400}?loadNotificationFeedAction\(\)/,
+    /setTimeout\(\(\) => \{[\s\S]{0,400}?refresh\(false\)/,
     "the mount/route feed read must be deferred off the hydration commit",
   );
 });

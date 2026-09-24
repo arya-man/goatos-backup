@@ -47,55 +47,7 @@ const (
 	obligationLifecycleTopic         = "obligation.events"
 )
 
-// Repository is the Postgres-backed vaccination repository.
-type Repository struct {
-	// An INSTANCE logger, not package-level slog: check-boundaries.sh bans slog.Error/Warn/
-	// Info/Debug outside platform/observability, and an adapter that cannot report an
-	// inventory anomaly would just swallow it again.
-	log          *slog.Logger
-	pool         *pgxpool.Pool
-	queries      *vaccinationdb.Queries
-	queryTimeout time.Duration
-}
-
-// NewRepository builds a Repository bound to a pgx pool.
-func NewRepository(pool *pgxpool.Pool, queryTimeout time.Duration) *Repository {
-	if queryTimeout <= 0 {
-		queryTimeout = defaultQueryTimeout
-	}
-	return &Repository{log: slog.Default(), pool: pool, queries: vaccinationdb.New(pool), queryTimeout: queryTimeout}
-}
-
-var _ ports.Repository = (*Repository)(nil)
-
-func (r *Repository) withTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(ctx, r.queryTimeout)
-}
-
-// Ping checks pool connectivity.
-func (r *Repository) Ping(ctx context.Context) error {
-	ctx, cancel := r.withTimeout(ctx)
-	defer cancel()
-	return r.pool.Ping(ctx)
-}
-
-func nullUUID(v string) any {
-	if strings.TrimSpace(v) == "" {
-		return nil
-	}
-	return v
-}
-
-// StartGenerationRun creates or returns the durable status row for an existing-cohort generation
-// pass. The idempotency key prevents replayed publish hooks from launching duplicate herd scans.
-func (r *Repository) StartGenerationRun(ctx context.Context, in domain.GenerationRunInput) (domain.GenerationRun, bool, error) {
-	ctx, cancel := r.withTimeout(ctx)
-	defer cancel()
-	if in.StartedAt.IsZero() {
-		in.StartedAt = time.Now().UTC()
-	}
-	runContext, _ := json.Marshal(map[string]string{"request_hash": in.RequestHash})
-	rows, err := r.pool.Query(ctx, `
+const startGenerationRunSQL = `
 INSERT INTO vaccination_generation_runs (
   tenant_id, protocol_version_id, trigger_type, trigger_ref, status,
   started_at, idempotency_key, context
@@ -144,7 +96,57 @@ RETURNING run_id::text, tenant_id::text, protocol_version_id::text, trigger_type
           COALESCE(trigger_ref, ''), status, started_at, completed_at,
           generated_count, deferred_count, reopened_count, skipped_no_due_date_count,
           suppressed_trusted_history_count, failed_goat_count, COALESCE(cursor_goat_id::text, ''),
-          COALESCE(last_error, ''), idempotency_key, COALESCE(context->>'request_hash', '')`,
+          COALESCE(last_error, ''), idempotency_key, COALESCE(context->>'request_hash', '')`
+
+// Repository is the Postgres-backed vaccination repository.
+type Repository struct {
+	// An INSTANCE logger, not package-level slog: check-boundaries.sh bans slog.Error/Warn/
+	// Info/Debug outside platform/observability, and an adapter that cannot report an
+	// inventory anomaly would just swallow it again.
+	log          *slog.Logger
+	pool         *pgxpool.Pool
+	queries      *vaccinationdb.Queries
+	queryTimeout time.Duration
+}
+
+// NewRepository builds a Repository bound to a pgx pool.
+func NewRepository(pool *pgxpool.Pool, queryTimeout time.Duration) *Repository {
+	if queryTimeout <= 0 {
+		queryTimeout = defaultQueryTimeout
+	}
+	return &Repository{log: slog.Default(), pool: pool, queries: vaccinationdb.New(pool), queryTimeout: queryTimeout}
+}
+
+var _ ports.Repository = (*Repository)(nil)
+
+func (r *Repository) withTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, r.queryTimeout)
+}
+
+// Ping checks pool connectivity.
+func (r *Repository) Ping(ctx context.Context) error {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	return r.pool.Ping(ctx)
+}
+
+func nullUUID(v string) any {
+	if strings.TrimSpace(v) == "" {
+		return nil
+	}
+	return v
+}
+
+// StartGenerationRun creates or returns the durable status row for an existing-cohort generation
+// pass. The idempotency key prevents replayed publish hooks from launching duplicate herd scans.
+func (r *Repository) StartGenerationRun(ctx context.Context, in domain.GenerationRunInput) (domain.GenerationRun, bool, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	if in.StartedAt.IsZero() {
+		in.StartedAt = time.Now().UTC()
+	}
+	runContext, _ := json.Marshal(map[string]string{"request_hash": in.RequestHash})
+	rows, err := r.pool.Query(ctx, startGenerationRunSQL,
 		in.TenantID, in.ProtocolVersionID, in.TriggerType, in.TriggerRef, in.StartedAt, in.IdempotencyKey, string(runContext), in.RequestHash)
 	if err != nil {
 		return domain.GenerationRun{}, false, fmt.Errorf("vaccination: start generation run: %w", err)

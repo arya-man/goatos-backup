@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 	"github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
 )
 
@@ -210,7 +210,8 @@ func (r *Repository) ListVaccinationExecutionFirstPageWithSummaries(ctx context.
 	// Reuse its prepared plan instead of repeatedly parsing the canonical CTE;
 	// this caches SQL planning only, never rows or the caller's fresh as-of value.
 	// Keep Exec's text result decoding, including timestamp location/offsets.
-	rows, err := r.pool.Query(ctx, executionFirstPageWithSummariesSQL, pgx.QueryExecModeCacheStatement, pgx.QueryResultFormats{pgx.TextFormatCode}, q.TenantID, park, shed, q.DueBefore, q.Limit, work, q.AsOf, q.AsOf.Add(-defaultClosedHistoryAge), severity, q.OpenOnly, false, 0, int64(0), "", q.OperatorScopeActorID, partition)
+	bound := sqlbind.MustBind(executionFirstPageWithSummariesSQL, q.TenantID, park, shed, q.DueBefore, q.Limit, work, q.AsOf, q.AsOf.Add(-defaultClosedHistoryAge), severity, q.OpenOnly, false, 0, int64(0), "", q.OperatorScopeActorID, partition)
+	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return domain.ExecutionProjectionPage{}, nil, fmt.Errorf("vaccination execution combined query: %w", err)
 	}

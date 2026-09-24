@@ -1509,33 +1509,33 @@ func TestScanRosterAssignmentIncludesActiveMembersAcrossSourceBatches(t *testing
 	defer pool.Close()
 	seedVaccinationExecutionProjection(t, ctx, pool)
 
-		const (
-			assignmentID = "70000000-0000-4000-8000-000000000090"
-			batchB       = "70000000-0000-4000-8000-000000000091"
-			goatA        = "70000000-0000-4000-8000-000000000092"
-			goatB        = "70000000-0000-4000-8000-000000000093"
-			goatCanceled = "70000000-0000-4000-8000-000000000094"
-			obligationA  = "70000000-0000-4000-8000-000000000095"
-			obligationB  = "70000000-0000-4000-8000-000000000096"
-			obligationC  = "70000000-0000-4000-8000-000000000097"
-			movedShed    = "70000000-0000-4000-8000-000000000098"
-		)
+	const (
+		assignmentID = "70000000-0000-4000-8000-000000000090"
+		batchB       = "70000000-0000-4000-8000-000000000091"
+		goatA        = "70000000-0000-4000-8000-000000000092"
+		goatB        = "70000000-0000-4000-8000-000000000093"
+		goatCanceled = "70000000-0000-4000-8000-000000000094"
+		obligationA  = "70000000-0000-4000-8000-000000000095"
+		obligationB  = "70000000-0000-4000-8000-000000000096"
+		obligationC  = "70000000-0000-4000-8000-000000000097"
+		movedShed    = "70000000-0000-4000-8000-000000000098"
+	)
 
-		insertProjectionBatch(t, ctx, pool, batchB, "in_progress")
-		execProjectionSQL(t, ctx, pool, "moved current shed",
-			`INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
+	insertProjectionBatch(t, ctx, pool, batchB, "in_progress")
+	execProjectionSQL(t, ctx, pool, "moved current shed",
+		`INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
 			 VALUES ($1, $2, 'shed', 'SHED-MOVED-MEMBER', 'Moved Member Shed', $3, 'active')`,
-			movedShed, testTenant, testPark)
-		for _, goatID := range []string{goatA, goatB, goatCanceled} {
-			insertProjectionGoat(t, ctx, pool, goatID, testShed, testPark)
-		}
-		execProjectionSQL(t, ctx, pool, "move active member after assignment planning",
-			`UPDATE goats
+		movedShed, testTenant, testPark)
+	for _, goatID := range []string{goatA, goatB, goatCanceled} {
+		insertProjectionGoat(t, ctx, pool, goatID, testShed, testPark)
+	}
+	execProjectionSQL(t, ctx, pool, "move active member after assignment planning",
+		`UPDATE goats
 			 SET shed_id = $1, current_location_id = $1, updated_at = now()
 			 WHERE tenant_id = $2 AND goat_id = $3`,
-			movedShed, testTenant, goatB)
-		insertProjectionObligation(t, ctx, pool, obligationA, testBatch, goatA, "due", "2026-06-24 00:00:00+00", "assignment-roster-a")
-		insertProjectionObligation(t, ctx, pool, obligationB, batchB, goatB, "due", "2026-06-24 00:00:00+00", "assignment-roster-b")
+		movedShed, testTenant, goatB)
+	insertProjectionObligation(t, ctx, pool, obligationA, testBatch, goatA, "due", "2026-06-24 00:00:00+00", "assignment-roster-a")
+	insertProjectionObligation(t, ctx, pool, obligationB, batchB, goatB, "due", "2026-06-24 00:00:00+00", "assignment-roster-b")
 	insertProjectionObligation(t, ctx, pool, obligationC, batchB, goatCanceled, "due", "2026-06-24 00:00:00+00", "assignment-roster-canceled")
 	execProjectionSQL(t, ctx, pool, "source batch A task", `
 INSERT INTO sop_tasks (task_id, tenant_id, sop_id, sop_version_id, task_type, title, state,

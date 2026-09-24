@@ -2449,6 +2449,8 @@ class ScanViewModel @Inject constructor(
                 val rowVersion = obj["obligation_row_version"]?.jsonPrimitive?.intOrNull ?: 0
                 ObligationCycle(obligationId, rowVersion)
             }
+        }.onFailure { error ->
+            crashReporter.recordException(error, "vaccination proof obligation cycle parse failed")
         }.getOrDefault(emptyList())
     }
 

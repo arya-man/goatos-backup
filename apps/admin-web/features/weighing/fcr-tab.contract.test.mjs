@@ -20,7 +20,7 @@ const serviceSource = readFileSync(
 
 test("the FCR tab is in the strip and fetched inside the page's single Promise.all under the page filters", () => {
   assert.match(pageSource, /const TABS = \[[^\]]*"fcr"\]/, "TABS must end with the fcr tab");
-  const promiseAll = pageSource.match(/Promise\.all\(\[[\s\S]*?\]\);/);
+  const promiseAll = pageSource.match(/const \[weights, growth, demographics, loadwise, loadValues, feedBand, fcr, salePrices\] = await Promise\.all\(\[[\s\S]*?\]\);/);
   assert.ok(promiseAll, "weights-analytics.tsx must keep a single Promise.all request plan");
   assert.match(
     promiseAll[0],
