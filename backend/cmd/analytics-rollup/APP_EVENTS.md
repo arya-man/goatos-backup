@@ -79,7 +79,7 @@ Raw reads cover two days for journeys and seven days for exact WAU. Migration
 000320 builds a narrow tenant/event-time index concurrently. Intermediate stages
 use an indexed temporary table; only aggregated summaries leave PostgreSQL.
 
-## I/O safety on the shared Cloud SQL instance (migration 000400)
+## I/O safety on the shared Cloud SQL instance (migration 000419)
 
 - Incremental: `analytics.rollup_day_watermark` records, per tenant/day, the
   ingest instant the committed summaries reflect. A lookback day is recomputed

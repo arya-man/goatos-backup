@@ -17,7 +17,7 @@ explicitly say so.**
 
 | Area | Measured result |
 |---|---|
-| Analytics rollup: incremental watermark, non-fatal BigQuery, backoff, 15-day retention with GCS archive (000400, 000401) | A rerun reads 88 KB instead of 5.3 GB, and the dashboard tables are MD5-identical. This removes the 15–30 s spikes. |
+| Analytics rollup: incremental watermark, non-fatal BigQuery, backoff, 15-day retention with GCS archive (000419, 000420) | A rerun reads 88 KB instead of 5.3 GB, and the dashboard tables are MD5-identical. This removes the 15–30 s spikes. |
 | Admin-web: sign-in dedupe, 30 s per-user cache, read-your-writes cookie, per-call write-marker contract test | 1 login + 5 loads: 41 backend calls, now 15 |
 | Auth pool isolation, 503 instead of 403 on DB-unavailable, allowlist max age + backoff | Session-events under saturation: 11.9 s, now 412 ms (p50) |
 | Android: login doesn't block on session-events, no raw errors, denied sign-in doesn't wipe unsynced work, outbox v7 | Login during a DNS drop used to fail; now it works |
@@ -214,7 +214,7 @@ All agents died on the account's weekly limit. Their work is saved to origin; ea
   - The kernel worker is restored to min 1 / max 2 (the vaccination integrity contract) at 4 conns each, so the budget is unchanged at 8.
   - The bind-contract guard's `maxBuffer` was raised for multi-MB diffs.
 - **batching** (sales/overview, leadership/sheds, pen-routines): IN PR, head f1b15f402, judged CLEAN.
-- **LAND NOTE:** origin/main now has its own 000400/000401 (health). Renumber this PR's analytics 000400/000401 at land time.
+- **LAND NOTE (done):** origin/main has its own 000400/000401 (health). After rebasing onto origin/main, this PR's analytics migrations are now 000419 (rollup incremental backoff) and 000420 (app_events archive bound + autovacuum), after every other migration on main and in this PR.
 - **Remaining:**
   1. The FCR measure + numbers-identical proof vs origin/main, including after writes and a back-dated purchase. An agent is running this.
   2. The final real-stg read-only bench re-run.

@@ -84,7 +84,7 @@ the fixes below.
 
 Every INSERT/UPDATE/DELETE/DDL the PR adds is in the `analytics.*` schema:
 `analytics.rollup_day_watermark` upsert, `analytics.rollup_dispatch` claim upsert,
-`analytics.app_events_archive` insert/update (`verified_at`, `deleted_at`), migrations 000400/000401
+`analytics.app_events_archive` insert/update (`verified_at`, `deleted_at`), migrations 000419/000420
 (rollup_run constraint, autovacuum reloptions; down-migration drops only the new analytics tables).
 No business table gains a writer.
 

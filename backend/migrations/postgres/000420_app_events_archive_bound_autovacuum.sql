@@ -1,5 +1,5 @@
 -- +goose Up
--- app_events archive safety follow-up to 000400.
+-- app_events archive safety follow-up to 000419.
 -- 1. The archive ledger records the last exported (received_at, event_id) so
 --    deletes are bounded by exactly what the verified object holds; a row
 --    restored/backfilled into an archived day later is never deleted unarchived.
