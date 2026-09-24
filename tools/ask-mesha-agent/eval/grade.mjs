@@ -24,6 +24,7 @@ export function dateMacros(now = new Date()) {
     prev_month_end: ymd(new Date(Date.UTC(y, m, 0))),
     week_start: ymd(week_start),
     week_end: ymd(new Date(week_start.getTime() + 6 * 864e5)),
+    days_ago_21: ymd(new Date(today.getTime() - 21 * 864e5)),
     days_ago_30: ymd(new Date(today.getTime() - 30 * 864e5)),
   };
 }

@@ -70,6 +70,20 @@ test("paramLiteral validates date / uuid / int / number", () => {
   assert.equal(paramLiteral("number", "1e9"), null);
 });
 
+test("text params: safe charset only; adg-by-breed takes the Breed-wise screen filters", () => {
+  assert.equal(paramLiteral("text", "male"), "'male'");
+  assert.equal(paramLiteral("text", "whole_pen"), "'whole_pen'");
+  assert.equal(paramLiteral("text", "x' or '1"), null);
+  assert.equal(paramLiteral("text", "a;b"), null);
+  const t = read("adg-by-breed.sql");
+  assert.deepEqual(Object.keys(referenceParams(t)).sort(), ["from_date", "origin", "park_code", "sex", "to_date", "weighing"]);
+  const r = buildReferenceSql(t, { params: { from_date: "2026-09-04", to_date: "2026-09-22", sex: "male", park_code: "CBE", origin: "purchased", weighing: "individual" } });
+  assert.equal(r.ok, true);
+  for (const lit of ["'2026-09-04'::date", "'2026-09-22'::date", "'male'", "'CBE'", "'purchased'", "'individual'"]) assert.ok(r.sql.includes(lit), lit);
+  assert.equal(buildReferenceSql(t, { params: { sex: "male'--" } }).ok, false);
+  assert.equal(buildReferenceSql(t, {}).ok, true);
+});
+
 test("undeclared inline param markers are refused", () => {
   assert.equal(buildReferenceSql("SELECT /*param:x*/1/*end*/", {}).ok, false);
   assert.equal(buildReferenceSql("-- param: x int\nSELECT /*param:x*/1/*end*/ n;", { params: { x: 4 } }).sql, "SELECT * FROM (\nSELECT 4 n\n) q");

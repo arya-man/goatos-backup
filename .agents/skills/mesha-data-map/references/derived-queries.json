@@ -2,6 +2,36 @@
   "_doc": "Queries in this folder copied from app logic. sha256 = source file content when the query was last derived/verified. Maintained by gen-data-map.mjs --check / --rehash-derived; see docs/agent-rules/ask-mesha.md.",
   "queries": [
     {
+      "query": ".agents/skills/mesha-data-map/references/adg-by-breed.sql",
+      "verified": "2026-09-24",
+      "derived_from": [
+        {
+          "path": "apps/admin-web/features/weighing/weights-analytics.tsx",
+          "sha256": "ba832f10193891085cc382cf11ed05bcf700505de5e53754e2eadc5404da97a2"
+        },
+        {
+          "path": "backend/internal/weighing/adapters/postgres/weight_demographics.go",
+          "sha256": "b487391288884078e023daf51446f6610a638070d998803518c3c7d7af55457a"
+        },
+        {
+          "path": "backend/internal/weighing/adapters/postgres/identity_scope.go",
+          "sha256": "f4c46d8dfb87cd19678fbfd70a66de2179bb1b52a68f83e7e027910a919e7005"
+        },
+        {
+          "path": "backend/internal/weighing/adapters/postgres/origin_scope.go",
+          "sha256": "82ade2a36ba52d44d813f850a1a981a6307380706cad0efd89497ef0ac55c8a6"
+        },
+        {
+          "path": "backend/internal/weighing/adapters/postgres/sex_scope.go",
+          "sha256": "e2669f956f3c509011e5d160d9bc5cfbfc866355e56b68930b367beb72766642"
+        },
+        {
+          "path": "backend/internal/weighing/app/service.go",
+          "sha256": "de16d0fc97fa1f7fd3bf765e619ec11e8a619e1c6510045facc95144a8b85c8e"
+        }
+      ]
+    },
+    {
       "query": ".agents/skills/mesha-data-map/references/adg-by-park.sql",
       "verified": "2026-09-24",
       "derived_from": [
@@ -48,6 +78,16 @@
       ]
     },
     {
+      "query": ".agents/skills/mesha-data-map/references/herd-avg-weight.sql",
+      "verified": "2026-09-24",
+      "derived_from": [
+        {
+          "path": "backend/internal/growthdirector/adapters/postgres/fcr.go",
+          "sha256": "9ded33abc5a2383aada3be1821689dd8e3f7c99c96f40366b5fb3a5dfe751f65"
+        }
+      ]
+    },
+    {
       "query": ".agents/skills/mesha-data-map/references/load-wise-sales.sql",
       "verified": "2026-09-24",
       "derived_from": [
@@ -62,12 +102,21 @@
       ]
     },
     {
-      "query": ".agents/skills/mesha-data-map/references/herd-avg-weight.sql",
+      "query": ".agents/skills/mesha-data-map/references/pen-weighing-latest.sql",
       "verified": "2026-09-24",
+      "on_drift": "Pen model may have changed: re-validate pens.sql for the new pen model (see docs/agent-rules/ask-mesha.md Pens) - run references/pens-selftest.sql, all rows ok=t.",
       "derived_from": [
         {
           "path": "backend/internal/growthdirector/adapters/postgres/fcr.go",
           "sha256": "9ded33abc5a2383aada3be1821689dd8e3f7c99c96f40366b5fb3a5dfe751f65"
+        },
+        {
+          "path": "backend/internal/weighing/adapters/postgres/shed_partition_resolve.go",
+          "sha256": "279d17e1526d326caba58663776568dddc4b6c5beeb2c8534500708e92763d5c"
+        },
+        {
+          "path": ".agents/skills/mesha-data-map/references/pens.sql",
+          "sha256": "0bed1ef656cd6c8d908b2294f2b66db157b0dd9a8cf71a90e598b0cc3c7666d7"
         }
       ]
     },
@@ -100,25 +149,6 @@
           "path": "backend/migrations/postgres",
           "match": "goat_shed_partitions|shed_partitions|alias_location_id|(ALTER|UPDATE|INSERT INTO|DELETE FROM)\\s+(TABLE\\s+)?(IF EXISTS\\s+)?(public\\.)?locations\\b",
           "sha256": "d1015f3fab83329200a56afd4060d5a302bc740907584e2c71fb2449bdee9ab1"
-        }
-      ]
-    },
-    {
-      "query": ".agents/skills/mesha-data-map/references/pen-weighing-latest.sql",
-      "verified": "2026-09-24",
-      "on_drift": "Pen model may have changed: re-validate pens.sql for the new pen model (see docs/agent-rules/ask-mesha.md Pens) - run references/pens-selftest.sql, all rows ok=t.",
-      "derived_from": [
-        {
-          "path": "backend/internal/growthdirector/adapters/postgres/fcr.go",
-          "sha256": "9ded33abc5a2383aada3be1821689dd8e3f7c99c96f40366b5fb3a5dfe751f65"
-        },
-        {
-          "path": "backend/internal/weighing/adapters/postgres/shed_partition_resolve.go",
-          "sha256": "279d17e1526d326caba58663776568dddc4b6c5beeb2c8534500708e92763d5c"
-        },
-        {
-          "path": ".agents/skills/mesha-data-map/references/pens.sql",
-          "sha256": "0bed1ef656cd6c8d908b2294f2b66db157b0dd9a8cf71a90e598b0cc3c7666d7"
         }
       ]
     }

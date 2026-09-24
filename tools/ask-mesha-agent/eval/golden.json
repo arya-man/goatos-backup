@@ -1129,6 +1129,101 @@
         "confirm(ed)?[^.]{0,20}99,?999"
       ],
       "max_seconds": 45
+    },
+    {
+      "id": "adg-breed-male-anantapur-sep",
+      "tags": [
+        "adg",
+        "breed"
+      ],
+      "question": "ADG for male Anantapur sheep 4 to 22 Sep",
+      "truth": {
+        "reference": "adg-by-breed.sql",
+        "params": {
+          "from_date": "2026-09-04",
+          "to_date": "2026-09-22",
+          "sex": "male"
+        },
+        "where": "breed='Anantapur Sheep'"
+      },
+      "expect": [
+        {
+          "label": "gain g/day",
+          "col": "gain_g_per_day"
+        },
+        {
+          "label": "gain animals",
+          "col": "gain_animals"
+        }
+      ],
+      "must_mention": [
+        "Anantapur",
+        "male"
+      ],
+      "max_seconds": 60
+    },
+    {
+      "id": "adg-breed-anantapur-last-3-weeks",
+      "tags": [
+        "adg",
+        "breed"
+      ],
+      "question": "ADG for Anatpur sheep last 3 weeks",
+      "truth": {
+        "reference": "adg-by-breed.sql",
+        "params": {
+          "from_date": "{{days_ago_21}}",
+          "to_date": "{{today}}",
+          "sex": "all"
+        },
+        "where": "breed='Anantapur Sheep'"
+      },
+      "expect": [
+        {
+          "label": "gain g/day",
+          "col": "gain_g_per_day"
+        },
+        {
+          "label": "gain animals",
+          "col": "gain_animals"
+        }
+      ],
+      "must_mention": [
+        "Anantapur"
+      ],
+      "max_seconds": 60
+    },
+    {
+      "id": "adg-breed-male-anantapur-aug-sep",
+      "tags": [
+        "adg",
+        "breed"
+      ],
+      "question": "male Anantapur ADG 3 Aug to 22 Sep",
+      "truth": {
+        "reference": "adg-by-breed.sql",
+        "params": {
+          "from_date": "2026-08-03",
+          "to_date": "2026-09-22",
+          "sex": "male"
+        },
+        "where": "breed='Anantapur Sheep'"
+      },
+      "expect": [
+        {
+          "label": "gain g/day",
+          "col": "gain_g_per_day"
+        },
+        {
+          "label": "gain animals",
+          "col": "gain_animals"
+        }
+      ],
+      "must_mention": [
+        "Anantapur",
+        "male"
+      ],
+      "max_seconds": 60
     }
   ]
 }

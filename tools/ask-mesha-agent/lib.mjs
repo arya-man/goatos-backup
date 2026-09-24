@@ -232,6 +232,7 @@ const REFERENCE_LABELS = {
   "pens.sql": "Checking the pen records",
   "pen-weighing-latest.sql": "Checking the pen weighing records",
   "adg-by-park.sql": "Checking the weight gain records",
+  "adg-by-breed.sql": "Checking the weight gain records by breed",
   "cost-per-kg-gain.sql": "Checking the feed cost and weight gain records",
   "load-wise-sales.sql": "Checking the load-wise sales records",
   "herd-avg-weight.sql": "Checking the herd weight records",
@@ -437,12 +438,12 @@ export function jsonAskCollector() {
 // name, fills documented params, wraps it as SELECT * FROM (<file>) q [WHERE] [ORDER BY]
 // [LIMIT] and sends it through the same validateReadSql/runSql READ ONLY path.
 // Param convention inside a reference file:
-//   -- param: <name> <date|uuid|int|number>  <description>        (declaration, header comment)
+//   -- param: <name> <date|uuid|int|number|text>  <description>   (text: [A-Za-z0-9 _.-], <=64 chars)        (declaration, header comment)
 //   /*param:<name>*/<default SQL expression>/*end*/               (inline; psql runs the default)
 export const REFERENCE_DIR = ".agents/skills/mesha-data-map/references";
 export const REFERENCE_FILES = [
   "pens.sql", "pen-weighing-latest.sql", "adg-by-park.sql", "cost-per-kg-gain.sql",
-  "load-wise-sales.sql", "herd-avg-weight.sql", "feed-stock-days-left.sql",
+  "load-wise-sales.sql", "herd-avg-weight.sql", "feed-stock-days-left.sql", "adg-by-breed.sql",
 ];
 export const REFERENCE_MAX_LIMIT = SQL_MAX_ROWS;
 
@@ -456,7 +457,7 @@ export function referencePath(root, name) {
 
 export function referenceParams(text) {
   const out = {};
-  for (const m of String(text).matchAll(/^--\s*param:\s*([a-z_][a-z0-9_]*)\s+(date|uuid|int|number)\b\s*(.*)$/gm)) {
+  for (const m of String(text).matchAll(/^--\s*param:\s*([a-z_][a-z0-9_]*)\s+(date|uuid|int|number|text)\b\s*(.*)$/gm)) {
     out[m[1]] = { type: m[2], doc: m[3].trim() };
   }
   return out;
@@ -474,6 +475,7 @@ export function paramLiteral(type, value) {
   if (type === "uuid") return UUID_RE.test(v) ? `'${v.toLowerCase()}'::uuid` : null;
   if (type === "int") return /^-?\d{1,9}$/.test(v) ? String(Number(v)) : null;
   if (type === "number") return /^-?\d{1,12}(\.\d{1,6})?$/.test(v) ? v : null;
+  if (type === "text") return /^[A-Za-z0-9 _.-]{0,64}$/.test(v) ? `'${v}'` : null;
   return null;
 }
 

@@ -10,7 +10,7 @@ HARD RULES: (a) Species: never call sheep "goats". If the question says goats/ba
 (b) Arithmetic: every total, difference, %, ratio, per-day or per-animal figure is computed IN SQL (sum/-/ /round) and read back; never add or subtract by hand.
 (c) Simple lookups (headcount, one pen, one number) = ONE query, answer immediately; no exploration, no re-check.
 (d) REFERENCE FILES (references/*.sql below): use run_reference('<file>', where=...) instead of retyping - never copy them into run_sql.
-  where = SQL filter on the file's output columns; windows via params only (adg-by-park.sql {from_date,to_date}, cost-per-kg-gain.sql {days}).
+  where = SQL filter on the file's output columns; windows via params only (adg-by-park.sql {from_date,to_date}, adg-by-breed.sql {from_date,to_date,park_code,sex,origin,weighing}, cost-per-kg-gain.sql {days}).
 PENS (model-agnostic): pen = G1P3 "Godel 1 Part 3", C1 "Castro 1"; group = Godel 1 / Castro (a GROUP, never call it a shed). ALWAYS resolve
   pens via .agents/skills/mesha-data-map/references/pens.sql (copy its CTEs + ONE lateral join on (location_id, partition_label)); never assume
   animals/weighs sit on the group row or on the pen row ("Godel 1 - Part 3"): the data may use either. If a pen looks empty, check both placements
@@ -56,6 +56,13 @@ metrics -> how (exact defs + SQL: SKILL.md "Metric definitions"; never invent a 
 - ADG/daily gain = app Weighing > Growth (ADG): run_reference('adg-by-park.sql') (this month to date;
   other window: params {from_date:'YYYY-MM-DD', to_date:'YYYY-MM-DD'}). Scanned kids (per-animal grams/days) + whole pens weighted by head count. It matches the
   app exactly (01-24/09: CBE 152, CPT 148, all 150 g/day). NEVER write your own ADG SQL or pick a different weighting.
+- ADG / daily gain / average weight BY BREED, or filtered by sex, origin (farm born/purchased), weighing type (individual/whole pen)
+  or a period = app Weighing > ADG Analytics > Breed-wise tab: MUST run_reference('adg-by-breed.sql', params={from_date, to_date,
+  park_code, sex, origin, weighing}) with the user's filters (defaults: weighing all = both types, sex all, origin all, all parks; relative
+  periods like "last 3 weeks" -> compute from_date/to_date from today IST). Never improvise or re-derive it. Columns: breed,
+  gain_g_per_day + gain_animals, avg_weight_kg + weight_animals (already rounded as the screen shows). Answer with those numbers and
+  ALWAYS state the filters used (period DD/MM/YYYY-DD/MM/YYYY, park or "all parks", weighing, sex, origin). If a screenshot of the dashboard is attached,
+  read its Period/Park/Weighing/Sex/Origin filters and pass them. (04-22/09 male: Anantapur Sheep 160 g/day, 392 animals; 31.4 kg, 440.)
 - headcount: animal_current_scope lifecycle_status='alive'. sold: animals_base exit_reason='sold' by exit_business_day (see traps: deals).
 - cost per kg gain = the app's Weighing > FCR tab "Feed cost per kg gain": per pen, consecutive weighing rounds; cost = DIRECTED feed
   (feed_direction_issue_rows, issued/amended/locked) x latest same-park per_kg_cost on/before each feed day; gain kg = pen ADG x fed head-days.
