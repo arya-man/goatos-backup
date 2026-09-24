@@ -4313,7 +4313,8 @@ WITH completion_admins AS (
          COALESCE(NULLIF(pr.dose_code, ''), '')::text AS dose_code,
          COALESCE(pr.sequence, 0)::int AS sequence,
          oi.protocol_version_id::text AS protocol_version_id,
-         pv.protocol_id::text AS protocol_id
+         pv.protocol_id::text AS protocol_id,
+         'completion'::text AS source
   FROM vaccination_completions vc
   JOIN obligation_instances oi
     ON oi.tenant_id = vc.tenant_id
@@ -4357,7 +4358,8 @@ trusted_admins AS (
          COALESCE(NULLIF(pr.dose_code, ''), '')::text AS dose_code,
          COALESCE(pr.sequence, 0)::int AS sequence,
          ev.protocol_version_id::text AS protocol_version_id,
-         pv.protocol_id::text AS protocol_id
+         pv.protocol_id::text AS protocol_id,
+         'trusted_procurement'::text AS source
   FROM procurement_hf_vaccination_evidence ev
   JOIN procurement_load_goats plg
     ON plg.tenant_id = ev.tenant_id
@@ -4418,7 +4420,8 @@ prearrival_admins AS (
          COALESCE(NULLIF(pr.dose_code, ''), NULLIF(ph.dose_code, ''), '')::text AS dose_code,
          COALESCE(pr.sequence, ph.sequence, 0)::int AS sequence,
          ph.protocol_version_id::text AS protocol_version_id,
-         pv.protocol_id::text AS protocol_id
+         pv.protocol_id::text AS protocol_id,
+         'prearrival_accepted'::text AS source
   FROM vaccination_prearrival_history_entries ph
   JOIN protocol_versions pv
     ON pv.tenant_id = ph.tenant_id
@@ -4443,7 +4446,8 @@ anchor_admins AS (
          pr.dose_code::text AS dose_code,
          pr.sequence::int AS sequence,
          pv.protocol_version_id::text AS protocol_version_id,
-         pv.protocol_id::text AS protocol_id
+         pv.protocol_id::text AS protocol_id,
+         'anchor_event'::text AS source
   FROM goats g
   LEFT JOIN goat_shed_partitions gsp
     ON gsp.tenant_id = g.tenant_id
@@ -4505,7 +4509,7 @@ anchor_admins AS (
            pv.effective_from DESC,
            pv.protocol_version_id
 )
-SELECT goat_id, administered_at, vaccine_code, vaccine_type, pathogen_class, dose_code, sequence, protocol_version_id, protocol_id
+SELECT goat_id, administered_at, vaccine_code, vaccine_type, pathogen_class, dose_code, sequence, protocol_version_id, protocol_id, source
 FROM (
   SELECT * FROM completion_admins
   UNION ALL
@@ -4534,6 +4538,7 @@ ORDER BY goat_id, administered_at DESC`, tenant, uuids, pgconv.Timestamptz(befor
 			&admin.Sequence,
 			&admin.ProtocolVersionID,
 			&admin.ProtocolID,
+			&admin.Source,
 		); err != nil {
 			return nil, fmt.Errorf("vaccination: scan recent vaccine administration: %w", err)
 		}
