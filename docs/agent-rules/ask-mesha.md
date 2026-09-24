@@ -414,7 +414,7 @@ Never store the key in the repo, env files or logs; it lives only in Secret Mana
   `tools/ask-mesha-agent/Dockerfile.dockerignore`.
 - Also excluded (size, and raw data the chat must not treat as truth): `docs/runbooks/evidence`,
   `docs/prototypes/config-sop-studio/research`, any `artifacts/` folder, `fixtures/`, the Android
-  screenshot gallery, `tools/dashboard-automation/commit-classification`, and binary/media files
+  screenshot gallery, and binary/media files
   (docx, pdf, png, jpg, webp, gif, mp4, apk, aab, ipa). Snapshot ~35 MB (was ~77 MB); image ~450–550 MB.
 - **Automatic secret scrub (second net):** the Dockerfile runs `tools/ask-mesha-agent/deploy/scrub-snapshot.mjs /repo`
   on every build, whichever route builds it (Cloud Build STG, `deploy-stg.sh`, a manual `docker build` by

@@ -5,6 +5,10 @@ data "google_project" "current" {
 locals {
   cost_alert_bridge_name     = "goatos-stg-cost-alert-bridge"
   cost_alert_bridge_audience = "https://${local.cost_alert_bridge_name}-${data.google_project.current.number}.${var.region}.run.app"
+  # The bridge's code, image and deploy live in vgoats/mesha-ops (cost-alert-bridge/cloudbuild.yaml),
+  # which rolls this service image independently of Goat OS releases. Terraform owns env, secrets,
+  # IAM and scaling only; the image below is used on first create and then ignored.
+  cost_alert_bridge_image = "${var.region}-docker.pkg.dev/${var.project_id}/${var.artifact_repository_id}/cost-alert-bridge:manual-a9546c7f-81c9-46bc-8d06-81e0f8751d2d"
 }
 
 resource "google_bigquery_dataset" "billing_export" {

@@ -762,7 +762,7 @@ resource "google_cloud_run_v2_service" "cost_alert_bridge" {
     }
 
     containers {
-      image   = local.backend_image
+      image   = local.cost_alert_bridge_image
       command = ["/app/bin/cost-alert-bridge"]
 
       ports {
@@ -842,6 +842,11 @@ resource "google_cloud_run_v2_service" "cost_alert_bridge" {
         value = "${google_service_account.runtime["cost_alert_bridge"].email},${google_service_account.runtime["scheduler"].email}"
       }
     }
+  }
+
+  lifecycle {
+    # mesha-ops deploys the image (see local.cost_alert_bridge_image).
+    ignore_changes = [template[0].containers[0].image]
   }
 
   depends_on = [

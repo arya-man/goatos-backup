@@ -22,14 +22,14 @@ runs in `production-smoke`.
 GOATOS_WRITE_JOURNEY_DATABASE_URL='postgres://…@127.0.0.1:5432/goatos' \
 GOATOS_WRITE_JOURNEY_TARGET=oci-clone \
 GOATOS_WRITE_JOURNEY_CLONE_URL='postgres://postgres@127.0.0.1:5432/goatos' \
-  node tools/dashboard-automation/run-write-journeys.mjs --stamp-clone
+  node mesha-ops/dashboard-automation/tooling/run-write-journeys.mjs --stamp-clone
 
 # then, per run
 GOATOS_DASHBOARD_WRITE_JOURNEYS=1 \
-  node tools/dashboard-automation/run.mjs --mode write-journeys
+  node mesha-ops/dashboard-automation/tooling/run.mjs --mode write-journeys
 
 # or the runner on its own
-node tools/dashboard-automation/run-write-journeys.mjs --out <file> [--only <name>]
+node mesha-ops/dashboard-automation/tooling/run-write-journeys.mjs --out <file> [--only <name>]
 ```
 
 Flags: `--self-test`, `--only <name>`, `--out <file>`, `--stamp-clone`,
@@ -78,7 +78,7 @@ Consequences, all enforced in code:
 ## How the guard makes production and STG unreachable
 
 Four independent checks, all of which must pass before a single row is touched.
-`tools/dashboard-automation/lib/table-snapshot.mjs`.
+`mesha-ops/dashboard-automation/tooling/lib/table-snapshot.mjs`.
 
 1. **Loopback only.** A non-loopback database host is refused outright. Production
    and STG are Cloud SQL; there is no DSN shape that gets past this.
@@ -122,7 +122,7 @@ Run on `opc@144.24.107.47` against the real clone on 2026-09-23:
 ## The journeys
 
 Nine journeys: the six write paths the roadmap names, and the three business
-rules that keep regressing. `tools/dashboard-automation/write-journeys.json`.
+rules that keep regressing. `mesha-ops/dashboard-automation/tooling/write-journeys.json`.
 Each carries the plain-English story, the UI steps, what must be visible
 afterwards, the SQL that must find the row the write created, `writesTables`,
 the farm-manager sentence, and the commits behind it.
@@ -264,7 +264,7 @@ onto `origin/auto/lane2-20260923`, which is the canonical copy of that file: thi
 lane's registry verbatim, plus PR #367's guarded `postSlack` fix, plus lane 2's
 two lines. A lane-1-only receipt renders
 **byte-identically**, and there is a checked-in golden
-(`tools/dashboard-automation/testdata/lane1-only-slack.golden.txt`, captured from
+(`mesha-ops/dashboard-automation/tooling/testdata/lane1-only-slack.golden.txt`, captured from
 the pre-registry `notify-slack.mjs` at `4aeb8264b`) and a test that spawns the
 current one and compares byte for byte.
 
@@ -360,7 +360,7 @@ GOATOS_WRITE_JOURNEY_DATABASE_URL='postgres://…@127.0.0.1:5432/goatos' \
 GOATOS_WRITE_JOURNEY_TARGET=oci-clone \
 GOATOS_WRITE_JOURNEY_CLONE_URL='postgres://postgres@127.0.0.1:5432/goatos' \
 GOATOS_STG_READONLY_DATABASE_URL='postgres://…@127.0.0.1:5455/goatos' \
-  node tools/dashboard-automation/run-write-journeys.mjs \
+  node mesha-ops/dashboard-automation/tooling/run-write-journeys.mjs \
     --out /home/opc/goatos-automation/reports/write-journeys/receipt.json
 ```
 

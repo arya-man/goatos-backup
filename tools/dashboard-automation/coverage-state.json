@@ -1,6 +1,0 @@
-{
-  "lastSyncedSha": "e311ef24c",
-  "lastSyncedAt": "2026-09-23T22:17:36.797Z",
-  "ref": "origin/main",
-  "note": "seeded from newest sha in tools/dashboard-automation/commit-classification; bumped by sync-coverage.mjs --write"
-}

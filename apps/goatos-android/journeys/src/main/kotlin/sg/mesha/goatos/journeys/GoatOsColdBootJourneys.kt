@@ -23,7 +23,7 @@ import org.junit.runner.RunWith
  * Slack. No class names, no selectors, no check codes — the catalogue entry's
  * `humanFailure` and nothing else.
  *
- * Catalogued in tools/dashboard-automation/android-journeys.json; each journey's
+ * Catalogued in vgoats/mesha-ops dashboard-automation/tooling/android-journeys.json; each journey's
  * `automation.note` says exactly which half of its check this proves and which half
  * still needs a session.
  */
