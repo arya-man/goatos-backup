@@ -91,24 +91,32 @@ func (r *Repository) RecordStepProof(ctx context.Context, in domain.RecordStepPr
 	if err != nil {
 		return domain.StepProof{}, fmt.Errorf("health: resolve session step: %w", err)
 	}
+	out, replayed, err := replayStepProofAttempt(ctx, tx, in)
+	if err != nil {
+		return domain.StepProof{}, err
+	}
+	if replayed {
+		if err := tx.Commit(ctx); err != nil {
+			return domain.StepProof{}, err
+		}
+		committed = true
+		return out, nil
+	}
 	switch status {
 	case "completed", "held_death_review", "canceled_death", "canceled":
 		return domain.StepProof{}, domain.ErrStepProofClosed
 	}
 
-	var out domain.StepProof
 	err = tx.QueryRow(ctx, sqlInsertStepProofAttempt,
 		in.TenantID, in.SessionID, in.StepID, in.IdempotencyKey, in.RequestFingerprint, in.ProofRef, in.ActorID,
 	).Scan(&out.StepID, &out.ProofRef, &out.CapturedBy, &out.CapturedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
-		var priorFingerprint string
-		if err := tx.QueryRow(ctx, sqlGetStepProofAttempt,
-			in.TenantID, in.StepID, in.IdempotencyKey,
-		).Scan(&out.StepID, &out.ProofRef, &out.CapturedBy, &out.CapturedAt, &priorFingerprint); err != nil {
-			return domain.StepProof{}, fmt.Errorf("health: replay step proof: %w", err)
+		out, replayed, err = replayStepProofAttempt(ctx, tx, in)
+		if err != nil {
+			return domain.StepProof{}, err
 		}
-		if priorFingerprint != in.RequestFingerprint {
-			return domain.StepProof{}, ports.ErrConflict
+		if !replayed {
+			return domain.StepProof{}, fmt.Errorf("health: replay step proof: %w", pgx.ErrNoRows)
 		}
 		if err := tx.Commit(ctx); err != nil {
 			return domain.StepProof{}, err
@@ -130,6 +138,24 @@ func (r *Repository) RecordStepProof(ctx context.Context, in domain.RecordStepPr
 	}
 	committed = true
 	return out, nil
+}
+
+func replayStepProofAttempt(ctx context.Context, tx pgx.Tx, in domain.RecordStepProofInput) (domain.StepProof, bool, error) {
+	var out domain.StepProof
+	var priorFingerprint string
+	err := tx.QueryRow(ctx, sqlGetStepProofAttempt,
+		in.TenantID, in.StepID, in.IdempotencyKey,
+	).Scan(&out.StepID, &out.ProofRef, &out.CapturedBy, &out.CapturedAt, &priorFingerprint)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.StepProof{}, false, nil
+	}
+	if err != nil {
+		return domain.StepProof{}, false, fmt.Errorf("health: replay step proof: %w", err)
+	}
+	if priorFingerprint != in.RequestFingerprint {
+		return domain.StepProof{}, false, ports.ErrConflict
+	}
+	return out, true, nil
 }
 
 // StepProofs returns every clip recorded for this session, IN STEP ORDER.

@@ -104,6 +104,9 @@ export function RegisterSheetControls({
         <a className="btn ghost" href={href("export", "xlsx")} aria-label={`${copy(pageContract, "action.download_sheet")} — ${typeLabel}`}>
           <Download className="ic" aria-hidden="true" /> {copy(pageContract, "action.download_sheet")}
         </a>
+        <a className="btn ghost" href={href("export", "json")} aria-label={`${copy(pageContract, "action.download_json")} — ${typeLabel}`}>
+          <Download className="ic" aria-hidden="true" /> {copy(pageContract, "action.download_json")}
+        </a>
         <button
           type="button"
           className="btn ghost"
@@ -116,7 +119,7 @@ export function RegisterSheetControls({
         <input
           ref={fileInput}
           type="file"
-          accept=".csv,.xlsx"
+          accept=".csv,.xlsx,.json"
           style={{ display: "none" }}
           onChange={(e) => {
             const f = e.target.files?.[0];
