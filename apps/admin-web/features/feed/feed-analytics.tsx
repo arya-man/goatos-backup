@@ -334,7 +334,9 @@ export async function FeedAnalyticsPage({
 
   // Overview needs directed + execution (for the adherence KPI); every other
   // tab reads exactly its own endpoint.
-  const wantDirected = !stockOnly && (tab === "overview" || tab === "items" || tab === "peranimal");
+  // The Stock tab reads the purchase ledger only: its cards must never wait on (or be hidden by)
+  // the daily-sheet read, which it does not use (maintainer request 2026-09-24).
+  const wantDirected = !stockOnly && (tab === "overview" || tab === "peranimal");
   // Consumption renders BOTH its readings (General and Status-wise) so the toggle between them is
   // local and never asks the server again; one directed read carries both sections.
   const directedSections = tab === "overview" ? "days,items,pen_tags" : "days,items";
@@ -484,7 +486,9 @@ export async function FeedAnalyticsPage({
   // charts. For a stock-only page, it is the page, so failures must be visible.
   // Follow-up IS the tab it serves, so its failure must blank the tab rather
   // than leave an empty page reading as "nothing happened".
-  const gated = [directed, execution, experiment, shedFeed, loads, followUp, tab === "execution" ? executionDay : null, stockOnly ? stock : null];
+  // On the Stock tab the stock read IS the tab, so its failure shows as an error rather than as
+  // the "no purchase ledger yet" empty state.
+  const gated = [directed, execution, experiment, shedFeed, loads, followUp, tab === "execution" ? executionDay : null, stockOnly || tab === "items" ? stock : null];
   const failed = gated.some((r) => r !== null && !r.ok);
   const failedError = gated.find((r) => r !== null && !r.ok)?.error;
 
@@ -552,7 +556,7 @@ export async function FeedAnalyticsPage({
         </section>
       ) : null}
 
-      {stockOnly && tab === "items" && !failed ? (
+      {tab === "items" && !failed ? (
         <StockCards stock={stock?.ok ? stock.data : null} pageContract={pageContract} />
       ) : null}
 
@@ -586,7 +590,7 @@ export async function FeedAnalyticsPage({
       ) : null}
 
       <LocalViewPane param="fc_view" value="general" current={tab === "overview" ? consumptionView : "general"}>
-      {!stockOnly && directed?.ok && (tab === "overview" || tab === "items" || tab === "peranimal") ? (
+      {!stockOnly && directed?.ok && (tab === "overview" || tab === "peranimal") ? (
         <DirectedTabs
           tab={tab}
           range={range}
@@ -978,7 +982,6 @@ function DirectedTabs({
         </section>
       ) : null}
 
-      {tab === "items" ? <StockCards stock={stock} pageContract={pageContract} /> : null}
 
       {tab === "overview" ? (
         <section className="card wchart" aria-label={fa(pageContract, "chart.daily.title")}>

@@ -52,7 +52,9 @@ loads AS (
            -- RETIRED feeds are the ones the farm no longer buys. Their loads still COUNT (their
            -- leftover sacks are part of the family's runway, the same rule the cards apply) but
            -- they are not shown: the table answers for the feeds the farm buys today.
-           (COALESCE(c.status, 'active') = 'retired' OR COALESCE(fc.status, 'active') = 'retired') AS retired
+           -- Only a feed the catalog calls ACTIVE is listed (maintainer decision 2026-09-24, the
+           -- stock cards' rule); a feed with no catalog row is not bought today either.
+           (COALESCE(c.status, '') <> 'active' OR COALESCE(fc.status, '') <> 'active') AS retired
     FROM feed_purchases p
     LEFT JOIN merge_map mm ON mm.member_key = p.feed_item_key
     LEFT JOIN feed_item_catalog c
@@ -329,8 +331,8 @@ const stockLoadFacetScopeSQL = `
       ON fc.tenant_id = $1 AND fc.feed_item_key = COALESCE(m.family_key, p.feed_item_key)
     WHERE p.tenant_id = $1
       AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR p.park_id = ANY ($2::uuid[]))
-      AND COALESCE(c.status, 'active') <> 'retired'
-      AND COALESCE(fc.status, 'active') <> 'retired'`
+      AND c.status = 'active'
+      AND fc.status = 'active'`
 
 // stockLoadFeedItemsSQL lists the feeds the ledger holds loads for, in the caller's park scope.
 const stockLoadFeedItemsSQL = `

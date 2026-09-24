@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/vgoats/goatos/backend/internal/feeddirection/domain"
 	"github.com/vgoats/goatos/backend/internal/feeddirection/ports"
@@ -95,6 +96,7 @@ VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 40, 1000, 0, $8::date, 'Naval
 	}
 	feed(park2, "CPT", fdiShedB, "2026-08-11", "60.000")
 
+	activatePurchasedFeeds(t, ctx, pool) // only ACTIVE catalog feeds have stock cards (2026-09-24)
 	page, err := repo.StockLoads(ctx, fdiTenant, nil, domain.StockLoadsQuery{})
 	if err != nil {
 		t.Fatalf("StockLoads: %v", err)
@@ -160,6 +162,7 @@ VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 40, 1000, 0, $8::date, 'Naval
 	}
 
 	t.Run("ParkScopeFarmFilterPageBoundaryKeepWholeFilterCounts", func(t *testing.T) {
+		activatePurchasedFeeds(t, ctx, pool) // only ACTIVE catalog feeds have stock cards (2026-09-24)
 		scoped, err := repo.StockLoads(ctx, fdiTenant, []uuid.UUID{uuid.MustParse(park2)}, domain.StockLoadsQuery{})
 		if err != nil {
 			t.Fatalf("scoped: %v", err)
@@ -171,6 +174,7 @@ VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 40, 1000, 0, $8::date, 'Naval
 		if scoped.Rows[0].LeftKg != "-10.0" {
 			t.Fatalf("CPT overrun unchanged under scope: %+v", scoped.Rows[0])
 		}
+		activatePurchasedFeeds(t, ctx, pool) // only ACTIVE catalog feeds have stock cards (2026-09-24)
 		farm, err := repo.StockLoads(ctx, fdiTenant, nil, domain.StockLoadsQuery{FarmLabel: "CBE", Limit: 1, Offset: 0})
 		if err != nil {
 			t.Fatalf("farm page: %v", err)
@@ -182,9 +186,11 @@ VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 40, 1000, 0, $8::date, 'Naval
 		if farm.Rows[0].BatchNo != 3 {
 			t.Fatalf("ordered newest bought first: %+v", farm.Rows[0])
 		}
+		activatePurchasedFeeds(t, ctx, pool) // only ACTIVE catalog feeds have stock cards (2026-09-24)
 		if _, err := repo.StockLoads(ctx, fdiTenant, nil, domain.StockLoadsQuery{Limit: 500}); err == nil {
 			t.Fatal("an out-of-range page must be refused, not clamped")
 		}
+		activatePurchasedFeeds(t, ctx, pool) // only ACTIVE catalog feeds have stock cards (2026-09-24)
 		none, err := repo.StockLoads(ctx, fdiTenant, nil, domain.StockLoadsQuery{FeedItemKey: "no_such_feed"})
 		if err != nil {
 			t.Fatalf("unknown feed: %v", err)
@@ -317,6 +323,7 @@ VALUES ($1, $2, 'CBE', $3, $4, $5::date, $6::numeric, 40, 1000, 0, $7::date, 'Na
 	load("backdate", 1, "2027-02-04", "2027-02-01", "100.000", "", nil)
 	feedDays("backdate", "50.000", "2027-02-01", "2027-02-02", "2027-02-03", "2027-02-04")
 
+	activatePurchasedFeeds(t, ctx, pool) // only ACTIVE catalog feeds have stock cards (2026-09-24)
 	page, err := repo.StockLoads(ctx, fdiTenant, nil, domain.StockLoadsQuery{Limit: 100})
 	if err != nil {
 		t.Fatalf("StockLoads: %v", err)
@@ -450,6 +457,7 @@ VALUES ($1, $2, 'CBE', $3, $4, DATE '2026-08-01', $5::numeric, 40, 1000, 0, DATE
 	insert("UHT Milk", 1, "300.000")
 	insert("Mesha Kids Goat Concentrate", 2, "100.000")
 
+	activatePurchasedFeeds(t, ctx, pool) // only ACTIVE catalog feeds have stock cards (2026-09-24)
 	page, err := repo.StockLoads(ctx, fdiTenant, nil, domain.StockLoadsQuery{})
 	if err != nil {
 		t.Fatalf("StockLoads: %v", err)
@@ -460,6 +468,7 @@ VALUES ($1, $2, 'CBE', $3, $4, DATE '2026-08-01', $5::numeric, 40, 1000, 0, DATE
 	if len(page.FeedItems) != 2 {
 		t.Errorf("the feed filter offers both feeds: %+v", page.FeedItems)
 	}
+	activatePurchasedFeeds(t, ctx, pool) // only ACTIVE catalog feeds have stock cards (2026-09-24)
 	milk, err := repo.StockLoads(ctx, fdiTenant, nil, domain.StockLoadsQuery{FeedItemKey: "uht_milk"})
 	if err != nil {
 		t.Fatalf("milk filter: %v", err)
@@ -572,6 +581,7 @@ VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 40, 1000, 0, $6::date, 'Naval
 	// CPT eats twice as fast off a bigger load: 200 kg left at 100 kg/day is two days there.
 	feed(park2, "CPT", fdiShedB, "2026-08-11", familyLabel, familyKey, "100.000")
 
+	activatePurchasedFeeds(t, ctx, pool) // only ACTIVE catalog feeds have stock cards (2026-09-24)
 	cards, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{})
 	if err != nil {
 		t.Fatalf("StockAnalytics: %v", err)
@@ -589,6 +599,7 @@ VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 40, 1000, 0, $6::date, 'Naval
 		t.Fatalf("the family card must exist: %+v", cards.Items)
 	}
 
+	activatePurchasedFeeds(t, ctx, pool) // only ACTIVE catalog feeds have stock cards (2026-09-24)
 	page, err := repo.StockLoads(ctx, fdiTenant, nil, domain.StockLoadsQuery{FarmLabel: "CBE"})
 	if err != nil {
 		t.Fatalf("StockLoads: %v", err)
@@ -629,6 +640,7 @@ VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 40, 1000, 0, $6::date, 'Naval
 	// MultipleDimensions: the same family at the other farm, with its own kg and its own rate. A
 	// runway or a rate that ranged over the wrong key set shows up here as CBE's number.
 	t.Run("MultipleDimensionsOneToManyAcrossFarms", func(t *testing.T) {
+		activatePurchasedFeeds(t, ctx, pool) // only ACTIVE catalog feeds have stock cards (2026-09-24)
 		cpt, err := repo.StockLoads(ctx, fdiTenant, nil, domain.StockLoadsQuery{FarmLabel: "CPT"})
 		if err != nil {
 			t.Fatalf("CPT: %v", err)
@@ -663,6 +675,7 @@ VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 40, 1000, 0, $6::date, 'Naval
 
 	// StatusBuckets: every status the table can serve, and the two it must never serve.
 	t.Run("StatusBucketsServeNoFinishedAndNoRetiredLoad", func(t *testing.T) {
+		activatePurchasedFeeds(t, ctx, pool) // only ACTIVE catalog feeds have stock cards (2026-09-24)
 		all, err := repo.StockLoads(ctx, fdiTenant, nil, domain.StockLoadsQuery{Limit: 100})
 		if err != nil {
 			t.Fatalf("all: %v", err)
@@ -689,6 +702,7 @@ VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 40, 1000, 0, $6::date, 'Naval
 
 	// ParkScope: a scoped caller sees one park's loads, and the runway is that park's own.
 	t.Run("ParkScopeKeepsEachParksOwnRunway", func(t *testing.T) {
+		activatePurchasedFeeds(t, ctx, pool) // only ACTIVE catalog feeds have stock cards (2026-09-24)
 		scoped, err := repo.StockLoads(ctx, fdiTenant, []uuid.UUID{uuid.MustParse(park2)}, domain.StockLoadsQuery{})
 		if err != nil {
 			t.Fatalf("scoped: %v", err)
@@ -708,6 +722,7 @@ VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 40, 1000, 0, $6::date, 'Naval
 
 	// PageBoundary: a page of one still carries the whole-filter count.
 	t.Run("PageBoundaryKeepsWholeFilterCounts", func(t *testing.T) {
+		activatePurchasedFeeds(t, ctx, pool) // only ACTIVE catalog feeds have stock cards (2026-09-24)
 		first, err := repo.StockLoads(ctx, fdiTenant, nil, domain.StockLoadsQuery{FarmLabel: "CBE", Limit: 1})
 		if err != nil {
 			t.Fatalf("page: %v", err)
@@ -716,6 +731,29 @@ VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 40, 1000, 0, $6::date, 'Naval
 			t.Fatalf("one row, the newest, and the whole-filter total of two: %+v", first)
 		}
 	})
+}
+
+// activatePurchasedFeeds gives every feed the fixture has bought an ACTIVE catalog row, as the
+// purchase screen itself requires. Stock cards, the loads table and the low-stock push show only
+// active catalog feeds (maintainer decision 2026-09-24), so a fixture that buys a feed without
+// cataloguing it would otherwise read an empty store. A row the fixture already set (retired, for
+// instance) is left as it is.
+func activatePurchasedFeeds(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+	t.Helper()
+	// The successors of the transitional split-concentrate fold are active feeds the farm buys
+	// today, so a fixture that only bought an old split feed still has an active family card.
+	_, _, familyLabels := domain.StockFamilyMergeArrays()
+	if _, err := pool.Exec(ctx, `
+INSERT INTO feed_item_catalog (tenant_id, feed_item_label, status)
+SELECT DISTINCT $1::uuid, label, 'active'
+FROM (
+    SELECT p.feed_item_label AS label FROM feed_purchases p WHERE p.tenant_id = $1::uuid
+    UNION
+    SELECT unnest($2::text[])
+) feeds
+ON CONFLICT (tenant_id, feed_item_key) DO NOTHING`, fdiTenant, familyLabels); err != nil {
+		t.Fatalf("catalog purchased feeds: %v", err)
+	}
 }
 
 // THE CARD IS RIGHT, AND THE TABLE READS IT (maintainer decision 2026-09-24, "stock cards are
@@ -792,6 +830,7 @@ VALUES ($1, $2, 'CBE', $3, $4, $5::date, $6::numeric, 40, 1000, 0, $5::date, 'Na
 	feed("2026-08-11", retiredLabel, retiredKey, "75.000")
 	feed("2026-08-12", familyLabel, familyKey, "100.000")
 
+	activatePurchasedFeeds(t, ctx, pool) // only ACTIVE catalog feeds have stock cards (2026-09-24)
 	cards, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{})
 	if err != nil {
 		t.Fatalf("StockAnalytics: %v", err)
@@ -815,6 +854,7 @@ VALUES ($1, $2, 'CBE', $3, $4, $5::date, $6::numeric, 40, 1000, 0, $5::date, 'Na
 		t.Errorf("the 7-day table's In stock is the card's balance %s: %+v", card.BalanceKg, forecast)
 	}
 
+	activatePurchasedFeeds(t, ctx, pool) // only ACTIVE catalog feeds have stock cards (2026-09-24)
 	page, err := repo.StockLoads(ctx, fdiTenant, nil, domain.StockLoadsQuery{FarmLabel: "CBE"})
 	if err != nil {
 		t.Fatalf("StockLoads: %v", err)
@@ -831,6 +871,7 @@ VALUES ($1, $2, 'CBE', $3, $4, $5::date, $6::numeric, 40, 1000, 0, $5::date, 'Na
 	// ParkScope: the family queue is the farm's own; a caller scoped to another park sees none of
 	// it, in the loads table or the 7-day table.
 	other := []uuid.UUID{uuid.MustParse("11111111-1111-4111-8111-111111111111")}
+	activatePurchasedFeeds(t, ctx, pool) // only ACTIVE catalog feeds have stock cards (2026-09-24)
 	scoped, err := repo.StockLoads(ctx, fdiTenant, other, domain.StockLoadsQuery{})
 	if err != nil {
 		t.Fatalf("scoped StockLoads: %v", err)
@@ -838,6 +879,7 @@ VALUES ($1, $2, 'CBE', $3, $4, $5::date, $6::numeric, 40, 1000, 0, $5::date, 'Na
 	if len(scoped.Rows) != 0 || scoped.Total != 0 {
 		t.Errorf("another park's scope must not see CBE's loads: %+v", scoped)
 	}
+	activatePurchasedFeeds(t, ctx, pool) // only ACTIVE catalog feeds have stock cards (2026-09-24)
 	scopedStock, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{ParkIDs: other})
 	if err != nil {
 		t.Fatalf("scoped StockAnalytics: %v", err)
@@ -848,6 +890,7 @@ VALUES ($1, $2, 'CBE', $3, $4, $5::date, $6::numeric, 40, 1000, 0, $5::date, 'Na
 
 	// PageBoundary: a page of one row still carries the family arithmetic and the whole-filter
 	// total; the retired load that feeds the queue is never counted as a row.
+	activatePurchasedFeeds(t, ctx, pool) // only ACTIVE catalog feeds have stock cards (2026-09-24)
 	one, err := repo.StockLoads(ctx, fdiTenant, nil, domain.StockLoadsQuery{FarmLabel: "CBE", Limit: 1})
 	if err != nil {
 		t.Fatalf("page of one: %v", err)
@@ -934,6 +977,7 @@ ON CONFLICT (tenant_id, feed_item_key) DO NOTHING`, fdiTenant, label); err != ni
 	}
 	read := func(stage string) domain.StockLoadRow {
 		t.Helper()
+		activatePurchasedFeeds(t, ctx, pool) // only ACTIVE catalog feeds have stock cards (2026-09-24)
 		page, err := repo.StockLoads(ctx, fdiTenant, nil, domain.StockLoadsQuery{})
 		if err != nil {
 			t.Fatalf("%s: StockLoads: %v", stage, err)
