@@ -451,9 +451,15 @@ func (s *SalesService) GetValuationAssumptions(ctx context.Context, tenantID str
 	return s.repo.GetValuationAssumptions(ctx, tenantID)
 }
 
+// ListStageRegister serves the pickable stages for the valuation screen.
+func (s *SalesService) ListStageRegister(ctx context.Context, tenantID string) ([]domain.StageRegisterEntry, error) {
+	return s.repo.ListStageRegister(ctx, tenantID)
+}
+
 // PutValuationAssumptions validates and replaces them. Figures outside their business band are
 // REFUSED (400), never clamped; a stale row_version is a 409.
 func (s *SalesService) PutValuationAssumptions(ctx context.Context, tenantID string, write domain.ValuationAssumptions, actorID string) (domain.ValuationAssumptions, error) {
+	domain.NormalizeValuationAssumptions(&write)
 	if err := domain.ValidateValuationAssumptions(write); err != nil {
 		return domain.ValuationAssumptions{}, err
 	}

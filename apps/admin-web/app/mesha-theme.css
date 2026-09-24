@@ -2931,6 +2931,25 @@
   .valuation-form .tbl input{width:100%;max-width:220px;background:var(--panel-2,var(--panel));border:1px solid var(--line);border-radius:8px;padding:6px 10px;color:var(--ink);font:inherit}
   .valuation-form .tbl input:disabled{opacity:.7}
   .sales-valuation-tablewrap{max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-gutter:stable}
+  /* THE STAGES ARE AUTHORED (2026-09-24): the register entries a stage covers sit as chips in
+     their cell with the picker after them, so the cell wraps on a phone instead of forcing the
+     table wider than the thumb can pan. */
+  .valuation-covers{display:flex;flex-wrap:wrap;align-items:center;gap:6px;min-width:0}
+  .valuation-covers select{min-height:30px;max-width:100%;background:var(--panel-2,var(--panel));border:1px solid var(--line);border-radius:8px;padding:4px 8px;color:var(--ink);font:inherit;font-size:12.5px}
+  .valuation-cover-chip{display:inline-flex;align-items:center;gap:2px;padding-right:2px}
+  .valuation-cover-chip .btn{min-width:0;padding:2px 4px;border:0;line-height:0}
+  .valuation-form .tbl th.small{font-weight:500}
+  .valuation-unvalued{display:flex;flex-direction:column;gap:8px;margin-top:10px}
+  .valuation-unvalued .btn{min-width:0}
+/* On a phone the seven columns cannot fit, so the table keeps its natural width and pans inside its
+   own scroller -- the page itself never moves sideways. What must not happen is the SQUEEZE:
+   without these floors the stage column collapsed to the width of two letters and read 'Ad'. */
+@media(max-width:640px){
+  .valuation-form .tbl th,.valuation-form .tbl td{white-space:nowrap}
+  .valuation-form .tbl td:first-child input{min-width:104px}
+  .valuation-form .tbl td:nth-child(n+3) input{min-width:88px}
+  .valuation-form .valuation-covers{flex-wrap:nowrap}
+}
   .valuation-form label.market-config-column{display:flex;flex-direction:column;gap:6px}
   .valuation-form label.market-config-column input{max-width:220px;background:var(--panel-2,var(--panel));border:1px solid var(--line);border-radius:8px;padding:6px 10px;color:var(--ink);font:inherit}
 .market-config-column{min-width:0}

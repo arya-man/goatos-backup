@@ -11,8 +11,11 @@ func TestFarmValuationSQLUsesCurrentInventoryShape(t *testing.T) {
 		"LEFT JOIN public.locations park",
 		"LEFT JOIN public.locations farm",
 		"g.lifecycle_status NOT IN ('dead', 'sold', 'culled', 'transferred', 'lost', 'merged', 'inactive')",
-		"g.management_stage IN ('F2', 'F2-Male', 'F2-Female')",
-		"g.milk_cohort = 'K0' OR g.management_stage = 'K0'",
+		// The stage an animal is valued in is AUTHORED (2026-09-24): the CASE that named F2 and K0
+		// is replaced by the farm's own rows, matched on the register entries they cover.
+		"stage_rules AS (",
+		"jsonb_to_recordset(a.stages) AS st(stage text, display_order int, matches jsonb)",
+		"jsonb_array_elements_text(st.matches) AS m(match)",
 		"total_inventory AS",
 		"count(*) FILTER (WHERE bucket <> 'unmapped')::int AS valued_animals",
 		"count(*) FILTER (WHERE bucket = 'unmapped')::int AS excluded_animals",
@@ -151,39 +154,32 @@ func TestFarmValuationClassifiedProjectsNotValuedBreakdownInputs(t *testing.T) {
 }
 
 // TestFarmValuationClinicalStagesAreValuedThroughTheirCohort pins the 2026-09-10 rule that an
-// animal in ICU is still inventory. The three branches are asserted with their ORDER, because the
-// order is the rule: a mother is claimed before the sex branches so the sex column cannot outvote
-// her, and an ICU kid is claimed after the milk-cohort branches so a kid whose own band survived
-// keeps it instead of being flattened to K2.
+// animal in ICU is still inventory -- and, since 2026-09-24, that the rule is DATA. The three
+// branches that used to be CASE arms are now entries in the seeded stage rows, so what this test
+// pins is that they are still there and still filed the same way.
 func TestFarmValuationClinicalStagesAreValuedThroughTheirCohort(t *testing.T) {
 	for _, want := range []string{
-		// A mother is an adult FEMALE by definition, whatever the sex column says -- the one
-		// branch the gender split (2026-09-23) leaves hard-coded.
-		"WHEN s.stage_norm = 'MOTHER' THEN 'adult_female'",
-		// The others take the animal's own gender and are priced on that row.
-		"WHEN s.stage_norm = 'ICUKID' THEN 'K2_' || s.sex_norm",
-		"WHEN s.stage_norm = 'ICU' THEN 'adult_' || s.sex_norm",
+		// A plain ICU tag is an adult tag; an ICU kid falls to K2, the maintainer's stated default
+		// for a kid whose milk band was lost when it moved to ICU.
+		"('adult', 2, 'ICU')",
+		"('K2', 5, 'ICUKID')",
+		// And a mother is still valued as an adult -- through the adult row, which is now a row the
+		// farm can move rather than an arm nobody could reach.
+		"('adult', 2, 'MOTHER')",
 	} {
 		if !strings.Contains(farmValuationSQL, want) {
 			t.Fatalf("farm valuation must value clinically housed animals; missing %q", want)
 		}
 	}
-
-	mother := strings.Index(farmValuationSQL, "WHEN s.stage_norm = 'MOTHER'")
-	adultByGender := strings.Index(farmValuationSQL, "WHEN g.age_band = 'adult' THEN 'adult_' || s.sex_norm")
-	if mother < 0 || adultByGender < 0 || mother > adultByGender {
-		t.Fatal("a mother must be claimed as an adult female BEFORE the gender branch, whatever the sex column holds")
+	// AN UNNAMED STAGE IS STILL NOT VALUED, AND STILL SHOWN. This is the property that makes an
+	// authored stage list safe: a stage nobody has placed -- Warmup, 58 live kids the day this
+	// changed -- stands in the not-valued breakdown asking to be priced, instead of falling into
+	// whichever bucket a fallback would have chosen for it. Do not add a fallback.
+	if !strings.Contains(farmValuationSQL, "CASE WHEN coalesce(sm.stage, sc.stage) IS NULL THEN 'unmapped'") {
+		t.Fatal("an animal in no authored stage must stay unmapped and reach the not-valued breakdown")
 	}
-
-	icuKid := strings.Index(farmValuationSQL, "WHEN s.stage_norm = 'ICUKID'")
-	ownCohort := strings.Index(farmValuationSQL, "WHEN g.milk_cohort = 'K3' OR g.management_stage = 'K3'")
-	if icuKid < 0 || ownCohort < 0 || icuKid < ownCohort {
-		t.Fatal("an ICU kid falls back to K2 only AFTER its own milk cohort; a known band must win")
-	}
-
-	unmapped := strings.Index(farmValuationSQL, "ELSE 'unmapped'")
-	if unmapped < 0 || unmapped < icuKid {
-		t.Fatal("unmapped must remain the last resort so an unnamed stage still reaches the not-valued breakdown")
+	if strings.Contains(farmValuationSQL, "g.age_band = 'adult'") {
+		t.Fatal("the age_band catch-all is retired: it is what made an unpriced stage invisible")
 	}
 }
 
@@ -195,11 +191,18 @@ func TestFarmValuationNormalizesTheClinicalStageOnce(t *testing.T) {
 	if !strings.Contains(farmValuationSQL, normalizer) {
 		t.Fatal("clinical stage must use the 000166 normalizer so 'ICU- kid' and 'ICU-Kid' are one tag")
 	}
-	if n := strings.Count(farmValuationSQL, "regexp_replace"); n != 1 {
-		t.Fatalf("stage normalization must have ONE definition, found %d -- copies drift apart", n)
+	// THREE normalizations, and each is a different SIDE of one comparison rather than a copy of
+	// another: the animal's management stage, the animal's milk cohort, and the authored match the
+	// two are compared against. A fourth would be a copy, and copies drift apart -- which is the
+	// defect 000166 had to repair for milk cohorts.
+	if n := strings.Count(farmValuationSQL, "regexp_replace"); n != 3 {
+		t.Fatalf("stage normalization must have one definition per side, found %d -- copies drift apart", n)
+	}
+	if !strings.Contains(farmValuationSQL, "'[^A-Za-z0-9]+', '', 'g')) AS match_norm") {
+		t.Fatal("the authored side must be normalized the SAME way, or a stage the farm picks files nothing")
 	}
 	if !strings.Contains(farmValuationSQL, "CROSS JOIN LATERAL (") {
-		t.Fatal("the single normalizer must reach the CASE through a lateral, not four inline copies")
+		t.Fatal("the animal's own normalizer must reach the bucket through a lateral, not inline copies")
 	}
 	// Literal tags only. An ILIKE over clinical-looking text would sweep in stages nobody named,
 	// which is the same trap the K0 branch is already guarded against above.

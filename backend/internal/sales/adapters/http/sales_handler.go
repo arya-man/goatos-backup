@@ -22,6 +22,7 @@ import (
 type SalesService interface {
 	GetOverview(ctx context.Context, tenantID, farm string) (domain.Overview, error)
 	GetValuationAssumptions(ctx context.Context, tenantID string) (domain.ValuationAssumptions, error)
+	ListStageRegister(ctx context.Context, tenantID string) ([]domain.StageRegisterEntry, error)
 	PutValuationAssumptions(ctx context.Context, tenantID string, write domain.ValuationAssumptions, actorID string) (domain.ValuationAssumptions, error)
 	ListDeals(ctx context.Context, tenantID string, q app.DealListQuery) (ports.DealPage, error)
 	CreateDeal(ctx context.Context, tenantID string, write domain.DealWrite, actorID, idempotencyKey string) (domain.Deal, error)

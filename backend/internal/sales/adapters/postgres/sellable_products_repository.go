@@ -326,16 +326,20 @@ SELECT EXISTS (SELECT 1 FROM public.sellable_product_catalog WHERE tenant_id = $
 	return out, nil
 }
 
-// ListAllSellableProducts reads the registry INCLUDING archived rows, for the editor -- which must
-// show what is switched off so it can be switched back on.
-func (r *Repository) ListAllSellableProducts(ctx context.Context, tenantID string) ([]domain.ProductRow, error) {
-	ctx, cancel := context.WithTimeout(ctx, r.timeout)
-	defer cancel()
-	rows, err := r.pool.Query(ctx, `
+// allSellableProductsSQL reads the registry INCLUDING archived rows, for the editor -- which must
+// show what is switched off so it can be switched back on. A per-tenant catalog of a few dozen
+// rows, indexed on tenant_id, read once when Sales Config opens.
+const allSellableProductsSQL = `
 SELECT product_code, name, kind, unit, COALESCE(species_code, ''), sort_order, status, is_builtin
 FROM public.sellable_product_catalog
 WHERE tenant_id = $1
-ORDER BY sort_order, name`, tenantID)
+ORDER BY sort_order, name`
+
+// ListAllSellableProducts implements ports.SalesRepository.
+func (r *Repository) ListAllSellableProducts(ctx context.Context, tenantID string) ([]domain.ProductRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, allSellableProductsSQL, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("sales: list all sellable products: %w", err)
 	}

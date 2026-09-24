@@ -481,25 +481,18 @@ const measuredSoldWeightsSQL = `
 //
 // CLINICALLY HOUSED ANIMALS ARE STILL INVENTORY (maintainer decision 2026-09-10). An animal in ICU
 // is worth what its cohort is worth -- the tag says where it is being kept, not that it has no
-// value -- so a clinical stage is valued through the cohort it belongs to rather than dropped into
-// the not-valued list. Three rules, and nothing else about the rollup changes:
+// value. That is no longer three branches of a CASE: it is two entries in the seeded stage rows,
+// ICU under Adult and ICU-Kid under K2, and the farm can move them.
 //
-//	ICU-Kid  -> the K2 bucket. Its own milk cohort wins when the register still knows it (the
-//	            K1/K2/K3/K0 branches run FIRST), so this catches only the kid whose band was lost
-//	            when it moved to ICU. K2 is the maintainer's stated default for that kid.
-//	ICU      -> Adult females / Adult males by the animal's own sex, because a plain ICU tag is an
-//	            adult tag. The age_band branches above already claim the ones the register calls
-//	            adult; this reaches the ones it does not.
-//	Mother   -> Adult females ALWAYS, ahead of the sex branches, because a mother is female
-//	            whatever the sex column happens to hold.
+// WHICH STAGE AN ANIMAL IS VALUED IN IS AUTHORED (maintainer instruction 2026-09-24, migration
+// 000396, domain/valuation_stages.go). The CASE that used to decide it knew six stages while the
+// farm's register carries nineteen, so Warmup -- 58 live kids the day this changed -- could not be
+// valued without a deploy. The stage rows say which register entries they cover; the animal is
+// filed by its own management stage or, when the register lost that, its milk cohort.
 //
-// The stage is matched through the SAME normalizer the milk-cohort recovery uses (000166:
-// upper + strip non-alphanumerics), because the imported herd genuinely carries both 'ICU- kid'
-// and 'ICU-Kid' -- raw equality would value one spelling and drop the other. It is a CROSS JOIN
-// LATERAL so the expression has one definition rather than four copies drifting apart.
-//
-// A stage this does not name stays 'unmapped' and stays visible in the not-valued breakdown; the
-// rule is deliberately literal, never an ILIKE over kid-like or clinical-looking text.
+// A stage no row names stays 'unmapped' and stays visible in the not-valued breakdown under its own
+// name. There is no fallback bucket, and adding one would undo the change: an animal valued at a
+// figure nobody chose for it is the defect this replaced.
 //
 // A whole-herd valuation read served once per Farm value page load, indexed on (tenant_id) over
 // live goats (5k-50k envelope), with the assumption buckets joined from ONE
@@ -529,6 +522,42 @@ const farmValuationSQL = `
 		JOIN latest_weight w ON w.tenant_id = i.tenant_id AND w.scanned_identifier = i.identifier
 		ORDER BY i.tenant_id, i.goat_id, w.accepted_at DESC
 	),
+	-- THE STAGES ARE AUTHORED (maintainer instruction 2026-09-24, migration 000396). A valuation
+	-- stage names the register entries it covers; an animal is filed by its own management stage
+	-- or, when the register lost that, its milk cohort. Both sides are normalized the one way
+	-- (upper, strip non-alphanumerics) that domain.NormalizeStageMatch normalizes the authored
+	-- side, because this herd carries both 'ICU- kid' and 'ICU-Kid'.
+	--
+	-- An animal in no named stage is 'unmapped' and stands in the not-valued breakdown under its
+	-- own stage name -- which is how 58 Warmup kids asked to be priced. There is deliberately no
+	-- fallback bucket.
+	--
+	-- A tenant with no authored row reads the seeded six, the retired CASE written out.
+	stage_rules AS (
+		SELECT st.stage, st.display_order,
+			upper(regexp_replace(btrim(m.match), '[^A-Za-z0-9]+', '', 'g')) AS match_norm
+		FROM public.sales_valuation_assumptions a
+		CROSS JOIN LATERAL jsonb_to_recordset(a.stages) AS st(stage text, display_order int, matches jsonb)
+		CROSS JOIN LATERAL jsonb_array_elements_text(st.matches) AS m(match)
+		WHERE a.tenant_id = $1::uuid
+		UNION ALL
+		SELECT * FROM (VALUES
+			('fattening', 1, 'F2'), ('fattening', 1, 'F2MALE'), ('fattening', 1, 'F2FEMALE'),
+			('adult', 2, 'BUCK'), ('adult', 2, 'MOTHER'), ('adult', 2, 'MILKING'), ('adult', 2, 'M0'),
+			('adult', 2, 'PREGNANT'), ('adult', 2, 'NONPREGNANT'), ('adult', 2, 'ICU'),
+			('K0', 3, 'K0'), ('K1', 4, 'K1'),
+			('K2', 5, 'K2'), ('K2', 5, 'ICUKID'), ('K3', 6, 'K3')
+		) d(stage, display_order, match_norm)
+		WHERE NOT EXISTS (SELECT 1 FROM public.sales_valuation_assumptions a WHERE a.tenant_id = $1::uuid)
+	),
+	-- One row per register entry, so the two joins below cannot fan an animal out. A register entry
+	-- claimed by two valuation stages is REFUSED at the write; this keeps the read total even
+	-- against a row written before that rule existed, and never picks between two live answers.
+	stage_by_match AS (
+		SELECT DISTINCT ON (match_norm) match_norm, stage
+		FROM stage_rules
+		ORDER BY match_norm, display_order, stage
+	),
 	classified AS (
 		SELECT
 				-- EVERY STAGE IS PRICED BY GENDER (maintainer instruction 2026-09-23). The stage is
@@ -541,18 +570,7 @@ const farmValuationSQL = `
 				-- valued on the FEMALE row (maintainer decision, same day: females are the larger
 				-- share, so it is the closer guess). The sex_missing count below counts those animals, so
 				-- the guess is visible on the page rather than silent in the total.
-				CASE
-					WHEN g.management_stage IN ('F2', 'F2-Male', 'F2-Female') THEN 'fattening_' || s.sex_norm
-				WHEN s.stage_norm = 'MOTHER' THEN 'adult_female'
-				WHEN g.age_band = 'adult' THEN 'adult_' || s.sex_norm
-				WHEN g.milk_cohort = 'K1' OR g.management_stage = 'K1' THEN 'K1_' || s.sex_norm
-				WHEN g.milk_cohort = 'K2' OR g.management_stage = 'K2' THEN 'K2_' || s.sex_norm
-				WHEN g.milk_cohort = 'K3' OR g.management_stage = 'K3' THEN 'K3_' || s.sex_norm
-				WHEN g.milk_cohort = 'K0' OR g.management_stage = 'K0' THEN 'K0_' || s.sex_norm
-				WHEN s.stage_norm = 'ICUKID' THEN 'K2_' || s.sex_norm
-				WHEN s.stage_norm = 'ICU' THEN 'adult_' || s.sex_norm
-				ELSE 'unmapped'
-			END AS bucket,
+				CASE WHEN coalesce(sm.stage, sc.stage) IS NULL THEN 'unmapped' ELSE coalesce(sm.stage, sc.stage) || '_' || s.sex_norm END AS bucket,
 			gw.weight_kg,
 			g.management_stage,
 			g.milk_cohort,
@@ -560,10 +578,18 @@ const farmValuationSQL = `
 			FROM public.goats g
 			CROSS JOIN LATERAL (
 				SELECT upper(regexp_replace(btrim(coalesce(g.management_stage, '')), '[^A-Za-z0-9]+', '', 'g')) AS stage_norm,
+					upper(regexp_replace(btrim(coalesce(g.milk_cohort, '')), '[^A-Za-z0-9]+', '', 'g')) AS cohort_norm,
 					-- The gender half of the bucket key. Anything that is not plainly male reads as
 					-- female, which is the recorded decision for an animal with no gender on file.
 					CASE WHEN lower(btrim(coalesce(g.sex, ''))) = 'male' THEN 'male' ELSE 'female' END AS sex_norm
 			) s
+			-- The stage half, read from the farm's authored rows instead of a CASE. Both joins are
+			-- 1:0..1 BY CONSTRUCTION -- stage_by_match holds one row per register entry -- so no
+			-- animal can be counted twice however the farm writes its stages. The animal is filed
+			-- by its own management stage, and by its milk cohort only when the register lost the
+			-- stage, which is the order the retired CASE read them in.
+			LEFT JOIN stage_by_match sm ON sm.match_norm = s.stage_norm
+			LEFT JOIN stage_by_match sc ON s.cohort_norm <> '' AND sc.match_norm = s.cohort_norm
 			LEFT JOIN goat_weight gw ON gw.tenant_id = g.tenant_id AND gw.goat_id = g.goat_id
 		LEFT JOIN public.locations park ON park.tenant_id = g.tenant_id AND park.location_id = g.park_id
 		LEFT JOIN public.locations farm ON farm.tenant_id = g.tenant_id AND farm.location_id = g.farm_id

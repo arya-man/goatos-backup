@@ -10933,6 +10933,10 @@ export interface components {
             market_price_per_kg?: number | null;
         };
         SalesValuationAssumptions: {
+            /** @description The stages the herd is valued in, as the farm authored them (2026-09-24). Buckets carries two rows per stage, keyed <stage>_female and <stage>_male. */
+            stages: components["schemas"]["SalesValuationStage"][];
+            /** @description Read-only context: the stages the farm's own herd register carries, with the animals standing in each right now, so a valuation stage is picked rather than typed. Ignored on a write. */
+            stage_register?: components["schemas"]["SalesStageRegisterEntry"][];
             buckets: components["schemas"]["SalesValuationBucket"][];
             /** @description Null keeps Load wise on the overall average sold price; a figure prices every unsold animal at it. */
             unsold_stock_price_rupees: number | null;
@@ -10944,8 +10948,22 @@ export interface components {
                 [key: string]: number;
             };
         };
+        SalesValuationStage: {
+            /** @description The stable key. Blank on a stage being ADDED; the backend derives it from the label once and it never moves again, because the bucket keys and the stored figures ride on it. */
+            stage: string;
+            label: string;
+            display_order: number;
+            /** @description The herd register's stage codes this valuation stage covers. An animal is filed by its own management stage, or by its milk cohort when the register lost the stage. One register code belongs to one valuation stage; a write claiming one twice is refused. */
+            matches: string[];
+        };
+        SalesStageRegisterEntry: {
+            code: string;
+            label: string;
+            /** @description Animals standing in this register stage right now -- what says a stage needs pricing. */
+            live_animals: number;
+        };
         SalesValuationBucket: {
-            /** @description fattening | adult_female | adult_male_buck | K0 | K1 | K2 | K3 (fixed classification). */
+            /** @description <stage>_female or <stage>_male, over the authored stage list. */
             bucket: string;
             label: string;
             /** @description Null = price at the measured weight. */
