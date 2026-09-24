@@ -58,55 +58,84 @@ const (
 	workBoardVaccinationReadBudget     = 400 * time.Millisecond
 )
 
+// vaccinationDueWorkPrecheckSQL answers "does this park have any vaccination work on this
+// business day" before the Work Board pays for the canonical process-integrity read.
+//
+// A goat obligation is on the day when ANY of four dates falls in it: its own due_at, its
+// batch's planned_date, the planned_date of a drive assignment it is a member of, or the
+// planned_date of a drive assignment of its batch in this park. Those four used to be one OR
+// inside one EXISTS over obligation_instances; the OR across three joined tables left only
+// tenant_id sargable, so the empty-day answer (the common "today, no drive" case) walked every
+// obligation of the tenant: 86,616 rows / 133k buffers / 228 ms on the stg clone, past the 300 ms
+// fail-open budget on stg itself. Each date source is now its own UNION ALL arm with its own
+// index path -- the due_at arm on obligation_instances_goat_live_due_idx (000415), the others
+// from the small day-bounded batch / assignment tables into obligation_instances by batch_id or
+// obligation_id -- and the goat/park/protocol/status filters apply once to the union: 5 ms.
+//
+// $6/$7 are the business day as DATEs. dayStart is always an Asia/Kolkata midnight
+// (time.ParseInLocation of the business date), so planned_date in [$6, $7) is exactly the
+// legacy "planned_date at IST midnight in [$3, $4)" -- and it is sargable.
 const vaccinationDueWorkPrecheckSQL = `
-	SELECT EXISTS (
-  SELECT 1
+WITH cand AS (
+  SELECT oi.target_id, oi.protocol_version_id, oi.status
   FROM obligation_instances oi
-  LEFT JOIN obligation_batches ob
-    ON ob.tenant_id = oi.tenant_id
-   AND ob.batch_id = oi.batch_id
+  WHERE oi.tenant_id = $1::uuid
+    AND oi.target_type = 'goat'
+    AND oi.status <> 'canceled'
+    AND oi.due_at >= $3::timestamptz
+    AND oi.due_at < $4::timestamptz
+  UNION ALL
+  SELECT oi.target_id, oi.protocol_version_id, oi.status
+  FROM obligation_batches ob
+  JOIN obligation_instances oi
+    ON oi.tenant_id = ob.tenant_id
+   AND oi.batch_id = ob.batch_id
+  WHERE ob.tenant_id = $1::uuid
+    AND ob.planned_date >= $6::date
+    AND ob.planned_date < $7::date
+    AND oi.target_type = 'goat'
+  UNION ALL
+  SELECT oi.target_id, oi.protocol_version_id, oi.status
+  FROM vaccination_drive_assignments vda
+  JOIN vaccination_drive_assignment_members vdam
+    ON vdam.tenant_id = vda.tenant_id
+   AND vdam.assignment_id = vda.assignment_id
+  JOIN obligation_instances oi
+    ON oi.tenant_id = vdam.tenant_id
+   AND oi.obligation_id = vdam.obligation_id
+  WHERE vda.tenant_id = $1::uuid
+    AND vda.planned_date >= $6::date
+    AND vda.planned_date < $7::date
+    AND oi.target_type = 'goat'
+  UNION ALL
+  SELECT oi.target_id, oi.protocol_version_id, oi.status
+  FROM vaccination_drive_assignments vda
+  JOIN obligation_instances oi
+    ON oi.tenant_id = vda.tenant_id
+   AND oi.batch_id = vda.batch_id
+  WHERE vda.tenant_id = $1::uuid
+    AND vda.park_id = $2::uuid
+    AND vda.planned_date >= $6::date
+    AND vda.planned_date < $7::date
+    AND oi.target_type = 'goat'
+)
+SELECT EXISTS (
+  SELECT 1
+  FROM cand c
+  JOIN goats g
+    ON g.tenant_id = $1::uuid
+   AND g.goat_id = c.target_id
+   AND g.park_id = $2::uuid
   JOIN protocol_versions pv
-    ON pv.tenant_id = oi.tenant_id
-   AND pv.protocol_version_id = oi.protocol_version_id
+    ON pv.tenant_id = $1::uuid
+   AND pv.protocol_version_id = c.protocol_version_id
   JOIN protocol_definitions pd
-    ON pd.tenant_id = oi.tenant_id
+    ON pd.tenant_id = $1::uuid
    AND pd.protocol_id = pv.protocol_id
    AND pd.category = 'vaccination'
-  JOIN goats g
-    ON g.tenant_id = oi.tenant_id
-   AND g.goat_id = oi.target_id
-   AND g.park_id = $2::uuid
-	  WHERE oi.tenant_id = $1::uuid
-	    AND oi.target_type = 'goat'
-	    AND oi.status <> 'canceled'
-	    AND ($5::boolean OR oi.status <> 'completed')
-	    AND (
-	      (oi.due_at >= $3::timestamptz AND oi.due_at < $4::timestamptz)
-	      OR ((ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') >= $3::timestamptz
-	        AND (ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') < $4::timestamptz)
-	      OR EXISTS (
-	        SELECT 1
-	        FROM vaccination_drive_assignment_members vdam
-	        JOIN vaccination_drive_assignments vda
-	          ON vda.tenant_id = vdam.tenant_id
-	         AND vda.assignment_id = vdam.assignment_id
-	        WHERE vdam.tenant_id = oi.tenant_id
-	          AND vdam.obligation_id = oi.obligation_id
-	          AND (vda.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') >= $3::timestamptz
-	          AND (vda.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') < $4::timestamptz
-	      )
-	      OR EXISTS (
-	        SELECT 1
-	        FROM vaccination_drive_assignments vda
-	        WHERE vda.tenant_id = oi.tenant_id
-	          AND vda.batch_id = oi.batch_id
-	          AND vda.park_id = $2::uuid
-	          AND (vda.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') >= $3::timestamptz
-	          AND (vda.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') < $4::timestamptz
-	      )
-	    )
-	  LIMIT 1
-	)`
+  WHERE c.status <> 'canceled'
+    AND ($5::boolean OR c.status <> 'completed')
+)`
 
 // ErrOwnerScopeUnresolvable is returned when the board asks for one user's rows and the
 // source has no way to translate that user id into the workforce member id the wrapped read
@@ -439,7 +468,6 @@ func (s *Source) hasVaccinationDueWork(ctx context.Context, q ports.SourceQuery,
 	if s.pool == nil {
 		return true, nil
 	}
-	dayEnd := dayStart.AddDate(0, 0, 1)
 	includeCompleted := len(q.WorkStates) == 0
 	for _, state := range q.WorkStates {
 		if state == domain.WorkStateCompleted {
@@ -455,7 +483,7 @@ func (s *Source) hasVaccinationDueWork(ctx context.Context, q ports.SourceQuery,
 		ctx, cancel := context.WithTimeout(ctx, s.precheckBudget())
 		defer cancel()
 		var ok bool
-		err := s.pool.QueryRow(ctx, vaccinationDueWorkPrecheckSQL, q.TenantID, q.ParkID, dayStart, dayEnd, includeCompleted).Scan(&ok)
+		err := s.pool.QueryRow(ctx, vaccinationDueWorkPrecheckSQL, vaccinationDueWorkPrecheckArgs(q.TenantID, q.ParkID, dayStart, includeCompleted)...).Scan(&ok)
 		if err != nil {
 			if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
 				// The precheck is only a skip optimization. If it is slow, fail open so a valid
@@ -656,4 +684,11 @@ WHERE tenant_id = $1::uuid AND workforce_member_id = ANY($2::uuid[])`, tenantID,
 		}
 	}
 	return out, rows.Err()
+}
+
+// vaccinationDueWorkPrecheckArgs binds vaccinationDueWorkPrecheckSQL: $3/$4 the IST day as
+// instants, $6/$7 the same day as dates (dayStart must be an IST midnight).
+func vaccinationDueWorkPrecheckArgs(tenantID, parkID string, dayStart time.Time, includeCompleted bool) []any {
+	dayEnd := dayStart.AddDate(0, 0, 1)
+	return []any{tenantID, parkID, dayStart, dayEnd, includeCompleted, dayStart.Format("2006-01-02"), dayEnd.Format("2006-01-02")}
 }
