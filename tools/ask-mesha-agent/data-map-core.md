@@ -39,7 +39,9 @@ topic -> view -> key columns -> date column
 - audit -> audit_activity_summary; notifications -> notification_delivery_health
 No sales/revenue view: use public.sales_deals (sales_value, payment_received, buyer_name, status='Deal Closed', sale_date, farm CBE/CPT).
 metrics -> how (exact defs + SQL: SKILL.md "Metric definitions"; never invent a proxy)
-- ADG/daily gain: compute from per-animal weighs in public.weighing_observations (consecutive weigh-ins); say it may differ slightly from /weighing/analytics. Never tell the CEO only pen averages are readable.
+- ADG/daily gain = app Weighing > Growth (ADG): run .agents/skills/mesha-data-map/references/adg-by-park.sql AS-IS (this month to date;
+  other window: edit only the 2 dates in its w CTE). Scanned kids (per-animal grams/days) + whole pens weighted by head count. It matches the
+  app exactly (01-24/09: CBE 152, CPT 148, all 150 g/day). NEVER write your own ADG SQL or pick a different weighting.
 - headcount: animal_current_scope lifecycle_status='alive'. sold: animals_base exit_reason='sold' by exit_business_day.
 - cost per kg gain = the app's Weighing > FCR tab "Feed cost per kg gain": per pen, consecutive weighing rounds; cost = DIRECTED feed
   (feed_direction_issue_rows, issued/amended/locked) x latest same-park per_kg_cost on/before each feed day; gain kg = pen ADG x fed head-days.

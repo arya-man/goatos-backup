@@ -1,0 +1,51 @@
+{
+  "_doc": "Queries in this folder copied from app logic. sha256 = source file content when the query was last derived/verified. Maintained by gen-data-map.mjs --check / --rehash-derived; see docs/agent-rules/ask-mesha.md.",
+  "queries": [
+    {
+      "query": ".agents/skills/mesha-data-map/references/adg-by-park.sql",
+      "verified": "2026-09-24",
+      "derived_from": [
+        {
+          "path": "backend/internal/weighing/adapters/postgres/growth.go",
+          "sha256": "1c3a5ddb4b1d2cadc3b061e1a01c3967e3f945a897fb5e879c67ad0ae9e19c54"
+        },
+        {
+          "path": "backend/internal/weighing/adapters/postgres/identity_scope.go",
+          "sha256": "f4c46d8dfb87cd19678fbfd70a66de2179bb1b52a68f83e7e027910a919e7005"
+        }
+      ]
+    },
+    {
+      "query": ".agents/skills/mesha-data-map/references/cost-per-kg-gain.sql",
+      "verified": "2026-09-24",
+      "derived_from": [
+        {
+          "path": "backend/internal/growthdirector/adapters/postgres/fcr.go",
+          "sha256": "bb829136aea14aafde3d86edbdbfb33705a3af61380cf2728e83676cecd3afbf"
+        },
+        {
+          "path": "backend/internal/growthdirector/domain/fcr.go",
+          "sha256": "97dff67c9c6c3388a9d61e26f09c3039f23cac98375b5216fdc720b8cbe2bb12"
+        }
+      ]
+    },
+    {
+      "query": ".agents/skills/mesha-data-map/references/feed-stock-days-left.sql",
+      "verified": "2026-09-24",
+      "derived_from": [
+        {
+          "path": "backend/internal/feeddirection/adapters/postgres/analytics.go",
+          "sha256": "37fd918f7f54278dcfaed5b7e24906cd24252e3e4755f4de7a5e8b6a0f9589e0"
+        },
+        {
+          "path": "backend/internal/feeddirection/domain/stock_family_merge.go",
+          "sha256": "335b8321f3dc6b151658f676a9b88022f3ac5edacc2d6a76d4f6023002251307"
+        },
+        {
+          "path": "backend/internal/feeddirection/domain/stock_rate_override.go",
+          "sha256": "dfbe040b21e2e25c967f71af520f9dc52fa7b9dab543100a5fe1ffa67591c859"
+        }
+      ]
+    }
+  ]
+}
