@@ -31,6 +31,7 @@ import sg.mesha.goatos.core.analytics.AnalyticsEventsSession
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.data.LogoutCoordinator
 import sg.mesha.goatos.core.data.sync.SyncJobsScheduler
+import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.datastore.SessionStore
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.feature.auth.LoginError
@@ -103,6 +104,8 @@ internal data class LoginUiState(
     val errorReason: LoginError? = null,
     val errorDetail: String? = null,
     val resetEmailSent: String? = null,
+    /** Non-null while the "sign in with another account" confirm is open: unsynced items to lose. */
+    val switchAccountPendingCount: Int? = null,
 )
 
 /**
@@ -134,6 +137,8 @@ class SessionViewModel @Inject constructor(
         appApi,
         CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
     ),
+    /** Source of the unsynced-work count shown before "Sign in with another account" wipes it. */
+    private val syncRepository: SyncRepository? = null,
 ) : ViewModel() {
     private companion object {
         const val TAG = "GoatOSSession"
@@ -284,6 +289,34 @@ class SessionViewModel @Inject constructor(
     }
 
     /**
+     * "Sign in with another account" from the access-not-set-up screen. That path runs the full
+     * logout, which WIPES the offline outbox, so when anything is still waiting to upload the
+     * operator must confirm first; the dialog shows how many items would be lost.
+     */
+    fun requestSignInWithAnotherAccount() {
+        val unsynced = unsyncedWorkCount()
+        if (unsynced > 0) {
+            _uiState.update { it.copy(switchAccountPendingCount = unsynced) }
+        } else {
+            signOut()
+        }
+    }
+
+    fun confirmSignInWithAnotherAccount() {
+        _uiState.update { it.copy(switchAccountPendingCount = null) }
+        signOut()
+    }
+
+    fun dismissSignInWithAnotherAccount() {
+        _uiState.update { it.copy(switchAccountPendingCount = null) }
+    }
+
+    private fun unsyncedWorkCount(): Int {
+        val status = syncRepository?.observeStatus()?.value ?: return 0
+        return status.pendingCount + status.inFlightCount + status.failedCount + status.deadLetterCount
+    }
+
+    /**
      * Full clean-slate logout (C35-001): delegates to the shared [LogoutCoordinator] — the
      * SAME path [sg.mesha.goatos.viewmodel.ProfileViewModel.signOut] uses — so every
      * authority-sensitive local store (Room caches, outbox, device identity, session) is
@@ -345,11 +378,11 @@ class SessionViewModel @Inject constructor(
         logInfo("Goat OS login session opened email=${email.orEmpty()} uid=${firebaseUid.orEmpty()} flavor=${BuildConfig.FLAVOR}")
         _uiState.update { it.copy(isLoading = false, errorReason = null, errorDetail = null) }
         // Sent last so a fast denial can never be overwritten by the success state above.
-        val sessionEvent = sessionEvents.send(eventType = "auth.sign_in", source = "android-${BuildConfig.FLAVOR}")
-        viewModelScope.launch {
-            val outcome = sessionEvent.await()
-            if (outcome is SessionEventOutcome.Denied) undoDeniedSignIn(outcome, email, firebaseUid, identityProps)
-        }
+        sessionEvents.send(
+            eventType = "auth.sign_in",
+            source = "android-${BuildConfig.FLAVOR}",
+            onDenied = { denied -> undoDeniedSignIn(denied, email, firebaseUid, identityProps) },
+        )
     }
 
     /**

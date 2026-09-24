@@ -18,7 +18,10 @@ enum class BootstrapErrorType {
 
     /**
      * Token is valid but access is not provisioned (403: no roster profile / no grant).
-     * Action: "Retry" -- never sign-out, which would wipe unsynced offline writes.
+     * Primary action: "Retry" -- never an automatic sign-out, which would wipe unsynced offline
+     * writes. Secondary action: "Sign in with another account", the operator's explicit choice for
+     * a wrong account; it confirms first, showing how many unsynced items would be lost, whenever
+     * anything is still waiting to upload.
      */
     ACCESS_NOT_PROVISIONED,
 }

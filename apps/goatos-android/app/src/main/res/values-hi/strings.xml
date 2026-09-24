@@ -60,6 +60,13 @@
     <string name="bootstrap_action_retry">फिर से कोशिश करें</string>
     <string name="bootstrap_action_other_account">दूसरे खाते से साइन इन करें</string>
     <string name="bootstrap_setting_up_access">आपकी पहुँच तैयार की जा रही है…</string>
+    <string name="bootstrap_switch_account_title">दूसरे खाते से साइन इन करें?</string>
+    <string name="bootstrap_switch_account_confirm">साइन आउट करें</string>
+    <string name="bootstrap_switch_account_cancel">रद्द करें</string>
+    <plurals name="bootstrap_switch_account_unsynced">
+        <item quantity="one">इस फ़ोन से %1$d आइटम अभी अपलोड नहीं हुआ है। साइन आउट करने पर वह हट जाएगा और वापस नहीं मिलेगा।</item>
+        <item quantity="other">इस फ़ोन से %1$d आइटम अभी अपलोड नहीं हुए हैं। साइन आउट करने पर वे हट जाएँगे और वापस नहीं मिलेंगे।</item>
+    </plurals>
     <string name="bootstrap_error_access_not_provisioned">आपकी पहुँच अभी सेट नहीं हुई है। अपने मैनेजर से जुड़वाने को कहें, फिर दोबारा कोशिश करें।</string>
     <string name="sheds_toast_already_submitted_fmt">%1$s पहले ही सत्यापन के लिए सबमिट किया जा चुका है</string>
     <string name="proof_photo_toxin_strip_title">स्ट्रिप की फ़ोटो लें</string>

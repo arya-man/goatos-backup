@@ -67,15 +67,30 @@ class AuthSessionEventSender(
 
     private val current = AtomicReference<Attempt?>(null)
 
-    /** Starts the event; a newer sign-in supersedes any still-retrying older one. */
-    fun send(eventType: String, source: String): Deferred<SessionEventOutcome> {
+    /**
+     * Starts the event; a newer sign-in supersedes any still-retrying older one. [onDenied] runs in
+     * the APPLICATION scope (not the caller's), so a denial still undoes the sign-in after the
+     * login screen / Activity is gone. It runs as its own job, after this attempt is cleared, so
+     * the logout it performs (which calls [cancel]) cannot cancel itself.
+     */
+    fun send(
+        eventType: String,
+        source: String,
+        onDenied: suspend (SessionEventOutcome.Denied) -> Unit = {},
+    ): Deferred<SessionEventOutcome> {
         val request = AuthSessionEventRequestDto(eventType = eventType, source = source)
         val outcome = CompletableDeferred<SessionEventOutcome>()
+        lateinit var attempt: Attempt
         val job = scope.launch(start = CoroutineStart.LAZY) {
-            outcome.complete(deliverWithRetry(request))
+            val result = deliverWithRetry(request)
+            outcome.complete(result)
+            if (result is SessionEventOutcome.Denied && current.compareAndSet(attempt, null)) {
+                scope.launch { onDenied(result) }
+            }
         }
         job.invokeOnCompletion { outcome.complete(SessionEventOutcome.GaveUp) }
-        current.getAndSet(Attempt(job, outcome))?.job?.cancel()
+        attempt = Attempt(job, outcome)
+        current.getAndSet(attempt)?.job?.cancel()
         job.start()
         return outcome
     }

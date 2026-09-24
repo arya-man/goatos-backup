@@ -1,7 +1,9 @@
 package sg.mesha.goatos.boot
 
 import android.content.Context
+import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -315,5 +317,96 @@ class SessionViewModelNonBlockingLoginTest {
         advanceTimeBy(600_000)
 
         assertEquals("no retry after logout", attemptsBeforeLogout, api.attempts)
+    }
+
+    @Test
+    fun `a denial that arrives after the login screen is gone still signs the user out`() = runTest {
+        assumeFirebaseFlavor()
+        val store = TimedSessionStore { testScheduler.currentTime }
+        val auth = OkFirebase()
+        val api = SessionEventApi(failWith = httpError(403), delayMs = 5_000)
+        val vm = buildVm(store, api, auth)
+
+        vm.signInWithEmail("operator@mesha.sg", "secret")
+        runCurrent()
+        withContext(Dispatchers.IO) { }
+        runCurrent()
+        assertEquals("session open while the event is in flight", FIREBASE_SESSION_MARKER, store.tokenFlow.value)
+
+        // The Activity finishes: the ViewModel scope dies before the 403 lands.
+        vm.viewModelScope.cancel()
+        advanceUntilIdle()
+
+        assertNull("the denial is still applied", store.tokenFlow.value)
+        assertTrue(auth.signedOut)
+    }
+
+    /** Only observeStatus() is used by the switch-account confirm; everything else fails loudly. */
+    private fun syncRepositoryWithPending(pending: Int): sg.mesha.goatos.core.data.sync.SyncRepository {
+        val status = kotlinx.coroutines.flow.MutableStateFlow(
+            sg.mesha.goatos.core.data.sync.SyncStatus.empty(online = false).copy(pendingCount = pending),
+        )
+        return java.lang.reflect.Proxy.newProxyInstance(
+            javaClass.classLoader,
+            arrayOf(sg.mesha.goatos.core.data.sync.SyncRepository::class.java),
+        ) { _, method, _ ->
+            if (method.name == "observeStatus") status else error("unexpected ${method.name}")
+        } as sg.mesha.goatos.core.data.sync.SyncRepository
+    }
+
+    private fun TestScope.buildSwitchVm(store: SessionStore, auth: OkFirebase, pending: Int): SessionViewModel {
+        val api = SessionEventApi()
+        return SessionViewModel(
+            store, auth, RecordingAnalytics(),
+            LogoutCoordinator(
+                api = api,
+                deviceStore = FakeDeviceStore(),
+                sessionStore = store,
+                screenCacheStore = ScreenCacheStore { },
+                outboxWiper = OutboxWiper { },
+                syncJobsCanceller = SyncJobsCanceller { },
+            ),
+            SyncJobsScheduler { }, api, SessionRelauncher { },
+            AuthSessionEventSender(api, backgroundScope),
+            syncRepositoryWithPending(pending),
+        )
+    }
+
+    @Test
+    fun `switching account with unsynced work asks first and does not wipe until confirmed`() = runTest {
+        val store = TimedSessionStore { testScheduler.currentTime }.apply { tokenFlow.value = FIREBASE_SESSION_MARKER }
+        val auth = OkFirebase()
+        val vm = buildSwitchVm(store, auth, pending = 3)
+
+        vm.requestSignInWithAnotherAccount()
+        advanceUntilIdle()
+        assertEquals("confirm shows the unsynced count", 3, vm.uiState.value.switchAccountPendingCount)
+        assertEquals("nothing wiped yet", FIREBASE_SESSION_MARKER, store.tokenFlow.value)
+        assertFalse(auth.signedOut)
+
+        vm.dismissSignInWithAnotherAccount()
+        advanceUntilIdle()
+        assertNull(vm.uiState.value.switchAccountPendingCount)
+        assertEquals("cancel keeps the session", FIREBASE_SESSION_MARKER, store.tokenFlow.value)
+
+        vm.requestSignInWithAnotherAccount()
+        vm.confirmSignInWithAnotherAccount()
+        advanceUntilIdle()
+        assertNull("confirmed switch signs out", store.tokenFlow.value)
+        assertTrue(auth.signedOut)
+    }
+
+    @Test
+    fun `switching account with nothing unsynced signs out straight away`() = runTest {
+        val store = TimedSessionStore { testScheduler.currentTime }.apply { tokenFlow.value = FIREBASE_SESSION_MARKER }
+        val auth = OkFirebase()
+        val vm = buildSwitchVm(store, auth, pending = 0)
+
+        vm.requestSignInWithAnotherAccount()
+        advanceUntilIdle()
+
+        assertNull(vm.uiState.value.switchAccountPendingCount)
+        assertNull(store.tokenFlow.value)
+        assertTrue(auth.signedOut)
     }
 }

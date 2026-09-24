@@ -266,13 +266,38 @@ class MainActivity : ComponentActivity() {
                                 BootstrapErrorType.ACCESS_NOT_PROVISIONED -> {
                                     // Valid sign-in, access not set up. Retry is primary; signing
                                     // in with another account is the operator's explicit choice
-                                    // (a wrong account is otherwise a dead end).
+                                    // (a wrong account is otherwise a dead end). It wipes unsynced
+                                    // work, so it confirms first whenever anything is pending.
+                                    val loginState by sessionViewModel.uiState.collectAsStateWithLifecycle()
+                                    loginState.switchAccountPendingCount?.let { pending ->
+                                        androidx.compose.material3.AlertDialog(
+                                            onDismissRequest = sessionViewModel::dismissSignInWithAnotherAccount,
+                                            title = { Text(stringResource(R.string.bootstrap_switch_account_title)) },
+                                            text = {
+                                                Text(
+                                                    androidx.compose.ui.res.pluralStringResource(
+                                                        R.plurals.bootstrap_switch_account_unsynced, pending, pending,
+                                                    ),
+                                                )
+                                            },
+                                            confirmButton = {
+                                                androidx.compose.material3.TextButton(
+                                                    onClick = sessionViewModel::confirmSignInWithAnotherAccount,
+                                                ) { Text(stringResource(R.string.bootstrap_switch_account_confirm)) }
+                                            },
+                                            dismissButton = {
+                                                androidx.compose.material3.TextButton(
+                                                    onClick = sessionViewModel::dismissSignInWithAnotherAccount,
+                                                ) { Text(stringResource(R.string.bootstrap_switch_account_cancel)) }
+                                            },
+                                        )
+                                    }
                                     BootstrapError(
                                         message = stringResource(R.string.bootstrap_error_access_not_provisioned),
                                         actionLabel = stringResource(R.string.bootstrap_action_retry),
                                         onAction = bootstrapViewModel::load,
                                         secondaryActionLabel = stringResource(R.string.bootstrap_action_other_account),
-                                        onSecondaryAction = { sessionViewModel.signOut() },
+                                        onSecondaryAction = sessionViewModel::requestSignInWithAnotherAccount,
                                     )
                                 }
                                 BootstrapErrorType.CONNECTIVITY_FAILURE -> {
