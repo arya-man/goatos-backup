@@ -137,3 +137,54 @@ func TestAFeedTheLedgerNeverCarriedDoesNotWarn(t *testing.T) {
 		t.Fatalf("the store must still be asked once, got %d", store.asked)
 	}
 }
+
+// ONE SALE MAY CARRY THE SAME FEED TWICE, and the store must be asked about the SALE rather than
+// about each line. Two lots at two rates is an ordinary way to write a load; asked one line at a
+// time, two 9,000 kg lines walked through a 13,790 kg store because neither exceeded it alone, and
+// the store went to -4,289.9 kg with nobody warned (found reviewing PR #397 on the live API).
+func TestTwoLinesOfOneFeedAreWeighedAgainstTheStoreTogether(t *testing.T) {
+	repo := &feedRepo{}
+	store := &feedStore{balances: map[string]float64{"CPT/Maize": 1000}}
+	s := NewSalesService(repo).WithFeedStock(store)
+
+	write := feedSaleWrite(600)
+	second := 600.0
+	write.Lines = append(write.Lines, domain.DealLineWrite{
+		ProductType: "Feed", Breed: "Maize", Quantity: &second, RatePerUnit: ptr(21),
+	})
+
+	_, err := s.CreateDeal(context.Background(), tenant, write, "actor", "two-lines")
+	var short domain.ErrFeedStockShort
+	if !errors.As(err, &short) {
+		t.Fatalf("600kg + 600kg out of 1000kg must ask for confirmation, got %v", err)
+	}
+	if len(short.Shortfalls) != 1 {
+		t.Fatalf("one feed short once, not once per line: got %d", len(short.Shortfalls))
+	}
+	if got := short.Shortfalls[0].RequestedKg; got != 1200 {
+		t.Fatalf("the sale takes 1200kg, the desk must be told 1200 not %v", got)
+	}
+	if repo.createCalls != 0 {
+		t.Fatal("nothing may be recorded while the confirmation is outstanding")
+	}
+}
+
+// ...and a feed the store can still cover across both lines is not queried twice into a refusal.
+func TestTwoLinesTheStoreCanCoverTogetherRecord(t *testing.T) {
+	repo := &feedRepo{}
+	store := &feedStore{balances: map[string]float64{"CPT/Maize": 1000}}
+	s := NewSalesService(repo).WithFeedStock(store)
+
+	write := feedSaleWrite(400)
+	second := 400.0
+	write.Lines = append(write.Lines, domain.DealLineWrite{
+		ProductType: "Feed", Breed: "Maize", Quantity: &second, RatePerUnit: ptr(21),
+	})
+
+	if _, err := s.CreateDeal(context.Background(), tenant, write, "actor", "two-ok"); err != nil {
+		t.Fatalf("800kg out of 1000kg is covered and must record: %v", err)
+	}
+	if repo.createCalls != 1 {
+		t.Fatalf("want one create, got %d", repo.createCalls)
+	}
+}
