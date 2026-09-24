@@ -472,6 +472,15 @@ async function ask(req, res, user) {
     (Array.isArray(body.attachments) && body.attachments.length > 0) ||
     DEEP_HINT.test(question);
   let prompt = question.replace(/^deep:\s*/i, "");
+  // Resumed chats can carry stale conclusions from when access was narrower
+  // ("prices aren't readable"). A turn-level note beats the system prompt there.
+  if (chat.session_id) {
+    prompt =
+      "[Context note, not from the user: you can read EVERY table now, including raw public.* tables " +
+      "(e.g. feed purchase prices in public.feed_purchases, per-weigh rows in public.weighing_observations). " +
+      "If earlier in this chat you said something wasn't readable, query the raw tables before answering.]\n\n" +
+      prompt;
+  }
   const scope = body.page_scope && typeof body.page_scope === "object" ? body.page_scope : {};
   const pageScope = {
     park_id: typeof scope.park_id === "string" && scope.park_id ? scope.park_id : "",

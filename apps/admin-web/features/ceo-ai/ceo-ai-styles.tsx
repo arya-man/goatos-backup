@@ -464,6 +464,8 @@ export function CeoAiStyles(): ReactElement {
   border-radius:50%;animation:mzai-spin .8s linear infinite}
 @keyframes mzai-spin{to{transform:rotate(360deg)}}
 @media (prefers-reduced-motion:reduce){.mzai-steps.live .mzai-steps-head,.mzai-steps li.now .mzai-step-ic{animation:none}}
+.mzai-send.stop{background:var(--panel);color:var(--ink);border:1.5px solid var(--brand)}
+.mzai-send.stop:hover{background:var(--brand-soft);transform:none}
 `}</style>
   );
 }
