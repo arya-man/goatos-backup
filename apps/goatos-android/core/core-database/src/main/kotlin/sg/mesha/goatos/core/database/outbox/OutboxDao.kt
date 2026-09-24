@@ -171,6 +171,12 @@ interface OutboxDao {
     )
     fun observeActiveCounts(): Flow<ActiveOutboxCounts>
 
+    /** One-shot count of every row not yet accepted by the server (anything but SUCCEEDED),
+     *  dead-lettered and exhausted rows included: these are exactly the writes a logout wipe
+     *  would destroy. A direct query, so it is correct on a cold start before any Flow emits. */
+    @Query("SELECT COUNT(*) FROM outbox WHERE status != 'SUCCEEDED'")
+    suspend fun countUnsynced(): Int
+
     /** Observes a bounded window of ACTIVE rows (newest-first, limited by [limit]) without
      *  unbounded growth. Excludes SUCCEEDED, terminal FAILED, and dead-letter rows.
      *  Use this instead of [observeActive] when you need a subset for UI display. */

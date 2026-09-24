@@ -93,6 +93,15 @@ interface SyncRepository {
     fun observeStatus(): StateFlow<SyncStatus>
 
     /**
+     * How many writes on this phone the server has not accepted yet, read directly from the
+     * outbox rather than from the [observeStatus] snapshot, which is still empty on a cold start
+     * until the first Room emission. Use it before anything that would wipe the outbox.
+     */
+    suspend fun unsyncedCountNow(): Int = observeStatus().value.let {
+        it.pendingCount + it.inFlightCount + it.failedCount + it.deadLetterCount
+    }
+
+    /**
      * Active, locally durable Health reports that do not have backend-created treatment sessions
      * yet. Lightweight fakes default to an empty stream; production projects these directly from
      * Room's outbox so an offline report remains visible after navigation or process recreation.
@@ -1115,6 +1124,8 @@ class DefaultSyncRepository(
             }
         }
     }
+
+    override suspend fun unsyncedCountNow(): Int = store.countUnsynced()
 
     override fun observeStatus(): StateFlow<SyncStatus> = _status.asStateFlow()
 
