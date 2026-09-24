@@ -312,7 +312,25 @@ type GenerationService struct {
 	crossHistory    CrossVaccineGapHistoryReader
 	preArrival      PreArrivalHistoryWriter
 	runs            GenerationRunRecorder
+	log             *slog.Logger
 	page            int32
+}
+
+// WithLogger sets the logger used for per-goat and write-guard warnings during generation.
+func (s *GenerationService) WithLogger(log *slog.Logger) *GenerationService {
+	if log != nil {
+		s.log = log
+	}
+	return s
+}
+
+// logger returns the configured logger, falling back to the process default so services built
+// without WithLogger (including struct-literal test fixtures) log exactly as before.
+func (s *GenerationService) logger() *slog.Logger {
+	if s != nil && s.log != nil {
+		return s.log
+	}
+	return slog.Default()
 }
 
 // NewGenerationService wires the three repos. The completion-evidence reader is auto-wired when the
@@ -687,7 +705,7 @@ func (s *GenerationService) generateEffectiveForAllGoats(ctx context.Context, te
 			if shouldAbortGeneration(err) {
 				return res, err
 			}
-			slog.Warn("vaccination generation: goat failed; continuing with the rest of the run",
+			s.logger().Warn("vaccination generation: goat failed; continuing with the rest of the run",
 				"tenant_id", tenantID, "goat_id", p.goat.GoatID, "version_id", p.versionID, "err", err)
 			recordFailedGenerationGoat(&res, failedGoats, p.goat.GoatID)
 			continue
@@ -1542,7 +1560,7 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 			if shouldAbortGeneration(err) {
 				return res, err
 			}
-			slog.Warn("vaccination generation: goat failed; continuing with the rest of the run",
+			s.logger().Warn("vaccination generation: goat failed; continuing with the rest of the run",
 				"tenant_id", tenantID, "goat_id", p.goat.GoatID, "version_id", p.versionID, "err", err)
 			recordFailedGenerationGoat(&res, failedGoats, p.goat.GoatID)
 			continue
@@ -2236,7 +2254,7 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			if errors.Is(err, oblports.ErrAmbiguousOpenWork) {
 				res.AmbiguousOpenWork++
 			}
-			if skipGuardRejectedVaccine(err, tenantID, g, rule, res) {
+			if s.skipGuardRejectedVaccine(err, tenantID, g, rule, res) {
 				continue
 			}
 			return err
@@ -2254,7 +2272,7 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			_, applied, err = s.obl.InsertObligation(ctx, newObligation)
 		}
 		if err != nil {
-			if skipGuardRejectedVaccine(err, tenantID, g, rule, res) {
+			if s.skipGuardRejectedVaccine(err, tenantID, g, rule, res) {
 				continue
 			}
 			return err
@@ -2370,7 +2388,7 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 				// Terminal/history cancellations never reach here (see cancelReasonMintsSuccessor).
 				successorRef, successorChanged, successorApplied, err := s.insertSuccessorForCanceledGenerationReplay(ctx, tenantID, key, newObligation, asOf, deferred, deferReason)
 				if err != nil {
-					if skipGuardRejectedVaccine(err, tenantID, g, rule, res) {
+					if s.skipGuardRejectedVaccine(err, tenantID, g, rule, res) {
 						continue
 					}
 					return err
@@ -2424,12 +2442,12 @@ func purposeAllowsGeneration(g domain.EligibleGoat, vaccine vaccineProfile, poli
 // skipGuardRejectedVaccine turns a persistence write-guard refusal (age floor, purpose
 // applicability) into a per-vaccine skip: the repository is the final authority, and one refused
 // dose must not abort the goat's other vaccines on every pass. Any other error is not handled here.
-func skipGuardRejectedVaccine(err error, tenantID string, g domain.EligibleGoat, rule protodomain.Rule, res *domain.GenerateResult) bool {
+func (s *GenerationService) skipGuardRejectedVaccine(err error, tenantID string, g domain.EligibleGoat, rule protodomain.Rule, res *domain.GenerateResult) bool {
 	if !errors.Is(err, oblports.ErrBeforeVaccinationAgeFloor) && !errors.Is(err, oblports.ErrVaccinationNotApplicable) {
 		return false
 	}
 	res.GuardRejected++
-	slog.Warn("vaccination generation: write guard rejected dose; skipping vaccine",
+	s.logger().Warn("vaccination generation: write guard rejected dose; skipping vaccine",
 		"tenant_id", tenantID, "goat_id", g.GoatID, "rule_id", rule.RuleID, "dose_code", rule.DoseCode, "reason", err.Error())
 	return true
 }
@@ -2590,7 +2608,7 @@ func (s *GenerationService) genMissingDueDateObligation(ctx context.Context, ten
 	})
 	if err != nil {
 		// The caller moves on to the next rule; a guard refusal skips only this placeholder.
-		if skipGuardRejectedVaccine(err, tenantID, g, rule, res) {
+		if s.skipGuardRejectedVaccine(err, tenantID, g, rule, res) {
 			return nil
 		}
 		return err
