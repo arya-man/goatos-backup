@@ -198,3 +198,14 @@ test("series are capped at the palette size so colours never repeat", () => {
   assert.equal(layout.lines.length, 7);
   assert.equal(new Set(layout.lines.map((l) => l.color)).size, 7);
 });
+
+test("a series measured once stays in the comparison, in any order", () => {
+  const a = { name: "Coimbatore", data: [20, 21, 22] };
+  const b = { name: "Channapatna", data: [null, 19, null] };
+  for (const series of [[a, b], [b, a]]) {
+    const layout = chartLayout({ type: "bar", title: "Coimbatore vs Channapatna", x: ["A", "B", "C"], series });
+    assert.ok(layout);
+    assert.deepEqual(layout.legend.map((l) => l.name), series.map((s) => s.name));
+    assert.equal(layout.bars[1].parts.length, 2);
+  }
+});

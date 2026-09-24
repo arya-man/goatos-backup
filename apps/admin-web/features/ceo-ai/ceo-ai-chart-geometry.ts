@@ -103,12 +103,13 @@ const isValue = (v: unknown): v is number => typeof v === "number" && Number.isF
 const isMissing = (v: unknown) => v === null || v === undefined;
 
 // cleanSeries: a series whose first n entries are all readings or missing (never NaN / "12"),
-// with at least two real readings; missing entries are normalised to null.
+// with at least one real reading; missing entries are normalised to null. (A pen measured once
+// still belongs in a comparison; the chart as a whole needs one series with >= 2 readings.)
 function cleanSeries(s: CeoAiChartSeries | undefined, n: number, i: number): CeoAiChartSeries | null {
   if (!s || !Array.isArray(s.data)) return null;
   const data = Array.from({ length: n }, (_, k) => s.data[k]);
   if (!data.every((v) => isValue(v) || isMissing(v))) return null;
-  if (data.filter(isValue).length < 2) return null;
+  if (data.filter(isValue).length < 1) return null;
   return { name: String(s.name || `Series ${i + 1}`), data: data.map((v) => (isValue(v) ? v : null)) };
 }
 
@@ -117,9 +118,10 @@ function cleanSeries(s: CeoAiChartSeries | undefined, n: number, i: number): Ceo
 export function isRenderableChart(chart: CeoAiChart | undefined | null): chart is CeoAiChart {
   if (!chart || (chart.type !== "bar" && chart.type !== "line")) return false;
   if (!Array.isArray(chart.x) || chart.x.length < 2 || !Array.isArray(chart.series)) return false;
-  const s = chart.series[0];
-  if (!s || !Array.isArray(s.data) || s.data.length < 2) return false;
-  return cleanSeries(s, chart.x.length, 0) !== null;
+  // Every series must be well-formed (a malformed one rejects the chart, never silently vanishes).
+  const all = chart.series.map((s, i) => cleanSeries(s, chart.x.length, i));
+  if (!all.length || all.some((s) => s === null)) return false;
+  return all.some((s) => s!.data.filter(isValue).length >= 2);
 }
 
 // formatChartValue keeps value labels short and readable (1,234 / 12.5).
