@@ -1573,11 +1573,15 @@ SELECT weighing_observations.observation_id::text,
        weighing_observations.sop_answers::text,
        -- {ref: kind} for the row's captures (at most four), read from the register so an
        -- either-kind slot reopens as what it is. Bounded: one scalar subquery per row.
+       -- Same ANY(uuid[]) primary-key probe as capture_sql.go's animalProofKindsSQL, inlined so
+       -- this SQL stays a compile-time constant for the bind-contract check.
        COALESCE((SELECT jsonb_object_agg(pa.proof_id::text, pa.proof_type)
                  FROM proof_artifacts pa
                  WHERE pa.tenant_id=weighing_observations.tenant_id
-                   AND (pa.proof_id=weighing_observations.proof_artifact_id
-                        OR pa.proof_id::text IN (SELECT e.value FROM jsonb_each_text(weighing_observations.sop_proofs) e))), '{}'::jsonb)::text
+                   AND pa.proof_id = ANY(array_append(ARRAY(
+                         SELECT e.value::uuid FROM jsonb_each_text(weighing_observations.sop_proofs) e
+                         WHERE e.value ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'),
+                       weighing_observations.proof_artifact_id))), '{}'::jsonb)::text
 FROM weighing_observations
 JOIN weighing_campaign_sheds cs
   ON cs.tenant_id=weighing_observations.tenant_id
