@@ -3,7 +3,7 @@ package sg.mesha.goatos.rfid
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
-class DefaultRfidInputTransformTest {
+class DevDefaultRfidInputTransformTest {
     private val transform = DefaultRfidInputTransform()
 
     @Test
