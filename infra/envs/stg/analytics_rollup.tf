@@ -119,6 +119,19 @@ resource "google_cloud_run_v2_job" "analytics_rollup" {
           value = var.project_id
         }
 
+        # app_events keeps 15 days hot; older received days are exported to the
+        # archive bucket, verified (row count + stored size/MD5), then deleted in
+        # bounded batches. Empty bucket = no archive AND no deletion.
+        env {
+          name  = "GOATOS_ANALYTICS_ARCHIVE_BUCKET"
+          value = google_storage_bucket.analytics_archive.name
+        }
+
+        env {
+          name  = "GOATOS_ANALYTICS_APP_EVENTS_RETENTION_DAYS"
+          value = "15"
+        }
+
         env {
           name  = "GOATOS_TENANT_ID"
           value = var.stg_tenant_id
@@ -200,4 +213,105 @@ resource "google_cloud_run_v2_job_iam_member" "analytics_rollup_worker_viewer" {
   name     = google_cloud_run_v2_job.analytics_rollup.name
   role     = "roles/run.viewer"
   member   = "serviceAccount:${google_service_account.runtime["kernel_worker"].email}"
+}
+
+# ---------------------------------------------------------------------------
+# Cold archive for analytics.app_events older than the 15-day hot window.
+# One gzip JSONL object per UTC received day:
+#   gs://goatos-stg-analytics-archive/app_events/dt=YYYY-MM-DD/part-<sha16>.jsonl.gz
+# The job only creates (ifGenerationMatch=0) and reads object metadata to
+# verify; it can neither overwrite nor delete archived objects.
+# ---------------------------------------------------------------------------
+resource "google_storage_bucket" "analytics_archive" {
+  name                        = "goatos-stg-analytics-archive"
+  location                    = var.region # asia-south1, co-located with the BigQuery dataset below.
+  force_destroy               = false
+  uniform_bucket_level_access = true
+  public_access_prevention    = "enforced"
+  labels                      = local.labels
+
+  lifecycle_rule {
+    condition {
+      age = 30
+    }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "COLDLINE"
+    }
+  }
+
+  lifecycle_rule {
+    condition {
+      age = 90
+    }
+    action {
+      type          = "SetStorageClass"
+      storage_class = "ARCHIVE"
+    }
+  }
+
+  depends_on = [google_project_service.enabled]
+}
+
+resource "google_storage_bucket_iam_member" "analytics_rollup_archive_creator" {
+  bucket = google_storage_bucket.analytics_archive.name
+  role   = "roles/storage.objectCreator"
+  member = "serviceAccount:${google_service_account.analytics_rollup.email}"
+}
+
+# Verification reads the stored object's size/MD5 (storage.objects.get) before
+# any Postgres row is deleted; objectCreator alone cannot read metadata.
+resource "google_storage_bucket_iam_member" "analytics_rollup_archive_viewer" {
+  bucket = google_storage_bucket.analytics_archive.name
+  role   = "roles/storage.objectViewer"
+  member = "serviceAccount:${google_service_account.analytics_rollup.email}"
+}
+
+# Query archived events without restoring them:
+#   SELECT event_name, count(*) FROM `goatos-stg.goatos_stg_analytics_rollup.app_events_archive`
+#   WHERE dt BETWEEN '2026-09-01' AND '2026-09-07' GROUP BY 1
+# Always filter on dt (hive partition) so BigQuery reads only those day objects.
+# Coldline/Archive objects incur per-GB retrieval charges when scanned.
+resource "google_bigquery_table" "app_events_archive" {
+  dataset_id          = google_bigquery_dataset.analytics_rollup.dataset_id
+  table_id            = "app_events_archive"
+  deletion_protection = false
+  labels              = local.labels
+
+  external_data_configuration {
+    source_format = "NEWLINE_DELIMITED_JSON"
+    compression   = "GZIP"
+    autodetect    = false
+    source_uris   = ["gs://${google_storage_bucket.analytics_archive.name}/app_events/*"]
+
+    hive_partitioning_options {
+      mode                     = "CUSTOM"
+      source_uri_prefix        = "gs://${google_storage_bucket.analytics_archive.name}/app_events/{dt:DATE}"
+      require_partition_filter = true
+    }
+
+    json_options {
+      encoding = "UTF-8"
+    }
+
+    ignore_unknown_values = true
+
+    schema = jsonencode([
+      { name = "event_id", type = "STRING", mode = "REQUIRED" },
+      { name = "tenant_id", type = "STRING", mode = "NULLABLE" },
+      { name = "actor_id", type = "STRING", mode = "NULLABLE" },
+      { name = "device_id", type = "STRING", mode = "NULLABLE" },
+      { name = "event_name", type = "STRING", mode = "REQUIRED" },
+      { name = "properties", type = "JSON", mode = "NULLABLE" },
+      { name = "client_event_id", type = "STRING", mode = "NULLABLE" },
+      { name = "client_event_time", type = "TIMESTAMP", mode = "NULLABLE" },
+      { name = "received_at", type = "TIMESTAMP", mode = "REQUIRED" },
+      { name = "flavor", type = "STRING", mode = "NULLABLE" },
+      { name = "app_version_name", type = "STRING", mode = "NULLABLE" },
+      { name = "app_version_code", type = "INT64", mode = "NULLABLE" },
+      { name = "request_id", type = "STRING", mode = "NULLABLE" },
+      { name = "trace_id", type = "STRING", mode = "NULLABLE" },
+      { name = "client_info", type = "JSON", mode = "NULLABLE" },
+    ])
+  }
 }
