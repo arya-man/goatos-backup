@@ -34,6 +34,8 @@
     <string name="login_error_no_google_account">No Google account found on this device.</string>
     <string name="login_error_no_dev_backend">This build has no backend session configured. Install a dev build with goatosDevBearerToken set, or a Firebase-verified build, to sign in.</string>
     <string name="login_error_generic">Sign-in failed. Try again.</string>
+    <string name="login_error_no_session_token">Signed in, but no session was issued. Try again.</string>
+    <string name="login_error_workspace_unavailable">Signed in, but Mesha could not open your workspace. Ask your manager to check your access.</string>
 
     <!-- Optional device-readiness copy retained for operator onboarding surfaces. -->
     <string name="perm_gate_title">Device permissions</string>

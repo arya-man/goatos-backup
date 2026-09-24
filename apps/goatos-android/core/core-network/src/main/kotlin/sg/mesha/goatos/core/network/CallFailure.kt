@@ -14,7 +14,7 @@ sealed interface CallFailure {
     /** Network/IO failure, HTTP 5xx or 429: try again, no sooner than [retryAfterMs] if given. */
     data class Transient(val retryAfterMs: Long?) : CallFailure
 
-    /** HTTP 401/403: the server's definitive answer about this principal. */
+    /** HTTP 403: the server's definitive answer that this principal may not use Goat OS. */
     data class Denied(val statusCode: Int) : CallFailure
 
     /** Any other 4xx, a serialization error, or anything unexpected: retrying cannot help. */
@@ -27,8 +27,10 @@ fun Throwable.classifyCallFailure(nowEpochMs: Long = System.currentTimeMillis())
     if (http != null) {
         val code = http.code()
         return when {
-            code == 401 || code == 403 -> CallFailure.Denied(code)
-            code == 429 || code >= 500 ->
+            // A 401 is a TOKEN problem (expired/refreshing Firebase ID token), not a verdict on
+            // the person; the next attempt mints a fresh token, so it is retried, never Denied.
+            code == 403 -> CallFailure.Denied(code)
+            code == 401 || code == 429 || code >= 500 ->
                 CallFailure.Transient(parseRetryAfterMs(http.response()?.headers()?.get("Retry-After"), nowEpochMs))
             else -> CallFailure.Permanent
         }

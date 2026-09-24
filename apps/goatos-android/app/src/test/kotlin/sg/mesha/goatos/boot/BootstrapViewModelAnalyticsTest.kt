@@ -313,4 +313,31 @@ class BootstrapViewModelAnalyticsTest {
             vm.state.value,
         )
     }
+
+    @Test
+    fun `a denied sign-in kept for unsynced work routes the shell to the no-access screen`() = runTest {
+        var loads = 0
+        val repo = object : BootstrapRepository {
+            override suspend fun loadNavState(): NavState { loads++; return NavState(NavChrome.MINIMAL, emptyList()) }
+            override suspend fun operatorProfile(): BootstrapOperatorProfileDto? = null
+        }
+        val sender = AuthSessionEventSender(sg.mesha.goatos.core.network.FakeAppApi(), backgroundScope)
+        val vm = BootstrapViewModel(
+            repo, RecordingAnalytics(), AnalyticsContext(flavor = "stg"), FakeDeviceStore(),
+            FakeAuthRepository("kept@mesha.sg"), FakeCrashReporter(), PushTokenSync {}, FakeConnectivityGate(),
+            NavStateRefreshSignal(), sender,
+        )
+        vm.load()
+        advanceUntilIdle()
+        assertTrue(vm.state.value is BootstrapUiState.Ready)
+
+        sender.markAccessDenied()
+        advanceUntilIdle()
+        assertEquals(BootstrapUiState.Error(BootstrapErrorType.ACCESS_NOT_PROVISIONED), vm.state.value)
+
+        vm.load()
+        advanceUntilIdle()
+        assertEquals("Retry stays on the no-access screen", BootstrapUiState.Error(BootstrapErrorType.ACCESS_NOT_PROVISIONED), vm.state.value)
+        assertEquals("no bootstrap call while denied", 1, loads)
+    }
 }
