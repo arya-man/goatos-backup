@@ -91,7 +91,7 @@ Beware ambiguous `status` when joining locations: qualify it (`t.status`).
 | Feed payments | feed_purchase_payments | paid_on, amount_rupees, feed_purchase_id -> feed_purchases (bill = total_cost) |
 | Config change history | feed_config_write_log (actor_ref, write_kind, created_at), health_config_write_log, audit_log | |
 | Tag / identity decisions | identity_decisions | decision_type (retire_identifier, attach_identifier, exit_goat...), decision_state |
-| RFID sensors | herd_signal_tag_latest | battery_state, signal_state, movement_state (not_moving = zero motion latest 15 min, live), pattern_state (inactive/quiet_watch = sustained), last_seen_at (19 tags) |
+| RFID sensors | herd_signal_tag_latest | Live Monitor Status: stale movement_state=Missing signal, signal_state weak=Weak signal, battery_state low/critical=Low battery (never infer from battery_mv), else Good; movement_state (not_moving = zero motion latest 15 min, live), pattern_state (inactive/quiet_watch = sustained), last_seen_at (19 tags) |
 | Sale allocations / growth price | goat_sale_allocations (status tagged), growth_sale_price_assumptions (price_per_kg_inr) | |
 | Births | goat_births (individually registered kids, 2 rows) vs counts_movement_daily births (herd count, ~600) | give both numbers + one line why; herd count includes 458 bulk-entered on 05/08/2026 |
 
@@ -126,7 +126,9 @@ p AS (SELECT l.park_label, l.n, (l.w-f.w)*1000/(l.d-f.d) g FROM s l JOIN s f USI
 SELECT coalesce(park_label,'ALL'), round(sum(n*g)/sum(n)) g_per_day, sum(n) kids FROM p GROUP BY ROLLUP(park_label);
 ```
 
-**Headcount / active animals** (counts herd register): `lifecycle_status='alive'`, merged goats excluded.
+**Headcount / active animals** (counts herd register): `lifecycle_status='alive'`, merged goats excluded. The view also
+holds sold/dead/inactive rows, so every %/ratio/split needs the alive filter. Pen part counts: `shed_label` + `partition_label`
+("Castro 1" = Castro partition '1', "M2P10" = Mandela 2 'Part 10'); name the park per row.
 `SELECT park_label, count(*) FROM ceo_ai.animal_current_scope WHERE lifecycle_status='alive' GROUP BY ROLLUP(1);`
 Result 24/09/2026: 1562 (CBE 850, CPT 712). Caveat: the view does not drop merged goats, so it may be slightly high.
 
