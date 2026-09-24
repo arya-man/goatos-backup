@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -3180,33 +3181,212 @@ UPDATE obligation_instances SET rule_identity_key = $2 WHERE tenant_id = $1 AND 
 // pairs, so it falls back to that same previous behaviour rather than carrying over content
 // nothing has verified.
 func (r *Repository) CarryOverUnchangedVaccinationObligations(ctx context.Context, tenantID string, goatIDs, effectiveVersionIDs []string) (int, error) {
-	ctx, cancel := r.withTimeout(ctx)
-	defer cancel()
-	if len(goatIDs) == 0 || len(effectiveVersionIDs) == 0 {
-		return 0, nil
+	carried, _, err := r.carryOverUnchangedVaccinationObligations(ctx, tenantID, goatIDs, effectiveVersionIDs)
+	return carried, err
+}
+
+// carryOverGoatChunkSize bounds one carry-over transaction. Each chunk is its own SERIALIZABLE
+// transaction with the bounded retry, so a lost race retries ~200 goats rather than the tenant,
+// and goat/obligation locks are held only for one chunk's fixed number of statements.
+const carryOverGoatChunkSize = 200
+
+// carryOverStats reports the cost of one carry-over call (logged; asserted by the scale test).
+type carryOverStats struct {
+	Chunks     int
+	Attempts   int
+	Queries    int
+	Candidates int
+	Rebound    int
+	Duration   time.Duration
+	// StrandedInProgress are in_progress rows whose retained date the new rule rejects. They stay
+	// on their retired version (live drive work is never removed) and are logged for follow-up.
+	StrandedInProgress []string
+}
+
+// countingTx counts the statements a carry-over chunk sends, so the fixed-query contract is
+// observable in logs and tests.
+type countingTx struct {
+	pgx.Tx
+	n *int
+}
+
+func (c countingTx) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+	*c.n++
+	return c.Tx.Query(ctx, sql, args...)
+}
+
+func (c countingTx) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	*c.n++
+	return c.Tx.QueryRow(ctx, sql, args...)
+}
+
+func (c countingTx) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+	*c.n++
+	return c.Tx.Exec(ctx, sql, args...)
+}
+
+// carryOverGoatChunks dedupes and sorts goat ids and splits them into bounded chunks. Sorting
+// keeps chunk membership (and so retry scope) deterministic across calls.
+func carryOverGoatChunks(goatIDs []string, size int) [][]string {
+	seen := make(map[string]bool, len(goatIDs))
+	ids := make([]string, 0, len(goatIDs))
+	for _, id := range goatIDs {
+		id = strings.ToLower(strings.TrimSpace(id))
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		ids = append(ids, id)
 	}
-	if _, err := pgconv.UUID(tenantID); err != nil {
-		return 0, fmt.Errorf("obligation: tenant id: %w", err)
+	sort.Strings(ids)
+	var chunks [][]string
+	for len(ids) > 0 {
+		n := size
+		if n > len(ids) {
+			n = len(ids)
+		}
+		chunks = append(chunks, ids[:n])
+		ids = ids[n:]
+	}
+	return chunks
+}
+
+// carryOverUnchangedVaccinationObligations processes the goats in bounded chunks. Each chunk:
+//
+//  1. share-locks its goats in goat_id order (one statement);
+//  2. selects and row-locks the strict candidates in obligation_id order (one statement);
+//  3. proves every candidate with validateVaccinationWrites (at most four statements);
+//  4. rebinds every valid candidate with one set-based UPDATE (savepoint + one statement);
+//  5. repeats 2-4 for the medically-equivalent pass, then commits.
+//
+// So a chunk costs a fixed number of statements regardless of its candidate count, and the lock
+// order is always goats (by goat_id) then obligations (by obligation_id).
+//
+// Chunks commit independently. A failure in a later chunk returns the count so far with the error;
+// every row an earlier chunk rebound was individually proved valid, so the partial state is a
+// correct state and the next publish/generation pass picks up the rest.
+func (r *Repository) carryOverUnchangedVaccinationObligations(ctx context.Context, tenantID string, goatIDs, effectiveVersionIDs []string) (int, carryOverStats, error) {
+	var stats carryOverStats
+	if len(goatIDs) == 0 || len(effectiveVersionIDs) == 0 {
+		return 0, stats, nil
+	}
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return 0, stats, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	started := time.Now()
+	defer func() {
+		stats.Duration = time.Since(started)
+		r.log.InfoContext(ctx, "obligation: vaccination carry-over",
+			slog.String("tenant_id", tenantID),
+			slog.Int("goats", len(goatIDs)),
+			slog.Int("chunks", stats.Chunks),
+			slog.Int("attempts", stats.Attempts),
+			slog.Int("queries", stats.Queries),
+			slog.Int("candidates", stats.Candidates),
+			slog.Int("rebound", stats.Rebound),
+			slog.Duration("duration", stats.Duration))
+		if n := len(stats.StrandedInProgress); n > 0 {
+			sample := stats.StrandedInProgress
+			if len(sample) > 50 {
+				sample = sample[:50]
+			}
+			r.log.WarnContext(ctx, "obligation: in-progress vaccination work kept on its retired version; its started date fails the new rule",
+				slog.String("tenant_id", tenantID),
+				slog.Int("count", n),
+				slog.Any("obligation_ids", sample))
+		}
+	}()
+	total := 0
+	for _, chunk := range carryOverGoatChunks(goatIDs, carryOverGoatChunkSize) {
+		stats.Chunks++
+		chunkCtx, cancel := r.withTimeout(ctx)
+		out, err := withSerializableVaccinationTx(chunkCtx, r.pool.BeginTx, func(raw pgx.Tx) (carryOverChunkResult, error) {
+			stats.Attempts++
+			queries := 0
+			tx := countingTx{Tx: raw, n: &queries}
+			res, err := carryOverChunkTx(chunkCtx, tx, tenant, chunk, effectiveVersionIDs)
+			stats.Queries += queries
+			if err != nil {
+				return res, err
+			}
+			if err := raw.Commit(chunkCtx); err != nil {
+				return res, fmt.Errorf("obligation: commit vaccination carry-over: %w", err)
+			}
+			return res, nil
+		})
+		cancel()
+		if err != nil {
+			stats.Rebound = total
+			return total, stats, err
+		}
+		stats.Candidates += out.candidates
+		stats.StrandedInProgress = append(stats.StrandedInProgress, out.strandedInProgress...)
+		total += out.rebound
+	}
+	stats.Rebound = total
+	return total, stats, nil
+}
+
+type carryOverChunkResult struct {
+	candidates         int
+	rebound            int
+	strandedInProgress []string
+}
+
+// carryOverGoatLockSQL share-locks one chunk's goats in goat_id order ($1 tenant, $2 goat ids).
+const carryOverGoatLockSQL = `
+SELECT 1
+FROM goats
+WHERE tenant_id = $1::uuid
+  AND goat_id = ANY($2::uuid[])
+ORDER BY goat_id
+FOR SHARE`
+
+func carryOverChunkTx(ctx context.Context, tx pgx.Tx, tenant pgtype.UUID, goatIDs, effectiveVersionIDs []string) (carryOverChunkResult, error) {
+	var res carryOverChunkResult
+	// Goats first, in goat_id order: the same order every vaccination validator uses, so the
+	// candidate FOR UPDATE below never interleaves with a writer that locks goats first.
+	if _, err := tx.Exec(ctx, carryOverGoatLockSQL, tenant, goatIDs); err != nil {
+		return res, fmt.Errorf("obligation: lock carry-over goats: %w", err)
 	}
 
-	// Candidates are SELECTed and row-locked, then each one is proved in Go by the SAME validator
-	// every other vaccination write uses, against the NEW rule, the row's own due_at and its
-	// persisted schedule_basis -- all inside one serializable transaction. Valid rows are rebound in
-	// place (protocol_version_id / rule_id only), so obligation_id, batch, drive membership, task and
-	// proof attachments, operator identity and the idempotency key all survive. Invalid rows are left
-	// untouched on the retired version for the lifecycle-safe cancel/regenerate path.
-	return withSerializableVaccinationTx(ctx, r.pool.BeginTx, func(tx pgx.Tx) (int, error) {
-		tenant, err := pgconv.UUID(tenantID)
-		if err != nil {
-			return 0, fmt.Errorf("obligation: tenant id: %w", err)
+	strict, err := carryOverCandidates(ctx, tx, carryOverStrictCandidatesSQL, tenant, goatIDs, effectiveVersionIDs)
+	if err != nil {
+		return res, fmt.Errorf("obligation: carry over unchanged vaccination obligations: %w", err)
+	}
+	carried, strandedStrict, err := rebindValidCarryOverCandidates(ctx, tx, tenant, strict)
+	if err != nil {
+		return res, fmt.Errorf("obligation: carry over unchanged vaccination obligations: %w", err)
+	}
+
+	medical, err := carryOverCandidates(ctx, tx, carryOverMedicalCandidatesSQL, tenant, goatIDs, effectiveVersionIDs)
+	if err != nil {
+		return res, fmt.Errorf("obligation: carry over medically equivalent vaccination obligations: %w", err)
+	}
+	equivalent, strandedMedical, err := rebindValidCarryOverCandidates(ctx, tx, tenant, medical)
+	if err != nil {
+		return res, fmt.Errorf("obligation: carry over medically equivalent vaccination obligations: %w", err)
+	}
+	res.candidates = len(strict) + len(medical)
+	res.rebound = carried + equivalent
+	seen := map[string]bool{}
+	for _, id := range append(strandedStrict, strandedMedical...) {
+		if !seen[id] {
+			seen[id] = true
+			res.strandedInProgress = append(res.strandedInProgress, id)
 		}
-		// DISTINCT ON keeps the pairing deterministic: a plan that (wrongly) carries two rules with
-		// the same identity and content would otherwise rebind to whichever row the planner reached
-		// first, making the result depend on physical row order. Ordering by rule_id makes the choice
-		// stable within a version, though not across a re-publish, which mints fresh rule ids -- a
-		// duplicate-rule plan is an authoring error caught at publish, and this only bounds the damage
-		// rather than pretending to resolve it.
-		strict, err := carryOverCandidates(ctx, tx, `
+	}
+	return res, nil
+}
+
+// DISTINCT ON keeps the pairing deterministic: a plan that (wrongly) carries two rules with
+// the same identity and content would otherwise rebind to whichever row the planner reached
+// first, making the result depend on physical row order. Ordering by rule_id makes the choice
+// stable within a version, though not across a re-publish, which mints fresh rule ids -- a
+// duplicate-rule plan is an authoring error caught at publish, and this only bounds the damage
+// rather than pretending to resolve it.
+const carryOverStrictCandidatesSQL = `
 WITH effective_rule AS (
   SELECT DISTINCT ON (identity_key, content_fingerprint)
          identity_key, content_fingerprint, protocol_version_id, rule_id
@@ -3216,7 +3396,9 @@ WITH effective_rule AS (
   ORDER BY identity_key, content_fingerprint, rule_id
 )
 SELECT oi.obligation_id::text, oi.target_type, oi.target_id, oi.due_at, oi.schedule_basis,
-       er.protocol_version_id, er.rule_id
+       er.protocol_version_id, er.rule_id,
+       oi.repeat_cycle_source, oi.repeat_cycle_source_ref, oi.repeat_cycle_anchor_obligation_id,
+       oi.status
 FROM obligation_instances oi
 JOIN protocol_rule_lineage retired
   ON retired.tenant_id = oi.tenant_id
@@ -3282,24 +3464,17 @@ WHERE oi.tenant_id = $1::uuid
       AND clash.obligation_id <> oi.obligation_id
   )
 ORDER BY oi.obligation_id, er.rule_id
-FOR UPDATE OF oi`, tenantID, goatIDs, effectiveVersionIDs)
-		if err != nil {
-			return 0, fmt.Errorf("obligation: carry over unchanged vaccination obligations: %w", err)
-		}
-		carried, err := rebindValidCarryOverCandidates(ctx, tx, tenant, strict)
-		if err != nil {
-			return 0, fmt.Errorf("obligation: carry over unchanged vaccination obligations: %w", err)
-		}
+FOR UPDATE OF oi`
 
-		// Some real vaccination rules have kept the same medical meaning while their protocol
-		// identity changed: the rule was re-authored, renamed, or its age offset was corrected, but
-		// the animal still owes the same vaccine dose on the same date. The strict lineage/content
-		// pass above must stay strict for ordinary edits; this fallback only adopts rows that agree
-		// on the stable vaccination address: vaccine code, dose sequence, kid/adult dose family,
-		// trigger/repeat semantics and the existing open row's due/cause keys. That keeps valid
-		// booster work alive across plan replacement without carrying arbitrary edited rules
-		// forward. Rows the strict pass just rebound now sit on an effective version and drop out.
-		medical, err := carryOverCandidates(ctx, tx, `
+// Some real vaccination rules have kept the same medical meaning while their protocol
+// identity changed: the rule was re-authored, renamed, or its age offset was corrected, but
+// the animal still owes the same vaccine dose on the same date. The strict lineage/content
+// pass above must stay strict for ordinary edits; this fallback only adopts rows that agree
+// on the stable vaccination address: vaccine code, dose sequence, kid/adult dose family,
+// trigger/repeat semantics and the existing open row's due/cause keys. That keeps valid
+// booster work alive across plan replacement without carrying arbitrary edited rules
+// forward. Rows the strict pass just rebound now sit on an effective version and drop out.
+const carryOverMedicalCandidatesSQL = `
 WITH effective_rule AS (
   SELECT DISTINCT ON (
            lower(btrim(COALESCE(NULLIF(d.vaccine_code, ''), NULLIF(pr.eligibility_json -> 'vaccine' ->> 'code', ''), NULLIF(pv.rule_dsl -> 'vaccine' ->> 'code', '')))),
@@ -3371,7 +3546,9 @@ retired_rule AS (
     AND NOT (pr.protocol_version_id = ANY($3::uuid[]))
 )
 SELECT oi.obligation_id::text, oi.target_type, oi.target_id, oi.due_at, oi.schedule_basis,
-       er.protocol_version_id, er.rule_id
+       er.protocol_version_id, er.rule_id,
+       oi.repeat_cycle_source, oi.repeat_cycle_source_ref, oi.repeat_cycle_anchor_obligation_id,
+       oi.status
 FROM obligation_instances oi
 JOIN retired_rule rr
   ON rr.rule_id = oi.rule_id
@@ -3432,20 +3609,7 @@ WHERE oi.tenant_id = $1::uuid
       AND clash.obligation_id <> oi.obligation_id
   )
 ORDER BY oi.obligation_id, er.rule_id
-FOR UPDATE OF oi`, tenantID, goatIDs, effectiveVersionIDs)
-		if err != nil {
-			return carried, fmt.Errorf("obligation: carry over medically equivalent vaccination obligations: %w", err)
-		}
-		equivalent, err := rebindValidCarryOverCandidates(ctx, tx, tenant, medical)
-		if err != nil {
-			return carried, fmt.Errorf("obligation: carry over medically equivalent vaccination obligations: %w", err)
-		}
-		if err := tx.Commit(ctx); err != nil {
-			return 0, fmt.Errorf("obligation: commit vaccination carry-over: %w", err)
-		}
-		return carried + equivalent, nil
-	})
-}
+FOR UPDATE OF oi`
 
 // carryOverCandidate is one open retired-version row and the effective rule it would rebind to.
 type carryOverCandidate struct {
@@ -3456,6 +3620,12 @@ type carryOverCandidate struct {
 	scheduleBasis string
 	version       pgtype.UUID
 	rule          pgtype.UUID
+	// The cause/anchor keys of the two repeat-cycle unique indexes, so two candidates of the
+	// same pass that would collide with EACH OTHER are resolved before the set-based UPDATE.
+	repeatSource    pgtype.Text
+	repeatSourceRef pgtype.Text
+	repeatAnchor    pgtype.UUID
+	status          string
 }
 
 func carryOverCandidates(ctx context.Context, tx pgx.Tx, sql string, args ...any) ([]carryOverCandidate, error) {
@@ -3468,7 +3638,8 @@ func carryOverCandidates(ctx context.Context, tx pgx.Tx, sql string, args ...any
 	seen := map[string]bool{}
 	for rows.Next() {
 		var c carryOverCandidate
-		if err := rows.Scan(&c.obligationID, &c.targetType, &c.target, &c.dueAt, &c.scheduleBasis, &c.version, &c.rule); err != nil {
+		if err := rows.Scan(&c.obligationID, &c.targetType, &c.target, &c.dueAt, &c.scheduleBasis, &c.version, &c.rule,
+			&c.repeatSource, &c.repeatSourceRef, &c.repeatAnchor, &c.status); err != nil {
 			return nil, err
 		}
 		// UPDATE ... FROM applied one pairing per row; keep that (first by rule_id) here.
@@ -3481,37 +3652,142 @@ func carryOverCandidates(ctx context.Context, tx pgx.Tx, sql string, args ...any
 	return out, rows.Err()
 }
 
-// rebindValidCarryOverCandidates proves each locked candidate against its NEW rule and rebinds the
-// valid ones in place. A clinical rejection leaves the row on its retired version; a unique-guard
-// collision between two candidates of the same pass leaves the later one behind, exactly as the
-// pre-checked collision guards do for existing rows.
-func rebindValidCarryOverCandidates(ctx context.Context, tx pgx.Tx, tenant pgtype.UUID, candidates []carryOverCandidate) (int, error) {
-	rebound := 0
+// dedupeCarryOverRebinds keeps, in candidate (obligation_id) order, the first valid candidate per
+// key of each unique index a rebind writes, and drops the later ones -- exactly what the former
+// per-row savepoint UPDATE did when the later row hit 23505. Existing rows are already excluded by
+// the candidate SELECT's NOT EXISTS guards; this covers two candidates of the same pass.
+func dedupeCarryOverRebinds(candidates []carryOverCandidate) []carryOverCandidate {
+	type dupKey struct {
+		version, rule, target [16]byte
+		due                   int64
+	}
+	type sourceKey struct {
+		version, rule, target [16]byte
+		source, ref           string
+		sourceValid           bool
+	}
+	type anchorKey struct{ rule, anchor [16]byte }
+	dups := map[dupKey]bool{}
+	sources := map[sourceKey]bool{}
+	anchors := map[anchorKey]bool{}
+	out := make([]carryOverCandidate, 0, len(candidates))
 	for _, c := range candidates {
-		err := validateVaccinationWrite(ctx, tx, vaccinationWrite{
-			Tenant: tenant, Rule: c.rule, TargetType: c.targetType, Target: c.target, DueAt: c.dueAt, ScheduleBasis: c.scheduleBasis,
-		})
-		if isVaccinationContractViolation(err) {
+		dk := dupKey{c.version.Bytes, c.rule.Bytes, c.target.Bytes, c.dueAt.UnixNano()}
+		var sk sourceKey
+		if c.repeatSourceRef.Valid {
+			sk = sourceKey{c.version.Bytes, c.rule.Bytes, c.target.Bytes, c.repeatSource.String, c.repeatSourceRef.String, c.repeatSource.Valid}
+			if sources[sk] {
+				continue
+			}
+		}
+		var ak anchorKey
+		if c.repeatAnchor.Valid {
+			ak = anchorKey{c.rule.Bytes, c.repeatAnchor.Bytes}
+			if anchors[ak] {
+				continue
+			}
+		}
+		if dups[dk] {
 			continue
 		}
-		if err != nil {
-			return rebound, err
+		dups[dk] = true
+		if c.repeatSourceRef.Valid {
+			sources[sk] = true
 		}
-		moved, err := execInSavepoint(ctx, tx, `
-UPDATE obligation_instances
-SET protocol_version_id = $3,
-    rule_id = $4,
-    row_version = row_version + 1,
+		if c.repeatAnchor.Valid {
+			anchors[ak] = true
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
+const carryOverRebindSQL = `
+UPDATE obligation_instances oi
+SET protocol_version_id = u.protocol_version_id,
+    rule_id = u.rule_id,
+    row_version = oi.row_version + 1,
     updated_at = now()
-WHERE tenant_id = $1 AND obligation_id = $2::uuid`, tenant, c.obligationID, c.version, c.rule)
+FROM unnest($2::uuid[], $3::uuid[], $4::uuid[]) AS u(obligation_id, protocol_version_id, rule_id)
+WHERE oi.tenant_id = $1
+  AND oi.obligation_id = u.obligation_id`
+
+// rebindValidCarryOverCandidates proves every locked candidate against its NEW rule with the
+// set-based validator (a fixed number of queries for the whole list), then rebinds the valid ones
+// with ONE UPDATE. A clinical rejection leaves the row on its retired version. The UPDATE runs in a
+// savepoint; if it still hits a unique guard (23505) the chunk falls back to the per-row savepoint
+// path, so a collision can never abort the pass.
+//
+// in_progress rows are carried over exactly like reconcile's address-only rule treats them: the
+// RETAINED date is proved under the new rule, and only a valid row is rebound. A rejected
+// in_progress row is NOT cancelled or moved -- it is live drive work operators have already
+// started scanning and proving (docs/runbooks/vaccination-live-drive-schedule-and-restore.md: the
+// live-drive assignment is the operational authority and automation must never remove it) -- so it
+// stays bound to the version its drive started under and is returned in stranded for the caller to
+// surface, instead of vanishing silently.
+func rebindValidCarryOverCandidates(ctx context.Context, tx pgx.Tx, tenant pgtype.UUID, candidates []carryOverCandidate) (rebound int, stranded []string, err error) {
+	if len(candidates) == 0 {
+		return 0, nil, nil
+	}
+	writes := make([]vaccinationWrite, len(candidates))
+	for i, c := range candidates {
+		writes[i] = vaccinationWrite{
+			Tenant: tenant, Rule: c.rule, TargetType: c.targetType, Target: c.target, DueAt: c.dueAt, ScheduleBasis: c.scheduleBasis,
+		}
+	}
+	decisions, err := validateVaccinationWrites(ctx, tx, writes)
+	if err != nil {
+		return 0, nil, err
+	}
+	valid := make([]carryOverCandidate, 0, len(candidates))
+	for i, c := range candidates {
+		if decisions[i] == nil {
+			valid = append(valid, c)
+			continue
+		}
+		if !isVaccinationContractViolation(decisions[i]) {
+			return 0, nil, decisions[i]
+		}
+		if c.status == "in_progress" {
+			stranded = append(stranded, c.obligationID)
+		}
+	}
+	valid = dedupeCarryOverRebinds(valid)
+	if len(valid) == 0 {
+		return 0, stranded, nil
+	}
+	ids := make([]string, len(valid))
+	versions := make([]pgtype.UUID, len(valid))
+	rules := make([]pgtype.UUID, len(valid))
+	for i, c := range valid {
+		ids[i], versions[i], rules[i] = c.obligationID, c.version, c.rule
+	}
+	sp, err := tx.Begin(ctx)
+	if err != nil {
+		return 0, stranded, fmt.Errorf("obligation: begin savepoint: %w", err)
+	}
+	tag, err := sp.Exec(ctx, carryOverRebindSQL, tenant, ids, versions, rules)
+	if err == nil {
+		if err := sp.Commit(ctx); err != nil {
+			return 0, stranded, fmt.Errorf("obligation: release savepoint: %w", err)
+		}
+		return int(tag.RowsAffected()), stranded, nil
+	}
+	_ = sp.Rollback(ctx)
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != "23505" {
+		return 0, stranded, err
+	}
+	for _, c := range valid {
+		moved, err := execInSavepoint(ctx, tx, carryOverRebindSQL, tenant, []string{c.obligationID}, []pgtype.UUID{c.version}, []pgtype.UUID{c.rule})
 		if err != nil {
-			return rebound, err
+			return rebound, stranded, err
 		}
 		if moved {
 			rebound++
 		}
 	}
-	return rebound, nil
+	return rebound, stranded, nil
 }
 
 func (r *Repository) GoatsWithVaccinationObligationsOutsideVersions(ctx context.Context, tenantID string, goatIDs, effectiveVersionIDs []string) ([]string, error) {

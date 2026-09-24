@@ -252,8 +252,8 @@ func seedReserveGoats(t *testing.T, ctx context.Context, pool *pgxpool.Pool, cur
 	t.Helper()
 	for _, goatID := range goatIDs {
 		if _, err := pool.Exec(ctx,
-			`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex, current_location_id, park_id)
-				 VALUES ($1, $2, 'alive', 'goat', $3, 'female', $4, $5)`,
+			`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex, current_location_id, park_id, dob)
+				 VALUES ($1, $2, 'alive', 'goat', $3, 'female', $4, $5, '2020-01-01'::date)`,
 			goatID, tenantID, meshaParty, currentLocationID, parkID); err != nil {
 			t.Fatalf("seed goat %s: %v", goatID, err)
 		}

@@ -108,8 +108,8 @@ SET default_operator_id = EXCLUDED.default_operator_id
 INSERT INTO goats (
   tenant_id, goat_id, lifecycle_status, species, custodian_party_id, sex,
   current_location_id, park_id
-)
-VALUES ($1::uuid, $2::uuid, 'alive', 'goat', $3::uuid, 'male', $4::uuid, $5::uuid)
+, dob)
+VALUES ($1::uuid, $2::uuid, 'alive', 'goat', $3::uuid, 'male', $4::uuid, $5::uuid, '2020-01-01'::date)
 ON CONFLICT (goat_id) DO NOTHING
 `, tenantID, goatID, meshaParty, shedID, cbePark); err != nil {
 			t.Fatalf("seed goat %s: %v", goatID, err)
@@ -445,8 +445,8 @@ ON CONFLICT (location_id) DO NOTHING
 INSERT INTO goats (
   tenant_id, goat_id, lifecycle_status, species, custodian_party_id, sex,
   current_location_id, park_id
-)
-VALUES ($1::uuid, $2::uuid, 'alive', 'goat', $3::uuid, 'male', $4::uuid, $5::uuid)
+, dob)
+VALUES ($1::uuid, $2::uuid, 'alive', 'goat', $3::uuid, 'male', $4::uuid, $5::uuid, '2020-01-01'::date)
 ON CONFLICT (goat_id) DO NOTHING
 `, tenantID, goatID, meshaParty, shedID, cbePark); err != nil {
 			t.Fatalf("seed goat %s: %v", goatID, err)

@@ -1504,3 +1504,60 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 1, $4::timestamptz, $5, $6::timestamptz, $
 		t.Fatalf("seed completion: %v", err)
 	}
 }
+
+// P2-18: generation takes purpose and the arrival anchor from the accepted herd intake. A newer
+// re-procurement load row that is still pending, or was rejected, must not outrank it.
+func TestGetGoatForGenerationPrefersAcceptedIntakeOverNewerPendingLoadRow(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	vacc := NewRepository(pool, 5*time.Second)
+
+	goatID := "30000000-0000-4000-8000-0000000000e8"
+	seedGenAdultProcuredGoat(t, ctx, pool, goatID, "alive", time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC))
+	intake := time.Date(2026, 6, 1, 8, 0, 0, 0, time.UTC)
+	rows := []struct {
+		load, purpose, selection, current string
+		intake                            *time.Time
+		createdOffsetDays                 int
+	}{
+		{"30000000-0000-4000-8000-00000000e801", "fattening", "accepted_herd_intake", "accepted_herd_intake", &intake, 0},
+		{"30000000-0000-4000-8000-00000000e802", "breeding", "candidate", "source_candidate", nil, 30},
+		{"30000000-0000-4000-8000-00000000e803", "non_breeding", "rejected", "source_rejected", nil, 60},
+	}
+	for _, r := range rows {
+		if _, err := pool.Exec(ctx, `
+INSERT INTO procurement_loads (load_id, tenant_id, source_party_id, expected_count, status, idempotency_key)
+VALUES ($1, $2, $3, 1, 'source_warmup', $4)`, r.load, impTenant, impParty, "gen-canonical-intake:"+r.load); err != nil {
+			t.Fatalf("seed load %s: %v", r.load, err)
+		}
+		if _, err := pool.Exec(ctx, `
+INSERT INTO procurement_load_goats (tenant_id, load_id, goat_id, purpose, selection_state, current_state, intake_accepted_at, created_at,
+  source_entry_state, ownership_state, health_state)
+VALUES ($1, $2, $3, $4, $5, $6, $7::timestamptz, now() + make_interval(days => $8),
+  CASE WHEN $7::timestamptz IS NULL THEN 'pending' ELSE 'accepted' END,
+  CASE WHEN $7::timestamptz IS NULL THEN 'pending' ELSE 'mesha_owned' END,
+  CASE WHEN $7::timestamptz IS NULL THEN 'pending' ELSE 'passed' END)`,
+			impTenant, r.load, goatID, r.purpose, r.selection, r.current, r.intake, r.createdOffsetDays); err != nil {
+			t.Fatalf("seed load goat %s: %v", r.load, err)
+		}
+	}
+
+	// With a newer pending/rejected re-procurement row, generation never adopts that row's
+	// purpose: vw_procurement_vaccination_excluded_goats excludes the animal outright.
+	if _, found, err := vacc.GetGoatForGeneration(ctx, impTenant, goatID); err != nil || found {
+		t.Fatalf("GetGoatForGeneration with pending re-procurement found=%v err=%v, want excluded", found, err)
+	}
+	// Only the accepted intake: generation reads purpose + anchor from it.
+	if _, err := pool.Exec(ctx, `DELETE FROM procurement_load_goats WHERE tenant_id = $1 AND goat_id = $2 AND intake_accepted_at IS NULL`, impTenant, goatID); err != nil {
+		t.Fatalf("stage accepted-only: %v", err)
+	}
+	g, found, err := vacc.GetGoatForGeneration(ctx, impTenant, goatID)
+	if err != nil || !found {
+		t.Fatalf("GetGoatForGeneration found=%v err=%v", found, err)
+	}
+	if g.ProcurementPurpose != "fattening" || g.WarmingEntryAt == nil || !g.WarmingEntryAt.Equal(intake) {
+		t.Fatalf("accepted-only purpose=%q anchor=%v, want fattening @ %s", g.ProcurementPurpose, g.WarmingEntryAt, intake)
+	}
+}

@@ -687,6 +687,8 @@ func (s *GenerationService) generateEffectiveForAllGoats(ctx context.Context, te
 			if shouldAbortGeneration(err) {
 				return res, err
 			}
+			slog.Warn("vaccination generation: goat failed; continuing with the rest of the run",
+				"tenant_id", tenantID, "goat_id", p.goat.GoatID, "version_id", p.versionID, "err", err)
 			recordFailedGenerationGoat(&res, failedGoats, p.goat.GoatID)
 			continue
 		}
@@ -1540,6 +1542,8 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 			if shouldAbortGeneration(err) {
 				return res, err
 			}
+			slog.Warn("vaccination generation: goat failed; continuing with the rest of the run",
+				"tenant_id", tenantID, "goat_id", p.goat.GoatID, "version_id", p.versionID, "err", err)
 			recordFailedGenerationGoat(&res, failedGoats, p.goat.GoatID)
 			continue
 		}
