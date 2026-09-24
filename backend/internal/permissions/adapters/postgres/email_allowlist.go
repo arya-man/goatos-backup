@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"sync"
 	"time"
@@ -33,6 +34,8 @@ type AllowedEmailSource struct {
 	ttl     time.Duration
 	log     *slog.Logger
 	now     func() time.Time
+	// load reads the tenant's active set; defaults to the pool query.
+	load AllowedEmailLoader
 
 	mu       sync.Mutex
 	byTenant map[string]tenantEmailCache
@@ -44,7 +47,13 @@ type tenantEmailCache struct {
 	// retryAfter: after a failed reload past allowlistMaxStaleAge, requests fail
 	// closed without touching the database until this time.
 	retryAfter time.Time
+	// lastErr: the reload failure behind retryAfter, wrapped into the backoff
+	// error so callers still classify it (DatabaseUnavailable -> 503).
+	lastErr error
 }
+
+// AllowedEmailLoader loads one tenant's active normalized emails.
+type AllowedEmailLoader func(ctx context.Context, tenantID string) (map[string]struct{}, error)
 
 func NewAllowedEmailSource(pool *pgxpool.Pool, timeout time.Duration, log *slog.Logger) *AllowedEmailSource {
 	if timeout <= 0 {
@@ -53,12 +62,33 @@ func NewAllowedEmailSource(pool *pgxpool.Pool, timeout time.Duration, log *slog.
 	if log == nil {
 		log = slog.Default()
 	}
-	return &AllowedEmailSource{
+	s := &AllowedEmailSource{
 		pool:     pool,
 		timeout:  timeout,
 		ttl:      30 * time.Second,
 		log:      log,
 		now:      time.Now,
+		byTenant: map[string]tenantEmailCache{},
+	}
+	s.load = s.queryActive
+	return s
+}
+
+// NewAllowedEmailSourceWithLoader builds a source over an explicit loader and
+// clock -- deterministic outage tests (here and in the auth middleware).
+func NewAllowedEmailSourceWithLoader(load AllowedEmailLoader, now func() time.Time, log *slog.Logger) *AllowedEmailSource {
+	if log == nil {
+		log = slog.Default()
+	}
+	if now == nil {
+		now = time.Now
+	}
+	return &AllowedEmailSource{
+		timeout:  3 * time.Second,
+		ttl:      30 * time.Second,
+		log:      log,
+		now:      now,
+		load:     load,
 		byTenant: map[string]tenantEmailCache{},
 	}
 }
@@ -115,18 +145,27 @@ func (s *AllowedEmailSource) activeSet(ctx context.Context, tenantID string) (ma
 		cached = nil
 	}
 	backingOff := expired && s.now().Before(entry.retryAfter)
+	lastErr := entry.lastErr
 	s.mu.Unlock()
 	if fresh {
 		return cached, nil
 	}
 	if backingOff {
-		return nil, errAllowlistReloadBackoff
+		return nil, fmt.Errorf("%w: %w", errAllowlistReloadBackoff, lastErr)
 	}
-	fail := func(err error) (map[string]struct{}, error) {
+
+	// Bounded by BOTH the source's own timeout and the caller's remaining
+	// request time: the session-events deadline must govern this read.
+	loadCtx, cancel := context.WithTimeout(ctx, s.timeout)
+	defer cancel()
+	loaded, err := s.load(loadCtx, tenantID)
+	if err != nil {
+		s.log.Warn("auth_allowed_emails_load_failed", slog.Any("error", err))
 		if expired {
 			s.mu.Lock()
 			if e, ok := s.byTenant[tenantID]; ok {
 				e.retryAfter = s.now().Add(allowlistFailureBackoff)
+				e.lastErr = err
 				s.byTenant[tenantID] = e
 			}
 			s.mu.Unlock()
@@ -134,36 +173,31 @@ func (s *AllowedEmailSource) activeSet(ctx context.Context, tenantID string) (ma
 		return cached, err
 	}
 
-	// Bounded by BOTH the source's own timeout and the caller's remaining
-	// request time: the session-events deadline must govern this read.
-	loadCtx, cancel := context.WithTimeout(ctx, s.timeout)
-	defer cancel()
-	rows, err := s.pool.Query(loadCtx, `
+	s.mu.Lock()
+	s.byTenant[tenantID] = tenantEmailCache{emails: loaded, loadedAt: s.now()}
+	s.mu.Unlock()
+	return loaded, nil
+}
+
+func (s *AllowedEmailSource) queryActive(ctx context.Context, tenantID string) (map[string]struct{}, error) {
+	rows, err := s.pool.Query(ctx, `
 SELECT normalized_email
 FROM auth_allowed_emails
 WHERE tenant_id = $1::uuid AND status = 'active'`, tenantID)
 	if err != nil {
-		s.log.Warn("auth_allowed_emails_load_failed", slog.Any("error", err))
-		return fail(err)
+		return nil, err
 	}
+	defer rows.Close()
 	loaded := map[string]struct{}{}
 	for rows.Next() {
 		var email string
 		if err := rows.Scan(&email); err != nil {
-			rows.Close()
-			s.log.Warn("auth_allowed_emails_scan_failed", slog.Any("error", err))
-			return fail(err)
+			return nil, err
 		}
 		loaded[email] = struct{}{}
 	}
-	rows.Close()
 	if err := rows.Err(); err != nil {
-		s.log.Warn("auth_allowed_emails_load_failed", slog.Any("error", err))
-		return fail(err)
+		return nil, err
 	}
-
-	s.mu.Lock()
-	s.byTenant[tenantID] = tenantEmailCache{emails: loaded, loadedAt: s.now()}
-	s.mu.Unlock()
 	return loaded, nil
 }
