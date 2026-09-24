@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/vgoats/goatos/backend/internal/sales/domain"
@@ -22,10 +23,15 @@ func (f *feedStore) FeedStockIdentity(feed string) (string, string) {
 	return feed, feed
 }
 
-func (f *feedStore) FeedBalanceKg(_ context.Context, _, farm, feed string) (float64, bool, error) {
+func (f *feedStore) FeedBalancesKg(_ context.Context, _, farm string) (map[string]float64, error) {
 	f.asked++
-	kg, ok := f.balances[farm+"/"+feed]
-	return kg, ok, nil
+	out := map[string]float64{}
+	for k, v := range f.balances {
+		if strings.HasPrefix(k, farm+"/") {
+			out[strings.TrimPrefix(k, farm+"/")] = v
+		}
+	}
+	return out, nil
 }
 
 // A feed sale the store can cover records with no ceremony.
@@ -349,5 +355,22 @@ func TestFamilyFeedDemandSharesOneBalance(t *testing.T) {
 	got := short.Shortfalls[0]
 	if got.RequestedKg != 120 || got.BalanceKg != 100 || got.FeedItem != "Concentrate" || store.asked != 1 {
 		t.Fatalf("wrong family shortage: %+v, queries=%d", got, store.asked)
+	}
+}
+
+func TestMultiFeedConfirmationReadsOneSnapshot(t *testing.T) {
+	store := &feedStore{balances: map[string]float64{"CPT/A": 0, "CPT/B": 3}}
+	service := NewSalesService(&feedRepo{}).WithFeedStock(store)
+	demand := make([]domain.FeedDemand, 20)
+	for i := range demand {
+		demand[i] = domain.FeedDemand{FeedItem: string(rune('A' + i)), Kg: 1}
+	}
+	err := service.weighAgainstTheStore(context.Background(), tenant, "CPT", demand)
+	var short domain.ErrFeedStockShort
+	if !errors.As(err, &short) || len(short.Shortfalls) != 1 || short.Shortfalls[0].FeedItem != "A" {
+		t.Fatalf("known zero must warn, covered and unknown balances must not: %v", err)
+	}
+	if store.asked != 1 {
+		t.Fatalf("one sale read %d stock snapshots", store.asked)
 	}
 }

@@ -185,6 +185,22 @@ VALUES ($1,$2,'CBE',$3,$4,$6::date,$5::numeric,20,$5::numeric*20,0,$6::date,'Nav
 		sort.Slice(samples, func(i, j int) bool { return samples[i] < samples[j] })
 		t.Logf("%s SQL fixture: 3 purchases, 3 sale lines, 2 feed days; p90=%s p95=%s p99=%s", name, samples[17], samples[18], samples[19])
 	}
+
+	// Replay the old per-feed query shape and the new single snapshot on the same fixture.
+	for _, reads := range []int{20, 1} {
+		samples := make([]time.Duration, 20)
+		for i := range samples {
+			start := time.Now()
+			for j := 0; j < reads; j++ {
+				if _, err := repo.FeedBalancesKg(ctx, fdiTenant, "CBE"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			samples[i] = time.Since(start)
+		}
+		sort.Slice(samples, func(i, j int) bool { return samples[i] < samples[j] })
+		t.Logf("sale stock validation shape: %d full reads, same 3 purchases/3 sale lines/2 feed days; p90=%s p95=%s p99=%s", reads, samples[17], samples[18], samples[19])
+	}
 	if _, err := pool.Exec(ctx, `DELETE FROM feed_sale_depletions WHERE tenant_id=$1 AND deal_id=$2`, fdiTenant, dealID); err != nil {
 		t.Fatal(err)
 	}
