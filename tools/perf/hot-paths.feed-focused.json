@@ -4,7 +4,13 @@
     "included": [
       "feed_directed_analytics",
       "feed_stock_analytics",
-      "feed_shed_feed_analytics"
+      "feed_shed_feed_analytics",
+      "feed_follow_up_analytics",
+      "feed_stock_loads_analytics",
+      "feed_directed_status_wise",
+      "feed_stock_analytics_consumption_sections",
+      "feed_execution_analytics_tab",
+      "feed_execution_packing_variance_day"
     ],
     "evidence_boundaries": {
       "successor_sale_regression": {
@@ -15,7 +21,13 @@
       "local_oci_ceo_feed_reads": [
         "feed_directed_analytics",
         "feed_stock_analytics",
-        "feed_shed_feed_analytics"
+        "feed_shed_feed_analytics",
+        "feed_follow_up_analytics",
+        "feed_stock_loads_analytics",
+        "feed_directed_status_wise",
+        "feed_stock_analytics_consumption_sections",
+        "feed_execution_analytics_tab",
+        "feed_execution_packing_variance_day"
       ]
     }
   },
@@ -28,7 +40,11 @@
       "p95_ms": 500,
       "p99_ms": 500,
       "max_response_bytes": 524288,
-      "assertion": { "type": "array_min", "path": "items", "min": 1 }
+      "assertion": {
+        "type": "array_min",
+        "path": "items",
+        "min": 1
+      }
     },
     {
       "name": "feed_stock_analytics_overview_sections",
@@ -38,7 +54,11 @@
       "p95_ms": 500,
       "p99_ms": 500,
       "max_response_bytes": 524288,
-      "assertion": { "type": "array_min", "path": "expenditure", "min": 1 }
+      "assertion": {
+        "type": "array_min",
+        "path": "expenditure",
+        "min": 1
+      }
     },
     {
       "name": "feed_stock_analytics_items_sections",
@@ -48,7 +68,11 @@
       "p95_ms": 500,
       "p99_ms": 500,
       "max_response_bytes": 524288,
-      "assertion": { "type": "array_min", "path": "items", "min": 1 }
+      "assertion": {
+        "type": "array_min",
+        "path": "items",
+        "min": 1
+      }
     },
     {
       "name": "feed_shed_feed_analytics",
@@ -58,7 +82,95 @@
       "p95_ms": 500,
       "p99_ms": 500,
       "max_response_bytes": 524288,
-      "assertion": { "type": "array_min", "path": "rows", "min": 1 }
+      "assertion": {
+        "type": "array_min",
+        "path": "rows",
+        "min": 1
+      }
+    },
+    {
+      "name": "feed_follow_up_analytics",
+      "method": "GET",
+      "path": "/feed-analytics/follow-up?date_from=2026-08-06&date_to=2026-09-04",
+      "p90_ms": 300,
+      "p95_ms": 500,
+      "p99_ms": 500,
+      "max_response_bytes": 524288,
+      "assertion": {
+        "type": "array_min",
+        "path": "rows",
+        "min": 1
+      }
+    },
+    {
+      "name": "feed_stock_loads_analytics",
+      "method": "GET",
+      "path": "/feed-analytics/stock-loads?limit=25&offset=0",
+      "p90_ms": 300,
+      "p95_ms": 500,
+      "p99_ms": 500,
+      "max_response_bytes": 524288,
+      "assertion": {
+        "type": "array_min",
+        "path": "rows",
+        "min": 1
+      }
+    },
+    {
+      "name": "feed_directed_status_wise",
+      "method": "GET",
+      "path": "/feed-analytics/directed?date_from=2026-08-06&date_to=2026-09-04&sections=pen_tags",
+      "p90_ms": 300,
+      "p95_ms": 500,
+      "p99_ms": 500,
+      "max_response_bytes": 524288,
+      "assertion": {
+        "type": "array_min",
+        "path": "pen_tags",
+        "min": 1
+      }
+    },
+    {
+      "name": "feed_stock_analytics_consumption_sections",
+      "method": "GET",
+      "path": "/feed-analytics/stock?date_from=2026-08-06&date_to=2026-09-04&sections=expenditure,spend,item_expenditure",
+      "p90_ms": 300,
+      "p95_ms": 500,
+      "p99_ms": 500,
+      "max_response_bytes": 524288,
+      "assertion": {
+        "type": "array_min",
+        "path": "expenditure",
+        "min": 1
+      }
+    },
+    {
+      "name": "feed_execution_analytics_tab",
+      "method": "GET",
+      "path": "/feed-analytics/execution?date_from=2026-08-06&date_to=2026-09-04&sections=days,consumption,distribution_completions",
+      "p90_ms": 300,
+      "p95_ms": 500,
+      "p99_ms": 500,
+      "max_response_bytes": 524288,
+      "assertion": {
+        "type": "array_min",
+        "path": "days",
+        "min": 1
+      }
+    },
+    {
+      "name": "feed_execution_packing_variance_day",
+      "method": "GET",
+      "path": "/feed-analytics/execution?date_from=2026-09-01&date_to=2026-09-01&sections=packing_variance&variance_limit=25",
+      "p90_ms": 300,
+      "p95_ms": 500,
+      "p99_ms": 500,
+      "max_response_bytes": 524288,
+      "assertion": {
+        "type": "array_min",
+        "path": "packing_variance",
+        "min": 1
+      }
     }
   ]
 }
