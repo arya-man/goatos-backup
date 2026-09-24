@@ -23,6 +23,15 @@ import (
 
 const healthTopic = "health.events"
 
+const sqlOpenCaseGoat = `
+SELECT lifecycle_status, coalesce(age_band,''), park_id::text, shed_id::text,
+       (SELECT gsp.partition_label FROM goat_shed_partitions gsp
+        WHERE gsp.tenant_id = goats.tenant_id AND gsp.goat_id = goats.goat_id
+          AND gsp.shed_id = goats.shed_id
+        LIMIT 1)
+FROM goats WHERE tenant_id=$1::uuid AND goat_id=$2::uuid
+FOR SHARE`
+
 type Repository struct {
 	pool    *pgxpool.Pool
 	timeout time.Duration
@@ -60,14 +69,7 @@ func (r *Repository) OpenCase(ctx context.Context, in domain.OpenCaseInput) (dom
 
 	var lifecycle, goatAgeBand string
 	var parkID, shedID, partitionLabel *string
-	err = tx.QueryRow(ctx, `
-SELECT lifecycle_status, coalesce(age_band,''), park_id::text, shed_id::text,
-       (SELECT gsp.partition_label FROM goat_shed_partitions gsp
-        WHERE gsp.tenant_id = goats.tenant_id AND gsp.goat_id = goats.goat_id
-          AND gsp.shed_id = goats.shed_id
-        LIMIT 1)
-FROM goats WHERE tenant_id=$1::uuid AND goat_id=$2::uuid
-FOR SHARE`, in.TenantID, in.GoatID).Scan(&lifecycle, &goatAgeBand, &parkID, &shedID, &partitionLabel)
+	err = tx.QueryRow(ctx, sqlOpenCaseGoat, in.TenantID, in.GoatID).Scan(&lifecycle, &goatAgeBand, &parkID, &shedID, &partitionLabel)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.OpenCaseResult{}, ports.ErrNotFound
 	}
@@ -223,7 +225,7 @@ FROM health_protocol_steps WHERE health_protocol_version_id=$1::uuid ORDER BY da
 // Supportive (ongoing) courses carry NULL. Every scan into the int DTO coalesces to 0, which
 // clients render as an ongoing course. Found live on the 2026-08-29 phone run: a confirmed
 // wounds course 500'd this whole worklist.
-// projection-review: membership=health_treatment_sessions, unique on health_session_id, joined 1:1 to its owning health_cases row; group_key=health_session_id -- step_counts groups on exactly that key and is joined back 1:1, so a session with many steps stays ONE page row; join_cardinality=health_cases, goats and both locations lookups are 1:1 on their tenant-scoped primary keys and only label the row; step_counts is pre-aggregated to one row per health_session_id BEFORE it is joined, which is what stops the steps fan-out; pagination=keyset on (due_at, health_session_id) with LIMIT n+1, and the summary is a separate whole-filter aggregate, never a rollup of the returned page; scope=park/shed, applied from the caller's clamped filters on health_cases
+// projection-review: membership=health_treatment_sessions, unique on health_session_id, joined 1:1 to its owning health_cases row; group_key=health_session_id -- step_counts groups on exactly that key and is joined back 1:1, so a session with many steps stays ONE page row; join_cardinality=health_cases, goats and both locations lookups are 1:1 on their tenant-scoped primary keys and only label the row, and step_counts is pre-aggregated to one row per health_session_id BEFORE it is joined, which is what stops the steps fan-out; pagination=keyset on (due_at, health_session_id) with LIMIT n+1, and the summary is a separate whole-filter aggregate, never a rollup of the returned page; scope=park/shed, applied from the caller's clamped filters on health_cases
 func (r *Repository) ListWorkItems(ctx context.Context, f domain.ListFilter) (domain.WorkItemPage, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
@@ -389,7 +391,7 @@ COALESCE(part.partition_label, ''),
 coalesce(btrim(hc.register_rule_id), '')
 FROM health_treatment_sessions hs JOIN health_cases hc ON hc.tenant_id=hs.tenant_id AND hc.health_case_id=hs.health_case_id JOIN goats g ON g.goat_id=hs.goat_id
 LEFT JOIN locations pl ON pl.tenant_id=hc.tenant_id AND pl.location_id=hc.park_id LEFT JOIN locations sl ON sl.tenant_id=hc.tenant_id AND sl.location_id=hc.shed_id
--- projection-review: membership=active shed_partitions rows for the case's shed; group_key=(sp.tenant_id, sp.shed_id); join_cardinality=pre-aggregated to ONE row per shed by GROUP BY tenant_id, shed_id with HAVING count(*) = 1, so joining it onto a health case cannot fan the case row out; pagination=none added -- this join sits under the existing work-item read and adds no rows, so page boundaries are unchanged; scope=tenant plus the case's own shed_id.
+-- projection-review: membership=active shed_partitions rows for the case's shed; group_key=sp.tenant_id plus sp.shed_id; join_cardinality=pre-aggregated to ONE row per shed by GROUP BY tenant_id and shed_id with HAVING count(*) = 1, so joining it onto a health case cannot fan the case row out; pagination=none, this join sits under the existing work-item read and adds no rows, so page boundaries are unchanged; scope=tenant plus the case's own shed_id.
 LEFT JOIN (
   SELECT sp.tenant_id, sp.shed_id, min(sp.partition_label) AS partition_label
   FROM shed_partitions sp
@@ -494,11 +496,12 @@ func (r *Repository) CompleteWorkItem(ctx context.Context, in domain.CompleteInp
 		partitionLabel                      string
 		session                             string
 	}
-	// projection-review: membership=the ONE locked health_treatment_sessions row; group_key=n/a
-	// (single row); join_cardinality=health_cases and goats join 1:1 on their keys, the locations
-	// join is 1:1 on (tenant_id, location_id), and the shed_partitions side is pre-aggregated to
-	// one row per shed (agree-or-go-bare, HAVING count(*)=1) exactly as GetWorkItem does, so the
-	// FOR UPDATE OF hs target can never fan out; pagination=n/a; scope=the session's own case.
+	// projection-review: membership=the ONE locked health_treatment_sessions row; group_key=single
+	// health_session_id row; join_cardinality=health_cases and goats join 1:1 on their keys, the
+	// locations join is 1:1 on (tenant_id, location_id), and the shed_partitions side is
+	// pre-aggregated to one row per shed exactly as GetWorkItem does, so the FOR UPDATE OF hs
+	// target can never fan out; pagination=none, this is one locked row; scope=the session's own
+	// case.
 	var dueAt time.Time
 	err = tx.QueryRow(ctx, `SELECT hs.health_case_id::text,hs.goat_id::text,hc.disease_key,hs.status,hs.completed_at,hs.completion_idempotency_key,hs.completion_fingerprint,hs.due_at,
  hs.session,hc.disease_name,hc.age_band,coalesce((SELECT gi.identifier_value FROM goat_identifiers gi WHERE gi.tenant_id=g.tenant_id AND gi.goat_id=g.goat_id AND gi.identifier_type='animal_identifier_1' AND gi.status='active' ORDER BY gi.is_primary_for_goat DESC,gi.identifier_value LIMIT 1),g.display_id),hs.day_no,coalesce(hc.park_id::text,''),coalesce(hc.shed_id::text,''),coalesce(sl.name,''),coalesce(part.partition_label,'')

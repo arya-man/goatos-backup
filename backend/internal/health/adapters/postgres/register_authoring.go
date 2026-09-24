@@ -45,10 +45,10 @@ const (
 	// says so in words rather than leaving a blank row to interpret.
 	//
 	// projection-review: membership=active health_diagnosis_types for the tenant, LEFT JOINed to
-	// its published and draft versions; group_key=(tenant_id, type_key) plus status, and
-	// health_diagnosis_register_one_published_uq / _one_draft make that at most one row per
-	// (type, status), so the join cannot multiply a type; pagination=none, a farm has a handful
-	// of types; scope=tenant_id equality on both sides of the join.
+	// its published and draft versions; group_key=(tenant_id, type_key) plus status;
+	// join_cardinality=health_diagnosis_register_one_published_uq / _one_draft make that at most
+	// one row per (type, status), so the join cannot multiply a type; pagination=none, a farm has
+	// a handful of types; scope=tenant_id equality on both sides of the join.
 	sqlListRegisters = `
 SELECT v.health_diagnosis_register_version_id::text, t.type_key, v.version, v.status,
        v.register_label, v.document, v.published_at, coalesce(v.updated_at, t.updated_at), t.label

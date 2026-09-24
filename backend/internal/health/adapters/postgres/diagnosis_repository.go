@@ -262,7 +262,8 @@ func (r *Repository) ObservationForm(ctx context.Context, tenantID, goatID strin
 	}
 
 	var typeLabel string
-	if err := tx.QueryRow(ctx, sqlDiagnosisTypeLabel, tenantID, animal.Class).Scan(&typeLabel); err != nil {
+	typeLabelBound := sqlbind.MustBind(sqlDiagnosisTypeLabel, tenantID, animal.Class)
+	if err := tx.QueryRow(ctx, typeLabelBound.SQL(), typeLabelBound.Args()...).Scan(&typeLabel); err != nil {
 		typeLabel = animal.Class
 	}
 
@@ -270,7 +271,8 @@ func (r *Repository) ObservationForm(ctx context.Context, tenantID, goatID strin
 	// GoatFacts -- that struct carries only what the ENGINE reads, and widening it to carry two
 	// display strings would put screen data on the clinical path.
 	var displayID, tag string
-	_ = tx.QueryRow(ctx, sqlObservationFormAnimal, tenantID, goatID).Scan(&displayID, &tag)
+	animalBound := sqlbind.MustBind(sqlObservationFormAnimal, tenantID, goatID)
+	_ = tx.QueryRow(ctx, animalBound.SQL(), animalBound.Args()...).Scan(&displayID, &tag)
 
 	out = domain.ObservationForm{
 		GoatID:          goatID,

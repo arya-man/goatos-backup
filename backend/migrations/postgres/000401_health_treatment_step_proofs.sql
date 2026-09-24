@@ -1,4 +1,5 @@
 -- +goose Up
+-- seed-fixture-guard:ignore: Health treatment step proof tables are runtime evidence rows, not vaccination HRMS seed-source tables.
 -- ONE VIDEO PER TREATMENT STEP (maintainer decision 2026-09-23).
 --
 -- A treatment session carried ONE proof: `health_treatment_sessions.proof_ref`, a single video for

@@ -27,11 +27,12 @@ const (
 	// anything yet.
 	//
 	// projection-review: membership=health_diagnosis_types for the tenant; group_key=(tenant_id,
-	// type_key) which is that table's own unique constraint, so one row per type; joins are two
-	// correlated aggregates over health_diagnosis_stage_routes and health_diagnosis_register_versions
-	// keyed on (tenant_id, type_key)/(tenant_id, animal_class) -- scalar subqueries, so neither can
-	// multiply a type; pagination=none, the type list is a handful of rows by construction and the
-	// screen shows all of them; scope=tenant_id equality on every arm.
+	// type_key) which is that table's own unique constraint, so one row per type;
+	// join_cardinality=two correlated aggregates over health_diagnosis_stage_routes and
+	// health_diagnosis_register_versions keyed on (tenant_id, type_key)/(tenant_id, animal_class)
+	// -- scalar subqueries, so neither can multiply a type; pagination=none, the type list is a
+	// handful of rows by construction and the screen shows all of them; scope=tenant_id equality
+	// on every arm.
 	sqlDiagnosisTypes = `
 SELECT t.type_key, t.label, t.status, t.sort_order, t.is_builtin, t.updated_at,
        (SELECT count(*) FROM health_diagnosis_stage_routes r
@@ -52,10 +53,11 @@ ORDER BY t.sort_order, t.type_key`
 	//
 	// projection-review: membership=health_diagnosis_stage_routes for the tenant; group_key=
 	// (tenant_id, age_band, stage_code), that table's unique constraint, so one row per route;
-	// animal_stage_lookup is joined on (tenant_id, lower(stage_code)) which the lookup's own
-	// uniqueness makes 1:0..1, and the live count is a correlated aggregate over goats rather
-	// than a join, so neither can multiply a route; the wildcard row deliberately gets a NULL
-	// label and a band-wide count; pagination=none; scope=tenant_id equality on every arm.
+	// join_cardinality=animal_stage_lookup is joined on (tenant_id, lower(stage_code)) which the
+	// lookup's own uniqueness makes 1:0..1, and the live count is a correlated aggregate over
+	// goats rather than a join, so neither can multiply a route; the wildcard row deliberately
+	// gets a NULL label and a band-wide count; pagination=none; scope=tenant_id equality on every
+	// arm.
 	sqlDiagnosisRoutes = `
 SELECT r.age_band, r.stage_code, r.type_key, r.sub_stage,
        coalesce(s.name, ''), coalesce(t.label, r.type_key),

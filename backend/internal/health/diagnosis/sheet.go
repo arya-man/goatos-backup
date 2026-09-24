@@ -110,7 +110,7 @@ func parseFloatPtr(s string) (*float64, error) {
 	}
 	v, err := strconv.ParseFloat(s, 64)
 	if err != nil {
-		return nil, fmt.Errorf("%q is not a number", s)
+		return nil, fmt.Errorf("%q is not a number: %w", s, err)
 	}
 	return &v, nil
 }

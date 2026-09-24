@@ -123,8 +123,8 @@ func normalizeRouteKey(s string) string { return strings.ToLower(strings.TrimSpa
 //
 // It is kept so a test can prove the seeded table reproduces the shipped behaviour row for
 // row. Once routing is authored, this list is history: it says how a farm's routing was BORN,
-// not how it is maintained. The same shape `toxin/domain.Steps()` and `tasks/domain/templates.go`
-// already use for exactly this reason.
+// not how it is maintained. This follows the same seed-oracle shape as the task template
+// catalogs: runtime reads the authored table, while tests keep the old behaviour honest.
 func BuiltinStageRoutes() []StageRoute {
 	return []StageRoute{
 		{AgeBand: AgeBandKid, StageCode: "k0", TypeKey: diagnosis.ClassKidMilk, SubStage: "K0"},

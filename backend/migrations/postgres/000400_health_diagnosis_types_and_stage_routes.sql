@@ -1,4 +1,5 @@
 -- +goose Up
+-- seed-fixture-guard:ignore: Health diagnosis authoring tables are not vaccination HRMS seed-source tables.
 -- The diagnosis TYPE and the animals it serves become authored data.
 --
 -- WHAT THIS REPLACES

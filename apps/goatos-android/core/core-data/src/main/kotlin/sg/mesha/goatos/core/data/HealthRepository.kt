@@ -233,7 +233,7 @@ class DefaultHealthRepository(
             entity?.let { DiagnosisQueueMeta(mayConfirm = it.mayConfirm, endReached = it.endReached) }
         }.flowOn(Dispatchers.Default)
 
-    override suspend fun observationForm(goatId: String): Result<HealthObservationFormDto> =
+    override suspend fun observationForm(goatId: String): Result<HealthObservationFormDto> = // offline-first-guard:ignore: this is the live pre-submit clinical form for one selected animal; the server resolves current stage/type/open problems and refuses stale cached rules rather than letting a phone submit against yesterday's diagnosis map.
         runCatching { api.getHealthObservationForm(goatId) }
 
     override suspend fun refreshDiagnosisRun(diagnosisRunId: String): Result<Unit> = runCatching {

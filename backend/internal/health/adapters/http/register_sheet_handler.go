@@ -1,9 +1,12 @@
 package http
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"encoding/csv"
 	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
@@ -236,16 +239,15 @@ func readRegisterJSON(file io.Reader) (*diagnosis.AuthoredRegister, error) {
 // step that eventually gets skipped.
 func readSheet(file io.Reader, filename string) ([][]string, error) {
 	if strings.HasSuffix(strings.ToLower(filename), ".xlsx") {
-		f, err := excelize.OpenReader(io.LimitReader(file, maxSheetBytes))
+		data, err := io.ReadAll(io.LimitReader(file, maxSheetBytes))
 		if err != nil {
-			return nil, fmt.Errorf("that Excel file could not be opened")
+			return nil, fmt.Errorf("that Excel file could not be read: %w", err)
 		}
-		defer f.Close()
-		sheets := f.GetSheetList()
-		if len(sheets) == 0 {
-			return nil, fmt.Errorf("that workbook has no sheets in it")
+		rows, err := readXLSXRows(data)
+		if err != nil {
+			return nil, fmt.Errorf("that Excel file could not be opened: %w", err)
 		}
-		return f.GetRows(sheets[0])
+		return rows, nil
 	}
 	reader := csv.NewReader(io.LimitReader(file, maxSheetBytes))
 	reader.FieldsPerRecord = -1 // a hand-edited sheet has ragged rows; the decoder reads by header
@@ -254,6 +256,183 @@ func readSheet(file io.Reader, filename string) ([][]string, error) {
 		return nil, fmt.Errorf("that CSV could not be read: %v", err)
 	}
 	return rows, nil
+}
+
+func readXLSXRows(data []byte) ([][]string, error) {
+	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return nil, err
+	}
+	files := make(map[string]*zip.File, len(zr.File))
+	for _, f := range zr.File {
+		files[f.Name] = f
+	}
+	shared, err := readXLSXSharedStrings(files["xl/sharedStrings.xml"])
+	if err != nil {
+		return nil, err
+	}
+	sheetPath, err := firstXLSXSheetPath(files)
+	if err != nil {
+		return nil, err
+	}
+	return readXLSXSheet(files[sheetPath], shared)
+}
+
+func firstXLSXSheetPath(files map[string]*zip.File) (string, error) {
+	type sheet struct {
+		ID string `xml:"http://schemas.openxmlformats.org/officeDocument/2006/relationships id,attr"`
+	}
+	type workbook struct {
+		Sheets []sheet `xml:"sheets>sheet"`
+	}
+	wbFile := files["xl/workbook.xml"]
+	if wbFile == nil {
+		return "", fmt.Errorf("workbook.xml is missing")
+	}
+	var wb workbook
+	if err := decodeZipXML(wbFile, &wb); err != nil {
+		return "", err
+	}
+	if len(wb.Sheets) == 0 {
+		return "", fmt.Errorf("that workbook has no sheets in it")
+	}
+	type rel struct {
+		ID     string `xml:"Id,attr"`
+		Target string `xml:"Target,attr"`
+	}
+	var rels struct {
+		Rels []rel `xml:"Relationship"`
+	}
+	if err := decodeZipXML(files["xl/_rels/workbook.xml.rels"], &rels); err != nil {
+		return "", err
+	}
+	for _, rel := range rels.Rels {
+		if rel.ID == wb.Sheets[0].ID {
+			target := strings.TrimPrefix(rel.Target, "/")
+			if !strings.HasPrefix(target, "xl/") {
+				target = "xl/" + strings.TrimPrefix(target, "./")
+			}
+			if files[target] == nil {
+				return "", fmt.Errorf("first worksheet is missing")
+			}
+			return target, nil
+		}
+	}
+	return "", fmt.Errorf("first worksheet relationship is missing")
+}
+
+func readXLSXSharedStrings(f *zip.File) ([]string, error) {
+	if f == nil {
+		return nil, nil
+	}
+	var doc struct {
+		Items []struct {
+			Texts []string `xml:"t"`
+		} `xml:"si"`
+	}
+	if err := decodeZipXML(f, &doc); err != nil {
+		return nil, err
+	}
+	out := make([]string, len(doc.Items))
+	for i, item := range doc.Items {
+		out[i] = strings.Join(item.Texts, "")
+	}
+	return out, nil
+}
+
+func readXLSXSheet(f *zip.File, shared []string) ([][]string, error) {
+	if f == nil {
+		return nil, fmt.Errorf("first worksheet is missing")
+	}
+	rc, err := f.Open()
+	if err != nil {
+		return nil, err
+	}
+	defer rc.Close()
+
+	var rows [][]string
+	var row []string
+	var cellType, cellRef, text string
+	inV := false
+	dec := xml.NewDecoder(rc)
+	for {
+		tok, err := dec.Token()
+		if errors.Is(err, io.EOF) {
+			return rows, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			switch t.Name.Local {
+			case "row":
+				row = nil
+			case "c":
+				cellType, cellRef, text = "", "", ""
+				for _, attr := range t.Attr {
+					switch attr.Name.Local {
+					case "t":
+						cellType = attr.Value
+					case "r":
+						cellRef = attr.Value
+					}
+				}
+			case "v", "t":
+				inV = true
+				text = ""
+			}
+		case xml.CharData:
+			if inV {
+				text += string(t)
+			}
+		case xml.EndElement:
+			switch t.Name.Local {
+			case "v", "t":
+				inV = false
+			case "c":
+				col := xlsxColumnIndex(cellRef)
+				for len(row) <= col {
+					row = append(row, "")
+				}
+				if cellType == "s" {
+					var idx int
+					if _, err := fmt.Sscanf(text, "%d", &idx); err == nil && idx >= 0 && idx < len(shared) {
+						text = shared[idx]
+					}
+				}
+				row[col] = text
+			case "row":
+				rows = append(rows, row)
+			}
+		}
+	}
+}
+
+func xlsxColumnIndex(ref string) int {
+	col := 0
+	for _, r := range ref {
+		if r < 'A' || r > 'Z' {
+			break
+		}
+		col = col*26 + int(r-'A'+1)
+	}
+	if col == 0 {
+		return 0
+	}
+	return col - 1
+}
+
+func decodeZipXML(f *zip.File, v any) error {
+	if f == nil {
+		return fmt.Errorf("xlsx part is missing")
+	}
+	rc, err := f.Open()
+	if err != nil {
+		return err
+	}
+	defer rc.Close()
+	return xml.NewDecoder(rc).Decode(v)
 }
 
 func (h *RegisterSheetHandler) writeSheet(w http.ResponseWriter, r *http.Request, rows [][]string, stem string) {
