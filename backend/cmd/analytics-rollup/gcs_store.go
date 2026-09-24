@@ -91,3 +91,24 @@ func (s *gcsStore) Stat(ctx context.Context, name string) (objectInfo, error) {
 	}
 	return objectInfo{Size: size, MD5: sum}, nil
 }
+
+// Get downloads an object (bounded to 512 MiB; one day is ~20 MB compressed).
+func (s *gcsStore) Get(ctx context.Context, name string) ([]byte, error) {
+	u := fmt.Sprintf("%s/storage/v1/b/%s/o/%s?alt=media", s.base, url.PathEscape(s.bucket), url.PathEscape(name))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, err
+	}
+	// Raw stored bytes: no transparent gzip decoding by the server or client.
+	req.Header.Set("Accept-Encoding", "gzip")
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return nil, fmt.Errorf("gcs get HTTP %d: %s", resp.StatusCode, msg)
+	}
+	return io.ReadAll(io.LimitReader(resp.Body, 512<<20))
+}
