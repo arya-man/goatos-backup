@@ -679,6 +679,7 @@
       scrollbar-gutter:stable;
     }
     .metricseg a{min-height:40px;display:inline-flex;align-items:center;padding:0 12px}
+    .metricseg button{min-height:40px;display:inline-flex;align-items:center;padding:0 12px}
     .main .feed-tabbar{display:grid!important;grid-template-columns:1fr;align-items:stretch!important;gap:8px!important}
     .main .feed-tabbar .metricseg{width:100%;margin-left:0}
     .g4,.g3,.g2,.g5,.g6{grid-template-columns:1fr!important}
@@ -3291,6 +3292,11 @@ select:disabled { opacity: .45; }
 .metricseg a.on{background:var(--panel);color:var(--brand-d)}
 .metricseg-pending{cursor:progress;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--brand) 45%,transparent)}
 .metricseg-pending a{pointer-events:none}
+/* LocalViewToggle (components/local-view-switch.tsx) renders buttons, not links: a view switch
+   that never navigates. Same look as the link segments beside it. */
+.metricseg button{appearance:none;background:none;border:0;font:inherit;cursor:pointer;padding:3px 9px;border-radius:6px;font-size:11.5px;font-weight:650;color:var(--muted);white-space:nowrap}
+.metricseg button:hover{color:var(--brand-d)}
+.metricseg button.on{background:var(--panel);color:var(--brand-d)}
 .wt-tab-switching .wt-tab-live{display:none}
 .wt-tab-skeleton{display:grid;gap:14px;min-height:420px}
 .wt-skel-head{display:flex;align-items:center;gap:10px}

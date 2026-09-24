@@ -34,6 +34,7 @@ import { FeedStockLoadsTable } from "./feed-stock-loads-table";
 import { FeedShedFeedCharts } from "./feed-shed-feed-charts";
 import { feedHref, feedLimit, feedOffset } from "./feed-scope";
 import { SegmentedLinks } from "@/components/segmented-links";
+import { LocalViewPane, LocalViewToggle } from "@/components/local-view-switch";
 import { SvgBars } from "@/components/svg-bars";
 import {
   FEED_SERIES_VARS,
@@ -314,7 +315,6 @@ export async function FeedAnalyticsPage({
   // Status-wise reads ONLY the pen-tag arm of the directed rollup: none of General's KPI tiles,
   // spend, money cards or pen charts render there, so none of their reads run.
   const consumptionView: ConsumptionView = tab === "overview" ? readConsumptionView(searchParams) : "general";
-  const statusWise = consumptionView === "status";
   const range = stockOnly ? "30" : readRange(searchParams);
   const spendMode = readSpendMode(searchParams);
   const { parkId } = backendScope(parseScope(searchParams));
@@ -335,8 +335,10 @@ export async function FeedAnalyticsPage({
   // Overview needs directed + execution (for the adherence KPI); every other
   // tab reads exactly its own endpoint.
   const wantDirected = !stockOnly && (tab === "overview" || tab === "items" || tab === "peranimal");
-  const directedSections = statusWise ? "pen_tags" : "days,items";
-  const wantExecution = (tab === "overview" && !statusWise) || tab === "execution";
+  // Consumption renders BOTH its readings (General and Status-wise) so the toggle between them is
+  // local and never asks the server again; one directed read carries both sections.
+  const directedSections = tab === "overview" ? "days,items,pen_tags" : "days,items";
+  const wantExecution = tab === "overview" || tab === "execution";
   const wantExperiment = tab === "experiment";
   // The experiment tab carries its OWN park dropdown (fa_park), the same
   // disable-when-top-bar-owns rule every feed page uses; other tabs stay on
@@ -368,7 +370,7 @@ export async function FeedAnalyticsPage({
   const completionParkFilter = parkId || (one(searchParams, "fdc_park") ?? "");
   const completionShedFilter = one(searchParams, "fdc_shed") ?? "";
   const completionStatusFilter = readCompletionStatus(searchParams);
-  const wantStock = (tab === "overview" && !statusWise) || tab === "items";
+  const wantStock = tab === "overview" || tab === "items";
   // Purchased vs consumed is the LAST TABLE ON THE STOCK TAB (maintainer instruction 2026-09-21),
   // not a tab of its own: the cards answer "how much is in the store", this answers "what happened
   // to each load that put it there", and a reader should not have to change tabs between the two.
@@ -399,7 +401,7 @@ export async function FeedAnalyticsPage({
   // Feed follow-up reads its own endpoint and nothing else; it keeps the page's
   // range chips, because "did the sheet react" is asked over a period.
   const wantFollowUp = !stockOnly && tab === "followup";
-  const wantShedFeed = tab === "overview" && !statusWise;
+  const wantShedFeed = tab === "overview";
   const shedFeedTo = istDayPlus(todayIso(), -1);
   const shedFeedWindow = { date_from: istDayPlus(shedFeedTo, -6), date_to: shedFeedTo };
   const [locations, directed, execution, experiment, stock, shedFeed, loads, followUp] = await Promise.all([
@@ -532,14 +534,12 @@ export async function FeedAnalyticsPage({
             />
           </div>
           {tab === "overview" ? (
-            <SegmentedLinks
+            <LocalViewToggle
+              param="fc_view"
               current={consumptionView}
+              defaultValue="general"
               ariaLabel={fa(pageContract, "consumption.view.aria")}
-              options={CONSUMPTION_VIEWS.map((v) => ({
-                value: v,
-                label: fa(pageContract, `consumption.view.${v}`),
-                href: hrefWith(searchParams, { fc_view: v === "general" ? undefined : v }),
-              }))}
+              options={CONSUMPTION_VIEWS.map((v) => ({ value: v, label: fa(pageContract, `consumption.view.${v}`) }))}
             />
           ) : null}
         </>
@@ -579,11 +579,14 @@ export async function FeedAnalyticsPage({
         </>
       ) : null}
 
-      {!stockOnly && statusWise && directed?.ok ? (
-        <FeedStatusWise data={directed.data} pageContract={pageContract} />
+      {!stockOnly && tab === "overview" && directed?.ok ? (
+        <LocalViewPane param="fc_view" value="status" current={consumptionView}>
+          <FeedStatusWise data={directed.data} pageContract={pageContract} />
+        </LocalViewPane>
       ) : null}
 
-      {!stockOnly && !statusWise && directed?.ok && (tab === "overview" || tab === "items" || tab === "peranimal") ? (
+      <LocalViewPane param="fc_view" value="general" current={tab === "overview" ? consumptionView : "general"}>
+      {!stockOnly && directed?.ok && (tab === "overview" || tab === "items" || tab === "peranimal") ? (
         <DirectedTabs
           tab={tab}
           range={range}
@@ -609,6 +612,7 @@ export async function FeedAnalyticsPage({
           }}
         />
       ) : null}
+      </LocalViewPane>
 
       {tab === "execution" && execution?.ok ? (
         <ExecutionTab
@@ -1031,45 +1035,51 @@ function DirectedTabs({
           <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "flex-start", justifyContent: "space-between" }}>
             <div>
               <h2 className="h">{fa(pageContract, "chart.spend.title")}</h2>
-              <p className="muted small">
-                {fa(pageContract, spendMode === "per_animal" ? "chart.spend.per_animal.hint" : "chart.spend.hint")}
-              </p>
+              {SPEND_MODES.map((mode) => (
+                <LocalViewPane key={mode} param="spend" value={mode} current={spendMode}>
+                  <p className="muted small">
+                    {fa(pageContract, mode === "per_animal" ? "chart.spend.per_animal.hint" : "chart.spend.hint")}
+                  </p>
+                </LocalViewPane>
+              ))}
             </div>
-            <SegmentedLinks
+            <LocalViewToggle
+              param="spend"
               current={spendMode}
+              defaultValue="overall"
               ariaLabel={fa(pageContract, "chart.spend.mode.aria")}
-              options={SPEND_MODES.map((m) => ({
-                value: m,
-                label: fa(pageContract, `chart.spend.mode.${m}`),
-                href: hrefWith(searchParams, { spend: m === "overall" ? undefined : m }),
-              }))}
+              options={SPEND_MODES.map((m) => ({ value: m, label: fa(pageContract, `chart.spend.mode.${m}`) }))}
             />
           </div>
-          <ChartHover>
-            <FeedLines
-              hideZeroInTip
-              series={[
-                spendMode === "per_animal"
-                  ? {
-                      label: fa(pageContract, "chart.spend.per_animal.label"),
-                      colorVar: FEED_SERIES_VARS[2],
-                      points: stock.expenditure.map((d) => {
-                        const day = data.days.find((x) => x.feed_day === d.feed_day);
-                        return day && day.head_days > 0 ? num(d.rupees) / day.head_days : null;
-                      }),
-                    }
-                  : {
-                      label: fa(pageContract, "chart.spend.title"),
-                      colorVar: FEED_SERIES_VARS[2],
-                      points: stock.expenditure.map((d) => num(d.rupees)),
-                    },
-              ]}
-              dayLabels={stock.expenditure.map((d) => d.feed_day)}
-              valueNoun={fa(pageContract, spendMode === "per_animal" ? "unit.rupees_per_animal" : "unit.rupees")}
-              chartLabel={fa(pageContract, "chart.spend.title")}
-              emptyLabel={fa(pageContract, "stock.empty")}
-            />
-          </ChartHover>
+          {SPEND_MODES.map((mode) => (
+            <LocalViewPane key={mode} param="spend" value={mode} current={spendMode}>
+            <ChartHover>
+              <FeedLines
+                hideZeroInTip
+                series={[
+                  mode === "per_animal"
+                    ? {
+                        label: fa(pageContract, "chart.spend.per_animal.label"),
+                        colorVar: FEED_SERIES_VARS[2],
+                        points: stock.expenditure.map((d) => {
+                          const day = data.days.find((x) => x.feed_day === d.feed_day);
+                          return day && day.head_days > 0 ? num(d.rupees) / day.head_days : null;
+                        }),
+                      }
+                    : {
+                        label: fa(pageContract, "chart.spend.title"),
+                        colorVar: FEED_SERIES_VARS[2],
+                        points: stock.expenditure.map((d) => num(d.rupees)),
+                      },
+                ]}
+                dayLabels={stock.expenditure.map((d) => d.feed_day)}
+                valueNoun={fa(pageContract, mode === "per_animal" ? "unit.rupees_per_animal" : "unit.rupees")}
+                chartLabel={fa(pageContract, "chart.spend.title")}
+                emptyLabel={fa(pageContract, "stock.empty")}
+              />
+            </ChartHover>
+            </LocalViewPane>
+          ))}
         </section>
       ) : null}
 

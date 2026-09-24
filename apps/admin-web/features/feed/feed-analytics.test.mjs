@@ -151,7 +151,10 @@ test("the expenditure chart's per-animal reading divides each day by that day's 
   // from the page contract, never a local literal.
   assert.match(source, /const SPEND_MODES = \["overall", "per_animal"\] as const/);
   assert.match(source, /const spendMode = readSpendMode\(searchParams\)/);
-  assert.match(source, /href: hrefWith\(searchParams, \{ spend: m === "overall" \? undefined : m \}\)/);
+  // Switching is LOCAL (maintainer rule 2026-09-24: no toggle reloads the page): both readings
+  // are rendered and the toggle only shows one and rewrites the URL in place.
+  assert.match(source, /<LocalViewToggle\s+param="spend"/);
+  assert.match(source, /<LocalViewPane key=\{mode\} param="spend" value=\{mode\} current=\{spendMode\}>/);
   assert.match(source, /`chart\.spend\.mode\.\$\{m\}`/);
   // Per animal = that day's ₹ over that day's head count, matched on feed_day — a positional
   // zip would pair the wrong days whenever the two series start on different dates. No
@@ -160,7 +163,7 @@ test("the expenditure chart's per-animal reading divides each day by that day's 
   assert.match(source, /day && day\.head_days > 0 \? num\(d\.rupees\) \/ day\.head_days : null/);
   // Overall stays exactly the series it was.
   assert.match(source, /points: stock\.expenditure\.map\(\(d\) => num\(d\.rupees\)\)/);
-  assert.match(source, /spendMode === "per_animal" \? "unit\.rupees_per_animal" : "unit\.rupees"/);
+  assert.match(source, /mode === "per_animal" \? "unit\.rupees_per_animal" : "unit\.rupees"/);
 });
 
 test("milk-only item days stay on the chart axis", () => {
@@ -240,16 +243,18 @@ test("the Stock tab requests its own arms and does not pay for item money", () =
   assert.ok(!asked.has("item_expenditure"), "the Stock tab never builds itemMoney");
 });
 
-test("Consumption's Status-wise view reads only the pen-tag arm and skips General's reads", () => {
+test("Consumption renders General and Status-wise together and switches between them locally", () => {
   // Status-wise is the average directed feed per animal per pen tag (maintainer request
-  // 2026-09-17). It must not pay for General's KPI, stock, spend or pen-chart reads, and General
-  // must not pay for the pen-tag query.
-  assert.match(source, /const directedSections = statusWise \? "pen_tags" : "days,items";/);
-  assert.match(source, /const wantExecution = \(tab === "overview" && !statusWise\) \|\| tab === "execution";/);
-  assert.match(source, /const wantStock = \(tab === "overview" && !statusWise\) \|\| tab === "items";/);
-  assert.match(source, /const wantShedFeed = tab === "overview" && !statusWise;/);
-  assert.match(source, /\{!stockOnly && statusWise && directed\?\.ok \? \(\s*<FeedStatusWise /);
-  assert.match(source, /\{!stockOnly && !statusWise && directed\?\.ok && \(tab === "overview"/);
+  // 2026-09-17). SUPERSEDED on cost (maintainer rule 2026-09-24, "no toggle should reload the
+  // whole page"): Consumption now reads both readings in one directed call and the toggle only
+  // shows one of them, so switching never asks the server again.
+  assert.match(source, /const directedSections = tab === "overview" \? "days,items,pen_tags" : "days,items";/);
+  assert.match(source, /const wantExecution = tab === "overview" \|\| tab === "execution";/);
+  assert.match(source, /const wantStock = tab === "overview" \|\| tab === "items";/);
+  assert.match(source, /const wantShedFeed = tab === "overview";/);
+  assert.match(source, /<LocalViewToggle\s+param="fc_view"/);
+  assert.match(source, /<LocalViewPane param="fc_view" value="status" current=\{consumptionView\}>\s*<FeedStatusWise /);
+  assert.doesNotMatch(source, /href: hrefWith\(searchParams, \{ fc_view: v === "general"/);
   // Only single-status categories are shown (maintainer 2026-09-17: no mixed-tag pens section),
   // filtered on the BACKEND's flag.
   assert.match(source, /const single = data\.pen_tags\.filter\(\(t\) => !t\.mixed\);/);
