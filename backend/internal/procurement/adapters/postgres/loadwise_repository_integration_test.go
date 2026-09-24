@@ -140,9 +140,15 @@ VALUES ($1, $2::uuid, $3::uuid, 'rejected', 'source_rejected', 'canceled')`,
 	var dealID string
 	if err := pool.QueryRow(ctx, `
 INSERT INTO sales_deals (tenant_id, sale_date, farm, buyer_name, product_type, breed, animal_count, total_weight_kg, sales_value, status)
-VALUES ($1, '2026-08-20', 'CPT', 'Loadwise Buyer', 'Sheep', 'Nari Suvarna', 3, 60, 30000, 'Deal Closed')
+VALUES ($1, '2026-08-20', 'CPT', 'Loadwise Buyer', 'Mixed', 'Mixed', 3, 60, 30000, 'Deal Closed')
 RETURNING id::text`, testTenant).Scan(&dealID); err != nil {
 		t.Fatalf("seed deal: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO sales_deal_lines (tenant_id, deal_id, line_no, product_type, breed, animal_count, total_weight_kg, sales_value)
+VALUES ($1, $2::uuid, 1, 'Sheep', 'Nari Suvarna', 2, 40, 20000),
+       ($1, $2::uuid, 2, 'Goat', 'Malai', 1, 20, 10000)`, testTenant, dealID); err != nil {
+		t.Fatalf("seed deal lines: %v", err)
 	}
 	tag := func(goatID, status, key string, weight float64) {
 		t.Helper()

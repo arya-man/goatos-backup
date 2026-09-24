@@ -147,6 +147,7 @@ test("an observation the probe could not take reads as not-checked, never as a v
 test("every corruption of the base URL that is not really loopback is refused", () => {
   for (const [name, url] of [
     ["absent", ""],
+    // Built from parts so secret scanners do not read a test input as a userinfo credential.
     ["userinfo smuggling", ["http://127.0.0.1:3300", "dashboard.mesha.sg/"].join("@")],
     ["lookalike host", "http://127.0.0.1.dashboard.mesha.sg:3300/"],
     ["subdomain of local", "http://local.127.0.0.1/"],

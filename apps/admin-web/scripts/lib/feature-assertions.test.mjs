@@ -844,3 +844,18 @@ test("the belt and the braces are both load-bearing, and neither is decoration",
   assert.equal(compareReadings([], [], { conditions: "deliberate-action", all: "count" }).agreed, false,
     "which is why the general refusal lives in the primitive too");
 });
+
+test("FCR phone bar assertion checks layout, not only DOM presence", () => {
+  const entries = new Map(loadFeatureAssertions().map((entry) => [entry.sha, entry]));
+  const fcr = entries.get("e311ef24c");
+  assert.ok(fcr, "e311ef24c FCR assertion must stay runnable");
+  assert.deepEqual(fcr.viewports, ["mobile"]);
+  assert.ok(
+    fcr.expect.some((expect) => expect.layout?.mode === "track-below-label-full-width"),
+    "FCR phone fix must assert that the track stacks below the label and spans the row",
+  );
+
+  const source = readFileSync(new URL("./feature-assertions.mjs", import.meta.url), "utf8");
+  assert.match(source, /track-below-label-full-width/);
+  assert.match(source, /getBoundingClientRect\(\)/);
+});

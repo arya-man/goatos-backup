@@ -17,6 +17,7 @@ export PATH := $(HOME)/.local/bin:$(PATH)
 .PHONY: release-tag release-tag-contract-guard restore-stg-android-release-env stg-zero-downtime-migration-audit
 .PHONY: e2e-image-build e2e-parity e2e-smoke e2e-business-chain scale-cert
 .PHONY: org-boundary-guard
+.PHONY: mesha-data-map-guard
 .PHONY: commit-ledger-guard commit-ledger-regenerate commit-ledger-prove guard-integrity-guard dashboard-automation-guard dashboard-automation-self-test dashboard-automation-data-parity dashboard-automation-production-smoke dashboard-automation-post-main-certification
 setup-crg: ai-setup
 

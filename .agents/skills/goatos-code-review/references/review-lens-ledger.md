@@ -76,6 +76,7 @@ LENS-PEN-LABEL             :: apps/admin-web/lib/operational-location.ts backend
 LENS-PERMISSION-SCOPE      :: packages/rbac/** apps/admin-web/**/*permission* apps/admin-web/**/*access* backend/internal/**/*authz* backend/internal/**/*permission* backend/internal/identity/** backend/migrations/postgres/**
 LENS-VERIFICATION-SIGNOFF  :: backend/internal/verification/** apps/admin-web/features/verification-review/** apps/goatos-android/**/*[Vv]erif* apps/admin-web/**/*verif*
 LENS-TOTALS-RECONCILE      :: backend/internal/counts/** backend/internal/**/*projection* backend/internal/**/*readmodel* backend/internal/**/*summary* apps/admin-web/**/*summary* apps/admin-web/**/*counts*
+LENS-SQL-PAGINATION-SHAPE  :: backend/internal/**/adapters/postgres/*.go
 LENS-NAV-ROUTE             :: apps/admin-web/components/mesha-shell.tsx apps/admin-web/**/*nav* apps/admin-web/app/**/layout.tsx apps/goatos-android/**/navigation/** apps/goatos-android/**/*Nav* backend/internal/adminui/**
                            css:: .top{ .navback .crumb .tabs aria-current .side
 LENS-NOTIFICATION-DELIVERY :: backend/internal/notificationbridge/** backend/internal/**/*notif* backend/internal/**/*outbox* backend/internal/**/*reminder* backend/internal/**/*escalat* apps/goatos-android/**/*[Pp]ush* tools/dashboard-automation/notify-slack.mjs
@@ -592,6 +593,15 @@ Apply matched lenses in the SKILL.md priority order (kernel → scale → securi
   `atomic-readmodel-sync`, `admin-web-sectioned-aggregate-reads`
 - detail: `references/aggregates-and-projections.md` +
   `docs/architecture/operational-read-model-contract.md`
+
+**LENS-SQL-PAGINATION-SHAPE**
+- triggers: `backend/internal/**/adapters/postgres/*.go` — paginated SQL where a CTE/subquery sits
+  under an outer `LIMIT` or keyset cursor
+- rule: the LIMIT/keyset must bound the inner scan, not only the outer select (unbounded CTE
+  with the LIMIT outside it)
+- guard: `scale-guard` rule `cte-limit-outside` · *manual:* validate-sqlc-plans
+- detail: `references/kernel-and-scale.md` + `docs/decisions/scale-anti-patterns.md` · example:
+  PR #376 notification-feed CTE (`/app/notifications`)
 
 **LENS-NAV-ROUTE** · covers: 117
 - triggers: `apps/admin-web/components/mesha-shell.tsx`, `apps/admin-web/**/*nav*`,
