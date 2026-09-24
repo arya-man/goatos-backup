@@ -22,7 +22,6 @@ type Service struct {
 	repo       ports.Repository
 	log        *slog.Logger
 	thresholds domain.Thresholds
-	cohorts    *liveCohortCache[[]domain.LiveItem]
 	penStats   *liveCohortCache[map[string]riskGroupStats]
 	summaries  *liveCohortCache[domain.Summary]
 }
@@ -48,23 +47,37 @@ func NewService(repo ports.Repository, log ...*slog.Logger) *Service {
 		repo:       repo,
 		log:        l,
 		thresholds: domain.DefaultThresholds(),
-		cohorts:    newLiveCohortCache[[]domain.LiveItem](),
 		penStats:   newLiveCohortCache[map[string]riskGroupStats](),
 		summaries:  newLiveCohortCache[domain.Summary](),
 	}
 }
 
+// tenantPenStats is the per-pen comparison baseline over the tenant's WHOLE pen (not the page
+// filter): the same membership the risk classifier scores against, so a row's shown
+// pen-group deltas and its persisted risk reasons agree. Cached per tenant, NOTIFY-invalidated.
+func (s *Service) tenantPenStats(ctx context.Context, tenantID string) (map[string]riskGroupStats, error) {
+	return s.penStats.get(ctx, liveCohortKey(tenantID), domain.FreshLiveRead(ctx), func(ctx context.Context) (map[string]riskGroupStats, error) {
+		medians, err := s.repo.ListLivePenMedians(ctx, tenantID, nil, nil, nil, nil, nil, nil)
+		if err != nil {
+			return nil, err
+		}
+		out := make(map[string]riskGroupStats, len(medians))
+		for pen, m := range medians {
+			out[pen] = riskGroupStats{motionMedian: m.MotionMedian, tempMedian: m.TempMedian}
+		}
+		return out, nil
+	})
+}
+
 // InvalidateLive marks the cached live cohorts of one tenant stale; wired to the herd_signals_live
 // NOTIFY so the next read revalidates.
 func (s *Service) InvalidateLive(tenantID string) {
-	s.cohorts.invalidate(tenantID)
 	s.penStats.invalidate(tenantID)
 	s.summaries.invalidate(tenantID)
 }
 
 // InvalidateAllLive marks every cached live cohort stale (LISTEN reconnect catch-up).
 func (s *Service) InvalidateAllLive() {
-	s.cohorts.invalidateAll()
 	s.penStats.invalidateAll()
 	s.summaries.invalidateAll()
 }
@@ -204,58 +217,13 @@ func (s *Service) ListLive(ctx context.Context, actor domain.Actor, parkID, shed
 		return domain.LiveResponse{}, fmt.Errorf("actor tenant_id required")
 	}
 
-	if riskState != nil {
-		key := liveCohortKey(actor.TenantID, parkID, shedID, liveState, mappingState, pattern, q, &sort.Key, &sort.Dir)
-		cohortItems, err := s.cohorts.get(ctx, key, domain.FreshLiveRead(ctx), func(ctx context.Context) ([]domain.LiveItem, error) {
-			cohortTags, err := s.listAllTagsLatest(ctx, actor.TenantID, parkID, shedID, nil, liveState, mappingState, pattern, q, sort)
-			if err != nil {
-				return nil, err
-			}
-			items := s.enrichTagsBatch(ctx, actor.TenantID, cohortTags, nil, false)
-			applyRiskSignals(items, riskGroupStatsFromItems(items))
-			return items, nil
-		})
-		if err != nil {
-			s.log.Error("failed to list tags latest for signal filter", "error", err)
-			return domain.LiveResponse{}, fmt.Errorf("list tags failed: %w", err)
-		}
-
-		// cohortItems is the shared cached slice: filter into new slices, never mutate it.
-		filtered := make([]domain.LiveItem, 0, len(cohortItems))
-		for _, item := range cohortItems {
-			if *riskState == "attention" {
-				if item.RiskState != nil {
-					filtered = append(filtered, item)
-				}
-				continue
-			}
-			if item.RiskState != nil && *item.RiskState == *riskState {
-				filtered = append(filtered, item)
-			}
-		}
-		summaryItems := filtered
-		if movementState != nil {
-			pageItems := make([]domain.LiveItem, 0, len(filtered))
-			for _, item := range filtered {
-				if item.MovementState != nil && *item.MovementState == *movementState {
-					pageItems = append(pageItems, item)
-				}
-			}
-			filtered = pageItems
-		}
-		summary := summaryFromItems(summaryItems)
-		page, nextCursor := pageRiskFilteredItems(filtered, cursor, limit, sort)
-		page = append([]domain.LiveItem(nil), page...)
-		s.populateMotionDeltas24h(ctx, actor.TenantID, page)
-		return domain.LiveResponse{
-			Summary:    summary,
-			Items:      page,
-			NextCursor: nextCursor,
-		}, nil
+	if riskState != nil && strings.HasPrefix(cursor, "risk.v1.") {
+		cursor = "" // cursor from the retired in-memory risk pager: restart at the first page
 	}
-
+	// risk_state is the persisted classification (000402, written by RecomputeRisk): an indexed
+	// predicate with keyset paging, never a whole-cohort walk.
 	tags, nextCursor, err := s.repo.ListTagsLatestKeyset(
-		ctx, actor.TenantID, parkID, shedID, movementState, liveState, mappingState, pattern, q, cursor, limit, sort,
+		ctx, actor.TenantID, parkID, shedID, movementState, liveState, mappingState, pattern, riskState, q, cursor, limit, sort,
 	)
 	if err != nil {
 		s.log.Error("failed to list tags latest", "error", err)
@@ -263,9 +231,9 @@ func (s *Service) ListLive(ctx context.Context, actor domain.Actor, parkID, shed
 	}
 	// Whole-filter summary: one aggregate query, cached per (tenant, filter) and invalidated by
 	// the live NOTIFY, so N viewers / polls inside the window share one aggregate.
-	summaryKey := liveCohortKey(actor.TenantID, parkID, shedID, mappingState, pattern, q)
+	summaryKey := liveCohortKey(actor.TenantID, parkID, shedID, mappingState, pattern, riskState, q)
 	summary, err := s.summaries.get(ctx, summaryKey, domain.FreshLiveRead(ctx), func(ctx context.Context) (domain.Summary, error) {
-		return s.repo.LiveSummary(ctx, actor.TenantID, parkID, shedID, mappingState, pattern, q)
+		return s.repo.LiveSummary(ctx, actor.TenantID, parkID, shedID, mappingState, pattern, riskState, q)
 	})
 	if err != nil {
 		s.log.Error("failed to compute live summary", "error", err)
@@ -277,20 +245,7 @@ func (s *Service) ListLive(ctx context.Context, actor domain.Actor, parkID, shed
 	// to derive two medians per pen.)
 	groupStats := map[string]riskGroupStats{}
 	if len(tags) > 0 {
-		// Cached per (tenant, filter) with the same stale-while-revalidate policy as the risk
-		// cohort: the medians are a comparison baseline, and at 20k tags the aggregate is ~100ms.
-		key := liveCohortKey(actor.TenantID, parkID, shedID, liveState, mappingState, pattern, q)
-		stats, err := s.penStats.get(ctx, key, domain.FreshLiveRead(ctx), func(ctx context.Context) (map[string]riskGroupStats, error) {
-			medians, err := s.repo.ListLivePenMedians(ctx, actor.TenantID, parkID, shedID, liveState, mappingState, pattern, q)
-			if err != nil {
-				return nil, err
-			}
-			out := make(map[string]riskGroupStats, len(medians))
-			for pen, m := range medians {
-				out[pen] = riskGroupStats{motionMedian: m.MotionMedian, tempMedian: m.TempMedian}
-			}
-			return out, nil
-		})
+		stats, err := s.tenantPenStats(ctx, actor.TenantID)
 		if err != nil {
 			s.log.Warn("failed to aggregate pen medians for signal comparisons", "error", err)
 		} else {
@@ -891,6 +846,16 @@ func (s *Service) enrichTagsBatch(ctx context.Context, tenantID string, tags []d
 
 	if groupStats != nil {
 		applyRiskSignals(items, groupStats)
+		// The persisted classification (what the risk_state filter and summary use) is the
+		// displayed state/reasons once the classifier has evaluated the tag; the live pct
+		// fields above stay as computed. Never-evaluated tags keep the live classification.
+		for i := range items {
+			if tags[i].RiskEvaluatedAt == nil {
+				continue
+			}
+			items[i].RiskState = tags[i].RiskState
+			items[i].RiskReasons = append([]string{}, tags[i].RiskReasons...)
+		}
 	}
 	if includeMotionDelta24h {
 		s.populateMotionDeltas24h(ctx, tenantID, items)
@@ -1022,6 +987,7 @@ func applyRiskSignals(items []domain.LiveItem, groupStats map[string]riskGroupSt
 		}
 		item.RiskState = &state
 		item.RiskReasons = reasons
+		item.RiskScore = score
 	}
 }
 

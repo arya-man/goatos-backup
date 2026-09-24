@@ -197,8 +197,13 @@ type TagLatest struct {
 	// this ingest's received_at was more than Thresholds.ReceptionGapMinutes after the tag's
 	// previous_seen_at, so the delta is a TOTAL over an unknown span, not this window's own
 	// movement.
-	GapDelta  bool
-	UpdatedAt time.Time
+	GapDelta bool
+	// Persisted risk classification (000402), written by the risk classifier. RiskEvaluatedAt
+	// nil = never classified.
+	RiskState       *string
+	RiskReasons     []string
+	RiskEvaluatedAt *time.Time
+	UpdatedAt       time.Time
 }
 
 // ActivityWindow represents a bucketed motion aggregate.
@@ -344,9 +349,11 @@ type LiveItem struct {
 	BaselineDelta           *int64                `json:"baseline_delta"`
 	RiskState               *string               `json:"risk_state"`
 	RiskReasons             []string              `json:"risk_reasons"`
-	OwnMotionDeltaPct       *float64              `json:"own_motion_delta_pct"`
-	GroupMotionDeltaPct     *float64              `json:"group_motion_delta_pct"`
-	GroupTempDeltaC         *float64              `json:"group_temp_delta_c"`
+	// RiskScore is the classifier score behind RiskState; persisted, not part of the wire shape.
+	RiskScore           int      `json:"-"`
+	OwnMotionDeltaPct   *float64 `json:"own_motion_delta_pct"`
+	GroupMotionDeltaPct *float64 `json:"group_motion_delta_pct"`
+	GroupTempDeltaC     *float64 `json:"group_temp_delta_c"`
 	// SensorState is a COMPUTED "ok"/"abnormal" summary (contract type HerdSignalSensorState),
 	// never the raw device sensor_state int -- that raw value is stored but intentionally not
 	// exposed on this endpoint; see herd_signal_tag_latest / herd_signal_packets for the raw bits.

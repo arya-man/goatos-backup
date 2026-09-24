@@ -56,50 +56,30 @@ func TestListLiveNonRiskEnrichesOnlyRequestedPage(t *testing.T) {
 	}
 }
 
-// Risk-filtered reads share one cohort computation until a NOTIFY invalidates it; a fresh read
-// (stream hub) after the NOTIFY recomputes, a plain read is served stale-while-revalidate.
-func TestListLiveRiskCohortIsCachedAndInvalidatedByNotify(t *testing.T) {
-	repo := manyMappedTags(20)
-	svc := NewService(repo)
-	actor := domain.Actor{TenantID: "tenant-1", UserID: "user-1"}
-	risk := "attention"
-	ctx := context.Background()
-	walks := func() int {
-		repo.mu.Lock()
-		defer repo.mu.Unlock()
-		n := 0
-		for _, l := range repo.listLimits {
-			if l == liveSignalCohortPageSize {
-				n++
-			}
-		}
-		return n
-	}
-	for i := 0; i < 5; i++ {
-		if _, err := svc.ListLive(ctx, actor, nil, nil, nil, nil, nil, nil, &risk, nil, "", 5, domain.LiveSort{}); err != nil {
-			t.Fatalf("ListLive: %v", err)
-		}
-	}
-	if got := walks(); got != 1 {
-		t.Fatalf("cohort walks = %d after 5 reads, want 1", got)
-	}
-	svc.InvalidateLive("other-tenant")
-	if _, err := svc.ListLive(domain.WithFreshLiveRead(ctx), actor, nil, nil, nil, nil, nil, nil, &risk, nil, "", 5, domain.LiveSort{}); err != nil {
+// F5: a cold risk_state read (brand-new service, empty caches) is an indexed page read of the
+// persisted classification: no cohort walk, and enrichment only for the page.
+func TestListLiveColdRiskReadDoesNotWalkCohort(t *testing.T) {
+	repo := manyMappedTags(300)
+	if _, err := NewService(repo).RecomputeRisk(context.Background(), "tenant-1"); err != nil {
 		t.Fatal(err)
 	}
-	if got := walks(); got != 1 {
-		t.Fatalf("another tenant's NOTIFY recomputed this tenant: walks = %d", got)
-	}
-	svc.InvalidateLive("tenant-1")
-	resp, err := svc.ListLive(domain.WithFreshLiveRead(ctx), actor, nil, nil, nil, nil, nil, nil, &risk, nil, "", 5, domain.LiveSort{})
+	repo.listLimits, repo.resolvedValueCnt = nil, 0
+	svc := NewService(repo)
+	risk := "attention"
+	resp, err := svc.ListLive(context.Background(), domain.Actor{TenantID: "tenant-1", UserID: "u"}, nil, nil, nil, nil, nil, nil, &risk, nil, "", 5, domain.LiveSort{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := walks(); got != 2 {
-		t.Fatalf("fresh read after NOTIFY walks = %d, want 2", got)
+	if len(resp.Items) != 5 || resp.Summary.TagsSeen != 300 {
+		t.Fatalf("risk page = %d items / summary %d, want 5 / 300", len(resp.Items), resp.Summary.TagsSeen)
 	}
-	if len(resp.Items) != 5 || resp.Summary.TagsSeen != 20 {
-		t.Fatalf("risk page = %d items, summary %d; want 5 / 20", len(resp.Items), resp.Summary.TagsSeen)
+	for _, l := range repo.listLimits {
+		if l > 5 {
+			t.Fatalf("cold risk read listed with limit %d (cohort walk); limits=%v", l, repo.listLimits)
+		}
+	}
+	if repo.resolvedValueCnt > 10 {
+		t.Fatalf("cold risk read resolved %d identifiers, want page-only (<=10)", repo.resolvedValueCnt)
 	}
 }
 

@@ -51,11 +51,24 @@ type Repository interface {
 	ListLivePenMedians(ctx context.Context, tenantID string, parkID, shedID, liveState, mappingState, pattern, q *string) (map[string]PenMedians, error)
 
 	// ListTagsLatestKeyset is ListTagsLatest's page + next cursor without the summary aggregate.
-	ListTagsLatestKeyset(ctx context.Context, tenantID string, parkID, shedID, movementState, liveState, mappingState, pattern, q *string, cursor string, limit int, sort ...domain.LiveSort) ([]domain.TagLatest, *string, error)
+	// riskState filters on the persisted classification (nil = no filter, "attention" = any).
+	ListTagsLatestKeyset(ctx context.Context, tenantID string, parkID, shedID, movementState, liveState, mappingState, pattern, riskState, q *string, cursor string, limit int, sort ...domain.LiveSort) ([]domain.TagLatest, *string, error)
 
 	// LiveSummary is ListTagsLatest's whole-filter summary aggregate on its own (movement_state,
 	// live_state, cursor and limit never apply).
-	LiveSummary(ctx context.Context, tenantID string, parkID, shedID, mappingState, pattern, q *string) (domain.Summary, error)
+	LiveSummary(ctx context.Context, tenantID string, parkID, shedID, mappingState, pattern, riskState, q *string) (domain.Summary, error)
+
+	// UpdateTagRisk persists one classifier batch in ONE set-based statement (UNNEST), touching
+	// only rows whose classification changed, and NOTIFYs live streams when any did. Returns
+	// the number of rows changed.
+	UpdateTagRisk(ctx context.Context, tenantID string, rows []TagRisk, evaluatedAt time.Time) (int, error)
+
+	// ListRiskTenants returns the tenants that have any herd-signal tag.
+	ListRiskTenants(ctx context.Context) ([]string, error)
+
+	// WithRiskClassifierLock runs fn only if this instance wins the cluster-wide classifier
+	// advisory lock; ran=false when another instance holds it.
+	WithRiskClassifierLock(ctx context.Context, fn func(ctx context.Context) error) (ran bool, err error)
 
 	// ListActivityWindows fetches bucketed motion data for a tag over a date range.
 	// bucketSeconds: defaults to 60 if 0.
@@ -156,6 +169,14 @@ type Repository interface {
 	// herd_signal_activity_windows (bounded, efficient query vs scanning raw packets).
 	// Aggregates: unique tags seen, tags with motion, total packets. Result keyed by gateway_id.
 	GetGatewayWindowStats(ctx context.Context, tenantID string) (map[string]GatewayWindowStats, error)
+}
+
+// TagRisk is one tag's persisted risk classification.
+type TagRisk struct {
+	TagID   string
+	State   *string
+	Score   int
+	Reasons []string
 }
 
 // PenMedians is the per-pen live comparison baseline. Nil means no qualifying tag in that pen.
