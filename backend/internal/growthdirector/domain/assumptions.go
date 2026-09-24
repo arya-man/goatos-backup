@@ -16,9 +16,34 @@ import (
 type Assumptions struct {
 	SalePrices []SalePrice       `json:"sale_prices"`
 	Values     []AssumptionValue `json:"values"`
-	// Stages is the tenant's active management-stage vocabulary (animal_stage_lookup), in its own
-	// order: the rows a stage x sex price can be set for. Tenant data, never a list in code.
+	// Stages is the rows a stage x sex price can be set for: the tenant's active stages
+	// (animal_stage_lookup, its own order) narrowed by PriceableStages to the ones weighed animals
+	// sit in, plus any already priced. Tenant data, never a list in code.
 	Stages []StageOption `json:"stages"`
+}
+
+// PriceableStages narrows the stage vocabulary to the rows the drawer offers a price for
+// (maintainer decision 2026-09-24): "only those stages for which weighing done". A stage is kept
+// when a weighed animal sits in it now, OR when a stage x sex price is already set on it -- a price
+// that is in force must stay visible so it can be read and cleared, even after its animals have
+// moved on. The vocabulary's own order is kept; matching ignores case, as the price resolver does.
+func PriceableStages(all []StageOption, weighed []string, prices []SalePrice) []StageOption {
+	keep := map[string]bool{}
+	for _, code := range weighed {
+		keep[strings.ToLower(strings.TrimSpace(code))] = true
+	}
+	for _, p := range prices {
+		if !p.IsDefault() {
+			keep[strings.ToLower(strings.TrimSpace(p.ManagementStage))] = true
+		}
+	}
+	out := []StageOption{}
+	for _, s := range all {
+		if keep[strings.ToLower(strings.TrimSpace(s.Code))] {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // StageOption is one management stage a price override may name.

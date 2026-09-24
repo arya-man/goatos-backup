@@ -16060,7 +16060,7 @@ export interface components {
         GrowthAssumptionsResponse: {
             sale_prices: components["schemas"]["GrowthSalePrice"][];
             values: components["schemas"]["GrowthAssumptionValue"][];
-            /** @description The tenant's active management stages, in authored order -- the rows a stage x sex price can be set for. */
+            /** @description The active management stages a stage x sex price can be set for, in authored order -- only stages that weighed animals now sit in (scanned tags, and pens weighed whole), plus any stage already carrying a price. */
             stages: {
                 code: string;
                 name: string;

@@ -1407,7 +1407,7 @@ func weighingWeightsCopy() map[string]string {
 		"drawer.assumptions.prices.hint":                "₹ per kg live weight, used to value weight gained (FCR tab) and stock on hand (Load-wise tab).",
 		"drawer.assumptions.prices.default":             "All stages",
 		"drawer.assumptions.prices.by_stage":            "By stage and sex",
-		"drawer.assumptions.prices.by_stage.hint":       "Leave a box blank to use the all-stages price above. Each animal is valued at its own stage and sex.",
+		"drawer.assumptions.prices.by_stage.hint":       "Only stages with weighed animals in them are listed. Leave a box blank to use the all-stages price above. Each animal is valued at its own stage and sex.",
 		"drawer.assumptions.prices.stage":               "Stage",
 		"drawer.assumptions.prices.male":                "Male",
 		"drawer.assumptions.prices.female":              "Female",
@@ -8982,7 +8982,7 @@ func pageSpecificCopy(id string) map[string]string {
 			m["drawer.assumptions.prices.hint"] = "₹ per kg live weight, used to value weight gained (FCR tab) and stock on hand (Load-wise tab)."
 			m["drawer.assumptions.prices.default"] = "All stages"
 			m["drawer.assumptions.prices.by_stage"] = "By stage and sex"
-			m["drawer.assumptions.prices.by_stage.hint"] = "Leave a box blank to use the all-stages price above. Each animal is valued at its own stage and sex."
+			m["drawer.assumptions.prices.by_stage.hint"] = "Only stages with weighed animals in them are listed. Leave a box blank to use the all-stages price above. Each animal is valued at its own stage and sex."
 			m["drawer.assumptions.prices.stage"] = "Stage"
 			m["drawer.assumptions.prices.male"] = "Male"
 			m["drawer.assumptions.prices.female"] = "Female"
