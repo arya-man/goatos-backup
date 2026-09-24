@@ -2839,8 +2839,18 @@ LEFT JOIN locations park
        ON park.tenant_id = $1::uuid AND park.location_id = p.park_id
 LEFT JOIN locations shed
        ON shed.tenant_id = $1::uuid AND shed.location_id = p.shed_id
+-- Farm, then pen name (maintainer, 2026-09-24), never head count: a reader finds a pen by walking
+-- the farm's pens in order. Farm is the park CODE (CBE, then CPT -- the 2026-09-16 rule). Pen
+-- names sort NATURALLY on their trailing number, so "Mandela 2" comes before "Mandela 10" and
+-- "Part 9" before "Part 10"; a plain text sort would interleave them. The ids close every tie, so
+-- a page boundary never moves between two renders.
 ORDER BY
-  p.animal_count DESC,
+  COALESCE(NULLIF(park.location_code, ''), park.name, '') NULLS LAST,
+  regexp_replace(COALESCE(NULLIF(shed.name, ''), shed.location_code, ''), '[0-9]+$', ''),
+  NULLIF(substring(COALESCE(NULLIF(shed.name, ''), shed.location_code, '') FROM '([0-9]+)$'), '')::bigint NULLS FIRST,
+  COALESCE(NULLIF(shed.name, ''), shed.location_code, ''),
+  NULLIF(substring(CASE WHEN p.partition_key = 'whole' THEN '' ELSE p.partition_label_raw END FROM '([0-9]+)$'), '')::bigint NULLS FIRST,
+  CASE WHEN p.partition_key = 'whole' THEN '' ELSE p.partition_label_raw END,
   COALESCE(p.park_id, '00000000-0000-0000-0000-000000000000'::uuid),
   COALESCE(p.shed_id, '00000000-0000-0000-0000-000000000000'::uuid),
   p.partition_key

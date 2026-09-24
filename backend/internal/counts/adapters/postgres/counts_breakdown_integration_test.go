@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strconv"
 	"testing"
 	"time"
 
@@ -2087,21 +2088,56 @@ func TestCountsBreakdownPenPageOneToManyGrainRollupReconcilesToTheGrainPage(t *t
 		t.Errorf("grain set differs\n grain page: %v\n from pens:  %v", fromGrain, fromPens)
 	}
 
-	// Pens page largest-first, and the partitioned display is the canonical one, never a sentinel.
+	// Pens page in farm, then pen-name order (never head count), and the partitioned display is the
+	// canonical one, never a sentinel.
 	for i, pen := range pens.Pens {
-		if i > 0 && pens.Pens[i-1].Count < pen.Count {
-			t.Errorf("pens not ordered largest-first at %d: %+v", i, pens.Pens)
+		if i > 0 && penOrderLess(pen, pens.Pens[i-1]) {
+			t.Errorf("pens not in farm, then pen-name order at %d: %+v", i, pens.Pens)
 		}
 		if pen.PartitionLabel == "whole" || pen.OperationalLocationDisplay == "" {
 			t.Errorf("pen %d leaks a sentinel or blank display: %+v", i, pen)
 		}
 	}
-	if pens.Pens[0].OperationalLocationDisplay != "Castro 1 - Part 2" && pens.Pens[0].OperationalLocationDisplay != "Castro 1 2" {
-		// Whichever convention the fixture stores, the largest pen (3 animals) is Castro 1's pen "2".
-		if pens.Pens[0].Count != 3 {
-			t.Errorf("largest pen should hold 3 animals: %+v", pens.Pens[0])
+}
+
+// penOrderLess is the pen table's reading order: farm code, then the shed name with its trailing
+// number compared as a NUMBER, then the partition's trailing number, then the raw labels.
+func penOrderLess(a, b domain.CountsBreakdownPenRow) bool {
+	split := func(v string) (string, int64, bool) {
+		end := len(v)
+		start := end
+		for start > 0 && v[start-1] >= '0' && v[start-1] <= '9' {
+			start--
 		}
+		if start == end {
+			return v, 0, false
+		}
+		n, _ := strconv.ParseInt(v[start:], 10, 64)
+		return v[:start], n, true
 	}
+	if a.ParkLabel != b.ParkLabel {
+		return a.ParkLabel < b.ParkLabel
+	}
+	aBase, aNum, aHas := split(a.ShedLabel)
+	bBase, bNum, bHas := split(b.ShedLabel)
+	if aBase != bBase {
+		return aBase < bBase
+	}
+	if aHas != bHas {
+		return !aHas
+	}
+	if aNum != bNum {
+		return aNum < bNum
+	}
+	_, aPart, aPartHas := split(a.PartitionLabel)
+	_, bPart, bPartHas := split(b.PartitionLabel)
+	if aPartHas != bPartHas {
+		return !aPartHas
+	}
+	if aPart != bPart {
+		return aPart < bPart
+	}
+	return a.PartitionLabel < b.PartitionLabel
 }
 
 // The pen page honours the same filters as the grain page: a filter that narrows a pen to a subset
@@ -3318,4 +3354,66 @@ func TestCountsBreakdownStageAndBreedOptionsFollowTheSelectedPark(t *testing.T) 
 			}
 		}
 	})
+}
+
+// The pen table reads in farm order, then pen name, never by head count (maintainer, 2026-09-24),
+// and pen numbers sort as numbers. The fixture makes each wrong answer visible: the biggest pen is
+// the LAST one by name, and "Part 10" would sort before "Part 9" as text.
+func TestCountsBreakdownPenTableSortsByFarmThenPenName(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newBreakdownRepo(t, ctx)
+	seedSameNamedShedsInTwoParks(t, ctx, pool)
+
+	n := 0
+	place := func(park, shed, label string, animals int) {
+		t.Helper()
+		for k := 0; k < animals; k++ {
+			insertBreakdownGoat(t, ctx, pool, goatUUID(n), goatDisplayID(n), "female", "Beetal", "alive", "K1", strp(park), strp(shed), nil)
+			if _, err := pool.Exec(ctx, `
+INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 'seed')`, countsTenant, goatUUID(n), shed, label); err != nil {
+				t.Fatalf("seed partition: %v", err)
+			}
+			n++
+		}
+	}
+	place(countsPark, countsShedCastroOne, "Part 10", 5)
+	place(countsPark, countsShedCastroOne, "Part 9", 1)
+	place(countsPark, countsShedCastroOne, "Part 2", 2)
+	place(countsParkTwo, countsShedCastroTwo, "Part 1", 1)
+
+	got, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, GroupByPen: true, Limit: 50})
+	if err != nil {
+		t.Fatalf("GetCountsBreakdown: %v", err)
+	}
+	codes := map[string]string{}
+	for _, p := range got.Facets.Parks {
+		codes[p.Key] = p.Label
+	}
+	one, two := codes[countsPark], codes[countsParkTwo]
+	type line struct{ park, pen string }
+	var gotLines []line
+	for _, p := range got.Pens {
+		gotLines = append(gotLines, line{p.ParkLabel, p.OperationalLocationDisplay})
+	}
+	parkOne := []line{{one, "Castro 1 - Part 2"}, {one, "Castro 1 - Part 9"}, {one, "Castro 1 - Part 10"}}
+	parkTwo := []line{{two, "Castro 1 - Part 1"}}
+	want := append(append([]line{}, parkOne...), parkTwo...)
+	if two < one {
+		want = append(append([]line{}, parkTwo...), parkOne...)
+	}
+	if !reflect.DeepEqual(gotLines, want) {
+		t.Errorf("pen table order = %v, want %v (farm code, then pen name with numbers as numbers)", gotLines, want)
+	}
+
+	// PageBoundary: paging walks that same order, one pen per page.
+	for i, w := range want {
+		page, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, GroupByPen: true, Limit: 1, Offset: int32(i)})
+		if err != nil {
+			t.Fatalf("page %d: %v", i, err)
+		}
+		if len(page.Pens) != 1 || (line{page.Pens[0].ParkLabel, page.Pens[0].OperationalLocationDisplay}) != w {
+			t.Errorf("page %d = %+v, want %v", i, page.Pens, w)
+		}
+	}
 }
