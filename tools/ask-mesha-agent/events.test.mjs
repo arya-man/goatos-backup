@@ -123,3 +123,13 @@ test("tracker finish classifies stops and failures; budget + auth helpers", asyn
   assert.equal(lines.filter((l) => l.event_name === "budget_warning").length, 1);
   assert.equal(lines.find((l) => l.event_name === "ask_failed").severity, "ERROR");
 });
+
+test("ask_stopped reason distinguishes Stop from a closed tab", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ask-ev-"));
+  const lines = [];
+  const ev = await createEvents({ stateDir: dir, log: (l) => lines.push(JSON.parse(l)) });
+  await ev.tracker({ email: "a@m" }, {}).finish({ error: "client_aborted" }, { aborted: true, stopReason: "stop_pressed" });
+  await ev.tracker({ email: "a@m" }, {}).finish({ error: "client_aborted" }, { aborted: true });
+  const reasons = lines.filter((l) => l.event_name === "ask_stopped").map((l) => l.reason);
+  assert.deepEqual(reasons, ["stop_pressed", "client_closed"]);
+});

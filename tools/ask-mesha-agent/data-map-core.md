@@ -19,9 +19,9 @@ topic -> view -> key columns -> date column
 - pen capacity -> shed_capacity_current; inventory -> inventory_stock_position
 - queues -> verification_queue_status, verifier_review_integrity; actions -> action_center_current, ops_exception_queue, sop_execution_status
 - audit -> audit_activity_summary; notifications -> notification_delivery_health
-No sales/price/revenue view exists: say so; count sold animals from animals_base.
+No sales/revenue view: use public.sales_deals (sales_value, payment_received, buyer_name, status='Deal Closed', sale_date, farm CBE/CPT).
 metrics -> how (exact defs + SQL: SKILL.md "Metric definitions"; never invent a proxy)
-- ADG/daily gain, kids weighed: NOT reproducible (needs per-animal weighs). Say so, point to /weighing/analytics; pen-arm approx only if labelled.
+- ADG/daily gain: compute from per-animal weighs in public.weighing_observations (consecutive weigh-ins); say it may differ slightly from /weighing/analytics. Never tell the CEO only pen averages are readable.
 - headcount: animal_current_scope lifecycle_status='alive'. sold: animals_base exit_reason='sold' by exit_business_day.
 - mortality %: sum(mortality_base.deaths in window)*100 / live 'alive' count now, 1dp (NOT active_population).
 - weighing pending: pending+rework. feed fed_kg is always 0: say fed data missing. vaccination: due/done, no %.
@@ -31,3 +31,9 @@ Raw tables (all readable): feed prices -> public.feed_purchases (feed_item_label
 purchase_date, quantity_kg, reached_weight_kg, feed_cost, transport_cost, loading_cost, unloading_cost, total_cost, per_kg_cost;
 "assumed price" = latest per_kg_cost for that feed+farm on/before the day). Per-weigh data -> public.weighing_observations /
 weighing_shed_observations. Sales money -> public.sales_deals / sales_deal_lines / sales_deal_payments. Prefer these when a view lacks detail.
+Preventive care (deworming, ticks removal, hoof trimming, feed & water removal) -> public.pc_care_tasks
+(category 'deworming'|'hoof_trimming'|'feed_water_removal'|...; work_state completed/canceled/delayed/scheduled;
+planned_business_date = planned, submitted_at = done, verified_at = verified). Pen/park names: join public.locations
+on location_id = shed_id / park_id (locations.name); partition_label = pen number (Castro 1/2/3). Cancelled != done.
+Before answering "not recorded": search information_schema.columns / table names and category/status values for the
+keyword (e.g. ILIKE '%deworm%'); many activities live in module tables (pc_care_*, penroutines, penvisits, obligations).
