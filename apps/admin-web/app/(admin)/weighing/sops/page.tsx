@@ -18,7 +18,7 @@ const PAGE_PATH = "/weighing/sops";
 export default async function Page({ searchParams }: { searchParams: Promise<RouteSearchParams> }) {
   return renderSopModulePage("weighing-sops", "weighing", PAGE_PATH, searchParams, async (pageContract, sp) => {
     if (!controlEnabled(pageContract, "edit_assumptions", false)) return null;
-    const assumptions = await getGrowthAssumptions();
+    const assumptions = await getGrowthAssumptions({ includeStages: true });
     if (!assumptions.ok) return null;
     const open = new URLSearchParams();
     for (const [key, value] of Object.entries(sp)) {

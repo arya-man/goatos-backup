@@ -22406,7 +22406,10 @@ export interface operations {
     };
     adminGetGrowthAssumptions: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Include the stage vocabulary for the Assumptions drawer's stage x sex price grid. */
+                include_stages?: "1";
+            };
             header?: never;
             path?: never;
             cookie?: never;

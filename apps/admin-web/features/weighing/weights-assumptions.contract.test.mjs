@@ -55,6 +55,9 @@ test("the Assumptions button lives on the Weighing SOP page, gated on edit_assum
   assert.match(sopPageSource, /if \(!controlEnabled\(pageContract, "edit_assumptions", false\)\) return null;/, "the button renders only when the control is enabled");
   assert.doesNotMatch(sopPageSource, /disabled=/, "an off control is absent, never a greyed button");
   assert.doesNotMatch(pageSource, /WeightsAssumptionsControl/, "ADG Analytics no longer carries the button (moved 2026-09-19)");
+  assert.match(sopPageSource, /getGrowthAssumptions\(\{ includeStages: true \}\)/, "only the editor drawer opts into the stage grid read");
+  assert.match(pageSource, /getGrowthAssumptions\(\)/, "ADG Analytics keeps the cheap assumptions read on page load");
+  assert.match(weightsSource, /getGrowthAssumptions\(\)/, "Weights keeps the cheap assumptions read on page load");
   assert.match(serviceSource, /m\["action\.assumptions"\] = "Assumptions"/);
 });
 

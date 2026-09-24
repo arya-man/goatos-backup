@@ -21,7 +21,7 @@ type Service interface {
 	GetFeedWeightBand(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory string) (domain.FeedWeightBand, error)
 	GetFCR(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin, weighingCategory string) (domain.FCRReport, error)
 	GetSalePrices(ctx context.Context, actor domain.Actor) (domain.SalePrices, error)
-	GetAssumptions(ctx context.Context, actor domain.Actor) (domain.Assumptions, error)
+	GetAssumptions(ctx context.Context, actor domain.Actor, includeStages bool) (domain.Assumptions, error)
 	PutAssumptions(ctx context.Context, actor domain.Actor, update domain.AssumptionsUpdate) (domain.Assumptions, error)
 }
 
@@ -79,7 +79,7 @@ func (h *Handler) GetSalePrices(w http.ResponseWriter, r *http.Request) {
 
 // GetAssumptions serves the figures the Weighing area is valued at.
 func (h *Handler) GetAssumptions(w http.ResponseWriter, r *http.Request) {
-	result, err := h.service.GetAssumptions(r.Context(), actor(r))
+	result, err := h.service.GetAssumptions(r.Context(), actor(r), r.URL.Query().Get("include_stages") == "1")
 	h.respond(w, r, result, err)
 }
 

@@ -290,7 +290,7 @@ func (f *fakeRepo) GetSalePrices(ctx context.Context, tenantID string, asOf time
 	return domain.SalePrices{Prices: []domain.SalePrice{}}, nil
 }
 
-func (f *fakeRepo) GetAssumptions(ctx context.Context, tenantID string, asOf time.Time) (domain.Assumptions, error) {
+func (f *fakeRepo) GetAssumptions(ctx context.Context, tenantID string, asOf time.Time, includeStages bool) (domain.Assumptions, error) {
 	return domain.Assumptions{SalePrices: []domain.SalePrice{}, Values: []domain.AssumptionValue{}}, nil
 }
 

@@ -51,8 +51,9 @@ type Repository interface {
 
 	// GetAssumptions returns the sale prices effective on asOf plus every keyed figure in
 	// growth_assumptions (maintainer decision 2026-09-19). A tenant with no row for a key gets no
-	// entry; consumers fall back to the figure the old constant carried.
-	GetAssumptions(ctx context.Context, tenantID string, asOf time.Time) (domain.Assumptions, error)
+	// entry; consumers fall back to the figure the old constant carried. includeStages is drawer-only:
+	// it discovers the stage x sex price grid and must stay off normal Weights page loads.
+	GetAssumptions(ctx context.Context, tenantID string, asOf time.Time, includeStages bool) (domain.Assumptions, error)
 
 	// GrowthSettings resolves the figures the reads are judged against (band edges, slow-growth
 	// target, bad-scan cut-off, default period, sale lines), defaulted when the tenant has no row.
