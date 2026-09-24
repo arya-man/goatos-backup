@@ -152,14 +152,14 @@ INSERT INTO obligation_instances (
   scope_type, scope_id, due_at, window_start, window_end, status,
   idempotency_key, rule_identity_key, generated_by_trigger_id, "sequence",
   repeat_cycle_source, repeat_cycle_source_ref, repeat_cycle_anchor_obligation_id,
-  repeat_cycle_anchor_at, repeat_cycle_due_at
+  repeat_cycle_anchor_at, repeat_cycle_due_at, schedule_basis
 ) SELECT
   $1, $2, $3, $4, $5, $6,
   $7, $8, $9, $10, $11, $12,
   $13, $14, $15, $16,
   $17, $18,
   $19, $20,
-  $21
+  $21, $22
 WHERE NOT EXISTS (
   SELECT 1
   FROM obligation_instances existing
@@ -248,6 +248,7 @@ type InsertObligationInstanceParams struct {
 	RepeatCycleAnchorObligationID pgtype.UUID
 	RepeatCycleAnchorAt           pgtype.Timestamptz
 	RepeatCycleDueAt              pgtype.Timestamptz
+	ScheduleBasis                 string
 }
 
 // Deterministic idempotency_key makes generation a no-op on replay (returns no row on conflict).
@@ -277,6 +278,7 @@ func (q *Queries) InsertObligationInstance(ctx context.Context, arg InsertObliga
 		arg.RepeatCycleAnchorObligationID,
 		arg.RepeatCycleAnchorAt,
 		arg.RepeatCycleDueAt,
+		arg.ScheduleBasis,
 	)
 	var obligation_id string
 	err := row.Scan(&obligation_id)

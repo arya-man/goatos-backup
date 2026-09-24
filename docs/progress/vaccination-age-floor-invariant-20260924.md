@@ -35,6 +35,13 @@
 - Made missing DOB, accepted-intake, and previous-completion anchors fail closed instead of silently permitting an unprovable vaccination date.
 - Quarantined legacy manual fattening second-wave rows during carry-over so they regenerate through the same guarded insert path.
 
+- Added `internal/platform/vaccinepurpose`: one purpose-plan resolver used by generation, persistence, reconcile, reschedule, drive override, and both carry-overs. non_breeding and unconfigured purposes fail closed; breeding/unspecified without an authored plan keep the full schedule; authored plans for any purpose govern.
+- Second wave is generic: any governed second-wave vaccine, any trigger type, needs every first-wave vaccine plus the configured delay after the latest accepted/trusted first-wave administration. Scoped anchor events never count as first-wave doses.
+- Added `obligation_instances.schedule_basis` (migration 000400, `anchored` | `anchor_missing_catch_up`). Only generation's approved adult catch-up sets the exception; the repository allows a missing DOB/arrival anchor only for that basis, a truly missing anchor, and a blank vaccine family.
+- One persistence validator (`vaccination_write_guard.go`) runs inside the serializable write transaction of every path, with bounded 40001/40P01 retry; reconcile validates after its row lock against the date it writes.
+- Carry-over selects and locks candidates, validates each against the new rule in Go, and rebinds valid rows in place (obligation id, batch, drive membership, completions, idempotency key preserved); invalid rows stay on the retired version. Hard-coded fattening SQL and blanket manual second-wave quarantine removed.
+- Generation skips only the guard-rejected vaccine (`GuardRejected`) instead of failing the goat, and reports it in CLI, stage log, HTTP, and seed summaries.
+
 ## Pending
 
 - Run final judges against the pushed complete-first-wave and fail-closed-anchor checkpoint.
@@ -54,6 +61,13 @@
 - E2E/readback: STG repair and deployed repeated-sweep readback pending; no deployment from this branch.
 - Judge status: latest review found partial-first-wave, manual second-wave, trusted-name normalization, and missing-anchor gaps; all are fixed and awaiting final review of the pushed SHA.
 - Deployment state: not deployed
+
+- OCI (dedicated disposable container `goatos-pr391-throwaway`, not STG): `go test ./internal/obligation/adapters/postgres -run 'TestVaccination|TestPublishing|TestRepublishing|TestCarryOver|TestStrictCarryOver|TestMedicalCarryOver|TestInFlightWork|TestReconcile|TestReschedule|TestInsertDeferred' -count=1 -timeout 40m` in 273s: all 7 new write-contract tests pass (catch-up vs ordinary missing anchor, non_breeding/unconfigured fail closed, authored breeding plan, history channels, goat/sheep second-wave carry-over with 0/partial/complete history and 1/2/3 vaccines, valid manual second-wave rebind in place, concurrent DOB/arrival/completion change, animal-set anchor chained follow-up). `TestReconcileLeavesAssignedDriveWork…` fails in fixture setup (P0001 location-scope trigger), identically at the pre-change head.
+- OCI: `go test ./migrations/postgres -count=1` passed (340s).
+- Go: `go test ./internal/vaccination/... ./internal/platform/vaccinepurpose ./internal/kernelstages ./cmd/seed-vaccination-real ./cmd/generate-vaccination-obligations ./tests/e2e -count=1` passed.
+- OPEN: the full `internal/obligation/adapters/postgres` package has ~130 OCI failures that also fail at fd82f9cd3 (fixture goats without DOB / first follow-ups without completion rejected by fail-closed anchors, P0001 location-scope trigger, `protocol_rules_catch_up_check`, empty batch ids). Must be triaged against origin/main and fixed before landing.
+- OPEN judge items: set-based carry-over validation and goat-chunked transactions (perf), lock ordering, procurement-row selection preferring accepted intake, completion path locking the goat row.
+- Flake noted: `TestOperatorConfigReplanHandlerConcurrentDuplicateDeliveryIsSerializedToOneRecompute` failed once under load; 20/20 passes in isolation; package untouched by this branch.
 
 ## Known failure and before metric
 
