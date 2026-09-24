@@ -215,3 +215,22 @@ goatos-oci (podman, 127.0.0.1:55433). Tunnel: `ssh -f -N -L 127.0.0.1:55492:127.
 Password: `sudo podman inspect goatos-pr391-throwaway` env on the box. Set
 `GOATOS_PGTEST_ADMIN_DSN=postgres://postgres:<pw>@127.0.0.1:55492/postgres?sslmode=disable GOATOS_RUN_POSTGRES_TESTS=1`.
 Remove the container when the PR is done: `sudo podman rm -f goatos-pr391-throwaway`.
+
+## Close-out round 2 (combined cards + sweeper proof), 2026-09-24
+
+- Root cause proven on a real-stage OCI replay of the STG world (152 rows): origin/main generation's
+  rule-identity reconcile silently moved kid 70bbb693 (RFID 901007000506144) from 10-14 to 09-24 (event
+  key obligation+to_due deduplicated the ledger), then the sweeper batched it. This branch keeps it at
+  10-14 across 3 generation+sweep passes. Added: reconcile events keyed on prior row_version; batch
+  attach validates floors inside the attach transaction.
+- Combined pen cards (Codex work, kept in this PR): refresh keeps synced scans/proofs; taskless rows are
+  never written under shed-wide; the sweeper tasks assigned taskless batches; every ready task of a
+  combined card is submitted (no cap), with retryable rejected submits.
+- Judges: backend FINAL SIGN-OFF at 3c5ad0fef; CARD SIGN-OFF at f50ea9b5c.
+- STG (read-only): the kid is still due 09-24 in batch 77e3c51e / assignment 282082f2 (repair after
+  deploy). Amit's G-003659 sits in manual taskless batch 3aefb4db on retired version 7d5c2ccc; the
+  sweeper backfill cannot reach it, so the draft batch-align repair (not run) needs approval.
+  STG generation logged failed_goats=1418 at 10:00:34Z (separate, not investigated).
+- Deploy order: backend before the Android app (the app refuses rows without a server row task id).
+- Follow-ups: combined-card message when task detail fails to load; drop tasks that leave the roster
+  mid-session; the attach guard's "not applicable" rows only warn (consider a work queue).

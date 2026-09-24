@@ -11,37 +11,8 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/pgconv"
 )
 
-// ListAssignedBatchesMissingSOPTask returns open batches of one protocol version that have NO SOP
-// task although at least one of their open obligations is on an operator's active drive
-// assignment. The ordinary finalization query only sees status='planned' batches produced by the
-// sweep; a batch that reached a roster another way (a manual/runbook drive restore, a batch that
-// already moved to in_progress) was never tasked, so the phone had no task to write its RFID scans
-// and proof against. The sweeper creates the missing task through the same idempotent batch-task
-// path it uses for planned batches.
-func (r *Repository) ListAssignedBatchesMissingSOPTask(ctx context.Context, tenantID, versionID string, after *domain.PlannedBatchFinalizationCursor, limit int32) ([]domain.PlannedBatchFinalization, error) {
-	ctx, cancel := r.withTimeout(ctx)
-	defer cancel()
-	tenant, err := pgconv.UUID(tenantID)
-	if err != nil {
-		return nil, fmt.Errorf("obligation: tenant id: %w", err)
-	}
-	version, err := pgconv.UUID(versionID)
-	if err != nil {
-		return nil, fmt.Errorf("obligation: version id: %w", err)
-	}
-	if limit <= 0 || limit > 1000 {
-		limit = 1000
-	}
-	var afterCreatedAt *time.Time
-	var afterBatchID pgtype.UUID
-	if after != nil {
-		afterCreatedAt = &after.CreatedAt
-		afterBatchID, err = pgconv.UUID(after.BatchID)
-		if err != nil {
-			return nil, fmt.Errorf("obligation: assigned taskless cursor batch id: %w", err)
-		}
-	}
-	rows, err := r.pool.Query(ctx, `
+// listAssignedBatchesMissingSOPTaskSQL is the ListAssignedBatchesMissingSOPTask projection.
+const listAssignedBatchesMissingSOPTaskSQL = `
 -- projection-review: membership=open (planned/in_progress) obligation_batches of one protocol_version with no sop_task_id whose open obligations sit on a live drive-assignment member row; group_key=batch_id (one row per batch); join_cardinality=obligation_instances 1:N collapsed by GROUP BY batch_id, assignment membership checked with an EXISTS semijoin so member rows cannot fan out; pagination=keyset over (created_at,batch_id) with caller-carried cursor and LIMIT; scope=tenant plus protocol version, batch scope_type/scope_id as stored
 SELECT ob.batch_id::text,
        COALESCE(MIN(oi.rule_id::text), '')::text AS rule_id,
@@ -78,7 +49,39 @@ WHERE ob.tenant_id = $1
   )
 GROUP BY ob.tenant_id, ob.batch_id, ob.scope_type, ob.scope_id, ob.planned_date, ob.estimated_targets, ob.created_at
 ORDER BY ob.created_at ASC, ob.batch_id ASC
-LIMIT $5`, tenant, version, afterCreatedAt, afterBatchID, limit)
+LIMIT $5`
+
+// ListAssignedBatchesMissingSOPTask returns open batches of one protocol version that have NO SOP
+// task although at least one of their open obligations is on an operator's active drive
+// assignment. The ordinary finalization query only sees status='planned' batches produced by the
+// sweep; a batch that reached a roster another way (a manual/runbook drive restore, a batch that
+// already moved to in_progress) was never tasked, so the phone had no task to write its RFID scans
+// and proof against. The sweeper creates the missing task through the same idempotent batch-task
+// path it uses for planned batches.
+func (r *Repository) ListAssignedBatchesMissingSOPTask(ctx context.Context, tenantID, versionID string, after *domain.PlannedBatchFinalizationCursor, limit int32) ([]domain.PlannedBatchFinalization, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	version, err := pgconv.UUID(versionID)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: version id: %w", err)
+	}
+	if limit <= 0 || limit > 1000 {
+		limit = 1000
+	}
+	var afterCreatedAt *time.Time
+	var afterBatchID pgtype.UUID
+	if after != nil {
+		afterCreatedAt = &after.CreatedAt
+		afterBatchID, err = pgconv.UUID(after.BatchID)
+		if err != nil {
+			return nil, fmt.Errorf("obligation: assigned taskless cursor batch id: %w", err)
+		}
+	}
+	rows, err := r.pool.Query(ctx, listAssignedBatchesMissingSOPTaskSQL, tenant, version, afterCreatedAt, afterBatchID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("obligation: list assigned taskless batches: %w", err)
 	}
