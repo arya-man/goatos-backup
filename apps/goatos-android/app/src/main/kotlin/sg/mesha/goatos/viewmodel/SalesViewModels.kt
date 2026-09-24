@@ -71,6 +71,14 @@ import java.time.LocalDate
 import java.util.UUID
 import javax.inject.Inject
 
+/** The recorded line kind survives catalog renames and kind changes; old cached rows lack it. */
+internal fun SalesDealDto.hasAnimalsToTag(): Boolean {
+    fun legacyAnimal(product: String) = product == "Sheep" || product == "Goat"
+    return if (lines.isEmpty()) legacyAnimal(productType) else lines.any { line ->
+        if (line.productKind.isBlank()) legacyAnimal(line.productType) else line.productKind == "animal"
+    }
+}
+
 /** Sales tab (Procurement module, maintainer instruction 2026-09-04): the ledger, Room-first, by farm. */
 @HiltViewModel
 class SalesListViewModel @Inject constructor(
@@ -295,7 +303,8 @@ class SaleDetailViewModel @Inject constructor(
         } else {
             val declared = deal.animalCount?.toInt() ?: 0
             val complete = declared > 0 && l.allocated >= declared
-            val live = deal.productType != "Manure" && deal.status != "Deal Failed" && !complete
+            val hasAnimals = deal.hasAnimalsToTag()
+            val live = hasAnimals && deal.status != "Deal Failed" && !complete
             SaleDetailUiState(
                 title = deal.buyerName,
                 subtitle = dotJoin(deal.soldSummary(), deal.farm, farmDate(deal.saleDate)),
@@ -316,7 +325,7 @@ class SaleDetailViewModel @Inject constructor(
                 stockConfirmMessage = l.stockConfirmMessage,
                 canTagAnimals = live,
                 tagDisabledReason = when {
-                    deal.productType == "Manure" -> TAG_MANURE
+                    !hasAnimals -> TAG_NON_ANIMAL
                     deal.status == "Deal Failed" -> TAG_FAILED
                     complete -> "All $declared ${if (declared == 1) "animal is" else "animals are"} tagged. Tag more on the web if the count changes."
                     else -> ""
@@ -592,7 +601,7 @@ class SaleDetailViewModel @Inject constructor(
     private companion object {
         /** tasks/domain.TemplateKeySalesDeal -- the sale workflow's template key. */
         const val SALE_WORKFLOW_TEMPLATE_KEY = "sales_deal"
-        const val TAG_MANURE = "A manure sale has no animals to tag."
+        const val TAG_NON_ANIMAL = "This sale has no animals to tag."
         const val TAG_FAILED = "A failed deal has no animals to tag."
         /** The feed store's own refusal, which the screen offers to answer. */
         const val CODE_STOCK_CONFIRM = "feed_stock_confirmation_required"

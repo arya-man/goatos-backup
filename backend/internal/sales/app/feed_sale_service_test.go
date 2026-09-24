@@ -272,3 +272,42 @@ func TestClosedFeedSaleReplaySkipsStockButReopenedSaleChecksAgain(t *testing.T) 
 		t.Fatalf("reopened sale did not ask the store: %d", store.asked)
 	}
 }
+
+// A lost response remains a successful sale after the catalog is renamed, archived or unavailable.
+type completedCatalogReplayRepo struct {
+	feedRepo
+	catalogCalls int
+}
+
+func (r *completedCatalogReplayRepo) CompletedDealForIdempotencyKey(context.Context, string, string) (domain.Deal, bool, error) {
+	return domain.Deal{DealID: "already-recorded"}, true, nil
+}
+func (r *completedCatalogReplayRepo) ListSellableProducts(context.Context, string) ([]domain.Product, error) {
+	r.catalogCalls++
+	return nil, errors.New("catalog unavailable after commit")
+}
+func TestCompletedCreateReplayDoesNotDependOnCurrentCatalog(t *testing.T) {
+	repo := &completedCatalogReplayRepo{}
+	store := &feedStore{}
+	got, err := NewSalesService(repo).WithFeedStock(store).CreateDeal(context.Background(), tenant, feedSaleWrite(600), "actor", "completed-key")
+	if err != nil || got.DealID != "already-recorded" {
+		t.Fatalf("completed replay = %+v, %v", got, err)
+	}
+	if repo.catalogCalls != 0 || repo.createCalls != 0 || store.asked != 0 {
+		t.Fatalf("replay revalidated or wrote: catalog=%d writes=%d stock=%d", repo.catalogCalls, repo.createCalls, store.asked)
+	}
+}
+
+func TestCompletedCreateReplayReturnsOriginalForChangedPayload(t *testing.T) {
+	repo := &completedCatalogReplayRepo{}
+	service := NewSalesService(repo)
+	for _, kg := range []float64{600, 900} {
+		got, err := service.CreateDeal(context.Background(), tenant, feedSaleWrite(kg), "actor", "completed-key")
+		if err != nil || got.DealID != "already-recorded" {
+			t.Fatalf("replay: %+v %v", got, err)
+		}
+	}
+	if repo.createCalls != 0 || repo.catalogCalls != 0 {
+		t.Fatal("completed replay repeated side effects")
+	}
+}
