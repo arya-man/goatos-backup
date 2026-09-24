@@ -55,7 +55,7 @@ grains and an example per view: `references/views.generated.md` (regenerate with
 - **Dates in answers:** render `DD/MM/YYYY`.
 - **Base views (`*_base`, `animal_current_scope`)** are one row per entity: aggregate, don't dump rows.
 - **Weighing is isolated** from herd/vaccination: don't join weighing to vaccination to explain it.
-- Agent SQL must include the authenticated `tenant_id = '<tenant uuid>'` filter; for ad-hoc one-tenant psql, tenant can be omitted only outside the agent path.
+- The agent may read every table; no tenant filter is required (single tenant). Writes are impossible: the login is read-only.
 
 ## Metric definitions (match the dashboard)
 

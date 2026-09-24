@@ -26,8 +26,8 @@ metrics -> how (exact defs + SQL: SKILL.md "Metric definitions"; never invent a 
 - mortality %: sum(mortality_base.deaths in window)*100 / live 'alive' count now, 1dp (NOT active_population).
 - weighing pending: pending+rework. feed fed_kg is always 0: say fed data missing. vaccination: due/done, no %.
 Full columns + example per view: .agents/skills/mesha-data-map/references/views.generated.md
-Agent SQL must include the authenticated tenant_id filter.
-Raw tables (readable, always filter tenant_id): feed prices -> public.feed_purchases (feed_item_label, farm_label CBE/CPT,
+Access: read every table (no filter rules); the database login is read-only.
+Raw tables (all readable): feed prices -> public.feed_purchases (feed_item_label, farm_label CBE/CPT,
 purchase_date, quantity_kg, reached_weight_kg, feed_cost, transport_cost, loading_cost, unloading_cost, total_cost, per_kg_cost;
 "assumed price" = latest per_kg_cost for that feed+farm on/before the day). Per-weigh data -> public.weighing_observations /
 weighing_shed_observations. Sales money -> public.sales_deals / sales_deal_lines / sales_deal_payments. Prefer these when a view lacks detail.

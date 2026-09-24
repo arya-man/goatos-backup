@@ -31,9 +31,10 @@ Read this before touching the admin-web **Ask Mesha** panel, `apps/admin-web/app
 1. **Tools:** `ASK_MESHA_READONLY=1` (default) gives the agent only `Read/Grep/Glob/Skill/TodoWrite`
    plus the MCP tool `run_sql`. No Bash, Edit, Write, NotebookEdit, Web*, Task. Read paths are limited
    to the repo and upload dirs (no `/proc`, no `.pgenv`).
-2. **run_sql:** one statement, **any backslash refused** (psql runs meta-commands mid-line: `\g |cmd`,
-   `\o`, `\copy`), `BEGIN READ ONLY`, `default_transaction_read_only=on`, 30 s timeout, 500 rows.
-3. **Platform:** DB role `mesha_ceo_readonly` (sees `ceo_ai.*` only; revoke `dblink` + `public` CREATE —
+2. **run_sql:** no query rules — any SQL over any table/schema, no tenant filter (single tenant). Runs in
+   `BEGIN READ ONLY` with `default_transaction_read_only=on`, 60 s timeout, 500 rows. The only refusal is
+   psql backslash commands (they run programs on the host, e.g. `\!`), not data access.
+3. **Platform (the real guarantee):** DB role `mesha_ceo_readonly` has SELECT on **every table** in public/analytics/audit/ceo_ai/forensic_repair (+ default privileges for new tables) and **no write privilege anywhere** (granted 2026-09-24 via audit.begin_change; revoke `dblink` + `public` CREATE —
    RUNBOOK §3d); container runs non-root with the repo baked **read-only** at `/repo`; no git/GitHub/cloud
    credentials; agent env is an allow-list (`agentEnv()` in `server.mjs`).
 - Proof to re-run after changes: ask "edit AGENTS.md" and "git push --force" — both must be refused and
