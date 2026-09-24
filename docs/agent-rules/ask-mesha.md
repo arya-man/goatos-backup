@@ -81,6 +81,10 @@ Not the answer: per-tenant copies of tables/schemas (344× duplication and migra
 - Known gap: per-animal ADG (dashboard 162 g) is not reproducible from `ceo_ai.*`; needs a
   `ceo_ai.weighing_observations` view (sketch in SKILL.md "Known gaps"). Feed `fed_kg` is always 0.
 
+- **Live table index:** at startup and hourly, `server.mjs` lists every readable table (with approximate row
+  counts) from the database catalog into the system prompt. New tables show up without editing the map; the
+  map only adds meanings and traps. The agent must search this list before saying "not recorded".
+
 ## Performance (response time is the benchmark)
 
 - Every answer records a timing event (first progress/tool/token, total, tool + DB-query counts, tokens,

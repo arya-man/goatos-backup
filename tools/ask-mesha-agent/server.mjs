@@ -137,6 +137,29 @@ function dataMapCore(cwd) {
   return "";
 }
 
+// Live index of EVERY readable table (schema, name, approx rows), rebuilt hourly from the
+// catalog so nothing depends on the hand-written map: new tables appear automatically.
+let tableIndex = { text: "", at: 0 };
+const TABLE_INDEX_SQL = `SELECT n.nspname || '.' || c.relname || ' ~' || GREATEST(c.reltuples,0)::bigint
+FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+WHERE c.relkind IN ('r','v','m','p') AND NOT c.relispartition
+  AND n.nspname NOT IN ('pg_catalog','information_schema','pg_toast')
+  AND has_table_privilege(c.oid,'SELECT') ORDER BY 1`;
+async function refreshTableIndex() {
+  const r = await runSql(TABLE_INDEX_SQL);
+  if (!r.ok) return console.error("[table-index] failed:", r.out.slice(0, 200));
+  const rows = r.out.split("\n").filter((l) => l.includes("."));
+  tableIndex = { text: rows.join("\n"), at: Date.now() };
+  console.log(`[table-index] ${rows.length} readable tables`);
+}
+function tableIndexPrompt() {
+  if (Date.now() - tableIndex.at > 3_600_000) void refreshTableIndex();
+  if (!tableIndex.text) return "";
+  return "\n\n# Every readable table (schema.table ~approx rows; ~0 = empty or not analysed)\n" +
+    "This list is complete. Before saying anything is not recorded, pick candidate tables from here by name, " +
+    "inspect their columns and distinct category/status values, and query them.\n" + tableIndex.text;
+}
+
 // ---- benchmark events -----------------------------------------------------
 async function recordMetric(m) {
   await store.recordMetric(m).catch((e) => console.error("[metric] store failed:", e.message));
@@ -535,7 +558,7 @@ async function ask(req, res, user) {
         effort: metric.effort,
         resume,
         ...(store.sessionStore ? { sessionStore: store.sessionStore } : {}),
-        systemPrompt: { type: "preset", preset: "claude_code", append: repoInstructions(cwd) + APPEND_PROMPT + dataMapCore(cwd) },
+        systemPrompt: { type: "preset", preset: "claude_code", append: repoInstructions(cwd) + APPEND_PROMPT + dataMapCore(cwd) + tableIndexPrompt() },
         settingSources: ["project", "local"],
         includePartialMessages: true,
         canUseTool: canUseToolFor(chat.id),
@@ -687,7 +710,7 @@ http
       else res.end();
     }),
   )
-  .listen(PORT, HOST, () => console.log(`ask-mesha agent on http://127.0.0.1:${PORT} repo=${REPO} store=${store.kind} uploads=${uploads.kind}`));
+  .listen(PORT, HOST, () => (void refreshTableIndex(), console.log(`ask-mesha agent on http://127.0.0.1:${PORT} repo=${REPO} store=${store.kind} uploads=${uploads.kind}`)));
 
 async function route(req, res) {
     const url = new URL(req.url, "http://x");
