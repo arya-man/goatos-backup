@@ -83,7 +83,7 @@ class ShedsViewModelTest {
                     common.copy(batchId = "batch-moved", sopTaskId = null),
                 ),
                 cardSummaries = mapOf(
-                    "shed:shed-yashoda-3|partition:3|assignment:assignment-current" to ShedCardSummaryDto(
+                    "shed:shed-yashoda-3|partition:3" to ShedCardSummaryDto(
                         shedId = "shed-yashoda-3",
                         partitionLabel = "3",
                         assignmentId = "assignment-current",
@@ -112,6 +112,47 @@ class ShedsViewModelTest {
         assertEquals("batch-old", row.batchId)
         assertEquals("assignment-current", row.assignmentId)
         assertEquals(listOf("ET+TT"), row.vaccineGroups.map { it.label })
+    }
+
+    @Test
+    fun `two assignments in one operational shed become one shed scoped scan card`() = runTest(dispatcher) {
+        val today = LocalDate.now().toString()
+        val common = VaccinationExecutionRowDto(
+            shedId = "shed-yashoda-3",
+            shedName = "Yashoda 3",
+            physicalShed = "Yashoda 3",
+            partitionLabel = "3",
+            parkId = "park-cpt",
+            parkName = "CPT",
+            dueDate = today,
+            targetCount = 1,
+            openCount = 1,
+            vaccineLabels = listOf("ET+TT"),
+        )
+        val repo = FakeShedsPinVmExecutionRepository(
+            VaccinationExecutionResponseDto(
+                rows = listOf(
+                    common.copy(assignmentId = "assignment-a", batchId = "batch-a", sopTaskId = "task-a"),
+                    common.copy(assignmentId = "assignment-b", batchId = "batch-b", sopTaskId = "task-b"),
+                ),
+            ),
+        )
+        val vm = ShedsViewModel(
+            repo = repo,
+            crashReporter = NoopCrashReporter(),
+            analytics = NoopAnalytics(),
+            bootstrapRepository = FakeShedsRoleBootstrapRepository(role = "operator"),
+            savedStateHandle = SavedStateHandle(),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        val row = vm.state.value.rows.single()
+        assertEquals("2", row.inShed)
+        assertEquals("2", row.due)
+        assertEquals(null, row.assignmentId)
+        assertEquals(null, row.taskId)
+        assertEquals(null, row.batchId)
     }
 
     @Test

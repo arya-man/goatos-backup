@@ -60,12 +60,27 @@ class ExecutionRouteIdentityTest {
     }
 
     @Test
-    fun `open assignment without task fails closed to record`() {
+    fun `open assignment without task enters assignment scoped scan`() {
         val route = shedExecutionRoute(executableRow(taskId = null), Routes.VACCINATION)
 
-        assertTrue(route.startsWith(Routes.RECORD))
-        assertFalse(route.contains("assignmentId=assignment-current"))
-        assertFalse(route.startsWith(Routes.SCAN))
+        assertTrue(route.startsWith(Routes.SCAN))
+        assertTrue(route.contains("assignmentId=assignment-current"))
+        assertFalse(route.contains("taskId="))
+    }
+
+    @Test
+    fun `collapsed mixed assignment card enters shed partition scan`() {
+        val route = shedExecutionRoute(
+            executableRow(taskId = null).copy(assignmentId = null, batchId = null),
+            Routes.VACCINATION,
+        )
+
+        assertTrue(route.startsWith(Routes.SCAN))
+        assertTrue(route.contains("shedId=shed-a"))
+        assertTrue(route.contains("partitionLabel=Part%203"))
+        assertFalse(route.contains("assignmentId="))
+        assertFalse(route.contains("taskId="))
+        assertFalse(route.startsWith(Routes.RECORD))
     }
 
     @Test
