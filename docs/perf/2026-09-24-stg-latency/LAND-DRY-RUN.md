@@ -98,3 +98,27 @@ both.
    red on main).
 
 After both are cleared, every other gate is green on the PR code.
+
+## Final run
+
+Head `cd14a3404`, base `c0b37abf2` (still `origin/main`, so no rebase was
+needed). Gate: `make ci-local-screenshots`. query-plans ran against the OCI
+scratch database. Android ran with `--max-workers=1`.
+
+| Job | Result |
+|---|---|
+| common | PASS. The org-boundary-guard finding above is cleared. |
+| backend | PASS |
+| query-plans | PASS |
+| admin-web | Only the unit-test step failed, on the same 7 Playwright tests that fail on main because Chromium is missing. Lint, typecheck, build and every other step passed. |
+| android | PASS: compile, unit tests, lint, screenshots (`verifyPaparazziDevDebug`) and benchmark compile. |
+
+The first Android screenshot attempt stopped when the laptop disk filled up.
+The re-run on the same head passed with a fresh Gradle user home, because the
+shared `~/.gradle` cache had been corrupted when the disk filled.
+
+## Verdict (final)
+
+**Land-ready except the laptop Chromium.** No failures come from the PR. The
+only red step is admin-web's Playwright browser tests, and those fail on main
+the same way on this laptop.
