@@ -161,6 +161,9 @@ type SalesRepository interface {
 	// ListStageRegister reads the herd's own stage register with each entry's live head count, so
 	// the valuation screen offers the farm's stages rather than a typed string.
 	ListStageRegister(ctx context.Context, tenantID string) ([]domain.StageRegisterEntry, error)
+	// ListSellableSpecies is the species an animal item may name -- those the breed register has
+	// live breeds for, so an item added against one is sellable the moment it is saved.
+	ListSellableSpecies(ctx context.Context, tenantID string) ([]string, error)
 }
 
 // ErrValuationVersionConflict is a valuation write carrying a row_version the row has moved past.

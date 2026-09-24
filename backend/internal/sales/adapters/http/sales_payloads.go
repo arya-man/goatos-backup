@@ -89,6 +89,10 @@ type sellableProductPagePayload struct {
 	// these -- a feed is not a name somebody types, and inventing one here would make a sale draw
 	// on a store that does not exist.
 	FeedItems []string `json:"feed_items"`
+	// Species is what an ANIMAL item may be sold as, and it rides with the list for the same
+	// reason: an animal item that names no species resolves to NO breeds, and since a sale's
+	// breed is required, that item can never be sold. It looked saved and was unsellable.
+	Species []string `json:"species"`
 }
 
 // sellableProductChoicePayload is one option of a closed vocabulary, with the words for it.

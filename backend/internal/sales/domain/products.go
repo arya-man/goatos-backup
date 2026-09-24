@@ -332,6 +332,13 @@ func (w ProductWrite) Validate() error {
 	if !IsUnit(w.Unit) {
 		return ErrProductValidation{Field: "unit", Reason: "must be sold by the kilogram or by number"}
 	}
+	// AN ANIMAL MUST SAY WHICH SPECIES IT IS. A sale line asks for a breed and requires one, and
+	// the breeds offered are the SPECIES' breeds -- so an animal item naming no species resolves
+	// to an empty breed list and can never be sold. It saved cleanly and was unsellable, with
+	// nothing on the screen to say why. Refused here instead, at the moment it would be created.
+	if w.Kind == KindAnimal && strings.TrimSpace(w.SpeciesCode) == "" {
+		return ErrProductValidation{Field: "species_code", Reason: "is needed for an animal, so the sale can offer its breeds"}
+	}
 	if w.Status != StatusActive && w.Status != StatusArchived {
 		return ErrProductValidation{Field: "status", Reason: "must be in use or archived"}
 	}

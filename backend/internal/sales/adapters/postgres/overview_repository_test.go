@@ -175,8 +175,21 @@ func TestFarmValuationClinicalStagesAreValuedThroughTheirCohort(t *testing.T) {
 	// authored stage list safe: a stage nobody has placed -- Warmup, 58 live kids the day this
 	// changed -- stands in the not-valued breakdown asking to be priced, instead of falling into
 	// whichever bucket a fallback would have chosen for it. Do not add a fallback.
-	if !strings.Contains(farmValuationSQL, "CASE WHEN coalesce(sm.stage, sc.stage) IS NULL THEN 'unmapped'") {
+	if !strings.Contains(farmValuationSQL, "CASE WHEN coalesce(sc.stage, sm.stage) IS NULL THEN 'unmapped'") {
 		t.Fatal("an animal in no authored stage must stay unmapped and reach the not-valued breakdown")
+	}
+	// THE MILK COHORT WINS over the management stage, which is the order the retired CASE read
+	// them in: its K1/K2/K3/K0 arms were tested BEFORE its clinical arms, so a kid moved to ICU
+	// while the register still knew its milk band stayed valued as that band. Reading the stage
+	// first flips exactly that animal from a 3-15 kg kid row to a 40-60 kg adult one, on a herd
+	// where nothing carries both today and so nothing would show it.
+	cohort := strings.Index(farmValuationSQL, "LEFT JOIN stage_by_match sc")
+	stage := strings.Index(farmValuationSQL, "LEFT JOIN stage_by_match sm")
+	if cohort < 0 || stage < 0 || cohort > stage {
+		t.Fatal("the milk cohort must be matched BEFORE the management stage, as the retired CASE did")
+	}
+	if strings.Contains(farmValuationSQL, "coalesce(sm.stage, sc.stage)") {
+		t.Fatal("coalesce order decides the precedence: the cohort must come first")
 	}
 	if strings.Contains(farmValuationSQL, "g.age_band = 'adult'") {
 		t.Fatal("the age_band catch-all is retired: it is what made an unpriced stage invisible")
