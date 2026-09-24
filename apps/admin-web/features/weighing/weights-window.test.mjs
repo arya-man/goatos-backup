@@ -19,6 +19,7 @@ const landingConstantsSource = readFileSync(
 );
 const segmentedLinksSource = readFileSync(new URL("../../components/segmented-links.tsx", import.meta.url), "utf8");
 const serverSource = readFileSync(new URL("../../lib/api/server.ts", import.meta.url), "utf8");
+const writeMarkerSource = readFileSync(new URL("../../lib/api/write-marker.ts", import.meta.url), "utf8");
 const contract = readFileSync(
   new URL("../../../../backend/internal/adminui/app/service.go", import.meta.url),
   "utf8",
@@ -36,8 +37,11 @@ function exportedFunctionBody(name) {
 // short read cache (TTL > 0, keyed on endpoint + tenant + bearer fingerprint + query), and any
 // write through the backend fetch clears it.
 test("admin weighing reads are short-cached per user and cleared on writes", () => {
-	const ttl = serverSource.match(/const SHORT_READ_CACHE_TTL_MS = ([\d_]+);/);
-	assert.ok(ttl, "SHORT_READ_CACHE_TTL_MS must be declared");
+	// The TTL is the cross-instance write-marker window, so a writer bypasses the cache for
+	// exactly as long as any instance could hold a pre-write answer.
+	assert.match(serverSource, /const SHORT_READ_CACHE_TTL_MS = WRITE_MARKER_WINDOW_MS;/);
+	const ttl = writeMarkerSource.match(/export const WRITE_MARKER_WINDOW_MS = ([\d_]+);/);
+	assert.ok(ttl, "WRITE_MARKER_WINDOW_MS must be declared");
 	const ttlMs = Number(ttl[1].replaceAll("_", ""));
 	assert.ok(ttlMs >= 15_000 && ttlMs <= 60_000, `short read TTL ${ttlMs}ms must be 15-60s`);
 	for (const name of [
@@ -68,6 +72,17 @@ test("admin weighing reads are short-cached per user and cleared on writes", () 
 		serverSource,
 		/async function timedBackendFetch[\s\S]*?method\.toUpperCase\(\) !== "GET"[\s\S]*?clearBackendReadCaches\(\)/,
 		"a write through the backend fetch must clear cached and in-flight reads",
+	);
+	assert.match(
+		serverSource,
+		/\} finally \{[\s\S]{0,300}?if \(method\.toUpperCase\(\) !== "GET"\) clearBackendReadCaches\(\);/,
+		"the post-write clear must run in finally so a write that throws still clears",
+	);
+	assert.match(serverSource, /clearBackendReadCaches\(\);\s*await markCallerWrite\(\);/);
+	assert.match(
+		serverSource,
+		/function cachedShortRead[\s\S]*?if \(await callerWroteRecently\(\)\) return coalescedRead\(key, fn\);/,
+		"the writer's own reads must bypass the short cache on every instance",
 	);
 });
 
