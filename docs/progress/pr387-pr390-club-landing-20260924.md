@@ -21,11 +21,11 @@ Date: 2026-09-24
 - Fixed generated API client drift from the OpenAPI description.
 - Renumbered the sale-price stage/sex migration from `000398` to `000399` because current main already has `000398_herd_signals_realtime_motion.sql`.
 - Renamed the FCR effective-date fallback test to include `DateShift` so aggregate projection guard sees the date adversarial coverage.
+- Focused reruns passed: `check-contract-drift.sh`, `make aggregate-projection-guard`, and `make migration-duplicate-versions-guard`.
 
 ## Pending
 
-- Rerun focused failed guards.
-- Commit and push guard fixes.
+- Push guard fixes to PR 392.
 - Rerun final repo-local landing gate after final rebase.
 - Push certified `main` only if `make land-main` passes.
 
@@ -34,15 +34,16 @@ Date: 2026-09-24
 - `make land-main` ran and failed before main push.
 - Passing lanes included backend `go test ./...` with Postgres disabled, required PostgreSQL query plans, command-board query plans, admin-web lint/typecheck/unit tests, and admin-web production build.
 - Failed lanes: `agent: contract-drift`, `agent: aggregate-projection`, `migration-duplicate-versions-guard`.
+- Focused reruns after fixes passed for all three failed lanes.
 - PR 390 focused backend tests passed earlier in isolated review worktree; must be rerun or covered by final landing gate for this clubbed branch.
 
 ## Known failures
 
-- Current fixes are pending commit and focused rerun.
+- Full landing gate still pending after focused fixes.
 
 ## Current SHA
 
-- Club HEAD before focused-fix commit: `46745618aab6ce521d6bd61dc010a805c78c928f`.
+- Club HEAD after focused-fix commit: `0b039c3de`.
 
 ## Deployment state
 
