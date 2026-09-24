@@ -729,7 +729,7 @@ VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 40, 1000, 0, $6::date, 'Naval
 // Fixture, hand-checkable: 100 kg of the retired feed then 300 kg of the successor; 150 kg fed off
 // the retired feed (50 more than it ever held) and 100 kg of the successor. Card = 400 - 250 = 150.
 // The per-item FIFO read 300 - 100 = 200 on the successor's load.
-func TestStockLoadsSuccessorLoadCarriesTheCardWhenARetiredFeedWasOverfed(t *testing.T) {
+func TestStockLoadsSuccessorLoadCarriesTheCardWhenARetiredFeedWasOverfedParkScopePageBoundary(t *testing.T) {
 	ctx := context.Background()
 	repo, pool := setupIssueDB(t, ctx)
 
@@ -826,6 +826,34 @@ VALUES ($1, $2, 'CBE', $3, $4, $5::date, $6::numeric, 40, 1000, 0, $5::date, 'Na
 	if successor.LeftKg != card.BalanceKg || successor.ConsumedKg != "150.0" {
 		t.Errorf("the successor's load carries the retired feed's overrun: left %s consumed %s, want left %s consumed 150.0",
 			successor.LeftKg, successor.ConsumedKg, card.BalanceKg)
+	}
+
+	// ParkScope: the family queue is the farm's own; a caller scoped to another park sees none of
+	// it, in the loads table or the 7-day table.
+	other := []uuid.UUID{uuid.MustParse("11111111-1111-4111-8111-111111111111")}
+	scoped, err := repo.StockLoads(ctx, fdiTenant, other, domain.StockLoadsQuery{})
+	if err != nil {
+		t.Fatalf("scoped StockLoads: %v", err)
+	}
+	if len(scoped.Rows) != 0 || scoped.Total != 0 {
+		t.Errorf("another park's scope must not see CBE's loads: %+v", scoped)
+	}
+	scopedStock, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{ParkIDs: other})
+	if err != nil {
+		t.Fatalf("scoped StockAnalytics: %v", err)
+	}
+	if len(scopedStock.Forecast) != 0 {
+		t.Errorf("another park's scope must not see CBE's 7-day rows: %+v", scopedStock.Forecast)
+	}
+
+	// PageBoundary: a page of one row still carries the family arithmetic and the whole-filter
+	// total; the retired load that feeds the queue is never counted as a row.
+	one, err := repo.StockLoads(ctx, fdiTenant, nil, domain.StockLoadsQuery{FarmLabel: "CBE", Limit: 1})
+	if err != nil {
+		t.Fatalf("page of one: %v", err)
+	}
+	if one.Total != 1 || len(one.Rows) != 1 || one.Rows[0].LeftKg != card.BalanceKg {
+		t.Errorf("a page of one keeps the card's kg left and the whole-filter total: %+v", one)
 	}
 }
 
