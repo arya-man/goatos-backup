@@ -863,6 +863,28 @@ pen_week AS (
   ) legs
   GROUP BY week_start, location_id, partition_label
 ),
+-- The SCANNED half of the pen-week and load-week gain series, computed ONCE. Both jsonb arms
+-- below consume exactly this aggregate; each used to rebuild it inline. animal_gain_week and
+-- latest are CTEs the planner estimates at a handful of rows, so every rebuild ran as a nested
+-- loop of each (animal, week) gain against every latest row -- 2,216 x 450 = ~1M join-filter
+-- comparisons, ~100ms apiece on the 2026-09-24 OCI clone -- and the statement paid it twice.
+-- Referenced by both arms, so it is materialized once and read twice. Same rows, same grain:
+-- one row per (location_id, partition_label, week_start), n and gsum over the identical join.
+-- projection-review: membership=animal_gain_week (one row per (tag, week)) joined to latest (one row
+-- per tag, DISTINCT ON); group_key=(location_id, partition_label, week_start), the same key both
+-- consumers used inline; join_cardinality=latest and ident are 1:0..1 per tag (DISTINCT ON) and goats
+-- is 1:0..1 on its primary key, so no (tag, week) row is multiplied; pagination=NONE, one bounded
+-- window aggregate; scope=tenant + the caller's park scope and window, inherited from scoped via
+-- latest and animal_gain_week.
+animal_gain_week_pen AS MATERIALIZED (
+  SELECT l.location_id, l.partition_label, aw.week_start, count(*)::bigint AS n, sum(aw.g)::float8 AS gsum
+  FROM animal_gain_week aw
+  JOIN latest l ON l.tag = aw.tag
+  LEFT JOIN ident i ON i.tag = aw.tag
+  LEFT JOIN goats gt ON gt.goat_id = i.goat_id AND gt.tenant_id = $1::uuid
+  WHERE $5::text = '' OR lower(btrim(gt.sex)) = $5::text
+  GROUP BY l.location_id, l.partition_label, aw.week_start
+),
 -- THE PEN'S OWN LATEST WEIGH, not each animal's (maintainer decision 2026-09-21).
 --
 -- The resolved CTE above keys one row per ANIMAL at its latest weigh ANYWHERE, which is the
@@ -1360,13 +1382,8 @@ SELECT
               pp.park_id,
               COALESCE(NULLIF(pk.location_code, ''), pk.name, '') AS park_name
        FROM (
-         SELECT l.location_id, l.partition_label, aw.week_start, count(*)::bigint AS n, sum(aw.g)::float8 AS gsum
-         FROM animal_gain_week aw
-         JOIN latest l ON l.tag = aw.tag
-         LEFT JOIN ident i ON i.tag = aw.tag
-         LEFT JOIN goats gt ON gt.goat_id = i.goat_id AND gt.tenant_id = $1::uuid
-         WHERE $5::text = '' OR lower(btrim(gt.sex)) = $5::text
-         GROUP BY l.location_id, l.partition_label, aw.week_start
+         SELECT location_id, partition_label, week_start, n, gsum
+         FROM animal_gain_week_pen
          UNION ALL
          SELECT pw.location_id, pw.partition_label, pw.week_start, sum(pw.animals)::bigint, sum(pw.animals * pw.g_per_day)::float8
          FROM pen_week pw
@@ -1388,13 +1405,8 @@ SELECT
        SELECT t.load_ref, COALESCE(t.owner_name, '') AS owner_name, p.week_start,
               sum(p.n)::bigint AS n, (sum(p.gsum) / NULLIF(sum(p.n), 0))::float8 AS g
        FROM (
-         SELECT l.location_id, l.partition_label, aw.week_start, count(*)::bigint AS n, sum(aw.g)::float8 AS gsum
-         FROM animal_gain_week aw
-         JOIN latest l ON l.tag = aw.tag
-         LEFT JOIN ident i ON i.tag = aw.tag
-         LEFT JOIN goats gt ON gt.goat_id = i.goat_id AND gt.tenant_id = $1::uuid
-         WHERE $5::text = '' OR lower(btrim(gt.sex)) = $5::text
-         GROUP BY l.location_id, l.partition_label, aw.week_start
+         SELECT location_id, partition_label, week_start, n, gsum
+         FROM animal_gain_week_pen
          UNION ALL
          SELECT pw.location_id, pw.partition_label, pw.week_start, sum(pw.animals)::bigint, sum(pw.animals * pw.g_per_day)::float8
          FROM pen_week pw

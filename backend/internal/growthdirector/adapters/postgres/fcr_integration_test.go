@@ -280,6 +280,60 @@ func TestFCRDateShiftSalePriceFallsBackToTheEarliestRowForAnOlderWindow(t *testi
 	}
 }
 
+// The price is attached to each feed row BEFORE the segment join (the 2026-09-24 burst fix), so
+// this pins that the reorder neither multiplies a feed row nor lets a price cross parks:
+//
+//   - ONE-TO-MANY loads: the same feed item gets two more loads on Jul 11 (batch 2 at ₹30, batch 3
+//     at ₹32). A join that matched every load on or before the day would count a Jul 11..14 feed
+//     row two or three times; the rule is ONE price per (park, item, day) -- the latest load, the
+//     higher batch on a tie -- so feed kg must stay exactly 70 / 7 and only the price moves.
+//   - PARK SCOPE: a cheaper-looking ₹99 load of the same item for ANOTHER park on Jul 5 must never
+//     price this park's feed.
+//
+// Expected: lump 10 kg/day -> Jul 8..10 at ₹20 (600) + Jul 11..14 at ₹32 (1,280) = ₹1,880;
+// scanned pen 1 kg/day -> 60 + 128 = ₹188.
+func TestFCRFeedCostOneToManyLoadsKeepOnePricePerFeedRowWithinParkScope(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedFCRFixture(t, ctx, pool)
+	const otherPark = "22222222-0000-4000-8000-000000003099"
+	execGD(t, ctx, pool, `
+INSERT INTO feed_purchases (tenant_id, park_id, farm_label, feed_item_label, batch_no, purchase_date, quantity_kg, total_cost, per_kg_cost, depletes_from)
+VALUES
+  ($1::uuid, $2::uuid, 'CBE', 'Maize Crush', 2, '2026-07-11', 1000, 30000, 30, '2026-07-11'),
+  ($1::uuid, $2::uuid, 'CBE', 'Maize Crush', 3, '2026-07-11', 1000, 32000, 32, '2026-07-11'),
+  ($1::uuid, $3::uuid, 'CPT', 'Maize Crush', 1, '2026-07-05', 1000, 99000, 99, '2026-07-05')`,
+		gdTenant, gdPark, otherPark)
+
+	repo := NewRepository(pool, 30*time.Second)
+	got, err := repo.GetFCR(ctx, gdTenant, []string{gdPark},
+		time.Date(2026, 7, 6, 0, 0, 0, 0, time.UTC), time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC), "", "", "")
+	if err != nil {
+		t.Fatalf("GetFCR: %v", err)
+	}
+	byDisplay := map[string]domain.FCRPen{}
+	for _, pen := range got.Pens {
+		byDisplay[pen.OperationalLocationDisplay] = pen
+	}
+	lump, ok := byDisplay["Coimbatore · Lump 1"]
+	if !ok {
+		t.Fatalf("no lump pen row; got %v", keysOf(byDisplay))
+	}
+	fcrNear(t, "lump feed kg is not multiplied by the extra loads", lump.FeedKg, 70)
+	fcrNear(t, "lump feed cost at one price per row", lump.FeedCostINR, 1880)
+	if lump.BlockedCells != 1 {
+		t.Fatalf("lump blocked cells = %d, want 1 (the join must not multiply the blocked row either)", lump.BlockedCells)
+	}
+	scan, ok := byDisplay["Coimbatore · Fcr Shed - Part 2"]
+	if !ok {
+		t.Fatalf("no scanned pen row; got %v", keysOf(byDisplay))
+	}
+	fcrNear(t, "scan feed kg is not multiplied by the extra loads", scan.FeedKg, 7)
+	fcrNear(t, "scan feed cost at one price per row", scan.FeedCostINR, 188)
+}
+
 func keysOf(m map[string]domain.FCRPen) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {
