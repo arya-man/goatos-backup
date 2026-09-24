@@ -243,6 +243,49 @@ moving" and one-shot "which goats are slower than their pen / own pace right now
 - **Panel**: `features/ceo-ai/ceo-ai-watch.tsx` live card (table, change feed, countdown, Stop watching); frames
   parsed in `lib/ceo-ai-stream.ts` (`onWatch`); keeps updating while the panel is minimized.
 
+## Accuracy regression (golden questions, `tools/ask-mesha-agent/eval/`)
+
+Correctness is proven by a suite, not by hand. `eval/golden.json` holds ~40 CEO questions (headcount, pens,
+weighing, ADG, cost/kg gain, feed stock/money, vendor + buyer dues incl. the double-count flag, load-wise,
+deaths/births/sick, vaccination done/due, preventive care, shifts, leadership tasks, staff hours, verification
+backlog, toxin, wastage, plus refusal/privacy/injection/false-premise traps). Each item has `truth` SQL (or a
+`references/*.sql` file) that is run LIVE and read-only at eval time: numbers are never hard-coded. `extract`
+rules say which truth numbers must appear in the answer (exact or `tol` / `tol_pct`), `must_mention` /
+`must_not_mention` regexes (SQL/table words are always banned), and `max_seconds`.
+
+- Run on demand (local agent on :8787, bench token):
+  `ASK_MESHA_STATE_DIR=~/airnd/agent-local ASK_MESHA_BENCH_TOKEN=... node tools/ask-mesha-agent/eval/run.mjs`
+  Options: `--subset <n|tag|id,...>` (e.g. `core`, `trap`, `adg-by-park`), `--concurrency 2`, `--budget-usd 6`
+  (stops asking once measured spend passes it; skipped items don't fail), `--truth-only` (runs every truth
+  query + UI read, no agent calls, $0: use it to check a new golden), `--no-ui`. Prints a table, writes
+  `$ASK_MESHA_STATE_DIR/evals/<ts>.json`, exits 1 if any item fails. Each run emits an `eval_run` event
+  (pass/fail/error/skipped, accuracy, cost, failed ids, UI mismatches); `GET /metrics` returns `accuracy`
+  (last 20 runs) so accuracy is visible over time.
+- When to run: after any data map / saved query (`references/*.sql`) / agent prompt or app-logic change that a
+  metric is derived from; before landing an Ask Mesha change (`--subset core` at minimum, full when a metric
+  changed); weekly on the timer.
+- Cost: ~$0.15 per question, counted in the $100 monthly cap (bench asks are real asks). Weekly full run
+  (42 q) ~= $6.3/run ~= $25-27/month. Schedule = `schedule/mesha-ask-eval.{service,timer}` (systemd) or
+  `schedule/sg.mesha.ask-eval.plist` (launchd), both calling `eval/scheduled.sh`: WEEKLY full by default,
+  nothing daily. Configure with `ASK_MESHA_EVAL_SUBSET` / `ASK_MESHA_EVAL_BUDGET_USD` /
+  `ASK_MESHA_EVAL_CONCURRENCY`; secrets (bench token) in `$ASK_MESHA_STATE_DIR/.eval.env` (chmod 600).
+- 3-way check (chat vs truth SQL vs admin-web screen): items with `ui_api {path, query, extract}` also call the
+  SAME backend read the dashboard uses (e.g. `/weighing/leadership/growth`, `/growth-director/fcr`,
+  `/feed-analytics/stock`, `/procurement/loadwise-sales`, `/counts/mortality`, `/herd-register/summary`) on
+  `GOATOS_STG_API`. Verdicts: `UI differs from SQL (possible UI bug)` vs `chat differs (chat bug)`. It runs only
+  when `ASK_MESHA_EVAL_BEARER` (a leadership Firebase ID token) and `ASK_MESHA_EVAL_TENANT`
+  (`00000000-0000-4000-8000-000000000001` on stg) are set; otherwise the report says it was skipped. Getting a
+  token: sign in to admin-web as a leadership user, DevTools > Application > Cookies > copy
+  `goatos_firebase_id_token`, then `export ASK_MESHA_EVAL_BEARER='<paste>'` in that shell only. It expires in
+  ~1 h; never store it in a file, env file, report or log (the runner only sends it as a header).
+- A wrong answer found by a CEO ALWAYS becomes a golden (every miss is a permanent test): add an item with the
+  CEO's wording, truth SQL that computes the correct number live (copy it from the data map / SKILL.md, read-only,
+  `{{month_start}}`-style date macros instead of fixed "this month" dates), the numbers + tolerance that must
+  appear, and any `must_mention` caveat the miss lacked; add `ui_api` when a dashboard shows the number.
+  Check it with `--truth-only --subset <id>`, then fix the data map / prompt until `--subset <id>` passes.
+  Only edit a golden when the golden/truth itself is wrong, never to make a wrong agent answer pass.
+- Tests: `node --test tools/ask-mesha-agent/test/eval-grade.test.mjs` (grading rules, golden shape, macros).
+
 ## Cost controls
 
 - `ASK_MESHA_MONTHLY_BUDGET_USD` (default **100**): once this month's summed answer cost reaches it,

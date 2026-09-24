@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- WEEKLY Ask Mesha accuracy regression, Monday 06:30 local (~$6.3/run, ~$25-27/month of the $100 cap).
+     Needs the local agent on :8787 and ASK_MESHA_BENCH_TOKEN in $ASK_MESHA_STATE_DIR/.eval.env (chmod 600).
+     Edit the paths, then:
+     cp tools/ask-mesha-agent/schedule/sg.mesha.ask-eval.plist ~/Library/LaunchAgents/
+     launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/sg.mesha.ask-eval.plist
+     Subset/budget: ASK_MESHA_EVAL_SUBSET ("" = all, N, or tags like "core"), ASK_MESHA_EVAL_BUDGET_USD. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>sg.mesha.ask-eval</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>-lc</string>
+    <string>/Users/raviteja/mesha/goatos/tools/ask-mesha-agent/eval/scheduled.sh</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>ASK_MESHA_STATE_DIR</key><string>/Users/raviteja/airnd/agent-local</string>
+    <key>ASK_MESHA_EVAL_SUBSET</key><string></string>
+    <key>ASK_MESHA_EVAL_BUDGET_USD</key><string>7</string>
+  </dict>
+  <key>StartCalendarInterval</key>
+  <dict><key>Weekday</key><integer>1</integer><key>Hour</key><integer>6</integer><key>Minute</key><integer>30</integer></dict>
+  <key>StandardOutPath</key><string>/tmp/mesha-ask-eval.out</string>
+  <key>StandardErrorPath</key><string>/tmp/mesha-ask-eval.err</string>
+</dict>
+</plist>

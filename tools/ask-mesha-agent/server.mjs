@@ -1007,7 +1007,9 @@ async function route(req, res) {
       if (HOST !== "127.0.0.1" && !(bench && authz === `Bearer ${bench}`)) return json(res, 403, { error: "forbidden" });
       if (p === "/metrics/users") return json(res, 200, await events.usersSummary());
       if (p === "/metrics/recent") return json(res, 200, await events.recent(url.searchParams.get("email") || "", 50));
-      return json(res, 200, { ...(await store.metricsSummary()), claude: providerSwitch.status() });
+      // accuracy: eval/run.mjs regression runs over time (eval_run events).
+      const accuracy = await events.evalHistory(20).catch(() => null);
+      return json(res, 200, { ...(await store.metricsSummary()), claude: providerSwitch.status(), accuracy });
     }
     const user = await authenticate(req);
     if (!user) {

@@ -115,7 +115,7 @@ Module tables (public.*; park name: locations via park_id; PEN = pens.sql latera
 - feed stock / days of cover / "kitna din chalega" = app Feed Analytics > Stock: run_reference('feed-stock-days-left.sql') (purchase ledger minus locked sheet issues, 3-latest-day burn rate,
   split concentrates merged). NOT inventory_stock, NOT your own 14-day average. 24/09: CBE UHT milk 5 days, concentrates ~14-15, bhusa 19-23.
   Answer: shortest days-left first, per park; items shown as not_started = stock but no use yet.
-- feed wastage %: feed_wastage_completions.wastage_kg (completed) / directed kg (feed_direction_issue_rows, issued/amended/locked) same days, in SQL.
+- feed wastage %: feed_wastage_completions.wastage_kg (completed) / directed kg (feed_direction_issue_rows, issued/amended/locked) ONLY for the same pen-days that have a completed wastage_kg (join on pen + target_date; never the whole month's directed feed), in SQL.
   pending_verification rows have wastage_kg NULL: say how many pen-days have no wastage kg yet (e.g. 95 in Sep), don't call them 0.
 - vendor delivery delays: no promised/ETA date is stored. Feed vendors = feed_purchases (vendor, farm_label, purchase_date -> reached_on,
   delivery_status); animal loads = procurement_loads (purchase_date -> arrived_on). Answer days from purchase to arrival per vendor

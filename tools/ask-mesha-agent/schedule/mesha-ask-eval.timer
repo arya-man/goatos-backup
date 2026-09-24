@@ -1,0 +1,12 @@
+# WEEKLY by default (Mon 06:30). Nothing daily: a daily full run would be ~$190/month, over the cap.
+# For a small daily smoke instead, add a second timer with ASK_MESHA_EVAL_SUBSET=5 (~$0.75/day ~= $23/month).
+[Unit]
+Description=Weekly Ask Mesha accuracy regression
+
+[Timer]
+OnCalendar=Mon *-*-* 06:30:00
+Persistent=true
+RandomizedDelaySec=15m
+
+[Install]
+WantedBy=timers.target

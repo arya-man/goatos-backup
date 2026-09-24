@@ -1,0 +1,19 @@
+# systemd --user unit: WEEKLY Ask Mesha accuracy regression (tools/ask-mesha-agent/eval).
+# ~$0.15/question against the agent's $100 monthly cap: weekly full (42 q) ~= $25-27/month.
+# Install:
+#   cp tools/ask-mesha-agent/schedule/mesha-ask-eval.{service,timer} ~/.config/systemd/user/
+#   (edit GOATOS_REPO / ASK_MESHA_STATE_DIR; put ASK_MESHA_BENCH_TOKEN in $ASK_MESHA_STATE_DIR/.eval.env, chmod 600)
+#   systemctl --user daemon-reload && systemctl --user enable --now mesha-ask-eval.timer
+# Cheaper: Environment=ASK_MESHA_EVAL_SUBSET=core (or a number); budget via ASK_MESHA_EVAL_BUDGET_USD.
+[Unit]
+Description=Ask Mesha accuracy regression (golden questions vs live truth SQL)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+Environment=GOATOS_REPO=%h/goatos
+Environment=ASK_MESHA_STATE_DIR=%h/agent-local
+Environment=ASK_MESHA_EVAL_SUBSET=
+Environment=ASK_MESHA_EVAL_BUDGET_USD=7
+ExecStart=/bin/bash -lc '"$GOATOS_REPO"/tools/ask-mesha-agent/eval/scheduled.sh'

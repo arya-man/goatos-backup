@@ -146,6 +146,20 @@ export function recentAsks(events, email, limit = 50) {
     }));
 }
 
+// Accuracy over time: eval_run events (eval/run.mjs), newest first.
+export function evalHistory(events, limit = 20) {
+  const runs = events
+    .filter((e) => e.event_name === "eval_run")
+    .sort((a, b) => String(b.ts).localeCompare(String(a.ts)))
+    .slice(0, limit)
+    .map((e) => ({
+      ts: e.ts, items: e.items ?? null, pass: e.pass ?? 0, fail: e.fail ?? 0, error: e.error ?? 0, skipped: e.skipped ?? 0,
+      accuracy: e.accuracy ?? null, cost_usd: e.cost_usd ?? null, subset: e.subset ?? null,
+      failed_ids: e.failed_ids || [], ui_mismatches: e.ui_mismatches || [], report: e.report ?? null,
+    }));
+  return { last: runs[0] || null, runs };
+}
+
 // ---- sinks ------------------------------------------------------------------
 function jsonSink(stateDir) {
   const FILE = path.join(stateDir, "events.jsonl");
@@ -163,7 +177,8 @@ function jsonSink(stateDir) {
 
 // Every event the read side needs: ask_started (preview/model for recentAsks), the terminal
 // events, and the side counters summarizeUsers shows (watch_ended -> watches, chat_busy -> busy).
-export const READ_EVENTS = ["ask_started", ...TERMINAL, "watch_ended", "chat_busy"];
+// eval_run: one accuracy-regression run (eval/run.mjs), read back by evalHistory for /metrics.
+export const READ_EVENTS = ["ask_started", ...TERMINAL, "watch_ended", "chat_busy", "eval_run"];
 export function pgSink(pool) {
   return {
     kind: "postgres",
@@ -319,6 +334,10 @@ export async function createEvents({ stateDir, sink, log = (line) => console.log
     async usersSummary() {
       const from = new Date(now().getTime() - 30 * 864e5).toISOString();
       return summarizeUsers(await sink.since(from), now());
+    },
+    async evalHistory(limit = 20) {
+      const from = new Date(now().getTime() - 180 * 864e5).toISOString();
+      return evalHistory(await sink.since(from), limit);
     },
     async recent(email, limit = 50) {
       const from = new Date(now().getTime() - 90 * 864e5).toISOString();
