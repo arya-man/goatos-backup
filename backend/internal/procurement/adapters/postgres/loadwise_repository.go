@@ -276,6 +276,23 @@ ORDER BY
     r.purchase_date DESC NULLS LAST, r.created_at DESC, r.load_id
 LIMIT NULLIF($2, 0)`
 
+const loadwiseSalePricesSQL = `
+SELECT species, management_stage, sex, price_per_kg_inr
+FROM (
+  SELECT DISTINCT ON (species, management_stage, sex)
+         species, management_stage, sex, price_per_kg_inr::float8 AS price_per_kg_inr,
+         effective_from, created_at
+  FROM public.growth_sale_price_assumptions
+  WHERE tenant_id = $1::uuid
+  ORDER BY species, management_stage, sex,
+           (effective_from <= $2::date) DESC,
+           CASE WHEN effective_from <= $2::date THEN effective_from END DESC,
+           effective_from ASC,
+           created_at DESC
+) latest
+WHERE price_per_kg_inr IS NOT NULL
+ORDER BY species, management_stage, sex`
+
 // loadCostLinesSQL reads the itemisation for a whole page of loads at once. Ordered by the kind's
 // own position in domain.CostLineKinds, so the breakdown reads animal -> transport -> booking ->
 // labour -> transit -> feed rather than alphabetically; an unknown kind sorts last instead of
@@ -497,13 +514,38 @@ func (r *Repository) loadwiseSales(ctx context.Context, tenantID, parkID string,
 	if pricedCount > 0 && overallAvg > 0 {
 		overall = &overallAvg
 	}
-	// The farm's own unsold-stock price (Sales Config, migration 000367), when set: one PK read.
+	// The farm's own unsold-stock price (Sales Config, migration 000367), kept as the legacy
+	// fallback for callers that do not receive Weighing sale-price assumptions.
 	var assumed *float64
 	if err := r.pool.QueryRow(ctx, `SELECT unsold_stock_price_rupees::float8 FROM public.sales_valuation_assumptions WHERE tenant_id = $1::uuid`, tenantID).Scan(&assumed); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return domain.LoadwiseSales{}, fmt.Errorf("procurement: loadwise unsold price assumption: %w", err)
 	}
+	prices, err := r.loadwiseSalePrices(ctx, tenantID, biztime.BusinessDayStart(time.Now().In(biztime.DefaultLocation())))
+	if err != nil {
+		return domain.LoadwiseSales{}, err
+	}
 
-	return domain.FinalizeLoadwise(loads, totalLoads, overall, asOf, assumed), nil
+	return domain.FinalizeLoadwiseWithSalePrices(loads, totalLoads, overall, asOf, prices, assumed), nil
+}
+
+func (r *Repository) loadwiseSalePrices(ctx context.Context, tenantID string, asOf time.Time) (domain.LoadSalePrices, error) {
+	out := domain.LoadSalePrices{Prices: []domain.LoadSalePrice{}}
+	rows, err := r.pool.Query(ctx, loadwiseSalePricesSQL, tenantID, asOf.In(biztime.DefaultLocation()).Format("2006-01-02"))
+	if err != nil {
+		return out, fmt.Errorf("procurement: loadwise sale prices: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var row domain.LoadSalePrice
+		if err := rows.Scan(&row.Species, &row.ManagementStage, &row.Sex, &row.PricePerKgINR); err != nil {
+			return out, fmt.Errorf("procurement: loadwise sale prices scan: %w", err)
+		}
+		out.Prices = append(out.Prices, row)
+	}
+	if err := rows.Err(); err != nil {
+		return out, fmt.Errorf("procurement: loadwise sale prices rows: %w", err)
+	}
+	return out, nil
 }
 
 // bizDate renders an optional business DATE as its calendar day, never shifted through a timezone.
