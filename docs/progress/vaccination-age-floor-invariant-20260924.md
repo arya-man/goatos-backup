@@ -107,14 +107,25 @@ vaccination_generation_runs, GuardRejected alerting.
 
 ## Pending
 
-- Run the focused Android card-identity and route tests, then device E2E for the exact Amit
-  two-animal ET+TT shape before claiming the duplicate-card/scan-route fix complete.
+- Build/install the final ProdDebug APK and run device E2E for the exact Amit two-animal ET+TT
+  shape before claiming the duplicate-card/scan-route fix complete.
 - Run final judges against the pushed complete-first-wave, fail-closed-anchor, and Android
   execution checkpoint.
 - Keep the draft PR updated with each verified checkpoint.
 - Repair/read back STG after the durable guard is deployable; do not claim the DB repair durable before deployment.
 
 ## Verification
+
+- Android/backend execution correction after judge rejection: mixed assignments now open Scan,
+  the request is pinned to the card date and partition, taskless roster rows retain their own task
+  write identity, and RFID/proof persistence uses that row identity. Day/card counts collapse 2/3
+  vaccine rows per assignment without collapsing separate animals.
+- Focused ProdDebug tests passed after that correction: `ExecutionRouteIdentityTest`,
+  `ShedsExecutionIdentityTest`, `ShedsViewModelTest`, and complete `ScanViewModelTest` (97 tests),
+  including taskless RFID persistence plus 1/2/3-vaccine animal-grain counts.
+- Focused Go packages passed: `go test ./internal/vaccinationexecution/adapters/http
+  ./internal/vaccinationexecution/adapters/postgres`; planned-date and per-row task identity are
+  pinned in the scan-roster integration test.
 
 - Android operator execution checkpoint: 48 focused ProdDebug tests passed across
   `ExecutionRouteIdentityTest`, `ShedsExecutionIdentityTest`, and `ShedsViewModelTest`, including

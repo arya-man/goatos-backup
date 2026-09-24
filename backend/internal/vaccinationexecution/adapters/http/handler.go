@@ -787,6 +787,13 @@ func (h *Handler) ScanRoster(w http.ResponseWriter, r *http.Request) {
 		h.badRequest(w, r, "invalid_assignment_id", "assignment_id must be a UUID")
 		return
 	}
+	plannedDate := strings.TrimSpace(query.Get("planned_date"))
+	if plannedDate != "" {
+		if _, err := time.Parse("2006-01-02", plannedDate); err != nil {
+			h.badRequest(w, r, "invalid_planned_date", "planned_date must be YYYY-MM-DD")
+			return
+		}
+	}
 	limit := 500
 	if limitRaw := query.Get("limit"); limitRaw != "" {
 		n, err := strconv.Atoi(limitRaw)
@@ -809,6 +816,7 @@ func (h *Handler) ScanRoster(w http.ResponseWriter, r *http.Request) {
 		ShedID:               shedID,
 		PartitionLabel:       strings.TrimSpace(query.Get("partition_label")),
 		AssignmentID:         assignmentID,
+		PlannedDate:          plannedDate,
 		TaskID:               taskID,
 		OperatorScopeActorID: actorID,
 		Limit:                limit,

@@ -136,6 +136,7 @@ class ScanViewModel @Inject constructor(
     private val taskId: String? = savedStateHandle.get<String>("taskId")?.takeIf { it.isNotBlank() }
     private val assignmentId: String? = savedStateHandle.get<String>("assignmentId")?.takeIf { it.isNotBlank() }
     private val partitionLabel: String? = savedStateHandle.get<String>("partitionLabel")?.takeIf { it.isNotBlank() }
+    private val plannedDate: String? = savedStateHandle.get<String>("plannedDate")?.takeIf { it.isNotBlank() }
     private val sopVersionId: String? = savedStateHandle.get<String>("sopVersionId")?.takeIf { it.isNotBlank() }
     private val taskRowVersion: Int? = savedStateHandle.get<Int>("taskRowVersion")?.takeIf { it > 0 }
     private val routeScanTitle: String? = savedStateHandle.get<String>("scanTitle")?.takeIf { it.isNotBlank() }
@@ -661,7 +662,7 @@ class ScanViewModel @Inject constructor(
         _isRefreshing.value = true
         _refreshError.value = null
         taskId?.let { tasksRepository.refreshTaskDetail(it) }
-        val result = repo.refreshAssignmentScanRoster(id, taskId, assignmentId, limit = SCAN_PAGE_SIZE, partitionLabel = partitionLabel)
+        val result = repo.refreshAssignmentScanRosterForDate(id, taskId, assignmentId, limit = SCAN_PAGE_SIZE, partitionLabel = partitionLabel, plannedDate = plannedDate)
         refreshShedCompletionSummary()
         _isRefreshing.value = false
         _isOffline.value = result.isFailure
@@ -1146,6 +1147,7 @@ class ScanViewModel @Inject constructor(
                 status = if (locallyDone) ScanStatus.DONE else statusOf(selectedRow.status),
                 unsynced = locallyDone,
                 goatId = dbRow.goatId,
+                executionTaskId = selectedRow.taskId,
                 obligationId = selectedRow.obligationId,
                 obligationRowVersion = selectedRow.obligationRowVersion,
                 proofRequired = activeProofPolicy.isPerGoatVideo,
@@ -1291,14 +1293,14 @@ class ScanViewModel @Inject constructor(
         capturedAtMs: Long,
         obligationRows: List<ScanRosterRowEntity> = emptyList(),
     ) {
-        val selectedTaskId = taskId ?: return
         val capturedTag = tag.ifBlank { row.primaryTag }
         if (normalize(capturedTag).isEmpty()) return
         val rowsToSync = obligationRows
             .filter { it.obligationId.isNotBlank() }
-            .map { ScanSyncTarget(it.goatId, it.obligationId, it.obligationRowVersion) }
-            .ifEmpty { listOf(ScanSyncTarget(row.goatId, row.obligationId, row.obligationRowVersion)) }
+            .map { ScanSyncTarget(it.goatId, it.taskId, it.obligationId, it.obligationRowVersion) }
+            .ifEmpty { listOf(ScanSyncTarget(row.goatId, row.executionTaskId, row.obligationId, row.obligationRowVersion)) }
         rowsToSync.forEach { target ->
+            val selectedTaskId = target.taskId.takeIf { it.isNotBlank() } ?: taskId ?: return@forEach
             try {
                 scanCaptureRepository.recordScan(
                     taskId = selectedTaskId,
@@ -1339,7 +1341,7 @@ class ScanViewModel @Inject constructor(
         reason: String?,
         capturedAtMs: Long? = null,
     ) {
-        val selectedTaskId = taskId ?: return
+        val selectedTaskId = row?.executionTaskId?.takeIf { it.isNotBlank() } ?: taskId ?: return
         val capturedTag = tag.ifBlank { row?.primaryTag.orEmpty() }
         if (normalize(capturedTag).isEmpty()) return
         analytics.track(
@@ -1612,6 +1614,7 @@ class ScanViewModel @Inject constructor(
             scannedAtLabel = capturedAtMs?.let(::scanTimeLabel),
             proofStatusLabel = proofStatusLabel,
             goatId = goatId,
+            executionTaskId = taskId,
             obligationId = obligationId,
             obligationRowVersion = obligationRowVersion,
             proofRequired = requireGoatProof,
@@ -1893,7 +1896,6 @@ class ScanViewModel @Inject constructor(
         ).joinToString("|")
 
     private fun requestGoatProof(goatId: String) {
-        val selectedTaskId = taskId ?: return
         val policy = proofPolicy.value ?: ProofPolicy.Default
         if (!policy.isPerGoatVideo || _operatorAllowed.value != true || goatId.isBlank()) return
         // Resolve the goat from the visible window OR the proof-action-needed list — an animal needing
@@ -1924,7 +1926,7 @@ class ScanViewModel @Inject constructor(
      *  restarting a capture already in progress for the same animal has no benefit and would just
      *  reopen the same camera on itself. */
     private fun requestGoatProof(row: RosterRow, pendingScanCommit: PendingScanCommit? = null) {
-        val selectedTaskId = taskId ?: return
+        val selectedTaskId = row.executionTaskId.takeIf { it.isNotBlank() } ?: taskId ?: return
         val policy = proofPolicy.value ?: ProofPolicy.Default
         if (!policy.isPerGoatVideo || _operatorAllowed.value != true || row.goatId.isBlank()) return
 
@@ -2521,6 +2523,7 @@ private fun String?.normalizeForAnimalKey(): String? =
 
 private data class ScanSyncTarget(
     val goatId: String,
+    val taskId: String,
     val obligationId: String,
     val obligationRowVersion: Int,
 )

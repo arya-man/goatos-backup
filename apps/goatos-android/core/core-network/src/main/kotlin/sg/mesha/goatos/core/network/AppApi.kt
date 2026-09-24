@@ -853,6 +853,15 @@ interface AppApi {
         partitionLabel: String? = null,
         assignmentId: String? = null,
     ): ScanRosterResponseDto
+    suspend fun getScanRosterForDate(
+        shedId: String,
+        taskId: String? = null,
+        cursor: String? = null,
+        limit: Int? = null,
+        partitionLabel: String? = null,
+        assignmentId: String? = null,
+        plannedDate: String? = null,
+    ): ScanRosterResponseDto = getScanRoster(shedId, taskId, cursor, limit, partitionLabel, assignmentId)
 
     /** POST /app/vaccination/obligations/{obligation_id}/reschedule — reschedule obligation to new date. */
     suspend fun rescheduleObligation(

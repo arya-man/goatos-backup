@@ -153,6 +153,43 @@ class ShedsViewModelTest {
         assertEquals(null, row.assignmentId)
         assertEquals(null, row.taskId)
         assertEquals(null, row.batchId)
+        assertEquals("0 / 2 done", vm.state.value.daySummary)
+        assertEquals(2, vm.state.value.dueCount)
+    }
+
+    @Test
+    fun `one animal with three vaccine rows counts once in card and day totals`() = runTest(dispatcher) {
+        val today = LocalDate.now().toString()
+        val common = VaccinationExecutionRowDto(
+            shedId = "shed-yashoda-3",
+            shedName = "Yashoda 3",
+            partitionLabel = "3",
+            dueDate = today,
+            assignmentId = "assignment-one-animal",
+            sopTaskId = "task-one-animal",
+            targetCount = 1,
+            openCount = 1,
+        )
+        val repo = FakeShedsPinVmExecutionRepository(
+            VaccinationExecutionResponseDto(rows = listOf(
+                common.copy(vaccineLabels = listOf("ET+TT")),
+                common.copy(vaccineLabels = listOf("PPR")),
+                common.copy(vaccineLabels = listOf("Goat Pox")),
+            )),
+        )
+        val vm = ShedsViewModel(
+            repo = repo,
+            crashReporter = NoopCrashReporter(),
+            analytics = NoopAnalytics(),
+            bootstrapRepository = FakeShedsRoleBootstrapRepository(role = "operator"),
+            savedStateHandle = SavedStateHandle(),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertEquals("1", vm.state.value.rows.single().inShed)
+        assertEquals("0 / 1 done", vm.state.value.daySummary)
+        assertEquals(1, vm.state.value.dueCount)
     }
 
     @Test

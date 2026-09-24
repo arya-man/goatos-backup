@@ -2645,7 +2645,7 @@ func (r *Repository) ScanRoster(ctx context.Context, q domain.ScanRosterQuery) (
 	// Park-scope clamp (defence in depth): a park-scoped app actor may only read rosters for sheds
 	// in their authorized parks. Tenant-wide (or grant-less internal) callers pass nil = no filter.
 	restrictParks := authorizedParkFilter(ctx, q.TenantID)
-	rows, err := r.pool.Query(ctx, scanRosterSQL, q.TenantID, q.ShedID, q.TaskID, identity.BatchID, cursorGoatID, cursorObligationID, limit+1, restrictParks, q.OperatorScopeActorID, strings.TrimSpace(q.PartitionLabel), q.AssignmentID)
+	rows, err := r.pool.Query(ctx, scanRosterSQL, q.TenantID, q.ShedID, q.TaskID, identity.BatchID, cursorGoatID, cursorObligationID, limit+1, restrictParks, q.OperatorScopeActorID, strings.TrimSpace(q.PartitionLabel), q.AssignmentID, q.PlannedDate)
 	if err != nil {
 		return domain.ScanRosterResult{}, fmt.Errorf("vaccination execution: scan roster: %w", err)
 	}
@@ -2656,6 +2656,7 @@ func (r *Repository) ScanRoster(ctx context.Context, q domain.ScanRosterQuery) (
 		var secondaryTag pgtype.Text
 		var scannedAt pgtype.Timestamptz
 		var latestProofID, latestProofDownloadURL, assignmentID pgtype.Text
+		var rowTaskID string
 		var protocolName, doseCode string
 		if err := rows.Scan(
 			&row.GoatID,
@@ -2670,6 +2671,7 @@ func (r *Repository) ScanRoster(ctx context.Context, q domain.ScanRosterQuery) (
 			&latestProofID,
 			&latestProofDownloadURL,
 			&assignmentID,
+			&rowTaskID,
 		); err != nil {
 			return domain.ScanRosterResult{}, fmt.Errorf("vaccination execution: scan roster scan: %w", err)
 		}
@@ -2683,7 +2685,7 @@ func (r *Repository) ScanRoster(ctx context.Context, q domain.ScanRosterQuery) (
 		}
 		row.VaccineLabel = domain.VaccinationDoseDisplayLabel(protocolName, doseCode)
 		row.BatchID = identity.BatchID
-		row.TaskID = identity.TaskID
+		row.TaskID = rowTaskID
 		row.SOPVersionID = identity.SOPVersionID
 		row.TaskRowVersion = identity.TaskRowVersion
 		out = append(out, row)
@@ -2781,7 +2783,8 @@ SELECT
     WHEN vc.completion_status = 'rejected' OR goat_proof.proof_id IS NULL THEN NULL
     ELSE '/app/proofs/' || goat_proof.proof_id::text || '/download'
   END AS latest_proof_download_url,
-  COALESCE(exact_assignment.assignment_id, vda.assignment_id)::text AS assignment_id
+  COALESCE(exact_assignment.assignment_id, vda.assignment_id)::text AS assignment_id,
+  COALESCE(oi.sop_task_id, ob.sop_task_id)::text AS row_task_id
 FROM obligation_instances oi
 LEFT JOIN obligation_batches ob
   ON ob.tenant_id = oi.tenant_id
@@ -2969,9 +2972,12 @@ WHERE oi.tenant_id = $1::uuid
   AND COALESCE(exact_assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', vda.assignment_planned_at) IS NOT NULL
   AND COALESCE(exact_assignment.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) <= now()
   AND (
+    $12::text = ''
+    OR COALESCE(exact_assignment.planned_date, (vda.assignment_planned_at AT TIME ZONE 'Asia/Kolkata')::date, ob.planned_date, (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date) = $12::date
+  )
+  AND (
     $10::text = ''
-    OR exact_assignment.assignment_id IS NOT NULL
-    OR regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
+    OR regexp_replace(lower(btrim(COALESCE(exact_assignment.partition_label, gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
      = regexp_replace(lower(btrim($10::text)), '^part[[:space:]]+', '')
   )
   AND (

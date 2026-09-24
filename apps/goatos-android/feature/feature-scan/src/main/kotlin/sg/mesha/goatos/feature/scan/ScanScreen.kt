@@ -140,6 +140,7 @@ data class RosterRow(
     val proofStatusLabel: String? = null,
     val scanSyncFailed: Boolean = false,
     val goatId: String = "",
+    val executionTaskId: String = "",
     val obligationId: String = "",
     /** `obligation_instances.row_version` for [obligationId] — the server-issued capture-cycle
      *  discriminator. See `sg.mesha.goatos.core.data.capture.scanCaptureIdempotencyKey`. */
