@@ -330,6 +330,10 @@ type GenerateResult struct {
 	// scheduled vaccination is real, fails for that animal alone, and reports the count so the
 	// duplicates get resolved rather than silently multiplied.
 	AmbiguousOpenWork int
+	// GuardRejected counts doses the obligation write guard refused (before the age floor, or not
+	// applicable for the animal's purpose). Each is skipped for that vaccine only; the goat's other
+	// vaccines still generate.
+	GuardRejected int
 	// ReconcileDateBlocked counts obligations that were claimed but could NOT take their new due
 	// date, because obligation_instances_dup_guard already holds that key -- usually the row's own
 	// canceled or completed twin. The animal keeps exactly one open obligation, so nothing is

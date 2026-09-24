@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -2231,6 +2232,9 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			if errors.Is(err, oblports.ErrAmbiguousOpenWork) {
 				res.AmbiguousOpenWork++
 			}
+			if skipGuardRejectedVaccine(err, tenantID, g, rule, res) {
+				continue
+			}
 			return err
 		}
 		if found {
@@ -2246,6 +2250,9 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			_, applied, err = s.obl.InsertObligation(ctx, newObligation)
 		}
 		if err != nil {
+			if skipGuardRejectedVaccine(err, tenantID, g, rule, res) {
+				continue
+			}
 			return err
 		}
 		if supersededCampaignKey != "" && supersededCampaignKey != key {
@@ -2359,6 +2366,9 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 				// Terminal/history cancellations never reach here (see cancelReasonMintsSuccessor).
 				successorRef, successorChanged, successorApplied, err := s.insertSuccessorForCanceledGenerationReplay(ctx, tenantID, key, newObligation, asOf, deferred, deferReason)
 				if err != nil {
+					if skipGuardRejectedVaccine(err, tenantID, g, rule, res) {
+						continue
+					}
 					return err
 				}
 				if successorApplied {
@@ -2405,6 +2415,19 @@ func purposeAllowsGeneration(g domain.EligibleGoat, vaccine vaccineProfile, poli
 	}
 	_, ok := applyPurposeSecondWaveFloor(time.Time{}, decision, history)
 	return ok
+}
+
+// skipGuardRejectedVaccine turns a persistence write-guard refusal (age floor, purpose
+// applicability) into a per-vaccine skip: the repository is the final authority, and one refused
+// dose must not abort the goat's other vaccines on every pass. Any other error is not handled here.
+func skipGuardRejectedVaccine(err error, tenantID string, g domain.EligibleGoat, rule protodomain.Rule, res *domain.GenerateResult) bool {
+	if !errors.Is(err, oblports.ErrBeforeVaccinationAgeFloor) && !errors.Is(err, oblports.ErrVaccinationNotApplicable) {
+		return false
+	}
+	res.GuardRejected++
+	slog.Warn("vaccination generation: write guard rejected dose; skipping vaccine",
+		"tenant_id", tenantID, "goat_id", g.GoatID, "rule_id", rule.RuleID, "dose_code", rule.DoseCode, "reason", err.Error())
+	return true
 }
 
 func scheduleBasisForGeneratedRow(anchorCatchUpKey string) string {
