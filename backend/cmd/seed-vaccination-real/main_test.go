@@ -54,6 +54,38 @@ func TestVaccinationMatrixRowsUseSpeciesScopedEligibility(t *testing.T) {
 	}
 }
 
+func TestVaccinationMatrixFatteningPurposePlan(t *testing.T) {
+	dsl, err := vaccinationMatrixRuleDSL()
+	if err != nil {
+		t.Fatalf("build vaccination matrix rule DSL: %v", err)
+	}
+	var payload struct {
+		ProcurementPolicy struct {
+			PurposePlans map[string]struct {
+				FirstWave       []string `json:"first_wave"`
+				GoatSecondWave  []string `json:"goat_second_wave"`
+				SheepSecondWave []string `json:"sheep_second_wave"`
+			} `json:"purpose_plans"`
+		} `json:"procurement_policy"`
+	}
+	if err := json.Unmarshal([]byte(dsl), &payload); err != nil {
+		t.Fatalf("decode vaccination matrix rule DSL: %v", err)
+	}
+	plan, ok := payload.ProcurementPolicy.PurposePlans["fattening"]
+	if !ok {
+		t.Fatal("fattening purpose plan is missing")
+	}
+	if got := strings.Join(plan.FirstWave, ","); got != "ET+TT,PPR" {
+		t.Fatalf("fattening first wave=%q, want ET+TT,PPR", got)
+	}
+	if got := strings.Join(plan.GoatSecondWave, ","); got != "Goat Pox" {
+		t.Fatalf("fattening goat second wave=%q, want Goat Pox", got)
+	}
+	if got := strings.Join(plan.SheepSecondWave, ","); got != "Sheep Pox" {
+		t.Fatalf("fattening sheep second wave=%q, want Sheep Pox", got)
+	}
+}
+
 func TestVaccinationMatrixRowsCarryDrivePriority(t *testing.T) {
 	dsl, err := vaccinationMatrixRuleDSL()
 	if err != nil {

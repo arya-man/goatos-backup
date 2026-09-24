@@ -27,6 +27,18 @@ func mustGenerationDate(t *testing.T, value string) time.Time {
 	return parsed
 }
 
+func TestApplyRuleDueFloorKeepsBirthAgeDoseAtDOBOffset(t *testing.T) {
+	dob := time.Date(2026, time.September, 16, 9, 0, 0, 0, biztime.DefaultLocation())
+	requested := time.Date(2026, time.September, 24, 0, 0, 0, 0, biztime.DefaultLocation())
+	rule := protodomain.Rule{TriggerType: "birth_age", OffsetDays: 28}
+
+	got := applyRuleDueFloor(requested, rule, vaccineProfile{}, domain.EligibleGoat{DOB: &dob}, nil)
+	want := time.Date(2026, time.October, 14, 0, 0, 0, 0, biztime.DefaultLocation())
+	if !got.Equal(want) {
+		t.Fatalf("due=%s, want DOB+28 floor %s", got, want)
+	}
+}
+
 func TestTrustedCompletionCandidateChunksBoundsBatchSize(t *testing.T) {
 	candidates := make([]domain.TrustedCompletionCandidate, 0, 405)
 	for i := 0; i < 405; i++ {

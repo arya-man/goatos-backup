@@ -41,7 +41,7 @@ func TestKernelStoryAO_ProcurementPurposePlansDriveObligations(t *testing.T) {
 			"adult_prior_vaccination_allowed":true,
 			"purpose_plans":{
 				"breeding":{"first_wave":["ET+TT"],"second_wave_after_days":28,"goat_second_wave":["FMD"],"sheep_second_wave":[]},
-				"fattening":{"first_wave":["PPR"],"second_wave_after_days":28,"goat_second_wave":["HS"],"sheep_second_wave":[]}
+				"fattening":{"first_wave":["ET+TT","PPR"],"second_wave_after_days":28,"goat_second_wave":["Goat Pox"],"sheep_second_wave":["Sheep Pox"]}
 			}
 		}
 	}`
@@ -50,6 +50,7 @@ func TestKernelStoryAO_ProcurementPurposePlansDriveObligations(t *testing.T) {
 		{DoseCode: "ppr_adult_w1", Sequence: 2, TriggerType: "manual_campaign", OffsetDays: 0, DueWindowDays: 7, EligibilityJSON: matrixEligibility("PPR", "PPR", "live", "viral")},
 		{DoseCode: "fmd_adult_w1", Sequence: 3, TriggerType: "manual_campaign", OffsetDays: 0, DueWindowDays: 7, EligibilityJSON: matrixEligibility("FMD", "FMD", "killed", "viral")},
 		{DoseCode: "hs_adult_w1", Sequence: 4, TriggerType: "manual_campaign", OffsetDays: 0, DueWindowDays: 7, EligibilityJSON: matrixEligibility("HS", "HS", "killed", "bacterial")},
+		{DoseCode: "goat_pox_adult_w1", Sequence: 5, TriggerType: "manual_campaign", OffsetDays: 28, DueWindowDays: 7, EligibilityJSON: matrixEligibility("GOAT_POX", "Goat Pox", "live", "viral")},
 	})
 
 	story.Step("Generate obligations from the published purpose-specific procurement plan",
@@ -58,7 +59,7 @@ func TestKernelStoryAO_ProcurementPurposePlansDriveObligations(t *testing.T) {
 	gen := vaccapp.NewGenerationService(fx.Proto, fx.Vacc, fx.Obl)
 	res, err := gen.GenerateForVersion(fx.Ctx, fxTenant, versionID, entry)
 	story.Assert("generation ran without error", err == nil, "err=%v", err)
-	story.Assert("two obligations per procured animal were generated", res.Generated == 4, "generated=%d", res.Generated)
+	story.Assert("purpose-specific obligations were generated", res.Generated == 5, "generated=%d", res.Generated)
 
 	breedingVaccines := generatedDoseCodes(fx, breedingGoat)
 	fatteningVaccines := generatedDoseCodes(fx, fatteningGoat)
@@ -66,7 +67,7 @@ func TestKernelStoryAO_ProcurementPurposePlansDriveObligations(t *testing.T) {
 		strings.Join(breedingVaccines, ",") == "et_tt_adult_w1,fmd_adult_w1",
 		"got=%v", breedingVaccines)
 	story.Assert("fattening animal gets the fattening first and goat-second waves only",
-		strings.Join(fatteningVaccines, ",") == "hs_adult_w1,ppr_adult_w1",
+		strings.Join(fatteningVaccines, ",") == "et_tt_adult_w1,goat_pox_adult_w1,ppr_adult_w1",
 		"got=%v", fatteningVaccines)
 }
 

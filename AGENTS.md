@@ -50,6 +50,15 @@ them away: `docs/architecture/operational-read-model-contract.md`
 
 ## PR Review + Land Main Rule
 
+## Start Implementation Work In A PR
+
+For every implementation task, begin from the latest `origin/main` in an isolated
+branch/worktree, open a draft pull request early, and continuously push verified
+checkpoints to that PR. Do not hold all work locally until final sign-off. Keep
+the PR description and local progress document current as tests and judge status
+change. Opening or updating the PR does not waive local CI, final review, merge,
+or deployment gates.
+
 When the maintainer asks to review a GitHub PR and land main, the task is not
 done after pushing the certified commit to `origin/main`. After local CI passes
 and `make land-main` lands the commit, also resolve the GitHub PR itself:

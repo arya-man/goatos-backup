@@ -69,12 +69,12 @@ func TestGenerateForVersionUsesProcurementPurposePlans(t *testing.T) {
 	entry := time.Date(2026, time.July, 1, 0, 0, 0, 0, time.UTC)
 	proto := &generationProtoFake{
 		ruleDSL: []byte(`{
-			"eligibility":{"animal_stage":"adult","species":["goat"],"sex":["female"],"breed":["all"],"lifecycle":["alive"],"health":["healthy"],"reproductive":["any"]},
+			"eligibility":{"animal_stage":"adult","species":["goat","sheep"],"sex":["female"],"breed":["all"],"lifecycle":["alive"],"health":["healthy"],"reproductive":["any"]},
 			"procurement_policy":{
 				"kids_normal_schedule_until_weeks":16,
 				"purpose_plans":{
 					"breeding":{"first_wave":["ET+TT"],"second_wave_after_days":28,"goat_second_wave":["FMD"],"sheep_second_wave":[]},
-					"fattening":{"first_wave":["PPR"],"second_wave_after_days":28,"goat_second_wave":["HS"],"sheep_second_wave":[]}
+					"fattening":{"first_wave":["ET+TT","PPR"],"second_wave_after_days":28,"goat_second_wave":["Goat Pox"],"sheep_second_wave":["Sheep Pox"]}
 				}
 			}
 		}`),
@@ -83,6 +83,8 @@ func TestGenerateForVersionUsesProcurementPurposePlans(t *testing.T) {
 			{RuleID: "rule-ppr", DoseCode: "ppr_adult_w1", Sequence: 2, TriggerType: "manual_campaign", DueWindowDays: 7, EligibilityJSON: []byte(`{"vaccine":{"code":"PPR","name":"PPR","type":"live","pathogen_class":"viral"}}`)},
 			{RuleID: "rule-fmd", DoseCode: "fmd_adult_w1", Sequence: 3, TriggerType: "manual_campaign", DueWindowDays: 7, EligibilityJSON: []byte(`{"vaccine":{"code":"FMD","name":"FMD","type":"killed","pathogen_class":"viral"}}`)},
 			{RuleID: "rule-hs", DoseCode: "hs_adult_w1", Sequence: 4, TriggerType: "manual_campaign", DueWindowDays: 7, EligibilityJSON: []byte(`{"vaccine":{"code":"HS","name":"HS","type":"killed","pathogen_class":"bacterial"}}`)},
+			{RuleID: "rule-goat-pox", DoseCode: "goat_pox_adult_w1", Sequence: 5, TriggerType: "manual_campaign", DueWindowDays: 7, EligibilityJSON: []byte(`{"vaccine":{"code":"GOAT_POX","name":"Goat Pox","type":"live","pathogen_class":"viral"}}`)},
+			{RuleID: "rule-sheep-pox", DoseCode: "sheep_pox_adult_w1", Sequence: 6, TriggerType: "manual_campaign", DueWindowDays: 7, EligibilityJSON: []byte(`{"vaccine":{"code":"SHEEP_POX","name":"Sheep Pox","type":"live","pathogen_class":"viral"}}`)},
 		},
 	}
 	goats := &generationGoatFake{list: []domain.EligibleGoat{
@@ -98,6 +100,12 @@ func TestGenerateForVersionUsesProcurementPurposePlans(t *testing.T) {
 			Stage: "adult", OriginType: "procured", ProcurementPurpose: "fattening",
 			EntryDate: &entry, WarmingEntryAt: &entry, ShedID: "shed-1", ParkID: "park-1",
 		},
+		{
+			GoatID: "fattening-sheep", LifecycleStatus: "alive", HealthStatus: "healthy",
+			ReproductiveStatus: "open", Species: "sheep", Sex: "female", Breed: "mandya",
+			Stage: "adult", OriginType: "procured", ProcurementPurpose: "fattening",
+			EntryDate: &entry, WarmingEntryAt: &entry, ShedID: "shed-1", ParkID: "park-1",
+		},
 	}}
 	obl := &generationObligationFake{seen: map[string]bool{}}
 	gen := NewGenerationService(proto, goats, obl)
@@ -106,8 +114,8 @@ func TestGenerateForVersionUsesProcurementPurposePlans(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generate: %v", err)
 	}
-	if result.Generated != 4 || len(obl.inserted) != 4 {
-		t.Fatalf("result=%#v inserted=%#v, want four purpose-filtered obligations", result, obl.inserted)
+	if result.Generated != 8 || len(obl.inserted) != 8 {
+		t.Fatalf("result=%#v inserted=%#v, want eight purpose-filtered obligations", result, obl.inserted)
 	}
 	got := map[string]map[string]bool{}
 	for _, in := range obl.inserted {
@@ -119,8 +127,71 @@ func TestGenerateForVersionUsesProcurementPurposePlans(t *testing.T) {
 	if !got["breeding-goat"]["rule-et"] || !got["breeding-goat"]["rule-fmd"] || len(got["breeding-goat"]) != 2 {
 		t.Fatalf("breeding rules = %#v, want ET+TT and FMD only", got["breeding-goat"])
 	}
-	if !got["fattening-goat"]["rule-ppr"] || !got["fattening-goat"]["rule-hs"] || len(got["fattening-goat"]) != 2 {
-		t.Fatalf("fattening rules = %#v, want PPR and HS only", got["fattening-goat"])
+	if !got["fattening-goat"]["rule-et"] || !got["fattening-goat"]["rule-ppr"] || !got["fattening-goat"]["rule-goat-pox"] || len(got["fattening-goat"]) != 3 {
+		t.Fatalf("fattening rules = %#v, want ET+TT, PPR, and Goat Pox only", got["fattening-goat"])
+	}
+	if !got["fattening-sheep"]["rule-et"] || !got["fattening-sheep"]["rule-ppr"] || !got["fattening-sheep"]["rule-sheep-pox"] || len(got["fattening-sheep"]) != 3 {
+		t.Fatalf("fattening sheep rules = %#v, want ET+TT, PPR, and Sheep Pox only", got["fattening-sheep"])
+	}
+}
+
+func TestProcurementPurposePlanAppliesToBirthAgeRules(t *testing.T) {
+	policy := genProcurementPolicy{PurposePlans: map[string]genProcurementPurposePlan{
+		"fattening": {FirstWave: genStringList{"ET+TT", "PPR"}, GoatSecondWave: genStringList{"Goat Pox"}, SheepSecondWave: genStringList{"Sheep Pox"}},
+	}}
+	goat := domain.EligibleGoat{Species: "goat", ProcurementPurpose: "fattening"}
+	for _, tc := range []struct {
+		vaccine string
+		want    bool
+	}{
+		{"ET+TT", true}, {"PPR", true}, {"Goat Pox", true},
+		{"Sheep Pox", false}, {"FMD", false}, {"HS", false}, {"Z1+Z3", false},
+	} {
+		t.Run(tc.vaccine, func(t *testing.T) {
+			_, got := procurementPurposePlanForGoat(goat, vaccineProfile{Name: tc.vaccine}, policy)
+			if got != tc.want {
+				t.Fatalf("applicable=%v, want %v", got, tc.want)
+			}
+		})
+	}
+	goat.Species = "sheep"
+	if _, got := procurementPurposePlanForGoat(goat, vaccineProfile{Name: "Sheep Pox"}, policy); !got {
+		t.Fatal("Sheep Pox must be applicable to fattening sheep")
+	}
+	if _, got := procurementPurposePlanForGoat(goat, vaccineProfile{Name: "Goat Pox"}, policy); got {
+		t.Fatal("Goat Pox must not be applicable to fattening sheep")
+	}
+	if _, got := procurementPurposePlanForGoat(goat, vaccineProfile{Name: "ET+TT"}, genProcurementPolicy{}); got {
+		t.Fatal("fattening must fail closed when its authored purpose plan is missing")
+	}
+}
+
+func TestFatteningPurposePlanSupportsOneTwoAndThreeVaccinesWithoutChangingIdentity(t *testing.T) {
+	policy := genProcurementPolicy{PurposePlans: map[string]genProcurementPurposePlan{
+		"fattening": {FirstWave: genStringList{"ET+TT", "PPR"}, GoatSecondWave: genStringList{"Goat Pox"}, SheepSecondWave: genStringList{"Sheep Pox"}},
+	}}
+	goat := domain.EligibleGoat{Species: "goat", ProcurementPurpose: "fattening"}
+	for _, tc := range []struct {
+		name       string
+		vaccines   []string
+		applicable int
+	}{
+		{name: "one", vaccines: []string{"ET+TT"}, applicable: 1},
+		{name: "two", vaccines: []string{"ET+TT", "PPR"}, applicable: 2},
+		{name: "three", vaccines: []string{"ET+TT", "PPR", "Goat Pox"}, applicable: 3},
+		{name: "excluded_do_not_expand", vaccines: []string{"ET+TT", "PPR", "Goat Pox", "FMD", "HS", "Z1+Z3"}, applicable: 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := 0
+			for _, vaccine := range tc.vaccines {
+				if _, ok := procurementPurposePlanForGoat(goat, vaccineProfile{Name: vaccine}, policy); ok {
+					got++
+				}
+			}
+			if got != tc.applicable {
+				t.Fatalf("applicable vaccines=%d, want %d", got, tc.applicable)
+			}
+		})
 	}
 }
 
