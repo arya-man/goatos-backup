@@ -14,8 +14,8 @@ test("names: secrets removed, examples and code kept", () => {
 });
 
 test("content: real-looking secrets caught, placeholders not", () => {
-  assert.ok(contentIsSecret("key: -----BEGIN PRIVATE KEY-----\nabc"));
-  assert.ok(contentIsSecret('{"private_key": "-----BEGIN PRIVATE KEY-----"}'));
+  assert.ok(contentIsSecret(fake("key: -----BEGIN ", "PRIVATE", " KEY-----\nabc")));
+  assert.ok(contentIsSecret(fake('{"private_key": "-----BEGIN ', 'PRIVATE', ' KEY-----"}')));
   assert.ok(contentIsSecret(fake("ANTHROPIC_API_KEY=", "sk-ant-", "api03-", "x".repeat(40))));
   assert.ok(contentIsSecret(fake("AK", "IA", "Q".repeat(16))));
   assert.ok(contentIsSecret(fake("url=postgres://", "u", ":", "Zz", "9".repeat(8), "@", "10.0.0.5:5432/db")));
