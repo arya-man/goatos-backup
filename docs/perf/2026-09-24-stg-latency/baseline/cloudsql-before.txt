@@ -1,0 +1,5 @@
+cpu/utilization p50=0.147 p95=0.559 max=1 n=1440
+memory/utilization p50=0.622 p95=0.726 max=0.983 n=1439
+postgresql/num_backends p50=20 p95=25 max=33 n=1440
+disk/read_ops_count p50=3.93 p95=307 max=1.2e+03 n=1439
+disk/read_bytes_count p50=4.12e+04 p95=1.31e+07 max=9.48e+07 n=1439

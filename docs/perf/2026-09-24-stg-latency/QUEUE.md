@@ -1,0 +1,29 @@
+# stg latency queue. BUDGET (maintainer, applies to p95 of every API): target 50-100ms; acceptable 200-300ms; hard max <500ms (guard fails >500, flags >300, warns >100). Audit results: scratchpad/audit/*.md
+# Status: todo | building:<branch> | pushed:<sha> | judged-clean | verified-on-stg
+Wave 0 (root cause of the 15-30s spikes): analytics-rollup disk storm -> building:perf/analytics-rollup
+Wave G (guardrails, next free builder slot; design at audit/guardrails-design.md): perf-dev + perf-review skills, query-plan budget guard, endpoint latency budget test, OLTP-hygiene guard (retention, no analytics in request paths, no permanent pool.Acquire), job-safety guard, stg deploy-drift alert, docs + PR template evidence section
+Wave 1 (building):
+- growth-director/fcr p50 2159 p95 23215 -> building:perf/read-cache
+- weighing/shed-weights, weight-demographics, leadership/growth, weighing-dates -> building:perf/read-cache
+- herd-signals/live fanout + LISTEN -> building:perf/herd-live
+Wave 2 (todo, by intrinsic p50):
+- app/notifications p50 1910 (index 000396 + stored unread counter) 
+- work-board/page p50 7224; work-board/rows, summary
+- vaccination/command p50 1843, vaccination/sheds 1537, command/cohort-matrix 1379, shed-dose-matrix 962, command/drives, calendar/vaccination/events 1083, app/vaccination/execution p95 3595
+- counts/mortality 1156, counts/herd-analytics 1095, counts/breakdown p95 4203, pen-reconciliation workflow
+- admin/pen-routines/catalog 984 (+ pen-routines, tasks)
+- feed-analytics/directed 869, shed-feed 840, stock 660, stock-loads, execution, follow-up
+- alerts/rows p95 3231, app/proofs/:id p95 6119, goats/search p95 1034
+- feed-direction packing/distribution complete p95 2.6-2.9s, distribution/captures, preview, feed-packing/worklist (mostly storm-inflated: re-measure after wave 0)
+- sales/overview, feed-config/*, verification/oversight-analytics, leadership-tasks, admin/locations, shifting/destinations
+Admin-web: herd-signals cache/dedupe + module-aware timeout copy (paused, resume in wave 2)
+Wave R (final report): benchmark harness that replays every stg endpoint (same paths/params as baseline/stg-api-requests-24h-before.tsv) against a local backend on the OCI clone, at origin/main vs PR head, cold+warm+burst(20 concurrent) -> per-path p50/p95/max + DB query count; plus stg after-deploy 24h re-capture with the same script as the baseline. Report = baseline/ vs after/ as a published artifact.
+Wave D (DB-wide, from audit/db-wide.md) todo:
+- Hot seq scans: obligation_instances (14B rows read / 86k rows), goats (10.3B), weighing_observations (2.3B + 3 unindexed FKs), feed_direction_issue_rows (2.06B, FK feed_direction_issue_id unindexed), obligation_batches, goat_shed_partitions, vaccination_drive_assignment_members, vaccination_completions -> find the queries, add the right indexes (migration, CONCURRENTLY where supported)
+- Per-request lookups of tiny config tables (protocol_definitions 40.6M reads, protocol_versions, workforce_members) -> in-process cache with event eviction
+- Retention: app_events (in rollup builder), outbox_messages delivered rows (962MB), notification_requests; vacuum tuning per table (autovacuum_vacuum_scale_factor) for queue tables
+- Drop duplicate/unused indexes (write amplification): herd_signal_activity_windows_tag_idx 58MB, notification_delivery_attempts_request_idx, audit_log 2 unused (99MB), feed_alerts_idx 34MB — after confirming unused on stg AND prod-like usage
+- Instance flags (terraform, no tier change): random_page_cost 1.1, enable pg_stat_statements / Query Insights (maintainer approval: DB flag change restarts instance)
+Wave 2 detail (audit/part-workboard-obligations-tasks.md): work-board vaccination "any work today" OR-across-3-tables check (228ms -> 5ms rewrite + partial index on obligation_instances), board page 20-45 statements -> batch module counts, subtasks/flags single-row lookup, action-center 14-day lower bound, pen-routines occupancy single pass. counts/alerts (audit/part-counts-alerts-health.md): alerts/rows low-stock 83k scan -> rollup/cache, batch 7 reads; breakdown goats read once + 60s facet cache.
+Wave 2 vaccination (audit/part-vaccination.md): P0 read caches keyed on nanosecond request time never hit (board/sheds/execution/operations) -> key on business date + 30s bucket; obligation_instances 347k dead rows/135MB -> autovacuum tuning + find 700k-changes/3d writer; command board 6-slot shared limiter starves ~10 first-paint queries; plan cost 35-93ms/stmt (force custom plans) ; vaccination/sheds MATERIALIZED CTE (580ms misestimate); calendar events/{id}/targets 7s, events/{id} 2.8s (±2y window run twice), history 1.3s, week 750ms; action-center 508, workflows/{id} 696 spill. BLOCKED on maintainer: exclude canceled obligations from command target totals?
+Wave 2 notifications/admin (audit/notifications-auth-admin.md): P0 stored unread counter (trigger on notification_requests + mark-read decrement; interim partial index notification_requests_member_unread_idx) + auto-mark-read decided verification items; P0 JIT off (pool config or ALTER DATABASE; check SHOW jit on stg) -> -1s action-center/workflows; workflows/{row_id} filter first; BUG /identifiers/{type}/{value}/resolve missing LEFT JOIN goat_shed_partitions gsp (fails every call); action-center single query + due window; oversight-analytics batch 8 stmts + 60s cache + covering index; goats/search id lookup via unique index; app/bootstrap batch 6 stmts; proof_artifacts_scope_task_key_idx; pc-care worklist; workbook export count; sale allocations bulk insert.
