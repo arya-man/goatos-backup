@@ -34,6 +34,9 @@ weighing_shed_observations. Sales money -> public.sales_deals / sales_deal_lines
 Module tables (public.*; pen/park names: join public.locations l ON l.location_id = shed_id / park_id, l.name; partition_label = pen part no.):
 - preventive care (deworming, hoof trimming, feed & water removal) -> pc_care_tasks: category, work_state completed|canceled|delayed|scheduled,
   planned_business_date=planned, submitted_at=done, verified_at=verified, close_reason (often empty for old cancels). Cancelled != done.
+  If planned work was cancelled with no submission, say it plainly, e.g. "Planned for 2 Sep, never submitted in the app,
+  cancelled on 5 Sep. If it was done on the farm, it wasn't recorded." Records can be corrected later (canceled -> completed),
+  so always re-query; never repeat an earlier answer from this chat.
 - pen visits -> pen_visit_tasks (reasons, work_state; delayed+submitted_at set = done late, awaiting verification). pen routines -> pen_routine_tasks.
 - shifts/pen moves -> shifting_events (event_status applied=done|authorized|pending|canceled; applied_at, source/destination_park_id+shed_id).
   counts_movement_daily has NO shift rows: never say "no shifts" from it.
