@@ -21,6 +21,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
@@ -382,22 +383,28 @@ class SessionViewModelNonBlockingLoginTest {
         ).also { it.ioDispatcher = StandardTestDispatcher(testScheduler) }
     }
 
+    private fun activeSessionTokenForFlavor(): String =
+        BuildConfig.DEV_BEARER_TOKEN.takeIf {
+            authModeForFlavor(BuildConfig.FLAVOR) == AuthMode.DEV_BEARER && it.isNotBlank()
+        } ?: FIREBASE_SESSION_MARKER
+
     @Test
     fun `switching account with unsynced work asks first and does not wipe until confirmed`() = runTest {
-        val store = TimedSessionStore { testScheduler.currentTime }.apply { tokenFlow.value = FIREBASE_SESSION_MARKER }
+        val store = TimedSessionStore { testScheduler.currentTime }.apply { tokenFlow.value = activeSessionTokenForFlavor() }
         val auth = OkFirebase()
         val vm = buildSwitchVm(store, auth, pending = 3)
 
         vm.requestSignInWithAnotherAccount()
         advanceUntilIdle()
         assertEquals("confirm shows the unsynced count", 3, vm.uiState.value.switchAccountPendingCount)
-        assertEquals("nothing wiped yet", FIREBASE_SESSION_MARKER, store.tokenFlow.value)
+        assertNotNull("session still present; dev startup may replace the Firebase marker with the baked bearer", store.tokenFlow.value)
         assertFalse(auth.signedOut)
 
         vm.dismissSignInWithAnotherAccount()
         advanceUntilIdle()
         assertNull(vm.uiState.value.switchAccountPendingCount)
-        assertEquals("cancel keeps the session", FIREBASE_SESSION_MARKER, store.tokenFlow.value)
+        assertNotNull("cancel keeps the session", store.tokenFlow.value)
+        assertFalse(auth.signedOut)
 
         vm.requestSignInWithAnotherAccount()
         vm.confirmSignInWithAnotherAccount()
@@ -408,7 +415,7 @@ class SessionViewModelNonBlockingLoginTest {
 
     @Test
     fun `switching account with nothing unsynced signs out straight away`() = runTest {
-        val store = TimedSessionStore { testScheduler.currentTime }.apply { tokenFlow.value = FIREBASE_SESSION_MARKER }
+        val store = TimedSessionStore { testScheduler.currentTime }.apply { tokenFlow.value = activeSessionTokenForFlavor() }
         val auth = OkFirebase()
         val vm = buildSwitchVm(store, auth, pending = 0)
 
@@ -422,7 +429,7 @@ class SessionViewModelNonBlockingLoginTest {
 
     @Test
     fun `cold start - snapshot still 0 but the outbox holds 3 - the confirm is still shown`() = runTest {
-        val store = TimedSessionStore { testScheduler.currentTime }.apply { tokenFlow.value = FIREBASE_SESSION_MARKER }
+        val store = TimedSessionStore { testScheduler.currentTime }.apply { tokenFlow.value = activeSessionTokenForFlavor() }
         val auth = OkFirebase()
         val vm = buildSwitchVm(store, auth, pending = 0, storedPending = 3)
 
@@ -430,7 +437,7 @@ class SessionViewModelNonBlockingLoginTest {
         advanceUntilIdle()
 
         assertEquals("count comes from the store, not the stale snapshot", 3, vm.uiState.value.switchAccountPendingCount)
-        assertEquals("nothing wiped", FIREBASE_SESSION_MARKER, store.tokenFlow.value)
+        assertNotNull("session still present; dev startup may replace the Firebase marker with the baked bearer", store.tokenFlow.value)
         assertFalse(auth.signedOut)
     }
 
