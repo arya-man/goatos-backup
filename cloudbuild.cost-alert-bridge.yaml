@@ -1,0 +1,53 @@
+# Independent deploy for goatos-stg-cost-alert-bridge (Slack #goatos-stg-cost-alerts).
+# NOT part of the Goat OS STG release: it builds only the bridge binary, runs its
+# tests, and rolls the one Cloud Run service. Env vars, secrets, IAM and the budget
+# stay in Terraform (infra/envs/stg/cost_alerts.tf, cloud_run_services.tf); this
+# only swaps the image, which Terraform ignores for this service.
+#
+# Run: gcloud builds submit --project=goatos-stg --config=cloudbuild.cost-alert-bridge.yaml .
+# Runbook: docs/runbooks/cost-alert-bridge-deploy.md
+options:
+  logging: CLOUD_LOGGING_ONLY
+  substitutionOption: ALLOW_LOOSE
+
+serviceAccount: projects/goatos-stg/serviceAccounts/goatos-github-deploy-stg@goatos-stg.iam.gserviceaccount.com
+
+substitutions:
+  _REGION: asia-south1
+  _SERVICE: goatos-stg-cost-alert-bridge
+  _TAG: ""
+
+steps:
+  - id: test
+    name: golang:1.25.13
+    dir: backend
+    entrypoint: go
+    args: ["test", "-race", "./cmd/cost-alert-bridge"]
+
+  - id: build-push
+    name: gcr.io/cloud-builders/docker
+    entrypoint: bash
+    env:
+      - DOCKER_BUILDKIT=1
+    args:
+      - -ceu
+      - |
+        tag="$${_TAG:-$$(printf '%s' "$${COMMIT_SHA:-manual-$$(date +%Y%m%d%H%M%S)}" | cut -c1-12)}"
+        image="${_REGION}-docker.pkg.dev/$${PROJECT_ID}/goatos/cost-alert-bridge:$${tag}"
+        docker build --platform linux/amd64 -f deploy/cost-alert-bridge/Dockerfile -t "$${image}" .
+        docker push "$${image}"
+        printf '%s' "$${image}" > /workspace/image.txt
+
+  - id: deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        image="$$(cat /workspace/image.txt)"
+        gcloud run services update "${_SERVICE}" \
+          --project="$${PROJECT_ID}" --region="${_REGION}" \
+          --image="$${image}" --command=/app/bin/cost-alert-bridge --quiet
+        url="$$(gcloud run services describe "${_SERVICE}" --project="$${PROJECT_ID}" --region="${_REGION}" --format='value(status.url)')"
+        curl -fsS "$${url}/readyz" >/dev/null
+        echo "deployed $${image} to ${_SERVICE}; /readyz ok"

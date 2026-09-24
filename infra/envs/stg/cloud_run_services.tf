@@ -803,6 +803,13 @@ resource "google_cloud_run_v2_service" "cost_alert_bridge" {
     google_bigquery_dataset.billing_export,
     google_storage_bucket_iam_member.cost_alert_state_writer,
   ]
+
+  # The image is rolled by its own pipeline (cloudbuild.cost-alert-bridge.yaml),
+  # not the Goat OS release. Terraform owns config/secrets/IAM only, so an apply
+  # never reverts the bridge to an older backend image.
+  lifecycle {
+    ignore_changes = [template[0].containers[0].image]
+  }
 }
 
 resource "google_cloud_run_v2_service_iam_member" "cost_alert_bridge_public_invoker" {
