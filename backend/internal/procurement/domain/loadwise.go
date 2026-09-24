@@ -65,6 +65,10 @@ type LoadwiseLoad struct {
 	// An animal with any other species value is in Remaining and in neither of these.
 	RemainingSheep int
 	RemainingGoats int
+	// RemainingMix is Remaining split by (species, management stage, sex) (maintainer decision
+	// 2026-09-24): the Load-wise tab values stock at a live-weight price set per stage and sex.
+	// It sums to Remaining.
+	RemainingMix []LoadHeadMix
 	// Unaccounted is Purchased minus every outcome above. Non-zero means the load and the register
 	// disagree — animals the load declares that nothing accounts for (positive), or more animals
 	// attributed than the load declares (negative). Either way the row shows it in red; it is
@@ -619,4 +623,13 @@ func OverdueLoads(loads []LoadwiseLoad, thresholdDays int) []OverdueLoad {
 		})
 	}
 	return out
+}
+
+// LoadHeadMix is how many of a load's remaining animals share one (species, stage, sex). Stage and
+// sex are the register's own values; either may be blank.
+type LoadHeadMix struct {
+	Species         string `json:"species"`
+	ManagementStage string `json:"management_stage"`
+	Sex             string `json:"sex"`
+	Animals         int    `json:"animals"`
 }

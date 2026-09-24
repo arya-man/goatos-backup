@@ -99,6 +99,8 @@ type loadwiseLoadPayload struct {
 	// rate. They add up to at most `remaining`.
 	RemainingSheep int `json:"remaining_sheep"`
 	RemainingGoats int `json:"remaining_goats"`
+	// The remaining animals per (species, stage, sex), for valuing stock at a stage x sex price.
+	RemainingMix []domain.LoadHeadMix `json:"remaining_mix"`
 
 	SoldValue      float64  `json:"sold_value"`
 	SoldPriced     int      `json:"sold_priced"`
@@ -222,6 +224,7 @@ func (h *LoadwiseHandler) LoadwiseSales(w http.ResponseWriter, r *http.Request) 
 
 			RemainingSheep: l.RemainingSheep,
 			RemainingGoats: l.RemainingGoats,
+			RemainingMix:   l.RemainingMix,
 
 			SoldValue:      l.SoldValue,
 			SoldPriced:     l.SoldPriced,
@@ -276,6 +279,8 @@ type loadwiseWeightLoadPayload struct {
 	Remaining      int `json:"remaining"`
 	RemainingSheep int `json:"remaining_sheep"`
 	RemainingGoats int `json:"remaining_goats"`
+	// The remaining animals per (species, stage, sex), for valuing stock at a stage x sex price.
+	RemainingMix []domain.LoadHeadMix `json:"remaining_mix"`
 
 	AvgPurchaseWeightKg *float64 `json:"avg_purchase_weight_kg,omitempty"`
 }
@@ -306,6 +311,7 @@ func (h *LoadwiseHandler) LoadwiseWeights(w http.ResponseWriter, r *http.Request
 			Remaining:           l.Remaining,
 			RemainingSheep:      l.RemainingSheep,
 			RemainingGoats:      l.RemainingGoats,
+			RemainingMix:        l.RemainingMix,
 			AvgPurchaseWeightKg: l.AvgPurchaseWeightKg,
 		})
 	}

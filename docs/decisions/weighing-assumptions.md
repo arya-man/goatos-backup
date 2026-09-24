@@ -73,6 +73,39 @@ the 2026-09-07 sale-price decision (migration `000363`); keeps its effective-dat
   read the count was taken against (`features/weighing/assumption-copy.ts`), so a label can never
   name a line the number was not counted at.
 
+## Sale price per stage and sex (maintainer decision 2026-09-24)
+
+"We need per stage and gender of animal configuration." The live-weight sale price was one figure
+per species. It can now also be set per **species × management stage × sex**. Three answers the
+maintainer gave, each load-bearing:
+
+1. **Keyed species × stage × sex.** Goat and sheep stay apart, as the 2026-09-07 decision asked.
+   The existing per-species row (stage and sex both empty) is kept and is the **species default**.
+2. **A combination with no price uses the species default.** Nothing that was valued the day
+   before this shipped goes blank; the drawer shows the default as each empty box's placeholder.
+3. **Both readers value each animal at its own price**, head-weighted: the FCR tab (weight gained,
+   per pen: live residents, or the weighed cohort for an emptied pen) and the Load-wise tab (stock
+   on hand, per load: its remaining animals).
+
+Shape (migration `000398`): `management_stage` + `sex` columns on
+`growth_sale_price_assumptions`, unique on `(tenant, species, stage, sex, effective_from)`. Still
+**append-only and effective-dated**: clearing an override is itself a row with a NULL price, so a
+past day keeps the price that was in force. A species default can never be NULL (table CHECK and
+service validation). An override must name BOTH a stage and a sex, and the stage must be an ACTIVE
+`animal_stage_lookup.stage_code` for the tenant (stored in the vocabulary's own spelling so it
+matches `goats.management_stage`). The drawer's stage rows come from that vocabulary on the
+assumptions response (`stages`), never from a list in the page.
+
+Resolution is one rule in two places that must agree: backend
+`growthdirector/domain.SalePrices.PriceForAnimal` (FCR) and admin-web `lib/sale-price.ts`
+`salePriceForAnimal` (Load-wise, which already valued stock client-side from backend counts). The
+two test files pin the same cases. A pen or load holding an animal whose species has no price at
+all is **not valued** rather than valued on its priced part only. `remaining_mix` on the load-wise
+reads carries the `(species, stage, sex)` counts; it sums to `remaining`.
+
+Every override save is fenced on the figure the drawer loaded, exactly like a default, and writes
+one `growth.sale_price.set` audit row naming species, stage and sex.
+
 ## Pinned by
 
 `TestPutAssumptionsRejectsOutOfBandFiguresBeforeTheRepository`,
@@ -83,3 +116,7 @@ turns the ticked-person row red), `TestSaleThresholdsKgTakeTheCallersSaleLine`,
 `features/weighing/weights-assumptions.contract.test.mjs`.
 
 Schema: `000364_growth_assumptions.sql`. Permission: `permissions.WeighingAssumptionsWrite`.
+- `TestPenPriceValuesEachAnimalAtItsStageAndSex` (domain) and `lib/sale-price.test.mjs` (web): the
+  same resolution cases; both mutation-tested by disabling the override lookup.
+- `TestFCRValuesEachPenAtItsAnimalsStageAndSexPrice` and
+  `TestPutAssumptionsSetsFencesAndClearsAStageSexOverride` (Postgres).

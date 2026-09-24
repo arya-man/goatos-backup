@@ -10,7 +10,8 @@ import {
   replaceLocalOverlayUrl,
 } from "@/components/local-overlay-link";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
-import type { GrowthAssumptionsResponse, GrowthAssumptionsUpdate, GrowthAssumptionValue } from "@/lib/api/server";
+import type { GrowthAssumptionsResponse, GrowthAssumptionsUpdate, GrowthAssumptionValue, GrowthSalePrice } from "@/lib/api/server";
+import { fmtDate } from "@/lib/format";
 import { saveWeighingAssumptionsAction } from "./weights-assumptions-action";
 
 const ASSUMPTIONS_PARAM = "wt_assumptions";
@@ -40,6 +41,19 @@ const SECTIONS = [
   { title: "drawer.assumptions.window.title", keys: ["default_period_days"] },
 ] as const;
 const SPECIES = ["goat", "sheep"] as const;
+const SEXES = ["male", "female"] as const;
+
+/**
+ * The draft key of one price row. A species DEFAULT is keyed by the species alone; a stage x sex
+ * OVERRIDE (maintainer decision 2026-09-24) by all three, so the two can never collide.
+ */
+function priceKey(species: string, stage = "", sex = ""): string {
+  return stage === "" ? species : `${species}|${stage}|${sex}`;
+}
+
+function priceRowKey(price: GrowthSalePrice): string {
+  return priceKey(price.species, price.management_stage, price.sex);
+}
 
 type Draft = { prices: Record<string, string>; values: Record<string, string> };
 
@@ -52,7 +66,7 @@ function textFor(value: GrowthAssumptionValue): string {
 
 function draftFrom(assumptions: GrowthAssumptionsResponse): Draft {
   const prices: Record<string, string> = {};
-  for (const price of assumptions.sale_prices) prices[price.species] = String(price.price_per_kg_inr);
+  for (const price of assumptions.sale_prices) prices[priceRowKey(price)] = String(price.price_per_kg_inr);
   const values: Record<string, string> = {};
   for (const value of assumptions.values) values[value.key] = textFor(value);
   return { prices, values };
@@ -117,14 +131,32 @@ export function WeightsAssumptionsControl({
     setNotice(null);
     // Only fields that PARSE travel; a blank stays untouched on the backend (a row absent from the
     // request is left as it is), never coerced to 0 -- the validate-or-reject rule.
-    const salePrices = SPECIES.flatMap((species) => {
+    type PriceUpdate = NonNullable<GrowthAssumptionsUpdate["sale_prices"]>[number];
+    const loadedFor = (key: string) =>
+      current.sale_prices.find((row) => priceRowKey(row) === key)?.price_per_kg_inr ?? null;
+    // The species DEFAULTS: a blank stays untouched (a default can never be cleared).
+    const defaults = SPECIES.flatMap((species): PriceUpdate[] => {
       const raw = (draft.prices[species] ?? "").trim();
       if (raw === "") return [];
       // The fence: the price this drawer LOADED travels with the new one, so a save on a price
       // someone else moved meanwhile is refused rather than silently overwriting theirs.
-      const loaded = current.sale_prices.find((row) => row.species === species)?.price_per_kg_inr ?? null;
-      return [{ species, price_per_kg_inr: Number(raw), loaded_price_per_kg_inr: loaded }];
+      return [{ species, price_per_kg_inr: Number(raw), loaded_price_per_kg_inr: loadedFor(species) }];
     });
+    // The stage x sex OVERRIDES: only the boxes that CHANGED travel. A box emptied that held a
+    // price sends null -- that combination goes back to the all-stages price from today.
+    const overrides = SPECIES.flatMap((species) =>
+      current.stages.flatMap((stage) =>
+        SEXES.flatMap((sex): PriceUpdate[] => {
+          const key = priceKey(species, stage.code, sex);
+          const raw = (draft.prices[key] ?? "").trim();
+          const loaded = loadedFor(key);
+          const next = raw === "" ? null : Number(raw);
+          if (next === loaded) return [];
+          return [{ species, management_stage: stage.code, sex, price_per_kg_inr: next, loaded_price_per_kg_inr: loaded }];
+        }),
+      ),
+    );
+    const salePrices = [...defaults, ...overrides];
     type ValueUpdate = NonNullable<GrowthAssumptionsUpdate["values"]>[number];
     const values = current.values.flatMap((row): ValueUpdate[] => {
       const raw = (draft.values[row.key] ?? "").trim();
@@ -187,25 +219,79 @@ export function WeightsAssumptionsControl({
           <h3 className="h" style={{ marginTop: 12 }}>{copy(pageContract, "drawer.assumptions.prices.title")}</h3>
           <p className="muted small">{copy(pageContract, "drawer.assumptions.prices.hint")}</p>
           {SPECIES.map((species) => {
-            const price = current.sale_prices.find((row) => row.species === species);
+            const price = current.sale_prices.find((row) => priceRowKey(row) === species);
+            const defaultText = draft.prices[species] ?? "";
+            const overrideCount = current.sale_prices.filter((row) => row.species === species && row.management_stage !== "").length;
             return (
-              <div className="fld" key={species}>
-                <label htmlFor={`wt-assume-${species}`}>
-                  {copy(pageContract, `assumption.${species}.label`)} · {copy(pageContract, "drawer.assumptions.rupees")}/kg
-                </label>
-                <input
-                  id={`wt-assume-${species}`}
-                  type="number"
-                  inputMode="decimal"
-                  step="1"
-                  value={draft.prices[species] ?? ""}
-                  disabled={pending}
-                  onChange={(event) => setDraft((d) => ({ ...d, prices: { ...d.prices, [species]: event.target.value } }))}
-                />
-                {price ? (
-                  <span className="muted small">
-                    {copy(pageContract, "drawer.assumptions.set_by")} {price.set_by} · {price.effective_from}
-                  </span>
+              <div key={species} style={{ marginBottom: 16 }}>
+                <div className="fld">
+                  <label htmlFor={`wt-assume-${species}`}>
+                    {copy(pageContract, `assumption.${species}.label`)} · {copy(pageContract, "drawer.assumptions.prices.default")} ·{" "}
+                    {copy(pageContract, "drawer.assumptions.rupees")}/kg
+                  </label>
+                  <input
+                    id={`wt-assume-${species}`}
+                    type="number"
+                    inputMode="decimal"
+                    step="1"
+                    value={defaultText}
+                    disabled={pending}
+                    onChange={(event) => setDraft((d) => ({ ...d, prices: { ...d.prices, [species]: event.target.value } }))}
+                  />
+                  {price ? (
+                    <span className="muted small">
+                      {copy(pageContract, "drawer.assumptions.set_by")} {price.set_by} · {fmtDate(price.effective_from)}
+                    </span>
+                  ) : null}
+                </div>
+                {current.stages.length > 0 ? (
+                  <details className="wt-assume-stages">
+                    <summary className="small">
+                      {copy(pageContract, "drawer.assumptions.prices.by_stage")}
+                      {overrideCount > 0 ? (
+                        <span className="muted"> · {overrideCount} {copy(pageContract, "drawer.assumptions.prices.overrides")}</span>
+                      ) : null}
+                    </summary>
+                    <p className="muted small" style={{ margin: "6px 0" }}>
+                      {copy(pageContract, "drawer.assumptions.prices.by_stage.hint")}
+                    </p>
+                    <table className="wt-assume-grid">
+                      <thead>
+                        <tr>
+                          <th scope="col">{copy(pageContract, "drawer.assumptions.prices.stage")}</th>
+                          {SEXES.map((sex) => (
+                            <th scope="col" key={sex}>
+                              {copy(pageContract, `drawer.assumptions.prices.${sex}`)}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {current.stages.map((stage) => (
+                          <tr key={stage.code}>
+                            <th scope="row">{stage.name || stage.code}</th>
+                            {SEXES.map((sex) => {
+                              const key = priceKey(species, stage.code, sex);
+                              return (
+                                <td key={sex}>
+                                  <input
+                                    type="number"
+                                    inputMode="decimal"
+                                    step="1"
+                                    aria-label={`${copy(pageContract, `assumption.${species}.label`)} · ${stage.name || stage.code} · ${copy(pageContract, `drawer.assumptions.prices.${sex}`)}`}
+                                    placeholder={defaultText}
+                                    value={draft.prices[key] ?? ""}
+                                    disabled={pending}
+                                    onChange={(event) => setDraft((d) => ({ ...d, prices: { ...d.prices, [key]: event.target.value } }))}
+                                  />
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </details>
                 ) : null}
               </div>
             );

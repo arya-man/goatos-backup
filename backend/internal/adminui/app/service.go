@@ -1405,6 +1405,13 @@ func weighingWeightsCopy() map[string]string {
 		"drawer.assumptions.caption":                    "Figures the Weighing pages are valued and judged against. A change applies the next time a page loads, whatever period the page is showing.",
 		"drawer.assumptions.prices.title":               "Live-weight sale price",
 		"drawer.assumptions.prices.hint":                "₹ per kg live weight, used to value weight gained (FCR tab) and stock on hand (Load-wise tab).",
+		"drawer.assumptions.prices.default":             "All stages",
+		"drawer.assumptions.prices.by_stage":            "By stage and sex",
+		"drawer.assumptions.prices.by_stage.hint":       "Leave a box blank to use the all-stages price above. Each animal is valued at its own stage and sex.",
+		"drawer.assumptions.prices.stage":               "Stage",
+		"drawer.assumptions.prices.male":                "Male",
+		"drawer.assumptions.prices.female":              "Female",
+		"drawer.assumptions.prices.overrides":           "stage prices set",
 		"drawer.assumptions.values.title":               "Sale lines & alerts",
 		"assumption.goat.label":                         "Goat",
 		"assumption.sheep.label":                        "Sheep",
@@ -5822,7 +5829,7 @@ func pageSpecificCopy(id string) map[string]string {
 			// The rates are the maintainer's assumptions, stated on the chart; a sold-out load
 			// has no stock to value and shows nothing here rather than a zero.
 			"section.load_value.title":   "Purchased value against current stock value",
-			"section.load_value.caption": "What each load cost, landed, against what its animals still on farm are worth today: remaining animals × latest average weight × the assumed live-weight rate, followed by the pens the load's weighed animals sit in. Gain is the difference. A load that has sold out has no stock to value, and names no pen.",
+			"section.load_value.caption": "What each load cost, landed, against what its animals still on farm are worth today: remaining animals × latest average weight × each animal's assumed live-weight rate for its stage and sex, followed by the pens the load's weighed animals sit in. Gain is the difference. A load that has sold out has no stock to value, and names no pen.",
 			"section.load_value.aria":    "Purchased value against current stock value by load",
 			"legend.load.purchase_value": "Purchased value (₹)",
 			"legend.load.stock_value":    "Current stock value (₹)",
@@ -5832,10 +5839,13 @@ func pageSpecificCopy(id string) map[string]string {
 			// 430/450 copy is gone. The note is composed from the served prices.
 			"note.load.rates.prefix":  "Assumed live-weight rates:",
 			"note.load.rates.missing": "No assumed live-weight sale price is configured, so stock cannot be valued.",
-			"load.value.sold_out":     "sold out",
-			"load.value.no_cost":      "cost not recorded",
-			"disabled.load_value":     "Your current role can view weights but not purchase and sales money.",
-			"unit.rupees":             "₹",
+			// Since 2026-09-24 a price may be set per stage and sex; the note names the all-stages
+			// defaults and says how many stage prices sit on top of them.
+			"note.load.rates.overrides": "stage and sex prices set",
+			"load.value.sold_out":       "sold out",
+			"load.value.no_cost":        "cost not recorded",
+			"disabled.load_value":       "Your current role can view weights but not purchase and sales money.",
+			"unit.rupees":               "₹",
 
 			// ---------------------------------------------------------------------------
 			// FCR (maintainer request 2026-09-07). Feed conversion ratio: kilograms of feed
@@ -5866,6 +5876,8 @@ func pageSpecificCopy(id string) map[string]string {
 			"fcr.price.by":      "by",
 			"fcr.price.missing": "No assumed sale price is configured for this species, so its gain is not valued.",
 			"fcr.price.shared":  "The Comparison tab values stock at the same prices.",
+			// Maintainer decision 2026-09-24: prices may also be set per stage and sex.
+			"fcr.price.overrides": "stage and sex prices set; each animal is valued at its own",
 
 			"section.fcr.pens.title":     "FCR by pen",
 			"section.fcr.pens.caption":   "Kilograms of feed directed to the pen between its first and latest weighing in the period, per kilogram the pen gained. Grouped by park, pens A to Z; the dashed line is break-even at today's prices.",
@@ -8968,6 +8980,13 @@ func pageSpecificCopy(id string) map[string]string {
 			m["drawer.assumptions.caption"] = "Figures the Weighing pages are valued and judged against. A change applies the next time a page loads, whatever period the page is showing."
 			m["drawer.assumptions.prices.title"] = "Live-weight sale price"
 			m["drawer.assumptions.prices.hint"] = "₹ per kg live weight, used to value weight gained (FCR tab) and stock on hand (Load-wise tab)."
+			m["drawer.assumptions.prices.default"] = "All stages"
+			m["drawer.assumptions.prices.by_stage"] = "By stage and sex"
+			m["drawer.assumptions.prices.by_stage.hint"] = "Leave a box blank to use the all-stages price above. Each animal is valued at its own stage and sex."
+			m["drawer.assumptions.prices.stage"] = "Stage"
+			m["drawer.assumptions.prices.male"] = "Male"
+			m["drawer.assumptions.prices.female"] = "Female"
+			m["drawer.assumptions.prices.overrides"] = "stage prices set"
 			m["drawer.assumptions.values.title"] = "Sale lines & alerts"
 			m["assumption.goat.label"] = "Goat"
 			m["assumption.sheep.label"] = "Sheep"

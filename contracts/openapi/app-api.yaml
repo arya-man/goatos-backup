@@ -20753,7 +20753,7 @@ components:
       description: One procurement load's reconciliation row on the Sales page.
       required:
         [load_id, vendor_name, status, declared_count, purchased, sold, mortality, other_exits,
-         remaining, remaining_sheep, remaining_goats, unaccounted, sold_value, sold_priced,
+         remaining, remaining_sheep, remaining_goats, remaining_mix, unaccounted, sold_value, sold_priced,
          price_basis, row_version]
       # profit_loss is nullable-by-absence (no recorded cost), so it is deliberately not required.
       properties:
@@ -20857,6 +20857,12 @@ components:
         remaining_goats:
           type: integer
           description: Of `remaining`, the goats. See remaining_sheep.
+        remaining_mix:
+          type: array
+          description: >-
+            `remaining` split by (species, management stage, sex); sums to `remaining`. Lets a client
+            value today's stock at the stage x sex live-weight price (maintainer decision 2026-09-24).
+          items: {$ref: "#/components/schemas/LoadHeadMix"}
         arrived_on:
           type: string
           format: date
@@ -20971,7 +20977,7 @@ components:
       type: object
       additionalProperties: false
       description: One purchased load with no priced field. See listLoadwiseWeights.
-      required: [load_id, vendor_name, purchased, remaining, remaining_sheep, remaining_goats]
+      required: [load_id, vendor_name, purchased, remaining, remaining_sheep, remaining_goats, remaining_mix]
       properties:
         load_id: { type: string, format: uuid }
         load_ref:
@@ -20986,6 +20992,12 @@ components:
         remaining: { type: integer, description: Animals still alive on farm. }
         remaining_sheep: { type: integer }
         remaining_goats: { type: integer }
+        remaining_mix:
+          type: array
+          description: >-
+            `remaining` split by (species, management stage, sex); sums to `remaining`. Lets a client
+            value today's stock at the stage x sex live-weight price (maintainer decision 2026-09-24).
+          items: {$ref: "#/components/schemas/LoadHeadMix"}
         avg_purchase_weight_kg:
           type: number
           format: double
@@ -37018,12 +37030,28 @@ components:
           $ref: "#/components/schemas/GrowthDirectorFeedProblems"
         trust:
           $ref: "#/components/schemas/GrowthDirectorTrust"
+    LoadHeadMix:
+      type: object
+      additionalProperties: false
+      description: How many of a load's remaining animals share one (species, management stage, sex).
+      required: [species, management_stage, sex, animals]
+      properties:
+        species: {type: string}
+        management_stage: {type: string}
+        sex: {type: string}
+        animals: {type: integer}
     GrowthSalePrice:
       type: object
       additionalProperties: false
-      required: [species, price_per_kg_inr, effective_from, set_by]
+      description: >-
+        One assumed live-weight sale price in force. management_stage and sex are both "" on the
+        SPECIES DEFAULT; an override names both (maintainer decision 2026-09-24). An animal is valued
+        at its own (species, stage, sex) override when one is in force, else its species default.
+      required: [species, management_stage, sex, price_per_kg_inr, effective_from, set_by]
       properties:
         species: {type: string, enum: [goat, sheep]}
+        management_stage: {type: string, description: 'A stage_code from the tenant stage vocabulary; "" on the species default.'}
+        sex: {type: string, enum: ["", female, male]}
         price_per_kg_inr: {type: number, format: double}
         effective_from: {type: string, format: date}
         set_by: {type: string}
@@ -37062,7 +37090,7 @@ components:
     GrowthAssumptionsResponse:
       type: object
       additionalProperties: false
-      required: [sale_prices, values]
+      required: [sale_prices, values, stages]
       properties:
         sale_prices:
           type: array
@@ -37070,6 +37098,16 @@ components:
         values:
           type: array
           items: {$ref: "#/components/schemas/GrowthAssumptionValue"}
+        stages:
+          type: array
+          description: The tenant's active management stages, in authored order -- the rows a stage x sex price can be set for.
+          items:
+            type: object
+            additionalProperties: false
+            required: [code, name]
+            properties:
+              code: {type: string}
+              name: {type: string}
     GrowthAssumptionsUpdate:
       type: object
       additionalProperties: false
@@ -37081,10 +37119,18 @@ components:
           items:
             type: object
             additionalProperties: false
-            required: [species, price_per_kg_inr]
+            required: [species]
             properties:
               species: {type: string, enum: [goat, sheep]}
-              price_per_kg_inr: {type: number, format: double}
+              management_stage: {type: string, description: 'Stage code of an override; "" (or absent) for the species default. Named together with sex.'}
+              sex: {type: string, enum: ["", female, male]}
+              price_per_kg_inr:
+                type: number
+                format: double
+                nullable: true
+                description: >-
+                  The price to hold. Null clears a stage x sex override (that combination falls back
+                  to the species default from today); a species default can never be null.
               loaded_price_per_kg_inr:
                 type: number
                 format: double
@@ -37093,7 +37139,7 @@ components:
                   The price the drawer showed when it was opened -- the fence. The price table is
                   append-only and effective-dated, so the loaded figure is its version: a save lands
                   only while that is still the price in force, else 409 row_version_conflict. Null
-                  means the drawer loaded no price for the species, which is stale once one exists.
+                  means the drawer loaded no price of its own for this row, which is stale once one exists.
         values:
           type: array
           items:

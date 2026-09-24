@@ -129,7 +129,7 @@ VALUES ($1::uuid, $2::uuid, 'CBE', 'Maize Crush', 1, '2026-07-01', 1000, 20000, 
 	execGD(t, ctx, pool, `
 INSERT INTO growth_sale_price_assumptions (tenant_id, species, price_per_kg_inr, effective_from, set_by)
 VALUES ($1::uuid, 'goat', 500, '2026-06-01', 'old'), ($1::uuid, 'goat', 425, '2026-07-01', 'maintainer'), ($1::uuid, 'sheep', 430, '2026-07-01', 'maintainer')
-ON CONFLICT (tenant_id, species, effective_from) DO UPDATE SET price_per_kg_inr = EXCLUDED.price_per_kg_inr, set_by = EXCLUDED.set_by`, gdTenant)
+ON CONFLICT (tenant_id, species, management_stage, sex, effective_from) DO UPDATE SET price_per_kg_inr = EXCLUDED.price_per_kg_inr, set_by = EXCLUDED.set_by`, gdTenant)
 }
 
 func TestFCRLumpAndScannedPensThroughTheBridge(t *testing.T) {

@@ -29,7 +29,6 @@
   "internal/feeddirection/adapters/postgres/repository.go|unverified-dynamic-bind": 1,
   "internal/feeddirection/adapters/postgres/wastage_completions.go|unverified-dynamic-bind": 4,
   "internal/feedsop/adapters/postgres/rules_source.go|unverified-dynamic-bind": 1,
-  "internal/growthdirector/adapters/postgres/fcr.go|unverified-dynamic-bind": 2,
   "internal/growthdirector/adapters/postgres/feed.go|unverified-dynamic-bind": 1,
   "internal/growthdirector/adapters/postgres/feed_weight_band.go|unverified-dynamic-bind": 2,
   "internal/growthdirector/adapters/postgres/growth_cohorts.go|unverified-dynamic-bind": 3,

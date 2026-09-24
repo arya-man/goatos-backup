@@ -3431,6 +3431,15 @@ select:disabled { opacity: .45; }
 }
 .weights-page .wt-export-spin{animation:wt-export-spin 900ms linear infinite}
 @keyframes wt-export-spin{to{transform:rotate(360deg)}}
+/* Assumptions drawer: the stage x sex sale-price grid (2026-09-24). Three columns that fit a
+   390px drawer; each input shrinks rather than pushing the drawer sideways. */
+.wt-assume-stages{margin-top:8px}
+.wt-assume-stages>summary{cursor:pointer;color:var(--brand-d);font-weight:600;padding:4px 0}
+.wt-assume-grid{width:100%;border-collapse:collapse;table-layout:fixed}
+.wt-assume-grid th,.wt-assume-grid td{padding:4px 6px 4px 0;text-align:left;vertical-align:middle}
+.wt-assume-grid thead th{font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+.wt-assume-grid tbody th{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wt-assume-grid input{width:100%;min-width:0;box-sizing:border-box}
 .weights-page .wt-export-shed-list{max-height:220px;overflow-y:auto;display:grid;gap:4px;margin-top:6px}
 .weights-page .wt-export-shed-row{display:flex;gap:8px;align-items:center;font-size:12.5px;font-weight:500;text-transform:none;letter-spacing:0;color:var(--ink);margin:0}
 .weights-page .wt-export-shed-row input{width:auto;margin:0;accent-color:var(--brand)}

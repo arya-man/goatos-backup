@@ -59,48 +59,84 @@ const (
 	FCRPenNoGain      = "no_gain"      // feed exists but the pen did not gain: a ratio would be infinite or negative
 )
 
-// SalePrice is one species' assumed live-weight sale price, the newest row effective on or before
-// the reported period's last day.
+// SalePrice is one assumed live-weight sale price in force on the reported day. ManagementStage
+// and Sex are both empty on a SPECIES DEFAULT; an OVERRIDE names both (maintainer decision
+// 2026-09-24: "we need per stage and gender of animal"). An animal is valued at its own
+// (species, stage, sex) override when one is in force, and at its species default otherwise.
 type SalePrice struct {
-	Species       string  `json:"species"`
-	PricePerKgINR float64 `json:"price_per_kg_inr"`
-	EffectiveFrom string  `json:"effective_from"`
-	SetBy         string  `json:"set_by"`
+	Species         string  `json:"species"`
+	ManagementStage string  `json:"management_stage"`
+	Sex             string  `json:"sex"`
+	PricePerKgINR   float64 `json:"price_per_kg_inr"`
+	EffectiveFrom   string  `json:"effective_from"`
+	SetBy           string  `json:"set_by"`
 }
 
-// SalePrices is the whole vocabulary the tab (and the Comparison tab) prices against.
+// IsDefault reports whether the row is a species default rather than a stage x sex override.
+func (p SalePrice) IsDefault() bool { return p.ManagementStage == "" && p.Sex == "" }
+
+// SalePrices is the whole vocabulary the tab (and the Load-wise tab) prices against: one default
+// per species plus every override in force.
 type SalePrices struct {
 	Prices []SalePrice `json:"prices"`
 }
 
-// PenPrice is the sale price a pen's gain is valued at: the HEAD-WEIGHTED price of its live
-// residents. A pen holding 14 sheep and 3 goats is priced at (14 × sheep + 3 × goat) / 17, so a
-// mixed pen is valued rather than left blank, and a single-species pen collapses to that species'
-// price. It is absent only when a resident species has no configured price (or the pen has no
-// live residents), because guessing the missing half would value gain nobody priced.
-func (p SalePrices) PenPrice(goats, sheep int) (float64, bool) {
-	total := goats + sheep
-	if total <= 0 {
-		return 0, false
-	}
+// HeadMix is how many animals of one (species, stage, sex) a pen or a load holds -- the grain the
+// price is resolved at. Stage and sex are whatever the register holds, blank included.
+type HeadMix struct {
+	Species         string `json:"species"`
+	ManagementStage string `json:"management_stage"`
+	Sex             string `json:"sex"`
+	Animals         int    `json:"animals"`
+}
+
+// PenPrice is the sale price a pen's gain is valued at: the HEAD-WEIGHTED price of the animals in
+// it, each at its own (species, stage, sex) price. A pen holding 10 K3 males and 5 F2 females is
+// priced at (10 x K3-male + 5 x F2-female) / 15, so a mixed pen is valued rather than left blank.
+// It is absent only when a species in the mix has no price at all (not even a default), or the
+// mix is empty, because guessing the missing part would value gain nobody priced.
+func (p SalePrices) PenPrice(mix []HeadMix) (float64, bool) {
+	total := 0
 	var sum float64
-	for species, n := range map[string]int{"goat": goats, "sheep": sheep} {
-		if n == 0 {
+	for _, m := range mix {
+		if m.Animals <= 0 {
 			continue
 		}
-		price, ok := p.PriceFor(species)
+		price, ok := p.PriceForAnimal(m.Species, m.ManagementStage, m.Sex)
 		if !ok {
 			return 0, false
 		}
-		sum += float64(n) * price
+		total += m.Animals
+		sum += float64(m.Animals) * price
+	}
+	if total == 0 {
+		return 0, false
 	}
 	return sum / float64(total), true
 }
 
-// PriceFor returns the price for a species, or false when none is configured.
+// PriceForAnimal resolves one animal's price: its (species, stage, sex) override when one is in
+// force, else its species default. Matching is case-insensitive on every part, because the
+// register's species and sex are lower-case while a stage code is whatever the tenant authored.
+func (p SalePrices) PriceForAnimal(species, stage, sex string) (float64, bool) {
+	species = strings.ToLower(strings.TrimSpace(species))
+	stage = strings.TrimSpace(stage)
+	sex = strings.ToLower(strings.TrimSpace(sex))
+	if stage != "" && sex != "" {
+		for _, row := range p.Prices {
+			if !row.IsDefault() && strings.EqualFold(row.Species, species) &&
+				strings.EqualFold(row.ManagementStage, stage) && strings.EqualFold(row.Sex, sex) {
+				return row.PricePerKgINR, true
+			}
+		}
+	}
+	return p.PriceFor(species)
+}
+
+// PriceFor returns a species' DEFAULT price, or false when none is configured.
 func (p SalePrices) PriceFor(species string) (float64, bool) {
 	for _, row := range p.Prices {
-		if row.Species == species {
+		if row.IsDefault() && strings.EqualFold(row.Species, species) {
 			return row.PricePerKgINR, true
 		}
 	}
@@ -148,8 +184,7 @@ type FCRPenRow struct {
 	Sex             string
 	SpeciesCount    int
 	Species         string
-	GoatResidents   int // live residents per species, for the head-weighted sale price
-	SheepResidents  int
+	ResidentMix     []HeadMix // live residents per (species, stage, sex), for the head-weighted sale price
 	BoughtResidents int
 	// Weighed* describe the animals actually SCANNED in this pen during the window, resolved
 	// through the register regardless of where they are now or whether they are still alive. They
@@ -163,8 +198,7 @@ type FCRPenRow struct {
 	WeighedSex         string
 	WeighedSpeciesN    int
 	WeighedSpecies     string
-	WeighedGoats       int
-	WeighedSheep       int
+	WeighedMix         []HeadMix
 	WeighedBought      int
 	IndividualScanned  bool
 	WholeShedWeighed   bool
@@ -473,7 +507,7 @@ func cohortSource(row FCRPenRow) FCRPenRow {
 	row.Breeds, row.Breed = row.WeighedBreeds, row.WeighedBreed
 	row.Sexes, row.Sex = row.WeighedSexes, row.WeighedSex
 	row.SpeciesCount, row.Species = row.WeighedSpeciesN, row.WeighedSpecies
-	row.GoatResidents, row.SheepResidents = row.WeighedGoats, row.WeighedSheep
+	row.ResidentMix = row.WeighedMix
 	row.BoughtResidents = row.WeighedBought
 	return row
 }
@@ -569,7 +603,7 @@ func applySegments(pen *FCRPen, row FCRPenRow, segs []FCRSegmentRow, prices Sale
 	if cost != nil {
 		pen.FeedCostPerKgGainINR = ptr(*cost / gainKg)
 	}
-	if price, ok := prices.PenPrice(row.GoatResidents, row.SheepResidents); ok {
+	if price, ok := prices.PenPrice(row.ResidentMix); ok {
 		pen.GainValueINR = ptr(gainKg * price)
 		if cost != nil {
 			pen.MarginINR = ptr(*pen.GainValueINR - *cost)

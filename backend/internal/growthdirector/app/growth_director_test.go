@@ -306,8 +306,12 @@ func TestPutAssumptionsRejectsOutOfBandFiguresBeforeTheRepository(t *testing.T) 
 	svc := NewService(repo)
 	actor := domain.Actor{TenantID: "t", UserID: "u", Roles: []string{"ceo_internal"}}
 	bad := []domain.AssumptionsUpdate{
-		{SalePrices: []domain.SalePriceUpdate{{Species: "goat", PricePerKgINR: 5}}},
-		{SalePrices: []domain.SalePriceUpdate{{Species: "cow", PricePerKgINR: 425}}},
+		{SalePrices: []domain.SalePriceUpdate{{Species: "goat", PricePerKgINR: fp(5)}}},
+		{SalePrices: []domain.SalePriceUpdate{{Species: "cow", PricePerKgINR: fp(425)}}},
+		{SalePrices: []domain.SalePriceUpdate{{Species: "goat"}}},                                                // a species default cannot be blank
+		{SalePrices: []domain.SalePriceUpdate{{Species: "goat", ManagementStage: "K3", PricePerKgINR: fp(450)}}}, // stage without sex
+		{SalePrices: []domain.SalePriceUpdate{{Species: "goat", ManagementStage: "K3", Sex: "castrated", PricePerKgINR: fp(450)}}},
+		{SalePrices: []domain.SalePriceUpdate{{Species: "goat", ManagementStage: "K3", Sex: "male", PricePerKgINR: fp(450)}, {Species: "goat", ManagementStage: "k3", Sex: "Male", PricePerKgINR: fp(460)}}},
 		{Values: []domain.ValueUpdate{{Key: "sale_ready_threshold_kg", Value: 3, RowVersion: 1}}},
 		{Values: []domain.ValueUpdate{{Key: "load_age_alert_days", Value: 90.5, RowVersion: 1}}},
 		{Values: []domain.ValueUpdate{{Key: "load_age_alert_days", Value: 90, RowVersion: 0}}},
@@ -323,7 +327,7 @@ func TestPutAssumptionsRejectsOutOfBandFiguresBeforeTheRepository(t *testing.T) 
 		t.Fatalf("repository must not see a rejected update: %+v", repo.putAssumptions)
 	}
 	good := domain.AssumptionsUpdate{
-		SalePrices: []domain.SalePriceUpdate{{Species: "Goat", PricePerKgINR: 450}},
+		SalePrices: []domain.SalePriceUpdate{{Species: "Goat", PricePerKgINR: fp(450)}, {Species: "goat", ManagementStage: "K3", Sex: "male", PricePerKgINR: fp(500)}, {Species: "goat", ManagementStage: "F2", Sex: "female"}},
 		Values:     []domain.ValueUpdate{{Key: "sale_ready_threshold_kg", Value: 34.5, RowVersion: 1}, {Key: "load_age_alert_days", Value: 120, RowVersion: 2}},
 	}
 	if _, err := svc.PutAssumptions(context.Background(), actor, good); err != nil {
@@ -376,3 +380,5 @@ func (f *fakeRepo) GrowthSettings(ctx context.Context, tenantID string) (domain.
 	}
 	return domain.SettingsFrom(nil), nil
 }
+
+func fp(v float64) *float64 { return &v }

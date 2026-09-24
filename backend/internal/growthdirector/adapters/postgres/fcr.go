@@ -2,11 +2,14 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/growthdirector/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 
 	weighingpg "github.com/vgoats/goatos/backend/internal/weighing/adapters/postgres"
 )
@@ -207,8 +210,6 @@ cohort AS (
          count(DISTINCT g.breed)::int AS breeds, min(g.breed) AS breed,
          count(DISTINCT g.sex)::int AS sexes, min(g.sex) AS sex,
          count(DISTINCT g.species)::int AS species_n, min(g.species) AS species,
-         count(g.goat_id) FILTER (WHERE g.species = 'goat')::int AS goat_residents,
-         count(g.goat_id) FILTER (WHERE g.species = 'sheep')::int AS sheep_residents,
          count(g.goat_id) FILTER (WHERE EXISTS (
            SELECT 1 FROM procurement_load_goats plg WHERE plg.tenant_id = $1::uuid AND plg.goat_id = g.goat_id))::int AS bought
   FROM pens p
@@ -226,14 +227,43 @@ weighed_cohort AS (
          count(DISTINCT g.breed)::int AS breeds, min(g.breed) AS breed,
          count(DISTINCT g.sex)::int AS sexes, min(g.sex) AS sex,
          count(DISTINCT g.species)::int AS species_n, min(g.species) AS species,
-         count(g.goat_id) FILTER (WHERE g.species = 'goat')::int AS goats,
-         count(g.goat_id) FILTER (WHERE g.species = 'sheep')::int AS sheep,
          count(g.goat_id) FILTER (WHERE EXISTS (
            SELECT 1 FROM procurement_load_goats plg WHERE plg.tenant_id = $1::uuid AND plg.goat_id = g.goat_id))::int AS bought
   FROM (SELECT DISTINCT pen_shed_id, pen_key, animal_key FROM scan_rounds) sr
   JOIN goat_identifiers gi ON gi.tenant_id = $1::uuid AND gi.normalized_value = upper(sr.animal_key)
   JOIN goats g ON g.tenant_id = $1::uuid AND g.goat_id = gi.goat_id
   GROUP BY sr.pen_shed_id, sr.pen_key
+),
+-- THE PRICE MIX (maintainer decision 2026-09-24): the same two cohorts, counted per
+-- (species, management stage, sex), so the domain values each animal at its own sale price. Each is
+-- grouped to that grain FIRST and only then folded to one jsonb array per pen, so the pen row it
+-- joins is still 1:1 -- the inner GROUP BY is the pre-aggregation, the outer one the fold.
+cohort_mix AS (
+  SELECT pen_shed_id, pen_key,
+         jsonb_agg(jsonb_build_object('species', species, 'management_stage', stage, 'sex', sex, 'animals', n)) AS mix
+  FROM (
+    SELECT p.pen_shed_id, p.pen_key, lower(g.species) AS species, COALESCE(g.management_stage, '') AS stage,
+           lower(g.sex) AS sex, count(*)::int AS n
+    FROM pens p
+    JOIN goats g ON g.tenant_id = $1::uuid AND g.lifecycle_status = 'alive' AND g.shed_id = p.pen_shed_id
+    LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = $1::uuid AND gsp.goat_id = g.goat_id
+    WHERE ` + fcrScrubGoatLabel + ` = p.pen_key
+    GROUP BY p.pen_shed_id, p.pen_key, lower(g.species), COALESCE(g.management_stage, ''), lower(g.sex)
+  ) x
+  GROUP BY pen_shed_id, pen_key
+),
+weighed_mix AS (
+  SELECT pen_shed_id, pen_key,
+         jsonb_agg(jsonb_build_object('species', species, 'management_stage', stage, 'sex', sex, 'animals', n)) AS mix
+  FROM (
+    SELECT sr.pen_shed_id, sr.pen_key, lower(g.species) AS species, COALESCE(g.management_stage, '') AS stage,
+           lower(g.sex) AS sex, count(*)::int AS n
+    FROM (SELECT DISTINCT pen_shed_id, pen_key, animal_key FROM scan_rounds) sr
+    JOIN goat_identifiers gi ON gi.tenant_id = $1::uuid AND gi.normalized_value = upper(sr.animal_key)
+    JOIN goats g ON g.tenant_id = $1::uuid AND g.goat_id = gi.goat_id
+    GROUP BY sr.pen_shed_id, sr.pen_key, lower(g.species), COALESCE(g.management_stage, ''), lower(g.sex)
+  ) x
+  GROUP BY pen_shed_id, pen_key
 ),
 window_feed AS (
   SELECT p.pen_shed_id, p.pen_key,
@@ -249,14 +279,16 @@ SELECT p.pen_shed_id::text, p.pen_key,
        (SELECT min(bp.pen_partition_label) FROM bucket_pen bp WHERE bp.pen_shed_id = p.pen_shed_id AND bp.pen_key = p.pen_key) AS bucket_label,
        wf.feed_label,
        p.rounds, p.first_d::text, p.last_d::text, p.first_avg, p.last_animals, p.modes,
-       c.residents, c.breeds, COALESCE(c.breed, ''), c.sexes, COALESCE(c.sex, ''), c.species_n, COALESCE(c.species, ''), c.goat_residents, c.sheep_residents, c.bought,
-       wc.animals, wc.breeds, COALESCE(wc.breed, ''), wc.sexes, COALESCE(wc.sex, ''), wc.species_n, COALESCE(wc.species, ''), wc.goats, wc.sheep, wc.bought,
+       c.residents, c.breeds, COALESCE(c.breed, ''), c.sexes, COALESCE(c.sex, ''), c.species_n, COALESCE(c.species, ''), cm.mix, c.bought,
+       wc.animals, wc.breeds, COALESCE(wc.breed, ''), wc.sexes, COALESCE(wc.sex, ''), wc.species_n, COALESCE(wc.species, ''), wm.mix, wc.bought,
        wf.feed_kg::float8, wf.blocked_cells
 FROM pens p
 JOIN locations shed ON shed.location_id = p.pen_shed_id AND shed.tenant_id = $1::uuid
 LEFT JOIN locations pk ON pk.location_id = shed.parent_location_id AND pk.tenant_id = $1::uuid
 LEFT JOIN cohort c ON c.pen_shed_id = p.pen_shed_id AND c.pen_key = p.pen_key
 LEFT JOIN weighed_cohort wc ON wc.pen_shed_id = p.pen_shed_id AND wc.pen_key = p.pen_key
+LEFT JOIN cohort_mix cm ON cm.pen_shed_id = p.pen_shed_id AND cm.pen_key = p.pen_key
+LEFT JOIN weighed_mix wm ON wm.pen_shed_id = p.pen_shed_id AND wm.pen_key = p.pen_key
 LEFT JOIN window_feed wf ON wf.pen_shed_id = p.pen_shed_id AND wf.pen_key = p.pen_key
 ORDER BY COALESCE(NULLIF(pk.location_code, ''), pk.name), shed.name, p.pen_key`
 	fcrSegmentsSQL = ` -- scale-guard:ignore: bounded tenant + authorized-park reporting read; one round trip per FCR tab load over the rounds x pens of one selected window
@@ -417,14 +449,21 @@ func (r *Repository) GetFCR(ctx context.Context, tenantID string, parkIDs []stri
 //	  pen_rounds   one row per (pen_shed_id, pen_key, campaign_id, mode)
 //	  pens         GROUP BY (pen_shed_id, pen_key)
 //	  cohort       correlated on (pen_shed_id, pen_key), returns one row
+//	  cohort_mix   GROUP BY (pen, species, stage, sex) then folded GROUP BY (pen_shed_id, pen_key): one row
+//	  weighed_mix  same fold over the scanned cohort: one row
 //	  window_feed  correlated on (pen_shed_id, pen_key), returns one row
 //
 //	Ratio key sets: none here -- every ratio is formed in the domain layer over the identical pen.
 func (r *Repository) fcrPens(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, startDate, endDate, weighingCategory string, idMap weighingpg.AnimalIdentityMap) ([]domain.FCRPenRow, error) {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
-	q := fcrPensSQL
-	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, periodStart, periodEnd, weighingCategory, idMap.Tags, idMap.CanonicalTags, startDate, endDate)
+	// fcrPensSQL is assembled from the shared scope CTEs, so its final SQL and its nine binds are
+	// checked as one contract before it runs (postgres bind-contract rule).
+	bound, err := sqlbind.Bind(fcrPensSQL, tenantID, parkIDs, periodStart, periodEnd, weighingCategory, idMap.Tags, idMap.CanonicalTags, startDate, endDate)
+	if err != nil {
+		return nil, fmt.Errorf("fcr pens bind: %w", err)
+	}
+	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return nil, err
 	}
@@ -434,14 +473,15 @@ func (r *Repository) fcrPens(ctx context.Context, tenantID string, parkIDs []str
 		var row domain.FCRPenRow
 		var shedName string
 		var bucketLabel, feedLabel *string
-		var residents, breeds, sexes, speciesN, goatN, sheepN, bought *int
-		var wAnimals, wBreeds, wSexes, wSpeciesN, wGoats, wSheep, wBought *int
+		var residents, breeds, sexes, speciesN, bought *int
+		var residentMix, weighedMix []byte
+		var wAnimals, wBreeds, wSexes, wSpeciesN, wBought *int
 		var firstAvg, windowFeed *float64
 		var blocked *int
 		if err := rows.Scan(&row.LocationID, &row.PenKey, &shedName, &row.ParkID, &row.ParkName, &row.ParkCode, &bucketLabel, &feedLabel,
 			&row.Rounds, &row.FirstWeighDate, &row.LastWeighDate, &firstAvg, &row.LatestAnimals, &row.Modes,
-			&residents, &breeds, &row.Breed, &sexes, &row.Sex, &speciesN, &row.Species, &goatN, &sheepN, &bought,
-			&wAnimals, &wBreeds, &row.WeighedBreed, &wSexes, &row.WeighedSex, &wSpeciesN, &row.WeighedSpecies, &wGoats, &wSheep, &wBought,
+			&residents, &breeds, &row.Breed, &sexes, &row.Sex, &speciesN, &row.Species, &residentMix, &bought,
+			&wAnimals, &wBreeds, &row.WeighedBreed, &wSexes, &row.WeighedSex, &wSpeciesN, &row.WeighedSpecies, &weighedMix, &wBought,
 			&windowFeed, &blocked); err != nil {
 			return nil, err
 		}
@@ -470,17 +510,18 @@ func (r *Repository) fcrPens(ctx context.Context, tenantID string, parkIDs []str
 		if speciesN != nil {
 			row.SpeciesCount = *speciesN
 		}
-		if goatN != nil {
-			row.GoatResidents = *goatN
+		var mixErr error
+		if row.ResidentMix, mixErr = decodeHeadMix(residentMix); mixErr != nil {
+			return nil, mixErr
 		}
-		if sheepN != nil {
-			row.SheepResidents = *sheepN
+		if row.WeighedMix, mixErr = decodeHeadMix(weighedMix); mixErr != nil {
+			return nil, mixErr
 		}
 		if bought != nil {
 			row.BoughtResidents = *bought
 		}
 		for dst, src := range map[*int]*int{&row.WeighedAnimals: wAnimals, &row.WeighedBreeds: wBreeds, &row.WeighedSexes: wSexes,
-			&row.WeighedSpeciesN: wSpeciesN, &row.WeighedGoats: wGoats, &row.WeighedSheep: wSheep, &row.WeighedBought: wBought} {
+			&row.WeighedSpeciesN: wSpeciesN, &row.WeighedBought: wBought} {
 			if src != nil {
 				*dst = *src
 			}
@@ -518,8 +559,11 @@ func (r *Repository) fcrPens(ctx context.Context, tenantID string, parkIDs []str
 func (r *Repository) fcrSegments(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, startDate, endDate, weighingCategory string, idMap weighingpg.AnimalIdentityMap) ([]domain.FCRSegmentRow, error) {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
-	q := fcrSegmentsSQL
-	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, periodStart, periodEnd, weighingCategory, idMap.Tags, idMap.CanonicalTags, startDate, endDate)
+	bound, err := sqlbind.Bind(fcrSegmentsSQL, tenantID, parkIDs, periodStart, periodEnd, weighingCategory, idMap.Tags, idMap.CanonicalTags, startDate, endDate)
+	if err != nil {
+		return nil, fmt.Errorf("fcr segments bind: %w", err)
+	}
+	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return nil, err
 	}
@@ -538,21 +582,33 @@ func (r *Repository) fcrSegments(ctx context.Context, tenantID string, parkIDs [
 	return out, rows.Err()
 }
 
-// salePricesSQL: per species, the newest row effective on or before the asked-for business date;
-// when NO row was effective yet (a window that ends before the first assumption was ever set, as
-// every historical window did on the day the table was seeded), the EARLIEST row applies. An
-// assumption is a valuation the reader holds today, so a period older than the first one is priced
-// at the first one rather than left unvalued -- the tab prints which row applied either way.
-// Bounded by the (tenant, species, effective_from) unique key; a tenant holds a handful of rows.
+// salePricesSQL: per (species, stage, sex) -- the species default is the row with stage and sex
+// both empty -- the newest row effective on or before the asked-for business date; when NO row was
+// effective yet (a window that ends before the first assumption was ever set, as every historical
+// window did on the day the table was seeded), the EARLIEST row applies. An assumption is a
+// valuation the reader holds today, so a period older than the first one is priced at the first one
+// rather than left unvalued -- the tab prints which row applied either way.
+//
+// An override whose winning row carries NO price was CLEARED on that date (000398): it is dropped
+// here, so the animals it covered fall back to their species default in the domain resolver.
+// Bounded by the (tenant, species, stage, sex, effective_from) unique key; a tenant holds a few
+// dozen rows at most (two species x the stage vocabulary x two sexes).
 const salePricesSQL = `
-SELECT DISTINCT ON (species) species, price_per_kg_inr::float8, effective_from::text, set_by
-FROM growth_sale_price_assumptions
-WHERE tenant_id = $1::uuid
-ORDER BY species,
-         (effective_from <= $2::date) DESC,
-         CASE WHEN effective_from <= $2::date THEN effective_from END DESC,
-         effective_from ASC,
-         created_at DESC`
+SELECT species, management_stage, sex, price_per_kg_inr, effective_from, set_by
+FROM (
+  SELECT DISTINCT ON (species, management_stage, sex)
+         species, management_stage, sex, price_per_kg_inr::float8 AS price_per_kg_inr,
+         effective_from::text AS effective_from, set_by
+  FROM growth_sale_price_assumptions
+  WHERE tenant_id = $1::uuid
+  ORDER BY species, management_stage, sex,
+           (effective_from <= $2::date) DESC,
+           CASE WHEN effective_from <= $2::date THEN effective_from END DESC,
+           effective_from ASC,
+           created_at DESC
+) latest
+WHERE price_per_kg_inr IS NOT NULL
+ORDER BY species, management_stage, sex`
 
 // GetSalePrices returns the newest assumed sale price per species effective on or before asOf.
 func (r *Repository) GetSalePrices(ctx context.Context, tenantID string, asOf time.Time) (domain.SalePrices, error) {
@@ -566,10 +622,23 @@ func (r *Repository) GetSalePrices(ctx context.Context, tenantID string, asOf ti
 	defer rows.Close()
 	for rows.Next() {
 		var p domain.SalePrice
-		if err := rows.Scan(&p.Species, &p.PricePerKgINR, &p.EffectiveFrom, &p.SetBy); err != nil {
+		if err := rows.Scan(&p.Species, &p.ManagementStage, &p.Sex, &p.PricePerKgINR, &p.EffectiveFrom, &p.SetBy); err != nil {
 			return out, err
 		}
 		out.Prices = append(out.Prices, p)
 	}
 	return out, rows.Err()
+}
+
+// decodeHeadMix reads a pen's (species, stage, sex) head counts. A pen with no animals carries a
+// NULL mix, which is an empty slice, never an error.
+func decodeHeadMix(raw []byte) ([]domain.HeadMix, error) {
+	if len(raw) == 0 {
+		return []domain.HeadMix{}, nil
+	}
+	var out []domain.HeadMix
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, fmt.Errorf("decode pen head mix: %w", err)
+	}
+	return out, nil
 }

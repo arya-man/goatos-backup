@@ -5,6 +5,7 @@ import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { fmtDate } from "@/lib/format";
 import { pensFromPlacements, withLoadPens } from "@/lib/load-pens";
 import type { GrowthSalePrice, ShedWeightsResponse } from "@/lib/api/server";
+import { valueHeadMix } from "@/lib/sale-price";
 import type { LoadwiseLoad, LoadwiseWeightLoad } from "@/lib/api/procurement";
 
 /**
@@ -145,33 +146,25 @@ export function LoadComparisonTab({
   // chart); gain is the difference. A sold-out load has no stock and gets no value bars.
   const priced = new Map((valueLoads ?? []).map((load) => [load.load_id, load]));
   // The rates are DATA (growth_sale_price_assumptions, maintainer decision 2026-09-07; edited
-  // from the Weighing SOP Assumptions drawer since 2026-09-19), never page copy. A species with
-  // no configured price cannot be valued; the note beside the chart says which rates applied.
-  const priceFor = (species: string): number | null => {
-    const row = (salePrices ?? []).find((price) => price.species === species);
-    return row ? row.price_per_kg_inr : null;
-  };
-  const rateSheep = priceFor("sheep");
-  const rateGoat = priceFor("goat");
+  // from the Weighing SOP Assumptions drawer since 2026-09-19), never page copy. Since 2026-09-24
+  // each remaining animal is priced at its own (species, stage, sex) price, falling back to its
+  // species' all-stages price; a load holding an animal with no price at all is not valued.
+  const prices = salePrices ?? [];
+  const defaults = prices.filter((price) => price.management_stage === "");
+  const overrideCount = prices.length - defaults.length;
   const rupees = copy(pageContract, "unit.rupees");
   const ratesNote =
-    rateSheep === null && rateGoat === null
+    defaults.length === 0
       ? copy(pageContract, "note.load.rates.missing")
-      : `${copy(pageContract, "note.load.rates.prefix")} ${(salePrices ?? [])
+      : `${copy(pageContract, "note.load.rates.prefix")} ${defaults
           .map((price) => `${price.species} ${rupees}${price.price_per_kg_inr.toLocaleString("en-IN")}`)
-          .join(", ")}`;
+          .join(", ")}${overrideCount > 0 ? ` · ${overrideCount} ${copy(pageContract, "note.load.rates.overrides")}` : ""}`;
   const valueGroups: BarGroup[] = rows.map((row) => {
     const bars: GroupedBar[] = [];
     const purchaseValue = priced.get(row.load.load_id)?.purchase_value ?? null;
-    const stockAnimals = row.load.remaining_sheep + row.load.remaining_goats;
-    // A species with no configured price cannot be valued; the load's stock value is then absent
-    // rather than priced at zero.
-    const sheepPriced = row.load.remaining_sheep === 0 || rateSheep !== null;
-    const goatsPriced = row.load.remaining_goats === 0 || rateGoat !== null;
+    const stockAnimals = row.load.remaining;
     const stockValue =
-      row.latestAvg !== null && stockAnimals > 0 && sheepPriced && goatsPriced
-        ? row.latestAvg * (row.load.remaining_sheep * (rateSheep ?? 0) + row.load.remaining_goats * (rateGoat ?? 0))
-        : null;
+      row.latestAvg !== null && stockAnimals > 0 ? valueHeadMix(prices, row.load.remaining_mix ?? [], row.latestAvg) : null;
     if (purchaseValue !== null) {
       bars.push({ key: `${row.load.load_id}-pv`, label: copy(pageContract, "legend.load.purchase_value"), value: Math.round(purchaseValue), seriesKey: "purchase_value" });
     }
