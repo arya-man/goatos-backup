@@ -250,7 +250,7 @@ test("monthly cap: in-flight reservation is taken before any await after the bud
 
 // ---- Claude provider switch (provider.mjs) ----------------------------------
 import {
-  authMode, selectProvider, envForProvider, parseProbeResponse, isVertexUnavailable, shouldFallback, probeVertex, createProviderSwitch, vertexUrl,
+  authMode, selectProvider, envForProvider, combinedCost, parseProbeResponse, isVertexUnavailable, shouldFallback, probeVertex, createProviderSwitch, vertexUrl,
 } from "../provider.mjs";
 
 test("provider: auth mode + per-request selection", () => {
@@ -312,6 +312,8 @@ test("provider: mid-flight fallback decision", () => {
   assert.equal(shouldFallback({ ...base, status: 429, attempt: 1 }), false, "only one retry");
   assert.equal(shouldFallback({ ...base, provider: "anthropic", status: 429 }), false);
   assert.equal(shouldFallback({ ...base, mode: "vertex", status: 429 }), false, "forced vertex never falls back");
+  assert.equal(shouldFallback({ ...base, status: 429, toolCalls: 2 }), false, "queries/watch already ran: no rerun");
+  assert.equal(shouldFallback({ ...base, status: 429, toolCalls: 0 }), true);
   assert.equal(isVertexUnavailable({ error: "PERMISSION_DENIED on aiplatform.endpoints.predict" }), true);
 });
 
@@ -339,4 +341,25 @@ test("provider: switch probes, flips to vertex, re-probes on schedule, and marks
   const fixed = createProviderSwitch({ mode: "api-key", probe: async () => ({ ok: true }) });
   await fixed.probeNow();
   assert.equal(fixed.current(), "anthropic");
+});
+
+test("provider: failed attempt's cost is counted once on top of the retry", () => {
+  assert.equal(combinedCost(0.2, 0), 0.2);
+  assert.equal(combinedCost(0.2, 0.05), 0.25);
+  assert.equal(combinedCost(null, 0.05), 0.05, "retry without a result still carries the first attempt");
+  assert.equal(combinedCost(null, 0), null, "no result stays null so the cap estimate kicks in");
+});
+
+test("stripLeadingNarration drops a working line, keeps real answers", async () => {
+  const { stripLeadingNarration, makeTurnGate } = await import("../lib.mjs");
+  assert.equal(stripLeadingNarration("Confirming there's genuinely no weighing activity…\n\n**No goats were weighed today.**"), "**No goats were weighed today.**");
+  assert.equal(stripLeadingNarration("Let me pull the pen list.\nNow checking sales.\n\nCastro 1, Coimbatore has 49."), "Castro 1, Coimbatore has 49.");
+  assert.equal(stripLeadingNarration("Checking the records, Castro 1 has 49 sheep."), "Checking the records, Castro 1 has 49 sheep.", "single paragraph kept");
+  assert.equal(stripLeadingNarration("**49 sheep** are in Castro 1.\n\n| a | b |"), "**49 sheep** are in Castro 1.\n\n| a | b |");
+  assert.equal(stripLeadingNarration("Castro 1 has 49.\n\nLet me know if you need more."), "Castro 1 has 49.\n\nLet me know if you need more.");
+  let out = "";
+  const g = makeTurnGate((t) => (out += t), 40);
+  g.text("Now I have everything I need.\n\nThe answer is 49 sheep in Castro 1, Coimbatore.");
+  g.end();
+  assert.equal(out, "The answer is 49 sheep in Castro 1, Coimbatore.");
 });

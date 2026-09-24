@@ -78,11 +78,16 @@ test("tracker: hasn't-moved and started-moving lines, stop_when", () => {
 });
 
 test("sql builders only inline validated values", () => {
-  assert.match(snapshotSql("5d4c7b3a-1111-2222-3333-444455556666"), /tl\.tenant_id = '5d4c7b3a-/);
-  assert.doesNotMatch(snapshotSql("x' OR 1=1 --"), /OR 1=1/);
-  assert.match(snapshotSql("", { realtime: true }), /moving_now/);
-  assert.equal(baselineSql(["A1'; drop"]), "");
-  assert.match(baselineSql(["A0002A"]), /percentile_disc\(0\.75\)/);
+  const TEN = "5d4c7b3a-1111-2222-3333-444455556666";
+  assert.match(snapshotSql(TEN), /tl\.tenant_id = '5d4c7b3a-/);
+  assert.throws(() => snapshotSql("x' OR 1=1 --"), /tenant_required/, "fails closed on a bad tenant");
+  assert.throws(() => snapshotSql(""), /tenant_required/);
+  assert.throws(() => baselineSql(["A1"], ""), /tenant_required/);
+  assert.doesNotMatch(snapshotSql("", { allowAllTenants: true }), /WHERE tl\.tenant_id/);
+  assert.match(snapshotSql(TEN, { realtime: true }), /moving_now/);
+  assert.equal(baselineSql(["A1'; drop"], TEN), "");
+  assert.match(baselineSql(["A0002A"], TEN), /percentile_disc\(0\.75\)/);
+  assert.match(baselineSql(["A0002A"], TEN), /w\.tenant_id = '5d4c7b3a-/);
   assert.equal(parseTsv(tsv([{ tag: "A1", count: 1 }])).length, 1);
   assert.equal(normalizeRow(parseTsv(tsv([{ tag: "A1", count: 7 }]))[0]).motion_count, 7);
 });
@@ -103,7 +108,7 @@ function harness(counts, { failAll = false } = {}) {
     return { ok: true, out: tsv([{ tag: "A1", count: c }, { tag: "B1", count: 50, pen: "Other", shed: "s2" }]) };
   };
   const sleep = async (ms, signal) => { if (!signal.aborted) t += ms; };
-  return { runSql, sleep, now: () => t, sent, send: (e) => sent.push(e), sqls, advance: (ms) => { t += ms; } };
+  return { runSql, sleep, now: () => t, tenantId: "5d4c7b3a-1111-2222-3333-444455556666", sent, send: (e) => sent.push(e), sqls, advance: (ms) => { t += ms; } };
 }
 
 test("runWatch: streams start/tick/end, ends at time_up, summary for the model", async () => {
@@ -188,7 +193,7 @@ test("watchTagsHandler: events, one watch per chat, Stop watching via run.stopWa
   const evs = [];
   const h = harness([1]);
   const run = {};
-  const ctx = { send: h.send, chatId: "c1", evCtx: { chat_id: "c1" }, run, stopReason: () => null };
+  const ctx = { send: h.send, chatId: "c1", tenantId: h.tenantId, evCtx: { chat_id: "c1" }, run, stopReason: () => null };
   const handler = watchTagsHandler({ runSql: h.runSql, emit: async (n, c, f) => evs.push([n, f]), registry: reg, ctx });
   const snap = await handler({ filter: "A1", minutes: 0 });
   assert.match(snap.content[0].text, /Watch ended: snapshot/);
@@ -227,4 +232,28 @@ test("diffRows: pen comparison going away is not reported as recovery", () => {
   assert.deepEqual(tr.diffRows([row({})]), []); // pen median fell to 0: no comparison
   tr.diffRows([row({ vs_pen_pct: -90, flags: ["lower than pen"] })]);
   assert.match(tr.diffRows([row({ vs_pen_pct: -10 })])[0].text, /no longer lower than pen/);
+});
+
+test("watchTagsHandler: fails closed without a tenant, caps server-wide watches", async () => {
+  const { watchTagsHandler } = await import("../watch.mjs");
+  const h = harness([1]);
+  const reg = createWatchRegistry();
+  const noTenant = watchTagsHandler({ runSql: h.runSql, registry: reg, ctx: { send: h.send, chatId: "c1", tenantId: "" } });
+  const r = await noTenant({ filter: "A1", minutes: 0 });
+  assert.equal(r.isError, true);
+  assert.ok(!h.sqls.some((s) => s.includes("herd_signal_tag_latest tl")), "no unscoped query ran");
+  const bench = watchTagsHandler({ runSql: h.runSql, registry: reg, ctx: { send: h.send, chatId: "c1", tenantId: "", allowAllTenants: true } });
+  assert.match((await bench({ filter: "A1", minutes: 0 })).content[0].text, /Watch ended: snapshot/);
+  for (const id of ["a", "b"]) reg.set(id, { stop: () => {} });
+  const capped = watchTagsHandler({ runSql: h.runSql, registry: reg, maxWatches: 2, ctx: { send: h.send, chatId: "c9", tenantId: h.tenantId } });
+  const c = await capped({ filter: "A1", minutes: 0 });
+  assert.equal(c.isError, true);
+  assert.match(c.content[0].text, /Too many live watches/);
+});
+
+test("runWatch: a bad tenant ends as data_error without querying", async () => {
+  const h = harness([1]);
+  const res = await runWatch({ args: { filter: "A1", minutes: 0 }, ...h, tenantId: "nope" });
+  assert.equal(res.reason, "data_error");
+  assert.ok(!h.sqls.some((s) => s.includes("herd_signal_tag_latest tl")));
 });

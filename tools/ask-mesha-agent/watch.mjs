@@ -71,8 +71,18 @@ WHERE table_schema = 'public' AND table_name = 'herd_signal_tag_latest'
 // Same tag -> goat -> pen join as the live table (repository.go tagLocationJoin), and the same
 // read-time stale rule (effectiveMovementStateExpr: now() - last_seen_at > 30 min => stale,
 // pattern => missing) evaluated on the DB clock.
-export function snapshotSql(tenantId, { realtime = false } = {}) {
-  const tenant = UUID.test(String(tenantId || "")) ? `WHERE tl.tenant_id = '${tenantId}'` : "";
+// Fail closed: without a valid tenant UUID the watch would read every tenant's tags. Only the
+// local bench user (allowAllTenants) may watch unscoped.
+function tenantClause(col, tenantId, allowAllTenants) {
+  if (UUID.test(String(tenantId || ""))) return `${col} = '${tenantId}'`;
+  if (allowAllTenants) return "";
+  throw new Error("tenant_required");
+}
+export const validTenant = (tenantId) => UUID.test(String(tenantId || ""));
+
+export function snapshotSql(tenantId, { realtime = false, allowAllTenants = false } = {}) {
+  const tc = tenantClause("tl.tenant_id", tenantId, allowAllTenants);
+  const tenant = tc ? `WHERE ${tc}` : "";
   const live = realtime
     ? `CASE WHEN now() - tl.last_seen_at <= interval '30 seconds' AND COALESCE(tl.last_packet_motion_delta, 0) > 0 THEN 'moving_now'
        WHEN now() - tl.last_seen_at <= interval '90 seconds' AND COALESCE(tl.motion_delta_60s, 0) > 0 THEN 'active_1m' ELSE '' END`
@@ -101,13 +111,15 @@ LIMIT 500`; // run_sql's row cap (lib.mjs SQL_MAX_ROWS)
 }
 
 // p75 of the tag's own 24h 300s windows since monitoring began (GetBaselineDeltas).
-export function baselineSql(tagIds) {
+export function baselineSql(tagIds, tenantId, { allowAllTenants = false } = {}) {
+  const tc = tenantClause("w.tenant_id", tenantId, allowAllTenants);
   const ids = tagIds.filter((t) => TAG_ID.test(t)).map((t) => `'${t}'`);
   if (!ids.length) return "";
   return `SELECT w.tag_id, percentile_disc(0.75) WITHIN GROUP (ORDER BY w.motion_delta) AS baseline
 FROM public.herd_signal_activity_windows w
 JOIN public.herd_signal_tag_latest tl ON tl.tenant_id = w.tenant_id AND tl.tag_id = w.tag_id
-WHERE w.tag_id IN (${ids.join(",")})
+WHERE w.tag_id IN (${ids.join(",")})${tc ? `
+  AND ${tc}` : ""}
   AND w.bucket_seconds = 300 AND w.packet_count > 0 AND w.gap_delta = false
   AND w.bucket_start >= now() - interval '24 hours'
   AND tl.animal_monitoring_since IS NOT NULL AND w.bucket_start >= tl.animal_monitoring_since
@@ -366,7 +378,7 @@ const defaultSleep = (ms, signal) => new Promise((resolve) => {
 //               the watch; the model still writes the summary answer)
 export async function runWatch({
   args, runSql, send, signal, tenantId, log = () => {}, now = Date.now, sleep = defaultSleep,
-  stopReason = () => null, onHandle = () => {},
+  stopReason = () => null, onHandle = () => {}, allowAllTenants = false,
 }) {
   const spec = parseWatchArgs(args);
   const watchId = `w_${Math.random().toString(36).slice(2, 10)}`;
@@ -398,7 +410,7 @@ export async function runWatch({
     for (;;) {
       if (local.signal.aborted) break;
       const tick = now();
-      const r = await runSql(snapshotSql(tenantId, { realtime }));
+      const r = await runSql(snapshotSql(tenantId, { realtime, allowAllTenants }));
       if (local.signal.aborted) break;
       if (!r.ok) {
         failures += 1;
@@ -421,7 +433,7 @@ export async function runWatch({
       }
       const watched = all.filter((x) => startRows.has(x.tag));
       if ((spec.compare === "self" || spec.compare === "both") && tick - baselineAt >= LIMITS.baselineRefreshMs) {
-        const sql = baselineSql([...startRows.keys()]);
+        const sql = baselineSql([...startRows.keys()], tenantId, { allowAllTenants });
         const b = sql ? await runSql(sql) : { ok: false };
         if (b.ok) baselines = new Map(parseTsv(b.out).map((x) => [x.tag_id, Number(x.baseline) || 0]));
         baselineAt = tick;
@@ -490,11 +502,19 @@ export function watchTagsSchema(z) {
 }
 
 // ctx (per /ask request): { send, signal, stopReason, chatId, tenantId, evCtx, run }
-export function watchTagsHandler({ runSql, emit = async () => {}, registry, ctx, log = () => {} }) {
+export const MAX_WATCHES = 4; // server-wide: each watch polls the DB every few seconds
+export function watchTagsHandler({ runSql, emit = async () => {}, registry, ctx, log = () => {}, maxWatches = MAX_WATCHES }) {
   return async (args) => {
     const fail = (text) => ({ content: [{ type: "text", text }], isError: true });
     if (!ctx?.send) return fail("Live watch needs the chat stream; answer from run_sql instead.");
-    if (registry.has(ctx.chatId)) return fail("A live watch is already running in this chat.");
+    if (ctx.signal?.aborted) return fail("This answer was stopped; no watch started.");
+    if (registry.has(ctx.chatId)) {
+      return fail("Another live watch is already running in this chat, so this one did not start. Tell the user in plain words that one live watch runs at a time per chat, and offer to start this one when the current watch ends (or they can press Stop watching). Do not mention tools.");
+    }
+    if (!ctx.allowAllTenants && !validTenant(ctx.tenantId)) return fail("Live watch is unavailable here (no farm selected). Answer from run_sql instead.");
+    if (registry.size() >= maxWatches) {
+      return fail("Too many live watches are running right now. Tell the user live watching is busy and to try again in a few minutes; answer from a one-time run_sql snapshot instead.");
+    }
     const spec = parseWatchArgs(args);
     registry.set(ctx.chatId, { stop: () => {} });
     await emit("watch_started", ctx.evCtx, {
@@ -504,7 +524,7 @@ export function watchTagsHandler({ runSql, emit = async () => {}, registry, ctx,
     let res = null;
     try {
       res = await runWatch({
-        args, runSql, send: ctx.send, signal: ctx.signal, tenantId: ctx.tenantId, stopReason: ctx.stopReason, log,
+        args, runSql, send: ctx.send, signal: ctx.signal, tenantId: ctx.tenantId, allowAllTenants: Boolean(ctx.allowAllTenants), stopReason: ctx.stopReason, log,
         onHandle: (h) => { registry.set(ctx.chatId, h); if (ctx.run) ctx.run.stopWatch = h.stop; },
       });
       return { content: [{ type: "text", text: res.text }] };
