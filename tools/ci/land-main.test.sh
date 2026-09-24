@@ -108,6 +108,26 @@ git -C "$tmp/reuse-candidate" merge-base --is-ancestor origin/main HEAD
 test -f "$tmp/reuse-candidate/reuse-candidate.txt"
 test -f "$tmp/reuse-candidate/reuse-race.txt"
 
+# A GREEN full receipt already recorded for the exact candidate on current main is
+# reused: land-main must not run CI again.
+git clone "$tmp/origin.git" "$tmp/prerun-candidate" >/dev/null 2>&1
+git -C "$tmp/prerun-candidate" config user.name "GoatOS Test"
+git -C "$tmp/prerun-candidate" config user.email "goatos-test@example.invalid"
+git -C "$tmp/prerun-candidate" switch -c prerun-feature >/dev/null
+printf 'prerun candidate\n' >"$tmp/prerun-candidate/prerun-candidate.txt"
+git -C "$tmp/prerun-candidate" add prerun-candidate.txt
+git -C "$tmp/prerun-candidate" commit -m prerun-candidate >/dev/null
+printf '#!/usr/bin/env bash\necho "CI unexpectedly ran" >&2\nexit 99\n' >"$tmp/prerun-ci.sh"; chmod +x "$tmp/prerun-ci.sh"
+(
+  cd "$tmp/prerun-candidate"
+  node "$repo/tools/ci/check-local-ci-evidence.mjs" --record "$(git rev-parse HEAD)" --mode all \
+    --base "$(git rev-parse origin/main)" --screenshots skipped >/dev/null
+  GOATOS_LAND_TEST_MODE=1 \
+    GOATOS_LAND_TEST_CI_COMMAND="$tmp/prerun-ci.sh" \
+    bash "$script"
+) >"$tmp/prerun.out" 2>&1 || { cat "$tmp/prerun.out" >&2; echo "land-main self-test: pre-run receipt was not reused" >&2; exit 1; }
+grep -q "reusing GREEN ci-local receipt" "$tmp/prerun.out"
+
 git clone "$tmp/origin.git" "$tmp/bypass-candidate" >/dev/null 2>&1
 git -C "$tmp/bypass-candidate" config user.name "GoatOS Test"
 git -C "$tmp/bypass-candidate" config user.email "goatos-test@example.invalid"
