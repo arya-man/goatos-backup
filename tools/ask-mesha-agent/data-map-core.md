@@ -1,5 +1,5 @@
 ## Mesha data map (EVERY table is readable; ceo_ai.* views are shortcuts, raw public.* tables have full detail — use them when a view lacks it)
-Today = (now() AT TIME ZONE 'Asia/Kolkata')::date. Parks: Coimbatore (CBE), Channapatna (CPT) in park_label.
+Today = (now() AT TIME ZONE 'Asia/Kolkata')::date. Weekday names: take from to_char(d,'Dy') in the query, never work them out yourself. Parks: Coimbatore (CBE), Channapatna (CPT) in park_label.
 Column shed_label = "pen" in answers. Show dates DD/MM/YYYY. Never average *_avg_* columns; weight by scan_count.
 No date column = current-state view: answer "as of now".
 
@@ -7,7 +7,10 @@ topic -> view -> key columns -> date column
 - weighing dates/progress -> weighing_capture_activity -> park_label, shed_label, work_state ('completed','closed'), animals_weighed, weighing_category -> planned_business_date
 - weights -> weighing_capture_activity -> sum(scan_weight_avg_kg*scan_count)/sum(scan_count) -> planned_business_date
 - weighing verification -> weighing_verification_status -> pending, rework, verified, oldest_pending_at -> none
-- headcount now -> animal_current_scope -> park_label, species, sex, breed, management_stage, lifecycle_status='alive' -> none
+- headcount now -> animal_current_scope -> park_label, species, sex, breed, management_stage, lifecycle_status='alive' -> none.
+  The view ALSO holds sold/dead/inactive rows: every count, %, ratio or split MUST filter lifecycle_status='alive' (CBE alive=850, not 995).
+  Pen/part counts: shed_label + partition_label ('1','2' or 'Part 10'); "Castro 1" = shed_label 'Castro' AND partition_label '1'
+  (the separate 'Castro 1' location rows hold no animals). Always name the park per row.
 - sold / exits / entries -> animals_base -> exit_reason ('sold','died'), park_label -> exit_business_day / entry_date
 - deaths / mortality -> mortality_base -> deaths + active population -> event_date
 - births / transfers -> counts_movement_daily -> per pen counts -> event_date. "How many births": give BOTH herd-count births
@@ -27,6 +30,7 @@ metrics -> how (exact defs + SQL: SKILL.md "Metric definitions"; never invent a 
 - mortality %: sum(mortality_base.deaths in window)*100 / live 'alive' count now, 1dp (NOT active_population).
 - weighing pending: pending+rework. feed fed_kg is always 0: say fed data missing. vaccination: due/done, no %.
 Full columns + example per view: .agents/skills/mesha-data-map/references/views.generated.md
+Never show ids, table/view names or internal notes in the answer (say "pen routines", not pen_routine_tasks).
 Access: read every table (no filter rules); the database login is read-only.
 Raw tables (all readable): feed prices -> public.feed_purchases (feed_item_label, farm_label CBE/CPT,
 purchase_date, quantity_kg, reached_weight_kg, feed_cost, transport_cost, loading_cost, unloading_cost, total_cost, per_kg_cost;
@@ -40,6 +44,8 @@ Module tables (public.*; pen/park names: join public.locations l ON l.location_i
   so always re-query; never repeat an earlier answer from this chat.
   completed with submitted_by NULL = office correction, not a field submission: say so in the FIRST answer (who changed it via audit/updated_at,
   when, assigned operator) e.g. Castro CBE deworming: cancelled 05/09, set completed by Manohark 24/09 11:35 IST, no submitter/proof.
+- Hinglish: "bike / bika / becha / bechi" = SOLD (sales_deals + animals_base exit_reason='sold'); "aaye / kharide / liye" = bought (procurement).
+  "lakh" = /1,00,000, "crore" = /1,00,00,000; tonnes = kg/1000.
 - "goats" in a question usually means all animals: count all species and split (e.g. "3 deaths: 1 goat, 2 sheep").
 - pen visits -> pen_visit_tasks (reasons, work_state; delayed+submitted_at set = done late, awaiting verification). pen routines -> pen_routine_tasks (routine name: join pen_routine_definitions
   USING routine_id; work_state scheduled|delayed|completed|canceled, status open|pending_verification|completed|rework; planned_business_date,
@@ -84,6 +90,9 @@ Module tables (public.*; pen/park names: join public.locations l ON l.location_i
   not_moving). It is LIVE and changes minute to minute: one query, give count of all tags (e.g. "12 of 19"), last_seen_at in IST, and list them;
   goat via tag mapping (mapping_state='mapped'). Sustained concern = pattern_state IN ('inactive' (3h+ quiet while packets arrive),'quiet_watch',
   'missing_signal'); say how many (often 0), and note no_movement alone for one window is normal resting. Don't re-query to "confirm" counts.
+- Tag device health (= Live Monitor Status column): Missing signal = movement_state='stale'; Weak signal = signal_state='weak';
+  Low battery = battery_state IN ('low','critical'); else Good. Never judge battery from battery_mv yourself (3000-3100 mV is
+  healthy for these tags): if battery_state is healthy for all, say "no tag has low battery" and stop.
 - Tag live data / "watch" / "keep watching" / "tell me when X stop(s)/start(s) moving" -> call the watch_tags tool (NOT repeated run_sql):
   filter = pen/park names, tag ids (A0002A) or animal ids (G-003659), 'all' = every tagged animal; minutes default 5 (max 30); stop_when
   any|all_stops_moving / any|all_starts_moving; compare self (vs own 24h p75 pace, Insights risk rule: <=-70% far below, >=+150% spike) | peers
@@ -95,5 +104,5 @@ Before saying "not recorded"/"none": search table names + information_schema.col
 "not recorded" after that search finds nothing; say which park/pen/status you did find (e.g. "all Castro CBE tasks were cancelled").
 - Who changed/corrected a record: public.audit_log WHERE resource_id = <record id> (action e.g. pc_care.task.canceled / sales.deal.payment_record), actor_id -> workforce_members.user_id for the name; always name them in the first answer.
 - When advance_amount equals the ledger total and both are counted, state it as a double count (not "possible").
-- Pen shorthand: users write pens as initials + numbers: C1 = Castro 1, G2P1 = Godel 2 Part 1, M1P3 = Mandela 1 Part 3, S2 = Sumathi 2, Y1 = Yashoda 1 / Old Yashoda 1, H1 = Ho Chi Minh 1, Q1 = Q1. Resolve any code by matching public.locations (location_type='shed') names; if a letter fits two pens (G = Godel or Gandhi), pick the one that exists in the asked park, say which you assumed. Castro/Godel/Mandela etc. exist in BOTH parks (CBE = Coimbatore, CPT = Channapatna): split by park unless named.
+- Pen shorthand: users write pens as initials + numbers: C1 = Castro 1, G2P1 = Godel 2 Part 1, M1P3 = Mandela 1 Part 3, S2 = Sumathi 2, Y1 = Yashoda part 1 (CBE and CPT) and Old Yashoda part 1 (CPT only) - give each with its park, H1 = Ho Chi Minh 1, Q1 = Q1. Resolve any code by matching public.locations (location_type='shed') names; if a letter fits two pens (G = Godel or Gandhi), pick the one that exists in the asked park, say which you assumed. Castro/Godel/Mandela etc. exist in BOTH parks (CBE = Coimbatore, CPT = Channapatna): split by park unless named.
 - "Load wise" / load weights (Sales module > loads): public.procurement_loads, one row per purchase load (context->>'load_ref' = load no. e.g. 136, context->>'farm' = CBE|CPT). Avg purchase weight = purchase_weight_kg / expected_count; avg sold weight = sold_weight_kg / sold_weighed_animals; fattening_days. Pen -> load link: public.weighing_shed_load_tags (location_id = pen, load_ref) e.g. CBE Castro 1=126, Castro 2=130, Castro 3=128; CPT Castro 1+2=131, Godel 2 Parts 1+2=129. Fallback: load notes (136 -> CBE Godel 2 Parts 1-6) or procurement_load_goats.goat_id -> animal's current shed. Procurement weight = purchase weight (not sales weight) even though the screen sits in the Sales module.
