@@ -97,7 +97,7 @@
         "dev": "infra/envs/dev/cloud_run_worker.tf",
         "stg": "infra/envs/stg/cloud_run_worker.tf"
       },
-      "notes": "Consolidated long-running kernel worker (backend/cmd/kernel-worker/main.go, backend/internal/kernelstages, backend/internal/platform/worker; built by backend/Dockerfile). Deployed as a Cloud Run SERVICE (min=2/max=2, CPU always-on, /readyz+/livez probes) in dev and stg via infra/envs/{dev,stg}/cloud_run_worker.tf, replacing the retired per-stage scheduled jobs. command+args here (/app/bin/kernel-worker -timeout=0s) are reconciled bidirectionally against those Terraform services by check-deployed-job-flags.mjs, and exercised by deploy/e2e/docker-compose.e2e.yml + make e2e-parity/e2e-smoke."
+      "notes": "Consolidated long-running kernel worker (backend/cmd/kernel-worker/main.go, backend/internal/kernelstages, backend/internal/platform/worker; built by backend/Dockerfile). Deployed as a Cloud Run SERVICE (stg: min=1/max=1 under the db-g1-small connection budget, CPU always-on, /readyz+/livez probes) in dev and stg via infra/envs/{dev,stg}/cloud_run_worker.tf, replacing the retired per-stage scheduled jobs. command+args here (/app/bin/kernel-worker -timeout=0s) are reconciled bidirectionally against those Terraform services by check-deployed-job-flags.mjs, and exercised by deploy/e2e/docker-compose.e2e.yml + make e2e-parity/e2e-smoke."
     },
     {
       "name": "herd_signals_mqtt_bridge",
