@@ -1292,14 +1292,20 @@ func procurementPurposePrimaryDue(g domain.EligibleGoat, rule protodomain.Rule, 
 	}
 	if containsProcurementVaccine(secondWave, vaccineName) {
 		var firstWaveCompletedAt time.Time
-		for _, administration := range history {
-			if !containsProcurementVaccine(plan.FirstWave, administration.VaccineCode) || !administration.AdministeredAt.After(firstWaveCompletedAt) {
-				continue
+		for _, required := range plan.FirstWave {
+			var completedAt time.Time
+			for _, administration := range history {
+				if normalizeProcurementVaccine(required) != normalizeProcurementVaccine(administration.VaccineCode) || !administration.AdministeredAt.After(completedAt) {
+					continue
+				}
+				completedAt = administration.AdministeredAt
 			}
-			firstWaveCompletedAt = administration.AdministeredAt
-		}
-		if firstWaveCompletedAt.IsZero() {
-			return time.Time{}, false
+			if completedAt.IsZero() {
+				return time.Time{}, false
+			}
+			if completedAt.After(firstWaveCompletedAt) {
+				firstWaveCompletedAt = completedAt
+			}
 		}
 		days := int32(28)
 		if plan.SecondWaveAfterDays != nil {

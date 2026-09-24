@@ -213,6 +213,12 @@ func TestFatteningSecondWaveWaitsForActualFirstWaveAdministration(t *testing.T) 
 	}
 	lateETTT := time.Date(2026, time.September, 20, 15, 30, 0, 0, time.UTC)
 	latePPR := time.Date(2026, time.September, 22, 9, 0, 0, 0, time.UTC)
+	if _, ok := procurementPurposePrimaryDue(goat, rule, vaccine, policy, []domain.RecentVaccineAdministration{{AdministeredAt: lateETTT, VaccineCode: "ET_TT"}}); ok {
+		t.Fatal("second wave became schedulable with PPR still missing")
+	}
+	if _, ok := procurementPurposePrimaryDue(goat, rule, vaccine, policy, []domain.RecentVaccineAdministration{{AdministeredAt: latePPR, VaccineCode: "PPR"}}); ok {
+		t.Fatal("second wave became schedulable with ET+TT still missing")
+	}
 	due, ok := procurementPurposePrimaryDue(goat, rule, vaccine, policy, []domain.RecentVaccineAdministration{
 		{AdministeredAt: lateETTT, VaccineCode: "ET_TT"},
 		{AdministeredAt: latePPR, VaccineCode: "PPR"},

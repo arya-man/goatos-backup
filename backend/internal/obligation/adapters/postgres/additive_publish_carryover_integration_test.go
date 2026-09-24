@@ -132,6 +132,9 @@ func seedCarryOverFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 	_ = seed(t, ctx, pool)
 	repo = NewRepository(pool, 5*time.Second)
 	seedCapacityGoatInPark(t, ctx, pool, carryOverGoat, cbePark)
+	if _, err := pool.Exec(ctx, `UPDATE goats SET dob='2020-01-01'::date WHERE tenant_id=$1::uuid AND goat_id=$2::uuid`, tenantID, carryOverGoat); err != nil {
+		t.Fatalf("set carry-over DOB: %v", err)
+	}
 
 	proto := protopg.NewRepository(pool, 5*time.Second)
 	protoID, err := proto.CreateDefinition(ctx, protodomain.NewDefinition{
@@ -376,6 +379,22 @@ INSERT INTO procurement_hf_vaccination_evidence (
 	}
 }
 
+func seedLegacyCarryOverObligation(t *testing.T, ctx context.Context, pool *pgxpool.Pool, versionID, ruleID, goatID, key string, due time.Time) string {
+	t.Helper()
+	var obligationID string
+	if err := pool.QueryRow(ctx, `
+INSERT INTO obligation_instances (
+  tenant_id, protocol_version_id, rule_id, target_type, target_id,
+  scope_type, scope_id, due_at, status, idempotency_key, sequence
+) VALUES ($1::uuid, $2::uuid, $3::uuid, 'goat', $4::uuid,
+          'park', $5::uuid, $6, 'scheduled', $7, 1)
+RETURNING obligation_id::text`,
+		tenantID, versionID, ruleID, goatID, cptPark, due, key).Scan(&obligationID); err != nil {
+		t.Fatalf("seed legacy obligation %s: %v", key, err)
+	}
+	return obligationID
+}
+
 func TestStrictCarryOverHonorsTrustedPreviousCompletionFloor(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -384,6 +403,9 @@ func TestStrictCarryOverHonorsTrustedPreviousCompletionFloor(t *testing.T) {
 	_ = seed(t, ctx, pool)
 	repo := NewRepository(pool, 5*time.Second)
 	seedCapacityGoatInPark(t, ctx, pool, carryOverGoat, cptPark)
+	if _, err := pool.Exec(ctx, `UPDATE goats SET dob='2020-01-01'::date WHERE tenant_id=$1::uuid AND goat_id=$2::uuid`, tenantID, carryOverGoat); err != nil {
+		t.Fatalf("set BT carry-over DOB: %v", err)
+	}
 	proto := protopg.NewRepository(pool, 5*time.Second)
 	protoID, err := proto.CreateDefinition(ctx, protodomain.NewDefinition{TenantID: tenantID, Code: "vaccination.trusted.carryover", Name: "Trusted CarryOver", Category: "vaccination", Status: "draft"})
 	if err != nil {
@@ -395,7 +417,9 @@ func TestStrictCarryOverHonorsTrustedPreviousCompletionFloor(t *testing.T) {
 		t.Fatalf("publish old version: %v", err)
 	}
 	due := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
-	insertObligationForRule(t, ctx, repo, v1, rules1[vaccine.doseCode], carryOverGoat, "trusted-floor-legacy-row", due)
+	// Reproduce a row written before missing-history anchors failed closed. The current
+	// InsertObligation path must reject this state, while carry-over must still quarantine it.
+	seedLegacyCarryOverObligation(t, ctx, pool, v1, rules1[vaccine.doseCode], carryOverGoat, "trusted-floor-legacy-row", due)
 	seedTrustedCarryOverEvidence(t, ctx, pool, carryOverGoat, v1, rules1[vaccine.doseCode], time.Date(2026, 9, 20, 0, 0, 0, 0, time.UTC))
 	v2, _ := seedCarryOverVersion(t, ctx, pool, protoID, 2, []carryOverVaccine{vaccine})
 	moved, err := repo.CarryOverUnchangedVaccinationObligations(ctx, tenantID, []string{carryOverGoat}, []string{v2})
@@ -425,7 +449,7 @@ func TestMedicalCarryOverRejectsIncompatibleTriggerTransition(t *testing.T) {
 	if err := proto.PublishVersion(ctx, tenantID, v1, nil); err != nil {
 		t.Fatalf("publish old version: %v", err)
 	}
-	insertObligationForRule(t, ctx, repo, v1, rules1[oldRule.doseCode], carryOverGoat, "incompatible-trigger-row", time.Date(2026, 10, 20, 0, 0, 0, 0, time.UTC))
+	seedLegacyCarryOverObligation(t, ctx, pool, v1, rules1[oldRule.doseCode], carryOverGoat, "incompatible-trigger-row", time.Date(2026, 10, 20, 0, 0, 0, 0, time.UTC))
 	newRule := oldRule
 	newRule.trigger = "after_previous_completion"
 	newRule.repeat = "every_n_days"
@@ -655,6 +679,9 @@ func TestCarryOverRebindsMedicalEquivalentPrimaryCourseFollowUp(t *testing.T) {
 	_ = seed(t, ctx, pool)
 	repo := NewRepository(pool, 5*time.Second)
 	seedCapacityGoatInPark(t, ctx, pool, carryOverGoat, cptPark)
+	if _, err := pool.Exec(ctx, `UPDATE goats SET dob='2020-01-01'::date WHERE tenant_id=$1::uuid AND goat_id=$2::uuid`, tenantID, carryOverGoat); err != nil {
+		t.Fatalf("set BT carry-over DOB: %v", err)
+	}
 
 	proto := protopg.NewRepository(pool, 5*time.Second)
 	protoID, err := proto.CreateDefinition(ctx, protodomain.NewDefinition{

@@ -2739,23 +2739,25 @@ func enforceVaccinationWriteConstraints(ctx context.Context, q vaccinationFloorQ
 	if err := enforceVaccinationRuleFloor(ctx, q, tenant, rule, targetType, target, dueAt); err != nil {
 		return err
 	}
-	return enforceVaccinationPurposeApplicability(ctx, q, tenant, rule, targetType, target)
+	return enforceVaccinationPurposeApplicability(ctx, q, tenant, rule, targetType, target, dueAt)
 }
 
 type vaccinationPurposePlan struct {
-	FirstWave       []string `json:"first_wave"`
-	GoatSecondWave  []string `json:"goat_second_wave"`
-	SheepSecondWave []string `json:"sheep_second_wave"`
+	FirstWave           []string `json:"first_wave"`
+	SecondWaveAfterDays *int32   `json:"second_wave_after_days"`
+	GoatSecondWave      []string `json:"goat_second_wave"`
+	SheepSecondWave     []string `json:"sheep_second_wave"`
 }
 
 type vaccinationProcurementPolicy struct {
-	FirstWave       []string                          `json:"first_wave"`
-	GoatSecondWave  []string                          `json:"goat_second_wave"`
-	SheepSecondWave []string                          `json:"sheep_second_wave"`
-	PurposePlans    map[string]vaccinationPurposePlan `json:"purpose_plans"`
+	FirstWave           []string                          `json:"first_wave"`
+	SecondWaveAfterDays *int32                            `json:"second_wave_after_days"`
+	GoatSecondWave      []string                          `json:"goat_second_wave"`
+	SheepSecondWave     []string                          `json:"sheep_second_wave"`
+	PurposePlans        map[string]vaccinationPurposePlan `json:"purpose_plans"`
 }
 
-func enforceVaccinationPurposeApplicability(ctx context.Context, q vaccinationFloorQueryer, tenant, rule pgtype.UUID, targetType string, target pgtype.UUID) error {
+func enforceVaccinationPurposeApplicability(ctx context.Context, q vaccinationFloorQueryer, tenant, rule pgtype.UUID, targetType string, target pgtype.UUID, dueAt time.Time) error {
 	if targetType != "goat" {
 		return nil
 	}
@@ -2801,7 +2803,8 @@ WHERE pr.tenant_id = $1 AND pr.rule_id = $2 AND pd.category = 'vaccination'`, te
 			// Legacy published versions are immutable and store these authored waves at the
 			// procurement-policy top level. New versions must publish purpose_plans.
 			plan = vaccinationPurposePlan{
-				FirstWave: policy.FirstWave, GoatSecondWave: policy.GoatSecondWave, SheepSecondWave: policy.SheepSecondWave,
+				FirstWave: policy.FirstWave, SecondWaveAfterDays: policy.SecondWaveAfterDays,
+				GoatSecondWave: policy.GoatSecondWave, SheepSecondWave: policy.SheepSecondWave,
 			}
 			if len(plan.FirstWave) == 0 && len(plan.GoatSecondWave) == 0 && len(plan.SheepSecondWave) == 0 {
 				return fmt.Errorf("%w: fattening purpose plan is missing", ports.ErrVaccinationNotApplicable)
@@ -2817,12 +2820,71 @@ WHERE pr.tenant_id = $1 AND pr.rule_id = $2 AND pd.category = 'vaccination'`, te
 		allowed = append(allowed, plan.GoatSecondWave...)
 	}
 	needle := normalizeVaccinationRuleName(vaccine)
+	allowedVaccine := false
 	for _, candidate := range allowed {
 		if normalizeVaccinationRuleName(candidate) == needle {
-			return nil
+			allowedVaccine = true
+			break
 		}
 	}
-	return fmt.Errorf("%w: purpose=%s species=%s vaccine=%s", ports.ErrVaccinationNotApplicable, purpose, species, vaccine)
+	if !allowedVaccine {
+		return fmt.Errorf("%w: purpose=%s species=%s vaccine=%s", ports.ErrVaccinationNotApplicable, purpose, species, vaccine)
+	}
+	secondWave := plan.GoatSecondWave
+	if strings.EqualFold(strings.TrimSpace(species), "sheep") {
+		secondWave = plan.SheepSecondWave
+	}
+	isSecondWave := false
+	for _, candidate := range secondWave {
+		if normalizeVaccinationRuleName(candidate) == needle {
+			isSecondWave = true
+			break
+		}
+	}
+	if !isSecondWave {
+		return nil
+	}
+	var latest time.Time
+	for _, required := range plan.FirstWave {
+		var administeredAt *time.Time
+		if err := q.QueryRow(ctx, `
+WITH administrations AS (
+  SELECT vc.administered_at
+  FROM vaccination_completions vc
+  JOIN obligation_instances oi ON oi.tenant_id=vc.tenant_id AND oi.obligation_id=vc.obligation_id
+  JOIN protocol_rules history_rule ON history_rule.tenant_id=oi.tenant_id AND history_rule.rule_id=oi.rule_id
+  JOIN protocol_versions history_version ON history_version.tenant_id=oi.tenant_id AND history_version.protocol_version_id=oi.protocol_version_id
+  WHERE vc.tenant_id=$1 AND vc.goat_id=$2 AND vc.status='accepted' AND vc.verified_at IS NOT NULL
+    AND lower(replace(replace(replace(replace(COALESCE(NULLIF(history_rule.eligibility_json->'vaccine'->>'code',''),NULLIF(history_version.rule_dsl->'vaccine'->>'code',''),''),' ',''),'_',''),'+',''),'-',''))
+      = lower(replace(replace(replace(replace($3,' ',''),'_',''),'+',''),'-',''))
+  UNION ALL
+  SELECT ev.administered_at
+  FROM procurement_hf_vaccination_evidence ev
+  JOIN proof_artifacts proof ON proof.tenant_id=ev.tenant_id AND proof.proof_id=ev.proof_ref_id AND proof.upload_state='completed'
+  LEFT JOIN protocol_rules history_rule ON history_rule.tenant_id=ev.tenant_id AND history_rule.rule_id=ev.rule_id
+  WHERE ev.tenant_id=$1 AND ev.goat_id=$2 AND ev.review_status='trusted' AND ev.reviewed_at IS NOT NULL
+    AND lower(replace(replace(replace(replace(COALESCE(NULLIF(history_rule.eligibility_json->'vaccine'->>'code',''),NULLIF(ev.metadata->>'vaccine_code',''),NULLIF(ev.vaccine_name,''),''),' ',''),'_',''),'+',''),'-',''))
+      = lower(replace(replace(replace(replace($3,' ',''),'_',''),'+',''),'-',''))
+)
+SELECT max(administered_at) FROM administrations`, tenant, target, required).Scan(&administeredAt); err != nil {
+			return fmt.Errorf("obligation: read vaccination first-wave completion: %w", err)
+		}
+		if administeredAt == nil {
+			return fmt.Errorf("%w: first-wave vaccine %s is incomplete", ports.ErrBeforeVaccinationAgeFloor, required)
+		}
+		if administeredAt.After(latest) {
+			latest = *administeredAt
+		}
+	}
+	days := int32(28)
+	if plan.SecondWaveAfterDays != nil {
+		days = *plan.SecondWaveAfterDays
+	}
+	floor := biztime.BusinessDayStart(latest).AddDate(0, 0, int(days))
+	if dueAt.Before(floor) {
+		return fmt.Errorf("%w: requested=%s second_wave_floor=%s", ports.ErrBeforeVaccinationAgeFloor, biztime.BusinessDate(dueAt), biztime.BusinessDate(floor))
+	}
+	return nil
 }
 
 func normalizeVaccinationRuleName(value string) string {
@@ -2870,12 +2932,12 @@ WHERE pr.tenant_id = $1
 	switch strings.ToLower(strings.TrimSpace(triggerType)) {
 	case "birth_age":
 		if dob == nil {
-			return nil
+			return fmt.Errorf("%w: birth date anchor is missing", ports.ErrBeforeVaccinationAgeFloor)
 		}
 		floor = biztime.BusinessDayStart(*dob).AddDate(0, 0, int(offsetDays))
 	case "post_arrival":
 		if warmupAt == nil {
-			return nil
+			return fmt.Errorf("%w: arrival anchor is missing", ports.ErrBeforeVaccinationAgeFloor)
 		}
 		floor = biztime.BusinessDayStart(*warmupAt).AddDate(0, 0, int(offsetDays))
 	case "after_previous_completion":
@@ -2904,7 +2966,7 @@ SELECT max(administered_at) FROM administrations`, tenant, target, vaccineCode).
 			return fmt.Errorf("obligation: read vaccination completion floor: %w", err)
 		}
 		if administeredAt == nil {
-			return nil
+			return fmt.Errorf("%w: previous completion anchor is missing", ports.ErrBeforeVaccinationAgeFloor)
 		}
 		anchor := biztime.BusinessDayStart(*administeredAt)
 		if strings.EqualFold(strings.TrimSpace(repeat), "yearly") {
@@ -3214,12 +3276,12 @@ WHERE oi.tenant_id = $1::uuid
         WHEN 'birth_age' THEN COALESCE(oi.due_at >= (
           SELECT (g.dob + er.offset_days)::timestamp AT TIME ZONE 'Asia/Kolkata'
           FROM goats g WHERE g.tenant_id=oi.tenant_id AND g.goat_id=oi.target_id AND g.dob IS NOT NULL
-        ), true)
+        ), false)
         WHEN 'post_arrival' THEN COALESCE(oi.due_at >= (
           SELECT (COALESCE(plg.warmup_started_at, plg.intake_accepted_at, plg.created_at)::date + er.offset_days)::timestamp AT TIME ZONE 'Asia/Kolkata'
           FROM procurement_load_goats plg WHERE plg.tenant_id=oi.tenant_id AND plg.goat_id=oi.target_id
           ORDER BY COALESCE(plg.warmup_started_at, plg.intake_accepted_at, plg.created_at) DESC NULLS LAST LIMIT 1
-        ), true)
+        ), false)
         WHEN 'after_previous_completion' THEN COALESCE(oi.due_at >= (
           SELECT CASE WHEN er.repeat='yearly' THEN max(administered_at)+interval '1 year'
                       ELSE max(administered_at)+make_interval(days=>greatest(er.offset_days,er.min_gap_days)) END
@@ -3242,7 +3304,7 @@ WHERE oi.tenant_id = $1::uuid
               AND lower(replace(replace(replace(replace(COALESCE(NULLIF(history_rule.eligibility_json->'vaccine'->>'code',''),NULLIF(ev.metadata->>'vaccine_code',''),NULLIF(ev.vaccine_name,''),''),' ',''),'_',''),'+',''),'-',''))
                 = lower(replace(replace(replace(replace(er.vaccine_code,' ',''),'_',''),'+',''),'-',''))
           ) administrations
-        ), true)
+        ), false)
         ELSE true
       END
   AND COALESCE((
@@ -3264,6 +3326,31 @@ WHERE oi.tenant_id = $1::uuid
         ) plg ON true
         WHERE g.tenant_id=oi.tenant_id AND g.goat_id=oi.target_id
       ), true)
+  -- Purpose-plan second-wave manual work is regenerated from accepted/trusted first-wave
+  -- administrations. Never carry its old date or attachments across a publish, because that
+  -- would bypass the complete-first-wave anchor enforced by the ordinary insert path.
+  AND NOT (
+    er.trigger_type = 'manual_campaign'
+    AND COALESCE((
+      SELECT lower(btrim(plg.purpose)) = 'fattening' AND EXISTS (
+        SELECT 1
+        FROM jsonb_array_elements_text(
+          COALESCE(CASE WHEN lower(btrim(g.species))='sheep'
+                        THEN COALESCE(er.rule_dsl->'procurement_policy'->'purpose_plans'->'fattening', er.rule_dsl->'procurement_policy')->'sheep_second_wave'
+                        ELSE COALESCE(er.rule_dsl->'procurement_policy'->'purpose_plans'->'fattening', er.rule_dsl->'procurement_policy')->'goat_second_wave' END,'[]'::jsonb)
+        ) second_wave(vaccine)
+        WHERE lower(replace(replace(replace(replace(btrim(second_wave.vaccine),' ',''),'_',''),'+',''),'-',''))
+          = lower(replace(replace(replace(replace(er.vaccine_code,' ',''),'_',''),'+',''),'-',''))
+      )
+      FROM goats g
+      LEFT JOIN LATERAL (
+        SELECT purpose FROM procurement_load_goats p
+        WHERE p.tenant_id=g.tenant_id AND p.goat_id=g.goat_id
+        ORDER BY COALESCE(p.warmup_started_at,p.intake_accepted_at,p.created_at) DESC NULLS LAST LIMIT 1
+      ) plg ON true
+      WHERE g.tenant_id=oi.tenant_id AND g.goat_id=oi.target_id
+    ), false)
+  )
   -- A rebind changes protocol_version_id and rule_id, and BOTH are key columns in three
   -- different unique indexes. A collision on any of them raises 23505 and aborts the whole
   -- tenant-wide generation pass, so each one is checked first and the row left behind for the
@@ -3434,19 +3521,41 @@ WHERE oi.tenant_id = $1::uuid
         ) plg ON true
         WHERE g.tenant_id=oi.tenant_id AND g.goat_id=oi.target_id
       ), true)
+  AND NOT (
+    er.trigger_type = 'manual_campaign'
+    AND COALESCE((
+      SELECT lower(btrim(plg.purpose)) = 'fattening' AND EXISTS (
+        SELECT 1
+        FROM jsonb_array_elements_text(
+          COALESCE(CASE WHEN lower(btrim(g.species))='sheep'
+                        THEN COALESCE(er.rule_dsl->'procurement_policy'->'purpose_plans'->'fattening', er.rule_dsl->'procurement_policy')->'sheep_second_wave'
+                        ELSE COALESCE(er.rule_dsl->'procurement_policy'->'purpose_plans'->'fattening', er.rule_dsl->'procurement_policy')->'goat_second_wave' END,'[]'::jsonb)
+        ) second_wave(vaccine)
+        WHERE lower(replace(replace(replace(replace(btrim(second_wave.vaccine),' ',''),'_',''),'+',''),'-',''))
+          = lower(replace(replace(replace(replace(er.vaccine_code,' ',''),'_',''),'+',''),'-',''))
+      )
+      FROM goats g
+      LEFT JOIN LATERAL (
+        SELECT purpose FROM procurement_load_goats p
+        WHERE p.tenant_id=g.tenant_id AND p.goat_id=g.goat_id
+        ORDER BY COALESCE(p.warmup_started_at,p.intake_accepted_at,p.created_at) DESC NULLS LAST LIMIT 1
+      ) plg ON true
+      WHERE g.tenant_id=oi.tenant_id AND g.goat_id=oi.target_id
+    ), false)
+  )
   AND CASE er.trigger_type
         WHEN 'birth_age' THEN COALESCE(oi.due_at >= (
           SELECT (g.dob + er.offset_days)::timestamp AT TIME ZONE 'Asia/Kolkata'
           FROM goats g
           WHERE g.tenant_id=oi.tenant_id AND g.goat_id=oi.target_id AND g.dob IS NOT NULL
-        ), true)
+        ), false)
         WHEN 'post_arrival' THEN COALESCE(oi.due_at >= (
           SELECT (COALESCE(plg.warmup_started_at, plg.intake_accepted_at, plg.created_at)::date + er.offset_days)::timestamp AT TIME ZONE 'Asia/Kolkata'
           FROM procurement_load_goats plg
           WHERE plg.tenant_id=oi.tenant_id AND plg.goat_id=oi.target_id
           ORDER BY COALESCE(plg.warmup_started_at, plg.intake_accepted_at, plg.created_at) DESC NULLS LAST
           LIMIT 1
-        ), true)
+        ), false)
         WHEN 'after_previous_completion' THEN COALESCE(oi.due_at >= (
           SELECT CASE
                    WHEN er.repeat='yearly' THEN max(administered_at) + interval '1 year'
@@ -3460,7 +3569,8 @@ WHERE oi.tenant_id = $1::uuid
             JOIN protocol_versions history_version ON history_version.tenant_id=history_oi.tenant_id AND history_version.protocol_version_id=history_oi.protocol_version_id
             WHERE vc.tenant_id=oi.tenant_id AND vc.goat_id=oi.target_id
               AND vc.status='accepted' AND vc.verified_at IS NOT NULL
-              AND lower(btrim(COALESCE(NULLIF(history_rule.eligibility_json->'vaccine'->>'code',''), NULLIF(history_version.rule_dsl->'vaccine'->>'code',''), '')))=er.vaccine_code
+              AND lower(replace(replace(replace(replace(COALESCE(NULLIF(history_rule.eligibility_json->'vaccine'->>'code',''), NULLIF(history_version.rule_dsl->'vaccine'->>'code',''), ''),' ',''),'_',''),'+',''),'-',''))
+                = lower(replace(replace(replace(replace(er.vaccine_code,' ',''),'_',''),'+',''),'-',''))
             UNION ALL
             SELECT ev.administered_at
             FROM procurement_hf_vaccination_evidence ev
@@ -3468,9 +3578,10 @@ WHERE oi.tenant_id = $1::uuid
             LEFT JOIN protocol_rules history_rule ON history_rule.tenant_id=ev.tenant_id AND history_rule.rule_id=ev.rule_id
             WHERE ev.tenant_id=oi.tenant_id AND ev.goat_id=oi.target_id
               AND ev.review_status='trusted' AND ev.reviewed_at IS NOT NULL
-              AND lower(btrim(COALESCE(NULLIF(history_rule.eligibility_json->'vaccine'->>'code',''), NULLIF(ev.metadata->>'vaccine_code',''), NULLIF(ev.vaccine_name,''), '')))=er.vaccine_code
+              AND lower(replace(replace(replace(replace(COALESCE(NULLIF(history_rule.eligibility_json->'vaccine'->>'code',''), NULLIF(ev.metadata->>'vaccine_code',''), NULLIF(ev.vaccine_name,''), ''),' ',''),'_',''),'+',''),'-',''))
+                = lower(replace(replace(replace(replace(er.vaccine_code,' ',''),'_',''),'+',''),'-',''))
           ) administrations
-        ), true)
+        ), false)
         ELSE true
       END
   AND NOT EXISTS (

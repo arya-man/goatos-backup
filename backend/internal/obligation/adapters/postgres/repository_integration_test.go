@@ -31,8 +31,8 @@ func seed(t *testing.T, ctx context.Context, pool *pgxpool.Pool) (obligationID s
 
 	// Goat target (raw insert; goats are owned by the identity module).
 	if _, err := pool.Exec(ctx,
-		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex, current_location_id, park_id)
-			 VALUES ($1, $2, 'alive', 'goat', $3, 'female', $4, $4)`,
+		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex, current_location_id, park_id, dob)
+			 VALUES ($1, $2, 'alive', 'goat', $3, 'female', $4, $4, '2020-01-01'::date)`,
 		testGoatID, tenantID, meshaParty, cbePark); err != nil {
 		t.Fatalf("seed goat: %v", err)
 	}
