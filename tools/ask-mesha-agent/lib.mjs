@@ -74,7 +74,7 @@ export function clipSqlOutput(out, { maxRows = SQL_MAX_ROWS, maxChars = SQL_MAX_
 const TOPIC_WORDS = [
   [/weigh/i, "weighing"], [/sale|sold|animals_base|exit/i, "sales and exits"], [/feed/i, "feed"],
   [/vacc/i, "vaccination"], [/mortal|death/i, "mortality"], [/procure|load/i, "procurement"],
-  [/verif/i, "verification"], [/workforce|task/i, "workforce"], [/count|movement|current_scope/i, "headcount"],
+  [/verif/i, "verification"], [/pc_care|deworm|trimm|tick/i, "preventive care"], [/workforce|roster|clock/i, "workforce"], [/count|movement|current_scope/i, "headcount"],
   [/growth|adg|gain/i, "daily gain"],
 ];
 export function topicOf(text) {
