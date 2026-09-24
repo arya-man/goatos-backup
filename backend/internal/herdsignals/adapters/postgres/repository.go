@@ -531,6 +531,22 @@ func (r *Repository) updateTagLatest(ctx context.Context, tx pgx.Tx, tenantID, t
 		    -- joins to decide whether a number may be attributed to an animal. Assigned, not
 		    -- COALESCEd: an UNMAP must be able to push this back to NULL.
 		    animal_monitoring_since = $30,
+		    -- Risk fast path (000402): a classified tag whose movement or pattern state changed,
+		    -- or whose 15m motion crossed the far-below-own-baseline line (motion <= 30% of the
+		    -- baseline window, i.e. pct <= -70, against the baseline it was last scored on), is
+		    -- due for re-classification NOW rather than after its re-evaluation floor. Set just
+		    -- below this packet's last_seen_at so the queue predicate (last_seen_at >
+		    -- risk_due_at) picks it up on the next tick.
+		    risk_due_at = CASE
+		      WHEN public.herd_signal_tag_latest.risk_evaluated_at IS NOT NULL AND (
+		           public.herd_signal_tag_latest.movement_state IS DISTINCT FROM $24
+		        OR public.herd_signal_tag_latest.pattern_state IS DISTINCT FROM $25
+		        OR (public.herd_signal_tag_latest.risk_baseline_delta > 0
+		            AND (public.herd_signal_tag_latest.motion_delta::float8 <= 0.3 * public.herd_signal_tag_latest.risk_baseline_delta::float8 * ($23::float8 / 300))
+		                IS DISTINCT FROM ($19::bigint::float8 <= 0.3 * public.herd_signal_tag_latest.risk_baseline_delta::float8 * ($23::float8 / 300))))
+		      THEN $6::timestamptz - interval '1 millisecond'
+		      ELSE public.herd_signal_tag_latest.risk_due_at
+		    END,
 		    updated_at = now()
 	`,
 		tenantID, tagID, latestPkt.TagMAC, latestPkt.GatewayID, latestPkt.Source, latestPkt.ReceivedAt,

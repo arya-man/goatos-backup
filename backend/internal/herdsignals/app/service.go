@@ -23,6 +23,7 @@ type Service struct {
 	thresholds domain.Thresholds
 	summaries  *liveCohortCache[domain.Summary]
 
+	riskFloor   time.Duration // re-evaluation floor (riskReevaluationFloor; tests may shorten)
 	penMedianMu sync.Mutex
 	penMedianAt map[string]time.Time // last live pen-median aggregate per tenant (classifier)
 }
@@ -38,6 +39,7 @@ func NewService(repo ports.Repository, log ...*slog.Logger) *Service {
 		log:        l,
 		thresholds: domain.DefaultThresholds(),
 		summaries:  newLiveCohortCache[domain.Summary](),
+		riskFloor:  riskReevaluationFloor,
 	}
 }
 

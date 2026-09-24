@@ -3,11 +3,11 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/vgoats/goatos/backend/internal/herdsignals/domain"
 	"github.com/vgoats/goatos/backend/internal/herdsignals/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 )
@@ -19,19 +19,18 @@ const riskClassifierLockClass int32 = 0x48535249 // "HSRI"
 
 const riskTryLockSQL = `SELECT pg_try_advisory_xact_lock($1::int4, hashtext($2::text))`
 
-// riskMinReevaluation is the minimum interval between two classifications of one tag driven by
-// new packets alone: a live tag reports every few seconds, so without it every tick would
-// re-classify the whole herd. Pen-median moves and staleness still re-queue immediately.
-// Jittered to 2.5-7.5 min so a herd classified together (first pass, pen move) spreads out
-// instead of coming due as one wave every 5 minutes.
-const riskMinReevaluation = "(interval '150 seconds' + random() * interval '300 seconds')"
+// Re-evaluation floor: after a classification, new packets alone re-queue a tag only after
+// risk_due_at = now() + a per-tag deterministic offset in [floor/2, 3*floor/2) (hash of tag_id),
+// so a herd classified together spreads out instead of coming due as one wave. Ingest pulls
+// risk_due_at forward immediately when movement/pattern changes or motion crosses the
+// far-below-own-baseline line (repository.go updateTagLatest), and pen-median moves and
+// staleness re-queue regardless.
+const riskDueOffsetExpr = `make_interval(secs => $2::float8 / 2 + ((hashtext(tl.tag_id) & 2147483647) % 1000) / 1000.0 * $2::float8)`
 
-// riskQueueBatchSQL picks the change-driven work: never classified, queued, or reporting again
-// after risk_due_at (herd_signal_tag_latest_risk_dirty_idx), plus tags that went stale since their last
-// evaluation (their pattern turned 'missing' without any new packet; bounded to the last 3h of
-// last_seen via the (tenant_id, last_seen_at) index).
-var riskQueueBatchSQL = `
-	WITH picked AS (
+// riskPickQueueSQL picks change-driven work WITHOUT row locks: never classified / queued, or
+// reporting after risk_due_at (herd_signal_tag_latest_risk_dirty_idx), plus tags that went stale
+// since their last evaluation (bounded to 3h of last_seen via (tenant_id, last_seen_at)).
+var riskPickQueueSQL = `
 		(SELECT tag_id FROM public.herd_signal_tag_latest
 		 WHERE tenant_id = $1 AND (risk_evaluated_at IS NULL OR last_seen_at > risk_due_at)
 		 ORDER BY tag_id LIMIT $2)
@@ -41,33 +40,102 @@ var riskQueueBatchSQL = `
 		   AND last_seen_at < now() - ` + staleAfterInterval + `
 		   AND last_seen_at > now() - interval '3 hours'
 		   AND risk_evaluated_at < last_seen_at + ` + staleAfterInterval + `
-		 LIMIT $2)
+		 ORDER BY tag_id LIMIT $2)`
+
+// riskPickAgingSQL is the hourly backstop: the oldest evaluations older than an hour.
+var riskPickAgingSQL = `
+		SELECT tag_id FROM public.herd_signal_tag_latest
+		WHERE tenant_id = $1 AND risk_evaluated_at IS NOT NULL
+		  AND risk_evaluated_at < now() - interval '1 hour'
+		ORDER BY risk_evaluated_at, tag_id LIMIT $2`
+
+// riskScoreSQL (%s = pick query) scores the picked batch in ONE set-based read, without row
+// locks. It is the classifier: a line-for-line SQL form of app.applyRiskSignals (proved equal by
+// TestPersistedRiskMatchesInMemoryClassification) over the stored pen medians
+// (herd_signal_pen_medians, pen = shed + the partition the animal resides in) and each tag's
+// 24h p75 own baseline (exactly GetBaselineDeltas' predicate).
+// projection-review: membership=the picked batch of herd_signal_tag_latest rows (queue or aging pick, one tenant) and, per tag, its herd_signal_activity_windows in the rolling 24h 300s tier since animal_monitoring_since; group_key=tag_id for the per-tag p75 (LATERAL, one row per tag) and pen key shed_id#partition_key for the stored pen medians; join_cardinality=tagLocationJoin is LATERAL LIMIT 1, goat_shed_partitions joins on its (tenant_id, goat_id) key and herd_signal_pen_medians on its primary key, so each picked tag yields exactly one row; pagination=bounded batch of riskBatchSize tags, never a page-local count shown as a total; scope=tenant_id
+var riskScoreSQL = `
+	WITH picked AS (%s),
+	src AS (
+		SELECT tl.tag_id, tl.last_seen_at, tl.motion_delta::float8 AS md, tl.gap_delta AS gap,
+		       tl.motion_window_seconds AS mws, tl.tag_temperature_c::float8 AS temp,
+		       ` + effectivePatternStateExpr + ` AS pat,
+		       (tl.temperature_sensor_ok IS FALSE OR tl.accelerometer_sensor_ok IS FALSE) AS sensor_bad,
+		       CASE WHEN tl.mapping_state = 'mapped' AND g.shed_id IS NOT NULL
+		            THEN g.shed_id::text || '#' || ` + penPartitionKeyExpr + ` END AS pen,
+		       bl.baseline
+		FROM picked
+		JOIN public.herd_signal_tag_latest tl ON tl.tenant_id = $1 AND tl.tag_id = picked.tag_id
+		` + tagLocationJoin + penPartitionJoin + `
+		LEFT JOIN LATERAL (
+			SELECT percentile_disc(0.75) WITHIN GROUP (ORDER BY w.motion_delta) AS baseline
+			FROM public.herd_signal_activity_windows w
+			WHERE w.tenant_id = $1 AND w.tag_id = tl.tag_id
+			  AND w.bucket_seconds = 300 AND w.packet_count > 0 AND w.gap_delta = false
+			  AND w.bucket_start >= now() - interval '24 hours'
+			  AND tl.animal_monitoring_since IS NOT NULL
+			  AND w.bucket_start >= tl.animal_monitoring_since
+		) bl ON true
+	),
+	calc AS (
+		SELECT src.*, pm.shed_id IS NOT NULL AS has_pen, pm.motion_median AS mm, pm.temp_median AS tm,
+		       CASE WHEN src.md IS NOT NULL AND src.baseline > 0 AND NOT src.gap
+		            THEN (src.md - bw.v) / bw.v * 100 END AS own_pct
+		FROM src
+		LEFT JOIN public.herd_signal_pen_medians pm
+		       ON pm.tenant_id = $1 AND (pm.shed_id::text || '#' || pm.partition_key) = src.pen
+		CROSS JOIN LATERAL (
+			SELECT CASE WHEN src.mws > 0 THEN src.baseline::float8 * (src.mws::float8 / 300)
+			            ELSE src.baseline::float8 * 3 END AS v
+		) bw
+	),
+	parts AS (
+		SELECT calc.*,
+		       CASE WHEN has_pen AND md IS NOT NULL AND mm > 0 AND NOT gap THEN (md - mm) / mm * 100 END AS group_pct,
+		       CASE WHEN has_pen AND temp IS NOT NULL AND tm IS NOT NULL THEN temp - tm END AS temp_delta
+		FROM calc
+	),
+	scored AS (
+		SELECT parts.*,
+		       CASE WHEN own_pct <= -70 THEN 'motion far below own baseline'
+		            WHEN own_pct >= 150 THEN 'motion spike vs own baseline' END AS r_own,
+		       CASE WHEN group_pct <= -70 THEN 'motion lower than pen group' END AS r_group,
+		       CASE WHEN temp_delta >= 1.5 THEN 'tag temperature high vs pen group' END AS r_temp,
+		       CASE WHEN pat IN ('inactive', 'missing') THEN 'persistent abnormal activity'
+		            WHEN pat IN ('quiet_watch', 'spike') THEN 'activity pattern needs watch' END AS r_pat,
+		       CASE WHEN sensor_bad THEN 'sensor abnormal' END AS r_sensor,
+		       (CASE WHEN own_pct <= -70 THEN 2 WHEN own_pct >= 150 THEN 1 ELSE 0 END
+		        + CASE WHEN group_pct <= -70 THEN 1 ELSE 0 END
+		        + CASE WHEN temp_delta >= 1.5 THEN 1 ELSE 0 END
+		        + CASE WHEN pat IN ('inactive', 'missing') THEN 2 WHEN pat IN ('quiet_watch', 'spike') THEN 1 ELSE 0 END
+		        + CASE WHEN sensor_bad THEN 1 ELSE 0 END) AS score
+		FROM parts
 	)
-	SELECT ` + tagLatestColumns + `
-	FROM public.herd_signal_tag_latest tl
-	WHERE tl.tenant_id = $1 AND tl.tag_id IN (SELECT tag_id FROM picked)
-	ORDER BY tl.tag_id
-	LIMIT $2
-	FOR UPDATE OF tl SKIP LOCKED
+	SELECT tag_id, last_seen_at,
+	       CASE WHEN score >= 3 THEN 'high' WHEN score = 2 THEN 'watch' WHEN score = 1 THEN 'low' END,
+	       score,
+	       CASE WHEN score > 0 THEN array_remove(ARRAY[r_own, r_group, r_temp, r_pat, r_sensor], NULL) ELSE '{}' END,
+	       own_pct, group_pct, temp_delta, baseline
+	FROM scored
+	ORDER BY tag_id
 `
 
-// riskAgingBatchSQL is the hourly backstop: the oldest evaluations older than an hour
-// (herd_signal_tag_latest_risk_evaluated_idx), catching slow drifts such as the 24h baseline.
-var riskAgingBatchSQL = `
-	SELECT ` + tagLatestColumns + `
-	FROM public.herd_signal_tag_latest tl
-	WHERE tl.tenant_id = $1 AND tl.risk_evaluated_at IS NOT NULL
-	  AND tl.risk_evaluated_at < now() - interval '1 hour'
-	ORDER BY tl.risk_evaluated_at
-	LIMIT $2
-	FOR UPDATE OF tl SKIP LOCKED
-`
-
-// writeTagRiskSQL writes a whole batch set-based. risk_evaluated_at is set on EVERY evaluated
-// row (so it leaves the queue); changed reports whether the visible classification moved.
-// risk_evaluated_at = the transaction's start (now()): a packet that lands after the batch was
-// read waits on the row lock and then advances last_seen_at past it, re-queueing the tag.
+// writeTagRiskSQL writes a scored batch set-based with an optimistic guard: a row is written
+// only if its last_seen_at is still the one that was scored and nobody holds it (SKIP LOCKED --
+// the classifier never waits on ingest). A tag that reported meanwhile is not written and stays
+// queued. risk_evaluated_at is set on EVERY written row; changed reports whether the visible
+// classification moved.
 var writeTagRiskSQL = `
+	WITH u AS (
+		SELECT * FROM unnest($3::text[], $4::timestamptz[], $5::text[], $6::int[], $7::text[], $8::float8[], $9::float8[], $10::float8[], $11::bigint[])
+		       AS u(tag_id, seen, risk_state, risk_score, risk_reasons, own_pct, group_pct, temp_delta, baseline)
+	),
+	lockable AS (
+		SELECT tl.tag_id FROM public.herd_signal_tag_latest tl JOIN u ON u.tag_id = tl.tag_id
+		WHERE tl.tenant_id = $1 AND tl.last_seen_at = u.seen
+		FOR UPDATE OF tl SKIP LOCKED
+	)
 	UPDATE public.herd_signal_tag_latest tl
 	SET risk_state = u.risk_state,
 	    risk_score = u.risk_score,
@@ -75,12 +143,14 @@ var writeTagRiskSQL = `
 	    risk_own_motion_delta_pct = u.own_pct,
 	    risk_group_motion_delta_pct = u.group_pct,
 	    risk_group_temp_delta_c = u.temp_delta,
+	    risk_baseline_delta = u.baseline,
 	    risk_evaluated_at = now(),
-	    risk_due_at = now() + ` + riskMinReevaluation + `
-	FROM unnest($2::text[], $3::text[], $4::int[], $5::text[], $6::float8[], $7::float8[], $8::float8[])
-	       AS u(tag_id, risk_state, risk_score, risk_reasons, own_pct, group_pct, temp_delta)
+	    risk_due_at = now() + ` + riskDueOffsetExpr + `
+	FROM u
 	JOIN public.herd_signal_tag_latest prev ON prev.tenant_id = $1 AND prev.tag_id = u.tag_id
 	WHERE tl.tenant_id = $1 AND tl.tag_id = u.tag_id
+	  AND tl.tag_id IN (SELECT tag_id FROM lockable)
+	  AND tl.last_seen_at = u.seen
 	RETURNING (prev.risk_evaluated_at IS NULL
 	        OR prev.risk_state IS DISTINCT FROM u.risk_state
 	        OR prev.risk_reasons IS DISTINCT FROM COALESCE(string_to_array(NULLIF(u.risk_reasons, ''), '|'), '{}'))
@@ -93,7 +163,14 @@ func (r *Repository) tryTenantRiskLock(ctx context.Context, tx pgx.Tx, tenantID 
 	return got, err
 }
 
-func (r *Repository) ClassifyRiskBatch(ctx context.Context, tenantID string, mode ports.RiskBatchMode, limit int, classify func(ctx context.Context, tags []domain.TagLatest) ([]ports.TagRisk, error)) (ports.RiskBatchResult, error) {
+// riskBatchScoredHook runs between scoring and writing; tests use it to prove ingest is not
+// blocked mid-batch. nil in production.
+var riskBatchScoredHook func()
+
+// ClassifyRiskBatch: one short transaction holding only the tenant's advisory xact lock (one
+// pool connection, no row locks while scoring): pick + score the batch in one set-based read,
+// then write it with the optimistic guard.
+func (r *Repository) ClassifyRiskBatch(ctx context.Context, tenantID string, mode ports.RiskBatchMode, limit int, floor time.Duration) (ports.RiskBatchResult, error) {
 	var res ports.RiskBatchResult
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
@@ -103,50 +180,53 @@ func (r *Repository) ClassifyRiskBatch(ctx context.Context, tenantID string, mod
 	if res.Locked, err = r.tryTenantRiskLock(ctx, tx, tenantID); err != nil || !res.Locked {
 		return res, err
 	}
-	pick := riskQueueBatchSQL
+	pick := riskPickQueueSQL
 	if mode == ports.RiskBatchAging {
-		pick = riskAgingBatchSQL
+		pick = riskPickAgingSQL
 	}
-	q := sqlbind.MustBind(pick, tenantID, limit)
+	q := sqlbind.MustBind(fmt.Sprintf(riskScoreSQL, pick), tenantID, limit)
 	rows, err := tx.Query(ctx, q.SQL(), q.Args()...)
 	if err != nil {
-		return res, fmt.Errorf("pick risk batch: %w", err)
+		return res, fmt.Errorf("score risk batch: %w", err)
 	}
-	tags := make([]domain.TagLatest, 0, limit)
+	var (
+		tagIDs, reasons  []string
+		seen             []time.Time
+		states           []*string
+		scores           []int32
+		own, group, temp []*float64
+		baselines        []*int64
+	)
 	for rows.Next() {
-		tag, err := scanTagLatest(rows)
-		if err != nil {
+		var (
+			tagID    string
+			at       time.Time
+			state    *string
+			score    int32
+			rs       []string
+			o, g, tp *float64
+			b        *int64
+		)
+		if err := rows.Scan(&tagID, &at, &state, &score, &rs, &o, &g, &tp, &b); err != nil {
 			rows.Close()
 			return res, err
 		}
-		tags = append(tags, tag)
+		tagIDs, seen, states, scores = append(tagIDs, tagID), append(seen, at), append(states, state), append(scores, score)
+		reasons = append(reasons, strings.Join(rs, "|"))
+		own, group, temp, baselines = append(own, o), append(group, g), append(temp, tp), append(baselines, b)
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
 		return res, err
 	}
-	if len(tags) == 0 {
+	res.Picked = len(tagIDs)
+	if res.Picked == 0 {
 		return res, tx.Commit(ctx)
 	}
-	risks, err := classify(ctx, tags)
-	if err != nil {
-		return res, err
+	if riskBatchScoredHook != nil {
+		riskBatchScoredHook()
 	}
-	n := len(risks)
-	tagIDs, states, reasons := make([]string, n), make([]*string, n), make([]string, n)
-	scores := make([]int32, n)
-	own, group, temp := make([]*float64, n), make([]*float64, n), make([]*float64, n)
-	for i, rk := range risks {
-		tagIDs[i], states[i], scores[i] = rk.TagID, rk.State, int32(rk.Score)
-		own[i], group[i], temp[i] = rk.OwnMotionPct, rk.GroupMotionPct, rk.GroupTempDeltaC
-		for j, reason := range rk.Reasons {
-			if j > 0 {
-				reasons[i] += "|"
-			}
-			reasons[i] += reason
-		}
-	}
-	w := sqlbind.MustBind(writeTagRiskSQL, tenantID, tagIDs, states, scores, reasons, own, group, temp)
+	w := sqlbind.MustBind(writeTagRiskSQL, tenantID, floor.Seconds(), tagIDs, seen, states, scores, reasons, own, group, temp, baselines)
 	wrows, err := tx.Query(ctx, w.SQL(), w.Args()...)
 	if err != nil {
 		return res, fmt.Errorf("write risk batch: %w", err)
