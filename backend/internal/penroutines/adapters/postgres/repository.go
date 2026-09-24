@@ -700,46 +700,50 @@ func (r *Repository) ListForPark(ctx context.Context, p ports.ParkListParams) (p
 		cursor = &v
 	}
 	query := fmt.Sprintf(`SELECT %s %s WHERE %s AND ($5::uuid IS NULL OR t.task_id > $5::uuid) ORDER BY t.task_id LIMIT %d`, taskColumns, taskFrom, parkDayPredicate, limit+1)
-	rows, err := r.pool.Query(ctx, query, p.TenantID, p.ParkID, p.BusinessDate, routine, cursor)
-	if err != nil {
+	// The page and its whole-filter summary share the predicate but not each other's result, so
+	// they ride ONE pgx.Batch: one round trip (P10).
+	page := ports.ParkPage{}
+	var out []domain.Task
+	batch := &pgx.Batch{}
+	batch.Queue(query, p.TenantID, p.ParkID, p.BusinessDate, routine, cursor).Query(func(rows pgx.Rows) error {
+		var err error
+		out, err = scanTasks(rows)
+		return err
+	})
+	batch.Queue(sqlRepository11, p.TenantID, p.ParkID, p.BusinessDate, routine).Query(func(sRows pgx.Rows) error {
+		for sRows.Next() {
+			var workState, status string
+			var n int
+			if err := sRows.Scan(&workState, &status, &n); err != nil {
+				return err
+			}
+			switch {
+			case status == domain.StatusPendingVerification:
+				page.Summary.InReview += n
+			case status == domain.StatusRework:
+				page.Summary.SentBack += n
+			case workState == domain.WorkStateCompleted:
+				page.Summary.Done += n
+			case workState == domain.WorkStateDelayed:
+				page.Summary.Delayed += n
+			case workState == domain.WorkStateScheduled:
+				page.Summary.Due += n
+			}
+		}
+		if err := sRows.Err(); err != nil {
+			return fmt.Errorf("pen routine: park summary: %w", err)
+		}
+		return nil
+	})
+	if err := r.pool.SendBatch(ctx, batch).Close(); err != nil {
 		return ports.ParkPage{}, fmt.Errorf("pen routine: park list: %w", err)
 	}
-	out, err := scanTasks(rows)
-	rows.Close()
-	if err != nil {
-		return ports.ParkPage{}, err
-	}
-	page := ports.ParkPage{}
 	if len(out) > limit {
 		out = out[:limit]
 		page.NextCursor = out[len(out)-1].TaskID
 	}
 	page.Rows = out
-	sRows, err := r.pool.Query(ctx, sqlRepository11, p.TenantID, p.ParkID, p.BusinessDate, routine)
-	if err != nil {
-		return ports.ParkPage{}, fmt.Errorf("pen routine: park summary: %w", err)
-	}
-	defer sRows.Close()
-	for sRows.Next() {
-		var workState, status string
-		var n int
-		if err := sRows.Scan(&workState, &status, &n); err != nil {
-			return ports.ParkPage{}, err
-		}
-		switch {
-		case status == domain.StatusPendingVerification:
-			page.Summary.InReview += n
-		case status == domain.StatusRework:
-			page.Summary.SentBack += n
-		case workState == domain.WorkStateCompleted:
-			page.Summary.Done += n
-		case workState == domain.WorkStateDelayed:
-			page.Summary.Delayed += n
-		case workState == domain.WorkStateScheduled:
-			page.Summary.Due += n
-		}
-	}
-	return page, sRows.Err()
+	return page, nil
 }
 
 // DueDigests reads the open tasks due on dueDate, folded per routine, for the day's push.

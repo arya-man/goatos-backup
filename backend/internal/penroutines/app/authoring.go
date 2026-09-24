@@ -45,11 +45,7 @@ func (s *AuthoringService) List(ctx context.Context, tenantID, parkID string) ([
 	if parkID != "" && !uuidutil.IsUUIDString(parkID) {
 		return nil, nil, ports.ErrInvalidArgument
 	}
-	rows, err := s.repo.ListRoutines(ctx, ports.RoutineListParams{TenantID: tenantID, ParkID: parkID, Today: s.Today()})
-	if err != nil {
-		return nil, nil, err
-	}
-	parks, err := s.repo.ListParks(ctx, tenantID)
+	rows, parks, err := s.repo.ListRoutinesAndParks(ctx, ports.RoutineListParams{TenantID: tenantID, ParkID: parkID, Today: s.Today()})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -69,11 +65,7 @@ func (s *AuthoringService) Catalog(ctx context.Context, tenantID, parkID string)
 	if !uuidutil.IsUUIDString(parkID) {
 		return Catalog{}, ports.ErrInvalidArgument
 	}
-	pens, err := s.repo.CatalogPens(ctx, tenantID, parkID)
-	if err != nil {
-		return Catalog{}, err
-	}
-	roles, err := s.repo.RoleHoldersForPark(ctx, tenantID, parkID)
+	pens, roles, err := s.repo.Catalog(ctx, tenantID, parkID)
 	if err != nil {
 		return Catalog{}, err
 	}
