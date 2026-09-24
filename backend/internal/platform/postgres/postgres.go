@@ -19,6 +19,15 @@ type Config struct {
 	MinConns       int32
 	ConnectTimeout time.Duration
 	QueryTimeout   time.Duration
+	// AuthMaxConns sizes the dedicated pool that login/auth-session writes use
+	// (GOATOS_PG_AUTH_MAX_CONNS, default 2). It exists so a burst of heavy reads
+	// that fills the main pool cannot starve POST /auth/session-events
+	// (goatos-stg incident 2026-09-24: 6-10s pool waits on a 40-100ms write).
+	AuthMaxConns int32
+	// AuthQueryTimeout bounds each auth-pool statement, pool acquire included
+	// (GOATOS_PG_AUTH_QUERY_TIMEOUT, default 3s), so a stuck auth pool fails
+	// fast instead of inheriting the main pool's longer read timeout.
+	AuthQueryTimeout time.Duration
 	// ApplicationName is set only by deployed services (ServiceApplicationName).
 	// Empty leaves the DSN/driver default, which the manual change audit records.
 	ApplicationName string
@@ -28,12 +37,39 @@ type Config struct {
 // committing secrets into repo config.
 func ConfigFromEnv() Config {
 	return Config{
-		DatabaseURL:    os.Getenv("DATABASE_URL"),
-		MaxConns:       envInt32("GOATOS_PG_MAX_CONNS", 10),
-		MinConns:       envInt32("GOATOS_PG_MIN_CONNS", 0),
-		ConnectTimeout: envDuration("GOATOS_PG_CONNECT_TIMEOUT", 5*time.Second),
-		QueryTimeout:   envDuration("GOATOS_PG_QUERY_TIMEOUT", 3*time.Second),
+		DatabaseURL:      os.Getenv("DATABASE_URL"),
+		MaxConns:         envInt32("GOATOS_PG_MAX_CONNS", 10),
+		MinConns:         envInt32("GOATOS_PG_MIN_CONNS", 0),
+		ConnectTimeout:   envDuration("GOATOS_PG_CONNECT_TIMEOUT", 5*time.Second),
+		QueryTimeout:     envDuration("GOATOS_PG_QUERY_TIMEOUT", 3*time.Second),
+		AuthMaxConns:     envInt32("GOATOS_PG_AUTH_MAX_CONNS", DefaultAuthMaxConns),
+		AuthQueryTimeout: envDuration("GOATOS_PG_AUTH_QUERY_TIMEOUT", DefaultAuthQueryTimeout),
 	}
+}
+
+const (
+	DefaultAuthMaxConns     int32 = 2
+	DefaultAuthQueryTimeout       = 3 * time.Second
+)
+
+// AuthPoolConfig derives the config of the dedicated auth pool from the main
+// pool config: same DSN, AuthMaxConns connections, no warm minimum, and an
+// application_name suffixed "-auth" so pg_stat_activity tells the two apart.
+func AuthPoolConfig(cfg Config) Config {
+	auth := cfg
+	auth.MaxConns = cfg.AuthMaxConns
+	if auth.MaxConns <= 0 {
+		auth.MaxConns = DefaultAuthMaxConns
+	}
+	auth.MinConns = 0
+	auth.QueryTimeout = cfg.AuthQueryTimeout
+	if auth.QueryTimeout <= 0 {
+		auth.QueryTimeout = DefaultAuthQueryTimeout
+	}
+	if cfg.ApplicationName != "" {
+		auth.ApplicationName = cfg.ApplicationName + "-auth"
+	}
+	return auth
 }
 
 // Connect opens and verifies a pgx pool.

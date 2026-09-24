@@ -1383,11 +1383,24 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		WithAnchorManager(vaccinationService)
 	passportService := passportapp.NewService(vaccinationService, obligationRepo, obligationRepo)
 	passportHandler := passporthttp.NewHandler(passportService, log)
-	authAuditRecorder := authaudit.NewPostgresRecorder(pool, cfg.Postgres.QueryTimeout)
-	authAuditOptions = append(authAuditOptions, authaudit.WithPendingEmailGrantClaimer(
-		permissionspg.NewPendingEmailGrantClaimer(pool, cfg.Postgres.QueryTimeout),
-	), authaudit.WithDynamicAllowedEmails(allowedEmailSource))
-	authAuditHandler := authaudit.NewHandler(verifier, authAuditRecorder, log, authAuditOptions...)
+	authPool, err := connectAuthPool(ctx, pgCfg, pool)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	if err := platformpg.RegisterNamedPoolMetrics(authPool, "auth"); err != nil && log != nil {
+		log.Warn("postgres_auth_pool_metrics_registration_failed", slog.String("error", err.Error()))
+	}
+	// Acquire-wait logging for both pools: silent unless an acquire had to wait.
+	pressureCtx, stopPressureLogs := context.WithCancel(context.Background())
+	platformpg.LogPoolAcquirePressure(pressureCtx, pool, "main", log, 30*time.Second)
+	platformpg.LogPoolAcquirePressure(pressureCtx, authPool, "auth", log, 30*time.Second)
+	closePools := func() {
+		stopPressureLogs()
+		authPool.Close()
+		pool.Close()
+	}
+	authAuditHandler := newAuthSessionHandler(authPool, cfg.Postgres, verifier, authAuditOptions, log)
 	// PER-PERSON ACCESS (maintainer decision 2026-08-24). From here a request's
 	// permissions come from the person's own stored module rows; the route rules are
 	// unchanged. A person with no rows yet still authorizes from their role, logged
@@ -1577,7 +1590,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		Server: server,
 		Close: func() {
 			cancelLiveNotify()
-			pool.Close()
+			closePools()
 		},
 	}, nil
 }
