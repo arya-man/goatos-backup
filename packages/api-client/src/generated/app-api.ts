@@ -11115,8 +11115,6 @@ export interface components {
             packing_day: string;
             target_kg: string;
             actual_kg: string;
-            /** @description What the sheet directed for ONLY the bags a verifier weighed that day, bag for bag, so the trend compares like with like; EMPTY when no bag was weighed. */
-            measured_target_kg: string;
             /** Format: int64 */
             variance_rows: number;
             /** Format: int64 */

@@ -169,14 +169,12 @@ type packingVarianceRowDTO struct {
 }
 
 type feedConsumptionTrendDayDTO struct {
-	FeedDay    string `json:"feed_day"`
-	PackingDay string `json:"packing_day"`
-	TargetKg   string `json:"target_kg"`
-	ActualKg   string `json:"actual_kg"`
-	// MeasuredTargetKg: directed kg for only the bags that were weighed; empty when none were.
-	MeasuredTargetKg string `json:"measured_target_kg"`
-	VarianceRows     int64  `json:"variance_rows"`
-	ComparedRows     int64  `json:"compared_rows"`
+	FeedDay      string `json:"feed_day"`
+	PackingDay   string `json:"packing_day"`
+	TargetKg     string `json:"target_kg"`
+	ActualKg     string `json:"actual_kg"`
+	VarianceRows int64  `json:"variance_rows"`
+	ComparedRows int64  `json:"compared_rows"`
 }
 
 type executionAnalyticsDTO struct {
@@ -348,13 +346,12 @@ func (h *Handler) GetExecutionAnalytics(w http.ResponseWriter, r *http.Request) 
 	dto.ConsumptionTrend = make([]feedConsumptionTrendDayDTO, 0, len(result.ConsumptionTrend))
 	for _, day := range result.ConsumptionTrend {
 		dto.ConsumptionTrend = append(dto.ConsumptionTrend, feedConsumptionTrendDayDTO{
-			FeedDay:          day.FeedDay,
-			PackingDay:       day.PackingDay,
-			TargetKg:         day.TargetKg,
-			ActualKg:         day.ActualKg,
-			MeasuredTargetKg: day.MeasuredTargetKg,
-			VarianceRows:     day.VarianceRows,
-			ComparedRows:     day.ComparedRows,
+			FeedDay:      day.FeedDay,
+			PackingDay:   day.PackingDay,
+			TargetKg:     day.TargetKg,
+			ActualKg:     day.ActualKg,
+			VarianceRows: day.VarianceRows,
+			ComparedRows: day.ComparedRows,
 		})
 	}
 	dto.CompletionDay = completionDayForDTO(result.CompletionDay, in.CompletionDay)

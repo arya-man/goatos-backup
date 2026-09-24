@@ -861,10 +861,7 @@ comparison AS (
            p.shed_id,
            p.partition_key,
            SUM(p.target_kg)       AS target_kg,
-           SUM(r.actual_kg)       AS actual_kg,
-           -- What the sheet directed for the bags a verifier actually weighed, bag for bag, so a
-           -- partly measured day compares like with like instead of reading as a shortfall.
-           SUM(p.target_kg) FILTER (WHERE r.actual_kg IS NOT NULL) AS measured_target_kg
+           SUM(r.actual_kg)       AS actual_kg
     FROM planned p
     LEFT JOIN readings r
       ON r.target_date = p.feed_day
@@ -880,7 +877,6 @@ SELECT feed_day::text,
        (feed_day - 1)::text AS packing_day,
        SUM(target_kg)::text,
        COALESCE(SUM(actual_kg)::text, '')                                   AS actual_kg,
-       COALESCE(SUM(measured_target_kg)::text, '')                          AS measured_target_kg,
        COUNT(*) FILTER (WHERE actual_kg IS NOT NULL AND abs(actual_kg - target_kg) > $5)::text,
        COUNT(*) FILTER (WHERE actual_kg IS NOT NULL)::text
 FROM comparison
@@ -1035,7 +1031,7 @@ func (r *Repository) ExecutionAnalytics(ctx context.Context, tenantID string, q 
 		for consRows.Next() {
 			var day domain.FeedConsumptionTrendDay
 			var varianceText, comparedText string
-			if err := consRows.Scan(&day.FeedDay, &day.PackingDay, &day.TargetKg, &day.ActualKg, &day.MeasuredTargetKg, &varianceText, &comparedText); err != nil {
+			if err := consRows.Scan(&day.FeedDay, &day.PackingDay, &day.TargetKg, &day.ActualKg, &varianceText, &comparedText); err != nil {
 				return nil, fmt.Errorf("feed analytics consumption trend scan: %w", err)
 			}
 			if _, err := fmt.Sscan(varianceText, &day.VarianceRows); err != nil {
