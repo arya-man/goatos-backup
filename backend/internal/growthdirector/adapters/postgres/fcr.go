@@ -351,19 +351,37 @@ feed_price AS (
     LIMIT 1
   ) price ON true
 ),
+-- THE PRICE IS ATTACHED TO THE FEED ROW BEFORE THE SEGMENT JOIN, not after it. feed_price is 1:1
+-- on (park_id, feed_item_key, feed_day) -- it is built from the DISTINCT of exactly that key -- so
+-- this LEFT JOIN neither multiplies nor drops a feed row, and seg_feed sees the same rows with the
+-- same per_kg it saw when the price was joined downstream. The order is the fix: joined after
+-- segments (a UNION ALL of window aggregates the planner estimates at ~2 rows), the price join
+-- ran as a NESTED LOOP of every in-segment feed row against every price row -- 16,922 x 649 =
+-- 11M join-filter comparisons, 1.7s of a 1.9s statement on the 2026-09-24 OCI clone, and the
+-- /growth-director/fcr 15s timeouts under a dashboard reload burst. Here both inputs carry real
+-- estimates (the feed sheet and its distinct keys), so the planner hashes them.
+-- projection-review: membership=every feed_rows row, unchanged; group_key=none here (seg_feed
+-- groups by the segment key as before); join_cardinality=feed_price is unique on (park_id,
+-- feed_item_key, feed_day) -- the DISTINCT of that key with a LIMIT 1 lateral -- so the LEFT JOIN is
+-- 1:0..1 per feed row; pagination=NONE, one bounded window read; scope=tenant + park ANY, the price
+-- joins on the feed row's own park_id so a load never prices another park's feed.
+priced_feed_rows AS MATERIALIZED (
+  SELECT fr.pen_shed_id, fr.pen_key, fr.feed_day, fr.quantity_kg, fp.per_kg
+  FROM feed_rows fr
+  LEFT JOIN feed_price fp
+    ON fp.park_id = fr.park_id AND fp.feed_item_key = fr.feed_item_key AND fp.feed_day = fr.feed_day
+),
 seg_feed AS (
   SELECT sg.pen_shed_id, sg.pen_key, sg.d_prev, sg.d,
          -- NEVER COALESCE quantity_kg: NULL is a blocked cell and stays out of the sum.
          sum(fr.quantity_kg) FILTER (WHERE fr.quantity_kg IS NOT NULL)::float8 AS feed_kg,
-         sum(fr.quantity_kg * fp.per_kg) FILTER (WHERE fr.quantity_kg IS NOT NULL AND fp.per_kg IS NOT NULL)::float8 AS feed_cost,
-         COALESCE(sum(fr.quantity_kg) FILTER (WHERE fr.quantity_kg IS NOT NULL AND fp.per_kg IS NULL), 0)::float8 AS unpriced_kg,
+         sum(fr.quantity_kg * fr.per_kg) FILTER (WHERE fr.quantity_kg IS NOT NULL AND fr.per_kg IS NOT NULL)::float8 AS feed_cost,
+         COALESCE(sum(fr.quantity_kg) FILTER (WHERE fr.quantity_kg IS NOT NULL AND fr.per_kg IS NULL), 0)::float8 AS unpriced_kg,
          count(*) FILTER (WHERE fr.quantity_kg IS NULL AND fr.feed_day IS NOT NULL)::int AS blocked_cells
   FROM segments sg
-  LEFT JOIN feed_rows fr
+  LEFT JOIN priced_feed_rows fr
     ON fr.pen_shed_id = sg.pen_shed_id AND fr.pen_key = sg.pen_key
    AND fr.feed_day >= sg.d_prev AND fr.feed_day < sg.d
-  LEFT JOIN feed_price fp
-    ON fp.park_id = fr.park_id AND fp.feed_item_key = fr.feed_item_key AND fp.feed_day = fr.feed_day
   GROUP BY sg.pen_shed_id, sg.pen_key, sg.d_prev, sg.d
 ),
 seg_heads AS (
