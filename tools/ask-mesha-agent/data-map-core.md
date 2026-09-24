@@ -88,3 +88,4 @@ Before saying "not recorded"/"none": search table names + information_schema.col
 "not recorded" after that search finds nothing; say which park/pen/status you did find (e.g. "all Castro CBE tasks were cancelled").
 - Who changed/corrected a record: public.audit_log WHERE resource_id = <record id> (action e.g. pc_care.task.canceled / sales.deal.payment_record), actor_id -> workforce_members.user_id for the name; always name them in the first answer.
 - When advance_amount equals the ledger total and both are counted, state it as a double count (not "possible").
+- Pen shorthand: G1P3 / G2P1 = Godel 1 Part 3 / Godel 2 Part 1 (locations name "Godel N - Part M"); C1/C2/C3 = Castro 1/2/3. Castro and Godel exist in BOTH parks (CBE = Coimbatore, CPT = Channapatna): split by park unless named.
