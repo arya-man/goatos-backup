@@ -599,7 +599,6 @@ export async function FeedAnalyticsPage({
           stock={stock?.ok ? stock.data : null}
           stockOnly={stockOnly}
           spendMode={spendMode}
-          searchParams={searchParams}
           pageContract={pageContract}
         />
       ) : null}
@@ -863,7 +862,6 @@ function DirectedTabs({
   tab,
   range,
   spendMode,
-  searchParams,
   data,
   execution,
   stock,
@@ -873,7 +871,6 @@ function DirectedTabs({
   tab: Tab;
   range: Range;
   spendMode: SpendMode;
-  searchParams: RouteSearchParams;
   data: FeedAnalyticsDirectedResponse;
   execution: FeedAnalyticsExecutionResponse | null;
   stock: FeedAnalyticsStockResponse | null;
@@ -1342,21 +1339,6 @@ function ExecutionTab({
   }));
   // Series colours must match the legend order above — verified is the brand
   // slot, awaiting the amber slot, rework the danger slot.
-  const consumptionDayLabels = data.consumption_trend.map((d) => d.packing_day);
-  const consumptionSeries: LineSeries[] = [
-    {
-      label: fa(pageContract, "col.consumption.target"),
-      colorVar: FEED_SERIES_VARS[0],
-      points: data.consumption_trend.map((d) => num(d.target_kg)),
-    },
-    {
-      // A day nobody has verified yet carries an EMPTY actual, which draws a gap. Reading it as 0
-      // would plot a plunge to the axis and look like the farm fed nothing that day.
-      label: fa(pageContract, "col.consumption.actual"),
-      colorVar: FEED_SERIES_VARS[4],
-      points: data.consumption_trend.map((d) => (d.actual_kg === "" ? null : num(d.actual_kg))),
-    },
-  ];
   return (
     <>
       <section className="grid g4 kpi-row feed-analytics-kpis" aria-label={fa(pageContract, "chart.execution.title")}>
@@ -1526,25 +1508,9 @@ function ExecutionTab({
           hrefForLimit={(next) => feedHref(PAGE_PATH, variance.searchParams, "fav_limit", String(next))}
         />
         )}
-        {/* The trend belongs UNDER this table (maintainer decision 2026-08-23): the table is one
-            day's outliers, the graph is how packed-vs-given has run over the page's window, so the
-            reader sees whether today's mismatches are an exception or a pattern. It follows the
-            page range (30 days by default) and the top-bar park scope, NOT the table's own day. */}
-        <div className="feed-consumption-trend">
-          <h4 className="feed-subhead">{fa(pageContract, "consumption.trend.title")}</h4>
-          <p className="muted small">{fa(pageContract, "consumption.trend.hint")}</p>
-          <ChartHover>
-            <FeedLines
-              hideZeroInTip
-              series={consumptionSeries}
-              dayLabels={consumptionDayLabels}
-              valueNoun={fa(pageContract, "unit.kg")}
-              chartLabel={fa(pageContract, "consumption.trend.title")}
-              emptyLabel={fa(pageContract, "consumption.empty")}
-            />
-          </ChartHover>
-          <FeedChartLegend entries={consumptionSeries.map((c) => ({ label: c.label, colorVar: c.colorVar }))} />
-        </div>
+        {/* The packed-vs-given trend that sat here was removed (maintainer request 2026-09-24):
+            it compared the whole sheet with only the bags a verifier weighed and read as feed going
+            missing. The table above answers the day; nothing below it re-plots the window. */}
       </section>
       {/* The completion table sits UNDER everything else on this tab (maintainer ask): the charts
           answer "how is adherence trending", this answers "who did not upload yesterday". */}
