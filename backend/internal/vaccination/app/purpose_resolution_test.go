@@ -304,3 +304,25 @@ func TestGenerateSkipsGuardRejectedVaccineOnly(t *testing.T) {
 		t.Fatal("non-guard errors must not be skipped")
 	}
 }
+
+// The deferred missing_due_date placeholder insert gets the same per-vaccine skip; other errors
+// still propagate.
+func TestGenMissingDueDateObligationSkipsGuardRejection(t *testing.T) {
+	ctx := context.Background()
+	asOf := time.Date(2026, time.June, 1, 0, 0, 0, 0, time.UTC)
+	rule := protodomain.Rule{RuleID: "rule-cal", DoseCode: "dose-cal", Sequence: 1, TriggerType: "calendar"}
+	goat := domain.EligibleGoat{GoatID: "kid", LifecycleStatus: "alive", Stage: "K1", ParkID: "p", ShedID: "s"}
+	obl := &guardRejectingObligationFake{generationObligationFake: &generationObligationFake{seen: map[string]bool{}}, rejectRule: "rule-cal", err: oblports.ErrVaccinationNotApplicable}
+	gen := NewGenerationService(&generationProtoFake{}, &generationGoatFake{}, obl)
+	var res domain.GenerateResult
+	if err := gen.genMissingDueDateObligation(ctx, "00000000-0000-0000-0000-000000000001", "version-1", rule, "ET_TT", goat, asOf, &res); err != nil {
+		t.Fatalf("guard rejection must be skipped, got %v", err)
+	}
+	if res.GuardRejected != 1 || res.Generated != 0 || len(obl.inserted) != 0 {
+		t.Fatalf("res=%#v inserted=%#v, want one guard rejection and no placeholder", res, obl.inserted)
+	}
+	obl.err = errors.New("boom")
+	if err := gen.genMissingDueDateObligation(ctx, "00000000-0000-0000-0000-000000000001", "version-1", rule, "ET_TT", goat, asOf, &res); err == nil {
+		t.Fatal("non-guard insert errors must still propagate")
+	}
+}

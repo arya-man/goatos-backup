@@ -156,6 +156,7 @@ type manualCampaignRunResponse struct {
 	ResultFailedGoats                int        `json:"result_failed_goats"`
 	ResultSkippedNoDueDate           int        `json:"result_skipped_no_due_date"`
 	ResultSuppressedByTrustedHistory int        `json:"result_suppressed_by_trusted_history"`
+	ResultGuardRejected              int        `json:"result_guard_rejected"`
 }
 
 type anchorRequest struct {
@@ -348,6 +349,7 @@ func (h *Handler) RunManualCampaign(w http.ResponseWriter, r *http.Request) {
 		ResultFailedGoats:                result.FailedGoats,
 		ResultSkippedNoDueDate:           result.SkippedNoDueDate,
 		ResultSuppressedByTrustedHistory: result.SuppressedByTrustedHistory,
+		ResultGuardRejected:              result.GuardRejected,
 	})
 }
 

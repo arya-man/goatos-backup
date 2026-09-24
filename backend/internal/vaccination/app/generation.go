@@ -2585,6 +2585,10 @@ func (s *GenerationService) genMissingDueDateObligation(ctx context.Context, ten
 		Sequence:        rule.Sequence,
 	})
 	if err != nil {
+		// The caller moves on to the next rule; a guard refusal skips only this placeholder.
+		if skipGuardRejectedVaccine(err, tenantID, g, rule, res) {
+			return nil
+		}
 		return err
 	}
 	if !applied {
