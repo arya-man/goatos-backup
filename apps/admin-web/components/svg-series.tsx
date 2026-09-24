@@ -87,12 +87,18 @@ export type StackedDay = {
 export function StackedColumns({
   days,
   seriesLabels,
+  seriesColors,
+  hideZeroInTip = false,
   valueNoun,
   chartLabel,
   emptyLabel,
 }: {
   days: StackedDay[];
   seriesLabels: string[];
+  /** Fill per series, when the caller's legend owns the colours; defaults to the palette by index. */
+  seriesColors?: string[];
+  /** Leave a series out of a day's tooltip when its value that day is 0. */
+  hideZeroInTip?: boolean;
   valueNoun: string;
   chartLabel: string;
   emptyLabel: string;
@@ -149,8 +155,10 @@ export function StackedColumns({
         // Newline-separated: the ChartHover tooltip renders line 1 as the
         // header and every following line as its own list row.
         const tipText = [
-          d.label,
-          ...d.segments.map((v, s) => `${seriesLabels[s] ?? ""}  ${nf(v)} ${valueNoun}`),
+          fmtDay(d.label),
+          ...d.segments.flatMap((v, s) =>
+            hideZeroInTip && v === 0 ? [] : [`${seriesLabels[s] ?? ""}  ${nf(v)} ${valueNoun}`],
+          ),
         ].join("\n");
         return (
           <g key={d.key}>
@@ -165,7 +173,7 @@ export function StackedColumns({
                   width={barW}
                   height={Math.max(0.5, h - 1)}
                   rx={s === d.segments.length - 1 ? 2 : 0}
-                  fill={seriesColorVar(s)}
+                  fill={seriesColors?.[s] ?? seriesColorVar(s)}
                 />
               );
             })}
@@ -361,7 +369,7 @@ export function SeriesLines({
             width={stepX}
             height={BASELINE - PAD_TOP}
             fill="transparent"
-            data-tip={[day, ...parts].join("\n")}
+            data-tip={[fmtDay(day), ...parts].join("\n")}
           />
         );
       })}

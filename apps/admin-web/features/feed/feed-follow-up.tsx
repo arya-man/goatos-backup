@@ -40,21 +40,24 @@ function fa(pageContract: AdminUiPageContract, key: string): string {
   return copy(pageContract, key);
 }
 
-/** Worst first, then most recent: the lines to act on lead. */
-const STATUS_RANK: Record<string, number> = { not_followed: 0, pending: 1, followed: 2 };
-
+/**
+ * Newest change first, by the day the animals moved (maintainer request 2026-09-24: "sort using
+ * dates"). Ranking the unfollowed lines first put a 29/08 line above everything from September.
+ * Within a day, farm then pen, pens compared as numbers (Part 2 before Part 10).
+ */
 function linesOf(data: FeedAnalyticsFollowUpResponse): Line[] {
   const lines: Line[] = [];
   for (const pen of data.rows) {
     for (const check of pen.days) lines.push({ pen, check });
   }
   return lines.sort((a, b) => {
-    const rank = (STATUS_RANK[a.check.status] ?? 9) - (STATUS_RANK[b.check.status] ?? 9);
-    if (rank !== 0) return rank;
     if (a.check.event_date !== b.check.event_date) {
       return a.check.event_date < b.check.event_date ? 1 : -1;
     }
-    return a.pen.operational_location_display.localeCompare(b.pen.operational_location_display);
+    return (
+      a.pen.park_label.localeCompare(b.pen.park_label) ||
+      a.pen.operational_location_display.localeCompare(b.pen.operational_location_display, undefined, { numeric: true })
+    );
   });
 }
 
