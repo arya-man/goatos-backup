@@ -9,6 +9,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/penroutines/domain"
 	"github.com/vgoats/goatos/backend/internal/penroutines/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 )
 
 // ROLE RESOLUTION (2026-09-17 revision, docs/decisions/pen-routines.md): a routine is for ROLES,
@@ -103,22 +104,26 @@ var sqlRoutineAssignees = routineAssigneesSQL(`d.tenant_id = $1::uuid AND d.rout
 // for the routine ids; the list attaches by routine id and ignores any it did not read.
 var sqlRoutineAssigneesForScope = routineAssigneesSQL(`d.tenant_id = $1::uuid AND ($2::uuid IS NULL OR d.park_id = $2::uuid)`)
 
-func routineAssigneesSQL(where string) string {
-	return fmt.Sprintf(`
+// routineAssigneesSQLTemplate is the preview projection; %[1]s is the role-holder fragment,
+// %[2]d the per-routine bound and %[3]s the routine predicate over d.
+const routineAssigneesSQLTemplate = `
 SELECT d.routine_id::text, h.user_id, h.display_name, h.role
 FROM pen_routine_definitions d
 CROSS JOIN LATERAL (
   SELECT x.user_id, x.display_name, x.role
   FROM (
     SELECT DISTINCT ON (rg.user_id) rg.user_id::text AS user_id, COALESCE(rm.display_name, '') AS display_name, rg.role
-    %s
+    %[1]s
     ORDER BY rg.user_id, array_position($3::text[], rg.role)
   ) x
   ORDER BY x.display_name, x.user_id
-  LIMIT %d
+  LIMIT %[2]d
 ) h
-WHERE %s
-ORDER BY d.routine_id, h.display_name, h.user_id`, RoleHoldersFromSQL("d.tenant_id", "d.assignee_roles", "d.park_id"), maxPeoplePreview, where)
+WHERE %[3]s
+ORDER BY d.routine_id, h.display_name, h.user_id`
+
+func routineAssigneesSQL(where string) string {
+	return fmt.Sprintf(routineAssigneesSQLTemplate, RoleHoldersFromSQL("d.tenant_id", "d.assignee_roles", "d.park_id"), maxPeoplePreview, where)
 }
 
 // sqlRoleHoldersForPark answers, per assignable role ($3, in order), who holds it for one park.
@@ -149,7 +154,8 @@ func listRoutineAssignees(ctx context.Context, q querier, tenantID string, routi
 	if len(routineIDs) == 0 {
 		return map[string][]domain.Assignee{}, nil
 	}
-	rows, err := q.Query(ctx, sqlRoutineAssignees, tenantID, routineIDs, domain.AssignableRoles)
+	bound := sqlbind.MustBind(sqlRoutineAssignees, tenantID, routineIDs, domain.AssignableRoles)
+	rows, err := q.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return nil, fmt.Errorf("pen routine: routine assignees: %w", err)
 	}

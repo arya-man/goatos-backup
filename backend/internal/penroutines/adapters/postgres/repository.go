@@ -24,6 +24,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 )
 
 const (
@@ -233,7 +234,8 @@ func (r *Repository) ListMine(ctx context.Context, p ports.ListParams) (ports.Pa
 		where += fmt.Sprintf(" AND (t.due_business_date, t.task_id) < ($%d::date, $%d::uuid)", len(args)-1, len(args))
 	}
 	query := fmt.Sprintf(`SELECT %s %s WHERE %s ORDER BY t.due_business_date DESC, t.task_id DESC LIMIT %d`, taskColumns, taskFrom, where, limit+1)
-	rows, err := r.pool.Query(ctx, query, args...)
+	bound := sqlbind.MustBind(query, args...)
+	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return ports.Page{}, fmt.Errorf("pen routine: list: %w", err)
 	}
@@ -249,7 +251,8 @@ func (r *Repository) ListMine(ctx context.Context, p ports.ListParams) (ports.Pa
 		page.NextCursor = encodeCursor(last.DueDate, last.TaskID)
 	}
 	page.Rows = out
-	countRows, err := r.pool.Query(ctx, sqlRepository3, p.TenantID, p.UserID)
+	boundCounts := sqlbind.MustBind(sqlRepository3, p.TenantID, p.UserID)
+	countRows, err := r.pool.Query(ctx, boundCounts.SQL(), boundCounts.Args()...)
 	if err != nil {
 		return ports.Page{}, fmt.Errorf("pen routine: counts: %w", err)
 	}
@@ -294,7 +297,8 @@ func (r *Repository) getRow(ctx context.Context, q querier, tenantID, taskID str
 		lock = " FOR UPDATE OF t"
 	}
 	query := fmt.Sprintf(`SELECT %s %s WHERE t.tenant_id = $1 AND t.task_id = $2%s`, taskColumns, taskFrom, lock)
-	t, err := scanTask(q.QueryRow(ctx, query, tenantID, taskID))
+	bound := sqlbind.MustBind(query, tenantID, taskID)
+	t, err := scanTask(q.QueryRow(ctx, bound.SQL(), bound.Args()...))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Task{}, ports.ErrTaskNotFound
 	}
@@ -309,7 +313,8 @@ func (r *Repository) OpenCount(ctx context.Context, tenantID, userID string) (in
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	var n int
-	if err := r.pool.QueryRow(ctx, sqlRepository4, tenantID, userID).Scan(&n); err != nil {
+	bound := sqlbind.MustBind(sqlRepository4, tenantID, userID)
+	if err := r.pool.QueryRow(ctx, bound.SQL(), bound.Args()...).Scan(&n); err != nil {
 		return 0, fmt.Errorf("pen routine: open count: %w", err)
 	}
 	return n, nil
@@ -607,7 +612,8 @@ func (r *Repository) applyVerdict(ctx context.Context, p ports.VerdictParams, ap
 		query = sqlRepository10
 		args = []any{p.TenantID, p.TaskID, strings.TrimSpace(p.Reason), now, before.RowVersion}
 	}
-	tag, err := tx.Exec(ctx, query, args...)
+	bound := sqlbind.MustBind(query, args...)
+	tag, err := tx.Exec(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return ports.VerdictResult{}, fmt.Errorf("pen routine: apply verdict: %w", err)
 	}
@@ -705,7 +711,7 @@ func (r *Repository) ListForPark(ctx context.Context, p ports.ParkListParams) (p
 	page := ports.ParkPage{}
 	var out []domain.Task
 	batch := &pgx.Batch{}
-	batch.Queue(query, p.TenantID, p.ParkID, p.BusinessDate, routine, cursor).Query(func(rows pgx.Rows) error {
+	queueBound(batch, query, p.TenantID, p.ParkID, p.BusinessDate, routine, cursor).Query(func(rows pgx.Rows) error {
 		var err error
 		out, err = scanTasks(rows)
 		return err
@@ -752,7 +758,8 @@ func (r *Repository) ListForPark(ctx context.Context, p ports.ParkListParams) (p
 func (r *Repository) DueDigests(ctx context.Context, tenantID, dueDate string) ([]ports.DueDigest, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	rows, err := r.pool.Query(ctx, sqlRepository12, tenantID, dueDate)
+	bound := sqlbind.MustBind(sqlRepository12, tenantID, dueDate)
+	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return nil, fmt.Errorf("pen routine: due digests: %w", err)
 	}
