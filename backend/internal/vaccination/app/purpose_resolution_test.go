@@ -300,7 +300,7 @@ func TestGenerateSkipsGuardRejectedVaccineOnly(t *testing.T) {
 		})
 	}
 	other := errors.New("boom")
-	if skipGuardRejectedVaccine(other, "t", domain.EligibleGoat{}, protodomain.Rule{}, &domain.GenerateResult{}) {
+	if (&GenerationService{}).skipGuardRejectedVaccine(other, "t", domain.EligibleGoat{}, protodomain.Rule{}, &domain.GenerateResult{}) {
 		t.Fatal("non-guard errors must not be skipped")
 	}
 }
