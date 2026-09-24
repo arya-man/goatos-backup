@@ -67,7 +67,7 @@ func BuildDealAggregates(closed []Deal) (Summary, []MonthlyRow, []PriceBand, []B
 			lineAnimals := l.Animals()
 			animals += lineAnimals
 
-			// The outer split is by KIND (migration 000402) -- what the product DOES -- and the
+			// The outer split is by KIND (migration 000422) -- what the product DOES -- and the
 			// inner one by the built-in CODE, so renaming 'Sheep' on screen moves the card's label
 			// and not its number. The four buckets are DISJOINT and together cover every line, so
 			// LiveRevenue + ManureRevenue + FeedRevenue + OtherRevenue equals Revenue.
@@ -103,7 +103,7 @@ func BuildDealAggregates(closed []Deal) (Summary, []MonthlyRow, []PriceBand, []B
 			case l.Code() == ProductCodeManure:
 				// Manure contributes weight and revenue, never animal counts. Its kilograms are
 				// read the SAME way as every other per-unit item below: manure is sold BY the
-				// kilogram, so since 000402 the form posts a quantity and no longer a live
+				// kilogram, so since 000422 the form posts a quantity and no longer a live
 				// weight -- reading TotalWeightKg alone left every new manure sale contributing
 				// revenue with zero kilograms behind it, while the old rows kept working and hid
 				// it. The fallback keeps those old rows reading exactly as they did.

@@ -318,7 +318,7 @@
     },
     {
       "date": "2026-09-24",
-      "change": "Migration 000402 adds obligation_instances.schedule_basis (NOT NULL, default 'anchored'; CHECK anchored|anchor_missing_catch_up). Vaccination generation stamps 'anchor_missing_catch_up' only for its approved adult catch-up of a blank vaccine family whose DOB/entry anchor is unknown; every other write path re-proves the basis under the row lock.",
+      "change": "Migration 000421 adds obligation_instances.schedule_basis (NOT NULL, default 'anchored'; CHECK anchored|anchor_missing_catch_up). Vaccination generation stamps 'anchor_missing_catch_up' only for its approved adult catch-up of a blank vaccine family whose DOB/entry anchor is unknown; every other write path re-proves the basis under the row lock.",
       "vaccination_hrms_source_impact": "none to raw fixture bytes, hashes, file counts, HRMS rows, SOP contracts, proof grain, source vaccination dates, roster capacity, or seed closeout. HRMS seed/source imports never set schedule_basis and need no source column; seeded rows take the 'anchored' default."
     }
   ],

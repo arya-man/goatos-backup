@@ -13,7 +13,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/sales/ports"
 )
 
-// sellableProductsSQL reads a tenant's ACTIVE registry of what the farm sells (migration 000402)
+// sellableProductsSQL reads a tenant's ACTIVE registry of what the farm sells (migration 000422)
 // in farm order.
 //
 // projection-review: membership=sellable_product_catalog at its own (tenant_id, product_code)
@@ -241,7 +241,7 @@ func scanStrings(rows pgx.Rows) ([]string, error) {
 // upsertSellableProductSQL adds an item or edits the one that already carries its code.
 //
 // is_builtin is NEVER written here: the three rows every tenant starts with are seeded by
-// migration 000402 and may be renamed on screen, but a person cannot create a built-in, and an
+// migration 000422 and may be renamed on screen, but a person cannot create a built-in, and an
 // edit cannot promote a row into one. The row's code is its identity and is fixed at creation, so
 // a rename updates the row rather than making a second one -- which is what keeps the sales
 // already recorded under it pointing at the same item.

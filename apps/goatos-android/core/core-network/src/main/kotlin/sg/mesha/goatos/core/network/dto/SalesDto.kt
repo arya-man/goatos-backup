@@ -67,7 +67,7 @@ data class SalesDealPageDto(
 
 /** `POST /sales/deals`. Unknown keys are a 400 on the server, so this carries exactly its fields. */
 /**
- * One row of the farm's sellable-product registry (migration 000402), as a record-sale form sees
+ * One row of the farm's sellable-product registry (migration 000422), as a record-sale form sees
  * it. WHAT the farm sells is its own list, edited on the web's Sales Config; the phone renders it.
  */
 @Serializable
@@ -175,7 +175,7 @@ data class SalesOptionsDto(
     @SerialName("farms") val farms: List<String> = emptyList(),
     @SerialName("product_types") val productTypes: List<String> = emptyList(),
     /**
-     * The same registry with the KIND and unit on each (migration 000402), which is what the form
+     * The same registry with the KIND and unit on each (migration 000422), which is what the form
      * needs to decide whether to ask for a head count or for a quantity at a rate. [productTypes]
      * above is the bare name list a build written before the registry still reads.
      */

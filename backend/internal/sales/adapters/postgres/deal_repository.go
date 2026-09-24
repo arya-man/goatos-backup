@@ -49,7 +49,7 @@ const dealPaymentsForPageSQL = `
 	WHERE tenant_id = $1 AND deal_id = ANY($2::uuid[])
 	ORDER BY received_on, created_at`
 
-// EVERY COLUMN THE WRITE STAMPS IS READ BACK. The line carries what it was sold AS since 000402 --
+// EVERY COLUMN THE WRITE STAMPS IS READ BACK. The line carries what it was sold AS since 000422 --
 // the product's code and kind, and for a per-unit item its quantity, unit and rate -- and leaving
 // those out of this SELECT did not fail anywhere: the row was written correctly, and every reader
 // got a line whose kind was blank and whose quantity was nil. A feed sale then folded into the
@@ -734,7 +734,7 @@ func (r *Repository) CreateDeal(ctx context.Context, tenantID string, write doma
 		return r.getDeal(ctx, tenantID, reservation.resultID)
 	}
 
-	// The registry is re-read UNDER this transaction (migration 000402). The service already
+	// The registry is re-read UNDER this transaction (migration 000422). The service already
 	// validated against it, but a product archived in between would otherwise be recorded as sold
 	// -- and, for a feed product, would draw stock the farm has stopped selling.
 	if err := confirmProductsStillSellable(ctx, tx, tenantID, write.Lines); err != nil {
@@ -888,7 +888,7 @@ FROM public.sales_deal_lines l
 WHERE l.tenant_id = $1 AND l.deal_id = $2 AND l.product_kind = $6`
 
 // insertDealLines writes a deal's lines in entry order with one UNNEST insert, each stamped with
-// the registry product it was sold under (migration 000402).
+// the registry product it was sold under (migration 000422).
 //
 // It returns the new line ids by 1-based position, and the caller uses them only to CHECK that
 // every line it wrote came back. The feed depletion reads the deal's own lines rather than taking

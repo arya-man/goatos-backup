@@ -49,7 +49,7 @@ var (
 // cannot date a sale into next year, the same 60 days the web drawer caps at.
 const MaxSaleDateDaysAhead = 60
 
-// BreedsByProduct is deliberately GONE (migration 000402). A product's variants are now read from
+// BreedsByProduct is deliberately GONE (migration 000422). A product's variants are now read from
 // the farm's own LIVE vocabularies -- an animal product offers the breeds of its species, a feed
 // product the active feed catalogue, an `other` product its own name -- through
 // ports.SalesRepository.ListProductVariants, and both the web drawer and the phone form render
@@ -75,7 +75,7 @@ func StatusTone(status string) string {
 // IsFarm reports whether raw is one of the two farms, exactly as stored.
 func IsFarm(raw string) bool { return raw == FarmCBE || raw == FarmCPT }
 
-// IsProductType and IsLiveProduct are deliberately GONE (migration 000402). What the farm sells
+// IsProductType and IsLiveProduct are deliberately GONE (migration 000422). What the farm sells
 // is a tenant registry, so "is this a product" is ProductCatalog.Lookup and "is this alive" is the
 // line's own stamped kind -- DealLine.IsLive. A package-level predicate over three constants is
 // exactly what made a fourth product a deploy, and it must not grow back.
@@ -323,7 +323,7 @@ func (e ErrDealValidation) Error() string {
 // Normalize collapses whitespace on the short text fields and trims the prose ones. It does NOT
 // validate; call Validate after, so the rules apply to the values that will actually be stored.
 // Normalize trims the body and resolves every line's product against the tenant's ACTIVE registry
-// (migration 000402), stamping each line with the code, kind and unit it is being sold under.
+// (migration 000422), stamping each line with the code, kind and unit it is being sold under.
 //
 // The catalog is a PARAMETER rather than something this package reads, for the reason the vendor
 // register is: the domain owns the rules, never a table. The caller hands it the farm's answer to
@@ -546,7 +546,7 @@ type Summary struct {
 	ManureKg           float64
 	ManureRevenue      float64
 	// Feed sold off the store, and anything else the farm sells that is neither alive nor feed
-	// (migration 000402). With LiveRevenue and ManureRevenue these are DISJOINT and sum to
+	// (migration 000422). With LiveRevenue and ManureRevenue these are DISJOINT and sum to
 	// Revenue; FeedKg is kilograms of feed, which is a quantity sold and not a live weight.
 	FeedKg       float64
 	FeedRevenue  float64

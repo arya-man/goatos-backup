@@ -189,7 +189,7 @@ func validateFixture(f fixtureFile) error {
 			return fmt.Errorf("deal row %d (%s): unrecognised farm %q", row, d.BuyerName, d.Farm)
 		}
 		// The fixture is the legacy sheet, which predates the sellable-product registry (migration
-		// 000402) and therefore carries only the three built-in products. It is checked against
+		// 000422) and therefore carries only the three built-in products. It is checked against
 		// those rather than against a tenant's registry: this importer bootstraps history, and a
 		// sheet row naming something the sheet never held is a broken export, not a new product.
 		if domain.BuiltinKind(d.ProductType) == "" {

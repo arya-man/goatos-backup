@@ -1334,7 +1334,7 @@ role-hint-derived fan-out on the strength of it.
 
 ## Obligation schedule_basis is a per-row stamp, not a query-shape change (2026-09-24)
 
-Migration 000402 adds `obligation_instances.schedule_basis` (NOT NULL, default
+Migration 000421 adds `obligation_instances.schedule_basis` (NOT NULL, default
 `anchored`, CHECK `anchored` | `anchor_missing_catch_up`). The constant default is
 metadata-only (no table rewrite), the CHECK is evaluated per row on write, and the
 write paths re-read it on the row they already lock. No read path gains a scan, join,

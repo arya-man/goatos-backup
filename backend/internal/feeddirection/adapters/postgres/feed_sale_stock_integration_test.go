@@ -9,7 +9,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/feeddirection/ports"
 )
 
-// SOLD FEED LEAVES THE STORE, AND IS NEVER EATEN (migration 000402).
+// SOLD FEED LEAVES THE STORE, AND IS NEVER EATEN (migration 000422).
 //
 // The farm sells feed it holds, and those kilograms are gone: the Stock card's balance must fall
 // by exactly what was sold. What must NOT move is the burn rate -- a sale is one truck on one day,

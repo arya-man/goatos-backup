@@ -49,7 +49,7 @@ func (r *Repository) GetValuationAssumptions(ctx context.Context, tenantID strin
 	if err := json.Unmarshal(rawStages, &out.Stages); err != nil {
 		return domain.ValuationAssumptions{}, fmt.Errorf("sales: decode valuation stages: %w", err)
 	}
-	// A row written before 000405 carries no stages; it is valued on the seeded six, which are
+	// A row written before 000425 carries no stages; it is valued on the seeded six, which are
 	// what its buckets were keyed against.
 	if len(out.Stages) == 0 {
 		out.Stages = domain.SeededValuationStages
