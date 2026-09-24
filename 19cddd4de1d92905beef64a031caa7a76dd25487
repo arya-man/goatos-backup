@@ -1,0 +1,81 @@
+Combined branch = #389 perf/stg-burst-and-login (2ace151e4) + #391 + #397, cherry-picked in that order onto #389 (based on origin/main 1fc0960a3).
+
+#391 origin/fix/vaccination-age-floor-invariant-20260924 @ 566fe71ca (34 commits): original -> combined
+  3c488e571 -> b8e560c98  fix(vaccination): enforce protocol timing and purpose floors
+  a55c4e7a7 -> 5d256e157  fix(vaccination): guard obligation carry-over
+  e15118cd5 -> f09e4a50d  fix(vaccination): anchor carry-over to trusted history
+  759efdff3 -> 7f358284f  fix(vaccination): enforce complete scheduling anchors
+  275f32915 -> f1b38e25e  fix(vaccination): add canonical purpose-plan resolver and schedule basis
+  a07bd2ed6 -> a800a3671  fix(vaccination): resolve purpose plans canonically in generation
+  2895820fe -> e9c5366ed  fix(vaccination): fail closed on unknown species second wave
+  a647c0cf9 -> 18473f8dc  fix(vaccination): count only real administrations toward the first wave
+  3198fd5fd -> 2f1f0430f  fix(vaccination): skip only the guard-rejected vaccine in generation
+  cd5f0ac42 -> 207d435b2  fix(vaccination): surface guard-rejected vaccines in generation output
+  2832847f9 -> 98ff0a1c2  fix(obligation): one serializable vaccination write validator
+  6787d06d9 -> 0b5679504  docs(migrations): state the real lock behavior of schedule_basis validation
+  7af0dbfa1 -> 4bde60864  wip(vaccination): checkpoint shared anchors, ordered locks, race tests, fixtures
+  8358d09a9 -> 582cd50a4  docs(vaccination): handoff with frozen scope and no-circles rules
+  eaeb9ad95 -> 2cbda1b00  test(vaccination): make branch-owned DB fixtures clinically valid
+  e64236b26 -> 1ebf7d165  fix(vaccination): drop completion goat-lock trigger; key drawer location names
+  87d41555e -> 49039ff1b  docs(vaccination): record close-out triage, tests, and judge sign-offs
+  4f29ab9fc -> b284c5f77  fix(migrations): renumber schedule_basis to 000402 after main's 000400/000401
+  1958a71ee -> 048a569d4  fix(vaccination): satisfy coverage, logging, and seed-fixture landing guards
+  2432128c3 -> 45df40f44  fix(vaccination): satisfy bind-contract, india-date, and aggregate guards
+  c3196f6e7 -> 004b4f386  fix(android): open combined vaccination cards in scan
+  85cea7767 -> 6fefa2f3c  fix(vaccination): execute merged shed cards by animal
+  f0e4529e9 -> e49001d65  fix(vaccination): preserve combined roster execution state
+  695a7d438 -> 79019f521  wip(vaccination): preserve in-progress combined-card roster fixes
+  f5d2e1cfa -> 7b1ba4810  fix(vaccination): keep synced scans and proof policy on combined pen cards
+  1be5868a3 -> f2f07757f  fix(vaccination): task every assigned batch; never write scans under shed-wide
+  3c5ad0fef -> 3921430c3  fix(vaccination): ledger every reconcile move; floor-check batch attach
+  b91ddfa62 -> e535f71dd  fix(vaccination): submit every ready task of a combined pen card
+  f50ea9b5c -> 6f8b5cb08  fix(vaccination): submit every combined-card task and make rejected submits retryable
+  761183d5b -> 8121f6593  fix(vaccination): hoist sweeper SQL consts; add park/scope aggregate tests
+  1338f872a -> e007e59dc  fix(vaccination): prune combined-card submit state with the roster
+  8f1c23bdd -> 38abb4eb4  fix(vaccination): preserve complete pen rosters and release migration locks
+  81e3a291b -> e284f3dde  fix(vaccination): use complete dated pen summaries for operator cards
+  566fe71ca -> ed2ae7c40  docs: remove unrelated draft PR workflow rule
+
+#397 origin/feat/feed-sales @ 275b81aab (36 commits): original -> combined
+  fb16e7137 -> 06b831744  feat(sales): what the farm sells becomes data, and feed becomes sellable
+  87c3be881 -> 1305f9bbc  feat(sales): the registry decides what may be sold, and a feed line takes its kilograms off the store
+  0b763fce0 -> 986eedbbe  feat(feed): sold feed leaves the store, and is never eaten
+  b2b04bd3a -> 7c8d9fea5  feat(sales): a sale taking more feed than the store holds is confirmed once, never blocked
+  611b8dcd8 -> 6be3d5f6f  feat(sales): the options a sale form offers come from the farm, not from the build
+  28153a0e1 -> 379cf5220  fix(sales): feed leaves the store when the sale CLOSES, not when it is recorded
+  05e8c1430 -> 8d5ad8f00  feat(admin-web): the record-sale drawer asks what the product's kind needs
+  16206d3ff -> 1c6d0c217  feat(sales): the farm adds what it sells, on Sales Config
+  313deb982 -> 3755d3083  fix(sales): the item list numbers itself
+  ac8daf9c5 -> 3c4ab0143  test(sales): drive the whole feature in a browser, and fix what that found
+  dec18c44d -> 375d765e9  feat(android): the phone sells feed and the farm's own items
+  8107badfd -> d00c40802  feat(sales): the herd is valued by gender, every stage
+  bb37f82c8 -> 4dbb7e878  feat(sales): the stages the herd is valued in are the farm's own
+  194f432c6 -> 81575eaf2  test(sales): the stage suite creates the state it asserts from
+  bc4e97756 -> 14b9b7251  fix(mobile): a refusal the server explained must survive being read twice
+  945c7deff -> 880a0b788  fix(mobile): the product on a sale line is a dropdown, not a row of chips
+  85f026c11 -> 18d9983ac  chore(sales): renumber the feed-sale migrations past main's own
+  95037ce81 -> 16e397b51  fix(sales): a farm that deploys this can sell feed on day one
+  e74c183ef -> bcb8640e5  chore(sales): the assistant is told what the feed-sale tables are
+  f3932c000 -> 095811ee5  fix(feed): the saved days-left query subtracts sold feed too
+  710922557 -> 4d6ee769b  chore(feed): write down the grain of the two reads this branch moved
+  682cb73a8 -> afc984f5a  chore(feed): re-hash the saved query against its source
+  1d9607e53 -> ca7583425  chore(mobile): say why the envelope read records nothing
+  70433f392 -> c79faffbe  chore(mobile): shrink the exception baseline by the two it no longer needs
+  c3bc0f040 -> d49a27e1e  fix(sales): three defects review found, each reproduced on the live API first
+  9c4456c82 -> a5e8e493c  fix(sales): a stage added on the screen is stored under its name, not a row id
+  3b8d04aa3 -> 2227f7340  fix(sales): the contract owns the new buckets, and three more review findings
+  0980dab3a -> b068edcbc  fix(sales): an older phone's manure still records, and closing asks the store
+  8de67cd35 -> 86eb2615a  fix(sales): preserve successful close retries and repair line tests
+  1c6f91088 -> 52b9c9875  fix(sales): close stock, valuation and mobile review gaps
+  b0e2688b9 -> 2880ece1a  fix(sales): preserve refused drafts and validate feed catalog
+  c4194789a -> d27e74e56  fix(feed): charge successor sales against legacy family stock
+  d948c5a90 -> cba71e6e9  fix(sales): preserve authored product reporting and quantity units
+  8f1b4da84 -> 6b47d9168  fix(sales): reconcile monthly totals units and family stock warnings
+  64c0255af -> 831a16924  fix(sales): preserve queued product names and batch stock validation
+  275b81aab -> 4e598add2  fix(sales): recover offline stock confirmation from the sync queue
+
+Combination commits (not from any PR):
+  35200a8e9  chore(migrations): renumber #391/#397 migrations above #389's 000402-000420
+  b69f7d400  fix(cache): sold feed evicts the alerts low-stock read cache
+  d5e15fc58  chore(guards): drop bind-contract baseline entries both PRs retired
+  19cddd4de  test(sales): read the gender valuation through the batched overview
