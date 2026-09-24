@@ -161,7 +161,7 @@ func TestRoutingIsCaseAndSpaceInsensitive(t *testing.T) {
 // stage, without which such a tenant would have every adult refused on deploy day.
 func TestMigrationSeedReproducesTheShippedRouting(t *testing.T) {
 	path := filepath.Join("..", "..", "..", "migrations", "postgres",
-		"000395_health_diagnosis_types_and_stage_routes.sql")
+		"000396_health_diagnosis_types_and_stage_routes.sql")
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read migration: %v", err)
