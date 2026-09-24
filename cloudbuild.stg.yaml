@@ -21,6 +21,9 @@ substitutions:
   _ASK_MESHA_CLAUDE_AUTH: "auto"
   # Additionally point goatos-admin-web-stg at the agent (CEO_AI_AGENT_URL/AUDIENCE).
   _ASK_MESHA_WIRE_ADMIN_WEB: "false"
+  # Additionally point the hosted MCP (goatos-mcp-stg) ask_goatos at the agent
+  # (MESHA_MCP_AGENT_URL/AUDIENCE, --timeout=300, roles/run.invoker for its runtime SA).
+  _ASK_MESHA_WIRE_MCP: "false"
 
 steps:
   - id: notify-slack-started
@@ -259,6 +262,7 @@ steps:
       - DEPLOY_STG=${_DEPLOY_STG}
       - ASK_MESHA_DEPLOY=${_ASK_MESHA_DEPLOY}
       - ASK_MESHA_WIRE_ADMIN_WEB=${_ASK_MESHA_WIRE_ADMIN_WEB}
+      - ASK_MESHA_WIRE_MCP=${_ASK_MESHA_WIRE_MCP}
       - ASK_MESHA_CLAUDE_AUTH=${_ASK_MESHA_CLAUDE_AUTH}
       - REQUESTED_COMMIT_SHA=${_COMMIT_SHA}
       - RESOLVED_COMMIT_SHA=$REVISION_ID

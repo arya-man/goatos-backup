@@ -87,6 +87,11 @@ type config struct {
 	AllowedEmails   authallow.EmailSet
 	TokenVerifier   tokenVerifier
 	FirebaseAPIKey  string
+	// Ask Mesha agent (tools/ask-mesha-agent). When AgentURL is set, ask_goatos answers via
+	// ${AgentURL}/ceo-ai/ask (stream:false) instead of UpstreamAskURL. Unset = legacy behaviour.
+	AgentURL      string
+	AgentAudience string
+	AgentTimeout  time.Duration
 }
 
 type tokenVerifier interface {
@@ -103,6 +108,7 @@ func configFromEnv() (config, error) {
 		return config{}, errors.New("MESHA_MCP_UPSTREAM_URL or MESHA_MCP_UPSTREAM_ASK_URL is required")
 	}
 	timeout := envDuration("MESHA_MCP_UPSTREAM_TIMEOUT", 25*time.Second)
+	agentURL := strings.TrimRight(strings.TrimSpace(os.Getenv("MESHA_MCP_AGENT_URL")), "/")
 	allowed, err := parseAllowedEmails(os.Getenv("MESHA_MCP_ALLOWED_EMAILS"))
 	if err != nil {
 		return config{}, err
@@ -124,6 +130,9 @@ func configFromEnv() (config, error) {
 		AllowedEmails:   allowed,
 		TokenVerifier:   verifier,
 		FirebaseAPIKey:  firebaseAPIKeyFromEnv(),
+		AgentURL:        agentURL,
+		AgentAudience:   firstNonEmpty(os.Getenv("MESHA_MCP_AGENT_AUDIENCE"), agentURL),
+		AgentTimeout:    envDuration("MESHA_MCP_AGENT_TIMEOUT", defaultAgentTimeout),
 	}, nil
 }
 
@@ -250,13 +259,26 @@ type server struct {
 	oauthMu    sync.Mutex
 	docsMu     sync.Mutex
 	docsCache  docsIndexCache
+	// Ask Mesha agent path (only used when cfg.AgentURL is set).
+	agentClient *http.Client
+	idToken     func(ctx context.Context, audience string) (string, error)
 }
 
 func newServer(cfg config, client *http.Client, log *slog.Logger) *server {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &server{cfg: cfg, client: client, log: log, oauthCodes: map[string]oauthCode{}}
+	s := &server{cfg: cfg, client: client, log: log, oauthCodes: map[string]oauthCode{}}
+	if cfg.AgentURL != "" {
+		timeout := cfg.AgentTimeout
+		if timeout <= 0 {
+			timeout = defaultAgentTimeout
+		}
+		// Separate client: the legacy upstream client's 25s timeout would cut agent answers short.
+		s.agentClient = &http.Client{Timeout: timeout}
+		s.idToken = newMetadataIDTokenSource(defaultMetadataIdentityURL).Token
+	}
+	return s
 }
 
 func (s *server) handleLive(w http.ResponseWriter, _ *http.Request) {
@@ -773,7 +795,7 @@ func (s *server) handleMCP(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusOK, rpcError(req.ID, code, msg))
 			return
 		}
-		writeJSON(w, http.StatusOK, rpcResult(req.ID, map[string]any{"tools": tools()}))
+		writeJSON(w, http.StatusOK, rpcResult(req.ID, map[string]any{"tools": s.toolList()}))
 	case "tools/call":
 		if isNotification {
 			_, _, _ = s.callTool(r.Context(), r, req.Params)
@@ -836,11 +858,18 @@ func initializeResult() map[string]any {
 	}
 }
 
+func askGoatOSDescription(agent bool) string {
+	if agent {
+		return "Ask Mesha, the Goat OS leadership analyst, a natural-language, read-only business question. It investigates like an analyst: it reads the Goat OS code and every read-only table (farm operations, herd, health, feed, sales, workforce, audit history) and answers with the numbers and how they were worked out. It can take up to a few minutes for deep questions; wait for it. For follow-ups, pass the conversation_id returned in the previous answer so it keeps the context. For fast exact dashboard figures, the typed get_* tools are still available and unchanged."
+	}
+	return "Ask the Goat OS leadership assistant a natural-language, read-only business question. Use this only when no specific Mesha MCP tool fits. For dashboards or exact operational answers, prefer composing typed tools first: vaccination schedule/progress, action center, verification, feed, procurement, sales, counts, health, workforce, and weighing."
+}
+
 func tools() []map[string]any {
 	out := []map[string]any{
 		{
 			"name":        "ask_goatos",
-			"description": "Ask the Goat OS leadership assistant a natural-language, read-only business question. Use this only when no specific Mesha MCP tool fits. For dashboards or exact operational answers, prefer composing typed tools first: vaccination schedule/progress, action center, verification, feed, procurement, sales, counts, health, workforce, and weighing.",
+			"description": askGoatOSDescription(false),
 			"annotations": readOnlyToolAnnotations(),
 			"inputSchema": map[string]any{
 				"type": "object",
@@ -1794,6 +1823,11 @@ func (s *server) askGoatOS(ctx context.Context, r *http.Request, raw json.RawMes
 	authz, email, code, msg := s.verifiedAuthorization(r)
 	if msg != "" {
 		return nil, code, msg
+	}
+	// Ask Mesha agent: it investigates like an analyst (code + all read-only data), so the
+	// keyword shortcuts to typed tools below are skipped; clients still call get_* tools directly.
+	if s.cfg.AgentURL != "" {
+		return s.proxyAskMeshaAgent(ctx, r, authz, email, question, strings.TrimSpace(args.ConversationID))
 	}
 	if vaccinationScheduleQuestion(question) {
 		toolArgs := vaccinationTodayArgs{BusinessDate: firstYYYYMMDD(question)}

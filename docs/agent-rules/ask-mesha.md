@@ -251,6 +251,25 @@ moving" and one-shot "which goats are slower than their pen / own pace right now
   Firebase bearer stays in `Authorization` and is validated by the agent against the STG API.
 - Landing still requires `make land-main` (exact-SHA receipt). Never `gh pr merge`.
 
+## MCP (hosted connector, `ask_goatos`)
+
+- The hosted MCP (`backend/cmd/mcp`, `goatos-mcp-stg`, https://mcp.mesha.sg/mcp) answers `ask_goatos`
+  via this agent when `MESHA_MCP_AGENT_URL` is set (`MESHA_MCP_AGENT_AUDIENCE` defaults to the URL,
+  `MESHA_MCP_AGENT_TIMEOUT` defaults to 240s). Unset => the legacy API `/ceo-ai/ask` path, unchanged.
+  Typed `get_*` tools never go through the agent.
+- Call shape: `POST ${MESHA_MCP_AGENT_URL}/ceo-ai/ask` with `{question, conversation_id, stream:false}`;
+  Google ID token from the metadata server in `X-Serverless-Authorization`; the CEO's own bearer in
+  `Authorization` (the agent validates it against the STG API like admin-web); `X-Mesha-Client: mcp`.
+- `stream:false` on the agent runs the same pipeline (auth, chat privacy, per-chat busy lock, per-answer
+  and monthly caps, events) and returns one JSON `{answer, chart, conversation_id, message_id, timing,
+  request_id}` or `{error, message}` with the HTTP status (409 busy, 404 unknown chat, 413 too long, 502
+  failed run). Events carry `source:"mcp"`. With no live panel, `watch_tags` is snapshot-only
+  (`minutes` forced to 0) and the model is told so.
+- MCP-started chats are normal chats owned by the same email, so they show up in the admin-web panel.
+- Wiring: `_ASK_MESHA_WIRE_MCP=true` (default `"false"`) in `cloudbuild.stg.yaml` → `deploy-stg.sh`
+  grants the MCP runtime SA `roles/run.invoker` on the agent and sets the env vars + `--timeout=300`
+  on `goatos-mcp-stg`. Runbook: `tools/ask-mesha-agent/deploy/RUNBOOK.md` §6b.
+
 ## Local testing (Ravi's laptop)
 
 - `cloud-sql-proxy --port 55432 goatos-stg:asia-south1:goatos-stg-core-db`; `.pgenv` from secret

@@ -51,6 +51,16 @@ Do not point external clients at the internal MCP Toolbox service
 `mesha-mcp-toolbox-stg`. That service is a backend database-tool dependency, not
 the public connector contract for Claude, Codex, ChatGPT, or custom GPTs.
 
+### `ask_goatos` via the Ask Mesha agent (flagged)
+
+When `MESHA_MCP_AGENT_URL` is set on the MCP service, `ask_goatos` no longer
+calls the legacy API `/ceo-ai/ask`: it asks the Ask Mesha agent
+(`tools/ask-mesha-agent`, Cloud Run `goatos-ask-mesha-stg`), which investigates
+like an analyst over the Goat OS code and all read-only data. Answers can take
+up to a few minutes (MCP timeout 240s, Cloud Run request timeout 300s); pass the
+returned `conversation_id` for follow-ups. The typed `get_*` tools are
+unchanged. Details and wiring: `docs/agent-rules/ask-mesha.md` "MCP".
+
 ## Access Model
 
 External MCP access is CEO-friendly OAuth-style login. The CEO does not paste a

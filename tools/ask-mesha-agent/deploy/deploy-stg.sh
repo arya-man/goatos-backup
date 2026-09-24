@@ -27,6 +27,10 @@ SECRET_OAUTH="${ASK_MESHA_SECRET_OAUTH:-goatos-stg-ask-mesha-claude-oauth-token}
 SECRET_APP_DB="${ASK_MESHA_SECRET_APP_DB:-goatos-stg-ask-mesha-db-url}"
 SECRET_RO_DB="${ASK_MESHA_SECRET_RO_DB:-mesha-ceo-readonly-db-url}"
 ADMIN_WEB_SERVICE="${ADMIN_WEB_SERVICE:-goatos-admin-web-stg}"
+MCP_SERVICE="${MCP_SERVICE:-goatos-mcp-stg}"
+MCP_RUNTIME_SA="${MCP_RUNTIME_SA:-goatos-mcp-stg@${PROJECT_ID}.iam.gserviceaccount.com}"
+# ask_goatos waits up to this long for the agent; the MCP service's request timeout is set above it.
+MCP_AGENT_TIMEOUT="${MESHA_MCP_AGENT_TIMEOUT:-240s}"
 : "${ASK_MESHA_IMAGE:?ASK_MESHA_IMAGE is required}"
 : "${COMMIT_TAG:?COMMIT_TAG is required}"
 
@@ -112,4 +116,28 @@ if [[ "${ASK_MESHA_WIRE_ADMIN_WEB:-false}" == "true" ]]; then
   gcloud run services update-traffic "$ADMIN_WEB_SERVICE" --project="$PROJECT_ID" --region="$REGION" \
     "--to-revisions=${rev}=100" --quiet
   echo "ask-mesha deploy: $ADMIN_WEB_SERVICE -> $rev now forwards /api/ceo-ai/* to $url"
+fi
+
+if [[ "${ASK_MESHA_WIRE_MCP:-false}" == "true" ]]; then
+  # Hosted MCP (https://mcp.mesha.sg/mcp): ask_goatos answers via this agent instead of the
+  # legacy API /ceo-ai/ask. The MCP runtime SA must be allowed to invoke the IAM-protected agent;
+  # it sends a metadata-server ID token (audience = agent URL) in X-Serverless-Authorization.
+  gcloud iam service-accounts describe "$MCP_RUNTIME_SA" --project="$PROJECT_ID" --format='value(email)' >/dev/null 2>&1 \
+    || die "MCP runtime service account $MCP_RUNTIME_SA missing"
+  gcloud run services add-iam-policy-binding "$SERVICE" \
+    --project="$PROJECT_ID" \
+    --region="$REGION" \
+    --member="serviceAccount:${MCP_RUNTIME_SA}" \
+    --role=roles/run.invoker \
+    --quiet >/dev/null
+  # --update-env-vars keeps the Terraform-set env; --timeout=300 lets a 240s answer finish.
+  # A later `terraform apply` on goatos-mcp-stg drops these two vars (ask_goatos then falls back to
+  # the legacy path, which is safe); re-run this wiring after such an apply. See RUNBOOK.md §6b.
+  gcloud run services update "$MCP_SERVICE" \
+    --project="$PROJECT_ID" \
+    --region="$REGION" \
+    --timeout=300 \
+    --update-env-vars="MESHA_MCP_AGENT_URL=${url},MESHA_MCP_AGENT_AUDIENCE=${url},MESHA_MCP_AGENT_TIMEOUT=${MCP_AGENT_TIMEOUT}" \
+    --quiet
+  echo "ask-mesha deploy: $MCP_SERVICE ask_goatos now answers via $url (invoker granted to $MCP_RUNTIME_SA)"
 fi

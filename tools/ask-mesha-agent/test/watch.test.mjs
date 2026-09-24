@@ -296,3 +296,16 @@ test("events pg sink reads watch_ended and chat_busy too (per-user watches/busy 
   assert.deepEqual(calls[0].params[2], READ_EVENTS);
   assert.match(calls[0].sql, /ORDER BY ts DESC/);
 });
+
+test("watchTagsHandler: snapshotOnly (stream:false / MCP) forces minutes=0", async () => {
+  const { watchTagsHandler } = await import("../watch.mjs");
+  const reg = createWatchRegistry();
+  const evs = [];
+  const h = harness([1]);
+  const ctx = { send: h.send, chatId: "c9", tenantId: h.tenantId, evCtx: { chat_id: "c9" }, run: {}, stopReason: () => null, snapshotOnly: true };
+  const handler = watchTagsHandler({ runSql: h.runSql, emit: async (n, c, f) => evs.push([n, f]), registry: reg, ctx });
+  const out = await handler({ filter: "A1", minutes: 30, interval_s: 5 });
+  assert.match(out.content[0].text, /Watch ended: snapshot/);
+  assert.equal(evs[0][1].minutes, 0);
+  assert.ok(!reg.has("c9"));
+});

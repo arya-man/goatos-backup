@@ -190,3 +190,13 @@ test("ask_stopped reason: a chat deleted mid-answer is its own reason", async ()
   await ev.tracker({ email: "a@m" }, {}).finish({ error: "client_aborted" }, { aborted: true, stopReason: "chat_deleted" });
   assert.equal(lines.find((l) => l.event_name === "ask_stopped").reason, "chat_deleted");
 });
+
+test("source:'mcp' on the ctx tags every event (X-Mesha-Client: mcp)", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ask-ev-"));
+  const lines = [];
+  const ev = await createEvents({ stateDir: dir, log: (l) => lines.push(JSON.parse(l)) });
+  await ev.emit("ask_started", { request_id: "r", chat_id: "c", email: "a@m", tenant_id: "t", source: "mcp" });
+  await ev.emit("ask_started", { request_id: "r2", chat_id: "c", email: "a@m", tenant_id: "t" });
+  assert.equal(lines[0].source, "mcp");
+  assert.equal("source" in lines[1], false);
+});

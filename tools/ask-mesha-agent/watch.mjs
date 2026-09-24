@@ -501,7 +501,7 @@ export function watchTagsSchema(z) {
   };
 }
 
-// ctx (per /ask request): { send, signal, stopReason, chatId, tenantId, evCtx, run }
+// ctx (per /ask request): { send, signal, stopReason, chatId, tenantId, evCtx, run, snapshotOnly }
 export const MAX_WATCHES = 4; // server-wide: each watch polls the DB every few seconds
 export function watchTagsHandler({ runSql, emit = async () => {}, registry, ctx, log = () => {}, maxWatches = MAX_WATCHES }) {
   return async (args) => {
@@ -515,6 +515,8 @@ export function watchTagsHandler({ runSql, emit = async () => {}, registry, ctx,
     if (registry.size() >= maxWatches) {
       return fail("Too many live watches are running right now. Tell the user live watching is busy and to try again in a few minutes; answer from a one-time run_sql snapshot instead.");
     }
+    // stream:false (MCP) callers have no live panel: only a one-shot snapshot is allowed.
+    if (ctx.snapshotOnly) args = { ...(args || {}), minutes: 0 };
     const spec = parseWatchArgs(args);
     // Placeholder until runWatch hands over its real handle: a "Stop watching" / chat delete that
     // lands in between (the watch_started write) is remembered and applied, not dropped.
