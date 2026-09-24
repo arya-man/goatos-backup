@@ -50,7 +50,7 @@ class CallFailureTest {
     @Test fun `negative delta is zero`() = assertEquals(0L, parseRetryAfterMs("-5", now))
 
     @Test fun `classification`() {
-        assertEquals(CallFailure.Denied(401), http(401).classifyCallFailure(now))
+        assertEquals("401 is a token problem, retried", CallFailure.Transient(null), http(401).classifyCallFailure(now))
         assertEquals(CallFailure.Denied(403), http(403).classifyCallFailure(now))
         assertEquals(CallFailure.Transient(20_000L), http(503, "20").classifyCallFailure(now))
         assertEquals(CallFailure.Transient(null), http(500).classifyCallFailure(now))

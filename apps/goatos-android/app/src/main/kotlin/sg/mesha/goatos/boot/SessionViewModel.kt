@@ -355,8 +355,8 @@ class SessionViewModel @Inject constructor(
             _uiState.update {
                 it.copy(
                     isLoading = false,
-                    errorReason = LoginError.UNKNOWN,
-                    errorDetail = "Signed in, but no Firebase session token was issued.",
+                    errorReason = LoginError.NO_SESSION_TOKEN,
+                    errorDetail = null,
                 )
             }
             return
@@ -393,9 +393,12 @@ class SessionViewModel @Inject constructor(
     }
 
     /**
-     * The server refused this principal (session-events 401/403, e.g. `email_not_allowed`). The
-     * session opened optimistically, so undo it completely -- marker, sync workers and Firebase --
-     * and show the same login error the synchronous path used to, never raw exception text.
+     * The server refused this principal (session-events 403, e.g. `email_not_allowed`). The
+     * session opened optimistically. If this phone holds unsynced work, a logout would WIPE it
+     * without asking, so the session is KEPT and bootstrap is routed to the no-access screen,
+     * whose "Sign in with another account" confirm shows the count and lets the operator choose.
+     * Otherwise the sign-in is undone completely -- marker, sync workers and Firebase -- with a
+     * translated login error, never raw exception text.
      */
     private suspend fun undoDeniedSignIn(
         outcome: SessionEventOutcome.Denied,
@@ -407,14 +410,16 @@ class SessionViewModel @Inject constructor(
             AnalyticsEvents.LOGIN_FAILURE,
             identityProps + mapOf(AnalyticsEvents.Params.REASON to "session_event_denied_${outcome.statusCode}"),
         )
+        val unsynced = unsyncedWorkCount()
+        if (unsynced > 0) {
+            logWarning("Goat OS session event denied (${outcome.statusCode}) email=${email.orEmpty()} uid=${firebaseUid.orEmpty()}; keeping session, $unsynced unsynced item(s)")
+            sessionEvents.markAccessDenied()
+            return
+        }
         logWarning("Goat OS session event denied (${outcome.statusCode}) email=${email.orEmpty()} uid=${firebaseUid.orEmpty()}; signing out")
         logoutCoordinator.logout(signOutVendorAuth = authRepository::signOut)
         _uiState.update {
-            it.copy(
-                isLoading = false,
-                errorReason = LoginError.UNKNOWN,
-                errorDetail = "Signed in, but Goat OS could not open your workspace.",
-            )
+            it.copy(isLoading = false, errorReason = LoginError.WORKSPACE_UNAVAILABLE, errorDetail = null)
         }
     }
 

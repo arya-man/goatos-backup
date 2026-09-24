@@ -97,9 +97,9 @@ interface SyncRepository {
      * outbox rather than from the [observeStatus] snapshot, which is still empty on a cold start
      * until the first Room emission. Use it before anything that would wipe the outbox.
      */
-    suspend fun unsyncedCountNow(): Int = observeStatus().value.let {
-        it.pendingCount + it.inFlightCount + it.failedCount + it.deadLetterCount
-    }
+    // Fail-safe default: an implementation that cannot count directly reports "unknown, assume
+    // some", so every caller confirms before a wipe. Never the cold observeStatus() snapshot.
+    suspend fun unsyncedCountNow(): Int = Int.MAX_VALUE
 
     /**
      * Active, locally durable Health reports that do not have backend-created treatment sessions

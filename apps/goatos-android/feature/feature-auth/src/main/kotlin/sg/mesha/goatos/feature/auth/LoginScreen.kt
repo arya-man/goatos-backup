@@ -127,6 +127,8 @@ private fun resolveErrorText(reason: LoginError?, detail: String?): String? = wh
     LoginError.GOOGLE_CANCELLED -> stringResource(R.string.login_error_google_cancelled)
     LoginError.NO_GOOGLE_ACCOUNT -> stringResource(R.string.login_error_no_google_account)
     LoginError.NO_DEV_BACKEND -> stringResource(R.string.login_error_no_dev_backend)
+    LoginError.NO_SESSION_TOKEN -> stringResource(R.string.login_error_no_session_token)
+    LoginError.WORKSPACE_UNAVAILABLE -> stringResource(R.string.login_error_workspace_unavailable)
     LoginError.UNKNOWN -> detail?.takeIf { it.isNotBlank() } ?: stringResource(R.string.login_error_generic)
 }
 

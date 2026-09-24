@@ -247,8 +247,8 @@ class SessionViewModelNonBlockingLoginTest {
 
         assertNull("a denied principal keeps no session marker", store.tokenFlow.value)
         assertTrue("Firebase is signed out", auth.signedOut)
-        assertEquals("the old login error is shown", LoginError.UNKNOWN, vm.uiState.value.errorReason)
-        assertFalse(vm.uiState.value.errorDetail.orEmpty().contains("HTTP"))
+        assertEquals("a translatable login error, not UNKNOWN", "WORKSPACE_UNAVAILABLE", vm.uiState.value.errorReason?.name)
+        assertNull("no hard-coded English detail", vm.uiState.value.errorDetail)
         assertEquals("a denial is never retried", 1, api.attempts)
     }
 
@@ -432,5 +432,60 @@ class SessionViewModelNonBlockingLoginTest {
         assertEquals("count comes from the store, not the stale snapshot", 3, vm.uiState.value.switchAccountPendingCount)
         assertEquals("nothing wiped", FIREBASE_SESSION_MARKER, store.tokenFlow.value)
         assertFalse(auth.signedOut)
+    }
+
+    private fun TestScope.buildDeniedVm(
+        store: SessionStore,
+        auth: OkFirebase,
+        api: SessionEventApi,
+        unsynced: Int,
+    ): SessionViewModel = SessionViewModel(
+        store, auth, RecordingAnalytics(),
+        LogoutCoordinator(
+            api = api,
+            deviceStore = FakeDeviceStore(),
+            sessionStore = store,
+            screenCacheStore = ScreenCacheStore { },
+            outboxWiper = OutboxWiper { },
+            syncJobsCanceller = SyncJobsCanceller { },
+        ),
+        SyncJobsScheduler { }, api, SessionRelauncher { },
+        AuthSessionEventSender(api, backgroundScope, listOf(1_000L, 1_000L)).also { lastSender = it },
+        syncRepositoryWithPending(unsynced, unsynced),
+    ).also { it.ioDispatcher = StandardTestDispatcher(testScheduler) }
+
+    private var lastSender: AuthSessionEventSender? = null
+    private fun sender(@Suppress("UNUSED_PARAMETER") vm: SessionViewModel) = lastSender!!
+
+    @Test
+    fun `403 with unsynced work keeps the session instead of wiping the outbox`() = runTest {
+        assumeFirebaseFlavor()
+        val store = TimedSessionStore { testScheduler.currentTime }
+        val auth = OkFirebase()
+        val api = SessionEventApi(failWith = httpError(403))
+        val vm = buildDeniedVm(store, auth, api, unsynced = 3)
+
+        vm.signInWithEmail("operator@mesha.sg", "secret")
+        advanceUntilIdle()
+
+        assertEquals("session kept so the unsynced work survives", FIREBASE_SESSION_MARKER, store.tokenFlow.value)
+        assertFalse("Firebase not signed out", auth.signedOut)
+        assertTrue("shell is routed to the no-access screen", sender(vm).accessDenied.value)
+    }
+
+    @Test
+    fun `401 on session-events is a token problem, not a denial - retried, never signed out`() = runTest {
+        assumeFirebaseFlavor()
+        val store = TimedSessionStore { testScheduler.currentTime }
+        val auth = OkFirebase()
+        val api = SessionEventApi(failWith = httpError(401))
+        val vm = buildDeniedVm(store, auth, api, unsynced = 0)
+
+        vm.signInWithEmail("operator@mesha.sg", "secret")
+        advanceUntilIdle()
+
+        assertEquals(FIREBASE_SESSION_MARKER, store.tokenFlow.value)
+        assertFalse(auth.signedOut)
+        assertTrue("401 is retried", api.attempts > 1)
     }
 }

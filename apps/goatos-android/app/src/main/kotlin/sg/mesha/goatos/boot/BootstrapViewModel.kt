@@ -71,8 +71,10 @@ class BootstrapViewModel @Inject constructor(
      * once per sign-in: a manual Retry after it answers immediately. Every other login
      * pays nothing; a real "no access" still surfaces after the one retry.
      */
-    private suspend fun loadNavStateAfterSessionClaim(): NavState =
-        try {
+    private suspend fun loadNavStateAfterSessionClaim(): NavState {
+        // A denied sign-in kept only to protect unsynced work: stay on the no-access screen.
+        if (sessionEvents?.accessDenied?.value == true) throw BootstrapError.AccessNotProvisioned()
+        return try {
             repo.loadNavState()
         } catch (denied: BootstrapError.AccessNotProvisioned) {
             val sender = sessionEvents ?: throw denied
@@ -81,11 +83,19 @@ class BootstrapViewModel @Inject constructor(
             }
             if (claimed) repo.loadNavState() else throw denied
         }
+    }
 
     private val _state = MutableStateFlow<BootstrapUiState>(BootstrapUiState.Loading)
     val state: StateFlow<BootstrapUiState> = _state.asStateFlow()
 
     init {
+        sessionEvents?.let { sender ->
+            viewModelScope.launch {
+                sender.accessDenied.collect { denied ->
+                    if (denied) _state.value = BootstrapUiState.Error(BootstrapErrorType.ACCESS_NOT_PROVISIONED)
+                }
+            }
+        }
         // A screen that changed something the nav reflects (today: the Leadership Tasks badge)
         // asks for a quiet re-read. Collected here, once, for the life of the Activity.
         viewModelScope.launch {

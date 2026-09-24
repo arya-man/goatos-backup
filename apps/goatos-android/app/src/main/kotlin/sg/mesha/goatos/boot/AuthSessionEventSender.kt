@@ -8,6 +8,9 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import sg.mesha.goatos.core.network.AppApi
@@ -23,7 +26,7 @@ import kotlin.random.Random
 /** How a background session-event ended. */
 sealed interface SessionEventOutcome {
     data object Delivered : SessionEventOutcome
-    /** 401/403 -- e.g. `email_not_allowed`. The sign-in must be undone. */
+    /** 403 -- e.g. `email_not_allowed`. The sign-in must be undone (or parked, see SessionViewModel). */
     data class Denied(val statusCode: Int) : SessionEventOutcome
     /** Retries exhausted, a non-retryable failure, or cancelled by logout / a newer sign-in. */
     data object GaveUp : SessionEventOutcome
@@ -67,6 +70,19 @@ class AuthSessionEventSender(
 
     private val current = AtomicReference<Attempt?>(null)
 
+    private val _accessDenied = MutableStateFlow(false)
+
+    /**
+     * True when this sign-in was denied (403) but the session was KEPT because unsynced work would
+     * otherwise be wiped. Bootstrap shows the no-access screen while it is set; that screen's
+     * "Sign in with another account" confirm is how the operator leaves. Reset by the next [send].
+     */
+    val accessDenied: StateFlow<Boolean> = _accessDenied.asStateFlow()
+
+    fun markAccessDenied() {
+        _accessDenied.value = true
+    }
+
     /**
      * Starts the event; a newer sign-in supersedes any still-retrying older one. [onDenied] runs in
      * the APPLICATION scope (not the caller's), so a denial still undoes the sign-in after the
@@ -79,6 +95,7 @@ class AuthSessionEventSender(
         onDenied: suspend (SessionEventOutcome.Denied) -> Unit = {},
     ): Deferred<SessionEventOutcome> {
         val request = AuthSessionEventRequestDto(eventType = eventType, source = source)
+        _accessDenied.value = false
         val outcome = CompletableDeferred<SessionEventOutcome>()
         lateinit var attempt: Attempt
         val job = scope.launch(start = CoroutineStart.LAZY) {

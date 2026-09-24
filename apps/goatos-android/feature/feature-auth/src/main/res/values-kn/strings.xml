@@ -29,6 +29,8 @@
     <string name="login_error_no_google_account">ಈ ಸಾಧನದಲ್ಲಿ Google ಖಾತೆ ಕಂಡುಬಂದಿಲ್ಲ.</string>
     <string name="login_error_no_dev_backend">ಈ ಬಿಲ್ಡ್‌ನಲ್ಲಿ ಬ್ಯಾಕೆಂಡ್ ಸೆಶನ್ ಕಾನ್ಫಿಗರ್ ಆಗಿಲ್ಲ. goatosDevBearerToken ಸೆಟ್ ಆಗಿರುವ ಡೆವ್ ಬಿಲ್ಡ್ ಅಥವಾ Firebase-ಪರಿಶೀಲಿತ ಬಿಲ್ಡ್ ಸ್ಥಾಪಿಸಿ.</string>
     <string name="login_error_generic">ಸೈನ್-ಇನ್ ವಿಫಲವಾಗಿದೆ. ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.</string>
+    <string name="login_error_no_session_token">ಸೈನ್ ಇನ್ ಆಗಿದೆ, ಆದರೆ ಸೆಷನ್ ಸಿಗಲಿಲ್ಲ. ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.</string>
+    <string name="login_error_workspace_unavailable">ಸೈನ್ ಇನ್ ಆಗಿದೆ, ಆದರೆ Mesha ನಿಮ್ಮ ವರ್ಕ್‌ಸ್ಪೇಸ್ ತೆರೆಯಲಾಗಲಿಲ್ಲ. ನಿಮ್ಮ ಪ್ರವೇಶ ಪರಿಶೀಲಿಸಲು ನಿಮ್ಮ ಮ್ಯಾನೇಜರ್‌ಗೆ ಹೇಳಿ.</string>
 
     <string name="perm_gate_title">ಸಾಧನ ಅನುಮತಿಗಳು</string>
     <string name="perm_gate_subtitle">ಸ್ಕ್ಯಾನ್, ಅಲರ್ಟ್ ಮತ್ತು ಪುರಾವೆ ಫೋಟೋಗಳಿಗಾಗಿ ಒಮ್ಮೆ ಅನುಮತಿಸಿ.</string>
