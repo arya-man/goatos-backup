@@ -40,6 +40,34 @@ Read this before touching the admin-web **Ask Mesha** panel, `apps/admin-web/app
 - Proof to re-run after changes: ask "edit AGENTS.md" and "git push --force" — both must be refused and
   the checkout unchanged; a data question must still answer with 1 query.
 
+## Multi-tenant isolation — REQUIRED before onboarding a 2nd tenant
+
+Today goatos-stg has exactly **one tenant (Mesha)**, so the CEO agent reads every table with a single
+read-only login and no tenant filter (maintainer decision 2026-09-24). **This is only safe while there is
+one tenant.** Before any second tenant's data is loaded, do all of the following in one PR (land via
+`make land-main`; follow the db-migration-safety skill):
+
+1. **Tie the chat to the asking user's tenant (session level).** The agent already authenticates the
+   caller (Firebase bearer → STG API) and knows `user.tenantId` from `X-GoatOS-Tenant-ID`; chats are
+   already owned by email + tenant. The server — never the model — must pick the DB login for that tenant.
+2. **Enforce it in the database (row level).** Prompt rules ("always filter tenant_id") are NOT isolation.
+   - One read-only login per tenant (e.g. `ceo_ro_<tenant>`), all members of a `ceo_readers` group role,
+     with **no write privilege** anywhere; mapping table `ceo.reader_tenants(role name, tenant_id uuid)`.
+   - `ENABLE ROW LEVEL SECURITY` + a `FOR SELECT TO ceo_readers USING (tenant_id = ceo.current_reader_tenant())`
+     policy on **every table with a `tenant_id` column** (322 of 343 base tables on 2026-09-24; generate the
+     policies in a loop in the migration). `goatos_app` is unaffected (policies target `ceo_readers` only).
+   - The ~21 tables without `tenant_id` are shared reference/lookup data; review each — anything that is
+     actually tenant data must gain `tenant_id` first.
+   - `run_sql` connects as the tenant's login. The model cannot switch tenants because it cannot change
+     the connected role (no `SET ROLE` membership).
+3. **Guard:** CI check that fails when a table with `tenant_id` lacks the `ceo_readers` policy, plus an
+   adversarial self-test (a fake second tenant must see **zero** rows through the agent).
+4. **Proof before enabling:** Mesha login sees Mesha rows; a second-tenant login sees only its own rows
+   for the same free-form SQL (`SELECT * FROM public.feed_purchases`), and agent answers are unchanged.
+
+Not the answer: per-tenant copies of tables/schemas (344× duplication and migration pain) or indexes
+(speed only, no protection). `tenant_id` indexes should still exist on large tables for RLS performance.
+
 ## Data map (how it stays fast and correct)
 
 - `.agents/skills/mesha-data-map/` (linked from `.claude/skills/`): routing table, **metric definitions
