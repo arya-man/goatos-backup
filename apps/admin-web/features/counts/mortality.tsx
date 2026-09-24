@@ -27,7 +27,7 @@ import { MortalityTelemetry } from "./mortality-telemetry";
 // Two kinds of series, and the page keeps them visibly apart:
 //
 //   RATE series (kids/adults, stage, breed, sex, species, farm, pen, load, vendor) are drawn as a
-//   rate table: deaths, animals in the section today and the rate with a proportional bar, because a breed with
+//   rate table: deaths, every animal that was in the section during the window, and the rate with a proportional bar, because a breed with
 //   3 deaths out of 40 and one with 3 out of 400 must not look alike.
 //
 //   COUNT series (age at death, season, cause, days since arrival, days since vaccination)
@@ -91,7 +91,7 @@ function ChartCard({ title, hint, children }: { title: string; hint: string; chi
 }
 
 /**
- * A RATE series: one row per bucket with deaths, the section's live animals and the rate, plus a bar whose length
+ * A RATE series: one row per bucket with deaths, the animals that were in the section during the window and the rate, plus a bar whose length
  * is the rate against the series' highest rate. Buckets with no deaths still list (a breed with
  * zero deaths out of 400 is a finding), sorted by the backend — most deaths first.
  */

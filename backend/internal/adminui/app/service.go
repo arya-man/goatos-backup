@@ -702,10 +702,10 @@ func pages() []domain.PageContract {
 		// and the flow table's columns come from this table contract.
 		page("herd-analytics", "/counts/analytics", "/counts/analytics", "Herd Analytics", "Herd composition by breed, pen tag, sex and age, beside month-by-month births, deaths and sales over a chosen window. Composition is the live herd right now; flow is counted off the canonical row that recorded each event.", "module-surface", nil),
 		// Counts -> Mortality. Deaths in a window sliced by everything the animal's own row
-		// froze at death, beside the live head count of each section for the rate series. No table
+		// froze at death, beside every animal that was in each section during the window. No table
 		// contract: every mark is drawn from the one /counts/mortality payload and the
 		// recent-deaths list carries its columns in the copy map below.
-		page("counts-mortality", "/counts/mortality", "/counts/mortality", "Mortality", "Deaths over a chosen window from every angle: overall rate, kids and adults, stage, age at death, breed, purchase load, vendor, cause, season, pen, sex, and the cross tabs between them. Every rate divides the deaths by the animals in that section today.", "module-surface",
+		page("counts-mortality", "/counts/mortality", "/counts/mortality", "Mortality", "Deaths over a chosen window from every angle: overall rate, kids and adults, stage, age at death, breed, purchase load, vendor, cause, season, pen, sex, and the cross tabs between them. Every rate divides the deaths by every animal that was in that section during the window.", "module-surface",
 			[]domain.TableContract{
 				// The per-animal list under the charts. Its columns are this contract's, and so is its
 				// page-size vocabulary -- the backend accepts exactly these three sizes, so a chip a
@@ -6100,8 +6100,9 @@ func pageSpecificCopy(id string) map[string]string {
 	// copy has to keep them apart:
 	//
 	//   RATE series (kids/adults, stage, breed, sex, farm, pen, load) divide the window's deaths
-	//   by the animals in that same section TODAY -- the Counts Breakdown head count (maintainer
-	//   decision 2026-09-18). A section with 3 deaths against 40 and one with 3 against 400
+	//   by EVERY ANIMAL THAT WAS IN that section during the window -- including those that died,
+	//   were shifted out or were sold (maintainer decision 2026-09-24, superseding 2026-09-18's
+	//   "head count today"). A section with 3 deaths against 40 and one with 3 against 400
 	//   read very differently.
 	//
 	//   COUNT series (age at death, season, cause, days since arrival, days since the last
@@ -6115,7 +6116,7 @@ func pageSpecificCopy(id string) map[string]string {
 	case "counts-mortality":
 		return map[string]string{
 			"crumb":        "Counts",
-			"banner.basis": "Deaths are counted on the day the animal was recorded dead. Every rate divides the deaths in the window by the animals in that section today. Breed, sex, stage, pen, load and vendor are read as they stood when the animal died.",
+			"banner.basis": "Deaths are counted on the day the animal was recorded dead. Every rate divides the deaths in the window by every animal that was in that section during the window, including animals that died, were shifted out or were sold. A death counts in the breed, sex, stage, pen, load and vendor the animal had when it died.",
 
 			"filter.date":                  "Window",
 			"filter.date.today":            "Today",
@@ -6133,7 +6134,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"kpi.deaths.label":     "Deaths",
 			"kpi.deaths.sub":       "Animals recorded dead in the window",
 			"kpi.rate.label":       "Mortality rate",
-			"kpi.rate.sub":         "Deaths in the window against the animals in the herd today",
+			"kpi.rate.sub":         "Deaths in the window against every animal on the farm during it",
 			"kpi.kids.label":       "Kid deaths",
 			"kpi.kids.sub":         "Kids (K-stage or kid age band) recorded dead, with their rate",
 			"kpi.adults.label":     "Adult deaths",
@@ -6143,14 +6144,14 @@ func pageSpecificCopy(id string) map[string]string {
 			"kpi.cause.label":      "Cause established",
 			"kpi.cause.sub":        "Deaths with a disease named on the death form or an open case at the time",
 			"kpi.animals":          "animals",
-			"kpi.no_rate":          "No live animals in this section",
+			"kpi.no_rate":          "No animals in this section during the window",
 
 			"chart.months.title":    "Deaths by month",
 			"chart.months.hint":     "One point per India calendar month, kids and adults kept apart because their causes differ. A window that starts or ends mid-month leaves that month covering only the days inside it.",
 			"chart.stage.title":     "By stage",
 			"chart.stage.hint":      "Deaths and mortality rate by the tag the animal carried when it died — pregnant, non-pregnant, fattening, bucks and each kid stage",
 			"chart.kid_adult.title": "Kids and adults",
-			"chart.kid_adult.hint":  "Deaths and rate for each age band; every animal falls in exactly one",
+			"chart.kid_adult.hint":  "Deaths and rate for each age band. A kid that moved to an adult stage during the window counts in both, because it was at risk in both",
 			"chart.age.title":       "Age at death",
 			"chart.age.hint":        "Days between date of birth and death. The first week is the neonatal window; 1–3 months is pre-weaning.",
 			"chart.breed.title":     "By breed",
@@ -6162,7 +6163,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"chart.park.title":      "By farm",
 			"chart.park.hint":       "Deaths and rate at each farm",
 			"chart.pen.title":       "By pen",
-			"chart.pen.hint":        "Pens that saw a death, with the rate against the animals in that pen today — a single bad pen points at ventilation, drainage or crowding rather than a farm-wide problem",
+			"chart.pen.hint":        "Pens that saw a death, with the rate against every animal that was in that pen during the window — a single bad pen points at ventilation, drainage or crowding rather than a farm-wide problem",
 			"chart.load.title":      "By purchase load",
 			"chart.load.hint":       "Deaths and rate per load the animals came in on, beside farm-born animals — a bad batch shows here before it shows anywhere else",
 			"chart.vendor.title":    "By vendor",

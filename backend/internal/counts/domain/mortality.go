@@ -19,11 +19,14 @@ import (
 //
 // TWO KINDS OF SERIES, and the payload names which is which:
 //
-//   RATE series carry a denominator. `animals` is how many animals are IN that section today
-//   -- the same live head count Counts Breakdown reports, grouped by the SAME attribute the
-//   deaths are (maintainer decision 2026-09-18: "how many animals there are in that section",
-//   not an at-risk population). A breed with 3 deaths against 40 and one with 3 against 400
-//   read very differently. `rate_pct` is deaths / animals, omitted when a section has no live animal.
+//   RATE series carry a denominator. `animals` is EVERY ANIMAL THAT WAS IN that section at
+//   any point in the window -- including those that died, were shifted out or were sold
+//   inside it (maintainer decision 2026-09-24, superseding 2026-09-18's "head count today",
+//   which made a shift or a sale move the rate and left the rate blank when the only animal
+//   in a section died). Stage, kid/adult and pen are read from the animal's history, so an
+//   animal that moved counts in every section it passed through; its death counts only where
+//   it died. A breed with 3 deaths of 40 and one with 3 of 400 read very differently.
+//   `rate_pct` is deaths / animals, omitted only when a section had no animal at all.
 //
 //   COUNT series carry deaths alone. Age at death, season, cause, days since arrival and
 //   days since the last vaccination are facts ABOUT a death and have no living counterpart
@@ -41,9 +44,10 @@ type MortalityBucket struct {
 	Key    string `json:"key"`
 	Label  string `json:"label"`
 	Deaths int64  `json:"deaths"`
-	// Animals is the denominator for a rate series: the live animals in this bucket today.
+	// Animals is the denominator for a rate series: every animal that was in this bucket at
+	// any point in the window, including those that died, left or were sold during it.
 	Animals int64 `json:"animals"`
-	// RatePct is deaths as a percentage of animals, nil when the bucket holds no live animal.
+	// RatePct is deaths as a percentage of animals, nil when the bucket had no animal at all.
 	RatePct *float64 `json:"rate_pct,omitempty"`
 	// Basis is set on the CAUSE series only: "recorded" when the death form named the cause,
 	// "inferred" when an older death is attributed from a case that was open when the animal

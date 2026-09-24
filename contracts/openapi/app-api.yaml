@@ -14117,15 +14117,17 @@ paths:
       tags:
         - Counts
       operationId: getCountsMortality
-      summary: Deaths in a window from every angle the farm asks -- stage, age, breed, load, cause, season, pen -- beside the live head count.
+      summary: Deaths in a window from every angle the farm asks -- stage, age, breed, load, cause, season, pen -- beside every animal that was there.
       description: >-
         The Counts mortality read. A death is the animal's own exit row (`exit_reason = 'died'`,
         dated the IST day of `exited_at`), the SAME predicate `/counts/herd-analytics` counts
         deaths with, so the two screens cannot disagree. Every attribute is read off the animal's
         row as it stood when it died (the exit touches only lifecycle columns). RATE series
         (`kid_adult`, `stage`, `breed`, `sex`, `species`, `park`, `pen`, `load`) carry
-        `animals` -- the live head count of that bucket today, the same number
-        `/counts/breakdown` reports -- and `rate_pct` = deaths / animals; COUNT
+        `animals` -- every animal that was in that bucket at any point in the window, including
+        those that died, were shifted out or were sold inside it; stage, kid/adult and pen are
+        read from the animal's history, so an animal counts in every bucket it passed through
+        while its death counts only where it died -- and `rate_pct` = deaths / animals; COUNT
         series (`age_at_death`, `season`, `cause`, `days_since_arrival`,
         `days_since_vaccination`) are facts about the death alone and carry no rate. Cause has
         three disjoint bases: `recorded` (named on the death form), `inferred` (a case open when
@@ -42062,8 +42064,8 @@ components:
           format: date-time
     MortalityBucket:
       description: >-
-        One slice of the deaths. On a RATE series animals is the bucket's live head count today
-        and rate_pct is deaths / animals (absent when animals is zero); on a COUNT series both
+        One slice of the deaths. On a RATE series animals is every animal that was in the bucket
+        during the window and rate_pct is deaths / animals (absent when animals is zero); on a COUNT series both
         are zero/absent and a client must not draw a rate. basis is set on the cause series only.
       type: object
       additionalProperties: false

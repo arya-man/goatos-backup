@@ -15,7 +15,8 @@ import (
 // Adversarial coverage for the Mortality aggregate. Every test targets a way this read can
 // report a WRONG NUMBER rather than fail loudly: a death counted differently from Herd
 // Analytics, a cause landing in two bases, a band boundary the SQL draws one day off the Go
-// rule the labels come from, or a rate whose denominator is not the bucket's own live head count.
+// rule the labels come from, or a rate whose denominator is not every animal that was in the
+// bucket during the window (maintainer decision 2026-09-24).
 
 // insertMortalityGoat seeds one animal with every attribute the mortality read slices on.
 // exitedOn empty = still alive.
@@ -101,18 +102,20 @@ func TestMortalityMultipleDimensionsMatchHerdAnalyticsAndPartitionAnimals(t *tes
 	if mort.Totals.Deaths != 3 || herd.Totals.Deaths != mort.Totals.Deaths {
 		t.Fatalf("deaths: mortality=%d herd analytics=%d, want 3 on both", mort.Totals.Deaths, herd.Totals.Deaths)
 	}
-	// Animals = the 2 LIVE animals, the same head count Counts Breakdown reports; the dead and
-	// the sold are not in the denominator (maintainer decision 2026-09-18).
-	if mort.Totals.Animals != 2 {
-		t.Fatalf("animals=%d want 2", mort.Totals.Animals)
+	// Animals = every animal that was there in the window: the 3 dead, the 1 sold inside it and
+	// the 2 still alive (maintainer decision 2026-09-24).
+	if mort.Totals.Animals != 6 {
+		t.Fatalf("animals=%d want 6", mort.Totals.Animals)
 	}
-	if mort.Totals.RatePct == nil || *mort.Totals.RatePct != 150.0 {
-		t.Fatalf("rate=%v want 150.0 (3 deaths against 2 live animals)", mort.Totals.RatePct)
+	if mort.Totals.RatePct == nil || *mort.Totals.RatePct != 50.0 {
+		t.Fatalf("rate=%v want 50.0 (3 deaths of the 6 animals that were there)", mort.Totals.RatePct)
 	}
 	if mort.Totals.KidDeaths+mort.Totals.AdultDeaths != mort.Totals.Deaths {
 		t.Fatalf("kids %d + adults %d != deaths %d", mort.Totals.KidDeaths, mort.Totals.AdultDeaths, mort.Totals.Deaths)
 	}
-	// Every RATE series partitions both deaths and the live head count exactly.
+	// With no stage change or move recorded, every RATE series partitions both deaths and the
+	// animals exactly. (Once animals move, stage / kid-adult / pen stop adding up by design: an
+	// animal counts in every bucket it passed through.)
 	for name, series := range map[string][]domain.MortalityBucket{"stage": mort.Stage, "breed": mort.Breed, "sex": mort.Sex, "kid_adult": mort.KidAdult, "park": mort.Park, "load": mort.Load, "vendor": mort.Vendor} {
 		var deaths, animals int64
 		for _, b := range series {
@@ -123,10 +126,10 @@ func TestMortalityMultipleDimensionsMatchHerdAnalyticsAndPartitionAnimals(t *tes
 			t.Fatalf("%s series sums deaths=%d animals=%d, want %d/%d: %+v", name, deaths, animals, mort.Totals.Deaths, mort.Totals.Animals, series)
 		}
 	}
-	// The breed rate divides by THAT breed's own live animals, never the whole herd: Beetal has
-	// 2 deaths (one by reason, the fallback row is Beetal too) against 1 live animal; Sirohi has
-	// 1 death against 1 live animal.
-	want := map[string][3]float64{"Beetal": {2, 1, 200.0}, "Sirohi": {1, 1, 100.0}}
+	// The breed rate divides by THAT breed's own animals, never the whole herd: Beetal has 2
+	// deaths (one by reason, the fallback row is Beetal too) of 4 animals (the two dead, the
+	// sold one, the live one); Sirohi has 1 death of 2.
+	want := map[string][3]float64{"Beetal": {2, 4, 50.0}, "Sirohi": {1, 2, 50.0}}
 	for _, b := range mort.Breed {
 		w, ok := want[b.Key]
 		if !ok {
@@ -380,9 +383,8 @@ func TestMortalityStatusMatrixOnlyDiedCountsAsADeath(t *testing.T) {
 	for i, m := range matrix {
 		insertExitedGoat(t, ctx, pool, mortalityGoatID(300+i), fmt.Sprintf("G-93%04d", i), m.lifecycle, m.reason, died)
 	}
-	// Two animals still on the farm, one of them in ICU. The denominator is the same default
-	// live census Counts Breakdown reports, so the clinical state is reachable elsewhere but not
-	// counted here.
+	// Two animals still on the farm, one of them in ICU. An ICU animal is still on the farm, so
+	// it is one of the animals that was there.
 	insertMortalityGoat(t, ctx, pool, mortalityGoatID(320), "Beetal", "female", "F2-Female", "adult", "2025-01-01", "procured", "", "")
 	insertMortalityGoat(t, ctx, pool, mortalityGoatID(321), "Beetal", "female", "ICU", "adult", "2025-01-01", "procured", "", "")
 	if _, err := pool.Exec(ctx, `UPDATE goats SET lifecycle_status = 'icu' WHERE goat_id = $1::uuid`, mortalityGoatID(321)); err != nil {
@@ -396,21 +398,22 @@ func TestMortalityStatusMatrixOnlyDiedCountsAsADeath(t *testing.T) {
 	if mort.Totals.Deaths != 2 {
 		t.Fatalf("deaths=%d want 2 (died by reason, dead by fallback)", mort.Totals.Deaths)
 	}
-	if mort.Totals.Animals != 1 {
-		t.Fatalf("animals=%d want 1 (strict Counts Breakdown live head count; ICU excluded)", mort.Totals.Animals)
+	// Every exit in the window was there until it left, so all ten are animals; only two are deaths.
+	if mort.Totals.Animals != 12 {
+		t.Fatalf("animals=%d want 12 (ten exits inside the window + two on the farm, ICU included)", mort.Totals.Animals)
 	}
 	if len(mort.Deaths) != 2 {
 		t.Fatalf("recent list %d rows, want the 2 deaths only", len(mort.Deaths))
 	}
 	// StatusMatrix, vendor side: the vendor series reads its membership off the same rows, so
-	// the eight non-death exits are in neither its deaths nor its head count.
+	// the eight non-death exits are among its animals but never among its deaths.
 	var vendorDeaths, vendorAnimals int64
 	for _, b := range mort.Vendor {
 		vendorDeaths += b.Deaths
 		vendorAnimals += b.Animals
 	}
-	if vendorDeaths != 2 || vendorAnimals != 1 {
-		t.Fatalf("vendor series sums deaths=%d animals=%d, want 2/1 -- a sold, culled, transferred or lost animal is leaking into a vendor's rate", vendorDeaths, vendorAnimals)
+	if vendorDeaths != 2 || vendorAnimals != 12 {
+		t.Fatalf("vendor series sums deaths=%d animals=%d, want 2/12 -- a sold, culled, transferred or lost animal is being counted as a death, or dropped from the animals", vendorDeaths, vendorAnimals)
 	}
 }
 
@@ -457,11 +460,11 @@ ON CONFLICT (location_id) DO NOTHING`, countsTenant, otherPark, otherShed); err 
 	if err != nil {
 		t.Fatalf("scoped: %v", err)
 	}
-	if all.Totals.Deaths != 3 || all.Totals.Animals != 2 || len(all.Park) != 2 {
-		t.Fatalf("unscoped totals %+v parks %+v, want 3 deaths / 2 live over 2 parks", all.Totals, all.Park)
+	if all.Totals.Deaths != 3 || all.Totals.Animals != 5 || len(all.Park) != 2 {
+		t.Fatalf("unscoped totals %+v parks %+v, want 3 deaths of 5 animals over 2 parks", all.Totals, all.Park)
 	}
-	if scoped.Totals.Deaths != 2 || scoped.Totals.Animals != 1 || len(scoped.Park) != 1 {
-		t.Fatalf("CPT totals %+v parks %+v, want 2 deaths / 1 live over 1 park", scoped.Totals, scoped.Park)
+	if scoped.Totals.Deaths != 2 || scoped.Totals.Animals != 3 || len(scoped.Park) != 1 {
+		t.Fatalf("CPT totals %+v parks %+v, want 2 deaths of 3 animals over 1 park", scoped.Totals, scoped.Park)
 	}
 	sum := func(bs []domain.MortalityBucket) (d int64) {
 		for _, b := range bs {
@@ -644,12 +647,12 @@ func TestMortalityResolvesAnUnusablePageRequestToTheFirstPage(t *testing.T) {
 	}
 }
 
-// THE DENOMINATOR IS TODAY'S HEAD COUNT (maintainer decision 2026-09-18, superseding the
-// at-risk population an earlier review fix had widened to interval overlap). "Animals" is
-// how many animals are in that section NOW -- the same figure Counts Breakdown reports -- so
-// a goat sold after the window, a goat that died inside it and a goat that entered after the
-// window all sit exactly where the head count puts them: out, out, and in.
-func TestMortalityAnimalsIsTodaysHeadCountNotAnAtRiskPopulation(t *testing.T) {
+// THE DENOMINATOR IS EVERY ANIMAL THAT WAS THERE (maintainer decision 2026-09-24, superseding
+// the 2026-09-18 "today's head count"). A goat that died inside the window, one still alive and
+// one sold AFTER the window were all in the herd in July, so all three are July's animals. A
+// goat born after the window was not there in July and is not one of them, even though it is
+// in the herd today.
+func TestMortalityAnimalsAreEveryAnimalThatWasThere(t *testing.T) {
 	ctx := context.Background()
 	repo, pool := newHerdAnalyticsRepo(t, ctx)
 	from, to := "2026-07-01", "2026-07-31"
@@ -657,8 +660,9 @@ func TestMortalityAnimalsIsTodaysHeadCountNotAnAtRiskPopulation(t *testing.T) {
 	insertMortalityGoat(t, ctx, pool, mortalityGoatID(600), "Beetal", "female", "K1", "kid", "2026-07-01", "birth", "died", "2026-07-15")
 	insertMortalityGoat(t, ctx, pool, mortalityGoatID(601), "Beetal", "female", "K1", "kid", "2026-06-01", "birth", "", "")
 	insertMortalityGoat(t, ctx, pool, mortalityGoatID(602), "Beetal", "female", "K1", "kid", "2026-06-01", "procured", "sold", "2026-08-15")
-	// Born after the window: not exposed in July, but IN the herd today, so in the head count.
 	insertMortalityGoat(t, ctx, pool, mortalityGoatID(603), "Beetal", "female", "K1", "kid", "2026-08-20", "birth", "", "")
+	// Died BEFORE the window: history, not one of July's animals.
+	insertMortalityGoat(t, ctx, pool, mortalityGoatID(604), "Beetal", "female", "K1", "kid", "2026-05-01", "birth", "died", "2026-06-20")
 
 	mort, err := repo.GetMortality(ctx, domain.MortalityQuery{TenantID: countsTenant, FromDate: from, ToDate: to})
 	if err != nil {
@@ -667,17 +671,236 @@ func TestMortalityAnimalsIsTodaysHeadCountNotAnAtRiskPopulation(t *testing.T) {
 	if mort.Totals.Deaths != 1 {
 		t.Fatalf("deaths=%d want 1", mort.Totals.Deaths)
 	}
-	if mort.Totals.Animals != 2 {
-		t.Fatalf("animals=%d want 2 (the two live animals; the dead and the sold are out)", mort.Totals.Animals)
+	if mort.Totals.Animals != 3 {
+		t.Fatalf("animals=%d want 3 (the dead one, the live one and the one sold after July)", mort.Totals.Animals)
 	}
-	if mort.Totals.RatePct == nil || *mort.Totals.RatePct != 50.0 {
-		t.Fatalf("rate=%v want 50.0", mort.Totals.RatePct)
+	if mort.Totals.RatePct == nil || *mort.Totals.RatePct != 33.3 {
+		t.Fatalf("rate=%v want 33.3", mort.Totals.RatePct)
 	}
 	for _, b := range mort.Stage {
-		if b.Key == "K1" && (b.Animals != 2 || b.Deaths != 1) {
-			t.Fatalf("K1 bucket %+v, want 1 death / 2 animals", b)
+		if b.Key == "K1" && (b.Animals != 3 || b.Deaths != 1) {
+			t.Fatalf("K1 bucket %+v, want 1 death of 3 animals", b)
 		}
 	}
+}
+
+// recordStageChange writes the goat.stage_changed event every production stage write emits
+// and moves the animal's row to the new stage, exactly as the identity writers do.
+func recordStageChange(t *testing.T, ctx context.Context, pool *pgxpool.Pool, goatID, on, from, to string) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `
+INSERT INTO goat_identity_events (tenant_id, goat_id, event_type, event_version, occurred_at, payload, idempotency_key)
+VALUES ($1::uuid, $2::uuid, 'goat.stage_changed', 1, ($3::date + time '09:00') AT TIME ZONE 'Asia/Kolkata',
+        jsonb_build_object('goat_id', $2::text, 'previous_management_stage', $4::text, 'management_stage', $5::text),
+        'test-stage:' || $2::text || ':' || $3::text)`, countsTenant, goatID, on, from, to); err != nil {
+		t.Fatalf("stage change %s: %v", goatID, err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE goats SET management_stage = $3 WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`,
+		countsTenant, goatID, to); err != nil {
+		t.Fatalf("stage row %s: %v", goatID, err)
+	}
+}
+
+// recordPenMove writes the goat_location_history row every production move writes and moves
+// the animal's row to the new shed.
+func recordPenMove(t *testing.T, ctx context.Context, pool *pgxpool.Pool, goatID, on, fromShed, toShed string) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `
+INSERT INTO goat_location_history (tenant_id, goat_id, from_location_id, to_location_id, reason, occurred_at)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'test move', ($5::date + time '09:00') AT TIME ZONE 'Asia/Kolkata')`,
+		countsTenant, goatID, fromShed, toShed, on); err != nil {
+		t.Fatalf("pen move %s: %v", goatID, err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE goats SET shed_id = $3::uuid, current_location_id = $3::uuid WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`,
+		countsTenant, goatID, toShed); err != nil {
+		t.Fatalf("pen row %s: %v", goatID, err)
+	}
+}
+
+// assertDeathsNeverExceedAnimals: every death is one of its bucket's animals, so no bucket in
+// any rate series can read more deaths than animals, and every series' deaths add up to the
+// total (animals need not, once animals move).
+func assertDeathsNeverExceedAnimals(t *testing.T, mort domain.Mortality) {
+	t.Helper()
+	for name, series := range map[string][]domain.MortalityBucket{
+		"stage": mort.Stage, "kid_adult": mort.KidAdult, "pen": mort.Pen, "breed": mort.Breed, "sex": mort.Sex,
+		"species": mort.Species, "park": mort.Park, "load": mort.Load, "vendor": mort.Vendor,
+	} {
+		var deaths int64
+		for _, b := range series {
+			deaths += b.Deaths
+			if b.Deaths > b.Animals {
+				t.Fatalf("%s bucket %q has %d deaths of %d animals -- a death is missing from its own bucket's animals", name, b.Label, b.Deaths, b.Animals)
+			}
+		}
+		if deaths != mort.Totals.Deaths {
+			t.Fatalf("%s series deaths sum %d, want %d", name, deaths, mort.Totals.Deaths)
+		}
+	}
+}
+
+func stageBucket(mort domain.Mortality, key string) (domain.MortalityBucket, bool) {
+	for _, b := range mort.Stage {
+		if b.Key == key {
+			return b, true
+		}
+	}
+	return domain.MortalityBucket{}, false
+}
+
+func penBucket(mort domain.Mortality, suffix string) (domain.MortalityBucket, bool) {
+	for _, b := range mort.Pen {
+		if len(b.Label) >= len(suffix) && b.Label[len(b.Label)-len(suffix):] == suffix {
+			return b, true
+		}
+	}
+	return domain.MortalityBucket{}, false
+}
+
+// SHIFTING ANIMALS OUT DOES NOT MOVE THE RATE -- the defect the 2026-09-24 decision fixes. F2
+// has 30 animals; one dies; two days later 15 shift to Fattening. Under the old rule F2 read
+// 1 / 15 = 6.7%; it must read 1 of the 30 that were there = 3.3%. And a CLOSED window stays
+// closed: shifting 10 more out in August does not rewrite July.
+func TestMortalityShiftingOutDoesNotMoveTheRate(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newHerdAnalyticsRepo(t, ctx)
+	from, to := "2026-07-01", "2026-07-31"
+
+	insertMortalityGoat(t, ctx, pool, mortalityGoatID(800), "Beetal", "female", "F2-Female", "adult", "2025-01-01", "procured", "died", "2026-07-05")
+	for i := 1; i < 30; i++ {
+		insertMortalityGoat(t, ctx, pool, mortalityGoatID(800+i), "Beetal", "female", "F2-Female", "adult", "2025-01-01", "procured", "", "")
+	}
+	for i := 1; i <= 15; i++ {
+		recordStageChange(t, ctx, pool, mortalityGoatID(800+i), "2026-07-07", "F2-Female", "Fattening")
+	}
+
+	read := func() domain.Mortality {
+		t.Helper()
+		mort, err := repo.GetMortality(ctx, domain.MortalityQuery{TenantID: countsTenant, FromDate: from, ToDate: to})
+		if err != nil {
+			t.Fatalf("mortality: %v", err)
+		}
+		return mort
+	}
+	check := func(mort domain.Mortality, when string) {
+		t.Helper()
+		f2, ok := stageBucket(mort, "F2-Female")
+		if !ok || f2.Deaths != 1 || f2.Animals != 30 || f2.RatePct == nil || *f2.RatePct != 3.3 {
+			t.Fatalf("%s: F2-Female %+v, want 1 death of 30 = 3.3%%", when, f2)
+		}
+		fat, ok := stageBucket(mort, "Fattening")
+		if !ok || fat.Deaths != 0 || fat.Animals != 15 {
+			t.Fatalf("%s: Fattening %+v, want 0 deaths of 15", when, fat)
+		}
+		if mort.Totals.Deaths != 1 || mort.Totals.Animals != 30 {
+			t.Fatalf("%s: totals %+v, want 1 death of 30", when, mort.Totals)
+		}
+		assertDeathsNeverExceedAnimals(t, mort)
+	}
+	check(read(), "after the shift")
+
+	// August: 10 more leave F2. July is over, so July's numbers must not move.
+	for i := 16; i <= 25; i++ {
+		recordStageChange(t, ctx, pool, mortalityGoatID(800+i), "2026-08-10", "F2-Female", "Fattening")
+	}
+	check(read(), "after a later shift")
+}
+
+// THE ONLY ANIMAL IN A PEN DIES -- the second defect. One animal is moved from CPT Shed 1 into
+// CPT Shed 2 (the ICU pen) and put on the ICU stage, and dies there. Under the old rule both
+// read 1 / 0 and showed no rate at all; both must read 1 of 1 = 100%. The shed it came from
+// still counts it: another death in CPT Shed 1 is 1 of the 10 that were there, the moved
+// animal included.
+func TestMortalityTheOnlyAnimalInAPenDyingReadsOneOfOne(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newHerdAnalyticsRepo(t, ctx)
+	from, to := "2026-07-01", "2026-07-31"
+
+	insertMortalityGoat(t, ctx, pool, mortalityGoatID(900), "Beetal", "female", "F2-Female", "adult", "2025-01-01", "procured", "died", "2026-07-10")
+	recordPenMove(t, ctx, pool, mortalityGoatID(900), "2026-07-03", countsShedA, countsShedB)
+	recordStageChange(t, ctx, pool, mortalityGoatID(900), "2026-07-03", "F2-Female", "ICU")
+	insertMortalityGoat(t, ctx, pool, mortalityGoatID(901), "Beetal", "female", "F2-Female", "adult", "2025-01-01", "procured", "died", "2026-07-20")
+	for i := 2; i < 10; i++ {
+		insertMortalityGoat(t, ctx, pool, mortalityGoatID(900+i), "Beetal", "female", "F2-Female", "adult", "2025-01-01", "procured", "", "")
+	}
+
+	mort, err := repo.GetMortality(ctx, domain.MortalityQuery{TenantID: countsTenant, FromDate: from, ToDate: to})
+	if err != nil {
+		t.Fatalf("mortality: %v", err)
+	}
+	icu, ok := stageBucket(mort, "ICU")
+	if !ok || icu.Deaths != 1 || icu.Animals != 1 || icu.RatePct == nil || *icu.RatePct != 100.0 {
+		t.Fatalf("ICU stage %+v, want 1 death of 1 = 100%%", icu)
+	}
+	icuPen, ok := penBucket(mort, "CPT Shed 2")
+	if !ok || icuPen.Deaths != 1 || icuPen.Animals != 1 || icuPen.RatePct == nil || *icuPen.RatePct != 100.0 {
+		t.Fatalf("ICU pen %+v in %+v, want 1 death of 1 = 100%%", icuPen, mort.Pen)
+	}
+	home, ok := penBucket(mort, "CPT Shed 1")
+	if !ok || home.Deaths != 1 || home.Animals != 10 {
+		t.Fatalf("CPT Shed 1 %+v, want 1 death of the 10 that were there", home)
+	}
+	f2, ok := stageBucket(mort, "F2-Female")
+	if !ok || f2.Deaths != 1 || f2.Animals != 10 {
+		t.Fatalf("F2-Female %+v, want 1 death of 10 (the ICU animal was F2 until it moved)", f2)
+	}
+	assertDeathsNeverExceedAnimals(t, mort)
+}
+
+// SELLING ANIMALS DOES NOT MOVE THE RATE -- the third defect. 10 animals, 1 dies, then 8 are
+// sold. Under the old rule that read 1 / 1 = 100%; it is 1 of the 10 that were there.
+func TestMortalitySellingAnimalsDoesNotMoveTheRate(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newHerdAnalyticsRepo(t, ctx)
+	from, to := "2026-07-01", "2026-07-31"
+
+	insertMortalityGoat(t, ctx, pool, mortalityGoatID(950), "Beetal", "male", "Fattening", "adult", "2025-01-01", "procured", "died", "2026-07-05")
+	for i := 1; i < 10; i++ {
+		exit, on := "", ""
+		if i <= 8 {
+			exit, on = "sold", "2026-07-20"
+		}
+		insertMortalityGoat(t, ctx, pool, mortalityGoatID(950+i), "Beetal", "male", "Fattening", "adult", "2025-01-01", "procured", exit, on)
+	}
+
+	mort, err := repo.GetMortality(ctx, domain.MortalityQuery{TenantID: countsTenant, FromDate: from, ToDate: to})
+	if err != nil {
+		t.Fatalf("mortality: %v", err)
+	}
+	fat, ok := stageBucket(mort, "Fattening")
+	if !ok || fat.Deaths != 1 || fat.Animals != 10 || fat.RatePct == nil || *fat.RatePct != 10.0 {
+		t.Fatalf("Fattening %+v, want 1 death of 10 = 10%%", fat)
+	}
+	assertDeathsNeverExceedAnimals(t, mort)
+}
+
+// A kid that grew into an adult stage inside the window counts in BOTH halves -- it was at risk
+// as a kid and as an adult -- while its death lands only where it died. Deaths still never
+// exceed animals in any bucket.
+func TestMortalityDeathsNeverExceedTheAnimalsThatWereThere(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newHerdAnalyticsRepo(t, ctx)
+	from, to := "2026-07-01", "2026-07-31"
+
+	insertMortalityGoat(t, ctx, pool, mortalityGoatID(970), "Beetal", "male", "F2-Male", "adult", "2025-12-01", "birth", "died", "2026-07-20")
+	recordStageChange(t, ctx, pool, mortalityGoatID(970), "2026-07-10", "K3", "F2-Male")
+	insertMortalityGoat(t, ctx, pool, mortalityGoatID(971), "Beetal", "male", "K3", "kid", "2026-01-01", "birth", "", "")
+
+	mort, err := repo.GetMortality(ctx, domain.MortalityQuery{TenantID: countsTenant, FromDate: from, ToDate: to})
+	if err != nil {
+		t.Fatalf("mortality: %v", err)
+	}
+	if mort.Totals.KidAnimals != 2 || mort.Totals.KidDeaths != 0 {
+		t.Fatalf("kids %d deaths of %d, want 0 of 2 (the grown animal was a kid first)", mort.Totals.KidDeaths, mort.Totals.KidAnimals)
+	}
+	if mort.Totals.AdultAnimals != 1 || mort.Totals.AdultDeaths != 1 {
+		t.Fatalf("adults %d deaths of %d, want 1 of 1", mort.Totals.AdultDeaths, mort.Totals.AdultAnimals)
+	}
+	k3, ok := stageBucket(mort, "K3")
+	if !ok || k3.Animals != 2 || k3.Deaths != 0 {
+		t.Fatalf("K3 %+v, want 0 deaths of 2", k3)
+	}
+	assertDeathsNeverExceedAnimals(t, mort)
 }
 
 // THE VENDOR ROLL-UP LOCK, and the cardinality axis of this change: a vendor stands in a
@@ -793,12 +1016,12 @@ INSERT INTO health_death_causes (tenant_id, goat_id, cause_key, cause_kind) VALU
 		}
 		byLabel[b.Label] = b
 	}
-	// Sardar's TWO loads are ONE vendor row: 2 deaths against his 4 live animals.
+	// Sardar's TWO loads are ONE vendor row: 2 deaths of the 6 animals he sent.
 	want := map[string][3]float64{
-		"Sardar Traders":    {2, 4, 50.0},
-		"Kumar Livestock":   {1, 1, 100.0},
-		"Farm born":         {1, 1, 100.0},
-		"Procured, no load": {1, 0, -1},
+		"Sardar Traders":    {2, 6, 33.3},
+		"Kumar Livestock":   {1, 2, 50.0},
+		"Farm born":         {1, 2, 50.0},
+		"Procured, no load": {1, 1, 100.0},
 		"Reddy Farms":       {0, 2, 0.0},
 	}
 	for label, w := range want {
@@ -952,5 +1175,139 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'accepted_herd_intake', 'accepted_herd_int
 	}
 	if !listed {
 		t.Errorf("deaths list %+v is missing the animal on the unnumbered load", mort.Deaths)
+	}
+}
+
+// ONE-TO-MANY: an animal carries MANY history spans (K3 -> ICU -> K3, and two pen moves out and
+// back), and the spans are joined per animal. It must still be ONE of K3's animals and ONE of
+// its pen's, never one per span -- the fan-out a span join invites.
+func TestMortalityOneToManyHistorySpansCountAnAnimalOnce(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newHerdAnalyticsRepo(t, ctx)
+	from, to := "2026-07-01", "2026-07-31"
+
+	id := mortalityGoatID(980)
+	insertMortalityGoat(t, ctx, pool, id, "Beetal", "female", "K3", "kid", "2026-03-01", "birth", "died", "2026-07-25")
+	recordStageChange(t, ctx, pool, id, "2026-07-05", "K3", "ICU")
+	recordStageChange(t, ctx, pool, id, "2026-07-12", "ICU", "K3")
+	recordPenMove(t, ctx, pool, id, "2026-07-05", countsShedA, countsShedB)
+	recordPenMove(t, ctx, pool, id, "2026-07-12", countsShedB, countsShedA)
+
+	mort, err := repo.GetMortality(ctx, domain.MortalityQuery{TenantID: countsTenant, FromDate: from, ToDate: to})
+	if err != nil {
+		t.Fatalf("mortality: %v", err)
+	}
+	if k3, ok := stageBucket(mort, "K3"); !ok || k3.Animals != 1 || k3.Deaths != 1 {
+		t.Fatalf("K3 %+v, want 1 death of 1 (two K3 spans are one animal)", k3)
+	}
+	if icu, ok := stageBucket(mort, "ICU"); !ok || icu.Animals != 1 || icu.Deaths != 0 {
+		t.Fatalf("ICU %+v, want 0 deaths of 1", icu)
+	}
+	if pen, ok := penBucket(mort, "CPT Shed 1"); !ok || pen.Animals != 1 || pen.Deaths != 1 {
+		t.Fatalf("CPT Shed 1 %+v in %+v, want 1 death of 1 (two spans are one animal)", pen, mort.Pen)
+	}
+	if mort.Totals.Animals != 1 || mort.Totals.KidAnimals != 1 {
+		t.Fatalf("totals %+v, want one animal, one kid", mort.Totals)
+	}
+	assertDeathsNeverExceedAnimals(t, mort)
+}
+
+// PAGE BOUNDARY under history: paging the deaths list must not move any animals figure, now
+// that those figures come from history spans rather than the animal rows the list reads.
+func TestMortalityPageBoundaryLeavesHistoryAnimalsUntouched(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newHerdAnalyticsRepo(t, ctx)
+	from, to := "2026-07-01", "2026-07-31"
+	for i := 0; i < 12; i++ {
+		id := mortalityGoatID(1000 + i)
+		insertMortalityGoat(t, ctx, pool, id, "Beetal", "female", "F2-Female", "adult", "2025-01-01", "procured", "died", fmt.Sprintf("2026-07-%02d", 10+i))
+		recordStageChange(t, ctx, pool, id, "2026-07-02", "K3", "F2-Female")
+	}
+	first, err := repo.GetMortality(ctx, domain.MortalityQuery{TenantID: countsTenant, FromDate: from, ToDate: to, RecentLimit: 10})
+	if err != nil {
+		t.Fatalf("page 1: %v", err)
+	}
+	second, err := repo.GetMortality(ctx, domain.MortalityQuery{TenantID: countsTenant, FromDate: from, ToDate: to, RecentLimit: 10, RecentOffset: 10})
+	if err != nil {
+		t.Fatalf("page 2: %v", err)
+	}
+	if len(first.Deaths) != 10 || len(second.Deaths) != 2 {
+		t.Fatalf("pages hold %d and %d deaths, want 10 and 2", len(first.Deaths), len(second.Deaths))
+	}
+	k3a, _ := stageBucket(first, "K3")
+	k3b, _ := stageBucket(second, "K3")
+	if k3a.Animals != 12 || k3b.Animals != 12 || first.Totals.KidAnimals != second.Totals.KidAnimals {
+		t.Fatalf("K3 animals %d / %d, kids %d / %d across pages, want 12 on both and equal kids", k3a.Animals, k3b.Animals, first.Totals.KidAnimals, second.Totals.KidAnimals)
+	}
+}
+
+// PARK SCOPE under history: a park filter narrows the history spans too. An animal in the
+// other park, with its own stage history, must add nothing to this park's stage or pen animals.
+func TestMortalityParkScopeNarrowsHistorySpans(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newHerdAnalyticsRepo(t, ctx)
+	seedSameNamedShedsInTwoParks(t, ctx, pool)
+	from, to := "2026-07-01", "2026-07-31"
+
+	here, there := mortalityGoatID(1100), mortalityGoatID(1101)
+	insertMortalityGoat(t, ctx, pool, here, "Beetal", "female", "F2-Female", "adult", "2025-01-01", "procured", "died", "2026-07-20")
+	recordStageChange(t, ctx, pool, here, "2026-07-05", "K3", "F2-Female")
+	insertMortalityGoat(t, ctx, pool, there, "Beetal", "female", "F2-Female", "adult", "2025-01-01", "procured", "", "")
+	if _, err := pool.Exec(ctx, `UPDATE goats SET park_id = $2::uuid, shed_id = $3::uuid WHERE tenant_id = $1::uuid AND goat_id = $4::uuid`,
+		countsTenant, countsParkTwo, countsShedCastroTwo, there); err != nil {
+		t.Fatalf("move to the other park: %v", err)
+	}
+	recordStageChange(t, ctx, pool, there, "2026-07-05", "K3", "F2-Female")
+
+	cpt := countsPark
+	scoped, err := repo.GetMortality(ctx, domain.MortalityQuery{TenantID: countsTenant, ParkID: &cpt, FromDate: from, ToDate: to})
+	if err != nil {
+		t.Fatalf("scoped: %v", err)
+	}
+	for _, key := range []string{"K3", "F2-Female"} {
+		if b, ok := stageBucket(scoped, key); !ok || b.Animals != 1 {
+			t.Fatalf("%s under the park scope %+v, want 1 animal (the other park's animal leaked in)", key, b)
+		}
+	}
+	if scoped.Totals.Animals != 1 || len(scoped.Pen) != 1 || scoped.Pen[0].Animals != 1 {
+		t.Fatalf("scoped totals %+v pens %+v, want 1 animal in 1 pen", scoped.Totals, scoped.Pen)
+	}
+}
+
+// STATUS MATRIX under the new rule: every exit inside the window was on the farm until it left,
+// so it is one of the animals whatever the reason; only a death is a death. And an animal that
+// is sick, under treatment, in quarantine or in ICU is still on the farm and is one of the
+// animals -- the old live-only divisor left all four out.
+func TestMortalityStatusMatrixEveryStatusOnTheFarmIsAnAnimal(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newHerdAnalyticsRepo(t, ctx)
+	from, to := "2026-07-01", "2026-07-31"
+
+	onFarm := []string{"alive", "sick", "under_treatment", "quarantine", "icu"}
+	for i, status := range onFarm {
+		id := mortalityGoatID(1200 + i)
+		insertMortalityGoat(t, ctx, pool, id, "Beetal", "female", "F2-Female", "adult", "2025-01-01", "procured", "", "")
+		if _, err := pool.Exec(ctx, `UPDATE goats SET lifecycle_status = $2 WHERE goat_id = $1::uuid`, id, status); err != nil {
+			t.Fatalf("status %s: %v", status, err)
+		}
+	}
+	// Exits BEFORE the window: history, not July's animals.
+	for i, reason := range []string{"sold", "culled", "died"} {
+		insertMortalityGoat(t, ctx, pool, mortalityGoatID(1210+i), "Beetal", "female", "F2-Female", "adult", "2025-01-01", "procured", reason, "2026-06-15")
+	}
+	// Exits INSIDE the window: all July's animals, one of them a death.
+	for i, reason := range []string{"sold", "culled", "transferred", "lost", "died"} {
+		insertMortalityGoat(t, ctx, pool, mortalityGoatID(1220+i), "Beetal", "female", "F2-Female", "adult", "2025-01-01", "procured", reason, "2026-07-15")
+	}
+
+	mort, err := repo.GetMortality(ctx, domain.MortalityQuery{TenantID: countsTenant, FromDate: from, ToDate: to})
+	if err != nil {
+		t.Fatalf("mortality: %v", err)
+	}
+	if mort.Totals.Deaths != 1 || mort.Totals.Animals != 10 {
+		t.Fatalf("totals %+v, want 1 death of 10 (five on the farm in any status, five exits inside July)", mort.Totals)
+	}
+	if f2, ok := stageBucket(mort, "F2-Female"); !ok || f2.Animals != 10 || f2.Deaths != 1 {
+		t.Fatalf("F2-Female %+v, want 1 death of 10", f2)
 	}
 }
