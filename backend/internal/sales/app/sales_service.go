@@ -481,6 +481,11 @@ func (s *SalesService) ListStageRegister(ctx context.Context, tenantID string) (
 	return s.repo.ListStageRegister(ctx, tenantID)
 }
 
+// SellableSpecies is the species an animal item may be sold as.
+func (s *SalesService) SellableSpecies(ctx context.Context, tenantID string) ([]string, error) {
+	return s.repo.ListSellableSpecies(ctx, tenantID)
+}
+
 // PutValuationAssumptions validates and replaces them. Figures outside their business band are
 // REFUSED (400), never clamped; a stale row_version is a 409.
 func (s *SalesService) PutValuationAssumptions(ctx context.Context, tenantID string, write domain.ValuationAssumptions, actorID string) (domain.ValuationAssumptions, error) {

@@ -98,6 +98,15 @@ FROM public.breeds
 WHERE species = ANY($1::text[]) AND status = 'active'
 ORDER BY species, lower(canonical_name)`
 
+// sellableSpeciesSQL is the species an ANIMAL item may be sold as: the ones the breed register
+// actually has live breeds for. A species with no breed offers the sale nothing to pick, so it is
+// not offered here either -- the same reason the feed list is the farm's own catalogue.
+const sellableSpeciesSQL = `
+SELECT DISTINCT species
+FROM public.breeds
+WHERE status = 'active' AND btrim(coalesce(species, '')) <> ''
+ORDER BY species`
+
 // activeFeedItemsSQL is the feed a farm may sell: its own live catalogue, in the order it keeps it.
 const activeFeedItemsSQL = `
 SELECT feed_item_label
@@ -431,6 +440,17 @@ func (r *Repository) ListFeedItems(ctx context.Context, tenantID string) ([]stri
 	rows, err := r.pool.Query(ctx, activeFeedItemsSQL, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("sales: list feed items: %w", err)
+	}
+	return scanStrings(rows)
+}
+
+// ListSellableSpecies implements ports.SalesRepository.
+func (r *Repository) ListSellableSpecies(ctx context.Context, tenantID string) ([]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, sellableSpeciesSQL)
+	if err != nil {
+		return nil, fmt.Errorf("sales: list sellable species: %w", err)
 	}
 	return scanStrings(rows)
 }

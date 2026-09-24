@@ -165,6 +165,10 @@ func (f *fakeRepo) CreateSoldTags(_ context.Context, _ string, write domain.Sold
 	return len(write.Rows), nil
 }
 
+func (f *fakeRepo) ListSellableSpecies(_ context.Context, _ string) ([]string, error) {
+	return []string{"goat", "sheep"}, nil
+}
+
 func (f *fakeRepo) ListStageRegister(_ context.Context, _ string) ([]domain.StageRegisterEntry, error) {
 	return []domain.StageRegisterEntry{{Code: "Warmup", Label: "Warmup", LiveAnimals: 58}}, nil
 }

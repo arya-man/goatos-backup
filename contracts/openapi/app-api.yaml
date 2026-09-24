@@ -23939,12 +23939,21 @@ components:
     SellableProductPage:
       type: object
       description: The farm's registry of what it sells, with the vocabularies its editor offers.
-      required: [products, kinds, units, feed_items]
+      required: [products, kinds, units, feed_items, species]
       properties:
         products:
           type: array
           items:
             $ref: "#/components/schemas/SellableProduct"
+        species:
+          type: array
+          description: >-
+            What an ANIMAL item may be sold as: the species the breed register has live breeds for.
+            A sale line requires a breed and offers the SPECIES' breeds, so an animal item naming
+            no species resolves to an empty breed list and can never be sold -- it saves cleanly
+            and is unsellable. The editor offers these so that cannot be written.
+          items:
+            type: string
         feed_items:
           type: array
           description: >-
@@ -24186,6 +24195,10 @@ components:
         - realized_price_per_kg
         - manure_kg
         - manure_revenue
+        - feed_kg
+        - feed_revenue
+        - other_kg
+        - other_revenue
         - period_from
         - period_to
       properties:
@@ -24205,6 +24218,23 @@ components:
             no weighed live sales exist.
         manure_kg: { type: number }
         manure_revenue: { type: number }
+        feed_kg:
+          type: number
+          description: >-
+            Kilograms of FEED sold, which is a quantity off the store and never a live weight.
+        feed_revenue:
+          type: number
+          description: >-
+            Closed feed revenue. Disjoint from live_revenue and manure_revenue: live + manure +
+            feed + other sum to revenue.
+        other_kg:
+          type: number
+          description: >-
+            Quantity sold of everything the farm sells that is neither alive, feed, nor manure --
+            a count for a counted item, kilograms for one sold by weight.
+        other_revenue:
+          type: number
+          description: Closed revenue for those same items, disjoint from the three buckets above.
         period_from:
           type: string
           description: Earliest closed sale date in scope (YYYY-MM-DD); empty when none.

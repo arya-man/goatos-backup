@@ -10653,6 +10653,8 @@ export interface components {
         /** @description The farm's registry of what it sells, with the vocabularies its editor offers. */
         SellableProductPage: {
             products: components["schemas"]["SellableProduct"][];
+            /** @description What an ANIMAL item may be sold as: the species the breed register has live breeds for. A sale line requires a breed and offers the SPECIES' breeds, so an animal item naming no species resolves to an empty breed list and can never be sold -- it saves cleanly and is unsellable. The editor offers these so that cannot be written. */
+            species: string[];
             /** @description The farm's CONFIGURED feeds (feed_item_catalog, the rows the ration grid and the feed purchases are authored against). An item of the feed kind must be one of these: a feed is not a name somebody types, and inventing one would make a sale draw on a store that does not exist. */
             feed_items: string[];
             /** @description What an item can BE. The hint says what picking it does. */
@@ -10806,6 +10808,14 @@ export interface components {
             realized_price_per_kg: number;
             manure_kg: number;
             manure_revenue: number;
+            /** @description Kilograms of FEED sold, which is a quantity off the store and never a live weight. */
+            feed_kg: number;
+            /** @description Closed feed revenue. Disjoint from live_revenue and manure_revenue: live + manure + feed + other sum to revenue. */
+            feed_revenue: number;
+            /** @description Quantity sold of everything the farm sells that is neither alive, feed, nor manure -- a count for a counted item, kilograms for one sold by weight. */
+            other_kg: number;
+            /** @description Closed revenue for those same items, disjoint from the three buckets above. */
+            other_revenue: number;
             /** @description Earliest closed sale date in scope (YYYY-MM-DD); empty when none. */
             period_from: string;
             /** @description Latest closed sale date in scope (YYYY-MM-DD); empty when none. */
