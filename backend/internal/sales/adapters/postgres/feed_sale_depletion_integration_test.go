@@ -270,9 +270,9 @@ type closeReplayStore struct {
 
 func (s *closeReplayStore) FeedStockIdentity(feed string) (string, string) { return feed, feed }
 
-func (s *closeReplayStore) FeedBalanceKg(context.Context, string, string, string) (float64, bool, error) {
+func (s *closeReplayStore) FeedBalancesKg(context.Context, string, string) (map[string]float64, error) {
 	s.calls++
-	return s.balance, true, nil
+	return map[string]float64{"Maize": s.balance}, nil
 }
 
 func TestFeedCloseReplayUsesPersistedStatusAndDepletesOnlyOnce(t *testing.T) {

@@ -2,10 +2,11 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
 	"github.com/vgoats/goatos/backend/internal/sales/domain"
@@ -21,9 +22,11 @@ import (
 // pagination=none -- a farm's product list is a handful of rows and every one of them must be
 // offered, a page of it would be a vocabulary with a piece missing; scope=tenant_id.
 const sellableProductsSQL = `
-SELECT product_code, name, kind, unit, COALESCE(species_code, ''), sort_order
-FROM public.sellable_product_catalog
-WHERE tenant_id = $1 AND status = 'active'
+SELECT c.product_code, c.name, c.kind, c.unit, COALESCE(c.species_code, ''), c.sort_order,
+       ARRAY(SELECT a.name_key FROM public.sellable_product_names a
+             WHERE a.tenant_id = c.tenant_id AND a.product_code = c.product_code)
+FROM public.sellable_product_catalog c
+WHERE c.tenant_id = $1 AND c.status = 'active'
 ORDER BY sort_order, name`
 
 // ListSellableProducts serves the registry.
@@ -58,7 +61,7 @@ func scanSellableProducts(rows pgx.Rows) ([]domain.Product, error) {
 	out := []domain.Product{}
 	for rows.Next() {
 		var p domain.Product
-		if err := rows.Scan(&p.Code, &p.Name, &p.Kind, &p.Unit, &p.SpeciesCode, &p.SortOrder); err != nil {
+		if err := rows.Scan(&p.Code, &p.Name, &p.Kind, &p.Unit, &p.SpeciesCode, &p.SortOrder, &p.Aliases); err != nil {
 			return nil, fmt.Errorf("sales: scan sellable product: %w", err)
 		}
 		out = append(out, p)
@@ -316,7 +319,8 @@ SELECT EXISTS (SELECT 1 FROM public.sellable_product_catalog WHERE tenant_id = $
 		tenantID, write.Code, write.Name, write.Kind, write.Unit, write.SpeciesCode,
 		write.SortOrder, write.Status, actorID,
 	).Scan(&out.Code, &out.Name, &out.Kind, &out.Unit, &out.SpeciesCode, &out.SortOrder); err != nil {
-		if strings.Contains(err.Error(), "sellable_product_catalog_tenant_name_uidx") {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && (pgErr.ConstraintName == "sellable_product_catalog_tenant_name_uidx" || pgErr.ConstraintName == "sellable_product_names_pkey") {
 			return domain.Product{}, ports.ErrProductNameTaken
 		}
 		return domain.Product{}, fmt.Errorf("sales: save sellable product: %w", err)

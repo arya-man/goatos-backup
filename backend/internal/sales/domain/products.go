@@ -51,6 +51,8 @@ type Product struct {
 	// Code is the row's stable identity. A sale line is stamped with it, so the Sold page's
 	// Sheep / Goat / Manure cards keep their numbers when the farm renames a product on screen.
 	Code string
+	// Aliases retain earlier names for writes queued before a rename.
+	Aliases []string
 	// Name is the word a sale is recorded under and a reader is shown.
 	Name string
 	Kind string
@@ -97,6 +99,9 @@ func NewProductCatalog(rows []Product) ProductCatalog {
 		}
 		if _, seen := c.byName[key]; seen {
 			continue
+		}
+		for _, alias := range p.Aliases {
+			c.byName[productKey(alias)] = p
 		}
 		c.byName[key] = p
 		c.ordered = append(c.ordered, p)

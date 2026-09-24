@@ -267,3 +267,25 @@ func TestFeedItemMustBeSoldByTheKilogram(t *testing.T) {
 		t.Fatalf("feed by the kilogram was refused: %v", err)
 	}
 }
+
+func TestQueuedSaleResolvesPreviousProductName(t *testing.T) {
+	rows := farmCatalog().Products()
+	for i := range rows {
+		if rows[i].Code == "feed" {
+			rows[i].Name = "Feed from store"
+			rows[i].Aliases = []string{"feed"}
+		}
+	}
+	catalog := NewProductCatalog(rows)
+	write := feedSale().Normalize(catalog)
+	if err := write.Validate(catalog); err != nil {
+		t.Fatal(err)
+	}
+	code, kind, unit := write.Lines[0].ResolvedProduct()
+	if code != "feed" || kind != KindFeed || unit != UnitKg || write.Lines[0].ProductType != "Feed from store" {
+		t.Fatalf("queued name changed identity: %+v", write.Lines[0])
+	}
+	if len(catalog.Products()) != len(rows) {
+		t.Fatal("aliases must not appear as separate products")
+	}
+}
