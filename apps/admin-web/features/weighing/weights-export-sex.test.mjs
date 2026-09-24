@@ -45,3 +45,11 @@ test("the drawer's Sex copy is backend-owned", () => {
   assert.match(contract, /"export\.sex\.all":\s*"All"/);
   assert.match(contract, /"export\.hint":\s*"Pick the days, park, pens and sex to include\./);
 });
+
+// Every opening starts from the page's period and park AS THEY ARE NOW (maintainer request
+// 2026-09-24): useState read them once, so after the reader changed the page's period the drawer
+// still offered the old one. Sex keeps its own select, reset to every kid on each opening.
+test("each opening of the drawer takes the page's current period and park", () => {
+  assert.match(drawer, /if \(open !== wasOpen\) \{/);
+  assert.match(drawer, /setFrom\(initialFrom\);\s*setTo\(initialTo\);\s*setParkId\(initialParkId\);\s*setSex\(""\);/);
+});

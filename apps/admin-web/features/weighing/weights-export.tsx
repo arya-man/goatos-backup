@@ -98,6 +98,25 @@ export function WeightsExportControl({
   const [failed, setFailed] = useState(false);
   const [pending, startTransition] = useTransition();
 
+  // EVERY OPENING starts from the page's period and park as they are now (maintainer request
+  // 2026-09-24). useState read them once, at the first render, so after the reader changed the
+  // page's period the drawer still offered the old one. Sex is NOT carried over: the drawer owns
+  // its own Sex select, starting on every kid (maintainer decision 2026-09-07).
+  // Adjusted while rendering on the closed -> open edge (React's documented pattern for state that
+  // follows a prop), so the reader can still change anything inside the drawer before downloading.
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) {
+      setFrom(initialFrom);
+      setTo(initialTo);
+      setParkId(initialParkId);
+      setSex("");
+      setSelectedSheds(new Set());
+      setFailed(false);
+    }
+  }
+
   const close = useCallback(() => {
     if (currentHistoryEntryIsLocalOverlay()) {
       window.history.back();
