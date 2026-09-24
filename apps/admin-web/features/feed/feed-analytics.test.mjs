@@ -264,3 +264,9 @@ test("the execution status bars take the legend's colours", () => {
 test("an empty packed-vs-directed day shows no pager", () => {
   assert.match(source, /\{varianceRows\.length === 0 && variance\.offset === 0 \? null : \(/);
 });
+
+test("follow-up pages its date-sorted lines by URL offset and the contract's page sizes", () => {
+  assert.match(source, /tablePageSizes\(pageContract, "feed-follow-up"\)/);
+  assert.match(source, /feedOffset\(searchParams, "ffu_offset"\)/);
+  assert.match(source, /hasMore=\{followUpOffset \+ followUpLimit < followUpLineCount\(followUp\.data\)\}/);
+});

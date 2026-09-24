@@ -898,6 +898,10 @@ func pages() []domain.PageContract {
 				// checked against days consumed plus days left. Column labels are authored under
 				// `loads.col.*` because the derived-from-key label would read "Days said" for a
 				// figure that needs its own words.
+				// Follow-up pages (maintainer request 2026-09-24). The endpoint serves the whole window --
+				// at most 92 days of events, bounded -- and the page slices its date-sorted lines, so a
+				// page size lives here like every other table on the page.
+				withoutRowClick(tableP("feed-follow-up", "Changes and what the feed did", "/feed-analytics/follow-up", []string{"pen", "changes", "when", "animals", "feed", "status"}, "", []int{25, 50, 100})),
 				tableP("stock-loads", "Purchased vs consumed", "/feed-analytics/stock-loads", []string{"purchase_date", "feed_item", "status", "purchased_kg", "consumed_kg", "left_kg", "days_said", "days_consumed", "days_left", "gap_days"}, "feed_purchase_id", []int{25, 50, 100}),
 				// The overview's "Feed by pen" section is CHARTS, not a table (maintainer
 				// request 2026-09-14: "table is not needed, replace it by graphs"), so it
@@ -6774,6 +6778,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"followup.status.not_followed": "Feed unchanged",
 			"followup.status.pending":      "Direction not locked yet",
 			"followup.table.title":         "Changes and what the feed did",
+			"followup.noun":                "change",
 			"followup.col.pen":             "Pen",
 			"followup.col.changes":         "What happened",
 			"followup.col.when":            "Directions compared",
