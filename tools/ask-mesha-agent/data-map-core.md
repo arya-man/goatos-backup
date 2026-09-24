@@ -1,4 +1,4 @@
-## Mesha data map (ceo_ai.* read-only; route here, write ONE query, skip \dt/\d)
+## Mesha data map (EVERY table is readable; ceo_ai.* views are shortcuts, raw public.* tables have full detail — use them when a view lacks it)
 Today = (now() AT TIME ZONE 'Asia/Kolkata')::date. Parks: Coimbatore (CBE), Channapatna (CPT) in park_label.
 Column shed_label = "pen" in answers. Show dates DD/MM/YYYY. Never average *_avg_* columns; weight by scan_count.
 No date column = current-state view: answer "as of now".
