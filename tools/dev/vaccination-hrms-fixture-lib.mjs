@@ -648,6 +648,10 @@ export function updateManifestHashes(directory, manifest) {
 // 000009-000015 plus the seed-roster-real department-module-grants write were reviewed against the vaccination
 // HRMS seed source. They are orthogonal to it (counts/feed tables, not the vaccination roster source), so no
 // fixture/source-data change is required. See fixtures/vaccination-hrms-source-full/manifest.json -> seed_contract_coupling_reviews.
+// Coupling review 2026-09-24: migration 000402 adds obligation_instances.schedule_basis (NOT NULL,
+// default 'anchored'); only generation's approved adult catch-up for a blank vaccine family with no
+// DOB/entry anchor sets 'anchor_missing_catch_up'. No source column, source date, or validation input
+// changes; HRMS seed/source imports never set it and seeded rows rely on the default.
 // Coupling review 2026-08-21: seed-roster-real adds pc_care (deworming / ticks removal /
 // hoof trimming / hair trimming) to the preventive_care department module grant; migration
 // 000181_pc_care_module_grants.sql applies the same grant to already-seeded databases. This

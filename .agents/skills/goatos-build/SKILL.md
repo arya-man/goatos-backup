@@ -966,6 +966,7 @@ Consequences for anyone touching this:
 <!-- Coupling review 2026-08-30: vaccination combo capacity is 3 vaccines per animal per compatible visit. Existing published rule DSL is immutable, so migrations must use vaccination_capacity_config for persisted tenants; source fixtures stay byte-stable and only the reviewed policy digest changes. -->
 <!-- Coupling review 2026-09-01: when touching vaccination drive assignment storage, keep the persisted identity at operator/date/shed/partition/vaccine_rule_ids grain. Re-run focused sweeper and Postgres adapter tests; do not collapse ET+TT/Z1+Z3 or other same-day vaccine lanes into one assignment. -->
 <!-- Coupling review 2026-09-01: feed experiment per-animal conversion reads goats as a live feed-pen denominator only. When landing feed configuration migrations of this shape, record that vaccination/HRMS source files, hashes, trusted dates, SOP proof grain, parser fields, and roster-capacity rules are unchanged. -->
+<!-- Coupling review 2026-09-24: migration 000402 adds obligation_instances.schedule_basis (NOT NULL, default `anchored`; CHECK `anchored` | `anchor_missing_catch_up`). Only vaccination generation's approved adult catch-up for a blank vaccine family with no DOB/entry anchor sets `anchor_missing_catch_up`. HRMS seed/source imports never set it and need no source column; source vaccination dates, fixture hashes, row counts, and source-audit validation are unchanged, and seeded rows rely on the default. -->
 
 ## Configuration: Items and settings (2026-09-18)
 
