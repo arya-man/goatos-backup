@@ -23,6 +23,12 @@ resource "google_cloud_run_v2_job" "migrate" {
         image   = local.migration_image
         command = ["/app/bin/migrate"]
         args    = ["-timeout=10m"]
+        # Connection budget: migrate runs every statement on ONE acquired conn
+        # (it holds the migrate advisory lock), so 1 is enough.
+        env {
+          name  = "GOATOS_PG_MAX_CONNS"
+          value = "1"
+        }
 
         resources {
           limits = {
@@ -93,6 +99,11 @@ resource "google_cloud_run_v2_job" "outbox_dlq" {
         image   = local.backend_image
         command = ["/app/bin/outbox-dlq"]
         args    = ["-mode=list", "-status=dead_letter", "-limit=100", "-timeout=60s"]
+        # Connection budget: cap this job's pool (default 10); see the api service.
+        env {
+          name  = "GOATOS_PG_MAX_CONNS"
+          value = "2"
+        }
 
         resources {
           limits = {
@@ -185,6 +196,11 @@ resource "google_cloud_run_v2_job" "feed_direction_issue" {
         image   = local.backend_image
         command = ["/app/bin/feed-direction-issue"]
         args    = ["-action=issue", "-workflow=both", "-timeout=120s"]
+        # Connection budget: cap this job's pool (default 10); see the api service.
+        env {
+          name  = "GOATOS_PG_MAX_CONNS"
+          value = "2"
+        }
 
         resources {
           limits = {
@@ -250,6 +266,11 @@ resource "google_cloud_run_v2_job" "feed_direction_amend" {
         image   = local.backend_image
         command = ["/app/bin/feed-direction-issue"]
         args    = ["-action=amend", "-workflow=both", "-timeout=120s"]
+        # Connection budget: cap this job's pool (default 10); see the api service.
+        env {
+          name  = "GOATOS_PG_MAX_CONNS"
+          value = "2"
+        }
 
         resources {
           limits = {
@@ -315,6 +336,11 @@ resource "google_cloud_run_v2_job" "feed_direction_lock" {
         image   = local.backend_image
         command = ["/app/bin/feed-direction-issue"]
         args    = ["-action=lock", "-workflow=both", "-timeout=120s"]
+        # Connection budget: cap this job's pool (default 10); see the api service.
+        env {
+          name  = "GOATOS_PG_MAX_CONNS"
+          value = "2"
+        }
 
         resources {
           limits = {
