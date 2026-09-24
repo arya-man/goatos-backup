@@ -519,7 +519,12 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		}
 	}
 
-	identityRepo := identitypg.NewRepository(pool, cfg.Postgres.QueryTimeout)
+	// ONE process-wide read cache for the heavy weighing / Growth Director analytics reads
+	// (platform/readcache): single-flight, stale-while-revalidate, bounded LRU, and scoped
+	// eviction on committed weighing / feed-issue / assumptions writes -- locally after commit and
+	// on sibling instances through the dedicated LISTEN connection started below.
+	analyticsReadCache := readcache.New(readcache.DefaultOptions("analytics"))
+	identityRepo := identitypg.NewRepository(pool, cfg.Postgres.QueryTimeout).WithReadCacheInvalidator(analyticsReadCache)
 	identityService := identityapp.NewService(identityRepo).WithBulkPreviewSigningKey(bulkPreviewSigningKey)
 	identityHandler := identityhttp.NewHandler(identityService, log)
 	// The sale-count gate needs one fact from the sales ledger (how many animals a deal
@@ -530,7 +535,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	bulkStatusRepo := bulkstatuspg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	bulkStatusService := bulkstatusapp.NewService(bulkStatusRepo, bulkStatusRepo).WithSigningKey(bulkPreviewSigningKey)
 	bulkStatusHandler := bulkstatushttp.NewHandler(bulkStatusService, log)
-	locationsRepo := locationspg.NewRepository(pool, cfg.Postgres.QueryTimeout)
+	locationsRepo := locationspg.NewRepository(pool, cfg.Postgres.QueryTimeout).WithReadCacheInvalidator(analyticsReadCache)
 	locationsService := locationsapp.NewService(locationsRepo)
 	locationsHandler := locationshttp.NewHandler(locationsService, log)
 	workforceRepo := workforcepg.NewRepository(pool, cfg.Postgres.QueryTimeout)
@@ -632,7 +637,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		WithFormDSLContract(toxinapp.ToxinSOPContract)
 
 	protocolRepo := protocolpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
-	obligationRepo := obligationpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
+	obligationRepo := obligationpg.NewRepository(pool, cfg.Postgres.QueryTimeout).WithReadCacheInvalidator(analyticsReadCache)
 	businessAuditRecorder := platformaudit.NewPostgresRecorder(pool, cfg.Postgres.QueryTimeout)
 	outboxRepo := outboxpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	outboxHandler := outboxhttp.NewHandler(outboxRepo, businessAuditRecorder, log)
@@ -647,11 +652,6 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	vaccExecHandler := vaccexechttp.NewHandler(vaccExecService, obligationRepo, log).
 		WithOperatorAssignmentConfigWriter(vaccExecService).
 		WithCapacityConfigWriter(vaccExecService)
-	// ONE process-wide read cache for the heavy weighing / Growth Director analytics reads
-	// (platform/readcache): single-flight, stale-while-revalidate, bounded LRU, and scoped
-	// eviction on committed weighing / feed-issue / assumptions writes -- locally after commit and
-	// on sibling instances through the dedicated LISTEN connection started below.
-	analyticsReadCache := readcache.New(readcache.DefaultOptions("analytics"))
 	weighingRepo := weighingpg.NewRepository(pool, cfg.Postgres.QueryTimeout).
 		WithProofURLResolver(newWeighingExportProofURLResolver(proofService, cfg.HTTPAddr)).
 		WithReadCache(analyticsReadCache)
@@ -717,7 +717,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// Owns its own four tables (herd_signal_gateways/packets/tag_latest/activity_windows) and
 	// reads goat_identifiers/goats/locations/shed_partitions read-only to resolve a tag to an
 	// animal and operational location -- it writes to none of them.
-	herdSignalsRepo := herdsignalspg.NewRepository(pool)
+	herdSignalsRepo := herdsignalspg.NewRepository(pool).WithReadCacheInvalidator(analyticsReadCache)
 	herdSignalsService := herdsignalsapp.NewService(herdSignalsRepo, log)
 	herdSignalsHandler := herdsignalshttp.NewHandler(herdSignalsService, log)
 	// The authored treatment rulebook behind /health/config. Same repository, because the
@@ -814,7 +814,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// stays testable against a fake reader.
 	// One repository instance owns the config/scope reads AND the frozen-issue tables plus the
 	// feed_schedule_config clock, so the generator, the serve path and the lifecycle all share it.
-	feedDirectionRepo := feeddirectionpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
+	feedDirectionRepo := feeddirectionpg.NewRepository(pool, cfg.Postgres.QueryTimeout).WithReadCacheInvalidator(analyticsReadCache)
 	feedDirectionService := feeddirectionapp.NewService(
 		feedDirectionRepo,
 		feeddirectioncounts.NewReader(countsService),
@@ -862,12 +862,12 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		// under come from the published pc_care.tasks version, read outside the module.
 		WithSOPRules(pccaresoppg.NewRulesSource(pool, cfg.Postgres.QueryTimeout), pcCareRepo)
 	pcCareHandler := pccarehttp.NewHandler(pcCareService, log)
-	procurementService := procurementapp.NewService(procurementpg.NewRepository(pool, cfg.Postgres.QueryTimeout)).WithVaccinationCanceler(obligationRepo)
+	procurementService := procurementapp.NewService(procurementpg.NewRepository(pool, cfg.Postgres.QueryTimeout).WithReadCacheInvalidator(analyticsReadCache)).WithVaccinationCanceler(obligationRepo)
 	procurementHandler := procurementhttp.NewHandler(procurementService, log)
 	// The vendor register shares procurement's postgres repository (it owns procurement_vendors)
 	// but has its own thin service: a contact book has no state machine to orchestrate.
 	procurementVendorHandler := procurementhttp.NewVendorHandler(
-		procurementapp.NewVendorService(procurementpg.NewRepository(pool, cfg.Postgres.QueryTimeout)).
+		procurementapp.NewVendorService(procurementpg.NewRepository(pool, cfg.Postgres.QueryTimeout).WithReadCacheInvalidator(analyticsReadCache)).
 			// A vendor's voice note is a proof (audio, in-app microphone) and is checked against
 			// the proof store before it is stored on the vendor (maintainer decision 2026-09-03).
 			WithVoiceNoteValidator(procurementproof.NewValidator(proofRepo)).
@@ -877,20 +877,20 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// The feed PURCHASE ledger (maintainer decision 2026-08-24, retiring the read-only half of
 	// migration 000174's lock). Procurement owns the write; feeddirection keeps the stock read.
 	procurementFeedPurchaseHandler := procurementhttp.NewFeedPurchaseHandler(
-		procurementapp.NewFeedPurchaseService(procurementpg.NewRepository(pool, cfg.Postgres.QueryTimeout)).
+		procurementapp.NewFeedPurchaseService(procurementpg.NewRepository(pool, cfg.Postgres.QueryTimeout).WithReadCacheInvalidator(analyticsReadCache)).
 			WithFormSource(procurementpg.NewFeedPurchaseFormSource(pool)), log)
 	// The Sales page's LOAD-WISE reconciliation and the load-cost entry (maintainer decision
 	// 2026-08-31, docs/decisions/sales-loadwise.md).
 	procurementLoadwiseHandler := procurementhttp.NewLoadwiseHandler(
-		procurementapp.NewLoadwiseService(procurementpg.NewRepository(pool, cfg.Postgres.QueryTimeout)), log)
+		procurementapp.NewLoadwiseService(procurementpg.NewRepository(pool, cfg.Postgres.QueryTimeout).WithReadCacheInvalidator(analyticsReadCache)), log)
 	// Buyer analytics (maintainer request 2026-09-15): the same recorded procurement-reads-sales
 	// shape as load-wise, one read behind /sales/buyer-analytics.
 	procurementBuyerAnalyticsHandler := procurementhttp.NewBuyerAnalyticsHandler(
-		procurementapp.NewBuyerAnalyticsService(procurementpg.NewRepository(pool, cfg.Postgres.QueryTimeout)), log)
+		procurementapp.NewBuyerAnalyticsService(procurementpg.NewRepository(pool, cfg.Postgres.QueryTimeout).WithReadCacheInvalidator(analyticsReadCache)), log)
 	// Farm born (maintainer request 2026-09-18): the animals born on this farm, the same
 	// recorded procurement-reads-sales shape as load-wise, one read behind /sales/farm-born.
 	procurementFarmBornHandler := procurementhttp.NewFarmBornSalesHandler(
-		procurementapp.NewFarmBornSalesService(procurementpg.NewRepository(pool, cfg.Postgres.QueryTimeout)), log)
+		procurementapp.NewFarmBornSalesService(procurementpg.NewRepository(pool, cfg.Postgres.QueryTimeout).WithReadCacheInvalidator(analyticsReadCache)), log)
 	// Animal purchases (maintainer decision 2026-09-13): the buying desk's loads and candidate
 	// animals with a video each, and the CEO/CXO's accept / reject.
 	animalPurchaseHandler := animalpurchasehttp.NewHandler(
@@ -984,7 +984,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	penRoutinesAdminHandler := penroutineshttp.NewAdminHandler(penroutinesapp.NewAuthoringService(penRoutinesRepo), log)
 	// Configuration -> Items and settings (2026-09-18): the reference registers, read on
 	// configuration.read and written on configuration.write (route table).
-	configurationRepo := configurationpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
+	configurationRepo := configurationpg.NewRepository(pool, cfg.Postgres.QueryTimeout).WithReadCacheInvalidator(analyticsReadCache)
 	configurationService := configurationapp.NewService(configurationRepo)
 	// Bulk sheets (2026-09-18): uploads are staged and validated/applied by an in-process
 	// importer kicked per job; the kernel worker's ConfigurationImportStage finishes any job whose
@@ -1615,8 +1615,13 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	go herdSignalsService.RunRiskClassifier(liveNotifyCtx, herdSignalsRiskClassifierInterval)
 	// Cross-instance eviction feed on its own connection (not a pool slot), then a background,
 	// serial warm-up of the landing read every Weights/ADG visit blocks on.
-	readcache.NewListener(pool, log, analyticsReadCache, alertsReadCache, countsReadCache).Start(liveNotifyCtx)
-	analyticsReadCache.StartWarmup(liveNotifyCtx, log, 2*time.Second, 20*time.Second, weighingRepo.WarmLandingReads)
+	// Warm-up waits for the first successful LISTEN (so the connect-time evict-all cannot wipe what
+	// it loads), then starts after a per-instance jitter and runs its reads one at a time.
+	analyticsListener := readcache.NewListener(pool, log, analyticsReadCache, alertsReadCache, countsReadCache)
+	analyticsListener.OnFirstConnect(func(ctx context.Context) {
+		analyticsReadCache.StartWarmup(ctx, log, readcache.Jitter(time.Second, 10*time.Second), 20*time.Second, weighingRepo.WarmLandingReads)
+	})
+	analyticsListener.Start(liveNotifyCtx)
 	return &API{
 		Server: server,
 		Close: func() {

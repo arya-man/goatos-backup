@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/platform/readcache"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -45,6 +47,16 @@ func nullableUUID(v *string) any {
 type Repository struct {
 	pool    *pgxpool.Pool
 	timeout time.Duration
+	// readInvalidator drops this process's cached analytics reads after a write that changes
+	// goats, their identifiers/partitions, load membership (origin = bought) or feed loads (FCR
+	// price); the eviction itself is published in the write transaction.
+	readInvalidator readcache.Invalidator
+}
+
+// WithReadCacheInvalidator wires the process-wide analytics read cache.
+func (r *Repository) WithReadCacheInvalidator(inv readcache.Invalidator) *Repository {
+	r.readInvalidator = inv
+	return r
 }
 
 func NewRepository(pool *pgxpool.Pool, queryTimeout time.Duration) *Repository {
@@ -430,7 +442,7 @@ SET ended_at = COALESCE(EXCLUDED.ended_at, source_holding_stays.ended_at),
 			return domain.LoadGoat{}, fmt.Errorf("procurement: complete add goat idempotency: %w", err)
 		}
 	}
-	if err = tx.Commit(ctx); err != nil {
+	if err = readcache.CommitAndEvict(ctx, tx, r.readInvalidator, in.TenantID); err != nil {
 		return domain.LoadGoat{}, err
 	}
 	return loadGoat, nil
@@ -779,7 +791,7 @@ WHERE tenant_id = $1::uuid AND load_id = $2::uuid`,
 			return domain.SourceHealthCheck{}, fmt.Errorf("procurement: complete source health idempotency: %w", err)
 		}
 	}
-	if err = tx.Commit(ctx); err != nil {
+	if err = readcache.CommitAndEvict(ctx, tx, r.readInvalidator, in.TenantID); err != nil {
 		return domain.SourceHealthCheck{}, err
 	}
 	return check, nil
@@ -998,7 +1010,7 @@ INSERT INTO outbox_messages (
 			return domain.Decision{}, fmt.Errorf("procurement: complete decision idempotency: %w", err)
 		}
 	}
-	if err = tx.Commit(ctx); err != nil {
+	if err = readcache.CommitAndEvict(ctx, tx, r.readInvalidator, in.TenantID); err != nil {
 		return domain.Decision{}, err
 	}
 	return decision, nil
@@ -1151,7 +1163,7 @@ WHERE tenant_id = $1::uuid AND load_id = $2::uuid`,
 			return domain.TransitHandoff{}, fmt.Errorf("procurement: complete dispatch idempotency: %w", err)
 		}
 	}
-	if err = tx.Commit(ctx); err != nil {
+	if err = readcache.CommitAndEvict(ctx, tx, r.readInvalidator, in.TenantID); err != nil {
 		return domain.TransitHandoff{}, err
 	}
 	return handoff, nil
@@ -1415,7 +1427,7 @@ WHERE tenant_id = $1::uuid AND load_id = $2::uuid`,
 			return domain.ArrivalReview{}, fmt.Errorf("procurement: complete arrival review idempotency: %w", err)
 		}
 	}
-	if err = tx.Commit(ctx); err != nil {
+	if err = readcache.CommitAndEvict(ctx, tx, r.readInvalidator, in.TenantID); err != nil {
 		return domain.ArrivalReview{}, err
 	}
 	review.Goats = items
@@ -1691,7 +1703,7 @@ WHERE tenant_id = $1::uuid AND load_id = $2::uuid`,
 			return nil, fmt.Errorf("procurement: complete accept intake idempotency: %w", err)
 		}
 	}
-	if err = tx.Commit(ctx); err != nil {
+	if err = readcache.CommitAndEvict(ctx, tx, r.readInvalidator, in.TenantID); err != nil {
 		return nil, err
 	}
 	return out, nil

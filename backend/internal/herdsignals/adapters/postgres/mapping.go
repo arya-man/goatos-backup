@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/platform/readcache"
+
 	"github.com/jackc/pgx/v5"
 
 	"github.com/vgoats/goatos/backend/internal/herdsignals/domain"
@@ -390,7 +392,8 @@ func (r *Repository) BindTagMapping(ctx context.Context, tenantID, actorID strin
 	if err := notifyLiveUpdateTx(ctx, tx, tenantID); err != nil {
 		return out, err
 	}
-	if err := tx.Commit(ctx); err != nil {
+	// goat_identifiers feeds the analytics reads' same-animal map: publish the tenant eviction.
+	if err := readcache.CommitAndEvict(ctx, tx, r.readInvalidator, tenantID); err != nil {
 		return out, fmt.Errorf("commit bind tag mapping: %w", err)
 	}
 
@@ -518,7 +521,8 @@ func (r *Repository) UnmapTagMapping(ctx context.Context, tenantID, actorID stri
 	if err := notifyLiveUpdateTx(ctx, tx, tenantID); err != nil {
 		return out, err
 	}
-	if err := tx.Commit(ctx); err != nil {
+	// goat_identifiers feeds the analytics reads' same-animal map: publish the tenant eviction.
+	if err := readcache.CommitAndEvict(ctx, tx, r.readInvalidator, tenantID); err != nil {
 		return out, fmt.Errorf("commit unmap tag mapping: %w", err)
 	}
 
@@ -634,7 +638,8 @@ func (r *Repository) ReplaceTagMapping(ctx context.Context, tenantID, actorID st
 	if err := notifyLiveUpdateTx(ctx, tx, tenantID); err != nil {
 		return out, err
 	}
-	if err := tx.Commit(ctx); err != nil {
+	// goat_identifiers feeds the analytics reads' same-animal map: publish the tenant eviction.
+	if err := readcache.CommitAndEvict(ctx, tx, r.readInvalidator, tenantID); err != nil {
 		return out, fmt.Errorf("commit replace tag mapping: %w", err)
 	}
 

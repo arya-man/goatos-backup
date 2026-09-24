@@ -371,6 +371,12 @@ func (r *Repository) UpdateCampaign(ctx context.Context, campaignID string, cmd 
 	if err := r.assertNoCategoryFlipOverCapturedWork(ctx, tx, cmd.TenantID, campaignID, cmd.Sheds); err != nil {
 		return domain.Campaign{}, err
 	}
+	// The park BEFORE the update: a task moved to another park changes both parks' analytics,
+	// so both are evicted on commit.
+	previousPark, err := r.campaignParkTx(ctx, tx, cmd.TenantID, campaignID)
+	if err != nil {
+		return domain.Campaign{}, err
+	}
 	tag, err := tx.Exec(ctx, `
 UPDATE weighing_campaigns
 SET park_id=$3::uuid,
@@ -538,7 +544,7 @@ RETURNING campaign_shed_id::text`, campaignID, cmd.TenantID, shed.LocationID, sh
 	if err := r.enqueue(ctx, tx, cmd.TenantID, "weighing.campaign_updated", campaignID, cmd.IdempotencyKey, fingerprint, c); err != nil {
 		return domain.Campaign{}, err
 	}
-	return c, r.commitAndEvict(ctx, tx, cmd.TenantID, campaignID)
+	return c, r.commitAndEvict(ctx, tx, cmd.TenantID, campaignID, previousPark)
 }
 
 func (r *Repository) PublishCampaign(ctx context.Context, tenantID, campaignID, actorID, idempotencyKey string) (domain.Campaign, error) {

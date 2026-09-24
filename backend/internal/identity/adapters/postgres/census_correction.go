@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
+
 	"github.com/jackc/pgx/v5"
 
 	identitydb "github.com/vgoats/goatos/backend/internal/identity/adapters/postgres/sqlc"
@@ -141,7 +143,7 @@ func (r *Repository) CorrectCensusSlice(ctx context.Context, cmd ports.CorrectCe
 	}, &ports.ReclassifyShedStageResult{ShedID: result.ShedID}); err != nil {
 		return nil, err
 	}
-	if err := tx.Commit(ctx); err != nil {
+	if err := r.commitHerdWrite(ctx, tx, cmd.TenantID); err != nil {
 		return nil, fmt.Errorf("identity: correct census slice: commit: %w", err)
 	}
 	return result, nil
@@ -184,7 +186,8 @@ WHERE goat_id IN (SELECT g.goat_id ` + censusSliceScopeSQL + `)`
 		return 0, ports.ErrCensusCorrectionField
 	}
 
-	tag, err := tx.Exec(ctx, statement, args...)
+	ccBind187 := sqlbind.MustBind(statement, args...)
+	tag, err := tx.Exec(ctx, ccBind187.SQL(), ccBind187.Args()...)
 	if err != nil {
 		return 0, fmt.Errorf("identity: correct census slice: apply: %w", err)
 	}
@@ -229,7 +232,8 @@ func (r *Repository) countCensusSlice(ctx context.Context, tx pgx.Tx, cmd ports.
 // resolveCensusSliceLocation names the pen through the SHARED oploc resolver, so the confirm step
 // and the audit row read "Gandhi - 3" exactly as every other screen spells it.
 func (r *Repository) resolveCensusSliceLocation(ctx context.Context, tx pgx.Tx, cmd ports.CorrectCensusSliceCommand) (oploc.OperationalLocation, error) {
-	location, err := oploc.ResolveShedLocation(ctx, tx.QueryRow(ctx, oploc.ShedScopedLocationSQL, cmd.TenantID, cmd.ShedID))
+	ccBind232 := sqlbind.MustBind(oploc.ShedScopedLocationSQL, cmd.TenantID, cmd.ShedID)
+	location, err := oploc.ResolveShedLocation(ctx, tx.QueryRow(ctx, ccBind232.SQL(), ccBind232.Args()...))
 	if err != nil {
 		return oploc.OperationalLocation{}, fmt.Errorf("identity: correct census slice: resolve location: %w", err)
 	}

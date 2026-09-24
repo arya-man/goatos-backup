@@ -589,7 +589,7 @@ func (r *Repository) finishPromoteMutation(ctx context.Context, qtx *identitydb.
 		}
 	}
 
-	if err := tx.Commit(ctx); err != nil {
+	if err := r.commitHerdWrite(ctx, tx, uuidText(finish.TenantUUID)); err != nil {
 		return nil, err
 	}
 	*committed = true
@@ -924,7 +924,7 @@ func (r *Repository) finishIdentifierMutation(ctx context.Context, qtx *identity
 		return nil, err
 	}
 
-	if err := tx.Commit(ctx); err != nil {
+	if err := r.commitHerdWrite(ctx, tx, uuidText(finish.TenantUUID)); err != nil {
 		return nil, err
 	}
 	*committed = true

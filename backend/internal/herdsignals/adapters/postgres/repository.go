@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/platform/readcache"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -17,6 +19,15 @@ import (
 // Repository implements ports.Repository using Postgres.
 type Repository struct {
 	db *pgxpool.Pool
+	// readInvalidator drops this process's cached analytics reads after a tag mapping write
+	// (mapping.go writes goat_identifiers, which the Weights same-animal map reads).
+	readInvalidator readcache.Invalidator
+}
+
+// WithReadCacheInvalidator wires the process-wide analytics read cache.
+func (r *Repository) WithReadCacheInvalidator(inv readcache.Invalidator) *Repository {
+	r.readInvalidator = inv
+	return r
 }
 
 // NewRepository creates a new Postgres repository.

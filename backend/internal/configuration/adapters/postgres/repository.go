@@ -19,6 +19,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/platform/readcache"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -61,6 +63,15 @@ type Repository struct {
 	timeout time.Duration
 	stores  map[string]store
 	now     func() time.Time
+	// readInvalidator drops this process's cached analytics reads after a register write:
+	// parks, pens, partitions, breeds and stages are all joined by the Weights / Growth reads.
+	readInvalidator readcache.Invalidator
+}
+
+// WithReadCacheInvalidator wires the process-wide analytics read cache.
+func (r *Repository) WithReadCacheInvalidator(inv readcache.Invalidator) *Repository {
+	r.readInvalidator = inv
+	return r
 }
 
 // NewRepository constructs the repository with one store per register.
@@ -329,7 +340,8 @@ func (r *Repository) write(ctx context.Context, w ports.WriteParams, register, i
 	if err := completeIdempotency(ctx, tx, w.TenantID, w.IdempotencyKey, register, resultID); err != nil {
 		return domain.Row{}, err
 	}
-	if err := tx.Commit(ctx); err != nil {
+	// Tenant-wide: a place or animal-vocabulary edit can change any park's cached analytics.
+	if err := readcache.CommitAndEvict(ctx, tx, r.readInvalidator, w.TenantID); err != nil {
 		return domain.Row{}, fmt.Errorf("configuration: commit: %w", err)
 	}
 	if resultID == "" {

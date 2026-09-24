@@ -10,19 +10,21 @@
 //   - Single flight on a miss: N concurrent identical requests run ONE load. The load runs on a
 //     context detached from the first caller's cancellation, so a client that disconnects does
 //     not poison the other waiters with context.Canceled.
-//   - Stale-while-revalidate: once an entry passes FreshTTL it is still served for StaleGrace
-//     while exactly one bounded background refresh re-loads it. SWR is only enabled while the
-//     cache is COHERENT (the cross-instance eviction feed is connected, see Listener). Without
-//     the feed, entries live DegradedTTL and are never served stale -- the old 30 s behaviour.
+//   - Stale-while-revalidate is OPT-IN (StaleGrace, default 0): once an entry passes FreshTTL it
+//     may be served for StaleGrace while exactly one bounded background refresh re-loads it, and
+//     only while the cache is COHERENT (the cross-instance eviction feed is connected, see
+//     Listener). Without the feed, entries live DegradedTTL and are never served stale.
 //   - Event-driven eviction: a committed write evicts only the affected tenant (and park set, when
 //     the writer knows it). Eviction also bumps a per-tenant generation, so a load that STARTED
 //     before the write can never repopulate the cache with pre-write data after it.
-//   - Bounded LRU (MaxEntries), hit/miss/stale/evict counters (Stats + OpenTelemetry).
+//   - Bounded LRU by entry count AND approximate bytes (MaxBytes, Sizer), hit/miss/stale/evict
+//     counters (Stats + OpenTelemetry). A value larger than MaxBytes/8 is served but not cached.
 package readcache
 
 import (
 	"container/list"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -70,27 +72,48 @@ type Options struct {
 	StaleGrace         time.Duration
 	DegradedTTL        time.Duration
 	RefreshConcurrency int
-	Now                func() time.Time
+	// MaxBytes bounds the approximate retained size of all entries; Sizer estimates one value
+	// (DefaultSizer when nil).
+	MaxBytes int64
+	Sizer    func(any) int64
+	Now      func() time.Time
 }
 
-// DefaultOptions: 60 s fresh + 5 min stale grace while coherent; 30 s and no stale serving when
-// the eviction feed is down. 512 entries bounds memory to a few MB of report structs.
+// DefaultSizer approximates a cached report's retained heap from its JSON encoding. Measured on
+// the OCI clone (2026-09-24): Weight Demographics 135 KB JSON / ~0.6 MB heap, Growth ADG 44 KB /
+// ~0.25 MB, FCR 47 KB / ~0.13 MB, Shed Weights 21 KB -- decoded Go structs (strings, slices,
+// pointers) run ~2.5-4.5x their JSON, so the estimate is 4x JSON plus a fixed entry overhead. A
+// value that cannot be encoded is charged a conservative 256 KB.
+func DefaultSizer(v any) int64 {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return 256 << 10
+	}
+	return int64(len(b))*4 + 512
+}
+
+// DefaultOptions: 60 s fresh while the eviction feed is connected, 30 s when it is down, never
+// served stale. At most 512 entries and ~48 MB of estimated heap.
 func DefaultOptions(name string) Options {
 	return Options{
-		Name:               name,
-		MaxEntries:         512,
-		FreshTTL:           60 * time.Second,
-		StaleGrace:         5 * time.Minute,
+		Name:       name,
+		MaxEntries: 512,
+		FreshTTL:   60 * time.Second,
+		// No stale serving by default: correctness over hit rate (cache-correctness audit
+		// 2026-09-24). A caller may opt in to a grace window; single flight stays on.
+		StaleGrace:         0,
 		DegradedTTL:        30 * time.Second,
 		RefreshConcurrency: 2,
+		MaxBytes:           48 << 20,
 	}
 }
 
 // Stats is a snapshot of the cache counters.
 type Stats struct {
-	Hits, Misses, Shared, Stale, Refreshes, RefreshErrors, Evictions, LRUEvictions, DroppedStores int64
-	Entries                                                                                       int
-	Coherent                                                                                      bool
+	Hits, Misses, Shared, Stale, Refreshes, RefreshErrors, Evictions, LRUEvictions, DroppedStores, TooLarge int64
+	Bytes                                                                                                   int64
+	Entries                                                                                                 int
+	Coherent                                                                                                bool
 }
 
 type entry struct {
@@ -98,6 +121,7 @@ type entry struct {
 	tenant     string
 	parks      map[string]struct{}
 	value      any
+	size       int64
 	storedAt   time.Time
 	coherent   bool
 	refreshing bool
@@ -120,12 +144,13 @@ type Cache struct {
 	flights   map[string]*flight
 	tenantGen map[string]uint64
 	globalGen uint64
+	bytes     int64
 
 	coherent     atomic.Bool
 	refreshSlots chan struct{}
 	warmOnce     sync.Once
 
-	hits, misses, shared, stale, refreshes, refreshErrors, evictions, lruEvictions, droppedStores atomic.Int64
+	hits, misses, shared, stale, refreshes, refreshErrors, evictions, lruEvictions, droppedStores, tooLarge atomic.Int64
 }
 
 func New(opts Options) *Cache {
@@ -144,6 +169,12 @@ func New(opts Options) *Cache {
 	}
 	if opts.RefreshConcurrency <= 0 {
 		opts.RefreshConcurrency = def.RefreshConcurrency
+	}
+	if opts.MaxBytes <= 0 {
+		opts.MaxBytes = def.MaxBytes
+	}
+	if opts.Sizer == nil {
+		opts.Sizer = DefaultSizer
 	}
 	if opts.Now == nil {
 		opts.Now = time.Now
@@ -283,6 +314,10 @@ func (c *Cache) refresh(ctx context.Context, ks string, key Key, gen uint64, loa
 	c.refreshes.Add(1)
 	record(ctx, c.opts.Name, "refresh")
 	value, err := safeLoad(ctx, load)
+	var size int64
+	if err == nil {
+		size = c.opts.Sizer(value)
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if el, ok := c.entries[ks]; ok {
@@ -292,14 +327,18 @@ func (c *Cache) refresh(ctx context.Context, ks string, key Key, gen uint64, loa
 		c.refreshErrors.Add(1)
 		return
 	}
-	c.storeLocked(ks, key, gen, value)
+	c.storeLocked(ks, key, gen, value, size)
 }
 
 func (c *Cache) finish(ks string, key Key, f *flight, gen uint64, value any, err error) {
+	var size int64
+	if err == nil {
+		size = c.opts.Sizer(value)
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if err == nil {
-		c.storeLocked(ks, key, gen, value)
+		c.storeLocked(ks, key, gen, value, size)
 	}
 	f.value, f.err = value, err
 	close(f.done)
@@ -314,27 +353,42 @@ func (c *Cache) genLocked(tenant string) uint64 {
 	return c.globalGen<<32 + c.tenantGen[tenant]
 }
 
-func (c *Cache) storeLocked(ks string, key Key, gen uint64, value any) {
+func (c *Cache) storeLocked(ks string, key Key, gen uint64, value any, size int64) {
 	tenant := strings.TrimSpace(key.Tenant)
 	if c.genLocked(tenant) != gen {
 		c.droppedStores.Add(1)
 		return
 	}
+	if size > c.opts.MaxBytes/8 {
+		// One answer this large would crowd out everything else; serve it, do not keep it.
+		c.tooLarge.Add(1)
+		if el, ok := c.entries[ks]; ok {
+			c.removeLocked(el)
+		}
+		return
+	}
 	now := c.opts.Now()
 	if el, ok := c.entries[ks]; ok {
 		e := el.Value.(*entry)
-		e.value, e.storedAt, e.coherent, e.refreshing = value, now, c.coherent.Load(), false
+		c.bytes += size - e.size
+		e.value, e.size, e.storedAt, e.coherent, e.refreshing = value, size, now, c.coherent.Load(), false
 		c.lru.MoveToFront(el)
-		return
+	} else {
+		e := &entry{key: ks, tenant: tenant, parks: parkSet(key), value: value, size: size, storedAt: now, coherent: c.coherent.Load()}
+		c.entries[ks] = c.lru.PushFront(e)
+		c.bytes += size
 	}
-	e := &entry{key: ks, tenant: tenant, parks: parkSet(key), value: value, storedAt: now, coherent: c.coherent.Load()}
-	c.entries[ks] = c.lru.PushFront(e)
-	for c.lru.Len() > c.opts.MaxEntries {
-		oldest := c.lru.Back()
-		c.lru.Remove(oldest)
-		delete(c.entries, oldest.Value.(*entry).key)
+	for c.lru.Len() > 1 && (c.lru.Len() > c.opts.MaxEntries || c.bytes > c.opts.MaxBytes) {
+		c.removeLocked(c.lru.Back())
 		c.lruEvictions.Add(1)
 	}
+}
+
+func (c *Cache) removeLocked(el *list.Element) {
+	e := el.Value.(*entry)
+	c.lru.Remove(el)
+	delete(c.entries, e.key)
+	c.bytes -= e.size
 }
 
 func parkSet(key Key) map[string]struct{} {
@@ -379,11 +433,10 @@ func (c *Cache) Evict(ctx context.Context, tenantID string, parkIDs ...string) i
 	c.mu.Lock()
 	c.tenantGen[tenant]++
 	n := 0
-	for ks, el := range c.entries {
+	for _, el := range c.entries {
 		e := el.Value.(*entry)
 		if e.tenant == tenant && scopeMatches(e.parks, parks) {
-			c.lru.Remove(el)
-			delete(c.entries, ks)
+			c.removeLocked(el)
 			n++
 		}
 	}
@@ -409,6 +462,7 @@ func (c *Cache) EvictAll(ctx context.Context) int {
 	n := len(c.entries)
 	c.entries = map[string]*list.Element{}
 	c.lru.Init()
+	c.bytes = 0
 	c.flights = map[string]*flight{}
 	c.mu.Unlock()
 	c.evictions.Add(int64(n))
@@ -422,10 +476,11 @@ func (c *Cache) Stats() Stats {
 	}
 	c.mu.Lock()
 	n := len(c.entries)
+	b := c.bytes
 	c.mu.Unlock()
 	return Stats{
 		Hits: c.hits.Load(), Misses: c.misses.Load(), Shared: c.shared.Load(), Stale: c.stale.Load(),
 		Refreshes: c.refreshes.Load(), RefreshErrors: c.refreshErrors.Load(), Evictions: c.evictions.Load(),
-		LRUEvictions: c.lruEvictions.Load(), DroppedStores: c.droppedStores.Load(), Entries: n, Coherent: c.coherent.Load(),
+		LRUEvictions: c.lruEvictions.Load(), DroppedStores: c.droppedStores.Load(), TooLarge: c.tooLarge.Load(), Bytes: b, Entries: n, Coherent: c.coherent.Load(),
 	}
 }

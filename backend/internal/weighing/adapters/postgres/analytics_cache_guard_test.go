@@ -439,3 +439,16 @@ func TestAnalyticsSiblingInstanceExpiresWithinThirtySeconds(t *testing.T) {
 		t.Fatal("sibling API instance still serves pre-correction analytics after 31 seconds")
 	}
 }
+
+// Every weighing write publishes its eviction: the process-local-only helper is gone, including
+// from the kernel cadence claims (carry-over closes buckets, roll-forward moves due dates).
+func TestNoWeighingWriteUsesAProcessLocalOnlyInvalidation(t *testing.T) {
+	for _, file := range []string{"growth.go", "kernel.go", "close.go", "repository.go", "verification_verdict.go", "weight_correction.go", "rework_digest.go"} {
+		if strings.Contains(readSource(t, file), "commitAndInvalidateReadCache") {
+			t.Fatalf("%s still commits with a process-local-only invalidation", file)
+		}
+	}
+	if !strings.Contains(readSource(t, "kernel.go"), "r.commitClaimAndEvict(ctx, tx, claimed)") {
+		t.Fatal("kernel claims must commit through commitClaimAndEvict")
+	}
+}

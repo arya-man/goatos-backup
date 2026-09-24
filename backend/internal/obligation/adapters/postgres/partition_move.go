@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/vgoats/goatos/backend/internal/platform/readcache"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
@@ -76,7 +78,9 @@ func (r *Repository) SyncPartitionMoveForGoat(ctx context.Context, tenantID, goa
 		}
 	}
 
-	if err := tx.Commit(ctx); err != nil {
+	// The goat's partition feeds the Weights / Growth cohort reads: publish the tenant eviction
+	// in this transaction and drop this process's entries after commit.
+	if err := readcache.CommitAndEvict(ctx, tx, r.readInvalidator, tenantID); err != nil {
 		return 0, fmt.Errorf("obligation: commit partition move: %w", err)
 	}
 	return len(batchIDs), nil
