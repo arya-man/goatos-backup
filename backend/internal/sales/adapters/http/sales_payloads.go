@@ -416,8 +416,16 @@ type summaryPayload struct {
 	RealizedPricePerKg float64 `json:"realized_price_per_kg"`
 	ManureKg           float64 `json:"manure_kg"`
 	ManureRevenue      float64 `json:"manure_revenue"`
-	PeriodFrom         string  `json:"period_from"`
-	PeriodTo           string  `json:"period_to"`
+	// The non-animal halves of the same revenue, in buckets DISJOINT from the live ones above:
+	// animals + manure + feed + other sum to Revenue. They are carried on the wire because a
+	// figure a client cannot read is a figure the farm cannot see -- these were computed and then
+	// dropped here, so a feed sale reached the screen as revenue with no kilograms behind it.
+	FeedKg       float64 `json:"feed_kg"`
+	FeedRevenue  float64 `json:"feed_revenue"`
+	OtherKg      float64 `json:"other_kg"`
+	OtherRevenue float64 `json:"other_revenue"`
+	PeriodFrom   string  `json:"period_from"`
+	PeriodTo     string  `json:"period_to"`
 }
 
 type monthlyPayload struct {
@@ -556,6 +564,8 @@ func toOverviewPayload(o domain.Overview) overviewPayload {
 			Animals: o.Summary.Animals, Sheep: o.Summary.Sheep, Goats: o.Summary.Goats,
 			LiveWeightKg: o.Summary.LiveWeightKg, RealizedPricePerKg: o.Summary.RealizedPricePerKg,
 			ManureKg: o.Summary.ManureKg, ManureRevenue: o.Summary.ManureRevenue,
+			FeedKg: o.Summary.FeedKg, FeedRevenue: o.Summary.FeedRevenue,
+			OtherKg: o.Summary.OtherKg, OtherRevenue: o.Summary.OtherRevenue,
 			PeriodFrom: o.Summary.PeriodFrom, PeriodTo: o.Summary.PeriodTo,
 		},
 		Monthly:    monthly,

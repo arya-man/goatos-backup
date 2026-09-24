@@ -151,21 +151,46 @@ func (s *SalesService) confirmFeedStock(ctx context.Context, tenantID string, wr
 	if s.feedStock == nil || write.StockShortfallAcknowledged {
 		return nil
 	}
-	short := []domain.FeedStockShortfall{}
+	// THE SALE IS WEIGHED AGAINST THE STORE ONCE PER FEED, not once per line. One sale may carry
+	// the same feed twice -- two lots at two rates is an ordinary way to write a load -- and asking
+	// each line on its own let two 9,000 kg lines through a 13,790 kg store because neither
+	// exceeded it alone. The store went to -4,289.9 kg with nobody warned, which is exactly what
+	// the confirmation exists to prevent. The lines are summed per feed first, so the question
+	// asked is the one the store will actually answer: does it hold what this SALE takes.
+	//
+	// The order the farm typed is kept: a feed is reported at the first line that names it, so the
+	// sentence the desk reads names the line they would look at first.
+	type feedDemand struct {
+		firstLine int
+		kg        float64
+	}
+	demand := map[string]*feedDemand{}
+	order := []string{}
 	for i, l := range write.Lines {
 		if l.Kind() != domain.KindFeed {
 			continue
 		}
-		balance, known, err := s.feedStock.FeedBalanceKg(ctx, tenantID, write.Farm, l.Breed)
+		d, seen := demand[l.Breed]
+		if !seen {
+			d = &feedDemand{firstLine: i + 1}
+			demand[l.Breed] = d
+			order = append(order, l.Breed)
+		}
+		d.kg += l.QuantityKg()
+	}
+	short := []domain.FeedStockShortfall{}
+	for _, feed := range order {
+		d := demand[feed]
+		balance, known, err := s.feedStock.FeedBalanceKg(ctx, tenantID, write.Farm, feed)
 		if err != nil {
 			return err
 		}
-		if !known || balance >= l.QuantityKg() {
+		if !known || balance >= d.kg {
 			continue
 		}
 		short = append(short, domain.FeedStockShortfall{
-			LineNo: i + 1, FeedItem: l.Breed, FarmLabel: write.Farm,
-			RequestedKg: l.QuantityKg(), BalanceKg: balance,
+			LineNo: d.firstLine, FeedItem: feed, FarmLabel: write.Farm,
+			RequestedKg: d.kg, BalanceKg: balance,
 		})
 	}
 	if len(short) == 0 {
