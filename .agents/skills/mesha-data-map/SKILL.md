@@ -51,6 +51,7 @@ retyping them; `where` filters the file's output columns, date windows go in `pa
 - **Never average an average.** `scan_weight_avg_kg`, `shed_weight_avg_kg`, medians, rates: weight by `scan_count`
   (`sum(avg*scan_count)/sum(scan_count)`) or report per row.
 - **ADG / daily gain:** run references/adg-by-park.sql as-is (see "Metric definitions"). Never invent a proxy and call it ADG.
+- **ADG / average weight by breed, sex, origin, weighing type or period** (app Weighing > ADG Analytics > Breed-wise): `run_reference('adg-by-breed.sql', params={from_date, to_date, park_code, sex, origin, weighing})` with the user's filters (defaults: all weighing types, all sexes, all origins, all parks); state the filters in the answer. Never improvise.
 - **Sales:** no sales/deal view in ceo_ai; money is in `public.sales_deals` (see Two-source traps). "Animals sold" = `animals_base`
   `exit_reason='sold'` by `exit_business_day` (= goats register = tagged allocations).
 - **Parks** in data are full names: `Coimbatore` (CBE), `Channapatna` (CPT). Filter on `park_label`.
