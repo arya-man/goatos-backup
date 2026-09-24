@@ -3,11 +3,13 @@ import { fmtClock, fmtGrams, fmtSplit } from "./feed-config-format";
 import { redirect } from "next/navigation";
 import { AlertTriangle } from "lucide-react";
 
-import { fmtDate } from "@/lib/format";
+import { fmtDate, istDayPlus, todayIso } from "@/lib/format";
+import { operationalLocationLabel } from "@/lib/operational-location";
 import { copy, optionGroup, table, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { FeedConfigExperiment } from "@/lib/api/server";
 import {
   firstAuthRequiredError,
+  getFeedDirectionPreview,
   listFeedConfigExperiment,
   listFeedConfigFeedItems,
   listFeedConfigRationGroups,
@@ -16,6 +18,7 @@ import {
   listFeedConfigSessionTemplates,
   listFeedConfigShedTags,
   type ApiResult,
+  type FeedDirectionPreviewPage,
 } from "@/lib/api/server";
 import { getCensusLocations, listAllFeedConfigPens } from "@/lib/api/herd-locations";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
@@ -39,10 +42,12 @@ import {
   ExperimentCellAdder,
   ExperimentPenEnroller,
   ExperimentShedSwitch,
+  RationRateEditor,
   ScheduleEditor,
   SessionFeedsCell,
 } from "./feed-config-editor";
 import { experimentEnrollerScopeKey } from "./experiment-enroller-scope";
+import { groupMissingRates, type MissingRate } from "./missing-rates";
 
 // Feed -> Feed Config. The authored input the daily generation reads: the ration grid, the per-shed
 // factors, the park's session split, and the dispatch clock.
@@ -333,6 +338,9 @@ export async function FeedConfigPage({
   const experimentLimit = feedLimit(sp, "fc_exp_limit", experimentPageSizes, experimentDefaultSize);
   const experimentOffset = feedOffset(sp, "fc_exp_offset");
 
+  // Started here so it runs beside the reads below rather than after them (see readMissingRates).
+  const missingRatesPromise: Promise<MissingRate[]> = scope.parkId ? readMissingRates(scope.parkId) : Promise.resolve([]);
+
   // Six independent authored surfaces, fetched concurrently — no serial await, and no draining of
   // any of them: each is one bounded page.
   const [
@@ -413,6 +421,13 @@ export async function FeedConfigPage({
     listFeedConfigRationGroups({ limit: VOCAB_PAGE_SIZE }),
     listFeedConfigShedTags({ limit: VOCAB_PAGE_SIZE }),
   ]);
+  // MISSING RATES (maintainer request 2026-09-24): which (ration group x pen tag x feed item)
+  // combinations tomorrow's sheet needs and the grid has no rate for. Read from the feed sheet's
+  // own preview rather than re-derived here, so this list is exactly the set of cells the sheet
+  // will block. One read for the park; its rows are paged only when the whole-park summary says
+  // something IS blocked (bounded: a park's sheet is a few hundred rows). A reader without the
+  // feed-direction read simply gets no list.
+  const missingRates = await missingRatesPromise;
 
   const authError = firstAuthRequiredError(
     ratesResult,
@@ -758,6 +773,42 @@ export async function FeedConfigPage({
           <h3>{copy(pageContract, "section.ration_grid.title")}</h3>
           <span className="small muted">{copy(pageContract, "section.ration_grid.caption")}</span>
         </div>
+        {missingRates.length > 0 ? (
+          <div className="alert" style={{ margin: "0 14px 12px" }} role="group" aria-label={copy(pageContract, "kpi.gaps.label")}>
+            <AlertTriangle className="ic" aria-hidden="true" />
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div>
+                <b>{copy(pageContract, "kpi.gaps.label")}</b> · {copy(pageContract, "section.missing_rates.caption")}
+              </div>
+              <div className="feed-scroll" style={{ overflowX: "auto", marginTop: 8 }}>
+                <table className="feed-table" aria-label={copy(pageContract, "kpi.gaps.label")}>
+                  <tbody>
+                    {missingRates.map((gap) => (
+                      <tr key={`${gap.rationGroup}|${gap.shedTag}|${gap.feedItem}`}>
+                        <td>{gap.rationGroup}</td>
+                        <td>{gap.shedTag}</td>
+                        <td>{gap.feedItem}</td>
+                        <td className="muted small" style={{ whiteSpace: "normal" }}>
+                          {copy(pageContract, "label.missing_rate_pens")} {gap.pens.join(", ")}
+                        </td>
+                        <td>
+                          <RationRateEditor
+                            pageContract={pageContract}
+                            action={saveRationRate}
+                            parkId={scope.parkId}
+                            rationGroup={gap.rationGroup}
+                            shedTag={gap.shedTag}
+                            feedItem={gap.feedItem}
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        ) : null}
         {/* STAGED, not applied per control. Six filters sit on this bar and an author normally
             narrows by several at once — park, then breed, then item — and every one of those picks
             re-ran the whole page: nine concurrent reads, four tables, and three intermediate result
@@ -1312,5 +1363,26 @@ export async function FeedConfigPage({
         </div>
       </section>
     </div>
+  );
+}
+
+// The combinations tomorrow's sheet will BLOCK for want of a rate, with the pens each one blocks.
+async function readMissingRates(parkId: string): Promise<MissingRate[]> {
+  const targetDate = istDayPlus(todayIso(), 1);
+  const rows: NonNullable<FeedDirectionPreviewPage["items"]> = [];
+  // scale-guard:ignore: bounded drain of ONE park's preview (a few hundred rows; the endpoint's page
+  // cap is 100, so <=20 pages), continued only when the whole-park summary reports a blocked cell.
+  for (let page = 0, offset = 0; page < 20; page += 1) {
+    // serial-await: each page's offset follows the previous page's has_more.
+    const result = await getFeedDirectionPreview({ park_id: parkId, target_date: targetDate, limit: 100, offset });
+    if (!result.ok) return [];
+    const data = result.data;
+    if (page === 0 && (data.summary?.blocked_count ?? 0) === 0) return [];
+    rows.push(...(data.items ?? []));
+    if (!data.has_more) break;
+    offset += data.items?.length ?? 0;
+  }
+  return groupMissingRates(rows, (row) =>
+    operationalLocationLabel({ shedName: row.shed_label, partitionLabel: row.partition_label }),
   );
 }
