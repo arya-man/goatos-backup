@@ -70,8 +70,8 @@ func TestMarkCompletedFlipsOpenSiblingsToInProgressAndSparesThemFromMissedSweep(
 	// never started, while sparing the in_progress siblings on the drive that DID start.
 	const otherGoat = "10000000-0000-4000-8000-0000000000bb"
 	if _, err := pool.Exec(ctx,
-		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex, current_location_id, park_id)
-		 VALUES ($1, $2, 'alive', 'goat', $3, 'female', $4, $4)`, otherGoat, tenantID, meshaParty, cbePark); err != nil {
+		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex, current_location_id, park_id, dob)
+		 VALUES ($1, $2, 'alive', 'goat', $3, 'female', $4, $4, '2020-01-01'::date)`, otherGoat, tenantID, meshaParty, cbePark); err != nil {
 		t.Fatalf("seed other goat: %v", err)
 	}
 	obD, applied, err := repo.InsertObligation(ctx, domain.NewObligation{

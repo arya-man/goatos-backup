@@ -32,8 +32,8 @@ import (
 func seedCapacityGoat(t *testing.T, ctx context.Context, pool *pgxpool.Pool, goatID string) {
 	t.Helper()
 	if _, err := pool.Exec(ctx,
-		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex, current_location_id, park_id)
-			 VALUES ($1, $2, 'alive', 'goat', $3, 'female', $4, $4)
+		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex, current_location_id, park_id, dob)
+			 VALUES ($1, $2, 'alive', 'goat', $3, 'female', $4, $4, '2020-01-01'::date)
 			 ON CONFLICT (goat_id) DO NOTHING`,
 		goatID, tenantID, meshaParty, cbePark); err != nil {
 		t.Fatalf("seed capacity goat %s: %v", goatID, err)
@@ -297,8 +297,8 @@ func TestComboListCellCountNumericQuantity(t *testing.T) {
 func seedCapacityGoatInPark(t *testing.T, ctx context.Context, pool *pgxpool.Pool, goatID, parkID string) {
 	t.Helper()
 	if _, err := pool.Exec(ctx,
-		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex, current_location_id, park_id)
-			 VALUES ($1, $2, 'alive', 'goat', $3, 'female', $4, $4)
+		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex, current_location_id, park_id, dob)
+			 VALUES ($1, $2, 'alive', 'goat', $3, 'female', $4, $4, '2020-01-01'::date)
 			 ON CONFLICT (goat_id) DO NOTHING`,
 		goatID, tenantID, meshaParty, parkID); err != nil {
 		t.Fatalf("seed goat %s in park %s: %v", goatID, parkID, err)

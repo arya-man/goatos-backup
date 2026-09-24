@@ -78,8 +78,8 @@ func seedParkConsolidationAnimal(t *testing.T, ctx context.Context, pool *pgxpoo
 	t.Helper()
 	if _, err := pool.Exec(ctx,
 		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex,
-		   current_location_id, park_id, shed_id, management_stage)
-		 VALUES ($1, $2, 'alive', $3, $4, 'female', $5, $6, $5, $7)`,
+		   current_location_id, park_id, shed_id, management_stage, dob)
+		 VALUES ($1, $2, 'alive', $3, $4, 'female', $5, $6, $5, $7, '2020-01-01'::date)`,
 		goatID, tenantID, species, meshaParty, shedID, cbePark, stage); err != nil {
 		t.Fatalf("seed %s %s: %v", species, goatID, err)
 	}

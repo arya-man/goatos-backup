@@ -73,3 +73,38 @@
 
 - Before: one 8-day-old animal was regenerated daily onto the current date, inflating Amit's tracker from 2 to 3 administrations.
 - Expected after: the obligation stays at 2026-10-14; Amit remains at 2 assigned animals/administrations; repeated generation is idempotent.
+
+## Handoff - 2026-09-24 (account switch)
+
+State: all work below is committed and pushed to PR 391 as a WIP checkpoint. Builders and judges were
+stopped for the account switch; their last in-flight edits are included. Nothing merged, landed,
+deployed; STG untouched (read-only).
+
+Verified on this exact tree before pushing:
+- `go build ./...`, `go vet` on obligation/vaccination/vaccinationexecution/kernelstages/platform: clean.
+- `go test ./internal/vaccination/... ./internal/obligation/... ./internal/protocol/... ./internal/vaccinationexecution/... ./internal/platform/vaccinepurpose ./internal/platform/vaccinationanchor ./internal/kernelstages ./cmd/seed-vaccination-real ./cmd/generate-vaccination-obligations ./tests/e2e -count=1`: all pass (non-DB).
+- OCI integration tests were NOT re-run on this final tree. Rerun first (see below).
+
+In this checkpoint beyond b441234a5 (partially OCI-verified by builders, re-verify):
+- `internal/platform/vaccinationanchor`: shared anchor-event semantics for generation and the persistence guard (clinical P2: guard was a superset of anchor_admins).
+- Validator split into load-inputs + pure decide (`vaccination_write_decide_test.go`); set-based carry-over work and scale test `carryover_scale_integration_test.go` (P1-13/P2-17) - status: in progress when stopped.
+- Migration 000401: completion acceptance locks the goat row (P2-19); canonical accepted-intake procurement-row selection (P2-18) in generation SQL and guard.
+- Race tests `vaccination_write_race_integration_test.go` (P1-15): insert/reschedule/deferred reopen/carry-over passed on OCI; drive-override race was being moved to a longer timeout; the reconcile completion-race assertion in `vaccination_write_contract_integration_test.go` was being fixed to count only reconcile-written rows (pre-existing 10-09 row is lifecycle-repaired by the next pass, not a product bug).
+- Fixture repairs across ~15 obligation integration test files (goats without DOB, follow-ups without prior completion) for the ~130 full-package failures; triage vs origin/main was in progress.
+- GuardRejected metric (`internal/platform/kmetrics/vaccination.go`, kernelstages) and guard agreement test (`guard_agreement_integration_test.go`).
+
+Open items (judge file kept outside git at /Users/raviteja/mesha/judge-findings-pr391.md):
+- P1-13 / P2-17 set-based carry-over + goat chunking + ordered locks: finish and verify.
+- P2-20 AcceptIntake must lock/update goats before procurement_load_goats.
+- P2-21 in_progress carry-over candidates: rebind with retained-date validation or exclude; justify via live-drive runbook.
+- P2-22 verification acceptVaccinationBatch: ordered goat locks + bounded retry.
+- P2-23 drive override comment + lock order.
+- Full `internal/obligation/adapters/postgres` OCI package: finish triage vs origin/main; fix branch-caused failures.
+- GuardRejected persisted on vaccination_generation_runs (needs a migration) - optional.
+- Before landing: rebase on origin/main (main has 000399_growth_sale_price_by_stage_sex; regenerate sqlc schema.sql copies), fresh clinical + persistence judges on the exact pushed SHA, both must sign off, then `make land-main`. Then STG repair/readback for RFID 901007000506144 after deployment.
+
+How to run OCI tests (disposable DB, never STG): a dedicated throwaway container `goatos-pr391-throwaway` on
+goatos-oci (podman, 127.0.0.1:55433). Tunnel: `ssh -f -N -L 127.0.0.1:55492:127.0.0.1:55433 goatos-oci`.
+Password: `sudo podman inspect goatos-pr391-throwaway` env on the box. Set
+`GOATOS_PGTEST_ADMIN_DSN=postgres://postgres:<pw>@127.0.0.1:55492/postgres?sslmode=disable GOATOS_RUN_POSTGRES_TESTS=1`.
+Remove the container when the PR is done: `sudo podman rm -f goatos-pr391-throwaway`.

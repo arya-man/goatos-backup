@@ -74,8 +74,8 @@ ON CONFLICT (tenant_id, park_id) DO UPDATE SET default_operator_id = EXCLUDED.de
 		goatID := fmt.Sprintf("00000000-0000-4000-8000-00000060%s%02d", suffix, i)
 		goatIDs[i] = goatID
 		if _, err := pool.Exec(ctx, `
-INSERT INTO goats (tenant_id, goat_id, lifecycle_status, species, custodian_party_id, sex, current_location_id, park_id)
-VALUES ($1::uuid, $2::uuid, 'alive', 'goat', $3::uuid, 'male', $4::uuid, $5::uuid)
+INSERT INTO goats (tenant_id, goat_id, lifecycle_status, species, custodian_party_id, sex, current_location_id, park_id, dob)
+VALUES ($1::uuid, $2::uuid, 'alive', 'goat', $3::uuid, 'male', $4::uuid, $5::uuid, '2020-01-01'::date)
 ON CONFLICT (goat_id) DO NOTHING`, tenantID, goatID, meshaParty, shed, park); err != nil {
 			t.Fatalf("seed goat %s: %v", goatID, err)
 		}

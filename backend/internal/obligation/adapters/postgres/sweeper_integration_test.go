@@ -319,8 +319,8 @@ WITH seeded_goats AS (
   SELECT ('40000000-0000-4000-8000-' || lpad(i::text, 12, '0'))::uuid AS goat_id
   FROM generate_series(0, 1000) AS i
 ), inserted_goats AS (
-	  INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex, current_location_id, park_id)
-	  SELECT goat_id, $1::uuid, 'alive', 'goat', $2::uuid, 'female', $3::uuid, $3::uuid
+	  INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex, current_location_id, park_id, dob)
+	  SELECT goat_id, $1::uuid, 'alive', 'goat', $2::uuid, 'female', $3::uuid, $3::uuid, '2020-01-01'::date
   FROM seeded_goats
   ON CONFLICT (goat_id) DO NOTHING
   RETURNING goat_id

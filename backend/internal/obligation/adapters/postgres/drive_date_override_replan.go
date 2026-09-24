@@ -181,11 +181,26 @@ func replanVaccinationDriveAssignmentsForDateMoveTx(
 // vaccination_drive_assignments.planned_date; letting those two drift is how a moved drive can still
 // show as work on its old day. Membership has already been rebuilt for the touched batches, so each
 // obligation can be updated from the exact assignment row that owns it.
-func syncVaccinationObligationDatesFromAssignmentsTx(ctx context.Context, tx pgx.Tx, tenant pgtype.UUID, batchIDs []pgtype.UUID) error {
-	if len(batchIDs) == 0 {
-		return nil
-	}
-	lockedRows, err := tx.Query(ctx, `
+// driveOverrideGoatLockSQL share-locks, in goat_id order, the goats of every open obligation in
+// the re-planned batches ($1 tenant, $2 batch ids), before their obligation rows are locked.
+const driveOverrideGoatLockSQL = `
+SELECT 1
+FROM goats g
+WHERE g.tenant_id = $1
+  AND g.goat_id IN (
+    SELECT oi.target_id
+    FROM obligation_instances oi
+    WHERE oi.tenant_id = $1
+      AND oi.batch_id = ANY($2::uuid[])
+      AND oi.target_type = 'goat'
+      AND oi.status IN ('scheduled', 'due', 'deferred')
+  )
+ORDER BY g.goat_id
+FOR SHARE OF g`
+
+// driveOverrideLockMovedRowsSQL locks, in obligation_id order, exactly the rows the date sync
+// UPDATE rewrites ($1 tenant, $2 batch ids).
+const driveOverrideLockMovedRowsSQL = `
 SELECT oi.rule_id, oi.target_type, oi.target_id,
        (vda.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS planned_at,
        oi.schedule_basis
@@ -209,7 +224,24 @@ WHERE oi.tenant_id = $1
   -- in-progress, and unmoved rows are not written, so they are not re-judged here.
   AND oi.status IN ('scheduled', 'due', 'deferred')
   AND (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date <> vda.planned_date
-FOR UPDATE OF m, vda, oi`, tenant, batchIDs)
+ORDER BY oi.obligation_id
+FOR UPDATE OF m, vda, oi`
+
+func syncVaccinationObligationDatesFromAssignmentsTx(ctx context.Context, tx pgx.Tx, tenant pgtype.UUID, batchIDs []pgtype.UUID) error {
+	if len(batchIDs) == 0 {
+		return nil
+	}
+	// Lock order WITHIN this step matches every other vaccination validator: goats in goat_id order,
+	// then the obligation rows in obligation_id order; the validator below re-requests the same goat
+	// share locks, which are already held. It is NOT "goats first" for the whole override tx: by now
+	// the re-plan has already written vaccination_drive_assignments and their members rows, so the
+	// full order is vda/members -> goats -> obligation_instances. A writer that locks goats and then
+	// drive rows can still deadlock with this tx; the losing side gets 40P01, which
+	// UpsertVaccinationDriveDateOverride retries (bounded) from scratch like a 40001.
+	if _, err := tx.Exec(ctx, driveOverrideGoatLockSQL, tenant, batchIDs); err != nil {
+		return fmt.Errorf("obligation: lock drive date vaccination goats: %w", err)
+	}
+	lockedRows, err := tx.Query(ctx, driveOverrideLockMovedRowsSQL, tenant, batchIDs)
 	if err != nil {
 		return fmt.Errorf("obligation: lock drive date vaccination age floor rows: %w", err)
 	}
@@ -232,11 +264,21 @@ FOR UPDATE OF m, vda, oi`, tenant, batchIDs)
 		return fmt.Errorf("obligation: iterate drive date vaccination age floor: %w", err)
 	}
 	lockedRows.Close()
-	for _, write := range writes {
-		if err := validateVaccinationWrite(ctx, tx, vaccinationWrite{
+	// One set-based proof for every moved row (a fixed number of queries, not one per goat), then
+	// the same pure decision the single-row path runs.
+	proofs := make([]vaccinationWrite, len(writes))
+	for i, write := range writes {
+		proofs[i] = vaccinationWrite{
 			Tenant: tenant, Rule: write.rule, TargetType: write.targetType, Target: write.target, DueAt: write.dueAt, ScheduleBasis: write.basis,
-		}); err != nil {
-			return fmt.Errorf("drive override violates vaccination rule floor: %w", err)
+		}
+	}
+	decisions, err := validateVaccinationWrites(ctx, tx, proofs)
+	if err != nil {
+		return fmt.Errorf("drive override violates vaccination rule floor: %w", err)
+	}
+	for _, decision := range decisions {
+		if decision != nil {
+			return fmt.Errorf("drive override violates vaccination rule floor: %w", decision)
 		}
 	}
 	// scale-guard:ignore: bounded to touched batch IDs inside the date-override transaction; projection-review marker below records membership/date/status grain.

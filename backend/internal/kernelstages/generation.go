@@ -9,6 +9,7 @@ import (
 
 	obligationpg "github.com/vgoats/goatos/backend/internal/obligation/adapters/postgres"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	"github.com/vgoats/goatos/backend/internal/platform/kmetrics"
 	protocolpg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
 	vaccinationpg "github.com/vgoats/goatos/backend/internal/vaccination/adapters/postgres"
 	vaccinationapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
@@ -59,6 +60,16 @@ func (s *VaccinationGenerationStage) Run(ctx context.Context) error {
 			"failed_goats", res.FailedGoats,
 			"skipped_no_due_date", res.SkippedNoDueDate,
 			"suppressed_trusted", res.SuppressedByTrustedHistory,
+			"guard_rejected", res.GuardRejected,
+		)
+	}
+	kmetrics.RecordVaccinationGuardRejected(ctx, res.GuardRejected)
+	if res.GuardRejected > 0 && s.logger != nil {
+		// Same severity as ambiguous open work (which fails the goat and surfaces through the
+		// supervisor's ERROR log): an ERROR line trips the Cloud Run errors alert, because
+		// generation and the persistence guard disagree about a clinical dose.
+		s.logger.Error("vaccination_generation_guard_rejected",
+			"tenant_id", s.tenantID,
 			"guard_rejected", res.GuardRejected,
 		)
 	}
