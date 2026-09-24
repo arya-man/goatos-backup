@@ -3,6 +3,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -269,6 +270,23 @@ func (r *Repository) listRowsCanonical(ctx context.Context, q domain.Query, args
 		statsErr   error
 	)
 
+	if q.RowID == nil && !q.IncludeAdherenceSummary {
+		// Page + per-work_state counts in one statement: the canonical CTE is planned and run once.
+		out, lastCursor, seenExtra, counts, totalCount, rowErr = r.fetchCanonicalRowsAndCounts(ctx, q, args)
+		if rowErr != nil {
+			return domain.ListResult{}, rowErr
+		}
+		var next *string
+		if seenExtra && lastCursor != nil {
+			encoded, err := domain.EncodeCursor(*lastCursor)
+			if err != nil {
+				return domain.ListResult{}, err
+			}
+			next = &encoded
+		}
+		return domain.ListResult{Rows: out, CountsByWorkState: counts, TotalCount: totalCount, AdherenceSummary: summary, NextCursor: next, Projection: canonicalProjectionMetadata(q)}, nil
+	}
+
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
@@ -359,6 +377,83 @@ func (r *Repository) fetchCanonicalRows(ctx context.Context, q domain.Query, arg
 		return nil, nil, false, fmt.Errorf("processintegrity: iterate projection rows: %w", err)
 	}
 	return out, lastCursor, seenExtra, nil
+}
+
+// prefixedScanner scans the combined read's two leading columns (counts_json, page_empty) ahead of
+// the canonical row columns, so scanRow stays the single row decoder.
+type prefixedScanner struct {
+	rows   pgx.Rows
+	prefix []any
+}
+
+func (p prefixedScanner) Scan(dest ...any) error {
+	return p.rows.Scan(append(append([]any{}, p.prefix...), dest...)...)
+}
+
+type canonicalCountJSON struct {
+	State string `json:"s"`
+	Count int64  `json:"n"`
+}
+
+func (r *Repository) fetchCanonicalRowsAndCounts(ctx context.Context, q domain.Query, args []any) ([]domain.Row, *domain.Cursor, bool, []domain.CountByWorkState, int64, error) {
+	if len(args) != rowsQueryArgCount {
+		return nil, nil, false, nil, 0, fmt.Errorf("processintegrity: list canonical rows+counts: got %d args, want %d", len(args), rowsQueryArgCount)
+	}
+	// Arguments are spelled out (not spread) so the bind-contract check proves them against the
+	// constant SQL.
+	rows, err := r.pool.Query(ctx, processIntegrityCanonicalRowsAndCountsSQL, pgx.QueryExecModeExec,
+		args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7], args[8], args[9], args[10], args[11], args[12], args[13], args[14], args[15], args[16], args[17], args[18], args[19])
+	if err != nil {
+		return nil, nil, false, nil, 0, fmt.Errorf("processintegrity: list canonical rows+counts: %w", err)
+	}
+	defer rows.Close()
+
+	out := []domain.Row{}
+	var lastCursor *domain.Cursor
+	seenExtra := false
+	var countsJSON []byte
+	countsSeen := false
+	for rows.Next() {
+		var rowCounts []byte
+		var pageEmpty bool
+		skip := make([]any, len(rows.FieldDescriptions()))
+		skip[0], skip[1] = &rowCounts, &pageEmpty
+		if err := rows.Scan(skip...); err != nil {
+			return nil, nil, false, nil, 0, fmt.Errorf("processintegrity: scan canonical rows+counts prefix: %w", err)
+		}
+		if !countsSeen {
+			countsJSON, countsSeen = rowCounts, true
+		}
+		if pageEmpty {
+			continue
+		}
+		row, cursor, err := scanRow(prefixedScanner{rows: rows, prefix: []any{nil, nil}})
+		if err != nil {
+			return nil, nil, false, nil, 0, err
+		}
+		if len(out) < q.Limit {
+			out = append(out, row)
+			lastCursor = &cursor
+		} else {
+			seenExtra = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, false, nil, 0, fmt.Errorf("processintegrity: iterate canonical rows+counts: %w", err)
+	}
+	var decoded []canonicalCountJSON
+	if len(countsJSON) > 0 {
+		if err := json.Unmarshal(countsJSON, &decoded); err != nil {
+			return nil, nil, false, nil, 0, fmt.Errorf("processintegrity: decode canonical counts: %w", err)
+		}
+	}
+	counts := make([]domain.CountByWorkState, 0, len(decoded))
+	var total int64
+	for _, c := range decoded {
+		counts = append(counts, domain.CountByWorkState{WorkState: domain.WorkState(c.State), Count: c.Count})
+		total += c.Count
+	}
+	return out, lastCursor, seenExtra, counts, total, nil
 }
 
 // canonicalProjectionMetadata reports the live-canonical serving contract on the response envelope. A
@@ -2074,14 +2169,9 @@ scoped_rows AS (
 )
 `
 
-// processIntegrityCanonicalRowsSQL is the LIST read: the canonical scoped_rows reconstruction,
-// keyset-paginated on (sort_priority, due_at, row_id) with LIMIT $20. The base joins are tenant+due_at index-bound and all
-// scope/state/owner/category filters ($2-$15) are applied inside all_rows, so the outer read only advances
-// the cursor and bounds the page.
-// scale-guard:ignore: 5k-50k operational-kernel envelope; canonical indexed keyset read (base joins index-bound + LIMIT $20), projection retired as request-path source per operational-kernel-5k-50k-scale-envelope.md.
-const processIntegrityCanonicalRowsSQL = processIntegrityAllRowsSQL + processIntegrityLatestDriveScopeSQL + `
-SELECT
-  sort_priority,
+// processIntegrityCanonicalRowColumns is the canonical row projection shared by the LIST read and
+// the combined rows+counts read, so the two can never scan different shapes.
+const processIntegrityCanonicalRowColumns = `  sort_priority,
   row_id,
   process_key,
   category,
@@ -2150,7 +2240,16 @@ SELECT
   latest_evidence_at,
   latest_rejection_reason,
   audit_ref
-FROM scoped_rows
+`
+
+// processIntegrityCanonicalRowsSQL is the LIST read: the canonical scoped_rows reconstruction,
+// keyset-paginated on (sort_priority, due_at, row_id) with LIMIT $20. The base joins are tenant+due_at index-bound and all
+// scope/state/owner/category filters ($2-$15) are applied inside all_rows, so the outer read only advances
+// the cursor and bounds the page.
+// scale-guard:ignore: 5k-50k operational-kernel envelope; canonical indexed keyset read (base joins index-bound + LIMIT $20), projection retired as request-path source per operational-kernel-5k-50k-scale-envelope.md.
+const processIntegrityCanonicalRowsSQL = processIntegrityAllRowsSQL + processIntegrityLatestDriveScopeSQL + `
+SELECT
+` + processIntegrityCanonicalRowColumns + `FROM scoped_rows
 WHERE (
   $17::int < 0
   OR (sort_priority, due_at, row_id) > ($17::int, $18::timestamptz, $19::text)
@@ -2178,6 +2277,46 @@ FROM scoped_rows
 WHERE ($14::boolean OR work_state <> 'completed' OR due_at >= $11::timestamptz)
 GROUP BY work_state
 ORDER BY work_state;
+`
+
+// processIntegrityCanonicalRowsAndCountsSQL is the LIST page and the per-work_state COUNT in ONE
+// statement: the 1.3k-line canonical CTE is planned and executed once instead of twice (the Action
+// Center and every unfiltered ListRows used to run processIntegrityCanonicalRowsSQL and
+// processIntegrityCanonicalCountsSQL in parallel on two pool connections, ~60 ms planning + ~200 ms
+// execution EACH). visible is exactly the counts read's membership ($14/$11 filter over
+// scoped_rows); page is exactly the LIST read's keyset page over it. The counts ride every row as
+// one jsonb column; an empty page still returns one row (page columns NULL, page_empty true) so
+// the counts are never lost.
+// projection-review: membership=scoped_rows grouped grains filtered by the same $14/$11 closed-history clause as the separate counts read; group_key=work_state for counts, row keyset for the page; join_cardinality=page LEFT JOINed to a single-row counts aggregate (1:1 per page row, or one NULL page row) so no fan-out; pagination=page keyset on (sort_priority, due_at, row_id) LIMIT $20 while counts cover the whole visible set independent of the page; scope=all filters applied inside all_rows exactly as the two reads it replaces.
+// scale-guard:ignore: 5k-50k operational-kernel envelope; the same canonical indexed read as processIntegrityCanonicalRowsSQL + processIntegrityCanonicalCountsSQL, planned once.
+const processIntegrityCanonicalRowsAndCountsSQL = processIntegrityAllRowsSQL + processIntegrityLatestDriveScopeSQL + `,
+visible AS MATERIALIZED (
+  SELECT *
+  FROM scoped_rows
+  WHERE ($14::boolean OR work_state <> 'completed' OR due_at >= $11::timestamptz)
+),
+visible_counts AS (
+  SELECT COALESCE(jsonb_agg(jsonb_build_object('s', work_state, 'n', row_count) ORDER BY work_state), '[]'::jsonb) AS counts_json
+  FROM (
+    SELECT work_state, COUNT(*)::bigint AS row_count
+    FROM visible
+    GROUP BY work_state
+  ) grouped_counts
+),
+page AS (
+  SELECT
+` + processIntegrityCanonicalRowColumns + `  FROM visible scoped_rows
+  WHERE (
+    $17::int < 0
+    OR (sort_priority, due_at, row_id) > ($17::int, $18::timestamptz, $19::text)
+  )
+  ORDER BY sort_priority ASC, due_at ASC, row_id ASC
+  LIMIT $20
+)
+SELECT visible_counts.counts_json, page.row_id IS NULL AS page_empty, page.*
+FROM visible_counts
+LEFT JOIN page ON true
+ORDER BY page.sort_priority ASC, page.due_at ASC, page.row_id ASC;
 `
 
 // processIntegrityCanonicalAdherenceSummarySQL is the Protocol Adherence AGGREGATE over the same canonical
