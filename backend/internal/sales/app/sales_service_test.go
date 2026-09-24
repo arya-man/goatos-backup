@@ -98,8 +98,8 @@ func (f *fakeRepo) CreateDeal(_ context.Context, _ string, write domain.DealWrit
 
 // Pipeline methods: thin recorders, same idea as the deal ones.
 // feedDemand is what FeedDemandForDeal answers for the deal under test; empty means no feed line.
-func (f *fakeRepo) FeedDemandForDeal(_ context.Context, _, _ string) (string, []domain.FeedDemand, error) {
-	return f.demandFarm, f.demand, nil
+func (f *fakeRepo) FeedDemandForDeal(_ context.Context, _, _ string) (string, string, []domain.FeedDemand, error) {
+	return f.demandFarm, f.dealStatus, f.demand, nil
 }
 
 func (f *fakeRepo) SetDealStatus(_ context.Context, _ string, dealID, status, _ string) (domain.Deal, error) {

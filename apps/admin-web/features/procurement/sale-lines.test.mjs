@@ -10,12 +10,12 @@ test("the running total sums every line and treats a half-typed or blank box as 
     { ...newSaleLine(2, "Sheep"), breed: "Kenguri", animals: "5", weightKg: "140.5", value: "56000" },
     { ...newSaleLine(3, "Goat"), breed: "Sirohi", animals: "", weightKg: "12.", value: "45000" },
   ];
-  assert.deepEqual(saleLinesTotals(lines), { value: 221000, animals: 15, weightKg: 452.5 });
-  assert.deepEqual(saleLinesTotals([]), { value: 0, animals: 0, weightKg: 0 });
+  assert.deepEqual(saleLinesTotals(lines), { value: 221000, animals: 15, weightKg: 452.5, feedKg: 0, pieces: 0 });
+  assert.deepEqual(saleLinesTotals([]), { value: 0, animals: 0, weightKg: 0, feedKg: 0, pieces: 0 });
 });
 
 test("a new line starts blank on the product it was handed", () => {
-  assert.deepEqual(newSaleLine(4, "Goat"), { id: 4, product: "Goat", breed: "", animals: "", weightKg: "", value: "" });
+  assert.deepEqual(newSaleLine(4, "Goat"), { id: 4, product: "Goat", breed: "", animals: "", weightKg: "", value: "", quantity: "", rate: "" });
 });
 
 // The editor POSTS indexed field names and the server action READS them back; the two are in
@@ -31,4 +31,16 @@ test("the editor's posted field names are exactly what readSaleForm reads", () =
   // The deal-level product/breed/value are NOT posted: the backend rolls them up from the lines.
   assert.doesNotMatch(actions, /requiredString\(formData, "product_type"\)/);
   assert.doesNotMatch(actions, /requiredString\(formData, "sales_value"\)/);
+});
+
+test("mixed sales keep feed kilograms, counted pieces, and animal weight separate", () => {
+  const lines = [
+    { ...newSaleLine(1, "Goat"), animals: "2", weightKg: "60", value: "30000" },
+    { ...newSaleLine(2, "Feed"), quantity: "125.5", rate: "20", value: "999" },
+    { ...newSaleLine(3, "Tags"), quantity: "200", rate: "5" },
+    { ...newSaleLine(4, "Feed"), quantity: "24.5", rate: "20" },
+  ];
+  assert.deepEqual(saleLinesTotals(lines, { Goat: "animal", Feed: "feed", Tags: "other" }), {
+    value: 34000, animals: 2, weightKg: 60, feedKg: 150, pieces: 200,
+  });
 });

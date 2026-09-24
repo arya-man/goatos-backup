@@ -235,3 +235,40 @@ func TestOnlyClosingAsksTheStore(t *testing.T) {
 		}
 	}
 }
+
+// A response may be lost after closing committed. Retrying must neither ask the
+// store again nor turn the successful close into a terminal outbox rejection.
+func TestClosedFeedSaleReplaySkipsStockButReopenedSaleChecksAgain(t *testing.T) {
+	repo := &feedRepo{}
+	repo.demandFarm = "CPT"
+	repo.dealStatus = domain.StatusInDiscussion
+	repo.demand = []domain.FeedDemand{{LineNo: 1, FeedItem: "Maize", Kg: 600}}
+	store := &feedStore{balances: map[string]float64{"CPT/Maize": 1000}}
+	service := NewSalesService(repo).WithFeedStock(store)
+	ctx := context.Background()
+	if _, err := service.SetDealStatus(ctx, tenant, "d1", domain.StatusDealClosed, false, "actor"); err != nil {
+		t.Fatal(err)
+	}
+	store.balances["CPT/Maize"] = 400
+	if _, err := service.SetDealStatus(ctx, tenant, "d1", domain.StatusDealClosed, false, "actor"); err != nil {
+		t.Fatalf("completed close replay: %v", err)
+	}
+	if store.asked != 1 {
+		t.Fatalf("store asked %d times, want once", store.asked)
+	}
+	if _, err := service.SetDealStatus(ctx, tenant, "d1", domain.StatusInDiscussion, false, "actor"); err != nil {
+		t.Fatal(err)
+	}
+	// Other consumption can leave the reopened sale short even after its stock is restored.
+	_, err := service.SetDealStatus(ctx, tenant, "d1", domain.StatusDealClosed, false, "actor")
+	var short domain.ErrFeedStockShort
+	if !errors.As(err, &short) {
+		t.Fatalf("reopened sale must check current stock: %v", err)
+	}
+	if repo.dealStatus != domain.StatusInDiscussion {
+		t.Fatalf("short sale closed without confirmation: %s", repo.dealStatus)
+	}
+	if store.asked != 2 {
+		t.Fatalf("reopened sale did not ask the store: %d", store.asked)
+	}
+}
