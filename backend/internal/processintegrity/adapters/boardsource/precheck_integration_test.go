@@ -244,3 +244,11 @@ func obligationReadsOfPrecheckPlan(t *testing.T, ctx context.Context, conn *pgx.
 	}
 	return unbounded, usedPartial, planJSON
 }
+
+// vaccinationDueWorkPrecheckArgs binds vaccinationDueWorkPrecheckSQL exactly as
+// hasVaccinationDueWork does: $3/$4 the IST day as instants, $6/$7 the same day as dates
+// (dayStart must be an IST midnight). Kept in lockstep with hasVaccinationDueWork.
+func vaccinationDueWorkPrecheckArgs(tenantID, parkID string, dayStart time.Time, includeCompleted bool) []any {
+	dayEnd := dayStart.AddDate(0, 0, 1)
+	return []any{tenantID, parkID, dayStart, dayEnd, includeCompleted, dayStart.Format("2006-01-02"), dayEnd.Format("2006-01-02")}
+}
