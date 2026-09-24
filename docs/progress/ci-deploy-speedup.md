@@ -67,7 +67,13 @@ The overall target was that backend+web goes from about 31 to about 17-19 min, a
 
 ## Changes (local CI) — pending in this PR
 
-- f. Machine-wide lock for `land-main`. If the lock is held, it prints the holder and exits non-zero. It never waits and never kills.
+- f. **DONE.** Landing queue in `tools/ci/land-main.sh`, placed after the clean-tree and git-operation checks:
+  - It creates a `mkdir` lock at `$(git rev-parse --git-common-dir)/goatos-land-main.lock`, so every worktree of the clone shares it. `GOATOS_LAND_MAIN_LOCK_DIR` overrides the location.
+  - The lock records the holder's pid, worktree, SHA and start time, and is released on EXIT.
+  - If the lock is held by a live pid, it prints the holder and exits 1. It never waits and never kills.
+  - If the holder pid has exited, the lock is stale and is reclaimed.
+  - `tools/ci/land-main.test.sh` covers both cases: a refused run does not start CI and leaves the holder's lock in place; a stale lock is reclaimed and released.
+  - Limit: separate clones do not share the lock. If that is needed, set `GOATOS_LAND_MAIN_LOCK_DIR` to one shared machine path.
 - g. Gradle `--build-cache` on the receipt path. `--no-daemon`, in-process Kotlin, `--max-workers=1` and full-paparazzi `--rerun-tasks` all stay.
 - h. Query plans in parallel: to be assessed.
 - i. Adversarial fixtures for screenshot scope.
@@ -82,7 +88,7 @@ The overall target was that backend+web goes from about 31 to about 17-19 min, a
 | kernel-worker drain → migration → API order | Kept, and asserted by a test |
 | Android: same bytes to Firebase + GCS, SHA check, Play Internal, Remote Config floor, recheck push | Kept, and still after the backend rollout |
 | Grafana/observability deploy + dashboard smoke | Untouched (owned by another session) |
-| Everything in `ci-local` / landing receipt | Untouched so far |
+| Everything in `ci-local` / landing receipt | Untouched. The landing queue only adds a refusal before any CI runs. |
 
 ## Rejected (per judge)
 
@@ -104,6 +110,7 @@ Done:
 - `bash -n` on the changed scripts.
 - `yaml.safe_load` on `cloudbuild.stg.yaml` (step DAG checked).
 - `node --test tools/deploy/stg-*.test.mjs`: all pass (41 tests, including 1 new).
+- `bash tools/ci/land-main.test.sh`: passed, including the new lock and stale-lock cases.
 
 Pending:
 - A real Cloud Build STG run. The first run warms the cache, so the second run gives the real number.

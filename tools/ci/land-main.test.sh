@@ -147,4 +147,44 @@ if (
 fi
 grep -q "worktree is dirty" "$tmp/dirty.out"
 
+# Landing queue: a live holder makes land-main refuse (no wait, no CI run, no
+# kill); a lock left by an exited pid is reclaimed.
+git -C "$tmp/candidate" checkout -- candidate.txt
+git clone "$tmp/origin.git" "$tmp/lock-candidate" >/dev/null 2>&1
+git -C "$tmp/lock-candidate" config user.name "GoatOS Test"
+git -C "$tmp/lock-candidate" config user.email "goatos-test@example.invalid"
+git -C "$tmp/lock-candidate" switch -c lock-feature >/dev/null
+printf 'lock candidate\n' >"$tmp/lock-candidate/lock.txt"
+git -C "$tmp/lock-candidate" add lock.txt
+git -C "$tmp/lock-candidate" commit -m lock-candidate >/dev/null
+mkdir "$tmp/land.lock"
+printf 'pid=%s\nworktree=/elsewhere\nsha=deadbeef\nstarted=now\n' "$$" >"$tmp/land.lock/holder"
+if (
+  cd "$tmp/lock-candidate"
+  GOATOS_LAND_TEST_MODE=1 \
+    GOATOS_LAND_MAIN_LOCK_DIR="$tmp/land.lock" \
+    GOATOS_LAND_TEST_CI_COMMAND="$tmp/fake-ci-should-not-run.sh" \
+    bash "$script"
+) >"$tmp/lock.out" 2>&1; then
+  echo "land-main self-test: a held landing lock should have been refused" >&2
+  exit 1
+fi
+grep -q "landing queue busy" "$tmp/lock.out"
+grep -q "worktree=/elsewhere" "$tmp/lock.out"
+! grep -q "CI command unexpectedly ran" "$tmp/lock.out"
+[ -d "$tmp/land.lock" ] || { echo "land-main self-test: refused run must not remove the holder's lock" >&2; exit 1; }
+
+sh -c 'exit 0' & dead_pid=$!
+wait "$dead_pid"
+printf 'pid=%s\n' "$dead_pid" >"$tmp/land.lock/holder"
+(
+  cd "$tmp/lock-candidate"
+  GOATOS_LAND_TEST_MODE=1 \
+    GOATOS_LAND_MAIN_LOCK_DIR="$tmp/land.lock" \
+    GOATOS_LAND_TEST_CI_COMMAND="$tmp/fake-ci.sh" \
+    bash "$script"
+) >"$tmp/stale.out" 2>&1 || { cat "$tmp/stale.out" >&2; echo "land-main self-test: stale lock should be reclaimed" >&2; exit 1; }
+grep -q "reclaiming stale landing lock" "$tmp/stale.out"
+[ ! -e "$tmp/land.lock" ] || { echo "land-main self-test: lock must be released on exit" >&2; exit 1; }
+
 echo "land-main self-test: passed"
