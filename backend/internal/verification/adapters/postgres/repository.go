@@ -20,6 +20,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	platformoutbox "github.com/vgoats/goatos/backend/internal/platform/outbox"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 	"github.com/vgoats/goatos/backend/internal/verification/domain"
 	"github.com/vgoats/goatos/backend/internal/verification/ports"
 )
@@ -240,10 +241,11 @@ RETURNING item_id::text`,
 		// The LEADERSHIP half of that push is unaffected: a park head is told proof arrived from
 		// his park whether or not a verifier is going to watch it.
 		var inSample bool
-		if err := tx.QueryRow(ctx, `
+		inSampleQuery := sqlbind.MustBind(`
 SELECT `+samplingInSampleSQL()+`
 FROM verification_items vi
-WHERE vi.tenant_id = $1::uuid AND vi.item_id = $2::uuid`, in.TenantID, itemID).Scan(&inSample); err != nil {
+WHERE vi.tenant_id = $1::uuid AND vi.item_id = $2::uuid`, in.TenantID, itemID)
+		if err := tx.QueryRow(ctx, inSampleQuery.SQL(), inSampleQuery.Args()...).Scan(&inSample); err != nil {
 			return domain.CreateItemResult{}, mapWriteErr(err)
 		}
 		payload := verificationItemPendingPayload(itemID, in)
@@ -404,7 +406,7 @@ func (r *Repository) ListQueue(ctx context.Context, params ports.ListQueueParams
 		orderDirection = "DESC"
 	}
 
-	rows, err := r.pool.Query(ctx, `
+	queuePageQuery := sqlbind.MustBind(`
 SELECT `+itemColumnsWithLabels+`
 FROM verification_items vi
 LEFT JOIN LATERAL (
@@ -481,6 +483,7 @@ LIMIT $11`,
 		filterPartition,
 		params.SamplingApplied,
 	)
+	rows, err := r.pool.Query(ctx, queuePageQuery.SQL(), queuePageQuery.Args()...)
 	if err != nil {
 		return nil, err
 	}
@@ -520,7 +523,7 @@ func (r *Repository) ListQueueFilterOptions(ctx context.Context, params ports.Li
 		categoryFilterList = params.Categories
 	}
 
-	parkRows, err := r.pool.Query(ctx, `
+	parkOptionsQuery := sqlbind.MustBind(`
 SELECT vi.park_id::text, COALESCE(park_loc.name, vi.park_id::text) AS label
 FROM verification_items vi
 LEFT JOIN locations park_loc ON vi.tenant_id = park_loc.tenant_id AND vi.park_id = park_loc.location_id
@@ -545,6 +548,7 @@ ORDER BY label, vi.park_id::text`,
 		// thing that said there was work there.
 		params.SamplingApplied,
 	)
+	parkRows, err := r.pool.Query(ctx, parkOptionsQuery.SQL(), parkOptionsQuery.Args()...)
 	if err != nil {
 		return options, err
 	}
@@ -560,7 +564,7 @@ ORDER BY label, vi.park_id::text`,
 		return options, err
 	}
 
-	shedRows, err := r.pool.Query(ctx, `
+	shedOptionsQuery := sqlbind.MustBind(`
 SELECT
   vi.shed_id::text,
   COALESCE(shed_loc.name, vi.shed_id::text) AS shed_label,
@@ -604,6 +608,7 @@ ORDER BY park_label, shed_label, partition_key, vi.shed_id::text`,
 		// Same reason as the park list above.
 		params.SamplingApplied,
 	)
+	shedRows, err := r.pool.Query(ctx, shedOptionsQuery.SQL(), shedOptionsQuery.Args()...)
 	if err != nil {
 		return options, err
 	}
@@ -650,7 +655,7 @@ ORDER BY park_label, shed_label, partition_key, vi.shed_id::text`,
 	// exclusive values of the single `status` column on verification_items (CHECK-constrained,
 	// see domain.QueueStatusCounts doc comment), so a row lands in exactly one bucket and the three
 	// counts partition — never overlap — the in-scope backlog.
-	countRows, err := r.pool.Query(ctx, `
+	statusCountsQuery := sqlbind.MustBind(`
 SELECT vi.status, COUNT(*)::int AS n
 FROM verification_items vi
 WHERE vi.tenant_id = $1::uuid
@@ -670,6 +675,7 @@ GROUP BY vi.status`,
 		params.CapturedFrom, params.CapturedBefore, filterPartition,
 		params.SamplingApplied,
 	)
+	countRows, err := r.pool.Query(ctx, statusCountsQuery.SQL(), statusCountsQuery.Args()...)
 	if err != nil {
 		return options, err
 	}
@@ -693,7 +699,7 @@ GROUP BY vi.status`,
 		return options, err
 	}
 	if params.MissedBefore != nil {
-		err = r.pool.QueryRow(ctx, `
+		missedQuery := sqlbind.MustBind(`
 SELECT EXISTS (
   SELECT 1
   FROM verification_items vi
@@ -713,7 +719,8 @@ SELECT EXISTS (
 			params.ScopeRestricted, params.ParkIDs, params.ParkID, filterShedID, params.MissedBefore,
 			filterPartition,
 			params.SamplingApplied,
-		).Scan(&options.HasMissed)
+		)
+		err = r.pool.QueryRow(ctx, missedQuery.SQL(), missedQuery.Args()...).Scan(&options.HasMissed)
 		if err != nil {
 			return options, err
 		}
@@ -1803,6 +1810,9 @@ ORDER BY vi.captured_at, vi.item_id`, in.TenantID, in.BatchID, vaccinationProofC
 	if err := insertVaccinationDriveClosedOutbox(ctx, tx, in.TenantID, in.BatchID, in.ActorID); err != nil {
 		return nil, err
 	}
+	if err := resolveDriveReadyNotifications(ctx, tx, in.TenantID, in.BatchID); err != nil {
+		return nil, err
+	}
 	if err := completeIdempotency(ctx, tx, in.TenantID, "verification.close-vaccination-batch", in.IdempotencyKey, "vaccination_batch", in.BatchID); err != nil {
 		return nil, err
 	}
@@ -2334,6 +2344,12 @@ ON CONFLICT (tenant_id, idempotency_key) WHERE event_type IN (
 		tenantID, eventID, eventType, verificationSchemaVer, aggregateID,
 		verificationTopic, envelope, headers, idempotencyKey); err != nil {
 		return fmt.Errorf("verification: outbox insert: %w", err)
+	}
+	// Every non-pending event here is a transition that ends the item's decidability (verdict,
+	// rework, closeout, withdrawal, sampled auto-approve), so the "please verify" notices for it
+	// are resolved in this same transaction (notification_autoresolve.go).
+	if eventType != EventItemPending {
+		return resolveDecidedItemNotifications(ctx, tx, tenantID, aggregateID)
 	}
 	return nil
 }
