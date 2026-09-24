@@ -2,10 +2,13 @@ package app
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"testing"
 	"time"
 
 	obldomain "github.com/vgoats/goatos/backend/internal/obligation/domain"
+	oblports "github.com/vgoats/goatos/backend/internal/obligation/ports"
 	protodomain "github.com/vgoats/goatos/backend/internal/protocol/domain"
 	"github.com/vgoats/goatos/backend/internal/vaccination/domain"
 )
@@ -254,5 +257,50 @@ func TestPurposeSecondWaveIgnoresAnchorEvents(t *testing.T) {
 	onlyOneReal := append([]domain.RecentVaccineAdministration{{AdministeredAt: pprAt, VaccineCode: "PPR", Source: domain.AdministrationSourceCompletion}}, anchors...)
 	if _, ok := applyPurposeSecondWaveFloor(anchorAt, decision, onlyOneReal); ok {
 		t.Fatal("an anchor event must not stand in for the missing ET+TT administration")
+	}
+}
+
+type guardRejectingObligationFake struct {
+	*generationObligationFake
+	rejectRule string
+	err        error
+}
+
+func (o *guardRejectingObligationFake) InsertObligation(ctx context.Context, in obldomain.NewObligation) (string, bool, error) {
+	if in.RuleID == o.rejectRule {
+		return "", false, o.err
+	}
+	return o.generationObligationFake.InsertObligation(ctx, in)
+}
+
+// A persistence write-guard refusal skips only that vaccine; the goat's other vaccines still
+// generate, and any other error still aborts.
+func TestGenerateSkipsGuardRejectedVaccineOnly(t *testing.T) {
+	ctx := context.Background()
+	dob := time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC)
+	asOf := time.Date(2026, time.June, 1, 0, 0, 0, 0, time.UTC)
+	for _, guardErr := range []error{oblports.ErrBeforeVaccinationAgeFloor, oblports.ErrVaccinationNotApplicable} {
+		t.Run(guardErr.Error(), func(t *testing.T) {
+			proto := &generationProtoFake{
+				ruleDSL: []byte(`{"eligibility":{"animal_stage":"K1"}}`),
+				rules: []protodomain.Rule{
+					{RuleID: "rule-a", DoseCode: "dose-a", Sequence: 1, TriggerType: "birth_age", OffsetDays: 40},
+					{RuleID: "rule-b", DoseCode: "dose-b", Sequence: 2, TriggerType: "birth_age", OffsetDays: 40},
+				},
+			}
+			goats := &generationGoatFake{list: []domain.EligibleGoat{{GoatID: "kid", LifecycleStatus: "alive", Stage: "K1", DOB: &dob, ParkID: "p", ShedID: "s"}}}
+			obl := &guardRejectingObligationFake{generationObligationFake: &generationObligationFake{seen: map[string]bool{}}, rejectRule: "rule-a", err: fmt.Errorf("wrapped: %w", guardErr)}
+			res, err := NewGenerationService(proto, goats, obl).GenerateForVersion(ctx, "tenant-1", "version-1", asOf)
+			if err != nil {
+				t.Fatalf("generate: %v", err)
+			}
+			if res.GuardRejected != 1 || res.FailedGoats != 0 || len(obl.inserted) != 1 || obl.inserted[0].RuleID != "rule-b" {
+				t.Fatalf("res=%#v inserted=%#v, want rule-a skipped and rule-b generated", res, obl.inserted)
+			}
+		})
+	}
+	other := errors.New("boom")
+	if skipGuardRejectedVaccine(other, "t", domain.EligibleGoat{}, protodomain.Rule{}, &domain.GenerateResult{}) {
+		t.Fatal("non-guard errors must not be skipped")
 	}
 }
