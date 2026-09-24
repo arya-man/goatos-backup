@@ -55,9 +55,11 @@ test("params: declared + typed only, defaults kept when omitted", () => {
   assert.equal(buildReferenceSql(adg, { params: { from_date: "2026-08-01'::date); drop" } }).ok, false);
   assert.equal(buildReferenceSql(adg, { params: { park: "CBE" } }).ok, false);
   assert.equal(buildReferenceSql(read("pens.sql"), { params: { x: 1 } }).ok, false);
-  const c = buildReferenceSql(read("cost-per-kg-gain.sql"), { params: { days: 60 } });
-  assert.match(c.sql, /::date - 60 AS s/);
-  assert.equal(buildReferenceSql(read("cost-per-kg-gain.sql"), { params: { days: "30 OR 1=1" } }).ok, false);
+  const c = buildReferenceSql(read("cost-per-kg-gain.sql"), { params: { from_date: "2026-08-03", to_date: "2026-09-23", sex: "male" } });
+  assert.equal(c.ok, true, c.out);
+  assert.match(c.sql, /SELECT '2026-08-03'::date::date fd/);
+  assert.equal(buildReferenceSql(read("cost-per-kg-gain.sql"), { params: { days: 30 } }).ok, false);
+  assert.equal(buildReferenceSql(read("cost-per-kg-gain.sql"), { params: { sex: "male' OR 1=1" } }).ok, false);
 });
 
 test("paramLiteral validates date / uuid / int / number", () => {

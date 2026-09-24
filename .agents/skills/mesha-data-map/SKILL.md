@@ -23,7 +23,8 @@ retyping them; `where` filters the file's output columns, date windows go in `pa
 | Headcount / herd breakdown now | `animal_current_scope` | park_label, shed_label, species, sex, breed, management_stage, lifecycle_status | none (current) |
 | Animals sold / exited / entered in a period | `animals_base` | exit_reason ('sold','died'), lifecycle_status | `exit_business_day`, `entry_date` |
 | Deaths / mortality rate | `public.goats` (see Mortality rate; `mortality_base` agrees on STG) | exit_reason 'died', lifecycle_status 'dead', species | IST `exited_at` |
-| Births, transfers, shifts | `counts_movement_daily` | per pen movement counts | `event_date` |
+| Births | `public.goats` origin_type='birth' (Herd Analytics rule) + `goat_births` | per month | `COALESCE(dob, entry_date, created_at IST)` |
+| Transfers, shifts | `shifting_events` event_status='applied' (not `counts_movement_daily`: always 0) | per move | IST `applied_at` |
 | Feed directed vs fed | `feed_adherence` | directed_kg, fed_kg, variance_kg, blocked | `feed_day` |
 | Feed plan detail (session/item) | `feed_direction_current` | session, feed item, blocked reason | `feed_day` |
 | Feed completions, head count fed | `feed_completions_base` | quantity fed, head count | `fed_business_day` |
@@ -100,7 +101,7 @@ Beware ambiguous `status` when joining locations: qualify it (`t.status`).
 | Tag / identity decisions | identity_decisions | decision_type (retire_identifier, attach_identifier, exit_goat...), decision_state |
 | RFID sensors | herd_signal_tag_latest | Live Monitor Status: stale movement_state=Missing signal, signal_state weak=Weak signal, battery_state low/critical=Low battery (never infer from battery_mv), else Good; movement_state (not_moving = zero motion latest 15 min, live), pattern_state (inactive/quiet_watch = sustained), last_seen_at (19 tags) |
 | Sale allocations / growth price | goat_sale_allocations (status tagged), growth_sale_price_assumptions (price_per_kg_inr) | |
-| Births | goat_births (individually registered kids, 2 rows) vs counts_movement_daily births (herd count, ~600) | give both numbers + one line why; herd count includes 458 bulk-entered on 05/08/2026 |
+| Births | goats origin_type='birth' by dob (screen: Aug 2026 0, Sep 1) + goat_births (individually registered kids, 2 rows) | never counts_movement_daily.births (Aug 466 = 458 bulk-entered on 05/08/2026 IST + 8) |
 
 ## Answer hard rules
 - Never call sheep "goats". "goats"/"bakre" without an explicit species contrast = all animals: "N animals (X goats, Y sheep)".
@@ -150,13 +151,14 @@ SELECT park_label, count(d.*) deaths, count(*) FILTER (WHERE species='goat') goa
 ```
 Sep 2026: CBE 3 (1 goat, 2 sheep), CPT 0. Cause: `health_death_causes` / death `health_cases` are mostly empty: say cause not recorded.
 
-**Cost per kg gain** (Weighing > FCR tab "Feed cost per kg gain", `GET /growth-director/fcr`,
-`backend/internal/growthdirector/adapters/postgres/fcr.go` fcrSegmentsSQL + `domain/fcr.go`). Segment = two consecutive
+**Cost per kg gain** (Weighing > ADG Analytics > FCR tab "Feed spent" sub-line "₹/kg gain", `GET /growth-director/fcr`,
+`backend/internal/growthdirector/adapters/postgres/fcr.go` + `domain/fcr.go`; full logic references/logic/fcr.md). Segment = two consecutive
 weighing rounds of one pen (part). Feed cost = directed feed on the sheet for that pen between the rounds x the latest same-park
-purchase per_kg_cost on/before each feed day. Gain kg = segment ADG x fed head-days (sheet head counts). Summary = total cost /
-total gain over segments that gained. references/cost-per-kg-gain.sql reproduces it for the last 30 days (`run_reference('cost-per-kg-gain.sql', params={days: N})` for another window); on 24/09/2026 it gave
-CBE Rs 331/kg (Rs 4,12,490 feed, 1,247 kg), CPT Rs 340/kg (Rs 3,69,181, 1,087 kg), all Rs 335/kg. Answer per park + total, one method line.
-Run it with `run_reference('cost-per-kg-gain.sql')`. If `unmatched_pens` is non-empty, name those pens in one line (their gain has no feed cost).
+purchase per_kg_cost on/before each feed day. Gain kg = segment ADG x fed head-days. Losing segments are netted in; a pen counts only if
+its net gain > 0. Summary = total pen cost / total pen gain. MUST run_reference('cost-per-kg-gain.sql', params={from_date, to_date, sex, ...})
+(defaults: tab landing window, all sexes; the tab opens on sex=male). On 24/09/2026 (3 Aug-23 Sep) all sexes Rs 334/kg (CBE 347, CPT 319);
+male Rs 318/kg (CBE 335, CPT 296) = tab. Answer per park + total, one method line; mention unpriced_feed_kg if large.
+If `unmatched_pens` is non-empty, name those pens in one line (weighed twice but no feed-sheet rows between rounds).
 
 **Pending weighing verification:** the dashboard counts every observation not yet verified, INCLUDING rework.
 The view's `pending` excludes rework, so match with `sum(pending)+sum(rework)` from `weighing_verification_status`
@@ -196,21 +198,21 @@ UNION ALL  -- whole-pen weighs: weighing_shed_observations, withdrawn_at IS NULL
 | Question | Use | Not | Why / check |
 |---|---|---|---|
 | Deaths | goats predicate (Mortality rate SQL) | (none: `mortality_base` agrees, 6) | 6 dead all-time, 3 in Sep; only 4 approvals, 2 causes |
-| Animals sold | goats register / `animals_base` sold (= `goat_sale_allocations` tagged, 160) | `sales_deals.animal_count` (706, incl. pre-app deals) | give register, mention deal count when asked "in total" |
+| Animals sold | goats register / `animals_base` sold (= `goat_sale_allocations` tagged, 160) | deal lines Goat+Sheep on Deal Closed (688, incl. pre-app deals; never `sales_deals.animal_count` = 706, it counts 18 on manure deals) | give register, mention deal count when asked "in total" |
 | Revenue | `sales_deals` status 'Deal Closed', `sum(sales_value)` by `sale_date`; product split via `sales_deal_lines` (Manure is a product_type) | any "Advance Paid"/open status = pipeline, not revenue | Sep 2026: Rs 14,71,114 on 10 deals; no open deals on 24/09 |
 | Money received | `payment_received` (running total: advance seeded by 000227 + each `sales_deal_payments` row) | advance + ledger + payment_received added | balance = greatest(value - received, 0) (`sales/domain/sales.go` PaymentBalance). NULL = not tracked. If ledger re-enters the advance, received doubles: flag as double count |
 | Load-wise sold / price | `references/load-wise-sales.sql` | only allocations, or only legacy columns | screen price/kg = legacy weighed columns when present, else tagged closed-deal sample (allocation kg x live-line Rs/kg, unblended; `sale_price_basis` says which); tagged rate = labelled estimate |
 | Load purchased / linked | `expected_count` else attributed; `linked_in_app` separately | linked count as purchased | loads 136/131 fully linked; 113/100/101 are pre-GoatOS (prior outcomes) |
 | Load cost | `procurement_loads.animal_cost/transport_cost/other_cost` (totals) | + `procurement_load_cost_lines` | lines are the breakdown (31 rows) |
 | Days on farm | today - `arrived_on` while animals remain | `purchase_date`, NULL `fattening_days` | fattening_days only on sold-out legacy loads |
-| Births | `counts_movement_daily.births` + `goat_births` (created_at IST) | `goats.dob`, `origin_type='birth'` counts, goats.created_at | placeholder DOBs (09/05/2026 x403, 21/07/2024 x77), bulk import 04/08 |
+| Births | `goats` origin_type='birth' by `COALESCE(dob, entry_date, created_at IST)` (Herd Analytics screen) + `goat_births` (created_at IST) | `counts_movement_daily.births`, goats.created_at | flag placeholder DOBs (farm-born 09/05/2026 x403, 21/07/2024 x77); bulk import 05/08/2026 IST (458 on that day in the view) |
 | Vaccinations done | `vaccination_completions`, split `sop_submission_item_id` NOT NULL (in app) vs imported | total only | Aug 2026: 1,073 doses / 710 animals in app; 1,672 / 1,055 incl. imports |
-| Vaccinations due | `vaccination_obligations_base` status scheduled/deferred | canceled rows (76k), `vaccination_shed_status.due` sums | this week (21-27/09): 3, CPT Yashoda; overdue 0 |
+| Vaccinations due | `vaccination_obligations_base` status scheduled/deferred | canceled rows (76k), `vaccination_shed_status.due` sums | this week (21-27/09): 3, CPT Yashoda (drive 24/09); still `scheduled` on 25/09, so past their IST due day (overdue at obligation level) |
 | Headcount | `lifecycle_status='alive'` | base views unfiltered | 1,562 (693 goats, 869 sheep) |
 | Animal's pen | `references/pens.sql` on (`goats.shed_id`, `goat_shed_partitions.partition_label`) | `current_location_id` (18 differ) | animals may sit on the group row (today) or a pen row (future): pens.sql handles both |
 | Avg herd weight | `references/herd-avg-weight.sql` | averaging `weighing_capture_activity` rows | 28.2 kg over 723 of 1,562 alive |
-| Feed stock / days | `references/feed-stock-days-left.sql` | `inventory_stock_position` | CBE concentrates 15 days (adult 201, kids 454 kg/day) |
-| Feed owed | `payment_status='Pending'` bills: total_cost - greatest(payment_released, ledger) | 'Paid' rows (owed = 0, `procurement/domain/feed_purchase.go`) | NULL status = 40 sheet imports with no bill: unknown |
+| Feed stock / days | `references/feed-stock-days-left.sql` | `inventory_stock_position` | CBE concentrates 14 days (adult 201.1, kids 451.5 kg/day; 25/09) |
+| Feed owed | `payment_status='Pending'` bills: greatest(total_cost - coalesce(payment_released,0), 0) (`procurement/domain/feed_purchase.go` PaymentBalance; ledger not added) | 'Paid' rows (owed = 0) | empty-string status `''` (not NULL) = 40 sheet imports with no total_cost: unknown |
 | Preventive care done/open | `submitted_at` / status | `work_state` alone | work_state stays delayed/scheduled after verification; canceled rows keep status open |
 | Shifts done | `shifting_events` event_status 'applied' by applied_at IST | authorized/pending, counts_movement_daily | this week: 2 applied (CPT) |
 | Staff hours | `workforce_clock_entries` status closed + auto_closed flagged | summing auto_closed as real | auto_closed = forgotten clock-out closed by system |
