@@ -705,3 +705,42 @@ func TestBundledQueuedSourcesHonorCancellation(t *testing.T) {
 		t.Fatalf("canceled lane leaked concurrency: active=%d peak=%d", active.Load(), peak.Load())
 	}
 }
+
+// singleRowSource is a source that can resolve one row by id in one bounded read.
+type singleRowSource struct {
+	fakeSource
+	finds []ports.SourceQuery
+}
+
+func (f *singleRowSource) FindRowByID(_ context.Context, q ports.SourceQuery, sourceID string) (domain.Row, bool, error) {
+	f.finds = append(f.finds, q)
+	for _, r := range f.rows {
+		if r.SourceID == sourceID {
+			return r, true, nil
+		}
+	}
+	return domain.Row{}, false, nil
+}
+
+// TestFindRowUsesTheSourcesSingleRowLookup: a source that can key one row by id (the
+// vaccination canonical read's row_id) is asked for exactly that row with the caller's
+// tenant, park, day and owner lens, and is never walked page by page.
+func TestFindRowUsesTheSourcesSingleRowLookup(t *testing.T) {
+	base := mk(domain.ModuleWeighing, "weighing_work_item", 250, domain.WorkStateDue, "u1")
+	src := &singleRowSource{fakeSource: *base}
+	svc := NewService(src)
+	q := domain.Query{TenantID: "t", ParkID: "p", BusinessDate: "2026-09-10", OwnerUserID: "u1", Modules: []domain.Module{domain.ModuleWeighing}}
+	row, found, err := svc.FindRow(context.Background(), q, "weighing|weighing_work_item|weighing_work_item-237")
+	if err != nil || !found || row.SourceID != "weighing_work_item-237" {
+		t.Fatalf("expected row 237, got found=%v row=%+v err=%v", found, row, err)
+	}
+	if len(src.calls) != 0 {
+		t.Fatalf("a single-row source must not be walked, got %d ListRows calls", len(src.calls))
+	}
+	if len(src.finds) != 1 || src.finds[0].TenantID != "t" || src.finds[0].ParkID != "p" || src.finds[0].BusinessDate != "2026-09-10" || src.finds[0].OwnerUserID != "u1" {
+		t.Fatalf("lookup must carry the caller's board scope, got %+v", src.finds)
+	}
+	if _, found, err := svc.FindRow(context.Background(), q, "weighing|weighing_work_item|nope"); err != nil || found {
+		t.Fatalf("unknown id must not resolve: found=%v err=%v", found, err)
+	}
+}
