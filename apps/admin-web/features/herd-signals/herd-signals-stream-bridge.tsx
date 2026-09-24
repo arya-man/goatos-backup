@@ -177,22 +177,18 @@ export function HerdSignalsStreamBridge({ generatedAt }: { generatedAt: string }
   const nowMs = useNowMs();
   const [streamState, setStreamState] = useState<"connecting" | "open" | "error" | "snapshot_error">("connecting");
   const [lastStreamEventAtMs, setLastStreamEventAtMs] = useState(() => new Date(generatedAt).getTime());
-
-  function streamHref(): string {
+  const streamHref = useMemo(() => {
     const out = new URLSearchParams(liveQuery);
     return `/api/herd-signals/live/stream${out.toString() ? `?${out.toString()}` : ""}`;
-  }
-
-  function liveJsonHref(): string {
+  }, [liveQuery]);
+  const liveJsonHref = useMemo(() => {
     const out = new URLSearchParams(liveQuery);
     return `/api/herd-signals/live${out.toString() ? `?${out.toString()}` : ""}`;
-  }
+  }, [liveQuery]);
 
   useEffect(() => {
     if (!live || tabHidden || !streamConsumesLiveSnapshot) return;
-    setStreamState("connecting");
-    setLastStreamEventAtMs(Date.now());
-    const source = new EventSource(streamHref());
+    const source = new EventSource(streamHref);
     source.onopen = () => {
       setLastStreamEventAtMs(Date.now());
       setStreamState("open");
@@ -213,7 +209,7 @@ export function HerdSignalsStreamBridge({ generatedAt }: { generatedAt: string }
       setStreamState((current) => (current === "snapshot_error" ? current : "open"));
     });
     return () => source.close();
-  }, [live, tabHidden, streamConsumesLiveSnapshot, liveKey, liveQuery]);
+  }, [live, tabHidden, streamConsumesLiveSnapshot, liveKey, streamHref]);
 
   useEffect(() => {
     if (!live || tabHidden || !streamConsumesLiveSnapshot) return;
@@ -225,7 +221,7 @@ export function HerdSignalsStreamBridge({ generatedAt }: { generatedAt: string }
       if (streamState !== "error" && streamState !== "snapshot_error" && !streamSilent) return;
       inFlight = true;
       try {
-        const response = await fetch(liveJsonHref(), {
+        const response = await fetch(liveJsonHref, {
           method: "GET",
           headers: { Accept: "application/json" },
           cache: "no-store",
@@ -247,7 +243,7 @@ export function HerdSignalsStreamBridge({ generatedAt }: { generatedAt: string }
       stopped = true;
       window.clearInterval(timer);
     };
-  }, [live, tabHidden, streamConsumesLiveSnapshot, liveKey, liveQuery, lastStreamEventAtMs, streamState]);
+  }, [live, tabHidden, streamConsumesLiveSnapshot, liveKey, liveJsonHref, lastStreamEventAtMs, streamState]);
 
   function toggleLive() {
     writeLive(!live);

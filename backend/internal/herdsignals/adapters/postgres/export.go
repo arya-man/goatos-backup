@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/herdsignals/domain"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 )
 
 type liveCursor struct {
@@ -191,7 +192,8 @@ func (r *Repository) ListTagsLatestPage(ctx context.Context, tenantID string, pa
 		`, tagLocationJoin, whereClause, orderBy, argIndex)
 	args = append(args, limit)
 
-	rows, err := r.db.Query(ctx, query, args...)
+	boundPage := sqlbind.MustBind(query, args...)
+	rows, err := r.db.Query(ctx, boundPage.SQL(), boundPage.Args()...)
 	if err != nil {
 		return nil, err
 	}

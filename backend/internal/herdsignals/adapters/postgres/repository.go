@@ -11,6 +11,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/herdsignals/domain"
 	"github.com/vgoats/goatos/backend/internal/herdsignals/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 )
 
 // Repository implements ports.Repository using Postgres.
@@ -42,7 +43,7 @@ func (r *Repository) UpsertGateway(ctx context.Context, tenantID string, gw doma
 		    last_seen_at = COALESCE($11, herd_signal_gateways.last_seen_at),
 		    updated_at = now()
 	`
-	_, err := r.db.Exec(ctx, query,
+	boundGateway := sqlbind.MustBind(query,
 		tenantID, gw.GatewayID, gw.Label, gw.ParkID, gw.ShedID, gw.LocationID,
 		gw.WifiMAC, gw.BLEMAC, gw.NetworkMode, gw.Status, gw.LastSeenAt,
 		// $12 -- the report sequence number. The query references it three times for
@@ -50,6 +51,7 @@ func (r *Repository) UpsertGateway(ctx context.Context, tenantID string, gw doma
 		// "could not determine data type of parameter $12" (SQLSTATE 42P08).
 		gw.LastPktSN,
 	)
+	_, err := r.db.Exec(ctx, boundGateway.SQL(), boundGateway.Args()...)
 	return err
 }
 
@@ -62,7 +64,8 @@ func (r *Repository) GetGatewaysByTenant(ctx context.Context, tenantID string) (
 		WHERE tenant_id = $1
 		ORDER BY updated_at DESC
 	`
-	rows, err := r.db.Query(ctx, query, tenantID)
+	boundGateways := sqlbind.MustBind(query, tenantID)
+	rows, err := r.db.Query(ctx, boundGateways.SQL(), boundGateways.Args()...)
 	if err != nil {
 		return nil, err
 	}
@@ -90,9 +93,10 @@ var activityWindowTiers = []int{60, 300, 3600}
 const liveNotifyChannel = "herd_signals_live"
 
 func notifyLiveUpdateTx(ctx context.Context, tx pgx.Tx, tenantID string) error {
-	if _, err := tx.Exec(ctx, `
+	q := sqlbind.MustBind(`
 		SELECT pg_notify($1, json_build_object('tenant_id', $2::text)::text)
-	`, liveNotifyChannel, tenantID); err != nil {
+	`, liveNotifyChannel, tenantID)
+	if _, err := tx.Exec(ctx, q.SQL(), q.Args()...); err != nil {
 		return fmt.Errorf("notify live update: %w", err)
 	}
 	return nil
@@ -676,7 +680,8 @@ func (r *Repository) GetTagLatest(ctx context.Context, tenantID, tagID string) (
 		WHERE tl.tenant_id = $1 AND tl.tag_id = $2
 	`
 	var tag domain.TagLatest
-	err := r.db.QueryRow(ctx, query, tenantID, tagID).Scan(
+	q := sqlbind.MustBind(query, tenantID, tagID)
+	err := r.db.QueryRow(ctx, q.SQL(), q.Args()...).Scan(
 		&tag.TenantID, &tag.TagID, &tag.TagMAC, &tag.GatewayID, &tag.Source, &tag.LastSeenAt,
 		&tag.LastRSSIdbm, &tag.SignalState, &tag.BatteryMV, &tag.BatteryState, &tag.TagTemperatureC,
 		&tag.MotionCount, &tag.LastPacketMotionDelta, &tag.LastPacketWindowSeconds,
@@ -899,7 +904,8 @@ func (r *Repository) computeSummary(ctx context.Context, join, whereClause strin
 	`, join, whereClause)
 
 	var s domain.Summary
-	err := r.db.QueryRow(ctx, query, args...).Scan(
+	q := sqlbind.MustBind(query, args...)
+	err := r.db.QueryRow(ctx, q.SQL(), q.Args()...).Scan(
 		&s.TagsSeen, &s.MappedAnimals, &s.UnmappedTags,
 		&s.Moving, &s.MovingNow, &s.Active1m, &s.Quiet, &s.NotMoving, &s.Stale,
 		&s.WeakSignal, &s.LowBattery, &s.SensorAbnormal,
@@ -918,7 +924,8 @@ func (r *Repository) ListActivityWindows(ctx context.Context, tenantID, tagID st
 		      AND bucket_seconds = $5
 		ORDER BY bucket_start ASC
 	`
-	rows, err := r.db.Query(ctx, query, tenantID, tagID, from, to, bucketSeconds)
+	q := sqlbind.MustBind(query, tenantID, tagID, from, to, bucketSeconds)
+	rows, err := r.db.Query(ctx, q.SQL(), q.Args()...)
 	if err != nil {
 		return nil, err
 	}
@@ -954,7 +961,8 @@ func (r *Repository) GetGoatIdentifier(ctx context.Context, tenantID, normalized
 		LIMIT 1
 	`
 	var result ports.GoatIdentifierResult
-	err := r.db.QueryRow(ctx, query, tenantID, normalizedValue).Scan(
+	q := sqlbind.MustBind(query, tenantID, normalizedValue)
+	err := r.db.QueryRow(ctx, q.SQL(), q.Args()...).Scan(
 		&result.GoatID, &result.NormalizedValue, &result.SmartTagCapable,
 	)
 	if err == pgx.ErrNoRows {
@@ -1010,7 +1018,8 @@ func resolveTagMapping(ctx context.Context, q pgxQuerier, tenantID string, tagID
 		FROM public.goat_identifiers
 		WHERE tenant_id = $1 AND normalized_value = ANY($2) AND status = 'active' AND smart_tag_capable IS TRUE
 	`
-	rows, err := q.Query(ctx, query, tenantID, values)
+	bound := sqlbind.MustBind(query, tenantID, values)
+	rows, err := q.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return "unmapped", nil, err
 	}
@@ -1128,7 +1137,8 @@ func (r *Repository) GetGoatsByIDs(ctx context.Context, tenantID string, goatIDs
 		) ident2 ON true
 		WHERE g.tenant_id = $1 AND g.goat_id = ANY($2)
 	`
-	rows, err := r.db.Query(ctx, query, tenantID, goatIDs)
+	q := sqlbind.MustBind(query, tenantID, goatIDs)
+	rows, err := r.db.Query(ctx, q.SQL(), q.Args()...)
 	if err != nil {
 		return nil, err
 	}
@@ -1472,7 +1482,7 @@ func (r *Repository) GetInsightsData(ctx context.Context, tenantID string) (port
 
 	// Card 1-4, 6-7, 12: all direct/derived from herd_signal_tag_latest, one indexed,
 	// tenant-scoped aggregate query.
-	err := r.db.QueryRow(ctx, `
+	boundCoreInsights := sqlbind.MustBind(`
 		SELECT
 			count(*) FILTER (WHERE (`+effectiveMovementStateExpr+`) <> 'stale'),
 			count(*) FILTER (WHERE (`+effectivePatternStateExpr+`) = 'missing'),
@@ -1483,7 +1493,8 @@ func (r *Repository) GetInsightsData(ctx context.Context, tenantID string) (port
 			count(*) FILTER (WHERE tl.mapping_state = 'unmapped')
 		FROM public.herd_signal_tag_latest tl
 		WHERE tl.tenant_id = $1
-	`, tenantID).Scan(
+	`, tenantID)
+	err := r.db.QueryRow(ctx, boundCoreInsights.SQL(), boundCoreInsights.Args()...).Scan(
 		&d.TagsLiveNow, &d.MissingSignalCount, &d.LowMovementWatchCount, &d.HighMovementSpikeCount,
 		&d.WeakSignalTagsCount, &d.BatteryAttentionCount, &d.UnmappedSmartTagsCount,
 	)
@@ -1494,16 +1505,18 @@ func (r *Repository) GetInsightsData(ctx context.Context, tenantID string) (port
 	// Card 5: shed_signal_coverage. Denominator = distinct sheds with a gateway deployed
 	// (herd_signal_gateways.shed_id, indexed). Numerator = distinct sheds holding a live
 	// (non-stale) tag, resolved through the mapped animal, same as the live view's join.
-	err = r.db.QueryRow(ctx, `SELECT count(DISTINCT shed_id) FROM public.herd_signal_gateways WHERE tenant_id = $1 AND shed_id IS NOT NULL`, tenantID).Scan(&d.ShedsTotal)
+	boundShedsTotal := sqlbind.MustBind(`SELECT count(DISTINCT shed_id) FROM public.herd_signal_gateways WHERE tenant_id = $1 AND shed_id IS NOT NULL`, tenantID)
+	err = r.db.QueryRow(ctx, boundShedsTotal.SQL(), boundShedsTotal.Args()...).Scan(&d.ShedsTotal)
 	if err != nil {
 		return d, fmt.Errorf("insights sheds total: %w", err)
 	}
-	err = r.db.QueryRow(ctx, fmt.Sprintf(`
+	boundShedsWithCoverage := sqlbind.MustBind(fmt.Sprintf(`
 		SELECT count(DISTINCT g.shed_id)
 		FROM public.herd_signal_tag_latest tl
 		%s
 		WHERE tl.tenant_id = $1 AND (`+effectiveMovementStateExpr+`) <> 'stale' AND g.shed_id IS NOT NULL
-	`, tagLocationJoin), tenantID).Scan(&d.ShedsWithCoverage)
+	`, tagLocationJoin), tenantID)
+	err = r.db.QueryRow(ctx, boundShedsWithCoverage.SQL(), boundShedsWithCoverage.Args()...).Scan(&d.ShedsWithCoverage)
 	if err != nil {
 		return d, fmt.Errorf("insights sheds with coverage: %w", err)
 	}
@@ -1511,7 +1524,7 @@ func (r *Repository) GetInsightsData(ctx context.Context, tenantID string) (port
 	// Card 8: post_vaccination_movement_watch. Bounded to the last 24h of accepted
 	// vaccination_completions (indexed by tenant_id), joined to a mapped tag currently watched.
 	// projection-review: membership=vaccination_completions.goat_id; group_key=count(DISTINCT vc.goat_id); join_cardinality=one goat can have multiple active smart-tag identifiers and each can be joined to herd_signal_tag_latest; pagination=none whole-result aggregate; scope=tenant_id
-	err = r.db.QueryRow(ctx, `
+	boundPostVaccination := sqlbind.MustBind(`
 		SELECT count(DISTINCT vc.goat_id)
 		FROM public.vaccination_completions vc
 		JOIN public.goat_identifiers gi
@@ -1530,14 +1543,15 @@ func (r *Repository) GetInsightsData(ctx context.Context, tenantID string) (port
 		  AND tl.animal_monitoring_since IS NOT NULL
 		  AND vc.administered_at >= tl.animal_monitoring_since
 		  AND (`+effectivePatternStateExpr+`) IN ('quiet_watch', 'inactive', 'missing')
-	`, tenantID).Scan(&d.PostVaccinationWatchCount)
+	`, tenantID)
+	err = r.db.QueryRow(ctx, boundPostVaccination.SQL(), boundPostVaccination.Args()...).Scan(&d.PostVaccinationWatchCount)
 	if err != nil {
 		return d, fmt.Errorf("insights post-vaccination watch: %w", err)
 	}
 
 	// Card 9: health_case_activity_trend. Bounded to currently-active health_cases.
 	// projection-review: membership=health_cases.goat_id; group_key=count(DISTINCT hc.goat_id); join_cardinality=one goat can have multiple active smart-tag identifiers and each can be joined to herd_signal_tag_latest; pagination=none whole-result aggregate; scope=tenant_id
-	err = r.db.QueryRow(ctx, `
+	boundHealthActivity := sqlbind.MustBind(`
 		SELECT count(DISTINCT hc.goat_id)
 		FROM public.health_cases hc
 		JOIN public.goat_identifiers gi
@@ -1551,14 +1565,15 @@ func (r *Repository) GetInsightsData(ctx context.Context, tenantID string) (port
 		  -- Monitoring boundary (000197), same rule as the vaccination card above.
 		  AND tl.animal_monitoring_since IS NOT NULL
 		  AND (`+effectivePatternStateExpr+`) IN ('quiet_watch', 'inactive')
-	`, tenantID).Scan(&d.HealthCaseActivityCount)
+	`, tenantID)
+	err = r.db.QueryRow(ctx, boundHealthActivity.SQL(), boundHealthActivity.Args()...).Scan(&d.HealthCaseActivityCount)
 	if err != nil {
 		return d, fmt.Errorf("insights health case activity: %w", err)
 	}
 
 	// Card 10: feed_activity. Bounded to the last 4h of feed_direction_completions, shed grain:
 	// a shed counts once if it was fed AND has at least one live mapped tag.
-	err = r.db.QueryRow(ctx, fmt.Sprintf(`
+	boundFeedActivity := sqlbind.MustBind(fmt.Sprintf(`
 		SELECT count(DISTINCT fdc.shed_id)
 		FROM public.feed_direction_completions fdc
 		WHERE fdc.tenant_id = $1
@@ -1573,7 +1588,8 @@ func (r *Repository) GetInsightsData(ctx context.Context, tenantID string) (port
 		      -- actually bound to an animal in it.
 		      AND tl.animal_monitoring_since IS NOT NULL
 		  )
-	`, tagLocationJoin), tenantID).Scan(&d.FeedActivityShedsCount)
+	`, tagLocationJoin), tenantID)
+	err = r.db.QueryRow(ctx, boundFeedActivity.SQL(), boundFeedActivity.Args()...).Scan(&d.FeedActivityShedsCount)
 	if err != nil {
 		return d, fmt.Errorf("insights feed activity: %w", err)
 	}
@@ -1584,7 +1600,7 @@ func (r *Repository) GetInsightsData(ctx context.Context, tenantID string) (port
 	// resolution from the herd-signals side either -- it correlates by the RAW scanned string
 	// against the tag's own id/MAC, exactly the same un-resolved shape weighing itself stores,
 	// with no goat_identifiers join at all.
-	err = r.db.QueryRow(ctx, `
+	boundWeightActivity := sqlbind.MustBind(`
 		SELECT count(DISTINCT wo.scanned_identifier)
 		FROM public.weighing_observations wo
 		JOIN public.herd_signal_tag_latest tl
@@ -1600,7 +1616,8 @@ func (r *Repository) GetInsightsData(ctx context.Context, tenantID string) (port
 		  -- not an observation of the animal now wearing it.
 		  AND tl.animal_monitoring_since IS NOT NULL
 		  AND wo.accepted_at >= tl.animal_monitoring_since
-	`, tenantID).Scan(&d.WeightActivityTagsCount)
+	`, tenantID)
+	err = r.db.QueryRow(ctx, boundWeightActivity.SQL(), boundWeightActivity.Args()...).Scan(&d.WeightActivityTagsCount)
 	if err != nil {
 		return d, fmt.Errorf("insights weight activity: %w", err)
 	}

@@ -73,6 +73,7 @@
 
 - Browser screenshot in Chrome.
 - Final post-parallel-review local CI receipt and clean review.
+- Landing attempt on 2026-09-24 rebased PR head onto `origin/main` at `3bf7ac59f54db780b6d13e26d5d7173e65d0beb8`, but `make land-main` did not push because local CI was red. Failing gates: leadership assistant coverage, postgres bind contract, duplicate migration version, admin-web lint/typecheck/build, and Android config-cache guard. Focused fixes are in progress before any retry.
 
 ## Design Notes
 

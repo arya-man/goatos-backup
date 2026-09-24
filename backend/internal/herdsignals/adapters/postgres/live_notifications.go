@@ -55,7 +55,7 @@ func (s *LiveNotificationSource) listenOnce(ctx context.Context, publish func(te
 	}
 	defer conn.Release()
 
-	if _, err := conn.Exec(ctx, "LISTEN "+liveNotifyChannel); err != nil {
+	if _, err := conn.Exec(ctx, "LISTEN herd_signals_live"); err != nil {
 		return err
 	}
 	s.log.Info("herd_signals_live_notify_listener_started", "channel", liveNotifyChannel)

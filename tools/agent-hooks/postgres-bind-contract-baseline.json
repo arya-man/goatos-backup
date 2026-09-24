@@ -34,8 +34,6 @@
   "internal/growthdirector/adapters/postgres/feed_weight_band.go|unverified-dynamic-bind": 2,
   "internal/growthdirector/adapters/postgres/growth_cohorts.go|unverified-dynamic-bind": 3,
   "internal/herdsignals/adapters/postgres/activity.go|unverified-dynamic-bind": 1,
-  "internal/herdsignals/adapters/postgres/export.go|unverified-dynamic-bind": 1,
-  "internal/herdsignals/adapters/postgres/repository.go|unverified-dynamic-bind": 13,
   "internal/identity/adapters/postgres/admin_goat_create.go|unverified-dynamic-bind": 1,
   "internal/identity/adapters/postgres/census_correction.go|unverified-dynamic-bind": 2,
   "internal/identity/adapters/postgres/repository.go|unverified-dynamic-bind": 3,
