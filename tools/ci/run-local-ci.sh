@@ -170,14 +170,22 @@ step() { # name, command...
   # load-bearing, not incidental.
   if ci_trace_only; then echo "CI-TRACE ${name} :: $*"; return 0; fi
   echo "── ci-local: ${name}"
-  local t0=$SECONDS
-  if "$@"; then
+  local t0=$SECONDS rc=0
+  "$@" || rc=$?
+  if [ "$rc" -eq 0 ]; then
     local dt=$(( SECONDS - t0 ))
     RESULTS+=("PASS  ${name} (${dt}s)")
     record_timing "$name" PASS "$dt"
   else
       local dt=$(( SECONDS - t0 ))
-      RESULTS+=("FAIL  ${name} (${dt}s)")
+      # rc > 128 = killed by a signal (137 = SIGKILL, the macOS/Linux OOM killer).
+      # Say so loudly: a silently vanished process must never read as a flake.
+      if [ "$rc" -gt 128 ]; then
+        echo "!! ci-local step KILLED by signal $(( rc - 128 )) (rc=${rc}; OOM or external kill): ${name}"
+        RESULTS+=("FAIL  ${name} (${dt}s, KILLED by signal $(( rc - 128 )))")
+      else
+        RESULTS+=("FAIL  ${name} (${dt}s)")
+      fi
       record_timing "$name" FAIL "$dt"
       case " ${FAILED_JOBS[*]:-} " in *" ${current_job} "*) ;; *) FAILED_JOBS+=("$current_job") ;; esac
       record_failure "${name}"
@@ -284,6 +292,8 @@ changed_since_base() {
 . "$(dirname "${BASH_SOURCE[0]}")/android-ui-diff.sh"
 # shellcheck source=tools/ci/android-screenshot-scope.sh
 . "$(dirname "${BASH_SOURCE[0]}")/android-screenshot-scope.sh"
+# shellcheck source=tools/ci/admin-web-deps.sh
+. "$(dirname "${BASH_SOURCE[0]}")/admin-web-deps.sh"
 
 # Machine-wide advisory Gradle mutex. job_group() serialises `android` within ONE
 # dispatch; this serialises it across WORKTREES. FAIL-OPEN on every path — it
@@ -301,6 +311,38 @@ ci_tooling_changed() {
   changed="$(changed_since_base 2>/dev/null)" || return 0
   [ -n "$changed" ] || return 0
   printf '%s\n' "$changed" | grep -Eq '^tools/ci/'
+}
+
+# selftest_inputs_changed <ERE> — per-self-test trigger (plan I). Same fail-open
+# shape as ci_tooling_changed: an undeterminable or empty diff RUNS the test.
+# Each self-test is keyed on the files it actually exercises, so a tools/ci edit
+# still runs every self-test that covers the edited file, but no longer runs the
+# unrelated ones. GOATOS_CI_ALL_SELFTESTS=1, or MODE=all with a tools/ci diff,
+# runs all of them (the old behaviour).
+ci_all_selftests_forced() {
+  case "${GOATOS_CI_ALL_SELFTESTS:-0}" in 1|true|TRUE|True) return 0 ;; esac
+  [ "$only" = all ]
+}
+selftest_inputs_changed() {
+  local changed
+  ci_all_selftests_forced && return 0
+  changed="$(changed_since_base 2>/dev/null)" || return 0
+  [ -n "$changed" ] || return 0
+  printf '%s\n' "$changed" | grep -Eq "$1"
+}
+# Every file the real runner sources or execs: a self-test that drives
+# run-local-ci.sh (even under trace) is re-run when ANY of these change.
+CI_RUNNER_INPUTS='tools/ci/(run-local-ci\.sh|parallel-dispatch\.sh|android-ui-diff\.sh|android-screenshot-scope\.sh|admin-web-deps\.sh|gradle-worktree-lock\.sh|ci-scope\.mjs|component-paths\.json|check-local-ci-evidence\.mjs)'
+
+# selftest_step <name> <inputs ERE> <command...>
+selftest_step() {
+  local name="$1" re="$2"; shift 2
+  if selftest_inputs_changed "$re"; then
+    step "$name" "$@"
+  else
+    RESULTS+=("SKIP  ${name} (none of its inputs changed)")
+    echo "── ci-local: ${name} SKIPPED (none of its inputs changed vs base)"
+  fi
 }
 
 # gradle_lock_lib_changed / gradle_lock_selftest_changed — same fail-open shape
@@ -342,13 +384,63 @@ android_screenshot_proof_coverage_guard() {
   bash tools/ci/check-android-screenshot-proof.sh tools/ci/run-local-ci.sh
 }
 
+# ── Android Gradle environment (plan B) ─────────────────────────────────────
+# One STABLE Gradle user home shared by every worktree, so dependency caches, the
+# wrapper distribution, transforms and the local BUILD CACHE survive across
+# worktrees and runs. Deliberately NOT ~/.gradle (a corrupted shared home stalled
+# earlier runs, and it carries personal dev properties). Override with
+# GOATOS_GRADLE_USER_HOME. gradle-worktree-lock.sh keys its machine-wide mutex on
+# realpath(GRADLE_USER_HOME), so exporting this BEFORE gradle_lock_acquire makes
+# every worktree queue on the one shared home.
+#
+# The build cache (org.gradle.caching=true in gradle.properties, plus
+# --build-cache) replays task outputs only for byte-identical task inputs, so a
+# hit is correct by construction. The configuration cache is ON for the gated
+# compile/unit/lint invocation: the android config-cache guard (run first, in the
+# same job) already proves the configuration phase is CC-clean.
+#
+# Workers are memory-aware: 3 on a <=32 GB machine (the dispatcher budgets android
+# at 10 GB), 4 above that; GOATOS_CI_GRADLE_WORKERS overrides (clamped 1..8).
+# The Gradle daemon is KEPT for the run (config-cache guard, compile, screenshots
+# and benchmark reuse one warm JVM) and stopped before the lane is released.
+ci_gradle_env() {
+  local home="${GOATOS_GRADLE_USER_HOME:-$HOME/.cache/goatos-gradle}"
+  mkdir -p "$home" 2>/dev/null || true
+  export GRADLE_USER_HOME="$home"
+  # An idle daemon left behind by an aborted run exits on its own.
+  if ! grep -q '^org.gradle.daemon.idletimeout=' "$home/gradle.properties" 2>/dev/null; then
+    printf 'org.gradle.daemon.idletimeout=900000\n' >>"$home/gradle.properties" 2>/dev/null || true
+  fi
+}
+
+ci_gradle_workers() {
+  local n="${GOATOS_CI_GRADLE_WORKERS:-}"
+  case "$n" in
+    ''|*[!0-9]*) if [ "$(ci_host_mem_gb)" -gt 32 ]; then n=4; else n=3; fi ;;
+  esac
+  [ "$n" -ge 1 ] 2>/dev/null || n=1
+  [ "$n" -le 8 ] || n=8
+  printf '%s' "$n"
+}
+
+# Shared flags. In-process Kotlin stays: it is load-bearing on
+# testStgReleaseUnitTest (Firebase Perf ASM instrumentation; see f4a63345).
+ci_gradle_flags() {
+  printf '%s' "--console=plain --build-cache --max-workers=$(ci_gradle_workers) -Dkotlin.compiler.execution.strategy=in-process -Dkotlin.daemon.enabled=false -Pkotlin.compiler.execution.strategy=in-process"
+}
+
+ci_gradle_stop_daemon() {
+  ci_trace_only && return 0
+  (cd apps/goatos-android && ./gradlew --stop >/dev/null 2>&1) || true
+}
+
 run_android_screenshots() {
   local filter_args
   if filter_args="$(android_screenshot_gradle_filter_args)"; then
     echo "ci-local: Android screenshot scope mapped to targeted Paparazzi filters: ${filter_args}"
-    step_cached "android screenshots (targeted)" bash -c "cd apps/goatos-android && mkdir -p app/build/test-results/testDevDebugUnitTest/binary && touch app/build/test-results/testDevDebugUnitTest/binary/in-progress-results-generic.bin && ./gradlew :app:verifyPaparazziDevDebug --no-daemon --console=plain --no-configuration-cache --max-workers=1 -Dkotlin.compiler.execution.strategy=in-process -Dkotlin.daemon.enabled=false -Pkotlin.compiler.execution.strategy=in-process ${filter_args}"
+    step_cached "android screenshots (targeted)" bash -c "cd apps/goatos-android && mkdir -p app/build/test-results/testDevDebugUnitTest/binary && touch app/build/test-results/testDevDebugUnitTest/binary/in-progress-results-generic.bin && ./gradlew :app:verifyPaparazziDevDebug --no-configuration-cache $(ci_gradle_flags) ${filter_args}"
   else
-    step_cached "android screenshots" bash -c 'cd apps/goatos-android && mkdir -p app/build/test-results/testDevDebugUnitTest/binary && touch app/build/test-results/testDevDebugUnitTest/binary/in-progress-results-generic.bin && ./gradlew :app:verifyPaparazziDevDebug --no-daemon --console=plain --no-configuration-cache --rerun-tasks --max-workers=1 -Dkotlin.compiler.execution.strategy=in-process -Dkotlin.daemon.enabled=false -Pkotlin.compiler.execution.strategy=in-process'
+    step_cached "android screenshots" bash -c "cd apps/goatos-android && mkdir -p app/build/test-results/testDevDebugUnitTest/binary && touch app/build/test-results/testDevDebugUnitTest/binary/in-progress-results-generic.bin && ./gradlew :app:verifyPaparazziDevDebug --no-configuration-cache --rerun-tasks $(ci_gradle_flags)"
   fi
 }
 
@@ -454,16 +546,29 @@ run_common() {
   # tools/ci/** itself changes. Running them on every unrelated commit made
   # JOB=common ~59s slower than the android collapse saved.
   if ci_tooling_changed; then
-    step "ci-local parallel dispatch self-test" bash tools/ci/check-run-local-ci-parallel.test.sh
-    step "android ui-diff detector self-test" bash tools/ci/check-android-ui-diff.test.sh
-    step "android screenshot scope self-test" bash tools/ci/check-android-screenshot-scope.test.sh
-    step "screenshot proof guard self-test" bash tools/ci/check-android-screenshot-proof.test.sh
-    step "screenshot remediation guard self-test" bash tools/ci/check-screenshot-remediation.test.sh
-    step "ci-local attribution self-test" bash tools/ci/check-run-local-ci-attribution.test.sh
-    step "ci base-provenance self-test" bash tools/ci/check-ci-base-provenance.test.sh
-    step "large-file guard self-test" node tools/ci/check-large-files.mjs --self-test
-    step "push-hook-freshness self-test" bash tools/ci/check-push-hook-freshness.test.sh
-    step "parallel-dispatch cleanup self-test" bash tools/ci/check-parallel-dispatch-cleanup.test.sh
+    # Each self-test runs when ITS OWN inputs changed (see selftest_inputs_changed).
+    selftest_step "ci-local parallel dispatch self-test" "^(${CI_RUNNER_INPUTS}|tools/ci/check-run-local-ci-parallel\.test\.sh)\$" \
+      bash tools/ci/check-run-local-ci-parallel.test.sh
+    selftest_step "ci-local speed self-test" "^(${CI_RUNNER_INPUTS}|tools/ci/check-ci-speed\.test\.sh)\$" \
+      bash tools/ci/check-ci-speed.test.sh
+    selftest_step "android ui-diff detector self-test" '^tools/ci/(android-ui-diff\.sh|check-android-ui-diff\.test\.sh)$' \
+      bash tools/ci/check-android-ui-diff.test.sh
+    selftest_step "android screenshot scope self-test" '^tools/ci/(android-ui-diff\.sh|android-screenshot-scope\.sh|check-android-screenshot-scope\.test\.sh)$' \
+      bash tools/ci/check-android-screenshot-scope.test.sh
+    selftest_step "screenshot proof guard self-test" "^(${CI_RUNNER_INPUTS}|tools/ci/check-android-screenshot-proof(\.test)?\.sh)\$" \
+      bash tools/ci/check-android-screenshot-proof.test.sh
+    selftest_step "screenshot remediation guard self-test" "^(${CI_RUNNER_INPUTS}|Makefile|tools/ci/check-screenshot-remediation(\.test)?\.sh)\$" \
+      bash tools/ci/check-screenshot-remediation.test.sh
+    selftest_step "ci-local attribution self-test" "^(${CI_RUNNER_INPUTS}|tools/ci/check-run-local-ci-attribution\.test\.sh)\$" \
+      bash tools/ci/check-run-local-ci-attribution.test.sh
+    selftest_step "ci base-provenance self-test" "^(${CI_RUNNER_INPUTS}|tools/ci/check-ci-base-provenance\.test\.sh)\$" \
+      bash tools/ci/check-ci-base-provenance.test.sh
+    selftest_step "large-file guard self-test" '^tools/ci/check-large-files\.mjs$' \
+      node tools/ci/check-large-files.mjs --self-test
+    selftest_step "push-hook-freshness self-test" '^(tools/ci/(check-push-hook-freshness(\.test)?\.sh|check-local-ci-evidence\.mjs|check-stg-promotion\.mjs)|tools/agent-hooks/install-stg-push-guard\.sh)$' \
+      bash tools/ci/check-push-hook-freshness.test.sh
+    selftest_step "parallel-dispatch cleanup self-test" '^tools/ci/(parallel-dispatch\.sh|check-parallel-dispatch-cleanup(\.test)?\.sh)$' \
+      bash tools/ci/check-parallel-dispatch-cleanup.test.sh
   else
     RESULTS+=("SKIP  ci-tooling self-tests (no tools/ci/** diff)")
     echo "── ci-local: ci-tooling self-tests SKIPPED (no tools/ci/** diff vs base)"
@@ -533,8 +638,22 @@ run_docs_only() {
   return 0
 }
 
+# Stable, shared Go caches across worktrees (plan F). Go's build and test caches
+# are content-addressed, so sharing them is correct by construction; pinning them
+# here only guarantees every worktree and every concurrent step uses the SAME warm
+# cache. Explicit GOCACHE/GOMODCACHE in the environment still win.
+ci_go_env() {
+  local gocache gomodcache
+  gocache="${GOCACHE:-$(go env GOCACHE 2>/dev/null)}"
+  gomodcache="${GOMODCACHE:-$(go env GOMODCACHE 2>/dev/null)}"
+  [ -n "$gocache" ] && export GOCACHE="$gocache"
+  [ -n "$gomodcache" ] && export GOMODCACHE="$gomodcache"
+  return 0
+}
+
 run_backend() {
   current_job="backend"
+  ci_go_env
   step "backend-foundations-guard" make backend-foundations-guard
   step "postgres-bind-contract-guard" make postgres-bind-contract-guard
   step "backend-proof-media-egress-guard" make backend-proof-media-egress-guard
@@ -548,9 +667,7 @@ run_backend() {
   step "shifting-sop-guard"         make shifting-sop-guard
   step "backend go mod verify" bash -c 'cd backend && go mod verify'
   step "backend go vet" bash -c 'cd backend && go vet ./...'
-  step "backend govulncheck" bash -c 'cd backend && go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...'
   step "backend sqlc vet + diff" run_sqlc_static_checks
-  step "backend targeted race" bash -c 'cd backend && GOATOS_RUN_POSTGRES_TESTS=0 go test -race ./internal/platform/worker ./internal/platform/postgres ./internal/kernelstages ./internal/domainconsumer/app ./internal/outbox/adapters/postgres'
   step "agent: aggregate-projection" make aggregate-projection-guard
   step "agent: scale-certification-docs" make scale-certification-docs-guard
   step "agent: e2e-kernel-integrity" bash tools/agent-hooks/check-e2e-kernel-integrity.sh
@@ -602,14 +719,20 @@ run_backend() {
   step "vaccination-shared-source-sync-guard" make vaccination-shared-source-sync-guard
   step "india-date-guard"         make india-date-guard
   step "local-single-db-guard"    make local-single-db-guard
+  # govulncheck, the targeted race run and go test ./... are independent readers
+  # of the tree and share only Go's concurrency-safe, content-addressed build
+  # cache, so they run CONCURRENTLY (plan F). Each is still its own blocking step.
+  cstep_add "backend govulncheck" bash -c 'cd backend && go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...'
+  cstep_add "backend targeted race" bash -c 'cd backend && GOATOS_RUN_POSTGRES_TESTS=0 go test -race ./internal/platform/worker ./internal/platform/postgres ./internal/kernelstages ./internal/domainconsumer/app ./internal/outbox/adapters/postgres'
   if postgres_tests_enabled; then
     # A deliberate Postgres run is fail-closed if Docker is unavailable.
-    step "go test ./... (explicit Postgres opt-in)" bash -c 'cd backend && GOATOS_RUN_POSTGRES_TESTS=1 GOATOS_REQUIRE_DOCKER=1 go test ./...'
+    cstep_add "go test ./... (explicit Postgres opt-in)" bash -c 'cd backend && GOATOS_RUN_POSTGRES_TESTS=1 GOATOS_REQUIRE_DOCKER=1 go test ./...'
   else
     # Unit/package tests still compile and run; pgtest-backed and direct Docker Postgres tests
     # skip through the central opt-in policy even when Docker happens to be installed.
-    step "go test ./... (Postgres disabled)" bash -c 'cd backend && GOATOS_RUN_POSTGRES_TESTS=0 go test ./...'
+    cstep_add "go test ./... (Postgres disabled)" bash -c 'cd backend && GOATOS_RUN_POSTGRES_TESTS=0 go test ./...'
   fi
+  cstep_run
   if postgres_tests_enabled; then
     step "sqlc-check (explicit Postgres opt-in)" make sqlc-check
     step "validate-migrations (explicit Postgres opt-in)" make validate-migrations
@@ -627,12 +750,16 @@ run_query_plans() {
   # Required for every backend diff. This deliberately stays outside the broad Postgres/E2E opt-in:
   # index regressions in production queries must fail ordinary PR, push, and local landing CI.
   prepare_query_plan_database
-  step "required PostgreSQL query plans" make validate-sqlc-plans
+  # The two plan gates are independent: each creates and drops its OWN scratch
+  # database (validate-sqlc-plans: goatos_sqlc_plans_$$ / its own container;
+  # commandboard: its own pgtest database), so they run CONCURRENTLY (plan D).
+  cstep_add "required PostgreSQL query plans" make validate-sqlc-plans
   # The command board's plan gate runs here for the same reason validate-sqlc-plans does: it is an
   # index/plan-regression gate on a production read, and /vaccination/command already returned 500
   # in staging once because nothing could see its plans. It resolves its own database (supplied DSN,
   # OCI clone, or Docker) and fails rather than skipping when it can reach none.
-  step "command-board query plans" make commandboard-query-plan-guard
+  cstep_add "command-board query plans" make commandboard-query-plan-guard
+  cstep_run
   return 0
 }
 
@@ -687,13 +814,21 @@ EOF
 
 run_admin_web() {
   current_job="admin-web"
-  if [ ! -d apps/admin-web/node_modules ]; then
-    step "admin-web deps" npm --prefix apps/admin-web ci
+  # npm ci is skipped ONLY when the lockfile, package.json, node and npm are all
+  # byte-identical to the last SUCCESSFUL install in this worktree (plan G; see
+  # tools/ci/admin-web-deps.sh). Anything else reinstalls.
+  if admin_web_deps_current apps/admin-web; then
+    echo "── ci-local: admin-web deps current (lockfile/package.json/node/npm unchanged since last npm ci)"
+    RESULTS+=("PASS  admin-web deps (current: $(admin_web_deps_key apps/admin-web | cut -c1-24)…)")
+  else
+    step "admin-web deps" admin_web_deps_install apps/admin-web
   fi
   step "frontend-foundations-guard" make frontend-foundations-guard
-  step "admin-web lint"          npm --prefix apps/admin-web run lint
-  step "admin-web typecheck"     npm --prefix apps/admin-web run typecheck
-  step "admin-web unit tests"    npm --prefix apps/admin-web run test
+  # Independent readers of the tree: run concurrently, each still a blocking step.
+  cstep_add "admin-web lint"          npm --prefix apps/admin-web run lint
+  cstep_add "admin-web typecheck"     npm --prefix apps/admin-web run typecheck
+  cstep_add "admin-web unit tests"    npm --prefix apps/admin-web run test
+  cstep_run
   step "admin-web request reads" make admin-web-request-reads-guard
   step "admin-web sectioned aggregate reads" make admin-web-sectioned-aggregate-reads-guard
   step "admin-web proof media egress" make admin-web-proof-media-egress-guard
@@ -767,6 +902,7 @@ run_android() {
     return
   fi
   export JAVA_HOME="$jdk" ANDROID_HOME="$sdk" ANDROID_SDK_ROOT="$sdk"
+  ci_gradle_env
   [ -f apps/goatos-android/local.properties ] || echo "sdk.dir=$sdk" > apps/goatos-android/local.properties
   # ── machine-wide Gradle lane, acquired ONCE for the whole Gradle region ─────
   # Placement is deliberate: AFTER run_android_guards and the toolchain check, so
@@ -794,6 +930,7 @@ run_android() {
   if [ "$fail" -ne 0 ]; then
     echo "── ci-local: android Gradle compile/screenshots/benchmark SKIPPED because Android config-cache checks are already red"
     RESULTS+=("SKIP  android Gradle compile/screenshots/benchmark (config-cache checks failed)")
+    ci_gradle_stop_daemon
     gradle_lock_clear_trap
     gradle_lock_release
     return
@@ -834,31 +971,29 @@ run_android() {
       echo "── ci-local: android benchmark compile SKIPPED by GOATOS_FAST_LOCAL_CI=1 (no Android build/benchmark diff)"
       RESULTS+=("SKIP  android benchmark compile (GOATOS_FAST_LOCAL_CI=1)")
     fi
+    ci_gradle_stop_daemon
     gradle_lock_clear_trap
     gradle_lock_release
     return
   fi
-  # ONE Gradle invocation for compile+unit+lint, with every flag byte-for-byte as
-  # it was across the three previous invocations. Measured on a 12-core/JDK-21 box:
-  # three separate --no-daemon invocations pay JVM start + configuration +
-  # up-to-date checking three times (~30s of fixed overhead on an up-to-date tree)
-  # versus 12.7s paid once — ~17s saved per android leg. Gradle reports the UNION
-  # of the task graphs (712 actionable tasks), not the sum-with-repeats.
+  # ONE Gradle invocation for compile+unit+lint (the union of the task graphs).
   #
-  # Flags are deliberately NOT touched. `--no-daemon` mirrors GitHub's ephemeral
-  # runner (the receipt attests that fidelity); the in-process Kotlin strategy is
-  # load-bearing on testStgReleaseUnitTest (Firebase Perf ASM instrumentation has
-  # corrupted unit-test Flow fakes here before — see f4a63345);
-  # `--no-configuration-cache` and `--max-workers=1` have no recorded reason in
-  # blame, so they stay until someone proves them removable.
+  # Flags (plan B, see ci_gradle_env/ci_gradle_flags): shared GRADLE_USER_HOME,
+  # --build-cache, --configuration-cache (proven safe by the config-cache guard
+  # above), memory-aware --max-workers, and the Gradle daemon kept for the run.
+  # The in-process Kotlin strategy stays: it is load-bearing on
+  # testStgReleaseUnitTest (Firebase Perf ASM instrumentation has corrupted
+  # unit-test Flow fakes here before — see f4a63345). The same tasks run against
+  # the same sources; a build-cache hit replays outputs only for identical inputs.
   #
   # Failure semantics are unchanged: Gradle stops at the first failing task, just
   # as the three sequential steps did. Adding --continue would report all three in
   # one pass (a strictly stronger gate) but is a separate decision.
-  step_cached "android :app compile+unit+lint" bash -c 'cd apps/goatos-android && mkdir -p app/build/generated/ksp/stgRelease/java/hilt_aggregated_deps && ./gradlew :app:compileStgReleaseKotlin :app:testStgReleaseUnitTest :app:lintStgRelease --no-daemon --console=plain --no-configuration-cache --max-workers=1 -Dkotlin.compiler.execution.strategy=in-process -Dkotlin.daemon.enabled=false -Pkotlin.compiler.execution.strategy=in-process'
+  step_cached "android :app compile+unit+lint" bash -c "cd apps/goatos-android && mkdir -p app/build/generated/ksp/stgRelease/java/hilt_aggregated_deps && ./gradlew :app:compileStgReleaseKotlin :app:testStgReleaseUnitTest :app:lintStgRelease --configuration-cache $(ci_gradle_flags)"
   if [ "$fail" -ne 0 ]; then
     echo "── ci-local: android screenshots/benchmark SKIPPED because compile/unit/lint is already red"
     RESULTS+=("SKIP  android screenshots/benchmark (compile/unit/lint failed)")
+    ci_gradle_stop_daemon
     gradle_lock_clear_trap
     gradle_lock_release
     return
@@ -895,7 +1030,8 @@ run_android() {
       fi
       ;;
   esac
-  step_cached "android benchmark compile" bash -c 'cd apps/goatos-android && ./gradlew :benchmark:compileDevNonMinifiedBenchmarkKotlin --no-daemon --console=plain'
+  step_cached "android benchmark compile" bash -c "cd apps/goatos-android && ./gradlew :benchmark:compileDevNonMinifiedBenchmarkKotlin --console=plain --build-cache --max-workers=$(ci_gradle_workers)"
+  ci_gradle_stop_daemon
   gradle_lock_clear_trap
   gradle_lock_release
   return 0

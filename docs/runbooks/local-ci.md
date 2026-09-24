@@ -117,6 +117,61 @@ Local CI certifies repository code. Restoring GitHub billing or required-check
 enforcement is a separate optional operational task and is never part of PR
 acceptance while Actions is unavailable.
 
+## Local CI speed and memory (Phase 1)
+
+These change how the selected gates run, never which gates run or how they are
+judged. Every step is still a blocking step on the exact SHA; failures stay fatal.
+
+- **Memory-aware dispatch.** `tools/ci/parallel-dispatch.sh` admits a job only
+  while the sum of live job weights fits a budget (default 60% of physical RAM:
+  19 GB on a 32 GB laptop). Weights (GB): android 10, backend 5, admin-web 5,
+  query-plans 1, common 1, so android + backend + admin-web never run at peak
+  together on a 32 GB machine. Android is launched first (critical path). A job
+  that alone exceeds the budget still runs when nothing else is live. Default
+  width is now 4 (`GOATOS_CI_LOCAL_JOBS`, clamped 1..4).
+- **Killed steps fail loudly.** A step whose process dies by a signal (137 =
+  SIGKILL/OOM) is reported as `KILLED by signal N`; a job or concurrent step that
+  leaves no status file is FAILED (`signal/OOM/crash`).
+- **Concurrent steps inside a job** (`cstep_add`/`cstep_run`, same file-based
+  verdict contract as job dispatch): backend `go test ./...` + govulncheck +
+  targeted race; admin-web lint + typecheck + unit tests; query-plans
+  `validate-sqlc-plans` + `commandboard-query-plan-guard` (each uses its own
+  scratch database).
+- **Android Gradle.** One shared `GRADLE_USER_HOME` for all worktrees
+  (`$HOME/.cache/goatos-gradle`, not `~/.gradle`), `--build-cache`,
+  `--configuration-cache` on the gated compile/unit/lint invocation (the
+  config-cache guard proves it safe first), memory-aware `--max-workers` (3 on
+  <=32 GB, 4 above), and the Gradle daemon kept for the run and stopped before the
+  machine-wide Gradle lane is released. In-process Kotlin is unchanged.
+- **Go.** `GOCACHE`/`GOMODCACHE` are pinned to the user-wide caches so every
+  worktree and every concurrent step shares one warm, content-addressed cache.
+  `go test ./...` still runs in full (no `-count=1`, no package selection).
+- **admin-web deps.** `npm ci` is skipped only when
+  `sha256(package-lock.json) + sha256(package.json) + node -v + npm -v` equals the
+  stamp written after the last successful `npm ci` in that worktree
+  (`apps/admin-web/node_modules/.goatos-ci-install-stamp`). Any change, a missing
+  stamp, or a failed install reinstalls. The production build always runs fresh.
+- **CI-tooling self-tests** run when their own inputs change: each self-test is
+  keyed on the scripts it exercises, and every self-test that drives
+  `run-local-ci.sh` is re-run when the runner or any library it sources changes.
+  An undeterminable diff runs them all (fail-open). `MODE=all` with a `tools/ci`
+  diff still runs every self-test.
+
+Environment overrides:
+
+| Variable | Default | Effect |
+|---|---|---|
+| `GOATOS_CI_LOCAL_JOBS` | 4 | Max concurrent jobs (1..4) |
+| `GOATOS_CI_MEM_BUDGET_GB` | 60% of RAM | Memory budget for job admission |
+| `GOATOS_CI_MEM_WEIGHT_{ANDROID,BACKEND,ADMIN_WEB,QUERY_PLANS}` | 10/5/5/1 | Per-job peak weight (GB) |
+| `GOATOS_GRADLE_USER_HOME` | `$HOME/.cache/goatos-gradle` | Shared Gradle home for CI |
+| `GOATOS_CI_GRADLE_WORKERS` | 3 (<=32 GB) / 4 | Gradle `--max-workers` (1..8) |
+| `GOATOS_ADMIN_WEB_FORCE_NPM_CI` | 0 | `1` always runs `npm ci` |
+| `GOATOS_CI_ALL_SELFTESTS` | 0 | `1` runs every CI-tooling self-test on a `tools/ci` diff |
+
+Self-test: `bash tools/ci/check-ci-speed.test.sh` (npm-skip invalidation,
+per-self-test triggers, the 32 GB forbidden trio, killed-step verdicts).
+
 ## Guardrail registration and exact-SHA push evidence
 
 Guardrails are part of root-cause closure, not an optional clean-up after the
