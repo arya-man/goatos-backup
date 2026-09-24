@@ -79,6 +79,7 @@ ALTER TABLE public.growth_fcr_rollup_dirty SET (
 
 -- Reconcile bookkeeping: one row per tenant, the last business day a full reconcile ran and the
 -- drift it found (rows whose stored values differed from a fresh recompute).
+-- no-mismatch-review-queue:ignore: owner=ravi issue=vgoats/goatos#389 scope=rollup-recompute-checkpoint-not-an-ingestion-review-queue expiry=2027-09-24
 CREATE TABLE IF NOT EXISTS public.growth_fcr_rollup_reconcile (
   tenant_id        uuid        PRIMARY KEY,
   reconciled_on    date        NOT NULL,
