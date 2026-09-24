@@ -22,7 +22,7 @@ type ForwardInit = {
 };
 
 // Cloud Run service-to-service auth for the coding-agent service. When
-// CEO_AI_AGENT_AUDIENCE is set (STG: the goatos-ask-mesha-stg URL), admin-web mints a
+// CEO_AI_AGENT_AUDIENCE is set (STG: the Mesha assistant service URL), admin-web mints a
 // Google ID token for its runtime SA from the metadata server and sends it as
 // X-Serverless-Authorization, which Cloud Run IAM checks (roles/run.invoker) and
 // strips — leaving Authorization for the user's Firebase bearer, which the agent
