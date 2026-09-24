@@ -404,7 +404,7 @@ class HealthDetailViewModel @Inject constructor(
                 !videoState.capturing &&
                 run {
                     val stepIds = detail.steps.map { it.stepId }.filter { it.isNotBlank() }
-                    if (stepIds.isEmpty()) videoState.captured else stepProofState.complete(stepIds)
+                    if (stepIds.isEmpty()) videoState.captured else stepProofState.readyForSubmit(stepIds)
                 },
             canRecordVideo = detail.canComplete && detail.status in OPEN_STATUSES && !saving,
             canCloseCase = detail.canCloseCase && detail.status !in CLOSED_SESSION_STATUSES && !closingCase,
@@ -434,6 +434,11 @@ class HealthDetailViewModel @Inject constructor(
                 video.update { it.copy(captured = true, message = VIDEO_QUEUED) }
                 observeProofItem(proofItem)
             }
+            draft.proofs
+                .filterKeys { it != STEP_VIDEO }
+                .forEach { (stepId, proofOutboxItemId) ->
+                    if (proofOutboxItemId.isNotBlank()) registerStepProof(stepId, proofOutboxItemId)
+                }
         }
         observeDurableProof()
     }
@@ -684,15 +689,30 @@ class HealthDetailViewModel @Inject constructor(
                 val row = rows
                     .filter { it.fieldKey == FIELD_HEALTH_TREATMENT_VIDEO && it.syncStatus != CaptureSyncStatus.FAILED }
                     .maxByOrNull { it.capturedAtMs }
-                    ?: return@collect
-                row.outboxItemId?.takeIf { it.isNotBlank() }?.let { outboxId ->
+                row?.outboxItemId?.takeIf { it.isNotBlank() }?.let { outboxId ->
                     if (draft.proofs[STEP_VIDEO] != outboxId) {
                         drafts.putProof(CaptureFlow.HEALTH_TREATMENT, sessionId, STEP_VIDEO, outboxId)
                         draft = drafts.find(CaptureFlow.HEALTH_TREATMENT, sessionId)
                     }
                     observeProofItem(outboxId)
+                    video.update { it.copy(captured = true) }
                 }
-                video.update { it.copy(captured = true) }
+
+                rows
+                    .filter {
+                        it.fieldKey.startsWith("$FIELD_HEALTH_TREATMENT_VIDEO:") &&
+                            it.syncStatus != CaptureSyncStatus.FAILED
+                    }
+                    .groupBy { it.fieldKey.removePrefix("$FIELD_HEALTH_TREATMENT_VIDEO:") }
+                    .forEach { (stepId, stepRows) ->
+                        val stepRow = stepRows.maxByOrNull { it.capturedAtMs } ?: return@forEach
+                        val outboxId = stepRow.outboxItemId?.takeIf { it.isNotBlank() } ?: return@forEach
+                        if (draft.proofs[stepId] != outboxId) {
+                            drafts.putProof(CaptureFlow.HEALTH_TREATMENT, sessionId, stepId, outboxId)
+                            draft = drafts.find(CaptureFlow.HEALTH_TREATMENT, sessionId)
+                        }
+                        registerStepProof(stepId, outboxId)
+                    }
             }
         }
     }
@@ -700,14 +720,12 @@ class HealthDetailViewModel @Inject constructor(
     fun complete() = viewModelScope.launch {
         if (ops.value.submitting) return@launch
 
-        // EVERY STEP OWES ITS VIDEO (maintainer decision 2026-09-23), and owes it RECORDED -- an
-        // upload whose register has not landed is not evidence the server holds, so submitting
-        // would be refused anyway. The server checks the same rule inside its row lock; this one
-        // exists so the operator is told before they tap, with the steps NAMED.
+        // EVERY STEP OWES ITS VIDEO (maintainer decision 2026-09-23). Offline submit may queue
+        // behind SENDING step-register rows in the same session lane; FAILED rows still block.
         val stepIds = latestDetail?.steps.orEmpty().map { it.stepId }.filter { it.isNotBlank() }
         val proofs = stepProofs.value
         if (stepIds.isNotEmpty()) {
-            val missing = proofs.missing(stepIds)
+            val missing = proofs.missingForSubmit(stepIds)
             if (missing.isNotEmpty()) {
                 video.update { it.copy(message = NEED_VIDEO_MESSAGE) }
                 return@launch

@@ -16917,14 +16917,12 @@ paths:
           schema: { type: string }
         - in: query
           name: format
-          schema: { type: string, enum: [csv, xlsx, json], default: csv }
+          schema: { type: string, enum: [csv, xlsx], default: csv }
       responses:
         "200":
           description: The sheet.
           content:
             text/csv: { schema: { type: string } }
-            application/json:
-              schema: { type: object, additionalProperties: true }
             application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
               schema: { type: string, format: binary }
         "401": { $ref: "#/components/responses/Unauthorized" }

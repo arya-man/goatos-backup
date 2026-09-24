@@ -52,7 +52,7 @@ test("clinical placements are reported, never presented as gaps to close", () =>
 test("the gaps table comes before the types and routing tables", () => {
   const gaps = section.indexOf("section.gaps.title");
   const types = section.indexOf("section.types.title");
-  const routes = section.indexOf("section.routes.title");
+  const routes = section.indexOf("section.routes.by_type");
   assert.ok(gaps > -1 && types > -1 && routes > -1);
   assert.ok(gaps < types && types < routes, "gaps first, then types, then routing");
 });

@@ -77,6 +77,9 @@ var namedRoleGains = map[string]map[string]string{
 		AdminWebBootstrap: "holding a module means the app opens. Per-person authority granted BY NAME alongside a job (maintainer decision 2026-09-14: the procurement director makes the morning market calls), so every holder already carries a job role that admits them to the surface.",
 		AppBootstrap:      "same as admin_web.bootstrap above -- and the prices are recorded ON the phone, so the mobile surface is the one that matters here",
 	},
+	RoleCEOInternal: {
+		PCCarePlanTrimming: "CEO floor: pc_trimming is a built web/mobile module and the founder role must keep configure visibility over every built planning desk; this is planning authority, not execution",
+	},
 	RoleParkHead: {
 		VerificationReview: "he holds verification.act today WITHOUT verification.review -- able to close or send back work he cannot see. This closes that gap rather than widening authority",
 		OperatorsViewAudit: "reading the audit trail of the park team he already manages",

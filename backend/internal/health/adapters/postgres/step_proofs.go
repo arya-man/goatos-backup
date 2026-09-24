@@ -17,7 +17,21 @@ SELECT hs.status
 FROM health_session_steps ss
 JOIN health_treatment_sessions hs
   ON hs.tenant_id = ss.tenant_id AND hs.health_session_id = ss.health_session_id
-WHERE ss.tenant_id = $1::uuid AND ss.health_session_id = $2::uuid AND ss.health_session_step_id = $3::uuid`
+WHERE ss.tenant_id = $1::uuid AND ss.health_session_id = $2::uuid AND ss.health_session_step_id = $3::uuid
+FOR UPDATE OF hs`
+
+const sqlInsertStepProofAttempt = `
+INSERT INTO health_session_step_proof_attempts (
+  tenant_id, health_session_id, health_session_step_id, idempotency_key,
+  request_fingerprint, proof_ref, captured_by)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7::uuid)
+ON CONFLICT (tenant_id, health_session_step_id, idempotency_key) DO NOTHING
+RETURNING health_session_step_id::text, proof_ref, captured_by::text, captured_at`
+
+const sqlGetStepProofAttempt = `
+SELECT health_session_step_id::text, proof_ref, captured_by::text, captured_at, request_fingerprint
+FROM health_session_step_proof_attempts
+WHERE tenant_id = $1::uuid AND health_session_step_id = $2::uuid AND idempotency_key = $3`
 
 // A re-shoot REPLACES the step's clip. The verifier receives exactly one video per step, never a
 // pile of attempts, and the idempotency key is refreshed so a retry of the NEW capture collapses
@@ -55,11 +69,22 @@ func (r *Repository) RecordStepProof(ctx context.Context, in domain.RecordStepPr
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return domain.StepProof{}, err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+
 	// The step must belong to THIS session. Refused rather than ignored: a caller that could
 	// attach a video to another session's step could file evidence of one animal's treatment
 	// onto another animal's card.
 	var status string
-	err := r.pool.QueryRow(ctx, sqlStepBelongsToSession, in.TenantID, in.SessionID, in.StepID).Scan(&status)
+	err = tx.QueryRow(ctx, sqlStepBelongsToSession, in.TenantID, in.SessionID, in.StepID).Scan(&status)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.StepProof{}, domain.ErrStepNotInSession
 	}
@@ -72,11 +97,38 @@ func (r *Repository) RecordStepProof(ctx context.Context, in domain.RecordStepPr
 	}
 
 	var out domain.StepProof
-	if err := r.pool.QueryRow(ctx, sqlUpsertStepProof,
+	err = tx.QueryRow(ctx, sqlInsertStepProofAttempt,
+		in.TenantID, in.SessionID, in.StepID, in.IdempotencyKey, in.RequestFingerprint, in.ProofRef, in.ActorID,
+	).Scan(&out.StepID, &out.ProofRef, &out.CapturedBy, &out.CapturedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		var priorFingerprint string
+		if err := tx.QueryRow(ctx, sqlGetStepProofAttempt,
+			in.TenantID, in.StepID, in.IdempotencyKey,
+		).Scan(&out.StepID, &out.ProofRef, &out.CapturedBy, &out.CapturedAt, &priorFingerprint); err != nil {
+			return domain.StepProof{}, fmt.Errorf("health: replay step proof: %w", err)
+		}
+		if priorFingerprint != in.RequestFingerprint {
+			return domain.StepProof{}, ports.ErrConflict
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return domain.StepProof{}, err
+		}
+		committed = true
+		return out, nil
+	}
+	if err != nil {
+		return domain.StepProof{}, fmt.Errorf("health: record step proof attempt: %w", err)
+	}
+
+	if err := tx.QueryRow(ctx, sqlUpsertStepProof,
 		in.TenantID, in.SessionID, in.StepID, in.ProofRef, in.ActorID, in.IdempotencyKey,
 	).Scan(&out.StepID, &out.ProofRef, &out.CapturedBy, &out.CapturedAt); err != nil {
 		return domain.StepProof{}, fmt.Errorf("health: record step proof: %w", err)
 	}
+	if err := tx.Commit(ctx); err != nil {
+		return domain.StepProof{}, err
+	}
+	committed = true
 	return out, nil
 }
 
