@@ -73,7 +73,22 @@ gcloud projects add-iam-policy-binding $PROJECT \
   --member="serviceAccount:goatos-ask-mesha-stg@$PROJECT.iam.gserviceaccount.com" --role=roles/aiplatform.user
 ```
 
-Region: `ASK_MESHA_VERTEX_REGION` (default `us-east5`; use one where the models are enabled).
+Region: `ASK_MESHA_VERTEX_REGION` defaults to **`global`**. Verified 2026-09-24 against the Vertex publisher-model API:
+`claude-sonnet-5` and `claude-opus-5-5` are GA **only on `global`** (404 in `asia-south1` and `us-east5`).
+`global` routes inference to available capacity (not pinned to India); chats, files and the database stay in asia-south1.
+
+**Quota (blocking):** a new project has 0 quota for Claude on Vertex. A test call on goatos-stg returned
+`429 Quota exceeded for aiplatform.googleapis.com/global_online_prediction_requests_per_base_model (anthropic-claude-sonnet)`.
+Console -> IAM & Admin -> Quotas -> filter `global_online_prediction_requests_per_base_model` for base models
+`anthropic-claude-sonnet` and `anthropic-claude-opus` -> request e.g. 60 requests/min each, and accept both models'
+terms in Model Garden. Verify (expect the text `OK`):
+
+```bash
+curl -s -X POST -H "Authorization: Bearer $(gcloud auth print-access-token)" -H "x-goog-user-project: $PROJECT" \
+  -H "Content-Type: application/json" \
+  "https://aiplatform.googleapis.com/v1/projects/$PROJECT/locations/global/publishers/anthropic/models/claude-sonnet-5:rawPredict" \
+  -d '{"anthropic_version":"vertex-2023-10-16","max_tokens":5,"messages":[{"role":"user","content":"Reply OK"}]}'
+```
 
 **api-key:** Anthropic Console key (set a monthly spend limit there) → secret `goatos-stg-ask-mesha-anthropic-api-key` (§4).
 
@@ -117,10 +132,51 @@ Check what else uses dblink/public CREATE first (`\df dblink*`, app roles) so th
 break another service. After deploy, confirm in the container that the agent's `Read /proc/1/environ`
 and `Read <state>/.pgenv` are denied.
 
+## 3e. `mesha_ceo_readonly` SELECT grants (NOT in any migration yet)
+
+Granted by hand on goatos-stg 2026-09-24; a fresh/restored DB will not have them and `run_sql`
+will fail with `permission denied`. Run as the owner of those tables (the migration owner),
+inside the repo's audited change wrapper:
+
+```sql
+-- connected to database goatos, as the table owner
+BEGIN;
+SELECT audit.begin_change('ravi via claude', 'ask-mesha: mesha_ceo_readonly read grants');
+DO $$
+DECLARE s text;
+BEGIN
+  FOREACH s IN ARRAY ARRAY['public','analytics','audit','ceo_ai','forensic_repair'] LOOP
+    EXECUTE format('GRANT USAGE ON SCHEMA %I TO mesha_ceo_readonly', s);
+    EXECUTE format('GRANT SELECT ON ALL TABLES IN SCHEMA %I TO mesha_ceo_readonly', s);
+    EXECUTE format('GRANT SELECT ON ALL SEQUENCES IN SCHEMA %I TO mesha_ceo_readonly', s);
+    -- future tables created by THIS role (run once per role that creates tables)
+    EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA %I GRANT SELECT ON TABLES TO mesha_ceo_readonly', s);
+  END LOOP;
+END $$;
+COMMIT;
+-- verify: 0 rows = every table readable, and no write privilege anywhere
+SELECT n.nspname, c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+ WHERE c.relkind IN ('r','p','v','m') AND n.nspname IN ('public','analytics','audit','ceo_ai','forensic_repair')
+   AND NOT has_table_privilege('mesha_ceo_readonly', c.oid, 'SELECT');
+SELECT count(*) FROM information_schema.role_table_grants
+ WHERE grantee = 'mesha_ceo_readonly' AND privilege_type IN ('INSERT','UPDATE','DELETE','TRUNCATE');  -- 0
+```
+
+Proposal: move these into a migration (idempotent GRANTs are safe to replay) so every env and
+restore gets them and CI can assert the no-write invariant. Keep the role's *password* out of
+migrations. Single-tenant only: before a 2nd tenant, replace this blanket grant with the
+per-tenant `ceo_readers` + RLS plan in `docs/agent-rules/ask-mesha.md` ("Multi-tenant isolation").
+
+## 3f. Events table + Grafana
+
+`ASK_MESHA_DB_MIGRATE=1` (set by `deploy-stg.sh`) applies `sql/001_init.sql` (store) and
+`sql/002_events.sql` (`ask_mesha.events`) at start, as the `ask_mesha` user. Grafana read role and
+datasource: `deploy/grafana/README.md` (events-only SELECT, uid `ask-mesha-postgres`).
+
 ## 4. Secrets (values piped from stdin, never echoed)
 
 ```bash
-# Anthropic API key: paste into stdin, then Ctrl-D
+# api-key mode only: paste the key into stdin, then Ctrl-D
 gcloud secrets create goatos-stg-ask-mesha-anthropic-api-key --project=$PROJECT \
   --replication-policy=automatic --data-file=-
 printf 'postgresql://ask_mesha:%s@/ask_mesha?host=/cloudsql/%s:%s:%s' \
@@ -128,9 +184,16 @@ printf 'postgresql://ask_mesha:%s@/ask_mesha?host=/cloudsql/%s:%s:%s' \
   gcloud secrets create goatos-stg-ask-mesha-db-url --project=$PROJECT \
   --replication-policy=automatic --data-file=-
 unset ASK_PW
-for s in goatos-stg-ask-mesha-anthropic-api-key goatos-stg-ask-mesha-db-url mesha-ceo-readonly-db-url; do
+# Only the secrets the chosen auth mode uses (vertex: no Claude secret at all).
+SECRETS="goatos-stg-ask-mesha-db-url mesha-ceo-readonly-db-url"
+# api-key: SECRETS="$SECRETS goatos-stg-ask-mesha-anthropic-api-key"
+# oauth:   SECRETS="$SECRETS goatos-stg-ask-mesha-claude-oauth-token"
+for s in $SECRETS; do
   gcloud secrets add-iam-policy-binding $s --project=$PROJECT \
     --member=serviceAccount:$SA --role=roles/secretmanager.secretAccessor
+  # deploy-stg.sh preflight describes every secret it mounts
+  gcloud secrets add-iam-policy-binding $s --project=$PROJECT \
+    --member=serviceAccount:$DEPLOYER --role=roles/secretmanager.viewer
 done
 ```
 
@@ -145,11 +208,7 @@ gcloud iam service-accounts add-iam-policy-binding $SA --project=$PROJECT \
   --member=serviceAccount:$DEPLOYER --role=roles/iam.serviceAccountUser
 # (deployer already holds roles/run.developer|admin for the existing services;
 #  confirm: gcloud projects get-iam-policy $PROJECT --flatten=bindings --filter="bindings.members:$DEPLOYER")
-# The preflight reads the SA/secrets/bucket metadata:
-gcloud secrets add-iam-policy-binding goatos-stg-ask-mesha-anthropic-api-key --project=$PROJECT \
-  --member=serviceAccount:$DEPLOYER --role=roles/secretmanager.viewer
-gcloud secrets add-iam-policy-binding goatos-stg-ask-mesha-db-url --project=$PROJECT \
-  --member=serviceAccount:$DEPLOYER --role=roles/secretmanager.viewer
+# The preflight reads SA/bucket metadata (secret viewer grants are in §4):
 gcloud storage buckets add-iam-policy-binding gs://$BUCKET \
   --member=serviceAccount:$DEPLOYER --role=roles/storage.legacyBucketReader
 ```
@@ -163,6 +222,9 @@ gcloud run services add-iam-policy-binding goatos-ask-mesha-stg --project=$PROJE
 
 ## 6. Deploy
 
+Order from zero: §0 → §1 → §2 → §3 → §3b → §3c → §3d → §3e → §4 → §5 (deployer part) → first
+run below → §5 invoker grant → verify → second run → verify in admin-web → §3f Grafana.
+
 Trigger the normal `goatos-stg-deploy-main` build (launcher / Slack) with the
 extra substitutions:
 
@@ -174,8 +236,26 @@ extra substitutions:
    survives later deploys. (If Terraform `infra/envs/stg` is applied to
    `admin_web`, add the two env vars there too or it will drop them.)
 
-Smoke: `/api/ceo-ai/starters` in admin-web STG returns 200 from the agent;
-`gcloud run services logs read goatos-ask-mesha-stg --region=$REGION --limit=50`.
+### Verify (read-only)
+
+```bash
+gcloud run services describe goatos-ask-mesha-stg --project=$PROJECT --region=$REGION \
+  --format='value(status.url,metadata.labels.commit_sha,status.latestReadyRevisionName)'
+gcloud run services logs read goatos-ask-mesha-stg --project=$PROJECT --region=$REGION --limit=50
+#   expect: "wrote N PG settings for user mesha_ceo_readonly", no migrate / pg errors
+URL=$(gcloud run services describe goatos-ask-mesha-stg --project=$PROJECT --region=$REGION --format='value(status.url)')
+curl -s -o /dev/null -w '%{http_code}\n' "$URL/ceo-ai/starters"   # 403 (IAM), never 200
+```
+
+```sql
+-- database ask_mesha
+SELECT to_regclass('ask_mesha.events');                    -- not null
+SELECT event_name, count(*) FROM ask_mesha.events WHERE ts > now() - interval '1 hour' GROUP BY 1;
+```
+
+After wiring admin-web: open Ask Mesha in admin-web STG, ask a quick question (streams, answer
+arrives, `ask_completed` row) and a deep one (Opus, up to ~2 min, stream keeps alive via 10s pings,
+cost ≤ $5 in the event row). Confirm a SQL write (`DELETE ...`) is refused by the DB.
 
 ## Rollback
 
