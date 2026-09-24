@@ -111,6 +111,7 @@ func (s *Service) GetWorkItem(ctx context.Context, tenantID, sessionID string) (
 	}
 	return s.repo.GetWorkItem(ctx, tenantID, sessionID)
 }
+
 // RecordStepProof attaches ONE step's video, on its own, before the session is submitted.
 //
 // Separate from the submit because a blob reaching storage is not the business fact (the proof
@@ -144,10 +145,11 @@ func (s *Service) CompleteWorkItem(ctx context.Context, in domain.CompleteInput)
 	if !validUUID(in.TenantID) || !validUUID(in.ActorID) || !validUUID(in.SessionID) || in.IdempotencyKey == "" {
 		return domain.CompleteResult{}, ErrInvalidInput
 	}
-	if in.ProofRef != "" && s.enqueuer == nil {
+	if s.enqueuer == nil {
 		// Fail closed BEFORE the write: a proof accepted with no review path is a silent drop.
-		// A proof-less completion (still allowed for compatibility) has nothing to review and
-		// passes through.
+		// Per-step completions carry their evidence on the step rows, not in this request's
+		// ProofRef, so the service cannot know whether a blank request has evidence until after
+		// the repository write. Refuse unwired completions up front instead of committing first.
 		return domain.CompleteResult{}, ErrVerificationEnqueuerNotWired
 	}
 	res, err := s.repo.CompleteWorkItem(ctx, in)

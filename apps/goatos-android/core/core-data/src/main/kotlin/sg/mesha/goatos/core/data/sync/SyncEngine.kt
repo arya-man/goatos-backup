@@ -2351,6 +2351,9 @@ class SyncEngine(
      */
     private suspend fun dispatchHealthStepProofRegister(item: OutboxEntity): String {
         val payload = syncJson.decodeFromString<HealthStepProofRegisterPayload>(item.payloadJson)
+        if (store.hasNewerHealthStepProofRegister(item.groupKey, payload.healthSessionStepId, item.createdAt)) {
+            return "{}"
+        }
         api.registerHealthStepProof(
             payload.healthSessionId,
             payload.healthSessionStepId,

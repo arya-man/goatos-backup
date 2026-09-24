@@ -276,3 +276,16 @@ func TestPerStepCompletionWithNoSessionVideoStillReachesTheVerifier(t *testing.T
 		t.Fatalf("idempotency key=%q want the step clip set", got.IdempotencyKey)
 	}
 }
+
+func TestPerStepCompletionFailsClosedWhenVerificationSeamIsNotWired(t *testing.T) {
+	repo := &stepMediaRepo{}
+	_, err := NewService(repo).CompleteWorkItem(context.Background(), domain.CompleteInput{
+		TenantID: testTenant, ActorID: testActor, SessionID: testSession, IdempotencyKey: "k1",
+	})
+	if !errors.Is(err, ErrVerificationEnqueuerNotWired) {
+		t.Fatalf("err=%v want ErrVerificationEnqueuerNotWired", err)
+	}
+	if repo.completed.SessionID != "" {
+		t.Fatalf("repo write happened before the seam check; per-step evidence with no review path must not be accepted")
+	}
+}

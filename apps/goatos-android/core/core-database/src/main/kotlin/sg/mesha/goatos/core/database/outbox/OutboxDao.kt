@@ -238,6 +238,20 @@ interface OutboxDao {
     )
     suspend fun findLatestForGroupAndOpType(groupKey: String, opType: String): OutboxEntity?
 
+    @Query(
+        "SELECT COUNT(*) FROM outbox WHERE groupKey = :groupKey " +
+            "AND opType = 'HEALTH_STEP_PROOF_REGISTER' " +
+            "AND createdAt > :createdAt " +
+            "AND payloadJson LIKE :healthSessionStepIdNeedle " +
+            "AND (status IN ('QUEUED', 'IN_FLIGHT', 'SUCCEEDED') " +
+            "  OR (status = 'FAILED' AND conflict = 0 AND attemptCount < maxAttempts))",
+    )
+    suspend fun hasNewerHealthStepProofRegister(
+        groupKey: String,
+        healthSessionStepIdNeedle: String,
+        createdAt: Long,
+    ): Int
+
     /** Observes ONE row by id through EVERY status, including terminal SUCCEEDED/conflict/
      *  attempt-exhausted (R50-030: leadership close must follow its own submission to a terminal
      *  state even when that row is older than the bounded recent-terminal window, which
