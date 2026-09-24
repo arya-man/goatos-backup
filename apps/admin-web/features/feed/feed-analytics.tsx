@@ -67,6 +67,12 @@ import { FeedFaroView } from "./feed-faro-view";
 
 const PAGE_PATH = "/feed/analytics";
 
+// Follow-up lines are one per (pen, change day); counted here, on the server, because the tab that
+// sorts and slices them is a client module and cannot be called from this one.
+function followUpLineCount(data: FeedAnalyticsFollowUpResponse): number {
+  return data.rows.reduce((n, pen) => n + pen.days.length, 0);
+}
+
 // Select options from served rows: first label wins per value, sorted for a stable dropdown.
 function dedupeOptions(options: { value: string; label: string }[]): { value: string; label: string }[] {
   const seen = new Map<string, string>();
@@ -353,6 +359,9 @@ export async function FeedAnalyticsPage({
   // a view survives reload and pastes as a link. The DAY is not defaulted here -- the backend owns
   // it (yesterday, IST) and echoes it back as completion_day, and a second client-side default
   // would drift from it for every request between midnight and 05:30 IST.
+  const followUpPageSizes = tablePageSizes(pageContract, "feed-follow-up");
+  const followUpLimit = feedLimit(searchParams, "ffu_limit", followUpPageSizes, followUpPageSizes[0]);
+  const followUpOffset = feedOffset(searchParams, "ffu_offset");
   const completionPageSizes = tablePageSizes(pageContract, "distribution-completions");
   const completionLimit = feedLimit(searchParams, "fdc_limit", completionPageSizes, completionPageSizes[0]);
   const completionOffset = feedOffset(searchParams, "fdc_offset");
@@ -548,7 +557,26 @@ export async function FeedAnalyticsPage({
       ) : null}
 
       {!stockOnly && tab === "followup" && followUp?.ok ? (
-        <FeedFollowUpTab data={followUp.data} pageContract={pageContract} />
+        <>
+          <FeedFollowUpTab
+            data={followUp.data}
+            pageContract={pageContract}
+            page={{ offset: followUpOffset, limit: followUpLimit }}
+          />
+          {followUpLineCount(followUp.data) > 0 ? (
+            <FeedPager
+              pageContract={pageContract}
+              offset={followUpOffset}
+              limit={followUpLimit}
+              rowCount={Math.max(0, Math.min(followUpLimit, followUpLineCount(followUp.data) - followUpOffset))}
+              hasMore={followUpOffset + followUpLimit < followUpLineCount(followUp.data)}
+              noun={fa(pageContract, "followup.noun")}
+              pageSizeOptions={followUpPageSizes}
+              hrefForOffset={(next) => feedHref(PAGE_PATH, searchParams, "ffu_offset", next === 0 ? "" : String(next))}
+              hrefForLimit={(next) => feedHref(PAGE_PATH, searchParams, "ffu_limit", String(next))}
+            />
+          ) : null}
+        </>
       ) : null}
 
       {!stockOnly && statusWise && directed?.ok ? (

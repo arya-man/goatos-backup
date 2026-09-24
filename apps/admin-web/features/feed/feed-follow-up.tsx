@@ -64,16 +64,21 @@ function linesOf(data: FeedAnalyticsFollowUpResponse): Line[] {
 export function FeedFollowUpTab({
   data,
   pageContract,
+  page,
 }: {
   data: FeedAnalyticsFollowUpResponse;
   pageContract: AdminUiPageContract;
+  /** URL paging over the date-sorted lines (ffu_offset / ffu_limit); the pager is drawn by the page. */
+  page: { offset: number; limit: number };
 }) {
-  const lines = linesOf(data);
+  const allLines = linesOf(data);
+  // Sorted over the WHOLE window first, then sliced, so page 2 continues page 1's dates.
+  const lines = allLines.slice(page.offset, page.offset + page.limit);
   return (
     <section className="card ffu-card">
       <h2 className="h">{fa(pageContract, "followup.table.title")}</h2>
       <p className="muted small" style={{ margin: "0 0 10px" }}>{fa(pageContract, "followup.hint")}</p>
-      {lines.length === 0 ? (
+      {allLines.length === 0 ? (
         <p className="muted small">{fa(pageContract, "followup.empty")}</p>
       ) : (
         <div className="tablewrap" tabIndex={0} role="group" aria-label={fa(pageContract, "followup.table.title")}>
