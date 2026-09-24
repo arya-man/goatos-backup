@@ -59,6 +59,10 @@ type fakeRepo struct {
 	summaryCalls     int
 	riskWrites       []ports.TagRisk
 	penMedians       map[string]ports.PenMedians
+	penApplies       int
+	batchCalls       int
+	tenantCalls      int
+	tenantsBlock     chan struct{}
 }
 
 func (f *fakeRepo) IngestPackets(_ context.Context, _ string, _ domain.Gateway, packets []domain.Packet) (int, int, error) {
@@ -66,11 +70,26 @@ func (f *fakeRepo) IngestPackets(_ context.Context, _ string, _ domain.Gateway, 
 	return len(packets), len(packets), nil
 }
 
-func (f *fakeRepo) ListTagsLatestPage(_ context.Context, _ string, _, _, _, _, _, _, _ *string, _ string, limit int, _ ...domain.LiveSort) ([]domain.TagLatest, error) {
-	if limit <= 0 || limit > len(f.livePages) {
-		limit = len(f.livePages)
+func (f *fakeRepo) ListTagsLatestPage(_ context.Context, _ string, _, _, _, _, _, _, riskState, _ *string, _ string, limit int, _ ...domain.LiveSort) ([]domain.TagLatest, error) {
+	pages := f.livePages
+	if riskState != nil {
+		pages = f.riskFiltered(riskState)
 	}
-	return append([]domain.TagLatest(nil), f.livePages[:limit]...), nil
+	if limit <= 0 || limit > len(pages) {
+		limit = len(pages)
+	}
+	return append([]domain.TagLatest(nil), pages[:limit]...), nil
+}
+
+func (f *fakeRepo) ListRiskTenants(context.Context) ([]string, error) {
+	f.mu.Lock()
+	f.tenantCalls++
+	block := f.tenantsBlock
+	f.mu.Unlock()
+	if block != nil {
+		<-block
+	}
+	return []string{"tenant-1"}, nil
 }
 
 func (f *fakeRepo) ListTagsLatest(_ context.Context, _ string, _, _, movementState, liveState, _, _, _ *string, cursor string, limit int, _ ...domain.LiveSort) ([]domain.TagLatest, domain.Summary, *string, error) {
@@ -130,21 +149,68 @@ func (f *fakeRepo) riskFiltered(riskState *string) []domain.TagLatest {
 	return out
 }
 
-func (f *fakeRepo) ReplacePenMedians(_ context.Context, _ string, m map[string]ports.PenMedians, _ time.Time) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.penMedians = m
-	return nil
-}
-
 func (f *fakeRepo) LoadPenMedians(_ context.Context, _ string) (map[string]ports.PenMedians, bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return f.penMedians, f.penMedians != nil, nil
+	out := map[string]ports.PenMedians{}
+	for k, v := range f.penMedians {
+		out[k] = v
+	}
+	return out, len(out) > 0, nil
 }
 
-// UpdateTagRisk persists onto the fake's rows, like the UNNEST update.
-func (f *fakeRepo) UpdateTagRisk(_ context.Context, _ string, rows []ports.TagRisk, at time.Time) (int, error) {
+func (f *fakeRepo) ApplyPenMedians(_ context.Context, _ string, moved map[string]ports.PenMedians, vanished []string, _ time.Time) (bool, int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.penApplies++
+	if f.penMedians == nil {
+		f.penMedians = map[string]ports.PenMedians{}
+	}
+	pens := map[string]bool{}
+	for k, v := range moved {
+		f.penMedians[k] = v
+		pens[k] = true
+	}
+	for _, k := range vanished {
+		delete(f.penMedians, k)
+		pens[k] = true
+	}
+	queued := 0
+	for i := range f.livePages {
+		gd, ok := f.goats[f.resolvedTags[f.livePages[i].TagID]]
+		if ok && gd.ShedID != nil && pens[penKey(*gd.ShedID, gd.PartitionLabel)] && f.livePages[i].RiskEvaluatedAt != nil {
+			f.livePages[i].RiskEvaluatedAt = nil
+			queued++
+		}
+	}
+	return true, queued, nil
+}
+
+// ClassifyRiskBatch mirrors the Postgres queue/aging selection and write.
+func (f *fakeRepo) ClassifyRiskBatch(ctx context.Context, _ string, mode ports.RiskBatchMode, limit int, classify func(context.Context, []domain.TagLatest) ([]ports.TagRisk, error)) (ports.RiskBatchResult, error) {
+	f.mu.Lock()
+	now := time.Now()
+	var picked []domain.TagLatest
+	for _, t := range f.livePages {
+		if len(picked) >= limit {
+			break
+		}
+		queue := t.RiskEvaluatedAt == nil || t.LastSeenAt.After(t.RiskEvaluatedAt.Add(5*time.Minute))
+		aged := t.RiskEvaluatedAt != nil && now.Sub(*t.RiskEvaluatedAt) > time.Hour
+		if (mode == ports.RiskBatchQueue && queue) || (mode == ports.RiskBatchAging && aged) {
+			picked = append(picked, t)
+		}
+	}
+	f.batchCalls++
+	f.mu.Unlock()
+	res := ports.RiskBatchResult{Locked: true}
+	if len(picked) == 0 {
+		return res, nil
+	}
+	rows, err := classify(ctx, picked)
+	if err != nil {
+		return res, err
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	byTag := map[string]ports.TagRisk{}
@@ -153,13 +219,22 @@ func (f *fakeRepo) UpdateTagRisk(_ context.Context, _ string, rows []ports.TagRi
 		f.riskWrites = append(f.riskWrites, r)
 	}
 	for i := range f.livePages {
-		if r, ok := byTag[f.livePages[i].TagID]; ok {
-			f.livePages[i].RiskState, f.livePages[i].RiskReasons = r.State, r.Reasons
-			evaluated := at
-			f.livePages[i].RiskEvaluatedAt = &evaluated
+		r, ok := byTag[f.livePages[i].TagID]
+		if !ok {
+			continue
 		}
+		t := &f.livePages[i]
+		res.Processed++
+		if t.RiskEvaluatedAt == nil || fmt.Sprint(t.RiskState) != fmt.Sprint(r.State) {
+			res.Changed++
+		}
+		score := int16(r.Score)
+		evaluated := now.Add(time.Millisecond)
+		t.RiskState, t.RiskReasons, t.RiskScore = r.State, r.Reasons, &score
+		t.RiskOwnMotionDeltaPct, t.RiskGroupMotionDeltaPct, t.RiskGroupTempDeltaC = r.OwnMotionPct, r.GroupMotionPct, r.GroupTempDeltaC
+		t.RiskEvaluatedAt = &evaluated
 	}
-	return len(rows), nil
+	return res, nil
 }
 
 func (f *fakeRepo) LiveSummary(_ context.Context, _ string, _, _, _, _, riskState, _ *string) (domain.Summary, error) {
@@ -238,7 +313,7 @@ func (f *fakeRepo) ListLivePenMedians(_ context.Context, _ string, _, _, liveSta
 		if !ok || gd.ShedID == nil || *gd.ShedID == "" {
 			continue
 		}
-		pen := *gd.ShedID
+		pen := penKey(*gd.ShedID, gd.PartitionLabel)
 		pens[pen] = struct{}{}
 		if tag.MotionDelta != nil && !tag.GapDelta {
 			motions[pen] = append(motions[pen], float64(*tag.MotionDelta))
@@ -575,6 +650,10 @@ func TestListLiveMovementFilterUsesWholePenForGroupComparisons(t *testing.T) {
 		},
 	}
 	svc := NewService(repo)
+	// The pen-group deltas are the persisted classifier's (one source with risk state).
+	if _, err := svc.RecomputeRisk(context.Background(), "tenant-1"); err != nil {
+		t.Fatalf("RecomputeRisk: %v", err)
+	}
 	actor := domain.Actor{TenantID: "tenant-1", UserID: "user-1"}
 	movement := "moving"
 	sort := domain.LiveSort{Key: "smart_tag", Dir: "asc"}

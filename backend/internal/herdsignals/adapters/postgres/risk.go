@@ -5,63 +5,173 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
+	"github.com/vgoats/goatos/backend/internal/herdsignals/domain"
 	"github.com/vgoats/goatos/backend/internal/herdsignals/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 )
 
-// riskClassifierLockKey is the pg advisory lock that keeps one risk classifier run per cluster.
-const riskClassifierLockKey int64 = 0x4853_5249_534b // "HSRISK"
+// riskClassifierLockClass is the first key of the per-tenant classifier advisory xact lock
+// (the second is hashtext(tenant_id)). Transaction-scoped: it can never outlive its batch or
+// be returned to the pool held.
+const riskClassifierLockClass int32 = 0x48535249 // "HSRI"
 
-// updateTagRiskSQL writes one classifier batch set-based and only where the classification
-// changed, so an unchanged herd costs no row versions and no NOTIFY.
-const updateTagRiskSQL = `
+const riskTryLockSQL = `SELECT pg_try_advisory_xact_lock($1::int4, hashtext($2::text))`
+
+// riskMinReevaluation is the minimum interval between two classifications of one tag driven by
+// new packets alone: a live tag reports every few seconds, so without it every tick would
+// re-classify the whole herd. Pen-median moves and staleness still re-queue immediately.
+// Jittered to 2.5-7.5 min so a herd classified together (first pass, pen move) spreads out
+// instead of coming due as one wave every 5 minutes.
+const riskMinReevaluation = "(interval '150 seconds' + random() * interval '300 seconds')"
+
+// riskQueueBatchSQL picks the change-driven work: never classified, queued, or reporting again
+// after risk_due_at (herd_signal_tag_latest_risk_dirty_idx), plus tags that went stale since their last
+// evaluation (their pattern turned 'missing' without any new packet; bounded to the last 3h of
+// last_seen via the (tenant_id, last_seen_at) index).
+var riskQueueBatchSQL = `
+	WITH picked AS (
+		(SELECT tag_id FROM public.herd_signal_tag_latest
+		 WHERE tenant_id = $1 AND (risk_evaluated_at IS NULL OR last_seen_at > risk_due_at)
+		 ORDER BY tag_id LIMIT $2)
+		UNION
+		(SELECT tag_id FROM public.herd_signal_tag_latest
+		 WHERE tenant_id = $1
+		   AND last_seen_at < now() - ` + staleAfterInterval + `
+		   AND last_seen_at > now() - interval '3 hours'
+		   AND risk_evaluated_at < last_seen_at + ` + staleAfterInterval + `
+		 LIMIT $2)
+	)
+	SELECT ` + tagLatestColumns + `
+	FROM public.herd_signal_tag_latest tl
+	WHERE tl.tenant_id = $1 AND tl.tag_id IN (SELECT tag_id FROM picked)
+	ORDER BY tl.tag_id
+	LIMIT $2
+	FOR UPDATE OF tl SKIP LOCKED
+`
+
+// riskAgingBatchSQL is the hourly backstop: the oldest evaluations older than an hour
+// (herd_signal_tag_latest_risk_evaluated_idx), catching slow drifts such as the 24h baseline.
+var riskAgingBatchSQL = `
+	SELECT ` + tagLatestColumns + `
+	FROM public.herd_signal_tag_latest tl
+	WHERE tl.tenant_id = $1 AND tl.risk_evaluated_at IS NOT NULL
+	  AND tl.risk_evaluated_at < now() - interval '1 hour'
+	ORDER BY tl.risk_evaluated_at
+	LIMIT $2
+	FOR UPDATE OF tl SKIP LOCKED
+`
+
+// writeTagRiskSQL writes a whole batch set-based. risk_evaluated_at is set on EVERY evaluated
+// row (so it leaves the queue); changed reports whether the visible classification moved.
+// risk_evaluated_at = the transaction's start (now()): a packet that lands after the batch was
+// read waits on the row lock and then advances last_seen_at past it, re-queueing the tag.
+var writeTagRiskSQL = `
 	UPDATE public.herd_signal_tag_latest tl
 	SET risk_state = u.risk_state,
 	    risk_score = u.risk_score,
 	    risk_reasons = COALESCE(string_to_array(NULLIF(u.risk_reasons, ''), '|'), '{}'),
-	    risk_evaluated_at = $2
-	FROM unnest($3::text[], $4::text[], $5::int[], $6::text[]) AS u(tag_id, risk_state, risk_score, risk_reasons)
+	    risk_own_motion_delta_pct = u.own_pct,
+	    risk_group_motion_delta_pct = u.group_pct,
+	    risk_group_temp_delta_c = u.temp_delta,
+	    risk_evaluated_at = now(),
+	    risk_due_at = now() + ` + riskMinReevaluation + `
+	FROM unnest($2::text[], $3::text[], $4::int[], $5::text[], $6::float8[], $7::float8[], $8::float8[])
+	       AS u(tag_id, risk_state, risk_score, risk_reasons, own_pct, group_pct, temp_delta)
+	JOIN public.herd_signal_tag_latest prev ON prev.tenant_id = $1 AND prev.tag_id = u.tag_id
 	WHERE tl.tenant_id = $1 AND tl.tag_id = u.tag_id
-	  AND (tl.risk_evaluated_at IS NULL
-	       OR tl.risk_state IS DISTINCT FROM u.risk_state
-	       OR tl.risk_score IS DISTINCT FROM u.risk_score::smallint
-	       OR tl.risk_reasons IS DISTINCT FROM COALESCE(string_to_array(NULLIF(u.risk_reasons, ''), '|'), '{}'))
+	RETURNING (prev.risk_evaluated_at IS NULL
+	        OR prev.risk_state IS DISTINCT FROM u.risk_state
+	        OR prev.risk_reasons IS DISTINCT FROM COALESCE(string_to_array(NULLIF(u.risk_reasons, ''), '|'), '{}'))
 `
 
-func (r *Repository) UpdateTagRisk(ctx context.Context, tenantID string, rows []ports.TagRisk, evaluatedAt time.Time) (int, error) {
-	if len(rows) == 0 {
-		return 0, nil
+func (r *Repository) tryTenantRiskLock(ctx context.Context, tx pgx.Tx, tenantID string) (bool, error) {
+	var got bool
+	q := sqlbind.MustBind(riskTryLockSQL, riskClassifierLockClass, tenantID)
+	err := tx.QueryRow(ctx, q.SQL(), q.Args()...).Scan(&got)
+	return got, err
+}
+
+func (r *Repository) ClassifyRiskBatch(ctx context.Context, tenantID string, mode ports.RiskBatchMode, limit int, classify func(ctx context.Context, tags []domain.TagLatest) ([]ports.TagRisk, error)) (ports.RiskBatchResult, error) {
+	var res ports.RiskBatchResult
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return res, fmt.Errorf("begin risk batch: %w", err)
 	}
-	tagIDs := make([]string, len(rows))
-	states := make([]*string, len(rows))
-	scores := make([]int32, len(rows))
-	reasons := make([]string, len(rows))
-	for i, row := range rows {
-		tagIDs[i], states[i], scores[i] = row.TagID, row.State, int32(row.Score)
-		for j, reason := range row.Reasons {
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op once committed
+	if res.Locked, err = r.tryTenantRiskLock(ctx, tx, tenantID); err != nil || !res.Locked {
+		return res, err
+	}
+	pick := riskQueueBatchSQL
+	if mode == ports.RiskBatchAging {
+		pick = riskAgingBatchSQL
+	}
+	q := sqlbind.MustBind(pick, tenantID, limit)
+	rows, err := tx.Query(ctx, q.SQL(), q.Args()...)
+	if err != nil {
+		return res, fmt.Errorf("pick risk batch: %w", err)
+	}
+	tags := make([]domain.TagLatest, 0, limit)
+	for rows.Next() {
+		tag, err := scanTagLatest(rows)
+		if err != nil {
+			rows.Close()
+			return res, err
+		}
+		tags = append(tags, tag)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return res, err
+	}
+	if len(tags) == 0 {
+		return res, tx.Commit(ctx)
+	}
+	risks, err := classify(ctx, tags)
+	if err != nil {
+		return res, err
+	}
+	n := len(risks)
+	tagIDs, states, reasons := make([]string, n), make([]*string, n), make([]string, n)
+	scores := make([]int32, n)
+	own, group, temp := make([]*float64, n), make([]*float64, n), make([]*float64, n)
+	for i, rk := range risks {
+		tagIDs[i], states[i], scores[i] = rk.TagID, rk.State, int32(rk.Score)
+		own[i], group[i], temp[i] = rk.OwnMotionPct, rk.GroupMotionPct, rk.GroupTempDeltaC
+		for j, reason := range rk.Reasons {
 			if j > 0 {
 				reasons[i] += "|"
 			}
 			reasons[i] += reason
 		}
 	}
-	tx, err := r.db.Begin(ctx)
+	w := sqlbind.MustBind(writeTagRiskSQL, tenantID, tagIDs, states, scores, reasons, own, group, temp)
+	wrows, err := tx.Query(ctx, w.SQL(), w.Args()...)
 	if err != nil {
-		return 0, fmt.Errorf("begin risk tx: %w", err)
+		return res, fmt.Errorf("write risk batch: %w", err)
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck // no-op once committed
-	q := sqlbind.MustBind(updateTagRiskSQL, tenantID, evaluatedAt, tagIDs, states, scores, reasons)
-	tag, err := tx.Exec(ctx, q.SQL(), q.Args()...)
-	if err != nil {
-		return 0, fmt.Errorf("update tag risk: %w", err)
-	}
-	changed := int(tag.RowsAffected())
-	if changed > 0 {
-		if err := notifyLiveUpdateTx(ctx, tx, tenantID); err != nil {
-			return 0, err
+	for wrows.Next() {
+		var changed bool
+		if err := wrows.Scan(&changed); err != nil {
+			wrows.Close()
+			return res, err
+		}
+		res.Processed++
+		if changed {
+			res.Changed++
 		}
 	}
-	return changed, tx.Commit(ctx)
+	wrows.Close()
+	if err := wrows.Err(); err != nil {
+		return res, err
+	}
+	if res.Changed > 0 {
+		if err := notifyLiveUpdateTx(ctx, tx, tenantID); err != nil {
+			return res, err
+		}
+	}
+	return res, tx.Commit(ctx)
 }
 
 const listRiskTenantsSQL = `
@@ -88,76 +198,81 @@ func (r *Repository) ListRiskTenants(ctx context.Context) ([]string, error) {
 	return out, rows.Err()
 }
 
-// WithRiskClassifierLock holds a session advisory lock on one dedicated pool connection for the
-// duration of fn (fn itself uses the pool normally).
-func (r *Repository) WithRiskClassifierLock(ctx context.Context, fn func(ctx context.Context) error) (bool, error) {
-	conn, err := r.db.Acquire(ctx)
-	if err != nil {
-		return false, err
-	}
-	defer conn.Release()
-	var got bool
-	q := sqlbind.MustBind(`SELECT pg_try_advisory_lock($1)`, riskClassifierLockKey)
-	if err := conn.QueryRow(ctx, q.SQL(), q.Args()...).Scan(&got); err != nil {
-		return false, err
-	}
-	if !got {
-		return false, nil
-	}
-	defer func() {
-		uctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		u := sqlbind.MustBind(`SELECT pg_advisory_unlock($1)`, riskClassifierLockKey)
-		_, _ = conn.Exec(uctx, u.SQL(), u.Args()...)
-	}()
-	return true, fn(ctx)
-}
-
+// Pen medians are keyed shed_id#partition_key (oploc.OperationalLocation.Key()); the SQL
+// splits the key back into its two stored columns.
 const upsertPenMediansSQL = `
-	INSERT INTO public.herd_signal_pen_medians (tenant_id, shed_id, motion_median, temp_median, computed_at)
-	SELECT $1, u.shed_id, u.motion_median, u.temp_median, $2
-	FROM unnest($3::uuid[], $4::float8[], $5::float8[]) AS u(shed_id, motion_median, temp_median)
-	ON CONFLICT (tenant_id, shed_id) DO UPDATE
+	INSERT INTO public.herd_signal_pen_medians (tenant_id, shed_id, partition_key, motion_median, temp_median, computed_at)
+	SELECT $1, split_part(u.pen, '#', 1)::uuid, split_part(u.pen, '#', 2), u.motion_median, u.temp_median, $2
+	FROM unnest($3::text[], $4::float8[], $5::float8[]) AS u(pen, motion_median, temp_median)
+	ON CONFLICT (tenant_id, shed_id, partition_key) DO UPDATE
 	SET motion_median = EXCLUDED.motion_median, temp_median = EXCLUDED.temp_median, computed_at = EXCLUDED.computed_at
 `
 
-const deleteVanishedPenMediansSQL = `
+const deletePenMediansSQL = `
 	DELETE FROM public.herd_signal_pen_medians
-	WHERE tenant_id = $1 AND NOT (shed_id = ANY($2::uuid[]))
+	WHERE tenant_id = $1 AND (shed_id::text || '#' || partition_key) = ANY($2::text[])
 `
 
-// ReplacePenMedians upserts this pass's pen medians and deletes only pens no longer present.
-func (r *Repository) ReplacePenMedians(ctx context.Context, tenantID string, medians map[string]ports.PenMedians, computedAt time.Time) error {
-	pens := make([]string, 0, len(medians))
-	motions := make([]*float64, 0, len(medians))
-	temps := make([]*float64, 0, len(medians))
-	for pen, m := range medians {
-		pens, motions, temps = append(pens, pen), append(motions, m.MotionMedian), append(temps, m.TempMedian)
+// queuePenTagsSQL re-queues every tag whose mapped animal is in one of the moved/vanished pens
+// (same tag-id-first location join and partition key the medians use).
+var queuePenTagsSQL = `
+	UPDATE public.herd_signal_tag_latest q
+	SET risk_evaluated_at = NULL
+	WHERE q.tenant_id = $1 AND q.risk_evaluated_at IS NOT NULL
+	  AND q.tag_id IN (
+		SELECT tl.tag_id FROM public.herd_signal_tag_latest tl
+		` + tagLocationJoin + penPartitionJoin + `
+		WHERE tl.tenant_id = $1 AND (g.shed_id::text || '#' || ` + penPartitionKeyExpr + `) = ANY($2::text[])
+	  )
+`
+
+func (r *Repository) ApplyPenMedians(ctx context.Context, tenantID string, moved map[string]ports.PenMedians, vanished []string, computedAt time.Time) (bool, int, error) {
+	if len(moved) == 0 && len(vanished) == 0 {
+		return true, 0, nil
 	}
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
-		return err
+		return false, 0, err
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck // no-op once committed
-	up := sqlbind.MustBind(upsertPenMediansSQL, tenantID, computedAt, pens, motions, temps)
-	if _, err := tx.Exec(ctx, up.SQL(), up.Args()...); err != nil {
-		return fmt.Errorf("upsert pen medians: %w", err)
+	locked, err := r.tryTenantRiskLock(ctx, tx, tenantID)
+	if err != nil || !locked {
+		return false, 0, err
 	}
-	del := sqlbind.MustBind(deleteVanishedPenMediansSQL, tenantID, pens)
-	if _, err := tx.Exec(ctx, del.SQL(), del.Args()...); err != nil {
-		return fmt.Errorf("delete vanished pen medians: %w", err)
+	pens := make([]string, 0, len(moved))
+	motions := make([]*float64, 0, len(moved))
+	temps := make([]*float64, 0, len(moved))
+	for pen, m := range moved {
+		pens, motions, temps = append(pens, pen), append(motions, m.MotionMedian), append(temps, m.TempMedian)
 	}
-	return tx.Commit(ctx)
+	if len(pens) > 0 {
+		up := sqlbind.MustBind(upsertPenMediansSQL, tenantID, computedAt, pens, motions, temps)
+		if _, err := tx.Exec(ctx, up.SQL(), up.Args()...); err != nil {
+			return true, 0, fmt.Errorf("upsert pen medians: %w", err)
+		}
+	}
+	if len(vanished) > 0 {
+		del := sqlbind.MustBind(deletePenMediansSQL, tenantID, vanished)
+		if _, err := tx.Exec(ctx, del.SQL(), del.Args()...); err != nil {
+			return true, 0, fmt.Errorf("delete vanished pen medians: %w", err)
+		}
+	}
+	queue := sqlbind.MustBind(queuePenTagsSQL, tenantID, append(append([]string{}, pens...), vanished...))
+	tag, err := tx.Exec(ctx, queue.SQL(), queue.Args()...)
+	if err != nil {
+		return true, 0, fmt.Errorf("queue pen tags: %w", err)
+	}
+	return true, int(tag.RowsAffected()), tx.Commit(ctx)
 }
 
 const loadPenMediansSQL = `
-	SELECT shed_id::text, motion_median, temp_median
+	SELECT shed_id::text || '#' || partition_key, motion_median, temp_median
 	FROM public.herd_signal_pen_medians
 	WHERE tenant_id = $1
 `
 
 // LoadPenMedians reads the classifier's persisted pen medians; found=false when the classifier
-// has not run for this tenant yet.
+// has not stored any for this tenant yet.
 func (r *Repository) LoadPenMedians(ctx context.Context, tenantID string) (map[string]ports.PenMedians, bool, error) {
 	q := sqlbind.MustBind(loadPenMediansSQL, tenantID)
 	rows, err := r.db.Query(ctx, q.SQL(), q.Args()...)

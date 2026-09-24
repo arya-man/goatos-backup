@@ -1,39 +1,62 @@
-package postgres
+package app
 
 import (
-	"bytes"
 	"context"
-	"encoding/csv"
 	"fmt"
 	"testing"
 
-	herdapp "github.com/vgoats/goatos/backend/internal/herdsignals/app"
+	herdpg "github.com/vgoats/goatos/backend/internal/herdsignals/adapters/postgres"
 	"github.com/vgoats/goatos/backend/internal/herdsignals/domain"
+	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 )
 
-// F5 equivalence proof: the persisted classification written by RecomputeRisk must equal the
-// retired per-request in-memory classification (whole-cohort enrichment + applyRiskSignals with
-// cohort pen medians), which still backs the CSV export's risk filter, tag for tag and state
-// for state, over a varied herd: mapped/unmapped, several pens, own-baseline windows inside and
+const (
+	eqTenant = "45000000-0000-4000-8000-000000000001"
+	eqPark   = "45000000-0000-4000-8000-000000003001"
+	eqParty  = "45000000-0000-4000-8000-000000001001"
+)
+
+// Equivalence proof: the persisted classification written by the change-driven classifier must
+// equal the retired per-request in-memory classification (whole-cohort enrichment +
+// applyRiskSignals with cohort pen medians; kept as classifyCohortInMemory in
+// risk_reference_test.go), tag for tag, state for state, score and deltas, over a varied herd: mapped/unmapped, several pens, own-baseline windows inside and
 // before the monitoring boundary, reconnect gaps, stale tags, sensor faults, temperature
 // outliers, and patterns.
 func TestPersistedRiskMatchesInMemoryClassification(t *testing.T) {
 	ctx := context.Background()
-	repo, pool := setupHerdSignalsDB(t, ctx)
+	pgtest.SkipIfNoDocker(t)
+	pool := pgtest.StartPostgres(t, ctx)
+	repo := herdpg.NewRepository(pool)
+	for _, q := range []string{
+		`INSERT INTO tenants (tenant_id, name, status) VALUES ('` + eqTenant + `', 'Risk Eq', 'active')`,
+		`INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status) VALUES ('` + eqPark + `', '` + eqTenant + `', 'park', 'EQP', 'Eq Park', 'active')`,
+		`INSERT INTO parties (party_id, party_type, display_name, status) VALUES ('` + eqParty + `', 'org', 'Eq Custodian', 'active')`,
+	} {
+		if _, err := pool.Exec(ctx, q); err != nil {
+			t.Fatalf("base seed: %v", err)
+		}
+	}
 	const n, pens = 1500, 12
 	stmts := []string{
 		fmt.Sprintf(`INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
 		 SELECT ('46000000-0000-4000-8000-' || lpad(p::text, 12, '0'))::uuid, '%s', 'shed', 'EQ' || p, 'Eq Pen ' || p, '%s', 'active'
-		 FROM generate_series(1, %d) p`, hsiTenant, hsiPark, pens),
+		 FROM generate_series(1, %d) p`, eqTenant, eqPark, pens),
 		fmt.Sprintf(`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, current_location_id, park_id, shed_id, breed, sex)
 		 SELECT ('47000000-0000-4000-8000-' || lpad(g::text, 12, '0'))::uuid, '%s', 'alive', 'goat', '%s',
 		        ('46000000-0000-4000-8000-' || lpad((g %% %d + 1)::text, 12, '0'))::uuid, '%s',
 		        ('46000000-0000-4000-8000-' || lpad((g %% %d + 1)::text, 12, '0'))::uuid, 'Boer', 'female'
-		 FROM generate_series(0, %d) g`, hsiTenant, hsiParty, pens, hsiPark, pens, n-1),
+		 FROM generate_series(0, %d) g`, eqTenant, eqParty, pens, eqPark, pens, n-1),
+		// Pens: in even-numbered sheds animals live in Part 1 / Part 2 (divided sheds); odd sheds are
+		// undivided, with a mix of 'whole' rows and no partition row.
+		fmt.Sprintf(`INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
+		 SELECT '%s', ('47000000-0000-4000-8000-' || lpad(g::text, 12, '0'))::uuid,
+		        ('46000000-0000-4000-8000-' || lpad((g %% %d + 1)::text, 12, '0'))::uuid,
+		        CASE WHEN (g %% %d + 1) %% 2 = 0 THEN 'Part ' || (g / %d %% 2 + 1) ELSE 'whole' END, 'fixture'
+		 FROM generate_series(0, %d) g WHERE (g %% %d + 1) %% 2 = 0 OR g %% 3 = 0`, eqTenant, pens, pens, pens, n-1, pens),
 		// every 10th tag stays unmapped (no identifier)
 		fmt.Sprintf(`INSERT INTO goat_identifiers (tenant_id, goat_id, identifier_type, identifier_value, normalized_value, scope_key, is_primary_for_goat, status, valid_from, normalizer_version, smart_tag_capable)
 		 SELECT '%s', ('47000000-0000-4000-8000-' || lpad(g::text, 12, '0'))::uuid, 'animal_identifier_1', 'EQ' || lpad(g::text, 6, '0'), 'EQ' || lpad(g::text, 6, '0'), 'global', true, 'active', now(), 'test_v1', true
-		 FROM generate_series(0, %d) g WHERE g %% 10 <> 0`, hsiTenant, n-1),
+		 FROM generate_series(0, %d) g WHERE g %% 10 <> 0`, eqTenant, n-1),
 		fmt.Sprintf(`INSERT INTO herd_signal_tag_latest (tenant_id, tag_id, gateway_id, last_seen_at, signal_state, battery_state, tag_temperature_c,
 		   motion_count, motion_delta, motion_window_seconds, movement_state, pattern_state, mapping_state, gap_delta,
 		   temperature_sensor_ok, accelerometer_sensor_ok, animal_monitoring_since)
@@ -48,13 +71,13 @@ func TestPersistedRiskMatchesInMemoryClassification(t *testing.T) {
 		        g %% 13 = 0,
 		        CASE WHEN g %% 17 = 0 THEN false ELSE true END, CASE WHEN g %% 29 = 0 THEN false END,
 		        CASE WHEN g %% 10 = 0 THEN NULL ELSE now() - interval '20 hours' END
-		 FROM generate_series(0, %d) g`, hsiTenant, n-1),
+		 FROM generate_series(0, %d) g`, eqTenant, n-1),
 		// 24h of 300s-tier windows; the oldest four hours fall before the monitoring boundary.
 		fmt.Sprintf(`INSERT INTO herd_signal_activity_windows (tenant_id, tag_id, bucket_start, bucket_seconds, motion_delta, packet_count, gap_delta, first_seen_at, last_seen_at)
 		 SELECT '%s', 'EQ' || lpad(g::text, 6, '0'), date_trunc('hour', now()) - h * interval '1 hour', 300,
 		        ((g * 3 + h * 5) %% 60), CASE WHEN (g + h) %% 31 = 0 THEN 0 ELSE 6 END, (g + h) %% 37 = 0,
 		        date_trunc('hour', now()) - h * interval '1 hour', date_trunc('hour', now()) - h * interval '1 hour' + interval '4 minutes'
-		 FROM generate_series(0, %d) g, generate_series(0, 23) h`, hsiTenant, n-1),
+		 FROM generate_series(0, %d) g, generate_series(0, 23) h`, eqTenant, n-1),
 	}
 	for _, s := range stmts {
 		if _, err := pool.Exec(ctx, s); err != nil {
@@ -62,12 +85,12 @@ func TestPersistedRiskMatchesInMemoryClassification(t *testing.T) {
 		}
 	}
 
-	svc := herdapp.NewService(repo)
-	if _, err := svc.RecomputeRisk(ctx, hsiTenant); err != nil {
+	svc := NewService(repo)
+	if _, err := svc.RecomputeRisk(ctx, eqTenant); err != nil {
 		t.Fatalf("RecomputeRisk: %v", err)
 	}
-	stored, found, err := repo.LoadPenMedians(ctx, hsiTenant)
-	live, err2 := repo.ListLivePenMedians(ctx, hsiTenant, nil, nil, nil, nil, nil, nil)
+	stored, found, err := repo.LoadPenMedians(ctx, eqTenant)
+	live, err2 := repo.ListLivePenMedians(ctx, eqTenant, nil, nil, nil, nil, nil, nil)
 	if err != nil || err2 != nil || !found || len(stored) != len(live) {
 		t.Fatalf("persisted pen medians %d (found %v, err %v) vs live %d (err %v)", len(stored), found, err, len(live), err2)
 	}
@@ -77,10 +100,15 @@ func TestPersistedRiskMatchesInMemoryClassification(t *testing.T) {
 			t.Fatalf("pen %s persisted %v/%v, live %v/%v", pen, deref(p.MotionMedian), deref(p.TempMedian), deref(m.MotionMedian), deref(m.TempMedian))
 		}
 	}
+	if len(stored) <= pens {
+		t.Fatalf("pen groups = %d, want more than the %d sheds (divided sheds split into parts)", len(stored), pens)
+	}
+	t.Logf("pen groups: %d over %d sheds", len(stored), pens)
 	persisted := map[string]string{}
+	persistedRows := map[string]domain.TagLatest{}
 	cursor := ""
 	for {
-		tags, next, err := repo.ListTagsLatestKeyset(ctx, hsiTenant, nil, nil, nil, nil, nil, nil, nil, nil, cursor, 500, domain.LiveSort{Key: "smart_tag", Dir: "asc"})
+		tags, next, err := repo.ListTagsLatestKeyset(ctx, eqTenant, nil, nil, nil, nil, nil, nil, nil, nil, cursor, 500, domain.LiveSort{Key: "smart_tag", Dir: "asc"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -88,6 +116,7 @@ func TestPersistedRiskMatchesInMemoryClassification(t *testing.T) {
 			if tag.RiskEvaluatedAt == nil {
 				t.Fatalf("tag %s never evaluated", tag.TagID)
 			}
+			persistedRows[tag.TagID] = tag
 			if tag.RiskState != nil {
 				persisted[tag.TagID] = *tag.RiskState
 			}
@@ -98,21 +127,29 @@ func TestPersistedRiskMatchesInMemoryClassification(t *testing.T) {
 		cursor = *next
 	}
 
-	// The old in-memory classification, per state, via the export's retained cohort path.
-	actor := domain.Actor{TenantID: hsiTenant, UserID: "10000000-0000-4000-8000-000000000001"}
+	// The retired in-memory classification of the same herd.
+	ref, err := svc.classifyCohortInMemory(ctx, eqTenant)
+	if err != nil {
+		t.Fatal(err)
+	}
 	inMemory := map[string]string{}
-	for _, state := range []string{"low", "watch", "high"} {
-		var buf bytes.Buffer
-		st := state
-		if err := svc.ExportCSV(ctx, actor, nil, nil, nil, nil, nil, nil, &st, nil, domain.LiveSort{}, &buf); err != nil {
-			t.Fatalf("export %s: %v", state, err)
+	refByTag := map[string]domain.LiveItem{}
+	for _, it := range ref {
+		refByTag[it.TagID] = it
+		if it.RiskState != nil {
+			inMemory[it.TagID] = *it.RiskState
 		}
-		recs, err := csv.NewReader(&buf).ReadAll()
-		if err != nil {
-			t.Fatal(err)
+	}
+	for tag, pt := range persistedRows {
+		it := refByTag[tag]
+		if fmt.Sprint(deref(pt.RiskOwnMotionDeltaPct), deref(pt.RiskGroupMotionDeltaPct), deref(pt.RiskGroupTempDeltaC), fmt.Sprint(pt.RiskReasons)) !=
+			fmt.Sprint(deref(it.OwnMotionDeltaPct), deref(it.GroupMotionDeltaPct), deref(it.GroupTempDeltaC), fmt.Sprint(it.RiskReasons)) {
+			t.Errorf("tag %s: persisted deltas/reasons %v/%v/%v/%v, in-memory %v/%v/%v/%v", tag,
+				deref(pt.RiskOwnMotionDeltaPct), deref(pt.RiskGroupMotionDeltaPct), deref(pt.RiskGroupTempDeltaC), pt.RiskReasons,
+				deref(it.OwnMotionDeltaPct), deref(it.GroupMotionDeltaPct), deref(it.GroupTempDeltaC), it.RiskReasons)
 		}
-		for _, rec := range recs[1:] {
-			inMemory[rec[1]] = state
+		if pt.RiskScore == nil || int(*pt.RiskScore) != it.RiskScore {
+			t.Errorf("tag %s: persisted score %v, in-memory %d", tag, pt.RiskScore, it.RiskScore)
 		}
 	}
 	counts := map[string]int{}
@@ -133,7 +170,7 @@ func TestPersistedRiskMatchesInMemoryClassification(t *testing.T) {
 	t.Logf("equivalent over %d tags: %v (attention %d)", n, counts, len(persisted))
 
 	// Idempotent: a second pass over an unchanged herd writes nothing.
-	if changed, err := svc.RecomputeRisk(ctx, hsiTenant); err != nil || changed != 0 {
+	if changed, err := svc.RecomputeRisk(ctx, eqTenant); err != nil || changed != 0 {
 		t.Fatalf("second pass changed %d rows (err %v), want 0", changed, err)
 	}
 }

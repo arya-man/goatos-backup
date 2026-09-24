@@ -35,6 +35,11 @@ func manyMappedTags(n int) *fakeRepo {
 func TestListLiveNonRiskEnrichesOnlyRequestedPage(t *testing.T) {
 	repo := manyMappedTags(300)
 	svc := NewService(repo)
+	// The pen-group deltas are the persisted classifier's (one source with risk state).
+	if _, err := svc.RecomputeRisk(context.Background(), "tenant-1"); err != nil {
+		t.Fatalf("RecomputeRisk: %v", err)
+	}
+	repo.listLimits, repo.resolvedValueCnt = nil, 0
 	actor := domain.Actor{TenantID: "tenant-1", UserID: "user-1"}
 	resp, err := svc.ListLive(context.Background(), actor, nil, nil, nil, nil, nil, nil, nil, nil, "", 1, domain.LiveSort{})
 	if err != nil {
