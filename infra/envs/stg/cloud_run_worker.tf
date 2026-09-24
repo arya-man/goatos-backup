@@ -18,11 +18,14 @@ resource "google_cloud_run_v2_service" "kernel_worker" {
   template {
     service_account = google_service_account.runtime["kernel_worker"].email
 
-    # Keep one worker warm and allow a second during rolling deploy or burst.
-    # Stage advisory locks preserve singleton execution while both overlap.
+    # Exactly one worker. It is a cadence scheduler: stage advisory locks already
+    # make a second instance run nothing useful, and it would still hold its own
+    # pool against the db-g1-small connection budget (see the api service).
+    # A rolling deploy briefly overlaps old and new revisions; that transient
+    # extra 8 connections is the only headroom above 45 the budget spends.
     scaling {
       min_instance_count = 1
-      max_instance_count = 2
+      max_instance_count = 1
     }
 
     containers {
@@ -86,6 +89,13 @@ resource "google_cloud_run_v2_service" "kernel_worker" {
       # Postgres connection budget: see the api service (45 <= ~47 usable).
       env {
         name  = "GOATOS_PG_MAX_CONNS"
+        value = "8"
+      }
+
+      # Bound the domain-event consumer's in-flight messages so a Pub/Sub burst
+      # cannot take every one of those 8 connections from the other stages.
+      env {
+        name  = "GOATOS_PUBSUB_MAX_OUTSTANDING"
         value = "4"
       }
 

@@ -59,6 +59,35 @@ type DynamicEmailSource interface {
 // EmailSet.Allows has always behaved, regardless of what the dynamic source
 // holds. When enforced, an email passes if EITHER set contains it; the
 // email-verified requirement applies to both.
+// DynamicEmailSourceErr is a DynamicEmailSource that can tell "not on the list"
+// apart from "the list could not be read".
+type DynamicEmailSourceErr interface {
+	EmailAllowedErr(ctx context.Context, tenantID, normalizedEmail string) (bool, error)
+}
+
+// AllowsWithDynamicErr is AllowsWithDynamic, except that when the dynamic source
+// can report a read failure, that failure is returned instead of a false "not
+// allowed". A nil error with false means a successful lookup found no match.
+func AllowsWithDynamicErr(ctx context.Context, set EmailSet, dynamic DynamicEmailSource, tenantID, email string, verified *bool) (bool, error) {
+	if len(set) == 0 {
+		return true, nil
+	}
+	if verified == nil || !*verified {
+		return false, nil
+	}
+	normalized := NormalizeEmail(email)
+	if _, ok := set[normalized]; ok {
+		return true, nil
+	}
+	if dynamic == nil {
+		return false, nil
+	}
+	if withErr, ok := dynamic.(DynamicEmailSourceErr); ok {
+		return withErr.EmailAllowedErr(ctx, tenantID, normalized)
+	}
+	return dynamic.EmailAllowed(ctx, tenantID, normalized), nil
+}
+
 func AllowsWithDynamic(ctx context.Context, set EmailSet, dynamic DynamicEmailSource, tenantID, email string, verified *bool) bool {
 	if len(set) == 0 {
 		return true

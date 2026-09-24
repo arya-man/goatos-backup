@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
+
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	platformauth "github.com/vgoats/goatos/backend/internal/platform/auth"
 	"github.com/vgoats/goatos/backend/internal/platform/authallow"
@@ -63,13 +65,31 @@ func WithRequestDeadline(d time.Duration) Option {
 // database path timed out or was canceled: the client should retry shortly.
 const authDatabaseBusyRetryAfter = "2"
 
-// databaseUnavailable reports whether err (or the request context) means the
-// database step ran out of time / was canceled -- a transient 503, not a 500.
+// databaseUnavailable reports whether err means the database could not serve
+// the step right now -- a transient 503 with Retry-After, not a 500: context
+// timeout/cancel, a connect failure, a retry-safe or timed-out pgconn error, or
+// a server-side "too many connections" / "shutting down" / connection error.
 func databaseUnavailable(r *http.Request, err error) bool {
-	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) || r.Context().Err() != nil {
 		return true
 	}
-	return r.Context().Err() != nil
+	var connectErr *pgconn.ConnectError
+	if errors.As(err, &connectErr) || pgconn.SafeToRetry(err) || pgconn.Timeout(err) {
+		return true
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		switch {
+		case strings.HasPrefix(pgErr.Code, "53"), // insufficient resources, incl. 53300 too_many_connections
+			strings.HasPrefix(pgErr.Code, "08"),                                 // connection exception
+			pgErr.Code == "57P01", pgErr.Code == "57P02", pgErr.Code == "57P03": // shutdown / cannot connect now
+			return true
+		}
+	}
+	return false
 }
 
 func writeDatabaseBusy(w http.ResponseWriter, r *http.Request) {
@@ -192,13 +212,21 @@ func (h *Handler) RecordSessionEvent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tenantID, tenantSource := tenantFromClaimsOrHeader(claims, r)
-	if !authallow.AllowsWithDynamic(r.Context(), h.allowedEmails, h.dynamicEmails, tenantID, claims.Email, claims.EmailVerified) {
-		if r.Context().Err() != nil {
-			// The dynamic allowlist could not be read in time; that is not a
-			// "not allowed" answer, so do not 403 (or audit a failed sign-in).
-			writeDatabaseBusy(w, r)
-			return
-		}
+	emailAllowed, allowErr := authallow.AllowsWithDynamicErr(r.Context(), h.allowedEmails, h.dynamicEmails, tenantID, claims.Email, claims.EmailVerified)
+	if allowErr != nil || (!emailAllowed && r.Context().Err() != nil) {
+		// The allowlist could not be read (refused connection, too many
+		// connections, timeout). That is not a "not allowed" answer: 503, and
+		// no failed-sign-in audit row for a person who may well be allowed.
+		h.log.WarnContext(r.Context(), "auth_allowlist_unavailable",
+			slog.String("request_id", httpmiddleware.RequestIDFromContext(r.Context())),
+			slog.String("email", authallow.NormalizeEmail(claims.Email)),
+			slog.String("tenant_id", tenantID),
+			slog.Any("error", allowErr),
+		)
+		writeDatabaseBusy(w, r)
+		return
+	}
+	if !emailAllowed {
 		requestedTenantID := strings.TrimSpace(r.Header.Get(httpmiddleware.TenantContextHeader))
 		if !h.allowRateLimited(r, claims, "email_not_allowed|"+tenantID) {
 			writeError(w, r, http.StatusTooManyRequests, "auth_session_rate_limited", "too many auth session events")

@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"sort"
 	"strings"
@@ -87,6 +88,11 @@ WHERE NOT EXISTS (SELECT 1 FROM auth_allowed_emails WHERE tenant_id = $1 AND nor
 		t.Fatalf("seed allowed email: %v", err)
 	}
 
+	return &authPoolHarness{cfg: cfg, mainPool: mainPool, authPool: authPool, handler: sessionHandlerOn(authPool, cfg, log)}
+}
+
+// sessionHandlerOn serves POST /auth/session-events exactly as newAPI wires it.
+func sessionHandlerOn(authPool *pgxpool.Pool, cfg platformpg.Config, log *slog.Logger) http.Handler {
 	emailVerified := true
 	verifier := authPoolStaticVerifier{claims: platformauth.Claims{
 		Subject:       "10000000-0000-4000-8000-0000000000aa",
@@ -102,7 +108,43 @@ WHERE NOT EXISTS (SELECT 1 FROM auth_allowed_emails WHERE tenant_id = $1 AND nor
 		// dynamic (DB) allowlist lookup, as for a person added on /people.
 		authaudit.WithAllowedEmails([]string{"someone-else@mesha.sg"}),
 	}, log))
-	return &authPoolHarness{cfg: cfg, mainPool: mainPool, authPool: authPool, handler: httpmiddleware.RequestContext(log)(mux)}
+	return httpmiddleware.RequestContext(log)(mux)
+}
+
+// Real Postgres answering 53300 (too many connections) to the auth pool -- the
+// cold-instance-at-max_connections case -- must be a 503, not a 403 for an
+// allowlisted person. A role with CONNECTION LIMIT 0 makes the server refuse
+// every auth-pool connection with exactly that SQLSTATE.
+func TestAuthSessionEventsTooManyConnectionsIs503(t *testing.T) {
+	h := newAuthPoolHarness(t)
+	ctx := context.Background()
+	if _, err := h.mainPool.Exec(ctx, `DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authpool_limited') THEN
+    CREATE ROLE authpool_limited LOGIN PASSWORD 'limited' CONNECTION LIMIT 0;
+  END IF; END $$`); err != nil {
+		t.Fatalf("create limited role: %v", err)
+	}
+	u, err := url.Parse(h.cfg.DatabaseURL)
+	if err != nil {
+		t.Fatalf("parse dsn: %v", err)
+	}
+	u.User = url.UserPassword("authpool_limited", "limited")
+	cfg := h.cfg
+	cfg.DatabaseURL = u.String()
+	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	authPool, err := connectAuthPool(ctx, cfg, log)
+	if err != nil {
+		t.Fatalf("auth pool must not fail boot on 53300: %v", err)
+	}
+	defer authPool.Close()
+	h.handler = sessionHandlerOn(authPool, cfg, log)
+
+	for i, r := range h.signIns(3, 3) {
+		t.Logf("53300 auth pool: request %d status=%d retry-after=%q latency=%s", i, r.code, r.retryAfter, r.latency.Round(time.Millisecond))
+		if r.code != http.StatusServiceUnavailable || r.retryAfter == "" {
+			t.Errorf("request %d status=%d, want 503 + Retry-After", i, r.code)
+		}
+	}
 }
 
 // holdConns keeps n goroutines looping pg_sleep on pool until the test ends.
