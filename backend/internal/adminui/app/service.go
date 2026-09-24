@@ -7062,6 +7062,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"filter.date.single":             "Single day",
 			"filter.date.range":              "Date range",
 			"filter.date.aria":               "Choose which day's leftovers the table shows",
+			"variance.date.aria":             "Choose which packing day's bags the table shows",
 			"filter.date.previous_month":     "Previous month",
 			"filter.date.next_month":         "Next month",
 			"filter.date.range_start_hint":   "Pick the first day of the range.",

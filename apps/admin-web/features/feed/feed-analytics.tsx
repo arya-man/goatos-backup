@@ -1416,7 +1416,7 @@ function ExecutionTab({
                 today: fa(pageContract, "filter.date.today"),
                 single: fa(pageContract, "filter.date.single"),
                 range: fa(pageContract, "filter.date.range"),
-                aria: fa(pageContract, "filter.date.aria"),
+                aria: fa(pageContract, "variance.date.aria"),
                 previousMonth: fa(pageContract, "filter.date.previous_month"),
                 nextMonth: fa(pageContract, "filter.date.next_month"),
                 rangeStartHint: fa(pageContract, "filter.date.range_start_hint"),
