@@ -128,7 +128,7 @@ type liveStreamHub struct {
 type liveFeed struct {
 	key       string
 	tenantID  string
-	compute   func(ctx context.Context) []byte
+	compute   func(ctx context.Context) (frame []byte, ok bool)
 	subs      map[chan []byte]struct{}
 	lastRun   time.Time
 	lastFrame []byte
@@ -152,7 +152,7 @@ func newLiveStreamHub(interval time.Duration, log *slog.Logger) *liveStreamHub {
 
 // subscribe joins (or creates) the feed for key. compute is only used when the feed is created;
 // every later viewer of the same key shares it. The returned channel carries complete SSE frames.
-func (h *liveStreamHub) subscribe(tenantID, key string, compute func(ctx context.Context) []byte) (<-chan []byte, func()) {
+func (h *liveStreamHub) subscribe(tenantID, key string, compute func(ctx context.Context) (frame []byte, ok bool)) (<-chan []byte, func()) {
 	ch := make(chan []byte, 1)
 	h.mu.Lock()
 	f := h.feeds[key]
@@ -257,14 +257,18 @@ func (h *liveStreamHub) startLocked(f *liveFeed) {
 func (h *liveStreamHub) runFeed(f *liveFeed) {
 	// Detached from any one viewer's request: the frame is shared by every viewer on the feed.
 	ctx, cancel := context.WithTimeout(domain.WithFreshLiveRead(context.Background()), herdSignalsReadTimeout)
-	frame := f.compute(ctx)
+	frame, ok := f.compute(ctx)
 	cancel()
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	f.running = false
 	if frame != nil && !f.closed {
-		f.lastFrame = frame
+		// Only a successful snapshot is reusable for joining viewers; an error frame is
+		// delivered to current viewers but never replayed.
+		if ok {
+			f.lastFrame = frame
+		}
 		for ch := range f.subs {
 			deliverLatest(ch, frame)
 		}
@@ -507,7 +511,9 @@ func (h *Handler) StreamLive(w http.ResponseWriter, r *http.Request) {
 		return h.service.ListLive(ctx, actor, query.parkID, query.shedID, query.movementState, query.liveState, query.mappingState, query.pattern, query.riskState, query.q, query.cursor, query.limit, query.sort)
 	}
 	writeSnapshot := func() bool {
-		readCtx, cancel := context.WithTimeout(ctx, herdSignalsReadTimeout)
+		// Fresh read: a joining viewer must not be handed a stale-while-revalidate snapshot,
+		// because the refreshed result would never be pushed to it.
+		readCtx, cancel := context.WithTimeout(domain.WithFreshLiveRead(ctx), herdSignalsReadTimeout)
 		defer cancel()
 		resp, err := listSnapshot(readCtx)
 		if err != nil {
@@ -517,13 +523,13 @@ func (h *Handler) StreamLive(w http.ResponseWriter, r *http.Request) {
 		return write("snapshot", resp)
 	}
 	// The shared feed's compute: one read per coalescing window for every viewer of this key.
-	computeFrame := func(ctx context.Context) []byte {
+	computeFrame := func(ctx context.Context) ([]byte, bool) {
 		resp, err := listSnapshot(ctx)
 		if err != nil {
 			h.log.Warn("herd_signals_stream_snapshot_failed", "error", err.Error())
-			return encodeEvent(h.log, "snapshot_error", map[string]interface{}{"code": "snapshot_failed", "message": "failed to list live tags"})
+			return encodeEvent(h.log, "snapshot_error", map[string]interface{}{"code": "snapshot_failed", "message": "failed to list live tags"}), false
 		}
-		return encodeEvent(h.log, "snapshot", resp)
+		return encodeEvent(h.log, "snapshot", resp), true
 	}
 
 	key := actor.TenantID + "\x00" + r.URL.Query().Encode()
