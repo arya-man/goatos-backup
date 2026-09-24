@@ -182,3 +182,17 @@ func TestMetadataIDTokenSourceCachesPerAudience(t *testing.T) {
 		t.Fatalf("calls=%d want 1 (cached)", calls)
 	}
 }
+
+func TestToolListAgentModeOffersOnlyAskGoatOSAndDocs(t *testing.T) {
+	s := &server{cfg: config{AgentURL: "https://agent.example"}}
+	for _, tool := range s.toolList() {
+		name, _ := tool["name"].(string)
+		if name != "ask_goatos" && !strings.Contains(name, "doc") && name != "goatos_mcp_health" {
+			t.Fatalf("agent mode must not offer fixed lookup %q", name)
+		}
+	}
+	legacy := &server{cfg: config{}}
+	if len(legacy.toolList()) <= len(s.toolList()) {
+		t.Fatal("legacy mode must keep the full tool list")
+	}
+}

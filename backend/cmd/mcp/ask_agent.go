@@ -32,12 +32,20 @@ func (s *server) toolList() []map[string]any {
 	if s.cfg.AgentURL == "" {
 		return out
 	}
+	// With the agent on, offer only ask_goatos (plus the docs tools) so Claude always routes
+	// business questions to the agent instead of picking a fixed dashboard lookup.
+	kept := make([]map[string]any, 0, 4)
 	for _, t := range out {
-		if t["name"] == "ask_goatos" {
+		name, _ := t["name"].(string)
+		switch {
+		case name == "ask_goatos":
 			t["description"] = askGoatOSDescription(true)
+			kept = append(kept, t)
+		case strings.Contains(name, "doc") || name == "goatos_mcp_health":
+			kept = append(kept, t)
 		}
 	}
-	return out
+	return kept
 }
 
 type metadataIDTokenSource struct {
