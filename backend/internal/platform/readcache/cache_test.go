@@ -296,6 +296,29 @@ func TestListenerPayloadEvictsScopedAndBadPayloadEvictsAll(t *testing.T) {
 	}
 }
 
+// A payload naming caches evicts ONLY those caches. The vaccination write triggers name the
+// vaccination cache, so a dose record must not throw away the weighing/growth analytics entries,
+// while a payload with no caches (every existing NotifyTx caller) still evicts every cache.
+func TestListenerPayloadNamingCachesEvictsOnlyThoseCaches(t *testing.T) {
+	vacc := New(Options{Name: "vaccination"})
+	analytics := New(Options{Name: "analytics"})
+	for _, c := range []*Cache{vacc, analytics} {
+		Load(context.Background(), c, key("t1", "a"), func(context.Context) (int, error) { return 1, nil })
+	}
+	l := &Listener{caches: []*Cache{vacc, analytics}}
+	l.apply(context.Background(), `{"tenant_id":"t1","caches":["vaccination"]}`)
+	if vacc.Stats().Entries != 0 {
+		t.Fatalf("named cache kept %d entries, want 0", vacc.Stats().Entries)
+	}
+	if analytics.Stats().Entries != 1 {
+		t.Fatalf("unnamed cache kept %d entries, want 1: a vaccination write must not evict analytics", analytics.Stats().Entries)
+	}
+	l.apply(context.Background(), `{"tenant_id":"t1"}`)
+	if analytics.Stats().Entries != 0 {
+		t.Fatal("a payload without caches must keep evicting every cache")
+	}
+}
+
 func waitFor(t *testing.T, cond func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(time.Second)

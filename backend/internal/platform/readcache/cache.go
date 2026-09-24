@@ -169,6 +169,14 @@ func (c *Cache) SetCoherent(v bool) {
 
 func (c *Cache) Coherent() bool { return c != nil && c.coherent.Load() }
 
+// Name is Options.Name; an eviction payload that names caches is matched against it.
+func (c *Cache) Name() string {
+	if c == nil {
+		return ""
+	}
+	return c.opts.Name
+}
+
 // ErrUnexpectedType is returned when a cached value is not the type the caller asked for, which
 // means two reads share a key prefix -- a key bug, never served silently.
 var ErrUnexpectedType = errors.New("readcache: cached value has unexpected type")
