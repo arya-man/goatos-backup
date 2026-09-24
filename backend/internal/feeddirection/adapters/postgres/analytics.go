@@ -1694,38 +1694,21 @@ func (r *Repository) ExperimentAnalytics(ctx context.Context, tenantID string, q
 // small purchase ledger and windowed locked sheets, canonical-indexed-SQL default.
 const feedPurchaseStockKgSQL = `stock_kg`
 
-// FEED SOLD OFF THE STORE (migration 000402). One row per (farm, feed) of kilograms the farm
-// The producer's unique columns are (tenant_id, line_id) and the consumer groups by
-// (farm_label, feed_item_key): the SUM ranges over whole rows and counts each line once, so two
-// sales of one feed ADD UP rather than one overwriting the other. That group key is EXACTLY the
-// one every purchase and consumption CTE below is grouped to, so each balance joins this 1:1.
-// The park narrowing is inherited from the purchase CTE a caller joins this onto -- a sale at a
-// farm whose purchases are filtered out simply finds no row to subtract from.
-//
-// projection-review: membership=feed_sale_depletions at (tenant_id, line_id), one row per sold feed line; group_key=(farm_label, feed_item_key); join_cardinality=no joins inside the CTE, and 1:1 into every balance that uses it; pagination=none, a balance is a whole-ledger aggregate no page can compute; scope=tenant_id plus the park narrowing inherited from the purchase CTE
-//
-// SOLD, grouped to the same (farm_label, feed_item_key) key every purchase and consumption CTE
-// below is grouped to -- so each of the three balances LEFT JOINs it 1:1 and none can fan a row
-// out. A farm's park narrowing is inherited from the purchase CTE it is joined onto: a sale at a
-// farm whose purchases are filtered out simply finds no row to subtract from.
-//
-// IT REDUCES THE BALANCE AND IS NEVER CONSUMPTION, and that distinction is the whole reason it is
-// its own CTE instead of a third arm of the consumption union. A sale is one truck leaving on one
-// day, not the farm's daily draw: folded into the burn rate, a two-tonne sale would read as two
-// tonnes a day eaten, the days-left divisor would jump and every card for that feed would report
-// a store about to run dry. So the rate, the forecast and the expenditure reads deliberately do
-// NOT see these rows -- only the three balances do.
-// It is SELF-CONTAINED -- it names no other CTE -- so the three balance reads that use it can
-// keep their own differently-named purchase CTEs without three variants of this one drifting
-// apart, which is how six spellings of one location display once got into this schema. Every user
-// LEFT JOINs it and COALESCEs, because a feed nobody has sold must keep its balance rather than
-// vanish from the card.
+// Sold feed is grouped at stock-family grain, including sales of a successor
+// whose only purchases are still held under legacy members. Feeding keeps its
+// per-item depletion boundary; sales are subtracted once AFTER those balances fold.
+// projection-review: membership=feed_sale_depletions at (tenant_id,line_id);
+// group_key=(farm_label,family_key); join_cardinality=unique merge_map 1:0..1,
+// grouped sales join grouped stock 1:0..1; pagination=none; scope=tenant plus
+// authorized purchase families on the consuming side.
 const feedSoldCTESQL = `
 sold AS (
-    SELECT farm_label, feed_item_key, SUM(quantity_kg) AS kg
-    FROM feed_sale_depletions
-    WHERE tenant_id = $1
-    GROUP BY farm_label, feed_item_key
+    SELECT s.farm_label, COALESCE(mm.family_key, s.feed_item_key) AS family_key,
+           SUM(s.quantity_kg) AS kg
+    FROM feed_sale_depletions s
+    LEFT JOIN merge_map mm ON mm.member_key = s.feed_item_key
+    WHERE s.tenant_id = $1
+    GROUP BY s.farm_label, COALESCE(mm.family_key, s.feed_item_key)
 )`
 
 const stockItemsSQL = `
@@ -1807,16 +1790,12 @@ item_balance AS (
            b.park_id_text,
            b.latest_batch,
            b.depletes_from,
-           -- projection-review: membership=the sold CTE above, already one row per (farm_label, feed_item_key); group_key=(farm_label, feed_item_key) on all three sides; join_cardinality=1:1 by construction, so the LEFT JOIN can neither fan a row out nor drop an unsold feed; pagination=none, a balance is a whole-ledger aggregate no page can compute; scope=tenant_id plus the park narrowing inherited from the purchase CTE
-           -- Purchased, less what the animals ate, less what the farm sold. All three are already
-           -- one row per (farm_label, feed_item_key), so both joins are 1:1.
-           b.net_kg - d.kg - COALESCE(sd.kg, 0)         AS balance_kg
+           b.net_kg - d.kg         AS balance_kg
     FROM bought b
     JOIN directed d USING (farm_label, feed_item_key)
-    LEFT JOIN sold sd USING (farm_label, feed_item_key)
     LEFT JOIN merge_map mm ON mm.member_key = b.feed_item_key
 ),
-family_stock AS (
+family_stock_before_sales AS (
     -- SUM, not SUM of GREATEST(...,0): a member's negative balance means the
     -- farm fed more than the ledger bought, and in a merged store that feed
     -- physically came out of a sibling sack -- so subtracting it is both the
@@ -1835,6 +1814,12 @@ family_stock AS (
            SUM(balance_kg)   AS balance_kg
     FROM item_balance
     GROUP BY farm_label, family_key
+),
+family_stock AS (
+    SELECT fs.farm_label, fs.family_key, fs.family_label, fs.park_id_text, fs.latest_batch,
+           fs.balance_kg - COALESCE(s.kg, 0) AS balance_kg
+    FROM family_stock_before_sales fs
+    LEFT JOIN sold s USING (farm_label, family_key)
 ),
 family_day AS (
     -- Consumption re-grouped to the FAMILY before the daily average, so two
@@ -2115,23 +2100,24 @@ item_balance AS (
            COALESCE(mm.family_key, b.feed_item_key)     AS family_key,
            COALESCE(mm.family_label, b.feed_item_label) AS family_label,
            b.park_id_text,
-           -- projection-review: membership=the sold CTE above, already one row per (farm_label, feed_item_key); group_key=(farm_label, feed_item_key) on all three sides; join_cardinality=1:1 by construction, so the LEFT JOIN can neither fan a row out nor drop an unsold feed; pagination=none, a balance is a whole-ledger aggregate no page can compute; scope=tenant_id plus the park narrowing inherited from the purchase CTE
-           -- Sold feed is gone from the store, so the alert must see it: a farm that sold its
-           -- maize is as short of maize as one that fed it. It still never touches the RATE below,
-           -- which is what decides how many days the balance lasts.
-           b.net_kg - d.kg - COALESCE(sd.kg, 0)         AS balance_kg
+           b.net_kg - d.kg         AS balance_kg
     FROM bought b
     JOIN directed d USING (farm_label, feed_item_key)
-    LEFT JOIN sold sd USING (farm_label, feed_item_key)
     LEFT JOIN merge_map mm ON mm.member_key = b.feed_item_key
 ),
-family_stock AS (
+family_stock_before_sales AS (
     SELECT farm_label, family_key,
            MAX(family_label) AS family_label,
            MIN(park_id_text) AS park_id_text,
            SUM(balance_kg)   AS balance_kg
     FROM item_balance
     GROUP BY farm_label, family_key
+),
+family_stock AS (
+    SELECT fs.farm_label, fs.family_key, fs.family_label, fs.park_id_text,
+           fs.balance_kg - COALESCE(s.kg, 0) AS balance_kg
+    FROM family_stock_before_sales fs
+    LEFT JOIN sold s USING (farm_label, family_key)
 ),
 family_day AS (
     SELECT f.park_id,
@@ -2449,20 +2435,14 @@ stock_balance AS (
            l.park_id_text,
            l.net_kg,
            l.depletes_from,
-           -- projection-review: membership=the sold CTE above, already one row per (farm_label, feed_item_key); group_key=(farm_label, feed_item_key) on all three sides; join_cardinality=1:1 by construction, so the LEFT JOIN can neither fan a row out nor drop an unsold feed; pagination=none, a balance is a whole-ledger aggregate no page can compute; scope=tenant_id plus the park narrowing inherited from the purchase CTE
-           -- Purchased, less fed, less SOLD (migration 000402). The farm card reports the same
-           -- store the Stock cards do, so the two must subtract the same things.
-           round(l.net_kg - COALESCE(dep.total_directed_kg, 0) - COALESCE(sd.kg, 0), 1) AS ledger_stock_kg
+           round(l.net_kg - COALESCE(dep.total_directed_kg, 0), 1) AS ledger_stock_kg
     FROM loads l
     LEFT JOIN merge_map mm ON mm.member_key = l.feed_item_key
     LEFT JOIN depletion dep
       ON dep.farm_label = l.farm_label
      AND dep.feed_item_key = l.feed_item_key
-    LEFT JOIN sold sd
-      ON sd.farm_label = l.farm_label
-     AND sd.feed_item_key = l.feed_item_key
 ),
-families AS (
+families_before_sales AS (
     -- SUM, not SUM of GREATEST(...,0): a member's negative balance means the
     -- farm fed more than the ledger bought, and in a merged store that feed
     -- physically came out of a sibling sack — so subtracting it is both the
@@ -2475,6 +2455,13 @@ families AS (
            SUM(ledger_stock_kg)  AS ledger_stock_kg
     FROM stock_balance
     GROUP BY farm_label, family_key
+),
+families AS (
+    SELECT f.farm_label, f.family_key, f.family_label, f.park_id_text,
+           f.net_kg, f.depletes_from,
+           f.ledger_stock_kg - COALESCE(s.kg, 0) AS ledger_stock_kg
+    FROM families_before_sales f
+    LEFT JOIN sold s USING (farm_label, family_key)
 ),
 last_load AS (
     -- The family's newest sack, whichever member it is: in a store feeding the

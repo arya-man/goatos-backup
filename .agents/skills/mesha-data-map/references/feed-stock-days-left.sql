@@ -1,18 +1,18 @@
--- Feed stock days left = Feed Analytics > Stock tab (backend/internal/feeddirection/adapters/postgres/analytics.go stockItemsSQL),
--- with today's family merge + CBE concentrate 55 kg/day override inlined. Run as-is (read-only). Verified 24/09/2026.
+-- Feed stock days left: runtime stockItemsSQL with maintained family/rate bindings.
+-- Re-derived 25/09/2026 for family-level sale depletion; no new live-data snapshot claimed.
 
 WITH rate_override AS (
     -- HARD-CODED burn rates (domain.StockRateOverrides). Keyed on (farm, feed);
     -- an empty list is the behaviour without it.
     SELECT o.farm_label, o.feed_item_key, o.kg_per_day::numeric AS kg_per_day
-    FROM unnest(array['CBE'], array['concentrate'], array['55']) AS o(farm_label, feed_item_key, kg_per_day)
+    FROM unnest(array['CBE']::text[], array['concentrate']::text[], array['55']::text[]) AS o(farm_label, feed_item_key, kg_per_day)
 ),
 merge_map AS (
     -- TRANSITIONAL split-concentrate merge (domain.StockFamilyMerge). An EMPTY
     -- mapping leaves every item its own family, reducing this query to the
     -- per-item shape it had before the merge -- which is how it reverts.
     SELECT m.member_key, m.family_key, m.family_label
-    FROM unnest(array['mesha_adult_concentrate_goat','mesha_adult_concentrate_sheep','mesha_kids_goat_concentrate','mesha_kids_sheep_concentrate'], array['mesha_adult_concentrate','mesha_adult_concentrate','mesha_kids_concentrate','mesha_kids_concentrate'], array['Mesha Adult Concentrate','Mesha Adult Concentrate','Mesha Kids Concentrate','Mesha Kids Concentrate']) AS m(member_key, family_key, family_label)
+    FROM unnest(array['mesha_adult_concentrate_goat','mesha_adult_concentrate_sheep','mesha_kids_goat_concentrate','mesha_kids_sheep_concentrate']::text[], array['mesha_adult_concentrate','mesha_adult_concentrate','mesha_kids_concentrate','mesha_kids_concentrate']::text[], array['Mesha Adult Concentrate','Mesha Adult Concentrate','Mesha Kids Concentrate','Mesha Kids Concentrate']::text[]) AS m(member_key, family_key, family_label)
 ),
 bought AS (
     SELECT farm_label, feed_item_key,
@@ -24,7 +24,7 @@ bought AS (
 	FROM feed_purchases
 	WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
 	  AND delivery_status = 'reached'
-	  AND (coalesce(cardinality('{}'::uuid[]), 0) = 0 OR park_id = ANY ('{}'::uuid[]))
+	  AND (coalesce(cardinality('{}'::uuid[]::uuid[]), 0) = 0 OR park_id = ANY ('{}'::uuid[]::uuid[]))
     GROUP BY farm_label, feed_item_key
 ),
 locked_cells AS (
@@ -42,7 +42,7 @@ locked_cells AS (
         JOIN feed_direction_issue_rows r
           ON r.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid AND r.feed_direction_issue_id = i.feed_direction_issue_id
         WHERE i.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
-          AND (coalesce(cardinality('{}'::uuid[]), 0) = 0 OR i.park_id = ANY ('{}'::uuid[]))
+          AND (coalesce(cardinality('{}'::uuid[]::uuid[]), 0) = 0 OR i.park_id = ANY ('{}'::uuid[]::uuid[]))
           AND i.state = 'locked'
           AND r.quantity_kg IS NOT NULL
         GROUP BY i.park_id, r.feed_item_key, i.feed_day
@@ -51,7 +51,7 @@ locked_cells AS (
         FROM feed_effective_external_consumption x
         WHERE x.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
           AND x.park_id IS NOT NULL
-          AND (coalesce(cardinality('{}'::uuid[]), 0) = 0 OR x.park_id = ANY ('{}'::uuid[]))
+          AND (coalesce(cardinality('{}'::uuid[]::uuid[]), 0) = 0 OR x.park_id = ANY ('{}'::uuid[]::uuid[]))
         GROUP BY x.park_id, x.feed_item_key, x.feed_day
     ) both_sources
     GROUP BY park_id, feed_item_key, feed_day
@@ -66,27 +66,17 @@ directed AS (
      AND lc.feed_day >= b.depletes_from
     GROUP BY b.farm_label, b.feed_item_key
 ),
--- SOLD FEED IS OFF THE STORE (maintainer instruction 2026-09-23). Feed sold to
--- an outside buyer leaves the farm, so it is subtracted from the balance beside
--- what was fed. It is NOT consumption and deliberately never reaches the burn
--- rate below: a truck sale is not a day's feeding, and averaging it in would
--- collapse days-left for every pen. Mirrors `feedSoldCTESQL`.
---
--- projection-review: membership=feed_sale_depletions, one row per CLOSED feed sale line, which
--- is the same set the app's own sold CTE reads; group_key=(farm_label, feed_item_key), the same
--- pair `bought` and `directed` are keyed by and the same pair item_balance joins all three on;
--- join_cardinality=1:0..1 -- sold is GROUPED to one row per key BEFORE the join, so a feed sold
--- on five lines cannot multiply the purchase row it is subtracted from; pagination=none, the
--- whole store is the answer; scope=the tenant literal above, applied inside the CTE.
+
 sold AS (
-    SELECT farm_label, feed_item_key, SUM(quantity_kg) AS kg
-    FROM feed_sale_depletions
-    WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
-    GROUP BY farm_label, feed_item_key
+    SELECT s.farm_label, COALESCE(mm.family_key, s.feed_item_key) AS family_key,
+           SUM(s.quantity_kg) AS kg
+    FROM feed_sale_depletions s
+    LEFT JOIN merge_map mm ON mm.member_key = s.feed_item_key
+    WHERE s.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+    GROUP BY s.farm_label, COALESCE(mm.family_key, s.feed_item_key)
 ),
 -- Each item keeps its OWN ledger arithmetic -- net purchased minus everything
--- directed since ITS depletion date, minus anything sold -- and only the
--- finished balance is folded
+-- directed since ITS depletion date -- and only the finished balance is folded
 -- into the family. Merging the purchases first would have collapsed the members'
 -- differing depletes_from into one MIN and counted consumption that predates a
 -- member's own load.
@@ -97,13 +87,12 @@ item_balance AS (
            b.park_id_text,
            b.latest_batch,
            b.depletes_from,
-           b.net_kg - d.kg - COALESCE(s.kg, 0)          AS balance_kg
+           b.net_kg - d.kg         AS balance_kg
     FROM bought b
     JOIN directed d USING (farm_label, feed_item_key)
-    LEFT JOIN sold s USING (farm_label, feed_item_key)
     LEFT JOIN merge_map mm ON mm.member_key = b.feed_item_key
 ),
-family_stock AS (
+family_stock_before_sales AS (
     -- SUM, not SUM of GREATEST(...,0): a member's negative balance means the
     -- farm fed more than the ledger bought, and in a merged store that feed
     -- physically came out of a sibling sack -- so subtracting it is both the
@@ -122,6 +111,12 @@ family_stock AS (
            SUM(balance_kg)   AS balance_kg
     FROM item_balance
     GROUP BY farm_label, family_key
+),
+family_stock AS (
+    SELECT fs.farm_label, fs.family_key, fs.family_label, fs.park_id_text, fs.latest_batch,
+           fs.balance_kg - COALESCE(s.kg, 0) AS balance_kg
+    FROM family_stock_before_sales fs
+    LEFT JOIN sold s USING (farm_label, family_key)
 ),
 family_day AS (
     -- Consumption re-grouped to the FAMILY before the daily average, so two
