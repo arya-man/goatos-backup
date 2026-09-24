@@ -3480,7 +3480,9 @@ func (r *Repository) GetCountsBreakdown(ctx context.Context, req domain.CountsBr
 	var facetCh chan facetResult
 	if r.facetCache != nil {
 		facetCh = make(chan facetResult, 1)
-		key := readcache.Key{Tenant: req.TenantID, Params: "counts_breakdown_facets|" + lifecycle}
+		// The facets are park-scoped ($5), so the park set is part of the key: without it the first
+		// park read would be served to every other park (the bug main fixed in c0b37abf2).
+		key := readcache.Key{Tenant: req.TenantID, Params: countsBreakdownFacetCacheParams(lifecycle, req.ParkIDs)}
 		go func() {
 			facets, err := readcache.Load(ctx, r.facetCache, key, func(ctx context.Context) (domain.CountsBreakdownFacets, error) {
 				rows, err := r.pool.Query(ctx, boundFacets.SQL(), boundFacets.Args()...)
@@ -3609,16 +3611,6 @@ func (r *Repository) GetCountsBreakdown(ctx context.Context, req domain.CountsBr
 			return domain.CountsBreakdown{}, err
 		}
 	}
-	// The Farm dropdown lists parks by CODE (CBE, then CPT -- maintainer decision 2026-09-16), the
-	// same order as the park pickers and the other Counts pages. The facet query's shared ORDER BY
-	// ranks every dimension by its key, which for a park is its uuid, so the order here was an
-	// accident of the ids rather than the rule.
-	sort.SliceStable(out.Facets.Parks, func(i, j int) bool {
-		if out.Facets.Parks[i].Label != out.Facets.Parks[j].Label {
-			return out.Facets.Parks[i].Label < out.Facets.Parks[j].Label
-		}
-		return out.Facets.Parks[i].Key < out.Facets.Parks[j].Key
-	})
 
 	loadRows, err := results.Query()
 	if err != nil {
@@ -3635,6 +3627,9 @@ func (r *Repository) GetCountsBreakdown(ctx context.Context, req domain.CountsBr
 		}
 		out.Facets = cloneCountsBreakdownFacets(res.facets)
 	}
+
+	// Park options are ordered by code after the facets are final (cached or batched).
+	sortCountsBreakdownParkFacets(out.Facets.Parks)
 
 	if out.Charts.Breed == nil {
 		out.Charts.Breed = []domain.CountsBreakdownSeriesPoint{}
@@ -4035,4 +4030,23 @@ func rollupBreakdownDimension(rows []domain.CountsBreakdownRow, key func(domain.
 		}
 	})
 	return out
+}
+
+// countsBreakdownFacetCacheParams is the facet cache key. The facet query is scoped by lifecycle
+// and by the requested parks, so both are part of the key; the park set is order-independent.
+func countsBreakdownFacetCacheParams(lifecycle string, parkIDs []string) string {
+	parks := append([]string(nil), compactStrings(parkIDs)...)
+	sort.Strings(parks)
+	return "counts_breakdown_facets|" + lifecycle + "|parks=" + strings.Join(parks, ",")
+}
+
+// sortCountsBreakdownParkFacets orders the Farm dropdown by park CODE (CBE, then CPT --
+// maintainer decision 2026-09-16), falling back to the key for equal labels.
+func sortCountsBreakdownParkFacets(parks []domain.CountsBreakdownSeriesPoint) {
+	sort.SliceStable(parks, func(i, j int) bool {
+		if parks[i].Label != parks[j].Label {
+			return parks[i].Label < parks[j].Label
+		}
+		return parks[i].Key < parks[j].Key
+	})
 }
