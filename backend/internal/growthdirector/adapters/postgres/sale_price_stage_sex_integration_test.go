@@ -152,3 +152,60 @@ func containsString(list []string, want string) bool {
 	}
 	return false
 }
+
+// A pen whose residents span several (species, stage, sex) groups is still ONE pen row: the head
+// mix is grouped per group and folded per pen, so it must neither fan the pen out nor move its
+// feed, gain or FCR -- only the price, which becomes the head-weighted mean of each animal's own.
+func TestFCRHeadMixOneToManyKeepsOnePenRow(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedFCRFixture(t, ctx, pool)
+	// The lump pen's 25 'kid' males become 10 kid males, 10 K3 males and 5 kid females.
+	execGD(t, ctx, pool, `
+WITH lump AS (SELECT goat_id, row_number() OVER (ORDER BY display_id) AS n FROM goats WHERE tenant_id = $1::uuid AND shed_id = $2::uuid)
+UPDATE goats g SET management_stage = CASE WHEN l.n <= 10 THEN 'K3' ELSE g.management_stage END,
+                   sex = CASE WHEN l.n > 20 THEN 'female' ELSE g.sex END
+FROM lump l WHERE g.goat_id = l.goat_id`, gdTenant, gdShedLump)
+	execGD(t, ctx, pool, `
+INSERT INTO growth_sale_price_assumptions (tenant_id, species, management_stage, sex, price_per_kg_inr, effective_from, set_by)
+VALUES ($1::uuid, 'goat', 'K3', 'male', 500, '2026-07-01', 'test'), ($1::uuid, 'goat', 'kid', 'female', 440, '2026-07-01', 'test')`, gdTenant)
+
+	repo := NewRepository(pool, 30*time.Second)
+	window := func(parks []string) domain.FCRReport {
+		t.Helper()
+		got, err := repo.GetFCR(ctx, gdTenant, parks,
+			time.Date(2026, 7, 6, 0, 0, 0, 0, time.UTC), time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC), "", "", "")
+		if err != nil {
+			t.Fatalf("GetFCR: %v", err)
+		}
+		return got
+	}
+	got := window([]string{gdPark})
+	lumps := 0
+	var lump domain.FCRPen
+	for _, pen := range got.Pens {
+		if pen.OperationalLocationDisplay == "Coimbatore · Lump 1" {
+			lumps++
+			lump = pen
+		}
+	}
+	if lumps != 1 || len(got.Pens) != 2 {
+		t.Fatalf("lump pen served %d times among %d pens, want once among 2", lumps, len(got.Pens))
+	}
+	if lump.Animals != 25 {
+		t.Fatalf("lump animals = %d, want 25 (the mix must not multiply the cohort)", lump.Animals)
+	}
+	fcrNear(t, "lump fcr unchanged by the mix", lump.FCR, 4.0)
+	fcrNear(t, "lump feed unchanged by the mix", lump.FeedKg, 70)
+	// (10 x 425 kid male default + 10 x 500 K3 male + 5 x 440 kid female) / 25 = 458.
+	fcrNear(t, "lump gain valued at the head-weighted stage x sex price", lump.GainValueINR, 17.5*458)
+
+	t.Run("ParkScopeServesNoPenOutsideTheAskedPark", func(t *testing.T) {
+		// Another park's scope reads none of this park's pens, mix or no mix.
+		if other := window([]string{"99999999-0000-4000-8000-000000000099"}); len(other.Pens) != 0 {
+			t.Fatalf("a foreign park scope served %d pens", len(other.Pens))
+		}
+	})
+}

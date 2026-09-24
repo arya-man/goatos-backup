@@ -1411,7 +1411,7 @@ func weighingWeightsCopy() map[string]string {
 		"drawer.assumptions.prices.stage":               "Stage",
 		"drawer.assumptions.prices.male":                "Male",
 		"drawer.assumptions.prices.female":              "Female",
-		"drawer.assumptions.prices.overrides":           "stage prices set",
+		"drawer.assumptions.prices.overrides":           "set",
 		"drawer.assumptions.values.title":               "Sale lines & alerts",
 		"assumption.goat.label":                         "Goat",
 		"assumption.sheep.label":                        "Sheep",
@@ -5841,7 +5841,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"note.load.rates.missing": "No assumed live-weight sale price is configured, so stock cannot be valued.",
 			// Since 2026-09-24 a price may be set per stage and sex; the note names the all-stages
 			// defaults and says how many stage prices sit on top of them.
-			"note.load.rates.overrides": "stage and sex prices set",
+			"note.load.rates.overrides": "set by stage and sex",
 			"load.value.sold_out":       "sold out",
 			"load.value.no_cost":        "cost not recorded",
 			"disabled.load_value":       "Your current role can view weights but not purchase and sales money.",
@@ -5877,7 +5877,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"fcr.price.missing": "No assumed sale price is configured for this species, so its gain is not valued.",
 			"fcr.price.shared":  "The Comparison tab values stock at the same prices.",
 			// Maintainer decision 2026-09-24: prices may also be set per stage and sex.
-			"fcr.price.overrides": "stage and sex prices set; each animal is valued at its own",
+			"fcr.price.overrides": "set by stage and sex; each animal is valued at its own",
 
 			"section.fcr.pens.title":     "FCR by pen",
 			"section.fcr.pens.caption":   "Kilograms of feed directed to the pen between its first and latest weighing in the period, per kilogram the pen gained. Grouped by park, pens A to Z; the dashed line is break-even at today's prices.",
@@ -8986,7 +8986,7 @@ func pageSpecificCopy(id string) map[string]string {
 			m["drawer.assumptions.prices.stage"] = "Stage"
 			m["drawer.assumptions.prices.male"] = "Male"
 			m["drawer.assumptions.prices.female"] = "Female"
-			m["drawer.assumptions.prices.overrides"] = "stage prices set"
+			m["drawer.assumptions.prices.overrides"] = "set"
 			m["drawer.assumptions.values.title"] = "Sale lines & alerts"
 			m["assumption.goat.label"] = "Goat"
 			m["assumption.sheep.label"] = "Sheep"
