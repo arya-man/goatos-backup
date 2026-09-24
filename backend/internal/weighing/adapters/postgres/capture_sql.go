@@ -219,9 +219,15 @@ const shedProofSlotsSQL = `COALESCE((SELECT jsonb_object_agg(g.slot_key, g.refs)
            WHERE p.tenant_id=wso.tenant_id AND p.shed_observation_id=wso.shed_observation_id AND p.slot_key IS NOT NULL
            GROUP BY p.slot_key) g), '{}'::jsonb)::text`
 
+// shedProofKindsSQL is the {ref: kind} map for the whole-pen row aliased `wso`: the legacy
+// primary column plus every child proof. `proof_id = X OR proof_id IN (SELECT ...)` could not use
+// the proof_artifacts key and seq-scanned the register once per row (OCI clone: 18.7 ms x each
+// whole-pen bucket on the leadership gallery); ANY(array_append(ARRAY(...), primary)) is a
+// primary-key probe over the same ref set, so the map is identical.
 const shedProofKindsSQL = `COALESCE((SELECT jsonb_object_agg(pa.proof_id::text, pa.proof_type)
      FROM proof_artifacts pa
      WHERE pa.tenant_id=wso.tenant_id
-       AND (pa.proof_id=wso.proof_artifact_id
-            OR pa.proof_id IN (SELECT p.proof_artifact_id FROM weighing_shed_observation_proofs p
-                               WHERE p.tenant_id=wso.tenant_id AND p.shed_observation_id=wso.shed_observation_id))), '{}'::jsonb)::text`
+       AND pa.proof_id = ANY(array_append(ARRAY(
+             SELECT p.proof_artifact_id FROM weighing_shed_observation_proofs p
+             WHERE p.tenant_id=wso.tenant_id AND p.shed_observation_id=wso.shed_observation_id),
+           wso.proof_artifact_id))), '{}'::jsonb)::text`
