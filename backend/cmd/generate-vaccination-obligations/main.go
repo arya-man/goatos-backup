@@ -94,8 +94,8 @@ func run(args []string) error {
 			if err != nil && !vaccinationapp.IsGenerationPartialFailure(err) {
 				return fmt.Errorf("generate goat %s: %w", goatID, err)
 			}
-			fmt.Printf("generated goat=%s generated=%d reconciled=%d deferred=%d reopened=%d failed_goats=%d ambiguous_open_work=%d date_blocked=%d skipped_no_due_date=%d suppressed_trusted=%d\n",
-				goatID, res.Generated, res.Reconciled, res.Deferred, res.Reopened, res.FailedGoats, res.AmbiguousOpenWork, res.ReconcileDateBlocked, res.SkippedNoDueDate, res.SuppressedByTrustedHistory)
+			fmt.Printf("generated goat=%s generated=%d reconciled=%d deferred=%d reopened=%d failed_goats=%d ambiguous_open_work=%d date_blocked=%d skipped_no_due_date=%d suppressed_trusted=%d guard_rejected=%d\n",
+				goatID, res.Generated, res.Reconciled, res.Deferred, res.Reopened, res.FailedGoats, res.AmbiguousOpenWork, res.ReconcileDateBlocked, res.SkippedNoDueDate, res.SuppressedByTrustedHistory, res.GuardRejected)
 			mergeGenerateResult(&total, res)
 			total.Reconciled += res.Reconciled
 			total.AmbiguousOpenWork += res.AmbiguousOpenWork
@@ -104,8 +104,8 @@ func run(args []string) error {
 				return withExitCode(exitCodePartialFailure, fmt.Errorf("generate goat %s: %w", goatID, err))
 			}
 		}
-		fmt.Printf("generated goat-scope total_goats=%d generated=%d reconciled=%d deferred=%d reopened=%d failed_goats=%d ambiguous_open_work=%d date_blocked=%d skipped_no_due_date=%d suppressed_trusted=%d\n",
-			len(cfg.GoatIDs), total.Generated, total.Reconciled, total.Deferred, total.Reopened, total.FailedGoats, total.AmbiguousOpenWork, total.ReconcileDateBlocked, total.SkippedNoDueDate, total.SuppressedByTrustedHistory)
+		fmt.Printf("generated goat-scope total_goats=%d generated=%d reconciled=%d deferred=%d reopened=%d failed_goats=%d ambiguous_open_work=%d date_blocked=%d skipped_no_due_date=%d suppressed_trusted=%d guard_rejected=%d\n",
+			len(cfg.GoatIDs), total.Generated, total.Reconciled, total.Deferred, total.Reopened, total.FailedGoats, total.AmbiguousOpenWork, total.ReconcileDateBlocked, total.SkippedNoDueDate, total.SuppressedByTrustedHistory, total.GuardRejected)
 		return nil
 	}
 
@@ -115,8 +115,8 @@ func run(args []string) error {
 			return fmt.Errorf("vaccination recovery repair: %w", repairErr)
 		}
 		if cfg.RecoveryRepairLimit > 0 {
-			fmt.Printf("recovery-repair candidates=%d missed_batch_repaired=%d generated=%d deferred=%d reopened=%d failed_goats=%d skipped_no_due_date=%d suppressed_trusted=%d\n",
-				repairCandidates, missedBatchRepaired, repair.Generated, repair.Deferred, repair.Reopened, repair.FailedGoats, repair.SkippedNoDueDate, repair.SuppressedByTrustedHistory)
+			fmt.Printf("recovery-repair candidates=%d missed_batch_repaired=%d generated=%d deferred=%d reopened=%d failed_goats=%d skipped_no_due_date=%d suppressed_trusted=%d guard_rejected=%d\n",
+				repairCandidates, missedBatchRepaired, repair.Generated, repair.Deferred, repair.Reopened, repair.FailedGoats, repair.SkippedNoDueDate, repair.SuppressedByTrustedHistory, repair.GuardRejected)
 		}
 		res, genErr := gen.GenerateEffectiveForAllGoats(ctx, cfg.TenantID, cfg.AsOf)
 		if genErr != nil && !vaccinationapp.IsGenerationPartialFailure(genErr) {
@@ -126,8 +126,8 @@ func run(args []string) error {
 		if err != nil {
 			return fmt.Errorf("count recoverable deferred vaccination obligations: %w", err)
 		}
-		fmt.Printf("generated effective-cohort generated=%d reconciled=%d deferred=%d reopened=%d failed_goats=%d ambiguous_open_work=%d date_blocked=%d skipped_no_due_date=%d suppressed_trusted=%d stuck_recoverable_deferred=%d\n",
-			res.Generated, res.Reconciled, res.Deferred, res.Reopened, res.FailedGoats, res.AmbiguousOpenWork, res.ReconcileDateBlocked, res.SkippedNoDueDate, res.SuppressedByTrustedHistory, stuck)
+		fmt.Printf("generated effective-cohort generated=%d reconciled=%d deferred=%d reopened=%d failed_goats=%d ambiguous_open_work=%d date_blocked=%d skipped_no_due_date=%d suppressed_trusted=%d guard_rejected=%d stuck_recoverable_deferred=%d\n",
+			res.Generated, res.Reconciled, res.Deferred, res.Reopened, res.FailedGoats, res.AmbiguousOpenWork, res.ReconcileDateBlocked, res.SkippedNoDueDate, res.SuppressedByTrustedHistory, res.GuardRejected, stuck)
 		if res.ReconcileDateBlocked > 0 {
 			// Not a failure: the animal keeps exactly one open obligation and nothing was
 			// duplicated. But its date did not move, so it is worth seeing rather than inferring.
@@ -173,8 +173,8 @@ func run(args []string) error {
 		if err != nil && !vaccinationapp.IsGenerationPartialFailure(err) {
 			return fmt.Errorf("generate version %s: %w", versionID, err)
 		}
-		fmt.Printf("generated run=%s version=%s generated=%d reconciled=%d deferred=%d reopened=%d failed_goats=%d ambiguous_open_work=%d date_blocked=%d skipped_no_due_date=%d suppressed_trusted=%d\n",
-			run.RunID, versionID, res.Generated, res.Reconciled, res.Deferred, res.Reopened, res.FailedGoats, res.AmbiguousOpenWork, res.ReconcileDateBlocked, res.SkippedNoDueDate, res.SuppressedByTrustedHistory)
+		fmt.Printf("generated run=%s version=%s generated=%d reconciled=%d deferred=%d reopened=%d failed_goats=%d ambiguous_open_work=%d date_blocked=%d skipped_no_due_date=%d suppressed_trusted=%d guard_rejected=%d\n",
+			run.RunID, versionID, res.Generated, res.Reconciled, res.Deferred, res.Reopened, res.FailedGoats, res.AmbiguousOpenWork, res.ReconcileDateBlocked, res.SkippedNoDueDate, res.SuppressedByTrustedHistory, res.GuardRejected)
 		if err != nil {
 			return withExitCode(exitCodePartialFailure, fmt.Errorf("generate version %s: %w", versionID, err))
 		}
@@ -263,6 +263,7 @@ func mergeGenerateResult(dst *vaccinationdomain.GenerateResult, src vaccinationd
 	dst.FailedGoats += src.FailedGoats
 	dst.SkippedNoDueDate += src.SkippedNoDueDate
 	dst.SuppressedByTrustedHistory += src.SuppressedByTrustedHistory
+	dst.GuardRejected += src.GuardRejected
 }
 
 func parseFlags(args []string, now func() time.Time) (config, error) {

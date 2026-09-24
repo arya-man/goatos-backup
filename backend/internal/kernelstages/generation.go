@@ -59,6 +59,7 @@ func (s *VaccinationGenerationStage) Run(ctx context.Context) error {
 			"failed_goats", res.FailedGoats,
 			"skipped_no_due_date", res.SkippedNoDueDate,
 			"suppressed_trusted", res.SuppressedByTrustedHistory,
+			"guard_rejected", res.GuardRejected,
 		)
 	}
 	// A partial failure (some goats failed) is surfaced so the supervisor logs it,
