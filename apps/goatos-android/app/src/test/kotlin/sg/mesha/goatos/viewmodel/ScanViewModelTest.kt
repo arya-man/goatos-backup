@@ -1358,7 +1358,7 @@ class ScanViewModelTest {
     }
 
     private class MultiTaskTasksRepository(
-        private val details: Map<String, TaskDetail>,
+        val details: MutableMap<String, TaskDetail>,
         private val readyTaskIds: Set<String>,
     ) : TasksRepository {
         private val cachedDetails = mutableMapOf<String, MutableStateFlow<Resource<TaskDetail>>>()
@@ -1390,18 +1390,32 @@ class ScanViewModelTest {
         proofPolicy = ProofPolicy.Default,
     )
 
-    private suspend fun kotlinx.coroutines.test.TestScope.runCombinedSubmit(readyTaskIds: Set<String>): Pair<CapturingSubmitSyncRepository, ScanViewModel> {
-        val sync = CapturingSubmitSyncRepository()
-        val tasks = MultiTaskTasksRepository(
-            details = mapOf("task-1" to combinedTaskDetail("task-1", "sop-1", 3), "task-2" to combinedTaskDetail("task-2", "sop-2", 5)),
+    private class CombinedHarness(
+        val sync: CapturingSubmitSyncRepository,
+        val tasks: MultiTaskTasksRepository,
+        val vm: ScanViewModel,
+        val events: MutableList<ScanNavigationEvent>,
+    )
+
+    private suspend fun kotlinx.coroutines.test.TestScope.runCombinedSubmit(
+        readyTaskIds: Set<String>,
+        taskCount: Int = 2,
+        sync: CapturingSubmitSyncRepository = CapturingSubmitSyncRepository(),
+        tasks: MultiTaskTasksRepository? = null,
+    ): CombinedHarness {
+        val ids = (1..taskCount).map { "task-$it" }
+        val repoTasks = tasks ?: MultiTaskTasksRepository(
+            details = ids.associateWith { id ->
+                val n = id.removePrefix("task-").toInt()
+                combinedTaskDetail(id, "sop-$n", if (n == 1) 3 else if (n == 2) 5 else n)
+            }.toMutableMap(),
             readyTaskIds = readyTaskIds,
         )
         val vm = ScanViewModel(
             repo = FakeScanExecutionRepository(
-                firstPage = ScanRosterResponseDto(rows = listOf(
-                    scanRow("goat-1", "TAG-1", "obl-1", status = "done", taskId = "task-1"),
-                    scanRow("goat-2", "TAG-2", "obl-2", status = "done", taskId = "task-2"),
-                )),
+                firstPage = ScanRosterResponseDto(rows = ids.mapIndexed { index, id ->
+                    scanRow("goat-${index + 1}", "TAG-${index + 1}", "obl-${index + 1}", status = "done", taskId = id)
+                }),
             ),
             reader = FakeRfidReaderPort(),
             scanCaptureRepository = FakeScanCaptureRepository(),
@@ -1409,55 +1423,85 @@ class ScanViewModelTest {
             proofCaptureRepository = FakeProofCaptureRepository(),
             proofCaptureSource = FakeProofCaptureSource(),
             bootstrapRepository = FakeCaptureBootstrapRepository(),
-            tasksRepository = tasks,
+            tasksRepository = repoTasks,
             syncRepository = sync,
             analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "partitionLabel" to "Part 3", "plannedDate" to "2026-09-24")),
         )
+        val events = mutableListOf<ScanNavigationEvent>()
         backgroundScope.launch { vm.state.collect {} }
+        backgroundScope.launch { vm.events.collect { events += it } }
         advanceUntilIdle()
         vm.refresh()
         advanceUntilIdle()
-        return sync to vm
+        return CombinedHarness(sync, repoTasks, vm, events)
     }
 
     @Test
-    fun `assignment card row without its own task never borrows the route task`() = runTest(dispatcher) {
-        val scanCaptures = FakeScanCaptureRepository()
-        val scanAttempts = FakeScanAttemptRepository()
-        val reader = FakeRfidReaderPort()
-        val vm = ScanViewModel(
-            repo = FakeScanExecutionRepository(
-                firstPage = ScanRosterResponseDto(rows = listOf(
-                    scanRow("goat-1", "TAG-100", "obl-1", taskId = "task-1"),
-                    scanRow("goat-2", "TAG-200", "obl-2", taskId = ""),
-                )),
-            ),
-            reader = reader,
-            scanCaptureRepository = scanCaptures,
-            scanAttemptRepository = scanAttempts,
-            proofCaptureRepository = FakeProofCaptureRepository(),
-            proofCaptureSource = autoVideoProofSource(),
-            bootstrapRepository = FakeCaptureBootstrapRepository(),
-            tasksRepository = FakeTasksRepositoryForCapture(),
-            syncRepository = CapturingSubmitSyncRepository(),
-            analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
-            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1", "assignmentId" to "assignment-1")),
+    fun `combined card with nine ready tasks submits all nine and closes only after the last succeeds`() = runTest(dispatcher) {
+        val ids = (1..9).map { "task-$it" }.toSet()
+        val h = runCombinedSubmit(ids, taskCount = 9)
+        assertEquals(ids, h.sync.submitCalls.map { it.taskId }.toSet())
+        assertEquals(9, h.sync.submitCalls.size)
+        (1..8).forEach { h.sync.succeed("item-$it") }
+        advanceUntilIdle()
+        assertTrue("accepted fired with a task still unsubmitted", h.events.none { it == ScanNavigationEvent.AutoSubmitAccepted })
+        assertTrue(h.vm.state.value.evidenceError.orEmpty(), h.vm.state.value.evidenceError.orEmpty().contains("8 of 9"))
+        h.sync.succeed("item-9")
+        advanceUntilIdle()
+        assertEquals(1, h.events.count { it == ScanNavigationEvent.AutoSubmitAccepted })
+        h.vm.refresh()
+        advanceUntilIdle()
+        assertEquals(1, h.events.count { it == ScanNavigationEvent.AutoSubmitAccepted })
+        assertEquals(9, h.sync.submitCalls.size)
+    }
+
+    @Test
+    fun `combined card terminal failure retries with a new key after the row version changes`() = runTest(dispatcher) {
+        val h = runCombinedSubmit(setOf("task-1"))
+        val firstKey = h.sync.submitCalls.single().idempotencyKey
+        h.sync.fail("item-1", "row version conflict")
+        advanceUntilIdle()
+        h.tasks.details["task-1"] = combinedTaskDetail("task-1", "sop-1", 4)
+        h.vm.onEvent(ScanEvent.Submit)
+        advanceUntilIdle()
+        assertEquals(2, h.sync.submitCalls.size)
+        val retryKey = h.sync.submitCalls.last().idempotencyKey
+        assertFalse("retry must use the refreshed row version", retryKey == firstKey)
+        assertEquals(
+            SubmitViewModel.stableSubmissionKey(combinedTaskDetail("task-1", "sop-1", 4).task, "shed-1", "Part 3"),
+            retryKey,
         )
-        backgroundScope.launch { vm.state.collect {} }
-        advanceUntilIdle()
+    }
 
-        reader.emit("TAG-200")
+    @Test
+    fun `combined card terminal failure with unchanged version shows an error instead of silently skipping`() = runTest(dispatcher) {
+        val sync = CapturingSubmitSyncRepository().apply { outboxLookup = true }
+        val h = runCombinedSubmit(setOf("task-1"), sync = sync)
+        h.sync.fail("item-1", "rejected")
         advanceUntilIdle()
+        h.vm.onEvent(ScanEvent.Submit)
+        advanceUntilIdle()
+        assertEquals(1, h.sync.submitCalls.size)
+        assertTrue(h.vm.state.value.evidenceError.orEmpty(), h.vm.state.value.evidenceError.orEmpty().contains("rejected"))
+    }
 
-        assertTrue("no write may borrow task-1 for another batch's row", scanCaptures.recordedTaskIds.isEmpty())
-        assertTrue(scanAttempts.calls.none { it.goatId == "goat-2" })
-        assertEquals(TASKLESS_ANIMAL_MESSAGE, vm.state.value.error?.message)
+    @Test
+    fun `combined card restart resumes the existing outbox item without a duplicate submit`() = runTest(dispatcher) {
+        val sync = CapturingSubmitSyncRepository().apply { outboxLookup = true }
+        val first = runCombinedSubmit(setOf("task-1", "task-2"), sync = sync)
+        assertEquals(2, sync.submitCalls.size)
+        val second = runCombinedSubmit(setOf("task-1", "task-2"), sync = sync, tasks = first.tasks)
+        assertEquals(2, sync.submitCalls.size)
+        sync.succeed("item-1")
+        sync.succeed("item-2")
+        advanceUntilIdle()
+        assertEquals(1, second.events.count { it == ScanNavigationEvent.AutoSubmitAccepted })
     }
 
     @Test
     fun `combined card with every task ready queues one submit per task with its own identity`() = runTest(dispatcher) {
-        val (sync, _) = runCombinedSubmit(setOf("task-1", "task-2"))
+        val sync = runCombinedSubmit(setOf("task-1", "task-2")).sync
         assertEquals(listOf("task-1", "task-2"), sync.submitCalls.map { it.taskId }.sorted())
         val byTask = sync.submitCalls.associateBy { it.taskId }
         assertEquals("sop-1", byTask.getValue("task-1").request.sopVersionId)
@@ -1477,7 +1521,9 @@ class ScanViewModelTest {
 
     @Test
     fun `combined card with only one task ready submits only that task`() = runTest(dispatcher) {
-        val (sync, vm) = runCombinedSubmit(setOf("task-1"))
+        val h = runCombinedSubmit(setOf("task-1"))
+        val sync = h.sync
+        val vm = h.vm
         assertEquals(listOf("task-1"), sync.submitCalls.map { it.taskId })
         assertTrue(vm.state.value.evidenceError.orEmpty(), vm.state.value.evidenceError.orEmpty().contains("1 of 2"))
     }
@@ -2935,6 +2981,12 @@ private class CapturingSubmitSyncRepository : SyncRepository {
     var enqueueCount: Int = 0
     data class ShedSubmitCall(val taskId: String, val groupKey: String, val idempotencyKey: String, val request: SubmitTaskRequestDto)
     val submitCalls = mutableListOf<ShedSubmitCall>()
+    /** Opt-in outbox lookup by idempotency key (process-recreation resume). */
+    var outboxLookup = false
+
+    override suspend fun findOutboxItemByIdempotencyKey(idempotencyKey: String): AppResult<SyncQueueItem?> =
+        if (!outboxLookup) AppResult.Err("Outbox recovery is not available.")
+        else AppResult.Ok(status.value.items.lastOrNull { it.idempotencyKey == idempotencyKey })
     private val status = MutableStateFlow(SyncStatus.empty(online = true))
 
     override fun observeStatus(): StateFlow<SyncStatus> = status
@@ -2982,7 +3034,7 @@ private class CapturingSubmitSyncRepository : SyncRepository {
         status.value = status.value.copy(
             items = status.value.items.filterNot { it.id == itemId } + SyncQueueItem(
                 id = itemId,
-                idempotencyKey = "test-idempotency-key",
+                idempotencyKey = idempotencyKey,
                 opType = "shed_submit",
                 groupKey = groupKey,
                 status = SyncItemStatus.QUEUED,

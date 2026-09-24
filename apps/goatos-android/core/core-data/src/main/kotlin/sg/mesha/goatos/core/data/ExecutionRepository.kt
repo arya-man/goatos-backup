@@ -168,6 +168,15 @@ interface ExecutionRepository {
     fun observeAssignmentScanRosterTaskIds(shedId: String, taskId: String?, assignmentId: String?, partitionLabel: String? = null, dateScope: ScanRosterDateScope? = null): Flow<List<String>> =
         kotlinx.coroutines.flow.flowOf(listOfNotNull(taskId))
 
+    /** Full count of distinct writable task ids in this roster scope (page-independent). */
+    fun observeAssignmentScanRosterTaskIdCount(shedId: String, taskId: String?, assignmentId: String?, partitionLabel: String? = null, dateScope: ScanRosterDateScope? = null): Flow<Int> =
+        observeAssignmentScanRosterTaskIds(shedId, taskId, assignmentId, partitionLabel, dateScope).map { it.size }
+
+    /** Keyset page of distinct task ids after [afterTaskId], so callers can walk every task. */
+    suspend fun assignmentScanRosterTaskIdsAfter(shedId: String, taskId: String?, assignmentId: String?, partitionLabel: String?, dateScope: ScanRosterDateScope?, afterTaskId: String, limit: Int): List<String> =
+        observeAssignmentScanRosterTaskIds(shedId, taskId, assignmentId, partitionLabel, dateScope).first()
+            .filter { it > afterTaskId }.sorted().take(limit)
+
     fun observeScanRosterTotal(shedId: String, taskId: String?, partitionLabel: String? = null): Flow<Int>
     fun observeAssignmentScanRosterTotal(shedId: String, taskId: String?, assignmentId: String?, partitionLabel: String? = null, dateScope: ScanRosterDateScope? = null): Flow<Int> =
         observeScanRosterTotal(shedId, taskId, partitionLabel)
@@ -466,6 +475,12 @@ class DefaultExecutionRepository(
 
     override fun observeAssignmentScanRosterTaskIds(shedId: String, taskId: String?, assignmentId: String?, partitionLabel: String?, dateScope: ScanRosterDateScope?): Flow<List<String>> =
         scanRosterRowDao.observeTaskIds(scanRosterRowScopeKey(shedId, taskId, partitionLabel, assignmentId, dateScope)).flowOn(Dispatchers.Default)
+
+    override fun observeAssignmentScanRosterTaskIdCount(shedId: String, taskId: String?, assignmentId: String?, partitionLabel: String?, dateScope: ScanRosterDateScope?): Flow<Int> =
+        scanRosterRowDao.observeTaskIdCount(scanRosterRowScopeKey(shedId, taskId, partitionLabel, assignmentId, dateScope)).flowOn(Dispatchers.Default)
+
+    override suspend fun assignmentScanRosterTaskIdsAfter(shedId: String, taskId: String?, assignmentId: String?, partitionLabel: String?, dateScope: ScanRosterDateScope?, afterTaskId: String, limit: Int): List<String> =
+        scanRosterRowDao.taskIdsAfter(scanRosterRowScopeKey(shedId, taskId, partitionLabel, assignmentId, dateScope), afterTaskId, limit.coerceIn(1, sg.mesha.goatos.core.data.cache.SCAN_ROSTER_TASK_ID_LIMIT))
 
     override fun observeAssignmentScanRosterTotal(shedId: String, taskId: String?, assignmentId: String?, partitionLabel: String?, dateScope: ScanRosterDateScope?): Flow<Int> =
         scanRosterRowDao.observeScopeTotal(scanRosterRowScopeKey(shedId, taskId, partitionLabel, assignmentId, dateScope)).flowOn(Dispatchers.Default)
