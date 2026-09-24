@@ -117,6 +117,7 @@ export async function recordSaleAction(formData: FormData): Promise<{ code: stri
     // way the stock confirmation's is.
     return { code: result.error.code ?? "sale_record_failed", message: result.error.message };
   }
+  // interaction-guard:ignore: success revalidates then redirects; only the error/confirmation path returns, and it never revalidates.
   revalidatePath(SALES_PATH);
   actionRedirect(formData, "success", "action.sale_recorded");
 }
