@@ -31,6 +31,25 @@ apk_mirrored=false
 force_update_published=false
 force_update_push_sent=false
 
+# GOATOS_MOBILE_PHASE splits the distribution so the slow Gradle build can run
+# concurrently with the backend/web image builds and rollout:
+#   all     (default) build + publish in one run, the previous behaviour.
+#   build   build the signed APK/AAB at this exact commit and stop. A failure
+#           NEVER fails this step (it would cancel an in-flight rollout); it is
+#           recorded in $mobile_build_marker and re-raised by `publish`.
+#   publish runs only after the backend/web rollout; refuses unless `build`
+#           succeeded for this same commit, then publishes the SAME bytes to
+#           Firebase App Distribution, the GCS mirror, Play Internal, and the
+#           Remote Config force-update floor exactly as before.
+MOBILE_PHASE="${GOATOS_MOBILE_PHASE:-all}"
+case "$MOBILE_PHASE" in all|build|publish) ;; *) echo "GOATOS_MOBILE_PHASE must be all|build|publish, got $MOBILE_PHASE" >&2; exit 1 ;; esac
+mobile_build_marker="$repo_root/.local/android-mobile-build/status"
+mobile_build_state="$repo_root/.local/android-mobile-build/state.env"
+# Deploy build only (never the local landing receipt path): 4 workers and a
+# larger heap on the E2_HIGHCPU_32 builder. Overridable for A/B.
+GOATOS_DEPLOY_GRADLE_MAX_WORKERS="${GOATOS_DEPLOY_GRADLE_MAX_WORKERS:-4}"
+GOATOS_DEPLOY_GRADLE_XMX="${GOATOS_DEPLOY_GRADLE_XMX:-4096m}"
+
 slack_webhook_url() {
   gcloud secrets versions access latest \
     --project="$PROJECT_ID" \
@@ -409,6 +428,14 @@ require_force_update_config_access() {
 
 on_exit() {
   local rc=$?
+  if [[ "$MOBILE_PHASE" == "build" ]]; then
+    if [[ "$rc" -ne 0 ]]; then
+      mkdir -p "$(dirname "$mobile_build_marker")"
+      printf 'failed %s rc=%s\n' "$commit_sha" "$rc" > "$mobile_build_marker"
+      echo "Android build phase failed (rc=$rc); recorded for the publish step, which will fail after the backend/web rollout." >&2
+    fi
+    exit 0
+  fi
   if [[ "$rc" -ne 0 ]]; then
     local prefix="Android mobile distribution failed."
     [[ "${DEPLOY_STG:-false}" == "true" ]] && prefix="Backend/web rollout succeeded. Android mobile distribution failed."
@@ -463,7 +490,41 @@ FIREBASE_APP_ID="${FIREBASE_APP_ID:-$json_firebase_app_id}"
 }
 
 require_force_update_config_access
-notify_slack "STARTED" "Backend/web deploy finished; building signed GoatOS Android release."
+case "$MOBILE_PHASE" in
+  all) notify_slack "STARTED" "Backend/web deploy finished; building signed GoatOS Android release." ;;
+  build) notify_slack "STARTED" "Building signed GoatOS Android release in parallel with backend/web; it publishes only after the backend/web rollout succeeds." ;;
+  publish) echo "Publishing the Android release built earlier in this Cloud Build." ;;
+esac
+
+gradle_cache_key() {
+  cat apps/goatos-android/gradle/wrapper/gradle-wrapper.properties \
+    apps/goatos-android/gradle/libs.versions.toml 2>/dev/null | sha256sum | cut -c1-16
+}
+gradle_cache_restore() {
+  [[ -n "${GOATOS_GRADLE_CACHE_URI:-}" && -n "${GRADLE_USER_HOME:-}" ]] || return 0
+  local obj="${GOATOS_GRADLE_CACHE_URI%/}/gradle-home-$(gradle_cache_key).tar.gz"
+  mkdir -p "$GRADLE_USER_HOME"
+  if gcloud storage cat "$obj" 2>/dev/null | tar -xzf - -C "$GRADLE_USER_HOME"; then
+    echo "Gradle cache restored from $obj"
+  else
+    echo "Gradle cache miss ($obj); building cold."
+  fi
+}
+gradle_cache_save() {
+  [[ -n "${GOATOS_GRADLE_CACHE_URI:-}" && -n "${GRADLE_USER_HOME:-}" ]] || return 0
+  local obj="${GOATOS_GRADLE_CACHE_URI%/}/gradle-home-$(gradle_cache_key).tar.gz"
+  gcloud storage ls "$obj" >/dev/null 2>&1 && return 0
+  tar -czf - -C "$GRADLE_USER_HOME" caches/modules-2 caches/transforms-4 caches/build-cache-1 wrapper 2>/dev/null |
+    gcloud storage cp - "$obj" >/dev/null 2>&1 && echo "Gradle cache saved to $obj" || echo "Gradle cache save skipped."
+}
+
+if [[ "$MOBILE_PHASE" == "publish" ]]; then
+  marker="$(cat "$mobile_build_marker" 2>/dev/null || true)"
+  [[ "$marker" == "ok $commit_sha" ]] || {
+    echo "Android build phase did not succeed for $commit_sha (marker: ${marker:-missing}); refusing to publish." >&2
+    exit 1
+  }
+fi
 
 install_android_sdk
 yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
@@ -472,6 +533,14 @@ yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 
 make restore-stg-android-release-env
 source .local/android-signing/stg-release-env.sh
 
+if [[ "$MOBILE_PHASE" == "publish" ]]; then
+  # shellcheck disable=SC1090
+  source "$mobile_build_state"
+  echo "Publishing Android release identity ${DEPLOY_VERSION_NAME} (${DEPLOY_VERSION_CODE}) built for ${commit_sha}."
+  require_force_update_push_access "$DEPLOY_VERSION_CODE" "https://mesha.sg/app.apk"
+fi
+
+if [[ "$MOBILE_PHASE" != "publish" ]]; then
 DEPLOY_VERSION_CODE="${GOATOS_ANDROID_VERSION_CODE:-}"
 DEPLOY_VERSION_NAME="${GOATOS_ANDROID_VERSION_NAME:-}"
 DEPLOY_VERSION_CODE_WAS_EXPLICIT=false
@@ -606,6 +675,7 @@ if [[ "$DEPLOY_VERSION_NAME" != "$expected_version_name" ]]; then
 fi
 require_force_update_push_access "$DEPLOY_VERSION_CODE" "https://mesha.sg/app.apk"
 echo "Building Android release identity ${DEPLOY_VERSION_NAME} (${DEPLOY_VERSION_CODE})."
+fi
 
 cd apps/goatos-android
 common_gradle_args=(
@@ -614,10 +684,11 @@ common_gradle_args=(
   -x lintVitalAnalyzeProdRelease \
   --no-daemon \
   --no-configuration-cache \
-  --max-workers=1 \
-  "-Dorg.gradle.jvmargs=-Xmx2560m -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8" \
+  "--max-workers=${GOATOS_DEPLOY_GRADLE_MAX_WORKERS}" \
+  "-Dorg.gradle.jvmargs=-Xmx${GOATOS_DEPLOY_GRADLE_XMX} -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8" \
   -PallowDirtyFirebaseDistribution=true
 )
+if [[ "$MOBILE_PHASE" != "publish" ]]; then
 build_gradle_args=(
   :app:assembleProdRelease \
   :app:bundleProdRelease \
@@ -629,7 +700,20 @@ fi
 if [[ -n "$DEPLOY_VERSION_NAME" ]]; then
   build_gradle_args+=("-PgoatosVersionName=$DEPLOY_VERSION_NAME")
 fi
+gradle_cache_restore
 ./gradlew "${build_gradle_args[@]}"
+if [[ "$MOBILE_PHASE" == "build" ]]; then
+  test -f app/build/outputs/apk/prod/release/app-prod-release.apk
+  test -f app/build/outputs/bundle/prodRelease/app-prod-release.aab
+  gradle_cache_save
+  mkdir -p "$(dirname "$mobile_build_state")"
+  printf 'DEPLOY_VERSION_CODE=%q\nDEPLOY_VERSION_NAME=%q\n' "$DEPLOY_VERSION_CODE" "$DEPLOY_VERSION_NAME" > "$mobile_build_state"
+  printf 'ok %s\n' "$commit_sha" > "$mobile_build_marker"
+  trap - EXIT
+  echo "MOBILE_BUILT ${commit_sha} ${DEPLOY_VERSION_NAME} ${DEPLOY_VERSION_CODE}"
+  exit 0
+fi
+fi
 
 upload_gradle_args=(
   :app:appDistributionUploadProdRelease \

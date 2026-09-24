@@ -772,77 +772,101 @@ deploy() {
     --quiet
   wait_service_ready "$API_SERVICE" "post-migration restore"
 
-  run gcloud run deploy "$ANALYTICS_EVENTS_SERVICE" \
-    --project="$PROJECT_ID" \
-    --region="$REGION" \
-    --image="$BACKEND_IMAGE" \
-    --ingress=all \
-    --service-account="$ANALYTICS_EVENTS_SERVICE_ACCOUNT" \
-    --allow-unauthenticated \
-    --add-cloudsql-instances="${PROJECT_ID}:${REGION}:goatos-stg-core-db" \
-    --min-instances=0 \
-    --max-instances=1 \
-    --concurrency=20 \
-    --set-env-vars="GOATOS_ENV=stg,GOATOS_HTTP_ADDR=:8080,GOATOS_API_ROUTE_MODE=events,GOATOS_AUTH_MODE=jwks,GOATOS_MEDIA_STORAGE=gcs,GOATOS_GCS_BUCKET=goatos-stg-media,GOATOS_AUTH_SESSION_ALLOWED_TENANT_IDS=${GOATOS_STG_TENANT_ID},GOATOS_ANALYTICS_MAX_IN_FLIGHT=1,GOATOS_PG_MAX_CONNS=2,GOATOS_PG_QUERY_TIMEOUT=3s" \
-    --set-secrets="DATABASE_URL=goatos-stg-database-url:latest,GOATOS_AUTH_ISSUER=goatos-stg-auth-issuer:latest,GOATOS_AUTH_AUDIENCE=goatos-stg-auth-audience:latest,GOATOS_AUTH_JWKS_URL=goatos-stg-auth-jwks-url:latest,GOATOS_AUTH_ALLOWED_EMAILS=goatos-stg-auth-allowed-emails:latest,GOATOS_GCS_SERVICE_ACCOUNT_JSON=goatos-stg-gcs-service-account-json:latest,GOATOS_BULK_IMPORT_PREVIEW_SIGNING_KEY=goatos-stg-bulk-import-preview-signing-key:latest" \
-    --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy" \
-    --quiet
-  run gcloud run services update-traffic "$ANALYTICS_EVENTS_SERVICE" \
-    --project="$PROJECT_ID" \
-    --region="$REGION" \
-    --to-latest \
-    --quiet
-  wait_service_ready "$ANALYTICS_EVENTS_SERVICE" "post-migration restore"
-  run_analytics_events_routing
+  # After the API has taken traffic, the remaining backend-image services are
+  # independent of each other and of admin-web: run them concurrently and fail
+  # the deploy if ANY of them fails. The strict order kernel-worker drain ->
+  # migration -> API above is unchanged. Each lane logs to its own file, which
+  # is printed after `wait` so the Cloud Deploy log stays readable.
+  local parallel_rollout_dir parallel_entry parallel_pid parallel_name
+  local parallel_rollout_pids=() parallel_failed=()
+  parallel_rollout_dir="$(mktemp -d)"
+  (
+    set -euo pipefail
+    run gcloud run deploy "$ANALYTICS_EVENTS_SERVICE" \
+      --project="$PROJECT_ID" \
+      --region="$REGION" \
+      --image="$BACKEND_IMAGE" \
+      --ingress=all \
+      --service-account="$ANALYTICS_EVENTS_SERVICE_ACCOUNT" \
+      --allow-unauthenticated \
+      --add-cloudsql-instances="${PROJECT_ID}:${REGION}:goatos-stg-core-db" \
+      --min-instances=0 \
+      --max-instances=1 \
+      --concurrency=20 \
+      --set-env-vars="GOATOS_ENV=stg,GOATOS_HTTP_ADDR=:8080,GOATOS_API_ROUTE_MODE=events,GOATOS_AUTH_MODE=jwks,GOATOS_MEDIA_STORAGE=gcs,GOATOS_GCS_BUCKET=goatos-stg-media,GOATOS_AUTH_SESSION_ALLOWED_TENANT_IDS=${GOATOS_STG_TENANT_ID},GOATOS_ANALYTICS_MAX_IN_FLIGHT=1,GOATOS_PG_MAX_CONNS=2,GOATOS_PG_QUERY_TIMEOUT=3s" \
+      --set-secrets="DATABASE_URL=goatos-stg-database-url:latest,GOATOS_AUTH_ISSUER=goatos-stg-auth-issuer:latest,GOATOS_AUTH_AUDIENCE=goatos-stg-auth-audience:latest,GOATOS_AUTH_JWKS_URL=goatos-stg-auth-jwks-url:latest,GOATOS_AUTH_ALLOWED_EMAILS=goatos-stg-auth-allowed-emails:latest,GOATOS_GCS_SERVICE_ACCOUNT_JSON=goatos-stg-gcs-service-account-json:latest,GOATOS_BULK_IMPORT_PREVIEW_SIGNING_KEY=goatos-stg-bulk-import-preview-signing-key:latest" \
+      --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy" \
+      --quiet
+    run gcloud run services update-traffic "$ANALYTICS_EVENTS_SERVICE" \
+      --project="$PROJECT_ID" \
+      --region="$REGION" \
+      --to-latest \
+      --quiet
+    wait_service_ready "$ANALYTICS_EVENTS_SERVICE" "post-migration restore"
+    run_analytics_events_routing
+  ) >"$parallel_rollout_dir/analytics-events.log" 2>&1 &
+  parallel_rollout_pids+=("$!:analytics-events")
 
-  run gcloud run services update "$KERNEL_WORKER_SERVICE" \
-    --project="$PROJECT_ID" \
-    --region="$REGION" \
-    --image="$BACKEND_IMAGE" \
-    --min=2 \
-    --max=2 \
-    --min-instances=2 \
-    --max-instances=2 \
-    --no-cpu-throttling \
-    --update-env-vars="GOATOS_WORKER_STAGES_ENABLED=true,GOATOS_ANALYTICS_ROLLUP_JOB=projects/${PROJECT_ID}/locations/${REGION}/jobs/goatos-stg-analytics-rollup" \
-    --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy" \
-    --quiet
-  wait_service_ready "$KERNEL_WORKER_SERVICE" "post-migration restore"
+  (
+    set -euo pipefail
+    run gcloud run services update "$KERNEL_WORKER_SERVICE" \
+      --project="$PROJECT_ID" \
+      --region="$REGION" \
+      --image="$BACKEND_IMAGE" \
+      --min=2 \
+      --max=2 \
+      --min-instances=2 \
+      --max-instances=2 \
+      --no-cpu-throttling \
+      --update-env-vars="GOATOS_WORKER_STAGES_ENABLED=true,GOATOS_ANALYTICS_ROLLUP_JOB=projects/${PROJECT_ID}/locations/${REGION}/jobs/goatos-stg-analytics-rollup" \
+      --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy" \
+      --quiet
+    wait_service_ready "$KERNEL_WORKER_SERVICE" "post-migration restore"
+  ) >"$parallel_rollout_dir/kernel-worker.log" 2>&1 &
+  parallel_rollout_pids+=("$!:kernel-worker")
 
-  run gcloud run services update "$MCP_SERVICE" \
-    --project="$PROJECT_ID" \
-    --region="$REGION" \
-    --image="$BACKEND_IMAGE" \
-    --ingress=all \
-    --update-env-vars="MESHA_MCP_PUBLIC_URL=https://mcp.mesha.sg,MESHA_MCP_TENANT_ID=00000000-0000-4000-8000-000000000001,MESHA_MCP_DEFAULT_PARK_ID=00000000-0000-4000-8000-000000003002" \
-    --update-secrets="GOATOS_FIREBASE_WEB_CONFIG=goatos-stg-firebase-web-config:latest" \
-    --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy" \
-    --quiet
-  run gcloud run services update-traffic "$MCP_SERVICE" \
-    --project="$PROJECT_ID" \
-    --region="$REGION" \
-    --to-latest \
-    --quiet
-  wait_service_ready "$MCP_SERVICE" "post-migration restore"
+  (
+    set -euo pipefail
+    run gcloud run services update "$MCP_SERVICE" \
+      --project="$PROJECT_ID" \
+      --region="$REGION" \
+      --image="$BACKEND_IMAGE" \
+      --ingress=all \
+      --update-env-vars="MESHA_MCP_PUBLIC_URL=https://mcp.mesha.sg,MESHA_MCP_TENANT_ID=00000000-0000-4000-8000-000000000001,MESHA_MCP_DEFAULT_PARK_ID=00000000-0000-4000-8000-000000003002" \
+      --update-secrets="GOATOS_FIREBASE_WEB_CONFIG=goatos-stg-firebase-web-config:latest" \
+      --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy" \
+      --quiet
+    run gcloud run services update-traffic "$MCP_SERVICE" \
+      --project="$PROJECT_ID" \
+      --region="$REGION" \
+      --to-latest \
+      --quiet
+    wait_service_ready "$MCP_SERVICE" "post-migration restore"
+  ) >"$parallel_rollout_dir/mcp.log" 2>&1 &
+  parallel_rollout_pids+=("$!:mcp")
 
-  run gcloud run deploy "$HERD_SIGNALS_MQTT_BRIDGE_SERVICE" \
-    --project="$PROJECT_ID" \
-    --region="$REGION" \
-    --image="$BACKEND_IMAGE" \
-    --command="/app/bin/herd-signals-mqtt-bridge" \
-    --service-account="$HERD_SIGNALS_MQTT_BRIDGE_SERVICE_ACCOUNT" \
-    --ingress=internal \
-    --min-instances=1 \
-    --max-instances=1 \
-    --cpu=1 \
-    --memory=512Mi \
-    --no-cpu-throttling \
-    --add-cloudsql-instances="${PROJECT_ID}:${REGION}:goatos-stg-core-db" \
-    --set-env-vars="GOATOS_ENV=stg,GOATOS_HEALTH_ADDR=:8080,HERD_SIGNALS_MQTT_TLS=true,HERD_SIGNALS_TENANT_ID=00000000-0000-4000-8000-000000000001,HERD_SIGNALS_DEFAULT_GATEWAY_ID=f130d402dcb4,HERD_SIGNALS_MQTT_BATCH_SIZE=50,HERD_SIGNALS_MQTT_BATCH_INTERVAL=2s,HERD_SIGNALS_MQTT_QUEUE_MAX=5000" \
-    --set-secrets="DATABASE_URL=goatos-stg-database-url:latest,HERD_SIGNALS_MQTT_HOST=herd-signals-mqtt-host:latest,HERD_SIGNALS_MQTT_PORT=herd-signals-mqtt-port:latest,HERD_SIGNALS_MQTT_TOPIC=herd-signals-mqtt-topic:latest,HERD_SIGNALS_MQTT_CLIENT_ID=herd-signals-mqtt-client-id:latest,HERD_SIGNALS_MQTT_USERNAME=herd-signals-mqtt-username:latest,HERD_SIGNALS_MQTT_PASSWORD=herd-signals-mqtt-gateway-514060-password:latest,HERD_SIGNALS_MQTT_CA_CERT=herd-signals-mqtt-ca-crt:latest" \
-    --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy" \
-    --quiet
-  wait_service_ready "$HERD_SIGNALS_MQTT_BRIDGE_SERVICE" "post-migration restore"
+  (
+    set -euo pipefail
+    run gcloud run deploy "$HERD_SIGNALS_MQTT_BRIDGE_SERVICE" \
+      --project="$PROJECT_ID" \
+      --region="$REGION" \
+      --image="$BACKEND_IMAGE" \
+      --command="/app/bin/herd-signals-mqtt-bridge" \
+      --service-account="$HERD_SIGNALS_MQTT_BRIDGE_SERVICE_ACCOUNT" \
+      --ingress=internal \
+      --min-instances=1 \
+      --max-instances=1 \
+      --cpu=1 \
+      --memory=512Mi \
+      --no-cpu-throttling \
+      --add-cloudsql-instances="${PROJECT_ID}:${REGION}:goatos-stg-core-db" \
+      --set-env-vars="GOATOS_ENV=stg,GOATOS_HEALTH_ADDR=:8080,HERD_SIGNALS_MQTT_TLS=true,HERD_SIGNALS_TENANT_ID=00000000-0000-4000-8000-000000000001,HERD_SIGNALS_DEFAULT_GATEWAY_ID=f130d402dcb4,HERD_SIGNALS_MQTT_BATCH_SIZE=50,HERD_SIGNALS_MQTT_BATCH_INTERVAL=2s,HERD_SIGNALS_MQTT_QUEUE_MAX=5000" \
+      --set-secrets="DATABASE_URL=goatos-stg-database-url:latest,HERD_SIGNALS_MQTT_HOST=herd-signals-mqtt-host:latest,HERD_SIGNALS_MQTT_PORT=herd-signals-mqtt-port:latest,HERD_SIGNALS_MQTT_TOPIC=herd-signals-mqtt-topic:latest,HERD_SIGNALS_MQTT_CLIENT_ID=herd-signals-mqtt-client-id:latest,HERD_SIGNALS_MQTT_USERNAME=herd-signals-mqtt-username:latest,HERD_SIGNALS_MQTT_PASSWORD=herd-signals-mqtt-gateway-514060-password:latest,HERD_SIGNALS_MQTT_CA_CERT=herd-signals-mqtt-ca-crt:latest" \
+      --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy" \
+      --quiet
+    wait_service_ready "$HERD_SIGNALS_MQTT_BRIDGE_SERVICE" "post-migration restore"
+  ) >"$parallel_rollout_dir/mqtt-bridge.log" 2>&1 &
+  parallel_rollout_pids+=("$!:mqtt-bridge")
 
   while IFS= read -r job; do
     [[ -n "$job" ]] || continue
@@ -896,6 +920,18 @@ deploy() {
     --region="$REGION" \
     "--to-revisions=${admin_web_revision}=100" \
     --quiet
+
+  for parallel_entry in "${parallel_rollout_pids[@]}"; do
+    parallel_pid="${parallel_entry%%:*}"
+    parallel_name="${parallel_entry#*:}"
+    if wait "$parallel_pid"; then
+      echo "parallel rollout lane ${parallel_name}: ok"
+    else
+      parallel_failed+=("$parallel_name")
+    fi
+    sed "s/^/[${parallel_name}] /" "$parallel_rollout_dir/${parallel_name}.log" || true
+  done
+  [[ "${#parallel_failed[@]}" -eq 0 ]] || die "parallel post-API rollout failed for: ${parallel_failed[*]}"
 
   [[ "$(service_image "$API_SERVICE")" == "$BACKEND_IMAGE" ]] || die "$API_SERVICE image did not settle on $BACKEND_IMAGE"
   [[ "$(service_image "$ANALYTICS_EVENTS_SERVICE")" == "$BACKEND_IMAGE" ]] || die "$ANALYTICS_EVENTS_SERVICE image did not settle on $BACKEND_IMAGE"

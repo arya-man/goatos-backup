@@ -7,3 +7,12 @@
 !apps/goatos-android/app/src/dev/google-services.json
 !apps/goatos-android/app/src/stg/google-services.json
 !apps/goatos-android/app/src/prod/google-services.json
+
+# Cloud Build scratch that can exist in /workspace while `gcloud deploy releases
+# create --source=.` uploads the release source. The Android build now runs
+# concurrently with the release step, so its SDK, Gradle home and signing
+# material must never ride into the Cloud Deploy source archive.
+android-sdk/
+.gradle-home/
+.docker/
+.local/

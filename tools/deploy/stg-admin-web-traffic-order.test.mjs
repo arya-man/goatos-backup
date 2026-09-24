@@ -612,3 +612,18 @@ test("ai-doctor remains visible but non-blocking for runtime deploy receipts", (
     "ai-doctor must not be a blocking local-CI step",
   );
 });
+
+test("post-API services roll out in parallel lanes only after the API traffic switch, and any lane failure fails the deploy", () => {
+  const drain = indexOfOrThrow('rollout_phase=pre_migration_drain');
+  const migrate = indexOfOrThrowAfter('run gcloud run jobs execute "$MIGRATE_JOB"', drain);
+  const apiReady = indexOfOrThrowAfter('wait_service_ready "$API_SERVICE" "post-migration restore"', migrate);
+  const lanesDir = indexOfOrThrowAfter('parallel_rollout_dir="$(mktemp -d)"', apiReady);
+  for (const lane of ["analytics-events", "kernel-worker", "mcp", "mqtt-bridge"]) {
+    const launched = indexOfOrThrowAfter(`parallel_rollout_pids+=("$!:${lane}")`, lanesDir);
+    assert.ok(launched > apiReady, `${lane} lane must start only after the API serves the new revision`);
+  }
+  const join = indexOfOrThrowAfter('die "parallel post-API rollout failed for: ${parallel_failed[*]}"', lanesDir);
+  const settle = indexOfOrThrowAfter('[[ "$(service_image "$API_SERVICE")" == "$BACKEND_IMAGE" ]]', join);
+  assert.ok(settle > join, "image settle checks and smokes must run only after every lane has been joined");
+  assert.match(script.slice(lanesDir, join), /if wait "\$parallel_pid"; then/, "each lane's exit status must be checked");
+});

@@ -1,5 +1,9 @@
 options:
   logging: CLOUD_LOGGING_ONLY
+  # 32 vCPU / 32 GB: the four image builds and the Android Gradle build now run
+  # concurrently (waitFor below). See docs/progress/ci-deploy-speedup.md for
+  # the cost tradeoff (higher per-minute price, far fewer minutes).
+  machineType: E2_HIGHCPU_32
   substitutionOption: ALLOW_LOOSE
 
 serviceAccount: projects/goatos-stg/serviceAccounts/goatos-github-deploy-stg@goatos-stg.iam.gserviceaccount.com
@@ -24,6 +28,9 @@ substitutions:
   # Additionally point the hosted MCP (goatos-mcp-stg) ask_goatos at the agent
   # (MESHA_MCP_AGENT_URL/AUDIENCE, --timeout=300, roles/run.invoker for its runtime SA).
   _ASK_MESHA_WIRE_MCP: "false"
+  # Optional gs:// prefix for a Gradle user-home cache tarball (keyed by wrapper
+  # + version catalog hash). Empty = no cache (previous behaviour).
+  _GRADLE_CACHE_URI: ""
 
 steps:
   - id: notify-slack-started
@@ -96,6 +103,7 @@ steps:
         gcloud auth print-access-token > /workspace/.docker/access-token
 
   - id: build-backend-image
+    waitFor: ['configure-docker-auth']
     name: gcr.io/cloud-builders/docker
     entrypoint: sh
     env:
@@ -115,10 +123,10 @@ steps:
         tag="$(printf '%s' "$${commit_sha}" | cut -c1-12)"
         image="asia-south1-docker.pkg.dev/goatos-stg/goatos/backend:$${tag}"
         docker login -u oauth2accesstoken --password-stdin https://asia-south1-docker.pkg.dev < /workspace/.docker/access-token
-        docker build --platform linux/amd64 --build-arg GIT_SHA="$${tag}" -f backend/Dockerfile -t "$${image}" .
-        docker push "$${image}"
+        tools/deploy/stg-image-build.sh "$${image}" backend/Dockerfile --build-arg GIT_SHA="$${tag}"
 
   - id: build-migration-image
+    waitFor: ['configure-docker-auth']
     name: gcr.io/cloud-builders/docker
     entrypoint: sh
     env:
@@ -138,10 +146,10 @@ steps:
         tag="$(printf '%s' "$${commit_sha}" | cut -c1-12)"
         image="asia-south1-docker.pkg.dev/goatos-stg/goatos/migrate:$${tag}"
         docker login -u oauth2accesstoken --password-stdin https://asia-south1-docker.pkg.dev < /workspace/.docker/access-token
-        docker build --platform linux/amd64 --build-arg GIT_SHA="$${tag}" -f backend/Dockerfile.migrate -t "$${image}" .
-        docker push "$${image}"
+        tools/deploy/stg-image-build.sh "$${image}" backend/Dockerfile.migrate --build-arg GIT_SHA="$${tag}"
 
   - id: build-admin-web-image
+    waitFor: ['configure-docker-auth']
     name: gcr.io/cloud-builders/docker
     entrypoint: sh
     env:
@@ -161,16 +169,14 @@ steps:
         tag="$(printf '%s' "$${commit_sha}" | cut -c1-12)"
         image="asia-south1-docker.pkg.dev/goatos-stg/goatos/admin-web:$${tag}"
         docker login -u oauth2accesstoken --password-stdin https://asia-south1-docker.pkg.dev < /workspace/.docker/access-token
-        docker build --platform linux/amd64 \
+        tools/deploy/stg-image-build.sh "$${image}" apps/admin-web/Dockerfile \
           --build-arg NEXT_PUBLIC_FIREBASE_PERFORMANCE_ENABLED=1 \
           --build-arg NEXT_PUBLIC_FARO_COLLECTOR_URL=https://goatos-stg-grafana-alloy-awtrpmn4za-el.a.run.app/collect \
           --build-arg NEXT_PUBLIC_GOATOS_ENV=stg \
-          --build-arg NEXT_PUBLIC_APP_VERSION="$${tag}" \
-          -f apps/admin-web/Dockerfile \
-          -t "$${image}" .
-        docker push "$${image}"
+          --build-arg NEXT_PUBLIC_APP_VERSION="$${tag}"
 
   - id: build-ask-mesha-agent-image
+    waitFor: ['configure-docker-auth']
     name: gcr.io/cloud-builders/docker
     entrypoint: sh
     env:
@@ -192,10 +198,10 @@ steps:
         image="asia-south1-docker.pkg.dev/goatos-stg/goatos/ask-mesha-agent:$${tag}"
         docker login -u oauth2accesstoken --password-stdin https://asia-south1-docker.pkg.dev < /workspace/.docker/access-token
         # BuildKit reads tools/ask-mesha-agent/Dockerfile.dockerignore for this image only.
-        docker build --platform linux/amd64 --build-arg GIT_SHA="$${tag}" -f tools/ask-mesha-agent/Dockerfile -t "$${image}" .
-        docker push "$${image}"
+        tools/deploy/stg-image-build.sh "$${image}" tools/ask-mesha-agent/Dockerfile --build-arg GIT_SHA="$${tag}"
 
   - id: stg-cloud-deploy-release
+    waitFor: ['build-backend-image', 'build-migration-image', 'build-admin-web-image', 'build-ask-mesha-agent-image']
     name: gcr.io/google.com/cloudsdktool/google-cloud-cli:slim
     entrypoint: bash
     env:
@@ -279,7 +285,12 @@ steps:
         export ASK_MESHA_IMAGE="asia-south1-docker.pkg.dev/goatos-stg/goatos/ask-mesha-agent:$${tag}"
         tools/ask-mesha-agent/deploy/deploy-stg.sh
 
-  - id: android-mobile-distribution
+  # Android build runs CONCURRENTLY with the image builds and rollout. It never
+  # fails the Cloud Build step (a failure is recorded in a marker file) so it
+  # cannot cancel an in-flight backend/web rollout; the publish step below,
+  # which runs only after the backend/web rollout, re-raises it.
+  - id: android-mobile-build
+    waitFor: ['-']
     name: gcr.io/google.com/cloudsdktool/google-cloud-cli:slim
     entrypoint: bash
     env:
@@ -294,6 +305,41 @@ steps:
       - SLACK_WEBHOOK_SECRET=${_SLACK_WEBHOOK_SECRET}
       - TRIGGERED_BY=${_TRIGGERED_BY}
       - GOOGLE_PLAY_PACKAGE=sg.mesha.goatos
+      - GOATOS_MOBILE_PHASE=build
+      - GRADLE_USER_HOME=/workspace/.gradle-home
+      - GOATOS_GRADLE_CACHE_URI=${_GRADLE_CACHE_URI}
+    args:
+      - -ceu
+      - |
+        if [[ "$${DEPLOY_MOBILE}" != "true" ]]; then
+          echo "Android mobile distribution not requested."
+          exit 0
+        fi
+        export COMMIT_SHA="$${REQUESTED_COMMIT_SHA:-$${RESOLVED_COMMIT_SHA}}"
+        export DEBIAN_FRONTEND=noninteractive
+        apt-get update
+        apt-get install -y --no-install-recommends ca-certificates curl git jq make openjdk-21-jdk-headless openssl unzip
+        tools/deploy/stg-mobile-distribution.sh
+
+  - id: android-mobile-distribution
+    waitFor: ['android-mobile-build', 'stg-release-tag-bookkeeping', 'deploy-ask-mesha-agent']
+    name: gcr.io/google.com/cloudsdktool/google-cloud-cli:slim
+    entrypoint: bash
+    env:
+      - PROJECT_ID=goatos-stg
+      - PROJECT_NUMBER=514832198871
+      - REGION=asia-south1
+      - BUILD_ID=$BUILD_ID
+      - REQUESTED_COMMIT_SHA=${_COMMIT_SHA}
+      - RESOLVED_COMMIT_SHA=$REVISION_ID
+      - DEPLOY_STG=${_DEPLOY_STG}
+      - DEPLOY_MOBILE=${_DEPLOY_MOBILE}
+      - SLACK_WEBHOOK_SECRET=${_SLACK_WEBHOOK_SECRET}
+      - TRIGGERED_BY=${_TRIGGERED_BY}
+      - GOOGLE_PLAY_PACKAGE=sg.mesha.goatos
+      - GOATOS_MOBILE_PHASE=publish
+      - GRADLE_USER_HOME=/workspace/.gradle-home
+      - GOATOS_GRADLE_CACHE_URI=${_GRADLE_CACHE_URI}
     args:
       - -ceu
       - |
