@@ -28,7 +28,7 @@ Date: 2026-09-24
 
 ## Pending
 
-- Land this final docs-only receipt update.
+- None.
 
 ## Tests / E2E
 
@@ -46,6 +46,7 @@ Date: 2026-09-24
 ## Current SHA
 
 - Landed code SHA: `01095633a815ba34b3dce301a48a21269bc6d086`.
+- Final docs-only receipt update was landed after the code landing; read current `main` for the latest documentation-only SHA.
 
 ## Deployment state
 
