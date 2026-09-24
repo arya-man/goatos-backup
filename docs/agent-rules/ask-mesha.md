@@ -440,3 +440,13 @@ Never store the key in the repo, env files or logs; it lives only in Secret Mana
 4. Data: one read-only login per service DB, or (preferred) one read-only reporting replica/warehouse.
 5. Unchanged: read-only everywhere, no git credentials, deployed-code only, $100 cap, per-user events,
    chat privacy. Estimate 1–2 days of work at split time.
+
+## Single instance (required)
+
+The service runs as ONE Cloud Run instance (`--max-instances=1`, `--concurrency=12`, set in
+`deploy/deploy-stg.sh`). Stop / Stop watching / chat delete (`activeRuns`), running watches and the
+monthly-cap in-flight reservations live in that process's memory, so a second instance would let a
+Stop or delete land on the wrong instance (silently ignored) and let parallel asks on two instances
+each pass the monthly cap. 12 concurrent requests covers 4 CEOs asking, watching and pressing Stop at
+once. Before raising `--max-instances`, move `activeRuns`, watch cancellation and cap reservations to
+Postgres (same store as the chat lock) and add cross-instance tests. (Found by Codex review of PR 388.)

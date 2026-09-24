@@ -85,8 +85,8 @@ gcloud run deploy "$SERVICE" \
   --cpu=2 \
   --memory=4Gi \
   --min-instances=1 \
-  --max-instances=2 \
-  --concurrency=4 \
+  --max-instances=1 \
+  --concurrency=12 \
   --timeout=3600 \
   --no-cpu-throttling \
   --execution-environment=gen2 \
