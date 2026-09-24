@@ -232,15 +232,12 @@ class ScanViewModel @Inject constructor(
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** A combined pen card has no route task: each of its row tasks is its own SOP submission.
-     *  One completion summary and one task detail per task (bounded), so the card can submit every
-     *  task that is ready with that task's own identity. Empty on a single-task card. */
-    private val combinedTaskIds: Flow<List<String>> =
-        if (taskId != null || shedId == null) flowOf(emptyList())
-        else rosterTaskIds.map { it.take(MAX_COMBINED_SUBMIT_TASKS) }.distinctUntilChanged()
-
+     *  Summaries/details are observed reactively for the roster's task ids (bounded by the DAO),
+     *  and [refreshCombinedTaskSummaries] walks EVERY task id page by page, so no task is ever
+     *  dropped. The total always comes from the full roster count, never from a window. */
     @OptIn(ExperimentalCoroutinesApi::class)
     private val combinedSubmitInputs: Flow<List<CombinedTaskSubmitInput>> =
-        combinedTaskIds.flatMapLatest { ids ->
+        (if (taskId != null || shedId == null) flowOf(emptyList()) else rosterTaskIds).flatMapLatest { ids ->
             if (ids.isEmpty()) flowOf(emptyList())
             else combine(ids.map { id ->
                 combine(
@@ -250,10 +247,21 @@ class ScanViewModel @Inject constructor(
             }) { it.toList() }
         }
 
-    private var latestCombinedSubmitInputs: List<CombinedTaskSubmitInput> = emptyList()
+    private val combinedTaskTotal: StateFlow<Int> =
+        (if (taskId != null || shedId == null) flowOf(0)
+        else repo.observeAssignmentScanRosterTaskIdCount(shedId, null, assignmentId, partitionLabel, dateScope = rosterDateScope))
+            .stateIn(viewModelScope, SharingStarted.Eagerly, 0)
+
+    private val combinedInputsById = LinkedHashMap<String, CombinedTaskSubmitInput>()
     private val combinedSubmitAttemptedKeys = mutableSetOf<String>()
     private val combinedSubmitObservedItemIds = mutableSetOf<String>()
     private val combinedSubmitSucceededTaskIds = mutableSetOf<String>()
+    // Key of the last submit the backend rejected terminally, per task. The same key is never
+    // silently re-sent (the outbox row would just be found and ignored); a changed row version
+    // yields a new key and a fresh submit.
+    private val combinedFailedKeyByTask = mutableMapOf<String, String>()
+    private val combinedForceDetailRefresh = mutableSetOf<String>()
+    private var combinedAcceptedEmitted = false
 
     /**
      * Durable RFID evidence already written to Room for this task. This is the process-recreation
@@ -662,8 +670,8 @@ class ScanViewModel @Inject constructor(
             viewModelScope.launch {
                 combine(combinedSubmitInputs, _operatorAllowed) { inputs, _ -> inputs }
                     .collect { inputs ->
-                        latestCombinedSubmitInputs = inputs
-                        maybeAutoSubmitCombined(inputs)
+                        inputs.forEach { combinedInputsById[it.taskId] = it }
+                        maybeAutoSubmitCombined()
                     }
             }
         }
@@ -751,29 +759,38 @@ class ScanViewModel @Inject constructor(
     }
 
     private suspend fun refreshCombinedTaskSummaries(shedId: String) {
-        val ids = repo.observeAssignmentScanRosterTaskIds(shedId, null, assignmentId, partitionLabel, dateScope = rosterDateScope)
-            .first()
-            .filter { it.isWritableTaskId() }
-            .distinct()
-            .sorted()
-            .take(MAX_COMBINED_SUBMIT_TASKS)
-        for (id in ids) {
-            // The submit carries this task's own SOP version and row version: fetch its detail
-            // when it is not cached yet (same refreshTaskDetail path the single-task card uses).
-            if (latestCombinedSubmitInputs.none { it.taskId == id && it.detail != null }) {
-                tasksRepository.refreshTaskDetail(id)
-            }
-            val freshnessKey = shedSummaryFreshnessKey(id, shedId, partitionLabel)
-            tasksRepository.refreshShedCompletionSummary(id, shedId, partitionLabel)
-                .onSuccess {
-                    freshShedSummaryKeys += freshnessKey
-                    while (freshShedSummaryKeys.size > 16 + MAX_COMBINED_SUBMIT_TASKS) {
-                        freshShedSummaryKeys.remove(freshShedSummaryKeys.first())
-                    }
+        var after = ""
+        while (true) {
+            val ids = repo.assignmentScanRosterTaskIdsAfter(
+                shedId, null, assignmentId, partitionLabel, rosterDateScope, after, COMBINED_TASK_PAGE_SIZE,
+            ).filter { it.isWritableTaskId() }
+            if (ids.isEmpty()) break
+            for (id in ids) {
+                // The submit carries this task's own SOP version and row version: fetch its detail
+                // when uncached, and ALWAYS after a terminal rejection so a bumped row version
+                // produces a new submission key.
+                if (combinedForceDetailRefresh.remove(id) || combinedInputsById[id]?.detail == null) {
+                    tasksRepository.refreshTaskDetail(id)
                 }
-                .onFailure { freshShedSummaryKeys -= freshnessKey }
+                val freshnessKey = shedSummaryFreshnessKey(id, shedId, partitionLabel)
+                tasksRepository.refreshShedCompletionSummary(id, shedId, partitionLabel)
+                    .onSuccess {
+                        freshShedSummaryKeys += freshnessKey
+                        while (freshShedSummaryKeys.size > MAX_FRESH_SUMMARY_KEYS) {
+                            freshShedSummaryKeys.remove(freshShedSummaryKeys.first())
+                        }
+                    }
+                    .onFailure { freshShedSummaryKeys -= freshnessKey }
+                combinedInputsById[id] = CombinedTaskSubmitInput(
+                    taskId = id,
+                    summary = tasksRepository.observeShedCompletionSummary(id, shedId, partitionLabel).first(),
+                    detail = tasksRepository.observeTaskDetail(id).first().data,
+                )
+            }
+            if (ids.size < COMBINED_TASK_PAGE_SIZE) break
+            after = ids.last()
         }
-        maybeAutoSubmitCombined(latestCombinedSubmitInputs)
+        maybeAutoSubmitCombined()
     }
 
     /** Reveal the next page of the ALREADY-LOCAL roster by growing the observed SSOT window. No
@@ -821,7 +838,9 @@ class ScanViewModel @Inject constructor(
             ScanEvent.LoadMore -> loadMore()
             ScanEvent.Submit -> {
                 trackFinalizeTapped(state.value)
-                if (taskId == null) maybeAutoSubmitCombined(latestCombinedSubmitInputs, source = "manual_footer")
+                if (taskId == null) {
+                    shedId?.let { id -> viewModelScope.launch { refreshCombinedTaskSummaries(id); maybeAutoSubmitCombined(source = "manual_footer") } }
+                }
                 else maybeAutoSubmit(shedCompletionSummary.value, source = "manual_footer")
             }
             ScanEvent.Back,
@@ -985,39 +1004,44 @@ class ScanViewModel @Inject constructor(
         val detail: TaskDetail?,
     )
 
+    private fun combinedTotal(): Int = maxOf(combinedTaskTotal.value, combinedInputsById.size)
+
     /** Queue one shed submit per READY task of a combined card, each under that task's own id, SOP
      *  version, row version, stable key and partition. Tasks that are not ready are left for a
-     *  later pass; the notice says how many are submitted so progress is never overstated. */
-    private fun maybeAutoSubmitCombined(inputs: List<CombinedTaskSubmitInput>, source: String = "backend_readiness") {
-        if (taskId != null || inputs.isEmpty()) return
+     *  later pass; progress is always "k of N" over the WHOLE roster's task count. */
+    private fun maybeAutoSubmitCombined(source: String = "backend_readiness") {
+        if (taskId != null || combinedInputsById.isEmpty()) return
         val selectedShedId = shedId ?: return
         if (_operatorAllowed.value != true) return
-        val ready = inputs.mapNotNull { input ->
+        val total = combinedTotal()
+        val ready = combinedInputsById.values.mapNotNull { input ->
+            if (input.taskId in combinedSubmitSucceededTaskIds) return@mapNotNull null
             val detail = input.detail?.task ?: return@mapNotNull null
             val versionId = detail.sopVersionId?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
             if (shedSummaryFreshnessKey(input.taskId, selectedShedId, partitionLabel) !in freshShedSummaryKeys) return@mapNotNull null
             if (!input.summary.allHandledProofsReadyForAutoSubmit()) return@mapNotNull null
             val partition = partitionLabel?.trim()?.takeIf { it.isNotBlank() }
                 ?: input.summary?.partitionLabel?.trim()?.takeIf { it.isNotBlank() }
-            val keyTask = detail.copy(taskId = input.taskId)
             AutoSubmitContext(
                 taskId = input.taskId,
                 versionId = versionId,
-                submitKey = SubmitViewModel.stableSubmissionKey(keyTask, selectedShedId, partition),
+                submitKey = SubmitViewModel.stableSubmissionKey(detail.copy(taskId = input.taskId), selectedShedId, partition),
                 partition = partition,
             )
         }
-        val submittedOrSubmitting = inputs.count { input ->
-            input.taskId in combinedSubmitSucceededTaskIds || ready.any { it.taskId == input.taskId }
+        val (rejectedAgain, submittable) = ready.partition { combinedFailedKeyByTask[it.taskId] == it.submitKey }
+        val inFlight = combinedSubmitSucceededTaskIds.size + submittable.size
+        when {
+            rejectedAgain.isNotEmpty() ->
+                _autoSubmitNotice.value = "The server rejected ${rejectedAgain.size} of $total tasks' submit. Refresh the task or ask the supervisor."
+            submittable.isNotEmpty() ->
+                _autoSubmitNotice.value = if (inFlight >= total) {
+                    "All scans and videos synced. Submitting this pen for verification..."
+                } else {
+                    "Submitting $inFlight of $total tasks. The rest still need scans or videos."
+                }
         }
-        if (ready.isNotEmpty()) {
-            _autoSubmitNotice.value = if (submittedOrSubmitting == inputs.size) {
-                "All scans and videos synced. Submitting this pen for verification..."
-            } else {
-                "Submitting $submittedOrSubmitting of ${inputs.size} tasks. The rest still need scans or videos."
-            }
-        }
-        for (context in ready) {
+        for (context in submittable) {
             if (!combinedSubmitAttemptedKeys.add(context.submitKey)) continue
             analytics.track(
                 AnalyticsEvents.VACCINATION_AUTO_SUBMIT_QUEUED,
@@ -1033,9 +1057,13 @@ class ScanViewModel @Inject constructor(
             )
             AnalyticsFunnels.trackSubmitAttempted(analytics, context.taskId)
             viewModelScope.launch {
+                // Process recreation: an outbox row for this exact key is resumed, never duplicated.
                 val existing = (syncRepository.findOutboxItemByIdempotencyKey(context.submitKey) as? AppResult.Ok)?.value
                 if (existing != null) {
-                    observeCombinedSubmitItem(context.taskId, context.submitKey, existing.id, inputs.size)
+                    applyCombinedSubmitItem(context.taskId, context.submitKey, existing)
+                    if (existing.status != SyncItemStatus.SUCCEEDED && !existing.isTerminalFailure) {
+                        observeCombinedSubmitItem(context.taskId, context.submitKey, existing.id)
+                    }
                     return@launch
                 }
                 val request = SubmitTaskRequestDto(
@@ -1053,7 +1081,7 @@ class ScanViewModel @Inject constructor(
                 )) {
                     is AppResult.Ok -> {
                         AnalyticsFunnels.trackSubmitStatus(analytics, context.taskId, "queued", reason = "auto_submit:${result.value}")
-                        observeCombinedSubmitItem(context.taskId, context.submitKey, result.value, inputs.size)
+                        observeCombinedSubmitItem(context.taskId, context.submitKey, result.value)
                     }
                     is AppResult.Err -> {
                         combinedSubmitAttemptedKeys -= context.submitKey
@@ -1065,7 +1093,7 @@ class ScanViewModel @Inject constructor(
         }
     }
 
-    private fun observeCombinedSubmitItem(taskId: String, submitKey: String, itemId: String, totalTasks: Int) {
+    private fun observeCombinedSubmitItem(taskId: String, submitKey: String, itemId: String) {
         if (!combinedSubmitObservedItemIds.add(itemId)) return
         viewModelScope.launch {
             syncRepository.observeItem(itemId)
@@ -1073,26 +1101,40 @@ class ScanViewModel @Inject constructor(
                 .distinctUntilChanged()
                 .collect { item ->
                     trackAutoSubmitItemStatus(taskId, item)
-                    when {
-                        item.status == SyncItemStatus.SUCCEEDED -> {
-                            combinedSubmitSucceededTaskIds += taskId
-                            if (combinedSubmitSucceededTaskIds.size >= totalTasks) {
-                                _autoSubmitNotice.value = null
-                                _events.tryEmit(ScanNavigationEvent.AutoSubmitAccepted)
-                            } else {
-                                _autoSubmitNotice.value =
-                                    "${combinedSubmitSucceededTaskIds.size} of $totalTasks tasks submitted. The rest still need scans or videos."
-                            }
-                            cancel()
-                        }
-                        item.isTerminalFailure -> {
-                            combinedSubmitAttemptedKeys -= submitKey
-                            _autoSubmitNotice.value = item.lastError?.takeIf { it.isNotBlank() }
-                                ?: "Submit failed. Backend rejected this pen; refresh and try again."
-                            cancel()
-                        }
-                    }
+                    applyCombinedSubmitItem(taskId, submitKey, item)
+                    if (item.status == SyncItemStatus.SUCCEEDED || item.isTerminalFailure) cancel()
                 }
+        }
+    }
+
+    private fun applyCombinedSubmitItem(taskId: String, submitKey: String, item: SyncQueueItem) {
+        val total = combinedTotal()
+        when {
+            item.status == SyncItemStatus.SUCCEEDED -> {
+                combinedSubmitSucceededTaskIds += taskId
+                combinedFailedKeyByTask -= taskId
+                if (total > 0 && combinedSubmitSucceededTaskIds.size >= total) {
+                    _autoSubmitNotice.value = null
+                    if (!combinedAcceptedEmitted) {
+                        combinedAcceptedEmitted = true
+                        _events.tryEmit(ScanNavigationEvent.AutoSubmitAccepted)
+                    }
+                } else {
+                    _autoSubmitNotice.value =
+                        "${combinedSubmitSucceededTaskIds.size} of $total tasks submitted. The rest still need scans or videos."
+                }
+            }
+            item.isTerminalFailure -> {
+                // Clear every guard for this attempt and force a fresh task detail, so a retry
+                // with a bumped row version builds a NEW key instead of rediscovering this row.
+                combinedSubmitAttemptedKeys -= submitKey
+                combinedSubmitObservedItemIds -= item.id
+                combinedFailedKeyByTask[taskId] = submitKey
+                combinedForceDetailRefresh += taskId
+                _autoSubmitNotice.value = item.lastError?.takeIf { it.isNotBlank() }
+                    ?: "Submit failed. Backend rejected this pen; refresh and try again."
+                viewModelScope.launch { tasksRepository.refreshTaskDetail(taskId) }
+            }
         }
     }
 
@@ -2873,8 +2915,9 @@ private fun gcsSignedUrlStartSeconds(raw: String): Long? =
     }.getOrNull()
 
 private const val VACCINE_LABEL_SEPARATOR = " · "
-/** Upper bound on distinct SOP tasks one combined pen card submits (one per vaccine batch). */
-private const val MAX_COMBINED_SUBMIT_TASKS = 8
+/** Page size for walking a combined card's task ids; every page is processed, none dropped. */
+private const val COMBINED_TASK_PAGE_SIZE = 20
+private const val MAX_FRESH_SUMMARY_KEYS = 64
 internal const val TASKLESS_ANIMAL_MESSAGE = "This animal's batch has no task yet · refresh or ask the supervisor"
 private const val SCAN_PAGE_SIZE = 20
 private const val MAX_SCAN_FEED_ENTRIES = 100
