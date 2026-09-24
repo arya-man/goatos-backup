@@ -103,14 +103,15 @@ func TestListLiveRiskCohortIsCachedAndInvalidatedByNotify(t *testing.T) {
 	}
 }
 
-// A plain (non-stream) read of an invalidated but recently loaded cohort is served from cache
-// without a walk; once past the refresh floor it is served stale while ONE background walk runs.
+// Invalidated entries are a miss for plain reads; an entry merely past its TTL (inside the
+// grace) is served stale while ONE background refresh runs.
 func TestLiveCohortCacheStaleWhileRevalidate(t *testing.T) {
 	c := newLiveCohortCache[[]domain.LiveItem]()
-	now := time.Unix(1000, 0)
-	c.now = func() time.Time { return now }
-	var calls int
 	var mu sync.Mutex
+	now := time.Unix(1000, 0)
+	c.now = func() time.Time { mu.Lock(); defer mu.Unlock(); return now }
+	advance := func(d time.Duration) { mu.Lock(); now = now.Add(d); mu.Unlock() }
+	var calls int
 	compute := func(context.Context) ([]domain.LiveItem, error) {
 		mu.Lock()
 		calls++
@@ -118,33 +119,32 @@ func TestLiveCohortCacheStaleWhileRevalidate(t *testing.T) {
 		mu.Unlock()
 		return []domain.LiveItem{{TagID: fmt.Sprint(n)}}, nil
 	}
+	getCalls := func() int { mu.Lock(); defer mu.Unlock(); return calls }
 	ctx := context.Background()
 	key := liveCohortKey("t1")
 	if got, _ := c.get(ctx, key, false, compute); got[0].TagID != "1" {
 		t.Fatalf("first load = %v", got)
 	}
 	c.invalidate("t1")
-	now = now.Add(time.Second)
-	if got, _ := c.get(ctx, key, false, compute); got[0].TagID != "1" || calls != 1 {
-		t.Fatalf("stale read inside refresh floor: got %v calls %d, want cached 1 / 1", got, calls)
+	advance(time.Second)
+	if got, _ := c.get(ctx, key, false, compute); got[0].TagID != "2" {
+		t.Fatalf("read after invalidation = %v, want recomputed 2", got)
 	}
-	now = now.Add(liveCohortMinRefresh)
-	if got, _ := c.get(ctx, key, false, compute); got[0].TagID != "1" {
-		t.Fatalf("stale read must be served immediately, got %v", got)
+	advance(liveCohortTTL + time.Second) // age-expired, not invalidated, inside grace
+	if got, _ := c.get(ctx, key, false, compute); got[0].TagID != "2" {
+		t.Fatalf("age-expired read must be served stale immediately, got %v", got)
 	}
 	deadline := time.Now().Add(time.Second)
-	for {
-		mu.Lock()
-		n := calls
-		mu.Unlock()
-		if n == 2 || time.Now().After(deadline) {
-			break
-		}
+	for getCalls() < 3 && time.Now().Before(deadline) {
 		time.Sleep(time.Millisecond)
 	}
 	time.Sleep(10 * time.Millisecond)
-	if got, _ := c.get(ctx, key, false, compute); got[0].TagID != "2" || calls != 2 {
-		t.Fatalf("after background refresh got %v calls %d, want 2 / 2", got, calls)
+	if got, _ := c.get(ctx, key, false, compute); got[0].TagID != "3" || getCalls() != 3 {
+		t.Fatalf("after background refresh got %v calls %d, want 3 / 3", got, getCalls())
+	}
+	advance(liveCohortTTL + liveCohortStaleGrace + time.Second) // past grace: a miss
+	if got, _ := c.get(ctx, key, false, compute); got[0].TagID != "4" {
+		t.Fatalf("past-grace read = %v, want synchronous recompute 4", got)
 	}
 }
 
