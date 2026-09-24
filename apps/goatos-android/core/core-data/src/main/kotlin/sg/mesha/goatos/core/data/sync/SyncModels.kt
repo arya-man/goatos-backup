@@ -47,6 +47,12 @@ data class SyncQueueItem(
      *  without a second network call. Null until [status] reaches [SyncItemStatus.SUCCEEDED]. */
     val resultJson: String? = null,
 ) {
+    /** A persisted business question, recoverable after the sale form or process has closed. */
+    val needsSalesStockConfirmation: Boolean
+        get() = status == SyncItemStatus.FAILED && conflict &&
+            lastErrorCode == "feed_stock_confirmation_required" &&
+            opType in setOf("SALES_DEAL_CREATE", "SALES_DEAL_STATUS_SET")
+
     /** Terminal, non-retryable TRANSPORT failure — the TRD's "dead-letter after N attempts,
      *  visible + actionable" state. A [conflict] item is terminal for a different reason
      *  (business rejection, not exhausted retries) and is reported separately so the UI can

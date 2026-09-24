@@ -128,4 +128,7 @@
     <string name="push_msg_weighing_work_item_due_today">%1$s पर वज़न आज देय है।</string>
     <string name="push_msg_weighing_work_item_rolled_forward">%1$s पर वज़न अगले कार्य दिवस के लिए टाल दिया गया।</string>
     <string name="push_msg_weighing_work_item_delayed">%1$s पर वज़न में देरी हो रही है। कृपया इसे जल्द पूरा करें।</string>
+    <string name="sync_optype_sale">बिक्री दर्ज करें</string>
+    <string name="sync_optype_sale_status">बिक्री की स्थिति बदलें</string>
+    <string name="sync_confirm_sale_stock">मैंने जाँच लिया — इस बिक्री की पुष्टि करें</string>
 </resources>

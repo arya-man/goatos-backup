@@ -289,3 +289,18 @@ func TestQueuedSaleResolvesPreviousProductName(t *testing.T) {
 		t.Fatal("aliases must not appear as separate products")
 	}
 }
+
+func TestProductNameReservesMixedRollupForAddsAndRenames(t *testing.T) {
+	for _, code := range []string{"", "feed"} {
+		for _, name := range []string{"Mixed", " mixed ", "MIXED"} {
+			w := (ProductWrite{Code: code, Name: name, Kind: KindOther, Unit: UnitKg}).Normalize()
+			var bad ErrProductValidation
+			if err := w.Validate(); !errors.As(err, &bad) || bad.Field != "name" {
+				t.Fatalf("%q / %q: %v", code, name, err)
+			}
+		}
+	}
+	if err := (ProductWrite{Name: "Mixed feed", Kind: KindFeed, Unit: UnitKg}).Normalize().Validate(); err != nil {
+		t.Fatal(err)
+	}
+}

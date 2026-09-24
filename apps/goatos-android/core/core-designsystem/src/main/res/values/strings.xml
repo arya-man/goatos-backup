@@ -164,4 +164,7 @@
     <string name="force_update_permission_needed">Allow installs from Mesha in Android settings, then return here and tap Update now.</string>
     <string name="force_update_failed">Update download failed. Check internet and try again.</string>
     <string name="force_update_retry">Try again</string>
+    <string name="sync_optype_sale">Record sale</string>
+    <string name="sync_optype_sale_status">Update sale status</string>
+    <string name="sync_confirm_sale_stock">I checked — confirm this sale</string>
 </resources>

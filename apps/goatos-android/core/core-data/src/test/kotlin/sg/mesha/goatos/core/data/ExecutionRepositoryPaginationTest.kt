@@ -24,6 +24,8 @@ import sg.mesha.goatos.core.network.dto.VaccinationExecutionShedDrilldownDto
 import sg.mesha.goatos.core.database.capture.CaptureSyncStatus
 import sg.mesha.goatos.core.database.capture.ScannedGoatEntity
 import retrofit2.HttpException
+import retrofit2.Response
+import okhttp3.ResponseBody.Companion.toResponseBody
 
 /**
  * Scan roster is a per-row SSOT ([ScanRosterRowDao]), never a whole-collection JSON blob
@@ -598,7 +600,7 @@ class ExecutionRepositoryPaginationTest {
                         }
                         backend.taskScopedFailureStatus?.let { status ->
                             if (request.taskId != null) {
-                                throw HttpException(status)
+                                throw HttpException(Response.error<Unit>(status, "".toResponseBody(null)))
                             }
                         }
                         backend.response(request.cursor)

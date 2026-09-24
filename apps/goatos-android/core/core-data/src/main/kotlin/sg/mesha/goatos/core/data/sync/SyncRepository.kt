@@ -978,6 +978,9 @@ interface SyncRepository {
      *  retry affordance. */
     suspend fun retry(itemId: String): AppResult<Unit>
 
+    /** Explicit acknowledgement of a refused sale; preserves its identity and all entered fields. */
+    suspend fun confirmSalesStock(itemId: String): AppResult<Unit> = AppResult.Err("This sale cannot be confirmed here.")
+
     /** Deletes an outbox item by id. Used when cancelling unsynced operations (R50-028: removing
      *  a proof that was never uploaded should clean up its queued outbox entry). */
     suspend fun deleteOutboxItem(itemId: String): AppResult<Unit>
@@ -2559,9 +2562,45 @@ class DefaultSyncRepository(
         ),
     )
 
+    override suspend fun confirmSalesStock(itemId: String): AppResult<Unit> = withContext(dispatchers.io) {
+        try {
+            val item = store.findById(itemId)
+                ?: return@withContext AppResult.Err("This sale is no longer waiting for confirmation.")
+            if (!item.toSyncQueueItem().needsSalesStockConfirmation) {
+                return@withContext AppResult.Err("This sale is no longer waiting for confirmation.")
+            }
+            val op = OutboxOpType.valueOf(item.opType)
+            val payload = when (op) {
+                OutboxOpType.SALES_DEAL_CREATE -> {
+                    val saved = syncJson.decodeFromString<SalesDealCreatePayload>(item.payloadJson)
+                    syncJson.encodeToString(saved.copy(request = saved.request.copy(stockShortfallAcknowledged = true)))
+                }
+                OutboxOpType.SALES_DEAL_STATUS_SET -> {
+                    val saved = syncJson.decodeFromString<SalesDealStatusPayload>(item.payloadJson)
+                    syncJson.encodeToString(saved.copy(request = saved.request.copy(stockShortfallAcknowledged = true)))
+                }
+                else -> return@withContext AppResult.Err("This sale cannot be confirmed here.")
+            }
+            // The server asks this question before reserving the create key or changing status.
+            // Reusing the same key also makes a lost successful response replay safely.
+            if (!store.confirmSalesStock(item.id, item.payloadJson, payload, requestFingerprint(op, item.groupKey, payload), clock())) {
+                return@withContext AppResult.Err("This sale has changed. Check its latest status.")
+            }
+            triggerDrainAsync()
+            AppResult.Ok(Unit)
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (e: Throwable) {
+            AppResult.Err("Could not confirm the sale. Try again.", e)
+        }
+    }
+
     override suspend fun retry(itemId: String): AppResult<Unit> = withContext(dispatchers.io) {
         try {
-            store.findById(itemId) ?: throw NoSuchElementException("Outbox item not found: $itemId")
+            val item = store.findById(itemId) ?: throw NoSuchElementException("Outbox item not found: $itemId")
+            if (item.toSyncQueueItem().needsSalesStockConfirmation) {
+                return@withContext AppResult.Err("Check the stock figures and confirm this sale first.")
+            }
             // markRetryReady only re-arms a terminal FAILED row; a no-op (row already SUCCEEDED
             // or a drain has it IN_FLIGHT) is fine — the live status flow reflects the real state.
             store.markRetryReady(itemId, clock())

@@ -113,6 +113,8 @@ interface OutboxStore {
      *  Returns `false` (no-op) if the row is not FAILED (e.g. a drain has it IN_FLIGHT). */
     suspend fun markRetryReady(id: String, now: Long): Boolean
 
+    suspend fun confirmSalesStock(id: String, expectedPayload: String, payloadJson: String, fingerprint: String, now: Long): Boolean = false
+
     /** Re-opens a row that reached a TERMINAL failure (dead-letter conflict OR attempt-exhausted)
      *  for a brand-new enqueue under the SAME [OutboxEntity.idempotencyKey]: resets
      *  [OutboxEntity.attemptCount] to 0, [OutboxEntity.conflict] to false, status back to QUEUED,
@@ -222,6 +224,9 @@ class RoomOutboxStore(private val dao: OutboxDao) : OutboxStore {
     ): Boolean = dao.markFailed(id, attemptCount, nextAttemptAt, conflict, lastError, lastErrorCode, lastErrorField, now) > 0
 
     override suspend fun markRetryReady(id: String, now: Long): Boolean = dao.markRetryReady(id, now) > 0
+
+    override suspend fun confirmSalesStock(id: String, expectedPayload: String, payloadJson: String, fingerprint: String, now: Long): Boolean =
+        dao.confirmSalesStock(id, expectedPayload, payloadJson, fingerprint, now) > 0
 
     override suspend fun reopenTerminalForRetry(id: String, payloadJson: String, fingerprint: String, now: Long): Boolean =
         dao.reopenTerminalForRetry(id, payloadJson, fingerprint, now) > 0
