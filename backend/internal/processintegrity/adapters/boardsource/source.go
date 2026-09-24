@@ -601,7 +601,7 @@ func (s *Source) PrimeStatements(ctx context.Context, q ports.SourceQuery) ([]po
 	}
 	dayStart, err := time.ParseInLocation("2006-01-02", strings.TrimSpace(q.BusinessDate), biztime.DefaultLocation())
 	if err != nil {
-		return nil, nil // the source's own read reports the bad date
+		return nil, nil // exception:exempt priming is optional; the source's own read reports the bad date
 	}
 	key, bound := s.precheck(ctx, q, dayStart)
 	stmts := []ports.Statement{{
