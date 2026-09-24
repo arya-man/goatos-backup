@@ -393,7 +393,7 @@ RETURNING load_id::text`, testTenant, fx.loadA).Scan(&soldOut); err != nil {
 		}
 	})
 
-	t.Run("MixedLiveDealWithUnequalLineRatesDoesNotBlendSalePricePerKg", func(t *testing.T) {
+	t.Run("OneToManyMultipleDimensionsStatusMatrixMixedLiveDealWithUnequalLineRatesDoesNotBlendSalePricePerKg", func(t *testing.T) {
 		var loadD, goatD, dealD string
 		if err := pool.QueryRow(ctx, `
 	INSERT INTO goats (tenant_id, sex, lifecycle_status, exit_reason, custodian_party_id, park_id)
@@ -442,7 +442,7 @@ RETURNING load_id::text`, testTenant, fx.loadA).Scan(&soldOut); err != nil {
 		}
 	})
 
-	t.Run("MixedDealWithOneLiveLineAndManureKeepsTaggedLiveSalePricePerKg", func(t *testing.T) {
+	t.Run("ParkScopePageBoundaryMixedDealWithOneLiveLineAndManureKeepsTaggedLiveSalePricePerKg", func(t *testing.T) {
 		var loadE, goatE, dealE string
 		if err := pool.QueryRow(ctx, `
 	INSERT INTO goats (tenant_id, sex, lifecycle_status, exit_reason, custodian_party_id, park_id)
