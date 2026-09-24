@@ -241,6 +241,10 @@ A full Android slice takes a long time. Do not stack runs before landing:
 
 - Do not pre-run `tools/ci/run-local-ci.sh android` and then `make land-main`.
   `make land-main` IS the Android run. Commit and run it.
+- A full `make ci-local` that already went GREEN on the exact candidate SHA, in
+  the same worktree, on the current origin/main is reused: `make land-main`
+  verifies that receipt with the pre-push gate and skips re-running CI. Any
+  new commit or main move still needs a fresh run.
 - When `make land-main` fails in Android, rerun only the exact failing Gradle
   task, the same one CI runs, then commit and run `make land-main` once. CI runs
   `:app:testStgReleaseUnitTest` / `:app:lintStgRelease` (stg release), so a

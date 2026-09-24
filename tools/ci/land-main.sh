@@ -157,7 +157,13 @@ while [ "$attempt" -le "$max_attempts" ]; do
     exit 0
   fi
 
-  if [ "$test_mode" = "1" ]; then
+  # Exact-SHA reuse: a full `make ci-local` already run on this very commit (same
+  # worktree, same origin/main) wrote a GREEN receipt. Re-running it proves nothing
+  # new, so reuse it; --verify applies the same gate the pre-push hook enforces.
+  if [ "$(node -e 'try{process.stdout.write(String(require(process.argv[1]).sha||""))}catch{}' "$(git rev-parse --path-format=absolute --git-path goatos-ci-local-receipt.json)")" = "$candidate_sha" ] \
+    && node "$(local_ci_evidence_script)" --verify >/dev/null 2>&1; then
+    echo "land-main: reusing GREEN ci-local receipt already recorded for $(short_sha "$candidate_sha") on origin/main $(short_sha "$base_before")"
+  elif [ "$test_mode" = "1" ]; then
     test_ci="${GOATOS_LAND_TEST_CI_COMMAND:-}"
     [ -n "$test_ci" ] || die "GOATOS_LAND_TEST_CI_COMMAND is required in test mode"
     "$test_ci"
