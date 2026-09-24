@@ -575,18 +575,26 @@ const farmValuationSQL = `
 	),
 	classified AS (
 		SELECT
+				-- EVERY STAGE IS PRICED BY GENDER (maintainer instruction 2026-09-23). The stage is
+				-- decided first, exactly as before, and the animal's gender is appended -- so an
+				-- animal that used to land in 'K2' now lands in 'K2_female' or 'K2_male' and is
+				-- carried at that row's own weight and rate.
+				--
+				-- A MOTHER is female by definition and stays so whatever the register says; every
+				-- other stage takes the animal's own gender, and one that is NOT RECORDED is
+				-- valued on the FEMALE row (maintainer decision, same day: females are the larger
+				-- share, so it is the closer guess). The sex_missing count below counts those animals, so
+				-- the guess is visible on the page rather than silent in the total.
 				CASE
-					WHEN g.management_stage IN ('F2', 'F2-Male', 'F2-Female') THEN 'fattening'
+					WHEN g.management_stage IN ('F2', 'F2-Male', 'F2-Female') THEN 'fattening_' || s.sex_norm
 				WHEN s.stage_norm = 'MOTHER' THEN 'adult_female'
-				WHEN g.age_band = 'adult' AND g.sex = 'female' THEN 'adult_female'
-				WHEN g.age_band = 'adult' AND g.sex = 'male' THEN 'adult_male_buck'
-				WHEN g.milk_cohort = 'K1' OR g.management_stage = 'K1' THEN 'K1'
-				WHEN g.milk_cohort = 'K2' OR g.management_stage = 'K2' THEN 'K2'
-				WHEN g.milk_cohort = 'K3' OR g.management_stage = 'K3' THEN 'K3'
-				WHEN g.milk_cohort = 'K0' OR g.management_stage = 'K0' THEN 'K0'
-				WHEN s.stage_norm = 'ICUKID' THEN 'K2'
-				WHEN s.stage_norm = 'ICU' AND g.sex = 'female' THEN 'adult_female'
-				WHEN s.stage_norm = 'ICU' AND g.sex = 'male' THEN 'adult_male_buck'
+				WHEN g.age_band = 'adult' THEN 'adult_' || s.sex_norm
+				WHEN g.milk_cohort = 'K1' OR g.management_stage = 'K1' THEN 'K1_' || s.sex_norm
+				WHEN g.milk_cohort = 'K2' OR g.management_stage = 'K2' THEN 'K2_' || s.sex_norm
+				WHEN g.milk_cohort = 'K3' OR g.management_stage = 'K3' THEN 'K3_' || s.sex_norm
+				WHEN g.milk_cohort = 'K0' OR g.management_stage = 'K0' THEN 'K0_' || s.sex_norm
+				WHEN s.stage_norm = 'ICUKID' THEN 'K2_' || s.sex_norm
+				WHEN s.stage_norm = 'ICU' THEN 'adult_' || s.sex_norm
 				ELSE 'unmapped'
 			END AS bucket,
 			gw.weight_kg,
@@ -595,7 +603,10 @@ const farmValuationSQL = `
 			lower(btrim(coalesce(g.sex, ''))) AS sex
 			FROM public.goats g
 			CROSS JOIN LATERAL (
-				SELECT upper(regexp_replace(btrim(coalesce(g.management_stage, '')), '[^A-Za-z0-9]+', '', 'g')) AS stage_norm
+				SELECT upper(regexp_replace(btrim(coalesce(g.management_stage, '')), '[^A-Za-z0-9]+', '', 'g')) AS stage_norm,
+					-- The gender half of the bucket key. Anything that is not plainly male reads as
+					-- female, which is the recorded decision for an animal with no gender on file.
+					CASE WHEN lower(btrim(coalesce(g.sex, ''))) = 'male' THEN 'male' ELSE 'female' END AS sex_norm
 			) s
 			LEFT JOIN goat_weight gw ON gw.tenant_id = g.tenant_id AND gw.goat_id = g.goat_id
 		LEFT JOIN public.locations park ON park.tenant_id = g.tenant_id AND park.location_id = g.park_id
@@ -619,10 +630,16 @@ const farmValuationSQL = `
 				GROUP BY label
 			) x
 		),
-		fattening_weight AS (
-		SELECT avg(weight_kg) AS avg_weight_kg, count(weight_kg)::int AS weighed_animals
+		-- The measured weight a bucket left BLANK prices at, per BUCKET rather than once for the
+		-- whole herd. It used to be one average over every fattening animal, which was right while
+		-- fattening was one row; split by gender (2026-09-23) that same average would have priced
+		-- the male and female rows identically and undone the split the farm asked for. Each row
+		-- now weighs its own animals.
+		measured_weight AS (
+		SELECT bucket, avg(weight_kg) AS avg_weight_kg, count(weight_kg)::int AS weighed_animals
 		FROM classified
-		WHERE bucket = 'fattening'
+		WHERE bucket <> 'unmapped'
+		GROUP BY bucket
 	),
 	-- FARM VALUATION ASSUMPTIONS ARE DATA (maintainer instruction 2026-09-19, migration 000367):
 	-- the bucket rates are the tenant's authored row, re-read per request; a tenant without a row
@@ -635,13 +652,18 @@ const farmValuationSQL = `
 		WHERE a.tenant_id = $1::uuid
 		UNION ALL
 		SELECT * FROM (VALUES
-			('fattening', 'Fattening animals', NULL::float8, 450::float8, 1),
-			('adult_female', 'Adult females', 40::float8, 600::float8, 2),
-			('adult_male_buck', 'Adult males / bucks', 60::float8, 500::float8, 3),
-			('K0', 'K0', 3::float8, 500::float8, 4),
-			('K1', 'K1', 3::float8, 500::float8, 5),
-			('K2', 'K2', 8::float8, 500::float8, 6),
-			('K3', 'K3', 15::float8, 500::float8, 7)
+			('fattening_female', 'Fattening · Female', NULL::float8, 450::float8, 1),
+			('fattening_male', 'Fattening · Male', NULL::float8, 450::float8, 2),
+			('adult_female', 'Adult · Female', 40::float8, 600::float8, 3),
+			('adult_male', 'Adult · Male', 60::float8, 500::float8, 4),
+			('K0_female', 'K0 · Female', 3::float8, 500::float8, 5),
+			('K0_male', 'K0 · Male', 3::float8, 500::float8, 6),
+			('K1_female', 'K1 · Female', 3::float8, 500::float8, 7),
+			('K1_male', 'K1 · Male', 3::float8, 500::float8, 8),
+			('K2_female', 'K2 · Female', 8::float8, 500::float8, 9),
+			('K2_male', 'K2 · Male', 8::float8, 500::float8, 10),
+			('K3_female', 'K3 · Female', 15::float8, 500::float8, 11),
+			('K3_male', 'K3 · Male', 15::float8, 500::float8, 12)
 		) d(bucket, label, fixed_weight_kg, price_per_kg, display_order)
 		WHERE NOT EXISTS (SELECT 1 FROM public.sales_valuation_assumptions a WHERE a.tenant_id = $1::uuid)
 	),
@@ -649,8 +671,8 @@ const farmValuationSQL = `
 	-- non-terminal and non-merged, weight joined 1:1 after idmap is reduced to one row per goat);
 	-- group_key=the mutually-exclusive CASE bucket, and the three sex FILTER counts ride the SAME
 	-- GROUP BY so male + female + missing == animal_count row for row; join_cardinality=none inside
-	-- this rollup -- rates is joined 1:1 on bucket by the outer SELECT, fattening_weight and
-	-- total_inventory are one-row CROSS JOINs; pagination=none, whole-current-inventory card;
+	-- this rollup -- rates is joined 1:1 on bucket by the outer SELECT, measured_weight is LEFT
+	-- JOINed 1:0..1 on that same bucket key and total_inventory is a one-row CROSS JOIN; pagination=none, whole-current-inventory card;
 	-- scope=tenant_id and the optional CBE/CPT farm code applied in classified before any count.
 	counts AS (
 		SELECT
@@ -689,7 +711,7 @@ const farmValuationSQL = `
 			nv.breakdown
 		FROM rates r
 		LEFT JOIN counts c ON c.bucket = r.bucket
-		CROSS JOIN fattening_weight fw
+		LEFT JOIN measured_weight fw ON fw.bucket = r.bucket
 		CROSS JOIN total_inventory ti
 		CROSS JOIN not_valued nv
 		ORDER BY r.display_order`

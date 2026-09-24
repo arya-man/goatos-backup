@@ -157,10 +157,12 @@ func TestFarmValuationClassifiedProjectsNotValuedBreakdownInputs(t *testing.T) {
 // keeps it instead of being flattened to K2.
 func TestFarmValuationClinicalStagesAreValuedThroughTheirCohort(t *testing.T) {
 	for _, want := range []string{
+		// A mother is an adult FEMALE by definition, whatever the sex column says -- the one
+		// branch the gender split (2026-09-23) leaves hard-coded.
 		"WHEN s.stage_norm = 'MOTHER' THEN 'adult_female'",
-		"WHEN s.stage_norm = 'ICUKID' THEN 'K2'",
-		"WHEN s.stage_norm = 'ICU' AND g.sex = 'female' THEN 'adult_female'",
-		"WHEN s.stage_norm = 'ICU' AND g.sex = 'male' THEN 'adult_male_buck'",
+		// The others take the animal's own gender and are priced on that row.
+		"WHEN s.stage_norm = 'ICUKID' THEN 'K2_' || s.sex_norm",
+		"WHEN s.stage_norm = 'ICU' THEN 'adult_' || s.sex_norm",
 	} {
 		if !strings.Contains(farmValuationSQL, want) {
 			t.Fatalf("farm valuation must value clinically housed animals; missing %q", want)
@@ -168,9 +170,9 @@ func TestFarmValuationClinicalStagesAreValuedThroughTheirCohort(t *testing.T) {
 	}
 
 	mother := strings.Index(farmValuationSQL, "WHEN s.stage_norm = 'MOTHER'")
-	adultFemale := strings.Index(farmValuationSQL, "WHEN g.age_band = 'adult' AND g.sex = 'female'")
-	if mother < 0 || adultFemale < 0 || mother > adultFemale {
-		t.Fatal("a mother must be claimed as an adult female BEFORE the sex branches, whatever the sex column holds")
+	adultByGender := strings.Index(farmValuationSQL, "WHEN g.age_band = 'adult' THEN 'adult_' || s.sex_norm")
+	if mother < 0 || adultByGender < 0 || mother > adultByGender {
+		t.Fatal("a mother must be claimed as an adult female BEFORE the gender branch, whatever the sex column holds")
 	}
 
 	icuKid := strings.Index(farmValuationSQL, "WHEN s.stage_norm = 'ICUKID'")
@@ -287,12 +289,14 @@ func TestFarmValuationSQLSexCountsShareOneBucketRollupMultipleDimensions(t *test
 			t.Fatalf("farm valuation SQL missing %q", want)
 		}
 	}
-	// One rollup: a second GROUP BY bucket would let the split and the count drift apart, and a
-	// join inside it (say, back to goat_identifiers) would count a double-tagged animal twice.
-	if strings.Count(farmValuationSQL, "GROUP BY bucket") != 1 {
-		t.Fatalf("the sex counts must ride the one bucket rollup, got %d GROUP BY bucket", strings.Count(farmValuationSQL, "GROUP BY bucket"))
-	}
+	// ONE rollup for the counts: a second GROUP BY bucket INSIDE this CTE would let the split and
+	// the count drift apart, and a join inside it (say, back to goat_identifiers) would count a
+	// double-tagged animal twice. The measured-weight CTE groups by the same key elsewhere and is
+	// LEFT JOINed 1:0..1, which is why the whole-file count is no longer the assertion.
 	counts := farmValuationSQL[strings.Index(farmValuationSQL, "counts AS ("):strings.Index(farmValuationSQL, "total_inventory AS (")]
+	if strings.Count(counts, "GROUP BY bucket") != 1 {
+		t.Fatalf("the sex counts must ride one bucket rollup, got %d GROUP BY bucket in counts", strings.Count(counts, "GROUP BY bucket"))
+	}
 	if strings.Contains(counts, "JOIN") {
 		t.Fatalf("the bucket rollup must not join; a fan-out here would inflate the split: %s", counts)
 	}

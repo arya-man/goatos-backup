@@ -39,7 +39,43 @@ type ValuationAssumptions struct {
 // ValuationBucketKeys is the closed set of buckets the valuation SQL classifies into, in display
 // order. A write must carry exactly these, once each: a missing bucket would silently value that
 // slice of the herd at nothing, an extra one would never match an animal.
-var ValuationBucketKeys = []string{"fattening", "adult_female", "adult_male_buck", "K0", "K1", "K2", "K3"}
+//
+// EVERY STAGE IS SPLIT BY GENDER (maintainer instruction 2026-09-23: "we have different price at
+// different genders"). The adults always were -- a buck is not worth what a doe is -- and the rest
+// now say so too: a male kid can be carried at its own weight AND its own rate, which one figure
+// per stage could not express.
+//
+// An animal whose gender is NOT recorded is valued on the FEMALE row (maintainer decision, same
+// day). Females are the larger share of this herd, so it is the closer guess; it is a guess all
+// the same, and `sex_missing` on each bucket is what makes it visible rather than silent.
+var ValuationBucketKeys = []string{
+	"fattening_female", "fattening_male",
+	"adult_female", "adult_male",
+	"K0_female", "K0_male",
+	"K1_female", "K1_male",
+	"K2_female", "K2_male",
+	"K3_female", "K3_male",
+}
+
+// ValuationStages is the stage half of a bucket key, in display order, with the words for it.
+// The SQL classifies an animal into one of these and then appends its gender.
+var ValuationStages = []struct{ Key, Label string }{
+	{"fattening", "Fattening"},
+	{"adult", "Adult"},
+	{"K0", "K0"},
+	{"K1", "K1"},
+	{"K2", "K2"},
+	{"K3", "K3"},
+}
+
+// ValuationGenders is the gender half, in display order.
+var ValuationGenders = []struct{ Key, Label string }{
+	{"female", "Female"},
+	{"male", "Male"},
+}
+
+// ValuationBucketKey joins the two halves the one way every surface must join them.
+func ValuationBucketKey(stage, gender string) string { return stage + "_" + gender }
 
 // Business bands. Outside them the write is REFUSED, never clamped: a typo of 5000 rupees per kg
 // or a 0.1 kg adult is not a figure to silently fix.
@@ -99,14 +135,22 @@ func ValidateValuationAssumptions(v ValuationAssumptions) error {
 func DefaultValuationAssumptions() ValuationAssumptions {
 	kg := func(v float64) *float64 { return &v }
 	return ValuationAssumptions{
+		// The figures the farm carried before the gender split, each stage's single rate becoming
+		// its two rows -- so a farm that has not touched this screen values its herd at exactly
+		// what it valued yesterday, and then edits the halves that really differ.
 		Buckets: []ValuationBucketRate{
-			{Bucket: "fattening", Label: "Fattening animals", FixedWeightKg: nil, PricePerKg: 450, DisplayOrder: 1},
-			{Bucket: "adult_female", Label: "Adult females", FixedWeightKg: kg(40), PricePerKg: 600, DisplayOrder: 2},
-			{Bucket: "adult_male_buck", Label: "Adult males / bucks", FixedWeightKg: kg(60), PricePerKg: 500, DisplayOrder: 3},
-			{Bucket: "K0", Label: "K0", FixedWeightKg: kg(3), PricePerKg: 500, DisplayOrder: 4},
-			{Bucket: "K1", Label: "K1", FixedWeightKg: kg(3), PricePerKg: 500, DisplayOrder: 5},
-			{Bucket: "K2", Label: "K2", FixedWeightKg: kg(8), PricePerKg: 500, DisplayOrder: 6},
-			{Bucket: "K3", Label: "K3", FixedWeightKg: kg(15), PricePerKg: 500, DisplayOrder: 7},
+			{Bucket: "fattening_female", Label: "Fattening · Female", FixedWeightKg: nil, PricePerKg: 450, DisplayOrder: 1},
+			{Bucket: "fattening_male", Label: "Fattening · Male", FixedWeightKg: nil, PricePerKg: 450, DisplayOrder: 2},
+			{Bucket: "adult_female", Label: "Adult · Female", FixedWeightKg: kg(40), PricePerKg: 600, DisplayOrder: 3},
+			{Bucket: "adult_male", Label: "Adult · Male", FixedWeightKg: kg(60), PricePerKg: 500, DisplayOrder: 4},
+			{Bucket: "K0_female", Label: "K0 · Female", FixedWeightKg: kg(3), PricePerKg: 500, DisplayOrder: 5},
+			{Bucket: "K0_male", Label: "K0 · Male", FixedWeightKg: kg(3), PricePerKg: 500, DisplayOrder: 6},
+			{Bucket: "K1_female", Label: "K1 · Female", FixedWeightKg: kg(3), PricePerKg: 500, DisplayOrder: 7},
+			{Bucket: "K1_male", Label: "K1 · Male", FixedWeightKg: kg(3), PricePerKg: 500, DisplayOrder: 8},
+			{Bucket: "K2_female", Label: "K2 · Female", FixedWeightKg: kg(8), PricePerKg: 500, DisplayOrder: 9},
+			{Bucket: "K2_male", Label: "K2 · Male", FixedWeightKg: kg(8), PricePerKg: 500, DisplayOrder: 10},
+			{Bucket: "K3_female", Label: "K3 · Female", FixedWeightKg: kg(15), PricePerKg: 500, DisplayOrder: 11},
+			{Bucket: "K3_male", Label: "K3 · Male", FixedWeightKg: kg(15), PricePerKg: 500, DisplayOrder: 12},
 		},
 	}
 }
