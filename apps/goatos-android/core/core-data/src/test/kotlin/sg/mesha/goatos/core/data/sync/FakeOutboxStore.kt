@@ -356,7 +356,7 @@ class FakeOutboxStore : OutboxStore {
 
     private fun OutboxEntity.blocksLaterCandidate(now: Long, candidate: OutboxEntity): Boolean {
         if (
-            candidate.opType in setOf("PC_CARE_SLOT_REGISTER", "PC_CARE_TASK_PROOF_REGISTER") &&
+            candidate.opType in setOf("PC_CARE_SLOT_REGISTER", "PC_CARE_TASK_PROOF_REGISTER", "HEALTH_STEP_PROOF_REGISTER") &&
             opType == "PROOF_UPLOAD" &&
             candidate.referencesProofUpload(id) &&
             isActiveProofUpload(now)
@@ -364,12 +364,12 @@ class FakeOutboxStore : OutboxStore {
             return true
         }
         if (
-            candidate.opType == "PC_CARE_TASK_SUBMIT" &&
+            candidate.opType in setOf("PC_CARE_TASK_SUBMIT", "HEALTH_TREATMENT_COMPLETE") &&
             opType == "PROOF_UPLOAD" &&
             isActiveProofUpload(now) &&
             rows.value.any { register ->
                 register.groupKey == candidate.groupKey &&
-                    register.opType in setOf("PC_CARE_SLOT_REGISTER", "PC_CARE_TASK_PROOF_REGISTER") &&
+                    register.opType in setOf("PC_CARE_SLOT_REGISTER", "PC_CARE_TASK_PROOF_REGISTER", "HEALTH_STEP_PROOF_REGISTER") &&
                     register.referencesProofUpload(id) &&
                     register.isActiveRegister(now) &&
                     register.createdAt <= candidate.createdAt

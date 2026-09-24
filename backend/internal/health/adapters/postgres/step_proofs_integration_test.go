@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/health/domain"
+	"github.com/vgoats/goatos/backend/internal/health/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 )
 
@@ -170,6 +171,71 @@ func TestReshootingAStepReplacesItsClip(t *testing.T) {
 	}
 	if proofs[0].ProofRef != "second-take" {
 		t.Fatalf("step kept %q, want the re-shoot", proofs[0].ProofRef)
+	}
+}
+
+func TestStaleStepProofRetryDoesNotOverwriteAReshoot(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedHealthScope(t, ctx, pool)
+
+	medicine, dose := "Tylosin", "1 ml"
+	repo := NewRepository(pool, 10*time.Second)
+	if err := repo.ReplacePublishedProtocols(ctx, healthTenant, healthActor, "health-test", "hash-stale-retry",
+		[]domain.SourceProtocol{{
+			DiseaseKey: "fever", DisplayName: "Fever", AgeBand: domain.AgeBandAdult, DurationDays: 1,
+			Steps: []domain.ProtocolStep{{DayNo: 1, Session: domain.SessionMorning, Seq: 1,
+				RecordType: "medication", MedicineName: &medicine, DosageText: &dose}},
+		}}); err != nil {
+		t.Fatalf("publish protocol: %v", err)
+	}
+	loc, _ := time.LoadLocation("Asia/Kolkata")
+	opened, err := repo.OpenCase(ctx, domain.OpenCaseInput{
+		TenantID: healthTenant, ActorID: healthActor, GoatID: healthGoat,
+		DiseaseKey: "fever", AgeBand: domain.AgeBandAdult, StartDate: time.Now().In(loc),
+		IdempotencyKey: "open-stale-retry", RequestFingerprint: "open-stale-retry",
+	})
+	if err != nil {
+		t.Fatalf("open case: %v", err)
+	}
+	detail, _ := repo.GetWorkItem(ctx, healthTenant, opened.FirstSessionID)
+	step := detail.Steps[0].StepID
+
+	if _, err := repo.RecordStepProof(ctx, domain.RecordStepProofInput{
+		TenantID: healthTenant, ActorID: healthActor, SessionID: opened.FirstSessionID,
+		StepID: step, ProofRef: "first-take", IdempotencyKey: "sp-first", RequestFingerprint: "fp-first",
+	}); err != nil {
+		t.Fatalf("record first take: %v", err)
+	}
+	if _, err := repo.RecordStepProof(ctx, domain.RecordStepProofInput{
+		TenantID: healthTenant, ActorID: healthActor, SessionID: opened.FirstSessionID,
+		StepID: step, ProofRef: "second-take", IdempotencyKey: "sp-second", RequestFingerprint: "fp-second",
+	}); err != nil {
+		t.Fatalf("record second take: %v", err)
+	}
+	replayed, err := repo.RecordStepProof(ctx, domain.RecordStepProofInput{
+		TenantID: healthTenant, ActorID: healthActor, SessionID: opened.FirstSessionID,
+		StepID: step, ProofRef: "first-take", IdempotencyKey: "sp-first", RequestFingerprint: "fp-first",
+	})
+	if err != nil {
+		t.Fatalf("replay first take: %v", err)
+	}
+	if replayed.ProofRef != "first-take" {
+		t.Fatalf("replay returned %q, want original first take", replayed.ProofRef)
+	}
+	proofs, err := repo.StepProofs(ctx, healthTenant, opened.FirstSessionID)
+	if err != nil || len(proofs) != 1 || proofs[0].ProofRef != "second-take" {
+		t.Fatalf("stored proof after stale replay = %+v, err=%v; want second-take unchanged", proofs, err)
+	}
+
+	_, err = repo.RecordStepProof(ctx, domain.RecordStepProofInput{
+		TenantID: healthTenant, ActorID: healthActor, SessionID: opened.FirstSessionID,
+		StepID: step, ProofRef: "tampered-take", IdempotencyKey: "sp-first", RequestFingerprint: "different-body",
+	})
+	if !errors.Is(err, ports.ErrConflict) {
+		t.Fatalf("same key different fingerprint = %v, want conflict", err)
 	}
 }
 

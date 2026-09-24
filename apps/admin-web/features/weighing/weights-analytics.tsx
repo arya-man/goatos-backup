@@ -496,7 +496,6 @@ export async function WeighingWeightsAnalyticsPage({
             initialParkId={parkFilter}
             initialFrom={window.from}
             initialTo={window.to}
-            sex={sexFilter}
             origin={originFilter}
             weighingCategory={modeFilter !== "all" ? modeFilter : undefined}
             today={today}

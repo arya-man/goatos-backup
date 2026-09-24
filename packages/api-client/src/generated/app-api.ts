@@ -32707,7 +32707,7 @@ export interface operations {
     getHealthConfigRegisterTemplate: {
         parameters: {
             query?: {
-                format?: "csv" | "xlsx" | "json";
+                format?: "csv" | "xlsx";
             };
             header?: never;
             path: {
@@ -32724,9 +32724,6 @@ export interface operations {
                 };
                 content: {
                     "text/csv": string;
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": string;
                 };
             };

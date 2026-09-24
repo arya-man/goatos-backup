@@ -30,6 +30,7 @@ class TreatmentStepProofsTest {
 
         assertFalse("an upload alone must never read as recorded", proofs.of("s1").recorded)
         assertTrue("the step still owes its video", "s1" in proofs.missing(steps))
+        assertTrue("a queued register may still be submitted offline", proofs.of("s1").readyForSubmit)
     }
 
     @Test
@@ -47,8 +48,11 @@ class TreatmentStepProofsTest {
         )
 
         assertFalse(proofs.of("s1").recorded)
+        assertFalse(proofs.of("s1").readyForSubmit)
         assertEquals(listOf("s1", "s2", "s3"), proofs.missing(steps))
+        assertEquals(listOf("s1", "s2", "s3"), proofs.missingForSubmit(steps))
         assertFalse(proofs.complete(steps))
+        assertFalse(proofs.readyForSubmit(steps))
     }
 
     @Test
@@ -74,11 +78,24 @@ class TreatmentStepProofsTest {
         assertTrue(proofs.complete(steps))
     }
 
+    @Test
+    fun `the card can queue submit when every step register is queued or recorded`() {
+        val proofs = TreatmentStepProofs()
+            .with(TreatmentStepProof(stepId = "s1", state = StepProofState.RECORDED))
+            .with(TreatmentStepProof(stepId = "s2", state = StepProofState.SENDING))
+            .with(TreatmentStepProof(stepId = "s3", state = StepProofState.SENDING))
+
+        assertFalse("queued registers are not final recorded evidence", proofs.complete(steps))
+        assertTrue("same-lane queued registers may drain before completion", proofs.readyForSubmit(steps))
+        assertEquals(emptyList<String>(), proofs.missingForSubmit(steps))
+    }
+
     // A card with NO steps must not submit either. Otherwise a session whose steps failed to load
     // would sail through with no evidence at all -- vacuously "complete".
     @Test
     fun `a card with no steps is not complete`() {
         assertFalse(TreatmentStepProofs().complete(emptyList()))
+        assertFalse(TreatmentStepProofs().readyForSubmit(emptyList()))
     }
 
     @Test

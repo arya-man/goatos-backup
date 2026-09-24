@@ -41,6 +41,7 @@ data class TreatmentStepProof(
     val message: String = "",
 ) {
     val recorded: Boolean get() = state == StepProofState.RECORDED
+    val readyForSubmit: Boolean get() = state == StepProofState.RECORDED || state == StepProofState.SENDING
 }
 
 /** Every step's capture on one session's card. */
@@ -63,7 +64,13 @@ data class TreatmentStepProofs(val byStep: Map<String, TreatmentStepProof> = emp
     fun missing(stepIds: List<String>): List<String> =
         stepIds.filterNot { of(it).recorded }
 
+    fun missingForSubmit(stepIds: List<String>): List<String> =
+        stepIds.filterNot { of(it).readyForSubmit }
+
     /** Whether the card can be submitted: every step recorded, and at least one step to record. */
     fun complete(stepIds: List<String>): Boolean =
         stepIds.isNotEmpty() && missing(stepIds).isEmpty()
+
+    fun readyForSubmit(stepIds: List<String>): Boolean =
+        stepIds.isNotEmpty() && missingForSubmit(stepIds).isEmpty()
 }

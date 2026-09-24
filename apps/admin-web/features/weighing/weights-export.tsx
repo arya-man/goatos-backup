@@ -61,7 +61,6 @@ export function WeightsExportControl({
   initialParkId,
   initialFrom,
   initialTo,
-  sex,
   origin,
   weighingCategory,
   today,
@@ -77,7 +76,6 @@ export function WeightsExportControl({
   initialFrom: string;
   initialTo: string;
   /** Optional host-page filters the CSV must match. */
-  sex?: string;
   origin?: string;
   weighingCategory?: string;
   today: string;
@@ -94,6 +92,7 @@ export function WeightsExportControl({
   const [from, setFrom] = useState(initialFrom);
   const [to, setTo] = useState(initialTo);
   const [parkId, setParkId] = useState(initialParkId);
+  const [sex, setSex] = useState("");
   // Empty set = every shed ("All pens"), which is also what the backend receives.
   const [selectedSheds, setSelectedSheds] = useState<ReadonlySet<string>>(new Set());
   const [failed, setFailed] = useState(false);
@@ -203,6 +202,15 @@ export function WeightsExportControl({
           <p className="muted small" style={{ marginTop: 0 }}>
             {copy(pageContract, "export.hint")}
           </p>
+
+          <div className="fld">
+            <label htmlFor="wt-export-sex">{copy(pageContract, "export.sex.label")}</label>
+            <select id="wt-export-sex" value={sex} onChange={(event) => setSex(event.target.value)} disabled={pending}>
+              <option value="">{copy(pageContract, "export.sex.all")}</option>
+              <option value="male">{copy(pageContract, "view.sex.male")}</option>
+              <option value="female">{copy(pageContract, "view.sex.female")}</option>
+            </select>
+          </div>
 
           <div className="fld">
             <label>{copy(pageContract, "export.period.label")}</label>

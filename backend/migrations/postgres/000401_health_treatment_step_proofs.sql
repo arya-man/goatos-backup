@@ -53,10 +53,40 @@ COMMENT ON TABLE public.health_session_step_proofs IS
 COMMENT ON COLUMN public.health_session_step_proofs.captured_by IS
   'WHO filmed this step. Per step because different people may do different steps of one session.';
 
+CREATE TABLE IF NOT EXISTS public.health_session_step_proof_attempts (
+  tenant_id uuid NOT NULL,
+  health_session_id uuid NOT NULL,
+  health_session_step_id uuid NOT NULL,
+  idempotency_key text NOT NULL,
+  request_fingerprint text NOT NULL,
+  proof_ref text NOT NULL,
+  captured_by uuid NOT NULL,
+  captured_at timestamp with time zone NOT NULL DEFAULT now(),
+
+  -- Durable retry memory. A later re-shoot replaces the live row above, but an old transport retry
+  -- replays this attempt instead of restoring the old clip.
+  CONSTRAINT health_session_step_proof_attempts_pk
+    PRIMARY KEY (tenant_id, health_session_step_id, idempotency_key),
+  CONSTRAINT health_session_step_proof_attempts_ref_check
+    CHECK (btrim(proof_ref) <> ''),
+  CONSTRAINT health_session_step_proof_attempts_step_fk
+    FOREIGN KEY (health_session_step_id)
+    REFERENCES public.health_session_steps (health_session_step_id)
+    ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS health_session_step_proof_attempts_session_idx
+  ON public.health_session_step_proof_attempts (tenant_id, health_session_id);
+
+COMMENT ON TABLE public.health_session_step_proof_attempts IS
+  'Idempotency ledger for treatment step proof writes. Keeps stale retries from restoring an older clip after a re-shoot.';
+
 COMMIT;
 
 -- +goose Down
 BEGIN;
+DROP INDEX IF EXISTS public.health_session_step_proof_attempts_session_idx;
+DROP TABLE IF EXISTS public.health_session_step_proof_attempts;
 DROP INDEX IF EXISTS public.health_session_step_proofs_session_idx;
 DROP TABLE IF EXISTS public.health_session_step_proofs;
 COMMIT;
