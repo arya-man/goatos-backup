@@ -52,10 +52,29 @@ class BootstrapViewModel @Inject constructor(
     private val pushTokenSync: PushTokenSync,
     private val connectivityGate: ConnectivityGate,
     private val navRefresh: NavStateRefreshSignal,
+    /** Background session-event sender; see [loadNavStateAfterSessionClaim]. */
+    private val sessionEvents: AuthSessionEventSender? = null,
 ) : ViewModel() {
     private companion object {
         const val TAG = "GoatOSBootstrap"
+        /** Upper bound bootstrap waits for an in-flight session-event before giving up. */
+        const val SESSION_CLAIM_WAIT_MS = 15_000L
     }
+
+    /**
+     * Login no longer waits for the Goat OS session-event (it is sent in the background), but that
+     * event is also what claims a first-ever user's pending email grant. Until it lands,
+     * `/app/bootstrap` answers 403. So when bootstrap says access is not provisioned AND a session
+     * event is still in flight, wait for it (bounded) and retry exactly once. Every other login
+     * pays nothing; a real "no access" still surfaces after the one retry.
+     */
+    private suspend fun loadNavStateAfterSessionClaim(): NavState =
+        try {
+            repo.loadNavState()
+        } catch (denied: BootstrapError.AccessNotProvisioned) {
+            val sender = sessionEvents ?: throw denied
+            if (sender.awaitDelivery(SESSION_CLAIM_WAIT_MS)) repo.loadNavState() else throw denied
+        }
 
     private val _state = MutableStateFlow<BootstrapUiState>(BootstrapUiState.Loading)
     val state: StateFlow<BootstrapUiState> = _state.asStateFlow()
@@ -107,7 +126,7 @@ class BootstrapViewModel @Inject constructor(
     fun load() {
         viewModelScope.launch {
             _state.value = BootstrapUiState.Loading
-            runCatching { repo.loadNavState() }
+            runCatching { loadNavStateAfterSessionClaim() }
                 .onSuccess { navState ->
                     _state.value = BootstrapUiState.Ready(navState)
                     val chrome = if (navState.chrome == NavChrome.EXPANDED) "expanded" else "minimal"
