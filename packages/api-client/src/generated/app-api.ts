@@ -8520,8 +8520,8 @@ export interface components {
             sold_priced: number;
             avg_sold_price?: number | null;
             /** @enum {string} */
-            price_basis: "load" | "overall" | "none";
-            /** @description remaining x avg_sold_price. Absent when there is no price basis. */
+            price_basis: "load" | "overall" | "none" | "growth_sale_price";
+            /** @description Remaining stock value. The current Load-wise read uses `remaining_mix` x avg_purchase_weight_kg x the effective growth_sale_price_assumptions row for each species/stage/sex group; absent when the load has no purchase-weight basis or any remaining group is unpriced. Legacy `load`/`overall` bases are retained only as historical contract values. */
             remaining_value?: number | null;
             /** @description sold_value + remaining_value - purchase_value: what the load is worth against what it cost. ABSENT when no cost is recorded, because "profit" would otherwise be the whole sale value. Part of it is UNREALISED whenever `remaining` > 0 — `price_basis` names the average that valued that stock. */
             profit_loss?: number | null;

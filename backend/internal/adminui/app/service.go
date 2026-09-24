@@ -4290,15 +4290,16 @@ func pageSpecificCopy(id string) map[string]string {
 			"value.profit_unrealised": "includes stock still on farm, not yet sold",
 			// The profit of a load that has sold nothing IS its stock valuation, so the number that
 			// produced it is shown beside it rather than hidden in a tooltip.
-			"value.profit_incl_stock":      "incl. stock",
-			"loadwise.stock_price_note":    "Animals not yet sold are valued at",
-			"loadwise.stock_price_each":    "each",
-			"loadwise.stock_price_unknown": "Animals not yet sold cannot be valued: nothing has sold yet to price them against.",
-			"value.profit_unavailable":     "No cost recorded, so profit cannot be worked out.",
-			"value.cost_missing":           "Cost not recorded",
-			"value.price_basis.load":       "at this load's own average sold price",
-			"value.price_basis.overall":    "at the overall average sold price",
-			"value.price_basis.assumed":    "at the unsold animal price set on Sales Config",
+			"value.profit_incl_stock":             "incl. stock",
+			"loadwise.stock_price_note":           "Animals not yet sold are valued at",
+			"loadwise.stock_price_each":           "each",
+			"loadwise.stock_price_unknown":        "Animals not yet sold cannot be valued: nothing has sold yet to price them against.",
+			"value.profit_unavailable":            "No cost recorded, so profit cannot be worked out.",
+			"value.cost_missing":                  "Cost not recorded",
+			"value.price_basis.load":              "at this load's own average sold price",
+			"value.price_basis.overall":           "at the overall average sold price",
+			"value.price_basis.assumed":           "at the unsold animal price set on Sales Config",
+			"value.price_basis.growth_sale_price": "at the stage and sex sale price",
 			// The third basis, and the one a fresh tenant hits FIRST: with no sale anywhere there is
 			// no price to value stock at. It must be published like the other two -- the renderer
 			// resolves this key from price_basis, so an unpublished value takes the page down.
