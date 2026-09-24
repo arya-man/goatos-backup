@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/herdsignals/domain"
@@ -24,7 +23,6 @@ import (
 const (
 	maxIngestBodyBytes         = 2 << 20 // 2 MiB
 	maxIngestPacketsPerRequest = 2000
-	liveStreamHeartbeat        = 25 * time.Second
 )
 
 func tenantID(r *http.Request) string {
@@ -55,7 +53,6 @@ type AppService interface {
 type Handler struct {
 	service AppService
 	log     *slog.Logger
-	liveHub *liveStreamHub
 }
 
 // NewHandler creates a new herd signals HTTP handler.
@@ -64,46 +61,7 @@ func NewHandler(service AppService, log ...*slog.Logger) *Handler {
 	if len(log) > 0 && log[0] != nil {
 		l = log[0]
 	}
-	return &Handler{service: service, log: l, liveHub: newLiveStreamHub()}
-}
-
-type liveStreamHub struct {
-	mu          sync.Mutex
-	subscribers map[string]map[chan struct{}]struct{}
-}
-
-func newLiveStreamHub() *liveStreamHub {
-	return &liveStreamHub{subscribers: make(map[string]map[chan struct{}]struct{})}
-}
-
-func (h *liveStreamHub) subscribe(tenantID string) (<-chan struct{}, func()) {
-	ch := make(chan struct{}, 1)
-	h.mu.Lock()
-	if h.subscribers[tenantID] == nil {
-		h.subscribers[tenantID] = make(map[chan struct{}]struct{})
-	}
-	h.subscribers[tenantID][ch] = struct{}{}
-	h.mu.Unlock()
-
-	return ch, func() {
-		h.mu.Lock()
-		delete(h.subscribers[tenantID], ch)
-		if len(h.subscribers[tenantID]) == 0 {
-			delete(h.subscribers, tenantID)
-		}
-		h.mu.Unlock()
-	}
-}
-
-func (h *liveStreamHub) publish(tenantID string) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	for ch := range h.subscribers[tenantID] {
-		select {
-		case ch <- struct{}{}:
-		default:
-		}
-	}
+	return &Handler{service: service, log: l}
 }
 
 // Register registers herd signals routes.
@@ -183,7 +141,6 @@ func (h *Handler) IngestPackets(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.liveHub.publish(actor.TenantID)
 	httpresponse.WriteJSON(w, http.StatusOK, resp)
 }
 
@@ -203,36 +160,7 @@ func (h *Handler) ListLive(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	query := parseLiveQuery(r)
-
-	// Call service
-	resp, err := h.service.ListLive(ctx, actor, query.parkID, query.shedID, query.movementState, query.liveState, query.mappingState, query.pattern, query.riskState, query.q, query.cursor, query.limit, query.sort)
-	if err != nil {
-		h.log.Error("list_live_failed", "error", err.Error())
-		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError,
-			map[string]interface{}{"code": "list_failed", "message": "failed to list live tags"},
-			err)
-		return
-	}
-
-	httpresponse.WriteJSON(w, http.StatusOK, resp)
-}
-
-type liveQuery struct {
-	parkID        *string
-	shedID        *string
-	movementState *string
-	liveState     *string
-	mappingState  *string
-	pattern       *string
-	riskState     *string
-	q             *string
-	cursor        string
-	limit         int
-	sort          domain.LiveSort
-}
-
-func parseLiveQuery(r *http.Request) liveQuery {
+	// Parse query parameters
 	parkID := r.URL.Query().Get("park_id")
 	shedID := r.URL.Query().Get("shed_id")
 	movementState := r.URL.Query().Get("movement_state")
@@ -277,25 +205,30 @@ func parseLiveQuery(r *http.Request) liveQuery {
 	if q != "" {
 		qPtr = &q
 	}
-	return liveQuery{
-		parkID:        parkIDPtr,
-		shedID:        shedIDPtr,
-		movementState: movementStatePtr,
-		liveState:     liveStatePtr,
-		mappingState:  mappingStatePtr,
-		pattern:       patternPtr,
-		riskState:     riskStatePtr,
-		q:             qPtr,
-		cursor:        cursor,
-		limit:         limit,
-		sort:          sort,
+
+	// Call service
+	resp, err := h.service.ListLive(ctx, actor, parkIDPtr, shedIDPtr, movementStatePtr, liveStatePtr, mappingStatePtr, patternPtr, riskStatePtr, qPtr, cursor, limit, sort)
+	if err != nil {
+		h.log.Error("list_live_failed", "error", err.Error())
+		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError,
+			map[string]interface{}{"code": "list_failed", "message": "failed to list live tags"},
+			err)
+		return
 	}
+
+	httpresponse.WriteJSON(w, http.StatusOK, resp)
 }
 
 // StreamLive handles GET /herd-signals/live/stream.
 func (h *Handler) StreamLive(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	controller := http.NewResponseController(w)
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError,
+			map[string]interface{}{"code": "streaming_unsupported", "message": "streaming unsupported"},
+			nil)
+		return
+	}
 
 	actor := domain.Actor{
 		TenantID: tenantID(r),
@@ -313,7 +246,6 @@ func (h *Handler) StreamLive(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 
-	query := parseLiveQuery(r)
 	write := func(event string, payload interface{}) bool {
 		body, err := json.Marshal(payload)
 		if err != nil {
@@ -323,37 +255,21 @@ func (h *Handler) StreamLive(w http.ResponseWriter, r *http.Request) {
 		if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, body); err != nil {
 			return false
 		}
-		if err := controller.Flush(); err != nil {
-			return false
-		}
+		flusher.Flush()
 		return true
 	}
-	writeSnapshot := func() bool {
-		resp, err := h.service.ListLive(ctx, actor, query.parkID, query.shedID, query.movementState, query.liveState, query.mappingState, query.pattern, query.riskState, query.q, query.cursor, query.limit, query.sort)
-		if err != nil {
-			h.log.Warn("herd_signals_stream_snapshot_failed", "error", err.Error())
-			return write("error", map[string]interface{}{"code": "snapshot_failed", "message": "failed to list live tags"})
-		}
-		return write("snapshot", resp)
-	}
 
-	if !writeSnapshot() {
+	if !write("tick", map[string]interface{}{"at": time.Now().UTC().Format(time.RFC3339Nano)}) {
 		return
 	}
-	updates, unsubscribe := h.liveHub.subscribe(actor.TenantID)
-	defer unsubscribe()
-	heartbeat := time.NewTicker(liveStreamHeartbeat)
-	defer heartbeat.Stop()
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-heartbeat.C:
+		case <-ticker.C:
 			if !write("tick", map[string]interface{}{"at": time.Now().UTC().Format(time.RFC3339Nano)}) {
-				return
-			}
-		case <-updates:
-			if !writeSnapshot() {
 				return
 			}
 		}

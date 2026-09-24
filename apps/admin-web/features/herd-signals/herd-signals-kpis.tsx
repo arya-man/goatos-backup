@@ -4,7 +4,6 @@ import type { ReactNode } from "react";
 import Link from "@/components/no-prefetch-link";
 import type { HerdSignalsSummary } from "@/lib/api/herd-signals";
 import { useHerdSignalsNav } from "./herd-signals-nav-context";
-import { useHerdSignalsLiveSnapshot } from "./herd-signals-live-store";
 import { herdSignalsHref, type HerdSignalsParams, type KpiFilterKey } from "./params";
 
 type KpiDef = {
@@ -160,10 +159,8 @@ const KPI_DEFS: KpiDef[] = [
 // bar (useHerdSignalsNav) rather than a plain <Link> navigation — a plain Link here was the
 // "clicking a KPI reloads the whole page" defect: no pending affordance, table just blanked and
 // reappeared.
-export function HerdSignalsKpis({ summary, params, liveKey }: { summary: HerdSignalsSummary; params: HerdSignalsParams; liveKey: string }) {
+export function HerdSignalsKpis({ summary, params }: { summary: HerdSignalsSummary; params: HerdSignalsParams }) {
   const { isPending, navigate } = useHerdSignalsNav();
-  const liveSnapshot = useHerdSignalsLiveSnapshot(liveKey);
-  const displayedSummary = liveSnapshot?.data.summary ?? summary;
   return (
     <div className={`kpis herd-signals-kpis${isPending ? " wfbusy" : ""}`} aria-busy={isPending}>
       {KPI_DEFS.map((def, index) => {
@@ -181,8 +178,8 @@ export function HerdSignalsKpis({ summary, params, liveKey }: { summary: HerdSig
               <KpiIcon>{def.icon}</KpiIcon>
               {def.label}
             </div>
-            <div className="val">{def.value(displayedSummary).toLocaleString("en-IN")}</div>
-            <div className="dl">{def.detail(displayedSummary)}</div>
+            <div className="val">{def.value(summary).toLocaleString("en-IN")}</div>
+            <div className="dl">{def.detail(summary)}</div>
             <div className="ty">{def.type}</div>
             {/* mock/herd-signals-mock.html renderKpis: `.act` reads "Filtering table ▾ click to
                 clear" and only shows on the active tile (`.kpi.active .act{display:block}`, CSS
