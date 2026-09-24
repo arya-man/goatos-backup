@@ -1,50 +1,111 @@
-# CI + STG deploy speed-up
+# CI + STG deploy speed-up (branch `perf/ci-deploy-speedup`)
 
-Status: DRAFT, in progress. Updated on every push.
+Status: DRAFT, in progress. Base `origin/main` bc90250aa.
 
 ## Problem
-- `make land-main` takes 30-60 min in practice; target typical <=15 min.
-- STG deploy backend+web+Android takes ~65 min (backend+web ~31, Android separate ~34); target <=15-20 min.
-- Constraint: no guard, test, or safety check may be lost or weakened.
+
+- `make land-main`: typically 30-60 min. Target: 15 min or less.
+- STG deploy (backend + web + Android): about 65 min (backend+web about 31, Android separately about 34). Target: 15-20 min.
+- Constraint: no guard or check is removed or weakened.
 
 ## Measured baseline
-### Local CI (`.git/goatos-ci-local-timings.jsonl`, 167 runs)
-- Quiet full pass: p50 5.2 min, p90 8.8 min.
-- Contended (several agents on one laptop): 30-50 min. 09-24 20:06: android 40.5, backend 14.7, admin-web 12.2, wall 50.6.
-- Same step runs 5-15x slower under contention; warm cache makes go test ~30x and Android compile 7-10x faster.
-- 16% of ci-local runs overlapped another; bursts on 23-24 Sep.
-- Root causes: concurrent agents, deliberately conservative Gradle flags (`--no-daemon`, `--max-workers=1`, in-process Kotlin, `--rerun-tasks` on full Paparazzi), cold caches in fresh worktrees.
 
-### STG deploy (Cloud Build, goatos-stg)
-| Step | Backend+web (dd268f77 / b7a209c2) | Android (0cf96274) |
-|---|---|---|
-| Images: backend / migration / admin-web / agent (serial, no cache, default machine) | 5.4-5.8 / 0.5 / 4.8-5.0 / 2.0 | - |
-| Release step (incl. 9.5 min Cloud Deploy rollout) | 15.4-15.7 | - |
-| Android distribution (Gradle 28m56s, 563/676 tasks executed, 1 worker) | - | 33.6 |
-| Total | 30.4 / 31.3 | 34.6 |
+**Local `ci-local`** (167 runs in `.git/goatos-ci-local-timings.jsonl`):
+- A quiet full pass takes 5.2 min at p50 and 8.8 min at p90.
+- Under contention it takes 30-50 min. On 09-24 20:06: android 40.5, backend 14.7, admin-web 12.2, 50.6 min wall clock.
+- Contention makes each step 5-15x slower. 16% of runs overlapped another run, with bursts on 23-24 Sep.
+- A warm cache makes `go test` about 30x faster and the Android compile 7-10x faster.
+- Android runs with `--no-daemon --no-configuration-cache --max-workers=1` and in-process Kotlin. The full paparazzi run uses `--rerun-tasks`.
 
-Rollout 9.5 min: task setup ~1.7, kernel-worker pre-migration 0.8, migration 13 s, API+cutover 0.5, 5 services serial ~2.5, Grafana/observability ~4.3.
+**STG backend+web build** (dd268f77 / b7a209c2, 30.4 / 31.3 min):
+- Four image builds run one after another (no `waitFor`), with no layer cache, on the default machine:
 
-## Changes (this PR)
-- Deploy: parallel image builds (`waitFor`), bigger machine, BuildKit registry layer cache, Android build concurrent with images, post-API services rolled out in parallel (worker -> migration -> API order unchanged). Every image still rebuilt at the exact commit.
-- Local CI (in progress): landing lock, Gradle build cache on the receipt path (daemon/config cache stay off), screenshot-scope adversarial fixtures, query plans parallel on per-run OCI throwaway DB.
+  | Image | Time (min) |
+  |---|---|
+  | backend | 5.4-5.8 |
+  | migrate | 0.5 |
+  | admin-web | 4.8-5.0 |
+  | ask-mesha-agent | 2.0 |
 
-## Rejected (would weaken guards)
-- Fast mode writing the landing receipt (wrong base, skips benchmark compile).
-- Reusing prior image tags (breaks exact-SHA provenance; GIT_SHA baked into images).
-- Gradle daemon / configuration cache on the landing path (Firebase Perf instrumentation corruption history, f4a63345).
-- Dropping `--rerun-tasks` from full Paparazzi.
+- The release step takes 15.4-15.7 min. The rollout inside it takes 9.5 min:
 
-## Out of scope here
-- Grafana/observability steps (~4.3 min rollout + 2 release smokes): being moved to mesha-ops by another session; mesha-ops should deploy on its own commits and smoke on a schedule, with no goatos trigger.
+  | Rollout phase | Time |
+  |---|---|
+  | task image setup | about 1.7 min |
+  | kernel-worker pre-migration | 0.8 min |
+  | migration | 13 s |
+  | API + cutover | 0.5 min |
+  | 5 services, one after another | about 2.5 min |
+  | Grafana/observability | about 4.3 min |
 
-## Estimates (untested)
-| | Now | Best | Typical | Worst |
-|---|---|---|---|---|
-| land-main | 30-60 | 3-4 | 5-8 | 12-15 |
-| Deploy backend+web | ~31 | 11 | 12-15 (after Grafana move) | 18 |
-| Deploy backend+web+Android | ~65 | 12 | 15-20 | 25 |
+**Android build** (0cf96274, 34.6 min):
+- Gradle took 28m56s: 676 tasks, 563 executed, 113 cached.
+- Flags: `--max-workers=1`, 2.5 GB heap, default machine.
+- The JDK is installed with apt on every run.
+- Android starts only after backend/web has finished, so it adds its full time on top.
+
+## Changes (deploy) — commit d97e427cc
+
+| # | Change | Why | Estimated saving |
+|---|---|---|---|
+| a | The four image builds depend only on `configure-docker-auth`, so they run at the same time. The release step waits for all four. | They were independent but ran one after another. | about 7-8 min (13 min becomes the longest single image, about 5-6) |
+| b | `machineType: E2_HIGHCPU_32` | 4 Docker builds plus Gradle now run together. 8 vCPU/8 GB is too small for Gradle's 4 GB heap, Kotlin, a Next build and a Go build at once. | Needed for (a) and (d) |
+| c | `tools/deploy/stg-image-build.sh`: buildx with `--cache-from/--cache-to type=registry,ref=<repo>/<image>:buildcache,mode=max,ignore-error=true`. Falls back to plain `docker build` if buildx is missing. | The Dockerfiles already copy go.mod/go.sum and package-lock before the source, so the dependency layers can be reused. | 1-3 min per image once the cache is warm |
+| d | Android is split into two steps. **`android-mobile-build`** (`waitFor: ['-']`) runs alongside the images and the rollout. **`android-mobile-distribution`** (publish) waits for the build, release tag bookkeeping and the ask-mesha deploy. | Removes about 30 min of Android time that ran after backend/web. | about 30 min off the combined deploy |
+| d | The deploy-only Gradle run uses `--max-workers=4` and `-Xmx4096m` (both can be overridden). An optional GCS Gradle-home tarball cache (`_GRADLE_CACHE_URI`, keyed by the wrapper + `libs.versions.toml` hash) is added; it is off by default. | The Gradle run was limited to one CPU. | Likely 10-15 min |
+| e | `stg-clouddeploy-task.sh`: analytics-events, kernel-worker restore, MCP and the MQTT bridge each run as a parallel lane after the API traffic switch. Admin-web and the job image updates run in the foreground at the same time. Every lane is `wait`ed, its exit code is checked and its log printed. If any lane fails, the deploy fails. | These services do not depend on each other. | about 2 min |
+
+The overall target was that backend+web goes from about 31 to about 17-19 min, and backend+web+Android together goes from about 65 to about 20 min (the Android build hides inside the backend window). **These are estimates. No Cloud Build has been run.**
+
+### Safety properties kept
+
+- **Exact-SHA provenance.** Every image is still rebuilt from the checked-out commit, with the same `GIT_SHA` / `NEXT_PUBLIC_APP_VERSION` build args, and pushed at `:<12-char sha>`. The `:buildcache` tag is only a source of reusable layers and is never deployed.
+- **Android build failure cannot cancel an in-flight rollout.** The build phase always exits 0 and writes a `failed <sha>` marker instead. The publish step runs only after the rollout. It refuses to publish unless the marker says `ok <same sha>`, and it fails the build with the normal Slack "Backend/web rollout succeeded. Android mobile distribution failed." message.
+- **Force-update floor is never published before the new backend is live.** Firebase upload, the GCS mirror, the Play Internal upload, the Remote Config floor and the recheck push all stay in the publish step, which runs after the rollout. The APK is the same file on every channel, and the SHA comparison against the mirror is unchanged.
+- **Secrets stay out of the release source.** `gcloud deploy releases create --source=.` could now run while the Android build is writing to `/workspace`. `.gcloudignore` now excludes `android-sdk/`, `.gradle-home/`, `.docker/` and `.local/` (signing material). `.docker/` holds an access token and was not ignored before this change either.
+- **Strict rollout order is unchanged.** Kernel-worker drain, then migration, then the API revision is ready, then traffic moves. A new test asserts that the lanes start only after the API is ready and that the settle checks run only after every lane has been joined.
+
+## Changes (local CI) — pending in this PR
+
+- f. Machine-wide lock for `land-main`. If the lock is held, it prints the holder and exits non-zero. It never waits and never kills.
+- g. Gradle `--build-cache` on the receipt path. `--no-daemon`, in-process Kotlin, `--max-workers=1` and full-paparazzi `--rerun-tasks` all stay.
+- h. Query plans in parallel: to be assessed.
+- i. Adversarial fixtures for screenshot scope.
+- j. Persistent landing worktree: to be assessed.
+
+## Guard preservation
+
+| Guard / check | Status |
+|---|---|
+| Exact-SHA image build + tag | Kept: rebuilt every deploy, same args |
+| Cloud Deploy release/rollout verification, image-settle checks, smokes | Kept, run after all lanes are joined |
+| kernel-worker drain → migration → API order | Kept, and asserted by a test |
+| Android: same bytes to Firebase + GCS, SHA check, Play Internal, Remote Config floor, recheck push | Kept, and still after the backend rollout |
+| Grafana/observability deploy + dashboard smoke | Untouched (owned by another session) |
+| Everything in `ci-local` / landing receipt | Untouched so far |
+
+## Rejected (per judge)
+
+- A fast mode that writes a landing receipt.
+- Reusing earlier image tags for components that did not change. That breaks exact-SHA provenance.
+- Using the Gradle daemon or configuration cache on the receipt path.
+- Dropping `--rerun-tasks` from full paparazzi.
+- Touching `normal_observability_deploy` / `smoke_grafana_dashboards`. They cost about 4.3 min or more of the rollout. That is a follow-up for the session moving them to mesha-ops.
+
+## Open decisions
+
+1. Cost of E2_HIGHCPU_32 against E2_HIGHCPU_8. It costs more per minute, but the build takes far fewer minutes. It also needs Cloud Build private-pool/quota headroom in asia-south1 (the default pool supports E2_HIGHCPU_32).
+2. Creating a GCS bucket/prefix for `_GRADLE_CACHE_URI`, and a prebaked Android builder image (JDK + SDK). Both are infrastructure this PR does not create.
+3. A/B test for raising `--max-workers` on the local receipt path.
 
 ## Verification
-- Done: `bash -n` on changed scripts, YAML parse of `cloudbuild.stg.yaml`.
-- Pending: guard self-tests, a measured Cloud Build run, a measured land-main after the concurrent landing finishes.
+
+Done:
+- `bash -n` on the changed scripts.
+- `yaml.safe_load` on `cloudbuild.stg.yaml` (step DAG checked).
+- `node --test tools/deploy/stg-*.test.mjs`: all pass (41 tests, including 1 new).
+
+Pending:
+- A real Cloud Build STG run. The first run warms the cache, so the second run gives the real number.
+- Confirming buildx is present in `gcr.io/cloud-builders/docker`. If it is not, the plain docker fallback runs.
+- Confirming that `appDistributionUploadProdRelease` in the publish step reuses the built outputs (the same `/workspace` and Gradle home) and does not rebuild.
