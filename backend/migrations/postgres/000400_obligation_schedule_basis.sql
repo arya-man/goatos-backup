@@ -14,7 +14,9 @@ ALTER TABLE public.obligation_instances
 
 ALTER TABLE public.obligation_instances
   DROP CONSTRAINT IF EXISTS obligation_instances_schedule_basis_check;
--- NOT VALID + VALIDATE: the add takes only a brief lock; validation scans without blocking writes.
+-- Goose runs this file in one transaction, so ADD COLUMN's ACCESS EXCLUSIVE lock is held through
+-- VALIDATE. That is acceptable: the constant default is metadata-only and every existing row is
+-- already 'anchored', so validation is one sequential read with no rewrite.
 ALTER TABLE public.obligation_instances
   ADD CONSTRAINT obligation_instances_schedule_basis_check
   CHECK (schedule_basis IN ('anchored', 'anchor_missing_catch_up')) NOT VALID;
