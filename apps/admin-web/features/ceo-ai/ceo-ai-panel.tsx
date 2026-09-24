@@ -21,6 +21,7 @@ import {
   Pencil,
   Send,
   Sparkles,
+  Square,
   Trash2,
   X,
 } from "lucide-react";
@@ -46,7 +47,6 @@ import { CeoAiChart } from "./ceo-ai-chart";
 import {
   CeoAiStyles,
   GoatAvatar,
-  GoatWalking,
   MeshaLogo,
 } from "./ceo-ai-styles";
 import { CeoAiEvents, trackCeoAiError, trackCeoAiEvent } from "./telemetry";
@@ -612,7 +612,9 @@ export function CeoAiPanel({
   const ask = useCallback(
     async (raw: string, attached: File[] = []) => {
       const typed = raw.trim();
-      if ((!typed && !attached.length) || pending) return;
+      if (!typed && !attached.length) return;
+      // Sending while an answer is running interrupts it, like ChatGPT/Claude.
+      if (pending) stopGenerating();
       recognitionRef.current?.stop();
       const question = typed || "Please look at the attached file(s).";
       const boundedAttached = attached.slice(0, 5);
@@ -781,7 +783,7 @@ export function CeoAiPanel({
         setPending(false);
       }
     },
-    [conversationId, copy, pending, refreshThreads],
+    [conversationId, copy, pending, refreshThreads, stopGenerating],
   );
 
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {
@@ -1303,6 +1305,12 @@ export function CeoAiPanel({
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={(e) => {
+                    if (e.key === "Escape" && pending) {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      stopGenerating();
+                      return;
+                    }
                     if (e.key === "Enter" && !e.shiftKey) {
                       e.preventDefault();
                       e.currentTarget.form?.requestSubmit();
@@ -1335,15 +1343,15 @@ export function CeoAiPanel({
                     {listening ? <MicOff size={18} /> : <Mic size={18} />}
                   </button>
                 ) : null}
-                {pending ? (
+                {pending && !input.trim() && !files.length ? (
                   <button
                     type="button"
                     className="mzai-send stop"
                     onClick={stopGenerating}
                     aria-label={CHROME.stop}
-                    title={CHROME.stop}
+                    title="Stop (Esc)"
                   >
-                    <GoatWalking />
+                    <Square size={14} fill="currentColor" strokeWidth={0} />
                   </button>
                 ) : (
                   <button
