@@ -78,6 +78,7 @@ class ExecutionRouteIdentityTest {
         assertTrue(route.startsWith(Routes.SCAN))
         assertTrue(route.contains("shedId=shed-a"))
         assertTrue(route.contains("partitionLabel=Part%203"))
+        assertTrue(route.contains("plannedDate=2026-09-25"))
         assertFalse(route.contains("assignmentId="))
         assertFalse(route.contains("taskId="))
         assertFalse(route.startsWith(Routes.RECORD))
@@ -130,5 +131,6 @@ class ExecutionRouteIdentityTest {
         batchId = "batch-old",
         taskId = taskId,
         partitionLabel = "Part 3",
+        scheduleDateKey = "2026-09-25",
     )
 }

@@ -5,6 +5,7 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 data class ScanRosterRowDto(
+    @SerialName("taskId") val taskId: String = "",
     @SerialName("goatId") val goatId: String = "",
     @SerialName("primaryTag") val primaryTag: String = "",
     @SerialName("secondaryTag") val secondaryTag: String? = null,

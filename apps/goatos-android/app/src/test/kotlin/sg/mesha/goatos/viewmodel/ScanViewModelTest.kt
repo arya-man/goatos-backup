@@ -118,14 +118,14 @@ class ScanViewModelTest {
     }
 
     @Test
-    fun `scan screen RFID hit is persisted and included in submit payload`() = runTest(dispatcher) {
+    fun `taskless combined card persists RFID hit against roster row task`() = runTest(dispatcher) {
         val scanCaptures = FakeScanCaptureRepository()
         val scanAttempts = FakeScanAttemptRepository()
         val reader = FakeRfidReaderPort()
         val analytics = sg.mesha.goatos.boot.RecordingAnalytics()
         val scanVm = ScanViewModel(
             repo = FakeScanExecutionRepository(
-                firstPage = ScanRosterResponseDto(rows = listOf(scanRow("goat-1", "TAG-100", "obl-1"))),
+                firstPage = ScanRosterResponseDto(rows = listOf(scanRow("goat-1", "TAG-100", "obl-1", taskId = "task-1"))),
             ),
             reader = reader,
             scanCaptureRepository = scanCaptures,
@@ -142,7 +142,7 @@ class ScanViewModelTest {
             ),
             syncRepository = CapturingSubmitSyncRepository(),
             analytics = analytics,
-            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
+            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "plannedDate" to "2026-09-25")),
         )
         backgroundScope.launch { scanVm.state.collect {} }
         advanceUntilIdle()
@@ -2395,8 +2395,10 @@ private fun scanRow(
     secondaryTag: String? = null,
     latestProofId: String? = null,
     latestProofDownloadUrl: String? = null,
+    taskId: String = "",
 ): ScanRosterRowDto =
     ScanRosterRowDto(
+        taskId = taskId,
         goatId = goatId,
         primaryTag = tag,
         secondaryTag = secondaryTag,
