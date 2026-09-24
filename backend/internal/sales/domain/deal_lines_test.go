@@ -276,3 +276,74 @@ func TestDealAnimalsSumsLinesAndSkipsManure(t *testing.T) {
 		t.Fatalf("animals = %v, want 6 (3 + 1 + 2, manure never counts, rollup column ignored)", got)
 	}
 }
+
+// AN INSTALLED PHONE IS NOT A WRONG CLIENT. Manure has been sold by the kilogram since long
+// before a line carried a quantity and a rate, and those sales are sitting in outboxes now. A
+// refusal here is terminal -- the outbox row dead-letters and the sale is lost -- so the legacy
+// shape is accepted on the value it carries.
+func TestQueuedManureFromAnOlderAppStillRecords(t *testing.T) {
+	w := DealWrite{
+		SaleDate: "2026-09-24", Farm: FarmCPT,
+		BuyerName: "Manure Agent", BuyerVendorID: "8f2f0d1e-1a2b-4c3d-9e8f-0a1b2c3d4e5f",
+		Lines: []DealLineWrite{{
+			ProductType: ProductManure, Breed: ProductManure,
+			TotalWeightKg: fp(800), SalesValue: 3200,
+		}},
+	}.Normalize(farmCatalog())
+	if err := w.Validate(farmCatalog()); err != nil {
+		t.Fatalf("a manure sale queued by an installed app was refused: %v", err)
+	}
+	if w.SalesValue != 3200 {
+		t.Fatalf("value = %v, want 3200: the sale keeps the money it was sent", w.SalesValue)
+	}
+}
+
+// A CURRENT CLIENT IS STILL HELD TO THE CONTRACT. It sends a quantity, so a quantity of zero is a
+// mistake on the form rather than an old app, and saying nothing would record the money without
+// saying how much left the farm.
+func TestManureWithAQuantityOfZeroIsStillRefused(t *testing.T) {
+	w := DealWrite{
+		SaleDate: "2026-09-24", Farm: FarmCPT,
+		BuyerName: "Manure Agent", BuyerVendorID: "8f2f0d1e-1a2b-4c3d-9e8f-0a1b2c3d4e5f",
+		Lines: []DealLineWrite{{
+			ProductType: ProductManure, Breed: ProductManure,
+			Quantity: fp(0), RatePerUnit: fp(4), SalesValue: 3200,
+		}},
+	}.Normalize(farmCatalog())
+	var ve ErrDealValidation
+	if err := w.Validate(farmCatalog()); !errors.As(err, &ve) || ve.Field != "lines[1].quantity" {
+		t.Fatalf("error = %v, want lines[1].quantity refused", err)
+	}
+}
+
+// FEED IS NEVER ACCEPTED THE OLD WAY. No installed app can have queued a feed sale -- the item did
+// not exist -- so there is no compatibility to keep, and a feed line without kilograms would take
+// the money while leaving the sacks on the shelf.
+func TestFeedWithoutKilogramsIsRefusedEvenThoughManureIsNot(t *testing.T) {
+	w := DealWrite{
+		SaleDate: "2026-09-24", Farm: FarmCPT,
+		BuyerName: "Ramesh Traders", BuyerVendorID: "8f2f0d1e-1a2b-4c3d-9e8f-0a1b2c3d4e5f",
+		Lines: []DealLineWrite{{ProductType: "Feed", Breed: "Maize", SalesValue: 42000}},
+	}.Normalize(farmCatalog())
+	var ve ErrDealValidation
+	if err := w.Validate(farmCatalog()); !errors.As(err, &ve) || ve.Field != "lines[1].quantity" {
+		t.Fatalf("error = %v, want the feed line refused for its kilograms", err)
+	}
+}
+
+// An item authored as feed before feed was pinned to kilograms. Its quantity would be subtracted
+// from a balance the store keeps in kilograms, so 20 bags would spend 20 kg.
+func TestFeedCountedByThePieceCannotBeSold(t *testing.T) {
+	cat := NewProductCatalog(append(builtinCatalog().Products(),
+		Product{Code: "bagged_feed", Name: "Bagged feed", Kind: KindFeed, Unit: UnitNumber, SortOrder: 40},
+	))
+	w := DealWrite{
+		SaleDate: "2026-09-24", Farm: FarmCPT,
+		BuyerName: "Ramesh Traders", BuyerVendorID: "8f2f0d1e-1a2b-4c3d-9e8f-0a1b2c3d4e5f",
+		Lines: []DealLineWrite{{ProductType: "Bagged feed", Breed: "Maize", Quantity: fp(20), RatePerUnit: fp(900)}},
+	}.Normalize(cat)
+	var ve ErrDealValidation
+	if err := w.Validate(cat); !errors.As(err, &ve) || ve.Field != "lines[1].product_type" {
+		t.Fatalf("error = %v, want the sale refused because the item is not sold by the kilogram", err)
+	}
+}

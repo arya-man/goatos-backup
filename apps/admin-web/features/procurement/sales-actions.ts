@@ -316,8 +316,19 @@ export async function setSalesDealStatusAction(formData: FormData): Promise<void
   // The backend validates against its closed vocabulary and REJECTS an unrecognised word; the
   // cast only satisfies the generated client's literal union, it is not a trust boundary.
   const status = requiredString(formData, "status") as SalesDealStatusWrite["status"];
-  const result = await setSalesDealStatus(dealId, { status });
+  const result = await setSalesDealStatus(dealId, {
+    status,
+    // Only ever true because a person ticked it after being shown what the store holds.
+    stock_shortfall_acknowledged: formData.get("stock_shortfall_acknowledged") !== null,
+  });
   if (!result.ok) {
+    // CLOSING an expected sale is the moment its feed leaves the store, so it is weighed against
+    // today's balance exactly as recording one is -- and the answer is the same: show the desk what
+    // the store holds and let it close the sale anyway. Keyed on the backend's CODE, never on its
+    // sentence, which is farm copy and may be reworded.
+    if (result.error.code === "feed_stock_confirmation_required") {
+      actionRedirectWithDetail(formData, "error", "action.deal_status_feed_stock_confirm", result.error.message);
+    }
     actionRedirect(formData, "error", "action.deal_status_update_failed");
   }
   revalidatePath(SALES_PATH);

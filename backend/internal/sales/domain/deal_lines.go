@@ -230,15 +230,41 @@ func (l DealLineWrite) validate(lineNo int, cat ProductCatalog) error {
 	}
 	// What the KIND requires. Only these three branches read the product at all; everything above
 	// and below is true of any line whatever the farm decided to sell.
-	if product.PricedPerUnit() {
-		// An item sold by the kilogram or by number IS its quantity: a line without one would take
-		// the sale's money without saying how much left the farm -- and for feed, without taking
-		// anything off the shelf, so the stock the store reports would drift from the store.
-		if l.Quantity == nil || *l.Quantity <= 0 {
-			return ErrDealValidation{Field: field("quantity"), Reason: "must be more than zero"}
+	if product.DrawsFeedStock() && product.Unit != UnitKg {
+		// An item authored before feed was pinned to kilograms. Its quantity would be subtracted
+		// from a balance kept in kilograms, so the sale is refused here rather than silently
+		// spending the wrong unit, and the message names the setting that fixes it.
+		return ErrDealValidation{
+			Field:  field("product_type"),
+			Reason: "is feed from the store but is not sold by the kilogram -- set its unit to kilograms under Configuration, Items and settings",
 		}
-		if l.RatePerUnit == nil {
-			return ErrDealValidation{Field: field("rate_per_unit"), Reason: "required -- " + strings.ToLower(product.Name) + " is sold at a rate per " + product.UnitWord()}
+	}
+	if product.PricedPerUnit() {
+		// AN OLDER APP IS STILL A REAL SALE. Manure sold by the kilogram long before this line
+		// learned to carry a quantity and a rate, and an installed phone posts it the old way:
+		// a value, and a weight. Those sales are sitting in outboxes right now, and refusing them
+		// here is terminal -- the row dead-letters and the sale is lost, not retried. A legacy
+		// line is accepted on the value it carries; only the kilograms are unknown, and the
+		// reports already read a quantity when there is one and the weight when there is not.
+		//
+		// A NEW client is held to the new contract: it sends a quantity, so a quantity of zero or
+		// a missing rate is a real mistake rather than an old app, and is still refused.
+		//
+		// FEED IS NEVER ACCEPTED THIS WAY, whatever it carries. No installed app can have queued a
+		// feed sale -- the item did not exist -- so there is no compatibility to keep, and a feed
+		// line without kilograms would take the money while leaving the sacks on the shelf. The
+		// store's balance is the thing this refusal protects.
+		legacyPriced := !product.DrawsFeedStock() && l.Quantity == nil && l.RatePerUnit == nil && l.SalesValue > 0
+		if !legacyPriced {
+			// An item sold by the kilogram or by number IS its quantity: a line without one would
+			// take the sale's money without saying how much left the farm -- and for feed, without
+			// taking anything off the shelf, so the stock the store reports would drift from it.
+			if l.Quantity == nil || *l.Quantity <= 0 {
+				return ErrDealValidation{Field: field("quantity"), Reason: "must be more than zero"}
+			}
+			if l.RatePerUnit == nil {
+				return ErrDealValidation{Field: field("rate_per_unit"), Reason: "required -- " + strings.ToLower(product.Name) + " is sold at a rate per " + product.UnitWord()}
+			}
 		}
 		// Refused rather than ignored. A body carrying both a quantity and an animal count is two
 		// different sales in one line, and silently dropping half of it would record the money
@@ -367,4 +393,38 @@ func (d Deal) lineView() []DealLine {
 		AnimalCount: d.AnimalCount, MaleCount: d.MaleCount, FemaleCount: d.FemaleCount,
 		TotalWeightKg: d.TotalWeightKg, SalesValue: d.SalesValue,
 	}}
+}
+
+// FeedDemand is what ONE feed takes off ONE farm's store, summed across every line of a sale that
+// names it.
+//
+// It is summed per FEED and not per line deliberately: one sale may carry the same feed twice --
+// two lots at two rates is an ordinary way to write a load -- and weighing each line on its own let
+// two 9,000 kg lines through a 13,790 kg store because neither exceeded it alone. The store went to
+// -4,289.9 kg with nobody warned, which is exactly what the confirmation exists to prevent.
+type FeedDemand struct {
+	// LineNo is the FIRST line naming this feed, 1-based, so the sentence the desk reads names the
+	// row they would look at first. 0 when the demand came from a recorded deal rather than a form.
+	LineNo   int
+	FeedItem string
+	Kg       float64
+}
+
+// AggregateFeedDemand sums a write's feed lines per feed, in the order the farm typed them.
+func AggregateFeedDemand(lines []DealLineWrite) []FeedDemand {
+	at := map[string]int{}
+	out := []FeedDemand{}
+	for i, l := range lines {
+		if l.Kind() != KindFeed {
+			continue
+		}
+		idx, seen := at[l.Breed]
+		if !seen {
+			out = append(out, FeedDemand{LineNo: i + 1, FeedItem: l.Breed})
+			idx = len(out) - 1
+			at[l.Breed] = idx
+		}
+		out[idx].Kg += l.QuantityKg()
+	}
+	return out
 }

@@ -221,6 +221,10 @@ type dealLineWritePayload struct {
 // dealStatusWritePayload is the deal-status edit body.
 type dealStatusWritePayload struct {
 	Status string `json:"status"`
+	// The desk having seen what the store holds and closed the sale anyway. Closing an expected
+	// sale is when its feed finally leaves, so it is weighed against the store exactly as
+	// recording one is, and answered the same way.
+	StockShortfallAcknowledged bool `json:"stock_shortfall_acknowledged"`
 }
 
 // dealPaymentPayload is one receipt on the wire.

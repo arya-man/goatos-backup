@@ -137,7 +137,10 @@ func ValidateValuationAssumptions(v ValuationAssumptions) error {
 func DefaultValuationAssumptions() ValuationAssumptions {
 	kg := func(v float64) *float64 { return &v }
 	return ValuationAssumptions{
-		Stages: SeededValuationStages,
+		// COPIED, never shared. SeededValuationStages is a package-level slice: handing it out and
+		// having one caller append a stage or rename a label would rewrite what every OTHER farm
+		// with no authored row reads, and the translation migration's own oracle with it.
+		Stages: copyValuationStages(SeededValuationStages),
 		// The figures the farm carried before the gender split, each stage's single rate becoming
 		// its two rows -- so a farm that has not touched this screen values its herd at exactly
 		// what it valued yesterday, and then edits the halves that really differ.
@@ -156,4 +159,15 @@ func DefaultValuationAssumptions() ValuationAssumptions {
 			{Bucket: "K3_male", Label: "K3 · Male", FixedWeightKg: kg(15), PricePerKg: 500, DisplayOrder: 12},
 		},
 	}
+}
+
+// copyValuationStages deep-copies the stage rows, matches and all -- a shallow copy still shares
+// every row's Matches slice, which is the half a caller is most likely to append to.
+func copyValuationStages(in []ValuationStage) []ValuationStage {
+	out := make([]ValuationStage, len(in))
+	for i, s := range in {
+		out[i] = s
+		out[i].Matches = append([]string(nil), s.Matches...)
+	}
+	return out
 }

@@ -188,3 +188,50 @@ func TestTwoLinesTheStoreCanCoverTogetherRecord(t *testing.T) {
 		t.Fatalf("want one create, got %d", repo.createCalls)
 	}
 }
+
+// CLOSING IS WHEN AN EXPECTED SALE TAKES ITS FEED. The depletion ledger is written only for a
+// closed deal, so a sale recorded in March against a full store closed in June against an empty one
+// used to take its kilograms with nobody told. The close asks the same question the record asked,
+// against today's balance, and is answered the same way.
+func TestClosingAnExpectedSaleWeighsItAgainstTodaysStore(t *testing.T) {
+	repo := &feedRepo{}
+	repo.demandFarm = "CPT"
+	repo.demand = []domain.FeedDemand{{LineNo: 1, FeedItem: "Maize", Kg: 2000}}
+	store := &feedStore{balances: map[string]float64{"CPT/Maize": 1400}}
+	s := NewSalesService(repo).WithFeedStock(store)
+
+	_, err := s.SetDealStatus(context.Background(), tenant, "d1", domain.StatusDealClosed, false, "actor")
+	var short domain.ErrFeedStockShort
+	if !errors.As(err, &short) {
+		t.Fatalf("closing a sale that takes 2000kg out of 1400kg must ask for confirmation, got %v", err)
+	}
+	if repo.dealStatus != "" {
+		t.Fatalf("nothing may close while the confirmation is outstanding, status = %q", repo.dealStatus)
+	}
+	if got := short.Shortfalls[0]; got.BalanceKg != 1400 || got.RequestedKg != 2000 || got.FeedItem != "Maize" {
+		t.Fatalf("the shortfall must name the store and the feed: %+v", got)
+	}
+
+	// Having looked, the desk closes it anyway -- the feed did leave, the purchase ledger is behind.
+	if _, err := s.SetDealStatus(context.Background(), tenant, "d1", domain.StatusDealClosed, true, "actor"); err != nil {
+		t.Fatalf("the acknowledged close must go through: %v", err)
+	}
+	if repo.dealStatus != domain.StatusDealClosed {
+		t.Fatalf("status = %q, want the deal closed", repo.dealStatus)
+	}
+}
+
+// Only CLOSING takes feed off the store. Marking a deal failed, or moving it to advance paid, gives
+// its feed back or never took it, so neither may be held up by a store that is short.
+func TestOnlyClosingAsksTheStore(t *testing.T) {
+	repo := &feedRepo{}
+	repo.demandFarm = "CPT"
+	repo.demand = []domain.FeedDemand{{LineNo: 1, FeedItem: "Maize", Kg: 9000}}
+	s := NewSalesService(repo).WithFeedStock(&feedStore{balances: map[string]float64{"CPT/Maize": 10}})
+
+	for _, status := range []string{domain.StatusDealFailed, domain.StatusAdvancePaid, domain.StatusInDiscussion} {
+		if _, err := s.SetDealStatus(context.Background(), tenant, "d1", status, false, "actor"); err != nil {
+			t.Fatalf("%s must not be held up by the feed store: %v", status, err)
+		}
+	}
+}

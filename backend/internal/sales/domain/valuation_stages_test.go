@@ -145,3 +145,29 @@ func TestStageMatchNormalizationMatchesTheRead(t *testing.T) {
 		}
 	}
 }
+
+// The default assumptions are a COPY. A caller that adds a stage, or appends a match to one, must
+// not rewrite what the next farm with no authored row reads.
+func TestDefaultAssumptionsDoNotShareTheSeededStages(t *testing.T) {
+	first := DefaultValuationAssumptions()
+	// The ROW is edited before anything is appended, on purpose: appending to a full slice re-seats
+	// it onto a fresh array, so an edit made after the append would touch that copy and the test
+	// would pass whether or not the rows are shared.
+	first.Stages[0].Label = "Renamed"
+	first.Stages[0].Matches = append(first.Stages[0].Matches, "F9")
+	first.Stages = append(first.Stages, ValuationStage{Stage: "warmup", Label: "Warmup", DisplayOrder: 7})
+
+	second := DefaultValuationAssumptions()
+	if len(second.Stages) != len(SeededValuationStages) {
+		t.Fatalf("stages = %d, want the seeded %d: one caller's edit reached the next", len(second.Stages), len(SeededValuationStages))
+	}
+	if second.Stages[0].Label != "Fattening" {
+		t.Fatalf("label = %q, want Fattening", second.Stages[0].Label)
+	}
+	if len(second.Stages[0].Matches) != len(SeededValuationStages[0].Matches) {
+		t.Fatalf("matches = %v, want the seeded set", second.Stages[0].Matches)
+	}
+	if len(SeededValuationStages[0].Matches) != 3 {
+		t.Fatalf("the seeded rows themselves were rewritten: %v", SeededValuationStages[0].Matches)
+	}
+}
