@@ -7685,6 +7685,8 @@ func pageSpecificCopy(id string) map[string]string {
 			// Experiment writes answer in their own words, never the ration grid's "Rate rejected".
 			// No park could be read (for instance, no access to the park list): said out loud rather than
 			// leaving every section on its "nothing authored" empty state, which reads as data loss.
+			// A link carrying a park or pen that is not an id at all (a typo, an old bookmark).
+			"state.bad_link":               "This page's link names a park or pen that does not exist. Open Feed Config from the menu and choose it again.",
 			"state.parks_unavailable":      "No park could be loaded, so there is nothing to show here. You may not have access to the park list — ask an admin.",
 			"action.experiment_rejected":   "Not saved. Check the pen and its quantities, then try again.",
 			"reason.experiment_enrol_pens": "Tick at least one pen to move to the experiment.",

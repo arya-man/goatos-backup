@@ -246,7 +246,9 @@ function SectionError({
       <div>
         <b>{copy(pageContract, titleKey)}</b>
         <div className="small muted">
-          {result.error.code ?? result.error.kind}&nbsp;{result.error.message}
+          {/* The message only: the machine code ("invalid_filter", "internal_error") is for logs. A
+              malformed park or pen id can only have come from the link, so it says that plainly. */}
+          {result.error.code === "invalid_field" ? copy(pageContract, "state.bad_link") : result.error.message}
         </div>
       </div>
     </div>

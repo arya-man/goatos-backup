@@ -860,6 +860,17 @@ func (e *FieldError) Error() string {
 
 func (e *FieldError) Unwrap() error { return e.Reason }
 
+// Message is the operator-facing sentence for the wire: the reason without the Go package prefix
+// ("feedconfig: ") and without the field name, which the envelope already carries in its own
+// field. Error() keeps the full technical form for logs.
+func (e *FieldError) Message() string {
+	reason := strings.TrimPrefix(e.Reason.Error(), "feedconfig: ")
+	if e.Detail != "" {
+		return fmt.Sprintf("%s (%s)", reason, e.Detail)
+	}
+	return reason
+}
+
 func fieldErr(field string, reason error, detail string) error {
 	return &FieldError{Field: field, Reason: reason, Detail: detail}
 }

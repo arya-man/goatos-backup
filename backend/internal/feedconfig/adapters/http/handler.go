@@ -1009,16 +1009,16 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, err 
 		// feed_config_norm makes them one, and every rate keyed on that label resolves to the
 		// original.
 		h.writeError(w, r, http.StatusConflict, "feed_item_exists",
-			"a feed item with this name already exists in this tenant", nil)
+			"a feed with this name is already in Items and categories", nil)
 	case errors.Is(err, ports.ErrFeedItemNotFound):
 		h.writeError(w, r, http.StatusNotFound, "feed_item_not_found",
-			"feed item not found in this tenant", nil)
+			"that feed is not in Items and categories", nil)
 	case errors.Is(err, ports.ErrRationGroupUnknown):
 		h.writeError(w, r, http.StatusNotFound, "ration_group_unknown",
-			"ration group not found in this tenant's vocabulary", nil)
+			"that ration group is not one of the farm's ration groups", nil)
 	case errors.Is(err, ports.ErrShedTagUnknown):
 		h.writeError(w, r, http.StatusNotFound, "shed_tag_unknown",
-			"pen tag not found in this tenant's vocabulary", nil)
+			"that pen tag is not one of the farm's pen tags", nil)
 	case errors.Is(err, ports.ErrSessionNotFound):
 		h.writeError(w, r, http.StatusNotFound, "session_not_found",
 			"this park does not run that feeding session", nil)
@@ -1027,20 +1027,20 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, err 
 		// not ready. The detail carries the count of unpriced cells, because "author the missing
 		// rates first" is only actionable if the author knows how many and for which feed.
 		h.writeError(w, r, http.StatusConflict, "slot_rates_incomplete",
-			"this feed has no ration rate in every cell of this park; serving it would block those sheds", err)
+			"this feed has no ration rate for every pen in this park yet; serving it would leave those pens unfed", err)
 	case errors.Is(err, ports.ErrSlotNotDeclared):
 		h.writeError(w, r, http.StatusNotFound, "slot_not_declared",
 			"this session does not serve that feed", nil)
 	case errors.Is(err, ports.ErrParkNotFound):
-		h.writeError(w, r, http.StatusNotFound, "park_not_found", "park not found in this tenant", nil)
+		h.writeError(w, r, http.StatusNotFound, "park_not_found", "that park was not found", nil)
 	case errors.Is(err, ports.ErrShedNotFound):
-		h.writeError(w, r, http.StatusNotFound, "shed_not_found", "shed not found in this tenant", nil)
+		h.writeError(w, r, http.StatusNotFound, "shed_not_found", "that pen was not found", nil)
 	case errors.Is(err, ports.ErrPartitionNotFound):
 		h.writeError(w, r, http.StatusNotFound, "partition_not_found",
-			"partition not found in this shed", nil)
+			"that pen was not found in this building", nil)
 	case errors.Is(err, ports.ErrPartitionRequired):
 		h.writeError(w, r, http.StatusBadRequest, "partition_required",
-			"this shed is divided into partitions, so the partition must be named", nil)
+			"this building is divided into pens, so the pen must be named", nil)
 	case errors.Is(err, feedconfigapp.ErrMissingTenant):
 		h.writeError(w, r, http.StatusUnauthorized, "missing_tenant", "missing tenant context", nil)
 	case errors.Is(err, feedconfigapp.ErrMissingIdempotencyKey):
@@ -1060,7 +1060,7 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, err 
 		// the "validate or reject" surface: the author sees WHICH value was refused and why, rather
 		// than a value quietly rewritten to a default they never entered.
 		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, errorEnvelope{
-			Code: "invalid_field", Message: fieldErr.Error(), Field: fieldErr.Field,
+			Code: "invalid_field", Message: fieldErr.Message(), Field: fieldErr.Field,
 		}, nil)
 	default:
 		h.writeError(w, r, http.StatusInternalServerError, "internal_error", "internal server error", err)
