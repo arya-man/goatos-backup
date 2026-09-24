@@ -101,6 +101,50 @@ WITH matched_batches AS (
     )
   GROUP BY ob.batch_id
 ),
+-- target_candidates is the ROW SOURCE for matched_obligations: one index-bound branch per event_id
+-- shape, each guarded by the parameter that selects it (a false guard is a one-time filter, so the
+-- branch costs nothing). It is a strict SUPERSET of what the unchanged WHERE clause below admits, so
+-- the result is identical -- it only changes where the plan starts. Before this CTE the plan started
+-- from a tenant-wide bitmap scan of obligation_instances and applied the assignment/batch filter
+-- last; a 1-row misestimate on members put that scan on the inner side of a nested loop and re-ran it
+-- once per member (stg: 692k heap blocks, 5.7 s for 42 targets). Now the assignment shape probes
+-- members (tenant_id, assignment_id), the batch shape obligation_instances_batch_idx, the park-drive
+-- shape matched_batches -> batch_idx, and the unbatched same-day shape the calendar window index,
+-- then joins obligation_instances by primary key.
+target_candidates AS MATERIALIZED (
+  SELECT m.obligation_id
+  FROM vaccination_drive_assignment_members m
+  WHERE $15::uuid IS NOT NULL
+    AND m.tenant_id = $1::uuid
+    AND m.assignment_id = $15::uuid
+    AND m.canceled_at IS NULL
+  UNION
+  SELECT oi.obligation_id
+  FROM obligation_instances oi
+  WHERE $2::uuid IS NOT NULL
+    AND oi.tenant_id = $1::uuid
+    AND oi.batch_id = $2::uuid
+  UNION
+  SELECT oi.obligation_id
+  FROM matched_batches mb
+  JOIN obligation_instances oi
+    ON oi.tenant_id = $1::uuid
+   AND oi.batch_id = mb.batch_id
+  WHERE $12::bool
+  UNION
+  -- Unbatched same-business-day obligations (the catch-up shape, and the park-drive shape's unbatched
+  -- half): the IST business day $3 as a sargable [start, next start) range, which is exactly the
+  -- to_char((due_at AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD') = $3 test applied below.
+  SELECT oi.obligation_id
+  FROM obligation_instances oi
+  WHERE $2::uuid IS NULL
+    AND $3::date IS NOT NULL
+    AND oi.tenant_id = $1::uuid
+    AND oi.batch_id IS NULL
+    AND oi.status NOT IN ('waived', 'canceled', 'superseded')
+    AND oi.due_at >= ($3::date)::timestamp AT TIME ZONE 'Asia/Kolkata'
+    AND oi.due_at < ($3::date + 1)::timestamp AT TIME ZONE 'Asia/Kolkata'
+),
 matched_obligations AS (
 SELECT
   oi.obligation_id,
@@ -117,7 +161,10 @@ SELECT
   oi.status,
   -- projection-review: membership=this obligation's exact vaccination_drive_assignment_members row (obligation_id UNIQUE), falling back to the guess LATERAL only when the obligation has no member row; group_key=(tenant_id, obligation_id) one member row per obligation; join_cardinality=members->assignment many-to-one on the assignment PK so scheduled_at is 1:1 per obligation, guess LATERAL is a LIMIT 1 scalar fallback; pagination=n/a -- scheduled_at is a per-obligation scalar, not an aggregate across a page boundary (caller pages matched_obligations); scope=park/shed from the batch's own scope, unchanged by this member join
   COALESCE(target_assignment.assignment_planned_at, target_assignment_guess.assignment_planned_at, target_batch.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) AS scheduled_at
-FROM obligation_instances oi
+FROM target_candidates tc
+JOIN obligation_instances oi
+  ON oi.tenant_id = $1::uuid
+ AND oi.obligation_id = tc.obligation_id
 JOIN protocol_versions pv
   ON pv.tenant_id = oi.tenant_id
  AND pv.protocol_version_id = oi.protocol_version_id
@@ -351,10 +398,20 @@ func (r *Repository) ListDriveTargets(ctx context.Context, q domain.DriveTargetQ
 	if err != nil {
 		return domain.CalendarDriveTargetListResponse{}, ports.ErrNotFound
 	}
-	if err := r.eventExists(ctx, q.TenantID, q.EventID, q.Scope); err != nil {
+	var out domain.CalendarDriveTargetListResponse
+	err = r.whileEventInScope(ctx, q.TenantID, q.EventID, q.Scope, func(ctx context.Context) error {
+		var err error
+		out, err = r.listDriveTargets(ctx, q, parsed)
+		return err
+	})
+	if err != nil {
 		return domain.CalendarDriveTargetListResponse{}, err
 	}
+	return out, nil
+}
 
+// listDriveTargets pages calendarDriveTargetsSQL for an event whose scope check runs alongside it.
+func (r *Repository) listDriveTargets(ctx context.Context, q domain.DriveTargetQuery, parsed domain.ParsedDriveEvent) (domain.CalendarDriveTargetListResponse, error) {
 	limit := q.Limit
 	if limit <= 0 {
 		limit = 10

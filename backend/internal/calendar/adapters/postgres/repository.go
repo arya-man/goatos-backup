@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/vgoats/goatos/backend/internal/calendar/domain"
 	"github.com/vgoats/goatos/backend/internal/calendar/ports"
@@ -37,13 +38,17 @@ type Repository struct {
 	timeout   time.Duration
 	cacheMu   sync.Mutex
 	listCache map[string]calendarListCacheEntry
+	// seenEvents remembers, for calendarListCacheTTL, event ids this instance has just resolved in a
+	// caller's scope (a list page, a detail read, an existence check). It only lets targets/history
+	// skip re-proving that the event exists in scope; their own rows are always read live.
+	seenEvents map[string]time.Time
 }
 
 func NewRepository(pool *pgxpool.Pool, queryTimeout time.Duration) *Repository {
 	if queryTimeout <= 0 {
 		queryTimeout = defaultQueryTimeout
 	}
-	return &Repository{pool: pool, timeout: queryTimeout, listCache: make(map[string]calendarListCacheEntry)}
+	return &Repository{pool: pool, timeout: queryTimeout, listCache: make(map[string]calendarListCacheEntry), seenEvents: make(map[string]time.Time)}
 }
 
 var _ ports.Repository = (*Repository)(nil)
@@ -97,65 +102,65 @@ func (r *Repository) ListEvents(ctx context.Context, q domain.Query) (domain.Cal
 	}
 	tenantWide, parkIDs, shedIDs := scopeArgs(q.Scope)
 	// Canonical is the only path now: no freshness gate, no read-through fallback branch.
+	//
+	// The week view asks for the list, the date markers, the reminder rail and the filter options in
+	// one request. Each is an independent read (three of them rebuild the canonical CTE, ~110 ms of
+	// planning each), and running them one after another summed to ~750 ms on stg. They run
+	// concurrently instead, each on its own pooled connection, so the request costs the slowest one.
+	// A request that asks for one section still issues exactly one statement.
 	items := []domain.CalendarEvent{}
-	if !q.MarkersOnly {
-		var err error
-		items, err = r.listEventsCanonical(ctx, q.TenantID, q.DateFrom, requestedToExclusive,
-			ownerKey, status, parkID, shedID, vaccine, cursorDue, cursorEventID, fetchLimit, tenantWide, parkIDs, shedIDs, q.IncludeDriveSummary)
-		if err != nil {
-			return domain.CalendarEventListResponse{}, err
-		}
-	}
 	dateMarkers := []domain.CalendarDateMarker{}
-	if q.IncludeDateMarkers {
-		bound := sqlbind.MustBind(calendarDateMarkersSQL,
-			q.TenantID, q.DateFrom, requestedToExclusive, ownerKey, status, parkID, shedID,
-			tenantWide, parkIDs, shedIDs, vaccine)
-		markerRows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
-		if err != nil {
-			return domain.CalendarEventListResponse{}, fmt.Errorf("calendar: list date markers: %w", err)
-		}
-		defer markerRows.Close()
-		for markerRows.Next() {
-			var marker domain.CalendarDateMarker
-			if err := markerRows.Scan(
-				&marker.Date,
-				&marker.EventCount,
-				&marker.CompletedCount,
-				&marker.OpenCount,
-				&marker.DriveCount,
-				&marker.DueCount,
-				&marker.OverdueCount,
-				&marker.DeferredCount,
-			); err != nil {
-				return domain.CalendarEventListResponse{}, fmt.Errorf("calendar: scan date marker: %w", err)
+	var reminderRail *domain.CalendarReminderRail
+	var filterOptions *domain.CalendarFilterOptions
+	group, gctx := errgroup.WithContext(ctx)
+	if !q.MarkersOnly {
+		group.Go(func() error {
+			rows, err := r.listEventsCanonical(gctx, q.TenantID, q.DateFrom, requestedToExclusive,
+				ownerKey, status, parkID, shedID, vaccine, cursorDue, cursorEventID, fetchLimit, tenantWide, parkIDs, shedIDs, q.IncludeDriveSummary)
+			if err != nil {
+				return err
 			}
-			dateMarkers = append(dateMarkers, marker)
-		}
-		if err := markerRows.Err(); err != nil {
-			return domain.CalendarEventListResponse{}, err
-		}
+			items = rows
+			return nil
+		})
+	}
+	if q.IncludeDateMarkers {
+		group.Go(func() error {
+			markers, err := r.dateMarkers(gctx, q.TenantID, q.DateFrom, requestedToExclusive, ownerKey, status, parkID, shedID, tenantWide, parkIDs, shedIDs, vaccine)
+			if err != nil {
+				return err
+			}
+			dateMarkers = markers
+			return nil
+		})
 	}
 	// DRV-005: reminder_rail is a backend-computed, whole-filtered-week summary -- never the
 	// frontend filtering whatever page of Items it happens to hold (a reminder on list page 2 would
 	// otherwise vanish from the rail). Same trigger (q.IncludeDateMarkers) and same owner/park/shed/
 	// date scope as the date-marker query above; the total Count comes from a single bounded, indexed
 	// query's count(*) OVER() window, independent of the reminderRailLimit-sized Items preview.
-	var reminderRail *domain.CalendarReminderRail
 	if q.IncludeReminderRail {
-		rail, err := r.reminderRail(ctx, q.TenantID, q.DateFrom, requestedToExclusive, ownerKey, status, parkID, shedID, vaccine, tenantWide, parkIDs, shedIDs)
-		if err != nil {
-			return domain.CalendarEventListResponse{}, err
-		}
-		reminderRail = &rail
+		group.Go(func() error {
+			rail, err := r.reminderRail(gctx, q.TenantID, q.DateFrom, requestedToExclusive, ownerKey, status, parkID, shedID, vaccine, tenantWide, parkIDs, shedIDs)
+			if err != nil {
+				return err
+			}
+			reminderRail = &rail
+			return nil
+		})
 	}
-	var filterOptions *domain.CalendarFilterOptions
 	if q.IncludeFilterOptions {
-		options, err := r.listFilterOptions(ctx, q)
-		if err != nil {
-			return domain.CalendarEventListResponse{}, err
-		}
-		filterOptions = &options
+		group.Go(func() error {
+			options, err := r.listFilterOptions(gctx, q)
+			if err != nil {
+				return err
+			}
+			filterOptions = &options
+			return nil
+		})
+	}
+	if err := group.Wait(); err != nil {
+		return domain.CalendarEventListResponse{}, err
 	}
 	var next *string
 	if !q.MarkersOnly && len(items) > limit {
@@ -169,6 +174,11 @@ func (r *Repository) ListEvents(ctx context.Context, q domain.Query) (domain.Cal
 	}
 	// HistoryProjection is always nil now: completed/history rows are served by the same canonical
 	// predicate as everything else, so there is no separate history-projection freshness to report.
+	seen := make([]string, 0, len(items))
+	for _, item := range items {
+		seen = append(seen, item.EventID)
+	}
+	r.markEventsSeen(q.TenantID, q.Scope, seen...)
 	response := domain.CalendarEventListResponse{Source: domain.SourceAPI, Items: items, DateMarkers: dateMarkers, FilterOptions: filterOptions, NextCursor: next, Projection: projection, HistoryProjection: nil, ReminderRail: reminderRail}
 	r.setListCache(cacheKey, response)
 	return response, nil
@@ -238,6 +248,44 @@ func (r *Repository) clearListCache() {
 	r.cacheMu.Lock()
 	defer r.cacheMu.Unlock()
 	r.listCache = make(map[string]calendarListCacheEntry)
+	r.seenEvents = make(map[string]time.Time)
+}
+
+// seenEventKey scopes a resolved event id to the tenant and the caller's exact scope, so a grant
+// change is a different key and one principal's resolution never admits another's request.
+func seenEventKey(tenantID, eventID string, scope domain.ScopeFilter) string {
+	return strings.Join([]string{tenantID, eventID, fmt.Sprint(scope.TenantWide),
+		strings.Join(scope.ParkIDs, ","), strings.Join(scope.ShedIDs, ",")}, "|")
+}
+
+func (r *Repository) markEventsSeen(tenantID string, scope domain.ScopeFilter, eventIDs ...string) {
+	if len(eventIDs) == 0 {
+		return
+	}
+	expires := time.Now().Add(calendarListCacheTTL)
+	r.cacheMu.Lock()
+	defer r.cacheMu.Unlock()
+	if r.seenEvents == nil || len(r.seenEvents)+len(eventIDs) > 4096 {
+		r.seenEvents = make(map[string]time.Time)
+	}
+	for _, id := range eventIDs {
+		r.seenEvents[seenEventKey(tenantID, id, scope)] = expires
+	}
+}
+
+func (r *Repository) eventSeen(tenantID, eventID string, scope domain.ScopeFilter) bool {
+	key := seenEventKey(tenantID, eventID, scope)
+	r.cacheMu.Lock()
+	defer r.cacheMu.Unlock()
+	expires, ok := r.seenEvents[key]
+	if !ok {
+		return false
+	}
+	if time.Now().After(expires) {
+		delete(r.seenEvents, key)
+		return false
+	}
+	return true
 }
 
 // listFilterOptions returns the location hierarchy and vaccines available to
@@ -275,6 +323,39 @@ func (r *Repository) listFilterOptions(ctx context.Context, q domain.Query) (dom
 		return domain.CalendarFilterOptions{}, fmt.Errorf("calendar: iterate filter options: %w", err)
 	}
 	return options, nil
+}
+
+// dateMarkers runs calendarDateMarkersSQL for the requested window and filters.
+func (r *Repository) dateMarkers(ctx context.Context, tenantID string, dateFrom, dateToExclusive time.Time, ownerKey, status, parkID, shedID string, tenantWide bool, parkIDs, shedIDs []string, vaccine string) ([]domain.CalendarDateMarker, error) {
+	bound := sqlbind.MustBind(calendarDateMarkersSQL,
+		tenantID, dateFrom, dateToExclusive, ownerKey, status, parkID, shedID,
+		tenantWide, parkIDs, shedIDs, vaccine)
+	markerRows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
+	if err != nil {
+		return nil, fmt.Errorf("calendar: list date markers: %w", err)
+	}
+	defer markerRows.Close()
+	dateMarkers := []domain.CalendarDateMarker{}
+	for markerRows.Next() {
+		var marker domain.CalendarDateMarker
+		if err := markerRows.Scan(
+			&marker.Date,
+			&marker.EventCount,
+			&marker.CompletedCount,
+			&marker.OpenCount,
+			&marker.DriveCount,
+			&marker.DueCount,
+			&marker.OverdueCount,
+			&marker.DeferredCount,
+		); err != nil {
+			return nil, fmt.Errorf("calendar: scan date marker: %w", err)
+		}
+		dateMarkers = append(dateMarkers, marker)
+	}
+	if err := markerRows.Err(); err != nil {
+		return nil, err
+	}
+	return dateMarkers, nil
 }
 
 // reminderRailLimit bounds the reminder rail preview (task calls for "~20 items"). The whole-result
@@ -385,7 +466,13 @@ func (r *Repository) GetEventDetail(ctx context.Context, q domain.EventQuery) (d
 	// event older than that (previously reachable only via the separate unbounded-lookback history
 	// projection) is no longer resolvable by detail lookup -- an accepted simplification for this
 	// envelope (see docs/decisions/operational-kernel-5k-50k-scale-envelope.md).
-	from, to := canonicalUnboundedWindow(time.Now())
+	//
+	// The canonical CTE runs over the few business days the event_id dates it to (canonicalEventWindow),
+	// not the +/-2 year window: same rows for this event, a fraction of the drives rebuilt.
+	from, to, err := canonicalEventWindow(ctx, r.pool, q.TenantID, q.EventID, time.Now())
+	if err != nil {
+		return domain.CalendarEventDetail{}, err
+	}
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return domain.CalendarEventDetail{}, fmt.Errorf("calendar: begin detail: %w", err)
@@ -402,8 +489,11 @@ func (r *Repository) GetEventDetail(ctx context.Context, q domain.EventQuery) (d
 	if err != nil {
 		return domain.CalendarEventDetail{}, fmt.Errorf("calendar: get detail: %w", err)
 	}
+	r.markEventsSeen(q.TenantID, q.Scope, q.EventID)
 	blocks := decodeDetailBlocks(detailRaw)
-	recent, err := r.History(ctx, domain.HistoryQuery{TenantID: q.TenantID, EventID: q.EventID, Limit: 10, Scope: q.Scope})
+	// The detail row above already resolved the event under the caller's scope; read its history
+	// directly instead of through History, which would re-run the canonical existence check.
+	recent, err := r.historyItems(ctx, domain.HistoryQuery{TenantID: q.TenantID, EventID: q.EventID, Limit: 10, Scope: q.Scope})
 	if err != nil {
 		return domain.CalendarEventDetail{}, err
 	}
@@ -430,9 +520,41 @@ func (r *Repository) GetEventDetail(ctx context.Context, q domain.EventQuery) (d
 func (r *Repository) History(ctx context.Context, q domain.HistoryQuery) (domain.CalendarHistoryResponse, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	if err := r.eventExists(ctx, q.TenantID, q.EventID, q.Scope); err != nil {
+	var out domain.CalendarHistoryResponse
+	err := r.whileEventInScope(ctx, q.TenantID, q.EventID, q.Scope, func(ctx context.Context) error {
+		var err error
+		out, err = r.historyItems(ctx, q)
+		return err
+	})
+	if err != nil {
 		return domain.CalendarHistoryResponse{}, err
 	}
+	return out, nil
+}
+
+// whileEventInScope runs read concurrently with the eventExists scope check and reports the check's
+// error first: a caller outside the event's scope (or asking for an event that does not exist) gets
+// exactly the error the sequential check gave, and read's rows are discarded. The check is the
+// canonical CTE over the event's narrowed window (hundreds of ms); the rows behind targets/history
+// are an indexed read of a few ms, so running them side by side makes the request cost the check
+// alone instead of the check plus the read.
+func (r *Repository) whileEventInScope(ctx context.Context, tenantID, eventID string, scope domain.ScopeFilter, read func(context.Context) error) error {
+	if r.eventSeen(tenantID, eventID, scope) {
+		return read(ctx)
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	existsErr := make(chan error, 1)
+	go func() { existsErr <- r.eventExists(ctx, tenantID, eventID, scope) }()
+	readErr := read(ctx)
+	if err := <-existsErr; err != nil {
+		return err
+	}
+	return readErr
+}
+
+// historyItems pages calendarHistorySQL for an event the caller has already resolved in scope.
+func (r *Repository) historyItems(ctx context.Context, q domain.HistoryQuery) (domain.CalendarHistoryResponse, error) {
 	limit := q.Limit
 	if limit <= 0 {
 		limit = 50
@@ -1834,9 +1956,15 @@ SELECT EXISTS (
 )`
 
 func (r *Repository) eventExists(ctx context.Context, tenantID, eventID string, scope domain.ScopeFilter) error {
+	if r.eventSeen(tenantID, eventID, scope) {
+		return nil
+	}
 	var exists bool
 	tenantWide, parkIDs, shedIDs := scopeArgs(scope)
-	from, to := canonicalUnboundedWindow(time.Now())
+	from, to, err := canonicalEventWindow(ctx, r.pool, tenantID, eventID, time.Now())
+	if err != nil {
+		return err
+	}
 	bound := sqlbind.MustBind(calendarCanonicalExistsSQL, tenantID, from, to, eventID, tenantWide, parkIDs, shedIDs)
 	if err := r.pool.QueryRow(ctx, bound.SQL(), bound.Args()...).Scan(&exists); err != nil {
 		return err
@@ -1844,6 +1972,7 @@ func (r *Repository) eventExists(ctx context.Context, tenantID, eventID string, 
 	if !exists {
 		return ports.ErrNotFound
 	}
+	r.markEventsSeen(tenantID, scope, eventID)
 	return nil
 }
 
