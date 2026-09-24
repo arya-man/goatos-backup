@@ -158,9 +158,26 @@ function ProductRow({
             {copy(pageContract, "hint.product_feed_covers")} {page.feed_items.join(", ")}
           </div>
         ) : null}
-        {/* An animal item's breeds are its species'; the field rides along unchanged so an edit
-            cannot silently drop it. */}
-        {product?.species_code ? <input type="hidden" name="species_code" value={product.species_code} /> : null}
+        {/* AN ANIMAL MUST SAY WHICH SPECIES IT IS, because the sale's breed list is that species'
+            breeds -- an animal item naming none resolves to no breeds, and since the sale requires
+            one, the item saves cleanly and can never be sold. The list is the breed register's own
+            species, so the editor cannot offer one with nothing behind it. A species already saved
+            rides along unchanged, so an edit cannot silently drop it. */}
+        {kind === "animal" ? (
+          <div className="fld">
+            <label htmlFor={`sp-species-${id}`}>{copy(pageContract, "field.product_species")}</label>
+            <select id={`sp-species-${id}`} name="species_code" required defaultValue={product?.species_code ?? ""} disabled={!canWrite}>
+              <option value="">{copy(pageContract, "field.product_species.pick")}</option>
+              {page.species.map((code) => (
+                <option key={code} value={code}>
+                  {code}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : product?.species_code ? (
+          <input type="hidden" name="species_code" value={product.species_code} />
+        ) : null}
         <div className="sellable-product-actions">
           <button type="submit" className="btn sm primary" disabled={!canWrite || pending}>
             {adding ? <Plus className="ic" aria-hidden="true" /> : null}

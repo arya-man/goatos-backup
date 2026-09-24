@@ -570,7 +570,7 @@ const farmValuationSQL = `
 				-- valued on the FEMALE row (maintainer decision, same day: females are the larger
 				-- share, so it is the closer guess). The sex_missing count below counts those animals, so
 				-- the guess is visible on the page rather than silent in the total.
-				CASE WHEN coalesce(sm.stage, sc.stage) IS NULL THEN 'unmapped' ELSE coalesce(sm.stage, sc.stage) || '_' || s.sex_norm END AS bucket,
+				CASE WHEN coalesce(sc.stage, sm.stage) IS NULL THEN 'unmapped' ELSE coalesce(sc.stage, sm.stage) || '_' || s.sex_norm END AS bucket,
 			gw.weight_kg,
 			g.management_stage,
 			g.milk_cohort,
@@ -585,11 +585,19 @@ const farmValuationSQL = `
 			) s
 			-- The stage half, read from the farm's authored rows instead of a CASE. Both joins are
 			-- 1:0..1 BY CONSTRUCTION -- stage_by_match holds one row per register entry -- so no
-			-- animal can be counted twice however the farm writes its stages. The animal is filed
-			-- by its own management stage, and by its milk cohort only when the register lost the
-			-- stage, which is the order the retired CASE read them in.
-			LEFT JOIN stage_by_match sm ON sm.match_norm = s.stage_norm
+			-- animal can be counted twice however the farm writes its stages.
+			--
+			-- THE MILK COHORT WINS, which is the order the retired CASE read them in and is not an
+			-- arbitrary tie-break. Its K1/K2/K3/K0 arms were tested BEFORE its clinical arms, so a
+			-- kid whose management stage had been changed to ICU while the register still knew its
+			-- milk band was valued as that band. Reading the stage first flipped exactly that
+			-- animal from a 3-15 kg kid row to a 40-60 kg adult one -- on a herd where no animal
+			-- carries both today, so nothing would have shown it.
+			--
+			-- A cohort is only ever a milk band, so it can only pull an animal towards a kid
+			-- stage; an animal past milk carries none and is filed by its stage as before.
 			LEFT JOIN stage_by_match sc ON s.cohort_norm <> '' AND sc.match_norm = s.cohort_norm
+			LEFT JOIN stage_by_match sm ON sm.match_norm = s.stage_norm
 			LEFT JOIN goat_weight gw ON gw.tenant_id = g.tenant_id AND gw.goat_id = g.goat_id
 		LEFT JOIN public.locations park ON park.tenant_id = g.tenant_id AND park.location_id = g.park_id
 		LEFT JOIN public.locations farm ON farm.tenant_id = g.tenant_id AND farm.location_id = g.farm_id

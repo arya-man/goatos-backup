@@ -29,6 +29,7 @@ type SalesService interface {
 	SellableProducts(ctx context.Context, tenantID string) ([]domain.Product, map[string][]string, error)
 	ListSellableProducts(ctx context.Context, tenantID string) ([]domain.ProductRow, error)
 	FeedItems(ctx context.Context, tenantID string) ([]string, error)
+	SellableSpecies(ctx context.Context, tenantID string) ([]string, error)
 	SaveSellableProduct(ctx context.Context, tenantID string, write domain.ProductWrite, actorID string) (domain.Product, error)
 	DeleteSellableProduct(ctx context.Context, tenantID, code, actorID string) error
 	RecordDealPayment(ctx context.Context, tenantID, dealID string, write domain.DealPaymentWrite, actorID, idempotencyKey string) (domain.Deal, error)
@@ -175,11 +176,17 @@ func (h *SalesHandler) ListSellableProducts(w http.ResponseWriter, r *http.Reque
 		h.writeErr(w, r, app.SalesHTTPError(err))
 		return
 	}
+	species, err := h.service.SellableSpecies(r.Context(), tenantID(r))
+	if err != nil {
+		h.writeErr(w, r, app.SalesHTTPError(err))
+		return
+	}
 	httpresponse.WriteJSON(w, http.StatusOK, sellableProductPagePayload{
 		Products:  out,
 		Kinds:     sellableProductKindPayloads(),
 		Units:     sellableProductUnitPayloads(),
 		FeedItems: feeds,
+		Species:   species,
 	})
 }
 

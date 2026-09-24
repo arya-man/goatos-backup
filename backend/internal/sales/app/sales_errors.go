@@ -183,6 +183,8 @@ func productFieldLabel(field string) string {
 		return "Status"
 	case "sort_order":
 		return "Order"
+	case "species_code":
+		return "Species"
 	}
 	return field
 }
