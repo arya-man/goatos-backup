@@ -500,7 +500,11 @@ export function WorklistFilters({
           // is already looking at rather than only from the box itself.
           title={effectiveField.kind === "select" ? effectiveField.note : undefined}
         >
-          <span className="muted">{effectiveField.label}</span>
+          {/* The calendar button prints its own field name inside it, so the word beside it would
+              say "Packing day [Packing day 24/09/2026]". Only the plain inputs need it. */}
+          {effectiveField.kind === "date" && effectiveField.labels && effectiveField.today && !effectiveField.disabledReason ? null : (
+            <span className="muted">{effectiveField.label}</span>
+          )}
           {effectiveField.kind === "date" && effectiveField.labels && effectiveField.today && !effectiveField.disabledReason ? (
             <DateRangePicker
               labels={effectiveField.labels}

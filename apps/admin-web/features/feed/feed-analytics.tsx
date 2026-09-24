@@ -341,7 +341,9 @@ export async function FeedAnalyticsPage({
   // served rows, plus a calendar day (fav_day) that re-reads the execution endpoint pinned to that
   // single business day, so a reader can step back past the page's rolling window.
   const favDay = one(searchParams, "fav_day") ?? "";
-  const variancePackingDay = favDay || todayIso();
+  // Resolved after the main batch: with no day in the URL the table opens on the latest packing
+  // day that HAS measured bags (see below), not on today, whose bags nobody has weighed yet.
+  let variancePackingDay = favDay || todayIso();
   const favPark = one(searchParams, "fav_park") ?? "";
   const favItem = one(searchParams, "fav_item") ?? "";
   const variancePageSizes = tablePageSizes(pageContract, "packing-mismatches");
@@ -392,7 +394,7 @@ export async function FeedAnalyticsPage({
   const shedFeedTo = istDayPlus(todayIso(), -1);
   const shedFeedWindow = { date_from: istDayPlus(shedFeedTo, -6), date_to: shedFeedTo };
   const [locations, directed, execution, experiment, stock, shedFeed, loads, followUp] = await Promise.all([
-    wantExperiment ? getCensusLocations() : Promise.resolve({ parks: [] as { id: string; name: string }[], sheds: [] }),
+    wantExperiment ? getCensusLocations() : Promise.resolve({ parks: [] as { id: string; code: string | null; name: string }[], sheds: [] }),
     wantDirected
       ? getFeedAnalyticsDirected({ ...chartParams, sections: directedSections })
       : Promise.resolve<ApiResult<FeedAnalyticsDirectedResponse> | null>(null),
@@ -437,6 +439,13 @@ export async function FeedAnalyticsPage({
       ? getFeedAnalyticsFollowUp(chartParams)
       : Promise.resolve<ApiResult<FeedAnalyticsFollowUpResponse> | null>(null),
   ]);
+  if (!favDay && tab === "execution" && execution?.ok) {
+    const measured = execution.data.consumption_trend
+      .filter((d) => d.actual_kg !== "")
+      .map((d) => d.packing_day)
+      .sort();
+    if (measured.length > 0) variancePackingDay = measured[measured.length - 1];
+  }
   const executionDay =
     tab === "execution"
       ? await getFeedAnalyticsExecution({
@@ -945,6 +954,7 @@ function DirectedTabs({
             <FeedStackedColumns
               days={view.stacked}
               seriesLabels={view.itemLabels}
+              hideZeroInTip
               valueNoun={fa(pageContract, "unit.kg")}
               chartLabel={fa(pageContract, "chart.daily.title")}
               emptyLabel={fa(pageContract, "empty.body")}
@@ -1389,7 +1399,7 @@ function ExecutionTab({
           pageContract={pageContract}
         />
         {varianceRows.length === 0 ? (
-          <p className="muted small">{fa(pageContract, "variance.empty")}</p>
+          <p className="muted small" style={{ padding: "12px 14px" }}>{fa(pageContract, "variance.empty")}</p>
         ) : (
           <div className="tablewrap" tabIndex={0} role="group" aria-label={fa(pageContract, "variance.title")}>
             <table className="tbl feed-mismatch-table">
@@ -1454,6 +1464,9 @@ function ExecutionTab({
         )}
         {/* The pager sits between the rows and the trend: it belongs to the TABLE, and the graph
             below it is a whole-window aggregate that paging must never appear to move. */}
+        {/* No pager under an empty day: "0 measured bags" beside Rows / Previous / Next is controls
+            for nothing. It comes back as soon as the day has rows, or when paged past the end. */}
+        {varianceRows.length === 0 && variance.offset === 0 ? null : (
         <FeedPager
           pageContract={pageContract}
           offset={variance.offset}
@@ -1465,6 +1478,7 @@ function ExecutionTab({
           hrefForOffset={(next) => feedHref(PAGE_PATH, variance.searchParams, "fav_offset", next === 0 ? "" : String(next))}
           hrefForLimit={(next) => feedHref(PAGE_PATH, variance.searchParams, "fav_limit", String(next))}
         />
+        )}
         {/* The trend belongs UNDER this table (maintainer decision 2026-08-23): the table is one
             day's outliers, the graph is how packed-vs-given has run over the page's window, so the
             reader sees whether today's mismatches are an exception or a pattern. It follows the
@@ -1506,6 +1520,10 @@ function ExecutionStacked({
         <FeedStackedColumns
           days={stacked}
           seriesLabels={statuses.map((s) => s.label)}
+          // The legend owns the colours: filling by position painted "Awaiting verdict" blue and
+          // "Rework" amber under a legend that says amber and red.
+          seriesColors={statuses.map((s) => s.colorVar)}
+          hideZeroInTip
           valueNoun={fa(pageContract, "table.items.noun")}
           chartLabel={fa(pageContract, "chart.execution.title")}
           emptyLabel={fa(pageContract, "empty.execution.body")}

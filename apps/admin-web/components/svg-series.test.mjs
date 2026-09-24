@@ -42,7 +42,7 @@ test("wide y-axis ticks expand plot padding instead of clipping", () => {
 test("stacked series colours do not immediately repeat after the base token palette", () => {
   assert.match(source, /export function seriesColorVar\(index: number\) \{/);
   assert.match(source, /color-mix\(in srgb, \$\{base\} \$\{share\}%, \$\{mix\}\)/);
-  assert.match(source, /fill=\{seriesColorVar\(s\)\}/);
+  assert.match(source, /fill=\{seriesColors\?\.\[s\] \?\? seriesColorVar\(s\)\}/);
   assert.doesNotMatch(source, /fill=\{SERIES_VARS\[s % SERIES_VARS\.length\]\}/);
 });
 
@@ -50,4 +50,13 @@ test("stacked columns use the empty state for all-zero bar series", () => {
   assert.match(source, /const totals = days\.map\(\(d\) => d\.segments\.reduce\(\(a, b\) => a \+ b, 0\)\);/);
   assert.match(source, /days\.length === 0 \|\| !totals\.some\(\(total\) => total > 0\)/);
   assert.match(source, /const max = Math\.max\(1, \.\.\.totals\);/);
+});
+
+test("chart tooltips name the day DD/MM/YYYY, never the wire's ISO date", () => {
+  assert.match(source, /const tipText = \[\s*fmtDay\(d\.label\),/);
+  assert.match(source, /data-tip=\{\[fmtDay\(day\), \.\.\.parts\]\.join\("\\n"\)\}/);
+});
+
+test("a stacked tooltip can leave out a series that is 0 that day", () => {
+  assert.match(source, /hideZeroInTip && v === 0 \? \[\] :/);
 });

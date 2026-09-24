@@ -24,8 +24,10 @@ test("all feed item chart series use the shared non-repeating colour helper", ()
   assert.doesNotMatch(directedViewBlock, /colorVar: FEED_SERIES_VARS\[s % FEED_SERIES_VARS\.length\]/);
 });
 
-test("execution variance table defaults to today's packing day read", () => {
-  assert.match(source, /const variancePackingDay = favDay \|\| todayIso\(\);/);
+test("execution variance table defaults to the latest packing day with measured bags", () => {
+  assert.match(source, /let variancePackingDay = favDay \|\| todayIso\(\);/);
+  assert.match(source, /if \(!favDay && tab === "execution" && execution\?\.ok\) \{/);
+  assert.match(source, /\.filter\(\(d\) => d\.actual_kg !== ""\)/);
   assert.match(source, /const \[locations, directed, execution, experiment, stock, shedFeed, loads, followUp\] = await Promise\.all\(\[/);
   assert.match(source, /const executionDay =\s*tab === "execution"\s*\?\s*await getFeedAnalyticsExecution\(\{/s);
   assert.match(source, /tab === "execution"\s*\?\s*await getFeedAnalyticsExecution\(\{/s);
@@ -253,4 +255,12 @@ test("Consumption's Status-wise view reads only the pen-tag arm and skips Genera
   assert.match(source, /const single = data\.pen_tags\.filter\(\(t\) => !t\.mixed\);/);
   assert.doesNotMatch(source, /status\.mixed\./);
   assert.doesNotMatch(source, /pen_tag_label\.includes\("\+"\)/);
+});
+
+test("the execution status bars take the legend's colours", () => {
+  assert.match(source, /seriesColors=\{statuses\.map\(\(s\) => s\.colorVar\)\}/);
+});
+
+test("an empty packed-vs-directed day shows no pager", () => {
+  assert.match(source, /\{varianceRows\.length === 0 && variance\.offset === 0 \? null : \(/);
 });
