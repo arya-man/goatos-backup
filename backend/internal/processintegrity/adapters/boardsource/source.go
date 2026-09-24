@@ -33,6 +33,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 	pidomain "github.com/vgoats/goatos/backend/internal/processintegrity/domain"
 	"github.com/vgoats/goatos/backend/internal/workboard/domain"
 	"github.com/vgoats/goatos/backend/internal/workboard/ports"
@@ -541,7 +542,10 @@ func (s *Source) hasVaccinationDueWork(ctx context.Context, q ports.SourceQuery,
 		ctx, cancel := context.WithTimeout(ctx, s.precheckBudget())
 		defer cancel()
 		var ok bool
-		err := s.pool.QueryRow(ctx, vaccinationDueWorkPrecheckSQL, vaccinationDueWorkPrecheckArgs(q.TenantID, q.ParkID, dayStart, includeCompleted)...).Scan(&ok)
+		dayEnd := dayStart.AddDate(0, 0, 1)
+		bound := sqlbind.MustBind(vaccinationDueWorkPrecheckSQL, q.TenantID, q.ParkID, dayStart, dayEnd, includeCompleted,
+			dayStart.Format("2006-01-02"), dayEnd.Format("2006-01-02"))
+		err := s.pool.QueryRow(ctx, bound.SQL(), bound.Args()...).Scan(&ok)
 		if err != nil {
 			if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
 				// The precheck is only a skip optimization. If it is slow, fail open so a valid
@@ -742,11 +746,4 @@ WHERE tenant_id = $1::uuid AND workforce_member_id = ANY($2::uuid[])`, tenantID,
 		}
 	}
 	return out, rows.Err()
-}
-
-// vaccinationDueWorkPrecheckArgs binds vaccinationDueWorkPrecheckSQL: $3/$4 the IST day as
-// instants, $6/$7 the same day as dates (dayStart must be an IST midnight).
-func vaccinationDueWorkPrecheckArgs(tenantID, parkID string, dayStart time.Time, includeCompleted bool) []any {
-	dayEnd := dayStart.AddDate(0, 0, 1)
-	return []any{tenantID, parkID, dayStart, dayEnd, includeCompleted, dayStart.Format("2006-01-02"), dayEnd.Format("2006-01-02")}
 }
