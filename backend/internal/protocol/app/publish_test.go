@@ -982,8 +982,8 @@ func TestPublishVersionRejectsPurposePlanSecondWaveGapWithWrongType(t *testing.T
 	dsl := validVaccinationMatrixRuleDSL()
 	dsl = strings.Replace(
 		dsl,
-		`"second_wave_after_days":28,"goat_second_wave":["Goat Pox"]`,
-		`"second_wave_after_days":28,"purpose_plans":{"breeding":{"first_wave":["ET+TT"],"second_wave_after_days":"28","goat_second_wave":["Goat Pox"]}},"goat_second_wave":["Goat Pox"]`,
+		`"second_wave_after_days":28,"goat_second_wave":["Goat Pox"],"sheep_second_wave":["Sheep Pox"]`,
+		`"second_wave_after_days":"28","goat_second_wave":["Goat Pox"],"sheep_second_wave":["Sheep Pox"]`,
 		1,
 	)
 	repo.version.RuleDsl = []byte(dsl)
@@ -995,6 +995,66 @@ func TestPublishVersionRejectsPurposePlanSecondWaveGapWithWrongType(t *testing.T
 	}
 	if repo.createRuleCalled || repo.publishCalled {
 		t.Fatalf("invalid purpose plan gap should not create rules or publish")
+	}
+}
+
+func TestPublishVersionRejectsInvalidFatteningVaccines(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		plan string
+	}{
+		{"fmd", `{"first_wave":["ET+TT","PPR","FMD"],"second_wave_after_days":28,"goat_second_wave":["Goat Pox"],"sheep_second_wave":["Sheep Pox"]}`},
+		{"hs", `{"first_wave":["ET+TT","PPR"],"second_wave_after_days":28,"goat_second_wave":["HS"],"sheep_second_wave":["Sheep Pox"]}`},
+		{"wrong-species-pox", `{"first_wave":["ET+TT","PPR"],"second_wave_after_days":28,"goat_second_wave":["Sheep Pox"],"sheep_second_wave":["Goat Pox"]}`},
+		{"wrong-second-wave-gap", `{"first_wave":["ET+TT","PPR"],"second_wave_after_days":21,"goat_second_wave":["Goat Pox"],"sheep_second_wave":["Sheep Pox"]}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &fakeProtocolRepo{version: validPublishVersion("draft")}
+			dsl := validVaccinationMatrixRuleDSL()
+			canonical := `"purpose_plans":{"fattening":{"first_wave":["ET+TT","PPR"],"second_wave_after_days":28,"goat_second_wave":["Goat Pox"],"sheep_second_wave":["Sheep Pox"]}}`
+			dsl = strings.Replace(dsl, canonical, `"purpose_plans":{"fattening":`+tc.plan+`}`, 1)
+			repo.version.RuleDsl = []byte(dsl)
+			service := NewService(repo)
+			if err := service.PublishVersion(context.Background(), "tenant-1", "version-1", nil); !errors.Is(err, ErrNotPublishable) {
+				t.Fatalf("publish invalid fattening plan err=%v, want ErrNotPublishable", err)
+			}
+			if repo.createRuleCalled || repo.publishCalled {
+				t.Fatal("invalid fattening plan must not publish")
+			}
+		})
+	}
+}
+
+func TestPublishVersionRequiresFatteningPlanForVaccinationMatrix(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		mutate func(map[string]any)
+	}{
+		{"missing-procurement-policy", func(dsl map[string]any) { delete(dsl, "procurement_policy") }},
+		{"missing-purpose-plans", func(dsl map[string]any) { delete(dsl["procurement_policy"].(map[string]any), "purpose_plans") }},
+		{"breeding-only", func(dsl map[string]any) {
+			dsl["procurement_policy"].(map[string]any)["purpose_plans"] = map[string]any{
+				"breeding": map[string]any{"first_wave": []any{"ET+TT"}},
+			}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var dsl map[string]any
+			if err := json.Unmarshal([]byte(validVaccinationMatrixRulesetDSL()), &dsl); err != nil {
+				t.Fatalf("decode fixture: %v", err)
+			}
+			tc.mutate(dsl)
+			raw, err := json.Marshal(dsl)
+			if err != nil {
+				t.Fatalf("encode fixture: %v", err)
+			}
+			repo := &fakeProtocolRepo{version: validPublishVersion("draft")}
+			repo.version.RuleDsl = raw
+			service := NewService(repo)
+			if err := service.PublishVersion(context.Background(), "tenant-1", "version-1", nil); !errors.Is(err, ErrNotPublishable) {
+				t.Fatalf("publish missing fattening contract err=%v, want ErrNotPublishable", err)
+			}
+		})
 	}
 }
 
@@ -1064,11 +1124,11 @@ func validPublishVersion(status string) domain.Version {
 }
 
 func validVaccinationMatrixRuleDSL() string {
-	return `{"vaccine":{"code":"ET+TT","name":"ET+TT","type":"killed","pathogen_class":"bacterial","course_type":"booster","inventory_item_id":"item-et","manufacturer":"tracked-matrix","disease":"Enterotoxaemia + Tetanus","compatibility_group":"ET+TT"},"eligibility":{"animal_stage":"K1","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","exclude_reproductive_states":["pregnant","lactating"],"defer_states":["sick","under_treatment","recovering","icu","quarantine"]},"missed_dose_policy":"pc_approval","compatibility_policy":{"live_to_killed_gap_days":14,"killed_to_killed_gap_days":14,"live_to_live_gap_days":28,"kid_booster_min_gap_days":21,"bacterial_viral_same_day_allowed":true,"live_killed_viral_same_day_allowed":true},"procurement_policy":{"warmup_no_vaccination_days":7,"kids_normal_schedule_until_weeks":16,"adult_prior_vaccination_allowed":true,"first_wave":["ET+TT","PPR"],"second_wave_after_days":28,"goat_second_wave":["Goat Pox"],"sheep_second_wave":["Sheep Pox"]},"pregnancy_policy":{"allow_until_pregnancy_month":3,"skip_from_pregnancy_month":4,"skip_through_pregnancy_month":5,"post_delivery_catch_up_days":14},"schedule":[{"dose_code":"et_tt_4w","sequence":1,"trigger_type":"birth_age","offset_days":28,"due_window_days":7,"dose_amount":2,"dose_unit":"ml","vial_doses":100,"revaccination_interval_days":182,"schedule_note":"approved kid timing: 4 weeks and 7 weeks","route_site":"subcutaneous","max_delay_days":7,"course_lapse_policy":"pc_review","repeat":"none","catch_up":"pc_approval"},{"dose_code":"et_tt_7w","sequence":2,"trigger_type":"birth_age","offset_days":49,"due_window_days":7,"dose_amount":2,"dose_unit":"ml","vial_doses":100,"revaccination_interval_days":182,"schedule_note":"approved kid timing: 4 weeks and 7 weeks; booster gap 3 weeks","route_site":"subcutaneous","max_delay_days":7,"course_lapse_policy":"pc_review","min_gap_days":21,"repeat":"none","repeat_until_after_age":"-","catch_up":"pc_approval"}]}`
+	return `{"vaccine":{"code":"ET+TT","name":"ET+TT","type":"killed","pathogen_class":"bacterial","course_type":"booster","inventory_item_id":"item-et","manufacturer":"tracked-matrix","disease":"Enterotoxaemia + Tetanus","compatibility_group":"ET+TT"},"eligibility":{"animal_stage":"K1","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","exclude_reproductive_states":["pregnant","lactating"],"defer_states":["sick","under_treatment","recovering","icu","quarantine"]},"missed_dose_policy":"pc_approval","compatibility_policy":{"live_to_killed_gap_days":14,"killed_to_killed_gap_days":14,"live_to_live_gap_days":28,"kid_booster_min_gap_days":21,"bacterial_viral_same_day_allowed":true,"live_killed_viral_same_day_allowed":true},"procurement_policy":{"warmup_no_vaccination_days":7,"kids_normal_schedule_until_weeks":16,"adult_prior_vaccination_allowed":true,"purpose_plans":{"fattening":{"first_wave":["ET+TT","PPR"],"second_wave_after_days":28,"goat_second_wave":["Goat Pox"],"sheep_second_wave":["Sheep Pox"]}},"first_wave":["ET+TT","PPR"],"second_wave_after_days":28,"goat_second_wave":["Goat Pox"],"sheep_second_wave":["Sheep Pox"]},"pregnancy_policy":{"allow_until_pregnancy_month":3,"skip_from_pregnancy_month":4,"skip_through_pregnancy_month":5,"post_delivery_catch_up_days":14},"schedule":[{"dose_code":"et_tt_4w","sequence":1,"trigger_type":"birth_age","offset_days":28,"due_window_days":7,"dose_amount":2,"dose_unit":"ml","vial_doses":100,"revaccination_interval_days":182,"schedule_note":"approved kid timing: 4 weeks and 7 weeks","route_site":"subcutaneous","max_delay_days":7,"course_lapse_policy":"pc_review","repeat":"none","catch_up":"pc_approval"},{"dose_code":"et_tt_7w","sequence":2,"trigger_type":"birth_age","offset_days":49,"due_window_days":7,"dose_amount":2,"dose_unit":"ml","vial_doses":100,"revaccination_interval_days":182,"schedule_note":"approved kid timing: 4 weeks and 7 weeks; booster gap 3 weeks","route_site":"subcutaneous","max_delay_days":7,"course_lapse_policy":"pc_review","min_gap_days":21,"repeat":"none","repeat_until_after_age":"-","catch_up":"pc_approval"}]}`
 }
 
 func validVaccinationMatrixRulesetDSL() string {
-	return `{"category":"vaccination","ruleset_family":"vaccination.matrix","vaccine":{"code":"vaccination.matrix","name":"Preventive Care vaccination matrix","type":"matrix"},"eligibility":{"animal_stage":"all","species":["goat","sheep"],"sex":["female","male"],"breed":["all"],"lifecycle":["alive"],"health":["healthy"],"reproductive":["any"],"exclude_reproductive_states":["pregnant_late"],"defer_states":["sick","under_treatment","recovering","icu","quarantine"]},"missed_dose_policy":"immediate","compatibility_policy":{"live_to_killed_gap_days":14,"killed_to_killed_gap_days":14,"live_to_live_gap_days":28,"kid_booster_min_gap_days":21,"bacterial_viral_same_day_allowed":true,"live_killed_viral_same_day_allowed":true,"max_vaccines_per_combo_session":3},"procurement_policy":{"warmup_no_vaccination_days":7,"kids_normal_schedule_until_weeks":16,"adult_prior_vaccination_allowed":true,"first_wave":["ET+TT","PPR"],"second_wave_after_days":28,"goat_second_wave":["Goat Pox"],"sheep_second_wave":["Sheep Pox"]},"matrix_rows":[{"row_id":"adult-sheep-second-wave","vaccine":{"code":"SHEEP_POX","name":"Sheep Pox","type":"live","pathogen_class":"viral","compatibility_group":"POX","course_type":"single"},"eligibility":{"species":["sheep"],"animal_stage":["DOE","MOTHER","BUCK"],"sex":["female","male"],"breed":["all"],"lifecycle":["alive"],"health":["healthy"],"reproductive":["any"],"exclude_reproductive_states":["pregnant_late"],"defer_states":["sick","under_treatment","recovering","icu","quarantine"]},"schedule":[{"dose_code":"sheep_pox_adult_second_wave","source_dose_code":"sheep_pox_adult_second_wave","sequence":1,"trigger_type":"post_arrival","offset_days":28,"due_window_days":7,"dose_amount":1,"dose_unit":"ml","route_site":"subcutaneous","max_delay_days":7,"course_lapse_policy":"preventive_care_review","repeat":"yearly","catch_up":"immediate"}]}],"schedule":[{"dose_code":"sheep_pox_adult_second_wave","source_dose_code":"sheep_pox_adult_second_wave","sequence":1,"trigger_type":"post_arrival","offset_days":28,"due_window_days":7,"dose_amount":1,"dose_unit":"ml","route_site":"subcutaneous","max_delay_days":7,"course_lapse_policy":"preventive_care_review","repeat":"yearly","catch_up":"immediate"}]}`
+	return `{"category":"vaccination","ruleset_family":"vaccination.matrix","vaccine":{"code":"vaccination.matrix","name":"Preventive Care vaccination matrix","type":"matrix"},"eligibility":{"animal_stage":"all","species":["goat","sheep"],"sex":["female","male"],"breed":["all"],"lifecycle":["alive"],"health":["healthy"],"reproductive":["any"],"exclude_reproductive_states":["pregnant_late"],"defer_states":["sick","under_treatment","recovering","icu","quarantine"]},"missed_dose_policy":"immediate","compatibility_policy":{"live_to_killed_gap_days":14,"killed_to_killed_gap_days":14,"live_to_live_gap_days":28,"kid_booster_min_gap_days":21,"bacterial_viral_same_day_allowed":true,"live_killed_viral_same_day_allowed":true,"max_vaccines_per_combo_session":3},"procurement_policy":{"warmup_no_vaccination_days":7,"kids_normal_schedule_until_weeks":16,"adult_prior_vaccination_allowed":true,"purpose_plans":{"fattening":{"first_wave":["ET+TT","PPR"],"second_wave_after_days":28,"goat_second_wave":["Goat Pox"],"sheep_second_wave":["Sheep Pox"]}},"first_wave":["ET+TT","PPR"],"second_wave_after_days":28,"goat_second_wave":["Goat Pox"],"sheep_second_wave":["Sheep Pox"]},"matrix_rows":[{"row_id":"adult-sheep-second-wave","vaccine":{"code":"SHEEP_POX","name":"Sheep Pox","type":"live","pathogen_class":"viral","compatibility_group":"POX","course_type":"single"},"eligibility":{"species":["sheep"],"animal_stage":["DOE","MOTHER","BUCK"],"sex":["female","male"],"breed":["all"],"lifecycle":["alive"],"health":["healthy"],"reproductive":["any"],"exclude_reproductive_states":["pregnant_late"],"defer_states":["sick","under_treatment","recovering","icu","quarantine"]},"schedule":[{"dose_code":"sheep_pox_adult_second_wave","source_dose_code":"sheep_pox_adult_second_wave","sequence":1,"trigger_type":"post_arrival","offset_days":28,"due_window_days":7,"dose_amount":1,"dose_unit":"ml","route_site":"subcutaneous","max_delay_days":7,"course_lapse_policy":"preventive_care_review","repeat":"yearly","catch_up":"immediate"}]}],"schedule":[{"dose_code":"sheep_pox_adult_second_wave","source_dose_code":"sheep_pox_adult_second_wave","sequence":1,"trigger_type":"post_arrival","offset_days":28,"due_window_days":7,"dose_amount":1,"dose_unit":"ml","route_site":"subcutaneous","max_delay_days":7,"course_lapse_policy":"preventive_care_review","repeat":"yearly","catch_up":"immediate"}]}`
 }
 
 func cloneAnyMap(in map[string]any) map[string]any {

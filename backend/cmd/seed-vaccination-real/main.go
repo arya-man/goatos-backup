@@ -3972,6 +3972,12 @@ func vaccinationMatrixRuleDSL() (string, error) {
 			"second_wave_after_days":           28,
 			"goat_second_wave":                 []string{"Goat Pox"},
 			"sheep_second_wave":                []string{"Sheep Pox"},
+			"purpose_plans": map[string]any{
+				"fattening": map[string]any{
+					"first_wave": []string{"ET+TT", "PPR"}, "second_wave_after_days": 28,
+					"goat_second_wave": []string{"Goat Pox"}, "sheep_second_wave": []string{"Sheep Pox"},
+				},
+			},
 		},
 		"pregnancy_policy": map[string]any{
 			"allow_until_pregnancy_month":  3,

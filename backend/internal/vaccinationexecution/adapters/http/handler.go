@@ -298,6 +298,11 @@ func (h *Handler) UpsertDriveDateOverride(w http.ResponseWriter, r *http.Request
 		CreatedAt:         h.now(),
 	})
 	if err != nil {
+		if errors.Is(err, obligationports.ErrBeforeVaccinationAgeFloor) {
+			httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
+				errorEnvelope{Code: "due_at_before_vaccination_age_floor", Message: "the vaccination date cannot be earlier than the vaccine age rule", TraceID: traceID(r)}, nil)
+			return
+		}
 		h.internal(w, r, err)
 		return
 	}
@@ -977,6 +982,11 @@ func (h *Handler) RescheduleObligation(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(err, obligationports.ErrIdempotencyConflict) {
 			httpresponse.WriteError(w, r, h.log, http.StatusConflict,
 				errorEnvelope{Code: "idempotency_conflict", Message: "Idempotency-Key was already used with a different request body", TraceID: traceID(r)}, nil)
+			return
+		}
+		if errors.Is(err, obligationports.ErrBeforeVaccinationAgeFloor) {
+			httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
+				errorEnvelope{Code: "due_at_before_vaccination_age_floor", Message: "the vaccination date cannot be earlier than the vaccine age rule", TraceID: traceID(r)}, nil)
 			return
 		}
 		h.internal(w, r, err)

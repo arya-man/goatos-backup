@@ -358,6 +358,9 @@ func (r *Repository) InsertObligation(ctx context.Context, in domain.NewObligati
 	if err != nil {
 		return "", false, fmt.Errorf("obligation: target id: %w", err)
 	}
+	if err := enforceVaccinationWriteConstraints(ctx, r.pool, tenant, rule, in.TargetType, target, in.DueAt); err != nil {
+		return "", false, err
+	}
 	scope, err := pgconv.UUID(in.ScopeID)
 	if err != nil {
 		return "", false, fmt.Errorf("obligation: scope id: %w", err)
@@ -636,6 +639,9 @@ func (r *Repository) InsertDeferredObligation(ctx context.Context, in domain.New
 		return "", false, fmt.Errorf("obligation: begin deferred insert: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := enforceVaccinationWriteConstraints(ctx, tx, tenant, rule, in.TargetType, target, in.DueAt); err != nil {
+		return "", false, err
+	}
 	qtx := r.queries.WithTx(tx)
 	obligationID, err := qtx.InsertObligationInstance(ctx, obligationdb.InsertObligationInstanceParams{
 		TenantID:                      tenant,
@@ -1105,6 +1111,27 @@ func (r *Repository) reopenDeferredObligationByIdempotencyKey(ctx context.Contex
 
 	var finalRef domain.ObligationRef
 	var changed bool
+	var reopenRule, reopenTarget pgtype.UUID
+	var reopenTargetType string
+	var persistedDue time.Time
+	lockErr := tx.QueryRow(ctx, `
+SELECT rule_id, target_type, target_id, due_at
+FROM obligation_instances
+WHERE tenant_id = $1 AND idempotency_key = $2
+FOR UPDATE`, tenant, idempotencyKey).
+		Scan(&reopenRule, &reopenTargetType, &reopenTarget, &persistedDue)
+	if lockErr != nil && !errors.Is(lockErr, pgx.ErrNoRows) {
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: read reopen age-floor target: %w", lockErr)
+	}
+	if lockErr == nil {
+		dueAt := persistedDue
+		if reschedule != nil {
+			dueAt = reschedule.DueAt
+		}
+		if err := enforceVaccinationWriteConstraints(ctx, tx, tenant, reopenRule, reopenTargetType, reopenTarget, dueAt); err != nil {
+			return domain.ObligationRef{}, false, err
+		}
+	}
 	if reschedule != nil {
 		row, queryErr := qtx.ReopenDeferredObligationForKeyWithDue(ctx, obligationdb.ReopenDeferredObligationForKeyWithDueParams{
 			TenantID:               tenant,
@@ -1343,6 +1370,17 @@ FOR UPDATE OF oi`, tenant, obligation, authorizedParkIDs).Scan(
 	}
 	if err != nil {
 		return "", false, fmt.Errorf("obligation: lock reschedule target: %w", err)
+	}
+	srcRule, err := pgconv.UUID(srcRuleID)
+	if err != nil {
+		return "", false, fmt.Errorf("obligation: reschedule rule id: %w", err)
+	}
+	srcTarget, err := pgconv.UUID(srcTargetID)
+	if err != nil {
+		return "", false, fmt.Errorf("obligation: reschedule target id: %w", err)
+	}
+	if err := enforceVaccinationWriteConstraints(ctx, tx, tenant, srcRule, srcTargetType, srcTarget, dueAt); err != nil {
+		return "", false, err
 	}
 
 	const rescheduleIdemScope = "obligation.reschedule"
@@ -2503,6 +2541,9 @@ func (r *Repository) ReconcileOpenObligationForRuleIdentity(
 	if err != nil {
 		return domain.ObligationRef{}, false, fmt.Errorf("obligation: target id: %w", err)
 	}
+	if err := enforceVaccinationWriteConstraints(ctx, r.pool, tenant, rule, in.TargetType, target, in.DueAt); err != nil {
+		return domain.ObligationRef{}, false, err
+	}
 	if occurredAt.IsZero() {
 		occurredAt = time.Now().UTC()
 	}
@@ -2591,6 +2632,9 @@ FOR UPDATE`, tenant, in.TargetType, target, in.RuleIdentityKey, in.Sequence).
 	// "scheduled"; a later rule-identity reconcile may refresh the address, but it must not
 	// challenge the planned date/window under an ongoing or manually moved drive.
 	if ref.Status == "in_progress" || liveDriveMember {
+		if err := enforceVaccinationWriteConstraints(ctx, tx, tenant, rule, in.TargetType, target, priorDue); err != nil {
+			return domain.ObligationRef{}, false, err
+		}
 		if _, err := tx.Exec(ctx, `
 UPDATE obligation_instances
 SET protocol_version_id = $2,
@@ -2677,6 +2721,203 @@ ON CONFLICT (tenant_id, idempotency_key) DO NOTHING`,
 	}
 	ref.DueAt = in.DueAt
 	return ref, true, nil
+}
+
+type vaccinationFloorQueryer interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
+func enforceVaccinationWriteConstraints(ctx context.Context, q vaccinationFloorQueryer, tenant, rule pgtype.UUID, targetType string, target pgtype.UUID, dueAt time.Time) error {
+	if err := enforceVaccinationRuleFloor(ctx, q, tenant, rule, targetType, target, dueAt); err != nil {
+		return err
+	}
+	return enforceVaccinationPurposeApplicability(ctx, q, tenant, rule, targetType, target)
+}
+
+type vaccinationPurposePlan struct {
+	FirstWave       []string `json:"first_wave"`
+	GoatSecondWave  []string `json:"goat_second_wave"`
+	SheepSecondWave []string `json:"sheep_second_wave"`
+}
+
+type vaccinationProcurementPolicy struct {
+	FirstWave       []string                          `json:"first_wave"`
+	GoatSecondWave  []string                          `json:"goat_second_wave"`
+	SheepSecondWave []string                          `json:"sheep_second_wave"`
+	PurposePlans    map[string]vaccinationPurposePlan `json:"purpose_plans"`
+}
+
+func enforceVaccinationPurposeApplicability(ctx context.Context, q vaccinationFloorQueryer, tenant, rule pgtype.UUID, targetType string, target pgtype.UUID) error {
+	if targetType != "goat" {
+		return nil
+	}
+	var purpose, species, vaccine string
+	var procurementPolicyJSON []byte
+	err := q.QueryRow(ctx, `
+SELECT COALESCE(proc.purpose, ''), COALESCE(g.species, 'goat'),
+       COALESCE(NULLIF(pr.eligibility_json->'vaccine'->>'name', ''), NULLIF(pr.eligibility_json->'vaccine'->>'code', ''), ''),
+	       COALESCE(pv.rule_dsl->'procurement_policy', '{}'::jsonb)
+FROM protocol_rules pr
+JOIN protocol_versions pv
+  ON pv.tenant_id = pr.tenant_id AND pv.protocol_version_id = pr.protocol_version_id
+JOIN protocol_definitions pd
+  ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
+JOIN goats g
+  ON g.tenant_id = pr.tenant_id AND g.goat_id = $3
+LEFT JOIN LATERAL (
+  SELECT plg.purpose
+  FROM procurement_load_goats plg
+  WHERE plg.tenant_id = g.tenant_id AND plg.goat_id = g.goat_id
+  ORDER BY COALESCE(plg.warmup_started_at, plg.intake_accepted_at, plg.created_at) DESC NULLS LAST
+  LIMIT 1
+) proc ON true
+WHERE pr.tenant_id = $1 AND pr.rule_id = $2 AND pd.category = 'vaccination'`, tenant, rule, target).
+		Scan(&purpose, &species, &vaccine, &procurementPolicyJSON)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("obligation: read vaccination purpose applicability: %w", err)
+	}
+	purpose = strings.ToLower(strings.TrimSpace(purpose))
+	if purpose == "" || purpose == "unspecified" {
+		return nil
+	}
+	var policy vaccinationProcurementPolicy
+	if err := json.Unmarshal(procurementPolicyJSON, &policy); err != nil {
+		return fmt.Errorf("obligation: decode vaccination procurement policy: %w", err)
+	}
+	plan, authored := policy.PurposePlans[purpose]
+	if !authored {
+		if purpose == "fattening" {
+			// Legacy published versions are immutable and store these authored waves at the
+			// procurement-policy top level. New versions must publish purpose_plans.
+			plan = vaccinationPurposePlan{
+				FirstWave: policy.FirstWave, GoatSecondWave: policy.GoatSecondWave, SheepSecondWave: policy.SheepSecondWave,
+			}
+			if len(plan.FirstWave) == 0 && len(plan.GoatSecondWave) == 0 && len(plan.SheepSecondWave) == 0 {
+				return fmt.Errorf("%w: fattening purpose plan is missing", ports.ErrVaccinationNotApplicable)
+			}
+		} else {
+			return nil
+		}
+	}
+	allowed := append([]string{}, plan.FirstWave...)
+	if strings.EqualFold(strings.TrimSpace(species), "sheep") {
+		allowed = append(allowed, plan.SheepSecondWave...)
+	} else {
+		allowed = append(allowed, plan.GoatSecondWave...)
+	}
+	needle := normalizeVaccinationRuleName(vaccine)
+	for _, candidate := range allowed {
+		if normalizeVaccinationRuleName(candidate) == needle {
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: purpose=%s species=%s vaccine=%s", ports.ErrVaccinationNotApplicable, purpose, species, vaccine)
+}
+
+func normalizeVaccinationRuleName(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	return strings.NewReplacer(" ", "", "_", "", "+", "", "-", "").Replace(value)
+}
+
+// enforceVaccinationRuleFloor is the final persistence guard for authored vaccination timing.
+func enforceVaccinationRuleFloor(ctx context.Context, q vaccinationFloorQueryer, tenant, rule pgtype.UUID, targetType string, target pgtype.UUID, dueAt time.Time) error {
+	if targetType != "goat" {
+		return nil
+	}
+	var triggerType, repeat, vaccineCode string
+	var offsetDays, minGapDays int32
+	var dob, warmupAt *time.Time
+	err := q.QueryRow(ctx, `
+SELECT pr.trigger_type, pr.offset_days, pr.min_gap_days, pr.repeat,
+       COALESCE(NULLIF(pr.eligibility_json->'vaccine'->>'code', ''), NULLIF(pv.rule_dsl->'vaccine'->>'code', ''), ''),
+       g.dob, proc.warmup_at
+FROM protocol_rules pr
+JOIN protocol_versions pv
+  ON pv.tenant_id = pr.tenant_id AND pv.protocol_version_id = pr.protocol_version_id
+JOIN protocol_definitions pd
+  ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
+JOIN goats g
+  ON g.tenant_id = pr.tenant_id AND g.goat_id = $3
+LEFT JOIN LATERAL (
+  SELECT COALESCE(plg.warmup_started_at, plg.intake_accepted_at, plg.created_at) AS warmup_at
+  FROM procurement_load_goats plg
+  WHERE plg.tenant_id = g.tenant_id AND plg.goat_id = g.goat_id
+  ORDER BY COALESCE(plg.warmup_started_at, plg.intake_accepted_at, plg.created_at) DESC NULLS LAST
+  LIMIT 1
+) proc ON true
+WHERE pr.tenant_id = $1
+  AND pr.rule_id = $2
+  AND pd.category = 'vaccination'`, tenant, rule, target).
+		Scan(&triggerType, &offsetDays, &minGapDays, &repeat, &vaccineCode, &dob, &warmupAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("obligation: read vaccination age floor: %w", err)
+	}
+	var floor time.Time
+	switch strings.ToLower(strings.TrimSpace(triggerType)) {
+	case "birth_age":
+		if dob == nil {
+			return nil
+		}
+		floor = biztime.BusinessDayStart(*dob).AddDate(0, 0, int(offsetDays))
+	case "post_arrival":
+		if warmupAt == nil {
+			return nil
+		}
+		floor = biztime.BusinessDayStart(*warmupAt).AddDate(0, 0, int(offsetDays))
+	case "after_previous_completion":
+		var administeredAt *time.Time
+		err := q.QueryRow(ctx, `
+WITH administrations AS (
+  SELECT vc.administered_at
+  FROM vaccination_completions vc
+  JOIN obligation_instances oi ON oi.tenant_id=vc.tenant_id AND oi.obligation_id=vc.obligation_id
+  JOIN protocol_rules history_rule ON history_rule.tenant_id=oi.tenant_id AND history_rule.rule_id=oi.rule_id
+  JOIN protocol_versions history_version ON history_version.tenant_id=oi.tenant_id AND history_version.protocol_version_id=oi.protocol_version_id
+  WHERE vc.tenant_id=$1 AND vc.goat_id=$2 AND vc.status='accepted' AND vc.verified_at IS NOT NULL
+    AND lower(replace(replace(replace(COALESCE(NULLIF(history_rule.eligibility_json->'vaccine'->>'code',''), NULLIF(history_version.rule_dsl->'vaccine'->>'code',''), ''), '_',''), '+',''), '-',''))
+      = lower(replace(replace(replace($3, '_',''), '+',''), '-',''))
+  UNION ALL
+  SELECT ev.administered_at
+  FROM procurement_hf_vaccination_evidence ev
+  JOIN proof_artifacts proof ON proof.tenant_id=ev.tenant_id AND proof.proof_id=ev.proof_ref_id AND proof.upload_state='completed'
+  LEFT JOIN protocol_rules history_rule ON history_rule.tenant_id=ev.tenant_id AND history_rule.rule_id=ev.rule_id
+  WHERE ev.tenant_id=$1 AND ev.goat_id=$2 AND ev.review_status='trusted' AND ev.reviewed_at IS NOT NULL
+    AND lower(replace(replace(replace(COALESCE(NULLIF(history_rule.eligibility_json->'vaccine'->>'code',''), NULLIF(ev.metadata->>'vaccine_code',''), NULLIF(ev.vaccine_name,''), ''), '_',''), '+',''), '-',''))
+      = lower(replace(replace(replace($3, '_',''), '+',''), '-',''))
+)
+SELECT max(administered_at) FROM administrations`, tenant, target, vaccineCode).Scan(&administeredAt)
+		if err != nil {
+			return fmt.Errorf("obligation: read vaccination completion floor: %w", err)
+		}
+		if administeredAt == nil {
+			return nil
+		}
+		anchor := biztime.BusinessDayStart(*administeredAt)
+		if strings.EqualFold(strings.TrimSpace(repeat), "yearly") {
+			floor = anchor.AddDate(1, 0, 0)
+		} else {
+			gap := offsetDays
+			if minGapDays > gap {
+				gap = minGapDays
+			}
+			if gap <= 0 {
+				return nil
+			}
+			floor = anchor.AddDate(0, 0, int(gap))
+		}
+	default:
+		return nil
+	}
+	if dueAt.Before(floor) {
+		return fmt.Errorf("%w: requested=%s floor=%s", ports.ErrBeforeVaccinationAgeFloor, biztime.BusinessDate(dueAt), biztime.BusinessDate(floor))
+	}
+	return nil
 }
 
 // ManualVaccineAnchorsForGoat returns open manual-campaign obligations for the
@@ -3031,7 +3272,11 @@ WITH effective_rule AS (
            ELSE 'unmarked'
          END AS dose_family,
          pr.protocol_version_id,
-         pr.rule_id
+         pr.rule_id,
+         pr.trigger_type,
+         pr.offset_days,
+         pr.min_gap_days,
+         pr.repeat
   FROM protocol_rules pr
   JOIN protocol_versions pv
     ON pv.tenant_id = pr.tenant_id
@@ -3062,7 +3307,11 @@ retired_rule AS (
            WHEN strpos(lower(pr.dose_code), '_kid_') > 0 OR right(lower(pr.dose_code), 4) = '_kid' THEN 'kid'
            WHEN strpos(lower(pr.dose_code), '_adult_') > 0 OR right(lower(pr.dose_code), 6) = '_adult' THEN 'adult'
            ELSE 'unmarked'
-         END AS dose_family
+         END AS dose_family,
+         pr.trigger_type,
+         pr.offset_days,
+         pr.min_gap_days,
+         pr.repeat
   FROM protocol_rules pr
   JOIN protocol_versions pv
     ON pv.tenant_id = pr.tenant_id
@@ -3086,7 +3335,7 @@ SET protocol_version_id = er.protocol_version_id,
     updated_at = now()
 FROM retired_rule rr
 JOIN effective_rule er
-  ON er.vaccine_code = rr.vaccine_code
+ ON er.vaccine_code = rr.vaccine_code
  AND er."sequence" = rr."sequence"
  AND er.dose_family = rr.dose_family
 WHERE oi.tenant_id = $1::uuid
@@ -3096,6 +3345,45 @@ WHERE oi.tenant_id = $1::uuid
   AND NOT (oi.protocol_version_id = ANY($3::uuid[]))
   AND rr.rule_id = oi.rule_id
   AND rr.vaccine_code <> ''
+  AND CASE er.trigger_type
+        WHEN 'birth_age' THEN COALESCE(oi.due_at >= (
+          SELECT (g.dob + er.offset_days)::timestamp AT TIME ZONE 'Asia/Kolkata'
+          FROM goats g
+          WHERE g.tenant_id=oi.tenant_id AND g.goat_id=oi.target_id AND g.dob IS NOT NULL
+        ), true)
+        WHEN 'post_arrival' THEN COALESCE(oi.due_at >= (
+          SELECT (COALESCE(plg.warmup_started_at, plg.intake_accepted_at, plg.created_at)::date + er.offset_days)::timestamp AT TIME ZONE 'Asia/Kolkata'
+          FROM procurement_load_goats plg
+          WHERE plg.tenant_id=oi.tenant_id AND plg.goat_id=oi.target_id
+          ORDER BY COALESCE(plg.warmup_started_at, plg.intake_accepted_at, plg.created_at) DESC NULLS LAST
+          LIMIT 1
+        ), true)
+        WHEN 'after_previous_completion' THEN COALESCE(oi.due_at >= (
+          SELECT CASE
+                   WHEN er.repeat='yearly' THEN max(administered_at) + interval '1 year'
+                   ELSE max(administered_at) + make_interval(days => greatest(er.offset_days, er.min_gap_days))
+                 END
+          FROM (
+            SELECT vc.administered_at
+            FROM vaccination_completions vc
+            JOIN obligation_instances history_oi ON history_oi.tenant_id=vc.tenant_id AND history_oi.obligation_id=vc.obligation_id
+            JOIN protocol_rules history_rule ON history_rule.tenant_id=history_oi.tenant_id AND history_rule.rule_id=history_oi.rule_id
+            JOIN protocol_versions history_version ON history_version.tenant_id=history_oi.tenant_id AND history_version.protocol_version_id=history_oi.protocol_version_id
+            WHERE vc.tenant_id=oi.tenant_id AND vc.goat_id=oi.target_id
+              AND vc.status='accepted' AND vc.verified_at IS NOT NULL
+              AND lower(btrim(COALESCE(NULLIF(history_rule.eligibility_json->'vaccine'->>'code',''), NULLIF(history_version.rule_dsl->'vaccine'->>'code',''), '')))=er.vaccine_code
+            UNION ALL
+            SELECT ev.administered_at
+            FROM procurement_hf_vaccination_evidence ev
+            JOIN proof_artifacts proof ON proof.tenant_id=ev.tenant_id AND proof.proof_id=ev.proof_ref_id AND proof.upload_state='completed'
+            LEFT JOIN protocol_rules history_rule ON history_rule.tenant_id=ev.tenant_id AND history_rule.rule_id=ev.rule_id
+            WHERE ev.tenant_id=oi.tenant_id AND ev.goat_id=oi.target_id
+              AND ev.review_status='trusted' AND ev.reviewed_at IS NOT NULL
+              AND lower(btrim(COALESCE(NULLIF(history_rule.eligibility_json->'vaccine'->>'code',''), NULLIF(ev.metadata->>'vaccine_code',''), NULLIF(ev.vaccine_name,''), '')))=er.vaccine_code
+          ) administrations
+        ), true)
+        ELSE true
+      END
   AND NOT EXISTS (
     SELECT 1 FROM obligation_instances clash
     WHERE clash.tenant_id = oi.tenant_id

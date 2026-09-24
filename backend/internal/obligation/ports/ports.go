@@ -27,6 +27,15 @@ var ErrIdempotencyConflict = errors.New("obligation: idempotency key reused with
 // the animal for every later pass too.
 var ErrDueDateTaken = errors.New("obligation: due date already taken for this rule and animal")
 
+// ErrBeforeVaccinationAgeFloor means a birth-age vaccination was asked to run before the
+// animal reaches the rule's configured DOB + offset. This is a persistence invariant: recovery,
+// manual reschedule, and generation reconciliation must all obey the same floor.
+var ErrBeforeVaccinationAgeFloor = errors.New("obligation: vaccination due date is before rule age floor")
+
+// ErrVaccinationNotApplicable means the vaccine is excluded by the animal purpose plan authored
+// in the vaccination rule DSL.
+var ErrVaccinationNotApplicable = errors.New("obligation: vaccine is not applicable for animal purpose")
+
 // Repository is the persistence boundary for the obligation (due-state) layer. Implementations
 // wrap generated sqlc queries; no hand-written SQL leaks above this interface.
 type Repository interface {
