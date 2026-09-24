@@ -6229,7 +6229,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"chart.stage.title":     "By stage",
 			"chart.stage.hint":      "Deaths and mortality rate by the tag the animal carried when it died — pregnant, non-pregnant, fattening, bucks and each kid stage",
 			"chart.kid_adult.title": "Kids and adults",
-			"chart.kid_adult.hint":  "Deaths and rate for each age band. A kid that moved to an adult stage during the window counts in both, because it was at risk in both",
+			"chart.kid_adult.hint":  "Deaths and rate for each age band. A kid that moved to an adult stage during the window counts in both",
 			"chart.age.title":       "Age at death",
 			"chart.age.hint":        "Days between date of birth and death. The first week is the neonatal window; 1–3 months is pre-weaning.",
 			"chart.breed.title":     "By breed",
