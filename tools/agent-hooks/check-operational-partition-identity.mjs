@@ -76,7 +76,7 @@ function sourceFindings(source, rel) {
     add(match.index, "identity-missing-partition", "Operator work identity must resolve to the actual shed; legacy shedId alone is not enough.");
   }
 
-  const groupNoPartition = /\.groupBy\s*\{[^}]*\b(?:shedId|taskId|batchId|driveId|campaignShedId)\b(?![^}]*\bpartition\b)[^}]*\}/gs;
+  const groupNoPartition = /\.groupBy\s*\{[^}]*\b(?:shedId|taskId|batchId|driveId|campaignShedId)\b(?![^}]*\b(?:partition|partitionLabel)\b)[^}]*\}/gs;
   for (const match of source.matchAll(groupNoPartition)) {
     add(match.index, "grouping-missing-partition", "Operator card/dropdown grouping without the actual shed can club separate sheds.");
   }
@@ -114,6 +114,7 @@ items(rows, key = { it.campaignShedId }) { row -> Text(row.shedName) }
   const good = `
 data class ExecutionIdentity(val shedId: String, val partition: String?, val taskId: String?)
 val cards = rows.groupBy { it.shedId to it.partition }
+val summaryCards = summaries.groupBy { it.shedId to executionPartitionKey(it.partitionLabel) }
 ShedRow(name = operationalPartitionLabel(first.physicalShed, first.partition))
 items(rows, key = { it.uiKey }) { row -> Text(row.label) }
 `;

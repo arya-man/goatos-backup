@@ -43,3 +43,20 @@ func assertFileContains(t *testing.T, repo, rel string, fragments ...string) {
 		}
 	}
 }
+
+func TestDatedMembershipContractUsesCanonicalAnimalAndTaskGrain(t *testing.T) {
+	for _, fragment := range []string{
+		"'taskIds', COALESCE(classified.source_task_ids, ARRAY[]::uuid[])",
+		"'targetCount', classified.obligation_count",
+		"'doneCount', classified.display_done_count",
+		"'openCount', classified.display_open_count",
+		"'vaccineLabelCounts', classified.vaccine_label_keys",
+	} {
+		if !strings.Contains(cardSummariesSQL, fragment) {
+			t.Fatalf("dated membership contract missing %q", fragment)
+		}
+	}
+	if !strings.Contains(executionClassifiedCTE, "ARRAY_AGG(DISTINCT located.sop_task_id ORDER BY located.sop_task_id)") {
+		t.Fatal("task identity must include all source tasks")
+	}
+}

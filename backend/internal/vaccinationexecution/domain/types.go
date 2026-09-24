@@ -185,6 +185,7 @@ type CarrySummary struct {
 // VaccineGroupSummary is the server-computed status of one vaccine group within a shed card.
 // grain=shed + partition + vaccine_label; membership=all rows with matching (shed_id, partition_label, vaccine label)
 type VaccineGroupSummary struct {
+	DoseCount  int    `json:"doseCount"`
 	Label      string `json:"label"`                // display label for the vaccine group
 	CountLabel string `json:"countLabel,omitempty"` // backend-owned display count, e.g. "3 doses"
 	Full       bool   `json:"full"`                 // true if all animals done and none pending redo
@@ -192,13 +193,41 @@ type VaccineGroupSummary struct {
 
 // ExecutionRosterMembership pins one dated assignment or legacy batch/task from the full
 // filtered execution result. Open cards must not infer this set from a list page.
+// MembershipAnimal is internal-only input to the operator-day distinct-animal union.
+type MembershipAnimal struct {
+	ID       string `json:"id"`
+	Done     bool   `json:"done"`
+	Open     bool   `json:"open"`
+	Accepted bool   `json:"accepted"`
+}
+
+type OperatorDaySummary struct {
+	BusinessDate  string                `json:"businessDate"`
+	Status        WorkState             `json:"status"`
+	TargetCount   int                   `json:"targetCount"`
+	DoneCount     int                   `json:"doneCount"`
+	OpenCount     int                   `json:"openCount"`
+	AcceptedCount int                   `json:"acceptedCount"`
+	NeedsRedo     bool                  `json:"needsRedo"`
+	VaccineGroups []VaccineGroupSummary `json:"vaccineGroups"`
+}
+
 type ExecutionRosterMembership struct {
-	RecordOnly         bool    `json:"recordOnly"`
-	AssignmentID       *string `json:"assignmentId,omitempty"`
-	BatchID            *string `json:"batchId,omitempty"`
-	TaskID             *string `json:"taskId,omitempty"`
-	PlannedDate        string  `json:"plannedDate"`
-	IncludeWhenOverdue bool    `json:"includeWhenOverdue"`
+	Animals            []MembershipAnimal    `json:"-"`
+	AcceptedCount      int                   `json:"-"`
+	TaskIDs            []string              `json:"taskIds"`
+	Status             WorkState             `json:"-"`
+	DoneCount          int                   `json:"-"`
+	TargetCount        int                   `json:"-"`
+	OpenCount          int                   `json:"-"`
+	NeedsRedo          bool                  `json:"-"`
+	VaccineGroups      []VaccineGroupSummary `json:"-"`
+	RecordOnly         bool                  `json:"recordOnly"`
+	AssignmentID       *string               `json:"assignmentId,omitempty"`
+	BatchID            *string               `json:"batchId,omitempty"`
+	TaskID             *string               `json:"taskId,omitempty"`
+	PlannedDate        string                `json:"plannedDate"`
+	IncludeWhenOverdue bool                  `json:"includeWhenOverdue"`
 }
 
 // ShedCardSummary is the authoritative, page-independent status of one shed card, computed from
@@ -209,19 +238,20 @@ type ExecutionRosterMembership struct {
 // projection-review: membership=all execution rows matching card identity;
 // parity=status f(work_state + redo + review + final_closed); counts=sum of open/done/target
 type ShedCardSummary struct {
-	RosterMemberships []ExecutionRosterMembership `json:"rosterMemberships"`
-	ShedID            string                      `json:"shedId"`
-	PartitionLabel    *string                     `json:"partitionLabel,omitempty"`
-	AssignmentID      *string                     `json:"assignmentId,omitempty"`
-	TaskID            *string                     `json:"taskId,omitempty"`
-	BatchID           *string                     `json:"batchId,omitempty"`
-	DriveID           *string                     `json:"driveId,omitempty"`
-	Status            WorkState                   `json:"status"` // PENDING | DONE | DELAYED | SENT_BACK
-	DoneCount         int                         `json:"doneCount"`
-	TargetCount       int                         `json:"targetCount"`
-	OpenCount         int                         `json:"openCount"`
-	NeedsRedo         bool                        `json:"needsRedo"`     // true if any row is rejected/deferred
-	VaccineGroups     []VaccineGroupSummary       `json:"vaccineGroups"` // per-vaccine group summaries
+	OperatorDaySummaries []OperatorDaySummary        `json:"operatorDaySummaries,omitempty"`
+	RosterMemberships    []ExecutionRosterMembership `json:"rosterMemberships"`
+	ShedID               string                      `json:"shedId"`
+	PartitionLabel       *string                     `json:"partitionLabel,omitempty"`
+	AssignmentID         *string                     `json:"assignmentId,omitempty"`
+	TaskID               *string                     `json:"taskId,omitempty"`
+	BatchID              *string                     `json:"batchId,omitempty"`
+	DriveID              *string                     `json:"driveId,omitempty"`
+	Status               WorkState                   `json:"status"` // PENDING | DONE | DELAYED | SENT_BACK
+	DoneCount            int                         `json:"doneCount"`
+	TargetCount          int                         `json:"targetCount"`
+	OpenCount            int                         `json:"openCount"`
+	NeedsRedo            bool                        `json:"needsRedo"`     // true if any row is rejected/deferred
+	VaccineGroups        []VaccineGroupSummary       `json:"vaccineGroups"` // per-vaccine group summaries
 }
 
 type DriveSummary struct {

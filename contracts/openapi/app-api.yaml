@@ -33081,6 +33081,12 @@ components:
         - label
         - full
       properties:
+        doseCount:
+          type: integer
+          description: Number of vaccine doses, additive across dated memberships.
+        countLabel:
+          type: string
+          description: Display text for the dose count.
         label:
           type: string
           description: Display label for the vaccine group
@@ -33092,6 +33098,12 @@ components:
       additionalProperties: false
       required: [plannedDate, includeWhenOverdue, recordOnly]
       properties:
+        taskIds:
+          type: array
+          description: Complete source task identities for this dated operational assignment, independent of row pagination.
+          items:
+            type: string
+            format: uuid
         assignmentId:
           type: string
           format: uuid
@@ -33113,6 +33125,31 @@ components:
         includeWhenOverdue:
           type: boolean
           description: Whether this dated membership remains on today's operator card after its planned date.
+    OperatorDaySummary:
+      type: object
+      additionalProperties: false
+      required: [businessDate, status, targetCount, doneCount, openCount, acceptedCount, needsRedo, vaccineGroups]
+      properties:
+        businessDate:
+          type: string
+          format: date
+        status:
+          type: string
+        targetCount:
+          type: integer
+          description: Distinct animals across the exact dated memberships opened by this operator-day card.
+        doneCount:
+          type: integer
+        openCount:
+          type: integer
+        acceptedCount:
+          type: integer
+        needsRedo:
+          type: boolean
+        vaccineGroups:
+          type: array
+          items:
+            $ref: "#/components/schemas/VaccineGroupSummary"
     ShedCardSummary:
       type: object
       additionalProperties: false
@@ -33125,6 +33162,12 @@ components:
         - needsRedo
         - vaccineGroups
       properties:
+        operatorDaySummaries:
+          type: array
+          description: Unique-animal counts by selected business date. Stored once on the first summary entry per normalized shed and partition. The as-of business date includes eligible overdue memberships; other dates include only exact-date memberships.
+          items:
+            $ref: "#/components/schemas/OperatorDaySummary"
+
         rosterMemberships:
           type: array
           description: Complete dated membership from the full filtered card, independent of execution-list pagination.
