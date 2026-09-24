@@ -1,5 +1,24 @@
 # Vaccination age-floor invariant - 2026-09-24
 
+## Close-out evidence (2026-09-24, rebased on origin/main)
+
+- Triage: the full DB packages (obligation, vaccination, vaccinationexecution, migrations) were run on
+  the branch and on origin/main against the disposable OCI container. origin/main alone fails 159
+  tests; only 11 failed on the branch and not on main. Fixed: repeat-cycle fixtures (seed an
+  accepted previous dose), the guard-agreement assertion (post_arrival catch-up without an arrival
+  anchor is approved), and a command-board plan guard (drawer pen/park names are now PK lookups).
+  The P2-18 test and migration 000401 were removed: 000401 caused a verification lock-order
+  deadlock, and both are follow-up scope.
+- Final: `go test ./internal/obligation/adapters/postgres ./internal/vaccination/adapters/postgres
+  -count=1 -json` at 1800cd0bf: 116 failures, all present on origin/main; the 2 extra were pgtest
+  template-lock timeouts under parallel load and pass alone (129.5s).
+  `./internal/vaccinationexecution/adapters/postgres`: no failures beyond main; the plan guard passes.
+- sqlc: `sqlc vet` + `sqlc diff` (v1.29.0) clean.
+- Judges: CLINICAL SIGN-OFF at 0ef5cfed7; PERSISTENCE SIGN-OFF at 1800cd0bf (the only delta is the
+  000401 removal plus the drawer SQL rewrite).
+- Follow-up adds: order completion acceptance against guarded writes (lock order); remove the
+  unreachable `completion` race branch.
+
 ## READ FIRST - next session: close this fast, do not go in circles
 
 **The bug:** generation moved one 8-day-old animal's ET+TT dose (RFID `901007000506144`, DOB
