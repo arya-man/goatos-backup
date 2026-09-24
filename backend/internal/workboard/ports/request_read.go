@@ -70,3 +70,23 @@ func RequestRead[T any, K comparable](ctx context.Context, key K, read func(cont
 	memo.mu.Unlock()
 	return value, err
 }
+
+// SeedRequestRead stores a value a caller already read (one statement of a shared batch) under
+// the key RequestRead would look it up by, so the owning source's own read finds it and sends
+// nothing. It never overwrites: a read already in flight or done for the key wins. Outside a
+// request memo it is a no-op.
+func SeedRequestRead[T any, K comparable](ctx context.Context, key K, value T) {
+	memo, ok := ctx.Value(requestReadContextKey{}).(*requestReadMemo)
+	if !ok {
+		return
+	}
+	typedKey := typedRequestReadKey[T, K]{key: key}
+	memo.mu.Lock()
+	defer memo.mu.Unlock()
+	if _, exists := memo.entries[typedKey]; exists {
+		return
+	}
+	entry := &requestReadEntry{done: make(chan struct{}), value: requestReadValue[T]{value}}
+	close(entry.done)
+	memo.entries[typedKey] = entry
+}

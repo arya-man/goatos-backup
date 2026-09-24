@@ -409,7 +409,13 @@ func (s *Source) ownerMember(ctx context.Context, q ports.SourceQuery) (memberID
 	if s.members == nil {
 		return "", false, ErrOwnerScopeUnresolvable
 	}
-	id, found, err := s.members.WorkforceMemberIDForUser(ctx, q.TenantID, q.OwnerUserID)
+	// Every lane of one page asks the same question; the answer is memoized per request (and
+	// primed into the summary's first batch by PrimeStatements).
+	member, err := ports.RequestRead(ctx, memberKey{s, q.TenantID, q.OwnerUserID}, func(ctx context.Context) (memberResult, error) {
+		id, found, err := s.members.WorkforceMemberIDForUser(ctx, q.TenantID, q.OwnerUserID)
+		return memberResult{id, found}, err
+	})
+	id, found := member.id, member.found
 	if err != nil {
 		return "", false, fmt.Errorf("vaccination boardsource: resolve owner: %w", err)
 	}
@@ -527,23 +533,13 @@ func (s *Source) hasVaccinationDueWork(ctx context.Context, q ports.SourceQuery,
 	if s.pool == nil {
 		return true, nil
 	}
-	includeCompleted := len(q.WorkStates) == 0
-	for _, state := range q.WorkStates {
-		if state == domain.WorkStateCompleted {
-			includeCompleted = true
-			break
-		}
-	}
-	if ports.HasRequestReadMemo(ctx) {
-		includeCompleted = true
-	}
-	key := dueWorkKey{source: s, tenant: q.TenantID, park: q.ParkID, day: q.BusinessDate, includeCompleted: includeCompleted}
+	key, _ := s.precheck(ctx, q, dayStart)
 	return ports.RequestRead(ctx, key, func(ctx context.Context) (bool, error) {
 		ctx, cancel := context.WithTimeout(ctx, s.precheckBudget())
 		defer cancel()
 		var ok bool
 		dayEnd := dayStart.AddDate(0, 0, 1)
-		bound := sqlbind.MustBind(vaccinationDueWorkPrecheckSQL, q.TenantID, q.ParkID, dayStart, dayEnd, includeCompleted,
+		bound := sqlbind.MustBind(vaccinationDueWorkPrecheckSQL, q.TenantID, q.ParkID, dayStart, dayEnd, key.includeCompleted,
 			dayStart.Format("2006-01-02"), dayEnd.Format("2006-01-02"))
 		err := s.pool.QueryRow(ctx, bound.SQL(), bound.Args()...).Scan(&ok)
 		if err != nil {
@@ -556,6 +552,93 @@ func (s *Source) hasVaccinationDueWork(ctx context.Context, q ports.SourceQuery,
 		}
 		return ok, nil
 	})
+}
+
+// precheck is the due-work precheck's memo key and bound statement for one request (the
+// statement PrimeStatements batches; hasVaccinationDueWork binds the same one itself).
+func (s *Source) precheck(ctx context.Context, q ports.SourceQuery, dayStart time.Time) (dueWorkKey, sqlbind.BoundQuery) {
+	includeCompleted := len(q.WorkStates) == 0
+	for _, state := range q.WorkStates {
+		if state == domain.WorkStateCompleted {
+			includeCompleted = true
+			break
+		}
+	}
+	if ports.HasRequestReadMemo(ctx) {
+		includeCompleted = true
+	}
+	key := dueWorkKey{source: s, tenant: q.TenantID, park: q.ParkID, day: q.BusinessDate, includeCompleted: includeCompleted}
+	dayEnd := dayStart.AddDate(0, 0, 1)
+	bound := sqlbind.MustBind(vaccinationDueWorkPrecheckSQL, q.TenantID, q.ParkID, dayStart, dayEnd, includeCompleted,
+		dayStart.Format("2006-01-02"), dayEnd.Format("2006-01-02"))
+	return key, bound
+}
+
+type memberKey struct {
+	source       *Source
+	tenant, user string
+}
+
+type memberResult struct {
+	id    string
+	found bool
+}
+
+// MemberStatementer is the optional MemberResolver capability that hands the owner lookup to a
+// shared batch instead of sending it alone. *PoolMemberResolver implements it.
+type MemberStatementer interface {
+	MemberStatement(tenantID, userID string, id *string, found *bool) ports.Statement
+}
+
+// PrimeStatements implements ports.PrimingSource: the due-work precheck and, for an owner lens,
+// the user -> workforce member lookup -- the two reads that gate the canonical read -- ride the
+// board summary's first batch, seeded into the request memo under the keys hasVaccinationDueWork
+// and ownerMember look up. The canonical read itself keeps its own round trip and its own
+// read budget (a pipelined batch shares one deadline, and this is the read that can be slow).
+func (s *Source) PrimeStatements(ctx context.Context, q ports.SourceQuery) ([]ports.Statement, error) {
+	if s.pool == nil || !ports.HasRequestReadMemo(ctx) {
+		return nil, nil
+	}
+	dayStart, err := time.ParseInLocation("2006-01-02", strings.TrimSpace(q.BusinessDate), biztime.DefaultLocation())
+	if err != nil {
+		return nil, nil // the source's own read reports the bad date
+	}
+	key, bound := s.precheck(ctx, q, dayStart)
+	stmts := []ports.Statement{{
+		Query: bound,
+		Read: func(rows ports.ResultRows) error {
+			var ok bool
+			if !rows.Next() {
+				if err := rows.Err(); err != nil {
+					return err
+				}
+				return errors.New("vaccination boardsource: due-work precheck returned no row")
+			}
+			if err := rows.Scan(&ok); err != nil {
+				return err
+			}
+			ports.SeedRequestRead(ctx, key, ok)
+			return nil
+		},
+	}}
+	if q.OwnerUserID == "" {
+		return stmts, nil
+	}
+	resolver, ok := s.members.(MemberStatementer)
+	if !ok {
+		return stmts, nil
+	}
+	var member memberResult
+	st := resolver.MemberStatement(q.TenantID, q.OwnerUserID, &member.id, &member.found)
+	read := st.Read
+	st.Read = func(rows ports.ResultRows) error {
+		if err := read(rows); err != nil {
+			return err
+		}
+		ports.SeedRequestRead(ctx, memberKey{s, q.TenantID, q.OwnerUserID}, member)
+		return nil
+	}
+	return append(stmts, st), nil
 }
 
 func (s *Source) precheckBudget() time.Duration {
@@ -699,18 +782,37 @@ func NewPoolMemberResolver(pool *pgxpool.Pool, timeout time.Duration) *PoolMembe
 	return &PoolMemberResolver{pool: pool, timeout: timeout}
 }
 
+const memberForUserSQL = `
+SELECT workforce_member_id::text
+FROM workforce_members
+WHERE tenant_id = $1::uuid AND user_id = $2::uuid AND status = 'active'
+ORDER BY workforce_member_id
+LIMIT 1`
+
+// MemberStatement implements MemberStatementer: WorkforceMemberIDForUser's statement, for a
+// shared batch. No row is "not found", as ErrNoRows is there.
+func (r *PoolMemberResolver) MemberStatement(tenantID, userID string, id *string, found *bool) ports.Statement {
+	return ports.Statement{
+		Query: sqlbind.MustBind(memberForUserSQL, tenantID, userID),
+		Read: func(rows ports.ResultRows) error {
+			if !rows.Next() {
+				*found = false
+				return rows.Err()
+			}
+			*found = true
+			return rows.Scan(id)
+		},
+	}
+}
+
 // WorkforceMemberIDForUser implements MemberResolver. Index: workforce_members' tenant+user
 // lookup (the same join the wrapped read and the weighing source use).
 func (r *PoolMemberResolver) WorkforceMemberIDForUser(ctx context.Context, tenantID, userID string) (string, bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	var id string
-	err := r.pool.QueryRow(ctx, `
-SELECT workforce_member_id::text
-FROM workforce_members
-WHERE tenant_id = $1::uuid AND user_id = $2::uuid AND status = 'active'
-ORDER BY workforce_member_id
-LIMIT 1`, tenantID, userID).Scan(&id)
+	bound := sqlbind.MustBind(memberForUserSQL, tenantID, userID)
+	err := r.pool.QueryRow(ctx, bound.SQL(), bound.Args()...).Scan(&id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return "", false, nil

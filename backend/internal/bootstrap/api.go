@@ -144,6 +144,7 @@ import (
 	workboardhttp "github.com/vgoats/goatos/backend/internal/workboard/adapters/http"
 	workboardpg "github.com/vgoats/goatos/backend/internal/workboard/adapters/postgres"
 	workboardapp "github.com/vgoats/goatos/backend/internal/workboard/app"
+	workboardports "github.com/vgoats/goatos/backend/internal/workboard/ports"
 	"golang.org/x/oauth2"
 
 	animalpurchasehttp "github.com/vgoats/goatos/backend/internal/animalpurchase/adapters/http"
@@ -931,28 +932,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// Work Board (maintainer decision 2026-09-10): the cross-module read. Every module
 	// contributes a Source over its OWN tables; the board composes them here and reads no
 	// table itself. Registration order does not matter -- the service sorts into board order.
-	workBoardService := workboardapp.NewService(
-		weighingboard.New(pool, cfg.Postgres.QueryTimeout),
-		feedboard.New(pool, cfg.Postgres.QueryTimeout),
-		verificationboard.New(pool, cfg.Postgres.QueryTimeout),
-		countsboard.NewApprovals(pool, cfg.Postgres.QueryTimeout),
-		countsboard.NewMilkFeeding(pool, cfg.Postgres.QueryTimeout),
-		healthboard.New(pool, cfg.Postgres.QueryTimeout),
-		pccareboard.New(pool, cfg.Postgres.QueryTimeout),
-		// The next-day pen visit (maintainer decision 2026-09-14) rows on the day it is due
-		// under TASKS -- a task of its own, as on the phone's "For me" tab -- whatever work
-		// raised it.
-		penvisitsboard.New(pool, cfg.Postgres.QueryTimeout),
-		// Pen routines (maintainer instruction 2026-09-16) row under TASKS on the day a check
-		// is due, beside the pen visits.
-		penroutinesboard.New(pool, cfg.Postgres.QueryTimeout),
-		// Vaccination reuses the process-integrity read behind the port; the member
-		// resolver is what lets the operator lens narrow it by user id.
-		piboard.New(processIntegrityRepo).
-			WithMemberResolver(piboard.NewPoolMemberResolver(pool, cfg.Postgres.QueryTimeout)).
-			// The per-animal subtask drill is the source's own SQL and needs the pool.
-			WithPool(pool, cfg.Postgres.QueryTimeout),
-	).WithStatementBatch(workboardpg.NewStatementBatch(pool, cfg.Postgres.QueryTimeout))
+	workBoardService := newWorkBoardService(pool, cfg.Postgres.QueryTimeout, processIntegrityRepo)
 	workBoardHandler := workboardhttp.NewHandler(workBoardService, log).WithFlags(workboardapp.NewFlagService(workBoardService, leadershipTasksService, workboardpg.NewParkHeadResolver(pool, cfg.Postgres.QueryTimeout)))
 	// Alerts (maintainer decision 2026-09-16): the page below the Work Board. It stores only
 	// its rule config; every alert is derived per request from rows other modules froze --
@@ -1997,4 +1977,37 @@ func authAllowedAlgsFromEnv() []string {
 		return nil
 	}
 	return algs
+}
+
+// newWorkBoardService is the Work Board's source registry, shared by newAPI and the page
+// round-trip integration test so the test measures exactly the production wiring.
+func newWorkBoardService(pool *pgxpool.Pool, timeout time.Duration, processIntegrityRepo *processintegritypg.Repository) *workboardapp.Service {
+	return workboardapp.NewService(newWorkBoardSources(pool, timeout, processIntegrityRepo)...).
+		WithStatementBatch(workboardpg.NewStatementBatch(pool, timeout))
+}
+
+// newWorkBoardSources is every module's board source, in registration order.
+func newWorkBoardSources(pool *pgxpool.Pool, timeout time.Duration, processIntegrityRepo *processintegritypg.Repository) []workboardports.Source {
+	return []workboardports.Source{
+		weighingboard.New(pool, timeout),
+		feedboard.New(pool, timeout),
+		verificationboard.New(pool, timeout),
+		countsboard.NewApprovals(pool, timeout),
+		countsboard.NewMilkFeeding(pool, timeout),
+		healthboard.New(pool, timeout),
+		pccareboard.New(pool, timeout),
+		// The next-day pen visit (maintainer decision 2026-09-14) rows on the day it is due
+		// under TASKS -- a task of its own, as on the phone's "For me" tab -- whatever work
+		// raised it.
+		penvisitsboard.New(pool, timeout),
+		// Pen routines (maintainer instruction 2026-09-16) row under TASKS on the day a check
+		// is due, beside the pen visits.
+		penroutinesboard.New(pool, timeout),
+		// Vaccination reuses the process-integrity read behind the port; the member
+		// resolver is what lets the operator lens narrow it by user id.
+		piboard.New(processIntegrityRepo).
+			WithMemberResolver(piboard.NewPoolMemberResolver(pool, timeout)).
+			// The per-animal subtask drill is the source's own SQL and needs the pool.
+			WithPool(pool, timeout),
+	}
 }

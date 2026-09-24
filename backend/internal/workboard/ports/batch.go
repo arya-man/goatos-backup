@@ -30,6 +30,21 @@ type BatchSource interface {
 	ListStatement(q SourceQuery, out *[]domain.Row) (Statement, error)
 }
 
+// PrimingSource is an optional Source capability for reads whose parameters are known before
+// any count (feed's four card aggregates, vaccination's due-work precheck and owner lookup).
+// The source hands them to the board as statements so they ride the summary's FIRST batch
+// with every BatchSource count; each statement's reader stores its decoded result in the
+// request memo (SeedRequestRead) under the key the source's own read uses, so the source's
+// later CountByState/ListRows find it there and send nothing. A result is seeded only once it
+// was read whole; if the batch fails the source simply reads for itself, as without priming.
+// A prime's reader must not fail on a result the source's own read would reject (a pgx batch
+// cannot continue past a decode error, so that would fail every count with it): it seeds
+// nothing instead and lets the source's own read report it. Only meaningful under a request
+// memo (the bundled page).
+type PrimingSource interface {
+	PrimeStatements(ctx context.Context, q SourceQuery) ([]Statement, error)
+}
+
 // StatementBatch runs statements in one round trip, in order. Any error fails the whole
 // batch (a pipelined batch aborts on its first error); the caller falls back to the
 // per-source reads so one bad source still degrades alone.

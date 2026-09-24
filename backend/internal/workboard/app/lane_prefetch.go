@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/workboard/domain"
@@ -78,16 +79,25 @@ func (s *Service) prefetchSourceLanes(ctx context.Context, index int, src ports.
 	}
 }
 
-// batchedCounts reads every batchable source's count in ONE round trip, then every populated
-// prefetch lane page of those sources in ONE more, seeding the request memo the lane reads
-// consume. A failed batch falls back to the per-source reads, so a single failing source still
-// degrades alone exactly as before.
-func (s *Service) batchedCounts(ctx context.Context, q domain.Query, idx []int, scoped []ports.Source, sourceIndexes []int, done func(i int, counts map[domain.WorkState]int, degraded bool)) {
-	sourceCtx, cancel := context.WithTimeout(ctx, maxSummarySourceDuration)
-	defer cancel()
+// batchedCounts sends ONE batch per phase. Phase one carries every batchable source's count
+// and every priming source's gate reads (whose readers seed the request memo); it closes
+// phaseOne when answered so the priming sources count from the memo. Phase two carries every
+// populated prefetch lane page of the batchable sources, seeding the memo the lane reads
+// consume. A failed phase-one batch falls back to the per-source reads, each on its own fresh
+// timeout and concurrently, so a single failing source still degrades alone and cannot spend a
+// sibling's budget.
+func (s *Service) batchedCounts(ctx context.Context, q domain.Query, idx, primers []int, scoped []ports.Source, sourceIndexes []int, phaseOne chan<- struct{}, done func(i int, counts map[domain.WorkState]int, degraded bool)) {
+	phaseOneOpen := true
+	closePhaseOne := func() {
+		if phaseOneOpen {
+			phaseOneOpen = false
+			close(phaseOne)
+		}
+	}
+	defer closePhaseOne()
 	sq := ports.SourceQuery{TenantID: q.TenantID, ParkID: q.ParkID, BusinessDate: q.BusinessDate, OwnerUserID: q.OwnerUserID, WorkStates: q.WorkStates}
 	counts := make([]map[domain.WorkState]int, len(idx))
-	stmts := make([]ports.Statement, 0, len(idx))
+	stmts := make([]ports.Statement, 0, len(idx)+2*len(primers))
 	ok := true
 	for k, i := range idx {
 		st, err := scoped[i].(ports.BatchSource).CountStatement(sq, &counts[k])
@@ -97,26 +107,51 @@ func (s *Service) batchedCounts(ctx context.Context, q domain.Query, idx []int, 
 		}
 		stmts = append(stmts, st)
 	}
+	if ok {
+		// A source whose primes cannot be built simply reads for itself later.
+		for _, i := range primers {
+			if primes, err := scoped[i].(ports.PrimingSource).PrimeStatements(ctx, sq); err == nil {
+				stmts = append(stmts, primes...)
+			}
+		}
+	}
 	start := time.Now()
-	if ok && s.batch.RunBatch(sourceCtx, stmts) == nil {
+	batchCtx, cancel := context.WithTimeout(ctx, maxSummarySourceDuration)
+	err := error(nil)
+	if ok {
+		err = s.batch.RunBatch(batchCtx, stmts)
+	}
+	cancel()
+	closePhaseOne()
+	if ok && err == nil {
 		recordTiming(ctx, "source_count_batch", start)
 		for k, i := range idx {
 			done(i, counts[k], false)
 		}
-		s.batchedPrefetch(sourceCtx, q, idx, scoped, sourceIndexes, counts)
+		prefetchCtx, cancel := context.WithTimeout(ctx, maxSummarySourceDuration)
+		defer cancel()
+		s.batchedPrefetch(prefetchCtx, q, idx, scoped, sourceIndexes, counts)
 		return
 	}
-	// Fallback: the per-source reads, sequential inside this one worker's budget.
+	// Fallback: the per-source reads, concurrently, each with its own fresh budget.
+	var wg sync.WaitGroup
 	for _, i := range idx {
-		src := scoped[i]
-		c, err := src.CountByState(sourceCtx, sq)
-		if err != nil {
-			done(i, nil, true)
-			continue
-		}
-		done(i, c, false)
-		s.prefetchSourceLanes(sourceCtx, sourceIndexes[i], src, q, c)
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			src := scoped[i]
+			sourceCtx, cancel := context.WithTimeout(ctx, maxSummarySourceDuration)
+			defer cancel()
+			c, err := src.CountByState(sourceCtx, sq)
+			if err != nil {
+				done(i, nil, true)
+				return
+			}
+			done(i, c, false)
+			s.prefetchSourceLanes(sourceCtx, sourceIndexes[i], src, q, c)
+		}(i)
 	}
+	wg.Wait()
 }
 
 func (s *Service) batchedPrefetch(ctx context.Context, summary domain.Query, idx []int, scoped []ports.Source, sourceIndexes []int, counts []map[domain.WorkState]int) {
