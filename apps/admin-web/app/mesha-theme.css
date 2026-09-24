@@ -3482,7 +3482,9 @@ aside.drawer .wt-assume-grid input::placeholder{color:var(--faint)}
 aside.drawer .wt-assume-grid input:focus{border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-soft)}
 .weights-page .wt-export-shed-list{max-height:220px;overflow-y:auto;display:grid;gap:4px;margin-top:6px}
 .weights-page .wt-export-shed-row{display:flex;gap:8px;align-items:center;font-size:12.5px;font-weight:500;text-transform:none;letter-spacing:0;color:var(--ink);margin:0}
-.weights-page .wt-export-shed-row input{width:auto;margin:0;accent-color:var(--brand)}
+/* A real square checkbox with its tick in the middle: the drawer's form-field rules give inputs a
+   text box's width and padding, which stretched this to 24x20 and pushed the tick to the corner. */
+.weights-page .wt-export-shed-row input[type=checkbox]{width:18px;height:18px;min-width:18px;min-height:18px;padding:0;margin:0;flex:none;box-sizing:border-box}
 /* Chart cards carry their own inset. `.card` on this page resolves to 0 padding, so the
    title, caption, bars and footnote all sat 1px off the border — the bar labels and the
    "N sheds are not counted" line read as touching the frame. Scoped to the chart cards
