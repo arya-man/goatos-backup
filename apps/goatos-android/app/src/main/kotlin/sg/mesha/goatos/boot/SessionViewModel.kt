@@ -9,7 +9,9 @@ import androidx.lifecycle.viewModelScope
 import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
 import com.google.firebase.auth.FirebaseAuthInvalidUserException
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -31,7 +33,6 @@ import sg.mesha.goatos.core.data.LogoutCoordinator
 import sg.mesha.goatos.core.data.sync.SyncJobsScheduler
 import sg.mesha.goatos.core.datastore.SessionStore
 import sg.mesha.goatos.core.network.AppApi
-import sg.mesha.goatos.core.network.AuthSessionEventRequestDto
 import sg.mesha.goatos.feature.auth.LoginError
 import java.io.IOException
 import java.util.Base64
@@ -123,8 +124,16 @@ class SessionViewModel @Inject constructor(
     private val analytics: AnalyticsPort,
     private val logoutCoordinator: LogoutCoordinator,
     private val syncJobsScheduler: SyncJobsScheduler,
-    private val appApi: AppApi,
+    appApi: AppApi,
     private val relauncher: SessionRelauncher,
+    /**
+     * Carries the Goat OS session-event off the login path (app scope + retry). Hilt injects the
+     * singleton; the default exists only so JVM tests that predate it keep constructing the VM.
+     */
+    private val sessionEvents: AuthSessionEventSender = AuthSessionEventSender(
+        appApi,
+        CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
+    ),
 ) : ViewModel() {
     private companion object {
         const val TAG = "GoatOSSession"
@@ -321,29 +330,13 @@ class SessionViewModel @Inject constructor(
         analytics.track(AnalyticsEvents.LOGIN_SESSION_READY, identityProps)
         analytics.setUserProperty(AnalyticsEvents.UserProps.EMAIL, email)
         logInfo("Firebase session ready email=${email.orEmpty()} uid=${firebaseUid.orEmpty()} flavor=${BuildConfig.FLAVOR}")
-        runCatching {
-            appApi.recordAuthSessionEvent(
-                AuthSessionEventRequestDto(
-                    eventType = "auth.sign_in",
-                    source = "android-${BuildConfig.FLAVOR}",
-                ),
-            )
-        }.onFailure { t ->
-            analytics.track(
-                AnalyticsEvents.LOGIN_FAILURE,
-                identityProps + mapOf(AnalyticsEvents.Params.REASON to "session_event_failed"),
-            )
-            logWarning("Goat OS session event failed email=${email.orEmpty()} uid=${firebaseUid.orEmpty()}", t)
-            _uiState.update {
-                it.copy(
-                    isLoading = false,
-                    errorReason = LoginError.UNKNOWN,
-                    errorDetail = t.message ?: "Signed in, but Goat OS could not open your workspace.",
-                )
-            }
-            return
-        }
+        // Firebase auth succeeded: that IS the credential check, so the session opens now. The
+        // Goat OS session-event (audit + pending-grant claim) goes out in the background with
+        // retry and can never block or fail login -- on 1.0.40 a DNS blip on this call locked a
+        // correctly authenticated operator out with raw exception text. Bootstrap waits for it
+        // (bounded) only if it answers 403 for a first-ever login; see AuthSessionEventSender.
         sessionStore.setBearerToken(FIREBASE_SESSION_MARKER)
+        sessionEvents.send(eventType = "auth.sign_in", source = "android-${BuildConfig.FLAVOR}")
         // A prior signOut() cancelled the periodic/retry WorkManager backstop
         // (LogoutCoordinator's clean-slate wipe) — re-arm it for this new session.
         // ExistingPeriodicWorkPolicy.KEEP makes this idempotent when it was never cancelled.

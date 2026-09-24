@@ -1,5 +1,8 @@
 package sg.mesha.goatos.core.data
 
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import sg.mesha.goatos.core.network.BootstrapError
 
 import sg.mesha.goatos.core.datastore.DeviceStore
@@ -34,13 +37,31 @@ class DefaultBootstrapRepository(
      * push-muted instead of counting an OS-dropped push as delivered. `null` = not reported.
      */
     private val notificationsEnabled: () -> Boolean? = { null },
+    /**
+     * Where device reconciliation (heartbeat / first-time register) runs. Production passes the
+     * application scope so it never gates nav readiness. When null (legacy/tests) it runs inline
+     * but is capped at [DEVICE_RECONCILE_BUDGET_MS], so a slow device call can delay Ready by at
+     * most that budget instead of a full OkHttp call timeout.
+     */
+    private val deviceReconcileScope: CoroutineScope? = null,
 ) : BootstrapRepository {
+    companion object {
+        const val DEVICE_RECONCILE_BUDGET_MS: Long = 2_000
+    }
+
     override suspend fun loadNavState(): NavState =
         try {
             val deviceId = deviceStore?.deviceId()
             val dto = api.bootstrap(deviceId)
             cache?.save(dto)
-            reconcileDevice(dto)
+            // Device bookkeeping is best-effort and must never hold the shell on Loading: on
+            // 1.0.40 a slow heartbeat during a network blip delayed Ready by a whole call timeout.
+            val scope = deviceReconcileScope
+            if (scope != null) {
+                scope.launch { reconcileDevice(dto) }
+            } else {
+                withTimeoutOrNull(DEVICE_RECONCILE_BUDGET_MS) { reconcileDevice(dto) }
+            }
             dto.toNavState()
         } catch (t: Throwable) {
             // Map network-layer errors to domain-level bootstrap errors.
@@ -113,6 +134,7 @@ class DefaultBootstrapRepository(
         // Not registered yet — register this install. Best-effort: a failure here must not
         // fail the whole bootstrap (nav still renders), so it is swallowed and the next
         // launch retries.
+        // exception:exempt best-effort device registration; the next bootstrap retries it
         runCatching {
             val response = api.registerDevice(
                 RegisterDeviceRequestDto(

@@ -10,6 +10,7 @@ import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import sg.mesha.goatos.core.analytics.AnalyticsContext
@@ -206,5 +207,72 @@ class BootstrapViewModelAnalyticsTest {
         vm.reset()
 
         assertEquals(BootstrapUiState.Loading, vm.state.value)
+    }
+
+    /**
+     * Login now sends the session-event in the background, but that event is what claims a
+     * first-ever user's pending email grant; until it lands /app/bootstrap answers 403. Bootstrap
+     * must wait (bounded) for the in-flight event and retry once rather than strand the user on
+     * "access not set up".
+     */
+    @Test
+    fun `first-login bootstrap 403 waits for the in-flight session event and retries once`() = runTest {
+        var grantClaimed = false
+        var loads = 0
+        val repo = object : BootstrapRepository {
+            override suspend fun loadNavState(): NavState {
+                loads++
+                if (!grantClaimed) throw sg.mesha.goatos.core.network.BootstrapError.AccessNotProvisioned()
+                return NavState(NavChrome.MINIMAL, emptyList())
+            }
+            override suspend fun operatorProfile(): BootstrapOperatorProfileDto? = null
+        }
+        val api = object : sg.mesha.goatos.core.network.AppApi by sg.mesha.goatos.core.network.FakeAppApi() {
+            override suspend fun recordAuthSessionEvent(request: sg.mesha.goatos.core.network.AuthSessionEventRequestDto) {
+                kotlinx.coroutines.delay(1_500)
+                grantClaimed = true
+            }
+        }
+        val sender = AuthSessionEventSender(api, backgroundScope)
+        sender.send(eventType = "auth.sign_in", source = "android-test")
+
+        val vm = BootstrapViewModel(
+            repo, RecordingAnalytics(), AnalyticsContext(flavor = "stg"), FakeDeviceStore(),
+            FakeAuthRepository("new@mesha.sg"), FakeCrashReporter(), PushTokenSync {}, FakeConnectivityGate(),
+            NavStateRefreshSignal(), sender,
+        )
+        vm.load()
+        advanceUntilIdle()
+
+        assertTrue("shell ready once the claim landed: ${vm.state.value}", vm.state.value is BootstrapUiState.Ready)
+        assertEquals("exactly one retry", 2, loads)
+    }
+
+    @Test
+    fun `a real access denial still surfaces after one bounded wait`() = runTest {
+        var loads = 0
+        val repo = object : BootstrapRepository {
+            override suspend fun loadNavState(): NavState {
+                loads++
+                throw sg.mesha.goatos.core.network.BootstrapError.AccessNotProvisioned()
+            }
+            override suspend fun operatorProfile(): BootstrapOperatorProfileDto? = null
+        }
+        val api = object : sg.mesha.goatos.core.network.AppApi by sg.mesha.goatos.core.network.FakeAppApi() {
+            override suspend fun recordAuthSessionEvent(request: sg.mesha.goatos.core.network.AuthSessionEventRequestDto) = Unit
+        }
+        val sender = AuthSessionEventSender(api, backgroundScope)
+        sender.send(eventType = "auth.sign_in", source = "android-test")
+
+        val vm = BootstrapViewModel(
+            repo, RecordingAnalytics(), AnalyticsContext(flavor = "stg"), FakeDeviceStore(),
+            FakeAuthRepository("nobody@mesha.sg"), FakeCrashReporter(), PushTokenSync {}, FakeConnectivityGate(),
+            NavStateRefreshSignal(), sender,
+        )
+        vm.load()
+        advanceUntilIdle()
+
+        assertEquals(BootstrapUiState.Error(BootstrapErrorType.ACCESS_NOT_PROVISIONED), vm.state.value)
+        assertEquals("one retry, never a loop", 2, loads)
     }
 }
