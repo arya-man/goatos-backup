@@ -21,6 +21,7 @@ import (
 	obldomain "github.com/vgoats/goatos/backend/internal/obligation/domain"
 	oblports "github.com/vgoats/goatos/backend/internal/obligation/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	"github.com/vgoats/goatos/backend/internal/platform/vaccinepurpose"
 	protodomain "github.com/vgoats/goatos/backend/internal/protocol/domain"
 	"github.com/vgoats/goatos/backend/internal/vaccination/domain"
 )
@@ -974,6 +975,10 @@ func anchorDueOverrides(plans []goatGenerationPlan, asOf time.Time) map[string]t
 			if err != nil {
 				continue
 			}
+			// Same purpose contract as genOneGoat: an excluded vaccine never receives an anchor date.
+			if !procurementPurposeDecision(plan.goat, ruleVaccine, plan.policies.Procurement).Applicable {
+				continue
+			}
 			anchor, ok := matchingConfigAnchor(plan.anchors, rule, ruleVaccine, plan.goat, asOf)
 			if !ok {
 				continue
@@ -1153,6 +1158,10 @@ func campaignDueOverrides(plans []goatGenerationPlan, asOf time.Time, vaccineHis
 			if !ruleMatchesSchedulePath(rule, path) {
 				continue
 			}
+			// An animal whose purpose excludes this vaccine must not shape the park's drive date.
+			if !procurementPurposeDecision(plan.goat, ruleVaccine, plan.policies.Procurement).Applicable {
+				continue
+			}
 			rowDeferStates := ruleEligibility.DeferStates
 			if len(rowDeferStates) == 0 {
 				rowDeferStates = plan.deferState
@@ -1270,10 +1279,23 @@ func campaignDueOverrides(plans []goatGenerationPlan, asOf time.Time, vaccineHis
 	return out, aligned, nil
 }
 
+// procurementPurposePrimaryDue returns the procurement-wave timing hint for one rule. Applicability
+// comes only from vaccinepurpose.Resolve. A governed plan supplies the waves; an ungoverned animal
+// (breeding/unspecified without an authored plan) keeps the legacy top-level waves as a timing hint
+// only, never as an applicability rule.
 func procurementPurposePrimaryDue(g domain.EligibleGoat, rule protodomain.Rule, vaccine vaccineProfile, policy genProcurementPolicy, history []domain.RecentVaccineAdministration) (time.Time, bool) {
-	plan, applicable := procurementPurposePlanForGoat(g, vaccine, policy)
-	if !applicable {
+	decision := procurementPurposeDecision(g, vaccine, policy)
+	if !decision.Applicable {
 		return time.Time{}, false
+	}
+	plan := decision.Plan
+	if !decision.PlanGoverned {
+		plan = vaccinepurpose.Plan{
+			FirstWave:           vaccinepurpose.StringList(policy.FirstWave),
+			SecondWaveAfterDays: policy.SecondWaveAfterDays,
+			GoatSecondWave:      vaccinepurpose.StringList(policy.GoatSecondWave),
+			SheepSecondWave:     vaccinepurpose.StringList(policy.SheepSecondWave),
+		}
 	}
 	if len(plan.FirstWave) == 0 && len(plan.GoatSecondWave) == 0 && len(plan.SheepSecondWave) == 0 {
 		return time.Time{}, true
@@ -1283,78 +1305,82 @@ func procurementPurposePrimaryDue(g domain.EligibleGoat, rule protodomain.Rule, 
 	if base == nil {
 		return time.Time{}, false
 	}
-	if containsProcurementVaccine(plan.FirstWave, vaccineName) {
+	if vaccinepurpose.Contains(plan.FirstWave, vaccineName) {
 		return adjustPostArrivalDue(g, protodomain.Rule{TriggerType: "post_arrival", OffsetDays: 0, DueWindowDays: rule.DueWindowDays}, policy), true
 	}
-	secondWave := plan.GoatSecondWave
-	if strings.EqualFold(strings.TrimSpace(g.Species), "sheep") {
-		secondWave = plan.SheepSecondWave
-	}
-	if containsProcurementVaccine(secondWave, vaccineName) {
-		var firstWaveCompletedAt time.Time
-		for _, required := range plan.FirstWave {
-			var completedAt time.Time
-			for _, administration := range history {
-				if normalizeProcurementVaccine(required) != normalizeProcurementVaccine(administration.VaccineCode) || !administration.AdministeredAt.After(completedAt) {
-					continue
-				}
-				completedAt = administration.AdministeredAt
-			}
-			if completedAt.IsZero() {
-				return time.Time{}, false
-			}
-			if completedAt.After(firstWaveCompletedAt) {
-				firstWaveCompletedAt = completedAt
-			}
-		}
-		days := int32(28)
-		if plan.SecondWaveAfterDays != nil {
-			days = *plan.SecondWaveAfterDays
-		}
-		return businessDayStart(firstWaveCompletedAt).AddDate(0, 0, int(days)), true
+	if vaccinepurpose.Contains(plan.SecondWave(g.Species), vaccineName) {
+		return purposeSecondWaveFloor(plan, history)
 	}
 	return time.Time{}, false
 }
 
-// procurementPurposePlanForGoat makes the authored purpose plan the single source of truth for
-// vaccine applicability. It is used by every schedule path, including birth-age rules, so recovery
-// and warmup processing cannot reintroduce a vaccine excluded for the animal's purpose.
-func procurementPurposePlanForGoat(g domain.EligibleGoat, vaccine vaccineProfile, policy genProcurementPolicy) (genProcurementPurposePlan, bool) {
-	plan := genProcurementPurposePlan{
-		FirstWave:           policy.FirstWave,
-		SecondWaveAfterDays: policy.SecondWaveAfterDays,
-		GoatSecondWave:      policy.GoatSecondWave,
-		SheepSecondWave:     policy.SheepSecondWave,
-	}
-	purpose := strings.ToLower(strings.TrimSpace(g.ProcurementPurpose))
-	if purpose == "" || purpose == "unspecified" {
-		return plan, true
-	}
-	if purpose == "non_breeding" {
-		return genProcurementPurposePlan{}, false
-	}
-	if purposePlan, ok := policy.PurposePlans[purpose]; ok {
-		plan = purposePlan
-	} else if purpose == "fattening" {
-		// Published protocol versions are immutable. Versions created before purpose_plans
-		// already carry the same authored top-level procurement waves, so use those as the
-		// compatibility representation of the protocol instead of inventing code-owned lists.
-		if len(plan.FirstWave) == 0 && len(plan.GoatSecondWave) == 0 && len(plan.SheepSecondWave) == 0 {
-			return genProcurementPurposePlan{}, false
-		}
-	} else {
-		return plan, true
-	}
+// procurementPurposeDecision is the only applicability decision generation uses for a vaccine and
+// an animal's procurement purpose; it delegates to the platform resolver shared with persistence.
+func procurementPurposeDecision(g domain.EligibleGoat, vaccine vaccineProfile, policy genProcurementPolicy) vaccinepurpose.Decision {
+	return vaccinepurpose.Resolve(procurementPurposePolicy(policy), g.ProcurementPurpose, g.Species, procurementVaccineName(vaccine))
+}
 
-	vaccineName := procurementVaccineName(vaccine)
-	if containsProcurementVaccine(plan.FirstWave, vaccineName) {
-		return plan, true
+func procurementPurposePolicy(policy genProcurementPolicy) vaccinepurpose.Policy {
+	out := vaccinepurpose.Policy{
+		FirstWave:           vaccinepurpose.StringList(policy.FirstWave),
+		SecondWaveAfterDays: policy.SecondWaveAfterDays,
+		GoatSecondWave:      vaccinepurpose.StringList(policy.GoatSecondWave),
+		SheepSecondWave:     vaccinepurpose.StringList(policy.SheepSecondWave),
 	}
-	secondWave := plan.GoatSecondWave
-	if strings.EqualFold(strings.TrimSpace(g.Species), "sheep") {
-		secondWave = plan.SheepSecondWave
+	if len(policy.PurposePlans) > 0 {
+		out.PurposePlans = make(map[string]vaccinepurpose.Plan, len(policy.PurposePlans))
+		for purpose, plan := range policy.PurposePlans {
+			out.PurposePlans[vaccinepurpose.NormalizePurpose(purpose)] = vaccinepurpose.Plan{
+				FirstWave:           vaccinepurpose.StringList(plan.FirstWave),
+				SecondWaveAfterDays: plan.SecondWaveAfterDays,
+				GoatSecondWave:      vaccinepurpose.StringList(plan.GoatSecondWave),
+				SheepSecondWave:     vaccinepurpose.StringList(plan.SheepSecondWave),
+			}
+		}
 	}
-	return plan, containsProcurementVaccine(secondWave, vaccineName)
+	return out
+}
+
+// purposeSecondWaveFloor is the earliest date a governed second-wave vaccine may be due: every
+// authored first-wave vaccine must have an accepted administration, and the second wave waits the
+// plan delay after the LATEST of them. ok=false means the first wave is incomplete.
+func purposeSecondWaveFloor(plan vaccinepurpose.Plan, history []domain.RecentVaccineAdministration) (time.Time, bool) {
+	var firstWaveCompletedAt time.Time
+	for _, required := range plan.FirstWave {
+		var completedAt time.Time
+		for _, administration := range history {
+			if vaccinepurpose.Normalize(required) != vaccinepurpose.Normalize(administration.VaccineCode) || !administration.AdministeredAt.After(completedAt) {
+				continue
+			}
+			completedAt = administration.AdministeredAt
+		}
+		if completedAt.IsZero() {
+			return time.Time{}, false
+		}
+		if completedAt.After(firstWaveCompletedAt) {
+			firstWaveCompletedAt = completedAt
+		}
+	}
+	if firstWaveCompletedAt.IsZero() {
+		return time.Time{}, false
+	}
+	return businessDayStart(firstWaveCompletedAt).AddDate(0, 0, int(plan.Delay())), true
+}
+
+// applyPurposeSecondWaveFloor is the final second-wave guard, applied next to applyRuleDueFloor for
+// every trigger type. ok=false means the governed second wave must not be generated yet.
+func applyPurposeSecondWaveFloor(due time.Time, decision vaccinepurpose.Decision, history []domain.RecentVaccineAdministration) (time.Time, bool) {
+	if !decision.PlanGoverned || !decision.SecondWave {
+		return due, true
+	}
+	floor, ok := purposeSecondWaveFloor(decision.Plan, history)
+	if !ok {
+		return time.Time{}, false
+	}
+	if due.Before(floor) {
+		return floor, true
+	}
+	return due, true
 }
 
 func procurementVaccineName(v vaccineProfile) string {
@@ -1363,22 +1389,6 @@ func procurementVaccineName(v vaccineProfile) string {
 		return name
 	}
 	return strings.TrimSpace(v.Code)
-}
-
-func containsProcurementVaccine(values genStringList, vaccine string) bool {
-	needle := normalizeProcurementVaccine(vaccine)
-	for _, value := range values {
-		if normalizeProcurementVaccine(value) == needle {
-			return true
-		}
-	}
-	return false
-}
-
-func normalizeProcurementVaccine(value string) string {
-	value = strings.ToLower(strings.TrimSpace(value))
-	replacer := strings.NewReplacer(" ", "", "_", "", "+", "", "-", "")
-	return replacer.Replace(value)
 }
 
 func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, versionID string, asOf time.Time, opts generationOptions) (domain.GenerateResult, error) {
@@ -1774,17 +1784,22 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 		if err != nil {
 			return err
 		}
-		// Purpose plans were added after the legacy top-level procurement waves. Enforce the
-		// per-purpose vaccine contract on every schedule path when that contract is authored;
-		// older published versions without purpose_plans retain their historical behavior.
-		if len(policies.Procurement.PurposePlans) > 0 || strings.EqualFold(strings.TrimSpace(g.ProcurementPurpose), "fattening") {
-			_, applicable := procurementPurposePlanForGoat(g, ruleVaccine, policies.Procurement)
-			if !applicable {
-				if _, err := s.obl.CancelOpenVaccinationObligationsForGoatDose(ctx, tenantID, g.GoatID, rule.DoseCode, "vaccine_not_applicable_for_procurement_purpose", asOf); err != nil {
-					return err
-				}
-				continue
+		// The authored purpose contract is resolved on every schedule path (birth-age, warmup/recovery,
+		// adult campaign, continuation) through the same resolver persistence uses, so a vaccine the
+		// animal's purpose excludes can never be generated here and rejected (or accepted) there.
+		purposeDecision := procurementPurposeDecision(g, ruleVaccine, policies.Procurement)
+		if !purposeDecision.Applicable {
+			if _, err := s.obl.CancelOpenVaccinationObligationsForGoatDose(ctx, tenantID, g.GoatID, rule.DoseCode, "vaccine_not_applicable_for_procurement_purpose", asOf); err != nil {
+				return err
 			}
+			continue
+		}
+		// A governed second wave needs the complete authored first wave, whatever the trigger type.
+		if _, ok := applyPurposeSecondWaveFloor(time.Time{}, purposeDecision, vaccineHistory); !ok {
+			if _, err := s.obl.CancelOpenVaccinationObligationsForGoatDose(ctx, tenantID, g.GoatID, rule.DoseCode, "vaccine_purpose_first_wave_incomplete", asOf); err != nil {
+				return err
+			}
+			continue
 		}
 		if !goatMatchesEligibility(g, ruleEligibility, policies.Pregnancy, asOf) {
 			continue
@@ -2110,6 +2125,9 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 		// its clinical anchor. The repository repeats the birth-age check as a write invariant for
 		// manual and non-generator callers.
 		due = applyRuleDueFloor(due, rule, ruleVaccine, g, vaccineHistory)
+		// Same final position: a governed second wave never precedes the latest first-wave dose plus
+		// the authored delay, whatever trigger, override, or transform produced the date.
+		due, _ = applyPurposeSecondWaveFloor(due, purposeDecision, vaccineHistory)
 		if !historyDrivenDue {
 			due = floorGeneratedOpenWorkToToday(due, asOf)
 		}
@@ -2172,6 +2190,9 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			WindowEnd:         obligationWindowEnd(rule, due),
 			Status:            status,
 			IdempotencyKey:    key,
+			// Only the B3 no-anchor catch-up row may exist without its DOB/arrival anchor; the
+			// repository proves every other birth_age/post_arrival row against its anchor.
+			ScheduleBasis: scheduleBasisForGeneratedRow(anchorCatchUpKey),
 			// The rule's business identity, from the same helper the publisher writes to
 			// protocol_rule_lineage. This is what makes the animal's existing work findable
 			// across a publish: the version and rule UUIDs change, the identity does not.
@@ -2362,6 +2383,13 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 		}
 	}
 	return nil
+}
+
+func scheduleBasisForGeneratedRow(anchorCatchUpKey string) string {
+	if anchorCatchUpKey != "" {
+		return obldomain.ScheduleBasisAnchorMissingCatchUp
+	}
+	return ""
 }
 
 func applyRuleDueFloor(due time.Time, rule protodomain.Rule, ruleVaccine vaccineProfile, g domain.EligibleGoat, vaccineHistory []domain.RecentVaccineAdministration) time.Time {

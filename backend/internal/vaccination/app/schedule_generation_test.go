@@ -148,20 +148,20 @@ func TestProcurementPurposePlanAppliesToBirthAgeRules(t *testing.T) {
 		{"Sheep Pox", false}, {"FMD", false}, {"HS", false}, {"Z1+Z3", false},
 	} {
 		t.Run(tc.vaccine, func(t *testing.T) {
-			_, got := procurementPurposePlanForGoat(goat, vaccineProfile{Name: tc.vaccine}, policy)
+			got := procurementPurposeDecision(goat, vaccineProfile{Name: tc.vaccine}, policy).Applicable
 			if got != tc.want {
 				t.Fatalf("applicable=%v, want %v", got, tc.want)
 			}
 		})
 	}
 	goat.Species = "sheep"
-	if _, got := procurementPurposePlanForGoat(goat, vaccineProfile{Name: "Sheep Pox"}, policy); !got {
+	if got := procurementPurposeDecision(goat, vaccineProfile{Name: "Sheep Pox"}, policy).Applicable; !got {
 		t.Fatal("Sheep Pox must be applicable to fattening sheep")
 	}
-	if _, got := procurementPurposePlanForGoat(goat, vaccineProfile{Name: "Goat Pox"}, policy); got {
+	if got := procurementPurposeDecision(goat, vaccineProfile{Name: "Goat Pox"}, policy).Applicable; got {
 		t.Fatal("Goat Pox must not be applicable to fattening sheep")
 	}
-	if _, got := procurementPurposePlanForGoat(goat, vaccineProfile{Name: "ET+TT"}, genProcurementPolicy{}); got {
+	if got := procurementPurposeDecision(goat, vaccineProfile{Name: "ET+TT"}, genProcurementPolicy{}).Applicable; got {
 		t.Fatal("fattening must fail closed when its authored purpose plan is missing")
 	}
 }
@@ -184,7 +184,7 @@ func TestFatteningPurposePlanSupportsOneTwoAndThreeVaccinesWithoutChangingIdenti
 		t.Run(tc.name, func(t *testing.T) {
 			got := 0
 			for _, vaccine := range tc.vaccines {
-				if _, ok := procurementPurposePlanForGoat(goat, vaccineProfile{Name: vaccine}, policy); ok {
+				if ok := procurementPurposeDecision(goat, vaccineProfile{Name: vaccine}, policy).Applicable; ok {
 					got++
 				}
 			}
