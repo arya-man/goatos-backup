@@ -1,6 +1,14 @@
 ## Mesha data map (EVERY table is readable; ceo_ai.* views are shortcuts, raw public.* tables have full detail — use them when a view lacks it)
 Today = (now() AT TIME ZONE 'Asia/Kolkata')::date. Weekday names: take from to_char(d,'Dy') in the query, never work them out yourself. Parks: Coimbatore (CBE), Channapatna (CPT) in park_label.
+HARD RULES: (a) Species: never call sheep "goats". If the question says goats/bakre/animals, answer "N animals (X goats, Y sheep)"; species column is 'goat'|'sheep'.
+  "bakre"/"goats" with no explicit sheep-vs-goat contrast = ALL animals: "Total bakre, how many male?" -> "1,562 animals (693 goats, 869 sheep);
+  578 male (116 goats, 462 sheep)". Only "goats only / not sheep" means species='goat'.
+  ALWAYS state the split in the answer, even when one side is 0 (e.g. "80 animals, all sheep, no goats: 49 CBE, 31 CPT").
+(b) Arithmetic: every total, difference, %, ratio, per-day or per-animal figure is computed IN SQL (sum/-/ /round) and read back; never add or subtract by hand.
+(c) Simple lookups (headcount, one pen, one number) = ONE query, answer immediately; no exploration, no re-check.
 Column shed_label = "pen" in answers. Show dates DD/MM/YYYY. Never average *_avg_* columns; weight by scan_count.
+Comparisons ("compare CBE and CPT", "how are we doing"): <=8 short lines, one per topic, numbers from SQL; every comparative word
+(more/less/bigger) must match the numbers. Vague "how are we doing" = headcount, sales, deaths, weighing, feed, open issues, this month.
 No date column = current-state view: answer "as of now".
 
 topic -> view -> key columns -> date column
@@ -9,6 +17,8 @@ topic -> view -> key columns -> date column
 - weighing verification -> weighing_verification_status -> pending, rework, verified, oldest_pending_at -> none
 - headcount now -> animal_current_scope -> park_label, species, sex, breed, management_stage, lifecycle_status='alive' -> none.
   The view ALSO holds sold/dead/inactive rows: every count, %, ratio or split MUST filter lifecycle_status='alive' (CBE alive=850, not 995).
+  ONE-QUERY headcount: SELECT park_label, species, count(*) FROM ceo_ai.animal_current_scope WHERE lifecycle_status='alive'
+  [AND shed_label='Castro' AND partition_label='1'] GROUP BY ROLLUP(park_label, species). No park named = both parks, park named per row.
   Pen/part counts: shed_label + partition_label ('1','2' or 'Part 10'); "Castro 1" = shed_label 'Castro' AND partition_label '1'
   (the separate 'Castro 1' location rows hold no animals). Always name the park per row.
 - sold / exits / entries -> animals_base -> exit_reason ('sold','died'), park_label -> exit_business_day / entry_date
@@ -17,7 +27,8 @@ topic -> view -> key columns -> date column
   (sum births; includes a 5 Aug 2026 bulk entry of 458) AND individually registered kids (count public.goat_births), one line why they differ.
 - feed directed vs fed -> feed_adherence -> directed_kg, fed_kg, variance_kg, blocked -> feed_day
 - feed plan detail -> feed_direction_current; completions -> feed_completions_base (fed_business_day)
-- vaccination now -> vaccination_shed_status; over time -> vaccination_obligations_base (due_business_day); doses -> vaccination_dose_pickup; operators -> vaccination_operator_status; pre-arrival history review -> vaccination_prearrival_history_review (reviewed_date_ist)
+- vaccination now -> vaccination_shed_status; over time -> vaccination_obligations_base (due_business_day; status scheduled|completed|canceled|deferred|superseded;
+  ~90% of rows are CANCELED re-plans: "due"/"upcoming" = status IN ('scheduled','deferred') only, one row per animal; never count canceled; e.g. next 7 days on 24/09 = 3, all CPT Yashoda); doses -> vaccination_dose_pickup; operators -> vaccination_operator_status; pre-arrival history review -> vaccination_prearrival_history_review (reviewed_date_ist)
 - procurement -> procurement_pipeline (now), procurement_loads_base (period, entered_business_day), source_entry_health_status (intake variance)
 - workforce -> workforce_tasks_base (due_business_day), workforce_coverage_status (now)
 - pen capacity -> shed_capacity_current; inventory -> inventory_stock_position
@@ -27,6 +38,9 @@ No sales/revenue view: use public.sales_deals (sales_value, payment_received, bu
 metrics -> how (exact defs + SQL: SKILL.md "Metric definitions"; never invent a proxy)
 - ADG/daily gain: compute from per-animal weighs in public.weighing_observations (consecutive weigh-ins); say it may differ slightly from /weighing/analytics. Never tell the CEO only pen averages are readable.
 - headcount: animal_current_scope lifecycle_status='alive'. sold: animals_base exit_reason='sold' by exit_business_day.
+- cost per kg gain: feed bills (feed_purchases.total_cost by purchase_date, park) / kg gained by the SAME animals in the window, in one SQL.
+  Label it an estimate, show both inputs; never extrapolate a subset ADG to the whole herd by hand.
+- pen ADG between two weighings: whole-pen arm (SKILL.md) (last avg - first avg)*1000/days computed in SQL -> g/day; don't show the math.
 - mortality %: sum(mortality_base.deaths in window)*100 / live 'alive' count now, 1dp (NOT active_population).
 - weighing pending: pending+rework. feed fed_kg is always 0: say fed data missing. vaccination: due/done, no %.
 Full columns + example per view: .agents/skills/mesha-data-map/references/views.generated.md
