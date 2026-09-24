@@ -3,6 +3,32 @@ import { readFileSync } from "node:fs";
 
 const css = readFileSync(new URL("../../app/mesha-theme.css", import.meta.url), "utf8");
 
+for (const column of Array.from({ length: 21 }, (_, index) => index + 1)) {
+  assert.match(
+    css,
+    new RegExp(`\\.herd-signals-page table\\.herd-signals-table th:nth-child\\(${column}\\),\\.herd-signals-page table\\.herd-signals-table td:nth-child\\(${column}\\)\\{[^}]*min-width:`),
+    `herd signals live table column ${column} must have a desktop width guard`,
+  );
+}
+
+assert.match(
+  css,
+  /\.herd-signals-page table\.herd-signals-table\{min-width:2860px\}/,
+  "herd signals live table must scroll inside its wrapper instead of compressing 21 desktop columns",
+);
+
+assert.match(
+  css,
+  /@media\(max-width:860px\)\{[\s\S]*\.herd-signals-page table\.resp tbody\{[^}]*display:grid[^}]*gap:10px[^}]*padding:10px[^}]*\}/,
+  "herd signals mobile table must become spaced card rows",
+);
+
+assert.match(
+  css,
+  /@media\(max-width:860px\)\{[\s\S]*\.herd-signals-page table\.resp td\{[^}]*white-space:normal[^}]*\}/,
+  "herd signals mobile table card values must wrap instead of causing page-level overflow",
+);
+
 assert.match(
   css,
   /@media\(max-width:760px\)\{[\s\S]*\.herd-signals-page aside\.drawer\{[^}]*width:100vw[^}]*max-width:100vw[^}]*height:100vh[^}]*\}/,
