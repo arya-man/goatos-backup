@@ -252,25 +252,40 @@ func (s *Service) Summary(ctx context.Context, q domain.Query) (domain.Summary, 
 	results := make([]result, len(scoped))
 	var wg sync.WaitGroup
 	batched := map[int]bool{}
+	primed := map[int]bool{}
+	// phaseOne closes once the first batch -- every BatchSource count plus every PrimingSource's
+	// gate reads -- has been answered or has failed; a priming source reads after it, so it finds
+	// its primed reads in the request memo instead of sending them itself.
+	phaseOne := make(chan struct{})
 	if s.batch != nil {
-		idx := []int{}
+		idx, primers := []int{}, []int{}
+		memo := ports.HasRequestReadMemo(ctx)
 		for i, src := range scoped {
 			if _, ok := src.(ports.BatchSource); ok {
 				idx = append(idx, i)
-				batched[i] = true
+			}
+			if _, ok := src.(ports.PrimingSource); ok && memo {
+				primers = append(primers, i)
 			}
 		}
-		if len(idx) < 2 {
-			batched = map[int]bool{}
-		} else {
+		if len(idx) >= 2 || len(primers) > 0 {
+			for _, i := range idx {
+				batched[i] = true
+			}
+			for _, i := range primers {
+				primed[i] = true
+			}
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				s.batchedCounts(ctx, q, idx, scoped, sourceIndexes, func(i int, counts map[domain.WorkState]int, degraded bool) {
+				s.batchedCounts(ctx, q, idx, primers, scoped, sourceIndexes, phaseOne, func(i int, counts map[domain.WorkState]int, degraded bool) {
 					results[i] = result{module: scoped[i].Module(), counts: counts, degraded: degraded}
 				})
 			}()
 		}
+	}
+	if len(primed) == 0 {
+		close(phaseOne)
 	}
 	sem := make(chan struct{}, maxSummarySourceConcurrency)
 	for i, src := range scoped {
@@ -280,6 +295,14 @@ func (s *Service) Summary(ctx context.Context, q domain.Query) (domain.Summary, 
 		wg.Add(1)
 		go func(i int, src ports.Source) {
 			defer wg.Done()
+			if primed[i] {
+				select {
+				case <-phaseOne:
+				case <-ctx.Done():
+					results[i] = result{module: src.Module(), degraded: true}
+					return
+				}
+			}
 			select {
 			case sem <- struct{}{}:
 				defer func() { <-sem }()

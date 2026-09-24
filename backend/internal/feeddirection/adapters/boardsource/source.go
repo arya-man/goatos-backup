@@ -289,6 +289,64 @@ func (s *Source) readCards(ctx context.Context, q ports.SourceQuery) ([]cardMetr
 	})
 }
 
+// PrimeStatements implements ports.PrimingSource: the same four card statements readCardsFresh
+// sends, handed to the board's first batch. The last reader seeds the request memo readCards
+// looks up, so the whole set is seeded only when all four were read.
+func (s *Source) PrimeStatements(ctx context.Context, q ports.SourceQuery) ([]ports.Statement, error) {
+	if !ports.HasRequestReadMemo(ctx) {
+		return nil, nil
+	}
+	key := cardReadKey{s, q.TenantID, q.ParkID, q.BusinessDate, q.OwnerUserID}
+	out := make([]cardMetrics, len(activities))
+	stmts := make([]ports.Statement, 0, len(activities))
+	unseedable := false
+	for n, a := range activities {
+		m := &out[a.rank]
+		last := n == len(activities)-1
+		stmts = append(stmts, ports.Statement{
+			Query: sqlbind.MustBind(metricsSQL(a.units), q.TenantID, q.BusinessDate, q.ParkID, nullUUID(q.OwnerUserID)),
+			Read: func(rows ports.ResultRows) error {
+				seedable, err := scanCard(rows, m)
+				if err != nil {
+					return fmt.Errorf("%s: %w", a.key, err)
+				}
+				if !seedable {
+					unseedable = true
+				}
+				if last && !unseedable {
+					// scale-guard:ignore: an in-memory memo store after the ONE shared batch's last card was read; no round trip.
+					ports.SeedRequestRead(ctx, key, out)
+				}
+				return nil
+			},
+		})
+	}
+	return stmts, nil
+}
+
+// scanCard reads one card aggregate; no row is an absent card, as QueryRow's ErrNoRows is. A
+// NULL park name (the park's location row is missing) is a row readCardsFresh's scan rejects:
+// it reports unseedable instead of failing the shared batch, and readCards then reads (and
+// fails) on its own, exactly as without priming.
+func scanCard(rows ports.ResultRows, m *cardMetrics) (seedable bool, err error) {
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return false, err
+		}
+		*m = cardMetrics{cardRank: -1}
+		return true, nil
+	}
+	var parkName *string
+	if err := rows.Scan(&m.sheds, &m.done, &m.pending, &m.attention, &m.cardRank, &m.anyRejected, &parkName); err != nil {
+		return false, err
+	}
+	if parkName == nil {
+		return false, nil
+	}
+	m.parkName = *parkName
+	return true, nil
+}
+
 func (s *Source) readCardsFresh(ctx context.Context, q ports.SourceQuery) ([]cardMetrics, error) {
 	batch := &pgx.Batch{}
 	for _, a := range activities {
