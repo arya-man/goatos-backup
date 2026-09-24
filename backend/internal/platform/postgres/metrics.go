@@ -176,9 +176,11 @@ func LogPoolAcquirePressure(ctx context.Context, pool *pgxpool.Pool, name string
 			if d.EmptyAcquires <= 0 && d.Canceled <= 0 {
 				continue
 			}
+			// pgxpool's AcquireDuration is dominated by the acquires that had
+			// to wait on an empty pool, so average over those, not all acquires.
 			var mean time.Duration
-			if d.Acquires > 0 {
-				mean = d.WaitTotal / time.Duration(d.Acquires)
+			if d.EmptyAcquires > 0 {
+				mean = d.WaitTotal / time.Duration(d.EmptyAcquires)
 			}
 			st := pool.Stat()
 			log.Warn("postgres_pool_acquire_pressure",
@@ -187,11 +189,23 @@ func LogPoolAcquirePressure(ctx context.Context, pool *pgxpool.Pool, name string
 				slog.Int64("empty_acquires", d.EmptyAcquires),
 				slog.Int64("canceled_acquires", d.Canceled),
 				slog.Duration("acquire_wait_total", d.WaitTotal),
-				slog.Duration("acquire_wait_mean", mean),
+				slog.Duration("empty_acquire_wait_mean", mean),
 				slog.Int("acquired_conns", int(st.AcquiredConns())),
 				slog.Int("max_conns", int(st.MaxConns())),
 				slog.Duration("interval", interval),
 			)
 		}
 	}()
+}
+
+// RecordPoolBootPingFailure counts a non-fatal boot ping failure of a lazily
+// connected pool (db.client.pool.boot_ping_failures{db.client.pool.name}).
+func RecordPoolBootPingFailure(ctx context.Context, name string) {
+	counter, err := otel.Meter(meterName).Int64Counter("db.client.pool.boot_ping_failures",
+		metric.WithUnit("{failure}"),
+		metric.WithDescription("Lazily connected pools whose boot ping failed; the pool retries on first use."))
+	if err != nil {
+		return
+	}
+	counter.Add(ctx, 1, metric.WithAttributes(attribute.String("db.client.pool.name", name)))
 }

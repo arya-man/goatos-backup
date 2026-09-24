@@ -22,19 +22,30 @@ import (
 
 // Incident goatos-stg 2026-09-24 01:56 UTC: a burst of heavy admin-web reads held
 // every connection of the API's single pgx pool, and POST /auth/session-events (a
-// tiny audit INSERT) waited 6-10s for a connection. This test reproduces that on a
-// throwaway Postgres: saturate the MAIN pool with slow queries, then drive the
-// session-events handler exactly as newAPI wires it, and require it to stay fast.
+// tiny audit INSERT) waited 6-10s for a connection. These tests reproduce that on
+// a throwaway Postgres and drive the session-events handler exactly as newAPI
+// wires it (auth pool, shared request deadline, DB-backed email allowlist).
 //
 // Run with GOATOS_RUN_POSTGRES_TESTS=1 GOATOS_AUTH_POOL_TEST_DATABASE_URL=<throwaway,
 // migrated DB>. Never point it at the shared OCI goatos DB or staging.
-const authPoolTestTenantID = "20000000-0000-4000-8000-000000000001"
+const (
+	authPoolTestTenantID = "20000000-0000-4000-8000-000000000001"
+	authPoolTestEmail    = "pool-isolation@mesha.sg"
+)
 
 type authPoolStaticVerifier struct{ claims platformauth.Claims }
 
 func (v authPoolStaticVerifier) Verify(string) (platformauth.Claims, error) { return v.claims, nil }
 
-func TestAuthSessionEventsNotStarvedBySaturatedMainPool(t *testing.T) {
+type authPoolHarness struct {
+	cfg      platformpg.Config
+	mainPool *pgxpool.Pool
+	authPool *pgxpool.Pool
+	handler  http.Handler
+}
+
+func newAuthPoolHarness(t *testing.T) *authPoolHarness {
+	t.Helper()
 	if os.Getenv("GOATOS_RUN_POSTGRES_TESTS") != "1" {
 		t.Skip("set GOATOS_RUN_POSTGRES_TESTS=1 and GOATOS_AUTH_POOL_TEST_DATABASE_URL to run")
 	}
@@ -45,7 +56,8 @@ func TestAuthSessionEventsNotStarvedBySaturatedMainPool(t *testing.T) {
 	ctx := context.Background()
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 
-	// Production defaults: GOATOS_PG_MAX_CONNS unset -> 10; stg query timeout 15s.
+	// Production shape: main pool 10 (stg default), stg query timeout 15s;
+	// auth pool at its defaults (2 conns, 3s shared request deadline).
 	cfg := platformpg.ConfigFromEnv()
 	cfg.DatabaseURL = dsn
 	cfg.MaxConns = 10
@@ -55,17 +67,24 @@ func TestAuthSessionEventsNotStarvedBySaturatedMainPool(t *testing.T) {
 	if err != nil {
 		t.Fatalf("connect main pool: %v", err)
 	}
-	defer mainPool.Close()
-	authPool, err := connectAuthPool(ctx, cfg, mainPool)
+	t.Cleanup(mainPool.Close)
+	authPool, err := connectAuthPool(ctx, cfg, log)
 	if err != nil {
 		t.Fatalf("connect auth pool: %v", err)
 	}
-	if authPool != mainPool {
-		defer authPool.Close()
-	}
+	t.Cleanup(authPool.Close)
 
 	if _, err := mainPool.Exec(ctx, `INSERT INTO tenants (tenant_id, name, status) VALUES ($1, 'auth pool isolation test', 'active') ON CONFLICT (tenant_id) DO NOTHING`, authPoolTestTenantID); err != nil {
 		t.Fatalf("seed tenant: %v", err)
+	}
+	// The signing-in email is allowed ONLY through the DB-backed allowlist, so
+	// every request exercises the dynamic allowlist read on the auth pool.
+	if _, err := mainPool.Exec(ctx, `
+INSERT INTO auth_allowed_emails (tenant_id, email, normalized_email, status, source)
+SELECT $1, $2, $2, 'active', 'auth_pool_isolation_test'
+WHERE NOT EXISTS (SELECT 1 FROM auth_allowed_emails WHERE tenant_id = $1 AND normalized_email = $2)`,
+		authPoolTestTenantID, authPoolTestEmail); err != nil {
+		t.Fatalf("seed allowed email: %v", err)
 	}
 
 	emailVerified := true
@@ -73,35 +92,45 @@ func TestAuthSessionEventsNotStarvedBySaturatedMainPool(t *testing.T) {
 		Subject:       "10000000-0000-4000-8000-0000000000aa",
 		Issuer:        "goatos-test",
 		Audience:      "goatos-test",
-		Email:         "pool-isolation@mesha.sg",
+		Email:         authPoolTestEmail,
 		EmailVerified: &emailVerified,
 		Expires:       time.Now().Add(time.Hour),
 	}}
-	authMux := http.NewServeMux()
-	authaudit.Register(authMux, newAuthSessionHandler(authPool, cfg, verifier, []authaudit.Option{
-		authaudit.WithAllowedEmails([]string{"pool-isolation@mesha.sg"}),
+	mux := http.NewServeMux()
+	authaudit.Register(mux, newAuthSessionHandler(authPool, cfg, verifier, []authaudit.Option{
+		// A non-empty static list that does NOT contain the email forces the
+		// dynamic (DB) allowlist lookup, as for a person added on /people.
+		authaudit.WithAllowedEmails([]string{"someone-else@mesha.sg"}),
 	}, log))
-	handler := httpmiddleware.RequestContext(log)(authMux)
+	return &authPoolHarness{cfg: cfg, mainPool: mainPool, authPool: authPool, handler: httpmiddleware.RequestContext(log)(mux)}
+}
 
-	// Saturate the main pool: 2x MaxConns concurrent slow dashboard-style reads.
-	satCtx, stopSat := context.WithCancel(ctx)
-	var satWG sync.WaitGroup
-	for i := 0; i < int(cfg.MaxConns)*2; i++ {
-		satWG.Add(1)
+// holdConns keeps n goroutines looping pg_sleep on pool until the test ends.
+func holdConns(t *testing.T, pool *pgxpool.Pool, n int, sleep string) {
+	t.Helper()
+	ctx, stop := context.WithCancel(context.Background())
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
 		go func() {
-			defer satWG.Done()
-			for satCtx.Err() == nil {
-				_, _ = mainPool.Exec(satCtx, "select pg_sleep(4)")
+			defer wg.Done()
+			for ctx.Err() == nil {
+				_, _ = pool.Exec(ctx, "select pg_sleep("+sleep+")")
 			}
 		}()
 	}
-	defer func() { stopSat(); satWG.Wait() }()
-	waitForSaturation(t, mainPool, cfg.MaxConns)
+	t.Cleanup(func() { stop(); wg.Wait() })
+	waitForSaturation(t, pool, pool.Config().MaxConns)
+}
 
-	const requests = 40
-	const concurrency = 4
-	latencies := make([]time.Duration, requests)
-	codes := make([]int, requests)
+type signInResult struct {
+	latency    time.Duration
+	code       int
+	retryAfter string
+}
+
+func (h *authPoolHarness) signIns(requests, concurrency int) []signInResult {
+	out := make([]signInResult, requests)
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, concurrency)
 	for i := 0; i < requests; i++ {
@@ -115,30 +144,90 @@ func TestAuthSessionEventsNotStarvedBySaturatedMainPool(t *testing.T) {
 			req.Header.Set(httpmiddleware.TenantContextHeader, authPoolTestTenantID)
 			rec := httptest.NewRecorder()
 			start := time.Now()
-			handler.ServeHTTP(rec, req)
-			latencies[i] = time.Since(start)
-			codes[i] = rec.Code
+			h.handler.ServeHTTP(rec, req)
+			out[i] = signInResult{latency: time.Since(start), code: rec.Code, retryAfter: rec.Header().Get("Retry-After")}
 		}(i)
 	}
 	wg.Wait()
+	return out
+}
 
-	for i, code := range codes {
-		if code != http.StatusNoContent {
-			t.Errorf("request %d status=%d want 204", i, code)
+func percentiles(results []signInResult) (p50, p95, maxLat time.Duration) {
+	sorted := make([]time.Duration, len(results))
+	for i, r := range results {
+		sorted[i] = r.latency
+	}
+	sort.Slice(sorted, func(a, b int) bool { return sorted[a] < sorted[b] })
+	p95i := (len(sorted)*95)/100 - 1
+	if p95i < 0 {
+		p95i = 0
+	}
+	return sorted[len(sorted)/2], sorted[p95i], sorted[len(sorted)-1]
+}
+
+func requireAllNoContent(t *testing.T, results []signInResult) {
+	t.Helper()
+	for i, r := range results {
+		if r.code != http.StatusNoContent {
+			t.Errorf("request %d status=%d want 204", i, r.code)
 		}
 	}
-	sorted := append([]time.Duration(nil), latencies...)
-	sort.Slice(sorted, func(a, b int) bool { return sorted[a] < sorted[b] })
-	p50 := sorted[len(sorted)/2]
-	p95 := sorted[(len(sorted)*95)/100-1]
-	maxLat := sorted[len(sorted)-1]
-	t.Logf("session-events under main-pool saturation: n=%d p50=%s p95=%s max=%s main_pool_acquired=%d/%d",
-		requests, p50.Round(time.Millisecond), p95.Round(time.Millisecond), maxLat.Round(time.Millisecond),
-		mainPool.Stat().AcquiredConns(), mainPool.Stat().MaxConns())
+}
 
+// The incident: the main pool is full of slow dashboard reads.
+func TestAuthSessionEventsNotStarvedBySaturatedMainPool(t *testing.T) {
+	h := newAuthPoolHarness(t)
+	holdConns(t, h.mainPool, int(h.cfg.MaxConns)*2, "4")
+
+	results := h.signIns(40, 4)
+	requireAllNoContent(t, results)
+	p50, p95, maxLat := percentiles(results)
+	t.Logf("session-events under main-pool saturation: n=40 conc=4 p50=%s p95=%s max=%s main_pool_acquired=%d/%d",
+		p50.Round(time.Millisecond), p95.Round(time.Millisecond), maxLat.Round(time.Millisecond),
+		h.mainPool.Stat().AcquiredConns(), h.mainPool.Stat().MaxConns())
 	const bound = time.Second
 	if p95 > bound || maxLat > bound {
 		t.Fatalf("session-events starved by saturated main pool: p95=%s max=%s (bound %s)", p95, maxLat, bound)
+	}
+}
+
+// More concurrent sign-ins than the auth pool has connections (2): they queue on
+// the auth pool, but every one must succeed well inside the shared deadline.
+func TestAuthSessionEventsQueueOnSmallAuthPoolWithoutFailing(t *testing.T) {
+	h := newAuthPoolHarness(t)
+	holdConns(t, h.mainPool, int(h.cfg.MaxConns)*2, "4")
+
+	results := h.signIns(24, 8)
+	requireAllNoContent(t, results)
+	p50, p95, maxLat := percentiles(results)
+	st := h.authPool.Stat()
+	t.Logf("session-events, 8 concurrent on a %d-conn auth pool: n=24 p50=%s p95=%s max=%s auth_empty_acquires=%d",
+		st.MaxConns(), p50.Round(time.Millisecond), p95.Round(time.Millisecond), maxLat.Round(time.Millisecond), st.EmptyAcquireCount())
+	deadline := platformpg.AuthPoolConfig(h.cfg).QueryTimeout
+	if maxLat >= deadline {
+		t.Fatalf("concurrent sign-ins hit the %s auth deadline: max=%s", deadline, maxLat)
+	}
+	if st.EmptyAcquireCount() == 0 {
+		t.Fatalf("test did not actually saturate the auth pool (no empty acquires)")
+	}
+}
+
+// When the auth pool itself is exhausted, sign-in fails FAST with a retryable
+// 503 + Retry-After at the shared deadline -- never a 500, never 15s.
+func TestAuthSessionEventsFailFastWith503WhenAuthPoolExhausted(t *testing.T) {
+	h := newAuthPoolHarness(t)
+	holdConns(t, h.authPool, int(h.authPool.Config().MaxConns), "6")
+
+	results := h.signIns(3, 3)
+	deadline := platformpg.AuthPoolConfig(h.cfg).QueryTimeout
+	for i, r := range results {
+		t.Logf("exhausted auth pool: request %d status=%d retry-after=%q latency=%s", i, r.code, r.retryAfter, r.latency.Round(time.Millisecond))
+		if r.code != http.StatusServiceUnavailable || r.retryAfter == "" {
+			t.Errorf("request %d status=%d retry-after=%q, want 503 with Retry-After", i, r.code, r.retryAfter)
+		}
+		if r.latency > deadline+time.Second {
+			t.Errorf("request %d took %s, want about the %s shared deadline", i, r.latency, deadline)
+		}
 	}
 }
 
@@ -151,5 +240,5 @@ func waitForSaturation(t *testing.T, pool *pgxpool.Pool, maxConns int32) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	t.Fatalf("main pool never saturated: acquired=%d max=%d", pool.Stat().AcquiredConns(), maxConns)
+	t.Fatalf("pool never saturated: acquired=%d max=%d", pool.Stat().AcquiredConns(), maxConns)
 }

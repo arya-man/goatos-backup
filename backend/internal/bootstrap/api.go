@@ -1391,7 +1391,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		WithAnchorManager(vaccinationService)
 	passportService := passportapp.NewService(vaccinationService, obligationRepo, obligationRepo)
 	passportHandler := passporthttp.NewHandler(passportService, log)
-	authPool, err := connectAuthPool(ctx, pgCfg, pool)
+	authPool, err := connectAuthPool(ctx, pgCfg, log)
 	if err != nil {
 		pool.Close()
 		return nil, err
