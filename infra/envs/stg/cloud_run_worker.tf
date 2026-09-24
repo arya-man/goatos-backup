@@ -83,6 +83,12 @@ resource "google_cloud_run_v2_service" "kernel_worker" {
         value = "30s"
       }
 
+      # Postgres connection budget: see the api service (45 <= ~47 usable).
+      env {
+        name  = "GOATOS_PG_MAX_CONNS"
+        value = "4"
+      }
+
       # Preserve the retired jobs' per-stage batch budgets (KERN-REV-05): the
       # consolidated stages must not silently fall back to the one-shot default
       # of 50. Outbox relay drained 500/run and the notification dispatcher 100.
