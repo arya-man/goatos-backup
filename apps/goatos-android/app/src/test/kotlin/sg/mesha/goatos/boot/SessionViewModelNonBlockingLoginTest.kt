@@ -124,7 +124,7 @@ class SessionViewModelNonBlockingLoginTest {
             SyncJobsScheduler { },
             api,
             SessionRelauncher { },
-        )
+        ).also { it.ioDispatcher = StandardTestDispatcher(testScheduler) }
 
     private fun assumeFirebaseFlavor() =
         assumeTrue("Firebase session path is only active outside the dev-bearer flavor", BuildConfig.FLAVOR != "dev")
@@ -139,7 +139,6 @@ class SessionViewModelNonBlockingLoginTest {
         val start = testScheduler.currentTime
         vm.signInWithEmail("operator@mesha.sg", "secret")
         runCurrent()
-        withContext(Dispatchers.IO) { }
         runCurrent()
 
         println("BEFORE/AFTER metric: session-event=UnknownHostException logged_in=${store.loggedInAtMs != null} time_to_logged_in_ms=${store.loggedInAtMs?.minus(start)}")
@@ -162,7 +161,6 @@ class SessionViewModelNonBlockingLoginTest {
         val start = testScheduler.currentTime
         vm.signInWithEmail("operator@mesha.sg", "secret")
         runCurrent()
-        withContext(Dispatchers.IO) { }
         runCurrent()
         advanceUntilIdle()
 
@@ -182,7 +180,6 @@ class SessionViewModelNonBlockingLoginTest {
 
         vm.signInWithEmail("operator@mesha.sg", "secret")
         runCurrent()
-        withContext(Dispatchers.IO) { }
         advanceUntilIdle()
 
         assertEquals(FIREBASE_SESSION_MARKER, store.tokenFlow.value)
@@ -199,7 +196,6 @@ class SessionViewModelNonBlockingLoginTest {
 
         vm.signInWithEmail("operator@mesha.sg", "secret")
         runCurrent()
-        withContext(Dispatchers.IO) { }
         advanceUntilIdle()
 
         val ui = vm.uiState.value
@@ -236,7 +232,6 @@ class SessionViewModelNonBlockingLoginTest {
     private suspend fun TestScope.signInAndSettle(vm: SessionViewModel) {
         vm.signInWithEmail("operator@mesha.sg", "secret")
         runCurrent()
-        withContext(Dispatchers.IO) { }
         advanceUntilIdle()
     }
 
@@ -304,10 +299,9 @@ class SessionViewModelNonBlockingLoginTest {
                 cancelPendingSessionEvents = sender::cancel,
             ),
             SyncJobsScheduler { }, api, SessionRelauncher { }, sender,
-        )
+        ).also { it.ioDispatcher = StandardTestDispatcher(testScheduler) }
         vm.signInWithEmail("operator@mesha.sg", "secret")
         runCurrent()
-        withContext(Dispatchers.IO) { }
         runCurrent()
         val attemptsBeforeLogout = api.attempts
         assertTrue("an attempt was made", attemptsBeforeLogout >= 1)
@@ -329,7 +323,6 @@ class SessionViewModelNonBlockingLoginTest {
 
         vm.signInWithEmail("operator@mesha.sg", "secret")
         runCurrent()
-        withContext(Dispatchers.IO) { }
         runCurrent()
         assertEquals("session open while the event is in flight", FIREBASE_SESSION_MARKER, store.tokenFlow.value)
 
@@ -342,19 +335,36 @@ class SessionViewModelNonBlockingLoginTest {
     }
 
     /** Only observeStatus() is used by the switch-account confirm; everything else fails loudly. */
-    private fun syncRepositoryWithPending(pending: Int): sg.mesha.goatos.core.data.sync.SyncRepository {
+    /**
+     * [snapshotPending] is what the in-memory observeStatus() snapshot says; [storedPending] is
+     * what the outbox actually holds (the direct store query). After a cold start the snapshot
+     * reads 0 until Room first emits, so the two can disagree.
+     */
+    private fun syncRepositoryWithPending(
+        snapshotPending: Int,
+        storedPending: Int = snapshotPending,
+    ): sg.mesha.goatos.core.data.sync.SyncRepository {
         val status = kotlinx.coroutines.flow.MutableStateFlow(
-            sg.mesha.goatos.core.data.sync.SyncStatus.empty(online = false).copy(pendingCount = pending),
+            sg.mesha.goatos.core.data.sync.SyncStatus.empty(online = false).copy(pendingCount = snapshotPending),
         )
         return java.lang.reflect.Proxy.newProxyInstance(
             javaClass.classLoader,
             arrayOf(sg.mesha.goatos.core.data.sync.SyncRepository::class.java),
         ) { _, method, _ ->
-            if (method.name == "observeStatus") status else error("unexpected ${method.name}")
+            when (method.name) {
+                "observeStatus" -> status
+                "unsyncedCountNow" -> storedPending
+                else -> error("unexpected ${method.name}")
+            }
         } as sg.mesha.goatos.core.data.sync.SyncRepository
     }
 
-    private fun TestScope.buildSwitchVm(store: SessionStore, auth: OkFirebase, pending: Int): SessionViewModel {
+    private fun TestScope.buildSwitchVm(
+        store: SessionStore,
+        auth: OkFirebase,
+        pending: Int,
+        storedPending: Int = pending,
+    ): SessionViewModel {
         val api = SessionEventApi()
         return SessionViewModel(
             store, auth, RecordingAnalytics(),
@@ -368,8 +378,8 @@ class SessionViewModelNonBlockingLoginTest {
             ),
             SyncJobsScheduler { }, api, SessionRelauncher { },
             AuthSessionEventSender(api, backgroundScope),
-            syncRepositoryWithPending(pending),
-        )
+            syncRepositoryWithPending(pending, storedPending),
+        ).also { it.ioDispatcher = StandardTestDispatcher(testScheduler) }
     }
 
     @Test
@@ -408,5 +418,19 @@ class SessionViewModelNonBlockingLoginTest {
         assertNull(vm.uiState.value.switchAccountPendingCount)
         assertNull(store.tokenFlow.value)
         assertTrue(auth.signedOut)
+    }
+
+    @Test
+    fun `cold start - snapshot still 0 but the outbox holds 3 - the confirm is still shown`() = runTest {
+        val store = TimedSessionStore { testScheduler.currentTime }.apply { tokenFlow.value = FIREBASE_SESSION_MARKER }
+        val auth = OkFirebase()
+        val vm = buildSwitchVm(store, auth, pending = 0, storedPending = 3)
+
+        vm.requestSignInWithAnotherAccount()
+        advanceUntilIdle()
+
+        assertEquals("count comes from the store, not the stale snapshot", 3, vm.uiState.value.switchAccountPendingCount)
+        assertEquals("nothing wiped", FIREBASE_SESSION_MARKER, store.tokenFlow.value)
+        assertFalse(auth.signedOut)
     }
 }
