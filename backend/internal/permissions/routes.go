@@ -881,6 +881,7 @@ var protectedRoutes = []Route{
 	// device's own write, separate from every operator/admin read below it.
 	{OperationID: "ingestHerdSignalPackets", Method: "POST", Pattern: "/herd-signals/packets", Permissions: []string{HerdSignalsIngest}},
 	{OperationID: "listHerdSignalsLive", Method: "GET", Pattern: "/herd-signals/live", Permissions: []string{HerdSignalsRead}},
+	{OperationID: "streamHerdSignalsLive", Method: "GET", Pattern: "/herd-signals/live/stream", Permissions: []string{HerdSignalsRead}},
 	{OperationID: "getHerdSignalsTagTimeline", Method: "GET", Pattern: "/herd-signals/tags/{tag_id}/timeline", Permissions: []string{HerdSignalsRead}},
 	{OperationID: "listHerdSignalsGateways", Method: "GET", Pattern: "/herd-signals/gateways", Permissions: []string{HerdSignalsRead}},
 	{OperationID: "getHerdSignalsInsights", Method: "GET", Pattern: "/herd-signals/insights", Permissions: []string{HerdSignalsRead}},
