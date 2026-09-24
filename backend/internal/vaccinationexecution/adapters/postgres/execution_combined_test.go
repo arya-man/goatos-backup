@@ -1,6 +1,7 @@
 package postgres
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
@@ -56,5 +57,52 @@ func TestExecutionCardSummaryNormalizesPartitionKeyLikeAndroid(t *testing.T) {
 	rawCardID := "shed:shed-yashoda|partition:Part 3|assignment:" + assignmentID
 	if summaries[rawCardID] != nil {
 		t.Fatalf("summary leaked raw partition key %q", rawCardID)
+	}
+}
+
+func TestDatedMembershipCarriesCountsAndVaccineGroups(t *testing.T) {
+	var record executionCardSummaryRecord
+	err := json.Unmarshal([]byte(`{"shed_uuid":"shed", "roster_memberships":[{"plannedDate":"2026-06-24","taskIds":["task-a","task-b"],"targetCount":2,"doneCount":1,"openCount":1,"status":"due","vaccineLabelCounts":["\u001fPPR","\u001fPPR","\u001fBT"]}]}`), &record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	summaries := map[string]*domain.ShedCardSummary{}
+	addExecutionCardSummary(summaries, record)
+	for _, summary := range summaries {
+		member := summary.RosterMemberships[0]
+		if member.TargetCount != 2 || member.DoneCount != 1 || member.OpenCount != 1 || member.Status != domain.WorkStateDue || len(member.TaskIDs) != 2 {
+			t.Fatalf("lost authoritative membership data: %#v", member)
+		}
+		if len(member.VaccineGroups) != 2 {
+			t.Fatalf("missing membership vaccine groups: %#v", member.VaccineGroups)
+		}
+	}
+}
+
+func TestDatedMembershipPendingDoseKeepsVaccineGroupOpen(t *testing.T) {
+	var record executionCardSummaryRecord
+	if err := json.Unmarshal([]byte(`{"shed_uuid":"shed","roster_memberships":[{"plannedDate":"2026-06-24","openCount":0,"doneCount":1,"targetCount":1,"animals":[{"id":"goat","done":true,"open":true}],"vaccineLabelCounts":["PPR"]}]}`), &record); err != nil {
+		t.Fatal(err)
+	}
+	summaries := map[string]*domain.ShedCardSummary{}
+	addExecutionCardSummary(summaries, record)
+	for _, summary := range summaries {
+		if summary.RosterMemberships[0].VaccineGroups[0].Full {
+			t.Fatal("pending dose must keep vaccine group open despite another dose being done")
+		}
+	}
+}
+
+func TestDatedMembershipRejectedDoseKeepsVaccineGroupOpen(t *testing.T) {
+	var record executionCardSummaryRecord
+	if err := json.Unmarshal([]byte(`{"shed_uuid":"shed","roster_memberships":[{"plannedDate":"2026-06-24","openCount":0,"doneCount":1,"targetCount":1,"status":"rejected","needsRedo":true,"vaccineLabelCounts":["PPR"]}]}`), &record); err != nil {
+		t.Fatal(err)
+	}
+	summaries := map[string]*domain.ShedCardSummary{}
+	addExecutionCardSummary(summaries, record)
+	for _, summary := range summaries {
+		if summary.RosterMemberships[0].VaccineGroups[0].Full {
+			t.Fatal("rejected dose must keep vaccine group open")
+		}
 	}
 }

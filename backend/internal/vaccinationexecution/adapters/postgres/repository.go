@@ -1699,6 +1699,9 @@ animal_rollup AS (
     located.partition_key,
     located.execution_card_id,
     located.animal_id,
+    BOOL_OR(located.eff_status IN ('scheduled', 'due', 'overdue', 'in_progress')
+      AND COALESCE(located.completion_status, '') NOT IN ('recorded', 'accepted')
+      AND NOT located.proofed AND NOT located.shed_proof_submitted) AS has_outstanding,
     BOOL_OR(located.eff_status = 'scheduled') AS has_scheduled,
     BOOL_OR(located.eff_status = 'due') AS has_due,
     BOOL_OR(located.eff_status = 'in_progress') AS has_in_progress,
@@ -1736,6 +1739,7 @@ animal_counts AS MATERIALIZED (
     animal_rollup.shed_uuid,
     animal_rollup.partition_key,
     animal_rollup.execution_card_id,
+    COUNT(*) FILTER (WHERE animal_rollup.has_outstanding)::bigint AS outstanding_count,
     COUNT(*)::bigint AS obligation_count,
     COUNT(*) FILTER (WHERE animal_rollup.has_done)::bigint AS done_count,
     COUNT(*) FILTER (WHERE animal_rollup.has_scheduled)::bigint AS scheduled_count,
@@ -1772,6 +1776,9 @@ grouped_details AS MATERIALIZED (
       CONCAT_WS(E'\x1f', '', COALESCE(located.vaccine_code, located.dose_code))
       ORDER BY COALESCE(located.vaccine_code, located.dose_code)
     ) FILTER (WHERE NULLIF(COALESCE(located.vaccine_code, located.dose_code), '') IS NOT NULL) AS vaccine_label_keys,
+    ARRAY_AGG(DISTINCT located.sop_task_id ORDER BY located.sop_task_id)
+      FILTER (WHERE located.sop_task_id IS NOT NULL) AS source_task_ids,
+    BOOL_AND(COALESCE(located.task_state IN ('submitted', 'needs_review', 'accepted'), false)) AS all_tasks_submitted,
     MIN(located.execution_due_at) AS due_at,
     -- Mobile shows drive animals, not obligation/dose rows. Bucket counts use the
     -- as_of-effective status at distinct-animal grain; completion counts use the
@@ -1878,6 +1885,7 @@ grouped_details AS MATERIALIZED (
 -- projection-review: membership=the same filtered active-location card groups; group_key=(park_uuid,shed_uuid,partition_key,batch_id); join_cardinality=animal_counts is unique on the identical grouping key and now joins once per card rather than once per obligation; pagination=the same full card set precedes classified keyset pagination; scope=tenant and park/shed/operator/partition filters remain in grouped_details.
 grouped AS MATERIALIZED (
  SELECT grouped_details.*,
+   animal_counts.outstanding_count,
    animal_counts.obligation_count,
    animal_counts.done_count,
    animal_counts.scheduled_count,
@@ -2036,11 +2044,13 @@ filtered AS (
     AND (
       $15::text = ''
       OR classified.work_state <> 'completed'
+      OR classified.outstanding_count > 0
       OR (classified.due_at AT TIME ZONE 'Asia/Kolkata')::date >= ($7::timestamptz AT TIME ZONE 'Asia/Kolkata')::date
     )
     AND (
       NOT $10::boolean
       OR classified.display_open_count > 0
+      OR classified.outstanding_count > 0
     )
 )
 SELECT
@@ -2200,16 +2210,45 @@ SELECT
     'assignmentId', classified.assignment_id,
     'batchId', classified.batch_id,
     'taskId', classified.sop_task_id,
+    'taskIds', COALESCE(classified.source_task_ids, ARRAY[]::uuid[]),
+    'animals', membership_animals.animals,
+    'targetCount', classified.obligation_count,
+    'doneCount', classified.display_done_count,
+    'acceptedCount', classified.completion_accepted,
+    'openCount', classified.display_open_count,
+    'needsRedo', classified.work_state = 'rejected' OR classified.completion_rejected > 0,
+    'status', CASE
+      WHEN classified.work_state = 'rejected' OR classified.completion_rejected > 0 THEN 'rejected'
+      WHEN classified.work_state = 'overdue' OR classified.missed_count > 0
+        OR (membership_animals.has_outstanding AND (classified.due_at AT TIME ZONE 'Asia/Kolkata')::date < ($7::timestamptz AT TIME ZONE 'Asia/Kolkata')::date) THEN 'overdue'
+      WHEN classified.work_state IN ('verification_pending', 'proof_pending') THEN 'verification_pending'
+      WHEN classified.display_open_count = 0 AND classified.obligation_count > 0 THEN 'completed'
+      ELSE 'due' END,
+    'vaccineLabelCounts', classified.vaccine_label_keys,
     'plannedDate', (classified.due_at AT TIME ZONE 'Asia/Kolkata')::date::text,
-    'recordOnly', classified.display_open_count = 0 AND (
-      COALESCE(classified.task_state, '') IN ('submitted', 'needs_review', 'accepted')
-      OR (classified.completion_accepted > 0 AND classified.completion_recorded = 0)),
-    'includeWhenOverdue', classified.display_open_count > 0
+    'recordOnly', NOT membership_animals.has_outstanding AND classified.display_open_count = 0 AND (
+      classified.all_tasks_submitted
+      OR (classified.completion_accepted = classified.obligation_count AND classified.completion_recorded = 0)),
+    'includeWhenOverdue', membership_animals.has_outstanding OR classified.display_open_count > 0
+      OR classified.outstanding_count > 0
       OR classified.work_state IN ('proof_pending', 'verification_pending')
       OR (classified.display_done_count > 0 AND classified.work_state <> 'completed')
-  )) FILTER (WHERE classified.display_open_count > 0 OR classified.display_done_count > 0
+  )) FILTER (WHERE classified.outstanding_count > 0 OR classified.display_open_count > 0 OR classified.display_done_count > 0
     OR classified.work_state IN ('proof_pending', 'verification_pending')), '[]'::jsonb) AS roster_memberships
 FROM classified
+-- projection-review: membership=animal_rollup from identical tenant/scope/date source rows; group_key=park/shed/partition/execution_card_id; join_cardinality=one animal-fact array per classified card, no fanout; pagination=summary-only whole-filter data; scope=all canonical classified predicates remain below. Plain paginated reads never construct these internal JSON facts.
+JOIN (
+ SELECT park_uuid,shed_uuid,partition_key,execution_card_id,
+   BOOL_OR(has_outstanding) AS has_outstanding,
+   JSONB_AGG(JSONB_BUILD_OBJECT('id',animal_id,'done',has_done,
+     'open',has_outstanding,'accepted',all_completions_accepted) ORDER BY animal_id) AS animals
+ FROM animal_rollup
+ GROUP BY park_uuid,shed_uuid,partition_key,execution_card_id
+) membership_animals
+ ON membership_animals.park_uuid=classified.park_uuid
+ AND membership_animals.shed_uuid=classified.shed_uuid
+ AND membership_animals.partition_key=classified.partition_key
+ AND membership_animals.execution_card_id IS NOT DISTINCT FROM classified.execution_card_id
 WHERE ($6::text = '' OR classified.work_state = $6::text)
   AND ($9::text = '' OR classified.severity = $9::text)
   AND (
@@ -2227,11 +2266,13 @@ WHERE ($6::text = '' OR classified.work_state = $6::text)
   AND (
     $15::text = ''
     OR classified.work_state <> 'completed'
+      OR classified.outstanding_count > 0
     OR (classified.due_at AT TIME ZONE 'Asia/Kolkata')::date >= ($7::timestamptz AT TIME ZONE 'Asia/Kolkata')::date
   )
   AND (
     NOT $10::boolean
     OR classified.display_open_count > 0
+      OR classified.outstanding_count > 0
   )
 GROUP BY classified.shed_uuid, classified.partition_label, classified.partition_key, classified.assignment_id, classified.sop_task_id, classified.batch_id
 ORDER BY classified.shed_uuid, classified.partition_label, classified.assignment_id, classified.sop_task_id, classified.batch_id
@@ -4702,6 +4743,7 @@ func (r *Repository) VaccinationExecutionCardSummaries(ctx context.Context, q do
 		return nil, fmt.Errorf("vaccination execution: card summaries rows: %w", err)
 	}
 
+	addOperatorDaySummaries(summaries, q.AsOf)
 	r.setVaccinationReadCache(cacheKey, summaries)
 	return summaries, nil
 }
