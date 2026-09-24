@@ -49,8 +49,13 @@ class LogoutCoordinator(
     private val syncJobsCanceller: SyncJobsCanceller,
     private val clearPushAndAnalyticsIdentity: () -> Unit = {},
     private val feedCompletionLocalStore: FeedCompletionLocalStore = FeedCompletionLocalStore(),
+    /** Stops any in-flight background session-event retry, so it can never post with the NEXT
+     *  principal's token. Runs first, before the vendor sign-out. */
+    private val cancelPendingSessionEvents: () -> Unit = {},
 ) {
     suspend fun logout(signOutVendorAuth: () -> Unit) {
+        // exception:exempt cancelling a best-effort background job must never block the wipe
+        runCatching { cancelPendingSessionEvents() }
         deregisterDeviceBestEffort()
         runCatching { signOutVendorAuth() }
         runCatching { clearPushAndAnalyticsIdentity() }

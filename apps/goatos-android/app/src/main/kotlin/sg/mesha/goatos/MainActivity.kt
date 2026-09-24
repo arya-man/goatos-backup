@@ -243,6 +243,8 @@ class MainActivity : ComponentActivity() {
                     val bootstrap by bootstrapViewModel.state.collectAsStateWithLifecycle()
                     when (val s = bootstrap) {
                         BootstrapUiState.Loading -> BootstrapLoading()
+                        BootstrapUiState.SettingUpAccess ->
+                            BootstrapLoading(message = stringResource(R.string.bootstrap_setting_up_access))
                         is BootstrapUiState.Ready -> GoatOsShell(navState = s.navState)
                         is BootstrapUiState.Error -> {
                             when (s.errorType) {
@@ -262,12 +264,15 @@ class MainActivity : ComponentActivity() {
                                     )
                                 }
                                 BootstrapErrorType.ACCESS_NOT_PROVISIONED -> {
-                                    // Valid sign-in, access not set up. Retry only: signing out
-                                    // would wipe unsynced work and could not fix this.
+                                    // Valid sign-in, access not set up. Retry is primary; signing
+                                    // in with another account is the operator's explicit choice
+                                    // (a wrong account is otherwise a dead end).
                                     BootstrapError(
                                         message = stringResource(R.string.bootstrap_error_access_not_provisioned),
                                         actionLabel = stringResource(R.string.bootstrap_action_retry),
-                                        onAction = bootstrapViewModel::load
+                                        onAction = bootstrapViewModel::load,
+                                        secondaryActionLabel = stringResource(R.string.bootstrap_action_other_account),
+                                        onSecondaryAction = { sessionViewModel.signOut() },
                                     )
                                 }
                                 BootstrapErrorType.CONNECTIVITY_FAILURE -> {
@@ -566,7 +571,7 @@ private fun SharedPreferences.pendingDurationMs(): Long? {
 }
 
 @Composable
-private fun BootstrapLoading() {
+private fun BootstrapLoading(message: String? = null) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -575,6 +580,15 @@ private fun BootstrapLoading() {
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+        if (message != null) {
+            Text(
+                text = message,
+                color = MaterialTheme.colorScheme.onBackground,
+                fontSize = 14.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(top = 16.dp, start = 32.dp, end = 32.dp),
+            )
+        }
     }
 }
 
@@ -583,6 +597,8 @@ private fun BootstrapError(
     message: String,
     actionLabel: String,
     onAction: () -> Unit,
+    secondaryActionLabel: String? = null,
+    onSecondaryAction: () -> Unit = {},
 ) {
     Column(
         modifier = Modifier
@@ -611,5 +627,19 @@ private fun BootstrapError(
                 .clickable(onClick = onAction)
                 .padding(horizontal = 24.dp, vertical = 10.dp),
         )
+        if (secondaryActionLabel != null) {
+            Text(
+                text = secondaryActionLabel,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 14.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .padding(top = 8.dp)
+                    .minimumInteractiveComponentSize()
+                    .clip(RoundedCornerShape(10.dp))
+                    .clickable(onClick = onSecondaryAction)
+                    .padding(horizontal = 24.dp, vertical = 10.dp),
+            )
+        }
     }
 }

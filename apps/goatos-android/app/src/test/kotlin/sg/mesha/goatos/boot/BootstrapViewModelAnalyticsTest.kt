@@ -3,7 +3,9 @@ package sg.mesha.goatos.boot
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
@@ -274,5 +276,41 @@ class BootstrapViewModelAnalyticsTest {
 
         assertEquals(BootstrapUiState.Error(BootstrapErrorType.ACCESS_NOT_PROVISIONED), vm.state.value)
         assertEquals("one retry, never a loop", 2, loads)
+    }
+
+    @Test
+    fun `the claim wait happens once per sign-in, not on every retry`() = runTest {
+        val repo = object : BootstrapRepository {
+            override suspend fun loadNavState(): NavState =
+                throw sg.mesha.goatos.core.network.BootstrapError.AccessNotProvisioned()
+            override suspend fun operatorProfile(): BootstrapOperatorProfileDto? = null
+        }
+        val api = object : sg.mesha.goatos.core.network.AppApi by sg.mesha.goatos.core.network.FakeAppApi() {
+            override suspend fun recordAuthSessionEvent(request: sg.mesha.goatos.core.network.AuthSessionEventRequestDto) {
+                throw java.io.IOException("offline")
+            }
+        }
+        val sender = AuthSessionEventSender(api, backgroundScope, listOf(600_000L))
+        sender.send(eventType = "auth.sign_in", source = "android-test")
+        val vm = BootstrapViewModel(
+            repo, RecordingAnalytics(), AnalyticsContext(flavor = "stg"), FakeDeviceStore(),
+            FakeAuthRepository("new@mesha.sg"), FakeCrashReporter(), PushTokenSync {}, FakeConnectivityGate(),
+            NavStateRefreshSignal(), sender,
+        )
+        vm.load()
+        runCurrent()
+        assertEquals("operator sees the setting-up state during the wait", BootstrapUiState.SettingUpAccess, vm.state.value)
+        advanceTimeBy(20_000)
+        runCurrent()
+        assertEquals(BootstrapUiState.Error(BootstrapErrorType.ACCESS_NOT_PROVISIONED), vm.state.value)
+
+        val retryStart = testScheduler.currentTime
+        vm.load()
+        runCurrent()
+        assertEquals(
+            "a manual Retry after the one wait answers at once (waited ${testScheduler.currentTime - retryStart}ms)",
+            BootstrapUiState.Error(BootstrapErrorType.ACCESS_NOT_PROVISIONED),
+            vm.state.value,
+        )
     }
 }

@@ -336,7 +336,6 @@ class SessionViewModel @Inject constructor(
         // correctly authenticated operator out with raw exception text. Bootstrap waits for it
         // (bounded) only if it answers 403 for a first-ever login; see AuthSessionEventSender.
         sessionStore.setBearerToken(FIREBASE_SESSION_MARKER)
-        sessionEvents.send(eventType = "auth.sign_in", source = "android-${BuildConfig.FLAVOR}")
         // A prior signOut() cancelled the periodic/retry WorkManager backstop
         // (LogoutCoordinator's clean-slate wipe) — re-arm it for this new session.
         // ExistingPeriodicWorkPolicy.KEEP makes this idempotent when it was never cancelled.
@@ -345,6 +344,38 @@ class SessionViewModel @Inject constructor(
         analytics.track(AnalyticsEvents.LOGIN_SUCCESS, identityProps)
         logInfo("Goat OS login session opened email=${email.orEmpty()} uid=${firebaseUid.orEmpty()} flavor=${BuildConfig.FLAVOR}")
         _uiState.update { it.copy(isLoading = false, errorReason = null, errorDetail = null) }
+        // Sent last so a fast denial can never be overwritten by the success state above.
+        val sessionEvent = sessionEvents.send(eventType = "auth.sign_in", source = "android-${BuildConfig.FLAVOR}")
+        viewModelScope.launch {
+            val outcome = sessionEvent.await()
+            if (outcome is SessionEventOutcome.Denied) undoDeniedSignIn(outcome, email, firebaseUid, identityProps)
+        }
+    }
+
+    /**
+     * The server refused this principal (session-events 401/403, e.g. `email_not_allowed`). The
+     * session opened optimistically, so undo it completely -- marker, sync workers and Firebase --
+     * and show the same login error the synchronous path used to, never raw exception text.
+     */
+    private suspend fun undoDeniedSignIn(
+        outcome: SessionEventOutcome.Denied,
+        email: String?,
+        firebaseUid: String?,
+        identityProps: Map<String, String>,
+    ) {
+        analytics.track(
+            AnalyticsEvents.LOGIN_FAILURE,
+            identityProps + mapOf(AnalyticsEvents.Params.REASON to "session_event_denied_${outcome.statusCode}"),
+        )
+        logWarning("Goat OS session event denied (${outcome.statusCode}) email=${email.orEmpty()} uid=${firebaseUid.orEmpty()}; signing out")
+        logoutCoordinator.logout(signOutVendorAuth = authRepository::signOut)
+        _uiState.update {
+            it.copy(
+                isLoading = false,
+                errorReason = LoginError.UNKNOWN,
+                errorDetail = "Signed in, but Goat OS could not open your workspace.",
+            )
+        }
     }
 
     private fun signInWithDevToken() {

@@ -30,6 +30,8 @@ import javax.inject.Inject
  */
 sealed interface BootstrapUiState {
     data object Loading : BootstrapUiState
+    /** Bootstrap said "no access yet" while this sign-in's access claim is still being sent. */
+    data object SettingUpAccess : BootstrapUiState
     data class Ready(val navState: NavState) : BootstrapUiState
     data class Error(
         val errorType: BootstrapErrorType,
@@ -65,7 +67,8 @@ class BootstrapViewModel @Inject constructor(
      * Login no longer waits for the Goat OS session-event (it is sent in the background), but that
      * event is also what claims a first-ever user's pending email grant. Until it lands,
      * `/app/bootstrap` answers 403. So when bootstrap says access is not provisioned AND a session
-     * event is still in flight, wait for it (bounded) and retry exactly once. Every other login
+     * event is still in flight, wait for it (bounded) and retry exactly once. The wait is spent
+     * once per sign-in: a manual Retry after it answers immediately. Every other login
      * pays nothing; a real "no access" still surfaces after the one retry.
      */
     private suspend fun loadNavStateAfterSessionClaim(): NavState =
@@ -73,7 +76,10 @@ class BootstrapViewModel @Inject constructor(
             repo.loadNavState()
         } catch (denied: BootstrapError.AccessNotProvisioned) {
             val sender = sessionEvents ?: throw denied
-            if (sender.awaitDelivery(SESSION_CLAIM_WAIT_MS)) repo.loadNavState() else throw denied
+            val claimed = sender.awaitClaimOnce(SESSION_CLAIM_WAIT_MS) {
+                _state.value = BootstrapUiState.SettingUpAccess
+            }
+            if (claimed) repo.loadNavState() else throw denied
         }
 
     private val _state = MutableStateFlow<BootstrapUiState>(BootstrapUiState.Loading)
