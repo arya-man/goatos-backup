@@ -20,6 +20,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	platformoutbox "github.com/vgoats/goatos/backend/internal/platform/outbox"
+	platformpostgres "github.com/vgoats/goatos/backend/internal/platform/postgres"
 	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 	"github.com/vgoats/goatos/backend/internal/verification/domain"
 	"github.com/vgoats/goatos/backend/internal/verification/ports"
@@ -729,7 +730,20 @@ SELECT EXISTS (
 	return options, nil
 }
 
+// CloseItem retries the whole transaction when PostgreSQL picks it as a deadlock victim (40P01).
+// The transaction touches notification_requests (auto-resolve, unread-counter triggers); lock
+// ordering prevents the deadlock, this is the bounded backstop.
 func (r *Repository) CloseItem(ctx context.Context, in domain.CloseAction) (domain.Item, error) {
+	var out domain.Item
+	err := platformpostgres.RetryOnDeadlock(ctx, func(ctx context.Context) error {
+		var err error
+		out, err = r.closeItemOnce(ctx, in)
+		return err
+	})
+	return out, err
+}
+
+func (r *Repository) closeItemOnce(ctx context.Context, in domain.CloseAction) (domain.Item, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	tx, err := r.pool.Begin(ctx)
@@ -789,6 +803,9 @@ WHERE tenant_id = $1::uuid
 	if err := insertOutboxEvent(ctx, tx, in.TenantID, EventItemClosed, in.ItemID, idempotencyKey, verificationVerdictPayload(item)); err != nil {
 		return domain.Item{}, err
 	}
+	if err := resolveDecisionNotifications(ctx, tx, in.TenantID, []string{in.ItemID}, ""); err != nil {
+		return domain.Item{}, err
+	}
 	if err := completeIdempotency(ctx, tx, in.TenantID, "verification.close-item", in.IdempotencyKey, "verification_item", item.ItemID); err != nil {
 		return domain.Item{}, err
 	}
@@ -799,7 +816,20 @@ WHERE tenant_id = $1::uuid
 	return item, nil
 }
 
+// CloseSubmission retries the whole transaction when PostgreSQL picks it as a deadlock victim (40P01).
+// The transaction touches notification_requests (auto-resolve, unread-counter triggers); lock
+// ordering prevents the deadlock, this is the bounded backstop.
 func (r *Repository) CloseSubmission(ctx context.Context, in domain.CloseSubmissionAction) ([]domain.Item, error) {
+	var out []domain.Item
+	err := platformpostgres.RetryOnDeadlock(ctx, func(ctx context.Context) error {
+		var err error
+		out, err = r.closeSubmissionOnce(ctx, in)
+		return err
+	})
+	return out, err
+}
+
+func (r *Repository) closeSubmissionOnce(ctx context.Context, in domain.CloseSubmissionAction) ([]domain.Item, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	tx, err := r.pool.Begin(ctx)
@@ -1044,6 +1074,9 @@ ORDER BY captured_at, item_id`, in.TenantID, in.SubmissionID)
 		if err := insertOutboxEvent(ctx, tx, in.TenantID, EventItemClosed, item.ItemID, idempotencyKey, verificationVerdictPayload(item)); err != nil {
 			return nil, err
 		}
+	}
+	if err := resolveDecisionNotifications(ctx, tx, in.TenantID, itemIDsOf(closedItems), ""); err != nil {
+		return nil, err
 	}
 	if err := completeIdempotency(ctx, tx, in.TenantID, "verification.close-submission", in.IdempotencyKey, "verification_submission", in.SubmissionID); err != nil {
 		return nil, err
@@ -1495,7 +1528,20 @@ func blockingSubjectLabel(item domain.Item) string {
 	return item.ItemID
 }
 
+// CloseVaccinationBatch retries the whole transaction when PostgreSQL picks it as a deadlock victim (40P01).
+// The transaction touches notification_requests (auto-resolve, unread-counter triggers); lock
+// ordering prevents the deadlock, this is the bounded backstop.
 func (r *Repository) CloseVaccinationBatch(ctx context.Context, in domain.CloseVaccinationBatchAction) ([]domain.Item, error) {
+	var out []domain.Item
+	err := platformpostgres.RetryOnDeadlock(ctx, func(ctx context.Context) error {
+		var err error
+		out, err = r.closeVaccinationBatchOnce(ctx, in)
+		return err
+	})
+	return out, err
+}
+
+func (r *Repository) closeVaccinationBatchOnce(ctx context.Context, in domain.CloseVaccinationBatchAction) ([]domain.Item, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	tx, err := r.pool.Begin(ctx)
@@ -1810,7 +1856,9 @@ ORDER BY vi.captured_at, vi.item_id`, in.TenantID, in.BatchID, vaccinationProofC
 	if err := insertVaccinationDriveClosedOutbox(ctx, tx, in.TenantID, in.BatchID, in.ActorID); err != nil {
 		return nil, err
 	}
-	if err := resolveDriveReadyNotifications(ctx, tx, in.TenantID, in.BatchID); err != nil {
+	// ONE counter-touching statement for the whole close: every closed item plus the drive's
+	// ready-to-close notice (see notification_autoresolve.go for the deadlock this prevents).
+	if err := resolveDecisionNotifications(ctx, tx, in.TenantID, itemIDsOf(closedItems), in.BatchID); err != nil {
 		return nil, err
 	}
 	if err := completeIdempotency(ctx, tx, in.TenantID, "verification.close-vaccination-batch", in.IdempotencyKey, "vaccination_batch", in.BatchID); err != nil {
@@ -2017,7 +2065,20 @@ WHERE st.tenant_id = $1::uuid
 	return nil
 }
 
+// RecordVerdict retries the whole transaction when PostgreSQL picks it as a deadlock victim (40P01).
+// The transaction touches notification_requests (auto-resolve, unread-counter triggers); lock
+// ordering prevents the deadlock, this is the bounded backstop.
 func (r *Repository) RecordVerdict(ctx context.Context, in domain.Verdict) (domain.Item, error) {
+	var out domain.Item
+	err := platformpostgres.RetryOnDeadlock(ctx, func(ctx context.Context) error {
+		var err error
+		out, err = r.recordVerdictOnce(ctx, in)
+		return err
+	})
+	return out, err
+}
+
+func (r *Repository) recordVerdictOnce(ctx context.Context, in domain.Verdict) (domain.Item, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	tx, err := r.pool.Begin(ctx)
@@ -2111,6 +2172,9 @@ WHERE tenant_id = $4::uuid
 		if err := insertVaccinationDriveReadyOutboxIfReady(ctx, tx, item); err != nil {
 			return domain.Item{}, err
 		}
+	}
+	if err := resolveDecisionNotifications(ctx, tx, in.TenantID, []string{in.ItemID}, ""); err != nil {
+		return domain.Item{}, err
 	}
 	if err := completeIdempotency(ctx, tx, in.TenantID, "verification.verdict", in.IdempotencyKey, "verification_item", item.ItemID); err != nil {
 		return domain.Item{}, err
@@ -2286,6 +2350,12 @@ func verificationVerdictPayload(item domain.Item) map[string]any {
 // change, mirroring the vaccination.completed precedent
 // (backend/internal/vaccination/adapters/postgres/repository.go:insertVaccinationCompletedOutbox).
 // Idempotent: ON CONFLICT on the partial unique index for verification event types is a no-op.
+//
+// It deliberately does NOT resolve notifications. A caller that decides items must collect every
+// decided item id and call resolveDecisionNotifications ONCE, as the last write before commit --
+// never per item inside a loop: each notification write locks unread-counter rows until commit,
+// and several such statements per transaction deadlock against the notification bridge
+// (notification_autoresolve.go).
 func insertOutboxEvent(ctx context.Context, tx pgx.Tx, tenantID, eventType, aggregateID, idempotencyKey string, payload map[string]any) error {
 	eventID := platformoutbox.DeterministicUUID(eventType + ":" + tenantID + ":" + idempotencyKey)
 	now := time.Now().UTC().Format(time.RFC3339Nano)
@@ -2344,12 +2414,6 @@ ON CONFLICT (tenant_id, idempotency_key) WHERE event_type IN (
 		tenantID, eventID, eventType, verificationSchemaVer, aggregateID,
 		verificationTopic, envelope, headers, idempotencyKey); err != nil {
 		return fmt.Errorf("verification: outbox insert: %w", err)
-	}
-	// Every non-pending event here is a transition that ends the item's decidability (verdict,
-	// rework, closeout, withdrawal, sampled auto-approve), so the "please verify" notices for it
-	// are resolved in this same transaction (notification_autoresolve.go).
-	if eventType != EventItemPending {
-		return resolveDecidedItemNotifications(ctx, tx, tenantID, aggregateID)
 	}
 	return nil
 }
@@ -2875,7 +2939,20 @@ func mapWriteErr(err error) error {
 // withdrawal of an already-withdrawn item matches no rows and publishes nothing,
 // and the event's idempotency key is versioned on the post-update row_version, so
 // even a retried transaction collides on that index and no-ops.
+// WithdrawItemsBySource retries the whole transaction when PostgreSQL picks it as a deadlock victim (40P01).
+// The transaction touches notification_requests (auto-resolve, unread-counter triggers); lock
+// ordering prevents the deadlock, this is the bounded backstop.
 func (r *Repository) WithdrawItemsBySource(ctx context.Context, tenantID, sourceModule, sourceRefType string, sourceRefIDs []string) (int, error) {
+	var out int
+	err := platformpostgres.RetryOnDeadlock(ctx, func(ctx context.Context) error {
+		var err error
+		out, err = r.withdrawItemsBySourceOnce(ctx, tenantID, sourceModule, sourceRefType, sourceRefIDs)
+		return err
+	})
+	return out, err
+}
+
+func (r *Repository) withdrawItemsBySourceOnce(ctx context.Context, tenantID, sourceModule, sourceRefType string, sourceRefIDs []string) (int, error) {
 	if len(sourceRefIDs) == 0 {
 		return 0, nil
 	}
@@ -2919,6 +2996,9 @@ RETURNING `+itemColumns, tenantID, sourceModule, sourceRefType, sourceRefIDs)
 		if err := insertOutboxEvent(ctx, tx, tenantID, EventItemClosed, item.ItemID, idempotencyKey, verificationVerdictPayload(item)); err != nil {
 			return 0, err
 		}
+	}
+	if err := resolveDecisionNotifications(ctx, tx, tenantID, itemIDsOf(withdrawn), ""); err != nil {
+		return 0, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return 0, mapWriteErr(err)
@@ -3046,4 +3126,13 @@ WHERE tenant_id = $1::uuid
 		r.invalidateReadCache()
 	}
 	return affected, nil
+}
+
+// itemIDsOf lists the item ids of a decision, for its single resolveDecisionNotifications call.
+func itemIDsOf(items []domain.Item) []string {
+	ids := make([]string, 0, len(items))
+	for _, item := range items {
+		ids = append(ids, item.ItemID)
+	}
+	return ids
 }
