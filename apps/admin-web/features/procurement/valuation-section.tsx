@@ -120,7 +120,21 @@ export function ValuationSection({
           <input
             type="hidden"
             name="stages"
-            value={JSON.stringify(rows.map((s, i) => ({ stage: s.stage || s.rid, label: s.label, display_order: i + 1, matches: s.matches })))}
+            // `field_key` is what the weight/price inputs on this row are NAMED after, and it stays
+            // the row's id so the name does not change under the cursor while a stage is being
+            // typed. `stage` is the key it will be STORED under, derived from the label here the
+            // same way the backend derives it -- posting the row id would have written `new_1`
+            // into the database as a stage key, and the next stage added after a reload would
+            // collide with it and be refused.
+            value={JSON.stringify(
+              rows.map((s, i) => ({
+                stage: s.stage || stageKeyFromLabel(s.label),
+                field_key: s.stage || s.rid,
+                label: s.label,
+                display_order: i + 1,
+                matches: s.matches,
+              })),
+            )}
           />
           <div className="tablewrap sales-valuation-tablewrap">
             <table className="tbl">

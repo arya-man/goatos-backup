@@ -43,20 +43,30 @@ export async function saveValuationAction(previous: ValuationActionState, formDa
   const buckets: ValuationBucket[] = [];
   stages.forEach((stage, si) => {
     ["female", "male"].forEach((gender, gi) => {
+      // The inputs are NAMED after the row's field key, which for a stage being added is its row
+      // id; the bucket is KEYED by the stage key it will be stored under. Reading by one and
+      // posting by the other is what lets a new stage be typed without its inputs being renamed
+      // mid-keystroke.
+      const fieldKey = (stage as { field_key?: string }).field_key || stage.stage;
       const key = `${stage.stage}_${gender}`;
       buckets.push({
         bucket: key,
         // The card's words are composed by the backend from the stage's own label, so a stage
         // renamed here renames both its cards and nothing has to be kept in step.
         label: "",
-        fixed_weight_kg: num(formData.get(`weight_${key}`)),
-        price_per_kg: num(formData.get(`price_${key}`)) ?? Number.NaN,
+        fixed_weight_kg: num(formData.get(`weight_${fieldKey}_${gender}`)),
+        price_per_kg: num(formData.get(`price_${fieldKey}_${gender}`)) ?? Number.NaN,
         display_order: si * 2 + gi + 1,
       });
     });
   });
   const body = {
-    stages: stages.map((s, i) => ({ ...s, display_order: i + 1 })),
+    // field_key is the SCREEN's business -- which inputs belong to which row -- and must not ride
+    // to the backend as part of the authored stage.
+    stages: stages.map((s, i) => {
+      const { stage, label, matches } = s;
+      return { stage, label, matches, display_order: i + 1 };
+    }),
     buckets,
     unsold_stock_price_rupees: num(formData.get("unsold_stock_price_rupees")),
     row_version: Number(formData.get("row_version") ?? 0),
