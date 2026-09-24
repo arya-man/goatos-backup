@@ -15,7 +15,7 @@ import (
 )
 
 // The routing half of Health Config: which diagnosis types exist, and which animals reach each
-// one (migration 000395).
+// one (migration 000400).
 //
 // Every read here is a CONFIG read -- once per screen open, never per animal -- so it is allowed
 // to be broader than the serving read in diagnosis_repository.go, which resolves one animal
@@ -385,7 +385,7 @@ func (r *Repository) SaveDiagnosisType(ctx context.Context, cmd domain.SaveDiagn
 
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
-		// A create. is_builtin is never set from a request: only migration 000395 mints those,
+		// A create. is_builtin is never set from a request: only migration 000400 mints those,
 		// because being built-in means "this type's register is the committed rulebook", which a
 		// farm cannot make true by ticking a box.
 		if _, err := tx.Exec(ctx, sqlInsertDiagnosisType,

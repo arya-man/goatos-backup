@@ -67,7 +67,7 @@ type RegisterAuthoring interface {
 }
 
 // DiagnosisTypeAuthoring is the ROUTING half of Health Config: which types exist, and which
-// animals reach each one (migration 000395).
+// animals reach each one (migration 000400).
 //
 // It is a separate interface from RegisterAuthoring because the two answer different questions
 // and a caller usually wants one of them: RegisterAuthoring edits a type's RULES, this decides

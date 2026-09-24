@@ -8,7 +8,7 @@ import (
 )
 
 // DiagnosisTypeService is the ROUTING half of Health Config: which diagnosis types exist and
-// which animals reach each one (migration 000395).
+// which animals reach each one (migration 000400).
 //
 // It is thin on purpose. The rules that matter here are either in the domain commands
 // (shape, the built-in retire refusal) or in the repository transaction (key immutability,

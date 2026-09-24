@@ -9,7 +9,7 @@ import (
 )
 
 // The authoring vocabulary for diagnosis TYPES and the stages that reach them
-// (migration 000395). The rules here are the ones a screen must not be able to talk the
+// (migration 000400). The rules here are the ones a screen must not be able to talk the
 // backend out of, so they live beside the resolution rule they protect rather than in a
 // handler.
 

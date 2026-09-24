@@ -9,7 +9,7 @@ import (
 
 // StageRoute is one authored answer to "which diagnosis type does this animal reach".
 //
-// It is the row `health_diagnosis_stage_routes` holds (migration 000395), carried into the
+// It is the row `health_diagnosis_stage_routes` holds (migration 000400), carried into the
 // domain so the resolution rule below stays pure and testable without a database.
 type StageRoute struct {
 	// AgeBand is `adult` or `kid`, matching the goat's own band.
@@ -119,7 +119,7 @@ func (r StageRouting) Resolve(ageBand, managementStage string) (typeKey string, 
 func normalizeRouteKey(s string) string { return strings.ToLower(strings.TrimSpace(s)) }
 
 // BuiltinStageRoutes is the routing the engine SHIPPED with, and it is the golden ORACLE for
-// migration 000395's seed -- nothing on the runtime path may read it.
+// migration 000400's seed -- nothing on the runtime path may read it.
 //
 // It is kept so a test can prove the seeded table reproduces the shipped behaviour row for
 // row. Once routing is authored, this list is history: it says how a farm's routing was BORN,

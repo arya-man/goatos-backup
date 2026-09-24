@@ -305,7 +305,7 @@ func containsString(list []string, want string) bool {
 	return false
 }
 
-// shippedRouting is the routing the engine SHIPPED with, which migration 000395 seeds row for
+// shippedRouting is the routing the engine SHIPPED with, which migration 000400 seeds row for
 // row. Every assertion in this file predates authored routing and describes that behaviour, so
 // they run against it -- which is also what makes them a regression test for the seed: if the
 // oracle and these expectations ever disagree, the farm's routing was born wrong.

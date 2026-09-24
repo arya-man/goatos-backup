@@ -36,7 +36,7 @@ func NewRegisterConfigService(repo ports.RegisterAuthoring) *RegisterConfigServi
 }
 
 // WithTypes lets the register editor author a register for any ACTIVE authored type, not just
-// the four the engine shipped with (migration 000395). Without it, creating a type on the
+// the four the engine shipped with (migration 000400). Without it, creating a type on the
 // routing screen would produce one nobody could ever write rules for.
 func (s *RegisterConfigService) WithTypes(types ports.DiagnosisTypeAuthoring) *RegisterConfigService {
 	s.types = types

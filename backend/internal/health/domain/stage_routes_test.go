@@ -147,7 +147,7 @@ func TestRoutingIsCaseAndSpaceInsensitive(t *testing.T) {
 // THE SEED REPRODUCES THE SHIPPED ROUTING -- the kid rows literally, the adult side by
 // construction.
 //
-// Migration 000395 moves routing out of Go, and the one thing that must not change on deploy is
+// Migration 000400 moves routing out of Go, and the one thing that must not change on deploy is
 // which register an animal reaches. The KID rows are a VALUES block and are compared here row for
 // row against the oracle.
 //
@@ -161,7 +161,7 @@ func TestRoutingIsCaseAndSpaceInsensitive(t *testing.T) {
 // stage, without which such a tenant would have every adult refused on deploy day.
 func TestMigrationSeedReproducesTheShippedRouting(t *testing.T) {
 	path := filepath.Join("..", "..", "..", "migrations", "postgres",
-		"000396_health_diagnosis_types_and_stage_routes.sql")
+		"000400_health_diagnosis_types_and_stage_routes.sql")
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read migration: %v", err)
