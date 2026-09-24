@@ -241,12 +241,15 @@ interface OutboxDao {
     @Query(
         "SELECT COUNT(*) FROM outbox WHERE groupKey = :groupKey " +
             "AND opType = 'HEALTH_STEP_PROOF_REGISTER' " +
-            "AND createdAt > :createdAt " +
+            "AND (createdAt > :createdAt " +
+            "  OR (createdAt = :createdAt AND rowid > (SELECT rowid FROM outbox WHERE id = :candidateId LIMIT 1))) " +
+            "AND id != :candidateId " +
             "AND payloadJson LIKE :healthSessionStepIdNeedle " +
             "AND (status IN ('QUEUED', 'IN_FLIGHT', 'SUCCEEDED') " +
             "  OR (status = 'FAILED' AND conflict = 0 AND attemptCount < maxAttempts))",
     )
     suspend fun hasNewerHealthStepProofRegister(
+        candidateId: String,
         groupKey: String,
         healthSessionStepIdNeedle: String,
         createdAt: Long,

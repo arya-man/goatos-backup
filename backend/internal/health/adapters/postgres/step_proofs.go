@@ -13,9 +13,11 @@ import (
 // ONE VIDEO PER TREATMENT STEP (maintainer decision 2026-09-23). See domain/step_proofs.go.
 
 const sqlStepBelongsToSession = `
-SELECT 1
-FROM health_session_steps
-WHERE tenant_id = $1::uuid AND health_session_id = $2::uuid AND health_session_step_id = $3::uuid`
+SELECT hs.status
+FROM health_session_steps ss
+JOIN health_treatment_sessions hs
+  ON hs.tenant_id = ss.tenant_id AND hs.health_session_id = ss.health_session_id
+WHERE ss.tenant_id = $1::uuid AND ss.health_session_id = $2::uuid AND ss.health_session_step_id = $3::uuid`
 
 // A re-shoot REPLACES the step's clip. The verifier receives exactly one video per step, never a
 // pile of attempts, and the idempotency key is refreshed so a retry of the NEW capture collapses
@@ -56,13 +58,17 @@ func (r *Repository) RecordStepProof(ctx context.Context, in domain.RecordStepPr
 	// The step must belong to THIS session. Refused rather than ignored: a caller that could
 	// attach a video to another session's step could file evidence of one animal's treatment
 	// onto another animal's card.
-	var ok int
-	err := r.pool.QueryRow(ctx, sqlStepBelongsToSession, in.TenantID, in.SessionID, in.StepID).Scan(&ok)
+	var status string
+	err := r.pool.QueryRow(ctx, sqlStepBelongsToSession, in.TenantID, in.SessionID, in.StepID).Scan(&status)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.StepProof{}, domain.ErrStepNotInSession
 	}
 	if err != nil {
 		return domain.StepProof{}, fmt.Errorf("health: resolve session step: %w", err)
+	}
+	switch status {
+	case "completed", "held_death_review", "canceled_death", "canceled":
+		return domain.StepProof{}, domain.ErrStepProofClosed
 	}
 
 	var out domain.StepProof

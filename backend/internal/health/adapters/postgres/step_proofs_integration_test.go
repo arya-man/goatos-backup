@@ -173,6 +173,64 @@ func TestReshootingAStepReplacesItsClip(t *testing.T) {
 	}
 }
 
+func TestSubmittedSessionRefusesStepProofMutation(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedHealthScope(t, ctx, pool)
+
+	medicine, dose := "Tylosin", "1 ml"
+	repo := NewRepository(pool, 10*time.Second)
+	if err := repo.ReplacePublishedProtocols(ctx, healthTenant, healthActor, "health-test", "hash-closed-proof",
+		[]domain.SourceProtocol{{
+			DiseaseKey: "fever", DisplayName: "Fever", AgeBand: domain.AgeBandAdult, DurationDays: 1,
+			Steps: []domain.ProtocolStep{{DayNo: 1, Session: domain.SessionMorning, Seq: 1,
+				RecordType: "medication", MedicineName: &medicine, DosageText: &dose}},
+		}}); err != nil {
+		t.Fatalf("publish protocol: %v", err)
+	}
+	loc, _ := time.LoadLocation("Asia/Kolkata")
+	today := time.Now().In(loc)
+	repo.now = func() time.Time {
+		return time.Date(today.Year(), today.Month(), today.Day(), 9, 0, 0, 0, loc)
+	}
+	opened, err := repo.OpenCase(ctx, domain.OpenCaseInput{
+		TenantID: healthTenant, ActorID: healthActor, GoatID: healthGoat,
+		DiseaseKey: "fever", AgeBand: domain.AgeBandAdult, StartDate: today,
+		IdempotencyKey: "open-closed-proof", RequestFingerprint: "open-closed-proof",
+	})
+	if err != nil {
+		t.Fatalf("open case: %v", err)
+	}
+	detail, _ := repo.GetWorkItem(ctx, healthTenant, opened.FirstSessionID)
+	step := detail.Steps[0].StepID
+	if _, err := repo.RecordStepProof(ctx, domain.RecordStepProofInput{
+		TenantID: healthTenant, ActorID: healthActor, SessionID: opened.FirstSessionID,
+		StepID: step, ProofRef: "submitted-take", IdempotencyKey: "sp-submitted",
+	}); err != nil {
+		t.Fatalf("record step proof: %v", err)
+	}
+	if _, err := repo.CompleteWorkItem(ctx, domain.CompleteInput{
+		TenantID: healthTenant, ActorID: healthActor, SessionID: opened.FirstSessionID,
+		IdempotencyKey: "close-closed-proof", RequestFingerprint: "close-closed-proof",
+	}); err != nil {
+		t.Fatalf("complete session: %v", err)
+	}
+
+	_, err = repo.RecordStepProof(ctx, domain.RecordStepProofInput{
+		TenantID: healthTenant, ActorID: healthActor, SessionID: opened.FirstSessionID,
+		StepID: step, ProofRef: "late-reshoot", IdempotencyKey: "sp-late",
+	})
+	if !errors.Is(err, domain.ErrStepProofClosed) {
+		t.Fatalf("late reshoot error = %v, want ErrStepProofClosed", err)
+	}
+	proofs, err := repo.StepProofs(ctx, healthTenant, opened.FirstSessionID)
+	if err != nil || len(proofs) != 1 || proofs[0].ProofRef != "submitted-take" {
+		t.Fatalf("stored proof after late reshoot = %+v, err=%v; want submitted-take unchanged", proofs, err)
+	}
+}
+
 // A step from ANOTHER session is refused, not ignored. A caller that could aim at one would file
 // one animal's treatment evidence onto another animal's card.
 func TestAStepFromAnotherSessionIsRefused(t *testing.T) {

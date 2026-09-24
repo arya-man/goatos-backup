@@ -279,6 +279,8 @@ func (h *Handler) writeDomainError(w http.ResponseWriter, r *http.Request, err e
 		h.writeError(w, r, http.StatusUnprocessableEntity, "session_not_due", msg, err)
 	case errors.Is(err, domain.ErrStepNotInSession):
 		h.writeError(w, r, http.StatusUnprocessableEntity, "step_not_in_session", err.Error(), err)
+	case errors.Is(err, domain.ErrStepProofClosed):
+		h.writeError(w, r, http.StatusConflict, "step_proof_closed", err.Error(), err)
 	case errors.Is(err, domain.ErrInvalidStepProof):
 		h.writeError(w, r, http.StatusBadRequest, "invalid_step_proof", err.Error(), err)
 	case errors.Is(err, healthapp.ErrInvalidInput), errors.Is(err, healthapp.ErrInvalidDate):
