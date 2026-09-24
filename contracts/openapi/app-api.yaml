@@ -24812,7 +24812,7 @@ components:
         One day of target-vs-actual feed totals over the same comparison rows the table shows.
         `actual_kg` is EMPTY on a day with no packing readings at all, so the chart draws a gap
         rather than a plunge to zero.
-      required: [feed_day, packing_day, target_kg, actual_kg, variance_rows, compared_rows]
+      required: [feed_day, packing_day, target_kg, actual_kg, measured_target_kg, variance_rows, compared_rows]
       properties:
         feed_day:
           type: string
@@ -24825,6 +24825,11 @@ components:
           type: string
         actual_kg:
           type: string
+        measured_target_kg:
+          type: string
+          description: >-
+            What the sheet directed for ONLY the bags a verifier weighed that day, bag for bag, so the
+            trend compares like with like; EMPTY when no bag was weighed.
         variance_rows:
           type: integer
           format: int64

@@ -2199,14 +2199,22 @@ ON CONFLICT (tenant_id, shed_id, normalized_label) DO NOTHING`,
 	if mustFloat(t, packed29.ActualKg) != 8.0 {
 		t.Errorf("measured kg = %q, want 8.000 (only what a verifier weighed)", packed29.ActualKg)
 	}
+	// LIKE FOR LIKE (maintainer request 2026-09-24: "what measured, that's enough"). The chart's
+	// directed line is what the sheet directed for ONLY the weighed bags -- Castro's 10.0, not
+	// Gandhi's unweighed 4.0 -- so a partly weighed day no longer dips as if feed went missing.
+	// target_kg above stays the whole sheet for every other reader.
+	if mustFloat(t, packed29.MeasuredTargetKg) != 10.0 {
+		t.Errorf("directed kg for the weighed bags = %q, want 10.000 (Castro only)", packed29.MeasuredTargetKg)
+	}
 	// A sheet day nobody has weighed yet: directed stands, measured is EMPTY so the chart draws a
 	// gap there rather than a plunge to zero that would read as "the farm fed nothing".
 	packed28, ok := byPackingDay["2026-07-28"]
 	if !ok {
 		t.Fatalf("feed day 2026-07-29 was packed on 07-28 and must be on the axis: %+v", got.ConsumptionTrend)
 	}
-	if mustFloat(t, packed28.TargetKg) != 5.0 || packed28.ActualKg != "" {
-		t.Errorf("unweighed day = directed %q / measured %q, want 5.000 and empty", packed28.TargetKg, packed28.ActualKg)
+	if mustFloat(t, packed28.TargetKg) != 5.0 || packed28.ActualKg != "" || packed28.MeasuredTargetKg != "" {
+		t.Errorf("unweighed day = directed %q / measured %q / directed-for-weighed %q, want 5.000, empty, empty",
+			packed28.TargetKg, packed28.ActualKg, packed28.MeasuredTargetKg)
 	}
 
 	// PARK SCOPE: another park's id must empty both arms rather than leak CBE's sheds.

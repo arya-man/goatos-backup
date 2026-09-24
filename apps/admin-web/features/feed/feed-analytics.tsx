@@ -1334,7 +1334,9 @@ function ExecutionTab({
     {
       label: fa(pageContract, "col.consumption.target"),
       colorVar: FEED_SERIES_VARS[0],
-      points: data.consumption_trend.map((d) => num(d.target_kg)),
+      // Directed kg for ONLY the bags that were weighed, so a partly weighed day compares like
+      // with like instead of dipping as if feed went missing. Empty (a gap) when nothing was weighed.
+      points: data.consumption_trend.map((d) => (d.measured_target_kg === "" ? null : num(d.measured_target_kg))),
     },
     {
       // A day nobody has verified yet carries an EMPTY actual, which draws a gap. Reading it as 0

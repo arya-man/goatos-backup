@@ -514,9 +514,13 @@ type FeedConsumptionTrendDay struct {
 	TargetKg   string
 	// ActualKg is EMPTY on a day with no packing readings at all, so the chart draws a GAP rather
 	// than a plunge to zero that would read as "the farm fed nothing that day".
-	ActualKg     string
-	VarianceRows int64
-	ComparedRows int64
+	ActualKg string
+	// MeasuredTargetKg is what the sheet directed for ONLY the bags a verifier weighed that day,
+	// bag for bag, so the trend compares like with like: a day where half the bags were weighed
+	// no longer reads as half the feed missing. EMPTY when no bag was weighed.
+	MeasuredTargetKg string
+	VarianceRows     int64
+	ComparedRows     int64
 }
 
 // ExecutionAnalytics is the /feed-analytics/execution payload.
