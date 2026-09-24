@@ -146,7 +146,7 @@ func TestNotificationFeedScale(t *testing.T) {
 					}
 					rows.Close()
 
-					if e = conn.QueryRow(ctx, sqlUnreadCount, ncTenant, ncUserA).Scan(&unread); e != nil {
+					if e = conn.QueryRow(ctx, sqlUnreadCountLegacy, ncTenant, ncUserA).Scan(&unread); e != nil {
 						t.Fatal(e)
 					}
 					if sample > 0 {
