@@ -613,7 +613,11 @@ export async function FeedAnalyticsPage({
             value: faPark,
             allowAll: true,
             disabledReason: parkId ? fa(pageContract, "filter.scope_readonly") : undefined,
-            options: locations.parks.map((park) => ({ value: park.id, label: park.name })),
+            // The farm by its CODE (CBE, CPT), in code order: the spelling and order every other
+            // table on this page uses. The full name sorted Channapatna ahead of Coimbatore.
+            options: locations.parks
+              .map((park) => ({ value: park.id, label: park.code || park.name }))
+              .sort((a, b) => a.label.localeCompare(b.label)),
           }}
         />
       ) : null}
