@@ -115,6 +115,7 @@ async function syncSignedInUser(user: User): Promise<User> {
 
 export async function clearFirebaseSession(): Promise<void> {
   const auth = await getFirebaseAuth();
+  if (auth.currentUser) sessionSyncDeduper.forget(auth.currentUser.uid);
   await fetch(SESSION_ROUTE, { method: "DELETE", cache: "no-store" });
   await signOut(auth);
 }

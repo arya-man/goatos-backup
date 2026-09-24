@@ -54,3 +54,23 @@ test("different users in one browser session each get their own sign_in", async 
   await new SessionSyncDeduper(store).bridge("u2", TOKEN_B, r.post);
   assert.deepEqual(r.events, ["auth.sign_in", "auth.sign_in"]);
 });
+
+test("logout then login of the same user in the same tab records a fresh auth.sign_in", async () => {
+  const store = memorySessionSyncStore();
+  const r = recorder();
+  const d = new SessionSyncDeduper(store);
+  await d.signIn("u", TOKEN_A, r.post);
+  d.forget("u");
+  await new SessionSyncDeduper(store).bridge("u", TOKEN_B, r.post);
+  assert.deepEqual(r.events, ["auth.sign_in", "auth.sign_in"]);
+});
+
+test("an explicit login never settles for a concurrent session_refresh of the same token", async () => {
+  const store = memorySessionSyncStore();
+  const r = recorder();
+  const d = new SessionSyncDeduper(store);
+  await d.signIn("u", TOKEN_A, r.post); // earlier sign-in this session
+  // Bridge sees a new token first and starts a refresh; login for the same token races it.
+  await Promise.all([d.bridge("u", TOKEN_B, r.post), d.signIn("u", TOKEN_B, r.post)]);
+  assert.deepEqual(r.events, ["auth.sign_in", "auth.session_refresh", "auth.sign_in"]);
+});
