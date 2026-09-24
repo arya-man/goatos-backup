@@ -4,6 +4,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -280,7 +281,11 @@ func (r *Repository) listRowsCanonical(ctx context.Context, q domain.Query, args
 		go func() {
 			defer wg.Done()
 			if q.IncludeAdherenceSummary {
-				summaryRows := r.pool.QueryRow(ctx, processIntegrityCanonicalAdherenceSummarySQL, append([]any{pgx.QueryExecModeExec}, countQueryArgs(args)...)...)
+				c := countQueryArgs(args)
+				// Arguments are spelled out (not spread) so the bind-contract check proves them
+				// against the constant SQL; countQueryArgs already pins the length at 16.
+				summaryRows := r.pool.QueryRow(ctx, processIntegrityCanonicalAdherenceSummarySQL, pgx.QueryExecModeExec,
+					c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8], c[9], c[10], c[11], c[12], c[13], c[14], c[15])
 				if err := summaryRows.Scan(
 					&summary.ExpectedCount,
 					&summary.CompletedCount,
@@ -323,7 +328,13 @@ func (r *Repository) listRowsCanonical(ctx context.Context, q domain.Query, args
 }
 
 func (r *Repository) fetchCanonicalRows(ctx context.Context, q domain.Query, args []any) ([]domain.Row, *domain.Cursor, bool, error) {
-	rows, err := r.pool.Query(ctx, processIntegrityCanonicalRowsSQL, append([]any{pgx.QueryExecModeExec}, args...)...)
+	if len(args) != rowsQueryArgCount {
+		return nil, nil, false, fmt.Errorf("processintegrity: list canonical rows: got %d args, want %d", len(args), rowsQueryArgCount)
+	}
+	// Arguments are spelled out (not spread) so the bind-contract check proves them against the
+	// constant SQL.
+	rows, err := r.pool.Query(ctx, processIntegrityCanonicalRowsSQL, pgx.QueryExecModeExec,
+		args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7], args[8], args[9], args[10], args[11], args[12], args[13], args[14], args[15], args[16], args[17], args[18], args[19])
 	if err != nil {
 		return nil, nil, false, fmt.Errorf("processintegrity: list canonical rows: %w", err)
 	}
@@ -365,7 +376,13 @@ func canonicalProjectionMetadata(q domain.Query) domain.ProjectionMetadata {
 }
 
 func (r *Repository) countByWorkStateCanonical(ctx context.Context, args []any) ([]domain.CountByWorkState, int64, error) {
-	countRows, err := r.pool.Query(ctx, processIntegrityCanonicalCountsSQL, append([]any{pgx.QueryExecModeExec}, args...)...)
+	if len(args) != countQueryArgCount {
+		return nil, 0, fmt.Errorf("processintegrity: count canonical rows: got %d args, want %d", len(args), countQueryArgCount)
+	}
+	// Arguments are spelled out (not spread) so the bind-contract check proves them against the
+	// constant SQL.
+	countRows, err := r.pool.Query(ctx, processIntegrityCanonicalCountsSQL, pgx.QueryExecModeExec,
+		args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7], args[8], args[9], args[10], args[11], args[12], args[13], args[14], args[15])
 	if err != nil {
 		return nil, 0, fmt.Errorf("processintegrity: count canonical rows: %w", err)
 	}
@@ -387,7 +404,49 @@ func (r *Repository) countByWorkStateCanonical(ctx context.Context, args []any) 
 	return counts, totalCount, nil
 }
 
+// batchRowIDPattern is the batched grain's row_id as composed in the derived CTE:
+// batch:<id>:rule:<id>:protocol_version:<id>:shed:<id>:partition:<label>:date:<IST date>.
+var batchRowIDPattern = regexp.MustCompile(`^batch:[0-9a-f-]{36}:rule:[0-9a-f-]{36}:protocol_version:([0-9a-f-]{36}):shed:([0-9a-f-]{36}):partition:.*:date:(\d{4}-\d{2}-\d{2})$`)
+
+// narrowQueryToRowID pushes what a batched row_id already names into the base filters, so a
+// drilldown builds one shed/protocol-version's grains from the row's date on instead of the
+// tenant's whole history ($12 row_id only filters after every grain is built):
+//   - shed ($3) and protocol version ($9) are grouping keys of the grain and are applied before
+//     grouping, so the row keeps every one of its members;
+//   - the date is the grain's MIN(execution_due_at) business date, so no member is earlier and
+//     it is a safe lower bound ($4, same effective date as the window filter).
+//
+// A caller's own narrower scope is never widened. obligation:/feed exception ids carry no
+// location or date and are left as they are.
+func narrowQueryToRowID(q domain.Query, rowID string) domain.Query {
+	if q.ScopeLatestDrive {
+		// The latest-drive scope is chosen from the whole window; narrowing could change it.
+		return q
+	}
+	m := batchRowIDPattern.FindStringSubmatch(rowID)
+	if m == nil {
+		return q
+	}
+	day, err := time.ParseInLocation("2006-01-02", m[3], biztime.DefaultLocation())
+	if err != nil {
+		return q
+	}
+	if q.ProtocolVersionID == nil {
+		pv := m[1]
+		q.ProtocolVersionID = &pv
+	}
+	if q.ShedID == nil {
+		shed := m[2]
+		q.ShedID = &shed
+	}
+	if q.DueAfter == nil || q.DueAfter.Before(day) {
+		q.DueAfter = &day
+	}
+	return q
+}
+
 func (r *Repository) GetRow(ctx context.Context, q domain.Query, rowID string) (domain.Row, bool, error) {
+	q = narrowQueryToRowID(q, rowID)
 	q.RowID = &rowID
 	q.Limit = 1
 	q.IncludeCompleted = true
@@ -1123,6 +1182,21 @@ raw AS MATERIALIZED (
     ON te.obligation_id = oi.obligation_id
   WHERE oi.tenant_id = $1::uuid
     AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'completed', 'missed', 'waived')
+    -- ROW-ID PUSHDOWN ($12, drilldown only). row_id used to be applied only in the filtered CTE, after
+    -- every grain of the window was built. A grain's members all share its batch_id (a grouping
+    -- key taken from oi.batch_id), so a batched row_id keeps only that batch's obligations, an
+    -- obligation: row_id (unbatched grain) only batchless ones, and a feed exception row_id none
+    -- (those rows come from feed_exception_rows). Membership of the requested row is unchanged.
+    -- Skipped under the latest-drive scope ($16), which picks its scope from the whole window.
+    -- CASE keeps the uuid cast unevaluated unless the id has the exact batch shape.
+    AND CASE
+      WHEN $12::text = '' OR $16::boolean THEN true
+      WHEN $12::text ~ '^batch:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}:'
+        THEN oi.batch_id = substr($12::text, 7, 36)::uuid
+      WHEN $12::text LIKE 'obligation:%' THEN oi.batch_id IS NULL
+      WHEN $12::text LIKE 'feed_projection_exception:%' THEN false
+      ELSE true
+    END
     -- INDEX-USABLE SUPERSET of the two effective-due-date bounds below. Every arm is a bare
     -- obligation_instances column predicate, so the planner can ride
     -- obligation_instances_due_window_idx (tenant_id, status, due_at, obligation_id) and
