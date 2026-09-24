@@ -333,21 +333,9 @@ func (s *Source) collect(ctx context.Context, q ports.SourceQuery) ([]domain.Row
 	}
 	ctx, cancel := context.WithTimeout(ctx, s.readBudget())
 	defer cancel()
-	memberID := ""
-	if q.OwnerUserID != "" {
-		if s.members == nil {
-			return nil, ErrOwnerScopeUnresolvable
-		}
-		id, found, err := s.members.WorkforceMemberIDForUser(ctx, q.TenantID, q.OwnerUserID)
-		if err != nil {
-			return nil, fmt.Errorf("vaccination boardsource: resolve owner: %w", err)
-		}
-		if !found {
-			// A user with no workforce profile owns no vaccination pen: the wrapped read keys
-			// every operator through workforce_members, so nothing can be theirs.
-			return nil, nil
-		}
-		memberID = id
+	memberID, ownsNothing, err := s.ownerMember(ctx, q)
+	if err != nil || ownsNothing {
+		return nil, err
 	}
 
 	piq := processIntegrityQuery(q, dayStart, s.now())
@@ -408,6 +396,76 @@ func (s *Source) collect(ctx context.Context, q ports.SourceQuery) ([]domain.Row
 		return nil, err
 	}
 	return out, nil
+}
+
+// ownerMember resolves the owner lens to the workforce member id the wrapped read keys
+// operators by. ownsNothing is true for a user with no workforce profile: the wrapped read keys
+// every operator through workforce_members, so nothing can be theirs.
+func (s *Source) ownerMember(ctx context.Context, q ports.SourceQuery) (memberID string, ownsNothing bool, err error) {
+	if q.OwnerUserID == "" {
+		return "", false, nil
+	}
+	if s.members == nil {
+		return "", false, ErrOwnerScopeUnresolvable
+	}
+	id, found, err := s.members.WorkforceMemberIDForUser(ctx, q.TenantID, q.OwnerUserID)
+	if err != nil {
+		return "", false, fmt.Errorf("vaccination boardsource: resolve owner: %w", err)
+	}
+	if !found {
+		return "", true, nil
+	}
+	return id, false, nil
+}
+
+// FindRowByID implements ports.SingleRowSource: the row a subtask drill or a flag names, read
+// with ONE row_id-keyed canonical statement ($12 row_id) on the same park-day window, owner
+// lens and category the board's ListRows applies. It skips the due-work precheck (a keyed
+// read of one row is already cheap) and the park-day page walk FindRow used to pay
+// (precheck + up to maxWalkPages canonical pages) before a 5 ms subtask read.
+func (s *Source) FindRowByID(ctx context.Context, q ports.SourceQuery, sourceID string) (domain.Row, bool, error) {
+	if pidomain.ValidateRowID(sourceID) != nil {
+		return domain.Row{}, false, nil
+	}
+	dayStart, err := time.ParseInLocation("2006-01-02", strings.TrimSpace(q.BusinessDate), biztime.DefaultLocation())
+	if err != nil {
+		return domain.Row{}, false, fmt.Errorf("vaccination boardsource: business date %q (%v): %w", q.BusinessDate, err, domain.ErrInvalidQuery)
+	}
+	ctx, cancel := context.WithTimeout(ctx, s.readBudget())
+	defer cancel()
+	memberID, ownsNothing, err := s.ownerMember(ctx, q)
+	if err != nil || ownsNothing {
+		return domain.Row{}, false, err
+	}
+	piq := processIntegrityQuery(q, dayStart, s.now())
+	if memberID != "" {
+		owner := memberID
+		piq.OwnerID = &owner
+	}
+	rowID := sourceID
+	piq.RowID = &rowID
+	listRows := s.repo.ListRows
+	if rowsOnly, ok := s.repo.(RowsOnlyLister); ok {
+		listRows = rowsOnly.ListRowsOnly
+	}
+	res, err := listRows(ctx, piq)
+	if err != nil {
+		return domain.Row{}, false, fmt.Errorf("vaccination boardsource: find row: %w", err)
+	}
+	for _, pr := range res.Rows {
+		if pr.RowID != sourceID || pr.Category != pidomain.CategoryVaccination {
+			continue
+		}
+		if memberID != "" && (pr.Owner.OperatorID == nil || *pr.Owner.OperatorID != memberID) {
+			continue
+		}
+		out := []domain.Row{mapRow(pr)}
+		if err := s.fillOwnerUserIDs(ctx, q.TenantID, out); err != nil {
+			return domain.Row{}, false, err
+		}
+		return out[0], true, nil
+	}
+	return domain.Row{}, false, nil
 }
 
 // The source query always uses one fixed page size and canonical all-state
