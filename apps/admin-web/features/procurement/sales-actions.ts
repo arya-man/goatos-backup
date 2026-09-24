@@ -98,7 +98,7 @@ function readSaleForm(formData: FormData): SalesDealWrite {
   };
 }
 
-export async function recordSaleAction(formData: FormData): Promise<void> {
+export async function recordSaleAction(formData: FormData): Promise<{ code: string; message: string } | undefined> {
   // A fresh key per submit: retries of THIS action invocation cannot duplicate the deal, while a
   // deliberate second submit records a second deal, which is what the operator asked for.
   const result = await createSalesDeal(readSaleForm(formData), randomUUID());
@@ -109,13 +109,13 @@ export async function recordSaleAction(formData: FormData): Promise<void> {
     // through so the desk sees what the store actually holds, which is the question it is being
     // asked to answer.
     if (result.error.code === "feed_stock_confirmation_required") {
-      actionRedirectWithDetail(formData, "error", "action.sale_feed_stock_confirm", result.error.message);
+      return { code: "feed_stock_confirmation_required", message: result.error.message };
     }
     // The backend names the exact field and what is wrong with it ("Quantity must be more than
     // zero"); the banner used to drop that and say "check the fields", leaving the desk to hunt
     // through a form of ten. The sentence is backend-composed farm copy, carried through the same
     // way the stock confirmation's is.
-    actionRedirectWithDetail(formData, "error", "action.sale_record_failed", result.error.message);
+    return { code: result.error.code ?? "sale_record_failed", message: result.error.message };
   }
   revalidatePath(SALES_PATH);
   actionRedirect(formData, "success", "action.sale_recorded");

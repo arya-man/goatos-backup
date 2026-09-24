@@ -428,3 +428,23 @@ func AggregateFeedDemand(lines []DealLineWrite) []FeedDemand {
 	}
 	return out
 }
+
+// ValidateFeedItems refuses stock movements that cannot resolve to the tenant's active feed catalog.
+func ValidateFeedItems(lines []DealLineWrite, items []string) error {
+	for i, line := range lines {
+		if line.Kind() != KindFeed {
+			continue
+		}
+		found := false
+		for _, item := range items {
+			if strings.EqualFold(strings.TrimSpace(item), line.Breed) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return ErrDealValidation{Field: fmt.Sprintf("lines[%d].breed", i+1), Reason: "pick an active feed from the feed catalog"}
+		}
+	}
+	return nil
+}

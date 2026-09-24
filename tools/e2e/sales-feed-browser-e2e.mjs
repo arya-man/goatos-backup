@@ -65,6 +65,7 @@ async function recordSale({ farm, lines, buyer, ack = false, status }) {
     await goConfig();
     await openDrawer();
   }
+  if (!ack) {
   await page.locator("summary.move-date-button").first().click();
   await page.locator("button.move-date-day.today").first().click();
   await page.selectOption('select[name="farm"]', farm);
@@ -90,6 +91,7 @@ async function recordSale({ farm, lines, buyer, ack = false, status }) {
   await page.selectOption('select[name="buyer_vendor_id"]', vend);
   await page.fill('input[name="buyer_name"]', buyer);
   if (status) await page.selectOption('select[name="status"]', status);
+  }
   if (ack) await page.check('input[name="stock_shortfall_acknowledged"]');
   await page.evaluate(() => {
     const url = new URL(location.href);
@@ -98,7 +100,14 @@ async function recordSale({ farm, lines, buyer, ack = false, status }) {
   });
   const form = page.locator("form").filter({ has: page.locator('[name="line_product_type_0"]') });
   await form.getByRole("button", { name: /^save$/i }).click();
-  await page.waitForFunction(() => new URL(location.href).searchParams.has("action_status"), null, { timeout: 30000 });
+  await page.waitForFunction(() => new URL(location.href).searchParams.has("action_status") ||
+    (document.querySelector('form [role="alert"]') && !document.querySelector('form button[type="submit"]:disabled')), null, { timeout: 30000 });
+  const refusal = page.locator('form [role="alert"]');
+  if (await refusal.count()) return {
+    status: "error",
+    key: await page.locator('[name="stock_shortfall_acknowledged"]').count() ? "action.sale_feed_stock_confirm" : "action.sale_record_failed",
+    detail: await refusal.first().innerText(),
+  };
   const u = new URL(page.url());
   return { status: u.searchParams.get("action_status"), key: u.searchParams.get("action_key"), detail: u.searchParams.get("action_detail") };
 }
@@ -231,6 +240,11 @@ check("the counted item drew on no store at all", num(`SELECT count(*) FROM feed
 const bShort = balance("CPT", KEY);
 r = await recordSale({ farm: "CPT", buyer: "E2E short", lines: [{ product: "Feed", variant: "Mesha Kids Concentrate", quantity: bShort + 500, rate: 40 }] });
 check("selling more than the store holds is refused", r.key === "action.sale_feed_stock_confirm", r.key);
+check("short-stock refusal preserves the entered sale",
+  await page.inputValue('[name="line_quantity_0"]') === String(bShort + 500) &&
+  await page.inputValue('[name="line_rate_per_unit_0"]') === "40" &&
+  await page.inputValue('[name="buyer_name"]') === "E2E short" &&
+  await page.inputValue('[name="farm"]') === "CPT");
 // The figure is the STOCK TAB's own, which folds the transitional split concentrates into one
 // family; this test's raw SQL does not, so the two legitimately differ. What matters is that the
 // desk is told the feed, the farm and both quantities.

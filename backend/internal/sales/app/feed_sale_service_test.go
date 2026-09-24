@@ -311,3 +311,21 @@ func TestCompletedCreateReplayReturnsOriginalForChangedPayload(t *testing.T) {
 		t.Fatal("completed replay repeated side effects")
 	}
 }
+
+func TestUnknownFeedCannotBypassStockValidation(t *testing.T) {
+	for _, acknowledged := range []bool{false, true} {
+		repo := &feedRepo{}
+		store := &feedStore{}
+		write := feedSaleWrite(100)
+		write.Lines[0].Breed = "Unknown feed"
+		write.StockShortfallAcknowledged = acknowledged
+		_, err := NewSalesService(repo).WithFeedStock(store).CreateDeal(context.Background(), tenant, write, "actor", "invalid-feed")
+		var invalid domain.ErrDealValidation
+		if !errors.As(err, &invalid) || invalid.Field != "lines[1].breed" {
+			t.Fatalf("expected feed field rejection, got %v", err)
+		}
+		if repo.createCalls != 0 || store.asked != 0 {
+			t.Fatal("invalid feed reached stock or write")
+		}
+	}
+}
