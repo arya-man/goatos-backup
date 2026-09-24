@@ -62,10 +62,17 @@ fun Throwable.serverErrorText(): ServerErrorText? {
     // fell through to its generic "could not save" wording (found on the phone, 2026-09-24).
     // `peek()` reads the same bytes without taking them, so the answer is the same every time
     // and any other reader still finds the body intact.
+    // This IS the error-reporting path: it reads a refusal in order to put the server's own
+    // words in front of the operator, and the caller falls back to its farm-language sentence,
+    // which is the handling. Reporting here would file a crash about failing to format a crash.
+    // exception:exempt reading a refusal to render it; an unreadable body is not a second fault.
     val raw = runCatching {
         http.response()?.errorBody()?.source()?.peek()?.readUtf8()
     }.getOrNull()
     if (raw.isNullOrBlank()) return null
+    // A body that is not this envelope -- a proxy's HTML, a plain string -- is a response this
+    // parser has no opinion about, and returning null hands the caller its own fallback.
+    // exception:exempt same path, same reason: an unparseable envelope is not a fault to record.
     val dto = runCatching { LENIENT_JSON.decodeFromString<ServerErrorEnvelopeDto>(raw) }.getOrNull() ?: return null
     val message = dto.message.trim()
     val fieldMessages = dto.fieldErrors.mapNotNull { it.message.trim().takeIf(String::isNotBlank) }
