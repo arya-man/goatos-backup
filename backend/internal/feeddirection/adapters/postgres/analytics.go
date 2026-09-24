@@ -690,7 +690,8 @@ const executionPackingVarianceSQL = `
 WITH readings AS (
     SELECT c.completion_id, c.target_date, c.park_id, c.shed_id, c.partition_key, c.session_no,
            c.workflow, q.feed_item_key, q.feed_item_label, q.entered_kg,
-           lp.name                              AS park_label,
+           -- The farm's CODE (CBE, CPT): the one spelling every table on the page uses.
+           COALESCE(NULLIF(lp.location_code, ''), lp.name) AS park_label,
            ls.name                              AS shed_label,
            COALESCE(c.partition_label, '')      AS partition_label
     FROM feed_packing_verified_quantities q
@@ -704,7 +705,8 @@ WITH readings AS (
       AND ($2::uuid[] IS NULL OR c.park_id = ANY ($2::uuid[]))
       AND c.target_date BETWEEN $3 AND $4
       AND c.status = 'completed'
-      AND ($8::text = '' OR lp.name = $8::text)
+      -- The filter names the farm by its code; an older link naming the full name still matches.
+      AND ($8::text = '' OR COALESCE(NULLIF(lp.location_code, ''), lp.name) = $8::text OR lp.name = $8::text)
       AND ($9::text = '' OR q.feed_item_key = $9::text)
 ),
 planned AS (
@@ -1384,7 +1386,8 @@ keys AS (
 scoped AS (
     SELECT k.feed_day,
            k.park_id,
-           COALESCE(lp.name, e.park_label, '')                    AS park_label,
+           -- The farm's CODE (CBE, CPT): the one spelling every table on the page uses.
+           COALESCE(NULLIF(lp.location_code, ''), lp.name, e.park_label, '') AS park_label,
            -- Park ORDER is the park CODE (CBE, then CPT), never the full name: "Channapatna"
            -- sorts ahead of "Coimbatore" and put CPT first on every All-parks read.
            COALESCE(NULLIF(lp.location_code, ''), lp.name, e.park_label, '') AS park_sort,

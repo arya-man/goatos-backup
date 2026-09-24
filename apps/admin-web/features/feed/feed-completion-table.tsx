@@ -449,6 +449,6 @@ function disambiguateByPark(
       park,
       label: (labelCounts.get(label) ?? 0) > 1 ? `${label} · ${park}` : label,
     }))
-    .sort(byParkThen(parkOrder, (option) => option.park, (a, b) => a.label.localeCompare(b.label)))
+    .sort(byParkThen(parkOrder, (option) => option.park, (a, b) => a.label.localeCompare(b.label, undefined, { numeric: true })))
     .map(({ value, label }) => ({ value, label }));
 }

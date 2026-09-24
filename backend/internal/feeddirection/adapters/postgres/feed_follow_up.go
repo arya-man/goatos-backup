@@ -286,7 +286,7 @@ SELECT t.park_id::text,
        -- Pen names for a pen the SHEET never reached in this window. Without
        -- them a pen that sold animals while no sheet covered it renders
        -- nameless, which is what the first live run showed.
-       COALESCE(MAX(pk.name), ''),
+       COALESCE(MAX(COALESCE(NULLIF(pk.location_code, ''), pk.name)), ''),
        COALESCE(MAX(sh.name), ''),
        COALESCE(MAX(t.partition_label), ''),
        t.event_date::text,
