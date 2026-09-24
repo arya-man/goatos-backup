@@ -57,6 +57,29 @@ grains and an example per view: `references/views.generated.md` (regenerate with
 - **Weighing is isolated** from herd/vaccination: don't join weighing to vaccination to explain it.
 - The agent may read every table; no tenant filter is required (single tenant). Writes are impossible: the login is read-only.
 
+## Module tables beyond the ceo_ai views (sweep 24/09/2026)
+
+Pen/park names: `JOIN public.locations l ON l.location_id = t.shed_id` (pen) / `t.park_id` (park); `partition_label` = pen part.
+Beware ambiguous `status` when joining locations: qualify it (`t.status`).
+
+| Topic | Table | Key columns / semantics |
+|---|---|---|
+| Deworming, hoof trimming, feed & water removal | pc_care_tasks | category; work_state completed/canceled/delayed/scheduled; planned_business_date, submitted_at (done), verified_at; close_reason (empty for cancels before "Close" existed). Cancelled != done: "when did we deworm X" must list cancelled rows and completed rows at other parks. |
+| Pen visits | pen_visit_tasks | reasons, work_state; `delayed` with submitted_at set = done late, awaiting verification |
+| Pen routines | pen_routine_tasks | work_state (empty on 24/09/2026) |
+| Shifts / pen moves | shifting_events | event_status applied (done, applied_at) / authorized / pending / canceled; source_/destination_park_id, _shed_id, _partition_label. counts_movement_daily has no shift rows. |
+| Leadership tasks | leadership_tasks | task_no, title, status open/in_progress/done/cancelled, deadline_at, done_at. Different from workforce_tasks_base. |
+| Animals vaccinated | vaccination_completions | 1 row per goat dose: count(distinct goat_id) = animals, count(*) = doses; administered_at; status accepted |
+| Kid milk feeding | milk_feeding_tasks | feeding_date, session_no (4/day), head_count, status not_submitted/pending_verification |
+| Toxin tests | toxin_test_tasks | farm_label, feed_item_label, vendor, outcome positive = toxin found (fail), status |
+| Feed wastage | feed_wastage_completions | target_date, wastage_kg (only on status completed), park_id, shed_id |
+| Weighing fasting | weighing_fasting_tasks, weighing_fasting_shed_proofs | per pen proof status pending_verification/completed |
+| Attendance / leave | workforce_clock_entries (clock_in_at), workforce_leave_requests | |
+| Market prices | market_price_entries | city_name, question_label (Goat live price, carcass, offals), price, unit_label, business_date |
+| Health cases | health_cases, health_treatment_sessions, health_medicine_administrations | empty on 24/09/2026 |
+| Stock | inventory_stock + inventory_items | no stock quantities entered on 24/09/2026 |
+| Births | goat_births (individually registered kids, 2 rows) vs counts_movement_daily births (herd count, ~600) | say which one you used |
+
 ## Metric definitions (match the dashboard)
 
 Source of truth is the backend read the admin-web page calls. If the exact definition needs data
