@@ -1645,7 +1645,7 @@ func weighingWeightsCopy() map[string]string {
 		// it a reader cannot walk from a load bar to the shed table below it.
 		"section.load_placements.title":   "Where each load sits",
 		"section.load_placements.aria":    "Parks and pens each purchase load was placed into",
-		"section.load_placements.caption": "The park and pen each load's weighed animals are in, with the head count at that pen's latest weigh. The counts add up to the load's own animal total, so this and the chart above always agree.",
+		"section.load_placements.caption": "The park and pen each load's animals are in today, from the herd register, with how many of them are there. A load follows its animals from pen to pen.",
 		"empty.load_placements.body":      "No load has a weighed pen yet, so there is nowhere to point to.",
 		"metric.weight":                   "Weight",
 		"metric.gain":                     "Daily gain",
@@ -5784,7 +5784,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"value.time.pen.blank":      "—",
 			"value.time.pen.unit":       "g/day",
 			"section.time.load.title":   "Weekly growth by load",
-			"section.time.load.caption": "The same weeks, one row per purchased load: the daily gain of the pens that load sits in, weighted by animals. A pen tagged to two loads counts toward neither, and a load whose pens were not weighed twice in a week shows a blank for it.",
+			"section.time.load.caption": "The same weeks, one row per purchased load: the daily gain of that load's own animals, wherever they were weighed. A kid weighed on its own counts by its tag; a pen weighed as one total counts for each of the load's animals that was in it at both weighs. A load whose animals were not weighed twice in a week shows a blank for it.",
 			"section.time.load.aria":    "Daily gain by purchased load and week",
 			"empty.time.load.body":      "No purchased load has a pen weighed twice inside this period.",
 
@@ -5806,7 +5806,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"section.time.pen.aria.month":      "Daily gain by pen and thirty-day block",
 			"empty.time.pen.body.month":        "No pen has a kid or a whole-pen weigh paired inside this period.",
 			"section.time.load.title.month":    "Growth every thirty days by load",
-			"section.time.load.caption.month":  "The same thirty-day blocks, one row per purchased load: the daily gain of the pens that load sits in, weighted by animals. A pen tagged to two loads counts toward neither, and a load whose pens were not weighed twice in a block shows a blank for it. A block the period starts part-way through is shorter than thirty days and is still headed by that block's own start date, which can fall before the period.",
+			"section.time.load.caption.month":  "The same thirty-day blocks, one row per purchased load: the daily gain of that load's own animals, wherever they were weighed. A kid weighed on its own counts by its tag; a pen weighed as one total counts for each of the load's animals that was in it at both weighs. A load whose animals were not weighed twice in a block shows a blank for it. A block the period starts part-way through is shorter than thirty days and is still headed by that block's own start date, which can fall before the period.",
 			"section.time.load.aria.month":     "Daily gain by purchased load and thirty-day block",
 			"empty.time.load.body.month":       "No purchased load has a pen weighed twice inside this period.",
 
@@ -5825,7 +5825,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"tab.fcr": "FCR",
 
 			"section.load.title":   "Purchased weight against the latest weighing",
-			"section.load.caption": "Average weight per animal in each purchased load — as bought, and at its latest weighing. The figure above each pair is how many times the arrival weight the load now stands at, followed by the pens the load's weighed animals sit in and the head count at each pen's latest weigh.",
+			"section.load.caption": "Average weight per animal in each purchased load — as bought, and at its latest weighing in the selected period. The figure above each pair is how many times the arrival weight the load now stands at, followed by the pens the load's animals are in today.",
 			"section.load.aria":    "Purchased weight against latest weighing by load",
 
 			"legend.load.purchased": "At purchase",
@@ -5834,14 +5834,14 @@ func pageSpecificCopy(id string) map[string]string {
 			// ONLY LOADS WITH A LATEST WEIGHING (maintainer request 2026-09-03): the tab is a
 			// comparison, and a load nobody has weighed since it arrived has nothing to compare.
 			// Said on the tab so a missing load reads as unweighed, never as lost.
-			"note.load.weighed_only": "Only loads with a latest weighing are shown. A load whose pens have not been weighed since it arrived is left out.",
+			"note.load.weighed_only": "Only loads whose animals were weighed in the selected period are shown.",
 
 			// VALUE (maintainer request 2026-09-03): what the load cost against what the animals
 			// still on farm are worth today at an assumed live-weight rate, and the difference.
 			// The rates are the maintainer's assumptions, stated on the chart; a sold-out load
 			// has no stock to value and shows nothing here rather than a zero.
 			"section.load_value.title":   "Purchased value against current stock value",
-			"section.load_value.caption": "What each load cost, landed, against what its animals still on farm are worth today: remaining animals × latest average weight × each animal's assumed live-weight rate for its stage and sex, followed by the pens the load's weighed animals sit in. Gain is the difference. A load that has sold out has no stock to value, and names no pen.",
+			"section.load_value.caption": "What each load cost, landed, against what its animals still on farm are worth today: remaining animals × latest average weight × each animal's assumed live-weight rate for its stage and sex, followed by the pens the load's animals are in today. Gain is the difference. A load that has sold out has no stock to value, and names no pen.",
 			"section.load_value.aria":    "Purchased value against current stock value by load",
 			"legend.load.purchase_value": "Purchased value (₹)",
 			"legend.load.stock_value":    "Current stock value (₹)",
@@ -5982,13 +5982,13 @@ func pageSpecificCopy(id string) map[string]string {
 			// page's other filters cannot slice a load that is bought whole; and the latest
 			// weighing deliberately ignores the selected period, or a narrow window would
 			// erase a load's newest weigh and read as the animals shrinking.
-			"note.load.denominator": "At purchase averages over every animal bought; the latest weighing averages over the animals weighed in the load's pens — sold or lost animals are no longer in it.",
-			"note.load.filters":     "This tab narrows by park only. A load is bought whole, so the sex, origin, weighing-mode and period filters do not apply here; the latest weighing is each pen's newest weigh on record.",
+			"note.load.denominator": "At purchase averages over every animal bought; the latest weighing averages over the load's own animals weighed in the selected period, each at its latest weight — sold or lost animals count only while they were on the farm.",
+			"note.load.filters":     "This tab narrows by park and period. A load is bought whole and followed through every pen move, so the sex, origin and weighing-mode filters are hidden here.",
 
 			"empty.load.body": "No purchased loads recorded yet. When one is, its arrival weight and latest weighing will be compared here.",
 			// Loads EXIST but none has a latest weighing: a different fact from "no loads", and
 			// saying the latter to a farm with purchased animals in its pens would be false.
-			"empty.load.unweighed.body": "No purchased load has been weighed yet. A load appears here once the pens it went into have a weighing on record.",
+			"empty.load.unweighed.body": "No purchased load's animals were weighed in this period. A load appears here as soon as its animals are weighed — nothing has to be tagged.",
 
 			// The weighing side failed but the purchase ledger answered (or the other way
 			// round): name the half that is missing instead of blanking the tab.

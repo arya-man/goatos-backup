@@ -596,12 +596,11 @@ ORDER BY COALESCE(NULLIF(location_code, ''), name, ''), display_order, name, loc
 	}
 
 	if includeLoads {
-		// Growth per procurement load, over the same tenant/park/window scope. Its own
-		// read rather than another CTE here: it collapses to LOAD grain, not shed grain,
-		// and folding a different grain into this query is how a shed ends up counted
-		// once per load it touches.
+		// Growth per procurement load, read from the LOAD'S OWN ANIMALS wherever they were weighed
+		// (load_animals.go, maintainer decision 2026-09-24). Every animal on a load is on the load
+		// from purchase, so no pen is ever "unattributed" any more: the count stays 0.
 		var err error
-		byLoad, unattributed, err = r.loadWeights(ctx, tenantID, parkIDs, periodStart, periodEnd, sexFiltered, scope, idMap, weighingCategory)
+		byLoad, err = r.loadAnimalWindow(ctx, tenantID, parkIDs, periodStart, periodEnd, sex, origin, weighingCategory)
 		if err != nil {
 			return domain.ShedWeights{}, err
 		}

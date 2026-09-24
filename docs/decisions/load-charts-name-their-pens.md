@@ -1,5 +1,10 @@
 # Every load chart names its pens
 
+> **Superseded in part, 2026-09-24:** the weighing charts no longer read pens from
+> `weighing_shed_load_tags`. A load is its animals, followed through every pen move, and the pens
+> in the bracket are where its live animals are today. See [load-follows-its-animals.md](load-follows-its-animals.md).
+> The bracket itself, and its shape, stand.
+
 **Maintainer request, 2026-09-22.** Any graph on the dashboard that names a LOAD carries that
 load's PENS in a bracket beside the name:
 

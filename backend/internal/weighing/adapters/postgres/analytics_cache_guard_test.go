@@ -104,7 +104,7 @@ func TestShedWeightsSupportReadsDoNotFanOutPoolSlots(t *testing.T) {
 		"originScope, originErr = r.resolveOriginScope(",
 		"idMap, idErr = r.resolveAnimalIdentityMap(",
 		"dates, err = r.weighingDates(",
-		"byLoad, unattributed, err = r.loadWeights(",
+		"byLoad, err = r.loadAnimalWindow(",
 	} {
 		if !strings.Contains(body, required) {
 			t.Fatalf("GetShedWeights serial-read guard missing %q", required)
@@ -265,13 +265,17 @@ func TestWeightDemographicsWeeklyGainKeepsPenAndLoadProducers(t *testing.T) {
 		`decodeWeightGainPenWeekBuckets`,
 		`decodeWeightGainLoadWeekBuckets`,
 		`jsonb_build_array(location_id::text, partition_label, week_start, n, g, shed_name, park_id::text, park_name)`,
-		`jsonb_build_array(load_ref, owner_name, week_start, n, g)`,
 		`JOIN latest l ON l.tag = aw.tag`,
-		`FROM weighing_shed_load_tags`,
+		// A load is its animals (maintainer decision 2026-09-24): the per-load weeks come from
+		// load_animals.go, on the same animals and legs as every other load chart.
+		`r.loadAnimalBuckets(ctx, tenantID, parkIDs, periodStart, periodEnd, sex, origin, weighingCategory, timeScope)`,
 	} {
 		if !strings.Contains(src, required) {
 			t.Fatalf("weekly_gain must produce breed, pen, and load week grids; missing %q", required)
 		}
+	}
+	if strings.Contains(src, `FROM weighing_shed_load_tags`) {
+		t.Fatalf("the per-load weeks must not return to the fixed load-to-pen tag list")
 	}
 }
 

@@ -39,7 +39,7 @@ test("the pen line takes its names from the backend, and disambiguates parks onl
 });
 
 test("the caption says the pens are there", () => {
-  assert.match(contract, /followed by the pens the load's weighed animals sit in/);
+  assert.match(contract, /followed by the pens the load's animals are in today/);
 });
 
 test("the value chart names the same pens as the weight chart beside it", () => {
