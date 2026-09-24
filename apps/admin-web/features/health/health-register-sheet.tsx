@@ -50,6 +50,9 @@ export function RegisterSheetControls({
 }) {
   const fileInput = useRef<HTMLInputElement | null>(null);
   const intentKey = useRef<string>("");
+  // WHICH file the live key belongs to. The key is per chosen FILE, not per component: a network
+  // retry of the same file must reuse it, while a corrected file is a new intent.
+  const intentFile = useRef<string>("");
   const [busy, setBusy] = useState(false);
   const [problems, setProblems] = useState<Problem[]>([]);
   const [note, setNote] = useState("");
@@ -61,9 +64,20 @@ export function RegisterSheetControls({
     setBusy(true);
     setProblems([]);
     setNote("");
-    // One key per human INTENT -- this chosen file -- reused if the upload is retried after a
+    // One key per human INTENT -- THIS chosen file -- reused if the upload is retried after a
     // network failure, so a repeat cannot write the draft twice.
-    if (!intentKey.current) intentKey.current = mintKey(`register-sheet-${animalClass}`);
+    //
+    // It is keyed on the file's own identity rather than minted once, because the key is cleared
+    // only ON SUCCESS: an upload that committed server-side but whose response never arrived
+    // leaves the key live, and the author's NEXT upload is usually the corrected sheet. Reusing
+    // the key for it now earns a 409 from the backend (the fingerprint carries the document), and
+    // a conflict the author cannot clear is no better than the silent replay it replaced. A
+    // different file is a different intent and gets its own key.
+    const fileIdentity = `${file.name}:${file.size}:${file.lastModified}`;
+    if (!intentKey.current || intentFile.current !== fileIdentity) {
+      intentKey.current = mintKey(`register-sheet-${animalClass}`);
+      intentFile.current = fileIdentity;
+    }
     try {
       const body = new FormData();
       body.append("file", file);
@@ -84,6 +98,7 @@ export function RegisterSheetControls({
         return;
       }
       intentKey.current = "";
+      intentFile.current = "";
       setNote(
         `${copy(pageContract, "action.sheet_imported")} — ${payload?.questions ?? 0} / ${payload?.rules ?? 0}`,
       );
