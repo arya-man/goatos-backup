@@ -57,6 +57,7 @@ import (
 	feedhttp "github.com/vgoats/goatos/backend/internal/feed/adapters/http"
 	feedpg "github.com/vgoats/goatos/backend/internal/feed/adapters/postgres"
 	feedapp "github.com/vgoats/goatos/backend/internal/feed/app"
+	feedconfigcounts "github.com/vgoats/goatos/backend/internal/feedconfig/adapters/counts"
 	feedconfighttp "github.com/vgoats/goatos/backend/internal/feedconfig/adapters/http"
 	feedconfigpg "github.com/vgoats/goatos/backend/internal/feedconfig/adapters/postgres"
 	feedconfigapp "github.com/vgoats/goatos/backend/internal/feedconfig/app"
@@ -808,7 +809,10 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// Authored feed CONFIGURATION is its own module, wired alongside feed direction rather than into
 	// it. feedapp owns execution (what goes to each shed today); feedconfig owns the ration grid and
 	// dispatch clock that execution reads from, and is the only writer of those tables.
-	feedConfigService := feedconfigapp.NewService(feedconfigpg.NewRepository(pool, cfg.Postgres.QueryTimeout))
+	// Experiment pens read their head count from the SAME projection and pen matching the feed sheet
+	// multiplies by (maintainer decision 2026-09-24), through feed direction's own grain reader.
+	feedConfigService := feedconfigapp.NewService(feedconfigpg.NewRepository(pool, cfg.Postgres.QueryTimeout)).
+		WithPenHeadCounts(feedconfigcounts.New(feeddirectioncounts.NewReader(countsService)))
 	feedConfigHandler := feedconfighttp.NewHandler(feedConfigService, log)
 	// Feed-direction GENERATION is a third, separate module, and the split is the point: it OWNS NO
 	// TABLES and writes nothing. It is a pure read-only generator over the other two -- projected

@@ -7632,7 +7632,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.experiment_absolute_kg":         "Absolute kg (whole pen)",
 			"label.experiment_absolute_kg_note":    "An older cell: a total for the WHOLE pen, already inclusive of every animal in it, and never multiplied by any head count. Cells are now authored as grams per animal — editing this one asks for grams and moves it over.",
 			"label.experiment_head_count":          "Animals in this pen",
-			"label.experiment_head_count_note":     "How many animals are in this pen right now, from the herd register — the same count the feed sheet multiplies the grams by, so what you see here is what the pen is fed against. Nobody types it: it follows the animals as they move, and 0 means the pen is currently empty. An older whole-pen cell is not multiplied by it at all.",
+			"label.experiment_head_count_note":     "How many animals tomorrow's feed sheet will feed in this pen: the animals here now, plus any raised or approved moves in or out. It is the count the sheet multiplies the grams by, so what you see here is what the pen is fed against. Nobody types it, and 0 means the pen will be empty. An older whole-pen cell is not multiplied by it at all.",
 			"label.experiment_category":            "Experiment arm",
 			"label.experiment_category_note":       "Which arm of the trial this pen is on. It appears in the pen-tag column of the direction sheet, where it is the operator's cue that these numbers were hand-entered rather than computed.",
 			"label.experiment_active":              "On experiment (hand-entered)",

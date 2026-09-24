@@ -464,7 +464,11 @@ func TestExperimentHeadCountIsTheLivePenPopulation(t *testing.T) {
 	if headNote == "" {
 		t.Fatal("feed-config is missing label.experiment_head_count_note")
 	}
-	if !strings.Contains(headNote, "right now") && !strings.Contains(headNote, "live") {
+	// Since 2026-09-24 the number is the count TOMORROW's sheet multiplies by -- the live herd plus
+	// raised and approved moves (the projection the sheet itself uses), so the note may say that
+	// instead of "right now". Either way it must describe the animals, never a typed figure.
+	if !strings.Contains(headNote, "right now") && !strings.Contains(headNote, "live") &&
+		!(strings.Contains(headNote, "here now") && strings.Contains(headNote, "moves")) {
 		t.Errorf(
 			"label.experiment_head_count_note = %q must say the count is the pen's population right now",
 			copyMap["label.experiment_head_count_note"],

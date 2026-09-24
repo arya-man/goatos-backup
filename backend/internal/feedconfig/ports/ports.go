@@ -4,6 +4,7 @@ package ports
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/vgoats/goatos/backend/internal/feedconfig/domain"
 )
@@ -230,4 +231,23 @@ type Repository interface {
 	// ErrShedNotFound when the shed has no rows at all: there is no experiment configuration to
 	// switch, and creating empty rows to carry a status would author cells nobody entered.
 	SetExperimentShedStatus(ctx context.Context, cmd domain.SetExperimentShedStatusCommand) (domain.WriteResult, error)
+}
+
+// PenRef names one experiment pen: the park, the physical shed and the raw pen label ("" for an
+// undivided shed).
+type PenRef struct {
+	ParkID         string
+	ShedID         string
+	PartitionLabel string
+}
+
+// PenHeadCounts answers "how many animals will the feed sheet feed in this pen" (maintainer decision
+// 2026-09-24: Feed Config shows the count the sheet multiplies the grams by, not a live count). It is
+// the PROJECTED count for a feed day -- the live herd plus raised and approved shiftings -- read
+// through the same counts projection and the same pen matching the feed sheet uses.
+//
+// The result is aligned with pens: out[i] is the count for pens[i], 0 for a pen with no animals.
+// It is complete or it errors; a partial answer would print a wrong count beside a right one.
+type PenHeadCounts interface {
+	ProjectedPenHeadCounts(ctx context.Context, tenantID string, pens []PenRef, feedDay time.Time) ([]int64, error)
 }

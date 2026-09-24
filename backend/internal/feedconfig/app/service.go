@@ -56,10 +56,21 @@ type Clock func() time.Time
 type Service struct {
 	repo ports.Repository
 	now  Clock
+	// penCounts, when wired, replaces each experiment pen's count with the PROJECTED count the feed
+	// sheet multiplies by (maintainer decision 2026-09-24). Nil keeps the repository's live count.
+	penCounts ports.PenHeadCounts
 }
 
 func NewService(repo ports.Repository) *Service {
 	return &Service{repo: repo, now: time.Now}
+}
+
+// WithPenHeadCounts makes the experiment list show, for each pen, the head count tomorrow's feed
+// sheet will multiply its grams by -- the counts projection (live herd plus raised and approved
+// shiftings), matched to the pen exactly as the sheet matches it.
+func (s *Service) WithPenHeadCounts(counts ports.PenHeadCounts) *Service {
+	s.penCounts = counts
+	return s
 }
 
 // WithClock pins the service's business clock. Test-only seam: an effective-dated write's outcome
@@ -383,7 +394,7 @@ func (s *Service) ListExperimentConfig(ctx context.Context, tenantID string, f E
 	if err != nil {
 		return domain.ExperimentConfigPage{}, err
 	}
-	return s.repo.ListExperimentConfig(ctx, domain.ExperimentConfigQuery{
+	out, err := s.repo.ListExperimentConfig(ctx, domain.ExperimentConfigQuery{
 		TenantID: tenantID,
 		ParkID:   strings.TrimSpace(parkID),
 		ShedID:   strings.TrimSpace(shedID),
@@ -397,6 +408,32 @@ func (s *Service) ListExperimentConfig(ctx context.Context, tenantID string, f E
 		GramsCompare:       compare,
 		Page:               page,
 	})
+	if err != nil || s.penCounts == nil || len(out.Items) == 0 {
+		return out, err
+	}
+	// The count the author reads beside a per-animal rate is the count the SHEET multiplies it by:
+	// tomorrow's feed day, projected. One pen appears once per feed item on the page; each is
+	// resolved once and every cell of the pen reads the same number.
+	pens := make([]ports.PenRef, 0, len(out.Items))
+	index := map[string]int{}
+	for _, item := range out.Items {
+		key := item.ParkID + "|" + item.ShedID + "|" + item.PartitionLabel
+		if _, ok := index[key]; ok {
+			continue
+		}
+		index[key] = len(pens)
+		pens = append(pens, ports.PenRef{ParkID: item.ParkID, ShedID: item.ShedID, PartitionLabel: item.PartitionLabel})
+	}
+	feedDay := biztime.BusinessDayStart(s.now()).AddDate(0, 0, 1)
+	counts, err := s.penCounts.ProjectedPenHeadCounts(ctx, tenantID, pens, feedDay)
+	if err != nil {
+		return domain.ExperimentConfigPage{}, err
+	}
+	for i := range out.Items {
+		item := &out.Items[i]
+		item.LiveHeadCount = int32(counts[index[item.ParkID+"|"+item.ShedID+"|"+item.PartitionLabel]])
+	}
+	return out, nil
 }
 
 // ExperimentConfigFilter is the experiment section's narrowing input.

@@ -35,6 +35,7 @@ type fakeRepo struct {
 	lastExperimentQuery  domain.ExperimentConfigQuery
 	lastPenQuery         domain.PenQuery
 	lastExperimentBatch  domain.UpsertExperimentConfigBatchCommand
+	experimentItems      []domain.ExperimentConfig
 
 	result domain.WriteResult
 	err    error
@@ -78,7 +79,7 @@ func (f *fakeRepo) ListShedFactors(_ context.Context, q domain.ShedFactorQuery) 
 
 func (f *fakeRepo) ListExperimentConfig(_ context.Context, q domain.ExperimentConfigQuery) (domain.ExperimentConfigPage, error) {
 	f.lastExperimentQuery = q
-	return domain.ExperimentConfigPage{Limit: q.Page.Limit, Offset: q.Page.Offset}, f.err
+	return domain.ExperimentConfigPage{Items: f.experimentItems, Limit: q.Page.Limit, Offset: q.Page.Offset}, f.err
 }
 
 func (f *fakeRepo) UpsertExperimentConfigBatch(_ context.Context, cmd domain.UpsertExperimentConfigBatchCommand) (domain.WriteResult, error) {
@@ -1017,5 +1018,46 @@ func TestCreateFeedItemSucceedsWithoutAParkAndDatesTheLedger(t *testing.T) {
 	}
 	if repo.lastFeedItem.EffectiveFrom != "2026-07-20" {
 		t.Fatalf("effective_from = %q, want the Asia/Kolkata business date 2026-07-20", repo.lastFeedItem.EffectiveFrom)
+	}
+}
+
+type fakePenCounts struct {
+	gotPens []ports.PenRef
+	gotDay  time.Time
+	counts  []int64
+}
+
+func (f *fakePenCounts) ProjectedPenHeadCounts(_ context.Context, _ string, pens []ports.PenRef, day time.Time) ([]int64, error) {
+	f.gotPens, f.gotDay = pens, day
+	return f.counts, nil
+}
+
+// The experiment list shows the count TOMORROW's sheet multiplies by (maintainer decision
+// 2026-09-24), one resolution per pen however many feed items it carries.
+func TestExperimentListShowsTheSheetsProjectedHeadCountPerPen(t *testing.T) {
+	repo := &fakeRepo{experimentItems: []domain.ExperimentConfig{
+		{ParkID: "p1", ShedID: "s1", PartitionLabel: "Part 3", FeedItemLabel: "Concentrate", LiveHeadCount: 9},
+		{ParkID: "p1", ShedID: "s1", PartitionLabel: "Part 3", FeedItemLabel: "Hay", LiveHeadCount: 9},
+		{ParkID: "p1", ShedID: "s2", PartitionLabel: "", FeedItemLabel: "Hay", LiveHeadCount: 4},
+	}}
+	counts := &fakePenCounts{counts: []int64{12, 7}}
+	now := time.Date(2026, 9, 24, 14, 0, 0, 0, time.UTC) // 19:30 IST on 24/09
+	svc := NewService(repo).WithClock(func() time.Time { return now }).WithPenHeadCounts(counts)
+
+	page, err := svc.ListExperimentConfig(context.Background(), "tenant", ExperimentConfigFilter{})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(counts.gotPens) != 2 {
+		t.Fatalf("each pen is resolved once: %+v", counts.gotPens)
+	}
+	if got := counts.gotDay.Format("2006-01-02"); got != "2026-09-25" {
+		t.Errorf("feed day = %s, want tomorrow's sheet 2026-09-25", got)
+	}
+	want := []int32{12, 12, 7}
+	for i, item := range page.Items {
+		if item.LiveHeadCount != want[i] {
+			t.Errorf("row %d (%s %s) count = %d, want %d", i, item.ShedID, item.FeedItemLabel, item.LiveHeadCount, want[i])
+		}
 	}
 }
