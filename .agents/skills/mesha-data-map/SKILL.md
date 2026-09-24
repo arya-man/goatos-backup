@@ -22,7 +22,7 @@ retyping them; `where` filters the file's output columns, date windows go in `pa
 | Weighing verification pending/rework | `weighing_verification_status` | pending, rework, verified, oldest_pending_at | none (current) |
 | Headcount / herd breakdown now | `animal_current_scope` | park_label, shed_label, species, sex, breed, management_stage, lifecycle_status | none (current) |
 | Animals sold / exited / entered in a period | `animals_base` | exit_reason ('sold','died'), lifecycle_status | `exit_business_day`, `entry_date` |
-| Deaths / mortality rate | `public.goats` (see Mortality rate; not `mortality_base`) | exit_reason 'died', lifecycle_status 'dead', species | IST `exited_at` |
+| Deaths / mortality rate | `public.goats` (see Mortality rate; `mortality_base` agrees on STG) | exit_reason 'died', lifecycle_status 'dead', species | IST `exited_at` |
 | Births, transfers, shifts | `counts_movement_daily` | per pen movement counts | `event_date` |
 | Feed directed vs fed | `feed_adherence` | directed_kg, fed_kg, variance_kg, blocked | `feed_day` |
 | Feed plan detail (session/item) | `feed_direction_current` | session, feed item, blocked reason | `feed_day` |
@@ -137,7 +137,7 @@ Result 24/09/2026: 1562 (CBE 850, CPT 712). Caveat: the view does not drop merge
 (155 for 03/08–22/09/2026; Sep 2026 = 129). Deal money/counts: see Two-source traps.
 
 **Mortality rate** (`/counts/mortality`, `internal/counts/adapters/postgres/mortality.go`): deaths in the window / the LIVE head
-count NOW * 100, 1 decimal (2026-09-18 decision). Deaths come from `public.goats` with the app's predicate, not `mortality_base`
+count NOW * 100, 1 decimal (2026-09-18 decision). Deaths come from `public.goats` with the app's predicate, (`mortality_base` agrees on STG)
 (migration 000358 redefines that view with `exit_reason IN ('death','dead','mortality')`, which the goats CHECK never allows -> 0).
 ```sql
 WITH d AS (SELECT p.name park_label, g.species FROM goats g JOIN locations p ON p.location_id = g.park_id
@@ -194,7 +194,7 @@ UNION ALL  -- whole-pen weighs: weighing_shed_observations, withdrawn_at IS NULL
 
 | Question | Use | Not | Why / check |
 |---|---|---|---|
-| Deaths | goats predicate (Mortality rate SQL) | `mortality_base` | 000358 view filter -> 0; 6 dead all-time, 3 in Sep |
+| Deaths | goats predicate (Mortality rate SQL) | (none: `mortality_base` agrees, 6) | 6 dead all-time, 3 in Sep; only 4 approvals, 2 causes |
 | Animals sold | goats register / `animals_base` sold (= `goat_sale_allocations` tagged, 160) | `sales_deals.animal_count` (706, incl. pre-app deals) | give register, mention deal count when asked "in total" |
 | Revenue | `sales_deals` status 'Deal Closed', `sum(sales_value)` by `sale_date`; product split via `sales_deal_lines` (Manure is a product_type) | any "Advance Paid"/open status = pipeline, not revenue | Sep 2026: Rs 14,71,114 on 10 deals; no open deals on 24/09 |
 | Money received | `payment_received` (running total: advance seeded by 000227 + each `sales_deal_payments` row) | advance + ledger + payment_received added | balance = greatest(value - received, 0) (`sales/domain/sales.go` PaymentBalance). NULL = not tracked. If ledger re-enters the advance, received doubles: flag as double count |

@@ -39,7 +39,7 @@ topic -> view -> key columns -> date column
 - sold / exits / entries -> animals_base -> exit_reason ('sold','died'), park_label -> exit_business_day / entry_date
 - deaths -> public.goats: (exit_reason='died' OR (exit_reason IS NULL AND lifecycle_status='dead')) AND merged_into_goat_id IS NULL,
   date = (exited_at AT TIME ZONE 'Asia/Kolkata')::date; split park + species (Sep 2026: 3, all CBE: 1 goat, 2 sheep). Not mortality_base (see traps).
-- births / transfers -> counts_movement_daily -> per pen counts -> event_date. "How many births": give BOTH herd-count births
+- births -> date by goats.dob like the Herd Analytics screen (counts_movement_daily dates births by IMPORT day: Aug view 466 vs screen 0), flag placeholder DOBs; transfers/shifts -> shifting_events only (counts_movement_daily looks for event_status='completed' but the app writes 'applied', so its shift/transfer counts are always 0). "How many births": give BOTH herd-count births
   (sum births; includes a 5 Aug 2026 bulk entry of 458) AND individually registered kids (public.goat_births by
   (created_at AT TIME ZONE 'Asia/Kolkata')::date; it has NO birth_date column; Sep 2026: 1 each, 16/09), one line why they differ.
 - feed directed vs fed -> feed_adherence -> directed_kg, fed_kg, variance_kg, blocked -> feed_day
@@ -70,6 +70,7 @@ metrics -> how (exact defs + SQL: SKILL.md "Metric definitions"; never invent a 
   total (Castro, Coimbatore 181 across 3 pens) only as context after. Rank groups only if the user says "group"/"shed".
 - mortality %: deaths in window (goats rule above) *100 / live 'alive' count now, 1dp (NOT mortality_base.active_population).
 - weighing pending: pending+rework. feed fed_kg is always 0: say fed data missing. vaccination: due/done, no %.
+- feed head count: today's feed sheet covers ~782 head vs 1,562 alive in the register; herd size always from the register, sheet heads only for per-head feed; say so if asked.
 Full columns + example per view: .agents/skills/mesha-data-map/references/views.generated.md
 Never show ids, table/view names or internal notes in the answer (say "pen routines", not pen_routine_tasks).
 Access: read every table (no filter rules); the database login is read-only.
@@ -81,7 +82,7 @@ Module tables (public.*; park name: locations via park_id; PEN = pens.sql latera
 - preventive care (deworming, hoof trimming, feed & water removal) -> pc_care_tasks: category, work_state completed|canceled|delayed|scheduled,
   planned_business_date=planned, submitted_at=done, verified_at=verified, close_reason (often empty for old cancels). Cancelled != done.
   work_state LAGS status: DONE = submitted_at set (status pending_verification = awaiting check, completed = verified), even when work_state
-  says delayed/scheduled. OPEN = submitted_at NULL and work_state NOT canceled (24/09 dewormings: 0 open; 10 awaiting verification).
+  says delayed/scheduled. OPEN = submitted_at NULL and work_state NOT canceled/closed (closed = closed by office: close_reason, closed_by) (24/09 dewormings: 0 open; 10 awaiting verification).
   If planned work was cancelled with no submission, say it plainly, e.g. "Planned for 2 Sep, never submitted in the app,
   cancelled on 5 Sep. If it was done on the farm, it wasn't recorded." Records can be corrected later (canceled -> completed),
   so always re-query; never repeat an earlier answer from this chat.
@@ -124,7 +125,7 @@ Module tables (public.*; park name: locations via park_id; PEN = pens.sql latera
 - pen visit "reasons" = WHY the visit is planned (deworming/hoof_trimming), NOT why it was late. No delay-reason field exists: for delays
   give counts by visit purpose + delayed_since_business_date / rolled_forward_count, and say the app doesn't record a reason for the delay.
   Split delayed into submitted late (submitted_at set, awaiting verification; 24/09: 20 of 26) vs still not done (6).
-- animals ready for sale by weight: latest non-rejected individual weigh per alive animal (weighing_observations -> goat_identifiers ->
+- animals ready for sale by weight: latest individual weigh (app filter) per alive animal (weighing_observations -> goat_identifiers ->
   goats) above X, split park + species, with how recent. Also say pens weighed only as a whole pen have no per-animal weight: list pens whose
   latest whole-pen average (weighing_shed_observations) is above X with head count as "likely".
 - app usage: analytics.app_events (actor_id -> workforce_members.user_id, event_name, received_at; filter on received_at for speed; last 7
@@ -139,7 +140,7 @@ Module tables (public.*; park name: locations via park_id; PEN = pens.sql latera
 - Money: feed "paid" = feed_purchase_payments.amount_rupees (paid_on), NOT feed_purchases.total_cost (= bill); owed = bill - payments per
   feed_purchase_id. "Paid this month" headline = sum(feed_purchase_payments.amount_rupees) by paid_on in the month; then a 2nd line "of which
   against this month's bills" (payments joined to purchases dated in the month). Ledger starts 03/09/2026; feed_purchases.payment_released =
-  running released total (mirrors ledger), so vendor dues = payment_status='Pending' bills: total_cost - greatest(payment_released, ledger sum).
+  running released total (mirrors ledger), so vendor dues = payment_status='Pending' bills: total_cost - greatest(payment_released, ledger sum); ALSO list 'Paid' bills whose released < total (25 on 24/09, e.g. Hemant 2,02,262 billed / 95,300 released) as 'marked Paid but short'.
   Sales received = sales_deals.payment_received (what the Sales screen shows): a RUNNING TOTAL seeded from advance_amount, +each
   sales_deal_payments row. Never add advance + ledger + payment_received. Sales dues (status='Deal Closed'): due per deal = greatest(sales_value - payment_received, 0), summed per buyer over deals with
   payment_received NOT NULL. Never net an overpaid deal against another (list received > value separately as a data issue). payment_received NULL on
@@ -168,7 +169,7 @@ Module tables (public.*; park name: locations via park_id; PEN = pens.sql latera
   goat_identifiers.normalized_value -> goats.shed_id/park_id -> locations.name; own baseline = herd_signal_activity_windows 300s tier, 24h.
   The user sees the live table; answer from the returned summary in 2-4 sentences.
 TWO-SOURCE TRAPS (pick the source below; details + SQL in SKILL.md "Two-source traps"):
-- deaths: public.goats rule above; never mortality_base alone (a pending migration breaks its filter to 0). Cause is mostly unrecorded.
+- deaths: public.goats rule above; mortality_base agrees with goats on STG (6 deaths; its "death/dead/mortality" filter is only in the rollback half of migration 000358). Cause is mostly unrecorded.
 - sold: animals sold = goats register (lifecycle 'sold', exited_at IST) = tagged allocations; sales_deals.animal_count is the commercial
   count incl. pre-app deals (706 all-time vs 160 in register). Answer the register, add the deal count in one line when they differ.
 - revenue = sales_deals status 'Deal Closed' sum(sales_value) by sale_date; pipeline = any other open status (none on 24/09: say so).
@@ -176,11 +177,11 @@ TWO-SOURCE TRAPS (pick the source below; details + SQL in SKILL.md "Two-source t
 - species: public.goats holds sheep too; always split species. "goats" in a load/pen with only sheep = say sheep.
 - alive: 'alive' only for headcount; "on farm" incl. sick/under_treatment/quarantine/icu (0 today). Base views include exited rows.
 - pen of an animal: pens.sql on (goats.shed_id, goat_shed_partitions.partition_label), NOT current_location_id (18 differ).
-- vaccination done: in-app (sop_submission_item_id) vs imported; due = obligations scheduled|deferred only.
+- vaccination done: in-app (sop_submission_item_id) vs imported; due = obligation_instances status scheduled|due|in_progress|deferred, one per animal; vaccination_shed_status OMITS deferred and has whole-shed + per-pen rows (sum only partition_label IS NULL rows, else double counts).
 - feed: stock = purchase ledger SQL (not inventory_*); fed_kg is empty; packed != directed != fed. Owed: payment_status 'Paid' = 0 owed;
   NULL status (40 sheet-import rows, no bill) = unknown, list separately.
 - load cost: animal_cost/transport_cost/other_cost are TOTALS; procurement_load_cost_lines is their breakdown - never add both.
-- weighing: latest non-rejected weigh per animal (weight_kg = corrected); whole-pen weighs separate, exclude withdrawn.
+- weighing: latest weigh per animal, same filter as the app screens so numbers match the dashboard. Known app bug: the <> 'rejected' filter never matches (a sent-back weigh is 'rework'), so 16 rework weighs (9 in Sep) are inside app and chat averages/ADG; all were re-weighed later, so latest-per-animal is unaffected. Mention it only if asked about weighing accuracy (weight_kg = corrected); whole-pen weighs separate, exclude withdrawn.
 - shifts done = shifting_events event_status 'applied' (applied_at IST); authorized/pending = not moved yet.
 - location history: reasons with correction/repair/revert/swap fix data, not real moves: exclude from movement analytics. count_projection_snapshots: all blocked, don't use.
 - text buckets: lower(age_band); group breed by goats.breed text (breed_id NULL on new animals); origin_type NULL = "unknown".
