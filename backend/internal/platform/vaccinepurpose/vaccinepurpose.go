@@ -47,12 +47,17 @@ func (p Plan) empty() bool {
 	return len(p.FirstWave) == 0 && len(p.GoatSecondWave) == 0 && len(p.SheepSecondWave) == 0
 }
 
-// SecondWave returns the species-specific second wave.
+// SecondWave returns the species-specific second wave. Blank means goats.species' default
+// ('goat'); any species outside the goats_species_check set has no second wave.
 func (p Plan) SecondWave(species string) []string {
-	if strings.EqualFold(strings.TrimSpace(species), "sheep") {
+	switch strings.ToLower(strings.TrimSpace(species)) {
+	case "sheep":
 		return p.SheepSecondWave
+	case "goat", "":
+		return p.GoatSecondWave
+	default:
+		return nil
 	}
-	return p.GoatSecondWave
 }
 
 // Delay returns the configured first-wave to second-wave delay in days.
