@@ -16169,6 +16169,8 @@ export interface components {
             summary: components["schemas"]["GrowthFCRSummary"];
             pens: components["schemas"]["GrowthFCRPen"][];
             by_breed: components["schemas"]["GrowthFCRGroup"][];
+            /** @description Mixed-pen feed, gain, cost, and value allocated by breed headcount share. Estimated, not measured intake by breed. */
+            estimated_by_breed: components["schemas"]["GrowthFCRGroup"][];
             by_sex: components["schemas"]["GrowthFCRGroup"][];
             by_weight_band: components["schemas"]["GrowthFCRGroup"][];
             by_park: components["schemas"]["GrowthFCRGroup"][];

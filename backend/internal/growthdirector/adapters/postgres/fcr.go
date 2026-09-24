@@ -210,6 +210,8 @@ cohort AS (
          count(DISTINCT g.breed)::int AS breeds, min(g.breed) AS breed,
          count(DISTINCT g.sex)::int AS sexes, min(g.sex) AS sex,
          count(DISTINCT g.species)::int AS species_n, min(g.species) AS species,
+         jsonb_agg(jsonb_build_object('key', lower(btrim(g.breed)), 'label', g.breed, 'animals', 1) ORDER BY g.breed)
+           FILTER (WHERE g.goat_id IS NOT NULL) AS breed_members,
          count(g.goat_id) FILTER (WHERE EXISTS (
            SELECT 1 FROM procurement_load_goats plg WHERE plg.tenant_id = $1::uuid AND plg.goat_id = g.goat_id))::int AS bought
   FROM pens p
@@ -227,6 +229,8 @@ weighed_cohort AS (
          count(DISTINCT g.breed)::int AS breeds, min(g.breed) AS breed,
          count(DISTINCT g.sex)::int AS sexes, min(g.sex) AS sex,
          count(DISTINCT g.species)::int AS species_n, min(g.species) AS species,
+         jsonb_agg(jsonb_build_object('key', lower(btrim(g.breed)), 'label', g.breed, 'animals', 1) ORDER BY g.breed)
+           FILTER (WHERE g.goat_id IS NOT NULL) AS breed_members,
          count(g.goat_id) FILTER (WHERE EXISTS (
            SELECT 1 FROM procurement_load_goats plg WHERE plg.tenant_id = $1::uuid AND plg.goat_id = g.goat_id))::int AS bought
   FROM (SELECT DISTINCT pen_shed_id, pen_key, animal_key FROM scan_rounds) sr
@@ -279,8 +283,8 @@ SELECT p.pen_shed_id::text, p.pen_key,
        (SELECT min(bp.pen_partition_label) FROM bucket_pen bp WHERE bp.pen_shed_id = p.pen_shed_id AND bp.pen_key = p.pen_key) AS bucket_label,
        wf.feed_label,
        p.rounds, p.first_d::text, p.last_d::text, p.first_avg, p.last_animals, p.modes,
-       c.residents, c.breeds, COALESCE(c.breed, ''), c.sexes, COALESCE(c.sex, ''), c.species_n, COALESCE(c.species, ''), cm.mix, c.bought,
-       wc.animals, wc.breeds, COALESCE(wc.breed, ''), wc.sexes, COALESCE(wc.sex, ''), wc.species_n, COALESCE(wc.species, ''), wm.mix, wc.bought,
+       c.residents, c.breeds, COALESCE(c.breed, ''), c.sexes, COALESCE(c.sex, ''), c.species_n, COALESCE(c.species, ''), cm.mix, c.breed_members, c.bought,
+       wc.animals, wc.breeds, COALESCE(wc.breed, ''), wc.sexes, COALESCE(wc.sex, ''), wc.species_n, COALESCE(wc.species, ''), wm.mix, wc.breed_members, wc.bought,
        wf.feed_kg::float8, wf.blocked_cells
 FROM pens p
 JOIN locations shed ON shed.location_id = p.pen_shed_id AND shed.tenant_id = $1::uuid
@@ -474,14 +478,14 @@ func (r *Repository) fcrPens(ctx context.Context, tenantID string, parkIDs []str
 		var shedName string
 		var bucketLabel, feedLabel *string
 		var residents, breeds, sexes, speciesN, bought *int
-		var residentMix, weighedMix []byte
+		var residentMix, weighedMix, residentBreeds, weighedBreeds []byte
 		var wAnimals, wBreeds, wSexes, wSpeciesN, wBought *int
 		var firstAvg, windowFeed *float64
 		var blocked *int
 		if err := rows.Scan(&row.LocationID, &row.PenKey, &shedName, &row.ParkID, &row.ParkName, &row.ParkCode, &bucketLabel, &feedLabel,
 			&row.Rounds, &row.FirstWeighDate, &row.LastWeighDate, &firstAvg, &row.LatestAnimals, &row.Modes,
-			&residents, &breeds, &row.Breed, &sexes, &row.Sex, &speciesN, &row.Species, &residentMix, &bought,
-			&wAnimals, &wBreeds, &row.WeighedBreed, &wSexes, &row.WeighedSex, &wSpeciesN, &row.WeighedSpecies, &weighedMix, &wBought,
+			&residents, &breeds, &row.Breed, &sexes, &row.Sex, &speciesN, &row.Species, &residentMix, &residentBreeds, &bought,
+			&wAnimals, &wBreeds, &row.WeighedBreed, &wSexes, &row.WeighedSex, &wSpeciesN, &row.WeighedSpecies, &weighedMix, &weighedBreeds, &wBought,
 			&windowFeed, &blocked); err != nil {
 			return nil, err
 		}
@@ -515,6 +519,12 @@ func (r *Repository) fcrPens(ctx context.Context, tenantID string, parkIDs []str
 			return nil, mixErr
 		}
 		if row.WeighedMix, mixErr = decodeHeadMix(weighedMix); mixErr != nil {
+			return nil, mixErr
+		}
+		if row.BreedMembers, mixErr = decodeFCRBreedMembers(residentBreeds); mixErr != nil {
+			return nil, mixErr
+		}
+		if row.WeighedBreedMembers, mixErr = decodeFCRBreedMembers(weighedBreeds); mixErr != nil {
 			return nil, mixErr
 		}
 		if bought != nil {
@@ -639,6 +649,44 @@ func decodeHeadMix(raw []byte) ([]domain.HeadMix, error) {
 	var out []domain.HeadMix
 	if err := json.Unmarshal(raw, &out); err != nil {
 		return nil, fmt.Errorf("decode pen head mix: %w", err)
+	}
+	return out, nil
+}
+
+func decodeFCRBreedMembers(raw []byte) ([]domain.FCRCohortMember, error) {
+	if len(raw) == 0 {
+		return []domain.FCRCohortMember{}, nil
+	}
+	var rows []domain.FCRCohortMember
+	if err := json.Unmarshal(raw, &rows); err != nil {
+		return nil, fmt.Errorf("decode fcr breed members: %w", err)
+	}
+	byKey := map[string]*domain.FCRCohortMember{}
+	order := []string{}
+	for _, row := range rows {
+		key := strings.ToLower(strings.TrimSpace(row.Key))
+		label := strings.TrimSpace(row.Label)
+		if key == "" {
+			key = domain.CohortUnknown
+		}
+		if label == "" {
+			label = key
+		}
+		animals := row.Animals
+		if animals <= 0 {
+			animals = 1
+		}
+		existing := byKey[key]
+		if existing == nil {
+			byKey[key] = &domain.FCRCohortMember{Key: key, Label: label}
+			order = append(order, key)
+			existing = byKey[key]
+		}
+		existing.Animals += animals
+	}
+	out := make([]domain.FCRCohortMember, 0, len(order))
+	for _, key := range order {
+		out = append(out, *byKey[key])
 	}
 	return out, nil
 }

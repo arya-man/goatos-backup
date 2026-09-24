@@ -5889,7 +5889,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"legend.fcr.feed_cost":       "Feed cost (₹)",
 			"legend.fcr.margin":          "Money made (₹)",
 			"section.fcr.breed.title":    "FCR by breed",
-			"section.fcr.breed.caption":  "Sum of feed over sum of gain across the pens that hold one breed. A pen holding several breeds is one Mixed bar, never split.",
+			"section.fcr.breed.caption":  "Mixed pens are split by resident headcount share so every breed is visible.",
 			"section.fcr.breed.aria":     "Feed conversion ratio by breed",
 			"section.fcr.sex.title":      "FCR by sex",
 			"section.fcr.sex.caption":    "A pen counts under a sex only when every resident is that sex.",
