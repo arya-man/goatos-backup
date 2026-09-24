@@ -95,6 +95,12 @@ Beware ambiguous `status` when joining locations: qualify it (`t.status`).
 | Sale allocations / growth price | goat_sale_allocations (status tagged), growth_sale_price_assumptions (price_per_kg_inr) | |
 | Births | goat_births (individually registered kids, 2 rows) vs counts_movement_daily births (herd count, ~600) | give both numbers + one line why; herd count includes 458 bulk-entered on 05/08/2026 |
 
+## Answer hard rules
+- Never call sheep "goats". "goats"/"bakre" without an explicit species contrast = all animals: "N animals (X goats, Y sheep)".
+- Compute every total/difference/%/per-unit in SQL; never do arithmetic by hand in the answer.
+- Simple headcount = one query on animal_current_scope (alive, shed_label + partition_label, GROUP BY park, species).
+- Vaccination "due": vaccination_obligations_base status IN ('scheduled','deferred') only (~90% of rows are canceled re-plans).
+
 ## Metric definitions (match the dashboard)
 
 Source of truth is the backend read the admin-web page calls. If the exact definition needs data
