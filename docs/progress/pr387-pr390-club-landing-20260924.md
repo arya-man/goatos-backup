@@ -22,12 +22,13 @@ Date: 2026-09-24
 - Renumbered the sale-price stage/sex migration from `000398` to `000399` because current main already has `000398_herd_signals_realtime_motion.sql`.
 - Renamed the FCR effective-date fallback test to include `DateShift` so aggregate projection guard sees the date adversarial coverage.
 - Focused reruns passed: `check-contract-drift.sh`, `make aggregate-projection-guard`, and `make migration-duplicate-versions-guard`.
+- Final `make land-main` passed and pushed `01095633a815ba34b3dce301a48a21269bc6d086` to `main`.
+- Readback after landing matched: local `HEAD`, local `origin/main`, and remote `refs/heads/main` were all `01095633a815ba34b3dce301a48a21269bc6d086`.
+- GitHub PR 392 is marked merged.
 
 ## Pending
 
-- Push guard fixes to PR 392.
-- Rerun final repo-local landing gate after final rebase.
-- Push certified `main` only if `make land-main` passes.
+- Land this final docs-only receipt update.
 
 ## Tests / E2E
 
@@ -35,17 +36,18 @@ Date: 2026-09-24
 - Passing lanes included backend `go test ./...` with Postgres disabled, required PostgreSQL query plans, command-board query plans, admin-web lint/typecheck/unit tests, and admin-web production build.
 - Failed lanes: `agent: contract-drift`, `agent: aggregate-projection`, `migration-duplicate-versions-guard`.
 - Focused reruns after fixes passed for all three failed lanes.
+- Final `make land-main` passed at `01095633a815ba34b3dce301a48a21269bc6d086`.
 - PR 390 focused backend tests passed earlier in isolated review worktree; must be rerun or covered by final landing gate for this clubbed branch.
 
 ## Known failures
 
-- Full landing gate still pending after focused fixes.
+- None for the landed code. This file is being updated after the landing receipt.
 
 ## Current SHA
 
-- Club HEAD after focused-fix commit: `0b039c3de`.
+- Landed code SHA: `01095633a815ba34b3dce301a48a21269bc6d086`.
 
 ## Deployment state
 
 - No staging deployment started.
-- No main push performed yet.
+- Main push completed by `make land-main`.
