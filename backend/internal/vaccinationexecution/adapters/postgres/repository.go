@@ -2633,6 +2633,12 @@ func (r *Repository) ScanRoster(ctx context.Context, q domain.ScanRosterQuery) (
 			return domain.ScanRosterResult{}, fmt.Errorf("vaccination execution: scan roster identity: %w", err)
 		}
 	}
+	if q.BatchID != "" {
+		if identity.BatchID != "" && identity.BatchID != q.BatchID {
+			return domain.ScanRosterResult{}, ports.ErrInvalidArgument
+		}
+		identity.BatchID = q.BatchID
+	}
 	limit := q.Limit
 	if limit <= 0 {
 		limit = 500

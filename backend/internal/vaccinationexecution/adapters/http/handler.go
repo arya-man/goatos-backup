@@ -788,6 +788,11 @@ func (h *Handler) ScanRoster(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	plannedDate := strings.TrimSpace(query.Get("planned_date"))
+	batchID := strings.TrimSpace(query.Get("batch_id"))
+	if batchID != "" && !uuidutil.IsUUIDString(batchID) {
+		h.badRequest(w, r, "invalid_batch_id", "batch_id must be a UUID")
+		return
+	}
 	if plannedDate != "" {
 		if _, err := time.Parse("2006-01-02", plannedDate); err != nil {
 			h.badRequest(w, r, "invalid_planned_date", "planned_date must be YYYY-MM-DD")
@@ -817,6 +822,7 @@ func (h *Handler) ScanRoster(w http.ResponseWriter, r *http.Request) {
 		PartitionLabel:       strings.TrimSpace(query.Get("partition_label")),
 		AssignmentID:         assignmentID,
 		PlannedDate:          plannedDate,
+		BatchID:              batchID,
 		TaskID:               taskID,
 		OperatorScopeActorID: actorID,
 		Limit:                limit,
