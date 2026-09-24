@@ -59,3 +59,64 @@ Column notes: `stg p95 (before)` comes from `baseline/stg-api-latency-before.csv
 - **`/app/notifications` (NEW):** one 500 (the cold call) came from a statement timeout on the unread count. NEW depends on migration 000396 (`notification_centre_feed_dedupe_index`), which is not applied on stg. Even without that index, NEW's warm p50 is 393 ms against OLD's 2263 ms, and DB time is 427 ms against 2260 ms. Re-bench after 000396 lands.
 - **`/feed-direction/distribution/captures`:** returns 500 on both sides with `proof: forbidden`. The local run uses local media storage, which cannot sign the stg GCS proof objects. This is a harness artefact, not a regression.
 - **Endpoint coverage:** endpoints that need pending migrations 000393-000401 cannot be fully judged against the un-migrated stg DB.
+
+## Re-run 2026-09-24 17:25-17:45 IST: OLD a67be34c0781 vs NEW c91df850b0e3
+
+Same method, harness and caveats as above (mesha_ceo_readonly via Cloud SQL Auth Proxy, `default_transaction_read_only=on` on every connection with a rejected `CREATE TEMP TABLE` probe, no migrations, GET only, one request in flight, 1 cold + 10 warm calls per endpoint). NEW is `origin/perf/stg-burst-and-login` at `c91df850b0e3`. Before the run, Cloud SQL CPU was 11-13% and disk read ops were 7-2.6k per minute, so no rollup storm was running. Neither server log has a "read-only transaction" error. The run took about 20 min, over the 15 min budget, because the OLD `/app/notifications` and `/app/weighing/leadership/sheds` calls each took 4-11 s.
+
+All numbers are in ms. Verdicts use p95: <=100 target, <=300 ok, <=500 max, >500 fail. Any non-200 response is a fail, except where NEW errors only because stg lacks pending migrations 000393-000405. Those rows are marked "needs migration" and are not counted as fails.
+
+| endpoint | OLD p50 | OLD p95 | NEW p50 | NEW p95 | change (p95) | verdict OLD | verdict NEW |
+|---|---:|---:|---:|---:|---:|---|---|
+| `/growth-director/fcr` | 1376 | 4268 | 211 | 255 | -94% (not comparable) | fail | needs migration (000399) |
+| `/app/weighing/alerts` | 251 | 1992 | 181 | 213 | -89% | fail | ok |
+| `/weighing/shed-weights` | 112 | 242 | 76 | 145 | -40% | ok | ok |
+| `/work-board/page` | 1248 | 1293 | 377 | 797 | -38% | fail | fail |
+| `/weighing/weight-demographics` | 146 | 202 | 67 | 216 | +7% | ok | ok |
+| `/counts/mortality` | 149 | 190 | 99 | 202 | +6% | ok | ok |
+| `/weighing/leadership/growth` | 110 | 190 | 73 | 145 | -24% | ok | ok |
+| `/counts/breakdown` | 172 | 321 | 205 | 400 | +25% | max | max |
+| `/app/vaccination/execution` | 429 | 771 | 378 | 574 | -25% | fail | fail |
+| `/alerts/rows` | 214 | 341 | 212 | 329 | -3% | max | max |
+| `/calendar/vaccination/events` | 37 | 46 | 36 | 101 | +119% | target | ok |
+| `/vaccination/command/cohort-matrix` | 376 | 436 | 376 | 584 | +34% | max | fail |
+| `/vaccination/command` | 931 | 1252 | 1021 | 1177 | -6% | fail | fail |
+| `/vaccination/command/shed-dose-matrix` | 543 | 2942 | 446 | 1129 | -62% | fail | fail |
+| `/vaccination/sheds` | 239 | 299 | 264 | 345 | +15% | ok | max |
+| `/weighing/weighing-dates` | 191 | 328 | 73 | 149 | -55% | max | ok |
+| `/work-board/rows/feed%7Cfeed_activity%7C00000000-0000-4000-8000-000000` | 218 | 225 | 222 | 297 | +32% | ok | ok |
+| `/control-tower/vaccination` | 8294 | 8405 | 38 | 53 | -99% (not comparable) | fail (HTTP 500) | target |
+| `/vaccination/command/drives` | 190 | 375 | 40 | 93 | -75% | max | target |
+| `/counts/herd-analytics` | 408 | 712 | 147 | 241 | -66% | fail | ok |
+| `/feed-analytics/directed` | 193 | 220 | 38 | 54 | -75% | ok | target |
+| `/feed-config/experiment` | 310 | 682 | 82 | 154 | -77% | fail | ok |
+| `/feed-analytics/shed-feed` | 192 | 199 | 39 | 95 | -52% | ok | target |
+| `/sales/overview` | 215 | 274 | 178 | 305 | +11% | ok | max |
+| `/feed-analytics/stock` | 94 | 185 | 119 | 201 | +9% | ok | ok |
+| `/app/leadership-tasks/assignees` | 74 | 150 | 76 | 156 | +4% | ok | ok |
+| `/feed-direction/distribution/captures` | 77 | 199 | 75 | 149 | -25% | n/a (harness: local media cannot sign GCS proofs) | n/a (harness: local media cannot sign GCS proofs) |
+| `/feed-config/shed-tags` | 47 | 156 | 40 | 91 | -41% | ok | target |
+| `/admin/pen-routines` | 201 | 221 | 148 | 221 | +0% | ok | ok |
+| `/app/notifications` | 3985 | 10760 | 219 | 248 | -98% (not comparable) | fail (HTTP 200/500) | needs migration (000403) |
+| `/app/weighing/leadership/sheds` | 8318 | 8721 | 417 | 600 | -93% (not comparable) | fail (HTTP 500) | fail |
+| `/identifiers/{type}/{value}/resolve` | 150 | 353 | 77 | 194 | -45% (not comparable) | fail (HTTP 500) | ok |
+| `/app/workflows/{id}` | 137 | 186 | 159 | 199 | +7% | ok | ok |
+| `/goats/search` | 112 | 192 | 159 | 200 | +4% | ok | ok |
+| `/herd-signals/live` | 985 | 1200 | 156 | 232 | -81% (not comparable) | fail | needs migration (000398/000402) |
+| `/herd-signals/live?risk_state=attention` | 466 | 510 | 142 | 191 | -62% (not comparable) | fail | needs migration (000398/000402) |
+
+| verdict | OLD | NEW |
+|---|---:|---:|
+| target | 1 | 5 |
+| ok | 15 | 16 |
+| max | 5 | 4 |
+| fail | 14 | 6 |
+| needs migration | 0 | 4 |
+| n/a | 1 | 1 |
+
+Notes on the added endpoints and errors:
+
+- **Needs migration (NEW):** `/growth-director/fcr` fails on the missing column `management_stage` (000399). `/app/notifications` fails on the missing relation `notification_member_unread_counts` (000403). Both `/herd-signals/live` variants fail on the missing column `tl.last_packet_motion_delta` (000398) and the missing relation `herd_signal_pen_medians` (000402). For these rows NEW timings are for the error path.
+- **OLD 500s:** `/control-tower/vaccination` and `/app/weighing/leadership/sheds` hit the 15 s statement timeout or `processintegrity` projection timeouts, and `/identifiers/.../resolve` returned `identity repository error`. NEW returns 200 on all three.
+- **Inputs for the new endpoints**, taken from 24 h of stg logs: `/app/workflows/8f2751b1-...`, `/identifiers/animal_identifier_1/901007000506004/resolve`, and `/goats/search?q=901007000506004&status=alive&limit=20`.
+- **Noise:** n=10 is still small and stg traffic is live. The changes above +/-30% on `/calendar/vaccination/events`, `/vaccination/command/cohort-matrix` and `/work-board/rows` come with the same statement counts on both sides.
