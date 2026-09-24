@@ -143,7 +143,13 @@ func liveCursorArg(cursor liveCursor, spec liveSortSpec) interface{} {
 // even carry. Sharing the filter builder is the point: an export whose WHERE clause is a second
 // hand-written copy of the view's is an export that quietly stops matching the screen.
 func (r *Repository) ListTagsLatestPage(ctx context.Context, tenantID string, parkID, shedID, movementState, liveState, mappingState, pattern, q *string, cursor string, limit int, sort ...domain.LiveSort) ([]domain.TagLatest, error) {
+	return r.listTagsLatestPage(ctx, tenantID, parkID, shedID, movementState, liveState, mappingState, pattern, nil, q, cursor, limit, sort...)
+}
+
+// listTagsLatestPage is ListTagsLatestPage plus the persisted risk_state predicate.
+func (r *Repository) listTagsLatestPage(ctx context.Context, tenantID string, parkID, shedID, movementState, liveState, mappingState, pattern, riskState, q *string, cursor string, limit int, sort ...domain.LiveSort) ([]domain.TagLatest, error) {
 	whereClause, args, argIndex := herdSignalsLiveFilter(tenantID, parkID, shedID, movementState, liveState, mappingState, pattern, q)
+	whereClause, args, argIndex = withRiskFilter(whereClause, args, argIndex, riskState)
 	spec := normalizeLiveSort(sort)
 
 	if cursor != "" {
@@ -183,7 +189,8 @@ func (r *Repository) ListTagsLatestPage(ctx context.Context, tenantID string, pa
 		       tl.motion_delta_30s, tl.motion_delta_60s, tl.motion_delta_5m, tl.last_moved_at,
 		       tl.motion_delta, tl.motion_delta_1h, tl.previous_motion_count, tl.previous_seen_at,
 		       tl.motion_window_seconds, `+effectiveMovementStateExpr+`, `+effectivePatternStateExpr+`, tl.temperature_sensor_ok,
-		       tl.accelerometer_sensor_ok, tl.mapping_state, tl.gap_delta, tl.updated_at
+		       tl.accelerometer_sensor_ok, tl.mapping_state, tl.gap_delta, tl.updated_at,
+		       tl.risk_state, tl.risk_reasons, tl.risk_evaluated_at
 			FROM public.herd_signal_tag_latest tl
 			%s
 			%s
@@ -210,6 +217,7 @@ func (r *Repository) ListTagsLatestPage(ctx context.Context, tenantID string, pa
 			&tag.MotionDelta, &tag.MotionDelta1h, &tag.PreviousMotionCount, &tag.PreviousSeenAt,
 			&tag.MotionWindowSeconds, &tag.MovementState, &tag.PatternState, &tag.TemperatureSensorOK,
 			&tag.AccelerometerSensorOK, &tag.MappingState, &tag.GapDelta, &tag.UpdatedAt,
+			&tag.RiskState, &tag.RiskReasons, &tag.RiskEvaluatedAt,
 		); err != nil {
 			return nil, err
 		}

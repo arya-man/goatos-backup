@@ -1594,6 +1594,9 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	}
 	liveNotifyCtx, cancelLiveNotify := context.WithCancel(ctx)
 	herdSignalsHandler.WithLiveNotifications(liveNotifyCtx, herdsignalspg.NewLiveNotificationSource(pool, log))
+	// Persisted risk classification (000402): one pass per interval across the cluster (advisory
+	// lock), stopped with the live-notify context on Close.
+	go herdSignalsService.RunRiskClassifier(liveNotifyCtx, herdSignalsRiskClassifierInterval)
 	// Cross-instance eviction feed on its own connection (not a pool slot), then a background,
 	// serial warm-up of the landing read every Weights/ADG visit blocks on.
 	readcache.NewListener(pool, log, analyticsReadCache).Start(liveNotifyCtx)
@@ -1606,6 +1609,11 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		},
 	}, nil
 }
+
+// herdSignalsRiskClassifierInterval is how often the persisted Herd Signals risk_state is
+// recomputed. Risk inputs are 15m/24h-window signals, so a minute of lag is well inside their
+// own resolution.
+const herdSignalsRiskClassifierInterval = time.Minute
 
 func newEventsAPI(
 	cfg Config,

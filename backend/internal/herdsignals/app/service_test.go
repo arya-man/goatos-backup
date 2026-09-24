@@ -57,6 +57,7 @@ type fakeRepo struct {
 	listLimits       []int
 	resolvedValueCnt int
 	summaryCalls     int
+	riskWrites       []ports.TagRisk
 }
 
 func (f *fakeRepo) IngestPackets(_ context.Context, _ string, _ domain.Gateway, packets []domain.Packet) (int, int, error) {
@@ -103,16 +104,71 @@ func (f *fakeRepo) ListTagsLatest(_ context.Context, _ string, _, _, movementSta
 	return append([]domain.TagLatest(nil), livePages[start:end]...), domain.Summary{}, next, nil
 }
 
-func (f *fakeRepo) ListTagsLatestKeyset(ctx context.Context, tenantID string, parkID, shedID, movementState, liveState, mappingState, pattern, q *string, cursor string, limit int, sort ...domain.LiveSort) ([]domain.TagLatest, *string, error) {
+func (f *fakeRepo) ListTagsLatestKeyset(ctx context.Context, tenantID string, parkID, shedID, movementState, liveState, mappingState, pattern, riskState, q *string, cursor string, limit int, sort ...domain.LiveSort) ([]domain.TagLatest, *string, error) {
+	if riskState == nil {
+		tags, _, next, err := f.ListTagsLatest(ctx, tenantID, parkID, shedID, movementState, liveState, mappingState, pattern, q, cursor, limit, sort...)
+		return tags, next, err
+	}
+	saved := f.livePages
+	f.livePages = f.riskFiltered(riskState)
 	tags, _, next, err := f.ListTagsLatest(ctx, tenantID, parkID, shedID, movementState, liveState, mappingState, pattern, q, cursor, limit, sort...)
+	f.livePages = saved
 	return tags, next, err
 }
 
-func (f *fakeRepo) LiveSummary(_ context.Context, _ string, _, _, _, _, _ *string) (domain.Summary, error) {
+func (f *fakeRepo) riskFiltered(riskState *string) []domain.TagLatest {
+	out := []domain.TagLatest{}
+	for _, tag := range f.livePages {
+		if tag.RiskState == nil {
+			continue
+		}
+		if *riskState == "attention" || *tag.RiskState == *riskState {
+			out = append(out, tag)
+		}
+	}
+	return out
+}
+
+// UpdateTagRisk persists onto the fake's rows, like the UNNEST update.
+func (f *fakeRepo) UpdateTagRisk(_ context.Context, _ string, rows []ports.TagRisk, at time.Time) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	byTag := map[string]ports.TagRisk{}
+	for _, r := range rows {
+		byTag[r.TagID] = r
+		f.riskWrites = append(f.riskWrites, r)
+	}
+	for i := range f.livePages {
+		if r, ok := byTag[f.livePages[i].TagID]; ok {
+			f.livePages[i].RiskState, f.livePages[i].RiskReasons = r.State, r.Reasons
+			evaluated := at
+			f.livePages[i].RiskEvaluatedAt = &evaluated
+		}
+	}
+	return len(rows), nil
+}
+
+func (f *fakeRepo) LiveSummary(_ context.Context, _ string, _, _, _, _, riskState, _ *string) (domain.Summary, error) {
 	f.mu.Lock()
 	f.summaryCalls++
 	f.mu.Unlock()
-	return domain.Summary{TagsSeen: len(f.livePages)}, nil
+	tags := f.livePages
+	if riskState != nil {
+		tags = f.riskFiltered(riskState)
+	}
+	sum := domain.Summary{TagsSeen: len(tags)}
+	for _, tag := range tags {
+		if tag.MappingState == "unmapped" {
+			sum.UnmappedTags++
+		}
+		switch tag.MovementState {
+		case "moving":
+			sum.Moving++
+		case "stale":
+			sum.Stale++
+		}
+	}
+	return sum, nil
 }
 
 func (f *fakeRepo) filteredLiveStatePages(tags []domain.TagLatest, liveState string) []domain.TagLatest {
@@ -340,6 +396,10 @@ func TestListLiveRiskFilterPaginatesAfterFilteredRowsAndKeepsWholeSummary(t *tes
 		{TagID: "A00003", LastSeenAt: now.Add(-2 * time.Minute), PatternState: "inactive", MappingState: "unmapped", TemperatureSensorOK: &falseValue},
 	}}
 	svc := NewService(repo)
+	// risk_state is persisted by the classifier; run it as production would have.
+	if _, err := svc.RecomputeRisk(context.Background(), "tenant-1"); err != nil {
+		t.Fatalf("RecomputeRisk: %v", err)
+	}
 	actor := domain.Actor{TenantID: "tenant-1", UserID: "user-1"}
 	risk := "high"
 	sort := domain.LiveSort{Key: "smart_tag", Dir: "asc"}
@@ -354,8 +414,8 @@ func TestListLiveRiskFilterPaginatesAfterFilteredRowsAndKeepsWholeSummary(t *tes
 	if first.Items[0].TagID != "A00001" || first.Items[1].TagID != "A00002" {
 		t.Fatalf("first page tags = %v, want A00001/A00002", []string{first.Items[0].TagID, first.Items[1].TagID})
 	}
-	if first.NextCursor == nil || *first.NextCursor == "A00002" {
-		t.Fatalf("next cursor = %v, want opaque risk cursor", first.NextCursor)
+	if first.NextCursor == nil {
+		t.Fatalf("next cursor = nil, want a keyset cursor to the third risk row")
 	}
 	if first.Summary.TagsSeen != 3 || first.Summary.UnmappedTags != 3 {
 		t.Fatalf("summary = %+v, want whole filtered set of 3 unmapped tags", first.Summary)
@@ -398,6 +458,10 @@ func TestListLiveRiskFilterWalksPastRepositoryPageBoundary(t *testing.T) {
 	pages[len(pages)-1].PatternState = "inactive"
 	repo := &fakeRepo{livePages: pages}
 	svc := NewService(repo)
+	// risk_state is persisted by the classifier; run it as production would have.
+	if _, err := svc.RecomputeRisk(context.Background(), "tenant-1"); err != nil {
+		t.Fatalf("RecomputeRisk: %v", err)
+	}
 	actor := domain.Actor{TenantID: "tenant-1", UserID: "user-1"}
 	risk := "high"
 	sort := domain.LiveSort{Key: "smart_tag", Dir: "asc"}
@@ -422,6 +486,10 @@ func TestListLiveRiskSummaryKeepsMovementBreakdownWhole(t *testing.T) {
 		{TagID: "A00002", LastSeenAt: now.Add(-time.Minute), PatternState: "inactive", MappingState: "unmapped", MovementState: "stale", TemperatureSensorOK: &falseValue},
 	}}
 	svc := NewService(repo)
+	// risk_state is persisted by the classifier; run it as production would have.
+	if _, err := svc.RecomputeRisk(context.Background(), "tenant-1"); err != nil {
+		t.Fatalf("RecomputeRisk: %v", err)
+	}
 	actor := domain.Actor{TenantID: "tenant-1", UserID: "user-1"}
 	risk := "high"
 	movement := "stale"
@@ -446,6 +514,10 @@ func TestListLiveAttentionRiskExcludesZeroScoreRows(t *testing.T) {
 		{TagID: "A00002", LastSeenAt: now.Add(-time.Minute), PatternState: "inactive", MappingState: "mapped", MovementState: "stale"},
 	}}
 	svc := NewService(repo)
+	// risk_state is persisted by the classifier; run it as production would have.
+	if _, err := svc.RecomputeRisk(context.Background(), "tenant-1"); err != nil {
+		t.Fatalf("RecomputeRisk: %v", err)
+	}
 	actor := domain.Actor{TenantID: "tenant-1", UserID: "user-1"}
 	risk := "attention"
 	sort := domain.LiveSort{Key: "smart_tag", Dir: "asc"}

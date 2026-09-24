@@ -849,13 +849,13 @@ func herdSignalsLiveFilter(tenantID string, parkID, shedID, movementState, liveS
 // ListTagsLatestKeyset is ListTagsLatest without the whole-filter summary aggregate: one
 // keyset page plus its next cursor. GET /herd-signals/live serves the summary from its own
 // (cached) LiveSummary call so a page read never pays for the full aggregate.
-func (r *Repository) ListTagsLatestKeyset(ctx context.Context, tenantID string, parkID, shedID, movementState, liveState, mappingState, pattern, q *string, cursor string, limit int, sort ...domain.LiveSort) (
+func (r *Repository) ListTagsLatestKeyset(ctx context.Context, tenantID string, parkID, shedID, movementState, liveState, mappingState, pattern, riskState, q *string, cursor string, limit int, sort ...domain.LiveSort) (
 	[]domain.TagLatest, *string, error,
 ) {
 	// Fetch one extra row to detect whether another page exists. The row query itself lives in
 	// ListTagsLatestPage (export.go) so GET /herd-signals/export.csv walks the SAME filtered,
 	// keyset-ordered result this endpoint returns -- the export can never drift from the view.
-	tags, err := r.ListTagsLatestPage(ctx, tenantID, parkID, shedID, movementState, liveState, mappingState, pattern, q, cursor, limit+1, sort...)
+	tags, err := r.listTagsLatestPage(ctx, tenantID, parkID, shedID, movementState, liveState, mappingState, pattern, riskState, q, cursor, limit+1, sort...)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -878,9 +878,23 @@ func (r *Repository) ListTagsLatestKeyset(ctx context.Context, tenantID string, 
 // LiveSummary is the whole-filter summary aggregate of GET /herd-signals/live: the SAME
 // park/shed/mapping_state/pattern/q filter, WITHOUT movement_state or live_state and without
 // cursor/limit, in one query (AGENTS.md operational read model contract rule 3).
-func (r *Repository) LiveSummary(ctx context.Context, tenantID string, parkID, shedID, mappingState, pattern, q *string) (domain.Summary, error) {
-	summaryWhere, summaryArgs, _ := herdSignalsLiveFilter(tenantID, parkID, shedID, nil, nil, mappingState, pattern, q)
+func (r *Repository) LiveSummary(ctx context.Context, tenantID string, parkID, shedID, mappingState, pattern, riskState, q *string) (domain.Summary, error) {
+	summaryWhere, summaryArgs, argIndex := herdSignalsLiveFilter(tenantID, parkID, shedID, nil, nil, mappingState, pattern, q)
+	summaryWhere, summaryArgs, _ = withRiskFilter(summaryWhere, summaryArgs, argIndex, riskState)
 	return r.computeSummary(ctx, tagLocationJoin, summaryWhere, summaryArgs)
+}
+
+// withRiskFilter appends the persisted risk_state predicate: "attention" = any classified risk,
+// otherwise an exact state. Served by herd_signal_tag_latest_risk(_state)_idx (000402).
+func withRiskFilter(where string, args []interface{}, argIndex int, riskState *string) (string, []interface{}, int) {
+	if riskState == nil || *riskState == "" {
+		return where, args, argIndex
+	}
+	if *riskState == "attention" {
+		return where + " AND tl.risk_state IS NOT NULL", args, argIndex
+	}
+	where += fmt.Sprintf(" AND tl.risk_state = $%d", argIndex)
+	return where, append(args, *riskState), argIndex + 1
 }
 
 func (r *Repository) ListTagsLatest(ctx context.Context, tenantID string, parkID, shedID, movementState, liveState, mappingState, pattern, q *string, cursor string, limit int, sort ...domain.LiveSort) (
