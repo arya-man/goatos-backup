@@ -241,3 +241,22 @@ comment with a self-test fixture for each.
   (`vaccination_eligibility_rollups` usable flag,
   `ListRecoverableDeferredVaccinationGoatIDs`) must stay in sync with it. Mechanical
   backstop: `make clinical-defer-guard` (required in CI).
+
+## Jobs, Retention and List Endpoints (perf budget, 2026-09-24)
+
+Canonical catalog: `.agents/skills/scale-anti-patterns/SKILL.md` ("STG latency catalog", P1-P25).
+- **Job safety (P7).** Every Cloud Run job / worker: a watermark (never rescan
+  all history), outside dependencies non-fatal (log + metric + degraded
+  success), bounded retries with backoff, a Postgres conn cap (<=3). Bad:
+  analytics-rollup rescanned `analytics.app_events` then died on a BigQuery 403
+  and was refired every ~40 min. Evidence: a test with the dependency failing.
+- **Event/log retention (P2, P18).** A new event, log, audit, history or
+  telemetry table ships in the same PR with its retention job, which archives to
+  GCS cold storage (Parquet) before pruning, and per-table autovacuum tuning if
+  it is high-churn. Bad: `app_events` 2.6GB, delivered outbox ~1GB, never pruned.
+- **Lists are paginated server-side (P9).** Every list an API returns to
+  admin-web or Android: keyset/cursor (no OFFSET on large tables), server-enforced
+  default (e.g. 50) and hard max (e.g. 200) page size, stable sort with a unique
+  tiebreaker, totals from a stored counter or separate cheap count. "Show
+  all"/export is an async export job. Bad: `ListLive` walking 50k tags for
+  `limit=1`; vaccination command reading all 86k obligations.

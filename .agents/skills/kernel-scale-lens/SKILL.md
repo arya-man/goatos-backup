@@ -36,6 +36,8 @@ chapters below; do not review from the summary.
 - **Release envelope (authority):** [`docs/decisions/operational-kernel-5k-50k-scale-envelope.md`](../../../docs/decisions/operational-kernel-5k-50k-scale-envelope.md).
 - **Serving-read freshness + date-window contract:** [`docs/decisions/high-scale-dashboard-projections.md`](../../../docs/decisions/high-scale-dashboard-projections.md).
 - **Future 1M certification:** [`docs/decisions/one-million-postgres-readiness.md`](../../../docs/decisions/one-million-postgres-readiness.md).
+- **STG latency catalog + perf evidence:** [`scale-anti-patterns` P1-P25](../scale-anti-patterns/SKILL.md#stg-latency-catalog-p1-p25--canonical-2026-09-24-incident) — sweepers/jobs must satisfy
+  P7 (watermark, non-fatal deps, backoff, conn cap) and P18 (autovacuum on queue tables).
 
 ## Machine gates
 - `make e2e-integrity-guard` — E2E produces state via the real service/sweeper/
