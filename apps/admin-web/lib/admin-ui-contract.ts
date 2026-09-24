@@ -131,6 +131,7 @@ const COPY_FALLBACKS: Record<string, Record<string, string>> = {
     "value.cost_missing": "Cost not recorded",
     "value.none": "Not recorded",
     "value.price_basis.load": "at this load's own average sold price",
+    "value.price_basis.live_weight": "at the live-weight sale price",
     "value.price_basis.none": "no sale yet to price them against",
     "value.price_basis.overall": "at the overall average sold price",
     "value.profit_incl_stock": "incl. stock",

@@ -20815,16 +20815,14 @@ components:
           type: integer
           description: How many of `sold` carry an attributed deal share; the rest sold without a tagged sale.
         avg_sold_price: { type: number, nullable: true }
-        price_basis: { type: string, enum: [load, overall, none, growth_sale_price] }
+        price_basis: { type: string, enum: [load, overall, none, live_weight] }
         remaining_value:
           type: number
           nullable: true
           description: >-
-            Remaining stock value. The current Load-wise read uses `remaining_mix` x
-            avg_purchase_weight_kg x the effective growth_sale_price_assumptions row for each
-            species/stage/sex group; absent when the load has no purchase-weight basis or any
-            remaining group is unpriced. Legacy `load`/`overall` bases are retained only as
-            historical contract values.
+            remaining x avg_sold_price. Absent when there is no price basis. `live_weight` is
+            reserved for a future path with current live weight for remaining animals; this
+            endpoint must not value remaining stock from sale exit weight.
         profit_loss:
           type: number
           nullable: true
