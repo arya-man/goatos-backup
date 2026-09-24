@@ -8,10 +8,12 @@ import (
 	"crypto/md5"
 	"encoding/json"
 	"errors"
+	"io"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/observability"
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 )
@@ -69,6 +71,16 @@ func (f *fakeStore) Create(_ context.Context, name string, body []byte) error {
 	}
 	f.objects[name] = stored
 	return nil
+}
+
+func (f *fakeStore) Get(_ context.Context, name string) ([]byte, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	b, ok := f.objects[name]
+	if !ok {
+		return nil, errors.New("not found")
+	}
+	return append([]byte(nil), b...), nil
 }
 
 func (f *fakeStore) Stat(_ context.Context, name string) (objectInfo, error) {
@@ -192,7 +204,7 @@ func TestArchiveVerifiesBeforeDeleteAndResumesPostgres(t *testing.T) {
 	add(oldDay.AddDate(0, 0, 2), "crash_day")
 	name := ""
 	pre := &fakeStore{objects: map[string][]byte{}}
-	if _, err := exportAndVerifyDay(ctx, pool, pre, cfg, oldDay.AddDate(0, 0, 2), logger); err != nil {
+	if _, _, err := exportAndVerifyDay(ctx, pool, pre, cfg, oldDay.AddDate(0, 0, 2), logger); err != nil {
 		t.Fatal(err)
 	}
 	for n, b := range pre.objects {
@@ -213,5 +225,143 @@ func TestArchiveVerifiesBeforeDeleteAndResumesPostgres(t *testing.T) {
 	add(oldDay.AddDate(0, 0, 4), "no_bucket")
 	if res, err := archiveAndPruneAppEvents(ctx, pool, nil, cfg, now, logger); err != nil || res.RowsDeleted != 0 {
 		t.Fatalf("deleted without an archive store: %+v %v", res, err)
+	}
+}
+
+// Finding 1: a backfill (explicit old -source-date or -force-recompute) whose
+// raw read window overlaps an archived+deleted day, or reaches past the
+// retention cutoff, must refuse instead of overwriting good summaries with
+// partial raw data.
+func TestRollupRefusesDaysWhoseRawWindowWasArchivedPostgres(t *testing.T) {
+	pool := pgtest.StartPostgres(t, context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	day, _ := time.ParseInLocation("2006-01-02", "2020-09-15", biztime.DefaultLocation())
+	if _, err := pool.Exec(ctx, `INSERT INTO analytics.engagement_daily(tenant_id,event_date,dau) VALUES($1,'2020-09-15',42)`, testTenantID); err != nil {
+		t.Fatal(err)
+	}
+	// 2020-09-10 (inside D-6..D+2) was archived and deleted.
+	if _, err := pool.Exec(ctx, `INSERT INTO analytics.app_events_archive(archive_date,object_name,row_count,content_sha256,compressed_bytes,verified_at,deleted_at) VALUES('2020-09-10','x',1,'s',1,now(),now())`); err != nil {
+		t.Fatal(err)
+	}
+	for _, force := range []bool{false, true} {
+		run, err := startRollupRun(ctx, pool, day)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cfg := config{TenantID: testTenantID, SourceDate: day, Source: "app_events", LookbackDays: 1, ForceRecompute: force}
+		if err := runAppEventsAndFinish(ctx, pool, cfg, run, time.Now()); err == nil {
+			t.Fatalf("force=%v: recomputed a day whose raw window was archived", force)
+		}
+		var dau int64
+		if err := pool.QueryRow(ctx, `SELECT dau FROM analytics.engagement_daily WHERE tenant_id=$1 AND event_date='2020-09-15'`, testTenantID).Scan(&dau); err != nil || dau != 42 {
+			t.Fatalf("force=%v: good summary overwritten dau=%d err=%v", force, dau, err)
+		}
+	}
+	// Retention on: a window older than the cutoff is refused even with no ledger row.
+	if _, err := pool.Exec(ctx, `TRUNCATE analytics.app_events_archive`); err != nil {
+		t.Fatal(err)
+	}
+	run, _ := startRollupRun(ctx, pool, day)
+	cfg := config{TenantID: testTenantID, SourceDate: day, Source: "app_events", LookbackDays: 1, ForceRecompute: true, RetentionDays: 15}
+	if err := runAppEventsAndFinish(ctx, pool, cfg, run, time.Now()); err == nil {
+		t.Fatal("recomputed a day older than the retention cutoff")
+	}
+}
+
+type getStore struct{ *fakeStore }
+
+// Finding 2: after a crash between upload and ledger, a different build (other
+// gzip bytes, same content) hits "exists". Verification must compare the
+// uncompressed content hash, not compressed MD5, or archiving wedges forever.
+// A same-name object with DIFFERENT content must still never verify.
+func TestArchiveExistingObjectVerifiedByContentPostgres(t *testing.T) {
+	pool := pgtest.StartPostgres(t, context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	now := time.Date(2026, 9, 24, 21, 45, 0, 0, time.UTC)
+	day := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	for i := 0; i < 3; i++ {
+		if _, err := pool.Exec(ctx, `INSERT INTO analytics.app_events(tenant_id,event_name,received_at) VALUES($1,'e',$2)`, testTenantID, day.Add(time.Duration(i)*time.Hour)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	logger := observability.New(observability.Config{Service: "analytics-rollup-test"})
+	cfg := config{RetentionDays: 15, ArchiveMaxDays: 2, PruneBatchSize: 2, PruneMaxRows: 100}
+	// Capture the canonical name/content, then re-store it with different gzip framing.
+	probe := getStore{&fakeStore{objects: map[string][]byte{}}}
+	if _, _, err := exportAndVerifyDay(ctx, pool, probe, cfg, day, logger); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `TRUNCATE analytics.app_events_archive`); err != nil {
+		t.Fatal(err)
+	}
+	var name string
+	var plain []byte
+	for n, b := range probe.objects {
+		name = n
+		zr, _ := gzip.NewReader(bytes.NewReader(b))
+		plain, _ = io.ReadAll(zr)
+	}
+	regz := func(content []byte) []byte {
+		var buf bytes.Buffer
+		zw, _ := gzip.NewWriterLevel(&buf, gzip.BestSpeed)
+		zw.Name = "other-build"
+		zw.Write(content)
+		zw.Close()
+		return buf.Bytes()
+	}
+	corrupt := getStore{&fakeStore{objects: map[string][]byte{name: regz(append([]byte("tampered"), plain...))}}}
+	if _, err := archiveAndPruneAppEvents(ctx, pool, corrupt, cfg, now, logger); err == nil {
+		t.Fatal("existing object with different content verified")
+	}
+	var n int
+	pool.QueryRow(ctx, `SELECT count(*) FROM analytics.app_events`).Scan(&n)
+	if n != 3 {
+		t.Fatalf("deleted rows against a mismatched archive: %d left", n)
+	}
+	store := getStore{&fakeStore{objects: map[string][]byte{name: regz(plain)}}}
+	res, err := archiveAndPruneAppEvents(ctx, pool, store, cfg, now, logger)
+	if err != nil || res.DaysArchived != 1 || res.RowsDeleted != 3 {
+		t.Fatalf("re-framed identical object wedged archiving: %+v err=%v", res, err)
+	}
+}
+
+// Finding 3: rows inserted into an already-verified day after export (restore
+// or backfill with an explicit old received_at) must never be deleted unarchived.
+func TestArchiveDeleteBoundedByExportedKeyPostgres(t *testing.T) {
+	pool := pgtest.StartPostgres(t, context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	now := time.Date(2026, 9, 24, 21, 45, 0, 0, time.UTC)
+	day := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	add := func(at time.Time, name string) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, `INSERT INTO analytics.app_events(tenant_id,event_name,received_at) VALUES($1,$2,$3)`, testTenantID, name, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := 0; i < 4; i++ {
+		add(day.Add(time.Duration(i)*time.Hour), "archived")
+	}
+	logger := observability.New(observability.Config{Service: "analytics-rollup-test"})
+	store := getStore{&fakeStore{objects: map[string][]byte{}}}
+	cfg := config{RetentionDays: 15, ArchiveMaxDays: 1, PruneBatchSize: 2, PruneMaxRows: 2}
+	// Export verified, then capped after deleting 2.
+	if _, err := archiveAndPruneAppEvents(ctx, pool, store, cfg, now, logger); err != nil {
+		t.Fatal(err)
+	}
+	// A restore lands a row later in the day than the export saw.
+	add(day.Add(20*time.Hour), "restored")
+	cfg.PruneMaxRows = 100
+	archiveAndPruneAppEvents(ctx, pool, store, cfg, now, logger)
+	var restored int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM analytics.app_events WHERE event_name='restored'`).Scan(&restored); err != nil || restored != 1 {
+		t.Fatalf("unarchived restored row deleted: restored=%d err=%v", restored, err)
+	}
+	var archived int
+	pool.QueryRow(ctx, `SELECT count(*) FROM analytics.app_events WHERE event_name='archived'`).Scan(&archived)
+	if archived != 0 {
+		t.Fatalf("%d archived rows left undeleted", archived)
 	}
 }
