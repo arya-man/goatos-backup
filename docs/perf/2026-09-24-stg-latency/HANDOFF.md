@@ -188,3 +188,25 @@ All agents died on the account's weekly limit. Their work is saved to origin; ea
 - 4 endpoints can only be measured once their migrations are on stg.
 
 **Can use Codex meanwhile:** the same files and branches work, and all the rules are in AGENTS.md and this folder.
+
+## Progress (resumed session, continued)
+
+- **work-board:** IN PR (b70ace6d1..226815c3e), judged CLEAN. Migrations 000415–000417.
+- **read-cache:** IN PR (rebased; head c19883086), judged CLEAN. It adds the FCR feed-day rollup, migration 000418.
+  - `TestFCRLumpAndScannedPensThroughTheBridge` still fails. It also fails on main, so it isn't from this PR.
+- **vaccination Phase A:** `wip/perf-w2-vaccination` 6b77a4148, judge running. It adds migrations 000410–000411. Local cold p50/p95:
+
+  | Endpoint | Before | After |
+  |---|---|---|
+  | shed-dose | 286/322 ms | 76/77 ms |
+  | sheds | 480/507 ms | 41/42 ms |
+  | cohort | 116/126 ms | 29/29 ms |
+  | first paint | 1,025/1,377 ms | 96/101 ms |
+
+- **Canceled obligations:** **maintainer decision (2026-09-24): KEEP + FILTER; no delete.** The reference map found that vaccination generation uses canceled rows and their `canceled` status events as "do not recreate" tombstones:
+  - the `ON CONFLICT` in `commands.sql:63`
+  - `generation.go:2152-2268`
+  - `latestCanceledObligationReason`
+
+  Deleting them would resurrect canceled work. Phase B (archive/delete) is dropped. Revisit it only after generation moves the tombstones into a dedicated table.
+- **batching** (leadership/sheds, sales/overview, pen-routines, mortality): builder running.
