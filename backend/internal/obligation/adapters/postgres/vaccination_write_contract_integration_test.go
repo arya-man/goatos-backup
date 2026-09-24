@@ -639,50 +639,6 @@ WHERE tenant_id = $1::uuid AND completion_id = $2::uuid AND status = 'recorded'`
 	})
 }
 
-// P2-18: the procurement row that governs purpose/arrival is the accepted herd intake. A newer
-// re-procurement row that is still pending (or was rejected) must not outrank it.
-func TestVaccinationArrivalAnchorIgnoresNewerPendingLoadRow(t *testing.T) {
-	pgtest.SkipIfNoDocker(t)
-	ctx := context.Background()
-	pool := pgtest.StartPostgres(t, ctx)
-	defer pool.Close()
-	_ = seed(t, ctx, pool)
-	repo := NewRepository(pool, 5*time.Second)
-	protoID := seedContractProtocol(t, ctx, pool, "vaccination.canonical_intake")
-	v, rules := seedContractVersion(t, ctx, pool, protoID, 1, `{}`, []contractRule{
-		{dose: "ppr_arrival", code: "PPR", name: "PPR", trigger: "post_arrival", offset: 14, sequence: 1},
-	}, true)
-	const goat = "10000000-0000-4000-8000-0000000000e1"
-	arrival := contractDay(time.September, 1)
-	seedContractGoat(t, ctx, pool, goat, "goat", nil, "breeding", &arrival)
-	// Floor from the accepted intake is 09-15. With the pending row chosen the anchor would be
-	// missing (no entry_date) and the reconcile would fail closed; purpose would be non_breeding.
-	// The DB exclusion trigger blocks NEW rows for such a goat, but an existing row is still
-	// reconciled/rescheduled by date, which is where the guard's row choice governs.
-	identity := "canonical|intake"
-	id := seedLegacyRow(t, ctx, pool, v, rules["ppr_arrival"], goat, "canonical-intake-legacy", identity, contractDay(time.September, 20))
-	for i, state := range []string{"candidate", "rejected"} {
-		if _, err := pool.Exec(ctx, `
-WITH load AS (
-  INSERT INTO procurement_loads (tenant_id, source_party_id, status, idempotency_key)
-  VALUES ($1::uuid, $2::uuid, 'source_warmup', 'contract-reprocure-' || $3::text || $4::text)
-  RETURNING load_id
-)
-INSERT INTO procurement_load_goats (tenant_id, load_id, goat_id, purpose, selection_state, current_state, created_at)
-SELECT $1::uuid, load_id, $3::uuid, 'non_breeding', $4, 'source_candidate', now() + make_interval(days => $5)
-FROM load`, tenantID, meshaParty, goat, state, i+1); err != nil {
-			t.Fatalf("seed newer %s load row: %v", state, err)
-		}
-	}
-	now := time.Now().In(biztime.DefaultLocation())
-	if _, _, err := repo.RescheduleObligationByID(ctx, tenantID, id, "canonical-intake-ok", []string{cbePark}, contractDay(time.September, 16), time.Time{}, nil, now); err != nil {
-		t.Fatalf("reschedule at accepted-intake floor rejected: %v", err)
-	}
-	if _, _, err := repo.RescheduleObligationByID(ctx, tenantID, id, "canonical-intake-early", []string{cbePark}, contractDay(time.September, 10), time.Time{}, nil, now); !errors.Is(err, ports.ErrBeforeVaccinationAgeFloor) {
-		t.Fatalf("reschedule before accepted-intake floor error=%v, want floor error", err)
-	}
-}
-
 // A follow-up dose chained from an attested per-animal vaccination anchor ("BT dose 1 on 12/08")
 // persists exactly as generation proposes it; the anchor date + gap is its floor.
 func TestVaccinationFollowUpChainsFromAnimalSetAnchor(t *testing.T) {

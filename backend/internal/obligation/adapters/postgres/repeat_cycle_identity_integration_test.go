@@ -50,7 +50,7 @@ func seedRepeatCycleFixture(t *testing.T, ctx context.Context, pool *pgxpool.Poo
 		id, err := proto.CreateRule(ctx, protodomain.NewRule{
 			TenantID: tenantID, ProtocolVersionID: versionID, DoseCode: dose, Sequence: seq,
 			TriggerType: "after_previous_completion", Repeat: "every_n_days", CatchUp: "pc_approval",
-			EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
+			EligibilityJSON: []byte(`{"vaccine":{"code":"REPEAT_FIXTURE","name":"Repeat fixture"}}`), ProofPolicy: []byte(`{}`),
 		})
 		if err != nil {
 			t.Fatalf("rule %s: %v", dose, err)
@@ -59,11 +59,15 @@ func seedRepeatCycleFixture(t *testing.T, ctx context.Context, pool *pgxpool.Poo
 	}
 	goat := "10000000-0000-4000-8000-0000000000f1"
 	seedReserveGoats(t, ctx, pool, cbePark, cbePark, goat)
+	ruleA, ruleB := newRule("revac", 2), newRule("revac_shared", 3)
+	// after_previous_completion work is only valid once a previous dose exists; the persistence
+	// guard fails closed without one. Give the goat one accepted dose before every date below.
+	seedAcceptedAdministration(t, ctx, pool, versionID, ruleA, goat, time.Date(2026, 1, 5, 0, 0, 0, 0, time.UTC))
 	return repeatFixture{
 		repo:      repo,
 		versionID: versionID,
-		ruleA:     newRule("revac", 2),
-		ruleB:     newRule("revac_shared", 3),
+		ruleA:     ruleA,
+		ruleB:     ruleB,
 		goat:      goat,
 	}
 }
