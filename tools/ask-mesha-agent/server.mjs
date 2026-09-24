@@ -16,7 +16,7 @@ import { createUploads } from "./uploads.mjs";
 import { createEvents } from "./events.mjs";
 import {
   isDeepQuestion, answerCapUsd, answerCostUsd, friendlyError, STOPPED_NOTE, validateReadSql, clipSqlOutput,
-  toolLabel, describeTableSql, describeTableNames, sqlTableRefs, isMissingColumnError, kindValuesSql, relInfoSql, shouldSampleKinds, makeChartFilter, extractChart, historyPreamble, pathAllowed, ttlCache,
+  toolLabel, describeTableSql, describeTableNames, sqlTableRefs, isMissingColumnError, kindValuesSql, relInfoSql, shouldSampleKinds, makeChartFilter, extractChart, historyPreamble, pathAllowed, ttlCache, inlineDisposition, makeTurnGate,
 } from "./lib.mjs";
 
 const PORT = Number(process.env.PORT || 8787);
@@ -145,7 +145,13 @@ You have the entire codebase (Grep/Read) and every table. When the map covers a 
 it doesn't, or the mapped view can't fully answer it, or a follow-up pushes further ("why", "who", "check
 again", "dig deeper", "are you sure"), keep investigating like an engineer: grep the code for how the app
 writes and defines it, describe the tables, cross-check change history (audit_log), until you have an
-evidenced answer. The speed rules above cut wasted turns (batching, parallel queries); they never cut depth.`;
+evidenced answer. The speed rules above cut wasted turns (batching, parallel queries); they never cut depth.
+Each follow-up must go one level DEEPER than your last answer, never restate it: "why?" = the cause (the
+rows and the code path behind the number); "check again" = re-run with fresh queries AND a different angle
+(another table, date range, status value); "who did it?" = the person and time from recorded_by/created_by or
+audit_log for those exact records. When the user disputes an answer ("that's wrong", "we did X"), neither
+agree nor repeat yourself: treat their claim as a hypothesis, search for it (keyword ILIKE across table names,
+category/status values and notes, wider dates, other parks), then say plainly what the data shows and where.`;
 
 // Repo instructions (CLAUDE.md + its @imports, i.e. AGENTS.md) go into the SYSTEM
 // prompt instead of Claude Code's per-session context message. The system prompt is
@@ -523,10 +529,31 @@ async function ask(req, res, user) {
     res.end(`data: ${JSON.stringify({ type: "final", answer, mode: "agent", source: "budget" })}\n\n`);
     return;
   }
-  if (!chat) chat = await store.createChat(user.email, user.tenantId);
+  // Reserve this answer's cap NOW (synchronously after the check): the awaits below
+  // (createChat/tryLock) would otherwise let concurrent asks on other chats all pass
+  // the same budget check. Every early exit below releases the reservation.
+  const requestId = evCtx.request_id; // same id as budget_warning, so the events correlate
+  // Investigations (screenshots, "verify/why/bug…") get the deep model, high effort and
+  // a larger per-answer budget; quick lookups stay fast and cheap.
+  const deep = isDeepQuestion(question, body.attachments);
+  // Per-answer cap, clipped to what is left this month so one run can't overshoot the hard cap.
+  const capUsd = answerCapUsd({ deep, perAnswer: PER_ANSWER_BUDGET_USD, deepAnswer: DEEP_ANSWER_BUDGET_USD, monthly: MONTHLY_BUDGET_USD, spent, inFlight });
+  let stopReason = null;
+  let onStopSignal = () => {};
+  const run = { chatId: chat?.id ?? null, capUsd, stopPressed: () => { stopReason = "stop_pressed"; onStopSignal(); } };
+  activeRuns.set(requestId, run);
+  try {
+    if (!chat) chat = await store.createChat(user.email, user.tenantId);
+    run.chatId = chat.id;
+  } catch (e) {
+    activeRuns.delete(requestId);
+    throw e;
+  }
   // One run per chat: two concurrent resumes of the same session fork it and
   // race on session_id / message order. DB-backed lease in Postgres mode.
-  if (!(await store.tryLock(chat.id))) {
+  const locked = await store.tryLock(chat.id).catch((e) => { activeRuns.delete(requestId); throw e; });
+  if (!locked) {
+    activeRuns.delete(requestId);
     // Visible in /metrics/recent: a CEO double-submitting or a stuck lease shows up here.
     await events.emit("chat_busy", { ...evCtx, chat_id: chat.id }, { severity: "WARNING", error_class: "chat_busy", question_preview: String(question || "").slice(0, 80) });
     return json(res, 409, { error: "chat_busy", message: friendlyError("busy") });
@@ -546,18 +573,8 @@ async function ask(req, res, user) {
   // 'close' also fires after a normal res.end(); only a real disconnect aborts the SDK run.
   res.on("close", () => { if (!res.writableFinished) abort.abort(); });
 
-  const requestId = evCtx.request_id; // same id as budget_warning, so the events correlate
-  let stopReason = null;
-  let onStopSignal = () => {};
-  activeRuns.set(requestId, { chatId: chat.id, stopPressed: () => { stopReason = "stop_pressed"; onStopSignal(); } });
   const userMsg = { id: crypto.randomUUID(), role: "user", content: question, created_at: new Date().toISOString() };
   const t0 = Date.now();
-  // Investigations (screenshots, "verify/why/bug…") get the deep model, high effort and
-  // a larger per-answer budget; quick lookups stay fast and cheap.
-  const deep = isDeepQuestion(question, body.attachments);
-  // Per-answer cap, clipped to what is left this month so one run can't overshoot the hard cap.
-  const capUsd = answerCapUsd({ deep, perAnswer: PER_ANSWER_BUDGET_USD, deepAnswer: DEEP_ANSWER_BUDGET_USD, monthly: MONTHLY_BUDGET_USD, spent, inFlight });
-  activeRuns.get(requestId).capUsd = capUsd;
   let started = false; // query() created: from here on spend is real even if no result arrives
   let prompt = question.replace(/^deep:\s*/i, "");
   // Resumed chats can carry stale conclusions from when access was narrower
@@ -603,6 +620,8 @@ async function ask(req, res, user) {
     send({ type: "token", text: t });
   };
   let filter = makeChartFilter(emitVisible);
+  // Narration before a tool call is held back, not streamed-then-cleared (no flicker).
+  const gate = makeTurnGate((t) => filter(t));
   let lastTurnText = "";
 
   try {
@@ -697,13 +716,17 @@ async function ask(req, res, user) {
           if (lastTurnText) full += "\n\n";
           lastTurnText = "";
         } else if (ev.type === "content_block_start" && ev.content_block?.type === "tool_use") {
+          gate.toolStart();
+          // Only a long pre-tool preamble ever reached the screen; clear just that case.
           if (turnVisible) send({ type: "reset" });
           turnVisible = false;
           filter = makeChartFilter(emitVisible);
         } else if (ev.type === "content_block_delta" && ev.delta?.type === "text_delta") {
           full += ev.delta.text;
           lastTurnText += ev.delta.text;
-          filter(ev.delta.text);
+          gate.text(ev.delta.text);
+        } else if (ev.type === "message_delta" && ev.delta?.stop_reason && ev.delta.stop_reason !== "tool_use") {
+          gate.end();
         }
       } else if (msg.type === "assistant") {
         for (const block of msg.message.content || []) {
@@ -734,6 +757,7 @@ async function ask(req, res, user) {
         if (msg.subtype !== "success") metric.error = msg.subtype;
       }
     }
+    gate.end();
     filter("", true); // flush
     // Live tokens showed the whole run; the stored/final answer is only the
     // last assistant turn (drops "now querying…" narration between tool calls).
@@ -845,7 +869,8 @@ async function route(req, res) {
       res.writeHead(200, {
         "Content-Type": ref.type || "application/octet-stream",
         "Cache-Control": "private, max-age=86400",
-        "Content-Disposition": `inline; filename*=UTF-8''${encodeURIComponent(ref.name)}`,
+        // Only types the panel previews render inline (matches admin-web _forward.ts); the rest download.
+        "Content-Disposition": `${inlineDisposition(ref.type) ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(ref.name)}`,
         "X-Content-Type-Options": "nosniff",
       });
       stream.on("error", (e) => { console.error("[uploads] read failed:", e.message); res.destroy(); });

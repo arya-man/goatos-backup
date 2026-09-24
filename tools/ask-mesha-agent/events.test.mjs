@@ -133,3 +133,15 @@ test("ask_stopped reason distinguishes Stop from a closed tab", async () => {
   const reasons = lines.filter((l) => l.event_name === "ask_stopped").map((l) => l.reason);
   assert.deepEqual(reasons, ["stop_pressed", "client_closed"]);
 });
+
+test("ask_stopped marks a cap-estimated cost as estimated", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ask-ev-"));
+  const lines = [];
+  const ev = await createEvents({ stateDir: dir, log: (l) => lines.push(JSON.parse(l)) });
+  await ev.tracker({ email: "a@m" }, {}).finish({ error: "client_aborted", cost_usd: 0.5, cost_estimated: true }, { aborted: true });
+  await ev.tracker({ email: "a@m" }, {}).finish({ ok: true, error: null, cost_usd: 0.02 });
+  const stop = lines.find((l) => l.event_name === "ask_stopped");
+  assert.equal(stop.cost_usd, 0.5);
+  assert.equal(stop.cost_estimated, true);
+  assert.equal(lines.find((l) => l.event_name === "ask_completed").cost_estimated, false);
+});
