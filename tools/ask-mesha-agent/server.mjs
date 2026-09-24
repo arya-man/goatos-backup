@@ -16,7 +16,7 @@ import { createUploads } from "./uploads.mjs";
 import { createEvents } from "./events.mjs";
 import {
   isDeepQuestion, answerCapUsd, answerCostUsd, friendlyError, STOPPED_NOTE, validateReadSql, clipSqlOutput,
-  failedAttemptCostUsd, finalAnswerCost, runOwnedBy, toolLabel, describeTableSql, describeTableNames, sqlTableRefs, isMissingColumnError, kindValuesSql, relInfoSql, shouldSampleKinds, makeChartFilter, extractChart, historyPreamble, pathAllowed, ttlCache, inlineDisposition, makeTurnGate, stripLeadingNarration, istNowNote, attachmentPrompt,
+  failedAttemptCostUsd, finalAnswerCost, runOwnedBy, toolLabel, describeTableSql, describeTableNames, sqlTableRefs, isMissingColumnError, kindValuesSql, relInfoSql, shouldSampleKinds, makeChartFilter, extractChart, lintChart, historyPreamble, pathAllowed, ttlCache, inlineDisposition, makeTurnGate, stripLeadingNarration, istNowNote, attachmentPrompt,
   askClient, jsonAskCollector, NON_STREAM_NOTE, REFERENCE_FILES, referencePath, buildReferenceSql,
 } from "./lib.mjs";
 import { createWatchRegistry, WATCH_TAGS_DESCRIPTION, watchTagsHandler, watchTagsSchema } from "./watch.mjs";
@@ -165,8 +165,11 @@ When a chart would help, add exactly one fenced block at the end of your answer:
 \`\`\`chart
 {"type":"bar"|"line","title":"...","x":["label1","label2",...],"series":[{"name":"...","data":[1,2,...]}]}
 \`\`\`
-Use real numbers from queries only. x needs at least 2 labels. One series per pen / park / breed compared
-(three pens = three series), and the title must name exactly what is plotted.
+Use real numbers from queries only. x needs at least 2 labels; every series has exactly one value per x label.
+One series per pen / park / breed compared (three pens = three series; "A vs B" = two series), and the title
+must name exactly what is plotted. A missing reading is null, never 0 (0 means "measured zero"). One unit per
+chart (never kg next to head counts or %). Time on x = oldest first, "line"; categories = "bar", max 25.
+At most 7 series; x labels unique and short. A chart that breaks these rules is dropped automatically.
 Claims around the numbers: every "why" / "because" must point at the rows that show it ("Castro 1, Coimbatore:
 20.4 kg on 02/03 then 20.1 kg on 03/03"); never write "all", "every", "both" or "the two weeks" unless you
 checked each item; otherwise name exactly which ones. Show the figures the app screen uses; raw or superseded
@@ -189,6 +192,13 @@ DEFAULT METHOD FOR EVERY NUMBER (not only 'why' questions): (1) find how the app
 // prompt instead of Claude Code's per-session context message. The system prompt is
 // byte-identical across chats, so its ~140k tokens are served from the prompt cache
 // rather than re-written for every new chat (was ~18s + ~$0.60 per question).
+// lintedChart: drop a structurally misleading chart (text answer stays) and record why.
+function lintedChart(chart, metric) {
+  const r = lintChart(chart);
+  if (r.reason) metric.chart_dropped = r.reason;
+  return r;
+}
+
 function repoInstructions(cwd) {
   const main = path.join(cwd, "CLAUDE.md");
   if (!fs.existsSync(main)) return "";
@@ -972,6 +982,7 @@ async function ask(req, res, user) {
     // Live tokens showed the whole run; the stored/final answer is only the
     // last assistant turn (drops "now querying…" narration between tool calls).
     let { clean, chart } = extractChart(lastTurnText.trim() ? lastTurnText : full);
+    ({ chart } = lintedChart(chart, metric));
     clean = stripLeadingNarration(clean);
     track.setAnswer(clean, chart);
     // Failed run with nothing to show: send an error, not an empty final (the
@@ -1012,7 +1023,7 @@ async function ask(req, res, user) {
         const fixedClean = stripLeadingNarration(fixed.clean);
         if (fixedClean.trim()) {
           clean = fixedClean;
-          chart = fixed.chart;
+          chart = lintedChart(fixed.chart, metric).chart;
           send({ type: "replace", text: clean });
           track.setAnswer(clean, chart);
         } else metric.check = "rejected";

@@ -101,13 +101,13 @@ export function CeoAiChart({ chart }: { chart: CeoAiChartData | undefined }): Re
             ))}
           </svg>
           {layout.lines.flatMap((line) =>
-            line.points.map((point) => (
+            line.points.filter((point) => point.cy !== null).map((point) => (
               <span
                 key={point.key}
                 className="mzai-chart-dot"
                 style={{
                   left: `${(point.cx / layout.viewWidth) * 100}%`,
-                  top: `${(point.cy / layout.viewHeight) * 100}%`,
+                  top: `${((point.cy ?? 0) / layout.viewHeight) * 100}%`,
                   background: line.color,
                 }}
                 title={`${layout.lines.length > 1 ? `${line.name} · ` : ""}${point.label}: ${point.value}`}

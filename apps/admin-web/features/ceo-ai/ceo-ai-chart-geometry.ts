@@ -9,7 +9,8 @@
 // Kept side-effect free (no JSX, no React) so it is unit-testable under
 // `node --test` and so the component is a thin renderer over these coordinates.
 
-export type CeoAiChartSeries = { name: string; data: number[] };
+// null (or a missing entry) = no reading for that x label. It is drawn as a gap / "–", never as 0.
+export type CeoAiChartSeries = { name: string; data: (number | null)[] };
 export type CeoAiChart = {
   type: "bar" | "line";
   title: string;
@@ -35,14 +36,14 @@ export const CHART_PALETTE = [
 export type ChartBar = {
   key: string;
   label: string;
-  value: number;
+  value: number | null;
   valueLabel: string;
   // Bar length as a percentage (0-100] of the track; min 1 so zero rows show.
   pct: number;
   color: string;
   // One entry per series when the chart compares several (Coimbatore vs Channapatna); the
   // first entry is the bar itself. Absent for a single-series chart.
-  parts?: { name: string; value: number; valueLabel: string; pct: number; color: string }[];
+  parts?: { name: string; value: number | null; valueLabel: string; pct: number; color: string }[];
 };
 
 export type ChartLegendItem = { name: string; color: string };
@@ -56,9 +57,10 @@ export type ChartBarLayout = {
 export type ChartLinePoint = {
   key: string;
   label: string;
-  value: number;
+  value: number | null;
   cx: number;
-  cy: number;
+  // null when the series has no reading at this x (the line breaks, no dot).
+  cy: number | null;
 };
 
 export type ChartLine = { name: string; color: string; path: string; points: ChartLinePoint[] };
@@ -96,22 +98,28 @@ const LINE_PAD_X = 10;
 const LINE_PAD_TOP = 12;
 const LINE_PAD_BOTTOM = 8;
 
-// firstSeries returns the single rendered series (the composer emits one).
-function firstSeries(chart: CeoAiChart): CeoAiChartSeries | null {
-  const s = chart.series?.[0];
-  if (!s || !Array.isArray(s.data) || s.data.length === 0) return null;
-  return s;
+// isValue: a real reading. null/undefined are missing; NaN/Infinity/strings are malformed.
+const isValue = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+const isMissing = (v: unknown) => v === null || v === undefined;
+
+// cleanSeries: a series whose first n entries are all readings or missing (never NaN / "12"),
+// with at least two real readings; missing entries are normalised to null.
+function cleanSeries(s: CeoAiChartSeries | undefined, n: number, i: number): CeoAiChartSeries | null {
+  if (!s || !Array.isArray(s.data)) return null;
+  const data = Array.from({ length: n }, (_, k) => s.data[k]);
+  if (!data.every((v) => isValue(v) || isMissing(v))) return null;
+  if (data.filter(isValue).length < 2) return null;
+  return { name: String(s.name || `Series ${i + 1}`), data: data.map((v) => (isValue(v) ? v : null)) };
 }
 
-// isRenderable guards the render: at least two aligned, finite points.
+// isRenderable guards the render: >= 2 x labels and a series with >= 2 real readings.
+// Missing readings (null) are allowed; a malformed one (NaN, a string) rejects the chart.
 export function isRenderableChart(chart: CeoAiChart | undefined | null): chart is CeoAiChart {
   if (!chart || (chart.type !== "bar" && chart.type !== "line")) return false;
-  const s = chart.series?.[0];
+  if (!Array.isArray(chart.x) || chart.x.length < 2 || !Array.isArray(chart.series)) return false;
+  const s = chart.series[0];
   if (!s || !Array.isArray(s.data) || s.data.length < 2) return false;
-  if (!Array.isArray(chart.x) || chart.x.length < 2) return false;
-  const n = Math.min(chart.x.length, s.data.length);
-  if (n < 2) return false;
-  return s.data.slice(0, n).every((v) => Number.isFinite(v));
+  return cleanSeries(s, chart.x.length, 0) !== null;
 }
 
 // formatChartValue keeps value labels short and readable (1,234 / 12.5).
@@ -137,22 +145,20 @@ export function tickBudget(labels: string[]): number {
   return longest > 10 ? 3 : longest > 6 ? 4 : MAX_LINE_TICKS;
 }
 
-// renderableSeries: every series with a finite value for each of the first n x labels (the first
-// series is already guaranteed by isRenderableChart). Capped at the palette size.
-function renderableSeries(chart: CeoAiChart, n: number): CeoAiChartSeries[] {
+// renderableSeries: every drawable series, aligned to the x labels (short data = trailing
+// gaps), capped at the palette size so no two series share a colour.
+function renderableSeries(chart: CeoAiChart): CeoAiChartSeries[] {
+  const n = Array.isArray(chart.x) ? chart.x.length : 0;
   return (chart.series ?? [])
-    .filter((s) => Array.isArray(s?.data) && s.data.length >= n && s.data.slice(0, n).every((v) => Number.isFinite(v)))
-    .slice(0, CHART_PALETTE.length)
-    .map((s, i) => ({ name: String(s.name || `Series ${i + 1}`), data: s.data.slice(0, n) }));
+    .map((s, i) => cleanSeries(s, n, i))
+    .filter((s): s is CeoAiChartSeries => s !== null)
+    .slice(0, CHART_PALETTE.length);
 }
 
 export function chartLayout(chart: CeoAiChart): ChartLayout | null {
   if (!isRenderableChart(chart)) return null;
-  const first = firstSeries(chart);
-  if (!first) return null;
-  const n = Math.min(chart.x.length, first.data.length);
-  const labels = chart.x.slice(0, n);
-  const series = renderableSeries(chart, n);
+  const labels = chart.x.map((l) => String(l ?? ""));
+  const series = renderableSeries(chart);
   if (!series.length) return null;
   const legend = series.length > 1 ? series.map((s, i) => ({ name: s.name, color: CHART_PALETTE[i] })) : [];
 
@@ -162,9 +168,15 @@ export function chartLayout(chart: CeoAiChart): ChartLayout | null {
   return barLayout(labels, series, legend);
 }
 
+const MISSING_LABEL = "–";
+const valuesOf = (series: CeoAiChartSeries[]) => series.flatMap((s) => s.data.filter(isValue));
+
 function barLayout(labels: string[], series: CeoAiChartSeries[], legend: ChartLegendItem[]): ChartBarLayout {
-  const max = Math.max(...series.flatMap((s) => s.data.map((v) => Math.abs(v))), 1);
-  const pctOf = (value: number) => Number(Math.min(100, Math.max((Math.abs(value) / max) * 100, 1)).toFixed(1));
+  const max = Math.max(...valuesOf(series).map((v) => Math.abs(v)), 1);
+  // Missing = no bar at all (0%); a real zero still shows a 1% sliver.
+  const pctOf = (value: number | null) =>
+    value === null ? 0 : Number(Math.min(100, Math.max((Math.abs(value) / max) * 100, 1)).toFixed(1));
+  const labelOf = (value: number | null) => (value === null ? MISSING_LABEL : formatChartValue(value));
   const multi = series.length > 1;
   const bars: ChartBar[] = labels.map((label, i) => {
     const value = series[0].data[i];
@@ -172,14 +184,15 @@ function barLayout(labels: string[], series: CeoAiChartSeries[], legend: ChartLe
       key: `${i}-${label}`,
       label: String(label ?? ""),
       value,
-      valueLabel: formatChartValue(value),
+      valueLabel: labelOf(value),
       pct: pctOf(value),
-      // One series: a colour per row (as before). Several: a colour per series.
-      color: multi ? CHART_PALETTE[0] : CHART_PALETTE[i % CHART_PALETTE.length],
+      // Colour means "which series", never "which row": one series = one colour, so weeks of
+      // the same measure never look like different things.
+      color: CHART_PALETTE[0],
     };
     if (multi) {
       bar.parts = series.map((s, k) => ({
-        name: s.name, value: s.data[i], valueLabel: formatChartValue(s.data[i]), pct: pctOf(s.data[i]), color: CHART_PALETTE[k],
+        name: s.name, value: s.data[i], valueLabel: labelOf(s.data[i]), pct: pctOf(s.data[i]), color: CHART_PALETTE[k],
       }));
     }
     return bar;
@@ -212,7 +225,7 @@ function lineLayout(labels: string[], series: CeoAiChartSeries[], legend: ChartL
   const innerH = LINE_HEIGHT - LINE_PAD_TOP - LINE_PAD_BOTTOM;
   const baselineY = LINE_HEIGHT - LINE_PAD_BOTTOM;
   const step = labels.length > 1 ? innerW / (labels.length - 1) : 0;
-  const { lo, hi, step: yStep } = lineDomain(series.flatMap((s) => s.data));
+  const { lo, hi, step: yStep } = lineDomain(valuesOf(series));
   const yOf = (v: number) => baselineY - ((v - lo) / (hi - lo)) * innerH;
   const lines: ChartLine[] = series.map((s, k) => {
     const points: ChartLinePoint[] = s.data.map((value, i) => ({
@@ -220,9 +233,12 @@ function lineLayout(labels: string[], series: CeoAiChartSeries[], legend: ChartL
       label: String(labels[i] ?? ""),
       value,
       cx: Number((LINE_PAD_X + step * i).toFixed(1)),
-      cy: Number(yOf(value).toFixed(1)),
+      cy: value === null ? null : Number(yOf(value).toFixed(1)),
     }));
-    const path = points.map((p, i) => `${i === 0 ? "M" : "L"}${p.cx} ${p.cy}`).join(" ");
+    // A missing reading breaks the line (new "M" after the gap) instead of dipping to 0.
+    const path = points
+      .flatMap((p, i) => (p.cy === null ? [] : [`${points[i - 1]?.cy != null ? "L" : "M"}${p.cx} ${p.cy}`]))
+      .join(" ");
     return { name: s.name, color: CHART_PALETTE[k], path, points };
   });
   const yTicks: ChartYTick[] = [];
@@ -248,14 +264,13 @@ function lineLayout(labels: string[], series: CeoAiChartSeries[], legend: ChartL
 
 // chartAccessibleLabel builds the screen-reader summary from real values.
 export function chartAccessibleLabel(chart: CeoAiChart): string {
-  const first = firstSeries(chart);
-  if (!first) return chart.title;
-  const n = Math.min(chart.x.length, first.data.length);
-  const series = renderableSeries(chart, n);
-  if (series.length <= 1) {
-    const parts = chart.x.slice(0, n).map((label, i) => `${label}: ${first.data[i]}`);
+  const series = renderableSeries(chart);
+  if (!series.length) return chart.title;
+  const v = (x: number | null) => (x === null ? "no data" : String(x));
+  if (series.length === 1) {
+    const parts = chart.x.map((label, i) => `${label}: ${v(series[0].data[i])}`);
     return `${chart.title}. ${parts.join(", ")}`;
   }
-  const parts = series.map((s) => `${s.name}: ${chart.x.slice(0, n).map((label, i) => `${label} ${s.data[i]}`).join(", ")}`);
+  const parts = series.map((s) => `${s.name}: ${chart.x.map((label, i) => `${label} ${v(s.data[i])}`).join(", ")}`);
   return `${chart.title}. ${parts.join("; ")}`;
 }

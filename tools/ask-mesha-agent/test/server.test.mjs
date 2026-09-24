@@ -544,3 +544,25 @@ test("NON_STREAM_NOTE tells the model watches are snapshot-only", async () => {
   const { NON_STREAM_NOTE } = await import("../lib.mjs");
   assert.match(NON_STREAM_NOTE, /minutes=0/);
 });
+
+test("lintChart drops misleading charts, keeps good ones", async () => {
+  const { lintChart } = await import("../lib.mjs");
+  const ok = { type: "bar", title: "Gain, Coimbatore vs Channapatna", x: ["P1", "P2", "P3"],
+    series: [{ name: "Coimbatore", data: [1, 2, 3] }, { name: "Channapatna", data: [2, null, 4] }] };
+  assert.deepEqual(lintChart(ok).chart.series[1].data, [2, null, 4]);
+  assert.equal(lintChart(undefined).reason, null);
+  const r = (patch) => lintChart({ ...ok, ...patch }).reason;
+  assert.equal(r({ series: [ok.series[0]] }), "title_vs_single_series");
+  assert.equal(r({ series: [{ name: "a", data: [1, 2] }, ok.series[1]] }), "length_mismatch");
+  assert.equal(r({ series: [ok.series[0], { name: "b", data: [null, null, null] }] }), "all_null_series");
+  assert.equal(r({ series: [ok.series[0], { name: "b", data: [1, NaN, 2] }] }), "non_finite");
+  assert.equal(r({ series: [ok.series[0], { name: "b", data: [1, "2", 2] }] }), "non_finite");
+  assert.equal(r({ series: Array.from({ length: 8 }, (_, i) => ({ name: `s${i}`, data: [1, 2, 3] })) }), "too_many_series");
+  assert.equal(r({ x: ["P1", "P1", "P3"] }), "x_duplicate");
+  assert.equal(r({ type: "pie" }), "type");
+  assert.equal(r({ series: [ok.series[0], { name: "Coimbatore", data: [1, 2, 3] }] }), "series_name");
+  assert.equal(r({ title: "Gain", series: [{ name: "a", data: [1, null, null] }] }), "too_few_values");
+  const many = Array.from({ length: 30 }, (_, i) => `c${i}`);
+  assert.equal(r({ title: "t", x: many, series: [{ name: "a", data: many.map(() => 1) }] }), "too_many_bars");
+  assert.equal(r({ title: "t", type: "line", x: many, series: [{ name: "a", data: many.map(() => 1) }] }), null);
+});

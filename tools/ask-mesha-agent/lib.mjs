@@ -310,6 +310,45 @@ export function extractChart(text) {
   return { clean: text.replace(/```chart\s*[\s\S]*?```/g, "").trim(), chart };
 }
 
+// ---- chart lint ---------------------------------------------------------------
+// Deterministic structural check before a chart reaches the CEO. A chart that could mislead is
+// dropped (the text answer stays): a wrong picture is worse than none. Returns the chart (with
+// missing readings normalised to null) or undefined, plus the reason it was dropped.
+export const CHART_MAX_SERIES = 7;
+export const CHART_MAX_BARS = 25;
+export function lintChart(chart) {
+  if (!chart) return { chart: undefined, reason: null };
+  const drop = (reason) => ({ chart: undefined, reason });
+  if (chart.type !== "bar" && chart.type !== "line") return drop("type");
+  const { x, series } = chart;
+  if (!Array.isArray(x) || x.length < 2) return drop("x_short");
+  if (!x.every((l) => typeof l === "string" || (typeof l === "number" && Number.isFinite(l)))) return drop("x_label");
+  const labels = x.map((l) => String(l).trim());
+  if (labels.some((l) => !l)) return drop("x_label");
+  if (new Set(labels).size !== labels.length) return drop("x_duplicate");
+  if (chart.type === "bar" && labels.length > CHART_MAX_BARS) return drop("too_many_bars");
+  if (!Array.isArray(series) || !series.length) return drop("no_series");
+  if (series.length > CHART_MAX_SERIES) return drop("too_many_series");
+  const names = new Set();
+  const out = [];
+  for (const s of series) {
+    if (!s || !Array.isArray(s.data)) return drop("series_shape");
+    if (s.data.length !== labels.length) return drop("length_mismatch");
+    if (!s.data.every((v) => v === null || (typeof v === "number" && Number.isFinite(v)))) return drop("non_finite");
+    const real = s.data.filter((v) => v !== null).length;
+    if (real === 0) return drop("all_null_series");
+    const name = String(s.name ?? "").trim();
+    if (series.length > 1 && (!name || names.has(name))) return drop("series_name");
+    names.add(name);
+    out.push({ name: name || String(chart.title ?? ""), data: s.data });
+  }
+  if (!out.some((s) => s.data.filter((v) => v !== null).length >= 2)) return drop("too_few_values");
+  // "A vs B" promises two things compared; one series cannot show a comparison.
+  const title = String(chart.title ?? "").trim();
+  if (/\b(vs\.?|versus|compared (to|with))\b/i.test(title) && out.length < 2) return drop("title_vs_single_series");
+  return { chart: { type: chart.type, title, x: labels, series: out }, reason: null };
+}
+
 // ---- history replay ----------------------------------------------------------
 export function historyPreamble(history) {
   const turns = history.filter((m) => m.role === "user" || m.role === "assistant").slice(-20);

@@ -164,3 +164,37 @@ test("bars compare several series per row", () => {
   assert.equal(layout.bars[1].parts[1].pct, 1);
   assert.deepEqual(layout.legend.map((l) => l.name), ["CBE", "CPT"]);
 });
+
+test("missing readings (null) are gaps, never zero", () => {
+  const bar = chartLayout({
+    type: "bar", title: "Pen gain, Coimbatore vs Channapatna", x: ["P1", "P2", "P3"],
+    series: [{ name: "Coimbatore", data: [10, 12, 8] }, { name: "Channapatna", data: [9, null, 7] }],
+  });
+  const p2 = bar.bars[1].parts[1];
+  assert.equal(p2.value, null);
+  assert.equal(p2.pct, 0);
+  assert.equal(p2.valueLabel, "–");
+  const line = chartLayout({ type: "line", title: "t", x: ["a", "b", "c", "d"], series: [{ name: "s", data: [1, 2, null, 4] }] });
+  assert.equal(line.points[2].cy, null);
+  assert.equal((line.path.match(/M/g) || []).length, 2, "line breaks at the gap");
+  assert.ok(!line.yTicks.some((t) => t.value === 0) || Math.min(...line.yTicks.map((t) => t.value)) === 0);
+  assert.match(chartAccessibleLabel({ type: "bar", title: "t", x: ["a", "b", "c"], series: [{ name: "s", data: [1, null, 3] }] }), /b: no data/);
+});
+
+test("a series needs two real readings; NaN still rejects", () => {
+  assert.equal(isRenderableChart({ type: "bar", title: "t", x: ["a", "b"], series: [{ name: "s", data: [1, null] }] }), false);
+  assert.equal(isRenderableChart({ type: "bar", title: "t", x: ["a", "b", "c"], series: [{ name: "s", data: [1, null, 2] }] }), true);
+  assert.equal(isRenderableChart({ type: "bar", title: "t", x: ["a", "b"], series: [{ name: "s", data: [1, "2"] }] }), false);
+});
+
+test("a single-series bar chart uses one colour for every bar", () => {
+  const layout = chartLayout({ type: "bar", title: "Weekly gain", x: ["W1", "W2", "W3", "W4"], series: [{ name: "g", data: [1, 2, 3, 4] }] });
+  assert.equal(new Set(layout.bars.map((b) => b.color)).size, 1);
+});
+
+test("series are capped at the palette size so colours never repeat", () => {
+  const series = Array.from({ length: 9 }, (_, i) => ({ name: `S${i}`, data: [i, i + 1] }));
+  const layout = chartLayout({ type: "line", title: "t", x: ["a", "b"], series });
+  assert.equal(layout.lines.length, 7);
+  assert.equal(new Set(layout.lines.map((l) => l.color)).size, 7);
+});
