@@ -20816,15 +20816,15 @@ components:
           type: integer
           description: How many of `sold` carry an attributed deal share; the rest sold without a tagged sale.
         avg_sold_price: { type: number, nullable: true }
-        price_basis: { type: string, enum: [load, overall, assumed, none, live_weight] }
+        price_basis: { type: string, enum: [load, overall, assumed, none] }
         remaining_value:
           type: number
           nullable: true
           description: >-
             remaining x avg_sold_price. Absent when there is no price basis. `assumed` means the
-            Sales Config unsold-stock price replaced the sold-price fallback. `live_weight` is
-            reserved for a future path with current live weight for remaining animals; this endpoint
-            must not value remaining stock from sale exit weight.
+            Sales Config unsold-stock price replaced the sold-price fallback. Current live-weight
+            valuation is composed by the Weighing comparison tab from `remaining_mix` plus its
+            latest-weight read; this endpoint must not value remaining stock from sale exit weight.
         profit_loss:
           type: number
           nullable: true

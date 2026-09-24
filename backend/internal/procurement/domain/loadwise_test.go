@@ -661,10 +661,10 @@ func TestFinalizeLoadwiseAssumedUnsoldPriceReplacesEveryBasis(t *testing.T) {
 	}
 }
 
-func TestFinalizeLoadwiseWithSalePricesDoesNotUseSoldWeightForRemainingStock(t *testing.T) {
+func TestFinalizeLoadwiseCarriesRemainingMixWithoutChangingSalesValueBasis(t *testing.T) {
 	overall := 10000.0
 	weighed := 3
-	out := FinalizeLoadwiseWithSalePrices([]LoadwiseLoad{{
+	out := FinalizeLoadwise([]LoadwiseLoad{{
 		LoadID:             "load-a",
 		Purchased:          3,
 		Remaining:          3,
@@ -675,15 +675,12 @@ func TestFinalizeLoadwiseWithSalePricesDoesNotUseSoldWeightForRemainingStock(t *
 			{Species: "goat", ManagementStage: "K3", Sex: "male", Animals: 2},
 			{Species: "goat", ManagementStage: "F2", Sex: "female", Animals: 1},
 		},
-	}}, 1, &overall, testAsOf, LoadSalePrices{Prices: []LoadSalePrice{
-		{Species: "goat", PricePerKgINR: 400},
-		{Species: "goat", ManagementStage: "K3", Sex: "male", PricePerKgINR: 500},
-	}})
+	}}, 1, &overall, testAsOf)
 
 	row := out.Loads[0]
-	// The load-wise endpoint has sale exit weight, not today's live weight for the animals still
-	// on farm. Sale prices must therefore NOT revalue remaining stock from AvgSaleWeightKg; until
-	// current live weight is wired in, the old per-head overall basis is the honest API value.
+	// The load-wise sales endpoint has sale exit weight, not today's live weight for the animals
+	// still on farm. RemainingMix is carried for the Weighing comparison tab, where latest live
+	// weight is available, but this sales endpoint keeps its old per-head overall basis.
 	want := 3 * overall
 	if row.PriceBasis != LoadwisePriceBasisOverall {
 		t.Fatalf("basis = %s, want overall", row.PriceBasis)

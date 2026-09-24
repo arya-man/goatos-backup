@@ -95,11 +95,11 @@ type loadwiseLoadPayload struct {
 	// from fattening_days, which starts on arrival and stops at sale.
 	DaysSincePurchase *int `json:"days_since_purchase,omitempty"`
 
-	// The remaining animals by species, for valuing today's stock at a per-species live-weight
-	// rate. They add up to at most `remaining`.
+	// The remaining animals by species. They add up to at most `remaining`.
 	RemainingSheep int `json:"remaining_sheep"`
 	RemainingGoats int `json:"remaining_goats"`
-	// The remaining animals per (species, stage, sex), for valuing stock at a stage x sex price.
+	// The remaining animals per (species, stage, sex), so the Weighing Load-wise chart can
+	// value stock at a stage x sex price with its latest-weight read.
 	RemainingMix []domain.LoadHeadMix `json:"remaining_mix"`
 
 	SoldValue      float64  `json:"sold_value"`
@@ -279,7 +279,8 @@ type loadwiseWeightLoadPayload struct {
 	Remaining      int `json:"remaining"`
 	RemainingSheep int `json:"remaining_sheep"`
 	RemainingGoats int `json:"remaining_goats"`
-	// The remaining animals per (species, stage, sex), for valuing stock at a stage x sex price.
+	// The remaining animals per (species, stage, sex), so the Weighing Load-wise chart can
+	// value stock at a stage x sex price with its latest-weight read.
 	RemainingMix []domain.LoadHeadMix `json:"remaining_mix"`
 
 	AvgPurchaseWeightKg *float64 `json:"avg_purchase_weight_kg,omitempty"`
