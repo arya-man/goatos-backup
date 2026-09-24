@@ -33,8 +33,10 @@ type ErrorEnvelope = AppApiComponents["schemas"]["ErrorEnvelope"];
 // analytics are served from a short per-caller cache (keyed on endpoint + backend + tenant +
 // bearer fingerprint + query, so nothing is shared across users or tenants) and concurrent
 // identical reads share one backend call. Failures are never cached.
-// Read-your-writes: any write this process sends clears both caches (timedBackendFetch, also
-// when the write throws), and it sets a short-lived write-marker cookie (./write-marker) so the
+// Read-your-writes: every write that can change a cached read (timedBackendFetch, and raw
+// proxies via noteBackendWrite -- see backend-write-marker-contract.test.mjs for the exempt
+// writes, e.g. proof uploads and push registration) clears both caches, also when the write
+// throws, and sets a short-lived write-marker cookie (./write-marker) so the
 // writer's reads bypass the short cache on EVERY admin-web instance for the TTL window. Writes by
 // other people / phones are visible within this 30 s TTL on top of the backend's own analytics
 // read cache (readcache.DefaultOptions: 60 s fresh, up to 5 min stale-while-revalidate while the
@@ -793,7 +795,6 @@ async function timedBackendFetch(
     // A write may change anything a cached read answered; drop them before AND after it lands
     // so a read racing the write cannot repopulate the cache with the pre-write answer.
     clearBackendReadCaches();
-    await markCallerWrite();
   }
   try {
     const response = await fetch(input, fetchInit);
@@ -838,9 +839,20 @@ async function timedBackendFetch(
     throw error;
   } finally {
     if (timeout) clearTimeout(timeout);
-    // After the write lands OR throws, so a read racing it cannot keep the pre-write answer.
-    if (method.toUpperCase() !== "GET") clearBackendReadCaches();
+    // After the write lands OR throws: clear again so a read racing it cannot keep the
+    // pre-write answer, then stamp the cross-instance marker from the completed write.
+    if (method.toUpperCase() !== "GET") await noteBackendWrite();
   }
+}
+
+/**
+ * Call after ANY backend write that does not go through timedBackendFetch (e.g. a raw proxy).
+ * Clears this instance's read caches and stamps the writer's cross-instance marker.
+ * Enforced by lib/api/backend-write-marker-contract.test.mjs.
+ */
+export async function noteBackendWrite(): Promise<void> {
+  clearBackendReadCaches();
+  await markCallerWrite();
 }
 
 // Sets the cross-instance read-your-writes marker. Cookies are writable only from server actions

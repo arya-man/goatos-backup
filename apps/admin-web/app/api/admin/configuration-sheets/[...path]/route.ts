@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { TENANT_CONTEXT_HEADER } from "@goatos/api-client";
-import { getServerConfig } from "@/lib/api/server";
+import { getServerConfig, noteBackendWrite } from "@/lib/api/server";
 
 export const dynamic = "force-dynamic";
 
@@ -74,7 +74,13 @@ async function proxy(request: NextRequest, path: string[]): Promise<Response> {
       init.duplex = "half";
     }
   }
-  const upstream = await fetch(url, init);
+  let upstream: Response;
+  try {
+    upstream = await fetch(url, init);
+  } finally {
+    // Config imports change analytics inputs: the importer must not then read a cached answer.
+    if (request.method !== "GET") await noteBackendWrite();
+  }
   const out = new Headers({ "Cache-Control": "no-store" });
   for (const name of ["content-type", "content-disposition"]) {
     const value = upstream.headers.get(name);

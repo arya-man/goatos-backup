@@ -44,3 +44,34 @@ func TestAllowedEmailSourceRefusesLastKnownGoodPastMaxAge(t *testing.T) {
 		t.Fatal("EmailAllowed must fail closed past max age")
 	}
 }
+
+// Past max age during an outage, a failed reload backs off briefly: the next
+// requests fail closed immediately instead of re-querying the saturated pool.
+func TestAllowedEmailSourceBacksOffAfterFailedReloadPastMaxAge(t *testing.T) {
+	src := NewAllowedEmailSource(unreachablePool(t, "postgres://u:p@10.255.255.1:5432/none?sslmode=disable&connect_timeout=30"),
+		300*time.Millisecond, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	now := time.Now()
+	src.now = func() time.Time { return now }
+	src.byTenant[maxAgeTestTenant] = tenantEmailCache{
+		emails:   map[string]struct{}{"a@mesha.sg": {}},
+		loadedAt: now.Add(-allowlistMaxStaleAge - time.Second),
+	}
+	if allowed, err := src.EmailAllowedErr(context.Background(), maxAgeTestTenant, "a@mesha.sg"); allowed || err == nil {
+		t.Fatalf("first: allowed=%v err=%v; want refusal", allowed, err)
+	}
+	start := time.Now()
+	allowed, err := src.EmailAllowedErr(context.Background(), maxAgeTestTenant, "a@mesha.sg")
+	if allowed || err == nil {
+		t.Fatalf("backoff: allowed=%v err=%v; want fail-closed error", allowed, err)
+	}
+	if took := time.Since(start); took > 100*time.Millisecond {
+		t.Fatalf("within backoff the pool was queried again (took %s)", took)
+	}
+	// After the backoff the source tries the database again.
+	now = now.Add(allowlistFailureBackoff + time.Millisecond)
+	start = time.Now()
+	_, _ = src.EmailAllowedErr(context.Background(), maxAgeTestTenant, "a@mesha.sg")
+	if took := time.Since(start); took < 200*time.Millisecond {
+		t.Fatalf("after backoff the source must retry the load (took %s)", took)
+	}
+}
