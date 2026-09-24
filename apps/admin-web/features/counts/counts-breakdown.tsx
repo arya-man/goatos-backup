@@ -21,7 +21,7 @@ import {
   type VaccinationPageSize,
 } from "@/features/preventive-care-vaccination";
 import { CountsBreakdownFilters, type BreakdownFilterField } from "./counts-breakdown-filters";
-import { LEGACY_FARM_PARAM, PARK_PARAM } from "./counts-breakdown-query";
+import { LEGACY_FARM_PARAM, PARK_PARAM, withSelectedOptions } from "./counts-breakdown-query";
 import { CountsBreakdownLoads } from "./counts-breakdown-loads";
 import { CountsBreakdownPensTable } from "./counts-breakdown-pens-table";
 import { buildShedFilterOptions } from "./counts-breakdown-sheds";
@@ -191,6 +191,14 @@ export async function CountsBreakdownPage({
   // last, so an unfiltered page renders looking pre-filtered to "No stage". Filtering *to* the
   // blank bucket would need a real sentinel value round-tripped through the API; it is not worth
   // that until someone asks for it.
+  // Every park's pens (the pen facet is not narrowed by park on the server), for two jobs: the
+  // pen -> park map the filter bar uses to keep a new farm's pens across a farm change, and the
+  // label of a selected pen the current farm's list no longer carries.
+  const allPenOptions = buildShedFilterOptions(breakdown?.facets.sheds, "", parkLabelsById);
+  const penParks: Record<string, string> = Object.fromEntries(
+    allPenOptions.map((option) => [option.value, (option.key ?? "").split("|")[0] ?? ""] as const),
+  );
+
   const filterFields: BreakdownFilterField[] = [
     {
       // The shared park parameter, so the choice carries to every other page and back.
@@ -206,18 +214,26 @@ export async function CountsBreakdownPage({
       label: copy(pageContract, "filter.stage_label"),
       multi: true,
       values: stages,
-      options: (breakdown?.facets.stages ?? [])
-        .filter((point) => point.key !== "")
-        .map((point) => ({ value: point.key, label: point.label || point.key })),
+      // A stage picked under another farm stays in the list so it can be unticked.
+      options: withSelectedOptions(
+        (breakdown?.facets.stages ?? [])
+          .filter((point) => point.key !== "")
+          .map((point) => ({ value: point.key, label: point.label || point.key })),
+        stages,
+        (value) => stageLabels.get(value),
+      ),
     },
     {
       param: "bd_breed",
       label: copy(pageContract, "filter.breed_label"),
       multi: true,
       values: breeds,
-      options: (breakdown?.facets.breeds ?? [])
-        .filter((point) => point.key !== "")
-        .map((point) => ({ value: point.key, label: point.key })),
+      options: withSelectedOptions(
+        (breakdown?.facets.breeds ?? [])
+          .filter((point) => point.key !== "")
+          .map((point) => ({ value: point.key, label: point.key })),
+        breeds,
+      ),
     },
     {
       param: "bd_shed",
@@ -233,7 +249,11 @@ export async function CountsBreakdownPage({
       // both lack it — so without this the disambiguation was dead code and the dropdown listed
       // "Castro" twice, "Mandela 1 - Part 3" twice, and so on. `facets.parks` is keyed by park id
       // and labelled with the park code, in the SAME response, so no extra read is involved.
-      options: buildShedFilterOptions(breakdown?.facets.sheds, selectedParkId, parkLabelsById),
+      options: withSelectedOptions(
+        buildShedFilterOptions(breakdown?.facets.sheds, selectedParkId, parkLabelsById),
+        shedParams,
+        (value) => allPenOptions.find((option) => option.value === value)?.label,
+      ),
     },
     {
       param: "bd_sex",
@@ -484,7 +504,7 @@ export async function CountsBreakdownPage({
           </div>
         </div>
 
-        <CountsBreakdownFilters fields={filterFields} pageContract={pageContract} />
+        <CountsBreakdownFilters fields={filterFields} penParks={penParks} pageContract={pageContract} />
 
         <div
           className="bd"

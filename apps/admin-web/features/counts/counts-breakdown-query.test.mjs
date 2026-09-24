@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { breakdownFilterQuery, PARK_PARAM } from "./counts-breakdown-query.ts";
+import { breakdownFilterQuery, PARK_PARAM, withSelectedOptions } from "./counts-breakdown-query.ts";
 import { parseScope } from "../../lib/scope.ts";
 
 const CBE = "00000000-0000-4000-8000-000000003001";
@@ -33,16 +33,57 @@ test("an old bd_farm link is dropped on the next apply", () => {
   assert.equal(params.get("park"), CPT);
 });
 
-test("a park change drops pens of the old park; the same park keeps them", () => {
-  const pen = `shed-1|Part 1`;
-  const changed = new URLSearchParams(
-    breakdownFilterQuery(`scope_mode=park&park=${CBE}&bd_shed=${encodeURIComponent(pen)}`, PARAMS, { park: [CPT], bd_shed: [pen] }),
+const CBE_PEN = "shed-cbe|Part 1";
+const CPT_PEN = "shed-cpt|Part 2";
+const PEN_PARKS = { [CBE_PEN]: CBE, [CPT_PEN]: CPT };
+
+test("a park change drops the old park's pens", () => {
+  const params = new URLSearchParams(
+    breakdownFilterQuery(`scope_mode=park&park=${CBE}&bd_shed=${encodeURIComponent(CBE_PEN)}`, PARAMS, { park: [CPT], bd_shed: [CBE_PEN] }, PEN_PARKS),
   );
-  assert.equal(changed.getAll("bd_shed").length, 0);
+  assert.deepEqual(params.getAll("bd_shed"), []);
+});
+
+// PR #395 review: from All farms, picking CPT and a CPT pen in ONE Apply must keep the pen, or the
+// page silently shows the whole farm.
+test("picking a farm and one of its pens in the same Apply keeps the pen", () => {
+  const params = new URLSearchParams(
+    breakdownFilterQuery("scope_mode=company", PARAMS, { park: [CPT], bd_shed: [CPT_PEN, CBE_PEN] }, PEN_PARKS),
+  );
+  assert.equal(params.get("park"), CPT);
+  assert.deepEqual(params.getAll("bd_shed"), [CPT_PEN]);
+});
+
+test("the same park, or All farms, keeps every selected pen", () => {
   const same = new URLSearchParams(
-    breakdownFilterQuery(`scope_mode=park&park=${CBE}`, PARAMS, { park: [CBE], bd_shed: [pen] }),
+    breakdownFilterQuery(`scope_mode=park&park=${CBE}`, PARAMS, { park: [CBE], bd_shed: [CBE_PEN] }, PEN_PARKS),
   );
-  assert.deepEqual(same.getAll("bd_shed"), [pen]);
+  assert.deepEqual(same.getAll("bd_shed"), [CBE_PEN]);
+  const all = new URLSearchParams(
+    breakdownFilterQuery(`scope_mode=park&park=${CBE}`, PARAMS, { park: [], bd_shed: [CBE_PEN, CPT_PEN] }, PEN_PARKS),
+  );
+  assert.deepEqual(all.getAll("bd_shed"), [CBE_PEN, CPT_PEN]);
+});
+
+test("a pen of unknown park is dropped on a park change rather than guessed", () => {
+  const params = new URLSearchParams(
+    breakdownFilterQuery("scope_mode=company", PARAMS, { park: [CPT], bd_shed: ["shed-gone|Part 9"] }, PEN_PARKS),
+  );
+  assert.deepEqual(params.getAll("bd_shed"), []);
+});
+
+// PR #395 review: a Stage/Breed picked under one farm and missing from the next farm's options
+// must stay in the list, so it can be unticked instead of silently emptying the table.
+test("a selected value the options no longer carry stays listed and removable", () => {
+  const options = [{ value: "K1", label: "K1" }, { value: "Fattening", label: "Fattening" }];
+  const got = withSelectedOptions(options, ["Mother", "K1"], (v) => (v === "Mother" ? "Mother (label)" : undefined));
+  assert.deepEqual(got.map((o) => o.value), ["K1", "Fattening", "Mother"]);
+  assert.equal(got.find((o) => o.value === "Mother")?.label, "Mother (label)");
+  // Already present: never listed twice. Nothing selected: the options pass through unchanged.
+  assert.equal(got.filter((o) => o.value === "K1").length, 1);
+  assert.deepEqual(withSelectedOptions(options, []), options);
+  // No label known: the value itself is shown rather than an empty row.
+  assert.equal(withSelectedOptions(options, ["Malai"])[2].label, "Malai");
 });
 
 test("any apply resets paging and keeps unrelated params", () => {

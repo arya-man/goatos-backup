@@ -215,9 +215,12 @@ function MultiSelectFilter({
 
 export function CountsBreakdownFilters({
   fields,
+  penParks = {},
   pageContract,
 }: {
   fields: BreakdownFilterField[];
+  /** Pen value -> park id for every park, so a farm change keeps the new farm's pens. */
+  penParks?: Readonly<Record<string, string>>;
   pageContract: AdminUiPageContract;
 }) {
   const router = useRouter();
@@ -244,7 +247,7 @@ export function CountsBreakdownFilters({
   }
 
   function navigateWith(values: Record<string, string[]>) {
-    const qs = breakdownFilterQuery(current, fields.map((field) => field.param), values);
+    const qs = breakdownFilterQuery(current, fields.map((field) => field.param), values, penParks);
     startTransition(() => {
       router.replace(qs ? `/counts/breakdown?${qs}` : "/counts/breakdown", { scroll: false });
     });
