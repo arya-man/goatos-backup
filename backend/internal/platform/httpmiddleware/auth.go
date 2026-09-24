@@ -431,7 +431,7 @@ func (a *AuthMiddleware) authenticate(w http.ResponseWriter, r *http.Request) (c
 					slog.String("error", allowErr.Error()),
 				)
 				w.Header().Set("Retry-After", AuthDatabaseBusyRetryAfter)
-				writeAuthError(w, r, http.StatusServiceUnavailable, "auth_database_busy", "sign-in is busy, please retry")
+				writeRetryableAuthError(w, r, http.StatusServiceUnavailable, "auth_database_busy", "sign-in is busy, please retry")
 				return r.Context(), "", "", false
 			}
 			emailAllowed = false
@@ -720,6 +720,16 @@ type authFieldError struct {
 }
 
 func writeAuthError(w http.ResponseWriter, r *http.Request, status int, code, message string) {
+	writeAuthErrorEnvelope(w, r, status, code, message, false)
+}
+
+// writeRetryableAuthError is for transient failures (e.g. auth_database_busy)
+// the client should retry; it matches authaudit's retryable:true envelope.
+func writeRetryableAuthError(w http.ResponseWriter, r *http.Request, status int, code, message string) {
+	writeAuthErrorEnvelope(w, r, status, code, message, true)
+}
+
+func writeAuthErrorEnvelope(w http.ResponseWriter, r *http.Request, status int, code, message string, retryable bool) {
 	traceID := TraceIDFromContext(r.Context())
 	if traceID == "" {
 		traceID = "missing-trace"
@@ -731,7 +741,7 @@ func writeAuthError(w http.ResponseWriter, r *http.Request, status int, code, me
 		Message:     message,
 		FieldErrors: []authFieldError{},
 		TraceID:     traceID,
-		Retryable:   false,
+		Retryable:   retryable,
 	})
 }
 
