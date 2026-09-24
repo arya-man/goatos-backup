@@ -374,7 +374,7 @@ export function HerdSignalsTable({
                 <InfoTip label="Activity rules" text={ACTIVITY_RULES} />
               </th>
               <th>Own baseline</th>
-              <th>Shed peers</th>
+              <th>Pen peers</th>
               <th>
                 Pattern
                 <InfoTip label="Pattern rules" text={PATTERN_RULES} />
