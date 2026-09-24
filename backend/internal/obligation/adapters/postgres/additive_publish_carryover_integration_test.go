@@ -332,16 +332,18 @@ FROM load`, tenantID, meshaParty, carryOverGoat); err != nil {
 	if err != nil {
 		t.Fatalf("carry over: %v", err)
 	}
-	if moved != 3 {
-		t.Fatalf("carried over %d, want ET+TT, PPR and Goat Pox only", moved)
+	// Goat Pox is this goat's plan second wave; with no first-wave administration it cannot be
+	// proved, so it stays retired and regenerates once ET+TT and PPR are administered.
+	if moved != 2 {
+		t.Fatalf("carried over %d, want the ET+TT and PPR first wave only", moved)
 	}
 	after := obligationsForGoat(t, ctx, pool, carryOverGoat)
-	for _, dose := range []string{"et_tt_primary", "ppr_primary", "goat_pox_primary"} {
+	for _, dose := range []string{"et_tt_primary", "ppr_primary"} {
 		if after[dose].versionID != v2 {
 			t.Fatalf("applicable %s did not carry over", dose)
 		}
 	}
-	for _, dose := range []string{"fmd_primary", "sheep_pox_primary"} {
+	for _, dose := range []string{"goat_pox_primary", "fmd_primary", "sheep_pox_primary"} {
 		if after[dose].versionID != v1 {
 			t.Fatalf("inapplicable %s carried over to the fattening goat", dose)
 		}
