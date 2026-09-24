@@ -529,6 +529,12 @@ data class OutboxEntity(
      * wording. [lastError] stays the operator-facing text and is rendered verbatim.
      */
     val lastErrorField: String? = null,
+    /**
+     * The HTTP status of the last failed attempt, null for transport failures and rows written
+     * before OUTBOX_MIGRATION_6_7. Lets the app re-queue exactly the writes refused with 403
+     * while an account had no access, once access is restored -- and nothing else.
+     */
+    val lastHttpStatus: Int? = null,
     /** Raw JSON of the last successful app-api response — lets the UI layer decode the
      *  original server result on an idempotent-replay read without a second network call. */
     val resultJson: String? = null,

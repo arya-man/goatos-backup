@@ -83,6 +83,21 @@ class AuthSessionEventSender(
         _accessDenied.value = true
     }
 
+    @Volatile private var lastRequest: Pair<String, String>? = null
+
+    /**
+     * Retry from the no-access screen: clears the parked flag and re-sends the sign-in event,
+     * waiting at most [timeoutMs]. Returns true when it was delivered (access restored, pending
+     * grants claimed). Anything else -- denied again, gave up, timed out -- re-parks.
+     */
+    suspend fun retryAfterDenial(timeoutMs: Long): Boolean {
+        val (eventType, source) = lastRequest ?: (SIGN_IN_EVENT to "android")
+        val outcome = send(eventType, source)
+        val result = withTimeoutOrNull(timeoutMs) { outcome.await() }
+        if (result != SessionEventOutcome.Delivered) _accessDenied.value = true
+        return result == SessionEventOutcome.Delivered
+    }
+
     /**
      * Starts the event; a newer sign-in supersedes any still-retrying older one. [onDenied] runs in
      * the APPLICATION scope (not the caller's), so a denial still undoes the sign-in after the
@@ -95,6 +110,7 @@ class AuthSessionEventSender(
         onDenied: suspend (SessionEventOutcome.Denied) -> Unit = {},
     ): Deferred<SessionEventOutcome> {
         val request = AuthSessionEventRequestDto(eventType = eventType, source = source)
+        lastRequest = eventType to source
         _accessDenied.value = false
         val outcome = CompletableDeferred<SessionEventOutcome>()
         lateinit var attempt: Attempt
@@ -171,6 +187,7 @@ class AuthSessionEventSender(
 
     companion object {
         private const val TAG = "GoatOSSession"
+        const val SIGN_IN_EVENT = "auth.sign_in"
         private const val MAX_WAIT_MS = 120_000L
         /** ~1 minute of retries in total: covers a DNS/network blip without hammering the API. */
         val DEFAULT_BACKOFF_MS: List<Long> = listOf(2_000, 4_000, 8_000, 16_000, 30_000)

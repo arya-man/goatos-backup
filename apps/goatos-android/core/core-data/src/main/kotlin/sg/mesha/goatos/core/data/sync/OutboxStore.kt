@@ -108,7 +108,10 @@ interface OutboxStore {
     /** Settles a conflict FAILED row whose write the server already holds as SUCCEEDED. Returns
      *  `false` when the row is no longer a FAILED conflict (a manual retry already moved it). */
     suspend fun settleConflictAsSucceeded(id: String, resultJson: String, now: Long): Boolean = false
-    suspend fun markFailed(id: String, attemptCount: Int, nextAttemptAt: Long, conflict: Boolean, lastError: String, lastErrorCode: String?, lastErrorField: String?, now: Long): Boolean
+    suspend fun markFailed(id: String, attemptCount: Int, nextAttemptAt: Long, conflict: Boolean, lastError: String, lastErrorCode: String?, lastErrorField: String?, lastHttpStatus: Int?, now: Long): Boolean
+
+    /** Re-queues only rows refused with HTTP 403 (see OutboxDao.requeueAccessDenied). Returns rows re-queued. */
+    suspend fun requeueAccessDenied(now: Long): Int
 
     /** Re-arms a terminal FAILED row for another attempt: resets [OutboxEntity.attemptCount] to
      *  0, [OutboxEntity.conflict] to false, [OutboxEntity.status] back to QUEUED — the SAME
@@ -222,8 +225,11 @@ class RoomOutboxStore(private val dao: OutboxDao) : OutboxStore {
         lastError: String,
         lastErrorCode: String?,
         lastErrorField: String?,
+        lastHttpStatus: Int?,
         now: Long,
-    ): Boolean = dao.markFailed(id, attemptCount, nextAttemptAt, conflict, lastError, lastErrorCode, lastErrorField, now) > 0
+    ): Boolean = dao.markFailed(id, attemptCount, nextAttemptAt, conflict, lastError, lastErrorCode, lastErrorField, lastHttpStatus, now) > 0
+
+    override suspend fun requeueAccessDenied(now: Long): Int = dao.requeueAccessDenied(now)
 
     override suspend fun markRetryReady(id: String, now: Long): Boolean = dao.markRetryReady(id, now) > 0
 
