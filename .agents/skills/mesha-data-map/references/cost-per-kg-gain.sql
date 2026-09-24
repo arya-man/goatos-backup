@@ -4,6 +4,9 @@
 -- param: days int     window length in days back from today IST (default 30)
 -- Pens are joined weighing<->feed sheet by SHED ID + scrubbed partition (fcr.go pen_map),
 -- so a renamed pen still matches; weighed pens with no sheet rows are listed in unmatched_pens. Read-only.
+-- Scope: feed cost / gain only (Summary + per-park; identical to the app after 07795a180/3fc8ade66). NOT here: gain value /
+-- margin (sale price now per species x management_stage x sex, falling back to the species default; see
+-- growth_sale_price_assumptions) and the "estimated by breed" split (pen feed/gain/cost shared by breed headcount).
 WITH w AS (SELECT (now() AT TIME ZONE 'Asia/Kolkata')::date - /*param:days*/30/*end*/ AS s, (now() AT TIME ZONE 'Asia/Kolkata')::date + 1 AS e),
 sc AS (SELECT cs.campaign_shed_id, cs.campaign_id, c.park_id, cs.weighing_category, cs.location_id,
   coalesce(cs.partition_label,'') bpart, l.name loc_name, l.parent_location_id
