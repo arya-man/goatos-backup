@@ -262,6 +262,8 @@ class ScanViewModel @Inject constructor(
     private val combinedFailedKeyByTask = mutableMapOf<String, String>()
     private val combinedForceDetailRefresh = mutableSetOf<String>()
     private var combinedAcceptedEmitted = false
+    private val combinedSubmitKeyByTask = mutableMapOf<String, String>()
+    private val combinedSubmitItemByTask = mutableMapOf<String, String>()
 
     /**
      * Durable RFID evidence already written to Room for this task. This is the process-recreation
@@ -671,7 +673,12 @@ class ScanViewModel @Inject constructor(
                 combine(combinedSubmitInputs, _operatorAllowed) { inputs, _ -> inputs }
                     .collect { inputs ->
                         inputs.forEach { combinedInputsById[it.taskId] = it }
+                        // Below the DAO bound the observed ids ARE the whole roster: prune now.
+                        if (inputs.size < sg.mesha.goatos.core.data.cache.SCAN_ROSTER_TASK_ID_LIMIT) {
+                            pruneCombinedSubmitState(inputs.mapTo(mutableSetOf()) { it.taskId })
+                        }
                         maybeAutoSubmitCombined()
+                        checkCombinedAccepted()
                     }
             }
         }
@@ -721,6 +728,7 @@ class ScanViewModel @Inject constructor(
     }
 
     override fun onCleared() {
+        clearCombinedSubmitState()
         readerRefreshJob?.cancel()
         reader.setCompletionKeySwallowEnabled(false)
         reader.setCaptureEnabled(false)
@@ -760,11 +768,13 @@ class ScanViewModel @Inject constructor(
 
     private suspend fun refreshCombinedTaskSummaries(shedId: String) {
         var after = ""
+        val rosterIds = mutableSetOf<String>() // mobile-guard:ignore: function-local, GC'd on return; one card's task ids
         while (true) {
             val ids = repo.assignmentScanRosterTaskIdsAfter(
                 shedId, null, assignmentId, partitionLabel, rosterDateScope, after, COMBINED_TASK_PAGE_SIZE,
             ).filter { it.isWritableTaskId() }
             if (ids.isEmpty()) break
+            rosterIds += ids
             for (id in ids) {
                 // The submit carries this task's own SOP version and row version: fetch its detail
                 // when uncached, and ALWAYS after a terminal rejection so a bumped row version
@@ -790,7 +800,48 @@ class ScanViewModel @Inject constructor(
             if (ids.size < COMBINED_TASK_PAGE_SIZE) break
             after = ids.last()
         }
+        pruneCombinedSubmitState(rosterIds)
         maybeAutoSubmitCombined()
+        checkCombinedAccepted()
+    }
+
+    /** Per-card submit state is keyed by the roster's task ids. A task that left the roster (its
+     *  work was moved/cancelled) must stop counting toward "k of N" and must not keep the card
+     *  open, and its entries must not linger for the life of the screen. */
+    private fun pruneCombinedSubmitState(rosterTaskIds: Set<String>) {
+        combinedInputsById.keys.retainAll(rosterTaskIds)
+        combinedSubmitSucceededTaskIds.retainAll(rosterTaskIds)
+        combinedFailedKeyByTask.keys.retainAll(rosterTaskIds)
+        combinedForceDetailRefresh.retainAll(rosterTaskIds)
+        // Attempted keys / observed item ids are per-attempt: keep only those of live tasks.
+        val liveKeys = combinedSubmitKeyByTask.filterKeys { it in rosterTaskIds }.values.toSet()
+        combinedSubmitKeyByTask.keys.retainAll(rosterTaskIds)
+        combinedSubmitAttemptedKeys.removeAll { it !in liveKeys }
+        val liveItems = combinedSubmitItemByTask.filterKeys { it in rosterTaskIds }.values.toSet()
+        combinedSubmitItemByTask.keys.retainAll(rosterTaskIds)
+        combinedSubmitObservedItemIds.removeAll { it !in liveItems }
+    }
+
+    /** The card's per-task submit state belongs to this card only; drop it with the screen. */
+    private fun clearCombinedSubmitState() {
+        combinedInputsById.clear()
+        combinedSubmitAttemptedKeys.clear()
+        combinedSubmitObservedItemIds.clear()
+        combinedSubmitSucceededTaskIds.clear()
+        combinedFailedKeyByTask.clear()
+        combinedForceDetailRefresh.clear()
+        combinedSubmitKeyByTask.clear()
+        combinedSubmitItemByTask.clear()
+    }
+
+    private fun checkCombinedAccepted() {
+        val total = combinedTotal()
+        if (taskId != null || total <= 0 || combinedAcceptedEmitted) return
+        if (combinedInputsById.keys.all { it in combinedSubmitSucceededTaskIds } && combinedSubmitSucceededTaskIds.size >= total) {
+            combinedAcceptedEmitted = true
+            _autoSubmitNotice.value = null
+            _events.tryEmit(ScanNavigationEvent.AutoSubmitAccepted)
+        }
     }
 
     /** Reveal the next page of the ALREADY-LOCAL roster by growing the observed SSOT window. No
@@ -1043,6 +1094,7 @@ class ScanViewModel @Inject constructor(
         }
         for (context in submittable) {
             if (!combinedSubmitAttemptedKeys.add(context.submitKey)) continue
+            combinedSubmitKeyByTask[context.taskId] = context.submitKey
             analytics.track(
                 AnalyticsEvents.VACCINATION_AUTO_SUBMIT_QUEUED,
                 vaccinationJourneyProps(state.value) +
@@ -1095,6 +1147,7 @@ class ScanViewModel @Inject constructor(
 
     private fun observeCombinedSubmitItem(taskId: String, submitKey: String, itemId: String) {
         if (!combinedSubmitObservedItemIds.add(itemId)) return
+        combinedSubmitItemByTask[taskId] = itemId
         viewModelScope.launch {
             syncRepository.observeItem(itemId)
                 .filterNotNull()
@@ -1112,13 +1165,9 @@ class ScanViewModel @Inject constructor(
         when {
             item.status == SyncItemStatus.SUCCEEDED -> {
                 combinedSubmitSucceededTaskIds += taskId
-                combinedFailedKeyByTask -= taskId
+                combinedFailedKeyByTask.remove(taskId)
                 if (total > 0 && combinedSubmitSucceededTaskIds.size >= total) {
-                    _autoSubmitNotice.value = null
-                    if (!combinedAcceptedEmitted) {
-                        combinedAcceptedEmitted = true
-                        _events.tryEmit(ScanNavigationEvent.AutoSubmitAccepted)
-                    }
+                    checkCombinedAccepted()
                 } else {
                     _autoSubmitNotice.value =
                         "${combinedSubmitSucceededTaskIds.size} of $total tasks submitted. The rest still need scans or videos."
@@ -1127,8 +1176,8 @@ class ScanViewModel @Inject constructor(
             item.isTerminalFailure -> {
                 // Clear every guard for this attempt and force a fresh task detail, so a retry
                 // with a bumped row version builds a NEW key instead of rediscovering this row.
-                combinedSubmitAttemptedKeys -= submitKey
-                combinedSubmitObservedItemIds -= item.id
+                combinedSubmitAttemptedKeys.remove(submitKey)
+                combinedSubmitObservedItemIds.remove(item.id)
                 combinedFailedKeyByTask[taskId] = submitKey
                 combinedForceDetailRefresh += taskId
                 _autoSubmitNotice.value = item.lastError?.takeIf { it.isNotBlank() }

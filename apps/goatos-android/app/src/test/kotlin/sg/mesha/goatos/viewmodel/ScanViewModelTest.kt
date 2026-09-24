@@ -1395,6 +1395,7 @@ class ScanViewModelTest {
         val tasks: MultiTaskTasksRepository,
         val vm: ScanViewModel,
         val events: MutableList<ScanNavigationEvent>,
+        val repo: FakeScanExecutionRepository,
     )
 
     private suspend fun kotlinx.coroutines.test.TestScope.runCombinedSubmit(
@@ -1402,6 +1403,7 @@ class ScanViewModelTest {
         taskCount: Int = 2,
         sync: CapturingSubmitSyncRepository = CapturingSubmitSyncRepository(),
         tasks: MultiTaskTasksRepository? = null,
+        partition: String = "Part 3",
     ): CombinedHarness {
         val ids = (1..taskCount).map { "task-$it" }
         val repoTasks = tasks ?: MultiTaskTasksRepository(
@@ -1411,12 +1413,13 @@ class ScanViewModelTest {
             }.toMutableMap(),
             readyTaskIds = readyTaskIds,
         )
+        val rosterRepo = FakeScanExecutionRepository(
+            firstPage = ScanRosterResponseDto(rows = ids.mapIndexed { index, id ->
+                scanRow("goat-${index + 1}", "TAG-${index + 1}", "obl-${index + 1}", status = "done", taskId = id)
+            }),
+        )
         val vm = ScanViewModel(
-            repo = FakeScanExecutionRepository(
-                firstPage = ScanRosterResponseDto(rows = ids.mapIndexed { index, id ->
-                    scanRow("goat-${index + 1}", "TAG-${index + 1}", "obl-${index + 1}", status = "done", taskId = id)
-                }),
-            ),
+            repo = rosterRepo,
             reader = FakeRfidReaderPort(),
             scanCaptureRepository = FakeScanCaptureRepository(),
             scanAttemptRepository = FakeScanAttemptRepository(),
@@ -1426,7 +1429,7 @@ class ScanViewModelTest {
             tasksRepository = repoTasks,
             syncRepository = sync,
             analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
-            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "partitionLabel" to "Part 3", "plannedDate" to "2026-09-24")),
+            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "partitionLabel" to partition, "plannedDate" to "2026-09-24")),
         )
         val events = mutableListOf<ScanNavigationEvent>()
         backgroundScope.launch { vm.state.collect {} }
@@ -1434,7 +1437,40 @@ class ScanViewModelTest {
         advanceUntilIdle()
         vm.refresh()
         advanceUntilIdle()
-        return CombinedHarness(sync, repoTasks, vm, events)
+        return CombinedHarness(sync, repoTasks, vm, events, rosterRepo)
+    }
+
+    @Test
+    fun `combined card task leaving the roster no longer blocks accepted`() = runTest(dispatcher) {
+        val h = runCombinedSubmit(setOf("task-1"))
+        assertEquals(listOf("task-1"), h.sync.submitCalls.map { it.taskId })
+        h.sync.succeed("item-1")
+        advanceUntilIdle()
+        assertTrue("task-2 is still open work", h.events.none { it == ScanNavigationEvent.AutoSubmitAccepted })
+
+        // task-2's work left this card (moved/cancelled): the roster now holds only task-1.
+        h.repo.updateResponse(ScanRosterResponseDto(rows = listOf(scanRow("goat-1", "TAG-1", "obl-1", status = "done", taskId = "task-1"))))
+        advanceUntilIdle()
+        h.vm.refresh()
+        advanceUntilIdle()
+
+        assertEquals(1, h.events.count { it == ScanNavigationEvent.AutoSubmitAccepted })
+        assertEquals(1, h.sync.submitCalls.size)
+    }
+
+    @Test
+    fun `switching combined cards starts from fresh submit state`() = runTest(dispatcher) {
+        val sync = CapturingSubmitSyncRepository()
+        val cardA = runCombinedSubmit(setOf("task-1", "task-2"), sync = sync, partition = "Part 3")
+        val cardB = runCombinedSubmit(setOf("task-1", "task-2"), sync = sync, tasks = cardA.tasks, partition = "Part 4")
+        assertEquals(4, sync.submitCalls.size)
+        assertEquals(4, sync.submitCalls.map { it.idempotencyKey }.toSet().size)
+        assertEquals(setOf("Part 3", "Part 4"), sync.submitCalls.mapNotNull { it.request.partitionLabel }.toSet())
+        sync.succeed("item-1")
+        sync.succeed("item-2")
+        advanceUntilIdle()
+        assertEquals(1, cardA.events.count { it == ScanNavigationEvent.AutoSubmitAccepted })
+        assertTrue("card B must not inherit card A's successes", cardB.events.none { it == ScanNavigationEvent.AutoSubmitAccepted })
     }
 
     @Test
