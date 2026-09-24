@@ -130,6 +130,16 @@ func (l DealLine) WeightKg() float64 {
 	return *l.TotalWeightKg
 }
 
+// SoldWeightKg uses a kilogram quantity when present, otherwise the explicitly
+// recorded weight. A quantity counted by number is never a weight. Older rows
+// without quantity/unit retain their measured weight; a recorded zero stays zero.
+func (l DealLine) SoldWeightKg() float64 {
+	if l.Quantity != nil && l.Unit == UnitKg {
+		return *l.Quantity
+	}
+	return l.WeightKg()
+}
+
 // DealLineWrite is one line of a record-sale body, before normalization.
 type DealLineWrite struct {
 	ProductType   string

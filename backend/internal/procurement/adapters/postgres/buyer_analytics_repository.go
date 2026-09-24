@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 	"github.com/vgoats/goatos/backend/internal/procurement/domain"
 	"github.com/vgoats/goatos/backend/internal/procurement/ports"
 )
@@ -53,7 +54,7 @@ WITH deal AS (
 ),
 line_rollup AS (
     SELECT l.deal_id,
-           sum(CASE WHEN l.product_type IN ('Sheep', 'Goat')
+           sum(CASE WHEN l.product_kind = 'animal'
                     THEN coalesce(l.animal_count, coalesce(l.male_count, 0) + coalesce(l.female_count, 0))
                     ELSE 0 END) AS animals,
            array_agg(DISTINCT l.product_type ORDER BY l.product_type) AS product_types
@@ -89,6 +90,8 @@ SELECT r.id::text, r.sale_date, r.farm, r.buyer_name, r.name_key, r.buyer_place,
        coalesce(v.record_type, '') AS vendor_category,
        coalesce(v.city, '') AS vendor_city,
        coalesce(v.state, '') AS vendor_state,
+       -- No-lines fallback is only for pre-registry historical rows; all current
+       -- writes have stamped lines, whose kind above survives any catalog rename.
        coalesce(lr.animals,
                 CASE WHEN r.product_type IN ('Sheep', 'Goat')
                      THEN coalesce(r.animal_count, coalesce(r.male_count, 0) + coalesce(r.female_count, 0))
@@ -112,7 +115,8 @@ func (r *Repository) ClosedBuyerDeals(ctx context.Context, tenantID, farm string
 		farmPredicate = "AND d.farm = $2"
 		args = append(args, farm)
 	}
-	rows, err := r.pool.Query(ctx, fmt.Sprintf(closedBuyerDealsSQL, farmPredicate), args...)
+	bound := sqlbind.MustBind(fmt.Sprintf(closedBuyerDealsSQL, farmPredicate), args...)
+	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return nil, fmt.Errorf("procurement: buyer analytics deals: %w", err)
 	}

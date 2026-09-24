@@ -79,10 +79,10 @@ RETURNING id::text`, testTenant, date, farm, buyerName, vendorID, product, anima
 	// A mixed-line deal recorded in the app: sheep + goat + manure lines, deal-level rollup.
 	mixed := deal("2026-08-29", "CBE", "Al Madina", "", "Mixed", nil, 227160, 0, "Deal Closed")
 	if _, err := pool.Exec(ctx, `
-INSERT INTO sales_deal_lines (tenant_id, deal_id, line_no, product_type, breed, animal_count, male_count, female_count, sales_value) VALUES
-($1, $2, 1, 'Sheep', 'Local', 12, NULL, NULL, 150000),
-($1, $2, 2, 'Goat', 'Local', NULL, 3, 5, 70000),
-($1, $2, 3, 'Manure', 'Manure', NULL, NULL, NULL, 7160)`, testTenant, mixed); err != nil {
+INSERT INTO sales_deal_lines (tenant_id, deal_id, line_no, product_type, product_code, product_kind, breed, animal_count, male_count, female_count, sales_value) VALUES
+($1, $2, 1, 'Sheep', 'sheep', 'animal', 'Local', 12, NULL, NULL, 150000),
+($1, $2, 2, 'Goat', 'goat', 'animal', 'Local', NULL, 3, 5, 70000),
+($1, $2, 3, 'Manure', 'manure', 'other', 'Manure', NULL, NULL, NULL, 7160)`, testTenant, mixed); err != nil {
 		t.Fatalf("seed lines: %v", err)
 	}
 	// Excluded: a failed deal, an advance-paid deal, and another tenant's closed deal.
