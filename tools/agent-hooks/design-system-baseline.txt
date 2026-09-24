@@ -13,10 +13,16 @@
 # `git diff origin/main...HEAD` on that file. The WeighingOversightCard entries below are a
 # pure RENAME of the LeadershipWeighingScreen ones, not new debt: that file was renamed when
 # its dead leadership screen was deleted and only the card survived.
+# 2026-09-25, same shape: Overlays.kt (SyncSheet) entered the diff for the offline sales
+# stock-confirmation retry (PR #391). Its 35 literals are ALL pre-existing: the change adds
+# no fontSize/fontWeight line (the new error Text and TextButton label use theme defaults;
+# line 404 only changes the Text's string expression).
 apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/MainActivity.kt:literal-font-size
 apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/MainActivity.kt:literal-font-weight
 apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/ui/GoatOsShell.kt:literal-font-size
 apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/ui/GoatOsShell.kt:literal-font-weight
+apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/ui/Overlays.kt:literal-font-size
+apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/ui/Overlays.kt:literal-font-weight
 apps/goatos-android/feature/feature-calendar/src/main/kotlin/sg/mesha/goatos/feature/calendar/CalendarScreen.kt:literal-font-size
 apps/goatos-android/feature/feature-calendar/src/main/kotlin/sg/mesha/goatos/feature/calendar/CalendarScreen.kt:literal-font-weight
 apps/goatos-android/feature/feature-record/src/main/kotlin/sg/mesha/goatos/feature/record/RecordScreen.kt:literal-font-size
