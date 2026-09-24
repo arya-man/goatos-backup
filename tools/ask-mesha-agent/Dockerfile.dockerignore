@@ -57,3 +57,18 @@ apps/mobile/**/build
 **/*.apk
 **/*.aab
 **/*.ipa
+# Bulky evidence / artifacts / raw data dumps the agent never needs (keep source + docs text).
+docs/runbooks/evidence
+docs/prototypes/config-sop-studio/research
+**/artifacts
+apps/goatos-android/docs/screenshot-gallery
+tools/dashboard-automation/commit-classification
+fixtures
+**/*.docx
+**/*.pdf
+**/*.png
+**/*.jpg
+**/*.jpeg
+**/*.webp
+**/*.gif
+**/*.mp4
