@@ -25,6 +25,20 @@ resource "google_sql_database_instance" "core" {
       ssl_mode     = "ENCRYPTED_ONLY"
     }
 
+    # Applied live 2026-09-24 (maintainer-approved, docs/perf/2026-09-24-stg-latency).
+    # iam_authentication was already live but missing here (drift).
+    # random_page_cost=1.1: PD-SSD random reads cost about the same as sequential ones; 4 made the
+    # planner prefer seq scans. JIT is off per connection in the API pool config
+    # (the Cloud SQL "jit" instance flag is not supported).
+    database_flags {
+      name  = "cloudsql.iam_authentication"
+      value = "on"
+    }
+    database_flags {
+      name  = "random_page_cost"
+      value = "1.1"
+    }
+
     # Cloud SQL Query Insights (docs/observability/OBSERVABILITY_DESIGN.md
     # section 4 / "DB" dashboard #2). No raw query text with bound
     # parameters is retained in Cloud SQL's own query string; goat/tenant
