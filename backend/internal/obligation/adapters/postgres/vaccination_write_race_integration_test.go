@@ -12,6 +12,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/obligation/domain"
 	"github.com/vgoats/goatos/backend/internal/obligation/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 )
 
@@ -107,19 +108,6 @@ func (f raceFixture) beginAnchorChange(t *testing.T, ctx context.Context, pool *
 		_, err = tx.Exec(ctx, `UPDATE goats SET dob = $2 WHERE goat_id = $1::uuid`, f.goat, later)
 	case "arrival":
 		_, err = tx.Exec(ctx, `UPDATE procurement_load_goats SET warmup_started_at = $2, intake_accepted_at = $2 WHERE goat_id = $1::uuid`, f.goat, later)
-	case "completion":
-		// A newly accepted, verified first-wave dose: the acceptance trigger (migration 000401)
-		// takes the goat row lock that every vaccination write proves under.
-		at := contractDay(time.September, 20)
-		var holder string
-		if err = tx.QueryRow(ctx, `
-INSERT INTO obligation_instances (tenant_id, protocol_version_id, rule_id, target_type, target_id, scope_type, scope_id, due_at, status, idempotency_key, sequence)
-VALUES ($1::uuid, $2::uuid, $3::uuid, 'goat', $4::uuid, 'park', $5::uuid, $6, 'completed', 'race-late-first-wave-' || $4::text, 2)
-RETURNING obligation_id::text`, tenantID, f.versionID, f.rules["et_tt_w1"], f.goat, cbePark, at).Scan(&holder); err == nil {
-			_, err = tx.Exec(ctx, `
-INSERT INTO vaccination_completions (tenant_id, obligation_id, goat_id, administered_at, status, verified_at, idempotency_key)
-VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 'accepted', $4, 'race-late-first-wave-' || $3::text)`, tenantID, holder, f.goat, at)
-		}
 	}
 	if err != nil {
 		_ = tx.Rollback(ctx)
@@ -257,7 +245,7 @@ func TestVaccinationRescheduleSerializesAgainstAnchorChanges(t *testing.T) {
 			before := f.snapshotGoatRows(t, ctx, pool)
 			err := f.race(t, ctx, pool, func() error {
 				_, _, err := repo.RescheduleObligationByID(ctx, tenantID, id, "race-resched-"+f.goat, []string{cbePark},
-					c.target, c.target, nil, time.Now().UTC())
+					c.target, c.target, nil, time.Now().In(biztime.DefaultLocation()))
 				return err
 			})
 			requireClinicalOrSerializationRejection(t, "reschedule", err)
@@ -285,7 +273,7 @@ func TestVaccinationDeferredReopenSerializesAgainstAnchorChanges(t *testing.T) {
 			}
 			before := f.snapshotGoatRows(t, ctx, pool)
 			err := f.race(t, ctx, pool, func() error {
-				_, _, err := repo.ReopenDeferredObligationByIdempotencyKey(ctx, tenantID, key, time.Now().UTC(), nil)
+				_, _, err := repo.ReopenDeferredObligationByIdempotencyKey(ctx, tenantID, key, time.Now().In(biztime.DefaultLocation()), nil)
 				return err
 			})
 			requireClinicalOrSerializationRejection(t, "deferred reopen", err)

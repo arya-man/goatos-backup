@@ -5,7 +5,6 @@
   "cmd/legacy-god-sheet-sync/main.go|unverified-dynamic-bind": 1,
   "cmd/seed-shed-positions/main.go|unverified-dynamic-bind": 1,
   "cmd/seed-vaccination-per-goat-qa/main.go|unverified-dynamic-bind": 2,
-  "cmd/seed-vaccination-real/main.go|unverified-dynamic-bind": 10,
   "cmd/seed-vaccination-trigger/main.go|unverified-dynamic-bind": 1,
   "internal/animalpurchase/adapters/postgres/catalog.go|unverified-dynamic-bind": 1,
   "internal/animalpurchase/adapters/postgres/repository.go|unverified-dynamic-bind": 2,

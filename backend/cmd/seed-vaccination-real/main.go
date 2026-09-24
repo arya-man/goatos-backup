@@ -41,6 +41,7 @@ import (
 	obligationpg "github.com/vgoats/goatos/backend/internal/obligation/adapters/postgres"
 	"github.com/vgoats/goatos/backend/internal/platform/localtarget"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 	protocolpg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
 	protocolapp "github.com/vgoats/goatos/backend/internal/protocol/app"
 	"github.com/vgoats/goatos/backend/internal/seedrun"
@@ -2152,7 +2153,8 @@ func purgeSyntheticFixtures(ctx context.Context, tx pgx.Tx, tenantID string) (pu
 		))`
 
 	exec := func(label, sql string) (int, error) {
-		tag, err := tx.Exec(ctx, sql, tenantID)
+		purgeStmt := sqlbind.MustBind(sql, tenantID)
+		tag, err := tx.Exec(ctx, purgeStmt.SQL(), purgeStmt.Args()...)
 		if err != nil {
 			return 0, fmt.Errorf("purge %s: %w", label, err)
 		}
@@ -2714,7 +2716,8 @@ func verifyPersistedSourceFactsInTx(ctx context.Context, tx pgx.Tx, tenantID str
 
 func verifyActiveGoatsHaveShedInTx(ctx context.Context, tx pgx.Tx, tenantID string) error {
 	var offenders int64
-	if err := tx.QueryRow(ctx, activeGoatShedInvariantSQL(), tenantID).Scan(&offenders); err != nil {
+	shedCheck := sqlbind.MustBind(activeGoatShedInvariantSQL(), tenantID)
+	if err := tx.QueryRow(ctx, shedCheck.SQL(), shedCheck.Args()...).Scan(&offenders); err != nil {
 		return fmt.Errorf("verify active goat shed placement: %w", err)
 	}
 	if offenders != 0 {
@@ -2725,7 +2728,8 @@ func verifyActiveGoatsHaveShedInTx(ctx context.Context, tx pgx.Tx, tenantID stri
 
 func verifyActiveGoatsHaveShed(ctx context.Context, pool *pgxpool.Pool, tenantID string) error {
 	var offenders int64
-	if err := pool.QueryRow(ctx, activeGoatShedInvariantSQL(), tenantID).Scan(&offenders); err != nil {
+	shedCheck := sqlbind.MustBind(activeGoatShedInvariantSQL(), tenantID)
+	if err := pool.QueryRow(ctx, shedCheck.SQL(), shedCheck.Args()...).Scan(&offenders); err != nil {
 		return fmt.Errorf("verify active goat shed placement: %w", err)
 	}
 	if offenders != 0 {
@@ -2761,13 +2765,15 @@ WHERE g.tenant_id = $1::uuid
 
 func verifyActiveGoatsUsePhysicalShedLocationsInTx(ctx context.Context, tx pgx.Tx, tenantID string) error {
 	var offenders int64
-	if err := tx.QueryRow(ctx, activeGoatPhysicalShedInvariantSQL(), tenantID).Scan(&offenders); err != nil {
+	physicalCheck := sqlbind.MustBind(activeGoatPhysicalShedInvariantSQL(), tenantID)
+	if err := tx.QueryRow(ctx, physicalCheck.SQL(), physicalCheck.Args()...).Scan(&offenders); err != nil {
 		return fmt.Errorf("verify physical shed placement: %w", err)
 	}
 	if offenders != 0 {
 		return fmt.Errorf("physical shed invariant failed: %d active animals are placed in partition-named canonical shed locations; normalize Gandhi 1 -> shed Gandhi partition 1 and Godel 1 - Part 3 -> shed Godel 1 partition Part 3", offenders)
 	}
-	if err := tx.QueryRow(ctx, activeGoatPartitionLineageInvariantSQL(), tenantID).Scan(&offenders); err != nil {
+	lineageCheck := sqlbind.MustBind(activeGoatPartitionLineageInvariantSQL(), tenantID)
+	if err := tx.QueryRow(ctx, lineageCheck.SQL(), lineageCheck.Args()...).Scan(&offenders); err != nil {
 		return fmt.Errorf("verify shed partition lineage: %w", err)
 	}
 	if offenders != 0 {
@@ -2778,13 +2784,15 @@ func verifyActiveGoatsUsePhysicalShedLocationsInTx(ctx context.Context, tx pgx.T
 
 func verifyActiveGoatsUsePhysicalShedLocations(ctx context.Context, pool *pgxpool.Pool, tenantID string) error {
 	var offenders int64
-	if err := pool.QueryRow(ctx, activeGoatPhysicalShedInvariantSQL(), tenantID).Scan(&offenders); err != nil {
+	physicalCheck := sqlbind.MustBind(activeGoatPhysicalShedInvariantSQL(), tenantID)
+	if err := pool.QueryRow(ctx, physicalCheck.SQL(), physicalCheck.Args()...).Scan(&offenders); err != nil {
 		return fmt.Errorf("verify physical shed placement: %w", err)
 	}
 	if offenders != 0 {
 		return fmt.Errorf("physical shed invariant failed: %d active animals are placed in partition-named canonical shed locations; normalize Gandhi 1 -> shed Gandhi partition 1 and Godel 1 - Part 3 -> shed Godel 1 partition Part 3", offenders)
 	}
-	if err := pool.QueryRow(ctx, activeGoatPartitionLineageInvariantSQL(), tenantID).Scan(&offenders); err != nil {
+	lineageCheck := sqlbind.MustBind(activeGoatPartitionLineageInvariantSQL(), tenantID)
+	if err := pool.QueryRow(ctx, lineageCheck.SQL(), lineageCheck.Args()...).Scan(&offenders); err != nil {
 		return fmt.Errorf("verify shed partition lineage: %w", err)
 	}
 	if offenders != 0 {
@@ -2827,7 +2835,8 @@ WHERE g.tenant_id = $1::uuid
 
 func verifyVaccinationObligationsShedScopedInTx(ctx context.Context, tx pgx.Tx, tenantID string) error {
 	var offenders int64
-	if err := tx.QueryRow(ctx, vaccinationObligationShedScopeInvariantSQL(), tenantID).Scan(&offenders); err != nil {
+	scopeCheck := sqlbind.MustBind(vaccinationObligationShedScopeInvariantSQL(), tenantID)
+	if err := tx.QueryRow(ctx, scopeCheck.SQL(), scopeCheck.Args()...).Scan(&offenders); err != nil {
 		return fmt.Errorf("verify vaccination obligation shed scope: %w", err)
 	}
 	if offenders != 0 {
@@ -2838,7 +2847,8 @@ func verifyVaccinationObligationsShedScopedInTx(ctx context.Context, tx pgx.Tx, 
 
 func verifyVaccinationObligationsShedScoped(ctx context.Context, pool *pgxpool.Pool, tenantID string) error {
 	var offenders int64
-	if err := pool.QueryRow(ctx, vaccinationObligationShedScopeInvariantSQL(), tenantID).Scan(&offenders); err != nil {
+	scopeCheck := sqlbind.MustBind(vaccinationObligationShedScopeInvariantSQL(), tenantID)
+	if err := pool.QueryRow(ctx, scopeCheck.SQL(), scopeCheck.Args()...).Scan(&offenders); err != nil {
 		return fmt.Errorf("verify vaccination obligation shed scope: %w", err)
 	}
 	if offenders != 0 {
@@ -2919,7 +2929,8 @@ func missingPersistedRows(ctx context.Context, tx pgx.Tx, table, idColumn, tenan
 			  AND (t.idempotency_key = e.idempotency_key
 			       OR (NULLIF(btrim(e.row_id), '') IS NOT NULL AND t.%s = NULLIF(btrim(e.row_id), '')::uuid))
 		)`, table, idColumn)
-	rows, err := tx.Query(ctx, q, tenantID, string(payload))
+	boundQuery := sqlbind.MustBind(q, tenantID, string(payload))
+	rows, err := tx.Query(ctx, boundQuery.SQL(), boundQuery.Args()...)
 	if err != nil {
 		return nil, err
 	}
@@ -3973,6 +3984,7 @@ func vaccinationMatrixRuleDSL() (string, error) {
 			"second_wave_after_days":           28,
 			"goat_second_wave":                 []string{"Goat Pox"},
 			"sheep_second_wave":                []string{"Sheep Pox"},
+			// seed-fixture-guard:ignore: code-authored protocol rule config (fattening purpose waves) and in-memory history Source tags; no HRMS source column, fixture file, or source-date contract changes.
 			"purpose_plans": map[string]any{
 				"fattening": map[string]any{
 					"first_wave": []string{"ET+TT", "PPR"}, "second_wave_after_days": 28,

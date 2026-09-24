@@ -2544,11 +2544,15 @@ WHERE tenant_id = $1 AND obligation_id = $3::uuid`,
 // other failure -- serialization/deadlock, timeout, CHECK/FK violation, broken connection -- is
 // returned, so a caller can never mistake an infrastructure failure for a collision skip.
 func execInSavepoint(ctx context.Context, tx pgx.Tx, sql string, args ...any) (bool, error) {
+	bound, err := sqlbind.Bind(sql, args...)
+	if err != nil {
+		return false, fmt.Errorf("obligation: savepoint statement: %w", err)
+	}
 	sp, err := tx.Begin(ctx)
 	if err != nil {
 		return false, fmt.Errorf("obligation: begin savepoint: %w", err)
 	}
-	tag, err := sp.Exec(ctx, sql, args...)
+	tag, err := sp.Exec(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		_ = sp.Rollback(ctx)
 		var pgErr *pgconn.PgError
@@ -3208,18 +3212,35 @@ type countingTx struct {
 
 func (c countingTx) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
 	*c.n++
-	return c.Tx.Query(ctx, sql, args...)
+	bound, err := sqlbind.Bind(sql, args...)
+	if err != nil {
+		return nil, err
+	}
+	return c.Tx.Query(ctx, bound.SQL(), bound.Args()...)
 }
 
 func (c countingTx) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
 	*c.n++
-	return c.Tx.QueryRow(ctx, sql, args...)
+	bound, err := sqlbind.Bind(sql, args...)
+	if err != nil {
+		return bindErrRow{err: err}
+	}
+	return c.Tx.QueryRow(ctx, bound.SQL(), bound.Args()...)
 }
 
 func (c countingTx) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
 	*c.n++
-	return c.Tx.Exec(ctx, sql, args...)
+	bound, err := sqlbind.Bind(sql, args...)
+	if err != nil {
+		return pgconn.CommandTag{}, err
+	}
+	return c.Tx.Exec(ctx, bound.SQL(), bound.Args()...)
 }
+
+// bindErrRow surfaces a placeholder/argument contract violation through pgx.Row.Scan.
+type bindErrRow struct{ err error }
+
+func (r bindErrRow) Scan(...any) error { return r.err }
 
 // carryOverGoatChunks dedupes and sorts goat ids and splits them into bounded chunks. Sorting
 // keeps chunk membership (and so retry scope) deterministic across calls.
@@ -3625,7 +3646,11 @@ type carryOverCandidate struct {
 }
 
 func carryOverCandidates(ctx context.Context, tx pgx.Tx, sql string, args ...any) ([]carryOverCandidate, error) {
-	rows, err := tx.Query(ctx, sql, args...)
+	bound, err := sqlbind.Bind(sql, args...)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := tx.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return nil, err
 	}
