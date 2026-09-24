@@ -1069,6 +1069,22 @@ tool, or `git push origin main` from a machine without the pre-push guard all
 fail at GitHub. Nothing runs on GitHub; `ci-local` on the developer machine is
 still the only CI. Do not post that status by hand and do not add bypass actors.
 
+### Run Android once, not three times (maintainer rule 2026-09-24)
+
+A full Android slice takes a long time. Do not stack runs before landing:
+
+- Do not pre-run `tools/ci/run-local-ci.sh android` and then `make land-main`.
+  `make land-main` IS the Android run. Commit and run it.
+- When `make land-main` fails in Android, rerun only the exact failing Gradle
+  task, the same one CI runs, then commit and run `make land-main` once. CI runs
+  `:app:testStgReleaseUnitTest` / `:app:lintStgRelease` (stg release), so a
+  focused `testDevDebugUnitTest` cannot reproduce or clear a stg failure.
+- Tests that assert dev-only behaviour (TEMP sample cards, debug aliasers) go in
+  `app/src/testDev/` or `app/src/testDebug/`, never the shared `app/src/test/`,
+  which stg release runs too.
+- Ledger/metadata-only follow-up commits (the `commit-classification/` ledger)
+  are common-only and no longer block landing. Don't add them just to go green.
+
 ## MANDATORY: 4-Layer Lookup on Every Code Question
 
 Work through layers in order. Stop at the layer that answers the question. Do NOT jump to files/grep first.
