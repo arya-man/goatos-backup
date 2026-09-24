@@ -65,6 +65,11 @@ resource "google_cloud_run_v2_job" "herd_signals_partition_maintenance" {
         # -retention-days=14 matches the documented default
         # (docs/modules/herd-signals-system-design.md Section 3.2).
         args = ["-timeout=90s", "-days-ahead=14", "-retention-days=14"]
+        # Connection budget: cap this job's pool (default 10); see the api service.
+        env {
+          name  = "GOATOS_PG_MAX_CONNS"
+          value = "2"
+        }
 
         resources {
           limits = {

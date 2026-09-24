@@ -176,15 +176,26 @@ resource "google_cloud_run_v2_service" "api" {
 
       # Postgres connection budget (maintainer decision 2026-09-24, db-g1-small
       # kept for cost): ~47 usable connections (50 max_connections minus
-      # reserved superuser slots). Worst case with every service at max scale:
-      # api 4 x (5 main + 2 auth + 1 CEO read-only) = 32, kernel-worker 1 x 8,
-      # analytics-events 1 x 2, mqtt-bridge 1 x 3 -> 45. Raising any of these
-      # (or max_instance_count) needs the sum re-checked.
-      # Rolling-deploy overlap is NOT inside that 45: while old and new revisions
-      # both run, each API instance of the new revision adds up to 8 more and the
-      # worker adds 8. Only ~2 connections of headroom remain, so the overlap is
-      # absorbed by pools being below max and by the auth pool connecting lazily
-      # (a refused connection is a retryable 503, not a boot failure).
+      # reserved superuser slots). Steady state with every service at max scale:
+      #   api 4 x (5 main + 2 auth + 1 CEO read-only) = 32
+      #   kernel-worker 1 x 8, analytics-events 1 x 2, mqtt-bridge 1 x 3 = 13
+      #   -> 45, leaving 2.
+      # The herd-signals live-notify LISTEN permanently holds 1 main-pool conn
+      # per API instance, so each instance serves requests with only 4 main
+      # conns. Raising GOATOS_PG_MAX_CONNS to 6 would cost +4 (49 > 47), so it
+      # stays 5 until the tier or instance count changes.
+      # Cloud Run jobs (migrate, outbox-dlq, feed-direction issue/amend/lock,
+      # analytics-rollup, herd-signals-partition-maintenance) are NOT in the 45:
+      # each is capped by its own GOATOS_PG_MAX_CONNS (migrate 1, others 2,
+      # default would be 10). They are manually/deploy-triggered, not scheduled;
+      # one job at a time fits the 2 of headroom (45 + 2 = 47). Running several
+      # at once, or during a rollout, exceeds the budget.
+      # Rolling-deploy overlap is also NOT inside the 45: while old and new
+      # revisions both run, each new API instance adds up to 8 and the worker
+      # adds 8. That is absorbed by pools being below max (MinConns 0) and the
+      # auth pool connecting lazily (a refused connection is a retryable 503,
+      # not a boot failure). Raising any number here (or max_instance_count)
+      # needs this sum re-checked.
       env {
         name  = "GOATOS_PG_MAX_CONNS"
         value = "5"
