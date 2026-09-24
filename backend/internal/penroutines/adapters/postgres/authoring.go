@@ -15,6 +15,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/penroutines/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 )
 
 type routineScan struct {
@@ -99,7 +100,8 @@ func (s *routineScan) finish() (ports.RoutineListRow, error) {
 // are attached by ONE batched read (listRoutineAssignees), never per routine.
 func (r *Repository) readRoutines(ctx context.Context, q querier, where, lock string, args ...any) ([]ports.RoutineListRow, error) {
 	query := fmt.Sprintf(`SELECT %s %s WHERE d.tenant_id = $1::uuid AND %s ORDER BY park.name, lower(v.name), d.routine_id%s`, routineColumns, routineFrom, where, lock)
-	rows, err := q.Query(ctx, query, args...)
+	bound := sqlbind.MustBind(query, args...)
+	rows, err := q.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return nil, fmt.Errorf("pen routine: read routines: %w", err)
 	}
@@ -169,12 +171,12 @@ func (r *Repository) ListRoutinesAndParks(ctx context.Context, p ports.RoutineLi
 	)
 	batch := &pgx.Batch{}
 	// scale-guard:ignore: bounded by the authored routine estate of a tenant (a handful per park); no page needed.
-	batch.Queue(sqlListRoutines, p.TenantID, p.Today, park).Query(func(rows pgx.Rows) error {
+	queueBound(batch, sqlListRoutines, p.TenantID, p.Today, park).Query(func(rows pgx.Rows) error {
 		var err error
 		out, err = scanRoutineRows(rows)
 		return err
 	})
-	batch.Queue(sqlRoutineAssigneesForScope, p.TenantID, park, domain.AssignableRoles).Query(func(rows pgx.Rows) error {
+	queueBound(batch, sqlRoutineAssigneesForScope, p.TenantID, park, domain.AssignableRoles).Query(func(rows pgx.Rows) error {
 		var err error
 		people, err = scanRoutineAssignees(rows)
 		return err
@@ -536,12 +538,12 @@ func (r *Repository) Catalog(ctx context.Context, tenantID, parkID string) ([]po
 	)
 	batch := &pgx.Batch{}
 	// scale-guard:ignore: bounded by the authored shed/pen estate of a park (tens of rows); see readPens.
-	batch.Queue(sqlAuthoring9, tenantID, nullIfEmpty(parkID)).Query(func(rows pgx.Rows) error {
+	queueBound(batch, sqlAuthoring9, tenantID, nullIfEmpty(parkID)).Query(func(rows pgx.Rows) error {
 		var err error
 		pens, err = scanPens(rows)
 		return err
 	})
-	batch.Queue(sqlRoleHoldersForPark, tenantID, parkID, domain.AssignableRoles).Query(func(rows pgx.Rows) error {
+	queueBound(batch, sqlRoleHoldersForPark, tenantID, parkID, domain.AssignableRoles).Query(func(rows pgx.Rows) error {
 		var err error
 		roles, err = scanRoleHolders(rows)
 		return err
@@ -570,7 +572,8 @@ type catalogPen struct {
 // projection-review: membership=active non-alias sheds of the scope LEFT JOIN their active shed_partitions rows (an undivided shed contributes exactly one row, a divided shed one row per catalogued pen); group_key=(shed.location_id, sp.normalized_label); join_cardinality=shed_partitions is keyed (tenant, shed, normalized_label) so the LEFT JOIN cannot repeat a pen, the occupied flag is an EXISTS (never multiplies); pagination=none -- bounded by the authored shed/pen estate (tens per park), not by animals; scope=tenant_id + optional parent park
 func (r *Repository) readPens(ctx context.Context, q querier, tenantID string, parkID *string) ([]catalogPen, error) {
 	// scale-guard:ignore: bounded by the authored shed/pen estate of a tenant (tens of rows per park), served by the locations parent index and shed_partitions' own key; the occupied flag probes ONE pre-aggregated set of occupied (shed, pen) keys.
-	rows, err := q.Query(ctx, sqlAuthoring9, tenantID, parkID)
+	bound := sqlbind.MustBind(sqlAuthoring9, tenantID, parkID)
+	rows, err := q.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return nil, fmt.Errorf("pen routine: pens: %w", err)
 	}
@@ -597,6 +600,12 @@ func scanPens(rows pgx.Rows) ([]catalogPen, error) {
 		return nil, fmt.Errorf("pen routine: pens: %w", err)
 	}
 	return out, nil
+}
+
+// queueBound queues one sqlbind-checked statement on a batch.
+func queueBound(batch *pgx.Batch, query string, args ...any) *pgx.QueuedQuery {
+	bound := sqlbind.MustBind(query, args...)
+	return batch.Queue(bound.SQL(), bound.Args()...)
 }
 
 func nullIfEmpty(s string) *string {
