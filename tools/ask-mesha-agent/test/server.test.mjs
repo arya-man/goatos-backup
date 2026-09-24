@@ -206,3 +206,44 @@ test("describe_table batching and missing-column hints", async () => {
   assert.ok(!isMissingColumnError("syntax error at or near filter"));
   assert.match(d("public.x").sql, /contype = 'f'/);
 });
+
+test("narration gate: pre-tool text never shown, answers released", async () => {
+  const { makeTurnGate } = await import("../lib.mjs");
+  let out = "";
+  const g = makeTurnGate((t) => (out += t), 40);
+  g.text("Let me check ");
+  g.text("the table.");
+  assert.equal(g.toolStart(), false); // nothing reached the screen, so no reset needed
+  assert.equal(out, "");
+  g.text("Short answer.");
+  g.end();
+  assert.equal(out, "Short answer.");
+  out = "";
+  g.text("A long answer that passes the forty char hold ");
+  assert.ok(out.length > 0); // streams once past the hold
+  g.text("and keeps streaming.");
+  g.end();
+  assert.equal(out, "A long answer that passes the forty char hold and keeps streaming.");
+});
+
+test("file route: only previewable types are inline", async () => {
+  const { inlineDisposition } = await import("../lib.mjs");
+  for (const t of ["image/png", "image/jpeg", "image/gif", "image/webp", "application/pdf", "IMAGE/PNG; x=1"]) assert.ok(inlineDisposition(t), t);
+  for (const t of ["text/html", "image/svg+xml", "text/plain", "", undefined, "application/octet-stream"]) assert.ok(!inlineDisposition(t), String(t));
+  const src = fs.readFileSync(new URL("../server.mjs", import.meta.url), "utf8");
+  assert.match(src, /inlineDisposition\(ref\.type\) \? "inline" : "attachment"/);
+});
+
+test("monthly cap: in-flight reservation is taken before any await after the budget check", () => {
+  const src = fs.readFileSync(new URL("../server.mjs", import.meta.url), "utf8");
+  const body = src.slice(src.indexOf("if (spent + inFlight >= MONTHLY_BUDGET_USD)"));
+  const reserve = body.indexOf("activeRuns.set(requestId, run)");
+  const afterBlock = body.indexOf("return;\n  }\n") + 1;
+  assert.ok(reserve > 0 && body.indexOf("store.createChat") > reserve && body.indexOf("store.tryLock") > reserve);
+  // No await between the end of the budget-blocked branch and the reservation.
+  assert.doesNotMatch(body.slice(afterBlock, reserve), /await /);
+  // Every early exit after the reservation releases it.
+  const locked = body.slice(body.indexOf("if (!locked)"), body.indexOf("chat_busy"));
+  assert.match(locked, /activeRuns\.delete\(requestId\)/);
+  assert.equal((body.slice(reserve, body.indexOf("if (!locked)")).match(/activeRuns\.delete\(requestId\)/g) || []).length, 2);
+});

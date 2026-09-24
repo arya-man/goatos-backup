@@ -115,6 +115,7 @@ export function recentAsks(events, email, limit = 50) {
       first_token_ms: e.first_token_ms ?? null,
       tool_calls: e.tool_calls ?? null,
       cost_usd: e.cost_usd ?? null,
+      cost_estimated: Boolean(e.cost_estimated),
       model: e.model || started.get(e.request_id)?.model || null,
       question_preview: e.question_preview ?? started.get(e.request_id)?.question_preview ?? null,
     }));
@@ -245,7 +246,9 @@ export async function createEvents({ stateDir, sink, log = (line) => console.log
           total_ms: metric.total_ms ?? since(), first_token_ms: metric.first_token_ms ?? s.first_token_ms,
           tool_calls: metric.tool_calls, db_queries: metric.db_queries, tool_errors: s.tool_errors, sql_errors: s.sql_errors,
           turns: metric.turns, model: metric.model, effort: metric.effort, deep: Boolean(info.deep),
-          cost_usd: metric.cost_usd, input_tokens: metric.input_tokens, output_tokens: metric.output_tokens,
+          // cost_estimated: no SDK result arrived (tab closed / Stop), so cost_usd is the answer's
+          // cap charged as a fail-closed estimate, not a measured spend.
+          cost_usd: metric.cost_usd, cost_estimated: Boolean(metric.cost_estimated), input_tokens: metric.input_tokens, output_tokens: metric.output_tokens,
           question_preview: String(info.question || "").slice(0, 80),
         };
         if (aborted || metric.error === "client_aborted") {

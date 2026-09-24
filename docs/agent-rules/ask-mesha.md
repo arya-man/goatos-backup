@@ -29,9 +29,12 @@ Read this before touching the admin-web **Ask Mesha** panel, `apps/admin-web/app
 ## Read-only guarantees (keep all four layers)
 
 1. **Tools:** `ASK_MESHA_READONLY=1` (default) gives the agent only `Read/Grep/Glob/Skill/TodoWrite`
-   plus the MCP tools `run_sql` and `mcp__mesha__describe_table` (fixed catalog read of one table's
-   columns + top category/status values; the name must match `schema.table` identifiers and goes through
-   `run_sql`'s same read-only path). No Bash, Edit, Write, NotebookEdit, Web*, Task. Read paths are limited
+   plus the MCP tools `run_sql` and `mcp__mesha__describe_table` (fixed catalog read of up to 6 tables per
+   call — `table` comma list and/or `tables` array — returning columns, FK join targets and, for base tables
+   <= ~2M rows, top values of up to 6 category/status-like text columns; every name must match strict
+   `schema.table` identifiers before it is interpolated, and all reads go through `run_sql`'s same read-only
+   path). A `run_sql` "column/relation does not exist" error comes back with the real column lists of up to
+   4 tables the query referenced (same validated describe path). No Bash, Edit, Write, NotebookEdit, Web*, Task. Read paths are limited
    to the repo and upload dirs (no `/proc`, no `.pgenv`).
 2. **run_sql:** no query rules — any SQL over any table/schema, no tenant filter (single tenant). Runs in
    `BEGIN READ ONLY` with `default_transaction_read_only=on`, 60 s timeout, 500 rows. Refusals are only
@@ -135,6 +138,9 @@ Not the answer: per-tenant copies of tables/schemas (344× duplication and migra
   `/ask` replies "budget reached" without calling Claude. Fails closed if spend can't be read.
 - Per-answer caps (SDK `maxBudgetUsd`, counted inside the monthly cap): `ASK_MESHA_PER_ANSWER_BUDGET_USD`
   (default 1) for lookups, `ASK_MESHA_DEEP_ANSWER_BUDGET_USD` (default 5) for investigations.
+  Each running answer reserves its cap: a new ask is refused when spent + in-flight caps >= the monthly
+  cap, and its own cap is clipped to what is left.
+- One run per chat (lease): a second ask on a busy chat gets HTTP 409 `chat_busy` (logged as a `chat_busy` event).
 - Cost = SDK `total_cost_usd` per answer (tokens × list price incl. cache reads/writes), stored with the
   metric; monthly spend = sum since the 1st (UTC). It is an estimate; the GCP bill is authoritative.
 - GCP budgets only alert; RUNBOOK §3c adds a $100 Vertex budget alert as a backstop.
@@ -153,7 +159,7 @@ Not the answer: per-tenant copies of tables/schemas (344× duplication and migra
 
 - `ASK_MESHA_DATABASE_URL` => Postgres schema `ask_mesha` (chats, messages, metrics, SDK
   `session_entries`) with a **separate writable app user** — never `mesha_ceo_readonly`.
-  DDL `tools/ask-mesha-agent/sql/001_init.sql` (idempotent, applied when `ASK_MESHA_DB_MIGRATE=1`).
+  DDL `tools/ask-mesha-agent/sql/001_init.sql` + `002_events.sql` (idempotent, applied when `ASK_MESHA_DB_MIGRATE=1`).
   Chats are owned by **email + tenant**; delete is soft (`deleted_at`).
 - `ASK_MESHA_UPLOADS_BUCKET` => GCS `uploads/<chat>/<fileId>-<name>`; files re-display after reload via
   the owner-checked file route; only images/PDF are served inline (others download, `nosniff`).

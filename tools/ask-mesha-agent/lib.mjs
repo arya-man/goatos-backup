@@ -261,3 +261,32 @@ export function ttlCache(max = 1000) {
     get size() { return m.size; },
   };
 }
+
+// File route: only these types are shown inline (same allow-list as admin-web _forward.ts);
+// anything else (html, svg, text…) is served as a download so it can't render in our origin.
+export const INLINE_FILE_TYPES = new Set(["image/png", "image/jpeg", "image/jpg", "image/gif", "image/webp", "application/pdf"]);
+export function inlineDisposition(type) {
+  return INLINE_FILE_TYPES.has(String(type || "").split(";")[0].trim().toLowerCase());
+}
+
+// ---- narration gate ------------------------------------------------------------
+// Text the model writes before a tool call is narration ("Let me check…"). Streaming it and then
+// clearing it on the tool call made the answer area flash. Hold each turn's text until it is
+// clearly the answer (the turn ended without a tool call, or it grew past a narration-sized
+// prefix); a turn that turns into a tool call is dropped without ever being shown.
+export const NARRATION_HOLD_CHARS = 280;
+export function makeTurnGate(emit, hold = NARRATION_HOLD_CHARS) {
+  let held = "";
+  let released = false;
+  return {
+    text(t) {
+      if (released) return emit(t);
+      held += t;
+      if (held.length >= hold) { released = true; const h = held; held = ""; emit(h); }
+    },
+    // A tool call started: drop held narration. Returns true if text was already on screen.
+    toolStart() { const shown = released; held = ""; released = false; return shown; },
+    // The turn ended without a tool call (or the run ended): release what is held.
+    end() { if (held) { const h = held; held = ""; emit(h); } released = false; },
+  };
+}
