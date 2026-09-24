@@ -428,8 +428,8 @@ func TestLiveStateFiltersUseBackendFreshnessWindows(t *testing.T) {
 	if containsTagLatest(movingRows, "hsi-live-stale") {
 		t.Fatal("moving_now included a stale row with old movement deltas")
 	}
-	if movingSummary.TagsSeen != len(movingRows) || movingSummary.MovingNow != len(movingRows) {
-		t.Fatalf("moving_now summary = %+v rows=%d, want summary scoped to backend live_state filter", movingSummary, len(movingRows))
+	if movingSummary.TagsSeen <= len(movingRows) || movingSummary.MovingNow != len(movingRows) {
+		t.Fatalf("moving_now summary = %+v rows=%d, want whole-filter summary with only MovingNow matching the live_state cohort", movingSummary, len(movingRows))
 	}
 
 	active1m := "active_1m"
@@ -443,8 +443,8 @@ func TestLiveStateFiltersUseBackendFreshnessWindows(t *testing.T) {
 	if containsTagLatest(activeRows, "hsi-live-stale") {
 		t.Fatal("active_1m included a stale row with old 60s delta")
 	}
-	if activeSummary.TagsSeen != len(activeRows) || activeSummary.Active1m != len(activeRows) {
-		t.Fatalf("active_1m summary = %+v rows=%d, want summary scoped to backend live_state filter", activeSummary, len(activeRows))
+	if activeSummary.TagsSeen <= len(activeRows) || activeSummary.Active1m != len(activeRows) {
+		t.Fatalf("active_1m summary = %+v rows=%d, want whole-filter summary with only Active1m matching the live_state cohort", activeSummary, len(activeRows))
 	}
 }
 
