@@ -1571,9 +1571,14 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
+	liveNotifyCtx, cancelLiveNotify := context.WithCancel(ctx)
+	herdSignalsHandler.WithLiveNotifications(liveNotifyCtx, herdsignalspg.NewLiveNotificationSource(pool, log))
 	return &API{
 		Server: server,
-		Close:  pool.Close,
+		Close: func() {
+			cancelLiveNotify()
+			pool.Close()
+		},
 	}, nil
 }
 

@@ -220,9 +220,9 @@ export function HerdSignalsFilters({
       </span>
 
       <span className="fsel">
-        Compare to pen
+        Compare to shed
         <select
-          aria-label="Compare to pen"
+          aria-label="Compare to shed"
           value={params.shedBaseline}
           onChange={(event) => go(herdSignalsHref(params, { hs_shed_base: event.target.value }))}
         >

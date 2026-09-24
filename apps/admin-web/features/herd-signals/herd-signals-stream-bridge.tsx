@@ -1,15 +1,16 @@
 "use client";
 
-import { useCallback, useMemo, useEffect, useRef, useState, useSyncExternalStore, useTransition } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useMemo, useEffect, useState, useSyncExternalStore } from "react";
+import { useSearchParams } from "next/navigation";
+import type { HerdSignalsLiveResponse } from "@/lib/api/herd-signals";
 import { fmtClockSeconds } from "./format";
+import { useHerdSignalsLiveSnapshot, writeHerdSignalsLiveSnapshot } from "./herd-signals-live-store";
 
-// LIVE / PAUSED control and the SSE refresh bridge. The initial table remains server-rendered; once
-// mounted, lightweight EventSource ticks trigger a bounded router.refresh() so the same server data
-// path paints the page across Cloud Run instances. The stream deliberately carries no row snapshot.
+// LIVE / PAUSED control and the SSE connection bridge. The initial table remains server-rendered;
+// stream ticks update connection/freshness state only. Route refreshes here would be polling
+// disguised as SSE and cause the full-page flicker operators reported.
 
 const STALE_AFTER_MS = 30_000;
-const STREAM_REFRESH_MIN_MS = 15_000;
 
 function liveStateFromKpi(kpi: string | null): "moving_now" | "active_1m" | null {
   return kpi === "moving_now" || kpi === "active_1m" ? kpi : null;
@@ -102,7 +103,7 @@ function useTabHidden(): boolean {
 // which calls getSnapshot again, disagrees again, and so on: "Maximum update depth exceeded" from
 // inside useSyncExternalStore's own re-render machinery. This crashed the drawer on its very first
 // tag click, before the timeline fetch or its from/to params ever mattered — every render tree
-// mounted under this hook (the poller AND the tag drawer, both call it) failed the same way.
+// mounted under this hook (the stream bridge AND the tag drawer, both call it) failed the same way.
 //
 // The fix is the standard one: cache the value in a module-level box that is written ONLY by the
 // subscribed side-effect (the timer tick, i.e. the actual external mutation), and have
@@ -136,13 +137,14 @@ export function useNowMs(everyMs = 1000): number {
   return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 }
 
-export function HerdSignalsPoller({ generatedAt }: { generatedAt: string }) {
-  const router = useRouter();
+export function HerdSignalsStreamBridge({ generatedAt }: { generatedAt: string }) {
   const searchParams = useSearchParams();
   const searchKey = searchParams.toString();
   const liveQuery = useMemo(() => currentLiveQuery(searchKey), [searchKey]);
+  const liveKey = liveQuery.toString();
   const residualKpi = searchParams.get("hs_kpi");
   const tab = searchParams.get("hs_tab") || "live";
+  const streamConsumesLiveSnapshot = tab === "live" || tab === "animals" || tab === "alerts";
   const unsupportedExportTab = tab === "gateways" || tab === "insights";
   const exportDisabled = unsupportedExportTab || residualKpi === "weak_signal" || residualKpi === "missing_signal" || residualKpi === "low_battery";
   const exportHref = useMemo(() => {
@@ -153,46 +155,11 @@ export function HerdSignalsPoller({ generatedAt }: { generatedAt: string }) {
     out.delete("limit");
     return `/api/herd-signals/export.csv${out.toString() ? `?${out.toString()}` : ""}`;
   }, [liveQuery]);
-  const [isPending, startTransition] = useTransition();
   const live = useSyncExternalStore(subscribeLive, readLive, serverLive);
+  const liveSnapshot = useHerdSignalsLiveSnapshot(liveKey);
   const tabHidden = useTabHidden();
   const nowMs = useNowMs();
-  const pendingRef = useRef(false);
-  const lastStreamRefreshAtRef = useRef(0);
   const [streamState, setStreamState] = useState<"connecting" | "open" | "error">("connecting");
-
-  useEffect(() => {
-    pendingRef.current = isPending;
-  }, [isPending]);
-
-  const refresh = useCallback(() => {
-    if (pendingRef.current) return;
-    pendingRef.current = true;
-    startTransition(() => {
-      router.refresh();
-    });
-  }, [router]);
-
-  // A tag-detail drawer or the full-screen history view open over the board must not be fought by a
-  // refresh: both are client-local overlays (never a route navigation, per
-  // make admin-web-local-overlay-guard), and their identity lives in the URL hash.
-  //
-  // Check BOTH the URL parameters AND the history state: the URL params might be transient or lost
-  // during router.refresh(), but the history.state LOCAL_OVERLAY_HISTORY_KEY flag survives and is
-  // the authoritative marker that an overlay is currently open and being managed by the client.
-  const overlayOpen = useCallback(() => {
-    // Check history state first -- this is the most reliable indicator that an overlay is open
-    const state = window.history.state;
-    if (state && typeof state === "object" && state["__meshaLocalOverlay"]) {
-      return true;
-    }
-    // Fall back to URL check for cases where state isn't reliable
-    const url = new URL(window.location.href);
-    const hashParams = new URLSearchParams(url.hash.replace(/^#/, ""));
-    const hs_tag = hashParams.get("hs_tag") ?? url.searchParams.get("hs_tag");
-    const hs_history = hashParams.get("hs_history") ?? url.searchParams.get("hs_history");
-    return Boolean(hs_tag || hs_history);
-  }, []);
 
   function streamHref(): string {
     const out = new URLSearchParams(liveQuery);
@@ -200,44 +167,32 @@ export function HerdSignalsPoller({ generatedAt }: { generatedAt: string }) {
   }
 
   useEffect(() => {
-    if (!live || tabHidden) return;
+    if (!live || tabHidden || !streamConsumesLiveSnapshot) return;
     setStreamState("connecting");
     const source = new EventSource(streamHref());
-    let first = true;
     source.onopen = () => setStreamState("open");
     source.onerror = () => setStreamState("error");
+    source.addEventListener("snapshot", (event) => {
+      setStreamState("open");
+      try {
+        writeHerdSignalsLiveSnapshot(liveKey, JSON.parse(event.data) as HerdSignalsLiveResponse);
+      } catch {
+        setStreamState("error");
+      }
+    });
     source.addEventListener("tick", () => {
       setStreamState("open");
-      if (document.visibilityState !== "visible") return;
-      if (overlayOpen()) return;
-      if (first) {
-        first = false;
-        return;
-      }
-      const now = Date.now();
-      if (now - lastStreamRefreshAtRef.current < STREAM_REFRESH_MIN_MS) return;
-      lastStreamRefreshAtRef.current = now;
-      refresh();
     });
     return () => source.close();
-  }, [live, tabHidden, refresh, overlayOpen, liveQuery]);
-
-  useEffect(() => {
-    function onVisibility() {
-      if (document.visibilityState === "visible" && live && !overlayOpen()) refresh();
-    }
-    document.addEventListener("visibilitychange", onVisibility);
-    return () => document.removeEventListener("visibilitychange", onVisibility);
-  }, [live, refresh, overlayOpen]);
+  }, [live, tabHidden, streamConsumesLiveSnapshot, liveKey, liveQuery]);
 
   function toggleLive() {
     writeLive(!live);
-    if (live) return;
-    refresh();
   }
 
-  const ageMs = nowMs - new Date(generatedAt).getTime();
-  const stale = live && !tabHidden && Number.isFinite(ageMs) && ageMs > STALE_AFTER_MS;
+  const updatedAtMs = liveSnapshot?.receivedAt ?? new Date(generatedAt).getTime();
+  const ageMs = nowMs - updatedAtMs;
+  const stale = live && streamConsumesLiveSnapshot && !tabHidden && Number.isFinite(ageMs) && ageMs > STALE_AFTER_MS;
   const staleSeconds = Math.max(0, Math.round(ageMs / 1000));
 
   let badgeClass = "livebadge";
@@ -248,6 +203,9 @@ export function HerdSignalsPoller({ generatedAt }: { generatedAt: string }) {
   } else if (tabHidden) {
     badgeClass = "livebadge paused";
     badgeText = "PAUSED · tab hidden";
+  } else if (!streamConsumesLiveSnapshot) {
+    badgeClass = "livebadge paused";
+    badgeText = "LIVE · not used on this tab";
   } else if (stale) {
     badgeClass = "livebadge stale";
     badgeText = `LIVE · ${staleSeconds}s stale`;
@@ -266,11 +224,8 @@ export function HerdSignalsPoller({ generatedAt }: { generatedAt: string }) {
         {badgeText}
       </button>
       <div className="refreshmeta">
-        Updated <b>{fmtClockSeconds(generatedAt)}</b> IST · stream {streamState}
+        Updated <b>{fmtClockSeconds(new Date(updatedAtMs).toISOString())}</b> IST · stream {streamState}
       </div>
-      <button type="button" className="btn" onClick={refresh} disabled={isPending}>
-        Refresh
-      </button>
       {exportDisabled ? (
         <button type="button" className="btn" disabled title={unsupportedExportTab ? "Export is available on table tabs" : "Clear this page-only KPI filter before exporting"}>
           Export
