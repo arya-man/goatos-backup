@@ -180,6 +180,11 @@ resource "google_cloud_run_v2_service" "api" {
       # api 4 x (5 main + 2 auth + 1 CEO read-only) = 32, kernel-worker 1 x 8,
       # analytics-events 1 x 2, mqtt-bridge 1 x 3 -> 45. Raising any of these
       # (or max_instance_count) needs the sum re-checked.
+      # Rolling-deploy overlap is NOT inside that 45: while old and new revisions
+      # both run, each API instance of the new revision adds up to 8 more and the
+      # worker adds 8. Only ~2 connections of headroom remain, so the overlap is
+      # absorbed by pools being below max and by the auth pool connecting lazily
+      # (a refused connection is a retryable 503, not a boot failure).
       env {
         name  = "GOATOS_PG_MAX_CONNS"
         value = "5"

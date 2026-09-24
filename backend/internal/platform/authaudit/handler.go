@@ -11,8 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgconn"
-
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	platformauth "github.com/vgoats/goatos/backend/internal/platform/auth"
 	"github.com/vgoats/goatos/backend/internal/platform/authallow"
@@ -63,33 +61,14 @@ func WithRequestDeadline(d time.Duration) Option {
 
 // authDatabaseBusyRetryAfter is the Retry-After (seconds) sent when the auth
 // database path timed out or was canceled: the client should retry shortly.
-const authDatabaseBusyRetryAfter = "2"
+const authDatabaseBusyRetryAfter = httpmiddleware.AuthDatabaseBusyRetryAfter
 
 // databaseUnavailable reports whether err means the database could not serve
 // the step right now -- a transient 503 with Retry-After, not a 500: context
 // timeout/cancel, a connect failure, a retry-safe or timed-out pgconn error, or
 // a server-side "too many connections" / "shutting down" / connection error.
 func databaseUnavailable(r *http.Request, err error) bool {
-	if err == nil {
-		return false
-	}
-	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) || r.Context().Err() != nil {
-		return true
-	}
-	var connectErr *pgconn.ConnectError
-	if errors.As(err, &connectErr) || pgconn.SafeToRetry(err) || pgconn.Timeout(err) {
-		return true
-	}
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) {
-		switch {
-		case strings.HasPrefix(pgErr.Code, "53"), // insufficient resources, incl. 53300 too_many_connections
-			strings.HasPrefix(pgErr.Code, "08"),                                 // connection exception
-			pgErr.Code == "57P01", pgErr.Code == "57P02", pgErr.Code == "57P03": // shutdown / cannot connect now
-			return true
-		}
-	}
-	return false
+	return httpmiddleware.DatabaseUnavailable(r.Context(), err)
 }
 
 func writeDatabaseBusy(w http.ResponseWriter, r *http.Request) {
