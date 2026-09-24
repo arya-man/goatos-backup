@@ -28,7 +28,7 @@ import {
 } from "./write-marker";
 
 type ErrorEnvelope = AppApiComponents["schemas"]["ErrorEnvelope"];
-// Incident goatos-stg 2026-09-24: a burst of Weights page loads fanned out ~10 uncached
+// Staging incident 2026-09-24: a burst of Weights page loads fanned out ~10 uncached
 // weighing / growth-director reads each and saturated the backend DB pool. Read-only weighing
 // analytics are served from a short per-caller cache (keyed on endpoint + backend + tenant +
 // bearer fingerprint + query, so nothing is shared across users or tenants) and concurrent
