@@ -22,8 +22,19 @@ import { AdminBootstrapCache } from "./admin-bootstrap-cache";
 import { ShortReadCache } from "./short-read-cache";
 
 type ErrorEnvelope = AppApiComponents["schemas"]["ErrorEnvelope"];
-const SHORT_READ_CACHE_TTL_MS = 0;
+// Incident goatos-stg 2026-09-24: a burst of Weights page loads fanned out ~10 uncached
+// weighing / growth-director reads each and saturated the backend DB pool. Read-only weighing
+// analytics are served from a short per-caller cache (keyed on endpoint + backend + tenant +
+// bearer fingerprint + query, so nothing is shared across users or tenants) and concurrent
+// identical reads share one backend call. Failures are never cached, and any write this
+// process sends to the backend clears the cache (timedBackendFetch), so a user's own edit is
+// never answered from a pre-edit read. Writes made elsewhere (phones, other instances) are
+// visible within the TTL -- the backend's own weighing analytics cache is already 2 minutes.
+const SHORT_READ_CACHE_TTL_MS = 30_000;
 const shortReadCache = new ShortReadCache(SHORT_READ_CACHE_TTL_MS);
+// Mutation-sensitive reads (the maintainer-edited assumptions and sale prices) are only
+// coalesced while in flight: another admin-web instance may have just written them.
+const inFlightReadCache = new ShortReadCache(0);
 
 export type AdminWebBootstrapResponse =
   AppApiComponents["schemas"]["AdminWebBootstrapResponse"];
@@ -764,8 +775,14 @@ async function timedBackendFetch(
     ? setTimeout(() => controller.abort(), backendGetTimeoutMs(url.pathname))
     : null;
   const fetchInit = controller ? { ...init, signal: controller.signal } : init;
+  if (method.toUpperCase() !== "GET") {
+    // A write may change anything a cached read answered; drop them before AND after it lands
+    // so a read racing the write cannot repopulate the cache with the pre-write answer.
+    shortReadCache.clear();
+  }
   try {
     const response = await fetch(input, fetchInit);
+    if (method.toUpperCase() !== "GET") shortReadCache.clear();
     const durationMs = Math.round(performance.now() - startedAt);
     console.info(
       JSON.stringify({
@@ -1187,11 +1204,15 @@ export async function getWeighingDates(params: {
   const config = await getServerConfig();
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
-  return request(() =>
-    client.request<WeighingDatesResponse>("/weighing/weighing-dates", {
-      cache: "no-store",
-      query: compactQuery(params),
-    }),
+  return cachedShortRead(
+    apiReadCacheKey("/weighing/weighing-dates", config.data, params),
+    () =>
+      request(() =>
+        client.request<WeighingDatesResponse>("/weighing/weighing-dates", {
+          cache: "no-store",
+          query: compactQuery(params),
+        }),
+      ),
   );
 }
 
@@ -1375,11 +1396,15 @@ export async function getGrowthDirector(params: {
   const config = await getServerConfig();
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
-  return request(() =>
-    client.request<GrowthDirectorWeightsResponse>("/growth-director/weights", {
-      cache: "no-store",
-      query: compactQuery(params),
-    }),
+  return cachedShortRead(
+    apiReadCacheKey("/growth-director/weights", config.data, params),
+    () =>
+      request(() =>
+        client.request<GrowthDirectorWeightsResponse>("/growth-director/weights", {
+          cache: "no-store",
+          query: compactQuery(params),
+        }),
+      ),
   );
 }
 
@@ -1405,11 +1430,15 @@ export async function getWeighingFCR(params: {
   const config = await getServerConfig();
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
-  return request(() =>
-    client.request<GrowthFCRResponse>("/growth-director/fcr", {
-      cache: "no-store",
-      query: compactQuery(params),
-    }),
+  return cachedShortRead(
+    apiReadCacheKey("/growth-director/fcr", config.data, params),
+    () =>
+      request(() =>
+        client.request<GrowthFCRResponse>("/growth-director/fcr", {
+          cache: "no-store",
+          query: compactQuery(params),
+        }),
+      ),
   );
 }
 
@@ -1420,8 +1449,12 @@ export async function getGrowthSalePrices(): Promise<ApiResult<GrowthSalePricesR
   const config = await getServerConfig();
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
-  return request(() =>
-    client.request<GrowthSalePricesResponse>("/growth-director/sale-prices", { cache: "no-store" }),
+  return coalescedRead(
+    apiReadCacheKey("/growth-director/sale-prices", config.data, {}),
+    () =>
+      request(() =>
+        client.request<GrowthSalePricesResponse>("/growth-director/sale-prices", { cache: "no-store" }),
+      ),
   );
 }
 
@@ -1435,11 +1468,16 @@ export async function getGrowthAssumptions(options: { includeStages?: boolean } 
   const config = await getServerConfig();
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
-  return request(() =>
-    client.request<GrowthAssumptionsResponse>("/growth-director/assumptions", {
-      cache: "no-store",
-      query: options.includeStages ? { include_stages: "1" } : undefined,
-    }),
+  const query = options.includeStages ? { include_stages: "1" } : undefined;
+  return coalescedRead(
+    apiReadCacheKey("/growth-director/assumptions", config.data, query ?? {}),
+    () =>
+      request(() =>
+        client.request<GrowthAssumptionsResponse>("/growth-director/assumptions", {
+          cache: "no-store",
+          query,
+        }),
+      ),
   );
 }
 
@@ -6191,6 +6229,13 @@ function cachedShortRead<T>(
   fn: () => Promise<ApiResult<T>>,
 ): Promise<ApiResult<T>> {
   return shortReadCache.read(key, fn) as Promise<ApiResult<T>>;
+}
+
+function coalescedRead<T>(
+  key: string,
+  fn: () => Promise<ApiResult<T>>,
+): Promise<ApiResult<T>> {
+  return inFlightReadCache.read(key, fn) as Promise<ApiResult<T>>;
 }
 
 function apiReadCacheKey(endpoint: string, config: ServerConfig, params: Record<string, unknown>): string {

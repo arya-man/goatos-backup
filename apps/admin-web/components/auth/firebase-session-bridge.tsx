@@ -2,7 +2,13 @@
 
 import { useEffect } from "react";
 import { onIdTokenChanged } from "firebase/auth";
-import { clearFirebaseSession, getFirebaseAuth, isFirebaseSessionError, syncFirebaseSession } from "@/lib/auth/firebase-client";
+import {
+  clearFirebaseSession,
+  getFirebaseAuth,
+  isFirebaseSessionError,
+  syncBridgeSession,
+  syncFirebaseSession,
+} from "@/lib/auth/firebase-client";
 
 const REFRESH_INTERVAL_MS = 50 * 60 * 1000;
 
@@ -17,7 +23,7 @@ export function FirebaseSessionBridge() {
         if (!mounted) return;
         unsubscribe = onIdTokenChanged(auth, (user) => {
           if (!user) return;
-          void syncFirebaseSession(user, true, "auth.sign_in").catch((error: unknown) => {
+          void syncBridgeSession(user).catch((error: unknown) => {
             if (isFirebaseSessionError(error, "email_not_allowed")) {
               void clearFirebaseSession().catch(() => undefined);
             }

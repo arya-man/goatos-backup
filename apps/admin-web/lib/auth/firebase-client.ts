@@ -17,6 +17,7 @@ import {
   type User,
 } from "firebase/auth";
 import { FIREBASE_CONFIG_ROUTE, LOGIN_PATH, SESSION_ROUTE } from "@/lib/auth/session-cookie";
+import { SessionSyncDeduper, browserSessionSyncStore } from "@/lib/auth/session-sync-dedupe";
 
 export type FirebaseClientRuntimeConfig = {
   config: FirebaseOptions;
@@ -37,6 +38,8 @@ export class FirebaseSessionError extends Error {
 
 let authPromise: Promise<Auth> | null = null;
 let configPromise: Promise<FirebaseClientRuntimeConfig> | null = null;
+// One deduper per page: auth.sign_in once per browser session per uid, one POST per ID token.
+const sessionSyncDeduper = new SessionSyncDeduper(browserSessionSyncStore());
 
 export async function getFirebaseAuth(): Promise<Auth> {
   if (!authPromise) {
@@ -99,7 +102,9 @@ export async function confirmPasswordResetCode(code: string, newPassword: string
 async function syncSignedInUser(user: User): Promise<User> {
   const auth = await getFirebaseAuth();
   try {
-    await syncFirebaseSession(user, true, "auth.sign_in");
+    // signInWith* has just minted this token; forcing another refresh would only mint a second.
+    const idToken = await user.getIdToken();
+    await sessionSyncDeduper.signIn(user.uid, idToken, (eventType) => postFirebaseSession(user, idToken, eventType));
   } catch (error) {
     console.warn("admin_firebase_session_sync_failed", { email: user.email, firebaseUid: user.uid, code: firebaseErrorCode(error) });
     await signOut(auth).catch(() => undefined);
@@ -124,6 +129,22 @@ export async function syncFirebaseSession(
     return false;
   }
   const idToken = await user.getIdToken(forceRefresh);
+  return postFirebaseSession(user, idToken, eventType);
+}
+
+/**
+ * The session bridge's sync (page load / onIdTokenChanged). Never forces a token refresh -- Firebase
+ * refreshes an expiring token itself and onIdTokenChanged fires again -- and goes through the
+ * deduper so a page load re-posts nothing for a token already synced. auth.sign_in is recorded
+ * only when this browser session has not recorded one (restored Firebase session), because the
+ * backend claims pending email grants on sign_in.
+ */
+export async function syncBridgeSession(user: User): Promise<boolean> {
+  const idToken = await user.getIdToken();
+  return sessionSyncDeduper.bridge(user.uid, idToken, (eventType) => postFirebaseSession(user, idToken, eventType));
+}
+
+async function postFirebaseSession(user: User, idToken: string, eventType: FirebaseSessionEventType): Promise<boolean> {
   const response = await fetch(SESSION_ROUTE, {
     method: "POST",
     cache: "no-store",

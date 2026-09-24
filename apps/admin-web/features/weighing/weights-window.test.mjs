@@ -24,14 +24,46 @@ const contract = readFileSync(
   "utf8",
 );
 
-test("admin weighing read coalescer covers the browser route sweep", () => {
-	assert.match(serverSource, /const SHORT_READ_CACHE_TTL_MS = 0;/);
-	assert.match(serverSource, /getShedWeights[\s\S]*cachedShortRead\(/);
-	assert.match(serverSource, /getWeightDemographics[\s\S]*cachedShortRead\(/);
-	assert.match(serverSource, /getWeighingGrowth[\s\S]*cachedShortRead\(/);
+function exportedFunctionBody(name) {
+	const start = serverSource.indexOf(`export async function ${name}(`);
+	assert.notEqual(start, -1, `${name} missing from server.ts`);
+	const next = serverSource.indexOf("\nexport ", start + 1);
+	return serverSource.slice(start, next === -1 ? undefined : next);
+}
+
+// Incident goatos-stg 2026-09-24: each Weights page load fanned out ~10 uncached reads and a burst
+// of reloads saturated the backend DB pool. Every read the page issues goes through the per-user
+// short read cache (TTL > 0, keyed on endpoint + tenant + bearer fingerprint + query), and any
+// write through the backend fetch clears it.
+test("admin weighing reads are short-cached per user and cleared on writes", () => {
+	const ttl = serverSource.match(/const SHORT_READ_CACHE_TTL_MS = ([\d_]+);/);
+	assert.ok(ttl, "SHORT_READ_CACHE_TTL_MS must be declared");
+	const ttlMs = Number(ttl[1].replaceAll("_", ""));
+	assert.ok(ttlMs >= 15_000 && ttlMs <= 60_000, `short read TTL ${ttlMs}ms must be 15-60s`);
+	for (const name of [
+		"getShedWeights",
+		"getWeightDemographics",
+		"getWeighingGrowth",
+		"getWeighingDates",
+		"getGrowthDirector",
+		"getWeighingFCR",
+		"getFeedWeightBand",
+	]) {
+		assert.match(exportedFunctionBody(name), /cachedShortRead\(\s*apiReadCacheKey\(/, `${name} must use the short read cache`);
+	}
+	// Maintainer-edited figures may change on another instance: coalesce in flight only.
+	for (const name of ["getGrowthAssumptions", "getGrowthSalePrices"]) {
+		assert.match(exportedFunctionBody(name), /coalescedRead\(\s*apiReadCacheKey\(/, `${name} must coalesce concurrent reads`);
+	}
+	assert.match(serverSource, /const inFlightReadCache = new ShortReadCache\(0\);/);
 	assert.match(serverSource, /auth=\$\{authCacheFingerprint\(config\.bearerToken\)\}/);
 	assert.match(serverSource, /createHash\("sha256"\)\.update\(token\)\.digest\("base64url"\)\.slice\(0, 16\)/);
 	assert.match(serverSource, /new ShortReadCache\(SHORT_READ_CACHE_TTL_MS\)/);
+	assert.match(
+		serverSource,
+		/async function timedBackendFetch[\s\S]*?method\.toUpperCase\(\) !== "GET"[\s\S]*?shortReadCache\.clear\(\)/,
+		"a write through the backend fetch must clear cached reads",
+	);
 });
 
 test("weighing routes keep a local loading boundary instead of the global app fallback", () => {
