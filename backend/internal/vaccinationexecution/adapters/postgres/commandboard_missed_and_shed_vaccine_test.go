@@ -190,36 +190,48 @@ func TestVaccinationCommandBoardShedVaccineMatrixIsDenseAndFlagsBehindWithoutSum
 
 	asOf := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
 
-	// ET_TT carries the obligations. BLUE_TONGUE is configured on a rule that never generates
-	// one -- the live BLUE_TONGUE shape.
+	// ET_TT carries the obligations through the legacy dimension fallback. BLUE_TONGUE is
+	// configured from the rule JSON but has no dimension row -- the live V9 shape that made the
+	// grid show only ET+TT even though the published rules contained all vaccine families.
 	execProjectionSQL(t, ctx, pool, "dimension et_tt",
 		`INSERT INTO protocol_rule_dimensions (protocol_rule_dimension_id, tenant_id, protocol_version_id, rule_id, category, selector_key, vaccine_code)
 		 VALUES ($1, $2, $3, $4, 'vaccination', 'sel-et', 'ET_TT')`,
 		uuidFromSuffix("0b", "f3a"), tenantID, protocolVersionID, ruleID)
-	// BLUE_TONGUE lives on its OWN protocol version, PUBLISHED but generating no obligations.
+	// The rest of the V9 catalogue lives on its OWN protocol version, PUBLISHED but generating no obligations.
 	// seedCommandBoardProtocol publishes the version it creates and published config is immutable,
-	// so a second rule needs a second version. This is the case the density assertion pins: a
-	// vaccine the CURRENT protocol requires, with nothing planned for it anywhere, must still get a
-	// column -- that silence is the finding. A RETIRED vaccine must NOT appear, which the companion
+	// so extra JSON-only rules need a second version. This is the case the density assertion pins:
+	// vaccines the CURRENT protocol requires, with nothing planned for them anywhere, must still get
+	// columns -- that silence is the finding. A RETIRED vaccine must NOT appear, which the companion
 	// test below pins separately.
 	btProtocolID := uuidFromSuffix("06", "f3zp")
 	btVersionID := uuidFromSuffix("06", "f3zv")
-	unusedRuleID := uuidFromSuffix("07", "f3z")
 	execProjectionSQL(t, ctx, pool, "blue tongue protocol definition",
 		`INSERT INTO protocol_definitions (protocol_id, tenant_id, code, name, category, status)
-		 VALUES ($1, $2, 'vaccination_f3_bt', 'Vaccination F3 BT', 'vaccination', 'active')`,
+	 VALUES ($1, $2, 'vaccination_f3_bt', 'Vaccination F3 BT', 'vaccination', 'active')`,
 		btProtocolID, tenantID)
 	execProjectionSQL(t, ctx, pool, "blue tongue protocol version",
 		`INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, scope_type, version, status, effective_from, rule_dsl)
 		 VALUES ($1, $2, $3, 'tenant', 1, 'draft', '2026-01-01', '{}')`,
 		btVersionID, tenantID, btProtocolID)
-	execProjectionSQL(t, ctx, pool, "unused rule",
-		`INSERT INTO protocol_rules (rule_id, tenant_id, protocol_version_id, dose_code, trigger_type)
-		 VALUES ($1, $2, $3, 'blue_tongue_adult', 'birth_age')`, unusedRuleID, tenantID, btVersionID)
-	execProjectionSQL(t, ctx, pool, "dimension blue_tongue",
-		`INSERT INTO protocol_rule_dimensions (protocol_rule_dimension_id, tenant_id, protocol_version_id, rule_id, category, selector_key, vaccine_code)
-		 VALUES ($1, $2, $3, $4, 'vaccination', 'sel-bt', 'BLUE_TONGUE')`,
-		uuidFromSuffix("0b", "f3z"), tenantID, btVersionID, unusedRuleID)
+	v9NoWork := []struct {
+		code string
+		dose string
+		id   string
+	}{
+		{"BLUE_TONGUE", "blue_tongue_adult", "f3z0"},
+		{"FMD", "fmd_adult", "f3z1"},
+		{"GOAT_POX", "goat_pox_adult", "f3z2"},
+		{"HS", "hs_adult", "f3z3"},
+		{"PPR", "ppr_adult", "f3z4"},
+		{"SHEEP_POX", "sheep_pox_adult", "f3z5"},
+		{"Z1_Z3", "z1_z3_adult", "f3z6"},
+	}
+	for _, vaccine := range v9NoWork {
+		execProjectionSQL(t, ctx, pool, "unused rule "+vaccine.code,
+			`INSERT INTO protocol_rules (rule_id, tenant_id, protocol_version_id, dose_code, trigger_type, eligibility_json)
+			 VALUES ($1, $2, $3, $4, 'birth_age', jsonb_build_object('vaccine', jsonb_build_object('code', $5::text)))`,
+			uuidFromSuffix("07", vaccine.id), tenantID, btVersionID, vaccine.dose, vaccine.code)
+	}
 	execProjectionSQL(t, ctx, pool, "publish blue tongue version",
 		`UPDATE protocol_versions SET status = 'published', published_at = now() WHERE protocol_version_id = $1`,
 		btVersionID)
@@ -247,8 +259,8 @@ func TestVaccinationCommandBoardShedVaccineMatrixIsDenseAndFlagsBehindWithoutSum
 		t.Fatalf("VaccinationCommandBoard() error = %v", err)
 	}
 
-	wantCodes := []string{"BLUE_TONGUE", "ET_TT"}
-	wantLabels := []string{"Blue Tongue", "ET+TT"}
+	wantCodes := []string{"BLUE_TONGUE", "ET_TT", "FMD", "GOAT_POX", "HS", "PPR", "SHEEP_POX", "Z1_Z3"}
+	wantLabels := []string{"Blue Tongue", "ET+TT", "FMD", "Goat Pox", "HS", "PPR", "Sheep Pox", "Z1+Z3"}
 	if len(resp.ShedVaccineColumns) != len(wantCodes) {
 		t.Fatalf("shedVaccineColumns = %v, want %v; columns come from the protocol catalogue, not from the cells", resp.ShedVaccineColumns, wantCodes)
 	}
@@ -294,6 +306,65 @@ func TestVaccinationCommandBoardShedVaccineMatrixIsDenseAndFlagsBehindWithoutSum
 	}
 	if bt.ShedName != et.ShedName {
 		t.Errorf("BLUE_TONGUE shedName = %q, want %q; the densified cell must carry its shed identity", bt.ShedName, et.ShedName)
+	}
+}
+
+func TestVaccinationCommandBoardShedVaccineJsonOnlyRuleFeedsCellAndDrawer(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	tenantID := "00000000-0000-4000-8000-0000000000f5"
+	parkID := uuidFromSuffix("01", "f5")
+	shedID := uuidFromSuffix("02", "f5")
+	goatID := uuidFromSuffix("03", "f5a")
+	partyID := uuidFromSuffix("0a", "f5a")
+	protocolVersionID, ruleID := seedCommandBoardProtocol(t, ctx, pool, tenantID, "f5")
+	seedCommandBoardPark(t, ctx, pool, tenantID, parkID, shedID, "JsonOnly")
+	execProjectionSQL(t, ctx, pool, "json vaccine identity without dimension",
+		`UPDATE protocol_rules
+		    SET dose_code = 'ppr_adult_w1',
+		        eligibility_json = '{"vaccine":{"code":"PPR"}}'::jsonb
+		  WHERE tenant_id = $1 AND rule_id = $2`,
+		tenantID, ruleID)
+
+	asOf := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
+	execProjectionSQL(t, ctx, pool, "custodian party",
+		`INSERT INTO parties (party_id, party_type, display_name, status) VALUES ($1, 'org', 'Custodian F5', 'active')`, partyID)
+	execProjectionSQL(t, ctx, pool, "goat",
+		`INSERT INTO goats (goat_id, tenant_id, sex, lifecycle_status, management_stage, shed_id, custodian_party_id, dob)
+		 VALUES ($1, $2, 'female', 'alive', 'Non-Pregnant', $3, $4, '2025-01-01')`, goatID, tenantID, shedID, partyID)
+	execProjectionSQL(t, ctx, pool, "json-only missed obligation",
+		`INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, target_id, target_type, scope_type, scope_id, rule_id, status, due_at, idempotency_key)
+		 VALUES ($1, $2, $3, $4, 'goat', 'shed', $5, $6, 'missed', $7::timestamptz, 'sv-f5-missed')`,
+		uuidFromSuffix("08", "f5a"), tenantID, protocolVersionID, goatID, shedID, ruleID, asOf.Add(-3*24*time.Hour))
+
+	repo := NewRepository(pool, 5*time.Second)
+	resp, err := repo.VaccinationCommandBoard(ctx, domain.CommandBoardQuery{TenantID: tenantID, AsOf: asOf})
+	if err != nil {
+		t.Fatalf("VaccinationCommandBoard() error = %v", err)
+	}
+
+	var ppr *domain.CommandBoardShedVaccineCell
+	for i := range resp.ShedVaccineMatrix {
+		if resp.ShedVaccineMatrix[i].VaccineCode == "PPR" {
+			ppr = &resp.ShedVaccineMatrix[i]
+			break
+		}
+	}
+	if ppr == nil {
+		t.Fatalf("missing PPR cell from JSON-only rule; columns=%v matrix=%v", resp.ShedVaccineColumns, resp.ShedVaccineMatrix)
+	}
+	if ppr.State != "behind" || ppr.BehindAnimals != 1 || ppr.TotalAnimals != 1 {
+		t.Fatalf("PPR cell = %+v, want one behind animal from JSON-only rule", *ppr)
+	}
+	drill := shedVaccineDrilldown(t, ctx, pool, tenantID, asOf, *ppr)
+	if len(drill.Animals) != 1 {
+		t.Fatalf("json-only PPR drawer has %d animals, want 1; drilldown must use the same vaccine source as the cell", len(drill.Animals))
+	}
+	if got := drill.Animals[0].GoatID; got != goatID {
+		t.Fatalf("drawer goat = %s, want %s", got, goatID)
 	}
 }
 

@@ -1380,13 +1380,12 @@
   .cbm-section-head h3{margin:0;font-size:13px;font-weight:650}
   .cbm-section-head .cbm-meta{margin-left:auto;font-size:11.5px;color:var(--muted)}
   .cbm-hm{width:100%;max-width:100%;overflow-x:auto;contain:layout paint}
-  /* Shed x Vaccine roll-up. Fixed layout with equal columns so the whole vaccine catalogue fits one
-     screen without horizontal scrolling -- the dose-qualified matrix below scrolls sideways because
-     it must carry per-dose numbers, and that scroll is exactly what made "is anything red" an
-     unanswerable question at a glance. Cells carry a dot, never a number: a count here invites
-     reconciliation against the dose matrix, which uses a different grain. */
-  .cbm-sv-heat{table-layout:fixed}
-  .cbm-sv-heat td.cbm-sv-shed{width:150px;text-align:left;font-size:12.5px;color:var(--ink);padding:6px 8px;white-space:nowrap}
+  /* Shed x Vaccine roll-up. Each vaccine column keeps a small readable floor; the wrapper owns
+     horizontal scroll once the published catalogue is wider than the viewport. */
+  .cbm-sv-heat{table-layout:fixed;width:max-content;min-width:100%}
+  .cbm-sv-heat th:first-child,.cbm-sv-heat td.cbm-sv-shed{width:150px;min-width:150px}
+  .cbm-sv-heat th:not(:first-child),.cbm-sv-heat td.cbm-sv-cell{width:104px;min-width:104px}
+  .cbm-sv-heat td.cbm-sv-shed{text-align:left;font-size:12.5px;color:var(--ink);padding:6px 8px;white-space:nowrap}
   .cbm-sv-cell{text-align:center;padding:8px 4px;border-radius:6px}
   /* Clean and unplanned cells are DELIBERATELY quiet. A bright dot on every clean cell turned an
      11x6 grid into a wall of green that competed with the red for attention -- the reader had to

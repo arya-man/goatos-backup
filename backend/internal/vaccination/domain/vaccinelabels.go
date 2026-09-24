@@ -84,6 +84,10 @@ func vaccinationAntigenLabel(code string) string {
 		return "ET+TT"
 	case "ET+TT":
 		return "ET+TT"
+	case "Z1_Z3":
+		return "Z1+Z3"
+	case "Z1+Z3":
+		return "Z1+Z3"
 	case "SHEEP_POX":
 		return "Sheep Pox"
 	case "BLUE_TONGUE":
