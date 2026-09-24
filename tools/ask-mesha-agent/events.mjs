@@ -212,6 +212,8 @@ export async function createEvents({ stateDir, sink, log = (line) => console.log
       tenant_id: ctx.tenant_id ?? null,
       // vertex | anthropic: which Claude backend served (or would serve) this request.
       ...(ctx.provider ? { provider: ctx.provider } : {}),
+      // "mcp" when the question came through the hosted MCP connector (X-Mesha-Client: mcp).
+      ...(ctx.source ? { source: ctx.source } : {}),
       ...fields,
     };
     // question text stays out of Cloud Logging (chat privacy); it is kept in the events store only

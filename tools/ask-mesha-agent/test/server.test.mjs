@@ -505,3 +505,42 @@ test("chat deleted between lock and stream start: aborted before anything is wri
   for (const write of ["store.updateChat(chat.id, { title", "store.addMessage(chat.id, userMsg)", "uploads.save(", "const stream = query("])
     assert.ok(guard < askSrc.indexOf(write), write);
 });
+
+test("askClient: only X-Mesha-Client: mcp tags the source", async () => {
+  const { askClient } = await import("../lib.mjs");
+  assert.equal(askClient({ "x-mesha-client": "mcp" }), "mcp");
+  assert.equal(askClient({ "x-mesha-client": " MCP " }), "mcp");
+  assert.equal(askClient({ "x-mesha-client": "admin-web" }), null);
+  assert.equal(askClient({}), null);
+  assert.equal(askClient(undefined), null);
+});
+
+test("jsonAskCollector: final -> 200 JSON answer, tokens/progress/watch dropped", async () => {
+  const { jsonAskCollector } = await import("../lib.mjs");
+  const c = jsonAskCollector();
+  c.send({ type: "progress", phase: "planning", conversation_id: "chat-1" });
+  c.send({ type: "token", text: "Sold" });
+  c.send({ type: "watch", rows: [] });
+  c.send({ type: "final", answer: "Sold 42 goats.", chart: { type: "bar" }, conversation_id: "chat-1", message_id: "m1", timing: { total_ms: 5 }, request_id: "r1", source: "coding-agent" });
+  const r = c.result();
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body, { answer: "Sold 42 goats.", chart: { type: "bar" }, conversation_id: "chat-1", message_id: "m1", timing: { total_ms: 5 }, request_id: "r1", source: "coding-agent", mode: "agent" });
+});
+
+test("jsonAskCollector: errors keep status and conversation_id; nothing -> 500", async () => {
+  const { jsonAskCollector, friendlyError } = await import("../lib.mjs");
+  const c = jsonAskCollector();
+  c.send({ type: "progress", conversation_id: "chat-2" });
+  c.send({ type: "error", message: friendlyError("error_max_budget_usd") });
+  assert.deepEqual(c.result(), { status: 502, body: { error: "agent_error", message: friendlyError("error_max_budget_usd"), conversation_id: "chat-2" } });
+  const d = jsonAskCollector();
+  d.send({ type: "error", status: 410, message: friendlyError("chat_deleted") });
+  assert.equal(d.result().status, 410);
+  assert.equal(d.result().body.error, "chat_deleted");
+  assert.equal(jsonAskCollector().result().status, 500);
+});
+
+test("NON_STREAM_NOTE tells the model watches are snapshot-only", async () => {
+  const { NON_STREAM_NOTE } = await import("../lib.mjs");
+  assert.match(NON_STREAM_NOTE, /minutes=0/);
+});

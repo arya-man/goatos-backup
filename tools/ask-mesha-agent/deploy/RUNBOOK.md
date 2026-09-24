@@ -290,6 +290,32 @@ extra substitutions:
    survives later deploys. (If Terraform `infra/envs/stg` is applied to
    `admin_web`, add the two env vars there too or it will drop them.)
 
+### 6b. Hosted MCP (`ask_goatos` on https://mcp.mesha.sg/mcp)
+
+Third, optional run: `_ASK_MESHA_DEPLOY=true,_ASK_MESHA_WIRE_MCP=true` (can be combined with
+`_ASK_MESHA_WIRE_ADMIN_WEB=true`). `deploy-stg.sh` then:
+
+1. grants `roles/run.invoker` on `goatos-ask-mesha-stg` to the MCP runtime SA
+   `goatos-mcp-stg@goatos-stg.iam.gserviceaccount.com` (the deployer needs
+   `run.services.setIamPolicy` on the agent service, i.e. `roles/run.admin`; `run.developer` is not enough);
+2. updates `goatos-mcp-stg` with `--timeout=300` and `--update-env-vars`
+   `MESHA_MCP_AGENT_URL`, `MESHA_MCP_AGENT_AUDIENCE` (both = agent URL) and `MESHA_MCP_AGENT_TIMEOUT=240s`.
+
+The MCP then calls `${MESHA_MCP_AGENT_URL}/ceo-ai/ask` with `stream:false`, a metadata-server ID token
+in `X-Serverless-Authorization`, the CEO's own bearer in `Authorization` (the agent re-checks it against
+the STG API) and `X-Mesha-Client: mcp` (events carry `source:"mcp"`). Unset vars = legacy `/ceo-ai/ask`.
+
+`goatos-mcp-stg` is Terraform-owned (`infra/envs/stg/cloud_run_services.tf`, which now also sets
+`timeout = "300s"`). A later `terraform apply` of that service drops the two env vars; ask_goatos then
+falls back to the legacy path (safe). Re-run this wiring after such an apply.
+
+Verify: in Claude (connector `mcp.mesha.sg`) ask "why did ADG drop last week in Castro?"; expect an
+analyst answer within a few minutes ending `Source: Ask Mesha agent` + `Conversation: <id>`, and an
+`ask_completed` row with `row->>'source' = 'mcp'` in `ask_mesha.events`.
+
+Rollback: `gcloud run services update goatos-mcp-stg --project=$PROJECT --region=$REGION
+--remove-env-vars=MESHA_MCP_AGENT_URL,MESHA_MCP_AGENT_AUDIENCE,MESHA_MCP_AGENT_TIMEOUT --quiet`.
+
 ### Verify (read-only)
 
 ```bash

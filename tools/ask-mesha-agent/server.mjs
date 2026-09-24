@@ -17,6 +17,7 @@ import { createEvents } from "./events.mjs";
 import {
   isDeepQuestion, answerCapUsd, answerCostUsd, friendlyError, STOPPED_NOTE, validateReadSql, clipSqlOutput,
   failedAttemptCostUsd, finalAnswerCost, runOwnedBy, toolLabel, describeTableSql, describeTableNames, sqlTableRefs, isMissingColumnError, kindValuesSql, relInfoSql, shouldSampleKinds, makeChartFilter, extractChart, historyPreamble, pathAllowed, ttlCache, inlineDisposition, makeTurnGate, stripLeadingNarration, istNowNote, attachmentPrompt,
+  askClient, jsonAskCollector, NON_STREAM_NOTE,
 } from "./lib.mjs";
 import { createWatchRegistry, WATCH_TAGS_DESCRIPTION, watchTagsHandler, watchTagsSchema } from "./watch.mjs";
 import { authMode, createProviderSwitch, envForProvider, probeVertex, shouldFallback } from "./provider.mjs";
@@ -531,6 +532,9 @@ async function ask(req, res, user) {
   }
   const question = String(body.question || "").trim();
   if (!question) return json(res, 400, { error: "question_required" });
+  // stream:false (the hosted MCP's ask_goatos): same pipeline, one JSON response at the end.
+  const streaming = body.stream !== false;
+  const client = askClient(req.headers);
   // A pasted wall of text costs real money on every resumed turn; 20k chars is ~10 pages.
   if (question.length > 20_000) {
     return json(res, 413, { error: "question_too_long", message: "That question is too long. Please shorten it or attach the text as a file." });
@@ -548,16 +552,17 @@ async function ask(req, res, user) {
   // Fail closed: if spend can't be read, don't risk running past the cap.
   const spent = await store.monthSpendUsd(monthStart()).catch(() => Infinity);
   let provider = providerSwitch.current(); // vertex | anthropic; may flip once on a Vertex quota failure
-  const evCtx = { request_id: crypto.randomUUID(), chat_id: chat?.id ?? null, email: user.email, tenant_id: user.tenantId, provider };
+  const evCtx = { request_id: crypto.randomUUID(), chat_id: chat?.id ?? null, email: user.email, tenant_id: user.tenantId, provider, ...(client ? { source: client } : {}) };
   events.budgetCheck(evCtx, spent, MONTHLY_BUDGET_USD);
   // Answers still running may each spend up to their cap; count them against the month too.
   const inFlight = [...activeRuns.values()].reduce((a, r) => a + (r.capUsd || 0), 0);
   if (spent + inFlight >= MONTHLY_BUDGET_USD) {
     await events.budgetBlocked(evCtx, spent, MONTHLY_BUDGET_USD, question);
-    res.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-store" });
     const answer = Number.isFinite(spent)
       ? "Ask Mesha is paused for this month. Please contact the Mesha team."
       : "Ask Mesha is unavailable for a moment. Please try again shortly.";
+    if (!streaming) return json(res, 200, { answer, chart: null, conversation_id: chat?.id ?? null, message_id: null, timing: null, mode: "agent", source: "budget" });
+    res.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-store" });
     res.end(`data: ${JSON.stringify({ type: "final", answer, mode: "agent", source: "budget" })}\n\n`);
     return;
   }
@@ -597,14 +602,17 @@ async function ask(req, res, user) {
     return json(res, 409, { error: "chat_busy", message: friendlyError("busy") });
   }
 
-  res.writeHead(200, {
-    "Content-Type": "text/event-stream; charset=utf-8",
-    "Cache-Control": "no-store, no-transform",
-    Connection: "keep-alive",
-  });
-  const send = (obj) => res.write(`data: ${JSON.stringify(obj)}\n\n`);
+  const collector = streaming ? null : jsonAskCollector();
+  if (streaming) {
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-store, no-transform",
+      Connection: "keep-alive",
+    });
+  }
+  const send = streaming ? (obj) => res.write(`data: ${JSON.stringify(obj)}\n\n`) : (obj) => collector.send(obj);
   const heartbeat = setInterval(() => {
-    res.write(": ping\n\n");
+    if (streaming) res.write(": ping\n\n");
     store.refreshLock(chat.id).catch(() => {});
   }, 10_000);
   const abort = new AbortController();
@@ -616,7 +624,7 @@ async function ask(req, res, user) {
   const userMsg = { id: crypto.randomUUID(), role: "user", content: question, created_at: new Date().toISOString() };
   const t0 = Date.now();
   let started = false; // query() created: from here on spend is real even if no result arrives
-  let prompt = istNowNote() + "\n\n" + question.replace(/^deep:\s*/i, "");
+  let prompt = istNowNote() + (streaming ? "" : NON_STREAM_NOTE) + "\n\n" + question.replace(/^deep:\s*/i, "");
   // Resumed chats can carry stale conclusions from when access was narrower
   // ("prices aren't readable"). A turn-level note beats the system prompt there.
   if (chat.session_id) {
@@ -649,7 +657,7 @@ async function ask(req, res, user) {
   // Spend of provider attempts that failed and were retried; counted on every exit path.
   let failedAttemptCost = 0;
   const since = () => Date.now() - t0;
-  const trackCtx = { request_id: requestId, chat_id: chat.id, email: user.email, tenant_id: user.tenantId, provider };
+  const trackCtx = { request_id: requestId, chat_id: chat.id, email: user.email, tenant_id: user.tenantId, provider, ...(client ? { source: client } : {}) };
   const track = events.tracker(trackCtx,
     { t0, question, deep, model: metric.model, effort: metric.effort, resumed: metric.resumed });
   let full = "";
@@ -736,7 +744,7 @@ async function ask(req, res, user) {
                   // Only read tools + the read-only SQL tool exist for the agent.
                   tools: ["Read", "Grep", "Glob", "Skill", "TodoWrite"],
                   // The attempt's signal: a provider fallback aborts attempt 0, which must end its watch too.
-                  mcpServers: { mesha: meshaToolsFor(user, { send, signal: attemptAbort.signal, stopReason: () => stopReason, chatId: chat.id, tenantId: user.tenantId, allowAllTenants: user.email === "bench@local", evCtx: trackCtx, run }) },
+                  mcpServers: { mesha: meshaToolsFor(user, { send, signal: attemptAbort.signal, stopReason: () => stopReason, chatId: chat.id, tenantId: user.tenantId, allowAllTenants: user.email === "bench@local", evCtx: trackCtx, run, snapshotOnly: !streaming }) },
                   allowedTools: ["mcp__mesha__run_sql", "mcp__mesha__describe_table", "mcp__mesha__watch_tags"],
                   disallowedTools: ["Bash", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Task", "Agent"],
                 }
@@ -940,7 +948,11 @@ async function ask(req, res, user) {
     }
     activeRuns.delete(requestId);
     await track.finish(metric, { aborted: abort.signal.aborted, stopReason });
-    res.end();
+    if (streaming) res.end();
+    else if (!res.destroyed) {
+      const { status, body: out } = collector.result();
+      json(res, status, out);
+    }
   }
 }
 

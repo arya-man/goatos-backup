@@ -365,3 +365,48 @@ export function makeTurnGate(emit, hold = NARRATION_HOLD_CHARS) {
     end() { if (held) { const h = held; held = ""; release(h); } released = false; },
   };
 }
+
+// ---- non-streaming /ceo-ai/ask (MCP ask_goatos) -------------------------------
+// X-Mesha-Client: mcp tags events with source "mcp"; anything else is the admin-web panel.
+export function askClient(headers) {
+  return String(headers?.["x-mesha-client"] || "").trim().toLowerCase() === "mcp" ? "mcp" : null;
+}
+
+// Prompt note for stream:false callers: nobody watches a live table, so watch_tags is snapshot-only.
+export const NON_STREAM_NOTE =
+  "\n[Context note, not from the user: this question came through the Mesha MCP connector, which shows only your " +
+  "final answer (no live panel). watch_tags can only take a one-time snapshot here (minutes=0); if the user asks to " +
+  "watch over time, take the snapshot and say live watching is available in the Ask Mesha panel.]";
+
+// Collects the SSE events ask() would stream and turns them into one JSON response.
+// Tokens, progress labels and watch frames are dropped; only final/error matter.
+export function jsonAskCollector() {
+  let conversationId = null;
+  let final = null;
+  let error = null;
+  return {
+    send(obj) {
+      if (!obj || typeof obj !== "object") return;
+      if (obj.conversation_id) conversationId = obj.conversation_id;
+      if (obj.type === "final") final = obj;
+      else if (obj.type === "error" && !final) error = obj;
+    },
+    result() {
+      if (final) {
+        return {
+          status: 200,
+          body: {
+            answer: final.answer ?? "", chart: final.chart ?? null,
+            conversation_id: final.conversation_id ?? conversationId, message_id: final.message_id ?? null,
+            timing: final.timing ?? null, request_id: final.request_id ?? null, source: final.source ?? "coding-agent", mode: "agent",
+          },
+        };
+      }
+      if (error) {
+        const status = Number.isInteger(error.status) ? error.status : 502;
+        return { status, body: { error: status === 410 ? "chat_deleted" : "agent_error", message: error.message || friendlyError(""), conversation_id: conversationId } };
+      }
+      return { status: 500, body: { error: "internal", message: friendlyError(""), conversation_id: conversationId } };
+    },
+  };
+}

@@ -574,6 +574,8 @@ resource "google_cloud_run_v2_service" "mcp" {
 
   template {
     service_account = google_service_account.runtime["mcp"].email
+    # ask_goatos may wait up to 240s for the Ask Mesha agent (MESHA_MCP_AGENT_URL).
+    timeout = "300s"
 
     scaling {
       min_instance_count = 0
