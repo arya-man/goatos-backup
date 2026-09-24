@@ -1,8 +1,10 @@
 -- Cost per kg gain = Weighing > FCR tab "Feed cost per kg gain" (GET /growth-director/fcr,
 -- backend/internal/growthdirector/adapters/postgres/fcr.go fcrScopeCTEs/fcrSegmentsSQL + domain/fcr.go).
--- Last 30 days (change `- 30`). Pens are joined weighing<->feed sheet by SHED ID + scrubbed partition (fcr.go pen_map),
+-- Last 30 days: run_reference('cost-per-kg-gain.sql', params={days:60}) for another window (psql: edit the /*param*/ number).
+-- param: days int     window length in days back from today IST (default 30)
+-- Pens are joined weighing<->feed sheet by SHED ID + scrubbed partition (fcr.go pen_map),
 -- so a renamed pen still matches; weighed pens with no sheet rows are listed in unmatched_pens. Read-only.
-WITH w AS (SELECT (now() AT TIME ZONE 'Asia/Kolkata')::date - 30 AS s, (now() AT TIME ZONE 'Asia/Kolkata')::date + 1 AS e),
+WITH w AS (SELECT (now() AT TIME ZONE 'Asia/Kolkata')::date - /*param:days*/30/*end*/ AS s, (now() AT TIME ZONE 'Asia/Kolkata')::date + 1 AS e),
 sc AS (SELECT cs.campaign_shed_id, cs.campaign_id, c.park_id, cs.weighing_category, cs.location_id,
   coalesce(cs.partition_label,'') bpart, l.name loc_name, l.parent_location_id
   FROM weighing_campaign_sheds cs JOIN weighing_campaigns c USING (campaign_id) JOIN locations l ON l.location_id=cs.location_id

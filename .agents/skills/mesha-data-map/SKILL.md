@@ -10,6 +10,9 @@ first: route with the table below, write ONE query, run it. Full column lists,
 grains and an example per view: `references/views.generated.md` (regenerate with
 `node tools/ask-mesha-agent/gen-data-map.mjs`; `--check` for guards).
 
+Reference queries in `references/*.sql` (Ask Mesha agent): use `run_reference('<file>', where=...)` instead of
+retyping them; `where` filters the file's output columns, date windows go in `params` (see each file's `-- param:` lines).
+
 ## Topic -> view routing
 
 | Question about | View | Key columns | Date column |
@@ -53,7 +56,7 @@ grains and an example per view: `references/views.generated.md` (regenerate with
 - **Parks** in data are full names: `Coimbatore` (CBE), `Channapatna` (CPT). Filter on `park_label`.
 - **Pens (model-agnostic):** pen = G1P3 "Godel 1 Part 3" / C1 "Castro 1"; group = Godel 1 / Castro (never "shed").
   ALWAYS resolve via `references/pens.sql` (animals, weighing buckets, verification items, feed rows, pc care tasks); never assume
-  records sit on the group row or on the pen row. Pen last weighing: `references/pen-weighing-latest.sql` (1 query).
+  records sit on the group row or on the pen row. Pen last weighing: `run_reference('pen-weighing-latest.sql', where="pen_code='G1P3' AND park_code='CBE'")` (1 call).
   Self-test after any pen-model migration: `references/pens-selftest.sql`. "Which pen has most" ranks pen_key (with park).
 - **Dates in answers:** render `DD/MM/YYYY`.
 - **Base views (`*_base`, `animal_current_scope`)** are one row per entity: aggregate, don't dump rows.
@@ -112,8 +115,8 @@ dashboard path; an approximation may follow only if labelled as one. Windows are
 
 **ADG / daily gain** (`/weighing/analytics` Growth tab, `GET /weighing/leadership/growth`,
 `backend/internal/weighing/adapters/postgres/growth.go` growthHeadlineStats / growthParkGainsQuery). Reproducible:
-run `references/adg-by-park.sql` AS-IS (default window = this calendar month to date, IST; for another window edit
-only the two dates in its `w` CTE). Never write your own ADG SQL, never use ceo_ai views for it, never re-weight.
+run `references/adg-by-park.sql` AS-IS via `run_reference('adg-by-park.sql')` (default window = this calendar month to date, IST; for another window pass
+`params={from_date, to_date}` as YYYY-MM-DD). Never write your own ADG SQL, never use ceo_ai views for it, never re-weight.
 - Individual arm: non-rejected scans (pending included), one key per animal (both RFIDs merged via goat_identifiers).
   BOTH weighs inside the window; same-IST-day pairs dropped; per-animal gain = sum(grams)/sum(days) over its pairs.
 - Whole-pen arm: per pen+partition, first and last non-withdrawn, non-rejected shed weigh in the window (last day > first):
@@ -150,9 +153,9 @@ Sep 2026: CBE 3 (1 goat, 2 sheep), CPT 0. Cause: `health_death_causes` / death `
 `backend/internal/growthdirector/adapters/postgres/fcr.go` fcrSegmentsSQL + `domain/fcr.go`). Segment = two consecutive
 weighing rounds of one pen (part). Feed cost = directed feed on the sheet for that pen between the rounds x the latest same-park
 purchase per_kg_cost on/before each feed day. Gain kg = segment ADG x fed head-days (sheet head counts). Summary = total cost /
-total gain over segments that gained. references/cost-per-kg-gain.sql reproduces it for the last 30 days (change `- 30`); on 24/09/2026 it gave
+total gain over segments that gained. references/cost-per-kg-gain.sql reproduces it for the last 30 days (`run_reference('cost-per-kg-gain.sql', params={days: N})` for another window); on 24/09/2026 it gave
 CBE Rs 331/kg (Rs 4,12,490 feed, 1,247 kg), CPT Rs 340/kg (Rs 3,69,181, 1,087 kg), all Rs 335/kg. Answer per park + total, one method line.
-Run `references/cost-per-kg-gain.sql` as-is. If `unmatched_pens` is non-empty, name those pens in one line (their gain has no feed cost).
+Run it with `run_reference('cost-per-kg-gain.sql')`. If `unmatched_pens` is non-empty, name those pens in one line (their gain has no feed cost).
 
 **Pending weighing verification:** the dashboard counts every observation not yet verified, INCLUDING rework.
 The view's `pending` excludes rework, so match with `sum(pending)+sum(rework)` from `weighing_verification_status`

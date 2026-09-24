@@ -39,10 +39,10 @@ pa AS (SELECT g.goat_id, g.species, g.sex, g.lifecycle_status, pen.* FROM goats 
   JOIN LATERAL (SELECT * FROM pens k WHERE k.loc = g.shed_id AND k.lbl IN (regexp_replace(regexp_replace(lower(btrim(coalesce(
     gsp.partition_label,''))),'^[- ]*(part|pt)[-. ]*',''),'^whole$',''), '') ORDER BY k.lbl = '', k.o LIMIT 1) pen ON true
   WHERE g.merged_into_goat_id IS NULL)
--- DEMO = animals per pen now (headcount / "which pen has most" / "pens in Godel 1"): add WHERE pen_code='G1P3' AND park_code='CBE'
--- or grp='Godel 1'. Lists empty active pens too; alive on a group with no part shows under grp_only (none today).
-SELECT p.park, p.pen_name || ' (' || p.pen_code || ')' pen, count(a.goat_id) alive,
+-- DEMO = animals per pen now (headcount / "which pen has most" / "pens in Godel 1"). Agent: run_reference('pens.sql',
+-- where="pen_code='G1P3' AND park_code='CBE'") or where="grp='Godel 1'" (psql: wrap it the same way). Lists empty active pens too; alive on a group with no part shows under grp_only (none today).
+SELECT p.park, p.pen_name || ' (' || p.pen_code || ')' pen, p.park_code, p.pen_code, p.grp, count(a.goat_id) alive,
        count(a.goat_id) FILTER (WHERE a.species = 'goat') goats, count(a.goat_id) FILTER (WHERE a.species = 'sheep') sheep
-FROM (SELECT park, pen_key, min(pen_name) pen_name, min(pen_code) pen_code, bool_or(act) act FROM pens WHERE NOT grp_only GROUP BY 1, 2) p
+FROM (SELECT park, pen_key, min(park_code) park_code, min(grp) grp, min(pen_name) pen_name, min(pen_code) pen_code, bool_or(act) act FROM pens WHERE NOT grp_only GROUP BY 1, 2) p
 LEFT JOIN pa a ON a.pen_key = p.pen_key AND a.lifecycle_status = 'alive'
-GROUP BY 1, 2, p.pen_key, p.act HAVING p.act OR count(a.goat_id) > 0 ORDER BY alive DESC, 1, 2;
+GROUP BY 1, 2, p.park_code, p.pen_code, p.grp, p.pen_key, p.act HAVING p.act OR count(a.goat_id) > 0 ORDER BY alive DESC, 1, 2;

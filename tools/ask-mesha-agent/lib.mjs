@@ -84,10 +84,19 @@ export const SQL_MAX_CHARS = 100_000;
 // No query rules: the DB role (mesha_ceo_readonly) reads every table and writes none,
 // and every call runs in a READ ONLY transaction. The only refusal is psql backslash
 // commands, which run programs on the server rather than read data.
+// A backslash is only a psql meta-command outside string literals. Plain '...' strings (with ''
+// escapes, standard_conforming_strings=on, forced in runSql) may hold regex backslashes such
+// as '\\1' (reference queries use them); anything else with a backslash is refused, including
+// E'...' / U&'...' strings, whose escape rules differ, and dollar-quoted bodies.
+export function hasPsqlBackslash(text) {
+  if (!text.includes("\\")) return false;
+  if (/(^|[^a-z0-9_])(e|u&)'/i.test(text)) return true;
+  return text.replace(/'(?:[^']|'')*'/g, "''").includes("\\");
+}
 export function validateReadSql(sql) {
   const text = String(sql || "").trim();
   if (!text) return { ok: false, out: "Empty query." };
-  if (text.includes("\\")) return { ok: false, out: "Refused: psql backslash commands are not allowed." };
+  if (hasPsqlBackslash(text)) return { ok: false, out: "Refused: psql backslash commands are not allowed." };
   const one = text.replace(/;\s*$/, "");
   // One statement only, and never transaction/session control: the query runs inside
   // BEGIN READ ONLY … ROLLBACK, so a COMMIT/SET could otherwise step outside it.
@@ -218,6 +227,16 @@ export function topicOf(text) {
   const hit = TOPIC_WORDS.find(([re]) => re.test(text));
   return hit ? hit[1] : null;
 }
+// Plain progress labels for run_reference (no file names in the CEO-facing UI).
+const REFERENCE_LABELS = {
+  "pens.sql": "Checking the pen records",
+  "pen-weighing-latest.sql": "Checking the pen weighing records",
+  "adg-by-park.sql": "Checking the weight gain records",
+  "cost-per-kg-gain.sql": "Checking the feed cost and weight gain records",
+  "load-wise-sales.sql": "Checking the load-wise sales records",
+  "herd-avg-weight.sql": "Checking the herd weight records",
+  "feed-stock-days-left.sql": "Checking the feed stock records",
+};
 export function toolLabel(name, input = {}) {
   input = input || {};
   if (name === "mcp__mesha__run_sql" || (name === "Bash" && /\bpsql\b/.test(String(input.command || "")))) {
@@ -226,6 +245,7 @@ export function toolLabel(name, input = {}) {
     const topic = topicOf(tables.join(" ") || sql);
     return topic ? `Checking ${topic} records` : "Checking the records";
   }
+  if (name === "mcp__mesha__run_reference") return REFERENCE_LABELS[String(input.name || "")] || "Checking the records";
   if (name === "mcp__mesha__watch_tags") return Number(input.minutes) === 0 ? "Reading live ear-tag data" : "Watching live ear-tag data";
   if (name === "mcp__mesha__describe_table") {
     const topic = topicOf(String(input.table || ""));
@@ -409,4 +429,107 @@ export function jsonAskCollector() {
       return { status: 500, body: { error: "internal", message: friendlyError(""), conversation_id: conversationId } };
     },
   };
+}
+
+// ---- run_reference: vetted reference queries by NAME -------------------------
+// The model used to retype ~5KB of .agents/skills/mesha-data-map/references/*.sql per
+// question (50-150s of output tokens). run_reference loads the file by allow-listed
+// name, fills documented params, wraps it as SELECT * FROM (<file>) q [WHERE] [ORDER BY]
+// [LIMIT] and sends it through the same validateReadSql/runSql READ ONLY path.
+// Param convention inside a reference file:
+//   -- param: <name> <date|uuid|int|number>  <description>        (declaration, header comment)
+//   /*param:<name>*/<default SQL expression>/*end*/               (inline; psql runs the default)
+export const REFERENCE_DIR = ".agents/skills/mesha-data-map/references";
+export const REFERENCE_FILES = [
+  "pens.sql", "pen-weighing-latest.sql", "adg-by-park.sql", "cost-per-kg-gain.sql",
+  "load-wise-sales.sql", "herd-avg-weight.sql", "feed-stock-days-left.sql",
+];
+export const REFERENCE_MAX_LIMIT = SQL_MAX_ROWS;
+
+export function referencePath(root, name) {
+  const n = String(name || "").trim();
+  if (!REFERENCE_FILES.includes(n)) {
+    return { ok: false, out: `Unknown reference "${n.slice(0, 60)}". Use one of: ${REFERENCE_FILES.join(", ")}.` };
+  }
+  return { ok: true, file: path.join(root, REFERENCE_DIR, n) };
+}
+
+export function referenceParams(text) {
+  const out = {};
+  for (const m of String(text).matchAll(/^--\s*param:\s*([a-z_][a-z0-9_]*)\s+(date|uuid|int|number)\b\s*(.*)$/gm)) {
+    out[m[1]] = { type: m[2], doc: m[3].trim() };
+  }
+  return out;
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export function paramLiteral(type, value) {
+  const v = typeof value === "number" ? String(value) : String(value ?? "").trim();
+  if (type === "date") {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
+    const d = m && new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+    if (!d || d.getUTCFullYear() !== +m[1] || d.getUTCMonth() !== +m[2] - 1 || d.getUTCDate() !== +m[3]) return null;
+    return `'${v}'::date`;
+  }
+  if (type === "uuid") return UUID_RE.test(v) ? `'${v.toLowerCase()}'::uuid` : null;
+  if (type === "int") return /^-?\d{1,9}$/.test(v) ? String(Number(v)) : null;
+  if (type === "number") return /^-?\d{1,12}(\.\d{1,6})?$/.test(v) ? v : null;
+  return null;
+}
+
+// Removes -- and /* */ comments outside single-quoted strings (reference files carry
+// long comment headers, some with ';', which validateReadSql would refuse).
+export function stripSqlComments(sql) {
+  let out = "";
+  for (let i = 0; i < sql.length;) {
+    const c = sql[i];
+    if (c === "'") {
+      let j = i + 1;
+      while (j < sql.length && !(sql[j] === "'" && sql[j + 1] !== "'")) j += sql[j] === "'" ? 2 : 1;
+      out += sql.slice(i, j + 1); i = j + 1;
+    } else if (c === "-" && sql[i + 1] === "-") {
+      while (i < sql.length && sql[i] !== "\n") i++;
+    } else if (c === "/" && sql[i + 1] === "*") {
+      const e = sql.indexOf("*/", i + 2); i = e < 0 ? sql.length : e + 2; out += " ";
+    } else { out += c; i++; }
+  }
+  return out;
+}
+
+// Free-text pieces (where / order_by) may not end the statement or comment out the tail.
+function clauseOk(s) { return !/;|--|\/\*|\*\/|\\/.test(s); }
+
+export function buildReferenceSql(text, { name = "reference", params, where, order_by, limit } = {}) {
+  const declared = referenceParams(text);
+  const given = params && typeof params === "object" ? params : {};
+  for (const k of Object.keys(given)) {
+    if (!declared[k]) {
+      const names = Object.keys(declared);
+      return { ok: false, out: `${name} has no param "${k}". ${names.length ? `Params: ${names.map((n) => `${n} (${declared[n].type})`).join(", ")}.` : "It takes no params; use where instead."}` };
+    }
+  }
+  let bad = null;
+  const filled = String(text).replace(/\/\*param:([a-z_][a-z0-9_]*)\*\/([\s\S]*?)\/\*end\*\//g, (all, k, dflt) => {
+    if (!declared[k]) { bad ??= `${name}: inline param "${k}" is not declared with "-- param:".`; return all; }
+    if (given[k] === undefined || given[k] === null || given[k] === "") return dflt;
+    const lit = paramLiteral(declared[k].type, given[k]);
+    if (lit === null) { bad ??= `Param ${k} must be a ${declared[k].type}${declared[k].type === "date" ? " as YYYY-MM-DD" : ""}; got ${JSON.stringify(given[k]).slice(0, 40)}.`; return all; }
+    return lit;
+  });
+  if (bad) return { ok: false, out: bad };
+  const inner = stripSqlComments(filled).trim().replace(/;\s*$/, "").trim();
+  if (!/^(with|select)\b/i.test(inner)) return { ok: false, out: `${name} is not a single SELECT/WITH query.` };
+  let sql = `SELECT * FROM (\n${inner}\n) q`;
+  for (const [key, val, kw] of [["where", where, "WHERE"], ["order_by", order_by, "ORDER BY"]]) {
+    const s = String(val ?? "").trim();
+    if (!s) continue;
+    if (!clauseOk(s)) return { ok: false, out: `Refused: ${key} may not contain ';', comments or backslashes.` };
+    sql += kw === "WHERE" ? `\nWHERE (${s})` : `\nORDER BY ${s}`;
+  }
+  if (limit !== undefined && limit !== null && limit !== "") {
+    const n = Number(limit);
+    if (!Number.isInteger(n) || n < 1 || n > REFERENCE_MAX_LIMIT) return { ok: false, out: `limit must be an integer 1-${REFERENCE_MAX_LIMIT}.` };
+    sql += `\nLIMIT ${n}`;
+  }
+  return validateReadSql(sql);
 }

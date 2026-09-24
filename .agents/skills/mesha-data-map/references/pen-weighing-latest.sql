@@ -1,5 +1,6 @@
 -- LATEST WEIGHING PER PEN (individual scans + whole-pen weighs), via pens.sql so it works in any pen model.
--- "G1P3 last weighing" = run THIS once, edit only the filter in the last WHERE (pen_code+park_code, or grp='Godel 1', or drop it).
+-- "G1P3 last weighing" = run_reference('pen-weighing-latest.sql', where="pen_code='G1P3' AND park_code='CBE'")
+--   (or where="grp='Godel 1'", or no where for every pen). psql: SELECT * FROM (<this>) q WHERE pen_code='G1P3' AND park_code='CBE'.
 -- Individual: weighing_observations in the pen's bucket, non-rejected, weight_kg > 0 (weight_kg = corrected value): latest IST day
 --   -> animals scanned that day + avg kg + how many still pending verification.
 -- Whole pen: weighing_shed_observations non-withdrawn, non-rejected, average_weight_kg > 0 -> latest one's head count + avg + status.
@@ -38,10 +39,9 @@ lump AS (SELECT DISTINCT ON (b.pen_key) b.pen_key, (s.accepted_at AT TIME ZONE '
   FROM weighing_shed_observations s JOIN b USING (campaign_shed_id)
   WHERE s.withdrawn_at IS NULL AND s.verification_status <> 'rejected' AND s.average_weight_kg > 0 ORDER BY b.pen_key, s.accepted_at DESC),
 p AS (SELECT DISTINCT ON (pen_key) pen_key, park, park_code, grp, pen_code, pen_name FROM b ORDER BY pen_key, o)
-SELECT p.park, p.pen_name || ' (' || p.pen_code || ')' pen, to_char(greatest(i.d, l.d), 'DD/MM/YYYY') latest,
+SELECT p.park, p.pen_name || ' (' || p.pen_code || ')' pen, p.park_code, p.pen_code, p.grp, to_char(greatest(i.d, l.d), 'DD/MM/YYYY') latest,
   to_char(i.d, 'DD/MM/YYYY') indiv_date, i.animals indiv_animals, i.avg_kg indiv_avg_kg, i.pending indiv_pending,
   to_char(l.d, 'DD/MM/YYYY') pen_date, l.animals pen_animals, l.avg_kg pen_avg_kg, l.verification_status pen_status
 FROM p LEFT JOIN ind i USING (pen_key) LEFT JOIN lump l USING (pen_key)
 WHERE (i.d IS NOT NULL OR l.d IS NOT NULL)
-  AND p.pen_code = 'G1P3' AND p.park_code = 'CBE'   -- <- the only line to edit
 ORDER BY p.park, p.pen_key;

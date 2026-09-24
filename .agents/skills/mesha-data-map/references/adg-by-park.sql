@@ -2,13 +2,16 @@
 -- (backend/internal/weighing/adapters/postgres/growth.go growthParkGainsQuery / growthHeadlineStats,
 --  growthPairsCTE, identity_scope.go same-animal map). No sex/origin filter, all weighing categories.
 -- Window = IST business dates [:from, :to] inclusive. Default below: this calendar month to date.
--- To change it, edit the two dates in `w` only. Run as-is (read-only). Verified 24/09/2026.
+-- To change it: run_reference('adg-by-park.sql', params={from_date:'2026-08-01', to_date:'2026-08-31'}) (psql: edit the two
+-- /*param*/ expressions in `w`). Run as-is (read-only). Verified 24/09/2026.
+-- param: from_date date  first IST business date (default: 1st of this month)
+-- param: to_date date    last IST business date, inclusive (default: today)
 -- Statistic: animal-weighted mean. Each individually scanned kid with >=2 weighs INSIDE the window
 -- counts once at sum(grams moved)/sum(days) over its consecutive pairs (same-IST-day pairs dropped);
 -- each whole-pen (pen+partition) weighed on >=2 days in the window counts (last avg - first avg)*1000/days
 -- once PER ANIMAL of its latest head count. kids = that denominator. Do not re-weight or average parks.
-WITH w AS (SELECT date_trunc('month', (now() AT TIME ZONE 'Asia/Kolkata'))::date AS f,
-                  (now() AT TIME ZONE 'Asia/Kolkata')::date AS t),
+WITH w AS (SELECT /*param:from_date*/date_trunc('month', (now() AT TIME ZONE 'Asia/Kolkata'))::date/*end*/ AS f,
+                  /*param:to_date*/(now() AT TIME ZONE 'Asia/Kolkata')::date/*end*/ AS t),
 b AS (SELECT (w.f::timestamp AT TIME ZONE 'Asia/Kolkata') s, ((w.t + 1)::timestamp AT TIME ZONE 'Asia/Kolkata') e FROM w),
 weighed AS (SELECT DISTINCT lower(btrim(o.scanned_identifier)) tag
   FROM weighing_observations o JOIN weighing_campaign_sheds cs USING (campaign_shed_id)
