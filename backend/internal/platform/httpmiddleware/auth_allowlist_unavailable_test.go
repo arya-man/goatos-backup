@@ -2,6 +2,7 @@ package httpmiddleware
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -61,4 +62,13 @@ func TestProtectedRouteAllowlistUnavailableIs503NotForbidden(t *testing.T) {
 		t.Fatalf("status=%d retry-after=%q body=%s; want 503 + Retry-After", rec.Code, rec.Header().Get("Retry-After"), rec.Body.String())
 	}
 	assertAuthErrorCode(t, rec, "auth_database_busy")
+	var body struct {
+		Retryable bool `json:"retryable"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("invalid error json: %v", err)
+	}
+	if !body.Retryable {
+		t.Fatalf("auth_database_busy must be retryable:true (matches authaudit); body=%s", rec.Body.String())
+	}
 }
