@@ -37,6 +37,9 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode/utf8"
+
+	"github.com/google/uuid"
 )
 
 // Validation errors. These are all "the author sent something we will not silently repair"
@@ -45,7 +48,9 @@ import (
 var (
 	ErrMissingField   = errors.New("feedconfig: missing required field")
 	ErrInvalidDecimal = errors.New("feedconfig: value is not a valid decimal")
-	ErrNegativeValue  = errors.New("feedconfig: value must not be negative")
+	// ErrInvalidIdentifier is a park/shed/feed-item id that is not a uuid (see RequireUUID).
+	ErrInvalidIdentifier = errors.New("feedconfig: value is not a valid identifier")
+	ErrNegativeValue     = errors.New("feedconfig: value must not be negative")
 	// ErrValueOutOfRange is for a value that parses as a decimal and is non-negative but falls
 	// outside the column's own CHECK -- a dry-matter factor above 1, a wastage factor of 1 or more.
 	// It is a SEPARATE error from ErrNegativeValue because the author needs to be told which bound
@@ -1161,6 +1166,41 @@ func ValidateScheduleOrder(direction, correction string, transport *string) erro
 			fmt.Sprintf("transport_time %s is before correction_time %s", *transport, correction))
 	}
 	return nil
+}
+
+// MaxFeedItemLabelRunes bounds a feed item NAME. The catalog column is unbounded text, and the name
+// is rendered as a table cell on every row of the ration grid, on the session recipe chips and on
+// the feed sheet: a 300-character name pushed the grid's quantity and edit columns off the screen
+// for every row of the park (found 2026-09-15). 80 runes comfortably holds the longest real name
+// ("Mesha Adult Concentrate Sheep" is 29) and still fits a cell.
+const MaxFeedItemLabelRunes = 80
+
+// RequireFeedItemLabel is RequireNonBlank plus the length bound above, for a NEW catalog name.
+func RequireFeedItemLabel(field, raw string) (string, error) {
+	v, err := RequireNonBlank(field, raw)
+	if err != nil {
+		return "", err
+	}
+	if n := utf8.RuneCountInString(v); n > MaxFeedItemLabelRunes {
+		return "", fieldErr(field, ErrValueOutOfRange,
+			fmt.Sprintf("%d characters; a feed item name may be at most %d", n, MaxFeedItemLabelRunes))
+	}
+	return v, nil
+}
+
+// RequireUUID is the guard for identifiers the repository binds as `$n::uuid`. Postgres refuses a
+// malformed text there with 22P02, which the adapter cannot tell from a real fault and reports as
+// a 500 -- so a typo in park_id read as an internal error. Checked here instead, it is a field
+// error naming the field, the same shape every other refused input takes.
+func RequireUUID(field, raw string) (string, error) {
+	v, err := RequireNonBlank(field, raw)
+	if err != nil {
+		return "", err
+	}
+	if _, perr := uuid.Parse(v); perr != nil {
+		return "", fieldErr(field, ErrInvalidIdentifier, v)
+	}
+	return v, nil
 }
 
 // RequireNonBlank is the guard for authored labels and identifiers. A blank label is missing, not

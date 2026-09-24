@@ -1148,6 +1148,15 @@ func (r *Repository) UpsertRationRate(ctx context.Context, cmd domain.UpsertRati
 		if err := requireLocation(ctx, tx, cmd.TenantID, cmd.ParkID, "park", ports.ErrParkNotFound); err != nil {
 			return writeEffect{}, err
 		}
+		// The feed must be a CATALOG item (retired included -- its cells remain editable). A rate
+		// keyed on a name the catalog does not hold is unreachable by generation and invisible on
+		// the grid, and its cell still counts toward the session gate's "every cell" coverage, so
+		// one stray write could refuse every later session declaration for the park with
+		// slot_rates_incomplete (found 2026-09-15). The session gate and CreateFeedItem already
+		// treat the catalog as the vocabulary; this write now does too.
+		if err := requireCataloguedFeedItem(ctx, tx, cmd.TenantID, cmd.FeedItemLabel); err != nil {
+			return writeEffect{}, err
+		}
 
 		// Lock the currently-open row for this key. FOR UPDATE, so two concurrent edits of the SAME
 		// cell serialize instead of both deciding "no open row" and racing into the
@@ -1545,6 +1554,21 @@ FOR UPDATE`, cmd.TenantID, cmd.ParkID, cmd.SessionNo, cmd.FeedItemLabel).Scan(&o
 		}
 		return declareSessionTemplateItem(ctx, tx, cmd)
 	})
+}
+
+// requireCataloguedFeedItem refuses a feed name the tenant's catalog does not hold, in any status.
+func requireCataloguedFeedItem(ctx context.Context, tx pgx.Tx, tenantID, feedItemLabel string) error {
+	var known bool
+	err := tx.QueryRow(ctx, `
+SELECT true FROM feed_item_catalog
+WHERE tenant_id = $1::uuid AND feed_item_key = feed_config_norm($2)`, tenantID, feedItemLabel).Scan(&known)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		return ports.ErrFeedItemNotFound
+	case err != nil:
+		return fmt.Errorf("feedconfig: check feed item for rate: %w", err)
+	}
+	return nil
 }
 
 // declareSessionTemplateItem puts a feed on the session's recipe.

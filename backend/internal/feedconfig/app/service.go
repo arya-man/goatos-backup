@@ -128,6 +128,9 @@ func (s *Service) ListRationRates(ctx context.Context, tenantID string, f Ration
 	if strings.TrimSpace(f.ParkID) == "" {
 		return domain.RationRatePage{}, ErrMissingPark
 	}
+	if _, err := domain.RequireUUID("park_id", f.ParkID); err != nil {
+		return domain.RationRatePage{}, err
+	}
 	page, err := resolvePage(f.Limit, f.Offset)
 	if err != nil {
 		return domain.RationRatePage{}, err
@@ -274,6 +277,9 @@ func (s *Service) ListSessionTemplates(ctx context.Context, tenantID, parkID str
 	if strings.TrimSpace(parkID) == "" {
 		return domain.SessionTemplatePage{}, ErrMissingPark
 	}
+	if _, err := domain.RequireUUID("park_id", parkID); err != nil {
+		return domain.SessionTemplatePage{}, err
+	}
 	page, err := resolvePage(limit, offset)
 	if err != nil {
 		return domain.SessionTemplatePage{}, err
@@ -290,6 +296,9 @@ func (s *Service) ListScheduleConfig(ctx context.Context, tenantID, parkID, work
 	}
 	if strings.TrimSpace(parkID) == "" {
 		return domain.ScheduleConfigPage{}, ErrMissingPark
+	}
+	if _, err := domain.RequireUUID("park_id", parkID); err != nil {
+		return domain.ScheduleConfigPage{}, err
 	}
 	// Same reasoning as applies_to above: an unrecognised workflow filter must not quietly widen the
 	// result to both workflows, which run on deliberately different clocks.
@@ -322,6 +331,9 @@ func (s *Service) ListShedFactors(ctx context.Context, tenantID, parkID, shedID,
 	}
 	if strings.TrimSpace(parkID) == "" {
 		return domain.ShedFactorPage{}, ErrMissingPark
+	}
+	if _, err := domain.RequireUUID("park_id", parkID); err != nil {
+		return domain.ShedFactorPage{}, err
 	}
 	page, err := resolvePage(limit, offset)
 	if err != nil {
@@ -361,6 +373,9 @@ func (s *Service) ListPens(ctx context.Context, tenantID, parkID string, limit, 
 	if err != nil {
 		return domain.PenPage{}, err
 	}
+	if err := optionalUUID("park_id", parkID); err != nil {
+		return domain.PenPage{}, err
+	}
 	return s.repo.ListPens(ctx, domain.PenQuery{
 		TenantID: tenantID,
 		ParkID:   strings.TrimSpace(parkID),
@@ -392,6 +407,12 @@ func (s *Service) ListExperimentConfig(ctx context.Context, tenantID string, f E
 	}
 	compare, err := resolveGramsComparison(f.KgOp, f.KgValue)
 	if err != nil {
+		return domain.ExperimentConfigPage{}, err
+	}
+	if err := optionalUUID("park_id", parkID); err != nil {
+		return domain.ExperimentConfigPage{}, err
+	}
+	if err := optionalUUID("shed_id", shedID); err != nil {
 		return domain.ExperimentConfigPage{}, err
 	}
 	out, err := s.repo.ListExperimentConfig(ctx, domain.ExperimentConfigQuery{
@@ -496,7 +517,7 @@ func (s *Service) UpsertRationRate(ctx context.Context, in UpsertRationRateInput
 	if err != nil {
 		return domain.WriteResult{}, err
 	}
-	parkID, err := domain.RequireNonBlank("park_id", in.ParkID)
+	parkID, err := domain.RequireUUID("park_id", in.ParkID)
 	if err != nil {
 		return domain.WriteResult{}, err
 	}
@@ -556,11 +577,11 @@ func (s *Service) UpsertShedFactor(ctx context.Context, in UpsertShedFactorInput
 	if err != nil {
 		return domain.WriteResult{}, err
 	}
-	parkID, err := domain.RequireNonBlank("park_id", in.ParkID)
+	parkID, err := domain.RequireUUID("park_id", in.ParkID)
 	if err != nil {
 		return domain.WriteResult{}, err
 	}
-	shedID, err := domain.RequireNonBlank("shed_id", in.ShedID)
+	shedID, err := domain.RequireUUID("shed_id", in.ShedID)
 	if err != nil {
 		return domain.WriteResult{}, err
 	}
@@ -612,7 +633,7 @@ func (s *Service) SetSessionTemplateItem(ctx context.Context, in SetSessionTempl
 	if err != nil {
 		return domain.WriteResult{}, err
 	}
-	parkID, err := domain.RequireNonBlank("park_id", in.ParkID)
+	parkID, err := domain.RequireUUID("park_id", in.ParkID)
 	if err != nil {
 		return domain.WriteResult{}, err
 	}
@@ -680,7 +701,7 @@ func (s *Service) CreateFeedItem(ctx context.Context, in CreateFeedItemInput) (d
 	if err != nil {
 		return domain.WriteResult{}, err
 	}
-	label, err := domain.RequireNonBlank("feed_item", in.FeedItemLabel)
+	label, err := domain.RequireFeedItemLabel("feed_item", in.FeedItemLabel)
 	if err != nil {
 		return domain.WriteResult{}, err
 	}
@@ -743,7 +764,7 @@ func (s *Service) SetFeedItemStatus(ctx context.Context, in SetFeedItemStatusInp
 	if err != nil {
 		return domain.WriteResult{}, err
 	}
-	feedItemID, err := domain.RequireNonBlank("feed_item_id", in.FeedItemID)
+	feedItemID, err := domain.RequireUUID("feed_item_id", in.FeedItemID)
 	if err != nil {
 		return domain.WriteResult{}, err
 	}
@@ -802,7 +823,7 @@ func (s *Service) UpsertScheduleConfig(ctx context.Context, in UpsertScheduleCon
 	if err != nil {
 		return domain.WriteResult{}, err
 	}
-	parkID, err := domain.RequireNonBlank("park_id", in.ParkID)
+	parkID, err := domain.RequireUUID("park_id", in.ParkID)
 	if err != nil {
 		return domain.WriteResult{}, err
 	}
@@ -881,11 +902,11 @@ func (s *Service) UpsertExperimentConfig(ctx context.Context, in UpsertExperimen
 	if err != nil {
 		return domain.WriteResult{}, err
 	}
-	parkID, err := domain.RequireNonBlank("park_id", in.ParkID)
+	parkID, err := domain.RequireUUID("park_id", in.ParkID)
 	if err != nil {
 		return domain.WriteResult{}, err
 	}
-	shedID, err := domain.RequireNonBlank("shed_id", in.ShedID)
+	shedID, err := domain.RequireUUID("shed_id", in.ShedID)
 	if err != nil {
 		return domain.WriteResult{}, err
 	}
@@ -955,11 +976,11 @@ func (s *Service) UpsertExperimentConfigBatch(ctx context.Context, in UpsertExpe
 	if err != nil {
 		return domain.WriteResult{}, err
 	}
-	parkID, err := domain.RequireNonBlank("park_id", in.ParkID)
+	parkID, err := domain.RequireUUID("park_id", in.ParkID)
 	if err != nil {
 		return domain.WriteResult{}, err
 	}
-	shedID, err := domain.RequireNonBlank("shed_id", in.ShedID)
+	shedID, err := domain.RequireUUID("shed_id", in.ShedID)
 	if err != nil {
 		return domain.WriteResult{}, err
 	}
@@ -1033,11 +1054,11 @@ func (s *Service) SetExperimentShedStatus(ctx context.Context, in SetExperimentS
 	if err != nil {
 		return domain.WriteResult{}, err
 	}
-	parkID, err := domain.RequireNonBlank("park_id", in.ParkID)
+	parkID, err := domain.RequireUUID("park_id", in.ParkID)
 	if err != nil {
 		return domain.WriteResult{}, err
 	}
-	shedID, err := domain.RequireNonBlank("shed_id", in.ShedID)
+	shedID, err := domain.RequireUUID("shed_id", in.ShedID)
 	if err != nil {
 		return domain.WriteResult{}, err
 	}
@@ -1057,6 +1078,16 @@ func (s *Service) SetExperimentShedStatus(ctx context.Context, in SetExperimentS
 // writeIdentity assembles the idempotency envelope shared by every authored write and enforces the
 // three things none of them may ship without: a tenant, an actor for the audit trail, and a client
 // idempotency key plus fingerprint.
+// optionalUUID validates an identifier filter that may be omitted: blank passes, a present value must
+// be a uuid (see domain.RequireUUID for why a malformed one must not reach the repository).
+func optionalUUID(field, raw string) error {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	_, err := domain.RequireUUID(field, raw)
+	return err
+}
+
 func (s *Service) writeIdentity(tenantID, actorRef, key, fingerprint string) (domain.WriteIdentity, error) {
 	if strings.TrimSpace(tenantID) == "" {
 		return domain.WriteIdentity{}, ErrMissingTenant

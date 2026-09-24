@@ -50,6 +50,10 @@ func setupFeedConfigDB(t *testing.T, ctx context.Context) *pgxpool.Pool {
 	pgtest.SkipIfNoDocker(t)
 	pool := pgtest.StartPostgres(t, ctx)
 	seedFeedConfigScope(t, ctx, pool)
+	// The rate write requires the feed to be a catalog item (any status). The fixture cell is
+	// priced in Concentrate, so every test that authors a rate needs this row; tests that count the
+	// catalog filter by the name they added rather than counting the whole table.
+	fcSeedCatalog(t, ctx, pool, "Concentrate")
 	return pool
 }
 
@@ -1811,11 +1815,11 @@ func TestCreateFeedItemDuplicateLabelIsRejectedOnTheNormalizedKey(t *testing.T) 
 	}
 	var count int
 	if err := pool.QueryRow(ctx,
-		`SELECT count(*) FROM feed_item_catalog WHERE tenant_id = $1::uuid`, fcTenant).Scan(&count); err != nil {
+		`SELECT count(*) FROM feed_item_catalog WHERE tenant_id = $1::uuid AND feed_item_key = feed_config_norm('Dry Masoor Bhusa')`, fcTenant).Scan(&count); err != nil {
 		t.Fatalf("count catalog: %v", err)
 	}
 	if count != 1 {
-		t.Fatalf("catalog holds %d rows, want 1 — the rejected duplicate must not have been written", count)
+		t.Fatalf("catalog holds %d Dry Masoor Bhusa rows, want 1 — the rejected duplicate must not have been written", count)
 	}
 }
 
@@ -1877,11 +1881,11 @@ func TestCreateFeedItemExactReplayReturnsOriginalWithoutASecondRow(t *testing.T)
 	}
 	var count int
 	if err := pool.QueryRow(ctx,
-		`SELECT count(*) FROM feed_item_catalog WHERE tenant_id = $1::uuid`, fcTenant).Scan(&count); err != nil {
+		`SELECT count(*) FROM feed_item_catalog WHERE tenant_id = $1::uuid AND feed_item_key = feed_config_norm('Replayed Item')`, fcTenant).Scan(&count); err != nil {
 		t.Fatalf("count catalog: %v", err)
 	}
 	if count != 1 {
-		t.Fatalf("catalog holds %d rows after a replay, want 1", count)
+		t.Fatalf("catalog holds %d Replayed Item rows after a replay, want 1", count)
 	}
 }
 
@@ -2232,5 +2236,35 @@ VALUES ($1::uuid, $2, 'active')
 ON CONFLICT DO NOTHING`, fcTenant, label); err != nil {
 			t.Fatalf("seed feed item %s: %v", label, err)
 		}
+	}
+}
+
+// A rate for a feed the catalog does not hold is refused. Such a row is unreachable by generation
+// and invisible on the grid, yet its cell counted toward the session gate's coverage, so one stray
+// write could refuse every later session declaration for the park (found 2026-09-15 by authoring
+// "Moon dust" through the API). A RETIRED catalog name is still accepted: its cells stay editable.
+func TestUpsertRationRateRefusesAFeedAbsentFromTheCatalog(t *testing.T) {
+	ctx := context.Background()
+	pool := setupFeedConfigDB(t, ctx)
+	repo := fcRepo(pool)
+
+	cmd := rateCommand("key-moon-0001", "fp-moon", "5.000", "2026-07-19")
+	cmd.FeedItemLabel = "Moon dust"
+	if _, err := repo.UpsertRationRate(ctx, cmd); !errors.Is(err, ports.ErrFeedItemNotFound) {
+		t.Fatalf("rate for an uncatalogued feed: err = %v, want ErrFeedItemNotFound", err)
+	}
+	var stray int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM feed_ration_rates WHERE tenant_id = $1::uuid AND feed_item_key = feed_config_norm('Moon dust')`, fcTenant).Scan(&stray); err != nil || stray != 0 {
+		t.Fatalf("stray rows = %d (%v), want none", stray, err)
+	}
+
+	fcSeedCatalog(t, ctx, pool, "Baking Soda")
+	if _, err := pool.Exec(ctx, `UPDATE feed_item_catalog SET status = 'retired' WHERE tenant_id = $1::uuid AND feed_item_key = feed_config_norm('Baking Soda')`, fcTenant); err != nil {
+		t.Fatalf("retire Baking Soda: %v", err)
+	}
+	retired := rateCommand("key-retired-0001", "fp-retired", "0.000", "2026-07-19")
+	retired.FeedItemLabel = "Baking Soda"
+	if got, err := repo.UpsertRationRate(ctx, retired); err != nil || got.Outcome != domain.OutcomeInserted {
+		t.Fatalf("rate for a retired catalog feed: %+v, %v, want inserted", got, err)
 	}
 }

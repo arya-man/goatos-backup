@@ -932,6 +932,8 @@ export function FeedItemCreator({
             name="feed_item"
             type="text"
             defaultValue=""
+            // The contract's bound (80): the name is a table cell on every grid row.
+            maxLength={80}
             aria-describedby="feed-item-new-name-hint"
           />
           <div id="feed-item-new-name-hint" className="small muted" style={{ marginTop: 4 }}>

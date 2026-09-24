@@ -2,6 +2,7 @@ package domain
 
 import (
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -267,5 +268,42 @@ func TestRequireNonBlank(t *testing.T) {
 	got, err := RequireNonBlank("ration_group", "  Boer  ")
 	if err != nil || got != "Boer" {
 		t.Fatalf("RequireNonBlank = %q, %v; want \"Boer\", nil", got, err)
+	}
+}
+
+// A malformed park/shed/feed-item id is refused at the edge as a FIELD error. Before RequireUUID
+// the string reached the repository's `$n::uuid` bind, Postgres answered 22P02, and every Feed
+// Config read and write with a typo in park_id was a 500 (found 2026-09-15 while sweeping the
+// clock editor's edge cases).
+func TestRequireUUIDRefusesMalformedIdentifiersAsFieldErrors(t *testing.T) {
+	t.Parallel()
+	for _, raw := range []string{"cpt", "00000000-0000-4000-8000-00000000dea", "not a uuid", "   "} {
+		_, err := RequireUUID("park_id", raw)
+		if err == nil {
+			t.Fatalf("RequireUUID(%q) accepted a malformed identifier", raw)
+		}
+		var fe *FieldError
+		if !errors.As(err, &fe) || fe.Field != "park_id" {
+			t.Fatalf("RequireUUID(%q) = %v, want a field error naming park_id", raw, err)
+		}
+	}
+	got, err := RequireUUID("park_id", "  00000000-0000-4000-8000-000000003002 ")
+	if err != nil || got != "00000000-0000-4000-8000-000000003002" {
+		t.Fatalf("RequireUUID trimmed uuid = %q, %v", got, err)
+	}
+}
+
+// A new feed item NAME is bounded: a 300-character name once widened every row of the ration grid
+// until its quantity and edit columns were off the screen.
+func TestRequireFeedItemLabelBoundsTheName(t *testing.T) {
+	t.Parallel()
+	if _, err := RequireFeedItemLabel("feed_item", strings.Repeat("X", MaxFeedItemLabelRunes+1)); err == nil {
+		t.Fatal("an over-long feed item name was accepted")
+	}
+	if got, err := RequireFeedItemLabel("feed_item", " Mesha Adult Concentrate Sheep "); err != nil || got != "Mesha Adult Concentrate Sheep" {
+		t.Fatalf("real name refused or not trimmed: %q %v", got, err)
+	}
+	if _, err := RequireFeedItemLabel("feed_item", strings.Repeat("🐐", MaxFeedItemLabelRunes)); err != nil {
+		t.Fatalf("the bound must count runes, not bytes: %v", err)
 	}
 }

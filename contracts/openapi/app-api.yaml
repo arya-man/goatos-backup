@@ -28341,6 +28341,7 @@ components:
         feed_item:
           type: string
           minLength: 1
+          maxLength: 80
           description: >-
             The item's name, as it will appear on the ration grid, the shed factors, the experiment
             sheds and the generated feed sheet. Compared against the catalog on the same

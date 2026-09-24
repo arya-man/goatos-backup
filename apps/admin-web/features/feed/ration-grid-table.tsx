@@ -81,7 +81,18 @@ export function RationGridTable({
         sortValue: (row) => row.shed_tag,
         meta: { cellClassName: "muted" },
       },
-      feed_item: { cell: (row) => row.feed_item, sortValue: (row) => row.feed_item },
+      feed_item: {
+        // A name may wrap inside its cell but never widen the table: the feed tables are
+        // `nowrap` by default, and one long name pushed the quantity and edit columns of EVERY
+        // row off the screen. The catalog now bounds new names at 80 characters; this holds the
+        // grid together for a name authored before that bound existed.
+        cell: (row) => (
+          <span style={{ display: "inline-block", maxWidth: 260, whiteSpace: "normal", overflowWrap: "anywhere" }}>
+            {row.feed_item}
+          </span>
+        ),
+        sortValue: (row) => row.feed_item,
+      },
       grams_per_head: {
         // A client cell so a just-saved quantity appears at once: saving writes in ~0.3s but the
         // number only lands when revalidatePath re-renders the route, and until then the cell

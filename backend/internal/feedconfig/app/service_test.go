@@ -45,6 +45,15 @@ type fakeRepo struct {
 	writeCalls int
 }
 
+// Identifiers the service binds as uuids. They were the strings "park" and "shed" until
+// RequireUUID started refusing a malformed id at the service edge (a typo used to reach Postgres
+// and come back as a 500).
+const (
+	testParkID     = "00000000-0000-4000-8000-000000003002"
+	testShedID     = "00000000-0000-4000-8000-0000000000aa"
+	testFeedItemID = "00000000-0000-4000-8000-0000000000fe"
+)
+
 func (f *fakeRepo) ListRationRates(_ context.Context, q domain.RationRateQuery) (domain.RationRatePage, error) {
 	f.lastRateQuery = q
 	return domain.RationRatePage{Limit: q.Page.Limit, Offset: q.Page.Offset}, f.err
@@ -170,7 +179,7 @@ func TestUpsertRationRateRejectsAbsentGramsWithoutDefaulting(t *testing.T) {
 	svc := pinnedService(repo)
 
 	_, err := svc.UpsertRationRate(context.Background(), UpsertRationRateInput{
-		TenantID: "tenant", ActorRef: "actor", ParkID: "park",
+		TenantID: "tenant", ActorRef: "actor", ParkID: testParkID,
 		RationGroupLabel: "Boer", ShedTagLabel: "Pregnant", FeedItemLabel: "Concentrate",
 		GramsPerHead:       nil, // ABSENT
 		IdempotencyKey:     "key-12345678",
@@ -195,7 +204,7 @@ func TestUpsertRationRateAcceptsAuthoredZero(t *testing.T) {
 	svc := pinnedService(repo)
 
 	if _, err := svc.UpsertRationRate(context.Background(), UpsertRationRateInput{
-		TenantID: "tenant", ActorRef: "actor", ParkID: "park",
+		TenantID: "tenant", ActorRef: "actor", ParkID: testParkID,
 		RationGroupLabel: "Kid", ShedTagLabel: "K0", FeedItemLabel: "Concentrate",
 		GramsPerHead:       str("0"),
 		IdempotencyKey:     "key-12345678",
@@ -225,7 +234,7 @@ func TestUpsertRationRateRejectsOutOfRangeValues(t *testing.T) {
 			repo := &fakeRepo{}
 			svc := pinnedService(repo)
 			_, err := svc.UpsertRationRate(context.Background(), UpsertRationRateInput{
-				TenantID: "tenant", ActorRef: "actor", ParkID: "park",
+				TenantID: "tenant", ActorRef: "actor", ParkID: testParkID,
 				RationGroupLabel: "Boer", ShedTagLabel: "Pregnant", FeedItemLabel: "Concentrate",
 				GramsPerHead:       str(tc.grams),
 				IdempotencyKey:     "key-12345678",
@@ -252,7 +261,7 @@ func TestWriteIdentityDerivesIndiaBusinessDate(t *testing.T) {
 	svc := pinnedService(repo)
 
 	if _, err := svc.UpsertRationRate(context.Background(), UpsertRationRateInput{
-		TenantID: "tenant", ActorRef: "actor", ParkID: "park",
+		TenantID: "tenant", ActorRef: "actor", ParkID: testParkID,
 		RationGroupLabel: "Boer", ShedTagLabel: "Pregnant", FeedItemLabel: "Concentrate",
 		GramsPerHead:       str("250"),
 		IdempotencyKey:     "key-12345678",
@@ -272,7 +281,7 @@ func TestSessionTemplateReadUsesIndiaBusinessDate(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := pinnedService(repo)
 
-	if _, err := svc.ListSessionTemplates(context.Background(), "tenant", "park", nil, nil); err != nil {
+	if _, err := svc.ListSessionTemplates(context.Background(), "tenant", testParkID, nil, nil); err != nil {
 		t.Fatalf("ListSessionTemplates: %v", err)
 	}
 	if got := repo.lastSessionQuery.AsOfDate; got != "2026-07-20" {
@@ -301,7 +310,7 @@ func TestWritesRequireIdempotencyKeyAndActor(t *testing.T) {
 			repo := &fakeRepo{}
 			svc := pinnedService(repo)
 			_, err := svc.UpsertRationRate(context.Background(), UpsertRationRateInput{
-				TenantID: tc.tenant, ActorRef: tc.actor, ParkID: "park",
+				TenantID: tc.tenant, ActorRef: tc.actor, ParkID: testParkID,
 				RationGroupLabel: "Boer", ShedTagLabel: "Pregnant", FeedItemLabel: "Concentrate",
 				GramsPerHead:       str("250"),
 				IdempotencyKey:     tc.key,
@@ -361,7 +370,7 @@ func TestUpsertScheduleConfigValidation(t *testing.T) {
 			repo := &fakeRepo{}
 			svc := pinnedService(repo)
 			_, err := svc.UpsertScheduleConfig(context.Background(), UpsertScheduleConfigInput{
-				TenantID: "tenant", ActorRef: "actor", ParkID: "park",
+				TenantID: "tenant", ActorRef: "actor", ParkID: testParkID,
 				Workflow: tc.workflow, DirectionTime: tc.direction, CorrectionTime: tc.correction,
 				TransportTime: tc.transport, TransportTimeProvided: tc.transport != nil,
 				IdempotencyKey: "key-12345678", RequestFingerprint: "fp",
@@ -414,7 +423,7 @@ func TestUpsertShedFactorValidation(t *testing.T) {
 			repo := &fakeRepo{}
 			svc := pinnedService(repo)
 			_, err := svc.UpsertShedFactor(context.Background(), UpsertShedFactorInput{
-				TenantID: "tenant", ActorRef: "actor", ParkID: "park", ShedID: "shed",
+				TenantID: "tenant", ActorRef: "actor", ParkID: testParkID, ShedID: testShedID,
 				FeedItemLabel: "Concentrate", Multiplier: tc.multiplier,
 				IdempotencyKey: "key-12345678", RequestFingerprint: "fp",
 			})
@@ -460,7 +469,7 @@ func TestPagingIsBoundedAndNeverSilentlyClamped(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			repo := &fakeRepo{}
 			svc := pinnedService(repo)
-			page, err := svc.ListRationRates(context.Background(), "tenant", RationRateFilter{ParkID: "park", Limit: tc.limit, Offset: tc.offset})
+			page, err := svc.ListRationRates(context.Background(), "tenant", RationRateFilter{ParkID: testParkID, Limit: tc.limit, Offset: tc.offset})
 			if tc.wantErr {
 				if !errors.Is(err, ErrInvalidPaging) {
 					t.Fatalf("error = %v, want ErrInvalidPaging", err)
@@ -496,7 +505,7 @@ func TestListFiltersAreValidatedNotIgnored(t *testing.T) {
 	if _, err := svc.ListShedTags(context.Background(), "tenant", "juvenile", nil, nil); !errors.Is(err, domain.ErrInvalidAppliesTo) {
 		t.Fatalf("bad applies_to error = %v, want ErrInvalidAppliesTo", err)
 	}
-	if _, err := svc.ListScheduleConfig(context.Background(), "tenant", "park", "trial", nil, nil); !errors.Is(err, domain.ErrInvalidWorkflow) {
+	if _, err := svc.ListScheduleConfig(context.Background(), "tenant", testParkID, "trial", nil, nil); !errors.Is(err, domain.ErrInvalidWorkflow) {
 		t.Fatalf("bad workflow error = %v, want ErrInvalidWorkflow", err)
 	}
 
@@ -507,7 +516,7 @@ func TestListFiltersAreValidatedNotIgnored(t *testing.T) {
 	if repo.lastTagQuery.AppliesTo != "" {
 		t.Fatalf("applies_to = %q, want empty (no filter)", repo.lastTagQuery.AppliesTo)
 	}
-	if _, err := svc.ListScheduleConfig(context.Background(), "tenant", "park", "", nil, nil); err != nil {
+	if _, err := svc.ListScheduleConfig(context.Background(), "tenant", testParkID, "", nil, nil); err != nil {
 		t.Fatalf("empty workflow rejected: %v", err)
 	}
 	if repo.lastSchedQuery.Workflow != "" {
@@ -548,7 +557,7 @@ func TestGramsComparisonIsValidatedAsAPair(t *testing.T) {
 			repo := &fakeRepo{}
 			svc := pinnedService(repo)
 			_, err := svc.ListRationRates(context.Background(), "tenant", RationRateFilter{
-				ParkID: "park", GramsOp: tc.op, GramsValue: tc.value,
+				ParkID: testParkID, GramsOp: tc.op, GramsValue: tc.value,
 			})
 			if tc.wantErr {
 				if !errors.Is(err, ErrInvalidFilter) {
@@ -605,7 +614,7 @@ func TestFeedItemSetIsAMatchSetNotAMatchNothing(t *testing.T) {
 			repo := &fakeRepo{}
 			svc := pinnedService(repo)
 			if _, err := svc.ListRationRates(context.Background(), "tenant", RationRateFilter{
-				ParkID: "park", FeedItems: tc.in,
+				ParkID: testParkID, FeedItems: tc.in,
 			}); err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -636,7 +645,7 @@ func TestBreedAndRationGroupAreSeparateFilters(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := pinnedService(repo)
 	if _, err := svc.ListRationRates(context.Background(), "tenant", RationRateFilter{
-		ParkID: "park", Breed: " Sirohi ", RationGroup: " Beetal/Sirohi ",
+		ParkID: testParkID, Breed: " Sirohi ", RationGroup: " Beetal/Sirohi ",
 	}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -654,7 +663,7 @@ func TestRepositoryErrorsPassThrough(t *testing.T) {
 	repo := &fakeRepo{err: ports.ErrIdempotencyConflict}
 	svc := pinnedService(repo)
 	_, err := svc.UpsertRationRate(context.Background(), UpsertRationRateInput{
-		TenantID: "tenant", ActorRef: "actor", ParkID: "park",
+		TenantID: "tenant", ActorRef: "actor", ParkID: testParkID,
 		RationGroupLabel: "Boer", ShedTagLabel: "Pregnant", FeedItemLabel: "Concentrate",
 		GramsPerHead: str("250"), IdempotencyKey: "key-12345678", RequestFingerprint: "fp",
 	})
@@ -684,7 +693,7 @@ func TestUpsertExperimentConfigRejectsAbsentGramsPerHead(t *testing.T) {
 	svc := pinnedService(repo)
 
 	_, err := svc.UpsertExperimentConfig(context.Background(), UpsertExperimentConfigInput{
-		TenantID: "tenant", ActorRef: "actor", ParkID: "park", ShedID: "shed",
+		TenantID: "tenant", ActorRef: "actor", ParkID: testParkID, ShedID: testShedID,
 		FeedItemLabel: "RGS Concentrate", ExperimentCategory: "Sheep M NEW",
 		GramsPerHead:       nil, // ABSENT
 		IdempotencyKey:     "key-12345678",
@@ -711,7 +720,7 @@ func TestUpsertExperimentConfigAcceptsAuthoredZero(t *testing.T) {
 	svc := pinnedService(repo)
 
 	if _, err := svc.UpsertExperimentConfig(context.Background(), UpsertExperimentConfigInput{
-		TenantID: "tenant", ActorRef: "actor", ParkID: "park", ShedID: "shed",
+		TenantID: "tenant", ActorRef: "actor", ParkID: testParkID, ShedID: testShedID,
 		FeedItemLabel: "Mesha Concentrate Goat", ExperimentCategory: "Sheep M NEW",
 		GramsPerHead:       str("0"),
 		IdempotencyKey:     "key-12345678",
@@ -734,7 +743,7 @@ func TestUpsertExperimentConfigAcceptsAuthoredZero(t *testing.T) {
 func TestUpsertExperimentConfigTakesNoHeadCount(t *testing.T) {
 	repo := &fakeRepo{}
 	if _, err := pinnedService(repo).UpsertExperimentConfig(context.Background(), UpsertExperimentConfigInput{
-		TenantID: "tenant", ActorRef: "actor", ParkID: "park", ShedID: "shed",
+		TenantID: "tenant", ActorRef: "actor", ParkID: testParkID, ShedID: testShedID,
 		FeedItemLabel: "Vijay Concentrate", ExperimentCategory: "Goat F NEW",
 		GramsPerHead:       str("12.5"),
 		IdempotencyKey:     "key-12345678",
@@ -754,7 +763,7 @@ func TestUpsertExperimentConfigTakesNoHeadCount(t *testing.T) {
 func TestUpsertExperimentConfigRequiresTheExperimentArm(t *testing.T) {
 	repo := &fakeRepo{}
 	_, err := pinnedService(repo).UpsertExperimentConfig(context.Background(), UpsertExperimentConfigInput{
-		TenantID: "tenant", ActorRef: "actor", ParkID: "park", ShedID: "shed",
+		TenantID: "tenant", ActorRef: "actor", ParkID: testParkID, ShedID: testShedID,
 		FeedItemLabel: "RGS Concentrate", ExperimentCategory: "   ",
 		GramsPerHead:       str("10"),
 		IdempotencyKey:     "key-12345678",
@@ -783,7 +792,7 @@ func TestSetExperimentShedStatusRequiresAnExplicitStatus(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			repo := &fakeRepo{}
 			_, err := pinnedService(repo).SetExperimentShedStatus(context.Background(), SetExperimentShedStatusInput{
-				TenantID: "tenant", ActorRef: "actor", ParkID: "park", ShedID: "shed",
+				TenantID: "tenant", ActorRef: "actor", ParkID: testParkID, ShedID: testShedID,
 				Status:             status,
 				IdempotencyKey:     "key-12345678",
 				RequestFingerprint: "fp",
@@ -802,7 +811,7 @@ func TestSetExperimentShedStatusRequiresAnExplicitStatus(t *testing.T) {
 	for _, want := range []string{domain.ExperimentStatusActive, domain.ExperimentStatusRetired} {
 		repo := &fakeRepo{}
 		if _, err := pinnedService(repo).SetExperimentShedStatus(context.Background(), SetExperimentShedStatusInput{
-			TenantID: "tenant", ActorRef: "actor", ParkID: "park", ShedID: "shed",
+			TenantID: "tenant", ActorRef: "actor", ParkID: testParkID, ShedID: testShedID,
 			Status:             strings.ToUpper(want), // case-insensitive on the way in
 			IdempotencyKey:     "key-12345678",
 			RequestFingerprint: "fp",
@@ -823,7 +832,7 @@ func TestSetExperimentShedStatusRequiresAnExplicitStatus(t *testing.T) {
 // status filter must therefore stay empty (meaning BOTH) rather than being defaulted to 'active'.
 func TestListExperimentConfigDefaultsToBothStatuses(t *testing.T) {
 	repo := &fakeRepo{}
-	if _, err := pinnedService(repo).ListExperimentConfig(context.Background(), "tenant", ExperimentConfigFilter{ParkID: "park"}); err != nil {
+	if _, err := pinnedService(repo).ListExperimentConfig(context.Background(), "tenant", ExperimentConfigFilter{ParkID: testParkID}); err != nil {
 		t.Fatalf("list failed: %v", err)
 	}
 	if repo.lastExperimentQuery.Status != "" {
@@ -834,7 +843,7 @@ func TestListExperimentConfigDefaultsToBothStatuses(t *testing.T) {
 	// widen the result to both statuses for a caller who asked for one, and the two statuses are two
 	// different feeding regimes.
 	repo2 := &fakeRepo{}
-	if _, err := pinnedService(repo2).ListExperimentConfig(context.Background(), "tenant", ExperimentConfigFilter{ParkID: "park", Status: "paused"}); err == nil {
+	if _, err := pinnedService(repo2).ListExperimentConfig(context.Background(), "tenant", ExperimentConfigFilter{ParkID: testParkID, Status: "paused"}); err == nil {
 		t.Fatal("unrecognised status filter was accepted; it must be rejected rather than ignored")
 	}
 }
