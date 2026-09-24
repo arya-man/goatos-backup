@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
-  "image": "asia-south1-docker.pkg.dev/goatos-stg/goatos/clouddeploy-stg-runner@sha256:830814dcbc6e7eee6c07c250e4cfab1d4595a69cd207c4d446bb6f6bf6293c29",
+  "image": "asia-south1-docker.pkg.dev/goatos-stg/goatos/clouddeploy-stg-runner@sha256:4763b36db337ead14b8ef521e4302113bf13c6187449696e3e68fae3b8766517",
   "files": {
     "deploy/clouddeploy/stg/runner.Dockerfile": "e638e40b0064e725c23c7355ef86e62428042777fbfbeb35642b3bd58b27757f",
     "infra/grafana/dashboards/00-feature-health.json": "a3a80e7cbd3e9e46fd7516002ba70123669675c789f78b4f334519098bb9472f",
-    "infra/grafana/dashboards/01-api-red.json": "163a38d6de546b9ff52bedc3acdf185fad05c0191e76e76978fe2eeeea3357e1",
+    "infra/grafana/dashboards/01-api-red.json": "0cb4accd208b3275c05685814bbdaa488817646835d559c53ace229a41f4d551",
     "infra/grafana/dashboards/02-db.json": "09e0fa83e5acbb5aad2931e678aedd0f1a0f4a54965d473f847d31dc0e049a7a",
     "infra/grafana/dashboards/03-kernel-pipeline.json": "9280602103475369696ed2a1801de4bd5e68a35de9fd3edb3cd9dfae3cf4eb75",
     "infra/grafana/dashboards/04-frontend-rum.json": "c4856969fb3b526d74bef369bf854efd92a6a49906a746f0160930894fe05a6f",
