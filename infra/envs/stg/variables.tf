@@ -94,16 +94,20 @@ variable "cloud_sql_database_name" {
 variable "cloud_sql_tier" {
   description = "Staging Cloud SQL tier. Pin the exact tier in each benchmark profile before a 1M rehearsal."
   type        = string
-  default     = "db-g1-small"
+  # 2026-09-24: moved off the shared-core db-g1-small (hard-capped at 0.5 vCPU, pinned at the cap
+  # under the weighing analytics load) to 1 dedicated vCPU / 3.75 GB. Maintainer-approved, applied
+  # live; revisit after PR #389 is deployed (docs/perf/2026-09-24-stg-latency).
+  default     = "db-custom-1-3840"
 
   validation {
     condition = contains([
       "db-g1-small",
+      "db-custom-1-3840",
       "db-custom-2-7680",
       "db-custom-4-15360",
       "db-custom-8-30720",
     ], var.cloud_sql_tier)
-    error_message = "Use a pinned staging benchmark tier: db-custom-2-7680, db-custom-4-15360, or db-custom-8-30720."
+    error_message = "Use a pinned staging tier: db-g1-small, db-custom-1-3840, db-custom-2-7680, db-custom-4-15360, or db-custom-8-30720."
   }
 }
 
