@@ -26,6 +26,7 @@ type fakeService struct {
 	liveResp  domain.LiveResponse
 	liveErr   error
 	liveCalls int
+	liveFresh []bool
 	liveSort  domain.LiveSort
 	liveGot   struct {
 		parkID, shedID, movementState, liveState, mappingState, pattern, riskState, q *string
@@ -107,10 +108,11 @@ func (f *fakeService) IngestPackets(_ context.Context, _ domain.Actor, req domai
 	return f.ingestResp, f.ingestErr
 }
 
-func (f *fakeService) ListLive(_ context.Context, _ domain.Actor, parkID, shedID, movementState, liveState, mappingState, pattern, riskState, q *string, cursor string, limit int, sort domain.LiveSort) (domain.LiveResponse, error) {
+func (f *fakeService) ListLive(ctx context.Context, _ domain.Actor, parkID, shedID, movementState, liveState, mappingState, pattern, riskState, q *string, cursor string, limit int, sort domain.LiveSort) (domain.LiveResponse, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.liveCalls++
+	f.liveFresh = append(f.liveFresh, domain.FreshLiveRead(ctx))
 	f.liveGot.parkID, f.liveGot.shedID = parkID, shedID
 	f.liveGot.movementState, f.liveGot.liveState = movementState, liveState
 	f.liveGot.mappingState, f.liveGot.pattern = mappingState, pattern

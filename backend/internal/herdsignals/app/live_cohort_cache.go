@@ -40,9 +40,10 @@ type liveCohortEntry[T any] struct {
 }
 
 type liveCohortFlight[T any] struct {
-	done  chan struct{}
-	items T
-	err   error
+	done     chan struct{}
+	startGen uint64
+	items    T
+	err      error
 }
 
 type liveCohortCache[T any] struct {
@@ -71,43 +72,55 @@ func liveCohortKey(tenantID string, parts ...*string) string {
 // get returns the cohort for key, computing it at most once concurrently. Returned slices are
 // shared and MUST be treated as read-only by callers.
 func (c *liveCohortCache[T]) get(ctx context.Context, key string, requireFresh bool, compute func(context.Context) (T, error)) (T, error) {
-	c.mu.Lock()
-	now := c.now()
-	e := c.entries[key]
-	if e != nil && e.loaded {
-		age := now.Sub(e.loadedAt)
-		fresh := !e.stale && age < liveCohortTTL
-		if fresh {
-			items := e.items
-			c.mu.Unlock()
-			return items, nil
-		}
-		if !requireFresh && age < liveCohortMaxStale {
-			items := e.items
-			if e.inflight == nil && age >= liveCohortMinRefresh {
-				c.startFlightLocked(key, e, compute)
+	var callerGen uint64
+	var callerEntry *liveCohortEntry[T]
+	for {
+		c.mu.Lock()
+		now := c.now()
+		e := c.entries[key]
+		if e != nil && e.loaded {
+			age := now.Sub(e.loadedAt)
+			fresh := !e.stale && age < liveCohortTTL
+			if fresh {
+				items := e.items
+				c.mu.Unlock()
+				return items, nil
 			}
-			c.mu.Unlock()
-			return items, nil
+			if !requireFresh && age < liveCohortMaxStale {
+				items := e.items
+				if e.inflight == nil && age >= liveCohortMinRefresh {
+					c.startFlightLocked(key, e, compute)
+				}
+				c.mu.Unlock()
+				return items, nil
+			}
 		}
-	}
-	if e == nil {
-		c.evictLocked()
-		e = &liveCohortEntry[T]{}
-		c.entries[key] = e
-	}
-	flight := e.inflight
-	if flight == nil {
-		flight = c.startFlightLocked(key, e, compute)
-	}
-	c.mu.Unlock()
+		if e == nil {
+			c.evictLocked()
+			e = &liveCohortEntry[T]{}
+			c.entries[key] = e
+		}
+		if callerEntry != e {
+			// The invalidations this caller must observe are those already applied on entry.
+			callerEntry, callerGen = e, e.gen
+		}
+		flight := e.inflight
+		if flight == nil {
+			flight = c.startFlightLocked(key, e, compute)
+		}
+		c.mu.Unlock()
 
-	select {
-	case <-flight.done:
-		return flight.items, flight.err
-	case <-ctx.Done():
-		var zero T
-		return zero, ctx.Err()
+		select {
+		case <-flight.done:
+		case <-ctx.Done():
+			var zero T
+			return zero, ctx.Err()
+		}
+		// A fresh caller must not take a result computed before the NOTIFY it reacts to: if the
+		// flight it joined started at an older generation, go round and compute again.
+		if flight.err != nil || !requireFresh || flight.startGen >= callerGen {
+			return flight.items, flight.err
+		}
 	}
 }
 
@@ -118,6 +131,7 @@ func (c *liveCohortCache[T]) startFlightLocked(key string, e *liveCohortEntry[T]
 	e.inflight = flight
 	startedAt := c.now()
 	startGen := e.gen
+	flight.startGen = startGen
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), liveCohortComputeCap)
 		defer cancel()
