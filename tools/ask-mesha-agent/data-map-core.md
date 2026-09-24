@@ -10,7 +10,7 @@ HARD RULES: (a) Species: never call sheep "goats". If the question says goats/ba
 (b) Arithmetic: every total, difference, %, ratio, per-day or per-animal figure is computed IN SQL (sum/-/ /round) and read back; never add or subtract by hand.
 (c) Simple lookups (headcount, one pen, one number) = ONE query, answer immediately; no exploration, no re-check.
 (d) REFERENCE FILES (references/*.sql below): use run_reference('<file>', where=...) instead of retyping - never copy them into run_sql.
-  where = SQL filter on the file's output columns; windows via params only (adg-by-park.sql {from_date,to_date}, adg-by-breed.sql {from_date,to_date,park_code,sex,origin,weighing}, cost-per-kg-gain.sql {days}).
+  where = SQL filter on the file's output columns; windows via params only (adg-by-park.sql {from_date,to_date}, adg-by-breed.sql {from_date,to_date,park_code,sex,origin,weighing}, cost-per-kg-gain.sql {from_date,to_date,park_code,sex,origin,weighing}).
 PENS (model-agnostic): pen = G1P3 "Godel 1 Part 3", C1 "Castro 1"; group = Godel 1 / Castro (a GROUP, never call it a shed). ALWAYS resolve
   pens via .agents/skills/mesha-data-map/references/pens.sql (copy its CTEs + ONE lateral join on (location_id, partition_label)); never assume
   animals/weighs sit on the group row or on the pen row ("Godel 1 - Part 3"): the data may use either. If a pen looks empty, check both placements
@@ -28,7 +28,7 @@ topic -> view -> key columns -> date column
 - weighing verification -> weighing_verification_status -> pending, rework, verified, oldest_pending_at -> none. BY PERSON: raw
   public.verification_items (module='weighing'; status pending=awaiting verifier, rejected=sent back for rework, approved, withdrawn;
   operator_id=who captured, verified_by/verified_at=verifier; captured_at). Overdue = pending and captured_at older than 24h (verification SLA).
-  "Who verified most" = verification_items by verified_by, verified_at in window, all modules (verified_by NULL = auto-approved by system).
+  "Who verified most" = verification_items by verified_by, verified_at in window, all modules (auto-approved by system = auto_resolution='not_sampled', 713 on 25/09; do NOT use verified_by NULL - 11 non-auto approvals also have it).
 - headcount now -> animal_current_scope -> park_label, species, sex, breed, management_stage, lifecycle_status='alive' -> none.
   The view ALSO holds sold/dead/inactive rows: every count, %, ratio or split MUST filter lifecycle_status='alive' (CBE alive=850, not 995).
   ONE-QUERY headcount: SELECT park_label, species, count(*) FROM ceo_ai.animal_current_scope WHERE lifecycle_status='alive'
@@ -38,10 +38,10 @@ topic -> view -> key columns -> date column
   Always name the park and species split per row.
 - sold / exits / entries -> animals_base -> exit_reason ('sold','died'), park_label -> exit_business_day / entry_date
 - deaths -> public.goats: (exit_reason='died' OR (exit_reason IS NULL AND lifecycle_status='dead')) AND merged_into_goat_id IS NULL,
-  date = (exited_at AT TIME ZONE 'Asia/Kolkata')::date; split park + species (Sep 2026: 3, all CBE: 1 goat, 2 sheep). Not mortality_base (see traps).
-- births -> date by goats.dob like the Herd Analytics screen (counts_movement_daily dates births by IMPORT day: Aug view 466 vs screen 0), flag placeholder DOBs; transfers/shifts -> shifting_events only (counts_movement_daily looks for event_status='completed' but the app writes 'applied', so its shift/transfer counts are always 0). "How many births": give BOTH herd-count births
-  (sum births; includes a 5 Aug 2026 bulk entry of 458) AND individually registered kids (public.goat_births by
-  (created_at AT TIME ZONE 'Asia/Kolkata')::date; it has NO birth_date column; Sep 2026: 1 each, 16/09), one line why they differ.
+  date = (COALESCE(exited_at, updated_at) AT TIME ZONE 'Asia/Kolkata')::date (app rule); split park + species (Sep 2026: 3, all CBE: 1 goat, 2 sheep). mortality_base agrees (6) (see traps).
+- births -> date by goats.dob like the Herd Analytics screen (counts_movement_daily dates births by IMPORT day: Aug view 466 vs screen 0), flag placeholder DOBs; transfers/shifts -> shifting_events only (counts_movement_daily looks for event_status='completed' but the app writes 'applied', so its shift/transfer counts are always 0). "How many births": give the screen number (goats origin_type='birth' by COALESCE(dob, entry_date, created_at IST); Aug 2026 0, Sep 1)
+  AND individually registered kids (public.goat_births by (created_at AT TIME ZONE 'Asia/Kolkata')::date; it has NO birth_date column;
+  Sep 2026: 1, 16/09). Never report counts_movement_daily.births as births (Aug 466 = 05/08/2026 IST bulk import of 458 + 8).
 - feed directed vs fed -> feed_adherence -> directed_kg, fed_kg, variance_kg, blocked -> feed_day
 - feed plan detail -> feed_direction_current; completions -> feed_completions_base (fed_business_day)
 - vaccination now -> vaccination_shed_status; over time -> vaccination_obligations_base (due_business_day; status scheduled|completed|canceled|deferred|superseded;
@@ -66,8 +66,8 @@ metrics -> how (exact defs + SQL: SKILL.md "Metric definitions"; never invent a 
 - headcount: animal_current_scope lifecycle_status='alive'. sold: animals_base exit_reason='sold' by exit_business_day (see traps: deals).
 - cost per kg gain = the app's Weighing > FCR tab "Feed cost per kg gain": per pen, consecutive weighing rounds; cost = DIRECTED feed
   (feed_direction_issue_rows, issued/amended/locked) x latest same-park per_kg_cost on/before each feed day; gain kg = pen ADG x fed head-days.
-  Only pens weighed twice count, so feed and gain are the SAME animals. Copy the ready SQL in SKILL.md "Cost per kg gain" (last 30 days ~Rs 335/kg:
-  CBE 331, CPT 340 on 24/09). NEVER divide whole-park feed bills by a weighed subset's gain. Answer: Rs/kg per park + total, feed Rs and kg gain, 1 line method.
+  Only pens weighed twice count, so feed and gain are the SAME animals. MUST run_reference('cost-per-kg-gain.sql', params={from_date, to_date, sex, ...}) (03/08-23/09:
+  all sexes Rs 334/kg, male Rs 318 = the tab; tab default sex is male). NEVER divide whole-park feed bills by a weighed subset's gain. Answer: Rs/kg per park + total, feed Rs and kg gain, 1 line method.
 - pen ADG between two weighings: whole-pen arm (SKILL.md) (last avg - first avg)*1000/days computed in SQL -> g/day.
 - ADG / daily-gain ANSWER SHAPE: headline g/day per park (and total), how many animals/pens it covers, then ONE line of method
   ("from animals/pens weighed twice this month, gain / days between weighings"). NO per-pen table of first/last avg/days unless asked;
@@ -77,7 +77,7 @@ metrics -> how (exact defs + SQL: SKILL.md "Metric definitions"; never invent a 
   total (Castro, Coimbatore 181 across 3 pens) only as context after. Rank groups only if the user says "group"/"shed".
 - mortality %: deaths in window (goats rule above) *100 / live 'alive' count now, 1dp (NOT mortality_base.active_population).
 - weighing pending: pending+rework. feed fed_kg is always 0: say fed data missing. vaccination: due/done, no %.
-- feed head count: today's feed sheet covers ~782 head vs 1,562 alive in the register; herd size always from the register, sheet heads only for per-head feed; say so if asked.
+- feed head count: the feed sheet covers ~1,570-1,580 head per day (both workflows, pen-grain MAX(head_count); 1,579 on 23/09) vs 1,562 alive in the register - close but not the same source; herd size always from the register, sheet heads only for per-head feed; say so if asked.
 Full columns + example per view: .agents/skills/mesha-data-map/references/views.generated.md
 Never show ids, table/view names or internal notes in the answer (say "pen routines", not pen_routine_tasks).
 Access: read every table (no filter rules); the database login is read-only.
@@ -122,7 +122,7 @@ Module tables (public.*; park name: locations via park_id; PEN = pens.sql latera
   approvals -> counts_approval_requests (decision_reason); config changes -> feed_config_write_log (actor_ref); tag/identity -> identity_decisions;
   RFID sensors -> herd_signal_tag_latest; growth sale price -> growth_sale_price_assumptions; sale allocations -> goat_sale_allocations.
 - feed stock / days of cover / "kitna din chalega" = app Feed Analytics > Stock: run_reference('feed-stock-days-left.sql') (purchase ledger minus locked sheet issues, 3-latest-day burn rate,
-  split concentrates merged). NOT inventory_stock, NOT your own 14-day average. 24/09: CBE UHT milk 5 days, concentrates ~14-15, bhusa 19-23.
+  split concentrates merged). NOT inventory_stock, NOT your own 14-day average. 25/09: CBE UHT milk 4 days (CPT 7), concentrates 13-14, bhusa 18-22.
   Answer: shortest days-left first, per park; items shown as not_started = stock but no use yet.
 - feed wastage %: feed_wastage_completions.wastage_kg (completed) / directed kg (feed_direction_issue_rows, issued/amended/locked) ONLY for the same pen-days that have a completed wastage_kg (join on pen + target_date; never the whole month's directed feed), in SQL.
   pending_verification rows have wastage_kg NULL: say how many pen-days have no wastage kg yet (e.g. 95 in Sep), don't call them 0.
@@ -147,7 +147,7 @@ Module tables (public.*; park name: locations via park_id; PEN = pens.sql latera
 - Money: feed "paid" = feed_purchase_payments.amount_rupees (paid_on), NOT feed_purchases.total_cost (= bill); owed = bill - payments per
   feed_purchase_id. "Paid this month" headline = sum(feed_purchase_payments.amount_rupees) by paid_on in the month; then a 2nd line "of which
   against this month's bills" (payments joined to purchases dated in the month). Ledger starts 03/09/2026; feed_purchases.payment_released =
-  running released total (mirrors ledger), so vendor dues = payment_status='Pending' bills: total_cost - greatest(payment_released, ledger sum); ALSO list 'Paid' bills whose released < total (25 on 24/09, e.g. Hemant 2,02,262 billed / 95,300 released) as 'marked Paid but short'.
+  running released total (mirrors ledger), so vendor dues = payment_status='Pending' bills: greatest(total_cost - coalesce(payment_released,0),0) (code PaymentBalance; Rs 22,71,081.22 on 31 loads 25/09); ALSO list 'Paid' bills whose released < total (28 on 25/09, e.g. Hemant 2,02,262 billed / 95,300 released) as 'marked Paid but short'.
   Sales received = sales_deals.payment_received (what the Sales screen shows): a RUNNING TOTAL seeded from advance_amount, +each
   sales_deal_payments row. Never add advance + ledger + payment_received. Sales dues (status='Deal Closed'): due per deal = greatest(sales_value - payment_received, 0), summed per buyer over deals with
   payment_received NOT NULL. Never net an overpaid deal against another (list received > value separately as a data issue). payment_received NULL on
@@ -177,16 +177,16 @@ Module tables (public.*; park name: locations via park_id; PEN = pens.sql latera
   The user sees the live table; answer from the returned summary in 2-4 sentences.
 TWO-SOURCE TRAPS (pick the source below; details + SQL in SKILL.md "Two-source traps"):
 - deaths: public.goats rule above; mortality_base agrees with goats on STG (6 deaths; its "death/dead/mortality" filter is only in the rollback half of migration 000358). Cause is mostly unrecorded.
-- sold: animals sold = goats register (lifecycle 'sold', exited_at IST) = tagged allocations; sales_deals.animal_count is the commercial
-  count incl. pre-app deals (706 all-time vs 160 in register). Answer the register, add the deal count in one line when they differ.
+- sold: animals sold = goats register (lifecycle 'sold', exited_at IST) = tagged allocations; closed-deal Goat+Sheep line animals are the commercial
+  count incl. pre-app deals (688 closed-deal line animals all-time vs 160 in register; header sales_deals.animal_count 706 wrongly adds 18 on manure deals). Answer the register, add the deal count in one line when they differ.
 - revenue = sales_deals status 'Deal Closed' sum(sales_value) by sale_date; pipeline = any other open status (none on 24/09: say so).
-- births: never goats.dob / created_at / origin_type counts over time (placeholder DOBs 09/05/2026 x403, 21/07/2024 x77; bulk import 04/08).
+- births: goats.dob screen rule + goat_births; never counts_movement_daily.births or goats.created_at (bulk import 05/08/2026 IST); flag placeholder DOBs (farm-born 09/05/2026 x403, 21/07/2024 x77).
 - species: public.goats holds sheep too; always split species. "goats" in a load/pen with only sheep = say sheep.
 - alive: 'alive' only for headcount; "on farm" incl. sick/under_treatment/quarantine/icu (0 today). Base views include exited rows.
 - pen of an animal: pens.sql on (goats.shed_id, goat_shed_partitions.partition_label), NOT current_location_id (18 differ).
 - vaccination done: in-app (sop_submission_item_id) vs imported; due = obligation_instances status scheduled|due|in_progress|deferred, one per animal; vaccination_shed_status OMITS deferred and has whole-shed + per-pen rows (sum only partition_label IS NULL rows, else double counts).
 - feed: stock = purchase ledger SQL (not inventory_*); fed_kg is empty; packed != directed != fed. Owed: payment_status 'Paid' = 0 owed;
-  NULL status (40 sheet-import rows, no bill) = unknown, list separately.
+  empty '' status (40 sheet-import rows, no total_cost; not NULL) = unknown, list separately.
 - load cost: animal_cost/transport_cost/other_cost are TOTALS; procurement_load_cost_lines is their breakdown - never add both.
 - weighing: latest weigh per animal, same filter as the app screens so numbers match the dashboard. Known app bug: the <> 'rejected' filter never matches (a sent-back weigh is 'rework'), so 16 rework weighs (9 in Sep) are inside app and chat averages/ADG; all were re-weighed later, so latest-per-animal is unaffected. Mention it only if asked about weighing accuracy (weight_kg = corrected); whole-pen weighs separate, exclude withdrawn.
 - shifts done = shifting_events event_status 'applied' (applied_at IST); authorized/pending = not moved yet.
@@ -207,3 +207,41 @@ Before saying "not recorded"/"none": search table names + information_schema.col
 - Animal history (stage / exit / pen): public.goat_identity_events is the COMPLETE per-animal event log — event_type goat.created (starting stage/pen), goat.stage_changed (payload management_stage, previous_management_stage, reason; from 18/08/2026), goat.exited (death/sale), goat.location.changed, goat.health.changed. audit_log has only a few of these; never count stage changes from audit_log. Stage on a past date = latest goat.stage_changed on/before that date, else the goat.created stage. Label office corrections (reason like "Tag corrected", "repair") separately from farm moves. Stage changes before 18/08/2026 are not recorded.
 - "Animals weighed" in a period = DISTINCT animals, per park: (a) per-animal: count(DISTINCT scanned_identifier) in weighing_observations accepted in the period, plus (b) whole-pen: the LATEST weighing_shed_observations.animal_count per pen in the period (join weighing_campaign_sheds on campaign_shed_id; key park_id+location_id+partition_label; withdrawn_at IS NULL) — never sum whole-pen counts across rounds (pens are weighed ~weekly). Sep 1–24 check: CBE 287+244=531, CPT 211+139=350 (881 of 1,562 alive). Summing rounds gave 2,656 = weighings, not animals. A count above the herd is always wrong.
 - Names in a question can be a pen, park, breed, stage, species, person, vendor or buyer — never assume "pen". Before saying "no such X", fuzzy-match the word (ILIKE, typos like Anatpur ~ Anantapur) against: goats.breed text + breeds table, locations names, management_stage values, workforce_members names, procurement_vendors, sales buyer_name. E.g. "Anatpur sheep" = breed "Anantapur Sheep" (59 alive have breed text but no breed_id: match on goats.breed text).
+
+## Logic cards (open before answering any screen number)
+Path: .agents/skills/mesha-data-map/references/logic/<card>.md — each card = screen, endpoint, code refs, formula, runnable SQL, stg figures, traps. Match the question to a card:
+- adg-analytics-charts: ADG Analytics — charts, cards and drawers not fully covered by adg-analytics.md
+- adg-analytics: ADG Analytics (admin-web Weighing > ADG Analytics, /weighing/analytics)
+- approvals: birth/death/shift approvals page, pending counts
+- audit: Audit logic cards
+- births: Logic card: births (kids born, birth approvals, farm-born)
+- calendar: Logic card: Calendar (vaccination drives) and Protocol Adherence
+- configuration: Configuration logic cards
+- control-tower: Logic card: HOME ("/") and CONTROL TOWER (/?lens=control-tower)
+- counts: Counts > Breakdown + Milk preparation: logic cards (verified 24/09/2026, goatos-stg)
+- deaths: Logic card: deaths (recording, approval, Herd Analytics deaths)
+- fcr: FCR tab (Weighing > ADG Analytics > FCR)
+- feed-purchases: Feed purchases & payments (/procurement/feed-purchases)
+- feed-stock: Feed Analytics > Stock tab: logic card
+- feed: Feed Analytics (directed sheet, fed, cost, wastage, pen feed, rates)
+- growth-director: Growth Director + Sale readiness — screen logic
+- health: Logic card: HEALTH (Health > Health Analytics, /health/analytics)
+- herd-signals: Herd Signals (RFID / BLE smart tags) logic card
+- herd: Counts > Herd register + Analytics composition: logic cards (verified 24/09/2026, goatos-stg)
+- identity: Goat passport + identity (tags, RFID, sale allocation): logic cards (verified 24/09/2026, goatos-stg)
+- inventory: INVENTORY / STORES (vaccines + medicines)
+- milk: Milk Preparation & Milk Feeding: logic card
+- mortality: Logic card: Counts > Mortality (GET /counts/mortality)
+- operations: Operations logic cards (DLQ Center, CEO AI trace)
+- pen-visits: Logic card: Pen visits and pen routines
+- people: People — attendance, clock-in, leave, vaccination operators, notifications
+- preventive-care: Logic card: Preventive Care (deworming, hoof trimming, feed & water removal, inventory vaccine)
+- procurement: Procurement logic cards
+- sales: Sales logic cards (admin-web /sales/*; verified on goatos-stg 24/09/2026)
+- shifting: Logic card: shifting (pen moves / transfers)
+- tasks: Leadership tasks /tasks — status, overdue, attachments
+- toxin: TOXIN TESTS (aflatoxin strip test per feed load)
+- vaccination: Vaccination logic card (admin-web /vaccination, /vaccination/plan, /vaccination/live-tracker, passports)
+- verification: Verification queue (/verify; /verification redirects to /verify)
+- weighing: Weighing — admin-web /weighing/weights (logic map)
+- work-board: Logic card: WORK BOARD / ACTION CENTER / ALERTS / LEADERSHIP TASKS
