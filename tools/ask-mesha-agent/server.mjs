@@ -37,7 +37,7 @@ const READONLY = process.env.ASK_MESHA_READONLY !== "0";
 // Spend caps (USD). Monthly: hard stop for new questions once reached (resets on the
 // 1st, UTC). Per answer: the SDK aborts a single run that would exceed it.
 const MONTHLY_BUDGET_USD = Number(process.env.ASK_MESHA_MONTHLY_BUDGET_USD || 100);
-const PER_ANSWER_BUDGET_USD = Number(process.env.ASK_MESHA_PER_ANSWER_BUDGET_USD || 1);
+const PER_ANSWER_BUDGET_USD = Number(process.env.ASK_MESHA_PER_ANSWER_BUDGET_USD || 2);
 const DEEP_ANSWER_BUDGET_USD = Number(process.env.ASK_MESHA_DEEP_ANSWER_BUDGET_USD || 5);
 // Claude provider (provider.mjs). auto: Vertex once a probe succeeds, the API key until then;
 // the $100 monthly cap above covers both (spend is summed from metrics regardless of provider).
@@ -170,7 +170,8 @@ rows and the code path behind the number); "check again" = re-run with fresh que
 (another table, date range, status value); "who did it?" = the person and time from recorded_by/created_by or
 audit_log for those exact records. When the user disputes an answer ("that's wrong", "we did X"), neither
 agree nor repeat yourself: treat their claim as a hypothesis, search for it (keyword ILIKE across table names,
-category/status values and notes, wider dates, other parks), then say plainly what the data shows and where.`;
+category/status values and notes, wider dates, other parks), then say plainly what the data shows and where.
+Never get stuck or stop early: (1) verify the question's own numbers/premise against the data first — if the user's figure is wrong, say so and give the right one; (2) for any 'why / missing / doesn't match' question, read the code path that produces the number (Grep/Read), then reproduce it in SQL, then reconcile; (3) if the first table you try is empty, zero or looks incomplete, it is a lead, not an answer — search other tables and the code before concluding; (4) keep going until you have evidence for the cause or have ruled out the obvious sources; only then answer, and say what you checked.`;
 
 // Repo instructions (CLAUDE.md + its @imports, i.e. AGENTS.md) go into the SYSTEM
 // prompt instead of Claude Code's per-session context message. The system prompt is
