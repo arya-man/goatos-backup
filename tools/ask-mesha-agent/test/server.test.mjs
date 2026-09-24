@@ -187,3 +187,22 @@ test("server source: budget pause wording and file headers", () => {
   assert.match(src, /"X-Content-Type-Options": "nosniff"/);
   assert.match(src, /cost_usd === null && started/);
 });
+
+test("deep routing: recorded-reason lookups stay fast", async () => {
+  const { isDeepQuestion: deep } = await import("../lib.mjs");
+  for (const q of ["who rejected shifting approvals and why", "pen visits why delayed, how many",
+    "pen visits delayed, with reasons", "which RFID goats are not moving"]) assert.ok(!deep(q), q);
+  for (const q of ["why is this failing we have done deworming", "Why are sales down this month?",
+    "why is the number of pending visits showing 40", "why?", "dig deeper", "check again please"]) assert.ok(deep(q), q);
+});
+
+test("describe_table batching and missing-column hints", async () => {
+  const { describeTableNames, sqlTableRefs, isMissingColumnError, describeTableSql: d } = await import("../lib.mjs");
+  assert.deepEqual(describeTableNames("public.a, public.b public.a"), ["public.a", "public.b"]);
+  assert.equal(describeTableNames(["a", "b", "c", "d", "e", "f", "g"]).length, 6);
+  assert.deepEqual(sqlTableRefs("select * from public.shift_requests s left join workforce_members m on m.id=s.x join ceo_ai.v x on true"),
+    ["public.shift_requests", "public.workforce_members", "ceo_ai.v"]);
+  assert.ok(isMissingColumnError('ERROR:  column m.member_id does not exist'));
+  assert.ok(!isMissingColumnError("syntax error at or near filter"));
+  assert.match(d("public.x").sql, /contype = 'f'/);
+});
