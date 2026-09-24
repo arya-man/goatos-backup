@@ -73,7 +73,14 @@ FROM public.tenants t
 CROSS JOIN (VALUES
     ('sheep',  'Sheep',  'animal', 'head', 'sheep', 10),
     ('goat',   'Goat',   'animal', 'head', 'goat',  20),
-    ('manure', 'Manure', 'other',  'kg',   NULL,    30)
+    ('manure', 'Manure', 'other',  'kg',   NULL,    30),
+    -- FEED IS SEEDED, and the reason is the point of this migration: the farm asked to sell
+    -- feed, so a farm that deploys this and finds nothing to sell it as has been given a
+    -- feature it cannot reach. It is an ordinary row like the other three -- renameable,
+    -- switchable-off, and the farm adds its own beside it -- not a constant in code. ONE
+    -- generic item: which feed left the store is chosen per sale from the feed catalog, so a
+    -- row per feed here would duplicate that list and drift from it.
+    ('feed',   'Feed',   'feed',   'kg',   NULL,    40)
 ) AS v(code, name, kind, unit, species, sort)
 ON CONFLICT DO NOTHING;
 
