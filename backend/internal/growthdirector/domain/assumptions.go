@@ -16,6 +16,15 @@ import (
 type Assumptions struct {
 	SalePrices []SalePrice       `json:"sale_prices"`
 	Values     []AssumptionValue `json:"values"`
+	// Stages is the tenant's active management-stage vocabulary (animal_stage_lookup), in its own
+	// order: the rows a stage x sex price can be set for. Tenant data, never a list in code.
+	Stages []StageOption `json:"stages"`
+}
+
+// StageOption is one management stage a price override may name.
+type StageOption struct {
+	Code string `json:"code"`
+	Name string `json:"name"`
 }
 
 // AssumptionValue is one keyed figure. Label is NOT here: the label is page copy owned by the
@@ -176,6 +185,13 @@ const (
 // SalePriceSpecies is the vocabulary the price table accepts (CHECK constraint in 000363).
 var SalePriceSpecies = []string{"goat", "sheep"}
 
+// SalePriceSexes is the sex vocabulary an override may name -- the register's own (goats_sex_check).
+var SalePriceSexes = []string{"female", "male"}
+
+// MaxSalePriceUpdates bounds one save: two species x a stage vocabulary x two sexes, plus the two
+// defaults, with room to spare. A request past it is a client bug, not a decision.
+const MaxSalePriceUpdates = 400
+
 // AssumptionsUpdate is the whole set a PUT carries. Every field is the value the caller wants
 // to hold; a row absent from the request is left untouched, so a client that only knows the
 // prices cannot blank the thresholds.
@@ -184,14 +200,27 @@ type AssumptionsUpdate struct {
 	Values     []ValueUpdate     `json:"values"`
 }
 
+// SalePriceUpdate sets one price. Stage and sex both empty set the SPECIES DEFAULT; both named set
+// a stage x sex OVERRIDE (maintainer decision 2026-09-24).
 type SalePriceUpdate struct {
-	Species       string  `json:"species"`
-	PricePerKgINR float64 `json:"price_per_kg_inr"`
-	// LoadedPricePerKgINR is the price the drawer SHOWED when it was opened -- the fence. The
-	// price table is append-only and effective-dated, so it has no row_version; the
-	// compare-and-set is on the figure the editor decided against. Nil means the drawer loaded
-	// no price for the species (a tenant with no row yet), and is a conflict once one exists.
+	Species         string `json:"species"`
+	ManagementStage string `json:"management_stage"`
+	Sex             string `json:"sex"`
+	// PricePerKgINR is the price to hold. Nil CLEARS an override -- that combination goes back to
+	// the species default from today. A species default can never be cleared.
+	PricePerKgINR *float64 `json:"price_per_kg_inr"`
+	// LoadedPricePerKgINR is the price the drawer SHOWED for this exact row when it was opened --
+	// the fence. The price table is append-only and effective-dated, so it has no row_version; the
+	// compare-and-set is on the figure the editor decided against. Nil means the drawer loaded no
+	// price of its own for this row (no default yet, or no override), and is a conflict once one
+	// exists.
 	LoadedPricePerKgINR *float64 `json:"loaded_price_per_kg_inr"`
+}
+
+// Normalized returns the update's identity in the stored spelling: species and sex lower-case,
+// the stage code trimmed but otherwise as the tenant authored it.
+func (p SalePriceUpdate) Normalized() (species, stage, sex string) {
+	return strings.ToLower(strings.TrimSpace(p.Species)), strings.TrimSpace(p.ManagementStage), strings.ToLower(strings.TrimSpace(p.Sex))
 }
 
 type ValueUpdate struct {
@@ -209,21 +238,39 @@ func ValidateAssumptionsUpdate(update AssumptionsUpdate) error {
 	if len(update.SalePrices) == 0 && len(update.Values) == 0 {
 		return fmt.Errorf("nothing to change")
 	}
-	seenSpecies := map[string]bool{}
+	if len(update.SalePrices) > MaxSalePriceUpdates {
+		return fmt.Errorf("too many sale prices in one save")
+	}
+	seenPrices := map[string]bool{}
 	for _, p := range update.SalePrices {
-		species := strings.ToLower(strings.TrimSpace(p.Species))
+		species, stage, sex := p.Normalized()
 		if !contains(SalePriceSpecies, species) {
 			return fmt.Errorf("unknown species %q", p.Species)
 		}
-		if seenSpecies[species] {
-			return fmt.Errorf("species %q named twice", species)
+		if (stage == "") != (sex == "") {
+			return fmt.Errorf("a %s sale price names both a stage and a sex, or neither", species)
 		}
-		seenSpecies[species] = true
-		if math.IsNaN(p.PricePerKgINR) || p.PricePerKgINR < SalePriceMinINR || p.PricePerKgINR > SalePriceMaxINR {
-			return fmt.Errorf("sale price for %s must be between ₹%d and ₹%d per kg", species, SalePriceMinINR, SalePriceMaxINR)
+		if sex != "" && !contains(SalePriceSexes, sex) {
+			return fmt.Errorf("unknown sex %q", p.Sex)
+		}
+		label := species
+		if stage != "" {
+			label = species + " " + stage + " " + sex
+		}
+		identity := species + "|" + strings.ToLower(stage) + "|" + sex
+		if seenPrices[identity] {
+			return fmt.Errorf("sale price for %s named twice", label)
+		}
+		seenPrices[identity] = true
+		if p.PricePerKgINR == nil {
+			if stage == "" {
+				return fmt.Errorf("the %s price cannot be left blank", species)
+			}
+		} else if v := *p.PricePerKgINR; math.IsNaN(v) || v < SalePriceMinINR || v > SalePriceMaxINR {
+			return fmt.Errorf("sale price for %s must be between ₹%d and ₹%d per kg", label, SalePriceMinINR, SalePriceMaxINR)
 		}
 		if p.LoadedPricePerKgINR != nil && math.IsNaN(*p.LoadedPricePerKgINR) {
-			return fmt.Errorf("sale price for %s needs the price it was loaded with", species)
+			return fmt.Errorf("sale price for %s needs the price it was loaded with", label)
 		}
 	}
 	seenKeys := map[string]bool{}

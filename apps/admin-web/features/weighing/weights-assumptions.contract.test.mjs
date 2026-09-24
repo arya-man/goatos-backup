@@ -88,7 +88,16 @@ test("a failed assumptions read is a page failure, never a silent fallback to th
 
 test("a sale price save carries the price the drawer loaded (the fence)", () => {
   assert.match(drawerSource, /loaded_price_per_kg_inr: loaded/, "the loaded price must travel with the new one");
-  assert.match(drawerSource, /current\.sale_prices\.find\(\(row\) => row\.species === species\)\?\.price_per_kg_inr \?\? null/);
+  // Each row (species default, or stage x sex override) fences on ITS OWN loaded price.
+  assert.match(drawerSource, /current\.sale_prices\.find\(\(row\) => priceRowKey\(row\) === key\)\?\.price_per_kg_inr \?\? null/);
+  assert.match(drawerSource, /loaded_price_per_kg_inr: loadedFor\(species\)/, "a species default fences on the default it loaded");
+});
+
+test("a stage x sex override travels only when changed, and an emptied box clears it", () => {
+  assert.match(drawerSource, /if \(next === loaded\) return \[\];/, "an unchanged box sends nothing");
+  assert.match(drawerSource, /const next = raw === "" \? null : Number\(raw\);/, "a blank box is null (clear), never 0");
+  assert.match(drawerSource, /placeholder=\{defaultText\}/, "a blank box shows the all-stages price it falls back to");
+  assert.match(drawerSource, /current\.stages\.map\(/, "stage rows come from the served vocabulary, never a list in the page");
 });
 
 test("the drawer has no literal visible copy", () => {

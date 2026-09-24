@@ -32,7 +32,7 @@ func TestPutAssumptionsFencesSalePriceOnTheLoadedPrice(t *testing.T) {
 			t.Fatalf("GetSalePrices: %v", err)
 		}
 		for _, p := range out.Prices {
-			if p.Species == species {
+			if p.Species == species && p.IsDefault() {
 				return p.PricePerKgINR
 			}
 		}
@@ -43,7 +43,7 @@ func TestPutAssumptionsFencesSalePriceOnTheLoadedPrice(t *testing.T) {
 	f := func(v float64) *float64 { return &v }
 
 	if _, err := repo.PutAssumptions(ctx, gdTenant, gdOperator, today, domain.AssumptionsUpdate{
-		SalePrices: []domain.SalePriceUpdate{{Species: "goat", PricePerKgINR: 440, LoadedPricePerKgINR: f(loaded)}},
+		SalePrices: []domain.SalePriceUpdate{{Species: "goat", PricePerKgINR: f(440), LoadedPricePerKgINR: f(loaded)}},
 	}); err != nil {
 		t.Fatalf("editor A: %v", err)
 	}
@@ -51,7 +51,7 @@ func TestPutAssumptionsFencesSalePriceOnTheLoadedPrice(t *testing.T) {
 		t.Fatalf("editor A's price = %v want 440", got)
 	}
 	_, err := repo.PutAssumptions(ctx, gdTenant, gdOperator, today, domain.AssumptionsUpdate{
-		SalePrices: []domain.SalePriceUpdate{{Species: "goat", PricePerKgINR: 450, LoadedPricePerKgINR: f(loaded)}},
+		SalePrices: []domain.SalePriceUpdate{{Species: "goat", PricePerKgINR: f(450), LoadedPricePerKgINR: f(loaded)}},
 	})
 	if !errors.Is(err, ports.ErrAssumptionConflict) {
 		t.Fatalf("editor B on a stale price must conflict, got %v", err)
@@ -60,12 +60,12 @@ func TestPutAssumptionsFencesSalePriceOnTheLoadedPrice(t *testing.T) {
 		t.Fatalf("a refused save must change nothing: %v", got)
 	}
 	if _, err := repo.PutAssumptions(ctx, gdTenant, gdOperator, today, domain.AssumptionsUpdate{
-		SalePrices: []domain.SalePriceUpdate{{Species: "goat", PricePerKgINR: 440, LoadedPricePerKgINR: f(loaded)}},
+		SalePrices: []domain.SalePriceUpdate{{Species: "goat", PricePerKgINR: f(440), LoadedPricePerKgINR: f(loaded)}},
 	}); err != nil {
 		t.Fatalf("an exact replay must be a no-op, got %v", err)
 	}
 	if _, err := repo.PutAssumptions(ctx, gdTenant, gdOperator, today, domain.AssumptionsUpdate{
-		SalePrices: []domain.SalePriceUpdate{{Species: "goat", PricePerKgINR: 450, LoadedPricePerKgINR: f(440)}},
+		SalePrices: []domain.SalePriceUpdate{{Species: "goat", PricePerKgINR: f(450), LoadedPricePerKgINR: f(440)}},
 	}); err != nil {
 		t.Fatalf("editor B after reloading: %v", err)
 	}
@@ -74,7 +74,7 @@ func TestPutAssumptionsFencesSalePriceOnTheLoadedPrice(t *testing.T) {
 	}
 	// A drawer that loaded NO price (nil) is stale the moment a row exists.
 	_, err = repo.PutAssumptions(ctx, gdTenant, gdOperator, today, domain.AssumptionsUpdate{
-		SalePrices: []domain.SalePriceUpdate{{Species: "goat", PricePerKgINR: 460}},
+		SalePrices: []domain.SalePriceUpdate{{Species: "goat", PricePerKgINR: f(460)}},
 	})
 	if !errors.Is(err, ports.ErrAssumptionConflict) {
 		t.Fatalf("a save that loaded no price must conflict once one exists, got %v", err)

@@ -25,23 +25,27 @@ import (
 //                                  lives in audit_log rather than in the table.
 //
 // projection-review: growth_assumptions is keyed (tenant_id, key) and read by key; the price read
-// is the DISTINCT ON (species) already reviewed on salePricesSQL. Nothing here is aggregated.
+// is the DISTINCT ON (species, management_stage, sex) already reviewed on salePricesSQL. Nothing here is aggregated.
 
 // The write's statements, hoisted so a plan test can reach them. Each runs at most once per
 // species or per key -- the loops below are bounded by the assumption catalog (two species, two
 // keys), never by data rows.
 const (
 	// FOR UPDATE: the compare-and-set below must see the row a concurrent save is about to move.
+	// A NULL price is a cleared override (000398) and reads as "no price of its own".
 	currentSalePriceSQL = `
 SELECT price_per_kg_inr::float8 FROM growth_sale_price_assumptions
-WHERE tenant_id = $1::uuid AND species = $2 AND effective_from <= $3::date
+WHERE tenant_id = $1::uuid AND species = $2 AND management_stage = $3 AND sex = $4 AND effective_from <= $5::date
 ORDER BY effective_from DESC, created_at DESC LIMIT 1
 FOR UPDATE`
 	upsertSalePriceSQL = `
-INSERT INTO growth_sale_price_assumptions (tenant_id, species, price_per_kg_inr, effective_from, set_by, note)
-VALUES ($1::uuid, $2, $3, $4::date, $5, 'Set from the ADG Analytics Assumptions drawer.')
-ON CONFLICT (tenant_id, species, effective_from)
+INSERT INTO growth_sale_price_assumptions (tenant_id, species, management_stage, sex, price_per_kg_inr, effective_from, set_by, note)
+VALUES ($1::uuid, $2, $3, $4, $5, $6::date, $7, 'Set from the ADG Analytics Assumptions drawer.')
+ON CONFLICT (tenant_id, species, management_stage, sex, effective_from)
 DO UPDATE SET price_per_kg_inr = EXCLUDED.price_per_kg_inr, set_by = EXCLUDED.set_by, note = EXCLUDED.note, created_at = now()`
+	// An override may only name a stage the tenant's vocabulary holds, spelled as it is stored, so
+	// it can ever match an animal's goats.management_stage.
+	activeStageCodeSQL  = `SELECT stage_code FROM animal_stage_lookup WHERE tenant_id = $1::uuid AND lower(stage_code) = lower($2) AND status = 'active' ORDER BY sort_order LIMIT 1`
 	lockAssumptionSQL   = `SELECT value::float8, value_list::float8[], value_date::text, row_version FROM growth_assumptions WHERE tenant_id = $1::uuid AND key = $2 FOR UPDATE`
 	insertAssumptionSQL = `
 INSERT INTO growth_assumptions (tenant_id, key, value, value_list, value_date, unit, set_by, updated_at, row_version)
@@ -52,6 +56,13 @@ WHERE tenant_id = $1::uuid AND key = $2 AND row_version = $7`
 	lockSaleReadyLinesSQL = `SELECT pg_advisory_xact_lock(hashtext($1::text || ':growth_sale_ready_lines')::bigint)`
 	setterNameSQL         = `SELECT display_name FROM workforce_members WHERE tenant_id = $1::uuid AND user_id = $2::uuid AND status = 'active' ORDER BY updated_at DESC LIMIT 1`
 )
+
+// stageOptionsSQL is the tenant's active stage vocabulary, in its authored order -- the rows the
+// drawer offers a stage x sex price for. Bounded by the tenant's stage catalog (a few dozen rows).
+const stageOptionsSQL = `
+SELECT stage_code, name FROM animal_stage_lookup
+WHERE tenant_id = $1::uuid AND status = 'active'
+ORDER BY sort_order, stage_code`
 
 const assumptionValuesSQL = `
 SELECT key, value::float8, value_list::float8[], value_date::text, unit, set_by, updated_at, row_version
@@ -71,7 +82,28 @@ func (r *Repository) GetAssumptions(ctx context.Context, tenantID string, asOf t
 	if err != nil {
 		return domain.Assumptions{}, err
 	}
-	return domain.Assumptions{SalePrices: prices.Prices, Values: values}, nil
+	stages, err := readStageOptions(ctx, r.pool, tenantID)
+	if err != nil {
+		return domain.Assumptions{}, err
+	}
+	return domain.Assumptions{SalePrices: prices.Prices, Values: values, Stages: stages}, nil
+}
+
+func readStageOptions(ctx context.Context, q querier, tenantID string) ([]domain.StageOption, error) {
+	rows, err := q.Query(ctx, stageOptionsSQL, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []domain.StageOption{}
+	for rows.Next() {
+		var o domain.StageOption
+		if err := rows.Scan(&o.Code, &o.Name); err != nil {
+			return nil, err
+		}
+		out = append(out, o)
+	}
+	return out, rows.Err()
 }
 
 type querier interface {
@@ -146,43 +178,47 @@ func (r *Repository) PutAssumptions(ctx context.Context, tenantID, setBy string,
 		return domain.Assumptions{}, err
 	}
 
-	for _, p := range update.SalePrices { // scale-guard:ignore: bounded by domain.SalePriceSpecies (2), validated distinct; one row per species, never per data row
-		species := strings.ToLower(strings.TrimSpace(p.Species))
+	for _, p := range update.SalePrices { // scale-guard:ignore: bounded by domain.MaxSalePriceUpdates and validated distinct; one row per (species, stage, sex), never per data row
+		species, stage, sex := p.Normalized()
+		if stage != "" {
+			// The stored spelling of the stage, so the override matches goats.management_stage.
+			var code string
+			err := tx.QueryRow(ctx, activeStageCodeSQL, tenantID, stage).Scan(&code) // scale-guard:ignore: bounded by domain.MaxSalePriceUpdates
+			if errors.Is(err, pgx.ErrNoRows) {
+				return domain.Assumptions{}, fmt.Errorf("%w: unknown stage %q", ports.ErrInvalidArgument, stage)
+			}
+			if err != nil {
+				return domain.Assumptions{}, err
+			}
+			stage = code
+		}
 		var before *float64
-		var prev float64
-		err := tx.QueryRow(ctx, currentSalePriceSQL, tenantID, species, effective).Scan(&prev) // scale-guard:ignore: bounded by domain.SalePriceSpecies (2)
-		switch {
-		case err == nil:
-			before = &prev
-		case errors.Is(err, pgx.ErrNoRows):
-		default:
+		err := tx.QueryRow(ctx, currentSalePriceSQL, tenantID, species, stage, sex, effective).Scan(&before) // scale-guard:ignore: bounded by domain.MaxSalePriceUpdates
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return domain.Assumptions{}, err
 		}
-		if before != nil && *before == p.PricePerKgINR {
+		if samePrice(before, p.PricePerKgINR) {
 			continue // unchanged (or an exact replay): nothing to append, nothing to audit
 		}
 		// THE FENCE (PR #320 review): the drawer says which price it loaded, and the save lands
 		// only if that is still the price in force. Two editors who both opened ₹425 and both
 		// typed a new figure: the first lands, the second is told to reload. The price table is
 		// append-only and effective-dated, so the loaded FIGURE is the version.
-		switch {
-		case before == nil && p.LoadedPricePerKgINR != nil:
-			return domain.Assumptions{}, fmt.Errorf("%w: sale price %s", ports.ErrAssumptionConflict, species)
-		case before != nil && (p.LoadedPricePerKgINR == nil || *p.LoadedPricePerKgINR != *before):
-			return domain.Assumptions{}, fmt.Errorf("%w: sale price %s", ports.ErrAssumptionConflict, species)
+		if !samePrice(before, p.LoadedPricePerKgINR) {
+			return domain.Assumptions{}, fmt.Errorf("%w: sale price %s %s %s", ports.ErrAssumptionConflict, species, stage, sex)
 		}
-		if _, err := tx.Exec(ctx, upsertSalePriceSQL, tenantID, species, p.PricePerKgINR, effective, setByName); err != nil { // scale-guard:ignore: bounded by domain.SalePriceSpecies (2)
+		if _, err := tx.Exec(ctx, upsertSalePriceSQL, tenantID, species, stage, sex, p.PricePerKgINR, effective, setByName); err != nil { // scale-guard:ignore: bounded by domain.MaxSalePriceUpdates
 			return domain.Assumptions{}, err
 		}
 		if err := rec.Record(ctx, audit.Event{
 			TenantID: tenantID, ActorID: setBy, ActorType: "user",
-			// resource_id is a uuid column: the resource is the tenant's price table, the species
-			// travels in metadata and both states.
+			// resource_id is a uuid column: the resource is the tenant's price table, the species,
+			// stage and sex travel in metadata and both states.
 			Action: "growth.sale_price.set", ResourceType: "growth_sale_price_assumption", ResourceID: tenantID,
 			ScopeType: "tenant", ScopeID: tenantID,
-			BeforeState: map[string]any{"species": species, "price_per_kg_inr": before},
-			AfterState:  map[string]any{"species": species, "price_per_kg_inr": p.PricePerKgINR, "effective_from": effective},
-			Metadata:    map[string]any{"species": species},
+			BeforeState: map[string]any{"species": species, "management_stage": stage, "sex": sex, "price_per_kg_inr": before},
+			AfterState:  map[string]any{"species": species, "management_stage": stage, "sex": sex, "price_per_kg_inr": p.PricePerKgINR, "effective_from": effective},
+			Metadata:    map[string]any{"species": species, "management_stage": stage, "sex": sex},
 		}); err != nil {
 			return domain.Assumptions{}, err
 		}
@@ -297,6 +333,14 @@ func (r *Repository) PutAssumptions(ctx context.Context, tenantID, setBy string,
 		return domain.Assumptions{}, err
 	}
 	return r.GetAssumptions(ctx, tenantID, asOf)
+}
+
+// samePrice compares two optional prices: both absent, or both present and equal.
+func samePrice(a, b *float64) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return *a == *b
 }
 
 func touchesSaleReadyLine(update domain.AssumptionsUpdate) bool {

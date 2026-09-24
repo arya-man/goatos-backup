@@ -25,7 +25,7 @@ func TestFCRPenSumsSegmentsAndValuesGainAtTheSpeciesPrice(t *testing.T) {
 		PenKey: "shed|1", LocationID: "shed", ParkID: "p", ParkName: "Coimbatore", ShedName: "Castro", PartitionLabel: "1",
 		Modes: []string{"per_shed_partition"}, Rounds: 3, FirstWeighDate: "2026-08-03", LastWeighDate: "2026-08-17",
 		FirstAverageKg: f(18.0), LatestAnimals: 100, Residents: 100, Breeds: 1, Breed: "Anantapur Sheep", Sexes: 1, Sex: "male",
-		SpeciesCount: 1, Species: "sheep", SheepResidents: 100, BoughtResidents: 100,
+		SpeciesCount: 1, Species: "sheep", ResidentMix: []HeadMix{{Species: "sheep", Animals: 100}}, BoughtResidents: 100,
 	}}
 	segments := []FCRSegmentRow{
 		// 7 days x 100 heads = 700 head-days, 100 g/day -> 70 kg gain; 420 kg feed -> FCR 6
@@ -185,22 +185,67 @@ func TestFCRCohortsAreAgreeOrNeitherAndFiltersApplyPerPen(t *testing.T) {
 	}
 }
 
+func mix(pairs ...any) []HeadMix {
+	out := []HeadMix{}
+	for i := 0; i < len(pairs); i += 4 {
+		out = append(out, HeadMix{Species: pairs[i].(string), ManagementStage: pairs[i+1].(string), Sex: pairs[i+2].(string), Animals: pairs[i+3].(int)})
+	}
+	return out
+}
+
 // A mixed-species pen is valued at the head-weighted price of its residents, never left blank; a
 // pen whose resident species has no price stays unvalued.
 func TestPenPriceIsHeadWeightedAcrossSpecies(t *testing.T) {
 	prices := SalePrices{Prices: []SalePrice{{Species: "goat", PricePerKgINR: 450}, {Species: "sheep", PricePerKgINR: 425}}}
-	got, ok := prices.PenPrice(3, 14)
+	got, ok := prices.PenPrice(mix("goat", "", "", 3, "sheep", "", "", 14))
 	if !ok || math.Abs(got-(3*450+14*425)/17.0) > 0.0001 {
 		t.Fatalf("mixed pen price = %v %v", got, ok)
 	}
-	if got, ok := prices.PenPrice(0, 10); !ok || got != 425 {
+	if got, ok := prices.PenPrice(mix("sheep", "", "", 10)); !ok || got != 425 {
 		t.Fatalf("single-species pen must collapse to that price, got %v %v", got, ok)
 	}
-	if _, ok := (SalePrices{Prices: []SalePrice{{Species: "goat", PricePerKgINR: 450}}}).PenPrice(2, 5); ok {
+	if _, ok := (SalePrices{Prices: []SalePrice{{Species: "goat", PricePerKgINR: 450}}}).PenPrice(mix("goat", "", "", 2, "sheep", "", "", 5)); ok {
 		t.Fatalf("a pen with an unpriced species must stay unvalued")
 	}
-	if _, ok := prices.PenPrice(0, 0); ok {
+	if _, ok := prices.PenPrice(nil); ok {
 		t.Fatalf("a pen with no live residents has no price")
+	}
+}
+
+// Maintainer decision 2026-09-24: every animal is valued at its own (species, stage, sex) price,
+// and a combination nobody priced falls back to its species default rather than going blank.
+func TestPenPriceValuesEachAnimalAtItsStageAndSex(t *testing.T) {
+	prices := SalePrices{Prices: []SalePrice{
+		{Species: "goat", PricePerKgINR: 425},
+		{Species: "sheep", PricePerKgINR: 400},
+		{Species: "goat", ManagementStage: "K3", Sex: "male", PricePerKgINR: 500},
+		{Species: "goat", ManagementStage: "K3", Sex: "female", PricePerKgINR: 460},
+		{Species: "sheep", ManagementStage: "K3", Sex: "male", PricePerKgINR: 380},
+	}}
+	// 10 goat K3 males at 500, 5 goat K3 females at 460, 5 goat F2 males at the goat default 425.
+	got, ok := prices.PenPrice(mix("goat", "K3", "male", 10, "goat", "K3", "female", 5, "goat", "F2", "male", 5))
+	if want := (10*500 + 5*460 + 5*425) / 20.0; !ok || math.Abs(got-want) > 0.0001 {
+		t.Fatalf("stage x sex pen price = %v %v, want %v", got, ok, want)
+	}
+	// The override is per species: a sheep K3 female has none, so it takes the SHEEP default.
+	if got, ok := prices.PriceForAnimal("sheep", "K3", "female"); !ok || got != 400 {
+		t.Fatalf("sheep K3 female = %v %v, want the sheep default 400", got, ok)
+	}
+	if got, ok := prices.PriceForAnimal("Sheep", "k3", "MALE"); !ok || got != 380 {
+		t.Fatalf("matching must ignore case, got %v %v", got, ok)
+	}
+	// An animal with no stage or sex on the register is valued at its species default.
+	if got, ok := prices.PriceForAnimal("goat", "", "male"); !ok || got != 425 {
+		t.Fatalf("stageless goat = %v %v, want 425", got, ok)
+	}
+	// PriceFor is the DEFAULT only; an override never answers it.
+	if got, _ := prices.PriceFor("goat"); got != 425 {
+		t.Fatalf("species default = %v, want 425", got)
+	}
+	// A species with overrides but no default: unpriced animals of it stay unvalued.
+	noDefault := SalePrices{Prices: []SalePrice{{Species: "goat", ManagementStage: "K3", Sex: "male", PricePerKgINR: 500}}}
+	if _, ok := noDefault.PenPrice(mix("goat", "K3", "male", 2, "goat", "F2", "female", 1)); ok {
+		t.Fatalf("an animal with no override and no default must leave the pen unvalued")
 	}
 }
 
@@ -209,7 +254,7 @@ func TestEmptiedPenFallsBackToTheWeighedCohort(t *testing.T) {
 	pens := []FCRPenRow{{
 		PenKey: "e", LocationID: "e", ParkID: "p", ParkName: "P", ShedName: "E", Rounds: 2, LatestAnimals: 9,
 		Residents: 0, WeighedAnimals: 9, WeighedBreeds: 1, WeighedBreed: "Sirohi", WeighedSexes: 1, WeighedSex: "male",
-		WeighedSpeciesN: 1, WeighedSpecies: "goat", WeighedGoats: 9, WeighedBought: 9,
+		WeighedSpeciesN: 1, WeighedSpecies: "goat", WeighedMix: []HeadMix{{Species: "goat", Animals: 9}}, WeighedBought: 9,
 	}}
 	segments := []FCRSegmentRow{{PenKey: "e", StartDate: "2026-08-03", EndDate: "2026-08-10", ADGGPerDay: 100, FeedKg: f(63), FeedCostINR: f(1260), HeadDays: f(63)}}
 	got := BuildFCRReport(pens, segments, SalePrices{Prices: []SalePrice{{Species: "goat", PricePerKgINR: 450}}}, FCRFilters{})

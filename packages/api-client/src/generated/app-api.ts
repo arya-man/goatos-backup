@@ -8501,6 +8501,8 @@ export interface components {
             remaining_sheep: number;
             /** @description Of `remaining`, the goats. See remaining_sheep. */
             remaining_goats: number;
+            /** @description `remaining` split by (species, management stage, sex); sums to `remaining`. Lets a client value today's stock at the stage x sex live-weight price (maintainer decision 2026-09-24). */
+            remaining_mix: components["schemas"]["LoadHeadMix"][];
             /**
              * Format: date
              * @description The day the animals REACHED THE FARM. Not the purchase date: the farm warms animals up at the source, so a load is bought a day or more before it lands here, and the fattening clock starts on arrival.
@@ -8577,6 +8579,8 @@ export interface components {
             remaining: number;
             remaining_sheep: number;
             remaining_goats: number;
+            /** @description `remaining` split by (species, management stage, sex); sums to `remaining`. Lets a client value today's stock at the stage x sex live-weight price (maintainer decision 2026-09-24). */
+            remaining_mix: components["schemas"]["LoadHeadMix"][];
             /**
              * Format: double
              * @description Average bought-at weight per animal; absent when no purchase weight is recorded.
@@ -15958,9 +15962,21 @@ export interface components {
             feed_problems: components["schemas"]["GrowthDirectorFeedProblems"];
             trust: components["schemas"]["GrowthDirectorTrust"];
         };
+        /** @description How many of a load's remaining animals share one (species, management stage, sex). */
+        LoadHeadMix: {
+            species: string;
+            management_stage: string;
+            sex: string;
+            animals: number;
+        };
+        /** @description One assumed live-weight sale price in force. management_stage and sex are both "" on the SPECIES DEFAULT; an override names both (maintainer decision 2026-09-24). An animal is valued at its own (species, stage, sex) override when one is in force, else its species default. */
         GrowthSalePrice: {
             /** @enum {string} */
             species: "goat" | "sheep";
+            /** @description A stage_code from the tenant stage vocabulary; "" on the species default. */
+            management_stage: string;
+            /** @enum {string} */
+            sex: "" | "female" | "male";
             /** Format: double */
             price_per_kg_inr: number;
             /** Format: date */
@@ -15990,17 +16006,29 @@ export interface components {
         GrowthAssumptionsResponse: {
             sale_prices: components["schemas"]["GrowthSalePrice"][];
             values: components["schemas"]["GrowthAssumptionValue"][];
+            /** @description The tenant's active management stages, in authored order -- the rows a stage x sex price can be set for. */
+            stages: {
+                code: string;
+                name: string;
+            }[];
         };
         /** @description The whole set the caller wants to hold. A row absent from the request is left untouched. */
         GrowthAssumptionsUpdate: {
             sale_prices?: {
                 /** @enum {string} */
                 species: "goat" | "sheep";
-                /** Format: double */
-                price_per_kg_inr: number;
+                /** @description Stage code of an override; "" (or absent) for the species default. Named together with sex. */
+                management_stage?: string;
+                /** @enum {string} */
+                sex?: "" | "female" | "male";
                 /**
                  * Format: double
-                 * @description The price the drawer showed when it was opened -- the fence. The price table is append-only and effective-dated, so the loaded figure is its version: a save lands only while that is still the price in force, else 409 row_version_conflict. Null means the drawer loaded no price for the species, which is stale once one exists.
+                 * @description The price to hold. Null clears a stage x sex override (that combination falls back to the species default from today); a species default can never be null.
+                 */
+                price_per_kg_inr?: number | null;
+                /**
+                 * Format: double
+                 * @description The price the drawer showed when it was opened -- the fence. The price table is append-only and effective-dated, so the loaded figure is its version: a save lands only while that is still the price in force, else 409 row_version_conflict. Null means the drawer loaded no price of its own for this row, which is stale once one exists.
                  */
                 loaded_price_per_kg_inr?: number | null;
             }[];

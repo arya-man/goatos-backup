@@ -320,6 +320,16 @@ RETURNING load_id::text`, testTenant, fx.loadA).Scan(&soldOut); err != nil {
 		if loadA.RemainingSheep+loadA.RemainingGoats > loadA.Remaining {
 			t.Fatalf("load A species split %d+%d exceeds remaining %d", loadA.RemainingSheep, loadA.RemainingGoats, loadA.Remaining)
 		}
+		// The stage x sex head mix (2026-09-24) is the SAME remaining set, split finer: it must
+		// sum to remaining exactly, one group per (species, stage, sex), and carry the register's
+		// sex for the one live female.
+		mixTotal := 0
+		for _, m := range loadA.RemainingMix {
+			mixTotal += m.Animals
+		}
+		if mixTotal != loadA.Remaining || len(loadA.RemainingMix) != 1 || loadA.RemainingMix[0].Sex != "female" {
+			t.Fatalf("load A remaining mix = %+v, want one female group summing to remaining %d", loadA.RemainingMix, loadA.Remaining)
+		}
 		// The dedupe (one goat, two accepted rows): the animal counts on load B, not load A —
 		// plus load B's pre-GoatOS history folded in: 2 tracked + 3 already sold + 2 already dead.
 		// Load B DECLARES 9 animals, so the 2 it cannot account for surface as Unaccounted rather

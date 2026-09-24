@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -98,6 +99,8 @@ outcomes AS (
            ds.share,
            gp.park_code,
            lower(g.species) AS species,
+           COALESCE(g.management_stage, '') AS stage,
+           COALESCE(lower(g.sex), '') AS sex,
            CASE
                WHEN g.lifecycle_status = 'sold' OR g.exit_reason = 'sold' THEN 'sold'
                WHEN g.lifecycle_status = 'dead' OR g.exit_reason = 'died' THEN 'mortality'
@@ -114,6 +117,22 @@ outcomes AS (
         FROM public.locations l
         WHERE l.tenant_id = $1 AND l.location_id = g.park_id
     ) gp ON true
+),
+-- The remaining animals per (species, management stage, sex) (maintainer decision 2026-09-24):
+-- the Load-wise tab values today's stock at a live-weight price set per stage and sex. Grouped to
+-- that grain first, then folded to ONE jsonb array per load, so it attaches 1:1 like stats; the
+-- same outcome rule as stats, so the mix always sums to that load's remaining count.
+remaining_mix AS (
+    SELECT load_id,
+           jsonb_agg(jsonb_build_object('species', species, 'management_stage', stage, 'sex', sex, 'animals', n)
+                     ORDER BY species, stage, sex) AS mix
+    FROM (
+        SELECT o.load_id, o.species, o.stage, o.sex, count(*)::int AS n
+        FROM outcomes o
+        WHERE o.outcome = 'remaining'
+        GROUP BY o.load_id, o.species, o.stage, o.sex
+    ) x
+    GROUP BY load_id
 ),
 prior AS (
     -- Pre-GoatOS outcomes, one aggregate per load. The natural key is (tenant, load, outcome), so
@@ -158,7 +177,7 @@ stats AS (
 )
 -- projection-review: membership=procurement_loads (the served window itself); group_key=load_id
 -- (procurement_loads PK) on every attached side; join_cardinality=parties 1:1 on source_party_id,
--- stats 1:1 by construction (GROUP BY m.load_id), prior 1:1 (GROUP BY load_id), and the 2026-09-01
+-- stats 1:1 by construction (GROUP BY m.load_id), remaining_mix 1:1 (grouped per (load, species, stage, sex) then folded GROUP BY load_id), prior 1:1 (GROUP BY load_id), and the 2026-09-01
 -- cost columns are PLAIN COLUMNS of procurement_loads -- 1:1 with the row by definition, adding no
 -- join and no fan-out; pagination=LIMIT $2 newest loads AFTER the park filter, with total_loads a
 -- window count over the SAME filtered set (pre-LIMIT) so the count never means "of this page" and
@@ -192,6 +211,7 @@ SELECT pl.load_id::text AS load_id, COALESCE(pl.context->>'load_ref', '') AS loa
        COALESCE(s.mortality, 0) AS mortality,
        COALESCE(s.other_exits, 0) AS other_exits, COALESCE(s.remaining, 0) AS remaining,
        COALESCE(s.remaining_sheep, 0) AS remaining_sheep, COALESCE(s.remaining_goats, 0) AS remaining_goats,
+       COALESCE(rm.mix, '[]'::jsonb) AS remaining_mix,
        COALESCE(s.sold_value, 0) AS sold_value, COALESCE(s.sold_priced, 0) AS sold_priced,
        -- The park every accepted animal agrees on; when none is attributed (a sold-out legacy
        -- load has no residents left) the load's OWN recorded farm answers instead. Both are the
@@ -211,6 +231,7 @@ SELECT pl.load_id::text AS load_id, COALESCE(pl.context->>'load_ref', '') AS loa
 FROM public.procurement_loads pl
 LEFT JOIN public.parties p ON p.party_id = pl.source_party_id
 LEFT JOIN stats s ON s.load_id = pl.load_id
+LEFT JOIN remaining_mix rm ON rm.load_id = pl.load_id
 LEFT JOIN prior pr ON pr.load_id = pl.load_id
 WHERE pl.tenant_id = $1
 ),
@@ -239,7 +260,7 @@ SELECT r.load_id, r.load_ref, r.vendor_name, r.purchase_date, r.status,
        r.row_version,
        r.expected_count,
        r.purchased, r.sold, r.mortality,
-       r.other_exits, r.remaining, r.remaining_sheep, r.remaining_goats,
+       r.other_exits, r.remaining, r.remaining_sheep, r.remaining_goats, r.remaining_mix,
        r.sold_value, r.sold_priced,
        r.farm,
        r.prior_sold, r.prior_sold_value, r.prior_sold_first, r.prior_sold_last,
@@ -408,6 +429,7 @@ func (r *Repository) loadwiseSales(ctx context.Context, tenantID, parkID string,
 			priorSoldLast  *time.Time
 			priorDeadFirst *time.Time
 			priorDeadLast  *time.Time
+			remainingMix   []byte
 		)
 		if err := rows.Scan(
 			&row.LoadID, &row.LoadRef, &row.VendorName, &purchaseDate, &row.Status,
@@ -417,7 +439,7 @@ func (r *Repository) loadwiseSales(ctx context.Context, tenantID, parkID string,
 			&row.RowVersion,
 			&row.DeclaredCount,
 			&row.Purchased, &row.Sold, &row.Mortality,
-			&row.OtherExits, &row.Remaining, &row.RemainingSheep, &row.RemainingGoats,
+			&row.OtherExits, &row.Remaining, &row.RemainingSheep, &row.RemainingGoats, &remainingMix,
 			&row.SoldValue, &row.SoldPriced,
 			&row.Farm,
 			&row.PriorSold.Count, &row.PriorSold.Value, &priorSoldFirst, &priorSoldLast,
@@ -434,6 +456,14 @@ func (r *Repository) loadwiseSales(ctx context.Context, tenantID, parkID string,
 		row.ArrivedOn = bizDate(arrivedOn)
 		row.PriorSold.FirstOn, row.PriorSold.LastOn = bizDate(priorSoldFirst), bizDate(priorSoldLast)
 		row.PriorDead.FirstOn, row.PriorDead.LastOn = bizDate(priorDeadFirst), bizDate(priorDeadLast)
+		if len(remainingMix) > 0 {
+			if err := json.Unmarshal(remainingMix, &row.RemainingMix); err != nil {
+				return domain.LoadwiseSales{}, fmt.Errorf("procurement: loadwise remaining mix: %w", err)
+			}
+		}
+		if row.RemainingMix == nil {
+			row.RemainingMix = []domain.LoadHeadMix{}
+		}
 		// Unaccounted is derived in the domain AFTER the prior outcomes fold in (FinalizeLoadwise).
 		loads = append(loads, row)
 	}

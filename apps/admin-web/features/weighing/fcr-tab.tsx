@@ -138,6 +138,8 @@ export function FCRTab({
   }
   const none = copy(pageContract, "kpi.fcr.no_value");
   const rupee = copy(pageContract, "unit.fcr.rupees");
+  const priceDefaults = fcr.sale_prices.filter((price) => price.management_stage === "");
+  const priceOverrides = fcr.sale_prices.length - priceDefaults.length;
   const s = fcr.summary;
   const money = (value: number | null | undefined) => (value == null ? none : `${rupee}${num(value, 0)}`);
   const visiblePens = fcr.pens.slice(pager.offset, pager.offset + pager.limit);
@@ -225,12 +227,12 @@ export function FCRTab({
           prices, with who set it and when, because a figure priced on an assumption must show it. */}
       <section className="card" style={{ padding: "10px 16px" }}>
         <p className="muted small" style={{ margin: 0 }}>
-          {fcr.sale_prices.length === 0 ? (
+          {priceDefaults.length === 0 ? (
             copy(pageContract, "fcr.price.missing")
           ) : (
             <>
               {copy(pageContract, "fcr.price.prefix")}{" "}
-              {fcr.sale_prices.map((price, i) => (
+              {priceDefaults.map((price, i) => (
                 <span key={price.species}>
                   {i > 0 ? " · " : ""}
                   <b>
@@ -241,6 +243,9 @@ export function FCRTab({
                   {price.set_by ? ` ${copy(pageContract, "fcr.price.by")} ${price.set_by}` : ""}
                 </span>
               ))}
+              {/* Stage x sex prices (maintainer decision 2026-09-24) sit on top of these defaults; each
+                  animal in a pen is valued at its own, so the caption says how many are in force. */}
+              {priceOverrides > 0 ? ` · ${priceOverrides} ${copy(pageContract, "fcr.price.overrides")}` : ""}
               {" · "}
               {copy(pageContract, "fcr.price.shared")}
             </>
