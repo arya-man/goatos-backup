@@ -213,7 +213,7 @@ func TestPenRoutineLifecycleOneToManyParkScopePaginationStatusMatrixPostgresPath
 	// --- role holders per park: the ONE resolution the drawer, the lists and the kernel share ---
 	holders := func(park string) map[string][]string {
 		t.Helper()
-		roles, err := repo.RoleHoldersForPark(ctx, prTenant, park)
+		_, roles, err := repo.Catalog(ctx, prTenant, park)
 		if err != nil {
 			t.Fatalf("role holders %s: %v", park, err)
 		}
@@ -241,7 +241,7 @@ func TestPenRoutineLifecycleOneToManyParkScopePaginationStatusMatrixPostgresPath
 		}
 	}
 	// The pen catalog lists every ACTIVE pen of the park, empty ones included, flagged.
-	pens, err := repo.CatalogPens(ctx, prTenant, prParkCBE)
+	pens, _, err := repo.Catalog(ctx, prTenant, prParkCBE)
 	if err != nil {
 		t.Fatalf("catalog pens: %v", err)
 	}
@@ -576,7 +576,7 @@ func TestPenRoutineLifecycleOneToManyParkScopePaginationStatusMatrixPostgresPath
 		t.Fatalf("CPT park list = %+v / %v", other, err)
 	}
 	// The routines table: open_today and delayed per routine.
-	rows, err := repo.ListRoutines(ctx, ports.RoutineListParams{TenantID: prTenant, ParkID: prParkCBE, Today: today})
+	rows, _, err := repo.ListRoutinesAndParks(ctx, ports.RoutineListParams{TenantID: prTenant, ParkID: prParkCBE, Today: today})
 	if err != nil {
 		t.Fatalf("list routines: %v", err)
 	}
@@ -826,7 +826,7 @@ func TestPenRoutineRoleResolutionTwoParkHeadsDirectorCXOParkScopeEveryNDaysPostg
 	}
 
 	// The routines table previews who holds each routine's roles, labelled by role.
-	rows, err := repo.ListRoutines(ctx, ports.RoutineListParams{TenantID: prTenant, ParkID: prParkCBE, Today: today})
+	rows, _, err := repo.ListRoutinesAndParks(ctx, ports.RoutineListParams{TenantID: prTenant, ParkID: prParkCBE, Today: today})
 	if err != nil {
 		t.Fatalf("list routines: %v", err)
 	}

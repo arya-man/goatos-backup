@@ -103,7 +103,28 @@ func (r *Repository) readRoutines(ctx context.Context, q querier, where, lock st
 	if err != nil {
 		return nil, fmt.Errorf("pen routine: read routines: %w", err)
 	}
-	defer rows.Close()
+	out, err := scanRoutineRows(rows)
+	rows.Close()
+	if err != nil {
+		return nil, err
+	}
+	if len(out) == 0 {
+		return out, nil
+	}
+	ids := make([]string, 0, len(out))
+	for _, row := range out {
+		ids = append(ids, row.Definition.RoutineID)
+	}
+	people, err := listRoutineAssignees(ctx, q, args[0].(string), ids)
+	if err != nil {
+		return nil, err
+	}
+	attachRoutinePeople(out, people)
+	return out, nil
+}
+
+// scanRoutineRows reads rows of the routineColumns projection.
+func scanRoutineRows(rows pgx.Rows) ([]ports.RoutineListRow, error) {
 	out := []ports.RoutineListRow{}
 	for rows.Next() {
 		var s routineScan
@@ -117,38 +138,62 @@ func (r *Repository) readRoutines(ctx context.Context, q querier, where, lock st
 		out = append(out, row)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("pen routine: read routines: %w", err)
 	}
-	rows.Close()
-	if len(out) == 0 {
-		return out, nil
-	}
-	ids := make([]string, 0, len(out))
-	for _, row := range out {
-		ids = append(ids, row.Definition.RoutineID)
-	}
-	people, err := listRoutineAssignees(ctx, q, args[0].(string), ids)
-	if err != nil {
-		return nil, err
-	}
+	return out, nil
+}
+
+// attachRoutinePeople hangs each routine's role-holder preview off it, keyed by routine id.
+func attachRoutinePeople(out []ports.RoutineListRow, people map[string][]domain.Assignee) {
 	for i := range out {
 		if list, ok := people[out[i].Definition.RoutineID]; ok {
 			out[i].Definition.People = list
 		}
 	}
-	return out, nil
 }
 
-// ListRoutines lists the routines of one park (or every park), with the two counts the web
-// table shows.
+// ListRoutinesAndParks lists the routines of one park (or every park), with the two counts the
+// web table shows and their role holders, plus the tenant's active park options -- three
+// independent statements on ONE pgx.Batch, one round trip (P10). The role holders are keyed by the
+// SAME tenant/park predicate as the routine read instead of waiting for its ids.
 //
-// projection-review: membership=pen_routine_definitions rows of ONE tenant (optionally one park), one row per routine (PK); group_key=(tenant_id, routine_id); join_cardinality=current version 1:1 on (tenant, routine, current_version) PK, park 1:1, pens as a jsonb_agg subquery, the role holders one batched read keyed by routine, the two counts correlated subqueries over pen_routine_tasks_routine_idx; pagination=none -- bounded by the authored routine estate (a handful per park); scope=tenant_id + optional park_id
-func (r *Repository) ListRoutines(ctx context.Context, p ports.RoutineListParams) ([]ports.RoutineListRow, error) {
+// projection-review: membership=pen_routine_definitions rows of ONE tenant (optionally one park), one row per routine (PK); group_key=(tenant_id, routine_id); join_cardinality=current version 1:1 on (tenant, routine, current_version) PK, park 1:1, pens as a jsonb_agg subquery, the role holders one batched read keyed by routine (attached in Go, never joined), the two counts correlated subqueries over pen_routine_tasks_routine_idx; pagination=none -- bounded by the authored routine estate (a handful per park); scope=tenant_id + optional park_id
+func (r *Repository) ListRoutinesAndParks(ctx context.Context, p ports.RoutineListParams) ([]ports.RoutineListRow, []ports.Park, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
+	park := nullIfEmpty(p.ParkID)
+	var (
+		out    []ports.RoutineListRow
+		people map[string][]domain.Assignee
+		parks  []ports.Park
+	)
+	batch := &pgx.Batch{}
 	// scale-guard:ignore: bounded by the authored routine estate of a tenant (a handful per park); no page needed.
-	return r.readRoutines(ctx, r.pool, "($3::uuid IS NULL OR d.park_id = $3::uuid)", "", p.TenantID, p.Today, nullIfEmpty(p.ParkID))
+	batch.Queue(sqlListRoutines, p.TenantID, p.Today, park).Query(func(rows pgx.Rows) error {
+		var err error
+		out, err = scanRoutineRows(rows)
+		return err
+	})
+	batch.Queue(sqlRoutineAssigneesForScope, p.TenantID, park, domain.AssignableRoles).Query(func(rows pgx.Rows) error {
+		var err error
+		people, err = scanRoutineAssignees(rows)
+		return err
+	})
+	batch.Queue(sqlAuthoring8, p.TenantID).Query(func(rows pgx.Rows) error {
+		var err error
+		parks, err = scanParks(rows)
+		return err
+	})
+	if err := r.pool.SendBatch(ctx, batch).Close(); err != nil {
+		return nil, nil, err
+	}
+	attachRoutinePeople(out, people)
+	return out, parks, nil
 }
+
+// sqlListRoutines is the routine projection over one tenant ($1) and optional park ($3); $2 is
+// the business date open_today answers for.
+var sqlListRoutines = fmt.Sprintf(`SELECT %s %s WHERE d.tenant_id = $1::uuid AND ($3::uuid IS NULL OR d.park_id = $3::uuid) ORDER BY park.name, lower(v.name), d.routine_id`, routineColumns, routineFrom)
 
 // GetRoutine reads one routine.
 func (r *Repository) GetRoutine(ctx context.Context, tenantID, routineID string) (domain.Definition, error) {
@@ -463,15 +508,9 @@ func routineAuditState(d domain.Definition) map[string]any {
 	}
 }
 
-// ListParks lists the tenant's active parks, by code (CBE before CPT, the all-parks order).
-func (r *Repository) ListParks(ctx context.Context, tenantID string) ([]ports.Park, error) {
-	ctx, cancel := context.WithTimeout(ctx, r.timeout)
-	defer cancel()
-	rows, err := r.pool.Query(ctx, sqlAuthoring8, tenantID)
-	if err != nil {
-		return nil, fmt.Errorf("pen routine: parks: %w", err)
-	}
-	defer rows.Close()
+// scanParks reads (park id, name) rows of sqlAuthoring8: the tenant's active parks, by code
+// (CBE before CPT, the all-parks order).
+func scanParks(rows pgx.Rows) ([]ports.Park, error) {
 	out := []ports.Park{}
 	for rows.Next() {
 		var p ports.Park
@@ -480,22 +519,41 @@ func (r *Repository) ListParks(ctx context.Context, tenantID string) ([]ports.Pa
 		}
 		out = append(out, p)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("pen routine: parks: %w", err)
+	}
+	return out, nil
 }
 
-// CatalogPens lists the active pens of one park.
-func (r *Repository) CatalogPens(ctx context.Context, tenantID, parkID string) ([]ports.CatalogPen, error) {
+// Catalog lists the active pens of one park and who holds each assignable role there, as ONE
+// pgx.Batch (one round trip).
+func (r *Repository) Catalog(ctx context.Context, tenantID, parkID string) ([]ports.CatalogPen, []ports.RoleHolders, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	pens, err := r.readPens(ctx, r.pool, tenantID, nullIfEmpty(parkID))
-	if err != nil {
-		return nil, err
+	var (
+		pens  []catalogPen
+		roles []ports.RoleHolders
+	)
+	batch := &pgx.Batch{}
+	// scale-guard:ignore: bounded by the authored shed/pen estate of a park (tens of rows); see readPens.
+	batch.Queue(sqlAuthoring9, tenantID, nullIfEmpty(parkID)).Query(func(rows pgx.Rows) error {
+		var err error
+		pens, err = scanPens(rows)
+		return err
+	})
+	batch.Queue(sqlRoleHoldersForPark, tenantID, parkID, domain.AssignableRoles).Query(func(rows pgx.Rows) error {
+		var err error
+		roles, err = scanRoleHolders(rows)
+		return err
+	})
+	if err := r.pool.SendBatch(ctx, batch).Close(); err != nil {
+		return nil, nil, err
 	}
 	out := make([]ports.CatalogPen, 0, len(pens))
 	for _, p := range pens {
 		out = append(out, p.CatalogPen)
 	}
-	return out, nil
+	return out, roles, nil
 }
 
 // catalogPen is one active pen with the park it belongs to.
@@ -511,12 +569,17 @@ type catalogPen struct {
 //
 // projection-review: membership=active non-alias sheds of the scope LEFT JOIN their active shed_partitions rows (an undivided shed contributes exactly one row, a divided shed one row per catalogued pen); group_key=(shed.location_id, sp.normalized_label); join_cardinality=shed_partitions is keyed (tenant, shed, normalized_label) so the LEFT JOIN cannot repeat a pen, the occupied flag is an EXISTS (never multiplies); pagination=none -- bounded by the authored shed/pen estate (tens per park), not by animals; scope=tenant_id + optional parent park
 func (r *Repository) readPens(ctx context.Context, q querier, tenantID string, parkID *string) ([]catalogPen, error) {
-	// scale-guard:ignore: bounded by the authored shed/pen estate of a tenant (tens of rows per park), served by the locations parent index and shed_partitions' own key; the occupied flag is an indexed EXISTS per pen.
+	// scale-guard:ignore: bounded by the authored shed/pen estate of a tenant (tens of rows per park), served by the locations parent index and shed_partitions' own key; the occupied flag probes ONE pre-aggregated set of occupied (shed, pen) keys.
 	rows, err := q.Query(ctx, sqlAuthoring9, tenantID, parkID)
 	if err != nil {
 		return nil, fmt.Errorf("pen routine: pens: %w", err)
 	}
 	defer rows.Close()
+	return scanPens(rows)
+}
+
+// scanPens reads rows of the sqlAuthoring9 pen catalog.
+func scanPens(rows pgx.Rows) ([]catalogPen, error) {
 	out := []catalogPen{}
 	for rows.Next() {
 		var p catalogPen
@@ -530,7 +593,10 @@ func (r *Repository) readPens(ctx context.Context, q querier, tenantID string, p
 		p.Label = oploc.OperationalLocation{ShedID: p.ShedID, ShedName: p.ShedName, PartitionLabel: p.Partition}.Display()
 		out = append(out, p)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("pen routine: pens: %w", err)
+	}
+	return out, nil
 }
 
 func nullIfEmpty(s string) *string {
@@ -619,18 +685,30 @@ WHERE tenant_id = $1::uuid AND location_type = 'park' AND status = 'active'
 ORDER BY location_code, name`
 )
 
+// sqlAuthoring9's occupied flag probes ONE pre-aggregated set of occupied (shed, normalized pen)
+// keys. It used to be a correlated EXISTS that re-scanned goat_shed_partitions (and re-ran the
+// regexp over every row) once per pen: 67 pens x 746 rows on the OCI clone, 26 ms of a 34 ms read.
+// The set is built from the same live goats with the same normalization, so the flag is identical.
 var sqlAuthoring9 = `
+WITH occ AS MATERIALIZED (
+  SELECT DISTINCT g.shed_id,
+         regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '') AS norm
+  FROM goats g
+  LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
+  WHERE g.tenant_id = $1::uuid
+    AND g.lifecycle_status = 'alive' AND g.exited_at IS NULL
+    AND g.shed_id IN (SELECT s.location_id FROM locations s
+                      WHERE s.tenant_id = $1::uuid AND s.location_type = 'shed'
+                        AND ($2::uuid IS NULL OR s.parent_location_id = $2::uuid))
+)
 SELECT shed.parent_location_id::text,
        shed.location_id::text,
        COALESCE(NULLIF(shed.name, ''), shed.location_code, ''),
        COALESCE(sp.partition_label, ''),
        EXISTS (
-         SELECT 1 FROM goats g
-         LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
-         WHERE g.tenant_id = shed.tenant_id AND g.shed_id = shed.location_id
-           AND g.lifecycle_status = 'alive' AND g.exited_at IS NULL
-           AND (sp.normalized_label IS NULL
-                OR regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '') = sp.normalized_label)
+         SELECT 1 FROM occ
+         WHERE occ.shed_id = shed.location_id
+           AND (sp.normalized_label IS NULL OR occ.norm = sp.normalized_label)
        ) AS occupied
 FROM locations shed
 LEFT JOIN shed_partitions sp

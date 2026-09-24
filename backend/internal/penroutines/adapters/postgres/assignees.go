@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/vgoats/goatos/backend/internal/penroutines/domain"
 	"github.com/vgoats/goatos/backend/internal/penroutines/ports"
 )
@@ -94,7 +96,15 @@ var assigneesJSONSQL = `COALESCE((SELECT jsonb_agg(jsonb_build_object('user_id',
 // vocabulary order ($3), at most maxPeoplePreview per routine.
 //
 // projection-review: membership=pen_routine_definitions rows of ONE tenant named in $2 (PK, one row per routine) x their role holders; group_key=(routine_id, user_id) -- DISTINCT ON inside the LATERAL folds a user holding several matching grants to one row; join_cardinality=grants->members at most 1:1 (partial unique active (tenant,user)), the LATERAL bounded by LIMIT; pagination=none, bounded by maxPeoplePreview per routine; scope=tenant_id + routine ids + each routine's own park
-var sqlRoutineAssignees = fmt.Sprintf(`
+var sqlRoutineAssignees = routineAssigneesSQL(`d.tenant_id = $1::uuid AND d.routine_id = ANY($2::uuid[])`)
+
+// sqlRoutineAssigneesForScope is the same preview keyed by the routine LIST's own scope (tenant
+// $1, optional park $2) instead of an id list, so it rides the list's batch rather than waiting
+// for the routine ids; the list attaches by routine id and ignores any it did not read.
+var sqlRoutineAssigneesForScope = routineAssigneesSQL(`d.tenant_id = $1::uuid AND ($2::uuid IS NULL OR d.park_id = $2::uuid)`)
+
+func routineAssigneesSQL(where string) string {
+	return fmt.Sprintf(`
 SELECT d.routine_id::text, h.user_id, h.display_name, h.role
 FROM pen_routine_definitions d
 CROSS JOIN LATERAL (
@@ -107,8 +117,9 @@ CROSS JOIN LATERAL (
   ORDER BY x.display_name, x.user_id
   LIMIT %d
 ) h
-WHERE d.tenant_id = $1::uuid AND d.routine_id = ANY($2::uuid[])
-ORDER BY d.routine_id, h.display_name, h.user_id`, RoleHoldersFromSQL("d.tenant_id", "d.assignee_roles", "d.park_id"), maxPeoplePreview)
+WHERE %s
+ORDER BY d.routine_id, h.display_name, h.user_id`, RoleHoldersFromSQL("d.tenant_id", "d.assignee_roles", "d.park_id"), maxPeoplePreview, where)
+}
 
 // sqlRoleHoldersForPark answers, per assignable role ($3, in order), who holds it for one park.
 //
@@ -135,15 +146,21 @@ func (r *Repository) ListRoutineAssignees(ctx context.Context, tenantID string, 
 }
 
 func listRoutineAssignees(ctx context.Context, q querier, tenantID string, routineIDs []string) (map[string][]domain.Assignee, error) {
-	out := map[string][]domain.Assignee{}
 	if len(routineIDs) == 0 {
-		return out, nil
+		return map[string][]domain.Assignee{}, nil
 	}
 	rows, err := q.Query(ctx, sqlRoutineAssignees, tenantID, routineIDs, domain.AssignableRoles)
 	if err != nil {
 		return nil, fmt.Errorf("pen routine: routine assignees: %w", err)
 	}
 	defer rows.Close()
+	return scanRoutineAssignees(rows)
+}
+
+// scanRoutineAssignees reads (routine_id, user_id, display_name, role) preview rows, keyed by
+// routine in row order.
+func scanRoutineAssignees(rows pgx.Rows) (map[string][]domain.Assignee, error) {
+	out := map[string][]domain.Assignee{}
 	for rows.Next() {
 		var routineID string
 		var a domain.Assignee
@@ -153,18 +170,15 @@ func listRoutineAssignees(ctx context.Context, q querier, tenantID string, routi
 		a.DisplayName = strings.TrimSpace(a.DisplayName)
 		out[routineID] = append(out[routineID], a)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("pen routine: routine assignees: %w", err)
+	}
+	return out, nil
 }
 
-// RoleHoldersForPark implements ports.Repository.
-func (r *Repository) RoleHoldersForPark(ctx context.Context, tenantID, parkID string) ([]ports.RoleHolders, error) {
-	ctx, cancel := context.WithTimeout(ctx, r.timeout)
-	defer cancel()
-	rows, err := r.pool.Query(ctx, sqlRoleHoldersForPark, tenantID, parkID, domain.AssignableRoles)
-	if err != nil {
-		return nil, fmt.Errorf("pen routine: role holders: %w", err)
-	}
-	defer rows.Close()
+// scanRoleHolders reads sqlRoleHoldersForPark rows into one entry per assignable role, in
+// vocabulary order, a role nobody holds carrying an empty list.
+func scanRoleHolders(rows pgx.Rows) ([]ports.RoleHolders, error) {
 	byRole := map[string][]ports.Person{}
 	for rows.Next() {
 		var role string
@@ -176,7 +190,7 @@ func (r *Repository) RoleHoldersForPark(ctx context.Context, tenantID, parkID st
 		byRole[role] = append(byRole[role], p)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("pen routine: role holders: %w", err)
 	}
 	out := make([]ports.RoleHolders, 0, len(domain.AssignableRoles))
 	for _, role := range domain.AssignableRoles {
