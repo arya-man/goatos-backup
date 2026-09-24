@@ -4260,7 +4260,7 @@ export interface paths {
          * Every purchased animal load reconciled, for the Sales page.
          * @description One row per procurement load, newest purchase date first (the newest 60 loads; `total_loads` says how many exist). Counts reconcile by construction: `purchased` = `sold` + `mortality` + `other_exits` + `remaining` + `unaccounted`, and a non-zero `unaccounted` means the herd register and the load disagree.
          *
-         *     Money: `purchase_value` is the recorded landed cost (absent = cost not recorded, never zero); `sold_value` is deal value attributed evenly across each deal's tagged animals and summed by load (`sold_priced` says how many sold animals actually carry a share); `remaining_value` prices the animals still on farm at `avg_sold_price`, whose `price_basis` is `load` (its own priced sales), `overall` (the tenant-wide average) or `none` (no estimate). The `summary` aggregates exactly the served rows.
+         *     Money: `purchase_value` is the recorded landed cost (absent = cost not recorded, never zero); `sold_value` is deal value attributed evenly across each deal's tagged animals and summed by load (`sold_priced` says how many sold animals actually carry a share); `remaining_value` prices the animals still on farm at `avg_sold_price`, whose `price_basis` is `load` (its own priced sales), `overall` (the tenant-wide average), `assumed` (the Sales Config unsold-stock price) or `none` (no estimate). The `summary` aggregates exactly the served rows.
          */
         get: operations["listLoadwiseSales"];
         put?: never;
@@ -8520,8 +8520,8 @@ export interface components {
             sold_priced: number;
             avg_sold_price?: number | null;
             /** @enum {string} */
-            price_basis: "load" | "overall" | "none" | "live_weight";
-            /** @description remaining x avg_sold_price. Absent when there is no price basis. `live_weight` is reserved for a future path with current live weight for remaining animals; this endpoint must not value remaining stock from sale exit weight. */
+            price_basis: "load" | "overall" | "assumed" | "none" | "live_weight";
+            /** @description remaining x avg_sold_price. Absent when there is no price basis. `assumed` means the Sales Config unsold-stock price replaced the sold-price fallback. `live_weight` is reserved for a future path with current live weight for remaining animals; this endpoint must not value remaining stock from sale exit weight. */
             remaining_value?: number | null;
             /** @description sold_value + remaining_value - purchase_value: what the load is worth against what it cost. ABSENT when no cost is recorded, because "profit" would otherwise be the whole sale value. Part of it is UNREALISED whenever `remaining` > 0 — `price_basis` names the average that valued that stock. */
             profit_loss?: number | null;

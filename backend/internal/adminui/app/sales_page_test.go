@@ -377,10 +377,9 @@ func TestSalesLoadsPageContract(t *testing.T) {
 		"value.profit_incl_stock", "loadwise.stock_price_note", "loadwise.stock_price_each",
 		"loadwise.stock_price_unknown",
 		"value.cost_missing", "value.price_basis.load", "value.price_basis.overall",
-		// All THREE bases must be published: the renderer resolves this key from the served
-		// price_basis, so an unpublished value throws and takes the whole page down. "none" is
-		// what a tenant with no sales yet returns, i.e. the very first state.
-		"value.price_basis.none",
+		// Every backend price_basis must be published: the renderer resolves this key from the
+		// served value, so an unpublished value throws and takes the whole page down.
+		"value.price_basis.assumed", "value.price_basis.live_weight", "value.price_basis.none",
 		"value.sold_unpriced",
 		"loadwise.prior.title", "loadwise.prior.sold", "loadwise.prior.died",
 		"drawer.load_cost.title", "field.animal_cost", "field.transport_cost", "field.other_cost",

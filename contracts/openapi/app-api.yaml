@@ -11050,8 +11050,9 @@ paths:
         zero); `sold_value` is deal value attributed evenly across each deal's tagged animals and
         summed by load (`sold_priced` says how many sold animals actually carry a share);
         `remaining_value` prices the animals still on farm at `avg_sold_price`, whose
-        `price_basis` is `load` (its own priced sales), `overall` (the tenant-wide average) or
-        `none` (no estimate). The `summary` aggregates exactly the served rows.
+        `price_basis` is `load` (its own priced sales), `overall` (the tenant-wide average),
+        `assumed` (the Sales Config unsold-stock price) or `none` (no estimate). The `summary`
+        aggregates exactly the served rows.
       parameters:
         - name: park_id
           in: query
@@ -20815,14 +20816,15 @@ components:
           type: integer
           description: How many of `sold` carry an attributed deal share; the rest sold without a tagged sale.
         avg_sold_price: { type: number, nullable: true }
-        price_basis: { type: string, enum: [load, overall, none, live_weight] }
+        price_basis: { type: string, enum: [load, overall, assumed, none, live_weight] }
         remaining_value:
           type: number
           nullable: true
           description: >-
-            remaining x avg_sold_price. Absent when there is no price basis. `live_weight` is
-            reserved for a future path with current live weight for remaining animals; this
-            endpoint must not value remaining stock from sale exit weight.
+            remaining x avg_sold_price. Absent when there is no price basis. `assumed` means the
+            Sales Config unsold-stock price replaced the sold-price fallback. `live_weight` is
+            reserved for a future path with current live weight for remaining animals; this endpoint
+            must not value remaining stock from sale exit weight.
         profit_loss:
           type: number
           nullable: true
