@@ -2321,6 +2321,7 @@ type ObligationInstance struct {
 	RepeatCycleAnchorObligationID pgtype.UUID
 	RepeatCycleAnchorAt           pgtype.Timestamptz
 	RepeatCycleDueAt              pgtype.Timestamptz
+	ScheduleBasis                 string
 }
 
 type ObligationOperatorConfigReplanWatermark struct {

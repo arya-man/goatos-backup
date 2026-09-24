@@ -2231,6 +2231,7 @@ type ObligationInstance struct {
 	RowVersion             int32
 	BatchingHoldCount      pgtype.Int4
 	FirstBatchingHoldUntil pgtype.Timestamptz
+	ScheduleBasis          string
 }
 
 type ObligationOperatorConfigReplanWatermark struct {

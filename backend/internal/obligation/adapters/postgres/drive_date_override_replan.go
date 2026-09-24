@@ -187,7 +187,8 @@ func syncVaccinationObligationDatesFromAssignmentsTx(ctx context.Context, tx pgx
 	}
 	lockedRows, err := tx.Query(ctx, `
 SELECT oi.rule_id, oi.target_type, oi.target_id,
-       (vda.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS planned_at
+       (vda.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS planned_at,
+       oi.schedule_basis
 FROM vaccination_drive_assignment_members m
 JOIN vaccination_drive_assignments vda
   ON vda.tenant_id = m.tenant_id AND vda.assignment_id = m.assignment_id
@@ -204,6 +205,10 @@ JOIN goats g
 WHERE oi.tenant_id = $1
   AND oi.batch_id = ANY($2::uuid[])
   AND oi.target_type = 'goat'
+  -- Exactly the rows the UPDATE below rewrites, proved at exactly the date it writes: completed,
+  -- in-progress, and unmoved rows are not written, so they are not re-judged here.
+  AND oi.status IN ('scheduled', 'due', 'deferred')
+  AND (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date <> vda.planned_date
 FOR UPDATE OF m, vda, oi`, tenant, batchIDs)
 	if err != nil {
 		return fmt.Errorf("obligation: lock drive date vaccination age floor rows: %w", err)
@@ -213,11 +218,12 @@ FOR UPDATE OF m, vda, oi`, tenant, batchIDs)
 		rule, target pgtype.UUID
 		targetType   string
 		dueAt        time.Time
+		basis        string
 	}
 	var writes []lockedVaccinationWrite
 	for lockedRows.Next() {
 		var write lockedVaccinationWrite
-		if err := lockedRows.Scan(&write.rule, &write.targetType, &write.target, &write.dueAt); err != nil {
+		if err := lockedRows.Scan(&write.rule, &write.targetType, &write.target, &write.dueAt, &write.basis); err != nil {
 			return fmt.Errorf("obligation: scan drive date vaccination age floor: %w", err)
 		}
 		writes = append(writes, write)
@@ -227,7 +233,9 @@ FOR UPDATE OF m, vda, oi`, tenant, batchIDs)
 	}
 	lockedRows.Close()
 	for _, write := range writes {
-		if err := enforceVaccinationWriteConstraints(ctx, tx, tenant, write.rule, write.targetType, write.target, write.dueAt); err != nil {
+		if err := validateVaccinationWrite(ctx, tx, vaccinationWrite{
+			Tenant: tenant, Rule: write.rule, TargetType: write.targetType, Target: write.target, DueAt: write.dueAt, ScheduleBasis: write.basis,
+		}); err != nil {
 			return fmt.Errorf("drive override violates vaccination rule floor: %w", err)
 		}
 	}
