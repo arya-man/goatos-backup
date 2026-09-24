@@ -102,19 +102,19 @@ test("Realtime movement KPI cards use backend live-state filters", () => {
   assert.match(kpis, /filterKey === "moving_now" \|\| filterKey === "active_1m"/, "Realtime KPI clicks must clear stale movement_state filters");
   assert.match(kpis, /hs_move: filterKey === "moving_now" \|\| filterKey === "active_1m" \? undefined : params\.movementState/, "Realtime KPI clicks must not combine live_state with an old hs_move filter");
 
-  const poller = read("./herd-signals-poller.tsx");
-  assert.match(poller, /useSearchParams/, "Stream and export URLs must update after in-app search-param navigation");
-  assert.match(poller, /const searchKey = searchParams\.toString\(\)/, "Poller must key stream/export query construction off current search params");
-  assert.match(poller, /\[live, tabHidden, refresh, overlayOpen, liveQuery\]/, "EventSource must reconnect when the live query changes");
-  assert.match(poller, /hs_risk: "risk_state"/, "Stream/export URLs must preserve the watchlist filter");
-  assert.match(poller, /out\.set\("live_state", liveState\)/, "Stream/export URLs must map realtime KPI filters to live_state");
-  assert.match(poller, /out\.delete\("movement_state"\)/, "Realtime KPI stream/export URLs must not keep conflicting movement_state");
-  assert.match(poller, /if \(tab === "live"\)/, "Realtime KPI live_state mapping must only apply on the Live tab");
-  assert.match(poller, /tab === "animals"[\s\S]*out\.set\("mapping_state", "mapped"\)/, "Animals tab export/stream must force the same mapped filter as the table");
-  assert.match(poller, /tab === "alerts"[\s\S]*out\.set\("risk_state", "attention"\)/, "Alerts tab export/stream must force the watchlist sentinel used by the table");
-  assert.match(poller, /unsupportedExportTab = tab === "gateways" \|\| tab === "insights"/, "Export must be disabled on non-table tabs");
-  assert.match(poller, /residualKpi === "weak_signal" \|\| residualKpi === "missing_signal" \|\| residualKpi === "low_battery"/, "Export must be disabled for page-only residual KPI filters");
-  assert.match(poller, /Clear this page-only KPI filter before exporting/, "Disabled export must explain why it is unavailable");
+  const streamBridge = read("./herd-signals-stream-bridge.tsx");
+  assert.match(streamBridge, /useSearchParams/, "Stream and export URLs must update after in-app search-param navigation");
+  assert.match(streamBridge, /const searchKey = searchParams\.toString\(\)/, "Stream bridge must key stream/export query construction off current search params");
+  assert.match(streamBridge, /\[live, tabHidden, overlayOpen, liveQuery\]/, "EventSource must reconnect when the live query changes");
+  assert.match(streamBridge, /hs_risk: "risk_state"/, "Stream/export URLs must preserve the watchlist filter");
+  assert.match(streamBridge, /out\.set\("live_state", liveState\)/, "Stream/export URLs must map realtime KPI filters to live_state");
+  assert.match(streamBridge, /out\.delete\("movement_state"\)/, "Realtime KPI stream/export URLs must not keep conflicting movement_state");
+  assert.match(streamBridge, /if \(tab === "live"\)/, "Realtime KPI live_state mapping must only apply on the Live tab");
+  assert.match(streamBridge, /tab === "animals"[\s\S]*out\.set\("mapping_state", "mapped"\)/, "Animals tab export/stream must force the same mapped filter as the table");
+  assert.match(streamBridge, /tab === "alerts"[\s\S]*out\.set\("risk_state", "attention"\)/, "Alerts tab export/stream must force the watchlist sentinel used by the table");
+  assert.match(streamBridge, /unsupportedExportTab = tab === "gateways" \|\| tab === "insights"/, "Export must be disabled on non-table tabs");
+  assert.match(streamBridge, /residualKpi === "weak_signal" \|\| residualKpi === "missing_signal" \|\| residualKpi === "low_battery"/, "Export must be disabled for page-only residual KPI filters");
+  assert.match(streamBridge, /Clear this page-only KPI filter before exporting/, "Disabled export must explain why it is unavailable");
 
   const api = read("../../lib/api/herd-signals.ts");
   assert.match(api, /live_state: params\.liveState/, "API wrapper must forward the live_state query parameter");
@@ -128,10 +128,29 @@ test("Realtime movement KPI cards use backend live-state filters", () => {
   assert.doesNotMatch(rowFilter, /kpi === "active_1m"/, "active_1m must not be a page-only residual filter");
 });
 
-test("SSE ticks cannot force sub-15-second full page refreshes", () => {
-  const poller = read("./herd-signals-poller.tsx");
-  assert.match(poller, /const STREAM_REFRESH_MIN_MS = 15_000/, "client stream bridge must throttle router.refresh calls");
-  assert.match(poller, /now - lastStreamRefreshAtRef\.current < STREAM_REFRESH_MIN_MS/, "tick handler must enforce the throttle before refresh");
+test("SSE ticks must not force full page refreshes", () => {
+  const streamBridge = read("./herd-signals-stream-bridge.tsx");
+  const tickHandler = streamBridge.match(/source\.addEventListener\("tick", \(\) => \{[\s\S]*?\n    \}\);/)?.[0] ?? "";
+  assert.ok(tickHandler, "stream bridge must register an SSE tick handler");
+  assert.doesNotMatch(tickHandler, /refresh\(\)/, "SSE tick handler must not call router.refresh");
+  assert.doesNotMatch(streamBridge, /STREAM_REFRESH_MIN_MS|lastStreamRefreshAtRef/, "SSE route-refresh throttles must not exist; ticks must not refresh the route at all");
+  assert.match(streamBridge, /stream ticks update connection\/freshness state only/, "stream bridge comment must preserve the no-refresh SSE contract");
+});
+
+test("SSE snapshot drives the live KPI and table stores", () => {
+  const streamBridge = read("./herd-signals-stream-bridge.tsx");
+  const store = read("./herd-signals-live-store.ts");
+  const kpis = read("./herd-signals-kpis.tsx");
+  const table = read("./herd-signals-table.tsx");
+
+  assert.match(streamBridge, /source\.addEventListener\("snapshot"/, "stream bridge must listen for backend snapshot events");
+  assert.match(streamBridge, /writeHerdSignalsLiveSnapshot\(liveQuery\.toString\(\), JSON\.parse\(event\.data\)/, "snapshot events must write the parsed live response into the live store");
+  assert.match(store, /useSyncExternalStore\(subscribe, readSnapshot, readServerSnapshot\)/, "live store must be a React external store, not a route refresh side channel");
+  assert.match(kpis, /const liveSnapshot = useHerdSignalsLiveSnapshot\(liveKey\)/, "KPI cards must subscribe to stream snapshots");
+  assert.match(kpis, /const displayedSummary = liveSnapshot\?\.data\.summary \?\? summary/, "KPI cards must prefer streamed summaries over stale server props");
+  assert.match(table, /const liveSnapshot = useHerdSignalsLiveSnapshot\(liveKey\)/, "live table must subscribe to stream snapshots");
+  assert.match(table, /const displayedItems = liveSnapshot\?\.data\.items \?\? items/, "live table rows must prefer streamed items over stale server props");
+  assert.match(table, /const displayedNextCursor = liveSnapshot\?\.data\.next_cursor \?\? nextCursor/, "live table pagination must come from streamed snapshots when present");
 });
 
 test("live table exposes own-baseline and group-comparison risk signals", () => {

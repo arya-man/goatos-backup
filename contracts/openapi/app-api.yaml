@@ -18208,15 +18208,13 @@ components:
         mapped_animals: { type: integer }
         unmapped_tags: { type: integer }
         moving: { type: integer }
-        moving_now: { type: integer }
-        active_1m: { type: integer }
         quiet: { type: integer }
         not_moving: { type: integer }
         stale: { type: integer }
         weak_signal: { type: integer }
         low_battery: { type: integer }
         sensor_abnormal: { type: integer }
-      required: [tags_seen, mapped_animals, unmapped_tags, moving, moving_now, active_1m, quiet, not_moving, stale, weak_signal, low_battery, sensor_abnormal]
+      required: [tags_seen, mapped_animals, unmapped_tags, moving, quiet, not_moving, stale, weak_signal, low_battery, sensor_abnormal]
     HerdSignalItem:
       type: object
       properties:
@@ -18249,12 +18247,6 @@ components:
           nullable: true
           description: Measured at the tag's own sensor housing, never the animal's body temperature.
         motion_count: { type: integer, format: int64, nullable: true }
-        last_packet_motion_delta: { type: integer, format: int64, nullable: true, description: Motion-count delta between the latest packet and the previous packet for this tag. }
-        last_packet_window_seconds: { type: integer, nullable: true, description: Server-clock seconds between the previous reading and the latest reading. }
-        motion_delta_30s: { type: integer, format: int64, nullable: true, description: Motion-count delta over the latest 30-second live window. }
-        motion_delta_60s: { type: integer, format: int64, nullable: true, description: Motion-count delta over the latest 60-second live window. }
-        motion_delta_5m: { type: integer, format: int64, nullable: true, description: Motion-count delta over the latest 5-minute live window. }
-        last_moved_at: { type: string, format: date-time, nullable: true, description: Server receive time of the latest packet whose motion counter increased. }
         motion_delta: { type: integer, format: int64, nullable: true, description: 15-minute window delta. }
         motion_delta_1h: { type: integer, format: int64, nullable: true, description: Real 1-hour (3600s-tier) delta -- distinct from motion_delta. }
         motion_delta_24h: { type: integer, format: int64, nullable: true, description: Rolling 24-hour motion-counter delta. This is movement units, not a step count. }
@@ -18281,7 +18273,7 @@ components:
             as an ordinary delta.
         mapped_by: { type: string, nullable: true, description: User ID of the operator who bound this tag to an identifier (mapping provenance). }
         mapped_at: { type: string, format: date-time, nullable: true, description: Server timestamp when this tag was bound to an identifier (mapping provenance). }
-      required: [tag_id, tag_mac, goat_id, display_id, animal_identifier_1, animal_identifier_2, breed, sex, age_days, park_id, park_name, shed_id, shed_name, partition_label, operational_location_display, gateway_id, last_seen_at, rssi_dbm, signal_state, battery_mv, battery_state, battery_trend, tag_temperature_c, motion_count, last_packet_motion_delta, last_packet_window_seconds, motion_delta_30s, motion_delta_60s, motion_delta_5m, last_moved_at, motion_delta, motion_delta_1h, motion_delta_24h, motion_window_seconds, movement_state, pattern_state, baseline_delta, risk_state, risk_reasons, own_motion_delta_pct, group_motion_delta_pct, group_temp_delta_c, sensor_state, temperature_sensor_ok, accelerometer_sensor_ok, mapping_state, gap_delta]
+      required: [tag_id, tag_mac, goat_id, display_id, animal_identifier_1, animal_identifier_2, breed, sex, age_days, park_id, park_name, shed_id, shed_name, partition_label, operational_location_display, gateway_id, last_seen_at, rssi_dbm, signal_state, battery_mv, battery_state, battery_trend, tag_temperature_c, motion_count, motion_delta, motion_delta_1h, motion_delta_24h, motion_window_seconds, movement_state, pattern_state, baseline_delta, risk_state, risk_reasons, own_motion_delta_pct, group_motion_delta_pct, group_temp_delta_c, sensor_state, temperature_sensor_ok, accelerometer_sensor_ok, mapping_state, gap_delta]
     HerdSignalsLiveResponse:
       type: object
       properties:

@@ -4658,8 +4658,8 @@ aside.drawer.wt-feedband-drawer{width:94vw;max-width:960px}
 .herd-signals-page .segs a .cnt{font-size:10.5px;font-weight:800;background:var(--panel-2);color:var(--muted);border-radius:999px;padding:1px 6px}
 .herd-signals-page .segs a.on .cnt{background:color-mix(in srgb,var(--brand) 24%,transparent);color:var(--brand-d)}
 
-.herd-signals-page .fbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 12px;margin:0 0 14px;background:color-mix(in srgb,var(--panel) 92%,transparent);border:1px solid var(--line);border-radius:11px;box-shadow:var(--shadow)}
-.herd-signals-page .fsel{display:inline-flex;align-items:center;gap:6px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:6px 9px;font-size:12.5px;color:var(--muted)}
+.herd-signals-page .fbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:12px 14px;margin:0 0 18px;background:color-mix(in srgb,var(--panel) 92%,transparent);border:1px solid var(--line);border-radius:11px;box-shadow:var(--shadow)}
+.herd-signals-page .fsel{display:inline-flex;align-items:center;gap:8px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:7px 10px;font-size:12.5px;color:var(--muted);min-height:38px}
 /* A global form-control rule pads every bare <select> 8px 10px, which inflated each .fsel pill to
    47px against the mock's 32px and wrapped the filter bar and pager onto extra rows. */
 .herd-signals-page .fsel select{border:0;background:transparent;outline:0;font:inherit;font-weight:650;color:var(--ink);cursor:pointer;padding:0;line-height:normal}
@@ -4676,7 +4676,7 @@ aside.drawer.wt-feedband-drawer{width:94vw;max-width:960px}
    auto-fit already reflows the strip at narrow widths, so the fixed repeat(6) here (plus its
    1200px/760px step-down media queries below) rendered a visibly different column count than the
    mock at in-between widths. */
-.herd-signals-page .kpis.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(158px,1fr));gap:11px;margin-bottom:14px;align-items:stretch}
+.herd-signals-page .kpis.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;margin-bottom:18px;align-items:stretch}
 /* Every card the same height regardless of caption length -- the captions differ in
    line count, and without this the row reads as ragged boxes rather than one KPI strip. */
 .herd-signals-page .kpi{height:100%;display:flex;flex-direction:column}
@@ -4701,7 +4701,7 @@ aside.drawer.wt-feedband-drawer{width:94vw;max-width:960px}
 /* Match the mock's computed KPI card geometry exactly (visual-regression judge, mock-styles.json
    kpiCard/kpiLabel/kpiValue): 3px left accent + 1px border, radius 10 not 12, tighter padding, and
    the label/value weights the judge flagged as drifted (11/600 -> 10.5/800, 800/-0.6 -> 760/-0.5). */
-.herd-signals-page .kpi{border-left-width:3px;border-radius:10px;padding:11px 13px}
+.herd-signals-page .kpi{border-left-width:3px;border-radius:10px;padding:13px 15px}
 /* Pins background above other same-specificity `.xyz .kpi` rules elsewhere in this shared
    stylesheet (e.g. `.vaccination-schedule-summary .kpi{background:transparent}`) that this page's
    KPI cards never sit inside. Border colour is left alone: the base `.kpi{border:1px solid
@@ -4734,11 +4734,33 @@ aside.drawer.wt-feedband-drawer{width:94vw;max-width:960px}
    14px;flex-wrap:wrap}` -- the generic (unscoped) `.phead` rules elsewhere in this stylesheet used
    by other admin screens resolved to a wider 16px gap and an 18px-only margin-bottom (no top/side
    margin) here instead. Scoped so those other screens keep their own spacing. */
-.herd-signals-page .phead.phead{gap:12px;margin:4px 0 14px}
-.herd-signals-page table.resp th{font-weight:800;padding:9px 12px;line-height:normal;background:var(--panel)}
-.herd-signals-page table.resp td{font-size:12.5px;font-weight:400;padding:9px 12px;line-height:normal}
+.herd-signals-page .phead.phead{gap:14px;margin:6px 0 18px}
+.herd-signals-page table.resp th{font-weight:800;padding:10px 14px;line-height:normal;background:var(--panel);white-space:nowrap}
+.herd-signals-page table.resp td{font-size:12.5px;font-weight:400;padding:11px 14px;line-height:1.35;white-space:nowrap}
 
-.herd-signals-page .tblwrap{overflow:auto;max-height:640px}
+.herd-signals-page .tblwrap{overflow:auto;max-height:640px;overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch;scrollbar-gutter:stable}
+.herd-signals-page table.herd-signals-table{min-width:2860px}
+.herd-signals-page table.herd-signals-table th:nth-child(1),.herd-signals-page table.herd-signals-table td:nth-child(1){min-width:190px}
+.herd-signals-page table.herd-signals-table th:nth-child(2),.herd-signals-page table.herd-signals-table td:nth-child(2){min-width:160px}
+.herd-signals-page table.herd-signals-table th:nth-child(3),.herd-signals-page table.herd-signals-table td:nth-child(3){min-width:150px}
+.herd-signals-page table.herd-signals-table th:nth-child(4),.herd-signals-page table.herd-signals-table td:nth-child(4){min-width:120px}
+.herd-signals-page table.herd-signals-table th:nth-child(5),.herd-signals-page table.herd-signals-table td:nth-child(5){min-width:112px}
+.herd-signals-page table.herd-signals-table th:nth-child(6),.herd-signals-page table.herd-signals-table td:nth-child(6){min-width:126px}
+.herd-signals-page table.herd-signals-table th:nth-child(7),.herd-signals-page table.herd-signals-table td:nth-child(7){min-width:132px}
+.herd-signals-page table.herd-signals-table th:nth-child(8),.herd-signals-page table.herd-signals-table td:nth-child(8){min-width:146px}
+.herd-signals-page table.herd-signals-table th:nth-child(9),.herd-signals-page table.herd-signals-table td:nth-child(9){min-width:116px}
+.herd-signals-page table.herd-signals-table th:nth-child(10),.herd-signals-page table.herd-signals-table td:nth-child(10){min-width:122px}
+.herd-signals-page table.herd-signals-table th:nth-child(11),.herd-signals-page table.herd-signals-table td:nth-child(11){min-width:122px}
+.herd-signals-page table.herd-signals-table th:nth-child(12),.herd-signals-page table.herd-signals-table td:nth-child(12){min-width:132px}
+.herd-signals-page table.herd-signals-table th:nth-child(13),.herd-signals-page table.herd-signals-table td:nth-child(13){min-width:160px}
+.herd-signals-page table.herd-signals-table th:nth-child(14),.herd-signals-page table.herd-signals-table td:nth-child(14){min-width:160px}
+.herd-signals-page table.herd-signals-table th:nth-child(15),.herd-signals-page table.herd-signals-table td:nth-child(15){min-width:124px}
+.herd-signals-page table.herd-signals-table th:nth-child(16),.herd-signals-page table.herd-signals-table td:nth-child(16){min-width:126px}
+.herd-signals-page table.herd-signals-table th:nth-child(17),.herd-signals-page table.herd-signals-table td:nth-child(17){min-width:150px}
+.herd-signals-page table.herd-signals-table th:nth-child(18),.herd-signals-page table.herd-signals-table td:nth-child(18){min-width:230px}
+.herd-signals-page table.herd-signals-table th:nth-child(19),.herd-signals-page table.herd-signals-table td:nth-child(19){min-width:142px}
+.herd-signals-page table.herd-signals-table th:nth-child(20),.herd-signals-page table.herd-signals-table td:nth-child(20){min-width:142px}
+.herd-signals-page table.herd-signals-table th:nth-child(21),.herd-signals-page table.herd-signals-table td:nth-child(21){min-width:138px}
 /* `table.resp td{font-weight:400}` above is a compound selector with higher specificity
    (0,2,2) than a bare `.animcell{font-weight:650}` (0,2,0), so the generic td rule always won
    and the Animal-column cell silently rendered at the wrong weight despite this rule existing.
@@ -4763,8 +4785,9 @@ aside.drawer.wt-feedband-drawer{width:94vw;max-width:960px}
      ("SMART TA...", "TAG TEMF..."). The mock's own `.resp` carries no such floor. */
   .herd-signals-page table.resp{min-width:0}
   .herd-signals-page table.resp thead{display:none}
-  .herd-signals-page table.resp tbody tr{display:grid;grid-template-columns:1fr 1fr;gap:2px 10px;padding:10px 12px;border-bottom:1px solid var(--line2)}
-  .herd-signals-page table.resp td{border:0;padding:2px 0;display:flex;justify-content:space-between;gap:8px}
+  .herd-signals-page table.resp tbody{display:grid;gap:10px;padding:10px}
+  .herd-signals-page table.resp tbody tr{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;padding:12px;border:1px solid var(--line2);border-radius:10px;background:var(--panel)}
+  .herd-signals-page table.resp td{border:0;padding:0;display:flex;justify-content:space-between;gap:8px;white-space:normal}
   .herd-signals-page table.resp td::before{content:attr(data-l);font-size:10px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;color:var(--muted)}
 }
 @media(max-width:420px){

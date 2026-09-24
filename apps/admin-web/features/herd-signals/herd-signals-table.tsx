@@ -35,6 +35,7 @@ import { matchesClientSideFilters } from "./herd-signals-row-filter";
 import { HerdSignalsDrawer } from "./herd-signals-drawer";
 import { HerdSignalsHistoryFullscreen } from "./herd-signals-history-fullscreen";
 import { HerdSignalsAnimalsHead, HerdSignalsAnimalsRow } from "./herd-signals-animals-table";
+import { useHerdSignalsLiveSnapshot } from "./herd-signals-live-store";
 
 function rowTagId(item: HerdSignalItem): string {
   return item.tag_id;
@@ -163,6 +164,7 @@ export function HerdSignalsTable({
   params,
   nowMs,
   tagsSeen,
+  liveKey,
   variant = "live",
 }: {
   items: HerdSignalItem[];
@@ -173,6 +175,7 @@ export function HerdSignalsTable({
   // state can honestly say whether the gateway is receiving anything at all in scope, rather than
   // asserting reception the page has not actually evidenced.
   tagsSeen: number;
+  liveKey: string;
   // Which column set to render. "live" is the fourteen-column radio/telemetry table; "animals"
   // is the mock's own nine-column animal-first set (herd-signals-animals-table.tsx). Only the
   // <thead>/<tbody> differ -- the keyset pager walk, the rows-per-page control, the drawer and
@@ -181,17 +184,21 @@ export function HerdSignalsTable({
   variant?: "live" | "animals";
 }) {
   const { isPending, navigate } = useHerdSignalsNav();
+  const liveSnapshot = useHerdSignalsLiveSnapshot(liveKey);
+  const displayedItems = liveSnapshot?.data.items ?? items;
+  const displayedNextCursor = liveSnapshot?.data.next_cursor ?? nextCursor;
+  const displayedTagsSeen = liveSnapshot?.data.summary.tags_seen ?? tagsSeen;
   // Hooks must run before the empty-state early returns below.
   // Any filter change rewrites this signature, which resets the walk to page 1.
   const filterSignature = herdSignalsHref(params, {});
   const walk = useSyncExternalStore(subscribePagerWalk, readPagerWalk, readServerPagerWalk);
   const stack = walk.signature === filterSignature ? walk.stack : [];
-  const visible = items.filter((item) => matchesClientSideFilters(item, params));
+  const visible = displayedItems.filter((item) => matchesClientSideFilters(item, params));
   const drawerCloseHref = herdSignalsHref(params, {});
   const rowHref = (item: HerdSignalItem) => `${herdSignalsHref(params, { hs_tag: item.tag_id })}#hs-tag-${encodeURIComponent(item.tag_id)}`;
 
-  if (items.length === 0) {
-    return <HerdSignalsTableEmpty params={params} tagsSeen={tagsSeen} />;
+  if (displayedItems.length === 0) {
+    return <HerdSignalsTableEmpty params={params} tagsSeen={displayedTagsSeen} />;
   }
 
   if (visible.length === 0) {
@@ -227,14 +234,14 @@ export function HerdSignalsTable({
   //     none of those three are active.
   //  2. The end of a walk -- once we are on the last page (no next cursor) with a known position,
   //     rangeTo IS the exact total, whatever the filters were.
-  const summaryIsRowTotal = tagsSeen > 0 && !params.movementState && !params.pattern && !params.kpi;
-  const walkedToEnd = positionKnown && !nextCursor;
-  const total = summaryIsRowTotal ? tagsSeen : walkedToEnd ? rangeTo : undefined;
+  const summaryIsRowTotal = displayedTagsSeen > 0 && !params.movementState && !params.pattern && !params.kpi;
+  const walkedToEnd = positionKnown && !displayedNextCursor;
+  const total = summaryIsRowTotal ? displayedTagsSeen : walkedToEnd ? rangeTo : undefined;
   const pageCount = total ? Math.max(1, Math.ceil(total / params.limit)) : undefined;
   const nf = (value: number) => value.toLocaleString("en-IN");
 
   const prevHref = positionKnown && pageIndex > 0 ? herdSignalsHref(params, { hs_cursor: stack[pageIndex - 1] || undefined }) : null;
-  const nextHref = nextCursor ? herdSignalsHref(params, { hs_cursor: nextCursor }) : null;
+  const nextHref = displayedNextCursor ? herdSignalsHref(params, { hs_cursor: displayedNextCursor }) : null;
 
   function plainClick(event: MouseEvent): boolean {
     return !(event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey);
@@ -374,7 +381,7 @@ export function HerdSignalsTable({
                 <InfoTip label="Activity rules" text={ACTIVITY_RULES} />
               </th>
               <th>Own baseline</th>
-              <th>Pen peers</th>
+              <th>Shed peers</th>
               <th>
                 Pattern
                 <InfoTip label="Pattern rules" text={PATTERN_RULES} />
