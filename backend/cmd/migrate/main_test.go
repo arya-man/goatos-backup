@@ -94,7 +94,7 @@ func TestAllowedHistoricalChecksumOnlyAcceptsKnownBaselineDrift(t *testing.T) {
 	migration := migrationFile{
 		Version:  "000001_goatos_clean_slate_baseline",
 		Filename: "000001_goatos_clean_slate_baseline.sql",
-		Checksum: "sha256:2ecaf35d57ff448fcd2f293e502074c1fe5c36e509a807fa482ab609659d6bb0",
+		Checksum: "sha256:3b2927d0051c753c3c6509d6c582aa04490422e5f36c6f365f34808e80a5290d",
 	}
 	if !isAllowedHistoricalChecksum(migration, "sha256:b29305e89e75b2ef15bb80a79c704720941d1d3b8cc8e10de085655b6290d349") {
 		t.Fatal("known historical baseline checksum was rejected")

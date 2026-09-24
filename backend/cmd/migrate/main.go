@@ -355,8 +355,11 @@ type checksumPair struct {
 // never match and silently turns the entry into a dead allowance. Package-level so the format
 // invariant can be asserted against the real map instead of a hand-copied test literal.
 var allowedHistoricalChecksums = map[string]checksumPair{
+	// 000001 is a documentation-only snapshot for fresh databases; STG applied the b29305 text long
+	// ago. When the baseline file is edited (e.g. 2c66255df, bcec19af0 on 2026-09-23/24) update
+	// `current` here or every STG deploy stops at goatos-stg-migrate with a checksum mismatch.
 	"000001_goatos_clean_slate_baseline": {
-		current: "sha256:2ecaf35d57ff448fcd2f293e502074c1fe5c36e509a807fa482ab609659d6bb0",
+		current: "sha256:3b2927d0051c753c3c6509d6c582aa04490422e5f36c6f365f34808e80a5290d",
 		applied: "sha256:b29305e89e75b2ef15bb80a79c704720941d1d3b8cc8e10de085655b6290d349",
 	},
 	"000035_death_upload_before_approval": {
