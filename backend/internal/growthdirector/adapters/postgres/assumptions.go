@@ -33,7 +33,7 @@ import (
 // keys), never by data rows.
 const (
 	// FOR UPDATE: the compare-and-set below must see the row a concurrent save is about to move.
-	// A NULL price is a cleared override (000398) and reads as "no price of its own".
+	// A NULL price is a cleared override (000399) and reads as "no price of its own".
 	currentSalePriceSQL = `
 SELECT price_per_kg_inr::float8 FROM growth_sale_price_assumptions
 WHERE tenant_id = $1::uuid AND species = $2 AND management_stage = $3 AND sex = $4 AND effective_from <= $5::date

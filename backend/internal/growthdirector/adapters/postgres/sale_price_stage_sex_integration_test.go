@@ -11,7 +11,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 )
 
-// SALE PRICE PER STAGE AND SEX (maintainer decision 2026-09-24, migration 000398).
+// SALE PRICE PER STAGE AND SEX (maintainer decision 2026-09-24, migration 000399).
 //
 // The FCR fixture's lump pen holds 25 goats at management_stage 'kid', all male; its scanned pen
 // holds three 'kid' females. A goat/kid/male override must value the lump pen's gain at the

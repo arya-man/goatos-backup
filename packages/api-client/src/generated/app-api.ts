@@ -908,7 +908,7 @@ export interface paths {
         };
         /**
          * The figures the Weighing area is valued against.
-         * @description Requires WeighingMonitor. The sale prices effective today plus every keyed figure in growth_assumptions (sale_ready_threshold_kg, load_age_alert_days). Maintainer decision 2026-09-19: edited from the ADG Analytics Assumptions drawer, read per request by every consumer, so a change shows on the next page load.
+         * @description Requires WeighingMonitor. The sale prices effective today plus every keyed figure in growth_assumptions (sale_ready_threshold_kg, load_age_alert_days). Maintainer decision 2026-09-19: edited from the ADG Analytics Assumptions drawer, read per request by every consumer, so a change shows on the next page load. The stage x sex editor grid is included only when include_stages=1; normal page loads leave stages empty so they do not scan weighing history for drawer-only UI.
          */
         get: operations["adminGetGrowthAssumptions"];
         /**

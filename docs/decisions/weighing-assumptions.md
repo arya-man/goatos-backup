@@ -88,7 +88,7 @@ maintainer gave, each load-bearing:
    Weighing Load-wise comparison chart (stock on hand, per load: its remaining animals, combined
    with that chart's latest-weight read).
 
-Shape (migration `000398`): `management_stage` + `sex` columns on
+Shape (migration `000399`): `management_stage` + `sex` columns on
 `growth_sale_price_assumptions`, unique on `(tenant, species, stage, sex, effective_from)`. Still
 **append-only and effective-dated**: clearing an override is itself a row with a NULL price, so a
 past day keeps the price that was in force. A species default can never be NULL (table CHECK and

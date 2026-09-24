@@ -599,7 +599,7 @@ func (r *Repository) fcrSegments(ctx context.Context, tenantID string, parkIDs [
 // valuation the reader holds today, so a period older than the first one is priced at the first one
 // rather than left unvalued -- the tab prints which row applied either way.
 //
-// An override whose winning row carries NO price was CLEARED on that date (000398): it is dropped
+// An override whose winning row carries NO price was CLEARED on that date (000399): it is dropped
 // here, so the animals it covered fall back to their species default in the domain resolver.
 // Bounded by the (tenant, species, stage, sex, effective_from) unique key; a tenant holds a few
 // dozen rows at most (two species x the stage vocabulary x two sexes).

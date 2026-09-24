@@ -255,7 +255,7 @@ func TestFCRPenWeighedOnceReportsAbsence(t *testing.T) {
 
 // A window that ends BEFORE the first price row was set is still valued, at the earliest row: the
 // assumption is what the reader holds today, and the tab prints which row applied.
-func TestFCRSalePriceFallsBackToTheEarliestRowForAnOlderWindow(t *testing.T) {
+func TestFCRDateShiftSalePriceFallsBackToTheEarliestRowForAnOlderWindow(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
