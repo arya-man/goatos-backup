@@ -845,9 +845,9 @@ func (r *Repository) ListTagsLatest(ctx context.Context, tenantID string, parkID
 	}
 
 	// Summary: the SAME filter (park/shed/mapping_state/pattern/q), WITHOUT the movement_state
-	// predicate or the cursor/limit, aggregated server-side in one query -- never derived from
-	// the returned page (AGENTS.md operational read model contract rule 3).
-	summaryWhere, summaryArgs, _ := herdSignalsLiveFilter(tenantID, parkID, shedID, nil, liveState, mappingState, pattern, q)
+	// or live_state predicate and without the cursor/limit, aggregated server-side in one query --
+	// never derived from the returned page (AGENTS.md operational read model contract rule 3).
+	summaryWhere, summaryArgs, _ := herdSignalsLiveFilter(tenantID, parkID, shedID, nil, nil, mappingState, pattern, q)
 
 	summary, err := r.computeSummary(ctx, tagLocationJoin, summaryWhere, summaryArgs)
 	if err != nil {
