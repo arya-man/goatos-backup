@@ -74,7 +74,7 @@ SELECT (SELECT count(*) FROM inventory_items WHERE status='active')
 - Screen: module SOP pages (`/vaccination/sops`, `/feed/sops`, `/counts/sops`, `/configuration/work-instructions` = `general` slice), `features/sops/module-page.tsx:258-276`, card `sop-library.tsx:63-65`.
 - Endpoint: `GET /admin/sops?limit=200` (`sop/adapters/http/handler.go:33`), with embedded `latest_versions`.
 - Code: list `sop/adapters/postgres/repository.go:39-58`; latest version `repository.go:2055-2079` (DISTINCT ON sop_id ORDER BY version DESC); publish retires the previous published version `repository.go:1920-1950`.
-- Formula: SOP = `sop_definitions` (status draft/active/retired); card badge "published · vN" when definition is active. Versions in `sop_versions` (draft -> published -> retired; one published per SOP). Slice = code prefix classifier (`sop-derive.ts classifyDomain`).
+- Formula: SOP = `sop_definitions` (status draft/active/retired); card badge "published · vN" when definition is active. Versions in `sop_versions` (draft -> published -> retired; one published per SOP). Domain group = code prefix classifier (`sop-derive.ts classifyDomain`).
 - Traps: the card's version number is the **latest** version (can be a draft), while the phone runs the published one. SOPs outside every module slice are not shown anywhere. Step counts come from `form_dsl`, not a column.
 - SQL (verified: 21 SOPs all active, each with a published version; versions 21 published + 7 retired, 0 drafts; by prefix procurement 6, counts 3, feed 3, milk 2, sales 2, general/pc_care/shifting/vaccination/weighing 1):
 ```sql
