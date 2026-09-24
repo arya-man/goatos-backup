@@ -50,3 +50,25 @@ test("short read cache evicts failures and permission revocation responses immed
   assert.deepEqual(third, { ok: true, data: { recovered: true } });
   assert.equal(calls, 3);
 });
+
+test("short read cache serves repeat reads inside the ttl and clear() drops them", async () => {
+  let now = 1000;
+  let calls = 0;
+  const cache = new ShortReadCache(30_000, () => now);
+  const read = () =>
+    cache.read("weights:user-a", async () => {
+      calls += 1;
+      return { ok: true, data: { version: calls } };
+    });
+
+  assert.deepEqual(await read(), { ok: true, data: { version: 1 } });
+  now += 29_000;
+  assert.deepEqual(await read(), { ok: true, data: { version: 1 } });
+  assert.equal(calls, 1);
+
+  cache.clear();
+  assert.deepEqual(await read(), { ok: true, data: { version: 2 } });
+  now += 31_000;
+  assert.deepEqual(await read(), { ok: true, data: { version: 3 } });
+  assert.equal(calls, 3);
+});
