@@ -161,6 +161,10 @@ test("SSE ticks must not force full page refreshes", () => {
   assert.match(tickHandler, /current === "snapshot_error" \? current : "open"/, "SSE ticks must not mask backend snapshot failures");
   assert.doesNotMatch(streamBridge, /router\.refresh|useRouter|onClick=\{refresh\}/, "SSE bridge must not refresh the route; data must arrive through EventSource snapshots");
   assert.doesNotMatch(streamBridge, /STREAM_REFRESH_MIN_MS|lastStreamRefreshAtRef/, "SSE route-refresh throttles must not exist; ticks must not refresh the route at all");
+  assert.match(streamBridge, /const STREAM_SILENT_FALLBACK_MS = 45_000/, "SSE bridge must have a bounded fallback when the stream is unavailable");
+  assert.match(streamBridge, /streamState !== "error" && streamState !== "snapshot_error" && !streamSilent/, "fallback must run only when SSE errors or goes silent");
+  assert.match(streamBridge, /writeHerdSignalsLiveSnapshot\(liveKey, data\)/, "fallback must update the live snapshot store instead of refreshing the route");
+  assert.match(read("../../app/api/herd-signals/live/route.ts"), /\/herd-signals\/live/, "Admin-web must proxy Herd Signals live JSON for fallback reads");
   assert.match(streamBridge, /stream ticks update connection\/freshness state only/, "stream bridge comment must preserve the no-refresh SSE contract");
 });
 

@@ -11,6 +11,7 @@ import { useHerdSignalsLiveSnapshot, writeHerdSignalsLiveSnapshot } from "./herd
 // disguised as SSE and cause the full-page flicker operators reported.
 
 const STALE_AFTER_MS = 30_000;
+const STREAM_SILENT_FALLBACK_MS = 45_000;
 const DEFAULT_SORT = "smart_tag";
 const DEFAULT_SORT_DIR = "asc";
 const DEFAULT_LIMIT = "25";
@@ -182,6 +183,11 @@ export function HerdSignalsStreamBridge({ generatedAt }: { generatedAt: string }
     return `/api/herd-signals/live/stream${out.toString() ? `?${out.toString()}` : ""}`;
   }
 
+  function liveJsonHref(): string {
+    const out = new URLSearchParams(liveQuery);
+    return `/api/herd-signals/live${out.toString() ? `?${out.toString()}` : ""}`;
+  }
+
   useEffect(() => {
     if (!live || tabHidden || !streamConsumesLiveSnapshot) return;
     setStreamState("connecting");
@@ -208,6 +214,40 @@ export function HerdSignalsStreamBridge({ generatedAt }: { generatedAt: string }
     });
     return () => source.close();
   }, [live, tabHidden, streamConsumesLiveSnapshot, liveKey, liveQuery]);
+
+  useEffect(() => {
+    if (!live || tabHidden || !streamConsumesLiveSnapshot) return;
+    let inFlight = false;
+    let stopped = false;
+    async function fallbackSnapshot() {
+      if (inFlight || stopped) return;
+      const streamSilent = Date.now() - lastStreamEventAtMs > STREAM_SILENT_FALLBACK_MS;
+      if (streamState !== "error" && streamState !== "snapshot_error" && !streamSilent) return;
+      inFlight = true;
+      try {
+        const response = await fetch(liveJsonHref(), {
+          method: "GET",
+          headers: { Accept: "application/json" },
+          cache: "no-store",
+        });
+        if (!response.ok) throw new Error(`fallback live read failed: ${response.status}`);
+        const data = (await response.json()) as HerdSignalsLiveResponse;
+        if (stopped) return;
+        writeHerdSignalsLiveSnapshot(liveKey, data);
+        setLastStreamEventAtMs(Date.now());
+        setStreamState("open");
+      } catch {
+        if (!stopped) setStreamState("error");
+      } finally {
+        inFlight = false;
+      }
+    }
+    const timer = window.setInterval(fallbackSnapshot, STREAM_SILENT_FALLBACK_MS);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+    };
+  }, [live, tabHidden, streamConsumesLiveSnapshot, liveKey, liveQuery, lastStreamEventAtMs, streamState]);
 
   function toggleLive() {
     writeLive(!live);
