@@ -27,6 +27,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 	"sync"
@@ -294,6 +295,7 @@ func (c *Cache) get(ctx context.Context, key Key, load func(context.Context) (an
 func safeLoad(ctx context.Context, load func(context.Context) (any, error)) (value any, err error) {
 	defer func() {
 		if r := recover(); r != nil {
+			slog.ErrorContext(ctx, "readcache_load_panicked", "panic", fmt.Sprint(r))
 			err = fmt.Errorf("readcache: load panicked: %v", r)
 		}
 	}()

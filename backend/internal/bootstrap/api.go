@@ -1623,8 +1623,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// Warm-up waits for the first successful LISTEN (so the connect-time evict-all cannot wipe what
 	// it loads), then starts after a per-instance jitter and runs its reads one at a time.
 	analyticsListener := // The vaccination read cache rides the same feed: migration 000411's write triggers notify with
-	// caches=["vaccination"], so a dose/drive/obligation write evicts only that cache.
-	readcache.NewListener(pool, log, analyticsReadCache, alertsReadCache, countsReadCache, vaccExecRepo.ReadCache())
+		// caches=["vaccination"], so a dose/drive/obligation write evicts only that cache.
+		readcache.NewListener(pool, log, analyticsReadCache, alertsReadCache, countsReadCache, vaccExecRepo.ReadCache())
 	analyticsListener.OnFirstConnect(func(ctx context.Context) {
 		analyticsReadCache.StartWarmup(ctx, log, readcache.Jitter(time.Second, 10*time.Second), 20*time.Second,
 			weighingRepo.WarmLandingReads,
