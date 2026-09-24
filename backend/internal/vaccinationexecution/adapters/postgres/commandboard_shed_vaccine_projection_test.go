@@ -752,8 +752,9 @@ func TestVaccinationCommandBoardShedVaccineColumnsExcludeRetiredProtocolVaccines
 		 VALUES ($1, $2, $3, 'tenant', 1, 'draft', '2026-01-01', '{}')`,
 		retiredVersionID, tenantID, retiredProtocolID)
 	execProjectionSQL(t, ctx, pool, "retired rule",
-		`INSERT INTO protocol_rules (rule_id, tenant_id, protocol_version_id, dose_code, trigger_type)
-		 VALUES ($1, $2, $3, 'blue_tongue_adult', 'birth_age')`, retiredRuleID, tenantID, retiredVersionID)
+		`INSERT INTO protocol_rules (rule_id, tenant_id, protocol_version_id, dose_code, trigger_type, eligibility_json)
+		 VALUES ($1, $2, $3, 'blue_tongue_adult', 'birth_age', '{"vaccine":{"code":"BLUE_TONGUE"}}'::jsonb)`,
+		retiredRuleID, tenantID, retiredVersionID)
 	seedVaccineDimension(t, ctx, pool, tenantID, retiredVersionID, retiredRuleID,
 		uuidFromSuffix("0b", "g8ret"), "sel-bt", "BLUE_TONGUE")
 	execProjectionSQL(t, ctx, pool, "retire the version",

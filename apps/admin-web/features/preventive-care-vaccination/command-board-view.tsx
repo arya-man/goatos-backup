@@ -1270,8 +1270,8 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
               {farms.length === 0 ? (
                 <div className="cbm-empty">{copy(pageContract, "command_board.cohort_matrix.empty")}</div>
               ) : (
-                farms.map(({ farm, vaccines, rows }) => (
-                  <div key={farm} className="cbm-farm-block">
+                farms.map(({ farm, vaccines, rows }, farmIndex) => (
+                  <div key={`${farm || "no-farm"}|${farmIndex}`} className="cbm-farm-block">
                     <h4 className="cbm-farm-name">{farm || copy(pageContract, "command_board.cohort_matrix.no_farm")}</h4>
                     <div className="cbm-hm twrap" tabIndex={0} aria-label={copy(pageContract, "command_board.cohort_matrix.title")}>
                       <table className="cbm-heat cbm-cohort-heat">
@@ -1285,7 +1285,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                           </tr>
                         </thead>
                         <tbody>
-                          {rows.map((row) => {
+                          {rows.map((row, rowIndex) => {
                             // Three DISJOINT buckets, rendered together: the big number is what
                             // the OPERATOR still owes, and the sub-line carries what the VERIFIER
                             // owes (submitted) plus what is closed (verified). Showing pending
@@ -1402,7 +1402,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                               });
 
                             return (
-                              <tr key={`${farm}-${row.cohort}`}>
+                              <tr key={`${farm || "no-farm"}|${row.cohort}|${rowIndex}`}>
                                 <th className="cbm-rowh">
                                   {row.cohort}
                                   {rowQualifier(pageContract, row.cohort) ? (
@@ -1787,8 +1787,8 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                     </tr>
                   </thead>
                   <tbody>
-                    {selectedCell.members.map((member) => (
-                      <tr key={member.label}>
+                    {selectedCell.members.map((member, index) => (
+                      <tr key={`${member.label}|${index}`}>
                         <td>{member.label}</td>
                         <td>{member.animals}</td>
                         <td>{member.pending}</td>

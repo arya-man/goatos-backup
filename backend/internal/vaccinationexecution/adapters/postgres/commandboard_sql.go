@@ -748,19 +748,12 @@ const commandBoardShedVaccineSQL = `
 -- hundreds-of-milliseconds class on the staging-scale tenant. It was the endpoint's slowest
 -- remaining section once the drilldowns moved out, and therefore the whole board's critical path.
 --
--- (1) rule_vaccine DE-FANS protocol_rule_dimensions BEFORE the join. That table is 1..N per
---     rule_id (publish compiles one rule into one row per selector combination) and carries the
---     SAME vaccine_code on every dimension row of a rule, so the join was multiplying all ~71k
---     obligation rows by ~3 before aggregating, purely to rediscover a value it already had. On the
---     live tenant 528 dimension rows reduce to 170 distinct (rule, vaccine) pairs.
---
---     NOTE, because an earlier version of this comment claimed otherwise: the rewrite does NOT
---     depend on vaccine_code being invariant per rule. DISTINCT (rule_id, tenant_id, vaccine_code)
---     preserves two codes as two rows, and vaccine_code is in per_animal's GROUP BY, so a rule that
---     ever compiled two codes still counts correctly -- exactly as the old COUNT(DISTINCT
---     target_id) did. The de-fan is a cost fix that happens to be safe for a stronger reason than
---     invariance. TestVaccinationCommandBoardShedVaccineOneToManyMultipleDimensions pins the count
---     under a deliberate 3-dimension fan-out.
+-- (1) rule_vaccine reads the rule's vaccine identity from protocol_rules.eligibility_json, not
+--     protocol_rule_dimensions. Dimensions are a compiled selector index: useful for generation,
+--     but not authoritative for the command board's vaccine catalogue. The live V9 rules restored
+--     eight vaccine families in protocol_rules while protocol_rule_dimensions held rows only for
+--     ET_TT, so trusting dimensions made the grid literally receive one column. The fallback to
+--     dimensions exists for older/non-matrix rules that have no JSON vaccine identity.
 --
 -- (2) goat_partition resolves the partition label ONCE PER (goat, shed) instead of once per
 --     obligation row. The label needs a regexp_replace to match shed_partitions.normalized_label;
@@ -852,9 +845,25 @@ rework AS (
   ORDER BY obligation_id, verdict_at DESC NULLS LAST, item_id DESC
 ),
 rule_vaccine AS (
-  SELECT DISTINCT rule_id, tenant_id, vaccine_code
-  FROM protocol_rule_dimensions
-  WHERE tenant_id = $1::uuid AND vaccine_code <> ''
+  SELECT DISTINCT
+    pr.rule_id,
+    pr.tenant_id,
+    COALESCE(
+      NULLIF(upper(btrim(pr.eligibility_json -> 'vaccine' ->> 'code')), ''),
+      NULLIF(upper(btrim(dim.vaccine_code)), '')
+    ) AS vaccine_code
+  FROM protocol_rules pr
+  LEFT JOIN protocol_rule_dimensions dim
+    ON dim.tenant_id = pr.tenant_id
+   AND dim.protocol_version_id = pr.protocol_version_id
+   AND dim.rule_id = pr.rule_id
+   AND dim.category = 'vaccination'
+   AND dim.vaccine_code <> ''
+  WHERE pr.tenant_id = $1::uuid
+    AND COALESCE(
+      NULLIF(upper(btrim(pr.eligibility_json -> 'vaccine' ->> 'code')), ''),
+      NULLIF(upper(btrim(dim.vaccine_code)), '')
+    ) IS NOT NULL
 ),
 goat_partition AS (
   SELECT
@@ -937,21 +946,49 @@ GROUP BY shed.location_id, shed.name, pa.partition_label, park.name, pa.vaccine_
 // means "the protocol asks for this and nothing is planned", which is a real finding.
 //
 // Taking the WHOLE dimension table instead invents findings. Dimensions accumulate per protocol
-// VERSION and retired versions keep their rows forever -- on this tenant BLUE_TONGUE exists only
-// on a RETIRED version, so listing it produced an all-grey column that read as a protocol gap
-// when the vaccine had simply been withdrawn. Published versions of the vaccination category are
-// the source-of-truth boundary: what the herd is currently required to receive.
+// VERSION and retired versions keep their rows forever, so listing them can resurrect withdrawn
+// vaccines as all-grey columns. Published versions of the vaccination category are the
+// source-of-truth boundary: what the herd is currently required to receive. Inside that boundary,
+// protocol_rules.eligibility_json is the vaccine identity source; protocol_rule_dimensions is only
+// fallback metadata for legacy rules whose JSON is missing.
 const commandBoardVaccineCodeSQL = `
-SELECT DISTINCT d.vaccine_code
-FROM protocol_rule_dimensions d
-JOIN protocol_versions pv
-  ON pv.protocol_version_id = d.protocol_version_id
- AND pv.tenant_id = d.tenant_id
-WHERE d.tenant_id = $1::uuid
-  AND d.vaccine_code <> ''
-  AND d.category = 'vaccination'
-  AND pv.status = 'published'
-ORDER BY d.vaccine_code
+WITH published_rules AS (
+  SELECT
+    pr.tenant_id,
+    pr.protocol_version_id,
+    pr.rule_id,
+    NULLIF(upper(btrim(pr.eligibility_json -> 'vaccine' ->> 'code')), '') AS rule_vaccine_code
+  FROM protocol_rules pr
+  JOIN protocol_versions pv
+    ON pv.protocol_version_id = pr.protocol_version_id
+   AND pv.tenant_id = pr.tenant_id
+  JOIN protocol_definitions pd
+    ON pd.protocol_id = pv.protocol_id
+   AND pd.tenant_id = pv.tenant_id
+  WHERE pr.tenant_id = $1::uuid
+    AND pv.status = 'published'
+    AND pd.category = 'vaccination'
+)
+SELECT DISTINCT vaccine_code
+FROM (
+  SELECT rule_vaccine_code AS vaccine_code
+  FROM published_rules
+  WHERE rule_vaccine_code IS NOT NULL
+
+  UNION ALL
+
+  SELECT NULLIF(upper(btrim(d.vaccine_code)), '') AS vaccine_code
+  FROM published_rules pr
+  JOIN protocol_rule_dimensions d
+    ON d.tenant_id = pr.tenant_id
+   AND d.protocol_version_id = pr.protocol_version_id
+   AND d.rule_id = pr.rule_id
+   AND d.category = 'vaccination'
+  WHERE pr.rule_vaccine_code IS NULL
+    AND d.vaccine_code <> ''
+) codes
+WHERE vaccine_code IS NOT NULL
+ORDER BY vaccine_code
 `
 
 // 4. Weekly given query (ISO week × DOSE × status)

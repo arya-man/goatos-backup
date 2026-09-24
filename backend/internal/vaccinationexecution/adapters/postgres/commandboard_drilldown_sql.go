@@ -297,6 +297,27 @@ rework AS (
   ) verdicts
   ORDER BY obligation_id, verdict_at DESC NULLS LAST, item_id DESC
 ),
+rule_vaccine AS (
+  SELECT DISTINCT
+    pr.rule_id,
+    pr.tenant_id,
+    COALESCE(
+      NULLIF(upper(btrim(pr.eligibility_json -> 'vaccine' ->> 'code')), ''),
+      NULLIF(upper(btrim(dim.vaccine_code)), '')
+    ) AS vaccine_code
+  FROM protocol_rules pr
+  LEFT JOIN protocol_rule_dimensions dim
+    ON dim.tenant_id = pr.tenant_id
+   AND dim.protocol_version_id = pr.protocol_version_id
+   AND dim.rule_id = pr.rule_id
+   AND dim.category = 'vaccination'
+   AND dim.vaccine_code <> ''
+  WHERE pr.tenant_id = $1::uuid
+    AND COALESCE(
+      NULLIF(upper(btrim(pr.eligibility_json -> 'vaccine' ->> 'code')), ''),
+      NULLIF(upper(btrim(dim.vaccine_code)), '')
+    ) IS NOT NULL
+),
 cell AS (
   SELECT
     CASE
@@ -315,7 +336,7 @@ cell AS (
       AND NOT COALESCE(comp.has_recorded_unverified, false) AS rework_needed,
     COALESCE(comp.recorded_at, rework.recorded_at) AS recorded_at
   FROM obligation_instances oi
-  JOIN protocol_rule_dimensions d ON d.rule_id = oi.rule_id AND d.tenant_id = oi.tenant_id
+  JOIN rule_vaccine d ON d.rule_id = oi.rule_id AND d.tenant_id = oi.tenant_id
   JOIN goats g ON g.goat_id = oi.target_id AND g.tenant_id = oi.tenant_id
   LEFT JOIN comp ON comp.obligation_id = oi.obligation_id
   LEFT JOIN rework ON rework.tenant_id = oi.tenant_id AND rework.obligation_id = oi.obligation_id
@@ -332,7 +353,6 @@ cell AS (
     AND d.vaccine_code = $6::text
     AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
     AND g.merged_into_goat_id IS NULL
-    AND d.vaccine_code <> ''
     AND NOT COALESCE(comp.has_accepted, false)
     AND (
       COALESCE(comp.has_recorded_unverified, false)

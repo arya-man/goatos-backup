@@ -22,8 +22,8 @@ var commandBoardPlanCoverageExempt = map[string]string{
 		"commandBoardCohortExceptionCountSQL and commandBoardCohortExceptionListSQL are each built from " +
 		"by concatenation, and BOTH of those are in the plan table, so every plan this fragment can " +
 		"produce is already EXPLAINed. It cannot be EXPLAINed alone: it has no final SELECT.",
-	"commandBoardVaccineCodeSQL": "a bare DISTINCT over protocol_rules (204 rows tenant-wide); measured 0.14ms on the " +
-		"staging-scale clone. It touches no hot table and has no join to fan out.",
+	"commandBoardVaccineCodeSQL": "catalogue-only read over published protocol_rules with dimension fallback for legacy " +
+		"rules; it touches no hot table and has no obligation_instances fanout.",
 	"commandBoardVerifyQueueSQL": "reads the verification queue only; measured 0.25ms on the staging-scale clone. Its " +
 		"row count is bounded by outstanding verifications, not by obligation_instances.",
 	"commandBoardCohortHeadSQL": "a head count over goats (1.6k rows tenant-wide); measured 1.6ms. It does not touch " +
