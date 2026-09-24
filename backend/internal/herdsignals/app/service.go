@@ -53,13 +53,20 @@ func NewService(repo ports.Repository, log ...*slog.Logger) *Service {
 }
 
 // tenantPenStats is the per-pen comparison baseline over the tenant's WHOLE pen (not the page
-// filter): the same membership the risk classifier scores against, so a row's shown
-// pen-group deltas and its persisted risk reasons agree. Cached per tenant, NOTIFY-invalidated.
+// filter), read from the classifier's persisted medians so a row's shown pen-group deltas and
+// its persisted risk reasons use the same numbers. Cached per tenant, NOTIFY-invalidated.
 func (s *Service) tenantPenStats(ctx context.Context, tenantID string) (map[string]riskGroupStats, error) {
 	return s.penStats.get(ctx, liveCohortKey(tenantID), domain.FreshLiveRead(ctx), func(ctx context.Context) (map[string]riskGroupStats, error) {
-		medians, err := s.repo.ListLivePenMedians(ctx, tenantID, nil, nil, nil, nil, nil, nil)
+		// The classifier's persisted medians (the exact baseline the persisted risk used); the
+		// live whole-tenant aggregate only before the classifier's first pass.
+		medians, found, err := s.repo.LoadPenMedians(ctx, tenantID)
 		if err != nil {
 			return nil, err
+		}
+		if !found {
+			if medians, err = s.repo.ListLivePenMedians(ctx, tenantID, nil, nil, nil, nil, nil, nil); err != nil {
+				return nil, err
+			}
 		}
 		out := make(map[string]riskGroupStats, len(medians))
 		for pen, m := range medians {

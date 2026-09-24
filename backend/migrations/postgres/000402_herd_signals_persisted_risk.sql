@@ -42,7 +42,24 @@ CREATE INDEX IF NOT EXISTS herd_signal_tag_latest_risk_state_idx
   ON public.herd_signal_tag_latest (tenant_id, risk_state, last_seen_at DESC, tag_id DESC)
   WHERE risk_state IS NOT NULL;
 
+-- Per-pen comparison medians the classifier scored against, so a live page reads its pens'
+-- baseline by key instead of aggregating the whole tenant per request. Upserted per pass;
+-- pens that vanished are deleted by key, never a whole-tenant delete + reinsert.
+CREATE TABLE IF NOT EXISTS public.herd_signal_pen_medians (
+  tenant_id     uuid        NOT NULL,
+  shed_id       uuid        NOT NULL,
+  motion_median double precision,
+  temp_median   double precision,
+  computed_at   timestamptz NOT NULL,
+  PRIMARY KEY (tenant_id, shed_id)
+);
+
+COMMENT ON TABLE public.herd_signal_pen_medians IS
+  'Herd Signals risk classifier pen baselines: median non-gap 15m motion_delta and tag temperature of mapped tags per pen.';
+
 -- +goose Down
+
+DROP TABLE IF EXISTS public.herd_signal_pen_medians;
 
 DROP INDEX IF EXISTS public.herd_signal_tag_latest_risk_state_idx;
 DROP INDEX IF EXISTS public.herd_signal_tag_latest_risk_idx;

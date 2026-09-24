@@ -58,6 +58,7 @@ type fakeRepo struct {
 	resolvedValueCnt int
 	summaryCalls     int
 	riskWrites       []ports.TagRisk
+	penMedians       map[string]ports.PenMedians
 }
 
 func (f *fakeRepo) IngestPackets(_ context.Context, _ string, _ domain.Gateway, packets []domain.Packet) (int, int, error) {
@@ -127,6 +128,19 @@ func (f *fakeRepo) riskFiltered(riskState *string) []domain.TagLatest {
 		}
 	}
 	return out
+}
+
+func (f *fakeRepo) ReplacePenMedians(_ context.Context, _ string, m map[string]ports.PenMedians, _ time.Time) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.penMedians = m
+	return nil
+}
+
+func (f *fakeRepo) LoadPenMedians(_ context.Context, _ string) (map[string]ports.PenMedians, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.penMedians, f.penMedians != nil, nil
 }
 
 // UpdateTagRisk persists onto the fake's rows, like the UNNEST update.

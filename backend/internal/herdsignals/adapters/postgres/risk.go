@@ -112,3 +112,67 @@ func (r *Repository) WithRiskClassifierLock(ctx context.Context, fn func(ctx con
 	}()
 	return true, fn(ctx)
 }
+
+const upsertPenMediansSQL = `
+	INSERT INTO public.herd_signal_pen_medians (tenant_id, shed_id, motion_median, temp_median, computed_at)
+	SELECT $1, u.shed_id, u.motion_median, u.temp_median, $2
+	FROM unnest($3::uuid[], $4::float8[], $5::float8[]) AS u(shed_id, motion_median, temp_median)
+	ON CONFLICT (tenant_id, shed_id) DO UPDATE
+	SET motion_median = EXCLUDED.motion_median, temp_median = EXCLUDED.temp_median, computed_at = EXCLUDED.computed_at
+`
+
+const deleteVanishedPenMediansSQL = `
+	DELETE FROM public.herd_signal_pen_medians
+	WHERE tenant_id = $1 AND NOT (shed_id = ANY($2::uuid[]))
+`
+
+// ReplacePenMedians upserts this pass's pen medians and deletes only pens no longer present.
+func (r *Repository) ReplacePenMedians(ctx context.Context, tenantID string, medians map[string]ports.PenMedians, computedAt time.Time) error {
+	pens := make([]string, 0, len(medians))
+	motions := make([]*float64, 0, len(medians))
+	temps := make([]*float64, 0, len(medians))
+	for pen, m := range medians {
+		pens, motions, temps = append(pens, pen), append(motions, m.MotionMedian), append(temps, m.TempMedian)
+	}
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op once committed
+	up := sqlbind.MustBind(upsertPenMediansSQL, tenantID, computedAt, pens, motions, temps)
+	if _, err := tx.Exec(ctx, up.SQL(), up.Args()...); err != nil {
+		return fmt.Errorf("upsert pen medians: %w", err)
+	}
+	del := sqlbind.MustBind(deleteVanishedPenMediansSQL, tenantID, pens)
+	if _, err := tx.Exec(ctx, del.SQL(), del.Args()...); err != nil {
+		return fmt.Errorf("delete vanished pen medians: %w", err)
+	}
+	return tx.Commit(ctx)
+}
+
+const loadPenMediansSQL = `
+	SELECT shed_id::text, motion_median, temp_median
+	FROM public.herd_signal_pen_medians
+	WHERE tenant_id = $1
+`
+
+// LoadPenMedians reads the classifier's persisted pen medians; found=false when the classifier
+// has not run for this tenant yet.
+func (r *Repository) LoadPenMedians(ctx context.Context, tenantID string) (map[string]ports.PenMedians, bool, error) {
+	q := sqlbind.MustBind(loadPenMediansSQL, tenantID)
+	rows, err := r.db.Query(ctx, q.SQL(), q.Args()...)
+	if err != nil {
+		return nil, false, err
+	}
+	defer rows.Close()
+	out := map[string]ports.PenMedians{}
+	for rows.Next() {
+		var pen string
+		var m ports.PenMedians
+		if err := rows.Scan(&pen, &m.MotionMedian, &m.TempMedian); err != nil {
+			return nil, false, err
+		}
+		out[pen] = m
+	}
+	return out, len(out) > 0, rows.Err()
+}
