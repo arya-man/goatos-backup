@@ -9,6 +9,7 @@ import {
   toPreview,
 } from "./ceo-ai-attachments";
 import {
+  Check,
   Maximize2,
   MessageSquarePlus,
   Mic,
@@ -379,14 +380,20 @@ function AgentSteps(props: {
       </button>
       {expanded ? (
         <ol>
-          {steps.map((s, i) => (
-            <li
-              key={`${i}-${s}`}
-              className={live && i === steps.length - 1 ? "now" : "done"}
-            >
-              {s}
-            </li>
-          ))}
+          {live && steps.length > 4 ? (
+            <li className="more">+{steps.length - 4} earlier</li>
+          ) : null}
+          {(live ? steps.slice(-4) : steps).map((s, i, shownSteps) => {
+            const now = live && i === shownSteps.length - 1;
+            return (
+              <li key={`${i}-${s}`} className={now ? "now" : "done"}>
+                <span className="mzai-step-ic" aria-hidden>
+                  {now ? null : <Check size={11} strokeWidth={3} />}
+                </span>
+                {s}
+              </li>
+            );
+          })}
         </ol>
       ) : null}
     </div>
@@ -540,7 +547,8 @@ export function CeoAiPanel({
   const addFiles = useCallback((list: FileList | null) => {
     if (!list) return;
     const incoming = Array.from(list).slice(0, 5);
-    void Promise.all(incoming.map((f) => shrinkImage(f).catch(() => f))).then( // request-plan:ignore owner=admin-web issue=CEO-AI-ATTACHMENT-CAP expires=2026-12-31 reason=incoming is sliced to the five visible attachment slots before fan-out
+    void Promise.all(incoming.map((f) => shrinkImage(f).catch(() => f))).then(
+      // request-plan:ignore owner=admin-web issue=CEO-AI-ATTACHMENT-CAP expires=2026-12-31 reason=incoming is sliced to the five visible attachment slots before fan-out
       (shrunk) => setFiles((prev) => [...prev, ...shrunk].slice(0, 5)),
     );
   }, []);
@@ -1162,7 +1170,9 @@ export function CeoAiPanel({
                       message.chart ? (
                         <CeoAiChart chart={message.chart} />
                       ) : null}
-                      {message.state === "streaming" && !message.text ? (
+                      {message.state === "streaming" &&
+                      !message.text &&
+                      !message.steps?.length ? (
                         <div className="mzai-progress">
                           <div className="mzai-skel" aria-label={copy.checking}>
                             <span />
