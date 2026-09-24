@@ -376,14 +376,16 @@ class SessionViewModel @Inject constructor(
         // correctly authenticated operator out with raw exception text. Bootstrap waits for it
         // (bounded) only if it answers 403 for a first-ever login; see AuthSessionEventSender.
         sessionStore.setBearerToken(FIREBASE_SESSION_MARKER)
-        // A prior signOut() cancelled the periodic/retry WorkManager backstop
-        // (LogoutCoordinator's clean-slate wipe) — re-arm it for this new session.
-        // ExistingPeriodicWorkPolicy.KEEP makes this idempotent when it was never cancelled.
-        // WorkManager's enqueue does disk I/O on the calling thread, so hop off Main.
-        withContext(ioDispatcher) { syncJobsScheduler.scheduleAll() }
         analytics.track(AnalyticsEvents.LOGIN_SUCCESS, identityProps)
         logInfo("Goat OS login session opened email=${email.orEmpty()} uid=${firebaseUid.orEmpty()} flavor=${BuildConfig.FLAVOR}")
         _uiState.update { it.copy(isLoading = false, errorReason = null, errorDetail = null) }
+        // A prior signOut() cancelled the periodic/retry WorkManager backstop
+        // (LogoutCoordinator's clean-slate wipe) — re-arm it for this new session after the
+        // login screen has opened. ExistingPeriodicWorkPolicy.KEEP makes this idempotent.
+        viewModelScope.launch(ioDispatcher) {
+            runCatching { syncJobsScheduler.scheduleAll() }
+                .onFailure { Log.w(TAG, "sync job scheduling failed after login", it) }
+        }
         // Sent last so a fast denial can never be overwritten by the success state above.
         sessionEvents.send(
             eventType = "auth.sign_in",
