@@ -491,6 +491,29 @@ export function CeoAiStyles(): ReactElement {
 @media (prefers-reduced-motion:reduce){.mzai-steps.live .mzai-steps-head,.mzai-steps li.now .mzai-step-ic{animation:none}}
 .mzai-send.stop{background:var(--panel);color:var(--ink);border:1.5px solid var(--brand)}
 .mzai-send.stop:hover{background:var(--brand-soft);transform:none}
+/* hidden file input must not take a flex gap slot; tighter composer so the
+   desktop placeholder fits at normal panel width with the chats list open */
+.mzai-form input[type=file]{display:none}
+@media (min-width:621px){
+  .mzai-view-normal .mzai-side{width:176px}
+  .mzai-form{gap:8px;padding:12px}
+  .mzai-form textarea{padding:10px 12px}
+}
+/* Code blocks follow the app theme: dark (GitHub) palette stays on the dark
+   console; on :root.light they use the light panel tokens. */
+:root.light .mzai-code{background:var(--panel-2)}
+:root.light .mzai-code-head{background:var(--sidebar);color:var(--muted);border-bottom-color:var(--line)}
+:root.light .mzai-code pre{color:var(--ink)}
+:root.light .mzai-code .mzai-copy-ic{color:var(--muted)}
+:root.light .mzai-code .mzai-copy-ic:hover{color:var(--ink)}
+:root.light .mzai-code .hljs-comment,:root.light .mzai-code .hljs-quote{color:var(--muted)}
+:root.light .mzai-code .hljs-keyword,:root.light .mzai-code .hljs-selector-tag,:root.light .mzai-code .hljs-literal,:root.light .mzai-code .hljs-type{color:var(--danger)}
+:root.light .mzai-code .hljs-string,:root.light .mzai-code .hljs-regexp,:root.light .mzai-code .hljs-addition{color:var(--teal)}
+:root.light .mzai-code .hljs-number,:root.light .mzai-code .hljs-symbol,:root.light .mzai-code .hljs-bullet,:root.light .mzai-code .hljs-attr,:root.light .mzai-code .hljs-attribute,:root.light .mzai-code .hljs-variable,:root.light .mzai-code .hljs-template-variable,:root.light .mzai-code .hljs-property{color:var(--info)}
+:root.light .mzai-code .hljs-title,:root.light .mzai-code .hljs-section{color:var(--purple)}
+:root.light .mzai-code .hljs-built_in,:root.light .mzai-code .hljs-name,:root.light .mzai-code .hljs-tag{color:var(--brand-d)}
+:root.light .mzai-code .hljs-meta{color:var(--warn)}
+:root.light .mzai-code .hljs-deletion{color:var(--danger)}
 `}</style>
   );
 }

@@ -11,6 +11,7 @@ import {
 } from "./ceo-ai-attachments";
 import {
   Check,
+  ChevronUp,
   Maximize2,
   MessageSquarePlus,
   Mic,
@@ -1108,10 +1109,15 @@ export function CeoAiPanel({
                 type="button"
                 className="mzai-icon"
                 onClick={() => setView(view === "min" ? "normal" : "min")}
-                aria-label={view === "min" ? "Restore" : "Minimize"}
-                title={view === "min" ? "Restore" : "Minimize"}
+                aria-label={view === "min" ? "Restore panel" : "Minimize"}
+                title={view === "min" ? "Restore panel" : "Minimize"}
+                aria-expanded={view !== "min"}
               >
-                <Minus className="ic" />
+                {view === "min" ? (
+                  <ChevronUp className="ic" />
+                ) : (
+                  <Minus className="ic" />
+                )}
               </button>
               <button
                 type="button"
