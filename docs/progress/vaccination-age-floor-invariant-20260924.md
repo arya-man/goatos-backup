@@ -26,11 +26,12 @@
 - Added explicit one-, two-, and three-vaccine applicability coverage and full goat/sheep pox selection coverage.
 - Full vaccination, obligation, protocol, seed, and backend E2E suites pass after the final rule edits.
 - Added age-floor enforcement to nil-reschedule recovery reopen and mapped user-facing date violations to a stable HTTP 422 contract.
+- Added age-floor and purpose/species enforcement to both unchanged-rule and medically-equivalent carry-over paths.
+- Added OCI regressions proving under-age rows do not carry across a republish and fattening goats carry ET+TT, PPR, and Goat Pox while excluding FMD and Sheep Pox.
 
 ## Pending
 
-- Fix final judge finding: apply floor and purpose guards to strict unchanged-rule carry-over.
-- Rerun OCI carry-over regressions and final judges.
+- Rerun the full focused suite and final judges after the carry-over fix.
 - Keep the draft PR updated with each verified checkpoint.
 - Repair/read back STG after the durable guard is deployable; do not claim the DB repair durable before deployment.
 
@@ -40,8 +41,9 @@
 - Focused tests: `go test ./internal/protocol/app ./internal/vaccination/app ./cmd/seed-vaccination-real ./internal/obligation/adapters/postgres ./internal/obligation/app ./migrations/postgres` passed.
 - Full tests: `go test ./internal/vaccination/... ./internal/obligation/... ./internal/protocol/... ./internal/vaccinationexecution/... ./cmd/seed-vaccination-real ./tests/e2e -count=1` passed.
 - OCI Postgres: `TestVaccinationBirthAgeFloorGuardsEveryWritePath` passed against the throwaway database in 165.15s, including nil-reschedule recovery reopen.
+- OCI Postgres: carry-over collision, repeat-cause collision, valid BT dose-2 rebind, under-age rejection, and fattening purpose/species tests passed against disposable databases.
 - E2E/readback: STG repair and deployed repeated-sweep readback pending; no deployment from this branch.
-- Judge status: clinical judge signed off; DB judge found one remaining strict carry-over bypass.
+- Judge status: clinical judge signed off; DB judge's strict carry-over bypass is fixed and awaiting final review.
 - Deployment state: not deployed
 
 ## Known failure and before metric

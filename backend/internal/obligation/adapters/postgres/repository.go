@@ -3167,11 +3167,16 @@ func (r *Repository) CarryOverUnchangedVaccinationObligations(ctx context.Contex
 	tag, err := r.pool.Exec(ctx, `
 WITH effective_rule AS (
   SELECT DISTINCT ON (identity_key, content_fingerprint)
-         identity_key, content_fingerprint, protocol_version_id, rule_id
-  FROM protocol_rule_lineage
-  WHERE tenant_id = $1::uuid
-    AND protocol_version_id = ANY($3::uuid[])
-  ORDER BY identity_key, content_fingerprint, rule_id
+         l.identity_key, l.content_fingerprint, l.protocol_version_id, l.rule_id,
+         pr.trigger_type, pr.offset_days, pr.min_gap_days, pr.repeat,
+         lower(btrim(COALESCE(NULLIF(pr.eligibility_json->'vaccine'->>'code',''), NULLIF(pv.rule_dsl->'vaccine'->>'code',''), ''))) AS vaccine_code,
+         pv.rule_dsl
+  FROM protocol_rule_lineage l
+  JOIN protocol_rules pr ON pr.tenant_id=l.tenant_id AND pr.rule_id=l.rule_id
+  JOIN protocol_versions pv ON pv.tenant_id=l.tenant_id AND pv.protocol_version_id=l.protocol_version_id
+  WHERE l.tenant_id = $1::uuid
+    AND l.protocol_version_id = ANY($3::uuid[])
+  ORDER BY l.identity_key, l.content_fingerprint, l.rule_id
 )
 UPDATE obligation_instances oi
 SET protocol_version_id = er.protocol_version_id,
@@ -3197,6 +3202,47 @@ WHERE oi.tenant_id = $1::uuid
   AND retired.tenant_id = oi.tenant_id
   AND retired.protocol_version_id = oi.protocol_version_id
   AND retired.rule_id = oi.rule_id
+  AND CASE er.trigger_type
+        WHEN 'birth_age' THEN COALESCE(oi.due_at >= (
+          SELECT (g.dob + er.offset_days)::timestamp AT TIME ZONE 'Asia/Kolkata'
+          FROM goats g WHERE g.tenant_id=oi.tenant_id AND g.goat_id=oi.target_id AND g.dob IS NOT NULL
+        ), true)
+        WHEN 'post_arrival' THEN COALESCE(oi.due_at >= (
+          SELECT (COALESCE(plg.warmup_started_at, plg.intake_accepted_at, plg.created_at)::date + er.offset_days)::timestamp AT TIME ZONE 'Asia/Kolkata'
+          FROM procurement_load_goats plg WHERE plg.tenant_id=oi.tenant_id AND plg.goat_id=oi.target_id
+          ORDER BY COALESCE(plg.warmup_started_at, plg.intake_accepted_at, plg.created_at) DESC NULLS LAST LIMIT 1
+        ), true)
+        WHEN 'after_previous_completion' THEN COALESCE(oi.due_at >= (
+          SELECT CASE WHEN er.repeat='yearly' THEN max(vc.administered_at)+interval '1 year'
+                      ELSE max(vc.administered_at)+make_interval(days=>greatest(er.offset_days,er.min_gap_days)) END
+          FROM vaccination_completions vc
+          JOIN obligation_instances history_oi ON history_oi.tenant_id=vc.tenant_id AND history_oi.obligation_id=vc.obligation_id
+          JOIN protocol_rules history_rule ON history_rule.tenant_id=history_oi.tenant_id AND history_rule.rule_id=history_oi.rule_id
+          JOIN protocol_versions history_version ON history_version.tenant_id=history_oi.tenant_id AND history_version.protocol_version_id=history_oi.protocol_version_id
+          WHERE vc.tenant_id=oi.tenant_id AND vc.goat_id=oi.target_id AND vc.status='accepted' AND vc.verified_at IS NOT NULL
+            AND lower(btrim(COALESCE(NULLIF(history_rule.eligibility_json->'vaccine'->>'code',''),NULLIF(history_version.rule_dsl->'vaccine'->>'code',''),'')))=er.vaccine_code
+        ), true)
+        ELSE true
+      END
+  AND COALESCE((
+        SELECT CASE WHEN COALESCE(lower(btrim(plg.purpose)), '') <> 'fattening' THEN true ELSE EXISTS (
+          SELECT 1
+          FROM jsonb_array_elements_text(
+            COALESCE(COALESCE(er.rule_dsl->'procurement_policy'->'purpose_plans'->'fattening', er.rule_dsl->'procurement_policy')->'first_wave','[]'::jsonb)
+            || COALESCE(CASE WHEN lower(btrim(g.species))='sheep'
+                              THEN COALESCE(er.rule_dsl->'procurement_policy'->'purpose_plans'->'fattening', er.rule_dsl->'procurement_policy')->'sheep_second_wave'
+                              ELSE COALESCE(er.rule_dsl->'procurement_policy'->'purpose_plans'->'fattening', er.rule_dsl->'procurement_policy')->'goat_second_wave' END,'[]'::jsonb)
+          ) allowed(vaccine)
+          WHERE lower(replace(replace(replace(replace(btrim(allowed.vaccine),' ',''),'_',''),'+',''),'-','')) = lower(replace(replace(replace(replace(er.vaccine_code,' ',''),'_',''),'+',''),'-',''))
+        ) END
+        FROM goats g
+        LEFT JOIN LATERAL (
+          SELECT purpose FROM procurement_load_goats p
+          WHERE p.tenant_id=g.tenant_id AND p.goat_id=g.goat_id
+          ORDER BY COALESCE(p.warmup_started_at,p.intake_accepted_at,p.created_at) DESC NULLS LAST LIMIT 1
+        ) plg ON true
+        WHERE g.tenant_id=oi.tenant_id AND g.goat_id=oi.target_id
+      ), true)
   -- A rebind changes protocol_version_id and rule_id, and BOTH are key columns in three
   -- different unique indexes. A collision on any of them raises 23505 and aborts the whole
   -- tenant-wide generation pass, so each one is checked first and the row left behind for the
@@ -3276,7 +3322,8 @@ WITH effective_rule AS (
          pr.trigger_type,
          pr.offset_days,
          pr.min_gap_days,
-         pr.repeat
+         pr.repeat,
+         pv.rule_dsl
   FROM protocol_rules pr
   JOIN protocol_versions pv
     ON pv.tenant_id = pr.tenant_id
@@ -3345,6 +3392,25 @@ WHERE oi.tenant_id = $1::uuid
   AND NOT (oi.protocol_version_id = ANY($3::uuid[]))
   AND rr.rule_id = oi.rule_id
   AND rr.vaccine_code <> ''
+  AND COALESCE((
+        SELECT CASE WHEN COALESCE(lower(btrim(plg.purpose)), '') <> 'fattening' THEN true ELSE EXISTS (
+          SELECT 1
+          FROM jsonb_array_elements_text(
+            COALESCE(COALESCE(er.rule_dsl->'procurement_policy'->'purpose_plans'->'fattening', er.rule_dsl->'procurement_policy')->'first_wave','[]'::jsonb)
+            || COALESCE(CASE WHEN lower(btrim(g.species))='sheep'
+                              THEN COALESCE(er.rule_dsl->'procurement_policy'->'purpose_plans'->'fattening', er.rule_dsl->'procurement_policy')->'sheep_second_wave'
+                              ELSE COALESCE(er.rule_dsl->'procurement_policy'->'purpose_plans'->'fattening', er.rule_dsl->'procurement_policy')->'goat_second_wave' END,'[]'::jsonb)
+          ) allowed(vaccine)
+          WHERE lower(replace(replace(replace(replace(btrim(allowed.vaccine),' ',''),'_',''),'+',''),'-','')) = lower(replace(replace(replace(replace(er.vaccine_code,' ',''),'_',''),'+',''),'-',''))
+        ) END
+        FROM goats g
+        LEFT JOIN LATERAL (
+          SELECT purpose FROM procurement_load_goats p
+          WHERE p.tenant_id=g.tenant_id AND p.goat_id=g.goat_id
+          ORDER BY COALESCE(p.warmup_started_at,p.intake_accepted_at,p.created_at) DESC NULLS LAST LIMIT 1
+        ) plg ON true
+        WHERE g.tenant_id=oi.tenant_id AND g.goat_id=oi.target_id
+      ), true)
   AND CASE er.trigger_type
         WHEN 'birth_age' THEN COALESCE(oi.due_at >= (
           SELECT (g.dob + er.offset_days)::timestamp AT TIME ZONE 'Asia/Kolkata'

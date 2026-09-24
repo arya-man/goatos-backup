@@ -258,6 +258,83 @@ func TestRepublishingAnIdenticalPlanReschedulesNothing(t *testing.T) {
 	}
 }
 
+func TestCarryOverDoesNotPreserveAnUnderAgeVaccination(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo, v1, v2, before := seedCarryOverFixture(t, ctx, pool, fiveVaccines())
+	dob := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	early := time.Date(2026, 9, 10, 0, 0, 0, 0, time.UTC)
+	if _, err := pool.Exec(ctx, `UPDATE goats SET dob=$3 WHERE tenant_id=$1::uuid AND goat_id=$2::uuid`, tenantID, carryOverGoat, dob); err != nil {
+		t.Fatalf("set DOB: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE obligation_instances SET due_at=$3 WHERE tenant_id=$1::uuid AND obligation_id=$2::uuid`, tenantID, before["et_tt_primary"].id, early); err != nil {
+		t.Fatalf("seed legacy under-age obligation: %v", err)
+	}
+
+	moved, err := repo.CarryOverUnchangedVaccinationObligations(ctx, tenantID, []string{carryOverGoat}, []string{v2})
+	if err != nil {
+		t.Fatalf("carry over: %v", err)
+	}
+	if moved != 0 {
+		t.Fatalf("carried over %d rows, want 0 while every due date is below its animal-specific age floor", moved)
+	}
+	if got := obligationsForGoat(t, ctx, pool, carryOverGoat)["et_tt_primary"].versionID; got != v1 {
+		t.Fatalf("under-age ET+TT row moved to %s, want retired version %s so regeneration can replace it", got, v1)
+	}
+}
+
+func TestCarryOverHonorsFatteningPurposeAndSpecies(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo, v1, v2, _ := seedCarryOverFixture(t, ctx, pool, fiveVaccines())
+	if _, err := pool.Exec(ctx, `
+UPDATE protocol_versions
+SET rule_dsl='{"procurement_policy":{"purpose_plans":{"fattening":{"first_wave":["ET+TT","PPR"],"goat_second_wave":["Goat Pox"],"sheep_second_wave":["Sheep Pox"]}}}}'::jsonb
+WHERE tenant_id=$1::uuid AND protocol_version_id=$2::uuid`, tenantID, v2); err != nil {
+		t.Fatalf("set fattening purpose plan: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+WITH load AS (
+  INSERT INTO procurement_loads (tenant_id, source_party_id, status, idempotency_key)
+  VALUES ($1::uuid, $2::uuid, 'accepted_intake', 'carry-over-fattening-purpose')
+  RETURNING load_id
+)
+INSERT INTO procurement_load_goats (
+  tenant_id, load_id, goat_id, purpose, selection_state, current_state,
+  source_entry_state, ownership_state, health_state, warmup_started_at, intake_accepted_at
+)
+SELECT $1::uuid, load_id, $3::uuid, 'fattening', 'accepted', 'accepted_herd_intake',
+       'accepted', 'mesha_owned', 'passed', now(), now()
+FROM load`, tenantID, meshaParty, carryOverGoat); err != nil {
+		t.Fatalf("seed fattening purpose: %v", err)
+	}
+
+	moved, err := repo.CarryOverUnchangedVaccinationObligations(ctx, tenantID, []string{carryOverGoat}, []string{v2})
+	if err != nil {
+		t.Fatalf("carry over: %v", err)
+	}
+	if moved != 3 {
+		t.Fatalf("carried over %d, want ET+TT, PPR and Goat Pox only", moved)
+	}
+	after := obligationsForGoat(t, ctx, pool, carryOverGoat)
+	for _, dose := range []string{"et_tt_primary", "ppr_primary", "goat_pox_primary"} {
+		if after[dose].versionID != v2 {
+			t.Fatalf("applicable %s did not carry over", dose)
+		}
+	}
+	for _, dose := range []string{"fmd_primary", "sheep_pox_primary"} {
+		if after[dose].versionID != v1 {
+			t.Fatalf("inapplicable %s carried over to the fattening goat", dose)
+		}
+	}
+}
+
 // Guardrail 5: a rule with no fingerprint -- rows written before the lineage migration -- must not
 // carry over. It falls back to the behaviour that shipped rather than carrying unverified content.
 func TestRuleWithoutLineageDoesNotCarryOver(t *testing.T) {
