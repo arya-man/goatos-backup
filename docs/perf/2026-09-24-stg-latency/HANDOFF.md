@@ -113,3 +113,14 @@ Wave 2 is running as 4 parallel builders on top of the 3 already going, 7 in tot
 - `perf/w2-calendar`: calendar targets (7 s) and events (2.8 s), the daily feed rollup, the demographics index, the feed-direction aborted-transaction retry bug
 
 **Migration numbers will collide between these parallel branches.** Renumber at integration time; the duplicate-versions guard catches collisions.
+
+## Resume checklist for the next session (any account)
+
+1. Read this file, then `README.md`, then `QUEUE.md`.
+2. In-progress builder work is backed up on origin as `wip/perf-*` branches:
+   - `wip/perf-read-cache`: cache-writer invalidation, still in progress
+   - `wip/perf-herd-live`: 2856c46ef adds the change-driven risk classifier; still in progress (N1–N7, pen = partition)
+   - `wip/perf-base-origin`: FCR rollup WIP
+   - `wip/perf-w2-proofs`, `wip/perf-w2-vaccination`, `wip/perf-w2-workboard`, `wip/perf-w2-calendar`: Wave 2; builders had just started
+3. For each branch, `git log origin/perf/stg-burst-and-login..origin/<wip>` shows the builder commits not yet in the PR. Finish them, then cherry-pick onto the PR branch, push, and run an adversarial judge. Loop until the judge is CLEAN. Renumber migrations if they collide.
+4. Keep pushing progress to this file and to `QUEUE.md`. Do not land or deploy until the maintainer says so.
