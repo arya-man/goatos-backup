@@ -69,3 +69,37 @@ func TestFeedActivityCardsAreOneRoundTripPerRequest(t *testing.T) {
 		t.Fatalf("batched cards differ:\n got %+v\nwant %+v", got, want)
 	}
 }
+
+// TestFeedActivityListRowsWithoutRequestMemoIsOneBatch: a lane read with no request memo on ctx
+// (Service.FindRow's keyset walk before a subtasks page) sends the card batch once, not once per
+// activity.
+func TestFeedActivityListRowsWithoutRequestMemoIsOneBatch(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seed(t, ctx, pool)
+
+	want, err := New(pool, 5*time.Second).ListRows(ports.WithRequestReadMemo(ctx), query(""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := pool.Config().Copy()
+	tr := &roundTripTracer{}
+	cfg.ConnConfig.Tracer = tr
+	traced, err := pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer traced.Close()
+	got, err := New(traced, 5*time.Second).ListRows(ctx, query(""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if q, b := tr.queries.Load(), tr.batches.Load(); q != 0 || b != 1 {
+		t.Fatalf("want 0 single statements + 1 batch, got %d statements + %d batches", q, b)
+	}
+	if len(got) == 0 || !reflect.DeepEqual(got, want) {
+		t.Fatalf("rows differ or empty:\n got %+v\nwant %+v", got, want)
+	}
+}
