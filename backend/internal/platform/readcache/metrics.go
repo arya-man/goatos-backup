@@ -2,6 +2,7 @@ package readcache
 
 import (
 	"context"
+	"fmt"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -17,6 +18,7 @@ var (
 func mustCounter(name, unit, desc string) metric.Int64Counter {
 	c, err := meter.Int64Counter(name, metric.WithUnit(unit), metric.WithDescription(desc))
 	if err != nil {
+		otel.Handle(fmt.Errorf("readcache: create counter %s: %w", name, err))
 		return nil
 	}
 	return c

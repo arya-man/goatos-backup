@@ -7,6 +7,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+
 	"github.com/vgoats/goatos/backend/internal/herdsignals/ports"
 )
 
@@ -105,7 +107,7 @@ func (s *Service) refreshPenBaselines(ctx context.Context, tenantID string, forc
 			return nil, fmt.Errorf("pen medians: %w", err)
 		}
 		moved, vanished := movedPens(stored, live)
-		locked, queued, err := s.repo.ApplyPenMedians(ctx, tenantID, moved, vanished, time.Now().UTC())
+		locked, queued, err := s.repo.ApplyPenMedians(ctx, tenantID, moved, vanished, time.Now().In(biztime.DefaultLocation()))
 		if err != nil {
 			return nil, err
 		}
@@ -185,14 +187,14 @@ func (s *Service) markPenMediansRead(tenantID string) {
 // is skipped while the previous one is still running, each pass is bounded to 3/4 of the
 // interval, and per-tenant exclusivity comes from the advisory xact lock inside each batch.
 func (s *Service) RunRiskClassifier(ctx context.Context, interval time.Duration) {
-	var running atomic.Bool
+	var inFlight atomic.Bool
 	tick := func() {
-		if !running.CompareAndSwap(false, true) {
-			s.log.Info("herd_signals_risk_classifier_tick_skipped", "reason", "previous tick still running")
+		if !inFlight.CompareAndSwap(false, true) {
+			s.log.Info("herd_signals_risk_classifier_tick_skipped", "reason", "previous tick still in flight")
 			return
 		}
 		go func() {
-			defer running.Store(false)
+			defer inFlight.Store(false)
 			passCtx, cancel := context.WithTimeout(ctx, interval*3/4)
 			defer cancel()
 			tenants, err := s.repo.ListRiskTenants(passCtx)
