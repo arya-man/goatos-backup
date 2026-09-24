@@ -14,7 +14,7 @@ import (
 // Purchased vs consumed, per load (maintainer request 2026-09-19). See domain/stock_loads.go for
 // the rule; this file is the FIFO arithmetic in SQL.
 //
-// projection-review: membership=feed_purchases at (tenant,farm_label,feed_item_key,batch_no), locked/external feeding at (park,item,day), sales at (tenant,line_id); group_key=(farm_label,feed_item_key) for FIFO, (farm_label,family_key) for runway and burn rate; join_cardinality=movements JOIN positioned loads N:M with each kg overlap allocated once then grouped to purchase id, loads LEFT JOIN burn 1:0..1, unique merge-map and rate-override rows; pagination=bounded LIMIT/OFFSET with totals over the identical filtered load set; scope=tenant everywhere plus authorized park purchases and feeding, sales matched to those purchases by farm and item
+// projection-review: membership=feed_purchases at (tenant,farm_label,feed_item_key,batch_no), locked/external feeding at (park,item,day), sales at (tenant,line_id); group_key=(farm_label,feed_item_key) for FIFO, (farm_label,family_key) for runway and burn rate; join_cardinality=movements JOIN positioned loads N:M with each kg overlap allocated once then grouped to purchase id, loads LEFT JOIN burn 1:0..1, unique merge-map and rate-override rows; pagination=bounded LIMIT/OFFSET with totals over the identical filtered load set; scope=tenant everywhere plus authorized park purchases and feeding, sales matched to those purchases by farm and stock family
 // Sales share the date-ordered FIFO stream with feeding. Only feeding contributes
 // consumed kg/days and burn rate. Same-day feeding precedes sales deterministically.
 // Sales before the ledger starts are charged at its first date, matching the cards'
@@ -78,10 +78,10 @@ positioned AS (
     WHERE l.delivery_status = 'reached'
 ),
 family AS (
-    SELECT farm_label, feed_item_key, MIN(park_id::text) AS park_id_text, MIN(depletes_from) AS ledger_from,
+    SELECT farm_label, feed_item_key, family_key, MIN(park_id::text) AS park_id_text, MIN(depletes_from) AS ledger_from,
            SUM(net_kg) AS family_net_kg
     FROM positioned
-    GROUP BY farm_label, feed_item_key
+    GROUP BY farm_label, feed_item_key, family_key
 ),
 -- Consumption from BOTH sources at one grain, the same union the stock cards read: locked-sheet
 -- directed kg plus externally-tracked consumption (milk). One row per (park, item, day).
@@ -122,7 +122,7 @@ family_cells AS (
 -- Sales join only the depletion stream. Feeding remains the sole source of burn rates.
 -- projection-review: membership=family_cells at (farm,item,day) and feed_sale_depletions
 -- at (tenant,line_id); group_key=(farm_label,feed_item_key,feed_day,movement_order);
--- join_cardinality=sales JOIN family N:1 then aggregate, movements JOIN loads N:M,
+-- join_cardinality=sales LATERAL family LIMIT 1 then aggregate, movements JOIN loads N:M,
 -- each overlap allocated once before grouping by purchase id; pagination=none; scope=tenant plus the
 -- authorized reached purchases in family. Both streams allocate over the same load keys.
 movements AS (
@@ -132,7 +132,19 @@ movements AS (
     SELECT f.farm_label, f.feed_item_key, GREATEST(s.feed_day, f.ledger_from),
            SUM(s.quantity_kg), 1
     FROM feed_sale_depletions s
-    JOIN family f ON f.farm_label = s.farm_label AND f.feed_item_key = s.feed_item_key
+    LEFT JOIN merge_map sm ON sm.member_key = s.feed_item_key
+    -- Prefer the named item's reached ledger. If it has none, charge one
+    -- sibling ledger rather than losing the sale or charging every sibling.
+    -- A later successor delivery must not move an earlier sale off legacy stock.
+    JOIN LATERAL (
+        SELECT f.* FROM family f
+        WHERE f.farm_label = s.farm_label
+          AND f.family_key = COALESCE(sm.family_key, s.feed_item_key)
+        ORDER BY (f.ledger_from <= s.feed_day) DESC,
+                 CASE WHEN f.ledger_from <= s.feed_day THEN f.feed_item_key = s.feed_item_key ELSE false END DESC,
+                 f.ledger_from, f.feed_item_key
+        LIMIT 1
+    ) f ON true
     WHERE s.tenant_id = $1
     GROUP BY f.farm_label, f.feed_item_key, GREATEST(s.feed_day, f.ledger_from)
 ),

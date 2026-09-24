@@ -7,6 +7,11 @@
       "feed_shed_feed_analytics"
     ],
     "evidence_boundaries": {
+      "successor_sale_regression": {
+        "test": "TestSuccessorFeedSaleUsesLegacyFamilyStock",
+        "path": "backend/internal/feeddirection/adapters/postgres/feed_family_sale_integration_test.go",
+        "boundary": "Disposable PostgreSQL SQL correctness and small-fixture latency only; HTTP and browser latency require this manifest against an authenticated local API."
+      },
       "local_oci_ceo_feed_reads": [
         "feed_directed_analytics",
         "feed_stock_analytics",
