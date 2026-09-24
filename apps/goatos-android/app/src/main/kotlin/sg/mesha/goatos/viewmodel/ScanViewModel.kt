@@ -208,9 +208,20 @@ class ScanViewModel @Inject constructor(
         } ?: flowOf(null))
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    // A taskless combined card has no route task, so its policy comes from the roster rows' own
+    // task (the work being executed). Until a cached policy is available it falls back to the
+    // vaccination default (per-goat video); a combined card must never silently drop the per-goat
+    // proof requirement just because the route carries no single task id.
+    @OptIn(ExperimentalCoroutinesApi::class)
     private val proofPolicy: StateFlow<ProofPolicy?> =
-        taskDetail.map { it?.proofPolicy }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+        (if (taskId != null) {
+            taskDetail.map { it?.proofPolicy }
+        } else {
+            rosterTaskIds.map { it.firstOrNull() }.distinctUntilChanged().flatMapLatest { rowTaskId ->
+                (rowTaskId?.let { id -> tasksRepository.observeTaskDetail(id).map { it.data } } ?: flowOf(null))
+                    .map { it?.proofPolicy ?: ProofPolicy.Default }
+            }
+        }).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), if (taskId == null) ProofPolicy.Default else null)
 
     private val shedCompletionSummary: StateFlow<ShedCompletionSummaryDto?> =
         (taskId?.let { id ->

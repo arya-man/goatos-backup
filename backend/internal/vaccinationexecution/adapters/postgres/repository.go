@@ -2885,7 +2885,10 @@ LEFT JOIN LATERAL (
   SELECT c.capture_id, c.captured_at
   FROM sop_task_scan_captures c
   WHERE c.tenant_id = oi.tenant_id
-    AND c.task_id = NULLIF($3, '')::uuid
+    -- A task-pinned roster reads that task's captures; a shed/selector roster (no $3) reads
+    -- each row's OWN task captures, so a scanned-and-synced-but-unsubmitted animal on a
+    -- combined card stays done after refresh instead of reverting to due.
+    AND c.task_id = COALESCE(NULLIF($3, '')::uuid, st.task_id)
     AND c.field_key IN ('goat_ids', '__scan_roster__')
     AND (
       c.obligation_id = oi.obligation_id
@@ -2893,7 +2896,7 @@ LEFT JOIN LATERAL (
     )
   ORDER BY c.captured_at DESC, c.capture_id DESC
   LIMIT 1
-) sc ON $3 <> ''
+) sc ON COALESCE(NULLIF($3, '')::uuid, st.task_id) IS NOT NULL
 LEFT JOIN LATERAL (
   SELECT proof.proof_id, proof.created_at AS proofed_at
   FROM proof_artifacts proof

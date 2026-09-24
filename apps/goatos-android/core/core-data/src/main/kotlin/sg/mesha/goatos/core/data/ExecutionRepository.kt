@@ -603,8 +603,11 @@ class DefaultExecutionRepository(
             // failure throws before we touch the DB, so the previously-persisted roster is left intact
             // (offline-safe atomic replace) and the write lock is held only for the local upsert.
             val rows = staged.distinctBy { it.id }
-            if (!assignmentId.isNullOrBlank() && rows.isEmpty() && scanRosterRowDao.observeScopeTotal(rowScope).first() > 0) {
-                throw EmptyAssignmentRosterException("assignment roster returned empty for cached assignment $assignmentId")
+            // A card roster (assignment or card selectors) is membership-pinned: an empty answer for a
+            // scope that already has cached animals is not authoritative and must never replace a
+            // good roster with 0/0.
+            if ((!assignmentId.isNullOrBlank() || selectors.isNotEmpty()) && rows.isEmpty() && scanRosterRowDao.observeScopeTotal(rowScope).first() > 0) {
+                throw EmptyAssignmentRosterException("card roster returned empty for cached scope ${assignmentId ?: "selectors"}")
             }
             val serverDoneObligationIds = rows
                 .asSequence()
@@ -645,7 +648,13 @@ class DefaultExecutionRepository(
                         database.scannedGoatDao().pruneSyncedByRejectedObligations(
                             partitionKey = executionPartitionKey(partitionLabel),
                             fieldKey = ROSTER_SCAN_FIELD_KEY,
+                            // Only rows that carry their own task identity are authoritative: the
+                            // server matches scan captures on the row's task, so an outstanding
+                            // status there really means "not scanned / sent back". A row with no
+                            // task identity was read without capture visibility and its synced
+                            // local scan must survive.
                             rejectedObligationIds = rows
+                                .filter { it.taskId.isNotBlank() && it.taskId != "shed-wide" }
                                 .mapNotNull { it.obligationId.takeIf { id -> id.isNotBlank() } }
                                 .distinct()
                                 .toMutableList()

@@ -2022,6 +2022,27 @@ VALUES ($1, $2, '2026-06-23', $3, $4, $5, 'TestShed', 'whole', 1, ARRAY[$6::uuid
 	if err != nil || len(wrongBatch.Rows) != 0 {
 		t.Fatalf("batch-scoped legacy roster leaked another batch: rows=%#v err=%v", wrongBatch.Rows, err)
 	}
+
+	// A synced-but-unsubmitted RFID capture on the row's own task must read as scanned on a
+	// taskless selector fetch (combined card). Otherwise a refresh reverts the animal to due and
+	// the client prunes its synced scan (0/2 after refresh).
+	execProjectionSQL(t, ctx, pool, "synced unsubmitted capture on row task", `
+INSERT INTO sop_task_scan_captures
+  (tenant_id, task_id, field_key, tag, normalized_tag, goat_id, obligation_id, captured_by, idempotency_key, captured_at)
+VALUES ($1,$2,'__scan_roster__','RFID-ETTT','rfid-ettt',$3,$4,$5,'selector-scan','2026-06-24 10:00:00+05:30')`,
+		testTenant, testTask, etTTGoat, etTTObl, testOperator)
+	for _, q := range []domain.ScanRosterQuery{
+		{TenantID: testTenant, ShedID: testShed, BatchID: testBatch, PlannedDate: "2026-06-24", Limit: 20},
+		{TenantID: testTenant, ShedID: testShed, PlannedDate: "2026-06-24", Limit: 20},
+	} {
+		scanned, err := repo.ScanRoster(ctx, q)
+		if err != nil {
+			t.Fatalf("selector roster after scan: %v", err)
+		}
+		if len(scanned.Rows) != 1 || scanned.Rows[0].Status != "done" || scanned.Rows[0].ScannedAt == nil {
+			t.Fatalf("taskless selector roster lost the synced capture (batch=%q): %#v", q.BatchID, scanned.Rows)
+		}
+	}
 }
 
 func TestListVaccinationExecutionPageBoundaryKeepsFullFilteredTotal(t *testing.T) {

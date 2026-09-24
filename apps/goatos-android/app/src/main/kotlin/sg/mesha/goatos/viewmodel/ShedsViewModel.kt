@@ -495,7 +495,10 @@ class ShedsViewModel @Inject constructor(
                 // animalStage is a biological stage supplied by the execution contract.
                 // A drive label is not a cohort/stage and must not be substituted here.
                 animalStage = first.animalStage,
+                // Roster date: the card opens the selected day's work (overdue members carry their
+                // own planned date in rosterSelectors). Sort order keeps the card's earliest date.
                 scheduleDateKey = selectedDay.toString(),
+                sortDateKey = scheduleDate?.toString().orEmpty(),
                 rosterSelectors = sg.mesha.goatos.core.data.encodeScanRosterSelectors(group.map { source ->
                     val assignment = source.assignmentId?.takeIf(String::isNotBlank)
                     val batch = source.batchId?.takeIf(String::isNotBlank).takeIf { assignment == null }
@@ -503,7 +506,7 @@ class ShedsViewModel @Inject constructor(
                         assignmentId = assignment,
                         batchId = batch,
                         taskId = source.sopTaskId?.takeIf(String::isNotBlank).takeIf { assignment == null && batch == null },
-                        plannedDate = source.currentScheduleDate,
+                        plannedDate = source.currentScheduleDate?.takeIf(String::isNotBlank) ?: selectedDay.toString(),
                     )
                 }),
                 scheduleDateLabel = scheduleDate?.let(::shortDateLabel).orEmpty(),
@@ -538,7 +541,7 @@ class ShedsViewModel @Inject constructor(
             )
         }.sortedWith(
             compareBy<ShedRow> { row ->
-                row.scheduleDateKey.takeIf { it.isNotBlank() }?.let(::parseExecutionDate) ?: LocalDate.MAX
+                (row.sortDateKey.ifBlank { row.scheduleDateKey }).takeIf { it.isNotBlank() }?.let(::parseExecutionDate) ?: LocalDate.MAX
             }
                 .thenBy { it.name.lowercase() }
         )
