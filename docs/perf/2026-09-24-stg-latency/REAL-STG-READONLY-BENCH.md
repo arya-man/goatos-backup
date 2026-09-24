@@ -185,3 +185,14 @@ Notes:
 - **Remaining NEW fail: `/work-board/page`,** p95 508 ms (p50 255 ms), just over the 500 ms max. It is still the chattiest endpoint at 20 statements a request (DB time 1,038 ms against OLD's 1,578), so every statement pays the laptop-to-Mumbai RTT of about 20-40 ms. On Cloud Run next to the DB it should land inside the budget, but it is the one endpoint still to batch further.
 - **At the edge:** `/app/weighing/alerts` is the only NEW `max` (p95 303 ms, 1 statement, about 200 ms DB). Its change against OLD is flat.
 - **Noise:** n=10 and live stg traffic. The rises on `/vaccination/command/drives` (+97%) and `/feed-config/shed-tags` (+61%) are single warm outliers on cache-served endpoints: both have a p50 of 1-2 ms.
+
+## Run 3b: work-board after batching, 2026-09-24 21:40-21:45 IST: OLD dfeb4d8199a0 (stg) vs NEW 1cdf7897a
+
+Same harness and hard rules as run 3 (`mesha_ceo_readonly` via the Cloud SQL Auth Proxy on a free port, `default_transaction_read_only=on` with a rejected `CREATE TEMP TABLE` probe, no migrations, GET only, one request in flight). Only the two work-board endpoints, with the run 3 query strings, 1 cold + **20** warm calls each. NEW is `origin/perf/stg-burst-and-login` at `1cdf7897a`, which includes the work-board batching commit `1c035fe7b`. Before the run, Cloud SQL disk read ops were 44-14.6k per minute over the last 30 min, with no sustained storm. Both work-board endpoints returned 200 on every call. They do not depend on the missing migrations 000415-000417. NEW's boot warnings (herd-signal pen medians, FCR rollup warm-up) come from other modules.
+
+| endpoint | OLD p50 | OLD p95 | NEW p50 | NEW p95 | change (p95) | stmts OLD/NEW | DB ms p50 OLD/NEW | cold OLD/NEW |
+|---|---:|---:|---:|---:|---:|---|---|---|
+| `/work-board/page` | 338 | 469 | 200 | 363 | -23% | 20/19 | 1114/390 | 1089/787 |
+| `/work-board/rows/.../subtasks` | 209 | 227 | 101 | 170 | -25% | 6/5 | 193/93 | 381/252 |
+
+The batching cuts summed DB time on `/work-board/page` by about 65% (1114 to 390 ms). The statement count drops by only one (20 to 19), so most of the remaining wall time is laptop-to-Mumbai RTT on the ~19 round trips. `/work-board/page` NEW p95 is 363 ms. That is in the max band from the laptop and should be well under it on Cloud Run.
