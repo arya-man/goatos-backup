@@ -120,3 +120,68 @@ Notes on the added endpoints and errors:
 - **OLD 500s:** `/control-tower/vaccination` and `/app/weighing/leadership/sheds` hit the 15 s statement timeout or `processintegrity` projection timeouts, and `/identifiers/.../resolve` returned `identity repository error`. NEW returns 200 on all three.
 - **Inputs for the new endpoints**, taken from 24 h of stg logs: `/app/workflows/8f2751b1-...`, `/identifiers/animal_identifier_1/901007000506004/resolve`, and `/goats/search?q=901007000506004&status=alive&limit=20`.
 - **Noise:** n=10 is still small and stg traffic is live. The changes above +/-30% on `/calendar/vaccination/events`, `/vaccination/command/cohort-matrix` and `/work-board/rows` come with the same statement counts on both sides.
+
+## Run 3 (final PR head), 2026-09-24 20:45-21:25 IST: OLD dfeb4d8199a0 (stg) vs NEW e19df15e96d1
+
+Same method, harness and hard rules as the runs above: `mesha_ceo_readonly` via the Cloud SQL Auth Proxy on a free local port, `default_transaction_read_only=on` on every connection (a `CREATE TEMP TABLE` probe was rejected), no migrations, GET only, one request in flight, 1 cold + 10 warm calls per endpoint, the same 36 endpoints and query strings as run 2. Before the run, Cloud SQL CPU was 13-17% and disk read ops were 56-3.2k per minute with one 13k spike, so no rollup storm was running. Neither server log has a "read-only transaction" error.
+
+**OLD is not a67be34c0781 this time.** stg has moved on: `goatos-api-stg` now runs `dfeb4d8199a0` (256 commits after a67be34c0781, from main) and the stg DB is at **000401**, main's health migrations. The a67be34c0781 binary refuses to boot against it (`migration_drift_dbahead_fatal`: DB 000401, binary 000392), so OLD is the SHA that stg serves today. NEW is `origin/perf/stg-burst-and-login` at `e19df15e96d1`. Note that the PR's own analytics 000400/000401 share numbers with main's health 000400/000401, so NEW treats them as applied. Renumber at land time as the handoff says.
+
+All numbers are in ms. Verdicts use p95: <=100 target, <=300 ok, <=500 max, >500 fail. Any non-200 response is a fail, except where NEW errors only because stg lacks a PR migration. Those rows are "needs migration" and are not counted as fails. The last column is **local clone, migrated**, not stg. It holds the builders' numbers from HANDOFF.md and the PR commits (8ba2eba70, e19df15e9, 6b393be64, c6ed5c63d). Those are measured against a migrated stg clone and are not comparable one-to-one with the laptop-to-Mumbai numbers.
+
+| endpoint | OLD p50 | OLD p95 | NEW p50 | NEW p95 | change (p95) | verdict OLD | verdict NEW | local clone, migrated (ms) |
+|---|---:|---:|---:|---:|---:|---|---|---|
+| `/growth-director/fcr` | 1053 | 2485 | 74 | 208 | -92% (not comparable) | fail | needs migration (000418) | ~60 ms server time end to end |
+| `/app/weighing/alerts` | 181 | 316 | 205 | 303 | -4% | max | max |  |
+| `/weighing/shed-weights` | 55 | 105 | 1 | 41 | -61% | ok | target |  |
+| `/work-board/page` | 443 | 1324 | 255 | 508 | -62% | fail | fail |  |
+| `/weighing/weight-demographics` | 88 | 205 | 1 | 83 | -59% | ok | target |  |
+| `/counts/mortality` | 111 | 419 | 88 | 126 | -70% | max | ok |  |
+| `/weighing/leadership/growth` | 66 | 384 | 1 | 58 | -85% | max | target |  |
+| `/counts/breakdown` | 206 | 550 | 73 | 172 | -69% | fail | ok |  |
+| `/app/vaccination/execution` | 436 | 737 | 45 | 223 | -70% | fail | ok |  |
+| `/alerts/rows` | 289 | 817 | 175 | 211 | -74% | fail | ok |  |
+| `/calendar/vaccination/events` | 80 | 199 | 2 | 103 | -49% | ok | ok |  |
+| `/vaccination/command/cohort-matrix` | 633 | 915 | 1 | 100 | -89% | fail | ok | 29/29 (cold) |
+| `/vaccination/command` | 1018 | 1497 | 3 | 74 | -95% | fail | target | first paint 96/101 (cold) |
+| `/vaccination/command/shed-dose-matrix` | 629 | 1593 | 3 | 174 | -89% | fail | ok | 76/77 (cold) |
+| `/vaccination/sheds` | 268 | 501 | 57 | 153 | -69% | fail | ok | 41/42 (cold) |
+| `/weighing/weighing-dates` | 84 | 573 | 1 | 91 | -84% | fail | target |  |
+| `/work-board/rows/feed%7Cfeed_activity%7C00000000-0000-4000-8000-000000` | 198 | 742 | 82 | 144 | -81% | fail | ok |  |
+| `/control-tower/vaccination` | 33 | 89 | 1 | 65 | -27% | target | target |  |
+| `/vaccination/command/drives` | 34 | 55 | 2 | 108 | +97% | target | ok |  |
+| `/counts/herd-analytics` | 79 | 380 | 44 | 182 | -52% | max | ok |  |
+| `/feed-analytics/directed` | 41 | 261 | 2 | 61 | -76% | ok | target |  |
+| `/feed-config/experiment` | 125 | 353 | 41 | 159 | -55% | max | ok |  |
+| `/feed-analytics/shed-feed` | 43 | 287 | 1 | 71 | -75% | ok | target |  |
+| `/sales/overview` | 207 | 274 | 77 | 160 | -42% | ok | ok |  |
+| `/feed-analytics/stock` | 80 | 145 | 37 | 166 | +14% | ok | ok |  |
+| `/app/leadership-tasks/assignees` | 95 | 162 | 37 | 119 | -27% | ok | ok |  |
+| `/feed-direction/distribution/captures` | 81 | 241 | 56 | 161 | -33% | n/a (harness: local media cannot sign GCS proofs) | n/a (harness: local media cannot sign GCS proofs) |  |
+| `/feed-config/shed-tags` | 37 | 65 | 1 | 105 | +61% | target | ok |  |
+| `/admin/pen-routines` | 178 | 258 | 39 | 137 | -47% | ok | ok |  |
+| `/app/notifications` | 419 | 4171 | 174 | 220 | -95% (not comparable) | fail (HTTP 200/500) | needs migration (000403) | p50 1.1 / p95 1.8 (cold 17.6) |
+| `/app/weighing/leadership/sheds` | 8263 | 8634 | 155 | 251 | -97% (not comparable) | fail (HTTP 200/500) | ok |  |
+| `/identifiers/{type}/{value}/resolve` | 176 | 260 | 38 | 175 | -33% (not comparable) | fail (HTTP 500) | ok |  |
+| `/app/workflows/{id}` | 146 | 241 | 113 | 237 | -1% | ok | ok |  |
+| `/goats/search` | 80 | 151 | 46 | 150 | -1% | ok | ok |  |
+| `/herd-signals/live` | 817 | 1262 | 88 | 156 | -88% (not comparable) | fail | needs migration (000398/000402) | page_limit25 p95 ~415 at 5k tags |
+| `/herd-signals/live?risk_state=attention` | 396 | 496 | 68 | 178 | -64% (not comparable) | max | needs migration (000398/000402) | cold risk read 12-41 at 20k tags |
+
+| verdict | OLD | NEW |
+|---|---:|---:|
+| target | 3 | 8 |
+| ok | 11 | 21 |
+| max | 6 | 1 |
+| fail | 15 | 1 |
+| needs migration | 0 | 4 |
+| n/a | 1 | 1 |
+
+Notes:
+
+- **Needs migration (NEW), all errors from missing objects, measured on the error path:** `/growth-director/fcr` fails the `fcr rollup dirty probe` on the missing FCR feed-day rollup relation (000418). `/app/notifications` fails its unread count on the missing `notification_member_unread_counts` relation (000403). Both `/herd-signals/live` variants fail on the missing column `tl.risk_state` (the herd-signal migrations 000398/000402).
+- **Read cache:** 13 NEW endpoints ran 0 statements on warm calls (p50 1-3 ms) because the shared read cache served them. Their cold misses are the fairer comparison: `/vaccination/command` 446 (OLD 1788), `/vaccination/command/cohort-matrix` 313 (OLD 1684), `/vaccination/command/shed-dose-matrix` 511 (OLD 487), `/control-tower/vaccination` 2606 (OLD 5759), `/calendar/vaccination/events` 1601 (OLD 1204), `/weighing/shed-weights` 961 (OLD 721). The vaccination migrations 000410/000411 are not on stg, so these cold misses run the fallback read path.
+- **OLD 500s:** `/app/notifications` (a statement timeout on the unread count, p95 4.2 s), `/app/weighing/leadership/sheds` (8.3 s, statement timeouts) and `/identifiers/.../resolve` (`identity repository error`). NEW returns 200 on the last two.
+- **Remaining NEW fail: `/work-board/page`,** p95 508 ms (p50 255 ms), just over the 500 ms max. It is still the chattiest endpoint at 20 statements a request (DB time 1,038 ms against OLD's 1,578), so every statement pays the laptop-to-Mumbai RTT of about 20-40 ms. On Cloud Run next to the DB it should land inside the budget, but it is the one endpoint still to batch further.
+- **At the edge:** `/app/weighing/alerts` is the only NEW `max` (p95 303 ms, 1 statement, about 200 ms DB). Its change against OLD is flat.
+- **Noise:** n=10 and live stg traffic. The rises on `/vaccination/command/drives` (+97%) and `/feed-config/shed-tags` (+61%) are single warm outliers on cache-served endpoints: both have a p50 of 1-2 ms.
