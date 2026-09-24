@@ -218,6 +218,9 @@ function selfTest() {
   });
   // The dashboard guard is a local-CI script run by `common`; editing it must not rebuild the apps.
   assert.deepEqual(pick(["tools/agent-hooks/check-dashboard-automation-guard.mjs"]).selectedJobs, ["common"]);
+  // Ask Mesha agent code is a Node service with its own unit tests in the common job; it must
+  // not rebuild Android or rerun Go (was: unmapped -> full suite, ~30 min per agent change).
+  assert.deepEqual(pick(["tools/ask-mesha-agent/server.mjs", "tools/ask-mesha-agent/eval/golden.json"]).selectedJobs, ["common"]);
   assert.deepEqual(pick(["tools/ci/land-main.sh"]), {
     common: true, backend: false, adminWeb: false, android: false, full: false,
     selectedJobs: ["common"],
