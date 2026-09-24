@@ -260,7 +260,7 @@ export function CeoAiStyles(): ReactElement {
 .mzai-mark .mzai-goat-icon{width:20px;height:20px}
 .mzai-htext{display:flex;flex-direction:column;min-width:0;flex:1}
 .mzai-htext b{font-size:14px;font-weight:600;color:var(--ink);line-height:1.2}
-.mzai-htext small{font-size:11.5px;color:var(--muted);margin-top:2px}
+.mzai-htext small{font-size:11.5px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .mzai-hbtns{display:flex;align-items:center;gap:6px}
 .mzai-icon{width:36px;height:36px;border-radius:10px;border:1px solid var(--line);
   background:var(--bg);color:var(--ink);display:flex;align-items:center;justify-content:center;
@@ -294,6 +294,9 @@ export function CeoAiStyles(): ReactElement {
   display:flex;align-items:center;justify-content:center;cursor:pointer;border-radius:6px;flex:none;
   transition:all .12s ease}
 .mzai-thread:hover .mzai-thread-act{opacity:1}
+/* Hidden row actions must not reserve width and truncate the title early.
+   Touch (no hover) keeps them visible; focus still reveals them for keyboards. */
+@media (hover:hover){.mzai-thread:not(:hover):not(:focus-within) .mzai-thread-act{width:0;margin-left:-6px;overflow:hidden}}
 .mzai-thread-act:hover{background:var(--danger);color:#fff}
 .mzai-thread-act .ic{width:13px;height:13px}
 .mzai-side-empty{padding:12px;font-size:12px;color:var(--muted);line-height:1.6}
@@ -313,12 +316,14 @@ export function CeoAiStyles(): ReactElement {
   box-shadow:0 2px 8px rgba(0,0,0,.1)}
 .mzai-msg.assistant .mzai-bub{background:var(--panel-2);color:var(--ink);border:1px solid var(--line);
   border-bottom-left-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,.05)}
-.mzai-msg.error .mzai-bub{background:var(--danger);color:#fff;border:0;box-shadow:0 2px 8px rgba(0,0,0,.15)}
+/* Tinted, not solid red: white on --danger fails 4.5:1 for body text. */
+.mzai-msg.error .mzai-bub{background:color-mix(in srgb,var(--danger) 14%,var(--panel-2));color:var(--ink);
+  border:1px solid color-mix(in srgb,var(--danger) 55%,transparent)}
 .mzai-caret{display:inline-block;width:6px;height:14px;margin-left:2px;background:var(--brand);
   vertical-align:text-bottom;animation:mzai-type-caret .6s steps(1) infinite;border-radius:1px}
 @keyframes mzai-type-caret{0%,49%{opacity:1}50%,100%{opacity:0}}
 .mzai-chart{margin:8px 0 2px;padding:10px 12px;background:var(--panel-2);border:1px solid var(--line);
-  border-radius:14px;max-width:100%;overflow:hidden}
+  border-radius:14px;max-width:100%;overflow:hidden;box-sizing:border-box;width:100%}
 .mzai-chart-title{font-size:12px;font-weight:600;color:var(--muted);margin:0 0 8px;
   letter-spacing:.01em;white-space:normal}
 .mzai-chart-svg{display:block;width:100%;height:120px;overflow:visible}
@@ -332,10 +337,12 @@ export function CeoAiStyles(): ReactElement {
 .mzai-chart-value{flex:0 0 auto;min-width:3ch;text-align:right;font-size:12.5px;font-weight:700;color:var(--ink);
   font-variant-numeric:tabular-nums;white-space:nowrap}
 .mzai-chart-line{position:relative;padding-bottom:22px;white-space:normal}
+/* Dots are % of the plot box, so the plot box must be exactly the SVG's height. */
+.mzai-chart-plot{position:relative;height:120px}
 .mzai-chart-dot{position:absolute;width:6px;height:6px;margin:-3px 0 0 -3px;border-radius:50%}
 .mzai-chart-ticks{position:absolute;left:0;right:0;bottom:0;height:18px}
 .mzai-chart-tick{position:absolute;bottom:0;transform:translateX(-50%);font-size:11.5px;color:var(--muted);
-  white-space:nowrap;max-width:30%;overflow:hidden;text-overflow:ellipsis}
+  white-space:nowrap;max-width:var(--tick-max,30%);overflow:hidden;text-overflow:ellipsis}
 .mzai-chart-tick.start{transform:none}
 .mzai-chart-tick.end{transform:translateX(-100%)}
 .mzai-cites{display:flex;flex-wrap:wrap;gap:6px;margin-top:2px}

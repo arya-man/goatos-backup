@@ -72,12 +72,14 @@ export function parseChart(raw: unknown): CeoAiChart | undefined {
 // carries only a stable phase enum + a coarse route label — never step traces or
 // chain-of-thought — so the UI can show progressive status while the grounded
 // pipeline runs, instead of a frozen blank placeholder.
-export type CeoAiProgress = { phase: string; label?: string };
+// request_id (coding-agent backend, first frame) identifies the run so a user
+// Stop can be reported via sendCeoAiStopSignal.
+export type CeoAiProgress = { phase: string; label?: string; requestId?: string };
 
 export type CeoAiStreamEvent =
   | { type: "token"; text: string }
   | ({ type: "final" } & CeoAiFinal)
-  | { type: "progress"; phase: string; label?: string }
+  | { type: "progress"; phase: string; label?: string; requestId?: string }
   | { type: "reset" }
   | { type: "error"; message: string; status?: number };
 
@@ -133,7 +135,12 @@ function parseEvent(raw: string): CeoAiStreamEvent | null {
       return { type: "reset" };
     }
     if (type === "progress" && typeof obj.phase === "string") {
-      return { type: "progress", phase: obj.phase, label: typeof obj.label === "string" ? obj.label : undefined };
+      return {
+        type: "progress",
+        phase: obj.phase,
+        label: typeof obj.label === "string" ? obj.label : undefined,
+        requestId: typeof obj.request_id === "string" ? obj.request_id : undefined,
+      };
     }
     if (type === "error") {
       return { type: "error", message: typeof obj.message === "string" ? obj.message : "assistant_error" };
@@ -145,6 +152,19 @@ function parseEvent(raw: string): CeoAiStreamEvent | null {
   } catch {
     return null;
   }
+}
+
+// sendCeoAiStopSignal tells the assistant the user pressed Stop (vs. closing the
+// tab), so the run is logged as ask_stopped reason stop_pressed. Fire-and-forget:
+// sent before the abort, keepalive so it survives the stream teardown.
+export function sendCeoAiStopSignal(requestId: string | undefined): void {
+  if (!requestId) return;
+  void fetch("/api/ceo-ai/events", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ request_id: requestId, kind: "stop_pressed" }),
+    keepalive: true,
+  }).catch(() => {});
 }
 
 // readCeoAiStream POSTs the question through the admin-web proxy and drives the
@@ -279,7 +299,7 @@ async function readComposed(
         } else if (event.type === "reset") {
           handlers.onReset?.();
         } else if (event.type === "progress") {
-          handlers.onProgress?.({ phase: event.phase, label: event.label });
+          handlers.onProgress?.({ phase: event.phase, label: event.label, requestId: event.requestId });
         } else if (event.type === "final") {
           const { type: _t, ...rest } = event;
           void _t;

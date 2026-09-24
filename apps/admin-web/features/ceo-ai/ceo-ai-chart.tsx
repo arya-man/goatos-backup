@@ -40,6 +40,7 @@ export function CeoAiChart({ chart }: { chart: CeoAiChartData | undefined }): Re
         </ul>
       ) : (
         <div className="mzai-chart-line" aria-hidden="true">
+          <div className="mzai-chart-plot">
           <svg
             className="mzai-chart-svg"
             viewBox={`0 0 ${layout.viewWidth} ${layout.viewHeight}`}
@@ -77,7 +78,12 @@ export function CeoAiChart({ chart }: { chart: CeoAiChartData | undefined }): Re
               title={`${point.label}: ${point.value}`}
             />
           ))}
-          <div className="mzai-chart-ticks">
+          </div>
+          <div
+            className="mzai-chart-ticks"
+            // Tick labels never overlap: an end label spans at most 2/3 of the gap.
+            style={{ ["--tick-max" as string]: `${(100 / Math.max(layout.ticks.length - 1, 1)) * 0.64}%` }}
+          >
             {layout.ticks.map((i, k) => {
               const point = layout.points[i];
               const edge = k === 0 ? " start" : k === layout.ticks.length - 1 ? " end" : "";

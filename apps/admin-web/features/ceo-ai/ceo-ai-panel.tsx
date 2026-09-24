@@ -35,7 +35,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { readCeoAiStream } from "@/lib/ceo-ai-stream";
+import { readCeoAiStream, sendCeoAiStopSignal } from "@/lib/ceo-ai-stream";
 import {
   createConversation,
   deleteConversation,
@@ -67,6 +67,8 @@ const CHROME = {
   save: "Save",
   stop: "Stop generating",
   degraded: "Assistant temporarily unavailable",
+  stoppedEmpty: "_Stopped before an answer._",
+  cutOff: "The answer was cut off before it finished. Ask again to get the full answer.",
   timedOut:
     "That took too long to answer. The assistant may be busy — please try again.",
   rateLimited:
@@ -662,8 +664,12 @@ export function CeoAiPanel({
   const shown = messages;
 
   const typerRef = useRef<ReturnType<typeof createTypewriter> | null>(null);
+  // request_id of the running answer (first progress frame), for the Stop signal.
+  const runRequestIdRef = useRef<string | undefined>(undefined);
   const stopGenerating = useCallback(() => {
     const running = abortRef.current;
+    if (running && !running.signal.aborted) sendCeoAiStopSignal(runRequestIdRef.current);
+    runRequestIdRef.current = undefined;
     typerRef.current?.cancel();
     typerRef.current = null;
     running?.abort();
@@ -728,6 +734,7 @@ export function CeoAiPanel({
 
       const controller = new AbortController();
       abortRef.current = controller;
+      runRequestIdRef.current = undefined;
       let errored = false;
 
       const patch = (fields: Partial<ChatMessage>) =>
@@ -762,7 +769,8 @@ export function CeoAiPanel({
           {
             onToken: (text) => typer.push(text),
             onReset: () => typer.reset(),
-            onProgress: (progress) =>
+            onProgress: (progress) => {
+              if (progress.requestId && abortRef.current === controller) runRequestIdRef.current = progress.requestId;
               setMessages((prev) =>
                 prev.map((m) =>
                   m.id === assistantId
@@ -780,7 +788,8 @@ export function CeoAiPanel({
                       }
                     : m,
                 ),
-              ),
+              );
+            },
             onError: (message, status) => {
               errored = true;
               if (status === 429) {
@@ -820,7 +829,7 @@ export function CeoAiPanel({
               m.id === assistantId
                 ? {
                     ...m,
-                    text: m.text || "…",
+                    text: m.text || CHROME.stoppedEmpty,
                     state: "complete",
                     workedMs: m.startedAt ? Date.now() - m.startedAt : m.workedMs,
                   }
@@ -836,6 +845,8 @@ export function CeoAiPanel({
                 ? m.text
                   ? {
                       ...m,
+                      // Say it was cut off rather than passing a partial answer off as whole.
+                      text: `${m.text}\n\n_${CHROME.cutOff}_`,
                       state: "complete",
                       workedMs: m.startedAt ? Date.now() - m.startedAt : m.workedMs,
                     }
@@ -881,7 +892,7 @@ export function CeoAiPanel({
               m.id === assistantId
                 ? {
                     ...m,
-                    text: m.text || "…",
+                    text: m.text || CHROME.stoppedEmpty,
                     state: "complete",
                     workedMs: m.startedAt ? Date.now() - m.startedAt : m.workedMs,
                   }
@@ -1072,16 +1083,19 @@ export function CeoAiPanel({
             }
             role={view === "min" ? "button" : undefined}
           >
-            <button
-              type="button"
-              className="mzai-icon"
-              aria-pressed={showThreads}
-              onClick={() => setShowThreads((v) => !v)}
-              aria-label={CHROME.toggleThreads}
-              title={CHROME.toggleThreads}
-            >
-              <PanelLeft className="ic" />
-            </button>
+            {/* The chats list can't show in the minimized bar; don't offer its toggle. */}
+            {view === "min" ? null : (
+              <button
+                type="button"
+                className="mzai-icon"
+                aria-pressed={showThreads}
+                onClick={() => setShowThreads((v) => !v)}
+                aria-label={CHROME.toggleThreads}
+                title={CHROME.toggleThreads}
+              >
+                <PanelLeft className="ic" />
+              </button>
+            )}
             <span className="mzai-mark">
               <MeshaLogo width={20} height={20} />
             </span>
@@ -1312,18 +1326,20 @@ export function CeoAiPanel({
                           ) : null}
                         </div>
                       ) : null}
-                      {message.role === "assistant" &&
-                      message.state === "complete" &&
-                      message.id !== "hello" &&
-                      message.text ? (
-                        <div className="mzai-actions">
-                          <CopyButton text={message.text} />
-                        </div>
-                      ) : null}
+                      {/* Chart belongs to the answer: above its Copy action, not after it. */}
                       {message.role === "assistant" &&
                       message.state === "complete" &&
                       message.chart ? (
                         <CeoAiChart chart={message.chart} />
+                      ) : null}
+                      {message.role === "assistant" &&
+                      message.state === "complete" &&
+                      message.id !== "hello" &&
+                      message.text &&
+                      message.text !== CHROME.stoppedEmpty ? (
+                        <div className="mzai-actions">
+                          <CopyButton text={message.text} />
+                        </div>
                       ) : null}
                       {message.state === "streaming" &&
                       !message.text &&
