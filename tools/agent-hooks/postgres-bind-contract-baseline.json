@@ -33,7 +33,6 @@
   "internal/herdsignals/adapters/postgres/activity.go|unverified-dynamic-bind": 1,
   "internal/identity/adapters/postgres/admin_goat_create.go|unverified-dynamic-bind": 1,
   "internal/identity/adapters/postgres/census_correction.go|unverified-dynamic-bind": 2,
-  "internal/identity/adapters/postgres/repository.go|unverified-dynamic-bind": 3,
   "internal/identity/adapters/postgres/sale_allocation.go|unverified-dynamic-bind": 2,
   "internal/identity/adapters/postgres/sale_locations.go|unverified-dynamic-bind": 1,
   "internal/leadershiptasks/adapters/postgres/repository.go|unverified-dynamic-bind": 18,
