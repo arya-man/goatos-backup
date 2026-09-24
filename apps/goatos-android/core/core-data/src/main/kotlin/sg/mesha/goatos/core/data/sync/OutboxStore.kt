@@ -26,6 +26,14 @@ interface OutboxStore {
      *  scope-submit epoch). */
     suspend fun findLatestForGroupAndOpType(groupKey: String, opType: String): OutboxEntity?
 
+    /** True when a step-proof register has been superseded by a later local register for the same
+     *  treatment step. Re-shoots are replacements; an older retry must not overwrite the newer clip. */
+    suspend fun hasNewerHealthStepProofRegister(
+        groupKey: String,
+        healthSessionStepId: String,
+        createdAt: Long,
+    ): Boolean = false
+
     suspend fun eligibleForDrain(now: Long, limit: Int): List<OutboxEntity>
 
     /** Observes ACTIVE rows only (QUEUED, IN_FLIGHT, non-conflict FAILED) — never includes
@@ -159,6 +167,15 @@ class RoomOutboxStore(private val dao: OutboxDao) : OutboxStore {
     override suspend fun findByIdempotencyKey(key: String): OutboxEntity? = dao.findByIdempotencyKey(key)
     override suspend fun findLatestForGroupAndOpType(groupKey: String, opType: String): OutboxEntity? =
         dao.findLatestForGroupAndOpType(groupKey, opType)
+    override suspend fun hasNewerHealthStepProofRegister(
+        groupKey: String,
+        healthSessionStepId: String,
+        createdAt: Long,
+    ): Boolean = dao.hasNewerHealthStepProofRegister(
+        groupKey = groupKey,
+        healthSessionStepIdNeedle = "%\"health_session_step_id\":\"$healthSessionStepId\"%",
+        createdAt = createdAt,
+    ) > 0
     override suspend fun eligibleForDrain(now: Long, limit: Int): List<OutboxEntity> = dao.eligibleForDrain(now, limit)
     override fun observeActive(): Flow<List<OutboxEntity>> = dao.observeActive()
     override fun observeActiveCounts(): Flow<ActiveOutboxCounts> = dao.observeActiveCounts()

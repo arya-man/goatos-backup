@@ -245,6 +245,27 @@ class HealthOutboxConvergenceTest {
     }
 
     @Test
+    fun `older step proof retry does not overwrite a newer reshoot`() = runBlocking {
+        val store = FakeOutboxStore()
+        store.insert(proofUploadItem("proof-upload-old", "server-proof-old", createdAt = 1L))
+        store.insert(proofUploadItem("proof-upload-new", "server-proof-new", createdAt = 3L))
+        store.insert(stepProofItem("step-register-old", "proof-upload-old", createdAt = 2L))
+        store.insert(stepProofItem("step-register-new", "proof-upload-new", createdAt = 4L, status = OutboxStatus.SUCCEEDED))
+        val sentProofs = mutableListOf<String>()
+        val api = ScriptedAppApi().apply {
+            registerHealthStepProofFn = { _, _, _, request ->
+                sentProofs += request.proofRef
+            }
+        }
+        val engine = SyncEngine(store = store, api = api, connectivityGate = { true })
+
+        engine.drainOnce()
+
+        assertEquals(emptyList<String>(), sentProofs)
+        assertEquals(OutboxStatus.SUCCEEDED.name, store.findById("step-register-old")?.status)
+    }
+
+    @Test
     fun `case close dispatches the clinical outcome`() = runBlocking {
         val store = FakeOutboxStore()
         store.insert(
@@ -337,5 +358,54 @@ class HealthOutboxConvergenceTest {
         nextAttemptAt = if (status == OutboxStatus.QUEUED) 0L else Long.MAX_VALUE,
         lastError = if (status == OutboxStatus.FAILED) "rejected" else null,
         resultJson = resultJson,
+    )
+
+    private fun proofUploadItem(id: String, proofId: String, createdAt: Long) = OutboxEntity(
+        id = id,
+        opType = OutboxOpType.PROOF_UPLOAD.name,
+        groupKey = "health-session-1",
+        idempotencyKey = "$id-key",
+        payloadJson = "{}",
+        status = OutboxStatus.SUCCEEDED.name,
+        attemptCount = 1,
+        maxAttempts = 3,
+        conflict = false,
+        createdAt = createdAt,
+        updatedAt = createdAt,
+        nextAttemptAt = Long.MAX_VALUE,
+        lastError = null,
+        resultJson = syncJson.encodeToString(
+            sg.mesha.goatos.core.network.dto.ProofUploadResponseDto(
+                proof = sg.mesha.goatos.core.network.dto.ProofReferenceDto(proofId = proofId),
+            ),
+        ),
+    )
+
+    private fun stepProofItem(
+        id: String,
+        proofUploadId: String,
+        createdAt: Long,
+        status: OutboxStatus = OutboxStatus.QUEUED,
+    ) = OutboxEntity(
+        id = id,
+        opType = OutboxOpType.HEALTH_STEP_PROOF_REGISTER.name,
+        groupKey = "health-session-1",
+        idempotencyKey = "$id-key",
+        payloadJson = syncJson.encodeToString(
+            HealthStepProofRegisterPayload(
+                healthSessionId = "health-session-1",
+                healthSessionStepId = "step-1",
+                proofOutboxItemId = proofUploadId,
+            ),
+        ),
+        status = status.name,
+        attemptCount = if (status == OutboxStatus.QUEUED) 0 else 1,
+        maxAttempts = 3,
+        conflict = false,
+        createdAt = createdAt,
+        updatedAt = createdAt,
+        nextAttemptAt = if (status == OutboxStatus.QUEUED) 0L else Long.MAX_VALUE,
+        lastError = null,
+        resultJson = if (status == OutboxStatus.SUCCEEDED) "{}" else null,
     )
 }

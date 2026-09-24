@@ -42,6 +42,23 @@ class FakeOutboxStore : OutboxStore {
             .filter { it.groupKey == groupKey && it.opType == opType }
             .maxByOrNull { it.createdAt }
 
+    override suspend fun hasNewerHealthStepProofRegister(
+        groupKey: String,
+        healthSessionStepId: String,
+        createdAt: Long,
+    ): Boolean = rows.value.any { row ->
+        row.groupKey == groupKey &&
+            row.opType == OutboxOpType.HEALTH_STEP_PROOF_REGISTER.name &&
+            row.createdAt > createdAt &&
+            row.payloadJson.contains("\"health_session_step_id\":\"$healthSessionStepId\"") &&
+            (
+                row.status == OutboxStatus.QUEUED.name ||
+                    row.status == OutboxStatus.IN_FLIGHT.name ||
+                    row.status == OutboxStatus.SUCCEEDED.name ||
+                    (row.status == OutboxStatus.FAILED.name && !row.conflict && row.attemptCount < row.maxAttempts)
+                )
+    }
+
     override suspend fun eligibleForDrain(now: Long, limit: Int): List<OutboxEntity> {
         val snapshot = rows.value
         return snapshot

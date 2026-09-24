@@ -22,6 +22,7 @@ import sg.mesha.goatos.core.network.dto.HealthCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.HealthCompleteResponseDto
 import sg.mesha.goatos.core.network.dto.HealthOpenCaseRequestDto
 import sg.mesha.goatos.core.network.dto.HealthOpenCaseResponseDto
+import sg.mesha.goatos.core.network.dto.HealthStepProofRequestDto
 import sg.mesha.goatos.core.network.dto.PcCareSlotProofRequestDto
 import sg.mesha.goatos.core.network.dto.SubmitWeighingFastingShedRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingFastingShedCardResponseDto
@@ -43,6 +44,7 @@ class ScriptedAppApi(private val delegate: AppApi = FakeAppApi()) : AppApi by de
     var closeVerificationSubmissionFn: (suspend (String, String) -> VerificationCloseSubmissionResponseDto)? = null
     var closeVaccinationBatchFn: (suspend (String, String) -> VerificationCloseSubmissionResponseDto)? = null
     var completeHealthWorkItemFn: (suspend (String, String, HealthCompleteRequestDto) -> HealthCompleteResponseDto)? = null
+    var registerHealthStepProofFn: (suspend (String, String, String, HealthStepProofRequestDto) -> Unit)? = null
     var openHealthCaseFn: (suspend (String, HealthOpenCaseRequestDto) -> HealthOpenCaseResponseDto)? = null
     var registerPcCareTaskProofFn: (suspend (String, String, String, PcCareSlotProofRequestDto) -> Unit)? = null
     var submitWeighingFastingShedFn: (suspend (String, String, String, SubmitWeighingFastingShedRequestDto) -> WeighingFastingShedCardResponseDto)? = null
@@ -62,6 +64,8 @@ class ScriptedAppApi(private val delegate: AppApi = FakeAppApi()) : AppApi by de
         java.util.concurrent.CopyOnWriteArrayList<Pair<String, HealthOpenCaseRequestDto>>()
     val healthCompleteCalls: MutableList<Pair<String, String>> =
         java.util.concurrent.CopyOnWriteArrayList<Pair<String, String>>()
+    val healthStepProofCalls: MutableList<List<String>> =
+        java.util.concurrent.CopyOnWriteArrayList<List<String>>()
 
     /** (itemId, header Idempotency-Key) for every [submitVerificationVerdict] call — same
      *  same-key-on-retry assertion shape as [submitCalls]. */
@@ -190,6 +194,17 @@ class ScriptedAppApi(private val delegate: AppApi = FakeAppApi()) : AppApi by de
         healthCompleteCalls += healthSessionId to idempotencyKey
         return completeHealthWorkItemFn?.invoke(healthSessionId, idempotencyKey, request)
             ?: delegate.completeHealthWorkItem(healthSessionId, idempotencyKey, request)
+    }
+
+    override suspend fun registerHealthStepProof(
+        healthSessionId: String,
+        healthSessionStepId: String,
+        idempotencyKey: String,
+        request: HealthStepProofRequestDto,
+    ) {
+        healthStepProofCalls += listOf(healthSessionId, healthSessionStepId, idempotencyKey, request.proofRef)
+        registerHealthStepProofFn?.invoke(healthSessionId, healthSessionStepId, idempotencyKey, request)
+            ?: delegate.registerHealthStepProof(healthSessionId, healthSessionStepId, idempotencyKey, request)
     }
 
     override suspend fun openHealthCase(
