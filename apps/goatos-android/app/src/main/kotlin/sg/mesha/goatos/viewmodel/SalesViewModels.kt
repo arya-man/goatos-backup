@@ -272,6 +272,11 @@ class SaleDetailViewModel @Inject constructor(
         val paymentEditor: SalePaymentEditorUi? = null,
         val editInFlight: Boolean = false,
         val editMessage: String = "",
+        // The feed store's refusal, and the status change waiting on the answer. Closing a sale is
+        // when its feed actually leaves the store, so the store may refuse a close it never saw
+        // when the sale was recorded.
+        val stockConfirmMessage: String = "",
+        val stockPendingStatus: String = "",
     )
 
     private val local = MutableStateFlow(Local())
@@ -308,6 +313,7 @@ class SaleDetailViewModel @Inject constructor(
                 today = LocalDate.now().toString(),
                 editInFlight = l.editInFlight,
                 editMessage = l.editMessage,
+                stockConfirmMessage = l.stockConfirmMessage,
                 canTagAnimals = live,
                 tagDisabledReason = when {
                     deal.productType == "Manure" -> TAG_MANURE
@@ -348,6 +354,13 @@ class SaleDetailViewModel @Inject constructor(
             SaleDetailEvent.SavePayment -> savePayment()
             SaleDetailEvent.DeletePayment -> deletePayment()
             is SaleDetailEvent.ChangeStatus -> changeStatus(event.status)
+            SaleDetailEvent.ConfirmStatusStock -> {
+                val pending = local.value.stockPendingStatus
+                local.update { it.copy(stockConfirmMessage = "", stockPendingStatus = "") }
+                if (pending.isNotBlank()) changeStatus(pending, acknowledgeStock = true)
+            }
+            SaleDetailEvent.DismissStatusStock ->
+                local.update { it.copy(stockConfirmMessage = "", stockPendingStatus = "") }
         }
     }
 
@@ -419,13 +432,22 @@ class SaleDetailViewModel @Inject constructor(
         }
     }
 
-    private fun changeStatus(status: String) {
+    private fun changeStatus(status: String, acknowledgeStock: Boolean = false) {
         if (status.isBlank() || local.value.editInFlight) return
-        enqueueEdit(editor = null, done = MESSAGE_STATUS_SAVED, failure = "deal status enqueue failed") {
+        enqueueEdit(
+            editor = null,
+            done = MESSAGE_STATUS_SAVED,
+            failure = "deal status enqueue failed",
+            // Closing a sale takes its feed off the store, and the store may say it does not hold
+            // it. That is a QUESTION and not a failure, so the row is not left reading as rejected
+            // -- the screen asks it, and the same change is sent again with the answer.
+            stockStatus = status,
+        ) {
             syncRepository.enqueueSalesDealStatusSet(
                 clientId = UUID.randomUUID().toString(),
                 dealId = dealId,
                 status = status,
+                acknowledgeStock = acknowledgeStock,
             )
         }
     }
@@ -439,6 +461,7 @@ class SaleDetailViewModel @Inject constructor(
         editor: SalePaymentEditorUi?,
         done: String,
         failure: String,
+        stockStatus: String = "",
         block: suspend () -> AppResult<String>,
     ) {
         viewModelScope.launch {
@@ -447,7 +470,7 @@ class SaleDetailViewModel @Inject constructor(
                 is AppResult.Ok -> {
                     analytics.track(AnalyticsEventsVendors.VENDORS_SALE_EDITED)
                     local.update { it.copy(editMessage = MESSAGE_SAVING, message = null) }
-                    followWrite(result.value, editor, done)
+                    followWrite(result.value, editor, done, stockStatus)
                 }
                 is AppResult.Err -> {
                     result.cause?.let { crashReporter.recordException(it, failure) }
@@ -468,10 +491,21 @@ class SaleDetailViewModel @Inject constructor(
         }
     }
 
-    private fun followWrite(outboxItemId: String, editor: SalePaymentEditorUi?, done: String) {
+    private fun followWrite(outboxItemId: String, editor: SalePaymentEditorUi?, done: String, stockStatus: String = "") {
         viewModelScope.launch {
             syncRepository.followQueuedWrite(outboxItemId).collect { outcome ->
                 local.update {
+                    // The feed store's question, not a refusal: keyed on the server's CODE, never
+                    // on its sentence, which is farm copy and may be reworded.
+                    if (outcome is QueuedWriteOutcome.Rejected && outcome.code == CODE_STOCK_CONFIRM && stockStatus.isNotBlank()) {
+                        return@update it.copy(
+                            editInFlight = false,
+                            editMessage = "",
+                            message = null,
+                            stockConfirmMessage = outcome.reason.orEmpty(),
+                            stockPendingStatus = stockStatus,
+                        )
+                    }
                     when (outcome) {
                         QueuedWriteOutcome.Saved -> it.copy(
                             editInFlight = false,

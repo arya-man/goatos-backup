@@ -26,6 +26,7 @@ export function SalesItemsAndRecordDrawer({
   canRecord,
   vendorOptions,
   stockConfirmNeeded,
+  statusStockConfirmNeeded,
   stockConfirmDetail,
   children,
 }: {
@@ -39,6 +40,8 @@ export function SalesItemsAndRecordDrawer({
   canRecord: boolean;
   vendorOptions: ProcurementVendorOptions | null;
   stockConfirmNeeded: boolean;
+  /** The same confirmation, raised by CLOSING an expected sale -- when its feed actually leaves. */
+  statusStockConfirmNeeded: boolean;
   stockConfirmDetail?: string;
   /** The page's other sections, rendered between the two halves this component owns. */
   children?: React.ReactNode;
@@ -83,6 +86,7 @@ export function SalesItemsAndRecordDrawer({
         vendorOptions={vendorOptions}
         salesOptions={options}
         stockConfirmNeeded={stockConfirmNeeded}
+        statusStockConfirmNeeded={statusStockConfirmNeeded}
         stockConfirmDetail={stockConfirmDetail}
       />
     </>

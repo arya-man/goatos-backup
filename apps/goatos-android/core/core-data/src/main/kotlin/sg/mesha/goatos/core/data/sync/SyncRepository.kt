@@ -796,6 +796,7 @@ interface SyncRepository {
         clientId: String,
         dealId: String,
         status: String,
+        acknowledgeStock: Boolean = false,
     ): AppResult<String> = AppResult.Err("sales sync is not configured")
 
     /** One pipeline or evidence record; [payload] names its panel in `kind`. */
@@ -2071,6 +2072,7 @@ class DefaultSyncRepository(
         clientId: String,
         dealId: String,
         status: String,
+        acknowledgeStock: Boolean,
     ): AppResult<String> = enqueue(
         opType = OutboxOpType.SALES_DEAL_STATUS_SET,
         groupKey = salesDealEditGroupKey(dealId.trim()),
@@ -2078,7 +2080,10 @@ class DefaultSyncRepository(
         payloadJson = syncJson.encodeToString(
             SalesDealStatusPayload(
                 clientId = clientId.trim(), dealId = dealId.trim(),
-                request = sg.mesha.goatos.core.network.dto.SalesDealStatusWriteDto(status = status),
+                request = sg.mesha.goatos.core.network.dto.SalesDealStatusWriteDto(
+                    status = status,
+                    stockShortfallAcknowledged = acknowledgeStock,
+                ),
             ),
         ),
     )

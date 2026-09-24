@@ -19,6 +19,8 @@ type fakeRepo struct {
 	buyerFilter    domain.LeadFilter
 	fpoFilter      domain.LeadFilter
 	statusDealID   string
+	demandFarm     string
+	demand         []domain.FeedDemand
 	dealStatus     string
 	paymentDealID  string
 	payment        domain.DealPaymentWrite
@@ -44,8 +46,8 @@ func (f *fakeRepo) GetOverview(_ context.Context, _ string, farm string) (domain
 // tests keep exercising exactly the sales they exercised before the registry existed.
 func (f *fakeRepo) ListSellableProducts(_ context.Context, _ string) ([]domain.Product, error) {
 	return []domain.Product{
-		{Code: domain.ProductCodeSheep, Name: domain.ProductSheep, Kind: domain.KindAnimal, Unit: "head", SpeciesCode: "sheep", SortOrder: 10},
-		{Code: domain.ProductCodeGoat, Name: domain.ProductGoat, Kind: domain.KindAnimal, Unit: "head", SpeciesCode: "goat", SortOrder: 20},
+		{Code: domain.ProductCodeSheep, Name: domain.ProductSheep, Kind: domain.KindAnimal, Unit: domain.UnitNumber, SpeciesCode: "sheep", SortOrder: 10},
+		{Code: domain.ProductCodeGoat, Name: domain.ProductGoat, Kind: domain.KindAnimal, Unit: domain.UnitNumber, SpeciesCode: "goat", SortOrder: 20},
 		{Code: domain.ProductCodeManure, Name: domain.ProductManure, Kind: domain.KindOther, Unit: "kg", SortOrder: 30},
 	}, nil
 }
@@ -95,6 +97,11 @@ func (f *fakeRepo) CreateDeal(_ context.Context, _ string, write domain.DealWrit
 }
 
 // Pipeline methods: thin recorders, same idea as the deal ones.
+// feedDemand is what FeedDemandForDeal answers for the deal under test; empty means no feed line.
+func (f *fakeRepo) FeedDemandForDeal(_ context.Context, _, _ string) (string, []domain.FeedDemand, error) {
+	return f.demandFarm, f.demand, nil
+}
+
 func (f *fakeRepo) SetDealStatus(_ context.Context, _ string, dealID, status, _ string) (domain.Deal, error) {
 	f.statusDealID, f.dealStatus = dealID, status
 	return domain.Deal{DealID: dealID, Status: status}, nil
@@ -163,6 +170,12 @@ func (f *fakeRepo) CreateSoldTags(_ context.Context, _ string, write domain.Sold
 	f.createCalls++
 	f.createdKey = key
 	return len(write.Rows), nil
+}
+
+// The fake records nothing, so no key has ever completed: every test send is a FIRST send. A
+// replay is exercised against real Postgres, where the reservation actually lives.
+func (f *fakeRepo) CompletedDealForIdempotencyKey(_ context.Context, _, _ string) (domain.Deal, bool, error) {
+	return domain.Deal{}, false, nil
 }
 
 func (f *fakeRepo) ListSellableSpecies(_ context.Context, _ string) ([]string, error) {
@@ -397,7 +410,7 @@ func TestSetDealStatusCanonicalizesAndRejects(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewSalesService(repo)
 
-	if _, err := svc.SetDealStatus(context.Background(), "t", "d1", " advance paid ", "actor"); err != nil {
+	if _, err := svc.SetDealStatus(context.Background(), "t", "d1", " advance paid ", false, "actor"); err != nil {
 		t.Fatalf("set status: %v", err)
 	}
 	if repo.dealStatus != domain.StatusAdvancePaid || repo.statusDealID != "d1" {
@@ -405,7 +418,7 @@ func TestSetDealStatusCanonicalizesAndRejects(t *testing.T) {
 	}
 
 	var v domain.ErrDealValidation
-	if _, err := svc.SetDealStatus(context.Background(), "t", "d1", "Partially Closed", "actor"); !errors.As(err, &v) || v.Field != "status" {
+	if _, err := svc.SetDealStatus(context.Background(), "t", "d1", "Partially Closed", false, "actor"); !errors.As(err, &v) || v.Field != "status" {
 		t.Fatalf("unknown status => %v, want a status rejection", err)
 	}
 }

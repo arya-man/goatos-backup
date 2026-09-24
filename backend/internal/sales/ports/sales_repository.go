@@ -104,6 +104,13 @@ type SalesRepository interface {
 	// recorded sale and the stock it took off the store can never disagree.
 	CreateDeal(ctx context.Context, tenantID string, write domain.DealWrite, actorID, idempotencyKey string) (domain.Deal, error)
 
+	// FeedDemandForDeal is what a RECORDED deal's feed lines take off the store, summed per feed,
+	// together with the farm they leave. It answers the close-time stock question: a sale recorded
+	// as expected depletes only when it is closed, and by then the store has moved.
+	//
+	// A deal with no feed line returns an empty demand and no error.
+	FeedDemandForDeal(ctx context.Context, tenantID, dealID string) (farm string, demand []domain.FeedDemand, err error)
+
 	// SetDealStatus sets a deal's lifecycle status directly (closing an expected sale on the day
 	// it happens, or marking one failed). status must already be a canonical vocabulary word.
 	SetDealStatus(ctx context.Context, tenantID, dealID, status, actorID string) (domain.Deal, error)
@@ -164,6 +171,11 @@ type SalesRepository interface {
 	// ListSellableSpecies is the species an animal item may name -- those the breed register has
 	// live breeds for, so an item added against one is sellable the moment it is saved.
 	ListSellableSpecies(ctx context.Context, tenantID string) ([]string, error)
+	// CompletedDealForIdempotencyKey answers whether a finished write with this key already
+	// produced a deal, so a REPLAY can be settled before the sale is weighed against the feed
+	// store -- the store is short by exactly what that committed sale removed, and refusing the
+	// replay for it is how one sale became two.
+	CompletedDealForIdempotencyKey(ctx context.Context, tenantID, idempotencyKey string) (domain.Deal, bool, error)
 }
 
 // ErrValuationVersionConflict is a valuation write carrying a row_version the row has moved past.

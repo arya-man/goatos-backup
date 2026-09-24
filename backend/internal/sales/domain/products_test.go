@@ -10,8 +10,8 @@ import (
 // pass it, so they keep asserting what they always asserted.
 func builtinCatalog() ProductCatalog {
 	return NewProductCatalog([]Product{
-		{Code: ProductCodeSheep, Name: ProductSheep, Kind: KindAnimal, Unit: "head", SpeciesCode: "sheep", SortOrder: 10},
-		{Code: ProductCodeGoat, Name: ProductGoat, Kind: KindAnimal, Unit: "head", SpeciesCode: "goat", SortOrder: 20},
+		{Code: ProductCodeSheep, Name: ProductSheep, Kind: KindAnimal, Unit: UnitNumber, SpeciesCode: "sheep", SortOrder: 10},
+		{Code: ProductCodeGoat, Name: ProductGoat, Kind: KindAnimal, Unit: UnitNumber, SpeciesCode: "goat", SortOrder: 20},
 		{Code: ProductCodeManure, Name: ProductManure, Kind: KindOther, Unit: "kg", SortOrder: 30},
 	})
 }
@@ -251,5 +251,19 @@ func TestAddingIsDistinguishableFromEditing(t *testing.T) {
 	editing := ProductWrite{Code: "feed", Name: "Feed pellets", Kind: KindFeed, Unit: UnitKg}.Normalize()
 	if editing.Adding || editing.Code != "feed" {
 		t.Fatalf("a write carrying a code is an EDIT of that row, got adding=%v code=%q", editing.Adding, editing.Code)
+	}
+}
+
+// Feed's stock is kept in kilograms, so the item is refused where it is authored rather than at
+// the sale that would spend the wrong unit.
+func TestFeedItemMustBeSoldByTheKilogram(t *testing.T) {
+	w := ProductWrite{Name: "Bagged feed", Code: "bagged_feed", Kind: KindFeed, Unit: UnitNumber, Status: StatusActive}
+	var pe ErrProductValidation
+	if err := w.Validate(); !errors.As(err, &pe) || pe.Field != "unit" {
+		t.Fatalf("error = %v, want the unit refused", err)
+	}
+	w.Unit = UnitKg
+	if err := w.Validate(); err != nil {
+		t.Fatalf("feed by the kilogram was refused: %v", err)
 	}
 }

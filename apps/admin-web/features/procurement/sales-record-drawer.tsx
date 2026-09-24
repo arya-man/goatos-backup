@@ -75,6 +75,7 @@ export function SalesRecordDrawer({
   vendorOptions,
   salesOptions,
   stockConfirmNeeded,
+  statusStockConfirmNeeded,
   stockConfirmDetail,
 }: {
   /** The rendered ledger page. The detail view opens from this data — it issues no fetch of its own. */
@@ -103,6 +104,8 @@ export function SalesRecordDrawer({
    * page's banner.
    */
   stockConfirmNeeded: boolean;
+  /** The same confirmation, raised by CLOSING an expected sale -- when its feed actually leaves. */
+  statusStockConfirmNeeded: boolean;
   /**
    * The backend's own sentence naming what the store holds. It is rendered HERE, beside the tick,
    * rather than only in the page banner: the drawer reopens over that banner, so a person being
@@ -726,6 +729,24 @@ export function SalesRecordDrawer({
                     {copy(pageContract, "action.update_deal_status.label")}
                   </button>
                 </div>
+                {statusStockConfirmNeeded ? (
+                  // Closing takes the sale's feed off the store, so the close asks the same
+                  // question recording it did. Shown only after the backend has asked, and NOT
+                  // ticked by default: a tick the form carries on its own confirms nothing.
+                  <div className="fld sales-stock-ack">
+                    {stockConfirmDetail ? <div className="note warn">{stockConfirmDetail}</div> : null}
+                    <label htmlFor="sds-stock_ack">
+                      <input
+                        id="sds-stock_ack"
+                        name="stock_shortfall_acknowledged"
+                        type="checkbox"
+                        value="1"
+                      />{" "}
+                      {copy(pageContract, "field.stock_shortfall_ack")}
+                    </label>
+                    <div className="note">{copy(pageContract, "hint.stock_shortfall_ack")}</div>
+                  </div>
+                ) : null}
               </form>
             ) : null}
           </div>

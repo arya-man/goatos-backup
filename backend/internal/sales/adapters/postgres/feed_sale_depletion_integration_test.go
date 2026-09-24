@@ -23,7 +23,7 @@ func feedSaleRepo(t *testing.T, ctx context.Context) *Repository {
 	if _, err := pool.Exec(ctx, `
 INSERT INTO public.sellable_product_catalog (tenant_id, product_code, name, kind, unit, species_code, sort_order, is_builtin)
 VALUES ($1, 'feed', 'Feed', 'feed', 'kg', NULL, 40, false),
-       ($1, 'goat', 'Goat', 'animal', 'head', 'goat', 20, true)
+       ($1, 'goat', 'Goat', 'animal', 'number', 'goat', 20, true)
 ON CONFLICT (tenant_id, product_code) DO NOTHING`, salesTestTenant); err != nil {
 		t.Fatalf("seed the farm's sellable products: %v", err)
 	}
@@ -37,7 +37,7 @@ const feedSaleBuyerVendorID = "3f1c2a5e-9b04-4d67-8a11-2c7e5d9f0b34"
 func feedProducts() domain.ProductCatalog {
 	return domain.NewProductCatalog([]domain.Product{
 		{Code: "feed", Name: "Feed", Kind: domain.KindFeed, Unit: "kg", SortOrder: 40},
-		{Code: domain.ProductCodeGoat, Name: domain.ProductGoat, Kind: domain.KindAnimal, Unit: "head", SpeciesCode: "goat", SortOrder: 20},
+		{Code: domain.ProductCodeGoat, Name: domain.ProductGoat, Kind: domain.KindAnimal, Unit: domain.UnitNumber, SpeciesCode: "goat", SortOrder: 20},
 	})
 }
 
@@ -177,5 +177,76 @@ SELECT count(*) FROM public.feed_sale_depletions WHERE tenant_id = $1`, salesTes
 	}
 	if rows != 1 {
 		t.Fatalf("a mixed sale must write ONE ledger row, its feed line; got %d", rows)
+	}
+}
+
+// WHAT A RECORDED DEAL TAKES OFF THE STORE, summed per feed, is the question the CLOSE asks --
+// closing an expected sale is the moment its kilograms actually leave, and by then the store has
+// moved. The sum is per FEED and not per line: a deal writing maize twice takes one amount off one
+// balance, and asking each line on its own is how two lots slipped past a store neither exceeded.
+func TestFeedDemandForDealSumsPerFeedNotPerLine(t *testing.T) {
+	ctx := context.Background()
+	repo := feedSaleRepo(t, ctx)
+
+	write := domain.DealWrite{
+		SaleDate: "2026-09-24", Farm: "CPT", Status: domain.StatusInDiscussion,
+		BuyerName: "Ramesh Traders", BuyerVendorID: feedSaleBuyerVendorID,
+		Lines: []domain.DealLineWrite{
+			{ProductType: "Feed", Breed: "Maize", Quantity: kg(1200), RatePerUnit: kg(21)},
+			{ProductType: domain.ProductGoat, Breed: "Sirohi", AnimalCount: kg(4), TotalWeightKg: kg(100), SalesValue: 45000},
+			{ProductType: "Feed", Breed: "Maize", Quantity: kg(800), RatePerUnit: kg(22)},
+			{ProductType: "Feed", Breed: "Groundnut Cake", Quantity: kg(300), RatePerUnit: kg(40)},
+		},
+	}.Normalize(feedProducts())
+	deal, err := repo.CreateDeal(ctx, salesTestTenant, write, "", "demand-key")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	farm, demand, err := repo.FeedDemandForDeal(ctx, salesTestTenant, deal.DealID)
+	if err != nil {
+		t.Fatalf("read demand: %v", err)
+	}
+	if farm != "CPT" {
+		t.Fatalf("farm = %q, want CPT: the store asked is the one the sale leaves", farm)
+	}
+	// Two feeds, never three rows, and NEVER the animal line -- an animal takes nothing off the
+	// feed store. The order is the one the farm typed, so the sentence names the row they would
+	// look at first.
+	if len(demand) != 2 {
+		t.Fatalf("demand = %+v, want one row per feed", demand)
+	}
+	if demand[0].FeedItem != "Maize" || demand[0].Kg != 2000 || demand[0].LineNo != 1 {
+		t.Fatalf("maize = %+v, want 2000kg reported at line 1", demand[0])
+	}
+	if demand[1].FeedItem != "Groundnut Cake" || demand[1].Kg != 300 {
+		t.Fatalf("groundnut = %+v, want 300kg", demand[1])
+	}
+}
+
+// A sale with no feed line asks the store nothing, and must not be mistaken for a missing deal --
+// closing an animal sale is never held up by feed.
+func TestFeedDemandForADealWithNoFeedLineIsEmptyAndNotAnError(t *testing.T) {
+	ctx := context.Background()
+	repo := feedSaleRepo(t, ctx)
+
+	write := domain.DealWrite{
+		SaleDate: "2026-09-24", Farm: "CBE",
+		BuyerName: "Tanveer", BuyerVendorID: feedSaleBuyerVendorID,
+		Lines: []domain.DealLineWrite{
+			{ProductType: domain.ProductGoat, Breed: "Sirohi", AnimalCount: kg(4), TotalWeightKg: kg(100), SalesValue: 45000},
+		},
+	}.Normalize(feedProducts())
+	deal, err := repo.CreateDeal(ctx, salesTestTenant, write, "", "no-feed-key")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	farm, demand, err := repo.FeedDemandForDeal(ctx, salesTestTenant, deal.DealID)
+	if err != nil {
+		t.Fatalf("an animal sale must read cleanly: %v", err)
+	}
+	if farm != "CBE" || len(demand) != 0 {
+		t.Fatalf("farm/demand = %q/%+v, want CBE and nothing owed to the store", farm, demand)
 	}
 }

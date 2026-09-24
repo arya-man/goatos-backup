@@ -398,6 +398,7 @@ export async function SalesConfigPage({
         canRecord={canRecord}
         vendorOptions={vendorOptions}
         stockConfirmNeeded={actionKey === "action.sale_feed_stock_confirm"}
+        statusStockConfirmNeeded={actionKey === "action.deal_status_feed_stock_confirm"}
         stockConfirmDetail={actionDetail}
       />
       {canAllocateAnimals ? (

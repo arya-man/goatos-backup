@@ -112,6 +112,12 @@ data class SaleDetailUiState(
     val editInFlight: Boolean = false,
     /** Backend-owned confirmation of the last edit, blank when there is nothing to say. */
     val editMessage: String = "",
+    /**
+     * The feed store's own question, raised by CLOSING a sale whose feed the store no longer shows
+     * -- the server's sentence, naming the balance and what the sale takes. Blank when it has not
+     * been asked. The desk answers it with [SaleDetailEvent.ConfirmStatusStock].
+     */
+    val stockConfirmMessage: String = "",
     val isRefreshing: Boolean = false,
     val isLoading: Boolean = true,
     val message: String? = null,
@@ -135,6 +141,10 @@ sealed interface SaleDetailEvent {
     data object DeletePayment : SaleDetailEvent
     /** Move the deal's status word to [status]. */
     data class ChangeStatus(val status: String) : SaleDetailEvent
+    /** Close the sale anyway, having read what the feed store holds. */
+    data object ConfirmStatusStock : SaleDetailEvent
+    /** Leave the sale as it is; the store's figure stands. */
+    data object DismissStatusStock : SaleDetailEvent
 }
 
 /** The three fields of a buyer receipt. */

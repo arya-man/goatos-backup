@@ -332,6 +332,13 @@ func (w ProductWrite) Validate() error {
 	if !IsUnit(w.Unit) {
 		return ErrProductValidation{Field: "unit", Reason: "must be sold by the kilogram or by number"}
 	}
+	// FEED FROM THE STORE IS WEIGHED. Selling it takes the quantity off a balance the store keeps
+	// in kilograms, so an item counted by the piece would subtract 20 kilograms for 20 bags and
+	// the stock the store reports would drift from the store. Refused where it is authored, so a
+	// sale never has to guess what the number on the line meant.
+	if w.Kind == KindFeed && w.Unit != UnitKg {
+		return ErrProductValidation{Field: "unit", Reason: "feed from the store is sold by the kilogram, because its stock is kept in kilograms"}
+	}
 	// AN ANIMAL MUST SAY WHICH SPECIES IT IS. A sale line asks for a breed and requires one, and
 	// the breeds offered are the SPECIES' breeds -- so an animal item naming no species resolves
 	// to an empty breed list and can never be sold. It saved cleanly and was unsellable, with
