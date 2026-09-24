@@ -152,6 +152,59 @@ WHERE event_date BETWEEN :from AND :to GROUP BY 1;
 ```
 Do NOT use `mortality_base.active_population` as the denominator: it counts a broader status set.
 
+**Cost per kg gain** (Weighing > FCR tab "Feed cost per kg gain", `GET /growth-director/fcr`,
+`backend/internal/growthdirector/adapters/postgres/fcr.go` fcrSegmentsSQL + `domain/fcr.go`). Segment = two consecutive
+weighing rounds of one pen (part). Feed cost = directed feed on the sheet for that pen between the rounds x the latest same-park
+purchase per_kg_cost on/before each feed day. Gain kg = segment ADG x fed head-days (sheet head counts). Summary = total cost /
+total gain over segments that gained. The SQL below reproduces it for the last 30 days (change `- 30`); on 24/09/2026 it gave
+CBE Rs 331/kg (Rs 4,12,490 feed, 1,247 kg), CPT Rs 340/kg (Rs 3,69,181, 1,087 kg), all Rs 335/kg. Answer per park + total, one method line.
+```sql
+WITH w AS (SELECT (now() AT TIME ZONE 'Asia/Kolkata')::date - 30 AS s, (now() AT TIME ZONE 'Asia/Kolkata')::date + 1 AS e),
+bk AS (SELECT cs.campaign_shed_id, cs.campaign_id, c.park_id, cs.weighing_category,
+  regexp_replace(regexp_replace(lower(l.name||' '||coalesce(cs.partition_label,'')),'part','p','g'),'[^a-z0-9]','','g') AS pen
+  FROM weighing_campaign_sheds cs JOIN weighing_campaigns c USING (campaign_id) JOIN locations l ON l.location_id=cs.location_id
+  WHERE cs.status<>'canceled' AND c.status<>'canceled'),
+lump AS (SELECT DISTINCT ON (bk.park_id,bk.pen,bk.campaign_id) bk.park_id,bk.pen,bk.campaign_id,
+  (so.accepted_at AT TIME ZONE 'Asia/Kolkata')::date d, so.average_weight_kg::float8 avg_kg
+  FROM bk JOIN weighing_shed_observations so USING (campaign_shed_id), w
+  WHERE bk.weighing_category='per_shed_partition' AND so.withdrawn_at IS NULL AND so.verification_status<>'rejected'
+    AND so.animal_count>0 AND so.average_weight_kg IS NOT NULL AND (so.accepted_at AT TIME ZONE 'Asia/Kolkata')::date >= w.s
+  ORDER BY bk.park_id,bk.pen,bk.campaign_id,so.accepted_at DESC),
+lseg AS (SELECT park_id,pen,d_prev,d,(avg_kg-avg_prev)*1000/(d-d_prev) adg_g FROM (
+  SELECT *, lag(d) OVER p d_prev, lag(avg_kg) OVER p avg_prev FROM lump WINDOW p AS (PARTITION BY park_id,pen ORDER BY d)) x WHERE d>d_prev),
+scan AS (SELECT DISTINCT ON (bk.park_id,bk.pen,bk.campaign_id,lower(btrim(o.scanned_identifier))) bk.park_id,bk.pen,bk.campaign_id,
+  lower(btrim(o.scanned_identifier)) tag,(o.accepted_at AT TIME ZONE 'Asia/Kolkata')::date d,o.weight_kg::float8 wt
+  FROM bk JOIN weighing_observations o USING (campaign_shed_id), w
+  WHERE bk.weighing_category='individual_animal' AND o.verification_status<>'rejected' AND btrim(o.scanned_identifier)<>''
+    AND (o.accepted_at AT TIME ZONE 'Asia/Kolkata')::date >= w.s
+  ORDER BY bk.park_id,bk.pen,bk.campaign_id,lower(btrim(o.scanned_identifier)),o.accepted_at DESC),
+sr AS (SELECT park_id,pen,campaign_id,max(d) d FROM scan GROUP BY 1,2,3),
+srl AS (SELECT *, lag(campaign_id) OVER p cprev, lag(d) OVER p d_prev FROM sr WINDOW p AS (PARTITION BY park_id,pen ORDER BY d)),
+sseg AS (SELECT s.park_id,s.pen,s.d_prev,s.d,avg((c.wt-p.wt)*1000/(c.d-p.d)) adg_g FROM srl s
+  JOIN scan c ON c.park_id=s.park_id AND c.pen=s.pen AND c.campaign_id=s.campaign_id
+  JOIN scan p ON p.park_id=s.park_id AND p.pen=s.pen AND p.campaign_id=s.cprev AND p.tag=c.tag
+  WHERE s.cprev IS NOT NULL AND s.d>s.d_prev AND c.d>p.d GROUP BY 1,2,3,4),
+seg AS (SELECT * FROM lseg UNION ALL SELECT * FROM sseg),
+fr AS (SELECT i.park_id, i.feed_day, r.feed_item_key, r.quantity_kg, r.head_count, r.shed_tag_key, r.breed_key,
+  regexp_replace(lower(l.name||CASE WHEN r.partition_key='whole' THEN '' WHEN r.partition_key ~ '^[0-9]' THEN ' '||r.partition_key ELSE ' '||r.partition_key END),'[^a-z0-9]','','g') raw
+  FROM feed_direction_issue_rows r JOIN feed_direction_issues i USING (feed_direction_issue_id) JOIN locations l ON l.location_id=r.shed_id, w
+  WHERE i.state IN ('issued','amended','locked') AND i.feed_day>=w.s),
+fr2 AS (SELECT *, replace(raw,'part','p') pen FROM fr),
+price AS (SELECT DISTINCT f.park_id,f.feed_item_key,f.feed_day,(SELECT coalesce(p.per_kg_cost,p.total_cost/nullif(p.quantity_kg,0)) FROM feed_purchases p
+  WHERE p.park_id=f.park_id AND p.feed_item_key=f.feed_item_key AND p.purchase_date<=f.feed_day ORDER BY p.purchase_date DESC, p.batch_no DESC LIMIT 1)::float8 per_kg FROM fr2 f),
+fday AS (SELECT f.park_id,f.pen,f.feed_day,sum(f.quantity_kg*pr.per_kg) cost FROM fr2 f JOIN price pr USING (park_id,feed_item_key,feed_day) GROUP BY 1,2,3),
+hday AS (SELECT park_id,pen,feed_day,sum(h) h FROM (SELECT park_id,pen,feed_day,max(head_count) h FROM fr2 WHERE head_count IS NOT NULL GROUP BY park_id,pen,feed_day,shed_tag_key,breed_key) z GROUP BY 1,2,3),
+segf AS (SELECT s.park_id,s.pen,s.d_prev,s.d,s.adg_g,sum(fd.cost) cost,sum(hd.h) head_days FROM seg s
+  LEFT JOIN hday hd ON hd.park_id=s.park_id AND hd.pen=s.pen AND hd.feed_day>=s.d_prev AND hd.feed_day<s.d
+  LEFT JOIN fday fd ON fd.park_id=hd.park_id AND fd.pen=hd.pen AND fd.feed_day=hd.feed_day
+  GROUP BY 1,2,3,4,5)
+SELECT pk.name park, round(sum(cost) FILTER (WHERE adg_g>0 AND head_days>0)) feed_cost_rs,
+  round((sum(adg_g*head_days/1000) FILTER (WHERE adg_g>0 AND head_days>0 AND cost IS NOT NULL))::numeric,1) gain_kg,
+  round((sum(cost) FILTER (WHERE adg_g>0 AND head_days>0) / nullif(sum(adg_g*head_days/1000) FILTER (WHERE adg_g>0 AND head_days>0 AND cost IS NOT NULL),0))::numeric) rs_per_kg_gain,
+  count(*) FILTER (WHERE cost IS NOT NULL AND head_days>0) segs_priced, count(*) segs
+FROM segf JOIN locations pk ON pk.location_id=segf.park_id GROUP BY ROLLUP(pk.name);
+```
+
 **Pending weighing verification:** the dashboard counts every observation not yet verified, INCLUDING rework.
 The view's `pending` excludes rework, so match with `sum(pending)+sum(rework)` from `weighing_verification_status`
 (175+17=192 on 24/09/2026). The source tables also differ, so treat this as close but not exact.

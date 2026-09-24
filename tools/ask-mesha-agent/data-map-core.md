@@ -14,7 +14,10 @@ No date column = current-state view: answer "as of now".
 topic -> view -> key columns -> date column
 - weighing dates/progress -> weighing_capture_activity -> park_label, shed_label, work_state ('completed','closed'), animals_weighed, weighing_category -> planned_business_date
 - weights -> weighing_capture_activity -> sum(scan_weight_avg_kg*scan_count)/sum(scan_count) -> planned_business_date
-- weighing verification -> weighing_verification_status -> pending, rework, verified, oldest_pending_at -> none
+- weighing verification -> weighing_verification_status -> pending, rework, verified, oldest_pending_at -> none. BY PERSON: raw
+  public.verification_items (module='weighing'; status pending=awaiting verifier, rejected=sent back for rework, approved, withdrawn;
+  operator_id=who captured, verified_by/verified_at=verifier; captured_at). Overdue = pending and captured_at older than 24h (verification SLA).
+  "Who verified most" = verification_items by verified_by, verified_at in window, all modules (verified_by NULL = auto-approved by system).
 - headcount now -> animal_current_scope -> park_label, species, sex, breed, management_stage, lifecycle_status='alive' -> none.
   The view ALSO holds sold/dead/inactive rows: every count, %, ratio or split MUST filter lifecycle_status='alive' (CBE alive=850, not 995).
   ONE-QUERY headcount: SELECT park_label, species, count(*) FROM ceo_ai.animal_current_scope WHERE lifecycle_status='alive'
@@ -38,9 +41,17 @@ No sales/revenue view: use public.sales_deals (sales_value, payment_received, bu
 metrics -> how (exact defs + SQL: SKILL.md "Metric definitions"; never invent a proxy)
 - ADG/daily gain: compute from per-animal weighs in public.weighing_observations (consecutive weigh-ins); say it may differ slightly from /weighing/analytics. Never tell the CEO only pen averages are readable.
 - headcount: animal_current_scope lifecycle_status='alive'. sold: animals_base exit_reason='sold' by exit_business_day.
-- cost per kg gain: feed bills (feed_purchases.total_cost by purchase_date, park) / kg gained by the SAME animals in the window, in one SQL.
-  Label it an estimate, show both inputs; never extrapolate a subset ADG to the whole herd by hand.
-- pen ADG between two weighings: whole-pen arm (SKILL.md) (last avg - first avg)*1000/days computed in SQL -> g/day; don't show the math.
+- cost per kg gain = the app's Weighing > FCR tab "Feed cost per kg gain": per pen, consecutive weighing rounds; cost = DIRECTED feed
+  (feed_direction_issue_rows, issued/amended/locked) x latest same-park per_kg_cost on/before each feed day; gain kg = pen ADG x fed head-days.
+  Only pens weighed twice count, so feed and gain are the SAME animals. Copy the ready SQL in SKILL.md "Cost per kg gain" (last 30 days ~Rs 335/kg:
+  CBE 331, CPT 340 on 24/09). NEVER divide whole-park feed bills by a weighed subset's gain. Answer: Rs/kg per park + total, feed Rs and kg gain, 1 line method.
+- pen ADG between two weighings: whole-pen arm (SKILL.md) (last avg - first avg)*1000/days computed in SQL -> g/day.
+- ADG / daily-gain ANSWER SHAPE: headline g/day per park (and total), how many animals/pens it covers, then ONE line of method
+  ("from animals/pens weighed twice this month, gain / days between weighings"). NO per-pen table of first/last avg/days unless asked;
+  at most name the 1-2 outlier pens in one "Worth checking" line.
+- "Which pen has the most/least X" (animals, deaths, weight...): rank WHOLE pens = park_label + shed_label, summing all parts
+  (GROUP BY park_label, shed_label), e.g. most animals = Castro, Coimbatore 181. Give the pen + park + number first; the biggest
+  part (e.g. Castro 2 = 73) only as a detail after. Parts-level ranking only if the user says "part"/"partition".
 - mortality %: sum(mortality_base.deaths in window)*100 / live 'alive' count now, 1dp (NOT active_population).
 - weighing pending: pending+rework. feed fed_kg is always 0: say fed data missing. vaccination: due/done, no %.
 Full columns + example per view: .agents/skills/mesha-data-map/references/views.generated.md
@@ -83,6 +94,26 @@ Module tables (public.*; pen/park names: join public.locations l ON l.location_i
   feed_packing_completions (packed_total_kg) / feed_distribution_completions; goats in wrong pen -> pen_reconciliation_cards; shift/death/birth
   approvals -> counts_approval_requests (decision_reason); config changes -> feed_config_write_log (actor_ref); tag/identity -> identity_decisions;
   RFID sensors -> herd_signal_tag_latest; growth sale price -> growth_sale_price_assumptions; sale allocations -> goat_sale_allocations.
+- feed stock / days of cover / "kitna din chalega" = app Feed Analytics > Stock: run the ready SQL file
+  .agents/skills/mesha-data-map/references/feed-stock-days-left.sql as-is (purchase ledger minus locked sheet issues, 3-latest-day burn rate,
+  split concentrates merged). NOT inventory_stock, NOT your own 14-day average. 24/09: CBE UHT milk 5 days, concentrates ~14-15, bhusa 19-23.
+  Answer: shortest days-left first, per park; items shown as not_started = stock but no use yet.
+- feed wastage %: feed_wastage_completions.wastage_kg (completed) / directed kg (feed_direction_issue_rows, issued/amended/locked) same days, in SQL.
+  pending_verification rows have wastage_kg NULL: say how many pen-days have no wastage kg yet (e.g. 95 in Sep), don't call them 0.
+- vendor delivery delays: no promised/ETA date is stored. Feed vendors = feed_purchases (vendor, farm_label, purchase_date -> reached_on,
+  delivery_status); animal loads = procurement_loads (purchase_date -> arrived_on). Answer days from purchase to arrival per vendor
+  (e.g. Sep: Farukh 4 days, Sanchit up to 3, Navaladi 1-2) + list not-yet-reached; say lateness vs a promise can't be judged. Cover BOTH.
+- pen visit "reasons" = WHY the visit is planned (deworming/hoof_trimming), NOT why it was late. No delay-reason field exists: for delays
+  give counts by visit purpose + delayed_since_business_date / rolled_forward_count, and say the app doesn't record a reason for the delay.
+  Split delayed into submitted late (submitted_at set, awaiting verification; 24/09: 20 of 26) vs still not done (6).
+- animals ready for sale by weight: latest non-rejected individual weigh per alive animal (weighing_observations -> goat_identifiers ->
+  goats) above X, split park + species, with how recent. Also say pens weighed only as a whole pen have no per-animal weight: list pens whose
+  latest whole-pen average (weighing_shed_observations) is above X with head count as "likely".
+- app usage: analytics.app_events (actor_id -> workforce_members.user_id, event_name, received_at; filter on received_at for speed; last 7
+  days = received_at >= now()-interval '7 days'). Report active days + screens opened (event_name='route_entered') alongside total events.
+- verification rejections: verification_items status='rejected', verdict_reason (free text, typos): give total + by module first, then group
+  reasons in SQL with ILIKE buckets (video/vedio not playing, water not visible, wrong pen said, weight not clear) with counts.
+- clocked hours: workforce_clock_entries.worked_minutes by business_date (closed shifts only); mention people with a shift still open now.
 - WHO: every *_by / *_user_id / actor_ref is a user id -> public.workforce_members.user_id -> display_name (one join, no searching).
 - Pen names repeat across parks (e.g. Castro is in CBE and CPT): always name the park per row; no park given = answer each park separately.
 - Money: feed "paid" = feed_purchase_payments.amount_rupees (paid_on), NOT feed_purchases.total_cost (= bill); owed = bill - payments per
