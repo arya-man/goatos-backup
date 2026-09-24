@@ -16,18 +16,20 @@ import (
 //
 // projection-review: membership=feed_purchases at its (tenant, farm_label, feed_item_key, batch_no)
 // natural key -- one row per load, every load, nothing joined at row grain; group_key=(farm_label,
-// feed_item_key) for every window and aggregate: the FIFO position (prior_net_kg) is a running SUM
-// over loads ordered within that pair, consumption cells are pre-collapsed to ONE row per (park,
-// feed_item_key, feed_day) before the running total, so the per-day cumulative sees each day once,
-// and the per-load day counts / first day / finish day aggregate those cells back to one row per
-// load; join_cardinality=loads LEFT JOIN cells 1:0..N then GROUP BY load id (many side aggregated),
-// loads LEFT JOIN family_total 1:1 (one row per pair), loads LEFT JOIN burn 1:0..1 (one row per
-// pair), and the page rows and total range over the same filtered load set
-// (the `page` CTE) so numerator and denominator share one key set. The DAYS-LEFT arithmetic adds a
-// second group_key, (farm_label, family_key), and both of its sides range over it identically: the
-// running kg left walks that family's loads in arrival order and the rate is that family's kg per
-// calendar day, regrouped to the family BEFORE averaging so a substituted day counts once -- byte
-// for byte the key set the stock cards use, which is what makes the two surfaces agree.
+// family_key) for every window and aggregate (family_key = the item's own key unless the
+// transitional split-concentrate fold names a successor): the FIFO position (prior_net_kg) is a
+// running SUM over the family's loads ordered within that pair, consumption cells are
+// pre-collapsed to ONE row per (farm, family, feed_day) -- each item counted only from its own
+// ledger start (item_from, one row per (farm, item)) -- before the running total, so the per-day
+// cumulative sees each day once, and the per-load day counts / first day / finish day aggregate
+// those cells back to one row per load; join_cardinality=loads LEFT JOIN cells 1:0..N then GROUP BY
+// load id (many side aggregated), loads LEFT JOIN family_total 1:1 (one row per pair), loads LEFT
+// JOIN burn 1:0..1 (one row per pair), and the page rows and total range over the same filtered load
+// set (the `page` CTE) so numerator and denominator share one key set. The kg-left numerator (family
+// net kg minus family directed kg) and the rate denominator (the family's kg per calendar day,
+// regrouped to the family BEFORE averaging) range over the identical (farm_label, family_key) key
+// set -- byte for byte the key set and arithmetic the stock cards use, which is what makes the
+// newest load's kg left and days left equal the card.
 // merge_map is unique on member_key and rate_override on (farm, feed), so neither LEFT JOIN can fan
 // a load out; pagination=LIMIT/OFFSET bounded
 // by domain.NormaliseStockLoadsPage (offset capped at 10000) with whole-filter counts computed
@@ -73,26 +75,37 @@ loads AS (
     WHERE p.tenant_id = $1
       AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR p.park_id = ANY ($2::uuid[]))
 ),
--- FIFO position within (farm, feed): the kg of every REACHED load that arrived before this one.
--- Ordered by arrival day, then purchase day, then batch, so two loads reaching on one day keep
--- the order they were bought in.
+-- FIFO position within (farm, FAMILY): the kg of every REACHED load of the family that arrived
+-- before this one. The queue is the family's, not the item's (maintainer decision 2026-09-24,
+-- "the stock cards are correct"): a retired split feed's older sacks are eaten first and any feed
+-- they could not cover comes out of the successor's load, so the successor's kg left is the card's
+-- balance. Ordered by arrival day, then purchase day, then batch, so two loads reaching on one day
+-- keep the order they were bought in.
 positioned AS (
     SELECT l.*,
            COALESCE(SUM(net_kg) OVER (
-               PARTITION BY farm_label, feed_item_key
+               PARTITION BY farm_label, family_key
                ORDER BY depletes_from, purchase_date, batch_no
                ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING), 0) AS prior_net_kg,
            ROW_NUMBER() OVER (
-               PARTITION BY farm_label, feed_item_key
+               PARTITION BY farm_label, family_key
                ORDER BY depletes_from DESC, purchase_date DESC, batch_no DESC) AS recency
     FROM loads l
     WHERE l.delivery_status = 'reached'
 ),
+-- Each ITEM's own ledger start, exactly as the cards count it: an item's feeding counts against
+-- the store only from its own first load's depletion date.
+item_from AS (
+    SELECT farm_label, feed_item_key, family_key, MIN(park_id::text) AS park_id_text,
+           MIN(depletes_from) AS item_from
+    FROM positioned
+    GROUP BY farm_label, feed_item_key, family_key
+),
 family AS (
-    SELECT farm_label, feed_item_key, MIN(park_id::text) AS park_id_text, MIN(depletes_from) AS ledger_from,
+    SELECT farm_label, family_key, MIN(park_id::text) AS park_id_text,
            SUM(net_kg) AS family_net_kg
     FROM positioned
-    GROUP BY farm_label, feed_item_key
+    GROUP BY farm_label, family_key
 ),
 -- Consumption from BOTH sources at one grain, the same union the stock cards read: locked-sheet
 -- directed kg plus externally-tracked consumption (milk). One row per (park, item, day).
@@ -118,33 +131,41 @@ cells AS (
     ) both_sources
     GROUP BY park_id, feed_item_key, feed_day
 ),
--- Running total of everything directed against the family since its ledger start. cum_before is
--- the total BEFORE the day, so a day that straddles two loads is counted for both.
+-- Running total of everything directed against the family, each item counted from its own ledger
+-- start, collapsed to one row per (farm, family, day) BEFORE the running sum so a day is seen once.
+-- cum_before is the total BEFORE the day, so a day that straddles two loads is counted for both.
 family_cells AS (
-    SELECT f.farm_label, f.feed_item_key, c.feed_day, c.kg,
-           SUM(c.kg) OVER (PARTITION BY f.farm_label, f.feed_item_key ORDER BY c.feed_day) AS cum_kg
+    SELECT farm_label, family_key, feed_day, kg,
+           SUM(kg) OVER (PARTITION BY farm_label, family_key ORDER BY feed_day) AS cum_kg
+    FROM (
+        SELECT itf.farm_label, itf.family_key, c.feed_day, SUM(c.kg) AS kg
+        FROM item_from itf
+        JOIN cells c
+          ON itf.park_id_text IS NOT NULL
+         AND c.park_id = itf.park_id_text::uuid
+         AND c.feed_item_key = itf.feed_item_key
+         AND c.feed_day >= itf.item_from
+        GROUP BY itf.farm_label, itf.family_key, c.feed_day
+    ) per_day
+),
+family_total AS (
+    SELECT farm_label, family_key, COALESCE(SUM(kg), 0) AS directed_kg
+    FROM family_cells
+    GROUP BY farm_label, family_key
+),
+-- Burn rate, at the FAMILY grain and with the pinned overrides: byte for byte the divisor the
+-- stock card above this table quotes -- the family's park, every day it was fed, regrouped to the
+-- family BEFORE averaging -- so the two cannot disagree about the runway. A day the pens ate the
+-- successor INSTEAD of a retired member is one day's draw on one family, never two feeds' worth.
+family_day AS (
+    SELECT f.farm_label, f.family_key, c.feed_day, SUM(c.kg) AS kg
     FROM family f
     JOIN cells c
       ON f.park_id_text IS NOT NULL
      AND c.park_id = f.park_id_text::uuid
-     AND c.feed_item_key = f.feed_item_key
-     AND c.feed_day >= f.ledger_from
-),
-family_total AS (
-    SELECT farm_label, feed_item_key, COALESCE(SUM(kg), 0) AS directed_kg
-    FROM family_cells
-    GROUP BY farm_label, feed_item_key
-),
--- Burn rate, at the FAMILY grain and with the pinned overrides: byte for byte the divisor the
--- stock card above this table quotes, so the two cannot disagree about the runway. Regrouping to
--- the family BEFORE averaging is the whole point -- a day the pens ate the successor INSTEAD of a
--- retired member is one day's draw on one family, never two feeds' worth.
-family_day AS (
-    SELECT fc.farm_label, COALESCE(mm.family_key, fc.feed_item_key) AS family_key, fc.feed_day,
-           SUM(fc.kg) AS kg
-    FROM family_cells fc
-    LEFT JOIN merge_map mm ON mm.member_key = fc.feed_item_key
-    GROUP BY fc.farm_label, COALESCE(mm.family_key, fc.feed_item_key), fc.feed_day
+    LEFT JOIN merge_map mm ON mm.member_key = c.feed_item_key
+    WHERE COALESCE(mm.family_key, c.feed_item_key) = f.family_key
+    GROUP BY f.farm_label, f.family_key, c.feed_day
 ),
 burn AS (
     SELECT b.farm_label, b.family_key,
@@ -175,7 +196,7 @@ load_days AS (
                            SELECT 1
                            FROM positioned next_load
                            WHERE next_load.farm_label = p.farm_label
-                             AND next_load.feed_item_key = p.feed_item_key
+                             AND next_load.family_key = p.family_key
                              AND next_load.depletes_from <= fc.feed_day
                              AND (next_load.depletes_from, next_load.purchase_date, next_load.batch_no) >
                                  (p.depletes_from, p.purchase_date, p.batch_no)
@@ -192,7 +213,7 @@ load_days AS (
     FROM positioned p
     JOIN family_cells fc
       ON fc.farm_label = p.farm_label
-     AND fc.feed_item_key = p.feed_item_key
+     AND fc.family_key = p.family_key
      AND fc.feed_day >= p.depletes_from
      AND fc.cum_kg > p.prior_net_kg
      AND (
@@ -201,7 +222,7 @@ load_days AS (
              SELECT 1
              FROM positioned next_load
              WHERE next_load.farm_label = p.farm_label
-               AND next_load.feed_item_key = p.feed_item_key
+               AND next_load.family_key = p.family_key
                AND next_load.depletes_from <= fc.feed_day
                AND (next_load.depletes_from, next_load.purchase_date, next_load.batch_no) >
                    (p.depletes_from, p.purchase_date, p.batch_no)
@@ -217,7 +238,7 @@ scored AS (
            ld.days_consumed, ld.consumption_from, ld.finished_on,
            b.avg_daily_kg
     FROM positioned p
-    LEFT JOIN family_total ft ON ft.farm_label = p.farm_label AND ft.feed_item_key = p.feed_item_key
+    LEFT JOIN family_total ft ON ft.farm_label = p.farm_label AND ft.family_key = p.family_key
     LEFT JOIN load_days ld ON ld.feed_purchase_id = p.feed_purchase_id
     LEFT JOIN burn b ON b.farm_label = p.farm_label AND b.family_key = p.family_key
 ),

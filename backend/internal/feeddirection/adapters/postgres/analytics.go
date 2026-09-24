@@ -1815,7 +1815,9 @@ WHERE COALESCE(c.status, 'active') <> 'retired'
 ORDER BY days_left NULLS LAST, fs.family_label, fs.farm_label`
 
 // Next-7-days requirement and cost (maintainer decision 2026-08-23), at
-// (park, feed item) grain.
+// (park, feed FAMILY) grain -- the stock cards' grain (maintainer decision
+// 2026-09-24: "the stock cards are correct", so this table must read the same
+// balance, rate and farm code the card above it quotes).
 //
 // Keyed on CONSUMPTION, not on the purchase ledger, so every feed the farm
 // actually feeds gets a row -- sheet-directed feeds and the external ledger
@@ -1824,25 +1826,38 @@ ORDER BY days_left NULLS LAST, fs.family_label, fs.farm_label`
 //
 // projection-review: membership=fed items at (park_id, feed_item_key) from
 // locked feed_direction_issue_rows UNION feed_effective_external_consumption, collapsed
-// to one row per (park_id, feed_item_key, feed_day) BEFORE ranking so a feed
-// carried by both sources on one day averages once, and kept only while it has
-// kg > 0 on one of the park's last three feed days (park_recent_days, 1 row per
-// (park_id, feed_day)); group_key=(park_id,
-// feed_item_key) on every side -- recent/first_day GROUP BY that pair, the
-// purchase side aggregates feed_purchases to the same pair before joining, and
-// the rate LATERAL returns one row by construction; join_cardinality=fed LEFT
-// JOIN purchased 1:0..1, LEFT JOIN LATERAL rate 1:0..1, no side left
-// unaggregated -- and required_kg and required_cost range over the IDENTICAL
-// (park_id, feed_item_key) key set, cost being a scalar multiple of the same
-// avg rather than a differently-grouped sum; pagination=none, a tenant's feeds
-// across its parks is a bounded table with no limit/offset input, so no
-// summary can disagree with a page; scope=tenant_id everywhere plus the
-// caller's authorized park set on consumption and purchases alike.
+// to one row per (park_id, feed_item_key, feed_day) in fed_items, then regrouped to one
+// row per (park_id, family_key, feed_day) in fed_days BEFORE ranking, and kept only while
+// the family has kg > 0 on one of the park's last three feed days (park_recent_days, 1
+// row per (park_id, feed_day)); group_key=(park_id, family_key) on every side -- recent
+// GROUPs BY that pair, the purchase side computes each item's own balance at (park_id,
+// feed_item_key) in item_balance and folds it to (park_id, family_key) in depleted, and
+// the rate LATERAL returns one row by construction; merge_map is unique on member_key
+// and rate_override on (farm, family), so no LEFT JOIN fans a row out;
+// join_cardinality=priced LEFT JOIN depleted 1:0..1, LEFT JOIN LATERAL rate 1:0..1, no
+// side left unaggregated -- and required_kg and required_cost range over the IDENTICAL
+// (park_id, family_key) key set, cost being a scalar multiple of the same avg;
+// pagination=none, a tenant's feeds across its parks is a bounded table with no
+// limit/offset input; scope=tenant_id everywhere plus the caller's authorized park set on
+// consumption and purchases alike.
 //
 // scale-guard:ignore: 5k-50k-envelope -- bounded per-(park,item) aggregate over
 // locked sheets and the small purchase ledger, canonical-indexed-SQL default.
 const stockForecastSQL = `
-WITH fed_days AS (
+WITH merge_map AS (
+    -- The SAME transitional split-concentrate fold the stock cards use
+    -- (domain.StockFamilyMerge): a retired split feed's leftover stock and its feeding
+    -- belong to its successor's row, so this table's "In stock" is the card's balance.
+    SELECT m.member_key, m.family_key, m.family_label
+    FROM unnest($4::text[], $5::text[], $6::text[]) AS m(member_key, family_key, family_label)
+),
+rate_override AS (
+    -- The same pinned burn rates the cards divide by (domain.StockRateOverrides), keyed on
+    -- (farm code, family).
+    SELECT o.farm_label, o.feed_item_key, o.kg_per_day::numeric AS kg_per_day
+    FROM unnest($7::text[], $8::text[], $9::text[]) AS o(farm_label, feed_item_key, kg_per_day)
+),
+fed_items AS (
     SELECT park_id, feed_item_key, feed_day, SUM(kg) AS kg,
            MAX(feed_item_label) AS feed_item_label
     FROM (
@@ -1869,6 +1884,18 @@ WITH fed_days AS (
     ) both_sources
     GROUP BY park_id, feed_item_key, feed_day
 ),
+-- Consumption regrouped to the FAMILY before any average, exactly as the cards do: a day the
+-- pens ate the successor INSTEAD of a retired member is one day's draw on one family.
+fed_days AS (
+    SELECT f.park_id,
+           COALESCE(mm.family_key, f.feed_item_key)               AS feed_item_key,
+           f.feed_day,
+           SUM(f.kg)                                              AS kg,
+           COALESCE(MAX(mm.family_label), MAX(f.feed_item_label)) AS feed_item_label
+    FROM fed_items f
+    LEFT JOIN merge_map mm ON mm.member_key = f.feed_item_key
+    GROUP BY f.park_id, COALESCE(mm.family_key, f.feed_item_key), f.feed_day
+),
 -- The park's last three feed days, across every feed it carries.
 park_recent_days AS (
     SELECT park_id, feed_day
@@ -1893,11 +1920,9 @@ recent AS (
     -- Only a feed the farm is STILL FEEDING forecasts demand: it must carry real
     -- kg on at least one of the park's last three feed days. A feed that stopped
     -- keeps a positive average over its own last three rows -- retired split feeds
-    -- linger on the sheets at 0 kg (Channapatna's "Mesha Kids Goat Concentrate",
-    -- last fed 2026-09-11) and old grid labels vanish entirely ("Mesha Concentrate
-    -- Goat", last fed 2026-08-10) -- and would read as a week of feed still needed.
-    -- Anchored on the park's own latest sheets, not the clock, so a park whose
-    -- sheets pause keeps its rows.
+    -- linger on the sheets at 0 kg and old grid labels vanish entirely -- and would
+    -- read as a week of feed still needed. Anchored on the park's own latest sheets,
+    -- not the clock, so a park whose sheets pause keeps its rows.
     HAVING EXISTS (
         SELECT 1
         FROM fed_days f
@@ -1908,10 +1933,10 @@ recent AS (
           AND f.kg > 0
     )
 ),
--- Ledger balance at the SAME (park, item) grain the stock cards use: purchased
--- net of import-time consumption, minus everything fed since the bootstrap
--- cutoff. Park-less purchase rows have no park to attribute to and are excluded,
--- exactly as the expenditure series excludes them.
+-- Ledger balance with the cards' arithmetic: each ITEM keeps its own ledger -- purchased net of
+-- import-time consumption, minus everything fed since ITS OWN depletion date -- and only the
+-- finished balance is folded into the family. Park-less purchase rows have no park to attribute
+-- to and are excluded, exactly as the expenditure series excludes them.
 purchased AS (
     SELECT p.park_id, p.feed_item_key,
            SUM(` + feedPurchaseStockKgSQL + ` - p.consumed_at_import_kg) AS net_kg,
@@ -1923,17 +1948,36 @@ purchased AS (
       AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR p.park_id = ANY ($2::uuid[]))
     GROUP BY p.park_id, p.feed_item_key
 ),
-depleted AS (
+item_balance AS (
     SELECT pu.park_id, pu.feed_item_key,
-           pu.net_kg - COALESCE(SUM(fd.kg), 0) AS balance_kg
+           pu.net_kg - COALESCE(SUM(fi.kg), 0) AS balance_kg
     FROM purchased pu
-    LEFT JOIN fed_days fd
-      ON fd.park_id = pu.park_id
-     AND fd.feed_item_key = pu.feed_item_key
-     AND fd.feed_day >= pu.depletes_from
+    LEFT JOIN fed_items fi
+      ON fi.park_id = pu.park_id
+     AND fi.feed_item_key = pu.feed_item_key
+     AND fi.feed_day >= pu.depletes_from
     GROUP BY pu.park_id, pu.feed_item_key, pu.net_kg
+),
+depleted AS (
+    -- SUM, never a clamp: a member's negative balance was fed out of a sibling sack.
+    SELECT ib.park_id, COALESCE(mm.family_key, ib.feed_item_key) AS feed_item_key,
+           SUM(ib.balance_kg) AS balance_kg
+    FROM item_balance ib
+    LEFT JOIN merge_map mm ON mm.member_key = ib.feed_item_key
+    GROUP BY ib.park_id, COALESCE(mm.family_key, ib.feed_item_key)
+),
+priced AS (
+    SELECT r.park_id, r.feed_item_key, r.feed_item_label,
+           COALESCE(NULLIF(lp.location_code, ''), lp.name) AS farm_label,
+           COALESCE(ov.kg_per_day, r.avg_kg)               AS avg_kg
+    FROM recent r
+    JOIN locations lp
+      ON lp.tenant_id = $1 AND lp.location_id = r.park_id
+    LEFT JOIN rate_override ov
+      ON ov.farm_label = COALESCE(NULLIF(lp.location_code, ''), lp.name)
+     AND ov.feed_item_key = r.feed_item_key
 )
-SELECT lp.name                                            AS farm_label,
+SELECT r.farm_label,
        COALESCE(NULLIF(r.feed_item_label, ''), r.feed_item_key) AS feed_item_label,
        r.feed_item_key,
        round(r.avg_kg, 1)::text                           AS avg_daily_kg,
@@ -1944,24 +1988,25 @@ SELECT lp.name                                            AS farm_label,
             ELSE '' END                                   AS shortfall_kg,
        COALESCE(round(rate.per_kg, 2)::text, '')          AS per_kg_cost,
        COALESCE(round(r.avg_kg * $3::numeric * rate.per_kg, 0)::text, '') AS required_cost
-FROM recent r
-JOIN locations lp
-  ON lp.tenant_id = $1 AND lp.location_id = r.park_id
+FROM priced r
 LEFT JOIN depleted d
   ON d.park_id = r.park_id AND d.feed_item_key = r.feed_item_key
 LEFT JOIN LATERAL (
+    -- The family's freshest load prices the row, with the cards' tie-break.
     SELECT COALESCE(p.per_kg_cost, p.total_cost / NULLIF(p.stock_kg, 0)) AS per_kg
 	FROM feed_purchases p
+	LEFT JOIN merge_map mm ON mm.member_key = p.feed_item_key
 	WHERE p.tenant_id = $1
 	  AND p.delivery_status = 'reached'
 	  AND p.park_id = r.park_id
-      AND p.feed_item_key = r.feed_item_key
+      AND COALESCE(mm.family_key, p.feed_item_key) = r.feed_item_key
       AND COALESCE(p.per_kg_cost, p.total_cost / NULLIF(p.stock_kg, 0)) IS NOT NULL
     ORDER BY p.depletes_from DESC, p.purchase_date DESC, p.batch_no DESC
     LIMIT 1
 ) rate ON TRUE
 WHERE r.avg_kg > 0
-ORDER BY lp.name, feed_item_label`
+-- Farms by CODE (CBE, then CPT); the full name would put Channapatna first.
+ORDER BY r.farm_label, feed_item_label`
 
 // Feeds whose stock will run out inside the notification horizon, for the daily low-stock alert
 // (maintainer decision 2026-08-24). Same balance and burn-rate arithmetic as the Stock cards --
@@ -2726,7 +2771,10 @@ func (r *Repository) stockFarmItems(ctx context.Context, tenantID string, parkID
 }
 
 func (r *Repository) stockForecast(ctx context.Context, tenantID string, parkIDs []uuid.UUID) ([]domain.StockForecastItem, error) {
-	rows, err := r.pool.Query(ctx, stockForecastSQL, tenantID, parkIDs, domain.StockForecastDays)
+	mergeMembers, mergeFamilies, mergeLabels := domain.StockFamilyMergeArrays()
+	overrideFarms, overrideFeeds, overrideRates := domain.StockRateOverrideArrays()
+	rows, err := r.pool.Query(ctx, stockForecastSQL, tenantID, parkIDs, domain.StockForecastDays,
+		mergeMembers, mergeFamilies, mergeLabels, overrideFarms, overrideFeeds, overrideRates)
 	if err != nil {
 		return nil, fmt.Errorf("feed analytics stock forecast: %w", err)
 	}

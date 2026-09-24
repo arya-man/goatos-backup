@@ -718,6 +718,117 @@ VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 40, 1000, 0, $6::date, 'Naval
 	})
 }
 
+// THE CARD IS RIGHT, AND THE TABLE READS IT (maintainer decision 2026-09-24, "stock cards are
+// correct, not the table"). On the live farm a retired split concentrate was fed MORE than was ever
+// bought of it: CPT's card read 1,694.4 kg of Mesha Kids Concentrate while the loads table showed
+// 1,979.8 kg left on the successor's load, because the table ran its FIFO per ITEM and so never
+// charged the retired feed's shortfall to anything. The feed physically came out of the
+// successor's sacks, so the family is ONE queue: the retired load is eaten first and its overrun is
+// drawn from the successor's load.
+//
+// Fixture, hand-checkable: 100 kg of the retired feed then 300 kg of the successor; 150 kg fed off
+// the retired feed (50 more than it ever held) and 100 kg of the successor. Card = 400 - 250 = 150.
+// The per-item FIFO read 300 - 100 = 200 on the successor's load.
+func TestStockLoadsSuccessorLoadCarriesTheCardWhenARetiredFeedWasOverfed(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupIssueDB(t, ctx)
+
+	const (
+		retiredLabel = "Mesha Kids Goat Concentrate"
+		retiredKey   = "mesha_kids_goat_concentrate"
+		familyLabel  = "Mesha Kids Concentrate"
+		familyKey    = "mesha_kids_concentrate"
+	)
+	for label, status := range map[string]string{retiredLabel: "retired", familyLabel: "active"} {
+		if _, err := pool.Exec(ctx, `
+INSERT INTO feed_item_catalog (tenant_id, feed_item_label, status) VALUES ($1::uuid, $2, $3)
+ON CONFLICT (tenant_id, feed_item_key) DO UPDATE SET status = EXCLUDED.status`,
+			fdiTenant, label, status); err != nil {
+			t.Fatalf("catalog %s: %v", label, err)
+		}
+	}
+	purchase := func(label string, batch int64, day, qty string) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, `
+INSERT INTO feed_purchases (tenant_id, park_id, farm_label, feed_item_label, batch_no,
+                            purchase_date, quantity_kg, per_kg_cost, total_cost,
+                            consumed_at_import_kg, depletes_from, vendor, payment_status,
+                            delivery_status, reached_on)
+VALUES ($1, $2, 'CBE', $3, $4, $5::date, $6::numeric, 40, 1000, 0, $5::date, 'Navaladi', 'Paid',
+        'reached', $5::date)`,
+			fdiTenant, fdiPark, label, batch, day, qty); err != nil {
+			t.Fatalf("purchase %s#%d: %v", label, batch, err)
+		}
+	}
+	purchase(retiredLabel, 1, "2026-08-01", "100.000")
+	purchase(familyLabel, 2, "2026-08-02", "300.000")
+
+	feed := func(day, label, key, qty string) {
+		t.Helper()
+		at := time.Date(2026, 8, 20, 9, 0, 0, 0, biztime.DefaultLocation())
+		if _, err := repo.PersistIssue(ctx, ports.PersistIssueCommand{
+			TenantID: fdiTenant, ParkID: fdiPark, FeedDay: day, Workflow: domain.WorkflowNormal,
+			IssuedAt: at, Fingerprint: "overfed" + day,
+			IdempotencyKey: "issue:" + fdiTenant + ":" + fdiPark + ":" + day + ":overfed",
+			GeneratedBy:    "test",
+			Cells: []domain.StoredCell{{
+				ParkID: fdiPark, ParkLabel: "CBE", ShedID: fdiShedA, ShedLabel: "Castro",
+				PartitionLabel: "1", ShedTag: "Non-Pregnant", Breed: "Beetal",
+				RationGroup: "Beetal/Sirohi", SessionNo: 1, SessionLabel: "Morning",
+				HeadCount: 10, Workflow: domain.WorkflowNormal,
+				FeedItemLabel: label, FeedItemKey: key, QuantityKg: kg(qty), SessionTotalKg: qty,
+			}},
+		}); err != nil {
+			t.Fatalf("persist %s: %v", day, err)
+		}
+		if lock, err := repo.LockIssue(ctx, ports.LockIssueCommand{
+			TenantID: fdiTenant, ParkID: fdiPark, FeedDay: day,
+			Workflow: domain.WorkflowNormal, LockedAt: at,
+		}); err != nil || lock.Outcome != "locked" {
+			t.Fatalf("lock %s = (%v, %v)", day, lock.Outcome, err)
+		}
+	}
+	feed("2026-08-10", retiredLabel, retiredKey, "75.000")
+	feed("2026-08-11", retiredLabel, retiredKey, "75.000")
+	feed("2026-08-12", familyLabel, familyKey, "100.000")
+
+	cards, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{})
+	if err != nil {
+		t.Fatalf("StockAnalytics: %v", err)
+	}
+	var card *domain.StockItem
+	for i := range cards.Items {
+		if cards.Items[i].FeedItemKey == familyKey {
+			card = &cards.Items[i]
+		}
+	}
+	if card == nil || card.BalanceKg != "150.0" {
+		t.Fatalf("fixture: the card reads 400 bought - 250 fed = 150.0, got %+v", card)
+	}
+	var forecast *domain.StockForecastItem
+	for i := range cards.Forecast {
+		if cards.Forecast[i].FeedItemKey == familyKey {
+			forecast = &cards.Forecast[i]
+		}
+	}
+	if forecast == nil || forecast.StockKg != card.BalanceKg {
+		t.Errorf("the 7-day table's In stock is the card's balance %s: %+v", card.BalanceKg, forecast)
+	}
+
+	page, err := repo.StockLoads(ctx, fdiTenant, nil, domain.StockLoadsQuery{FarmLabel: "CBE"})
+	if err != nil {
+		t.Fatalf("StockLoads: %v", err)
+	}
+	if len(page.Rows) != 1 || page.Rows[0].BatchNo != 2 {
+		t.Fatalf("the successor's load is the whole table; the retired feed is not bought any more: %+v", page.Rows)
+	}
+	successor := page.Rows[0]
+	if successor.LeftKg != card.BalanceKg || successor.ConsumedKg != "150.0" {
+		t.Errorf("the successor's load carries the retired feed's overrun: left %s consumed %s, want left %s consumed 150.0",
+			successor.LeftKg, successor.ConsumedKg, card.BalanceKg)
+	}
+}
+
 // END TO END, through the real write paths on both sides (maintainer questions, 2026-09-21):
 // "at what time do we ignore it from the stock", "how are you calculating how many days left",
 // and "if I change rows will everything change".
