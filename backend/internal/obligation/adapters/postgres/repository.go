@@ -2938,7 +2938,11 @@ WHERE tenant_id = $1 AND obligation_id = $8::uuid`,
 			"from_due": priorDue.UTC().Format(time.RFC3339),
 			"to_due":   in.DueAt.UTC().Format(time.RFC3339),
 		})
-		eventKey := ref.ObligationID + ":rule_identity_reconciled:" + in.DueAt.UTC().Format(time.RFC3339Nano)
+		// The key names THIS move (the row version it moved from), not only its destination: a row
+		// moved back to a date it once held (manual repair, then a later reconcile) must still leave
+		// its event. Keyed by destination alone, the second move to the same date hit ON CONFLICT
+		// DO NOTHING and rewrote due_at with no ledger row at all.
+		eventKey := fmt.Sprintf("%s:rule_identity_reconciled:v%d:%s", ref.ObligationID, ref.RowVersion, in.DueAt.UTC().Format(time.RFC3339Nano))
 		if _, err := tx.Exec(ctx, `
 INSERT INTO obligation_status_events (
   tenant_id, obligation_id, event_type, occurred_at, payload, idempotency_key
@@ -5721,6 +5725,22 @@ func (r *Repository) createBatchWithObligations(ctx context.Context, in domain.N
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, lockKey); err != nil {
 		return "", nil, fmt.Errorf("obligation: batch scope lock: %w", err)
 	}
+	// A drive day is a vaccination date: a row the write guard refuses on this batch's date stays
+	// exactly where it is (unbatched, due date untouched) instead of being pulled into the drive.
+	ids, refusedIDs, err := filterVaccinationBatchAttachTx(ctx, tx, tenant, ids, in.PlannedDate)
+	if err != nil {
+		return "", nil, err
+	}
+	if len(refusedIDs) > 0 && r.log != nil {
+		r.log.WarnContext(ctx, "vaccination_batch_attach_guard_rejected",
+			slog.String("tenant_id", pgconv.UUIDString(tenant)),
+			slog.Int("refused", len(refusedIDs)),
+			slog.Any("obligation_ids", refusedIDs),
+		)
+	}
+	if len(ids) == 0 {
+		return "", nil, nil
+	}
 	var batchID string
 	err = tx.QueryRow(ctx, `
 SELECT batch_id::text
@@ -5891,6 +5911,14 @@ WHERE oi.tenant_id = $1
 		}
 		if err := upsertVaccinationDriveAssignmentsTx(ctx, tx, tenant, assignments); err != nil {
 			return "", nil, err
+		}
+		if len(refusedIDs) > 0 {
+			// The planner sized these rows over the selected set, which included the refused
+			// rows. Membership was rebuilt from the rows actually attached, so re-derive the
+			// counters from it rather than book a phantom animal on the drive.
+			if err := recomputeBatchDriveAssignmentCountersTx(ctx, tx, tenant, batch); err != nil {
+				return "", nil, err
+			}
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {
