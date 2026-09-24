@@ -78,6 +78,8 @@ type Options struct {
 	MaxBytes int64
 	Sizer    func(any) int64
 	Now      func() time.Time
+	// Log records a panicking load before it is converted to an error (slog.Default() when nil).
+	Log *slog.Logger
 }
 
 // DefaultSizer approximates a cached report's retained heap from its JSON encoding. Measured on
@@ -286,16 +288,20 @@ func (c *Cache) get(ctx context.Context, key Key, load func(context.Context) (an
 	record(ctx, c.opts.Name, "miss")
 
 	go func(loadCtx context.Context) {
-		value, err := safeLoad(loadCtx, load)
+		value, err := c.safeLoad(loadCtx, load)
 		c.finish(ks, key, f, gen, value, err)
 	}(context.WithoutCancel(ctx))
 	return waitFlight(ctx, f)
 }
 
-func safeLoad(ctx context.Context, load func(context.Context) (any, error)) (value any, err error) {
+func (c *Cache) safeLoad(ctx context.Context, load func(context.Context) (any, error)) (value any, err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			slog.ErrorContext(ctx, "readcache_load_panicked", "panic", fmt.Sprint(r))
+			log := c.opts.Log
+			if log == nil {
+				log = slog.Default()
+			}
+			log.ErrorContext(ctx, "readcache_load_panicked", "cache", c.opts.Name, "panic", fmt.Sprint(r))
 			err = fmt.Errorf("readcache: load panicked: %v", r)
 		}
 	}()
@@ -315,7 +321,7 @@ func (c *Cache) refresh(ctx context.Context, ks string, key Key, gen uint64, loa
 	defer func() { <-c.refreshSlots }()
 	c.refreshes.Add(1)
 	record(ctx, c.opts.Name, "refresh")
-	value, err := safeLoad(ctx, load)
+	value, err := c.safeLoad(ctx, load)
 	var size int64
 	if err == nil {
 		size = c.opts.Sizer(value)

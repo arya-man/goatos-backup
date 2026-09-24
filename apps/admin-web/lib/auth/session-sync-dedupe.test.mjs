@@ -11,7 +11,8 @@ function recorder(ok = true) {
     events,
     post: (eventType) => {
       events.push(eventType);
-      return new Promise((resolve) => setTimeout(() => resolve(ok), 1));
+      // Resolve on a later macrotask so concurrent callers genuinely overlap.
+      return new Promise((resolve) => setImmediate(resolve)).then(() => ok);
     },
   };
 }
