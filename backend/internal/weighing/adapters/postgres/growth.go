@@ -44,19 +44,29 @@ func analyticsReadKey(tenantID string, parkIDs []string, params string) readcach
 }
 
 // commitAndEvict commits a weighing write and evicts the analytics reads it can change: the
-// tenant, narrowed to the campaign's park when the write belongs to one campaign. The eviction is
-// published INSIDE the transaction (pg_notify is delivered on commit only) so sibling API
-// instances drop the same keys, and applied locally after commit so this instance reads its own
-// write on the very next request.
-func (r *Repository) commitAndEvict(ctx context.Context, tx pgx.Tx, tenantID, campaignID string) error {
+// tenant, narrowed to the campaign's CURRENT park plus any extraParks the caller read before its
+// update (a campaign moved between parks changes both). The eviction is published INSIDE the
+// transaction (pg_notify is delivered on commit only) so sibling API instances drop the same
+// keys, and applied locally after commit so this instance reads its own write on the very next
+// request. A write with no tenant publishes nothing and clears this process only.
+func (r *Repository) commitAndEvict(ctx context.Context, tx pgx.Tx, tenantID, campaignID string, extraParks ...string) error {
 	var parks []string
 	if tenantID != "" && campaignID != "" {
-		q := sqlbind.MustBind(`SELECT park_id::text FROM weighing_campaigns WHERE tenant_id = $1::uuid AND campaign_id = $2::uuid`, tenantID, campaignID)
-		var park string
-		if err := tx.QueryRow(ctx, q.SQL(), q.Args()...).Scan(&park); err == nil {
-			parks = []string{park}
-		} else if !errors.Is(err, pgx.ErrNoRows) {
+		park, err := r.campaignParkTx(ctx, tx, tenantID, campaignID)
+		if err != nil {
 			return err
+		}
+		if park != "" {
+			parks = append(parks, park)
+		}
+		if len(parks) == 0 {
+			// The campaign is gone (or unknown): evict the whole tenant rather than guess.
+			extraParks = nil
+		}
+	}
+	for _, p := range extraParks {
+		if strings.TrimSpace(p) != "" {
+			parks = append(parks, p)
 		}
 	}
 	if err := readcache.NotifyTx(ctx, tx, tenantID, parks...); err != nil {
@@ -73,14 +83,63 @@ func (r *Repository) commitAndEvict(ctx context.Context, tx pgx.Tx, tenantID, ca
 	return nil
 }
 
-// commitAndInvalidateReadCache is kept for the kernel cadence claims (day-start, roll-forward,
-// delayed), which run in the kernel worker, not the API, and change no analytics input: it commits
-// and clears only this process's cache, publishing nothing.
-func (r *Repository) commitAndInvalidateReadCache(ctx context.Context, tx pgx.Tx) error {
+// campaignParkTx is the campaign's park as this transaction sees it ("" when there is no row).
+func (r *Repository) campaignParkTx(ctx context.Context, tx pgx.Tx, tenantID, campaignID string) (string, error) {
+	q := sqlbind.MustBind(`SELECT park_id::text FROM weighing_campaigns WHERE tenant_id = $1::uuid AND campaign_id = $2::uuid`, tenantID, campaignID)
+	var park string
+	if err := tx.QueryRow(ctx, q.SQL(), q.Args()...).Scan(&park); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", nil
+		}
+		return "", err
+	}
+	return park, nil
+}
+
+// commitClaimAndEvict commits a kernel cadence claim (day-start, roll-forward, delayed, carry-over
+// merge) and publishes a tenant+park eviction for the work items it claimed: carry-over closes
+// buckets and roll-forward moves due dates, both of which the Weights reads show. One statement
+// resolves the claimed items' tenants and parks; nothing is published for an empty claim.
+func (r *Repository) commitClaimAndEvict(ctx context.Context, tx pgx.Tx, claimed []claimedWorkItem) error {
+	if len(claimed) == 0 {
+		return tx.Commit(ctx)
+	}
+	ids := make([]string, 0, len(claimed))
+	for _, c := range claimed {
+		ids = append(ids, c.WorkItemID)
+	}
+	q := sqlbind.MustBind(`SELECT tenant_id::text, array_agg(DISTINCT park_id::text ORDER BY park_id::text)
+FROM weighing_work_items WHERE work_item_id = ANY($1::uuid[])
+GROUP BY tenant_id`, ids)
+	rows, err := tx.Query(ctx, q.SQL(), q.Args()...)
+	if err != nil {
+		return err
+	}
+	scopes := map[string][]string{}
+	for rows.Next() {
+		var tenant string
+		var parks []string
+		if err := rows.Scan(&tenant, &parks); err != nil {
+			rows.Close()
+			return err
+		}
+		scopes[tenant] = parks
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for tenant, parks := range scopes { // scale-guard:ignore: one pg_notify per distinct tenant in one claimed chunk (a claim is tenant-scoped, so one)
+		if err := readcache.NotifyTx(ctx, tx, tenant, parks...); err != nil {
+			return err
+		}
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
-	r.cache.EvictAll(ctx)
+	for tenant, parks := range scopes { // scale-guard:ignore: in-memory cache eviction per claimed tenant, no I/O
+		r.cache.Evict(ctx, tenant, parks...)
+	}
 	return nil
 }
 

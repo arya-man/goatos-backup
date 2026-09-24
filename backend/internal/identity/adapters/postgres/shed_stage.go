@@ -213,7 +213,7 @@ func (r *Repository) ReclassifyShedStage(ctx context.Context, cmd ports.Reclassi
 	if err := completeReclassifyIdempotency(ctx, qtx, cmd, result); err != nil {
 		return nil, err
 	}
-	if err := tx.Commit(ctx); err != nil {
+	if err := r.commitHerdWrite(ctx, tx, cmd.TenantID); err != nil {
 		return nil, fmt.Errorf("identity: reclassify shed stage: commit: %w", err)
 	}
 	return result, nil

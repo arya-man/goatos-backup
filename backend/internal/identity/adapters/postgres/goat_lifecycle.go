@@ -1151,10 +1151,14 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'affected')`,
 		return nil, err
 	}
 	if finish.DeferCommit {
-		// The caller owns this transaction and commits it together with its own state change.
+		// The caller owns this transaction and commits it together with its own state change;
+		// the eviction rides the same transaction and reaches every instance on that commit.
+		if err := notifyHerdWriteTx(ctx, tx, uuidText(finish.TenantUUID)); err != nil {
+			return nil, err
+		}
 		return response, nil
 	}
-	if err := tx.Commit(ctx); err != nil {
+	if err := r.commitHerdWrite(ctx, tx, uuidText(finish.TenantUUID)); err != nil {
 		return nil, err
 	}
 	*committed = true

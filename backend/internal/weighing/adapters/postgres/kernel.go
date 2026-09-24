@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
+
 	"github.com/jackc/pgx/v5"
 
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
@@ -718,7 +720,8 @@ func (r *Repository) claimChunkRows(
 	}
 	defer tx.Rollback(ctx)
 
-	rows, err := tx.Query(ctx, sql, args...)
+	claimBind721 := sqlbind.MustBind(sql, args...)
+	rows, err := tx.Query(ctx, claimBind721.SQL(), claimBind721.Args()...)
 	if err != nil {
 		return nil, "", err
 	}
@@ -743,14 +746,14 @@ func (r *Repository) claimChunkRows(
 		return nil, "", err
 	}
 	if len(claimed) == 0 {
-		return claimed, "", r.commitAndInvalidateReadCache(ctx, tx)
+		return claimed, "", r.commitClaimAndEvict(ctx, tx, claimed)
 	}
 	if sideEffects != nil {
 		if err := sideEffects(ctx, tx, claimed); err != nil {
 			return nil, "", err
 		}
 	}
-	if err := r.commitAndInvalidateReadCache(ctx, tx); err != nil {
+	if err := r.commitClaimAndEvict(ctx, tx, claimed); err != nil {
 		return nil, "", err
 	}
 	return claimed, "", nil

@@ -28,6 +28,9 @@ import (
 // caller's transaction. It is exposed through the counts IdentityTxWriter seam; counts never
 // writes shed_partitions/shed_profiles itself.
 func (r *Repository) ConfigureAdoptedShedCohortInTx(ctx context.Context, tx pgx.Tx, cmd ports.ConfigureAdoptedShedCohortCommand) error {
+	if err := notifyHerdWriteTx(ctx, tx, cmd.TenantID); err != nil {
+		return err
+	}
 	stage := strings.TrimSpace(cmd.Stage)
 	if strings.TrimSpace(cmd.TenantID) == "" || strings.TrimSpace(cmd.ShedID) == "" || stage == "" {
 		return ports.ErrInvalidReference

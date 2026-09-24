@@ -13,6 +13,8 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/vgoats/goatos/backend/internal/platform/readcache"
+
 	identitydb "github.com/vgoats/goatos/backend/internal/identity/adapters/postgres/sqlc"
 	"github.com/vgoats/goatos/backend/internal/identity/domain"
 	"github.com/vgoats/goatos/backend/internal/identity/ports"
@@ -25,6 +27,9 @@ type Repository struct {
 	queries        *identitydb.Queries
 	queryTimeout   time.Duration
 	afterAuditHook func(context.Context) error
+	// readInvalidator drops this process's cached analytics reads after a herd write commits
+	// (see read_cache.go); nil in workers/CLIs, which still publish through NOTIFY.
+	readInvalidator readcache.Invalidator
 }
 
 func NewRepository(pool *pgxpool.Pool, queryTimeout time.Duration) *Repository {

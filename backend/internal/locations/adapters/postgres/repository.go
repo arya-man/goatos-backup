@@ -6,6 +6,10 @@ import (
 	"errors"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
+
+	"github.com/vgoats/goatos/backend/internal/platform/readcache"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -19,6 +23,15 @@ const defaultQueryTimeout = 3 * time.Second
 type Repository struct {
 	pool    *pgxpool.Pool
 	timeout time.Duration
+	// readInvalidator drops this process's cached analytics reads after a location write (park
+	// lists, shed names and the FCR pen bridge all read locations); see write.go.
+	readInvalidator readcache.Invalidator
+}
+
+// WithReadCacheInvalidator wires the process-wide analytics read cache.
+func (r *Repository) WithReadCacheInvalidator(inv readcache.Invalidator) *Repository {
+	r.readInvalidator = inv
+	return r
 }
 
 func NewRepository(pool *pgxpool.Pool, queryTimeout time.Duration) *Repository {
@@ -31,7 +44,7 @@ func NewRepository(pool *pgxpool.Pool, queryTimeout time.Duration) *Repository {
 func (r *Repository) ListLocations(ctx context.Context, params ports.ListParams) ([]domain.LocationSummary, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	rows, err := r.pool.Query(ctx, locationSelectSQL(`
+	locBind45 := sqlbind.MustBind(locationSelectSQL(`
 WHERE l.tenant_id = $1::uuid
   AND ($2 = '' OR l.location_type = $2)
   AND ($3 = '' OR l.status = $3)
@@ -60,6 +73,7 @@ WHERE l.tenant_id = $1::uuid
   )
 ORDER BY l.location_type, l.display_order, l.name, l.location_id
 LIMIT $7 OFFSET $8`), params.TenantID, params.LocationType, params.Status, params.ParentLocationID, params.Search, params.Alias, params.Limit, params.Offset)
+	rows, err := r.pool.Query(ctx, locBind45.SQL(), locBind45.Args()...)
 	if err != nil {
 		return nil, err
 	}
@@ -69,10 +83,11 @@ LIMIT $7 OFFSET $8`), params.TenantID, params.LocationType, params.Status, param
 func (r *Repository) GetLocation(ctx context.Context, tenantID, locationID string) (domain.LocationSummary, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	rows, err := r.pool.Query(ctx, locationSelectSQL(`
+	locBind83 := sqlbind.MustBind(locationSelectSQL(`
 WHERE l.tenant_id = $1::uuid
   AND l.location_id = $2::uuid
 LIMIT 1`), tenantID, locationID)
+	rows, err := r.pool.Query(ctx, locBind83.SQL(), locBind83.Args()...)
 	if err != nil {
 		return domain.LocationSummary{}, err
 	}
@@ -89,11 +104,12 @@ LIMIT 1`), tenantID, locationID)
 func (r *Repository) ListChildren(ctx context.Context, tenantID, locationID string, limit int) ([]domain.LocationSummary, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	rows, err := r.pool.Query(ctx, locationSelectSQL(`
+	locBind103 := sqlbind.MustBind(locationSelectSQL(`
 WHERE l.tenant_id = $1::uuid
   AND l.parent_location_id = $2::uuid
 ORDER BY l.location_type, l.display_order, l.name, l.location_id
 LIMIT $3`), tenantID, locationID, limit)
+	rows, err := r.pool.Query(ctx, locBind103.SQL(), locBind103.Args()...)
 	if err != nil {
 		return nil, err
 	}
