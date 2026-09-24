@@ -540,11 +540,26 @@ WHERE hs.tenant_id=$1::uuid AND hs.health_session_id=$2::uuid FOR UPDATE OF hs`,
 		if priorKey != nil && *priorKey == in.IdempotencyKey && priorFingerprint != nil && *priorFingerprint == in.RequestFingerprint {
 			var count int
 			_ = tx.QueryRow(ctx, `SELECT count(*) FROM health_medicine_administrations WHERE tenant_id=$1::uuid AND health_session_id=$2::uuid`, in.TenantID, in.SessionID).Scan(&count)
+			stepProofs, err := stepProofsInTx(ctx, tx, in.TenantID, in.SessionID)
+			if err != nil {
+				return domain.CompleteResult{}, err
+			}
+			stepsForMedia, err := sessionStepsInTx(ctx, tx, in.TenantID, in.SessionID)
+			if err != nil {
+				return domain.CompleteResult{}, err
+			}
 			if err := tx.Commit(ctx); err != nil {
 				return domain.CompleteResult{}, err
 			}
 			committed = true
-			return withEnqueueContext(domain.CompleteResult{SessionID: in.SessionID, Status: "completed", CompletedAt: *completedAt, MedicationCount: count, IdempotentReplay: true}), nil
+			return withEnqueueContext(domain.CompleteResult{
+				SessionID:        in.SessionID,
+				Status:           "completed",
+				CompletedAt:      *completedAt,
+				MedicationCount:  count,
+				IdempotentReplay: true,
+				StepMedia:        stepMediaFor(stepsForMedia, stepProofs),
+			}), nil
 		}
 		return domain.CompleteResult{}, ports.ErrConflict
 	}

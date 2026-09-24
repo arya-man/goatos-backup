@@ -593,20 +593,25 @@ class HealthDetailViewModel @Inject constructor(
                     !item.isActive -> StepProofState.FAILED
                     else -> StepProofState.SENDING
                 }
-                stepProofs.update {
-                    it.with(
-                        TreatmentStepProof(
-                            stepId = stepId,
-                            state = state,
-                            uploadOutboxItemId = uploadItemId,
-                            registerOutboxItemId = registerItemId,
-                            message = when (state) {
-                                StepProofState.RECORDED -> ""
-                                StepProofState.FAILED -> item.lastError ?: PROOF_FAILED
-                                else -> VIDEO_QUEUED
-                            },
-                        ),
-                    )
+                stepProofs.update { current ->
+                    val known = current.of(stepId)
+                    if (known.uploadOutboxItemId.isNotBlank() && known.uploadOutboxItemId != uploadItemId) {
+                        current
+                    } else {
+                        current.with(
+                            TreatmentStepProof(
+                                stepId = stepId,
+                                state = state,
+                                uploadOutboxItemId = uploadItemId,
+                                registerOutboxItemId = registerItemId,
+                                message = when (state) {
+                                    StepProofState.RECORDED -> ""
+                                    StepProofState.FAILED -> item.lastError ?: PROOF_FAILED
+                                    else -> VIDEO_QUEUED
+                                },
+                            ),
+                        )
+                    }
                 }
             }
         }

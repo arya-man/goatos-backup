@@ -29,6 +29,7 @@ interface OutboxStore {
     /** True when a step-proof register has been superseded by a later local register for the same
      *  treatment step. Re-shoots are replacements; an older retry must not overwrite the newer clip. */
     suspend fun hasNewerHealthStepProofRegister(
+        candidateId: String,
         groupKey: String,
         healthSessionStepId: String,
         createdAt: Long,
@@ -168,10 +169,12 @@ class RoomOutboxStore(private val dao: OutboxDao) : OutboxStore {
     override suspend fun findLatestForGroupAndOpType(groupKey: String, opType: String): OutboxEntity? =
         dao.findLatestForGroupAndOpType(groupKey, opType)
     override suspend fun hasNewerHealthStepProofRegister(
+        candidateId: String,
         groupKey: String,
         healthSessionStepId: String,
         createdAt: Long,
     ): Boolean = dao.hasNewerHealthStepProofRegister(
+        candidateId = candidateId,
         groupKey = groupKey,
         healthSessionStepIdNeedle = "%\"health_session_step_id\":\"$healthSessionStepId\"%",
         createdAt = createdAt,

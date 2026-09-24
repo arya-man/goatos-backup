@@ -250,7 +250,7 @@ class HealthOutboxConvergenceTest {
         store.insert(proofUploadItem("proof-upload-old", "server-proof-old", createdAt = 1L))
         store.insert(proofUploadItem("proof-upload-new", "server-proof-new", createdAt = 3L))
         store.insert(stepProofItem("step-register-old", "proof-upload-old", createdAt = 2L))
-        store.insert(stepProofItem("step-register-new", "proof-upload-new", createdAt = 4L, status = OutboxStatus.SUCCEEDED))
+        store.insert(stepProofItem("step-register-new", "proof-upload-new", createdAt = 2L, status = OutboxStatus.SUCCEEDED))
         val sentProofs = mutableListOf<String>()
         val api = ScriptedAppApi().apply {
             registerHealthStepProofFn = { _, _, _, request ->

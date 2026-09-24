@@ -6227,6 +6227,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/app/health/work-items/{health_session_id}/steps/{health_session_step_id}/proof": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Attach one treatment step's proof video.
+         * @description Records the server proof id for exactly one treatment step. Re-shoots replace the clip while the treatment session is still open; submitted or canceled sessions refuse mutation. Idempotency-Key makes offline retries safe.
+         */
+        put: operations["recordHealthStepProof"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/app/health/cases/{health_case_id}/close": {
         parameters: {
             query?: never;
@@ -19939,8 +19959,21 @@ export interface components {
             /** @enum {string} */
             status: "pending" | "completed" | "guarded";
         };
+        HealthStepProofRequest: {
+            proof_ref: string;
+        };
+        HealthStepProof: {
+            /** Format: uuid */
+            step_id: string;
+            proof_ref: string;
+            /** Format: uuid */
+            captured_by: string;
+            /** Format: date-time */
+            captured_at: string;
+        };
         HealthWorkItemDetail: components["schemas"]["HealthWorkItem"] & {
             steps: components["schemas"]["HealthTreatmentStep"][];
+            step_proofs: components["schemas"]["HealthStepProof"][];
             /** @description Whether THIS caller may complete the session (mirrors health.execute). Display gating only; the route permission remains the enforcement. */
             can_complete: boolean;
             /** @description Whether THIS caller may clinically close the case (mirrors health.diagnose). Display gating only; the route permission remains the enforcement. */
@@ -32269,6 +32302,42 @@ export interface operations {
             500: components["responses"]["ServerError"];
         };
     };
+    recordHealthStepProof: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                health_session_id: string;
+                health_session_step_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HealthStepProofRequest"];
+            };
+        };
+        responses: {
+            /** @description Step proof recorded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HealthStepProof"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            422: components["responses"]["UnprocessableEntity"];
+            500: components["responses"]["ServerError"];
+        };
+    };
     closeHealthCase: {
         parameters: {
             query?: never;
@@ -32638,7 +32707,7 @@ export interface operations {
     getHealthConfigRegisterTemplate: {
         parameters: {
             query?: {
-                format?: "csv" | "xlsx";
+                format?: "csv" | "xlsx" | "json";
             };
             header?: never;
             path: {
@@ -32655,6 +32724,9 @@ export interface operations {
                 };
                 content: {
                     "text/csv": string;
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": string;
                 };
             };
@@ -32666,7 +32738,7 @@ export interface operations {
     exportHealthConfigRegister: {
         parameters: {
             query?: {
-                format?: "csv" | "xlsx";
+                format?: "csv" | "xlsx" | "json";
             };
             header?: never;
             path: {
@@ -32683,6 +32755,9 @@ export interface operations {
                 };
                 content: {
                     "text/csv": string;
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": string;
                 };
             };
@@ -32708,7 +32783,7 @@ export interface operations {
                 "multipart/form-data": {
                     /**
                      * Format: binary
-                     * @description A CSV or XLSX sheet.
+                     * @description A CSV
                      */
                     file: string;
                 };

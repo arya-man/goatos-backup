@@ -16422,6 +16422,45 @@ paths:
         "404": { $ref: "#/components/responses/NotFoundOrNotAllowed" }
         "409": { $ref: "#/components/responses/WriteConflict" }
         "500": { $ref: "#/components/responses/ServerError" }
+  /app/health/work-items/{health_session_id}/steps/{health_session_step_id}/proof:
+    put:
+      tags: [Health]
+      operationId: recordHealthStepProof
+      summary: Attach one treatment step's proof video.
+      description: >-
+        Records the server proof id for exactly one treatment step. Re-shoots replace the clip
+        while the treatment session is still open; submitted or canceled sessions refuse mutation.
+        Idempotency-Key makes offline retries safe.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: health_session_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: health_session_step_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HealthStepProofRequest"
+      responses:
+        "200":
+          description: Step proof recorded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStepProof"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundOrNotAllowed" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+        "500": { $ref: "#/components/responses/ServerError" }
   /app/health/cases/{health_case_id}/close:
     post:
       tags: [Health]
@@ -16878,12 +16917,14 @@ paths:
           schema: { type: string }
         - in: query
           name: format
-          schema: { type: string, enum: [csv, xlsx], default: csv }
+          schema: { type: string, enum: [csv, xlsx, json], default: csv }
       responses:
         "200":
           description: The sheet.
           content:
             text/csv: { schema: { type: string } }
+            application/json:
+              schema: { type: object, additionalProperties: true }
             application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
               schema: { type: string, format: binary }
         "401": { $ref: "#/components/responses/Unauthorized" }
@@ -16906,12 +16947,14 @@ paths:
           schema: { type: string }
         - in: query
           name: format
-          schema: { type: string, enum: [csv, xlsx], default: csv }
+          schema: { type: string, enum: [csv, xlsx, json], default: csv }
       responses:
         "200":
           description: The sheet.
           content:
             text/csv: { schema: { type: string } }
+            application/json:
+              schema: { type: object, additionalProperties: true }
             application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
               schema: { type: string, format: binary }
         "401": { $ref: "#/components/responses/Unauthorized" }
@@ -16943,7 +16986,7 @@ paths:
               type: object
               required: [file]
               properties:
-                file: { type: string, format: binary, description: A CSV or XLSX sheet. }
+                file: { type: string, format: binary, description: A CSV, XLSX, or JSON register sheet. }
       responses:
         "200":
           description: The draft was saved.
@@ -45579,13 +45622,29 @@ components:
         instruction: { type: [string, "null"] }
         critical_action_type: { type: [string, "null"] }
         status: { type: string, enum: [pending, completed, guarded] }
+    HealthStepProofRequest:
+      type: object
+      additionalProperties: false
+      required: [proof_ref]
+      properties:
+        proof_ref: { type: string }
+    HealthStepProof:
+      type: object
+      additionalProperties: false
+      required: [step_id, proof_ref, captured_by, captured_at]
+      properties:
+        step_id: { type: string, format: uuid }
+        proof_ref: { type: string }
+        captured_by: { type: string, format: uuid }
+        captured_at: { type: string, format: date-time }
     HealthWorkItemDetail:
       allOf:
         - $ref: "#/components/schemas/HealthWorkItem"
         - type: object
-          required: [steps, can_complete, can_close_case]
+          required: [steps, step_proofs, can_complete, can_close_case]
           properties:
             steps: { type: array, items: { $ref: "#/components/schemas/HealthTreatmentStep" } }
+            step_proofs: { type: array, items: { $ref: "#/components/schemas/HealthStepProof" } }
             can_complete:
               type: boolean
               description: >-

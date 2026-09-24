@@ -17,6 +17,8 @@ var (
 	ErrStepNotInSession = errors.New("health: that step does not belong to this session")
 	// ErrStepProofsIncomplete is a submit attempted while a step still owes its video.
 	ErrStepProofsIncomplete = errors.New("health: every step needs its video before this session can be submitted")
+	// ErrStepProofClosed is a step-proof write attempted after the session is no longer editable.
+	ErrStepProofClosed = errors.New("health: this treatment session has already been submitted")
 	// ErrSessionNotDue is a visit closed before the hour it is meant to happen.
 	ErrSessionNotDue = errors.New("health: this visit has not started yet")
 )
@@ -194,7 +196,6 @@ func (e StepProofsMissingError) StepLabels() []string {
 	}
 	return out
 }
-
 
 // SessionNotDueError refuses a visit closed before its time, and says WHEN it opens.
 //
