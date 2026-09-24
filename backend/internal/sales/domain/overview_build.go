@@ -97,11 +97,20 @@ func BuildDealAggregates(closed []Deal) (Summary, []MonthlyRow, []PriceBand, []B
 				month.FeedRevenue += l.SalesValue
 				month.FeedKg += l.QuantityKg()
 			case l.Code() == ProductCodeManure:
-				// Manure contributes weight and revenue, never animal counts.
+				// Manure contributes weight and revenue, never animal counts. Its kilograms are
+				// read the SAME way as every other per-unit item below: manure is sold BY the
+				// kilogram, so since 000402 the form posts a quantity and no longer a live
+				// weight -- reading TotalWeightKg alone left every new manure sale contributing
+				// revenue with zero kilograms behind it, while the old rows kept working and hid
+				// it. The fallback keeps those old rows reading exactly as they did.
+				manureKg := l.QuantityKg()
+				if manureKg == 0 {
+					manureKg = weight
+				}
 				summary.ManureRevenue += l.SalesValue
-				summary.ManureKg += weight
+				summary.ManureKg += manureKg
 				month.ManureRevenue += l.SalesValue
-				month.ManureKg += weight
+				month.ManureKg += manureKg
 			default:
 				// Anything else the farm sells that is neither alive nor feed. Its kilograms are
 				// whichever it recorded: a quantity when it was priced by the unit, its weight

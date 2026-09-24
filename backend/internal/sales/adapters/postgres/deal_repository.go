@@ -37,8 +37,15 @@ const dealPaymentsForPageSQL = `
 	WHERE tenant_id = $1 AND deal_id = ANY($2::uuid[])
 	ORDER BY received_on, created_at`
 
+// EVERY COLUMN THE WRITE STAMPS IS READ BACK. The line carries what it was sold AS since 000402 --
+// the product's code and kind, and for a per-unit item its quantity, unit and rate -- and leaving
+// those out of this SELECT did not fail anywhere: the row was written correctly, and every reader
+// got a line whose kind was blank and whose quantity was nil. A feed sale then folded into the
+// `other` bucket at zero kilograms, so the feature wrote perfect rows and reported nothing.
 const dealLinesForPageSQL = `
-	SELECT line_id::text, deal_id::text, line_no, product_type, breed,
+	SELECT line_id::text, deal_id::text, line_no, product_type,
+	       coalesce(product_code, ''), coalesce(product_kind, ''), breed,
+	       quantity, coalesce(unit, ''), rate_per_unit,
 	       animal_count, male_count, female_count, total_weight_kg, sales_value,
 	       estimated_weight_kg, coalesce(estimated_weight_band, ''), coalesce(weight_estimate_basis, '')
 	FROM public.sales_deal_lines
@@ -241,7 +248,9 @@ func attachDealLineRows(rows pgx.Rows, deals []domain.Deal, index map[string]int
 			line   domain.DealLine
 			dealID string
 		)
-		if err := rows.Scan(&line.LineID, &dealID, &line.LineNo, &line.ProductType, &line.Breed,
+		if err := rows.Scan(&line.LineID, &dealID, &line.LineNo, &line.ProductType,
+			&line.ProductCode, &line.ProductKind, &line.Breed,
+			&line.Quantity, &line.Unit, &line.RatePerUnit,
 			&line.AnimalCount, &line.MaleCount, &line.FemaleCount, &line.TotalWeightKg, &line.SalesValue,
 			&line.EstimatedWeightKg, &line.EstimatedWeightBand, &line.WeightEstimateBasis); err != nil {
 			return fmt.Errorf("%s scan: %w", label, err)
