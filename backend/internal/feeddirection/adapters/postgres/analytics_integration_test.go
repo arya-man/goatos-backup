@@ -1609,26 +1609,32 @@ VALUES ($1, $2, 'CBE', 'UHT Milk', $3::date, 20.000, 326, 'test')`, fdiTenant, p
 		rows[r.FeedItemKey] = r
 	}
 
-	// The Mesha concentrate: avg = (10+10+10)/3 = 10.0 (the 2 kg day is out),
-	// need = 70.0, stock = 1100 purchased − (2+10+10+10) directed = 1068.0,
-	// so the week is covered and there is nothing to buy — a ZERO shortfall,
-	// never a blank one. Cost prices the full week at the LATEST rate:
+	// The Mesha concentrate: the retired split feed is read on its SUCCESSOR's row, exactly as
+	// the stock card reads it (maintainer decision 2026-09-24, "the stock cards are correct").
+	// avg = (10+10+10)/3 = 10.0 (the 2 kg day is out), need = 70.0, stock = 1100 purchased −
+	// (2+10+10+10) directed = 1068.0, so the week is covered and there is nothing to buy — a
+	// ZERO shortfall, never a blank one. Cost prices the full week at the LATEST rate:
 	// 70 × 40.00 = 2800.
-	mesha := rows["mesha_kids_goat_concentrate"]
-	assertForecast(t, "mesha_kids_goat_concentrate", mesha, domain.StockForecastItem{
-		FarmLabel: "CBE", FeedItemLabel: "Mesha Kids Goat Concentrate",
-		FeedItemKey: "mesha_kids_goat_concentrate",
+	if _, split := rows["mesha_kids_goat_concentrate"]; split {
+		t.Errorf("retired split feed has its own forecast row; it belongs on its successor's")
+	}
+	mesha := rows["mesha_kids_concentrate"]
+	assertForecast(t, "mesha_kids_concentrate", mesha, domain.StockForecastItem{
+		FarmLabel: "CBE", FeedItemLabel: "Mesha Kids Concentrate",
+		FeedItemKey: "mesha_kids_concentrate",
 		AvgDailyKg:  "10.0", RequiredKg: "70.0", StockKg: "1068.0", ShortfallKg: "0.0",
 		PerKgCost: "40.00", RequiredCost: "2800",
 	})
 
-	// The NON-Mesha feed the concentrate table excludes: avg 100.0, need 700.0,
-	// stock = 5000 − 400 directed = 4600.0, covered, 700 × 20 = 14000.
+	// The NON-Mesha feed the concentrate table excludes. CBE's Concentrate rate is PINNED at
+	// 55 kg/day (domain.StockRateOverrides), the same divisor its stock card uses, so the
+	// requirement reads 55.0 and not the sheet's 100: need 385.0, stock = 5000 − 400 directed
+	// = 4600.0, covered, 385 × 20 = 7700.
 	concentrate := rows["concentrate"]
 	assertForecast(t, "concentrate", concentrate, domain.StockForecastItem{
 		FarmLabel: "CBE", FeedItemLabel: "Concentrate", FeedItemKey: "concentrate",
-		AvgDailyKg: "100.0", RequiredKg: "700.0", StockKg: "4600.0", ShortfallKg: "0.0",
-		PerKgCost: "20.00", RequiredCost: "14000",
+		AvgDailyKg: "55.0", RequiredKg: "385.0", StockKg: "4600.0", ShortfallKg: "0.0",
+		PerKgCost: "20.00", RequiredCost: "7700",
 	})
 
 	// Hay: fed every day, NEVER purchased. The requirement still reports — a
@@ -1675,6 +1681,7 @@ VALUES ($1, $2, 'CBE', 'UHT Milk', $3::date, 20.000, 326, 'test')`, fdiTenant, p
 // shortfall is reported in KG; the week's bill stays priced on the FULL
 // requirement, not on the shortfall.
 func TestStockForecastReportsTheKgShortfallBelowAWeeksNeed(t *testing.T) {
+	withoutStockRateOverrides(t)
 	ctx := context.Background()
 	repo, pool := setupIssueDB(t, ctx)
 	park := fdiPark
@@ -1739,7 +1746,8 @@ VALUES ($1, $2, 'CBE', 'Concentrate', 400, DATE '2026-08-16', 130.000, 25.0000, 
 	if err != nil {
 		t.Fatalf("StockAnalytics: %v", err)
 	}
-	if len(got.Forecast) != 2 || got.Forecast[1].FeedItemKey != "mesha_kids_goat_concentrate" {
+	// The retired kids split feed is read on its successor's row, as its stock card reads it.
+	if len(got.Forecast) != 2 || got.Forecast[1].FeedItemKey != "mesha_kids_concentrate" {
 		t.Fatalf("forecast rows = %+v, want concentrate + the still-recent kids feed (and no stale grid label)", got.Forecast)
 	}
 	// avg 10.0 → need 70.0; stock = 130 − 30 fed = 100.0. Wait, that covers it;
@@ -1810,6 +1818,7 @@ VALUES ($1, $2, 'CBE', 'Concentrate', 400, DATE '2026-08-16', 130.000, 25.0000, 
 // them, and a CBE-only filter returns CBE alone. PAGE BOUNDARY: the table takes no
 // limit/offset, so the row count is the whole answer.
 func TestStockForecastDropsStoppedFeedsOneToManyStatusBucketsParkScopeNoPageBoundary(t *testing.T) {
+	withoutStockRateOverrides(t)
 	ctx := context.Background()
 	repo, pool := setupIssueDB(t, ctx)
 
@@ -1898,7 +1907,8 @@ ON CONFLICT (location_id) DO NOTHING`, fdiTenant, parkCPT); err != nil {
 	for _, r := range got.Forecast {
 		keys = append(keys, r.FarmLabel+"/"+r.FeedItemKey)
 	}
-	want := []string{"CBE/concentrate", "CPT/mesha_kids_goat_concentrate"}
+	// CPT's kids split feed reads on its successor's row, as its stock card reads it.
+	want := []string{"CBE/concentrate", "CPT/mesha_kids_concentrate"}
 	if fmt.Sprint(keys) != fmt.Sprint(want) {
 		t.Fatalf("forecast rows = %v, want %v (full rows: %+v)", keys, want, got.Forecast)
 	}
@@ -1919,6 +1929,17 @@ ON CONFLICT (location_id) DO NOTHING`, fdiTenant, parkCPT); err != nil {
 	if len(cbeOnly.Forecast) != 1 || cbeOnly.Forecast[0].FeedItemKey != "concentrate" {
 		t.Errorf("CBE-only forecast = %+v, want concentrate alone", cbeOnly.Forecast)
 	}
+}
+
+// withoutStockRateOverrides empties the pinned burn rates for one test, for the tests whose
+// fixtures happen to feed CBE "Concentrate" but are about something else (a stopped feed, a
+// shortfall). The override itself is pinned by TestStockForecastOneToManyStatusBuckets... and
+// TestStockCardRateOverridePinsOneFarmFeedOnly.
+func withoutStockRateOverrides(t *testing.T) {
+	t.Helper()
+	saved := domain.StockRateOverrides
+	domain.StockRateOverrides = nil
+	t.Cleanup(func() { domain.StockRateOverrides = saved })
 }
 
 func assertForecast(t *testing.T, name string, got, want domain.StockForecastItem) {
