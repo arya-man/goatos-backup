@@ -632,3 +632,64 @@ func TestCanonicalOwnerUserIdentityAvoidsLookup(t *testing.T) {
 		t.Fatal("legacy identity resolution lost")
 	}
 }
+
+// rowIDLister honours the canonical read's row_id filter the way the SQL does: a query with
+// RowID set returns only that row (from any page), without a cursor.
+type rowIDLister struct{ *fakeLister }
+
+func (f rowIDLister) ListRows(ctx context.Context, q pidomain.Query) (pidomain.ListResult, error) {
+	if q.RowID == nil {
+		return f.fakeLister.ListRows(ctx, q)
+	}
+	f.queries = append(f.queries, q)
+	for _, page := range f.pages {
+		for _, r := range page {
+			if r.RowID == *q.RowID {
+				return pidomain.ListResult{Rows: []pidomain.Row{r}}, nil
+			}
+		}
+	}
+	return pidomain.ListResult{}, nil
+}
+
+// TestFindRowByIDIsOneKeyedReadWithTheSameAnswerAsTheWalk: subtasks/flags resolve a
+// vaccination row with ONE row_id-keyed canonical read (no precheck, no park-day walk), and
+// the answer is exactly the row the board's ListRows shows -- owner lens and category
+// included.
+func TestFindRowByIDIsOneKeyedReadWithTheSameAnswerAsTheWalk(t *testing.T) {
+	ctx := context.Background()
+	for _, owner := range []string{"", vsUser} {
+		walkSrc := New(fixture()).WithMemberResolver(fakeMembers{byUser: map[string]string{vsUser: vsMember}}).WithClock(func() time.Time { return dueAt() })
+		want, err := walkSrc.ListRows(ctx, query(owner))
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantByID := map[string]domain.Row{}
+		for _, r := range want {
+			wantByID[r.SourceID] = r
+		}
+		for _, id := range []string{rowA, rowB, rowC, rowD, "feed_projection_exception:71000000-0000-4000-8000-000000000021", "nope"} {
+			lister := rowIDLister{fixture()}
+			src := New(lister).WithMemberResolver(fakeMembers{byUser: map[string]string{vsUser: vsMember}}).WithClock(func() time.Time { return dueAt() })
+			got, found, err := src.FindRowByID(ctx, query(owner), id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			exp, ok := wantByID[id]
+			if found != ok {
+				t.Fatalf("owner=%q id=%s found=%v, walk has it=%v", owner, id, found, ok)
+			}
+			if ok && !reflect.DeepEqual(got, exp) {
+				t.Fatalf("owner=%q id=%s\n got %+v\nwant %+v", owner, id, got, exp)
+			}
+			if len(lister.queries) > 1 {
+				t.Fatalf("expected at most one keyed read, got %d", len(lister.queries))
+			}
+			for _, q := range lister.queries {
+				if q.RowID == nil || *q.RowID != id || q.Cursor != nil || q.DueAfter == nil || q.ParkID == nil || *q.ParkID != vsPark {
+					t.Fatalf("keyed read must bind row_id + the park-day window: %+v", q)
+				}
+			}
+		}
+	}
+}
