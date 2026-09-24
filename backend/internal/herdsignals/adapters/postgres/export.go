@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/vgoats/goatos/backend/internal/herdsignals/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 )
@@ -142,8 +144,8 @@ func liveCursorArg(cursor liveCursor, spec liveSortSpec) interface{} {
 // aggregate for every page -- hundreds of full aggregates to produce a number the CSV does not
 // even carry. Sharing the filter builder is the point: an export whose WHERE clause is a second
 // hand-written copy of the view's is an export that quietly stops matching the screen.
-func (r *Repository) ListTagsLatestPage(ctx context.Context, tenantID string, parkID, shedID, movementState, liveState, mappingState, pattern, q *string, cursor string, limit int, sort ...domain.LiveSort) ([]domain.TagLatest, error) {
-	return r.listTagsLatestPage(ctx, tenantID, parkID, shedID, movementState, liveState, mappingState, pattern, nil, q, cursor, limit, sort...)
+func (r *Repository) ListTagsLatestPage(ctx context.Context, tenantID string, parkID, shedID, movementState, liveState, mappingState, pattern, riskState, q *string, cursor string, limit int, sort ...domain.LiveSort) ([]domain.TagLatest, error) {
+	return r.listTagsLatestPage(ctx, tenantID, parkID, shedID, movementState, liveState, mappingState, pattern, riskState, q, cursor, limit, sort...)
 }
 
 // listTagsLatestPage is ListTagsLatestPage plus the persisted risk_state predicate.
@@ -183,14 +185,7 @@ func (r *Repository) listTagsLatestPage(ctx context.Context, tenantID string, pa
 	}
 
 	query := fmt.Sprintf(`
-		SELECT tl.tenant_id, tl.tag_id, tl.tag_mac, tl.gateway_id, tl.source, tl.last_seen_at,
-		       tl.last_rssi_dbm, tl.signal_state, tl.battery_mv, tl.battery_state, tl.tag_temperature_c,
-		       tl.motion_count, tl.last_packet_motion_delta, tl.last_packet_window_seconds,
-		       tl.motion_delta_30s, tl.motion_delta_60s, tl.motion_delta_5m, tl.last_moved_at,
-		       tl.motion_delta, tl.motion_delta_1h, tl.previous_motion_count, tl.previous_seen_at,
-		       tl.motion_window_seconds, `+effectiveMovementStateExpr+`, `+effectivePatternStateExpr+`, tl.temperature_sensor_ok,
-		       tl.accelerometer_sensor_ok, tl.mapping_state, tl.gap_delta, tl.updated_at,
-		       tl.risk_state, tl.risk_reasons, tl.risk_evaluated_at
+		SELECT `+tagLatestColumns+`
 			FROM public.herd_signal_tag_latest tl
 			%s
 			%s
@@ -208,20 +203,39 @@ func (r *Repository) listTagsLatestPage(ctx context.Context, tenantID string, pa
 
 	tags := make([]domain.TagLatest, 0, limit)
 	for rows.Next() {
-		var tag domain.TagLatest
-		if err := rows.Scan(
-			&tag.TenantID, &tag.TagID, &tag.TagMAC, &tag.GatewayID, &tag.Source, &tag.LastSeenAt,
-			&tag.LastRSSIdbm, &tag.SignalState, &tag.BatteryMV, &tag.BatteryState, &tag.TagTemperatureC,
-			&tag.MotionCount, &tag.LastPacketMotionDelta, &tag.LastPacketWindowSeconds,
-			&tag.MotionDelta30s, &tag.MotionDelta60s, &tag.MotionDelta5m, &tag.LastMovedAt,
-			&tag.MotionDelta, &tag.MotionDelta1h, &tag.PreviousMotionCount, &tag.PreviousSeenAt,
-			&tag.MotionWindowSeconds, &tag.MovementState, &tag.PatternState, &tag.TemperatureSensorOK,
-			&tag.AccelerometerSensorOK, &tag.MappingState, &tag.GapDelta, &tag.UpdatedAt,
-			&tag.RiskState, &tag.RiskReasons, &tag.RiskEvaluatedAt,
-		); err != nil {
+		tag, err := scanTagLatest(rows)
+		if err != nil {
 			return nil, err
 		}
 		tags = append(tags, tag)
 	}
 	return tags, rows.Err()
+}
+
+// tagLatestColumns is the one select list for a live tag row (page, export, classifier batch).
+// movement/pattern state are read-time effective (see effectiveMovementStateExpr).
+var tagLatestColumns = `tl.tenant_id, tl.tag_id, tl.tag_mac, tl.gateway_id, tl.source, tl.last_seen_at,
+		       tl.last_rssi_dbm, tl.signal_state, tl.battery_mv, tl.battery_state, tl.tag_temperature_c,
+		       tl.motion_count, tl.last_packet_motion_delta, tl.last_packet_window_seconds,
+		       tl.motion_delta_30s, tl.motion_delta_60s, tl.motion_delta_5m, tl.last_moved_at,
+		       tl.motion_delta, tl.motion_delta_1h, tl.previous_motion_count, tl.previous_seen_at,
+		       tl.motion_window_seconds, ` + effectiveMovementStateExpr + `, ` + effectivePatternStateExpr + `, tl.temperature_sensor_ok,
+		       tl.accelerometer_sensor_ok, tl.mapping_state, tl.gap_delta, tl.updated_at,
+		       tl.risk_state, tl.risk_score, tl.risk_reasons, tl.risk_own_motion_delta_pct,
+		       tl.risk_group_motion_delta_pct, tl.risk_group_temp_delta_c, tl.risk_evaluated_at`
+
+func scanTagLatest(rows pgx.Rows) (domain.TagLatest, error) {
+	var tag domain.TagLatest
+	err := rows.Scan(
+		&tag.TenantID, &tag.TagID, &tag.TagMAC, &tag.GatewayID, &tag.Source, &tag.LastSeenAt,
+		&tag.LastRSSIdbm, &tag.SignalState, &tag.BatteryMV, &tag.BatteryState, &tag.TagTemperatureC,
+		&tag.MotionCount, &tag.LastPacketMotionDelta, &tag.LastPacketWindowSeconds,
+		&tag.MotionDelta30s, &tag.MotionDelta60s, &tag.MotionDelta5m, &tag.LastMovedAt,
+		&tag.MotionDelta, &tag.MotionDelta1h, &tag.PreviousMotionCount, &tag.PreviousSeenAt,
+		&tag.MotionWindowSeconds, &tag.MovementState, &tag.PatternState, &tag.TemperatureSensorOK,
+		&tag.AccelerometerSensorOK, &tag.MappingState, &tag.GapDelta, &tag.UpdatedAt,
+		&tag.RiskState, &tag.RiskScore, &tag.RiskReasons, &tag.RiskOwnMotionDeltaPct,
+		&tag.RiskGroupMotionDeltaPct, &tag.RiskGroupTempDeltaC, &tag.RiskEvaluatedAt,
+	)
+	return tag, err
 }

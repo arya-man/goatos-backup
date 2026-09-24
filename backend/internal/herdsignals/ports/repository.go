@@ -18,7 +18,8 @@ type Repository interface {
 	// one bounded page at a time, and re-running the whole-filter summary aggregate on every
 	// page would turn one export into hundreds of full aggregates for a number the CSV does not
 	// carry.
-	ListTagsLatestPage(ctx context.Context, tenantID string, parkID, shedID, movementState, liveState, mappingState, pattern, q *string, cursor string, limit int, sort ...domain.LiveSort) ([]domain.TagLatest, error)
+	// riskState filters on the persisted classification (nil = no filter, "attention" = any).
+	ListTagsLatestPage(ctx context.Context, tenantID string, parkID, shedID, movementState, liveState, mappingState, pattern, riskState, q *string, cursor string, limit int, sort ...domain.LiveSort) ([]domain.TagLatest, error)
 
 	// UpsertGateway updates or inserts a gateway.
 	UpsertGateway(ctx context.Context, tenantID string, gw domain.Gateway) error
@@ -58,24 +59,25 @@ type Repository interface {
 	// live_state, cursor and limit never apply).
 	LiveSummary(ctx context.Context, tenantID string, parkID, shedID, mappingState, pattern, riskState, q *string) (domain.Summary, error)
 
-	// UpdateTagRisk persists one classifier batch in ONE set-based statement (UNNEST), touching
-	// only rows whose classification changed, and NOTIFYs live streams when any did. Returns
-	// the number of rows changed.
-	UpdateTagRisk(ctx context.Context, tenantID string, rows []TagRisk, evaluatedAt time.Time) (int, error)
+	// ClassifyRiskBatch claims up to limit tags needing classification -- in queue mode the
+	// change-driven work (never classified / queued, seen since last evaluation, or just gone
+	// stale); in aging mode the oldest evaluations older than an hour -- inside ONE short
+	// transaction holding pg_try_advisory_xact_lock for the tenant and FOR UPDATE SKIP LOCKED
+	// on the rows, calls classify, writes every result (risk_evaluated_at set on every row) in
+	// one UNNEST statement and NOTIFYs when any classification changed. locked=false when
+	// another instance holds the tenant's lock.
+	ClassifyRiskBatch(ctx context.Context, tenantID string, mode RiskBatchMode, limit int, classify func(ctx context.Context, tags []domain.TagLatest) ([]TagRisk, error)) (res RiskBatchResult, err error)
 
-	// ReplacePenMedians persists the classifier's per-pen medians for a tenant (upsert by key,
-	// delete vanished pens by key).
-	ReplacePenMedians(ctx context.Context, tenantID string, medians map[string]PenMedians, computedAt time.Time) error
+	// ApplyPenMedians persists the medians of pens whose baseline moved (upsert by key), deletes
+	// vanished pens by key, and queues every tag in those pens for re-classification -- one
+	// short transaction under the tenant's advisory xact lock.
+	ApplyPenMedians(ctx context.Context, tenantID string, moved map[string]PenMedians, vanished []string, computedAt time.Time) (locked bool, queued int, err error)
 
 	// LoadPenMedians reads the persisted per-pen medians; found=false before the first pass.
 	LoadPenMedians(ctx context.Context, tenantID string) (medians map[string]PenMedians, found bool, err error)
 
 	// ListRiskTenants returns the tenants that have any herd-signal tag.
 	ListRiskTenants(ctx context.Context) ([]string, error)
-
-	// WithRiskClassifierLock runs fn only if this instance wins the cluster-wide classifier
-	// advisory lock; ran=false when another instance holds it.
-	WithRiskClassifierLock(ctx context.Context, fn func(ctx context.Context) error) (ran bool, err error)
 
 	// ListActivityWindows fetches bucketed motion data for a tag over a date range.
 	// bucketSeconds: defaults to 60 if 0.
@@ -178,12 +180,32 @@ type Repository interface {
 	GetGatewayWindowStats(ctx context.Context, tenantID string) (map[string]GatewayWindowStats, error)
 }
 
-// TagRisk is one tag's persisted risk classification.
+// TagRisk is one tag's persisted risk classification, with the deltas it was scored on.
 type TagRisk struct {
-	TagID   string
-	State   *string
-	Score   int
-	Reasons []string
+	TagID           string
+	State           *string
+	Score           int
+	Reasons         []string
+	OwnMotionPct    *float64
+	GroupMotionPct  *float64
+	GroupTempDeltaC *float64
+}
+
+// RiskBatchMode selects a classifier batch's work source.
+type RiskBatchMode int
+
+const (
+	// RiskBatchQueue: never classified / queued, seen since last evaluation, or just gone stale.
+	RiskBatchQueue RiskBatchMode = iota
+	// RiskBatchAging: the oldest evaluations older than an hour (the hourly backstop sweep).
+	RiskBatchAging
+)
+
+// RiskBatchResult reports one classifier batch.
+type RiskBatchResult struct {
+	Locked    bool // false: another instance holds this tenant's classifier lock
+	Processed int
+	Changed   int
 }
 
 // PenMedians is the per-pen live comparison baseline. Nil means no qualifying tag in that pen.

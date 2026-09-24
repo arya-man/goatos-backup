@@ -199,11 +199,15 @@ type TagLatest struct {
 	// movement.
 	GapDelta bool
 	// Persisted risk classification (000402), written by the risk classifier. RiskEvaluatedAt
-	// nil = never classified.
-	RiskState       *string
-	RiskReasons     []string
-	RiskEvaluatedAt *time.Time
-	UpdatedAt       time.Time
+	// nil = never classified (or queued for re-classification).
+	RiskState               *string
+	RiskScore               *int16
+	RiskReasons             []string
+	RiskOwnMotionDeltaPct   *float64
+	RiskGroupMotionDeltaPct *float64
+	RiskGroupTempDeltaC     *float64
+	RiskEvaluatedAt         *time.Time
+	UpdatedAt               time.Time
 }
 
 // ActivityWindow represents a bucketed motion aggregate.
@@ -349,6 +353,13 @@ type LiveItem struct {
 	BaselineDelta           *int64                `json:"baseline_delta"`
 	RiskState               *string               `json:"risk_state"`
 	RiskReasons             []string              `json:"risk_reasons"`
+	// RiskClassifying is true while the classifier has not evaluated this tag yet: the row then
+	// carries no risk state/reasons/deltas, and the risk_state filter and summary exclude it --
+	// one consistent answer everywhere until the (change-driven, ~1 min) classifier reaches it.
+	RiskClassifying bool `json:"risk_classifying"`
+	// PenKey is the risk comparison group: the animal's pen = shed_id + normalized partition of
+	// the partition it resides in (oploc.OperationalLocation.Key()); empty when unmapped/no shed.
+	PenKey string `json:"-"`
 	// RiskScore is the classifier score behind RiskState; persisted, not part of the wire shape.
 	RiskScore           int      `json:"-"`
 	OwnMotionDeltaPct   *float64 `json:"own_motion_delta_pct"`

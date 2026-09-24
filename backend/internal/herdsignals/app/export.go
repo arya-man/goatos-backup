@@ -72,42 +72,9 @@ func (s *Service) ExportCSV(ctx context.Context, actor domain.Actor, parkID, she
 
 	cursor := ""
 	written := 0
-	if riskState != nil {
-		tags, err := s.listAllTagsLatest(ctx, actor.TenantID, parkID, shedID, nil, liveState, mappingState, pattern, q, sort)
-		if err != nil {
-			return fmt.Errorf("export risk cohort read failed: %w", err)
-		}
-		items := s.enrichTagsBatch(ctx, actor.TenantID, tags, nil, true)
-		applyRiskSignals(items, riskGroupStatsFromItems(items))
-		for _, item := range items {
-			if *riskState == "attention" {
-				if item.RiskState == nil {
-					continue
-				}
-			} else if item.RiskState == nil || *item.RiskState != *riskState {
-				continue
-			}
-			if movementState != nil && (item.MovementState == nil || *item.MovementState != *movementState) {
-				continue
-			}
-			if err := csvutil.WriteSafeRow(writer, exportRow(item)); err != nil {
-				return err
-			}
-			written++
-			if written >= maxExportRows {
-				if err := writer.Write([]string{fmt.Sprintf("EXPORT TRUNCATED at %d rows: narrow the filters and export again.", maxExportRows)}); err != nil {
-					return err
-				}
-				writer.Flush()
-				return writer.Error()
-			}
-		}
-		writer.Flush()
-		return writer.Error()
-	}
 	for {
 		// scale-guard:ignore: keyset cursor pagination; each page depends on the prior cursor, cannot be batched into one query
-		tags, err := s.repo.ListTagsLatestPage(ctx, actor.TenantID, parkID, shedID, movementState, liveState, mappingState, pattern, q, cursor, exportPageSize, sort)
+		tags, err := s.repo.ListTagsLatestPage(ctx, actor.TenantID, parkID, shedID, movementState, liveState, mappingState, pattern, riskState, q, cursor, exportPageSize, sort)
 		if err != nil {
 			return fmt.Errorf("export page read failed: %w", err)
 		}
@@ -119,6 +86,9 @@ func (s *Service) ExportCSV(ctx context.Context, actor domain.Actor, parkID, she
 		// trend composition), batched per page -- so a cell in this file holds exactly what the
 		// same cell on screen holds.
 		items := s.enrichTagsBatch(ctx, actor.TenantID, tags, nil, true)
+		// Risk comes from the persisted classification -- the same definition (and the same
+		// risk_state predicate, applied in the page query above) the live page uses.
+		applyPersistedRisk(items, tags)
 
 		for _, item := range items {
 			if err := csvutil.WriteSafeRow(writer, exportRow(item)); err != nil {
