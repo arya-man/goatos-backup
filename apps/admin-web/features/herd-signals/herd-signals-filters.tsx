@@ -124,7 +124,7 @@ export function HerdSignalsFilters({
         <select
           aria-label="Movement state"
           value={params.movementState ?? ""}
-          onChange={(event) => go(herdSignalsHref(params, { hs_move: event.target.value || undefined }))}
+          onChange={(event) => go(herdSignalsHref(params, { hs_move: event.target.value || undefined, hs_kpi: undefined }))}
         >
           <option value="">Any movement state</option>
           {MOVEMENT_OPTIONS.map(([key, label]) => (
@@ -220,9 +220,9 @@ export function HerdSignalsFilters({
       </span>
 
       <span className="fsel">
-        Compare to shed
+        Compare to pen
         <select
-          aria-label="Compare to shed"
+          aria-label="Compare to pen"
           value={params.shedBaseline}
           onChange={(event) => go(herdSignalsHref(params, { hs_shed_base: event.target.value }))}
         >

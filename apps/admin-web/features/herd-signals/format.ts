@@ -79,17 +79,14 @@ export const BATTERY_TONE: Record<HerdSignalBatteryState, Tone> = {
   critical: "dng",
 };
 
-// battery_trend is a short, packet-derived voltage direction (Derived — rising/falling/flat over
-// the given window), never re-adding the removed life-estimate: it states a direction observed in
-// recent readings, not a forecast of remaining time.
+// battery_trend is a short, packet-derived voltage direction (Derived — stable/falling over
+// the configured history window), never re-adding the removed life-estimate: it states a
+// direction observed in recent readings, not a forecast of remaining time.
 export function fmtBatteryTrend(trend: HerdSignalBatteryTrend | null): string {
   if (!trend) return "—";
-  const windowLabel = trend.window_seconds >= 3600 ? `${Math.round(trend.window_seconds / 3600)}h` : `${Math.round(trend.window_seconds / 60)}m`;
-  const arrow = trend.direction === "rising" ? "up" : trend.direction === "falling" ? "down" : "flat";
-  const range =
-    trend.first_mv !== null && trend.last_mv !== null
-      ? ` (${(trend.first_mv / 1000).toFixed(2)} V \u2192 ${(trend.last_mv / 1000).toFixed(2)} V)`
-      : "";
+  const windowLabel = `${trend.window_days}d`;
+  const arrow = trend.direction === "falling" ? "down" : "flat";
+  const range = ` (${(trend.first_mv / 1000).toFixed(2)} V \u2192 ${(trend.last_mv / 1000).toFixed(2)} V)`;
   return `${arrow} over ${windowLabel}${range}`;
 }
 

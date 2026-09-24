@@ -384,7 +384,7 @@ export function HerdSignalsTable({
                 <InfoTip label="Activity rules" text={ACTIVITY_RULES} />
               </th>
               <th>Own baseline</th>
-              <th>Shed peers</th>
+              <th>Pen peers</th>
               <th>
                 Pattern
                 <InfoTip label="Pattern rules" text={PATTERN_RULES} />
@@ -493,7 +493,7 @@ export function HerdSignalsTable({
                     )}
                   </td>
                   <td data-l="Own baseline">{baselineLabel(item.own_motion_delta_pct, params.ownBaseline === "off")}</td>
-                  <td data-l="Shed peers">{baselineLabel(item.group_motion_delta_pct)}</td>
+                  <td data-l="Pen peers">{baselineLabel(item.group_motion_delta_pct)}</td>
                   <td data-l="Pattern">
                     {item.pattern_state ? (
                       <Tag tone={PATTERN_TONE[item.pattern_state]}>{PATTERN_LABEL[item.pattern_state]}</Tag>

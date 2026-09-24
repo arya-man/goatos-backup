@@ -105,10 +105,11 @@ function fetchForTab(params: HerdSignalsParams): Promise<ApiResult<HerdSignalsLi
     return getHerdSignalsLive({ ...common, riskState: "attention" });
   }
   // live tab
+  const liveState = kpiToLiveState(params.kpi);
   return getHerdSignalsLive({
     ...common,
-    movementState: kpiToMovementState(params.kpi) ?? params.movementState,
-    liveState: kpiToLiveState(params.kpi),
+    movementState: liveState ? undefined : (kpiToMovementState(params.kpi) ?? params.movementState),
+    liveState,
     mappingState: params.mappingState,
     pattern: params.pattern,
   });
@@ -125,10 +126,11 @@ function herdSignalsLiveStreamKey(params: HerdSignalsParams): string {
   if (params.limit) out.set("limit", String(params.limit));
   if (params.tab === "live") {
     const liveState = kpiToLiveState(params.kpi);
+    const movementState = kpiToMovementState(params.kpi) ?? params.movementState;
     if (liveState) {
       out.set("live_state", liveState);
-    } else if (params.movementState) {
-      out.set("movement_state", params.movementState);
+    } else if (movementState) {
+      out.set("movement_state", movementState);
     }
     if (params.mappingState) out.set("mapping_state", params.mappingState);
     if (params.pattern) out.set("pattern", params.pattern);

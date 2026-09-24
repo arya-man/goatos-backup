@@ -21,17 +21,17 @@ func NewLiveNotificationSource(pool *pgxpool.Pool, log *slog.Logger) *LiveNotifi
 	return &LiveNotificationSource{pool: pool, log: log}
 }
 
-func (s *LiveNotificationSource) Start(ctx context.Context, publish func(tenantID string)) {
+func (s *LiveNotificationSource) Start(ctx context.Context, publish func(tenantID string), publishAll func()) {
 	if s == nil || s.pool == nil || publish == nil {
 		return
 	}
-	go s.listenLoop(ctx, publish)
+	go s.listenLoop(ctx, publish, publishAll)
 }
 
-func (s *LiveNotificationSource) listenLoop(ctx context.Context, publish func(tenantID string)) {
+func (s *LiveNotificationSource) listenLoop(ctx context.Context, publish func(tenantID string), publishAll func()) {
 	backoff := time.Second
 	for {
-		if err := s.listenOnce(ctx, publish); err != nil && ctx.Err() == nil {
+		if err := s.listenOnce(ctx, publish, publishAll); err != nil && ctx.Err() == nil {
 			s.log.Warn("herd_signals_live_notify_listener_failed", "error", err.Error())
 		}
 		if ctx.Err() != nil {
@@ -48,7 +48,7 @@ func (s *LiveNotificationSource) listenLoop(ctx context.Context, publish func(te
 	}
 }
 
-func (s *LiveNotificationSource) listenOnce(ctx context.Context, publish func(tenantID string)) error {
+func (s *LiveNotificationSource) listenOnce(ctx context.Context, publish func(tenantID string), publishAll func()) error {
 	conn, err := s.pool.Acquire(ctx)
 	if err != nil {
 		return err
@@ -59,6 +59,9 @@ func (s *LiveNotificationSource) listenOnce(ctx context.Context, publish func(te
 		return err
 	}
 	s.log.Info("herd_signals_live_notify_listener_started", "channel", liveNotifyChannel)
+	if publishAll != nil {
+		publishAll()
+	}
 
 	for {
 		notification, err := conn.Conn().WaitForNotification(ctx)

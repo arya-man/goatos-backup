@@ -164,6 +164,7 @@ export function HerdSignalsKpis({ summary, params, liveKey }: { summary: HerdSig
   const { isPending, navigate } = useHerdSignalsNav();
   const liveSnapshot = useHerdSignalsLiveSnapshot(liveKey);
   const displayedSummary = liveSnapshot?.data.summary ?? summary;
+  const serverMovementKpis = new Set(["moving_now", "active_1m", "moving_15m", "quiet"]);
   return (
     <div className={`kpis herd-signals-kpis${isPending ? " wfbusy" : ""}`} aria-busy={isPending}>
       {KPI_DEFS.map((def, index) => {
@@ -172,7 +173,7 @@ export function HerdSignalsKpis({ summary, params, liveKey }: { summary: HerdSig
         const href = filterKey
           ? herdSignalsHref(params, {
               hs_kpi: active ? undefined : filterKey,
-              hs_move: filterKey === "moving_now" || filterKey === "active_1m" ? undefined : params.movementState,
+              hs_move: serverMovementKpis.has(filterKey) ? undefined : params.movementState,
             })
           : undefined;
         const card = (

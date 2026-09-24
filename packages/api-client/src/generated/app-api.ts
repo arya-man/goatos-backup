@@ -15,7 +15,7 @@ export interface paths {
         put?: never;
         /**
          * Ingest a batch of BLE ear-tag packets from one gateway.
-         * @description Gateway device write path (backend/internal/herdsignals). Never anonymous: requires the herd_signals.ingest permission. Packet insert, gateway last_seen_at upsert, activity-window rollup (60s/300s/3600s tiers), and tag_latest state recompute all happen in ONE transaction. Idempotent: a replayed packet (same tenant, tag, received_at, motion_count) is silently deduplicated and does not double-count. Out-of-order safe: the "latest" snapshot only advances when a packet's seen_at is strictly newer than the currently stored last_seen_at for that tag.
+         * @description Gateway device write path (backend/internal/herdsignals). Never anonymous: requires the herd_signals.ingest permission. Packet insert, gateway last_seen_at upsert, activity-window rollup (60s/300s/3600s tiers), and tag_latest state recompute all happen in ONE transaction. Idempotent: a replayed packet (same tenant, tag, device_seen_at/seen_at, motion_count, and received_date bucket) is silently deduplicated and does not double-count. The backend server-stamps received_at at ingest time; gateway_seen_at is diagnostic only. Out-of-order safe: the "latest" snapshot only advances when the server-stamped received_at is strictly newer than the currently stored last_seen_at for that tag.
          */
         post: operations["ingestHerdSignalPackets"];
         delete?: never;
@@ -33,9 +33,29 @@ export interface paths {
         };
         /**
          * Live tag status, tag-first (an unmapped tag is the normal case, not a degraded one).
-         * @description Every packet-derived field (id, MAC, gateway, RSSI/signal, battery, temperature, motion count and deltas, movement_state, pattern_state, last_seen_at, sensor bits) renders for a tag with no animal mapped behind it. Only goat_id/display_id/park/shed/location are animal-derived and may be null. `summary` is a whole-filter server-side aggregate over the same tenant-scoped query as `items` -- never summed from the returned page.
+         * @description Every packet-derived field (id, MAC, gateway, RSSI/signal, battery, temperature, motion count and deltas, movement_state, pattern_state, last_seen_at, sensor bits) renders for a tag with no animal mapped behind it. Only goat_id/display_id/park/shed/location are animal-derived and may be null. `summary` is a server-side aggregate over the scoped cohort and is never summed from the returned page. Location, mapping, pattern, risk, and search filters narrow both rows and summary; movement_state/live_state narrow `items`, while the summary keeps the broader cohort and exposes those buckets through moving, moving_now, active_1m, quiet, not_moving, and stale counters.
          */
         get: operations["listHerdSignalsLive"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/herd-signals/live/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Server-sent live tag snapshots for the current filtered view.
+         * @description Opens a Server-Sent Events stream. The first event is a `snapshot` carrying the same HerdSignalsLiveResponse shape as GET /herd-signals/live. Later `snapshot` events are pushed after committed gateway ingest notifications; `tick` events are heartbeat-only and must not be treated as a data refresh.
+         */
+        get: operations["streamHerdSignalsLive"];
         put?: never;
         post?: never;
         delete?: never;
@@ -6979,6 +6999,11 @@ export interface components {
         /** @enum {string} */
         HerdSignalRiskState: "low" | "watch" | "high";
         /**
+         * @description Realtime movement query filter for GET /herd-signals/live and CSV export.
+         * @enum {string}
+         */
+        HerdSignalLiveStateFilter: "moving_now" | "active_1m";
+        /**
          * @description Accepted values for the `risk_state` QUERY parameter. A superset of HerdSignalRiskState: every real row risk state, plus the `attention` sentinel that selects every tag with any watchlist score. A row's risk_state is never `attention`.
          * @enum {string}
          */
@@ -7023,6 +7048,8 @@ export interface components {
             mapped_animals: number;
             unmapped_tags: number;
             moving: number;
+            moving_now: number;
+            active_1m: number;
             quiet: number;
             not_moving: number;
             stale: number;
@@ -7064,6 +7091,33 @@ export interface components {
             tag_temperature_c: number | null;
             /** Format: int64 */
             motion_count: number | null;
+            /**
+             * Format: int64
+             * @description Motion-counter delta carried by the latest packet when its timing is known.
+             */
+            last_packet_motion_delta: number | null;
+            /** @description Seconds between the previous packet and latest packet when known. */
+            last_packet_window_seconds: number | null;
+            /**
+             * Format: int64
+             * @description Rolling 30-second motion-counter delta.
+             */
+            motion_delta_30s: number | null;
+            /**
+             * Format: int64
+             * @description Rolling 60-second motion-counter delta.
+             */
+            motion_delta_60s: number | null;
+            /**
+             * Format: int64
+             * @description Rolling 5-minute motion-counter delta.
+             */
+            motion_delta_5m: number | null;
+            /**
+             * Format: date-time
+             * @description Last packet timestamp where movement was detected.
+             */
+            last_moved_at: string | null;
             /**
              * Format: int64
              * @description 15-minute window delta.
@@ -20831,6 +20885,8 @@ export interface operations {
                 /** @description Filters to animals resolved to this shed. An unmapped tag has no shed and never matches. */
                 shed_id?: string;
                 movement_state?: components["schemas"]["HerdSignalMovementState"];
+                /** @description Server-side realtime movement filter. `moving_now` means a fresh packet with a positive last-packet delta; `active_1m` means a fresh 60-second motion delta. */
+                live_state?: components["schemas"]["HerdSignalLiveStateFilter"];
                 mapping_state?: components["schemas"]["HerdSignalMappingState"];
                 pattern?: components["schemas"]["HerdSignalPatternFilter"];
                 /** @description Server-side watchlist risk filter computed before pagination. `attention` selects every tag with any watchlist score. */
@@ -20857,6 +20913,46 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HerdSignalsLiveResponse"];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    streamHerdSignalsLive: {
+        parameters: {
+            query?: {
+                park_id?: string;
+                shed_id?: string;
+                movement_state?: components["schemas"]["HerdSignalMovementState"];
+                live_state?: components["schemas"]["HerdSignalLiveStateFilter"];
+                mapping_state?: components["schemas"]["HerdSignalMappingState"];
+                pattern?: components["schemas"]["HerdSignalPatternFilter"];
+                risk_state?: components["schemas"]["HerdSignalRiskFilter"];
+                q?: string;
+                cursor?: string;
+                sort?: "smart_tag" | "tag_temp" | "last_seen" | "motion_count" | "delta_15m" | "delta_1h";
+                dir?: "asc" | "desc";
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description SSE stream of heartbeat ticks and live snapshots. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": string;
                 };
             };
             /** @description Authentication required. */
@@ -21155,8 +21251,10 @@ export interface operations {
                 park_id?: string;
                 shed_id?: string;
                 movement_state?: components["schemas"]["HerdSignalMovementState"];
+                live_state?: components["schemas"]["HerdSignalLiveStateFilter"];
                 mapping_state?: components["schemas"]["HerdSignalMappingState"];
                 pattern?: components["schemas"]["HerdSignalPatternFilter"];
+                risk_state?: components["schemas"]["HerdSignalRiskFilter"];
                 /** @description Free-text search over display id, tag id, MAC, shed name, gateway id. */
                 q?: string;
             };

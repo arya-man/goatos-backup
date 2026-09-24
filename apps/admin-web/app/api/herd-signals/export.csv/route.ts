@@ -16,14 +16,14 @@ export async function GET(request: NextRequest): Promise<Response> {
     );
   }
 
-  const upstreamUrl = new URL(`${config.data.baseUrl}/herd-signals/live/stream`);
+  const upstreamUrl = new URL(`${config.data.baseUrl}/herd-signals/export.csv`);
   request.nextUrl.searchParams.forEach((value, key) => {
     upstreamUrl.searchParams.append(key, value);
   });
 
   const headers: Record<string, string> = {
     Authorization: `Bearer ${config.data.bearerToken}`,
-    Accept: "text/event-stream, application/json",
+    Accept: "text/csv, application/json",
   };
   if (config.data.tenantId) headers["X-GoatOS-Tenant-ID"] = config.data.tenantId;
   if (config.data.traceparent) headers.traceparent = config.data.traceparent;
@@ -35,28 +35,20 @@ export async function GET(request: NextRequest): Promise<Response> {
     return NextResponse.json(
       {
         error: "herd_signals_unreachable",
-        message: error instanceof Error ? error.message : "Herd Signals stream is not reachable.",
+        message: error instanceof Error ? error.message : "Herd Signals export is not reachable.",
       },
       { status: 503, headers: NO_STORE },
     );
   }
 
   const contentType = upstream.headers.get("Content-Type") ?? "";
-  if (contentType.includes("text/event-stream") && upstream.body) {
-    return new Response(upstream.body, {
-      status: upstream.status,
-      headers: {
-        "Content-Type": "text/event-stream; charset=utf-8",
-        "Cache-Control": "no-store, no-transform",
-        Connection: "keep-alive",
-        "X-Accel-Buffering": "no",
-      },
-    });
-  }
-
-  const text = await upstream.text();
-  return new Response(text, {
+  const body = await upstream.arrayBuffer();
+  return new Response(body, {
     status: upstream.status,
-    headers: { "Content-Type": contentType || "application/json", ...NO_STORE },
+    headers: {
+      "Content-Type": contentType || "text/csv; charset=utf-8",
+      "Cache-Control": "no-store",
+      "Content-Disposition": upstream.headers.get("Content-Disposition") ?? 'attachment; filename="herd-signals.csv"',
+    },
   });
 }
