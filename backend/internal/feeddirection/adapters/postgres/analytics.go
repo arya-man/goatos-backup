@@ -930,6 +930,18 @@ func (r *Repository) ExecutionAnalytics(ctx context.Context, tenantID string, q 
 		// The QUERY stays at each call site with its own const, and only the row handling is
 		// shared. Passing the statement into a helper made every one of these reads dynamic SQL
 		// to a static reader -- the text could no longer be tied to the query that runs it.
+		//
+		// projection-review: membership=one completion/task table per read -- packing from
+		// feed_packing_completions, distribution from feed_distribution_completions, transport
+		// from feed_transport_tasks -- each already at one row per completed unit of work, and
+		// this change moved the `Query` call without touching a predicate; group_key=(the
+		// business date, status) in all three, matched to the same (date, status) the day map is
+		// keyed by, so a status counted here lands on the day it happened;
+		// join_cardinality=NONE -- each statement reads a single table with no join at all, so
+		// nothing can fan a completion out and the three counts stay independent of each other;
+		// pagination=none, the whole requested date window is the answer and the window is the
+		// same $3/$4 bind for every read; scope=tenant_id plus the optional park list, applied
+		// identically in all three statements before the GROUP BY, never after.
 		countRows := func(rows pgx.Rows, err error, apply func(*domain.ExecutionDay, string, int64)) error {
 			if err != nil {
 				return err

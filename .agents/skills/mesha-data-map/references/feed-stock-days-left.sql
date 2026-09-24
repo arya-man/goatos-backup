@@ -71,6 +71,13 @@ directed AS (
 -- what was fed. It is NOT consumption and deliberately never reaches the burn
 -- rate below: a truck sale is not a day's feeding, and averaging it in would
 -- collapse days-left for every pen. Mirrors `feedSoldCTESQL`.
+--
+-- projection-review: membership=feed_sale_depletions, one row per CLOSED feed sale line, which
+-- is the same set the app's own sold CTE reads; group_key=(farm_label, feed_item_key), the same
+-- pair `bought` and `directed` are keyed by and the same pair item_balance joins all three on;
+-- join_cardinality=1:0..1 -- sold is GROUPED to one row per key BEFORE the join, so a feed sold
+-- on five lines cannot multiply the purchase row it is subtracted from; pagination=none, the
+-- whole store is the answer; scope=the tenant literal above, applied inside the CTE.
 sold AS (
     SELECT farm_label, feed_item_key, SUM(quantity_kg) AS kg
     FROM feed_sale_depletions
