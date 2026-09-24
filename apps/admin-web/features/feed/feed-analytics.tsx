@@ -735,6 +735,7 @@ function FeedStatusWise({
               <ChartHover>
                 {priced ? (
                   <FeedLines
+                    hideZeroInTip
                     series={[
                       {
                         label: fa(pageContract, "status.series.spend"),
@@ -753,6 +754,7 @@ function FeedStatusWise({
                   />
                 ) : (
                   <FeedLines
+                    hideZeroInTip
                     series={[kgSeries]}
                     dayLabels={dayLabels}
                     valueNoun={kgNoun}
@@ -980,9 +982,9 @@ function DirectedTabs({
           <p className="muted small">{fa(pageContract, "chart.daily.hint")}</p>
           <ChartHover>
             <FeedStackedColumns
+              hideZeroInTip
               days={view.stacked}
               seriesLabels={view.itemLabels}
-              hideZeroInTip
               valueNoun={fa(pageContract, "unit.kg")}
               chartLabel={fa(pageContract, "chart.daily.title")}
               emptyLabel={fa(pageContract, "empty.body")}
@@ -1045,6 +1047,7 @@ function DirectedTabs({
           </div>
           <ChartHover>
             <FeedLines
+              hideZeroInTip
               series={[
                 spendMode === "per_animal"
                   ? {
@@ -1148,6 +1151,7 @@ function DirectedTabs({
                 <ChartHover>
                   {money ? (
                     <FeedLines
+                      hideZeroInTip
                       series={[{ label: fa(pageContract, "item.series.spend"), colorVar: series.colorVar, points: money.rupees }]}
                       secondary={{ series: fedSeries, valueNoun: kgNoun }}
                       dayLabels={view.dayLabels}
@@ -1157,6 +1161,7 @@ function DirectedTabs({
                     />
                   ) : (
                     <FeedLines
+                      hideZeroInTip
                       series={[fedSeries]}
                       dayLabels={view.dayLabels}
                       valueNoun={kgNoun}
@@ -1207,6 +1212,7 @@ function DirectedTabs({
                 </div>
                 <ChartHover>
                   <FeedLines
+                    hideZeroInTip
                     series={[series]}
                     dayLabels={view.dayLabels}
                     valueNoun={fa(pageContract, "unit.g_per_head")}
@@ -1516,6 +1522,7 @@ function ExecutionTab({
           <p className="muted small">{fa(pageContract, "consumption.trend.hint")}</p>
           <ChartHover>
             <FeedLines
+              hideZeroInTip
               series={consumptionSeries}
               dayLabels={consumptionDayLabels}
               valueNoun={fa(pageContract, "unit.kg")}
@@ -1546,12 +1553,12 @@ function ExecutionStacked({
     <>
       <ChartHover>
         <FeedStackedColumns
+          hideZeroInTip
           days={stacked}
           seriesLabels={statuses.map((s) => s.label)}
           // The legend owns the colours: filling by position painted "Awaiting verdict" blue and
           // "Rework" amber under a legend that says amber and red.
           seriesColors={statuses.map((s) => s.colorVar)}
-          hideZeroInTip
           valueNoun={fa(pageContract, "table.items.noun")}
           chartLabel={fa(pageContract, "chart.execution.title")}
           emptyLabel={fa(pageContract, "empty.execution.body")}
@@ -1619,6 +1626,7 @@ function ExperimentTab({
           <p className="muted small">{fa(pageContract, "chart.experiment.hint")}</p>
           <ChartHover>
             <FeedLines
+              hideZeroInTip
               series={series}
               dayLabels={dayKeys}
               valueNoun={fa(pageContract, "unit.kg")}

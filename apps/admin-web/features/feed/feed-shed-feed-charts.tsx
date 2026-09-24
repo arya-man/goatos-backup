@@ -93,8 +93,8 @@ export function FeedShedFeedCharts({
   const parkOrder = parksInArrivalOrder(rows, (row) => row.park_label);
   const parkOptions = dedupe(rows.map((row) => ({ value: row.park_id, label: row.park_label })), parkOrder);
   // Pen-name options follow the farm selection, keyed by shed_id never by name
-  // (Castro, Gandhi, Yashoda exist in BOTH farms); a label shared across farms
-  // carries its farm so the dropdown never prints the same word twice. Under All farms
+  // (Castro, Gandhi, Yashoda exist in BOTH farms); every pen carries its farm, so
+  // the dropdown never prints the same word twice and never leaves one unnamed. Under All farms
   // the list is two clusters, CBE's pens then CPT's, each A→Z.
   const inFarm = rows.filter((row) => filters.park === "" || row.park_id === filters.park);
   const shedOptions = disambiguateByPark(
@@ -187,6 +187,7 @@ export function FeedShedFeedCharts({
                 {/* Backend-composed location, rendered verbatim: "Castro 1". */}
                 <div className="penbars-title">
                   <b>{pen.operational_location_display}</b>
+                  {pen.park_label ? <span className="small muted"> · {pen.park_label}</span> : null}
                   <span className="small muted">{fc("unit.g_per_head")}</span>
                 </div>
                 <div className="penbars-bars" role="img" aria-label={`${pen.operational_location_display} · ${fc("shedfeed.chart.aria")}`}>
@@ -204,7 +205,12 @@ export function FeedShedFeedCharts({
                       day && verified !== null
                         ? `${fc("shedfeed.legend.verified")} · ${grams(verified)} ${fc("unit.g_per_head")} · ${verifiedTotal === null ? "" : kg(verifiedTotal)} ${fc("shedfeed.day.total")} · ${day.verified_bags} / ${day.planned_bags} ${fc("shedfeed.day.bags")}`
                         : `${fc("shedfeed.legend.verified")} · ${fc("shedfeed.day.verified_gap")}`;
-                    const tip = `${dayLabel(iso)}\n${directedTip}\n${verifiedTip}`;
+                    // A 0 on either bar is left out of the hover, as on every feed chart.
+                    const tip = [
+                      dayLabel(iso),
+                      value === 0 ? null : directedTip,
+                      verified === 0 ? null : verifiedTip,
+                    ].filter((line): line is string => line !== null).join("\n");
                     return (
                       <div className="penbars-slot" key={iso} title={tip}>
                         <div className="penbars-pair">
@@ -266,17 +272,15 @@ function disambiguateByPark(
       byId.set(option.value, { label: option.label, park: option.park });
     }
   }
-  const labelCounts = new Map<string, number>();
-  for (const { label } of byId.values()) {
-    labelCounts.set(label, (labelCounts.get(label) ?? 0) + 1);
-  }
   return [...byId.entries()]
     .map(([value, { label, park }]) => ({
       value,
       park,
-      label: (labelCounts.get(label) ?? 0) > 1 ? `${label} · ${park}` : label,
+      // EVERY pen names its farm (maintainer request 2026-09-24): naming it only on the
+      // names both farms share left "Castro · CBE" beside a bare "Godel 1 - Part 1".
+      label: park ? `${label} · ${park}` : label,
     }))
-    .sort(byParkThen(parkOrder, (option) => option.park, (a, b) => a.label.localeCompare(b.label)))
+    .sort(byParkThen(parkOrder, (option) => option.park, (a, b) => a.label.localeCompare(b.label, undefined, { numeric: true })))
     .map(({ value, label }) => ({ value, label }));
 }
 

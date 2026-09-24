@@ -231,6 +231,7 @@ export function SeriesLines({
   chartLabel,
   emptyLabel,
   secondary,
+  hideZeroInTip = false,
 }: {
   series: LineSeries[];
   dayLabels: string[];
@@ -238,6 +239,8 @@ export function SeriesLines({
   chartLabel: string;
   emptyLabel: string;
   secondary?: { series: LineSeries; valueNoun: string };
+  /** Leave a series out of a day's tooltip when its value that day is 0. */
+  hideZeroInTip?: boolean;
 }) {
   const values = series.flatMap((s) => s.points.filter((p): p is number => p !== null));
   const secondaryValues = secondary?.series.points.filter((p): p is number => p !== null) ?? [];
@@ -354,10 +357,14 @@ export function SeriesLines({
       })}
       {dayLabels.map((day, i) => {
         const parts = series
-          .map((s) => (s.points[i] === null ? null : `${s.label}  ${nf(s.points[i] as number)} ${valueNoun}`))
+          .map((s) =>
+            s.points[i] === null || (hideZeroInTip && s.points[i] === 0)
+              ? null
+              : `${s.label}  ${nf(s.points[i] as number)} ${valueNoun}`,
+          )
           .filter((p): p is string => p !== null);
         const secondaryPoint = secondary?.series.points[i];
-        if (secondary && secondaryPoint !== null && secondaryPoint !== undefined) {
+        if (secondary && secondaryPoint !== null && secondaryPoint !== undefined && !(hideZeroInTip && secondaryPoint === 0)) {
           parts.push(`${secondary.series.label}  ${nf(secondaryPoint)} ${secondary.valueNoun}`);
         }
         if (parts.length === 0) return null;
