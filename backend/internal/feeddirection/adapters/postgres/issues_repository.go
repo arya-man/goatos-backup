@@ -55,15 +55,19 @@ func (r *Repository) PersistIssue(ctx context.Context, cmd ports.PersistIssueCom
 	}
 
 	if !found {
-		inserted, insErr := insertIssueHeader(ctx, tx, cmd)
+		inserted, insErr := insertIssueHeaderSavepoint(ctx, tx, cmd)
 		if insErr != nil {
 			var pgErr *pgconn.PgError
-			// A concurrent inserter won the race on the live/idempotency unique index. Re-read and fall
-			// through to the found branch rather than issuing twice.
+			// A concurrent inserter won the race on the live/idempotency unique index. The insert ran
+			// under a savepoint that is already rolled back, so this transaction is still usable:
+			// re-read and fall through to the found branch rather than issuing twice.
 			if errors.As(insErr, &pgErr) && pgErr.Code == "23505" {
 				header, found, err = lockIssue(ctx, tx, cmd.TenantID, cmd.ParkID, cmd.FeedDay, cmd.Workflow)
 				if err != nil {
 					return ports.IssueResult{}, err
+				}
+				if !found {
+					return ports.IssueResult{}, fmt.Errorf("feeddirection: insert issue: lost the insert race but the winning sheet is not visible: %w", insErr)
 				}
 			} else {
 				return ports.IssueResult{}, fmt.Errorf("feeddirection: insert issue: %w", insErr)
@@ -116,6 +120,27 @@ WHERE tenant_id = $1::uuid AND feed_direction_issue_id = $2::uuid`,
 	header.GenerationInputFingerprint = cmd.Fingerprint
 	header.IssuedAt = cmd.IssuedAt
 	return ports.IssueResult{Header: header, Outcome: ports.IssueOutcomeReissued}, nil
+}
+
+// insertIssueHeaderSavepoint runs insertIssueHeader inside a savepoint. A unique violation aborts
+// the whole transaction in PostgreSQL; rolling back to the savepoint undoes only the failed INSERT,
+// so PersistIssue can re-read the concurrent winner's sheet in the same transaction.
+func insertIssueHeaderSavepoint(ctx context.Context, tx pgx.Tx, cmd ports.PersistIssueCommand) (domain.IssueHeader, error) {
+	sp, err := tx.Begin(ctx)
+	if err != nil {
+		return domain.IssueHeader{}, fmt.Errorf("feeddirection: savepoint issue insert: %w", err)
+	}
+	header, insErr := insertIssueHeader(ctx, sp, cmd)
+	if insErr != nil {
+		if rbErr := sp.Rollback(ctx); rbErr != nil {
+			return domain.IssueHeader{}, fmt.Errorf("feeddirection: rollback issue insert savepoint: %w (insert: %v)", rbErr, insErr)
+		}
+		return domain.IssueHeader{}, insErr
+	}
+	if err := sp.Commit(ctx); err != nil {
+		return domain.IssueHeader{}, fmt.Errorf("feeddirection: release issue insert savepoint: %w", err)
+	}
+	return header, nil
 }
 
 func insertIssueHeader(ctx context.Context, tx pgx.Tx, cmd ports.PersistIssueCommand) (domain.IssueHeader, error) {
