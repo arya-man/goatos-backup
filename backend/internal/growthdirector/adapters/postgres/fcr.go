@@ -307,24 +307,44 @@ scan_pen_seg AS (
   FROM (
     SELECT sr.*, LAG(campaign_id) OVER w AS campaign_prev, LAG(d) OVER w AS d_prev
     FROM scan_pen_rounds sr
-    WINDOW w AS (PARTITION BY pen_shed_id, pen_key ORDER BY period_start_date, d)
+    WINDOW w AS (PARTITION BY pen_shed_id, pen_key ORDER BY period_start_date, d, campaign_id)
   ) x
   WHERE campaign_prev IS NOT NULL AND d > d_prev
 ),
 -- Each animal weighed in BOTH rounds of the pen, at its own two dates; the pen's gain for the
 -- segment is the mean of those animals' daily gains -- the statistic the Weights headline uses.
-scan_seg AS (
-  SELECT s.pen_shed_id, s.pen_key, s.d_prev, s.d, s.animals,
-         avg((cur.w - prev.w) * 1000.0 / (cur.d - prev.d)) AS adg_g,
+--
+-- PAIRED BY A WINDOW, NOT A SELF-JOIN (2026-09-24). Joining scan_rounds to itself (cur x prev)
+-- let a generic plan -- pgx reuses the prepared statement from the sixth call -- run it as a
+-- nested loop of two CTE scans: 2,131 x 2,531 comparisons, 720 ms. Instead each animal's rows in
+-- the pen are ordered by the PEN's round order (period_start_date, the round's date = max(d) over
+-- the round, campaign_id -- the same order scan_pen_seg uses), and LAG gives the animal's previous
+-- round. That previous round IS the segment's campaign_prev exactly when the animal was weighed in
+-- it (scan_rounds is unique per pen x campaign x animal), which is the old join's condition; the
+-- pairs are then averaged per (pen, campaign, campaign_prev) and matched to scan_pen_seg 1:1.
+scan_animal_pairs AS (
+  SELECT pen_shed_id, pen_key, campaign_id, animal_campaign_prev AS campaign_prev,
+         avg((w - w_prev) * 1000.0 / (d - d_prev)) AS adg_g,
          count(*)::int AS paired
+  FROM (
+    SELECT o.pen_shed_id, o.pen_key, o.campaign_id, o.d, o.w,
+           LAG(o.campaign_id) OVER a AS animal_campaign_prev, LAG(o.d) OVER a AS d_prev, LAG(o.w) OVER a AS w_prev
+    FROM (
+      SELECT sr.pen_shed_id, sr.pen_key, sr.campaign_id, sr.period_start_date, sr.animal_key, sr.d, sr.w,
+             max(sr.d) OVER (PARTITION BY sr.pen_shed_id, sr.pen_key, sr.campaign_id) AS round_d
+      FROM scan_rounds sr
+    ) o
+    WINDOW a AS (PARTITION BY o.pen_shed_id, o.pen_key, o.animal_key ORDER BY o.period_start_date, o.round_d, o.campaign_id)
+  ) x
+  WHERE animal_campaign_prev IS NOT NULL AND d > d_prev
+  GROUP BY pen_shed_id, pen_key, campaign_id, animal_campaign_prev
+),
+scan_seg AS (
+  SELECT s.pen_shed_id, s.pen_key, s.d_prev, s.d, s.animals, p.adg_g, p.paired
   FROM scan_pen_seg s
-  JOIN scan_rounds cur
-    ON cur.pen_shed_id = s.pen_shed_id AND cur.pen_key = s.pen_key AND cur.campaign_id = s.campaign_id
-  JOIN scan_rounds prev
-    ON prev.pen_shed_id = s.pen_shed_id AND prev.pen_key = s.pen_key AND prev.campaign_id = s.campaign_prev
-   AND prev.animal_key = cur.animal_key
-  WHERE cur.d > prev.d
-  GROUP BY s.pen_shed_id, s.pen_key, s.d_prev, s.d, s.animals
+  JOIN scan_animal_pairs p
+    ON p.pen_shed_id = s.pen_shed_id AND p.pen_key = s.pen_key
+   AND p.campaign_id = s.campaign_id AND p.campaign_prev = s.campaign_prev
 ),
 segments AS (
   SELECT pen_shed_id, pen_key, d_prev, d, animals, adg_g::float8 AS adg_g, 'per_shed_partition' AS mode, 0 AS paired FROM lump_seg
