@@ -60,7 +60,7 @@ export async function POST(request: NextRequest): Promise<Response> {
   }
 
   const attachments = cleanAttachments(body.attachments);
-  const typed = typeof body.question === "string" ? body.question.trim().slice(0, 1200) : "";
+  const typed = typeof body.question === "string" ? body.question.trim().slice(0, process.env.CEO_AI_AGENT_URL ? 20000 : 1200) : "";
   const question = typed || (attachments ? "Please look at the attached file(s)." : "");
   if (!question) {
     return Response.json({ error: "question_required" }, { status: 400 });

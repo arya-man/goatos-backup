@@ -71,20 +71,32 @@ function rollup(rows) {
   };
 }
 
-// Per email: today (UTC day), 7d, 30d rollups over terminal events.
+// Business days are IST (Asia/Kolkata, UTC+5:30, no DST): "today" starts at IST midnight,
+// so an ask at 00:30 IST is today's, not yesterday's (UTC) one.
+const IST_OFFSET_MS = 330 * 60_000;
+export function istDayStart(now = new Date()) {
+  const ist = new Date(now.getTime() + IST_OFFSET_MS);
+  return Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth(), ist.getUTCDate()) - IST_OFFSET_MS;
+}
+
+// Per email: today (IST day), 7d, 30d rollups over terminal events.
+// asks = success + failed + stopped. busy (409: chat already answering) and watches are
+// counted alongside, not as asks: a busy ask never ran, a watch lives inside an ask.
 export function summarizeUsers(events, now = new Date()) {
   const t = now.getTime();
-  const dayStart = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const dayStart = istDayStart(now);
   const windows = { today: dayStart, "7d": t - 7 * 864e5, "30d": t - 30 * 864e5 };
   const byUser = new Map();
   const watchesBy = new Map(); // email -> watch_ended rows (live tag watches, watch.mjs)
+  const busyBy = new Map(); // email -> chat_busy rows
+  const side = (m, e) => {
+    const k = e.email || "unknown";
+    if (!m.has(k)) m.set(k, []);
+    m.get(k).push({ ...e, _t: Date.parse(e.ts) });
+  };
   for (const e of events) {
-    if (e.event_name === "watch_ended") {
-      const k = e.email || "unknown";
-      if (!watchesBy.has(k)) watchesBy.set(k, []);
-      watchesBy.get(k).push({ ...e, _t: Date.parse(e.ts) });
-      continue;
-    }
+    if (e.event_name === "watch_ended") { side(watchesBy, e); continue; }
+    if (e.event_name === "chat_busy") { side(busyBy, e); continue; }
     if (!TERMINAL.includes(e.event_name)) continue;
     const ts = Date.parse(e.ts);
     if (!(ts >= windows["30d"])) continue;
@@ -92,17 +104,20 @@ export function summarizeUsers(events, now = new Date()) {
     if (!byUser.has(k)) byUser.set(k, []);
     byUser.get(k).push({ ...e, _t: ts });
   }
+  // A user whose only activity was busy/watch rows still gets a line.
+  for (const k of [...watchesBy.keys(), ...busyBy.keys()]) if (!byUser.has(k)) byUser.set(k, []);
   const users = [...byUser.entries()].map(([email, rows]) => {
     const out = { email };
     for (const [name, from] of Object.entries(windows)) {
       out[name] = rollup(rows.filter((r) => r._t >= from));
       out[name].watches = (watchesBy.get(email) || []).filter((r) => r._t >= from).length;
+      out[name].busy = (busyBy.get(email) || []).filter((r) => r._t >= from).length;
     }
-    out.last_ask_at = new Date(Math.max(...rows.map((r) => r._t))).toISOString();
+    out.last_ask_at = rows.length ? new Date(Math.max(...rows.map((r) => r._t))).toISOString() : null;
     return out;
   });
   users.sort((a, b) => b["30d"].asks - a["30d"].asks || a.email.localeCompare(b.email));
-  return { generated_at: now.toISOString(), users };
+  return { generated_at: now.toISOString(), today_tz: "Asia/Kolkata", users };
 }
 
 // Last N asks for an email: status + duration + question preview.
@@ -264,7 +279,7 @@ export async function createEvents({ stateDir, sink, log = (line) => console.log
           question_preview: String(info.question || "").slice(0, 80),
         };
         if (aborted || metric.error === "client_aborted") {
-          return emit("ask_stopped", ctx, { ...base, error_class: "client_aborted", reason: stopReason === "stop_pressed" ? "stop_pressed" : "client_closed" });
+          return emit("ask_stopped", ctx, { ...base, error_class: "client_aborted", reason: stopReason === "stop_pressed" || stopReason === "chat_deleted" ? stopReason : "client_closed" });
         }
         if (metric.ok && !metric.error) {
           return emit("ask_completed", ctx, { ...base, answer_chars: s.answer_chars, chart: s.chart });

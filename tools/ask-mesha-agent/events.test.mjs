@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { classifyFailure, createEvents, percentile, recentAsks, summarizeUsers } from "./events.mjs";
+import { classifyFailure, createEvents, istDayStart, percentile, recentAsks, summarizeUsers } from "./events.mjs";
 
 const NOW = new Date("2026-09-24T12:00:00Z");
 const ago = (h) => new Date(NOW.getTime() - h * 3600e3).toISOString();
@@ -144,4 +144,49 @@ test("ask_stopped marks a cap-estimated cost as estimated", async () => {
   assert.equal(stop.cost_usd, 0.5);
   assert.equal(stop.cost_estimated, true);
   assert.equal(lines.find((l) => l.event_name === "ask_completed").cost_estimated, false);
+});
+
+test("per-user 'today' is the IST day: 00:30 IST counts as today, 23:59 IST the day before doesn't", () => {
+  // 2026-09-24 00:10 IST == 2026-09-23T18:40Z; UTC still says the 23rd.
+  const now = new Date("2026-09-23T18:40:00Z");
+  assert.equal(new Date(istDayStart(now)).toISOString(), "2026-09-23T18:30:00.000Z");
+  const ev = [
+    { event_name: "ask_completed", email: "a@m", ts: "2026-09-23T18:35:00Z" }, // 00:05 IST on the 24th
+    { event_name: "ask_completed", email: "a@m", ts: "2026-09-23T18:29:00Z" }, // 23:59 IST on the 23rd
+  ];
+  const [a] = summarizeUsers(ev, now).users;
+  assert.equal(a.today.asks, 1);
+  assert.equal(a["7d"].asks, 2);
+  // Late IST evening is still the same IST day even though UTC rolled over.
+  assert.equal(new Date(istDayStart(new Date("2026-09-24T18:00:00Z"))).toISOString(), "2026-09-23T18:30:00.000Z");
+});
+
+test("per-user counts add up: asks = success+failed+stopped; busy and watches counted beside", () => {
+  const ev = [
+    { event_name: "ask_completed", email: "a@m", ts: ago(1) },
+    { event_name: "ask_failed", email: "a@m", ts: ago(1), error_class: "sdk_error" },
+    { event_name: "ask_stopped", email: "a@m", ts: ago(1), reason: "stop_pressed" },
+    { event_name: "ask_stopped", email: "a@m", ts: ago(1), reason: "chat_deleted" },
+    { event_name: "chat_busy", email: "a@m", ts: ago(1) },
+    { event_name: "chat_busy", email: "a@m", ts: ago(1) },
+    { event_name: "watch_ended", email: "a@m", ts: ago(1) },
+    { event_name: "chat_busy", email: "only-busy@m", ts: ago(1) },
+  ];
+  const { users } = summarizeUsers(ev, NOW);
+  const a = users.find((u) => u.email === "a@m");
+  const t = a.today;
+  assert.equal(t.asks, t.success + t.failed + t.stopped);
+  assert.deepEqual([t.asks, t.success, t.failed, t.stopped, t.busy, t.watches], [4, 1, 1, 2, 2, 1]);
+  const b = users.find((u) => u.email === "only-busy@m");
+  assert.equal(b.today.busy, 1);
+  assert.equal(b.today.asks, 0);
+  assert.equal(b.last_ask_at, null);
+});
+
+test("ask_stopped reason: a chat deleted mid-answer is its own reason", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ask-ev-"));
+  const lines = [];
+  const ev = await createEvents({ stateDir: dir, log: (l) => lines.push(JSON.parse(l)) });
+  await ev.tracker({ email: "a@m" }, {}).finish({ error: "client_aborted" }, { aborted: true, stopReason: "chat_deleted" });
+  assert.equal(lines.find((l) => l.event_name === "ask_stopped").reason, "chat_deleted");
 });

@@ -49,6 +49,8 @@ export const STOPPED_NOTE =
 export function friendlyError(kind) {
   if (kind === "error_max_budget_usd" || kind === "error_max_turns")
     return "That question needed more work than I can do in one go. Try narrowing it (one park, one month) or ask it in parts.";
+  if (kind === "chat_gone") return "This chat no longer exists — starting a new one.";
+  if (kind === "chat_deleted") return "This chat was deleted, so I stopped answering.";
   if (kind === "busy") return "I'm still answering your previous question in this chat. Please wait for it to finish.";
   return "Sorry, something went wrong while I was working on that. Please try again in a moment.";
 }
@@ -138,7 +140,7 @@ export function clipSqlOutput(out, { maxRows = SQL_MAX_ROWS, maxChars = SQL_MAX_
   let lines = out.replace(/\n$/, "").split("\n");
   const notes = [];
   if (lines.length > maxRows + 1) {
-    notes.push(`${lines.length - maxRows - 1} more rows truncated; aggregate or add LIMIT`);
+    notes.push(`only the first ${maxRows} of ${lines.length - 1} rows are shown; ${lines.length - maxRows - 1} more rows truncated. Aggregate or add LIMIT and re-run before answering; never present these ${maxRows} rows as the full list, and if the user asked for every row say plainly that the list is long and offer a summary or a narrower list`);
     lines = lines.slice(0, maxRows + 1);
   }
   let text = lines.join("\n");
@@ -147,6 +149,39 @@ export function clipSqlOutput(out, { maxRows = SQL_MAX_ROWS, maxChars = SQL_MAX_
     notes.push(`output clipped at ${maxChars} characters; select fewer/narrower columns`);
   }
   return notes.length ? `${text}\n… (${notes.join("; ")})` : text;
+}
+
+// ---- attachments ---------------------------------------------------------------
+// What the agent's Read tool can actually open. Anything else (Excel, Word, HEIC, zip…)
+// is still stored, but the model is told it can't open it so it asks for a PDF/PNG/CSV
+// instead of failing a tool call or guessing at the contents.
+export const MAX_ATTACHMENTS = 5;
+const TEXT_EXT = /\.(csv|tsv|txt|md|json)$/i;
+export function attachmentKind(name = "", type = "") {
+  const t = String(type).toLowerCase();
+  if (/^image\/(png|jpe?g|gif|webp)$/.test(t) || (!t && /\.(png|jpe?g|gif|webp)$/i.test(name))) return "image";
+  if (t === "application/pdf" || (!t && /\.pdf$/i.test(name))) return "pdf";
+  if (/^text\//.test(t) || t === "application/json" || TEXT_EXT.test(name)) return "text";
+  return "unsupported";
+}
+export function attachmentPrompt(files, received = files.length) {
+  const lines = files.map((f) => attachmentKind(f.name, f.type) === "unsupported"
+    ? `- ${f.path} (${f.name}${f.type ? `, ${f.type}` : ""}) — this file type can't be opened here; do not try to Read it. Tell the user plainly and ask them to send it as a PDF, a PNG/JPEG screenshot or a CSV.`
+    : `- ${f.path} (${f.name}${f.type ? `, ${f.type}` : ""})`);
+  let text = "\n\nThe user attached these files (open them with the Read tool; images, PDFs and text/CSV are supported):\n" + lines.join("\n");
+  if (received > files.length) text += `\n(The user attached ${received} files; only the first ${files.length} were kept. Mention that you looked at the first ${files.length} only.)`;
+  return text;
+}
+
+// ---- dates ---------------------------------------------------------------------
+// The server runs in UTC (Cloud Run) but Mesha's business day is IST. Between 00:00 and
+// 05:30 IST the machine's date is still "yesterday", so each turn states the IST date.
+export function istNowNote(now = new Date()) {
+  const ist = new Date(now.getTime() + 330 * 60_000);
+  const day = ist.toISOString().slice(0, 10);
+  const hm = ist.toISOString().slice(11, 16);
+  const wd = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][ist.getUTCDay()];
+  return `[Context note, not from the user: it is now ${wd} ${day} ${hm} IST (Asia/Kolkata). "Today", "yesterday" and "this week/month" mean IST calendar days; use (now() AT TIME ZONE 'Asia/Kolkata')::date in SQL, not current_date.]`;
 }
 
 // ---- activity-step labels (plain English, no paths/SQL) ------------------------

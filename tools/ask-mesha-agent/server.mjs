@@ -16,7 +16,7 @@ import { createUploads } from "./uploads.mjs";
 import { createEvents } from "./events.mjs";
 import {
   isDeepQuestion, answerCapUsd, answerCostUsd, friendlyError, STOPPED_NOTE, validateReadSql, clipSqlOutput,
-  toolLabel, describeTableSql, describeTableNames, sqlTableRefs, isMissingColumnError, kindValuesSql, relInfoSql, shouldSampleKinds, makeChartFilter, extractChart, historyPreamble, pathAllowed, ttlCache, inlineDisposition, makeTurnGate, stripLeadingNarration,
+  toolLabel, describeTableSql, describeTableNames, sqlTableRefs, isMissingColumnError, kindValuesSql, relInfoSql, shouldSampleKinds, makeChartFilter, extractChart, historyPreamble, pathAllowed, ttlCache, inlineDisposition, makeTurnGate, stripLeadingNarration, istNowNote, attachmentPrompt,
 } from "./lib.mjs";
 import { createWatchRegistry, WATCH_TAGS_DESCRIPTION, watchTagsHandler, watchTagsSchema } from "./watch.mjs";
 import { authMode, combinedCost, createProviderSwitch, envForProvider, probeVertex, shouldFallback } from "./provider.mjs";
@@ -261,7 +261,7 @@ function runSql(sql) {
     const finish = (r) => { if (!done) { done = true; clearTimeout(killer); resolve(r); } };
     const killer = setTimeout(() => {
       child.kill("SIGKILL");
-      finish({ ok: false, out: `Query cancelled after ${SQL_KILL_MS / 1000}s (timeout). Narrow it (date range, aggregate) and retry.` });
+      finish({ ok: false, out: `Query cancelled after ${SQL_KILL_MS / 1000}s (timeout). Narrow it (date range, aggregate) and retry; if it still cannot run, tell the user plainly that this lookup was too big to finish and suggest a narrower question (no SQL or timeout jargon).` });
     }, SQL_KILL_MS);
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
@@ -272,7 +272,7 @@ function runSql(sql) {
     child.on("close", (code) => {
       if (code === 0) return finish({ ok: true, out: clipSqlOutput(out, { capped }) });
       const msg = err.trim() || `psql exited ${code}`;
-      finish({ ok: false, out: /statement timeout/i.test(msg) ? "Query cancelled after 60s (statement timeout). Narrow it (date range, aggregate) and retry." : msg });
+      finish({ ok: false, out: /statement timeout/i.test(msg) ? "Query cancelled after 60s (statement timeout). Narrow it (date range, aggregate) and retry; if it still cannot run, tell the user plainly that this lookup was too big to finish and suggest a narrower question (no SQL or timeout jargon)." : msg });
     });
     child.stdin.end(`BEGIN READ ONLY;\n${checked.sql};\nROLLBACK;\n`);
   });
@@ -534,8 +534,15 @@ async function ask(req, res, user) {
   if (question.length > 20_000) {
     return json(res, 413, { error: "question_too_long", message: "That question is too long. Please shorten it or attach the text as a file." });
   }
-  let chat = body.conversation_id ? await store.getChat(body.conversation_id) : null;
-  if (chat && !sameOwner(chat, user)) return json(res, 404, { error: "not_found" });
+  let chat = null;
+  if (body.conversation_id != null && body.conversation_id !== "") {
+    chat = await store.getChat(String(body.conversation_id));
+    // Unknown, deleted or someone else's chat: never silently start a new one (the
+    // question would land in a chat the panel isn't showing). The panel starts fresh.
+    if (!chat || !sameOwner(chat, user) || chat.deleted_at) {
+      return json(res, 404, { error: "conversation_not_found", message: friendlyError("chat_gone") });
+    }
+  }
   // Hard monthly cap: answer with a plain message instead of calling Claude.
   // Fail closed: if spend can't be read, don't risk running past the cap.
   const spent = await store.monthSpendUsd(monthStart()).catch(() => Infinity);
@@ -564,7 +571,13 @@ async function ask(req, res, user) {
   const capUsd = answerCapUsd({ deep, perAnswer: PER_ANSWER_BUDGET_USD, deepAnswer: DEEP_ANSWER_BUDGET_USD, monthly: MONTHLY_BUDGET_USD, spent, inFlight });
   let stopReason = null;
   let onStopSignal = () => {};
-  const run = { chatId: chat?.id ?? null, capUsd, stopPressed: () => { stopReason = "stop_pressed"; onStopSignal(); } };
+  let onDeleted = () => {};
+  const run = {
+    chatId: chat?.id ?? null, capUsd,
+    stopPressed: () => { stopReason = "stop_pressed"; onStopSignal(); },
+    // The chat was deleted mid-answer: abort the whole run (spend stops, nothing is saved).
+    chatDeleted: () => { stopReason = "chat_deleted"; onDeleted(); },
+  };
   activeRuns.set(requestId, run);
   try {
     if (!chat) chat = await store.createChat(user.email, user.tenantId);
@@ -596,11 +609,13 @@ async function ask(req, res, user) {
   const abort = new AbortController();
   // 'close' also fires after a normal res.end(); only a real disconnect aborts the SDK run.
   res.on("close", () => { if (!res.writableFinished) abort.abort(); });
+  onDeleted = () => abort.abort();
+  if (stopReason === "chat_deleted") abort.abort(); // deleted between lock and here
 
   const userMsg = { id: crypto.randomUUID(), role: "user", content: question, created_at: new Date().toISOString() };
   const t0 = Date.now();
   let started = false; // query() created: from here on spend is real even if no result arrives
-  let prompt = question.replace(/^deep:\s*/i, "");
+  let prompt = istNowNote() + "\n\n" + question.replace(/^deep:\s*/i, "");
   // Resumed chats can carry stale conclusions from when access was narrower
   // ("prices aren't readable"). A turn-level note beats the system prompt there.
   if (chat.session_id) {
@@ -651,7 +666,9 @@ async function ask(req, res, user) {
   let lastTurnText = "";
 
   try {
-    send({ type: "progress", phase: "planning", label: "Starting agent", request_id: requestId });
+    // conversation_id up front: a stream cut short (server restart, network) still leaves the
+    // panel on this chat, so asking again continues it instead of starting another.
+    send({ type: "progress", phase: "planning", label: "Starting agent", request_id: requestId, conversation_id: chat.id });
     metric.first_progress_ms = since();
     // Inside try so a store failure still releases the chat lease (finally).
     if (chat.title === "New chat") {
@@ -666,9 +683,7 @@ async function ask(req, res, user) {
     if (up.files.length) {
       // Persist file refs on the user turn so a reloaded chat can show them again.
       userMsg.files = up.files.map(({ id, name, type }) => ({ id, name, type }));
-      prompt +=
-        "\n\nThe user attached these files (open them with the Read tool; images and PDFs are supported):\n" +
-        up.files.map((f) => `- ${f.path} (${f.name}${f.type ? `, ${f.type}` : ""})`).join("\n");
+      prompt += attachmentPrompt(up.files, Array.isArray(body.attachments) ? body.attachments.length : up.files.length);
     }
     await store.addMessage(chat.id, userMsg);
     metric.question_chars = prompt.length;
@@ -689,6 +704,7 @@ async function ask(req, res, user) {
     const origSessionId = chat.session_id || null;
     const origPrevSessionCost = prevSessionCost;
     let failedAttemptCost = 0;
+    if (abort.signal.aborted) throw new Error("client_aborted"); // deleted/closed before Claude started
     for (let attempt = 0; ; attempt++) {
       const attemptAbort = new AbortController();
       const onAbort = () => attemptAbort.abort();
@@ -844,6 +860,9 @@ async function ask(req, res, user) {
       }
     }
     metric.cost_usd = combinedCost(metric.cost_usd, failedAttemptCost);
+    // Aborted (chat deleted mid-answer, tab closed) but the SDK loop ended without throwing:
+    // never save a summary into a deleted chat or present a cut-off run as an answer.
+    if (abort.signal.aborted) throw new Error("client_aborted");
     gate.end();
     filter("", true); // flush
     // Live tokens showed the whole run; the stored/final answer is only the
@@ -881,7 +900,8 @@ async function ask(req, res, user) {
     metric.error = abort.signal.aborted ? "client_aborted" : String(err?.message || err).slice(0, 300);
     console.error(`[ask] ${requestId} failed: ${metric.error}`);
     // Raw SDK/process errors stay in logs/metrics; the CEO sees plain wording.
-    if (!abort.signal.aborted) send({ type: "error", message: friendlyError(metric.error) });
+    if (stopReason === "chat_deleted") send({ type: "error", status: 410, message: friendlyError("chat_deleted") });
+    else if (!abort.signal.aborted) send({ type: "error", message: friendlyError(metric.error) });
   } finally {
     if (metric.total_ms === null) metric.total_ms = since();
     // No result message (client closed the tab, crash): the spend is unknown but real.
@@ -984,6 +1004,9 @@ async function route(req, res) {
         // Soft delete: hidden from the list, kept in storage for recovery.
         await store.updateChat(chat.id, { deleted_at: new Date().toISOString() });
         watches.stop(chat.id, "stopped"); // a deleted chat has no one to stream a watch to
+        // An answer still running in it (this or another tab) stops now: no more spend,
+        // and no answer saved into a chat the CEO just deleted.
+        for (const r of activeRuns.values()) if (r.chatId === chat.id) r.chatDeleted?.();
         return json(res, 200, { ok: true });
       }
     }

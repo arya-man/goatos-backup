@@ -257,3 +257,13 @@ test("runWatch: a bad tenant ends as data_error without querying", async () => {
   assert.equal(res.reason, "data_error");
   assert.ok(!h.sqls.some((s) => s.includes("herd_signal_tag_latest tl")));
 });
+
+test("parseWatchArgs: interval/minutes extremes and junk fall back safely", () => {
+  for (const v of ["abc", NaN, Infinity, undefined]) assert.equal(parseWatchArgs({ interval_s: v }).interval_s, 10);
+  assert.equal(parseWatchArgs({ interval_s: -5 }).interval_s, 5);
+  assert.equal(parseWatchArgs({ interval_s: 1e9 }).interval_s, 30);
+  assert.equal(parseWatchArgs({ interval_s: "12.6" }).interval_s, 13);
+  assert.equal(parseWatchArgs({ minutes: -1 }).minutes, 0);
+  assert.equal(parseWatchArgs({ minutes: 1e9 }).minutes, LIMITS.minutesMax);
+  assert.equal(parseWatchArgs({ minutes: "x" }).minutes, 5);
+});

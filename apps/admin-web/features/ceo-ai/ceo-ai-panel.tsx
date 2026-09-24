@@ -36,7 +36,11 @@ import {
   useRef,
   useState,
 } from "react";
-import { readCeoAiStream, sendCeoAiStopSignal, sendCeoAiWatchStop } from "@/lib/ceo-ai-stream";
+import {
+  readCeoAiStream,
+  sendCeoAiStopSignal,
+  sendCeoAiWatchStop,
+} from "@/lib/ceo-ai-stream";
 import { CeoAiWatchCard, mergeWatch } from "./ceo-ai-watch";
 import {
   createConversation,
@@ -47,11 +51,7 @@ import {
   renameConversation,
 } from "./ceo-ai-client";
 import { CeoAiChart } from "./ceo-ai-chart";
-import {
-  CeoAiStyles,
-  GoatAvatar,
-  MeshaLogo,
-} from "./ceo-ai-styles";
+import { CeoAiStyles, GoatAvatar, MeshaLogo } from "./ceo-ai-styles";
 import { CeoAiEvents, trackCeoAiError, trackCeoAiEvent } from "./telemetry";
 import type { AssistantCopy, ChatMessage, ConversationSummary } from "./types";
 
@@ -70,7 +70,14 @@ const CHROME = {
   stop: "Stop generating",
   degraded: "Assistant temporarily unavailable",
   stoppedEmpty: "_Stopped before an answer._",
-  cutOff: "The answer was cut off before it finished. Ask again to get the full answer.",
+  cutOff:
+    "The answer was cut off before it finished. Ask again to get the full answer.",
+  chatGone: "This chat no longer exists — starting a new one.",
+  tooManyFiles: "Up to 5 files per question — the extra files were not added.",
+  unsupportedFile: (names: string) =>
+    `${names} can't be read here. Attach a PDF, a PNG/JPEG screenshot or a CSV instead.`,
+  filesTooLarge:
+    "Those attachments are too large to send together (about 7 MB in total). Please attach fewer or smaller files.",
   timedOut:
     "That took too long to answer. The assistant may be busy — please try again.",
   rateLimited:
@@ -269,6 +276,20 @@ function speechRecognitionCtor():
   const w = window as unknown as Record<string, unknown>;
   return (w.SpeechRecognition ?? w.webkitSpeechRecognition) as
     (new () => SpeechRecognitionLike) | undefined;
+}
+
+const MAX_FILES = 5;
+// base64 grows ~4/3; the proxy/server cap is 10 MB of request, so ~7 MB of raw files.
+const MAX_ATTACH_TOTAL_BYTES = 7 * 1024 * 1024;
+// What the assistant can open: images, PDFs and plain text/CSV. Excel/Word/HEIC are refused
+// up front with a plain message instead of failing mid-answer.
+const READABLE_EXT = /\.(png|jpe?g|gif|webp|pdf|csv|tsv|txt|md|json)$/i;
+function isReadableAttachment(file: File): boolean {
+  const t = file.type.toLowerCase();
+  if (/^image\/(png|jpe?g|gif|webp)$/.test(t) || t === "application/pdf")
+    return true;
+  if (t.startsWith("text/") || t === "application/json") return true;
+  return !t && READABLE_EXT.test(file.name);
 }
 
 function fileToAttachment(
@@ -561,21 +582,35 @@ export function CeoAiPanel({
     rec.start();
   }, [input, listening]);
 
+  const [banner, setBanner] = useState<{
+    kind: "err" | "warn";
+    text: string;
+  } | null>(null);
   const addFiles = useCallback((list: FileList | null) => {
     if (!list) return;
-    const incoming = Array.from(list).slice(0, 5);
+    const all = Array.from(list);
+    // Say why a file didn't make it instead of dropping it silently.
+    const unsupported = all.filter((f) => !isReadableAttachment(f));
+    const incoming = all.filter(isReadableAttachment).slice(0, MAX_FILES);
+    const notes: string[] = [];
+    if (unsupported.length)
+      notes.push(
+        CHROME.unsupportedFile(unsupported.map((f) => f.name).join(", ")),
+      );
     void Promise.all(incoming.map((f) => shrinkImage(f).catch(() => f))).then(
       // request-plan:ignore owner=admin-web issue=CEO-AI-ATTACHMENT-CAP expires=2026-12-31 reason=incoming is sliced to the five visible attachment slots before fan-out
-      (shrunk) => setFiles((prev) => [...prev, ...shrunk].slice(0, 5)),
+      (shrunk) =>
+        setFiles((prev) => {
+          const next = [...prev, ...shrunk];
+          if (next.length > MAX_FILES) notes.push(CHROME.tooManyFiles);
+          if (notes.length) setBanner({ kind: "warn", text: notes.join(" ") });
+          return next.slice(0, MAX_FILES);
+        }),
     );
   }, []);
   const [dragging, setDragging] = useState(false);
   const [pending, setPending] = useState(false);
   const [showStarters, setShowStarters] = useState(true);
-  const [banner, setBanner] = useState<{
-    kind: "err" | "warn";
-    text: string;
-  } | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [renameText, setRenameText] = useState("");
 
@@ -670,7 +705,8 @@ export function CeoAiPanel({
   const runRequestIdRef = useRef<string | undefined>(undefined);
   const stopGenerating = useCallback(() => {
     const running = abortRef.current;
-    if (running && !running.signal.aborted) sendCeoAiStopSignal(runRequestIdRef.current);
+    if (running && !running.signal.aborted)
+      sendCeoAiStopSignal(runRequestIdRef.current);
     runRequestIdRef.current = undefined;
     typerRef.current?.cancel();
     typerRef.current = null;
@@ -691,244 +727,332 @@ export function CeoAiPanel({
 
   const ask = useCallback(
     async (raw: string, attached: File[] = []) => {
-      const typed = raw.trim();
-      if (!typed && !attached.length) return;
-      // Sending while an answer is running interrupts it, like ChatGPT/Claude.
-      if (abortRef.current) stopGenerating();
-      recognitionRef.current?.stop();
-      const question = typed || "Please look at the attached file(s).";
-      const boundedAttached = attached.slice(0, 5);
-      let attachments: Awaited<ReturnType<typeof fileToAttachment>>[] | undefined;
-      try {
-        attachments = boundedAttached.length
-          ? await Promise.all(boundedAttached.map(fileToAttachment)) // request-plan:ignore owner=admin-web issue=CEO-AI-ATTACHMENT-CAP expires=2026-12-31 reason=boundedAttached is capped to the five visible attachment slots before fan-out
-          : undefined;
-      } catch {
-        // Unreadable file (revoked/moved): keep the draft, tell the user.
-        setBanner({ kind: "err", text: "Couldn't read an attached file. Remove it and try again." });
-        return;
-      }
-      setFiles([]);
-      setInput("");
-      setBanner(null);
-      setPending(true);
-      setShowStarters(false);
-      trackCeoAiEvent(CeoAiEvents.Ask, { streaming: "true" });
+      // Returns true when the chat turned out to be gone (404), so the caller retries once
+      // in a brand-new chat (fresh).
+      const runOnce = async (fresh: boolean): Promise<boolean> => {
+        const typed = raw.trim();
+        if (!typed && !attached.length) return false;
+        // Sending while an answer is running interrupts it, like ChatGPT/Claude.
+        if (abortRef.current) stopGenerating();
+        recognitionRef.current?.stop();
+        const question = typed || "Please look at the attached file(s).";
+        const boundedAttached = attached.slice(0, MAX_FILES);
+        if (
+          boundedAttached.reduce((n, f) => n + f.size, 0) >
+          MAX_ATTACH_TOTAL_BYTES
+        ) {
+          setBanner({ kind: "warn", text: CHROME.filesTooLarge });
+          return false;
+        }
+        const askConversationId = fresh ? undefined : conversationId;
+        let attachments:
+          Awaited<ReturnType<typeof fileToAttachment>>[] | undefined;
+        try {
+          attachments = boundedAttached.length
+            ? await Promise.all(boundedAttached.map(fileToAttachment)) // request-plan:ignore owner=admin-web issue=CEO-AI-ATTACHMENT-CAP expires=2026-12-31 reason=boundedAttached is capped to the five visible attachment slots before fan-out
+            : undefined;
+        } catch {
+          // Unreadable file (revoked/moved): keep the draft, tell the user.
+          setBanner({
+            kind: "err",
+            text: "Couldn't read an attached file. Remove it and try again.",
+          });
+          return false;
+        }
+        setFiles([]);
+        setInput("");
+        if (!fresh) setBanner(null); // keep the "starting a new one" note on the automatic retry
+        setPending(true);
+        setShowStarters(false);
+        trackCeoAiEvent(CeoAiEvents.Ask, { streaming: "true" });
 
-      const assistantId = newId();
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: newId(),
-          role: "user",
-          text: question,
-          files: attached.length ? attached.map(toPreview) : undefined,
-          state: "complete",
-        },
-        {
-          id: assistantId,
-          role: "assistant",
-          text: "",
-          state: "streaming",
-          startedAt: Date.now(),
-        },
-      ]);
-
-      const controller = new AbortController();
-      abortRef.current = controller;
-      runRequestIdRef.current = undefined;
-      let errored = false;
-
-      const patch = (fields: Partial<ChatMessage>) =>
-        setMessages((prev) =>
-          prev.map((m) => (m.id === assistantId ? { ...m, ...fields } : m)),
-        );
-
-      try {
-        const typer = createTypewriter((shown) =>
-          setMessages((prev) =>
-            prev.map((m) =>
-              // First revealed text clears the coarse progress status.
-              m.id === assistantId
-                ? {
-                    ...m,
-                    text: shown,
-                    progress: shown ? undefined : m.progress,
-                  }
-                : m,
-            ),
-          ),
-        );
-        typerRef.current = typer;
-        const final = await readCeoAiStream(
+        const assistantId = newId();
+        setMessages((prev) => [
+          ...prev,
           {
-            question,
-            attachments,
-            conversationId,
-            pageScope: currentPageScope(question),
-            signal: controller.signal,
+            id: newId(),
+            role: "user",
+            text: question,
+            files: attached.length ? attached.map(toPreview) : undefined,
+            state: "complete",
           },
           {
-            onToken: (text) => typer.push(text),
-            onReset: () => typer.reset(),
-            // Live tag watch frames: keep updating even while the panel is minimized.
-            onWatch: (frame) =>
-              setMessages((prev) =>
-                prev.map((m) => (m.id === assistantId ? { ...m, watch: mergeWatch(m.watch, frame) } : m)),
-              ),
-            onProgress: (progress) => {
-              if (progress.requestId && abortRef.current === controller) runRequestIdRef.current = progress.requestId;
-              setMessages((prev) =>
-                prev.map((m) =>
-                  m.id === assistantId
-                    ? {
-                        ...m,
-                        progress: m.text
-                          ? m.progress
-                          : progressStatusLabel(progress),
-                        steps:
-                          progress.label &&
-                          progress.label !== "Starting agent" &&
-                          m.steps?.at(-1) !== progress.label
-                            ? [...(m.steps ?? []), progress.label]
-                            : m.steps,
-                      }
-                    : m,
-                ),
-              );
-            },
-            onError: (message, status) => {
-              errored = true;
-              if (status === 429) {
-                setBanner({ kind: "warn", text: CHROME.rateLimited });
-                patch({ text: CHROME.rateLimited, state: "error" });
-              } else if (status === 504) {
-                setBanner({ kind: "warn", text: CHROME.timedOut });
-                patch({
-                  text: CHROME.timedOut,
-                  state: "error",
-                  mode: "degraded",
-                });
-              } else if (status === 401) {
-                setBanner({ kind: "err", text: copy.unavailable });
-                patch({ text: copy.unavailable, state: "error" });
-              } else {
-                setBanner({ kind: "err", text: CHROME.degraded });
-                patch({
-                  text: message || CHROME.degraded,
-                  state: "error",
-                  mode: "degraded",
-                });
-              }
-              trackCeoAiError("ask", message, status);
-            },
+            id: assistantId,
+            role: "assistant",
+            text: "",
+            state: "streaming",
+            startedAt: Date.now(),
           },
-        );
+        ]);
 
-        // Let the typewriter finish revealing what already streamed before the
-        // final metadata lands, so the answer never jumps.
-        await typer.drain();
-        // Stopped (or interrupted by a newer question) while draining: keep
-        // what was shown; the catch-free path must not overwrite it.
-        if (controller.signal.aborted) {
+        const controller = new AbortController();
+        abortRef.current = controller;
+        runRequestIdRef.current = undefined;
+        let errored = false;
+        let gone = false; // 404: the chat was deleted/unknown; start a new one and ask again
+        // Put the question (and files) back so a refused send isn't lost.
+        const restoreDraft = () => {
+          setInput((prev) => prev || raw);
+          setFiles((prev) => (prev.length ? prev : attached));
+        };
+
+        const patch = (fields: Partial<ChatMessage>) =>
           setMessages((prev) =>
-            prev.map((m) =>
-              m.id === assistantId
-                ? {
-                    ...m,
-                    text: m.text || CHROME.stoppedEmpty,
-                    state: "complete",
-                    workedMs: m.startedAt ? Date.now() - m.startedAt : m.workedMs,
-                  }
-                : m,
-            ),
+            prev.map((m) => (m.id === assistantId ? { ...m, ...fields } : m)),
           );
-        } else if (!final && !errored) {
-          // Stream closed cleanly without a final event: never leave a
-          // perpetual caret/"Working…" behind.
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === assistantId
-                ? m.text
+
+        try {
+          const typer = createTypewriter((shown) =>
+            setMessages((prev) =>
+              prev.map((m) =>
+                // First revealed text clears the coarse progress status.
+                m.id === assistantId
                   ? {
                       ...m,
-                      // Say it was cut off rather than passing a partial answer off as whole.
-                      text: `${m.text}\n\n_${CHROME.cutOff}_`,
-                      state: "complete",
-                      workedMs: m.startedAt ? Date.now() - m.startedAt : m.workedMs,
+                      text: shown,
+                      progress: shown ? undefined : m.progress,
                     }
-                  : { ...m, text: CHROME.degraded, state: "error", mode: "degraded" }
-                : m,
+                  : m,
+              ),
             ),
           );
-        } else if (final) {
-          if (
-            final.conversation_id &&
-            final.conversation_id !== conversationId
-          ) {
-            setConversationId(final.conversation_id);
-            refreshThreads();
+          typerRef.current = typer;
+          const final = await readCeoAiStream(
+            {
+              question,
+              attachments,
+              conversationId: askConversationId,
+              pageScope: currentPageScope(question),
+              signal: controller.signal,
+            },
+            {
+              onToken: (text) => typer.push(text),
+              onReset: () => typer.reset(),
+              // Live tag watch frames: keep updating even while the panel is minimized.
+              onWatch: (frame) =>
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === assistantId
+                      ? { ...m, watch: mergeWatch(m.watch, frame) }
+                      : m,
+                  ),
+                ),
+              onProgress: (progress) => {
+                if (progress.requestId && abortRef.current === controller)
+                  runRequestIdRef.current = progress.requestId;
+                // Adopt the server's chat id right away: if the stream is cut short (server restart,
+                // network), asking again continues this chat instead of starting another one.
+                if (
+                  progress.conversationId &&
+                  abortRef.current === controller &&
+                  progress.conversationId !== askConversationId
+                ) {
+                  setConversationId(progress.conversationId);
+                  refreshThreads();
+                }
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === assistantId
+                      ? {
+                          ...m,
+                          progress: m.text
+                            ? m.progress
+                            : progressStatusLabel(progress),
+                          steps:
+                            progress.label &&
+                            progress.label !== "Starting agent" &&
+                            m.steps?.at(-1) !== progress.label
+                              ? [...(m.steps ?? []), progress.label]
+                              : m.steps,
+                        }
+                      : m,
+                  ),
+                );
+              },
+              onError: (message, status) => {
+                errored = true;
+                if (status === 404 && !fresh) {
+                  gone = true;
+                  return;
+                }
+                if (status === 409 || status === 413) {
+                  // Busy (another tab is still answering in this chat) / too large: plain
+                  // message, and the draft comes back so nothing typed is lost.
+                  setBanner({ kind: "warn", text: message });
+                  patch({ text: message, state: "error" });
+                  restoreDraft();
+                } else if (status === 410) {
+                  // This chat was deleted (here or in another tab) while answering.
+                  patch({ text: message, state: "error" });
+                } else if (status === 429) {
+                  setBanner({ kind: "warn", text: CHROME.rateLimited });
+                  patch({ text: CHROME.rateLimited, state: "error" });
+                } else if (status === 504) {
+                  setBanner({ kind: "warn", text: CHROME.timedOut });
+                  patch({
+                    text: CHROME.timedOut,
+                    state: "error",
+                    mode: "degraded",
+                  });
+                } else if (status === 401) {
+                  setBanner({ kind: "err", text: copy.unavailable });
+                  patch({ text: copy.unavailable, state: "error" });
+                } else {
+                  setBanner({ kind: "err", text: CHROME.degraded });
+                  patch({
+                    text: message || CHROME.degraded,
+                    state: "error",
+                    mode: "degraded",
+                  });
+                }
+                trackCeoAiError("ask", message, status);
+              },
+            },
+          );
+
+          // Let the typewriter finish revealing what already streamed before the
+          // final metadata lands, so the answer never jumps.
+          await typer.drain();
+          // Stopped (or interrupted by a newer question) while draining: keep
+          // what was shown; the catch-free path must not overwrite it.
+          if (controller.signal.aborted) {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantId
+                  ? {
+                      ...m,
+                      text: m.text || CHROME.stoppedEmpty,
+                      state: "complete",
+                      workedMs: m.startedAt
+                        ? Date.now() - m.startedAt
+                        : m.workedMs,
+                    }
+                  : m,
+              ),
+            );
+          } else if (!final && !errored) {
+            // Stream closed cleanly without a final event: never leave a
+            // perpetual caret/"Working…" behind.
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantId
+                  ? m.text
+                    ? {
+                        ...m,
+                        // Say it was cut off rather than passing a partial answer off as whole.
+                        text: `${m.text}\n\n_${CHROME.cutOff}_`,
+                        state: "complete",
+                        workedMs: m.startedAt
+                          ? Date.now() - m.startedAt
+                          : m.workedMs,
+                      }
+                    : {
+                        ...m,
+                        text: CHROME.degraded,
+                        state: "error",
+                        mode: "degraded",
+                      }
+                  : m,
+              ),
+            );
+          } else if (final) {
+            if (
+              final.conversation_id &&
+              final.conversation_id !== askConversationId
+            ) {
+              setConversationId(final.conversation_id);
+              refreshThreads();
+            }
+            const answer = final.answer || copy.noAnswer;
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantId && m.startedAt
+                  ? { ...m, workedMs: Date.now() - m.startedAt }
+                  : m,
+              ),
+            );
+            patch({
+              text: typer.shown() === answer.trim() ? typer.shown() : answer,
+              state: "complete",
+              source: final.source ?? copy.sourceFallback,
+              mode: final.mode,
+              requestId: final.request_id,
+              messageId: final.message_id,
+              citations: final.citations,
+              chart: final.chart,
+            });
+            trackCeoAiEvent(CeoAiEvents.Answer, {
+              mode: final.mode ?? "unknown",
+              grounded: final.citations?.length ? "true" : "false",
+            });
           }
-          const answer = final.answer || copy.noAnswer;
+        } catch (error: unknown) {
+          if (controller.signal.aborted) {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantId
+                  ? {
+                      ...m,
+                      text: m.text || CHROME.stoppedEmpty,
+                      state: "complete",
+                      workedMs: m.startedAt
+                        ? Date.now() - m.startedAt
+                        : m.workedMs,
+                    }
+                  : m,
+              ),
+            );
+          } else {
+            const message =
+              error instanceof Error ? error.message : "assistant_error";
+            setBanner({ kind: "err", text: CHROME.degraded });
+            // Connection dropped mid-answer (server restart, network): keep what was shown
+            // and say it was cut off; the chat id was adopted, so asking again continues it.
+            const shown = typerRef.current?.shown() ?? "";
+            typerRef.current?.cancel();
+            patch(
+              shown
+                ? { text: `${shown}\n\n_${CHROME.cutOff}_`, state: "complete" }
+                : { text: CHROME.degraded, state: "error", mode: "degraded" },
+            );
+            trackCeoAiError("ask_throw", message);
+          }
+        } finally {
+          // A watch cut off with the stream (Stop, network) must not keep counting down.
           setMessages((prev) =>
             prev.map((m) =>
-              m.id === assistantId && m.startedAt
-                ? { ...m, workedMs: Date.now() - m.startedAt }
-                : m,
-            ),
-          );
-          patch({
-            text: typer.shown() === answer.trim() ? typer.shown() : answer,
-            state: "complete",
-            source: final.source ?? copy.sourceFallback,
-            mode: final.mode,
-            requestId: final.request_id,
-            messageId: final.message_id,
-            citations: final.citations,
-            chart: final.chart,
-          });
-          trackCeoAiEvent(CeoAiEvents.Answer, {
-            mode: final.mode ?? "unknown",
-            grounded: final.citations?.length ? "true" : "false",
-          });
-        }
-      } catch (error: unknown) {
-        if (controller.signal.aborted) {
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === assistantId
+              m.id === assistantId && m.watch && !m.watch.ended
                 ? {
                     ...m,
-                    text: m.text || CHROME.stoppedEmpty,
-                    state: "complete",
-                    workedMs: m.startedAt ? Date.now() - m.startedAt : m.workedMs,
+                    watch: {
+                      ...m.watch,
+                      ended: true,
+                      reason: m.watch.reason ?? "stopped",
+                    },
                   }
                 : m,
             ),
           );
-        } else {
-          const message =
-            error instanceof Error ? error.message : "assistant_error";
-          setBanner({ kind: "err", text: CHROME.degraded });
-          patch({ text: CHROME.degraded, state: "error", mode: "degraded" });
-          trackCeoAiError("ask_throw", message);
+          // An interrupted run must not clear the NEWER run's controller/pending.
+          if (abortRef.current === controller) {
+            abortRef.current = null;
+            typerRef.current = null;
+            setPending(false);
+          }
         }
-      } finally {
-        // A watch cut off with the stream (Stop, network) must not keep counting down.
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === assistantId && m.watch && !m.watch.ended
-              ? { ...m, watch: { ...m.watch, ended: true, reason: m.watch.reason ?? "stopped" } }
-              : m,
-          ),
-        );
-        // An interrupted run must not clear the NEWER run's controller/pending.
-        if (abortRef.current === controller) {
-          abortRef.current = null;
-          typerRef.current = null;
-          setPending(false);
+        // The chat was deleted (another tab) or no longer exists: never leave the CEO stuck on
+        // it. Say so, start a new chat and ask the same question there, once.
+        if (gone && !controller.signal.aborted) {
+          trackCeoAiError("ask", "conversation_not_found", 404);
+          setMessages([]);
+          setConversationId(undefined);
+          setBanner({ kind: "warn", text: CHROME.chatGone });
+          refreshThreads();
+          return true;
         }
-      }
+        return false;
+      };
+      if (await runOnce(false)) await runOnce(true);
     },
     [conversationId, copy, refreshThreads, stopGenerating],
   );
@@ -1190,7 +1314,9 @@ export function CeoAiPanel({
                       className={`mzai-thread${thread.id === conversationId ? " mzai-on" : ""}${confirmDelete === thread.id ? " mzai-confirming" : ""}`}
                       role="button"
                       tabIndex={0}
-                      aria-current={thread.id === conversationId ? "true" : undefined}
+                      aria-current={
+                        thread.id === conversationId ? "true" : undefined
+                      }
                       onClick={() =>
                         confirmDelete !== thread.id &&
                         renaming !== thread.id &&
@@ -1322,7 +1448,8 @@ export function CeoAiPanel({
                           watch={message.watch}
                           onStop={
                             message.state === "streaming"
-                              ? () => sendCeoAiWatchStop(runRequestIdRef.current)
+                              ? () =>
+                                  sendCeoAiWatchStop(runRequestIdRef.current)
                               : undefined
                           }
                         />
@@ -1375,7 +1502,11 @@ export function CeoAiPanel({
                       !message.text &&
                       !message.steps?.length ? (
                         <div className="mzai-progress">
-                          <div className="mzai-skel" role="status" aria-label={copy.checking}>
+                          <div
+                            className="mzai-skel"
+                            role="status"
+                            aria-label={copy.checking}
+                          >
                             <span />
                             <span />
                             <span />
@@ -1485,7 +1616,7 @@ export function CeoAiPanel({
                   type="file"
                   multiple
                   hidden
-                  accept="image/*,application/pdf,.csv,.xlsx,.xls,.txt,.md,.json"
+                  accept="image/png,image/jpeg,image/gif,image/webp,application/pdf,.csv,.tsv,.txt,.md,.json"
                   onChange={(e) => {
                     addFiles(e.target.files);
                     e.target.value = "";
