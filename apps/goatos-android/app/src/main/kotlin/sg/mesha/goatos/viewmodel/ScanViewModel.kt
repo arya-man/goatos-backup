@@ -1090,6 +1090,32 @@ class ScanViewModel @Inject constructor(
             // are not part of the active execution roster.
             val activeProofPolicy = proofPolicy.value ?: ProofPolicy.Default
             val sameGoatRows = repo.assignmentScanRosterRowsByGoatIds(id, taskId, assignmentId, listOf(dbRow.goatId), partitionLabel, dateScope = rosterDateScope)
+            // Defence in depth: a row whose batch has no SOP task yet has nowhere to write its scan
+            // or proof. Refuse THIS animal visibly instead of queueing a write that can never sync;
+            // every other animal on the card stays workable.
+            val goatWorkRows = sameGoatRows.filter { it.status.isCurrentScannableObligationStatus() }.ifEmpty { listOf(dbRow) }
+            if (goatWorkRows.any { writableTaskId(it.taskId) == null }) {
+                _proofReplacementGoatId.value = null
+                _duplicateNotice.value = null
+                _proofCaptureBusyNotice.value = false
+                _scanErrorNotice.value = ScanError(message = TASKLESS_ANIMAL_MESSAGE, tag = tag)
+                analytics.track(
+                    AnalyticsEvents.VACCINATION_SCAN_REJECTED,
+                    mapOf(
+                        AnalyticsEvents.Params.RFID to tag,
+                        AnalyticsEvents.Params.GOAT_ID to dbRow.goatId,
+                        AnalyticsEvents.Params.OUTCOME to "rejected",
+                        AnalyticsEvents.Params.REASON to "batch_has_no_task",
+                    ),
+                )
+                _feed.update {
+                    prependFeed(
+                        ScanFeedEntry(tag, null, TASKLESS_ANIMAL_MESSAGE, ScanStatus.SKIPPED, scanTimeLabel(capturedAtMs)),
+                        it,
+                    )
+                }
+                return@launch
+            }
             val scannableSameGoatRows = sameGoatRows
                 .filter { it.status.isCurrentScannableObligationStatus() }
             if (scannableSameGoatRows.isEmpty()) {
@@ -1330,7 +1356,7 @@ class ScanViewModel @Inject constructor(
             .map { ScanSyncTarget(it.goatId, it.taskId, it.obligationId, it.obligationRowVersion) }
             .ifEmpty { listOf(ScanSyncTarget(row.goatId, row.executionTaskId, row.obligationId, row.obligationRowVersion)) }
         rowsToSync.forEach { target ->
-            val selectedTaskId = target.taskId.takeIf { it.isNotBlank() } ?: taskId ?: return@forEach
+            val selectedTaskId = writableTaskId(target.taskId) ?: return@forEach
             try {
                 scanCaptureRepository.recordScan(
                     taskId = selectedTaskId,
@@ -1363,6 +1389,14 @@ class ScanViewModel @Inject constructor(
         }
     }
 
+    /** The task a roster row's writes (RFID capture, scan attempt, proof) go to: the row's own task,
+     *  else the route task. Never blank and never the "shed-wide" roster placeholder -- the server
+     *  has no such task, so a write queued under it is silently lost on restart. */
+    private fun writableTaskId(rowTaskId: String?): String? =
+        rowTaskId?.takeIf { it.isWritableTaskId() } ?: taskId?.takeIf { it.isWritableTaskId() }
+
+    private fun String.isWritableTaskId(): Boolean = isNotBlank() && this != "shed-wide"
+
     private fun recordScanAttempt(
         tag: String,
         row: RosterRow?,
@@ -1371,7 +1405,7 @@ class ScanViewModel @Inject constructor(
         reason: String?,
         capturedAtMs: Long? = null,
     ) {
-        val selectedTaskId = row?.executionTaskId?.takeIf { it.isNotBlank() } ?: taskId ?: return
+        val selectedTaskId = writableTaskId(row?.executionTaskId) ?: return
         val capturedTag = tag.ifBlank { row?.primaryTag.orEmpty() }
         if (normalize(capturedTag).isEmpty()) return
         analytics.track(
@@ -1956,7 +1990,7 @@ class ScanViewModel @Inject constructor(
      *  restarting a capture already in progress for the same animal has no benefit and would just
      *  reopen the same camera on itself. */
     private fun requestGoatProof(row: RosterRow, pendingScanCommit: PendingScanCommit? = null) {
-        val selectedTaskId = row.executionTaskId.takeIf { it.isNotBlank() } ?: taskId ?: return
+        val selectedTaskId = writableTaskId(row.executionTaskId) ?: return
         val policy = proofPolicy.value ?: ProofPolicy.Default
         if (!policy.isPerGoatVideo || _operatorAllowed.value != true || row.goatId.isBlank()) return
 
@@ -2649,6 +2683,7 @@ private fun gcsSignedUrlStartSeconds(raw: String): Long? =
     }.getOrNull()
 
 private const val VACCINE_LABEL_SEPARATOR = " · "
+internal const val TASKLESS_ANIMAL_MESSAGE = "This animal's batch has no task yet · refresh or ask the supervisor"
 private const val SCAN_PAGE_SIZE = 20
 private const val MAX_SCAN_FEED_ENTRIES = 100
 private const val READER_REFRESH_MS = 1_000L
