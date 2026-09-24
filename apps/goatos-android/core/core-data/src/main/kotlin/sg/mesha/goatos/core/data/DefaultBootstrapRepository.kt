@@ -63,9 +63,9 @@ class DefaultBootstrapRepository(
             // 1.0.40 a slow heartbeat during a network blip delayed Ready by a whole call timeout.
             val scope = deviceReconcileScope
             if (scope != null) {
-                scope.launch { reconcileDevice(dto) }
+                scope.launch { reconcileDevice(dto, deviceId) }
             } else {
-                withTimeoutOrNull(DEVICE_RECONCILE_BUDGET_MS) { reconcileDevice(dto) }
+                withTimeoutOrNull(DEVICE_RECONCILE_BUDGET_MS) { reconcileDevice(dto, deviceId) }
             }
             dto.toNavState()
         } catch (t: Throwable) {
@@ -110,9 +110,11 @@ class DefaultBootstrapRepository(
         )?.feedWaterRemovalCutoffTime?.ifBlank { null }
 
     /** Remember a known device id, or register this install when the backend needs it. */
-    private suspend fun reconcileDevice(dto: BootstrapDto) = reconcileMutex.withLock { reconcileDeviceLocked(dto) }
+    /** [idSentToServer] is the id this bootstrap asked about, read BEFORE the request. */
+    private suspend fun reconcileDevice(dto: BootstrapDto, idSentToServer: String?) =
+        reconcileMutex.withLock { reconcileDeviceLocked(dto, idSentToServer) }
 
-    private suspend fun reconcileDeviceLocked(dto: BootstrapDto) {
+    private suspend fun reconcileDeviceLocked(dto: BootstrapDto, idSentToServer: String?) {
         val store = deviceStore ?: return
         if (!dto.deviceState.required) return
 
@@ -141,9 +143,11 @@ class DefaultBootstrapRepository(
         // Not registered yet — register this install. Best-effort: a failure here must not
         // fail the whole bootstrap (nav still renders), so it is swallowed and the next
         // launch retries.
-        // A concurrent bootstrap (queued on the mutex) may have registered this install already;
-        // its dto predates that, so trust the store rather than registering a second time.
-        if (!store.deviceId().isNullOrBlank()) return
+        // Skip only when a concurrent bootstrap registered this install WHILE we waited for the
+        // lock (the stored id changed since this request was sent). A stale id that the server just
+        // said it does not know is exactly the case that MUST re-register.
+        val storedNow = store.deviceId()
+        if (!storedNow.isNullOrBlank() && storedNow != idSentToServer) return
         // exception:exempt best-effort device registration; the next bootstrap retries it
         runCatching {
             val response = api.registerDevice(
