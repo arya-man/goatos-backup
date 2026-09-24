@@ -88,6 +88,7 @@ data class VaccineGroupSummaryDto(
     @SerialName("label") val label: String = "",
     @SerialName("countLabel") val countLabel: String = "",
     @SerialName("full") val full: Boolean = false,
+    @SerialName("doseCount") val doseCount: Int? = null,
 )
 
 @Serializable
@@ -98,6 +99,20 @@ data class ExecutionRosterMembershipDto(
     @SerialName("taskId") val taskId: String? = null,
     @SerialName("plannedDate") val plannedDate: String = "",
     @SerialName("includeWhenOverdue") val includeWhenOverdue: Boolean = false,
+    // Null identifies older servers without complete source task identities.
+    @SerialName("taskIds") val taskIds: List<String>? = null,
+)
+
+@Serializable
+data class OperatorDaySummaryDto(
+    @SerialName("businessDate") val businessDate: String = "",
+    @SerialName("status") val status: String = "due",
+    @SerialName("doneCount") val doneCount: Int = 0,
+    @SerialName("targetCount") val targetCount: Int = 0,
+    @SerialName("openCount") val openCount: Int = 0,
+    @SerialName("acceptedCount") val acceptedCount: Int = 0,
+    @SerialName("needsRedo") val needsRedo: Boolean = false,
+    @SerialName("vaccineGroups") val vaccineGroups: List<VaccineGroupSummaryDto> = emptyList(),
 )
 
 @Serializable
@@ -118,6 +133,7 @@ data class ShedCardSummaryDto(
     @SerialName("openCount") val openCount: Int = 0,
     @SerialName("needsRedo") val needsRedo: Boolean = false,
     @SerialName("vaccineGroups") val vaccineGroups: List<VaccineGroupSummaryDto> = emptyList(),
+    @SerialName("operatorDaySummaries") val operatorDaySummaries: List<OperatorDaySummaryDto>? = null,
 )
 
 @Serializable

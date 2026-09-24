@@ -14440,12 +14440,18 @@ export interface components {
             };
         };
         VaccineGroupSummary: {
+            /** @description Number of vaccine doses, additive across dated memberships. */
+            doseCount?: number;
+            /** @description Display text for the dose count. */
+            countLabel?: string;
             /** @description Display label for the vaccine group */
             label: string;
             /** @description True if all animals done and none pending redo */
             full: boolean;
         };
         ExecutionRosterMembership: {
+            /** @description Complete source task identities for this dated operational assignment, independent of row pagination. */
+            taskIds?: string[];
             /** Format: uuid */
             assignmentId?: string | null;
             /** Format: uuid */
@@ -14459,7 +14465,21 @@ export interface components {
             /** @description Whether this dated membership remains on today's operator card after its planned date. */
             includeWhenOverdue: boolean;
         };
+        OperatorDaySummary: {
+            /** Format: date */
+            businessDate: string;
+            status: string;
+            /** @description Distinct animals across the exact dated memberships opened by this operator-day card. */
+            targetCount: number;
+            doneCount: number;
+            openCount: number;
+            acceptedCount: number;
+            needsRedo: boolean;
+            vaccineGroups: components["schemas"]["VaccineGroupSummary"][];
+        };
         ShedCardSummary: {
+            /** @description Unique-animal counts by selected business date. Stored once on the first summary entry per normalized shed and partition. The as-of business date includes eligible overdue memberships; other dates include only exact-date memberships. */
+            operatorDaySummaries?: components["schemas"]["OperatorDaySummary"][];
             /** @description Complete dated membership from the full filtered card, independent of execution-list pagination. */
             rosterMemberships?: components["schemas"]["ExecutionRosterMembership"][];
             /** Format: uuid */

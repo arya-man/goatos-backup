@@ -31,6 +31,7 @@ import sg.mesha.goatos.core.data.cache.StatusCount
 import sg.mesha.goatos.core.network.BootstrapOperatorProfileDto
 import sg.mesha.goatos.core.network.dto.ExecutionFilterOptionsDto
 import sg.mesha.goatos.core.network.dto.ExecutionParkOptionDto
+import sg.mesha.goatos.core.network.dto.OperatorDaySummaryDto
 import sg.mesha.goatos.core.network.dto.ShedCardSummaryDto
 import sg.mesha.goatos.core.network.dto.VaccineGroupSummaryDto
 import sg.mesha.goatos.core.model.nav.NavState
@@ -141,6 +142,214 @@ class ShedsViewModelTest {
         assertEquals(null, row.taskId)
         assertEquals(null, row.assignmentId)
         assertEquals(setOf("a", "b"), sg.mesha.goatos.core.data.decodeScanRosterSelectors(row.rosterSelectors).map { it.assignmentId }.toSet())
+    }
+
+    @Test
+    fun `one assignment spanning off page tasks opens the combined submit flow`() = runTest(dispatcher) {
+        val today = LocalDate.now().toString()
+        val repo = FakeShedsPinVmExecutionRepository(VaccinationExecutionResponseDto(
+            rows = listOf(VaccinationExecutionRowDto(shedId = "shed-a", partitionLabel = "3", dueDate = today,
+                assignmentId = "assignment-a", batchId = "batch-a", sopTaskId = "task-a", openCount = 1, targetCount = 1)),
+            nextCursor = "page-2",
+            cardSummaries = mapOf("shed:shed-a|partition:3|assignment:assignment-a" to ShedCardSummaryDto(
+                shedId = "shed-a", partitionLabel = "3", targetCount = 2, openCount = 2,
+                rosterMemberships = listOf(sg.mesha.goatos.core.network.dto.ExecutionRosterMembershipDto(
+                    assignmentId = "assignment-a", batchId = "batch-a", taskId = "task-a",
+                    taskIds = listOf("task-a", "task-b"), plannedDate = today)),
+                operatorDaySummaries = listOf(OperatorDaySummaryDto(businessDate = today, targetCount = 2, openCount = 2)))),
+        ))
+        val vm = ShedsViewModel(repo = repo, crashReporter = NoopCrashReporter(), analytics = NoopAnalytics(),
+            bootstrapRepository = FakeShedsRoleBootstrapRepository(role = "operator"), savedStateHandle = SavedStateHandle())
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+        val card = vm.state.value.rows.single()
+        assertTrue(card.canOpen)
+        assertEquals(1, sg.mesha.goatos.core.data.decodeScanRosterSelectors(card.rosterSelectors).size)
+        assertNull("every task must submit even when only task A's list row is loaded", card.taskId)
+        assertNull(card.sopVersionId)
+        assertNull(card.taskRowVersion)
+    }
+
+    @Test
+    fun `merged card counts and status include off page open assignment`() = runTest(dispatcher) {
+        val today = LocalDate.now().toString()
+        fun summary(id: String, done: Boolean) = ShedCardSummaryDto(
+            shedId = "shed-a", partitionLabel = "3", assignmentId = id,
+            targetCount = 1, doneCount = if (done) 1 else 0, openCount = if (done) 0 else 1,
+            status = if (done) "completed" else "due",
+            rosterMemberships = listOf(sg.mesha.goatos.core.network.dto.ExecutionRosterMembershipDto(
+                assignmentId = id, batchId = "batch-$id", taskId = "task-$id", taskIds = listOf("task-$id"),
+                plannedDate = today, recordOnly = done)),
+            // A single summary in the pen carries the whole operator-day aggregate.
+            operatorDaySummaries = if (id == "b") listOf(OperatorDaySummaryDto(
+                businessDate = today, targetCount = 2, doneCount = 1, openCount = 1, acceptedCount = 1,
+                vaccineGroups = listOf(VaccineGroupSummaryDto(label = "ET+TT", doseCount = 2, countLabel = "2 doses")))) else null,
+        )
+        val repo = FakeShedsPinVmExecutionRepository(VaccinationExecutionResponseDto(
+            rows = listOf(VaccinationExecutionRowDto(shedId = "shed-a", partitionLabel = "3", dueDate = today,
+                assignmentId = "a", batchId = "batch-a", sopTaskId = "task-a", targetCount = 1, doneCount = 1,
+                workState = "completed", sopStatus = "submitted", operatorCanContinue = false)),
+            nextCursor = "page-2",
+            cardSummaries = mapOf("shed:shed-a|partition:3|assignment:a" to summary("a", true),
+                "shed:shed-a|partition:3|assignment:b" to summary("b", false)),
+        ))
+        val vm = ShedsViewModel(repo = repo, crashReporter = NoopCrashReporter(), analytics = NoopAnalytics(),
+            bootstrapRepository = FakeShedsRoleBootstrapRepository(role = "operator"), savedStateHandle = SavedStateHandle())
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+        val card = vm.state.value.rows.single()
+        assertEquals("2", card.inShed)
+        assertEquals("1", card.done)
+        assertEquals("1", card.due)
+        assertEquals(ShedStatus.PENDING, card.status)
+        assertFalse(card.opensRecordOnly)
+        assertEquals("2 doses", card.vaccineGroups.single().countLabel)
+        assertFalse(card.vaccineGroups.single().full)
+    }
+
+    @Test
+    fun `dated member totals exclude future closed overdue and other pens`() = runTest(dispatcher) {
+        val today = LocalDate.now()
+        fun member(id: String, date: LocalDate, overdue: Boolean) =
+            sg.mesha.goatos.core.network.dto.ExecutionRosterMembershipDto(
+                assignmentId = id, taskId = "task-$id", taskIds = listOf("task-$id"), plannedDate = date.toString(),
+                includeWhenOverdue = overdue)
+        val selected = listOf(member("today", today, true), member("overdue", today.minusDays(1), true),
+            member("closed", today.minusDays(1), false), member("future", today.plusDays(1), true))
+        val repo = FakeShedsPinVmExecutionRepository(VaccinationExecutionResponseDto(
+            rows = listOf(VaccinationExecutionRowDto(shedId = "shed-a", partitionLabel = "3", dueDate = today.toString(),
+                assignmentId = "today", targetCount = 2, openCount = 2)), nextCursor = "page-2",
+            cardSummaries = mapOf("dated" to ShedCardSummaryDto(shedId = "shed-a", partitionLabel = "3",
+                targetCount = 95, openCount = 95, rosterMemberships = selected,
+                operatorDaySummaries = listOf(
+                    OperatorDaySummaryDto(businessDate = today.toString(), targetCount = 5, openCount = 5),
+                    OperatorDaySummaryDto(businessDate = today.plusDays(1).toString(), targetCount = 50, openCount = 50))),
+                "other" to ShedCardSummaryDto(shedId = "shed-a", partitionLabel = "4",
+                    rosterMemberships = listOf(member("other", today, true)),
+                    operatorDaySummaries = listOf(OperatorDaySummaryDto(businessDate = today.toString(), targetCount = 100, openCount = 100)))),
+        ))
+        val vm = ShedsViewModel(repo = repo, crashReporter = NoopCrashReporter(), analytics = NoopAnalytics(),
+            bootstrapRepository = FakeShedsRoleBootstrapRepository(role = "operator"), savedStateHandle = SavedStateHandle())
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+        assertEquals("5", vm.state.value.rows.single().inShed)
+        assertEquals("5", vm.state.value.rows.single().due)
+        assertEquals(setOf("today", "overdue"), sg.mesha.goatos.core.data.decodeScanRosterSelectors(vm.state.value.rows.single().rosterSelectors).map { it.assignmentId }.toSet())
+    }
+
+    @Test
+    fun `shared animal across assignments uses backend unique totals and pending status`() = runTest(dispatcher) {
+        val today = LocalDate.now().toString()
+        val member = sg.mesha.goatos.core.network.dto.ExecutionRosterMembershipDto(
+            assignmentId = "a", taskIds = listOf("task-a"), plannedDate = today, recordOnly = true)
+        val repo = FakeShedsPinVmExecutionRepository(VaccinationExecutionResponseDto(
+            rows = listOf(VaccinationExecutionRowDto(shedId = "shed-a", partitionLabel = "3", dueDate = today,
+                assignmentId = "a", sopTaskId = "task-a", targetCount = 1, doneCount = 1, acceptedCount = 1,
+                workState = "completed", sopStatus = "submitted", operatorCanContinue = false)), nextCursor = "page-2",
+            cardSummaries = mapOf("a" to ShedCardSummaryDto(shedId = "shed-a", partitionLabel = "3",
+                targetCount = 1, doneCount = 1, status = "completed", rosterMemberships = listOf(member)),
+                "b" to ShedCardSummaryDto(shedId = "shed-a", partitionLabel = "Part 3", targetCount = 1, openCount = 1,
+                    rosterMemberships = listOf(member.copy(assignmentId = "b", taskIds = listOf("task-b"), recordOnly = false)),
+                    operatorDaySummaries = listOf(OperatorDaySummaryDto(businessDate = today,
+                        targetCount = 1, openCount = 1, doneCount = 0, acceptedCount = 0,
+                        vaccineGroups = listOf(VaccineGroupSummaryDto(label = "ET+TT", doseCount = 2, countLabel = "2 doses")))))),
+        ))
+        val vm = ShedsViewModel(repo = repo, crashReporter = NoopCrashReporter(), analytics = NoopAnalytics(),
+            bootstrapRepository = FakeShedsRoleBootstrapRepository(role = "operator"), savedStateHandle = SavedStateHandle())
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+        val card = vm.state.value.rows.single()
+        assertEquals("1", card.inShed)
+        assertEquals("1", card.due)
+        assertEquals("0", card.done)
+        assertEquals("0", card.accepted)
+        assertEquals(0, vm.state.value.adherence?.acceptedCount)
+        assertEquals(ShedStatus.PENDING, card.status)
+        assertEquals(0f, card.progressFraction, 0f)
+        assertNull(card.taskId)
+        assertFalse(card.opensRecordOnly)
+    }
+
+    @Test
+    fun `older membership cache keeps full roster but waits for authoritative totals`() = runTest(dispatcher) {
+        val today = LocalDate.now().toString()
+        val repo = FakeShedsPinVmExecutionRepository(VaccinationExecutionResponseDto(
+            rows = listOf(VaccinationExecutionRowDto(shedId = "shed-a", dueDate = today,
+                assignmentId = "a", sopTaskId = "task-a", targetCount = 1, doneCount = 1,
+                workState = "completed")), nextCursor = "page-2",
+            cardSummaries = mapOf("a" to ShedCardSummaryDto(shedId = "shed-a", targetCount = 1, doneCount = 1,
+                rosterMemberships = listOf(sg.mesha.goatos.core.network.dto.ExecutionRosterMembershipDto(
+                    assignmentId = "a", taskId = "task-a", plannedDate = today, recordOnly = true)))),
+        ))
+        val vm = ShedsViewModel(repo = repo, crashReporter = NoopCrashReporter(), analytics = NoopAnalytics(),
+            bootstrapRepository = FakeShedsRoleBootstrapRepository(role = "operator"), savedStateHandle = SavedStateHandle())
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+        val card = vm.state.value.rows.single()
+        assertTrue(card.canOpen)
+        assertNull(card.taskId)
+        assertFalse(card.opensRecordOnly)
+        assertEquals("Sync to update totals", card.statusLabel)
+        assertEquals("—", card.inShed)
+        assertEquals("—", card.done)
+        assertEquals("—", card.accepted)
+        assertEquals(ShedStatus.PENDING, card.status)
+        assertTrue(card.vaccineGroups.isEmpty())
+    }
+
+    @Test
+    fun `authoritative overdue membership stays visible despite completed or future representative`() = runTest(dispatcher) {
+        val today = LocalDate.now()
+        for (representativeDay in listOf(today.minusDays(1), today.plusDays(1))) {
+            val repo = FakeShedsPinVmExecutionRepository(VaccinationExecutionResponseDto(
+                rows = listOf(VaccinationExecutionRowDto(shedId = "shed-a", partitionLabel = "3",
+                    dueDate = representativeDay.toString(), assignmentId = "a", sopTaskId = "task-a",
+                    targetCount = 1, doneCount = 1, workState = "completed", sopStatus = "accepted",
+                    operatorCanContinue = false)), nextCursor = "page-2",
+                cardSummaries = mapOf("a" to ShedCardSummaryDto(shedId = "shed-a", partitionLabel = "Part 3",
+                    rosterMemberships = listOf(sg.mesha.goatos.core.network.dto.ExecutionRosterMembershipDto(
+                        assignmentId = "b", taskIds = if (representativeDay.isAfter(today)) emptyList() else listOf("task-b"),
+                        plannedDate = today.minusDays(1).toString(),
+                        includeWhenOverdue = true)),
+                    operatorDaySummaries = listOf(OperatorDaySummaryDto(businessDate = today.toString(),
+                        targetCount = 1, openCount = 1, status = "overdue")))),
+            ))
+            val vm = ShedsViewModel(repo = repo, crashReporter = NoopCrashReporter(), analytics = NoopAnalytics(),
+                bootstrapRepository = FakeShedsRoleBootstrapRepository(role = "operator"), savedStateHandle = SavedStateHandle())
+            backgroundScope.launch { vm.state.collect {} }
+            advanceUntilIdle()
+            val card = vm.state.value.rows.single()
+            assertTrue(card.canOpen)
+            assertEquals(ShedStatus.DELAYED, card.status)
+            assertEquals("1", card.due)
+            assertNull(card.taskId)
+            assertFalse(card.opensRecordOnly)
+            assertEquals(today.minusDays(1).toString(), card.sortDateKey)
+            assertEquals(listOf("b"), sg.mesha.goatos.core.data.decodeScanRosterSelectors(card.rosterSelectors).map { it.assignmentId })
+        }
+    }
+
+    @Test
+    fun `full page header counts only selected day despite future rows in same pen`() = runTest(dispatcher) {
+        val today = LocalDate.now()
+        val row = VaccinationExecutionRowDto(shedId = "shed-a", partitionLabel = "3", dueDate = today.toString(),
+            assignmentId = "today", targetCount = 2, openCount = 2)
+        val repo = FakeShedsPinVmExecutionRepository(VaccinationExecutionResponseDto(
+            rows = listOf(row, row.copy(assignmentId = "future", dueDate = today.plusDays(1).toString(), targetCount = 50, openCount = 50)),
+            cardSummaries = mapOf("a" to ShedCardSummaryDto(shedId = "shed-a", partitionLabel = "3",
+                rosterMemberships = listOf(
+                    sg.mesha.goatos.core.network.dto.ExecutionRosterMembershipDto(assignmentId = "today", taskIds = emptyList(), plannedDate = today.toString()),
+                    sg.mesha.goatos.core.network.dto.ExecutionRosterMembershipDto(assignmentId = "future", taskIds = emptyList(), plannedDate = today.plusDays(1).toString())),
+                operatorDaySummaries = listOf(OperatorDaySummaryDto(businessDate = today.toString(), targetCount = 2, openCount = 2)))),
+        ))
+        val vm = ShedsViewModel(repo = repo, crashReporter = NoopCrashReporter(), analytics = NoopAnalytics(),
+            bootstrapRepository = FakeShedsRoleBootstrapRepository(role = "operator"), savedStateHandle = SavedStateHandle())
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+        assertEquals("2", vm.state.value.rows.single().inShed)
+        assertEquals(2, vm.state.value.dueCount)
+        assertEquals(0, vm.state.value.doneCount)
+        assertEquals("0 / 2 done", vm.state.value.daySummary)
     }
 
     @Test

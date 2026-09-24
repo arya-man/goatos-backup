@@ -401,8 +401,26 @@ class ShedsViewModel @Inject constructor(
     private fun VaccinationExecutionResponseDto.toShedsUiState(selectedDay: LocalDate): ShedsUiState? {
         val base = sampleShedsState()
         val weekRows = rows
+        val summariesByPen = cardSummaries?.values.orEmpty().groupBy {
+            it.shedId to executionPartitionKey(it.partitionLabel)
+        }
+        val selectedMembersByPen = summariesByPen.mapValues { (_, summaries) ->
+            summaries.flatMap { it.rosterMemberships.orEmpty() }.filter { member ->
+                val date = parseExecutionDate(member.plannedDate)
+                date == selectedDay || (selectedDay == workWindow.today && date != null && date.isBefore(selectedDay) && member.includeWhenOverdue)
+            }
+        }
+        val datedSummariesByPen = summariesByPen.mapValues { (_, summaries) ->
+            summaries.flatMap { it.operatorDaySummaries.orEmpty() }
+                .singleOrNull { it.businessDate == selectedDay.toString() }
+        }
+        val authoritativePens = summariesByPen.filterValues { summaries ->
+            summaries.all { it.rosterMemberships != null }
+        }.keys
         val rowsForSelectedDay = weekRows.filter { row ->
-            row.isVisibleForOperatorDay(selectedDay, workWindow)
+            val pen = row.shedId to executionPartitionKey(row.partitionLabel ?: row.partition)
+            if (pen in authoritativePens) selectedMembersByPen[pen].orEmpty().isNotEmpty()
+            else row.isVisibleForOperatorDay(selectedDay, workWindow)
         }
         // Group by the exact key rendered by Compose. Do not group by metadata that is not also
         // present in ShedRow.id: the same shed/partition/task can arrive as multiple backend rows
@@ -413,14 +431,9 @@ class ShedsViewModel @Inject constructor(
         val shedRows = rowsForSelectedDay.groupBy { it.operatorDayCardId() }.map { (cardId, group) ->
             val first = group.first()
             val execution = group.firstOrNull { !it.sopTaskId.isNullOrBlank() } ?: first
-            val membershipSummaries = cardSummaries?.values.orEmpty().filter {
-                it.shedId == first.shedId && executionPartitionKey(it.partitionLabel) == executionPartitionKey(first.partitionLabel ?: first.partition)
-            }
-            val hasAuthoritativeMembership = membershipSummaries.isNotEmpty() && membershipSummaries.all { it.rosterMemberships != null }
-            val selectedMemberships = membershipSummaries.flatMap { it.rosterMemberships.orEmpty() }.filter { member ->
-                    val date = parseExecutionDate(member.plannedDate)
-                    date == selectedDay || (selectedDay == workWindow.today && date != null && date.isBefore(selectedDay) && member.includeWhenOverdue)
-                }
+            val pen = first.shedId to executionPartitionKey(first.partitionLabel ?: first.partition)
+            val hasAuthoritativeMembership = pen in authoritativePens
+            val selectedMemberships = selectedMembersByPen[pen].orEmpty()
             val selectors = if (hasAuthoritativeMembership) {
                 selectedMemberships.map { member ->
                     sg.mesha.goatos.core.data.ScanRosterSelector(
@@ -441,14 +454,29 @@ class ShedsViewModel @Inject constructor(
             }.distinct()
             val membershipComplete = hasAuthoritativeMembership || nextCursor.isNullOrBlank()
             val assignmentIds = selectors.mapNotNull { it.assignmentId }.distinct()
-            val taskIds = group.mapNotNull { it.sopTaskId?.takeIf(String::isNotBlank) }.distinct()
-            val hasMixedExecutionIdentity = selectors.size > 1 || assignmentIds.size > 1 || taskIds.size > 1
-            val scheduleDate = group.mapNotNull { it.currentScheduleDate?.let(::parseExecutionDate) }.minOrNull()
+            // An assignment can span source tasks even when the page exposes one representative.
+            val taskIds = (selectedMemberships.flatMap { it.taskIds ?: listOfNotNull(it.taskId) } +
+                group.mapNotNull { it.sopTaskId }).filter(String::isNotBlank).distinct()
+            val taskIdentityIncomplete = hasAuthoritativeMembership && selectedMemberships.any { it.taskIds == null }
+            val representativeTaskOutsideMembership = hasAuthoritativeMembership && !execution.sopTaskId.isNullOrBlank() &&
+                selectedMemberships.none { execution.sopTaskId in it.taskIds.orEmpty() }
+            val hasMixedExecutionIdentity = selectors.size > 1 || assignmentIds.size > 1 || taskIds.size > 1 ||
+                taskIdentityIncomplete || representativeTaskOutsideMembership
+            val scheduleDate = if (hasAuthoritativeMembership) {
+                selectedMemberships.mapNotNull { parseExecutionDate(it.plannedDate) }.minOrNull()
+            } else group.mapNotNull { it.currentScheduleDate?.let(::parseExecutionDate) }.minOrNull()
 
             // Prefer backend-computed card summary (page-independent, covers all rows for the card).
             // Fall back to row-level computation for older API responses without cardSummaries.
             val backendCardIds = group.map { it.backendExecutionCardId() }.distinct()
-            val cardSummary = cardSummaries?.get(cardId)
+            // The backend unions animals across the selected assignments before counting.
+            val datedSummary = datedSummariesByPen[pen]
+            val summaryPending = hasAuthoritativeMembership && datedSummary == null
+            val cardSummary = datedSummary?.let {
+                ShedCardSummaryDto(shedId = first.shedId, partitionLabel = first.partitionLabel ?: first.partition,
+                    targetCount = it.targetCount, doneCount = it.doneCount, openCount = it.openCount,
+                    status = it.status, needsRedo = it.needsRedo, vaccineGroups = it.vaccineGroups)
+            } ?: cardSummaries?.get(cardId)
                 ?: backendCardIds.singleOrNull()?.let { backendCardId -> cardSummaries?.get(backendCardId) }
             val status: ShedStatus
             val statusLabel: String
@@ -528,21 +556,29 @@ class ShedsViewModel @Inject constructor(
                 sortDateKey = scheduleDate?.toString().orEmpty(),
                 rosterSelectors = sg.mesha.goatos.core.data.encodeScanRosterSelectors(selectors),
                 scheduleDateLabel = scheduleDate?.let(::shortDateLabel).orEmpty(),
-                status = status,
-                statusLabel = if (!membershipComplete) "Load remaining work to open" else statusLabel,
-                statusChips = statusChips,
-                vaccineGroups = vaccineGroups,
-                inShed = counts.target.toString(),
-                due = counts.open.toString(),
-                done = effectiveDone.toString(),
+                status = if (summaryPending) ShedStatus.PENDING else status,
+                statusLabel = when {
+                    !membershipComplete -> "Load remaining work to open"
+                    summaryPending -> "Sync to update totals"
+                    else -> statusLabel
+                },
+                statusChips = if (summaryPending) emptyList() else statusChips,
+                vaccineGroups = if (summaryPending) emptyList() else vaccineGroups,
+                inShed = if (summaryPending) "—" else counts.target.toString(),
+                due = if (summaryPending) "—" else counts.open.toString(),
+                done = if (summaryPending) "—" else effectiveDone.toString(),
                 // Verifier-side count, kept separate from `done` (see effectiveDoneCount's
                 // doc) so a card never reads "5 DONE" while only 2 have actually cleared review.
-                accepted = group.maxOfOrNull { it.acceptedAnimalCount() }?.coerceAtLeast(0).orZero().toString(),
-                progressLabel = percentLabel(effectiveDone, counts.target),
-                progressFraction = redoAwareFraction(
+                accepted = when {
+                    summaryPending -> "—"
+                    datedSummary != null -> datedSummary.acceptedCount.toString()
+                    else -> group.maxOfOrNull { it.acceptedAnimalCount() }?.coerceAtLeast(0).orZero().toString()
+                },
+                progressLabel = if (summaryPending) "" else percentLabel(effectiveDone, counts.target),
+                progressFraction = if (summaryPending) 0f else redoAwareFraction(
                     effectiveDone,
                     counts.target,
-                    needsRedo = group.any { it.needsRedo() },
+                    needsRedo = cardSummary?.needsRedo ?: group.any { it.needsRedo() },
                 ),
                 shedId = first.shedId,
                 driveId = execution.driveId,
@@ -554,7 +590,7 @@ class ShedsViewModel @Inject constructor(
                 taskId = execution.sopTaskId.takeUnless { hasMixedExecutionIdentity },
                 sopVersionId = execution.sopVersionId.takeUnless { hasMixedExecutionIdentity },
                 taskRowVersion = execution.sopTaskRowVersion.takeUnless { hasMixedExecutionIdentity },
-                opensRecordOnly = if (hasAuthoritativeMembership) selectedMemberships.isNotEmpty() && selectedMemberships.all { it.recordOnly } else group.opensSubmittedRecordOnly(),
+                opensRecordOnly = if (hasAuthoritativeMembership) !taskIdentityIncomplete && selectedMemberships.isNotEmpty() && selectedMemberships.all { it.recordOnly } else group.opensSubmittedRecordOnly(),
                 canOpen = membershipComplete && selectors.isNotEmpty() && (scheduleDate == null || !scheduleDate.isAfter(workWindow.today)),
             )
         }.sortedWith(
@@ -563,9 +599,18 @@ class ShedsViewModel @Inject constructor(
             }
                 .thenBy { it.name.lowercase() }
         )
-        val totals = executionCounts(rowsForSelectedDay)
-        val totalsEffectiveDone = effectiveCardDoneCount(rowsForSelectedDay)
-        val pageComplete = nextCursor.isNullOrBlank()
+        val rowsByPen = rowsForSelectedDay.groupBy { it.shedId to executionPartitionKey(it.partitionLabel ?: it.partition) }
+        val datedTotalsComplete = rowsByPen.keys.all { it !in authoritativePens || datedSummariesByPen[it] != null }
+        val totals = if (authoritativePens.isEmpty()) executionCounts(rowsForSelectedDay) else {
+            val perPen = rowsByPen.map { (pen, group) ->
+                datedSummariesByPen[pen]?.let { ExecutionCounts(target = it.targetCount, open = it.openCount, done = it.doneCount) }
+                    ?: executionCardCounts(group).copy(done = effectiveCardDoneCount(group))
+            }
+            ExecutionCounts(target = perPen.sumOf { it.target }, open = perPen.sumOf { it.open }, done = perPen.sumOf { it.done })
+        }
+        val totalsEffectiveDone = if (authoritativePens.isEmpty()) effectiveCardDoneCount(rowsForSelectedDay) else totals.done
+        val pageComplete = nextCursor.isNullOrBlank() && datedTotalsComplete
+        val incompleteTotalsLabel = if (!datedTotalsComplete) "Sync to update totals" else "Load all rows for full-day totals"
         // Backend-owned "vaccines to carry" for the selected day (full-day, page-independent).
         // The screen renders these numbers verbatim — no client-side summing of shed rows.
         val selectedKey = selectedDay.toString()
@@ -595,10 +640,10 @@ class ShedsViewModel @Inject constructor(
             dueCount = if (pageComplete) totals.open else 0,
             doneCount = if (pageComplete) totalsEffectiveDone else 0,
             shedCountLabel = "$operationalLocationCount sheds",
-            dueLabel = if (pageComplete) "${totals.open} open" else "More rows available",
+            dueLabel = if (pageComplete) "${totals.open} open" else if (!datedTotalsComplete) incompleteTotalsLabel else "More rows available",
             dayProgressLabel = if (pageComplete) percentLabel(totalsEffectiveDone, totals.target) else "",
             dayProgressFraction = if (pageComplete) fraction(totalsEffectiveDone, totals.target) else 0f,
-            daySummary = if (pageComplete) "$totalsEffectiveDone / ${totals.target} done" else "Load all rows for full-day totals",
+            daySummary = if (pageComplete) "$totalsEffectiveDone / ${totals.target} done" else incompleteTotalsLabel,
             caption = if (shedRows.isEmpty()) {
                 if (selectedDay == workWindow.today) {
                     "No sheds scheduled today"
@@ -609,7 +654,21 @@ class ShedsViewModel @Inject constructor(
                 null
             },
             roleNote = null,
-            adherence = protocolAdherenceSummary(rowsForSelectedDay, totals, isComplete = pageComplete),
+            adherence = protocolAdherenceSummary(
+                rowsForSelectedDay.filter { it.isVisibleForOperatorDay(selectedDay, workWindow) }, totals, isComplete = pageComplete,
+            )?.let { summary ->
+                if (datedTotalsComplete && rowsByPen.keys.all { it in authoritativePens }) {
+                    val dayFacts = rowsByPen.keys.mapNotNull { datedSummariesByPen[it] }
+                    val accepted = dayFacts.sumOf { it.acceptedCount }
+                    summary.copy(
+                        acceptedCount = accepted,
+                        reviewItemCount = dayFacts.count { it.status in setOf("verification_pending", "proof_pending") },
+                        overdueItemCount = dayFacts.count { it.status in setOf("overdue", "missed", "blocked") },
+                        sentBackCount = dayFacts.filter { it.needsRedo }.sumOf { it.openCount },
+                        acceptedPercent = if (totals.target > 0) (accepted * 100 / totals.target).coerceIn(0, 100) else 0,
+                    )
+                } else summary
+            },
             dayTabs = buildOperatorDayTabs(weekRows, workWindow, selectedDay),
             taskListOnly = true,
             parkFilters = filterOptions?.parks.orEmpty().toShedParkFilters(_selectedParkId.value),
