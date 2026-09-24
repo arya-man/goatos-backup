@@ -273,7 +273,7 @@ interface OutboxDao {
     suspend fun markInFlight(id: String, now: Long): Int
 
     @Query(
-        "UPDATE outbox SET status = 'SUCCEEDED', resultJson = :resultJson, lastError = NULL, lastErrorCode = NULL, lastErrorField = NULL, updatedAt = :now " +
+        "UPDATE outbox SET status = 'SUCCEEDED', resultJson = :resultJson, lastError = NULL, lastErrorCode = NULL, lastErrorField = NULL, lastHttpStatus = NULL, updatedAt = :now " +
             "WHERE id = :id AND status = 'IN_FLIGHT'",
     )
     suspend fun markSucceeded(id: String, resultJson: String, now: Long): Int
@@ -288,14 +288,14 @@ interface OutboxDao {
 
     /** A conflict row whose write the server already holds becomes SUCCEEDED (see SyncEngine). */
     @Query(
-        "UPDATE outbox SET status = 'SUCCEEDED', conflict = 0, resultJson = :resultJson, lastError = NULL, lastErrorCode = NULL, lastErrorField = NULL, updatedAt = :now " +
+        "UPDATE outbox SET status = 'SUCCEEDED', conflict = 0, resultJson = :resultJson, lastError = NULL, lastErrorCode = NULL, lastErrorField = NULL, lastHttpStatus = NULL, updatedAt = :now " +
             "WHERE id = :id AND status = 'FAILED' AND conflict = 1",
     )
     suspend fun settleConflictAsSucceeded(id: String, resultJson: String, now: Long): Int
 
     @Query(
         "UPDATE outbox SET status = 'FAILED', attemptCount = :attemptCount, nextAttemptAt = :nextAttemptAt, " +
-            "conflict = :conflict, lastError = :lastError, lastErrorCode = :lastErrorCode, lastErrorField = :lastErrorField, updatedAt = :now " +
+            "conflict = :conflict, lastError = :lastError, lastErrorCode = :lastErrorCode, lastErrorField = :lastErrorField, lastHttpStatus = :lastHttpStatus, updatedAt = :now " +
             "WHERE id = :id AND status = 'IN_FLIGHT'",
     )
     suspend fun markFailed(
@@ -306,13 +306,26 @@ interface OutboxDao {
         lastError: String,
         lastErrorCode: String?,
         lastErrorField: String?,
+        lastHttpStatus: Int?,
         now: Long,
     ): Int
+
+    /**
+     * Re-queues ONLY the FAILED rows the server refused with 403 (access, not data), with a fresh
+     * attempt budget. Called once an account that was parked on the no-access screen gets its
+     * access back. Every other failure -- validation, conflict, exhausted transport -- is untouched.
+     */
+    @Query(
+        "UPDATE outbox SET status = 'QUEUED', attemptCount = 0, conflict = 0, lastError = NULL, lastErrorCode = NULL, " +
+            "lastErrorField = NULL, lastHttpStatus = NULL, nextAttemptAt = :now, updatedAt = :now " +
+            "WHERE status = 'FAILED' AND lastHttpStatus = 403",
+    )
+    suspend fun requeueAccessDenied(now: Long): Int
 
     /** Manual retry only re-arms a terminal FAILED row — guarded so it can never clobber a
      *  row a drain is actively dispatching (IN_FLIGHT) or one that already SUCCEEDED. */
     @Query(
-        "UPDATE outbox SET status = 'QUEUED', attemptCount = 0, conflict = 0, lastError = NULL, lastErrorCode = NULL, lastErrorField = NULL, " +
+        "UPDATE outbox SET status = 'QUEUED', attemptCount = 0, conflict = 0, lastError = NULL, lastErrorCode = NULL, lastErrorField = NULL, lastHttpStatus = NULL, " +
             "nextAttemptAt = :now, updatedAt = :now WHERE id = :id AND status = 'FAILED'",
     )
     suspend fun markRetryReady(id: String, now: Long): Int
@@ -335,7 +348,7 @@ interface OutboxDao {
      * it on — the caller re-reads and falls back to normal replay/conflict handling).
      */
     @Query(
-        "UPDATE outbox SET status = 'QUEUED', attemptCount = 0, conflict = 0, lastError = NULL, lastErrorCode = NULL, lastErrorField = NULL, " +
+        "UPDATE outbox SET status = 'QUEUED', attemptCount = 0, conflict = 0, lastError = NULL, lastErrorCode = NULL, lastErrorField = NULL, lastHttpStatus = NULL, " +
             "nextAttemptAt = :now, updatedAt = :now, payloadJson = :payloadJson, requestFingerprint = :fingerprint " +
             "WHERE id = :id AND status = 'FAILED' AND (conflict = 1 OR attemptCount >= maxAttempts)",
     )
@@ -348,7 +361,7 @@ interface OutboxDao {
      */
     @Query(
         "UPDATE outbox SET status = 'QUEUED', groupKey = :groupKey, attemptCount = 0, conflict = 0, " +
-            "lastError = NULL, lastErrorCode = NULL, lastErrorField = NULL, nextAttemptAt = :now, updatedAt = :now, payloadJson = :payloadJson, " +
+            "lastError = NULL, lastErrorCode = NULL, lastErrorField = NULL, lastHttpStatus = NULL, nextAttemptAt = :now, updatedAt = :now, payloadJson = :payloadJson, " +
             "requestFingerprint = :fingerprint WHERE id = :id AND status = 'FAILED' AND opType = 'PROOF_UPLOAD'",
     )
     suspend fun reopenFailedProofUploadForRetry(

@@ -1462,8 +1462,9 @@ private class RecordingOutboxStore(private val inner: FakeOutboxStore = FakeOutb
     override fun observeAll() = inner.observeAll()
     override suspend fun markInFlight(id: String, now: Long) = inner.markInFlight(id, now)
     override suspend fun markSucceeded(id: String, resultJson: String, now: Long) = inner.markSucceeded(id, resultJson, now)
-    override suspend fun markFailed(id: String, attemptCount: Int, nextAttemptAt: Long, conflict: Boolean, lastError: String, lastErrorCode: String?, lastErrorField: String?, now: Long) =
-        inner.markFailed(id, attemptCount, nextAttemptAt, conflict, lastError, lastErrorCode, lastErrorField, now)
+    override suspend fun markFailed(id: String, attemptCount: Int, nextAttemptAt: Long, conflict: Boolean, lastError: String, lastErrorCode: String?, lastErrorField: String?, lastHttpStatus: Int?, now: Long) =
+        inner.markFailed(id, attemptCount, nextAttemptAt, conflict, lastError, lastErrorCode, lastErrorField, lastHttpStatus, now)
+    override suspend fun requeueAccessDenied(now: Long) = inner.requeueAccessDenied(now)
     override suspend fun markRetryReady(id: String, now: Long) = inner.markRetryReady(id, now)
     override suspend fun reopenTerminalForRetry(id: String, payloadJson: String, fingerprint: String, now: Long) =
         inner.reopenTerminalForRetry(id, payloadJson, fingerprint, now)

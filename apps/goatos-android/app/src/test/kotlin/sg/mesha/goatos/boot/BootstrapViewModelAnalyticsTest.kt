@@ -321,7 +321,13 @@ class BootstrapViewModelAnalyticsTest {
             override suspend fun loadNavState(): NavState { loads++; return NavState(NavChrome.MINIMAL, emptyList()) }
             override suspend fun operatorProfile(): BootstrapOperatorProfileDto? = null
         }
-        val sender = AuthSessionEventSender(sg.mesha.goatos.core.network.FakeAppApi(), backgroundScope)
+        // Access is still refused: Retry re-sends the sign-in event and gets 403 again.
+        val stillDenied = object : sg.mesha.goatos.core.network.AppApi by sg.mesha.goatos.core.network.FakeAppApi() {
+            override suspend fun recordAuthSessionEvent(request: sg.mesha.goatos.core.network.AuthSessionEventRequestDto) {
+                throw retrofit2.HttpException(retrofit2.Response.error<Any>(403, okhttp3.ResponseBody.create(null, "{}")))
+            }
+        }
+        val sender = AuthSessionEventSender(stillDenied, backgroundScope)
         val vm = BootstrapViewModel(
             repo, RecordingAnalytics(), AnalyticsContext(flavor = "stg"), FakeDeviceStore(),
             FakeAuthRepository("kept@mesha.sg"), FakeCrashReporter(), PushTokenSync {}, FakeConnectivityGate(),
@@ -337,7 +343,48 @@ class BootstrapViewModelAnalyticsTest {
 
         vm.load()
         advanceUntilIdle()
-        assertEquals("Retry stays on the no-access screen", BootstrapUiState.Error(BootstrapErrorType.ACCESS_NOT_PROVISIONED), vm.state.value)
+        assertEquals("Retry while still denied stays on the no-access screen", BootstrapUiState.Error(BootstrapErrorType.ACCESS_NOT_PROVISIONED), vm.state.value)
         assertEquals("no bootstrap call while denied", 1, loads)
+    }
+
+    @Test
+    fun `parked on no-access, access restored by an admin, Retry recovers to Ready in-process`() = runTest {
+        var accessRestored = false
+        var sessionEventsSent = 0
+        val repo = object : BootstrapRepository {
+            override suspend fun loadNavState(): NavState {
+                if (!accessRestored) throw sg.mesha.goatos.core.network.BootstrapError.AccessNotProvisioned()
+                return NavState(NavChrome.MINIMAL, emptyList())
+            }
+            override suspend fun operatorProfile(): BootstrapOperatorProfileDto? = null
+        }
+        val api = object : sg.mesha.goatos.core.network.AppApi by sg.mesha.goatos.core.network.FakeAppApi() {
+            override suspend fun recordAuthSessionEvent(request: sg.mesha.goatos.core.network.AuthSessionEventRequestDto) {
+                sessionEventsSent++
+                if (!accessRestored) {
+                    throw retrofit2.HttpException(
+                        retrofit2.Response.error<Any>(403, okhttp3.ResponseBody.create(null, "{}")),
+                    )
+                }
+            }
+        }
+        val sender = AuthSessionEventSender(api, backgroundScope)
+        val vm = BootstrapViewModel(
+            repo, RecordingAnalytics(), AnalyticsContext(flavor = "stg"), FakeDeviceStore(),
+            FakeAuthRepository("parked@mesha.sg"), FakeCrashReporter(), PushTokenSync {}, FakeConnectivityGate(),
+            NavStateRefreshSignal(), sender,
+        )
+        sender.markAccessDenied()
+        vm.load()
+        advanceUntilIdle()
+        assertEquals(BootstrapUiState.Error(BootstrapErrorType.ACCESS_NOT_PROVISIONED), vm.state.value)
+
+        accessRestored = true // an admin fixes the grant while the app stays open
+        vm.load()             // operator taps Retry
+        advanceUntilIdle()
+
+        assertTrue("Retry recovers without restarting the app: ${vm.state.value}", vm.state.value is BootstrapUiState.Ready)
+        assertTrue("Retry re-sent the sign-in session event", sessionEventsSent >= 1)
+        assertEquals("the parked flag is cleared", false, sender.accessDenied.value)
     }
 }

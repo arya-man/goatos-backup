@@ -172,6 +172,7 @@ class FakeOutboxStore : OutboxStore {
         lastError: String,
         lastErrorCode: String?,
         lastErrorField: String?,
+        lastHttpStatus: Int?,
         now: Long,
     ): Boolean = mutateIf(id, expected = setOf(OutboxStatus.IN_FLIGHT.name)) {
         it.copy(
@@ -182,8 +183,21 @@ class FakeOutboxStore : OutboxStore {
             lastError = lastError,
             lastErrorCode = lastErrorCode,
             lastErrorField = lastErrorField,
+            lastHttpStatus = lastHttpStatus,
             updatedAt = now,
         )
+    }
+
+    override suspend fun requeueAccessDenied(now: Long): Int {
+        var n = 0
+        rows.value = rows.value.map {
+            if (it.status == OutboxStatus.FAILED.name && it.lastHttpStatus == 403) {
+                n++
+                it.copy(status = OutboxStatus.QUEUED.name, attemptCount = 0, conflict = false, lastError = null,
+                    lastErrorCode = null, lastErrorField = null, lastHttpStatus = null, nextAttemptAt = now, updatedAt = now)
+            } else it
+        }
+        return n
     }
 
     override suspend fun markRetryReady(id: String, now: Long): Boolean =

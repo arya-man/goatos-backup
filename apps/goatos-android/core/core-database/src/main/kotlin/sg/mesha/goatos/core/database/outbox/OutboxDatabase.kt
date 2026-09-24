@@ -14,7 +14,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 // OUTBOX_MIGRATION_* is validated against by MigrationTestHelper, and makes schema
 // changes reviewable. The outbox holds not-yet-synced writes, so a silently-wrong
 // migration here loses operator submissions — validated migrations are mandatory.
-@Database(entities = [OutboxEntity::class], version = 6, exportSchema = true)
+@Database(entities = [OutboxEntity::class], version = 7, exportSchema = true)
 abstract class OutboxDatabase : RoomDatabase() {
     abstract fun outboxDao(): OutboxDao
 }
@@ -131,6 +131,18 @@ val OUTBOX_MIGRATION_5_6: Migration = object : Migration(5, 6) {
     }
 }
 
+/**
+ * v6 -> v7: records the HTTP status of the last failed attempt. A write refused with 403 while
+ * the account had no access (a denied sign-in parked on the no-access screen) is re-queued once
+ * access returns; every other failure keeps its state. ADDITIVE and NON-destructive: existing
+ * rows read NULL, which is never 403, so no pre-upgrade row is ever re-queued by it.
+ */
+val OUTBOX_MIGRATION_6_7: Migration = object : Migration(6, 7) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `outbox` ADD COLUMN `lastHttpStatus` INTEGER")
+    }
+}
+
 private val TASK_ID_IN_PAYLOAD = Regex("\"task_id\"\\s*:\\s*\"([^\"]+)\"")
 
 /**
@@ -149,5 +161,5 @@ internal fun normalizeOutboxPartition(raw: String?): String {
 /** Builds the outbox database. Callers (DI) supply the application context. */
 fun buildOutboxDatabase(context: Context): OutboxDatabase =
     Room.databaseBuilder(context, OutboxDatabase::class.java, "goatos-outbox.db")
-        .addMigrations(OUTBOX_MIGRATION_1_2, OUTBOX_MIGRATION_2_3, OUTBOX_MIGRATION_3_4, OUTBOX_MIGRATION_4_5, OUTBOX_MIGRATION_5_6)
+        .addMigrations(OUTBOX_MIGRATION_1_2, OUTBOX_MIGRATION_2_3, OUTBOX_MIGRATION_3_4, OUTBOX_MIGRATION_4_5, OUTBOX_MIGRATION_5_6, OUTBOX_MIGRATION_6_7)
         .build()
