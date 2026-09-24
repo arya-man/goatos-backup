@@ -123,9 +123,10 @@ outcomes AS (
     ) gp ON true
 ),
 -- The remaining animals per (species, management stage, sex) (maintainer decision 2026-09-24):
--- the Load-wise tab values today's stock at a live-weight price set per stage and sex. Grouped to
--- that grain first, then folded to ONE jsonb array per load, so it attaches 1:1 like stats; the
--- same outcome rule as stats, so the mix always sums to that load's remaining count.
+-- the Weighing Load-wise chart combines this mix with its latest-weight read and the stage x sex
+-- sale price. Grouped to that grain first, then folded to ONE jsonb array per load, so it attaches
+-- 1:1 like stats; the same outcome rule as stats, so the mix always sums to that load's remaining
+-- count.
 remaining_mix AS (
     SELECT load_id,
            jsonb_agg(jsonb_build_object('species', species, 'management_stage', stage, 'sex', sex, 'animals', n)
@@ -160,9 +161,9 @@ stats AS (
            (count(*) FILTER (WHERE o.outcome = 'mortality'))::int AS mortality,
            (count(*) FILTER (WHERE o.outcome = 'other'))::int AS other_exits,
            (count(*) FILTER (WHERE o.outcome = 'remaining'))::int AS remaining,
-           -- The remaining animals BY SPECIES (maintainer request 2026-09-03): the Comparison
-           -- tab values today's stock at a live-weight rate that differs between sheep and
-           -- goats, so a load's remaining head count must arrive already split. Same rows,
+           -- The remaining animals BY SPECIES (maintainer request 2026-09-03): the Weighing
+           -- Comparison tab values stock at rates that differ between species/stages, so a load's
+           -- remaining head count must arrive already split. Same rows,
            -- same outcome rule, so the two never add up to more than the remaining count.
            (count(*) FILTER (WHERE o.outcome = 'remaining' AND o.species = 'sheep'))::int AS remaining_sheep,
            (count(*) FILTER (WHERE o.outcome = 'remaining' AND o.species = 'goat'))::int AS remaining_goats,
@@ -275,23 +276,6 @@ ORDER BY
     CASE WHEN nullif($3, '') IS NULL THEN r.farm_rank ELSE 0 END,
     r.purchase_date DESC NULLS LAST, r.created_at DESC, r.load_id
 LIMIT NULLIF($2, 0)`
-
-const loadwiseSalePricesSQL = `
-SELECT species, management_stage, sex, price_per_kg_inr
-FROM (
-  SELECT DISTINCT ON (species, management_stage, sex)
-         species, management_stage, sex, price_per_kg_inr::float8 AS price_per_kg_inr,
-         effective_from, created_at
-  FROM public.growth_sale_price_assumptions
-  WHERE tenant_id = $1::uuid
-  ORDER BY species, management_stage, sex,
-           (effective_from <= $2::date) DESC,
-           CASE WHEN effective_from <= $2::date THEN effective_from END DESC,
-           effective_from ASC,
-           created_at DESC
-) latest
-WHERE price_per_kg_inr IS NOT NULL
-ORDER BY species, management_stage, sex`
 
 // loadCostLinesSQL reads the itemisation for a whole page of loads at once. Ordered by the kind's
 // own position in domain.CostLineKinds, so the breakdown reads animal -> transport -> booking ->
@@ -514,38 +498,12 @@ func (r *Repository) loadwiseSales(ctx context.Context, tenantID, parkID string,
 	if pricedCount > 0 && overallAvg > 0 {
 		overall = &overallAvg
 	}
-	// The farm's own unsold-stock price (Sales Config, migration 000367), kept as the legacy
-	// fallback for callers that do not receive Weighing sale-price assumptions.
+	// The farm's own unsold-stock price (Sales Config, migration 000367), when set: one PK read.
 	var assumed *float64
 	if err := r.pool.QueryRow(ctx, `SELECT unsold_stock_price_rupees::float8 FROM public.sales_valuation_assumptions WHERE tenant_id = $1::uuid`, tenantID).Scan(&assumed); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return domain.LoadwiseSales{}, fmt.Errorf("procurement: loadwise unsold price assumption: %w", err)
 	}
-	prices, err := r.loadwiseSalePrices(ctx, tenantID, biztime.BusinessDayStart(time.Now().In(biztime.DefaultLocation())))
-	if err != nil {
-		return domain.LoadwiseSales{}, err
-	}
-
-	return domain.FinalizeLoadwiseWithSalePrices(loads, totalLoads, overall, asOf, prices, assumed), nil
-}
-
-func (r *Repository) loadwiseSalePrices(ctx context.Context, tenantID string, asOf time.Time) (domain.LoadSalePrices, error) {
-	out := domain.LoadSalePrices{Prices: []domain.LoadSalePrice{}}
-	rows, err := r.pool.Query(ctx, loadwiseSalePricesSQL, tenantID, asOf.In(biztime.DefaultLocation()).Format("2006-01-02"))
-	if err != nil {
-		return out, fmt.Errorf("procurement: loadwise sale prices: %w", err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var row domain.LoadSalePrice
-		if err := rows.Scan(&row.Species, &row.ManagementStage, &row.Sex, &row.PricePerKgINR); err != nil {
-			return out, fmt.Errorf("procurement: loadwise sale prices scan: %w", err)
-		}
-		out.Prices = append(out.Prices, row)
-	}
-	if err := rows.Err(); err != nil {
-		return out, fmt.Errorf("procurement: loadwise sale prices rows: %w", err)
-	}
-	return out, nil
+	return domain.FinalizeLoadwise(loads, totalLoads, overall, asOf, assumed), nil
 }
 
 // bizDate renders an optional business DATE as its calendar day, never shifted through a timezone.

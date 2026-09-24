@@ -8574,8 +8574,8 @@ export interface components {
             sold_priced: number;
             avg_sold_price?: number | null;
             /** @enum {string} */
-            price_basis: "load" | "overall" | "assumed" | "none" | "live_weight";
-            /** @description remaining x avg_sold_price. Absent when there is no price basis. `assumed` means the Sales Config unsold-stock price replaced the sold-price fallback. `live_weight` is reserved for a future path with current live weight for remaining animals; this endpoint must not value remaining stock from sale exit weight. */
+            price_basis: "load" | "overall" | "assumed" | "none";
+            /** @description remaining x avg_sold_price. Absent when there is no price basis. `assumed` means the Sales Config unsold-stock price replaced the sold-price fallback. Current live-weight valuation is composed by the Weighing comparison tab from `remaining_mix` plus its latest-weight read; this endpoint must not value remaining stock from sale exit weight. */
             remaining_value?: number | null;
             /** @description sold_value + remaining_value - purchase_value: what the load is worth against what it cost. ABSENT when no cost is recorded, because "profit" would otherwise be the whole sale value. Part of it is UNREALISED whenever `remaining` > 0 — `price_basis` names the average that valued that stock. */
             profit_loss?: number | null;

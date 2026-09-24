@@ -83,9 +83,10 @@ maintainer gave, each load-bearing:
    The existing per-species row (stage and sex both empty) is kept and is the **species default**.
 2. **A combination with no price uses the species default.** Nothing that was valued the day
    before this shipped goes blank; the drawer shows the default as each empty box's placeholder.
-3. **Both readers value each animal at its own price**, head-weighted: the FCR tab (weight gained,
-   per pen: live residents, or the weighed cohort for an emptied pen) and the Load-wise tab (stock
-   on hand, per load: its remaining animals).
+3. **Both Weighing readers value each animal at its own price**, head-weighted: the FCR tab
+   (weight gained, per pen: live residents, or the weighed cohort for an emptied pen) and the
+   Weighing Load-wise comparison chart (stock on hand, per load: its remaining animals, combined
+   with that chart's latest-weight read).
 
 Shape (migration `000398`): `management_stage` + `sex` columns on
 `growth_sale_price_assumptions`, unique on `(tenant, species, stage, sex, effective_from)`. Still
@@ -104,10 +105,12 @@ Warmup); ICU-Kid is there because three kids that were weighed are in ICU now.
 
 Resolution is one rule in two places that must agree: backend
 `growthdirector/domain.SalePrices.PriceForAnimal` (FCR) and admin-web `lib/sale-price.ts`
-`salePriceForAnimal` (Load-wise, which already valued stock client-side from backend counts). The
-two test files pin the same cases. A pen or load holding an animal whose species has no price at
-all is **not valued** rather than valued on its priced part only. `remaining_mix` on the load-wise
-reads carries the `(species, stage, sex)` counts; it sums to `remaining`.
+`salePriceForAnimal` (the Weighing Load-wise chart, which combines backend counts with the latest
+weighing read). The two test files pin the same cases. A pen or load holding an animal whose species
+has no price at all is **not valued** rather than valued on its priced part only. `remaining_mix` on
+the load-wise reads carries the `(species, stage, sex)` counts; it sums to `remaining`. The
+Procurement load-wise sales API keeps its existing `remaining_value = remaining × avg_sold_price`
+contract because it does not carry a current live weight for the remaining animals.
 
 Every override save is fenced on the figure the drawer loaded, exactly like a default, and writes
 one `growth.sale_price.set` audit row naming species, stage and sex.

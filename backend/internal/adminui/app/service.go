@@ -4300,7 +4300,6 @@ func pageSpecificCopy(id string) map[string]string {
 			"value.price_basis.overall":           "at the overall average sold price",
 			"value.price_basis.assumed":           "at the unsold animal price set on Sales Config",
 			"value.price_basis.growth_sale_price": "at the stage and sex sale price",
-			"value.price_basis.live_weight":       "at the live-weight sale price",
 			// The third basis, and the one a fresh tenant hits FIRST: with no sale anywhere there is
 			// no price to value stock at. It must be published like the other two -- the renderer
 			// resolves this key from price_basis, so an unpublished value takes the page down.
