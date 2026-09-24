@@ -101,6 +101,11 @@ resource "google_cloud_run_v2_job" "analytics_rollup" {
         image   = local.analytics_rollup_image
         command = ["/app/bin/analytics-rollup"]
         args    = ["-timeout=25m", "-source=app_events", "-lookback-days=3"]
+        # Connection budget: cap this job's pool (default 10); see the api service.
+        env {
+          name  = "GOATOS_PG_MAX_CONNS"
+          value = "2"
+        }
 
         resources {
           limits = {
