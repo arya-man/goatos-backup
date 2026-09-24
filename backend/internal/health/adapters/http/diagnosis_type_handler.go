@@ -13,7 +13,7 @@ import (
 )
 
 // The ROUTING API behind the Types panel of /health/config: which diagnosis types a farm has,
-// and which animals reach each one (migration 000395).
+// and which animals reach each one (migration 000400).
 //
 // It shares the register handler's idempotency contract exactly -- an Idempotency-Key header on
 // every write, a fingerprint over the command name and the canonical client body only -- so a

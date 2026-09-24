@@ -76,7 +76,7 @@ var ErrGoatNotDiagnosable = fmt.Errorf("this animal cannot be checked")
 // An EMPTY routing refuses every animal rather than falling back to the shipped map. That is
 // deliberate and is the fail-closed property one layer up: a farm whose routing was never
 // seeded must say so out loud, because the alternative is diagnosing every animal off a table
-// nobody chose. Migration 000395 seeds every tenant that holds goats or a register, so the
+// nobody chose. Migration 000400 seeds every tenant that holds goats or a register, so the
 // empty case means something is genuinely wrong rather than merely new.
 func ResolveAnimal(facts GoatFacts, routing StageRouting) (diagnosis.Animal, error) {
 	species := strings.ToLower(strings.TrimSpace(facts.Species))
@@ -112,7 +112,7 @@ func ResolveAnimal(facts GoatFacts, routing StageRouting) (diagnosis.Animal, err
 	// refused, not defaulted". That property is unchanged. What changed is WHO may write the
 	// table: on 2026-09-23 `Warmup` was missing from it, 58 live kids could not be observed at
 	// all, and the repair was a deploy. Maintainer instruction the same day: adding a type and
-	// pointing a stage at it is dashboard work. Migration 000395 seeds the shipped map row for
+	// pointing a stage at it is dashboard work. Migration 000400 seeds the shipped map row for
 	// row, so this is a change of authority and not of behaviour.
 	//
 	// ADULTS ARE ROUTED THROUGH THE SAME LOOKUP, which is new. The old code branched on
@@ -140,7 +140,7 @@ func ResolveAnimal(facts GoatFacts, routing StageRouting) (diagnosis.Animal, err
 
 // The shipped stage -> type map that used to live here is now
 // domain.BuiltinStageRoutes() in stage_routes.go, where it is the golden ORACLE for migration
-// 000395's seed and is read by nothing on the runtime path. Routing is authored data; see
+// 000400's seed and is read by nothing on the runtime path. Routing is authored data; see
 // StageRouting for the resolution rule and why the adult wildcard exists.
 
 // resolveStatus picks the ONE status the engine accepts, most specific first.
