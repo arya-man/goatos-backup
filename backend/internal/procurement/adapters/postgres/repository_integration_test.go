@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
+	"github.com/vgoats/goatos/backend/internal/platform/readcache/readcachetest"
 	"github.com/vgoats/goatos/backend/internal/procurement/domain"
 	"github.com/vgoats/goatos/backend/internal/procurement/ports"
 )
@@ -756,7 +757,10 @@ func TestProcurementIdempotentReplay(t *testing.T) {
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
 	seedProcurementCommon(t, ctx, pool)
-	repo := NewRepository(pool, 5*time.Second)
+	// Receive (intake) writes goats / partitions / procurement_load_goats read by the shared
+	// analytics cache: the writer instance and a sibling must both read it fresh (read-your-writes).
+	pair := readcachetest.NewPair(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second).WithReadCacheInvalidator(pair.Writer)
 
 	loadGoatVersion := func(loadID, goatID string) int64 {
 		t.Helper()
@@ -915,10 +919,13 @@ func TestProcurementIdempotentReplay(t *testing.T) {
 			AcceptedAt: time.Date(2026, 5, 2, 17, 0, 0, 0, time.UTC),
 			EntryDate:  time.Date(2026, 5, 2, 0, 0, 0, 0, time.UTC), IdempotencyKey: "idem-intake",
 		}
-		firstHandoffs, err := repo.AcceptIntake(ctx, intake)
-		if err != nil {
-			t.Fatalf("first AcceptIntake: %v", err)
-		}
+		var firstHandoffs []domain.PCHandoff
+		pair.Check(t, ctx, "procurement AcceptIntake (receive)", testTenant, []string{testPark}, true, func(t *testing.T) {
+			var err error
+			if firstHandoffs, err = repo.AcceptIntake(ctx, intake); err != nil {
+				t.Fatalf("first AcceptIntake: %v", err)
+			}
+		})
 		v3 := loadGoatVersion(load.LoadID, goat.GoatID)
 		// Without branch-first idempotency this replay would re-run the eligibility-guarded UPDATE, find the
 		// goat already accepted_herd_intake, and wrongly fail with ErrInvalidTransition.
