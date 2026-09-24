@@ -176,9 +176,20 @@ private fun SaleLineCard(index: Int, line: SaleLineDraftUi, products: List<Vendo
                 }
             }
         }
-        Text(text = LABEL_PRODUCT, color = MeshaColors.Muted, style = MeshaType.fieldLabel)
-        VendorsSegmented(options = products, selectedValue = line.product, onSelect = { onEvent(SaleCreateEvent.LineChanged(line.id, SaleLineField.PRODUCT_TYPE, it)) })
-        e[SaleLineField.PRODUCT_TYPE]?.let { Text(it, color = MeshaColors.Danger, style = MeshaType.caption) }
+        // A DROPDOWN, not a row of chips (maintainer instruction 2026-09-24). What the farm sells
+        // is a register it edits on Sales Config, so the list only grows: six items already run
+        // off the side of the phone with their names cut to "Man...", "Shee...", "Mine...", and
+        // the seventh is simply off screen. A dropdown reads the same at six items as at twenty,
+        // and it is what the Feed and Breed fields beneath it already are.
+        VendorsDropdownField(
+            LABEL_PRODUCT,
+            line.product,
+            products,
+            { onEvent(SaleCreateEvent.LineChanged(line.id, SaleLineField.PRODUCT_TYPE, it)) },
+            required = true,
+            error = e[SaleLineField.PRODUCT_TYPE],
+            placeholder = HINT_PICK,
+        )
         // An item with no second dimension -- manure, tags -- has exactly one variant, its own
         // name. A list of one is a question with no answer to give, so it is not asked.
         if (!line.variantIsItself) {
