@@ -210,6 +210,22 @@ func (r *Repository) ListVaccinationExecutionFirstPageWithSummaries(ctx context.
 	// Reuse its prepared plan instead of repeatedly parsing the canonical CTE;
 	// this caches SQL planning only, never rows or the caller's fresh as-of value.
 	// Keep Exec's text result decoding, including timestamp location/offsets.
+	cacheKey := fmt.Sprintf("execution_first_page_with_summaries|%s|%s|%s|%d|%s|%s|%t|%s|%s|%s",
+		park, shed, vaccinationCacheAsOfKey(q.DueBefore), q.Limit, work, vaccinationCacheAsOfKey(q.AsOf),
+		q.OpenOnly, q.OperatorScopeActorID, partition, severity)
+	res, err := vaccinationCached(ctx, r, q.TenantID, cacheKey, func(ctx context.Context) (executionFirstPageWithSummaries, error) {
+		page, summaries, err := r.listVaccinationExecutionFirstPageWithSummaries(ctx, q, park, shed, work, severity, partition)
+		return executionFirstPageWithSummaries{page: page, summaries: summaries}, err
+	})
+	return res.page, res.summaries, err
+}
+
+type executionFirstPageWithSummaries struct {
+	page      domain.ExecutionProjectionPage
+	summaries map[string]*domain.ShedCardSummary
+}
+
+func (r *Repository) listVaccinationExecutionFirstPageWithSummaries(ctx context.Context, q domain.ExecutionQuery, park, shed, work, severity, partition string) (domain.ExecutionProjectionPage, map[string]*domain.ShedCardSummary, error) {
 	bound := sqlbind.MustBind(executionFirstPageWithSummariesSQL, q.TenantID, park, shed, q.DueBefore, q.Limit, work, q.AsOf, q.AsOf.Add(-defaultClosedHistoryAge), severity, q.OpenOnly, false, 0, int64(0), "", q.OperatorScopeActorID, partition)
 	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {

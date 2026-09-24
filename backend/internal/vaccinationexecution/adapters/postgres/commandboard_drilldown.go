@@ -10,6 +10,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	oploc "github.com/vgoats/goatos/backend/internal/platform/oploc"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 	vaccinatdomain "github.com/vgoats/goatos/backend/internal/vaccination/domain"
 	"github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
 )
@@ -67,8 +68,9 @@ func (r *Repository) CommandBoardClosedWithoutDoseAnimals(ctx context.Context, q
 		asOf = time.Now().In(biztime.DefaultLocation())
 	}
 
-	rows, err := r.pool.Query(ctx, commandBoardClosedWithoutDoseSQL,
+	bound := sqlbind.MustBind(commandBoardClosedWithoutDoseSQL,
 		q.TenantID, asOf, q.DriveBatchID, q.ParkID, cursorDisplay, cursorGoat, q.Limit+1)
+	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return page, fmt.Errorf("vaccination command board: closed-without-dose query: %w", err)
 	}
@@ -158,10 +160,11 @@ func (r *Repository) CommandBoardShedVaccineAnimals(ctx context.Context, q domai
 		asOf = time.Now().In(biztime.DefaultLocation())
 	}
 
-	rows, err := r.pool.Query(ctx, commandBoardShedVaccineAnimalSQL,
+	bound := sqlbind.MustBind(commandBoardShedVaccineAnimalSQL,
 		q.TenantID, asOf, q.DriveBatchID, q.ParkID,
 		q.ShedID, q.VaccineCode, q.PartitionLabel,
 		cursorDue, cursorGoat, q.Limit+1, q.State)
+	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return page, fmt.Errorf("vaccination command board: shed vaccine animals query: %w", err)
 	}
@@ -255,7 +258,8 @@ func (r *Repository) CommandBoardShedVaccineAnimals(ctx context.Context, q domai
 }
 
 func (r *Repository) commandBoardShedVideos(ctx context.Context, tenantID string, shedIDs []string, days []time.Time, parkID *string) ([]domain.CommandBoardShedVideo, error) {
-	rows, err := r.pool.Query(ctx, commandBoardShedVideoSQL, tenantID, shedIDs, days, parkID)
+	bound := sqlbind.MustBind(commandBoardShedVideoSQL, tenantID, shedIDs, days, parkID)
+	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return nil, fmt.Errorf("vaccination command board: shed video query: %w", err)
 	}
@@ -307,9 +311,10 @@ func (r *Repository) CommandBoardCohortDays(ctx context.Context, q domain.Comman
 	defer cancel()
 
 	page := domain.CommandBoardCohortDaysPage{Days: []domain.CommandBoardCohortDay{}}
-	rows, err := r.pool.Query(ctx, commandBoardCohortDaySQL,
+	bound := sqlbind.MustBind(commandBoardCohortDaySQL,
 		q.TenantID, q.DriveBatchID, q.ParkID,
 		q.CohortParkID, q.ManagementStage, q.Sex, q.DoseCodes)
+	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return page, fmt.Errorf("vaccination command board: cohort day query: %w", err)
 	}
@@ -362,27 +367,23 @@ func (r *Repository) CommandBoardShedDoseMatrix(ctx context.Context, q domain.Co
 	if q.DriveBatchID != nil {
 		driveBatchID = strings.TrimSpace(*q.DriveBatchID)
 	}
-	cacheKey := strings.Join([]string{"command_board_shed_dose_matrix", strings.TrimSpace(q.TenantID), vaccinationCacheExactTime(asOf), parkID, driveBatchID}, "|")
-	if cached, ok := r.getVaccinationReadCache(cacheKey); ok {
-		if cachedPage, ok := cached.(domain.CommandBoardShedDoseMatrixPage); ok {
-			return cachedPage, nil
+	cacheKey := strings.Join([]string{"command_board_shed_dose_matrix", strings.TrimSpace(q.TenantID), vaccinationCacheAsOfKey(asOf), parkID, driveBatchID}, "|")
+	return vaccinationCached(ctx, r, q.TenantID, cacheKey, func(ctx context.Context) (domain.CommandBoardShedDoseMatrixPage, error) {
+		// Takes a slot from the SAME shared budget the board's own sections use. This endpoint is fired
+		// in parallel with them on first paint, so counting it separately is how a single reader ends up
+		// holding the whole pool.
+		var matrix domain.ShedDoseMatrix
+		err := r.commandBoardSection(ctx, func() error {
+			var sectionErr error
+			matrix, sectionErr = r.commandBoardShedDoseCells(ctx, q.TenantID, q.AsOf, q.DriveBatchID, q.ParkID)
+			return sectionErr
+		})()
+		if err != nil {
+			return page, err
 		}
-	}
-	// Takes a slot from the SAME shared budget the board's own sections use. This endpoint is fired
-	// in parallel with them on first paint, so counting it separately is how a single reader ends up
-	// holding the whole pool.
-	var matrix domain.ShedDoseMatrix
-	err := r.commandBoardSection(ctx, func() error {
-		var sectionErr error
-		matrix, sectionErr = r.commandBoardShedDoseCells(ctx, q.TenantID, q.AsOf, q.DriveBatchID, q.ParkID)
-		return sectionErr
-	})()
-	if err != nil {
-		return page, err
-	}
-	if len(matrix.Cells) > 0 {
-		page.Matrix = matrix
-	}
-	r.setVaccinationReadCache(cacheKey, page)
-	return page, nil
+		if len(matrix.Cells) > 0 {
+			page.Matrix = matrix
+		}
+		return page, nil
+	})
 }

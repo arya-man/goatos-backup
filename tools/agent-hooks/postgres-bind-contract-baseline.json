@@ -51,8 +51,6 @@
   "internal/sop/adapters/postgres/repository.go|unverified-dynamic-bind": 14,
   "internal/tasks/adapters/postgres/colostrum.go|unverified-dynamic-bind": 1,
   "internal/toxin/adapters/postgres/repository.go|unverified-dynamic-bind": 3,
-  "internal/vaccinationexecution/adapters/postgres/commandboard.go|unverified-dynamic-bind": 10,
-  "internal/vaccinationexecution/adapters/postgres/commandboard_drilldown.go|unverified-dynamic-bind": 4,
   "internal/verification/adapters/postgres/oversight_analytics.go|unverified-dynamic-bind": 2,
   "internal/verification/adapters/postgres/video_log.go|unverified-dynamic-bind": 1,
   "internal/weighing/adapters/boardsource/source.go|unverified-dynamic-bind": 1,

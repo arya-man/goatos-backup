@@ -7,43 +7,35 @@ import (
 	"slices"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
-	"golang.org/x/sync/errgroup"
 
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	oploc "github.com/vgoats/goatos/backend/internal/platform/oploc"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 	vaccinatdomain "github.com/vgoats/goatos/backend/internal/vaccination/domain"
 	"github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
 )
 
-// commandBoardConcurrencyBudget bounds the connections ONE READER's command board may hold across
-// ALL of its sections at once.
+// commandBoardConcurrencyBudget bounds the connections the command board's endpoints may hold at
+// once on this instance, across the board, cohort matrix, shed-dose grid and drive picker.
 //
-// It is a SHARED budget, held on the Repository, and that is the whole point. The per-endpoint
-// errgroup limit stopped bounding anything useful the moment the board was split: admin-web now
-// fires /vaccination/command, /command/cohort-matrix and /command/shed-dose-matrix in PARALLEL on
-// first paint, so three independent limits of 6 + 3 + 1 meant a single reader could hold TEN
-// connections against a GOATOS_PG_MAX_CONNS that defaults to TEN. Making the endpoint fast and then
-// letting it exhaust the pool would just be the original failure wearing a different hat --
-// a timeout at the pool instead of at the statement.
-//
-// SIX across all sections, measured: the board's own makespan is set by its longest statement
-// (drive options at ~144ms), and six slots run every real statement in one wave. It leaves four
-// connections for every other caller, which is the headroom the old per-endpoint comment claimed
-// and no longer actually provided.
-const commandBoardConcurrencyBudget = 6
+// ONE CONNECTION PER ENDPOINT. Each endpoint now sends all of its statements as one pgx.Batch on
+// one connection (commandBoardBatch) and holds ONE slot for it. The budget used to be spent per
+// STATEMENT: admin-web fires the board (6 sections), cohort matrix (2), shed-dose grid (1) and
+// drive picker (1) together, so one first paint queued ~10 statements on 6 slots and serialised
+// the slow ones behind each other -- stg p50 1.8 s against ~220 ms of clone DB time
+// (docs/perf/2026-09-24-stg-latency/audit/part-vaccination.md root 3). Four slots admit a whole
+// first paint in one wave and leave six of the default GOATOS_PG_MAX_CONNS=10 for every other
+// caller. Only CACHE MISSES reach it: the read cache (vaccinationCached) single-flights identical
+// keys, so concurrent readers of one board share one load and one slot.
+const commandBoardConcurrencyBudget = 4
 
-// commandBoardSummaryConcurrency bounds one endpoint's own fan-out. It stays as a second, inner
-// bound so a single endpoint cannot queue more work than the shared budget can ever admit; the
-// SHARED budget above is what protects the pool.
-const commandBoardSummaryConcurrency = 6
-
-// commandBoardSection wraps one section so it holds a slot from the SHARED command-board budget for
-// exactly as long as its query runs. Acquire honours ctx, so a cancelled request stops waiting
-// rather than piling up behind the pool.
+// commandBoardSection holds one slot from the SHARED command-board budget for exactly as long as
+// fn runs. Acquire honours ctx, so a cancelled request stops waiting rather than piling up behind
+// the pool.
 func (r *Repository) commandBoardSection(ctx context.Context, fn func() error) func() error {
 	return func() error {
 		if r.commandBoardSlots != nil {
@@ -54,6 +46,28 @@ func (r *Repository) commandBoardSection(ctx context.Context, fn func() error) f
 		}
 		return fn()
 	}
+}
+
+// queueBound queues a statement whose placeholders were checked against its arguments
+// (sqlbind), so a batch cannot silently shift a parameter.
+func queueBound(batch *pgx.Batch, sql string, args ...any) {
+	bound := sqlbind.MustBind(sql, args...)
+	batch.Queue(bound.SQL(), bound.Args()...)
+}
+
+// commandBoardBatch sends batch as ONE round trip on ONE pooled connection under ONE budget slot,
+// and hands the results to read in queue order. Statements run back to back server-side; the
+// batch is one implicit transaction, so a failed statement aborts the ones queued after it.
+func (r *Repository) commandBoardBatch(ctx context.Context, batch *pgx.Batch, read func(pgx.BatchResults) error) error {
+	return r.commandBoardSection(ctx, func() error {
+		br := r.pool.SendBatch(ctx, batch)
+		readErr := read(br)
+		closeErr := br.Close()
+		if readErr != nil {
+			return readErr
+		}
+		return closeErr
+	})()
 }
 
 // VaccinationCommandBoard returns the CEO closure view's FIRST PAINT: KPIs, shed vaccine matrix,
@@ -81,9 +95,10 @@ func (r *Repository) commandBoardSection(ctx context.Context, fn func() error) f
 //     commandboard_drilldown_sql.go. The board keeps every COUNT those lists sat under: the
 //     numbers are the board, the lists were never first paint.
 //
-//  2. WHAT REMAINS RUNS CONCURRENTLY. The six summary sections share no state, so they are
-//     fanned out under commandBoardSummaryConcurrency and assembled deterministically after.
-//     Ordering of the response is computed from the results, never from completion order.
+//  2. WHAT REMAINS IS ONE BATCH. The six summary sections are sent as one pgx.Batch on one
+//     connection (commandBoardBatch) and assembled deterministically after. Once the canceled
+//     obligations left the folds (migration 000410's partial index) each statement is tens of
+//     milliseconds, so one connection beats six that queue on the shared budget.
 //
 // SECTION-LEVEL DEGRADATION. KPIs and the drive picker are REQUIRED: a board with no numbers is
 // the blank failure this change exists to remove, and a board whose picker is missing strands a
@@ -134,137 +149,117 @@ func (r *Repository) VaccinationCommandBoard(ctx context.Context, q domain.Comma
 	if q.DriveBatchID != nil {
 		driveBatchID = strings.TrimSpace(*q.DriveBatchID)
 	}
-	cacheKey := strings.Join([]string{"command_board", strings.TrimSpace(q.TenantID), vaccinationCacheExactTime(asOf), catalogScopeID, boardParkID, driveBatchID}, "|")
-	if cached, ok := r.getVaccinationReadCache(cacheKey); ok {
-		if cachedResp, ok := cached.(domain.CommandBoardResponse); ok {
-			return cachedResp, nil
+	cacheKey := strings.Join([]string{"command_board", strings.TrimSpace(q.TenantID), vaccinationCacheAsOfKey(asOf), catalogScopeID, boardParkID, driveBatchID}, "|")
+	return vaccinationCached(ctx, r, q.TenantID, cacheKey, func(ctx context.Context) (domain.CommandBoardResponse, error) {
+		var (
+			unavailable  []string
+			shedVaccine  commandBoardShedVaccineResult
+			vaccineCodes []string
+			weekly       []domain.WeeklyGivenRow
+			verifyQueue  []domain.VerificationQueueRow
+			driveOptions []domain.CommandBoardDriveOption
+			driveTrunc   bool
+		)
+		driveQuery := domain.CommandBoardDriveOptionsQuery{TenantID: q.TenantID, ParkID: catalogParkID, Limit: r.driveOptionsLimit}
+		driveArgs, err := commandBoardDriveOptionsArgs(driveQuery)
+		if err != nil {
+			return resp, err
 		}
-	}
 
-	var (
-		mu          sync.Mutex
-		unavailable []string
+		// ONE pgx.Batch on ONE connection. REQUIRED sections are queued first; see
+		// commandBoardConcurrencyBudget for why the board no longer fans out over the pool.
+		// projection-review: membership=unchanged per section (each statement is the same SQL it ran
+		// on its own connection); group_key=unchanged per section; join_cardinality=no join across
+		// sections, each result is scanned into its own field; pagination=only the drive picker pages
+		// (limit+1 probe), unchanged; scope=tenant plus the same park/drive arguments per section.
+		batch := &pgx.Batch{}
+		queueBound(batch, commandBoardKPISQL, q.TenantID, asOf, q.DriveBatchID, parkID)
+		queueBound(batch, driveOptionsSQL, driveArgs...)
+		queueBound(batch, commandBoardShedVaccineSQL, q.TenantID, asOf, q.DriveBatchID, parkID)
+		queueBound(batch, commandBoardVaccineCodeSQL, q.TenantID)
+		queueBound(batch, commandBoardWeeklySQL, q.TenantID, asOf, q.DriveBatchID, parkID)
+		queueBound(batch, commandBoardVerifyQueueSQL, q.TenantID, asOf, q.DriveBatchID, parkID)
 
-		shedVaccine  commandBoardShedVaccineResult
-		vaccineCodes []string
-		weekly       []domain.WeeklyGivenRow
-		verifyQueue  []domain.VerificationQueueRow
-		driveOptions []domain.CommandBoardDriveOption
-		driveTrunc   bool
-	)
-
-	// optional wraps a section whose failure must not blank the board. The error is recorded
-	// against the section name and swallowed; required sections return their error to the group.
-	//
-	// It is LOGGED before it is swallowed. Degrading instead of 500ing is right, but a section that
-	// has been failing for a week must not be invisible: without this line the only trace was a
-	// string in a JSON field nobody alerts on, which trades a loud outage for a silent permanent
-	// hole.
-	optional := func(name string, fn func() error) func() error {
-		return func() error {
-			if err := fn(); err != nil {
-				if r.log != nil {
-					r.log.WarnContext(ctx, "vaccination command board: optional section unavailable",
-						"section", name, "tenant_id", q.TenantID, "error", err)
-				}
-				mu.Lock()
-				unavailable = append(unavailable, name)
-				mu.Unlock()
+		err = r.commandBoardBatch(ctx, batch, func(br pgx.BatchResults) error {
+			if err := br.QueryRow().Scan(&resp.KPIs.Targets, &resp.KPIs.MissedNotGiven, &resp.KPIs.DosesVerified,
+				&resp.KPIs.AwaitingVerification, &resp.KPIs.ReworkNeeded, &resp.KPIs.OverdueNotGiven, &resp.KPIs.ScheduledAhead,
+				&resp.KPIs.ClosedWithoutDose); err != nil {
+				return fmt.Errorf("vaccination command board: kpi query: %w", err)
 			}
+			// The BOARD's page only. The full catalogue is CommandBoardDriveOptions, fetched lazily --
+			// see domain.CommandBoardDriveOptionsPageSize for why the picker stopped shipping eagerly.
+			driveRows, err := br.Query()
+			if err != nil {
+				return fmt.Errorf("vaccination command board: drive options query: %w", err)
+			}
+			page, truncated, err := scanCommandBoardDriveOptions(driveRows, driveQuery.Limit)
+			if err != nil {
+				return err
+			}
+			driveOptions, driveTrunc = page.Options, truncated
+
+			// OPTIONAL sections. A batch runs as one implicit transaction, so once a statement fails
+			// every later one reports the aborted transaction: each is still named in
+			// UnavailableSections (never a silent hole) and the required sections above are intact.
+			optional := func(name string, scan func(pgx.Rows) error) {
+				rows, err := br.Query()
+				if err == nil {
+					err = scan(rows)
+				}
+				if err != nil {
+					if r.log != nil {
+						// LOGGED before it is swallowed: a section failing for a week must not be
+						// visible only as a string in a JSON field nobody alerts on.
+						r.log.WarnContext(ctx, "vaccination command board: optional section unavailable",
+							"section", name, "tenant_id", q.TenantID, "error", err)
+					}
+					unavailable = append(unavailable, name)
+				}
+			}
+			optional("shedVaccineMatrix", func(rows pgx.Rows) (err error) {
+				shedVaccine, err = scanCommandBoardShedVaccineCells(rows)
+				return err
+			})
+			optional("shedVaccineColumns", func(rows pgx.Rows) (err error) {
+				vaccineCodes, err = scanCommandBoardVaccineCodes(rows)
+				return err
+			})
+			optional("weeklyGiven", func(rows pgx.Rows) (err error) {
+				weekly, err = scanCommandBoardWeeklyGiven(rows)
+				return err
+			})
+			optional("verificationQueue", func(rows pgx.Rows) (err error) {
+				verifyQueue, err = scanCommandBoardVerificationQueue(rows, asOf)
+				return err
+			})
 			return nil
-		}
-	}
-
-	group, gctx := errgroup.WithContext(ctx)
-	group.SetLimit(commandBoardSummaryConcurrency)
-
-	group.Go(r.commandBoardSection(gctx, func() error {
-		row := r.pool.QueryRow(gctx, commandBoardKPISQL, q.TenantID, asOf, q.DriveBatchID, parkID)
-		if err := row.Scan(&resp.KPIs.Targets, &resp.KPIs.MissedNotGiven, &resp.KPIs.DosesVerified,
-			&resp.KPIs.AwaitingVerification, &resp.KPIs.ReworkNeeded, &resp.KPIs.OverdueNotGiven, &resp.KPIs.ScheduledAhead,
-			&resp.KPIs.ClosedWithoutDose); err != nil {
-			return fmt.Errorf("vaccination command board: kpi query: %w", err)
-		}
-		return nil
-	}))
-
-	group.Go(r.commandBoardSection(gctx, func() error {
-		// The BOARD's page only. The full catalogue is CommandBoardDriveOptions, fetched lazily --
-		// see domain.CommandBoardDriveOptionsPageSize for why the picker stopped shipping eagerly.
-		page, truncated, err := r.commandBoardDriveOptionsPage(gctx, domain.CommandBoardDriveOptionsQuery{
-			TenantID: q.TenantID,
-			ParkID:   catalogParkID,
-			Limit:    r.driveOptionsLimit,
 		})
 		if err != nil {
-			return err
+			return resp, err
 		}
-		driveOptions, driveTrunc = page.Options, truncated
-		return nil
-	}))
 
-	group.Go(r.commandBoardSection(gctx, optional("shedVaccineMatrix", func() error {
-		result, err := r.commandBoardShedVaccineCells(gctx, q.TenantID, asOf, q.DriveBatchID, parkID)
-		if err != nil {
-			return err
+		resp.DriveOptions = driveOptions
+		resp.DriveOptionsTruncated = driveTrunc
+		resp.WeeklyGiven = append(resp.WeeklyGiven, weekly...)
+		resp.VerificationQueue = append(resp.VerificationQueue, verifyQueue...)
+		for _, code := range vaccineCodes {
+			// Labelled HERE, from the one canonical vaccine labeller, so the column header is server
+			// copy like every other visible string on this board.
+			resp.ShedVaccineColumns = append(resp.ShedVaccineColumns, domain.CommandBoardVaccineColumn{
+				Code:  code,
+				Label: vaccinatdomain.VaccineAntigenLabel(code),
+			})
 		}
-		shedVaccine = result
-		return nil
-	})))
+		resp.ShedVaccineMatrix = commandBoardDensifyShedVaccine(shedVaccine, resp.ShedVaccineColumns)
 
-	group.Go(r.commandBoardSection(gctx, optional("shedVaccineColumns", func() error {
-		codes, err := r.commandBoardVaccineCodes(gctx, q.TenantID)
-		if err != nil {
-			return err
-		}
-		vaccineCodes = codes
-		return nil
-	})))
+		// Sorted so a section list is stable across renders: it is rendered as copy ("verification
+		// queue unavailable"), and copy that reorders itself between two identical requests reads as
+		// two different failures.
+		sort.Strings(unavailable)
+		resp.UnavailableSections = unavailable
 
-	group.Go(r.commandBoardSection(gctx, optional("weeklyGiven", func() error {
-		rows, err := r.commandBoardWeeklyGiven(gctx, q.TenantID, asOf, q.DriveBatchID, parkID)
-		if err != nil {
-			return err
-		}
-		weekly = rows
-		return nil
-	})))
-
-	group.Go(r.commandBoardSection(gctx, optional("verificationQueue", func() error {
-		rows, err := r.commandBoardVerificationQueue(gctx, q.TenantID, asOf, q.DriveBatchID, parkID)
-		if err != nil {
-			return err
-		}
-		verifyQueue = rows
-		return nil
-	})))
-
-	if err := group.Wait(); err != nil {
-		return resp, err
-	}
-
-	resp.DriveOptions = driveOptions
-	resp.DriveOptionsTruncated = driveTrunc
-	resp.WeeklyGiven = append(resp.WeeklyGiven, weekly...)
-	resp.VerificationQueue = append(resp.VerificationQueue, verifyQueue...)
-	for _, code := range vaccineCodes {
-		// Labelled HERE, from the one canonical vaccine labeller, so the column header is server
-		// copy like every other visible string on this board.
-		resp.ShedVaccineColumns = append(resp.ShedVaccineColumns, domain.CommandBoardVaccineColumn{
-			Code:  code,
-			Label: vaccinatdomain.VaccineAntigenLabel(code),
-		})
-	}
-	resp.ShedVaccineMatrix = commandBoardDensifyShedVaccine(shedVaccine, resp.ShedVaccineColumns)
-
-	// Sorted so a section list is stable across renders: it is rendered as copy ("verification
-	// queue unavailable"), and copy that reorders itself between two identical requests reads as
-	// two different failures.
-	sort.Strings(unavailable)
-	resp.UnavailableSections = unavailable
-
-	r.setVaccinationReadCache(cacheKey, resp)
-	return resp, nil
+		return resp, nil
+	})
 }
 
 // commandBoardCohortRow is one (park x stage x sex x dose_code) row of the cohort matrix query,
@@ -279,11 +274,7 @@ type commandBoardHeadKey struct{ parkID, stage, sex string }
 
 type commandBoardCohortKey struct{ parkID, stage, sex, vaccine string }
 
-func (r *Repository) commandBoardCohortRows(ctx context.Context, tenantID string, asOf time.Time, batchID, parkID *string) ([]commandBoardCohortRow, error) {
-	rows, err := r.pool.Query(ctx, commandBoardCohortSQL, tenantID, asOf, batchID, parkID)
-	if err != nil {
-		return nil, fmt.Errorf("vaccination command board: cohort query: %w", err)
-	}
+func scanCommandBoardCohortRows(rows pgx.Rows) ([]commandBoardCohortRow, error) {
 	defer rows.Close()
 	var out []commandBoardCohortRow
 	for rows.Next() {
@@ -301,11 +292,7 @@ func (r *Repository) commandBoardCohortRows(ctx context.Context, tenantID string
 	return out, nil
 }
 
-func (r *Repository) commandBoardCohortHeadCounts(ctx context.Context, tenantID string, parkID *string) (map[commandBoardHeadKey]int, error) {
-	rows, err := r.pool.Query(ctx, commandBoardCohortHeadSQL, tenantID, parkID)
-	if err != nil {
-		return nil, fmt.Errorf("vaccination command board: cohort head count query: %w", err)
-	}
+func scanCommandBoardCohortHeadCounts(rows pgx.Rows) (map[commandBoardHeadKey]int, error) {
 	defer rows.Close()
 	counts := map[commandBoardHeadKey]int{}
 	for rows.Next() {
@@ -323,7 +310,8 @@ func (r *Repository) commandBoardCohortHeadCounts(ctx context.Context, tenantID 
 }
 
 func (r *Repository) commandBoardCohortExceptionCounts(ctx context.Context, tenantID string, batchID, parkID *string) (map[commandBoardCohortKey]int, error) {
-	rows, err := r.pool.Query(ctx, commandBoardCohortExceptionCountSQL, tenantID, batchID, parkID, nil, nil, nil, nil)
+	bound := sqlbind.MustBind(commandBoardCohortExceptionCountSQL, tenantID, batchID, parkID, nil, nil, nil, nil)
+	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return nil, fmt.Errorf("vaccination command board: cohort exception query: %w", err)
 	}
@@ -424,7 +412,8 @@ func (r *Repository) commandBoardShedDoseCells(ctx context.Context, tenantID str
 		DoseRules: []string{},
 		Cells:     []domain.ShedDoseMatrixCell{},
 	}
-	rows, err := r.pool.Query(ctx, commandBoardShedDoseSQL, tenantID, asOf, batchID, parkID)
+	bound := sqlbind.MustBind(commandBoardShedDoseSQL, tenantID, asOf, batchID, parkID)
+	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return matrix, fmt.Errorf("vaccination command board: shed dose query: %w", err)
 	}
@@ -515,14 +504,10 @@ type commandBoardShedVaccineResult struct {
 	order []string
 }
 
-func (r *Repository) commandBoardShedVaccineCells(ctx context.Context, tenantID string, asOf time.Time, batchID, parkID *string) (commandBoardShedVaccineResult, error) {
+func scanCommandBoardShedVaccineCells(rows pgx.Rows) (commandBoardShedVaccineResult, error) {
 	result := commandBoardShedVaccineResult{
 		cells: map[commandBoardShedVaccineKey]domain.CommandBoardShedVaccineCell{},
 		sheds: map[string]commandBoardShedIdentity{},
-	}
-	rows, err := r.pool.Query(ctx, commandBoardShedVaccineSQL, tenantID, asOf, batchID, parkID)
-	if err != nil {
-		return result, fmt.Errorf("vaccination command board: shed vaccine query: %w", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
@@ -612,11 +597,7 @@ func commandBoardDensifyShedVaccine(result commandBoardShedVaccineResult, column
 	return matrix
 }
 
-func (r *Repository) commandBoardVaccineCodes(ctx context.Context, tenantID string) ([]string, error) {
-	rows, err := r.pool.Query(ctx, commandBoardVaccineCodeSQL, tenantID)
-	if err != nil {
-		return nil, fmt.Errorf("vaccination command board: vaccine catalogue query: %w", err)
-	}
+func scanCommandBoardVaccineCodes(rows pgx.Rows) ([]string, error) {
 	defer rows.Close()
 	var codes []string
 	for rows.Next() {
@@ -632,11 +613,7 @@ func (r *Repository) commandBoardVaccineCodes(ctx context.Context, tenantID stri
 	return codes, nil
 }
 
-func (r *Repository) commandBoardWeeklyGiven(ctx context.Context, tenantID string, asOf time.Time, batchID, parkID *string) ([]domain.WeeklyGivenRow, error) {
-	rows, err := r.pool.Query(ctx, commandBoardWeeklySQL, tenantID, asOf, batchID, parkID)
-	if err != nil {
-		return nil, fmt.Errorf("vaccination command board: weekly query: %w", err)
-	}
+func scanCommandBoardWeeklyGiven(rows pgx.Rows) ([]domain.WeeklyGivenRow, error) {
 	defer rows.Close()
 	var out []domain.WeeklyGivenRow
 	for rows.Next() {
@@ -662,11 +639,7 @@ func (r *Repository) commandBoardWeeklyGiven(ctx context.Context, tenantID strin
 	return out, nil
 }
 
-func (r *Repository) commandBoardVerificationQueue(ctx context.Context, tenantID string, asOf time.Time, batchID, parkID *string) ([]domain.VerificationQueueRow, error) {
-	rows, err := r.pool.Query(ctx, commandBoardVerifyQueueSQL, tenantID, asOf, batchID, parkID)
-	if err != nil {
-		return nil, fmt.Errorf("vaccination command board: verification queue query: %w", err)
-	}
+func scanCommandBoardVerificationQueue(rows pgx.Rows, asOf time.Time) ([]domain.VerificationQueueRow, error) {
 	defer rows.Close()
 	var out []domain.VerificationQueueRow
 	for rows.Next() {
@@ -728,16 +701,10 @@ func (r *Repository) CommandBoardDriveOptions(ctx context.Context, q domain.Comm
 		parkID = strings.TrimSpace(*q.ParkID)
 	}
 	cacheKey := strings.Join([]string{"command_board_drive_options", strings.TrimSpace(q.TenantID), parkID, q.Cursor, fmt.Sprintf("%d", q.Limit)}, "|")
-	if cached, ok := r.getVaccinationReadCache(cacheKey); ok {
-		if page, ok := cached.(domain.CommandBoardDriveOptionsPage); ok {
-			return page, nil
-		}
-	}
-	page, _, err := r.commandBoardDriveOptionsPage(ctx, q)
-	if err == nil {
-		r.setVaccinationReadCache(cacheKey, page)
-	}
-	return page, err
+	return vaccinationCached(ctx, r, q.TenantID, cacheKey, func(ctx context.Context) (domain.CommandBoardDriveOptionsPage, error) {
+		page, _, err := r.commandBoardDriveOptionsPage(ctx, q)
+		return page, err
+	})
 }
 
 // commandBoardDriveOptionsPage reads one page and reports whether more exist.
@@ -749,8 +716,20 @@ func (r *Repository) CommandBoardDriveOptions(ctx context.Context, q domain.Comm
 // overflow probe on an ordered bounded read (no second COUNT, no OFFSET scan). It doubles as the
 // keyset cursor's proof that a next page exists.
 func (r *Repository) commandBoardDriveOptionsPage(ctx context.Context, q domain.CommandBoardDriveOptionsQuery) (domain.CommandBoardDriveOptionsPage, bool, error) {
-	page := domain.CommandBoardDriveOptionsPage{Options: []domain.CommandBoardDriveOption{}}
+	args, err := commandBoardDriveOptionsArgs(q)
+	if err != nil {
+		return domain.CommandBoardDriveOptionsPage{Options: []domain.CommandBoardDriveOption{}}, false, err
+	}
+	bound := sqlbind.MustBind(driveOptionsSQL, args...)
+	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
+	if err != nil {
+		return domain.CommandBoardDriveOptionsPage{Options: []domain.CommandBoardDriveOption{}}, false, fmt.Errorf("vaccination command board: drive options query: %w", err)
+	}
+	return scanCommandBoardDriveOptions(rows, q.Limit)
+}
 
+// commandBoardDriveOptionsArgs binds driveOptionsSQL for one page (limit+1 rows, see above).
+func commandBoardDriveOptionsArgs(q domain.CommandBoardDriveOptionsQuery) ([]any, error) {
 	var (
 		cursorRank    *int
 		cursorPlanned *string
@@ -763,7 +742,7 @@ func (r *Repository) commandBoardDriveOptionsPage(ctx context.Context, q domain.
 	if q.Cursor != "" {
 		cursor, err := domain.DecodeCommandBoardDriveCursor(q.Cursor)
 		if err != nil {
-			return page, false, fmt.Errorf("vaccination command board: drive options cursor: %w", err)
+			return nil, fmt.Errorf("vaccination command board: drive options cursor: %w", err)
 		}
 		rank, planned, window := cursor.StatusRank, cursor.PlannedDate, cursor.WindowStart
 		batch, parkNil, park := cursor.BatchID, cursor.ParkIsNull, cursor.ParkName
@@ -776,12 +755,13 @@ func (r *Repository) commandBoardDriveOptionsPage(ctx context.Context, q domain.
 		cursorParkID = &parkID
 	}
 
-	rows, err := r.pool.Query(ctx, driveOptionsSQL,
-		q.TenantID, q.ParkID, q.Limit+1,
-		cursorRank, cursorPlanned, cursorWindow, cursorBatch, cursorParkNil, cursorPark, cursorParkID)
-	if err != nil {
-		return page, false, fmt.Errorf("vaccination command board: drive options query: %w", err)
-	}
+	return []any{q.TenantID, q.ParkID, q.Limit + 1,
+		cursorRank, cursorPlanned, cursorWindow, cursorBatch, cursorParkNil, cursorPark, cursorParkID}, nil
+}
+
+// scanCommandBoardDriveOptions reads one limit+1 page of driveOptionsSQL.
+func scanCommandBoardDriveOptions(rows pgx.Rows, limit int) (domain.CommandBoardDriveOptionsPage, bool, error) {
+	page := domain.CommandBoardDriveOptionsPage{Options: []domain.CommandBoardDriveOption{}}
 	defer rows.Close()
 
 	truncated := false
@@ -806,7 +786,7 @@ func (r *Repository) commandBoardDriveOptionsPage(ctx context.Context, q domain.
 			&statusRank, &sortPlanned, &sortWindow, &parkIsNull, &sortPark, &sortParkID); err != nil {
 			return page, false, fmt.Errorf("vaccination command board: drive options scan: %w", err)
 		}
-		if len(page.Options) >= q.Limit {
+		if len(page.Options) >= limit {
 			// The limit+1'th row proves more drives exist. Stop before rendering it: it is a probe,
 			// not a choice the caller may act on, and admitting it would put the page one row over
 			// its own published bound.
@@ -923,8 +903,9 @@ func commandBoardCursorTimestamp(v pgtype.Timestamptz) string {
 
 // CommandBoardCohortMatrix serves the cohort matrix as its own section.
 //
-// Three statements, run concurrently: the cell aggregate, the TRUE herd head count, and the
-// dose-sequence exception count. Together they were ~420ms of the board's ~850ms of SQL and were
+// Two statements, sent as ONE pgx.Batch on one connection: the cell aggregate and the TRUE herd
+// head count (the dose-sequence exception count moved to its drawer). With the
+// exception count they were ~420ms of the board's ~850ms of SQL and were
 // what held GET /vaccination/command at p90 416ms against a 300ms budget that cannot be relaxed.
 // Splitting them out is a product change (the grid arrives a moment after the rest of the board),
 // not a data change: every number here is the same whole-scope figure it was on the board.
@@ -949,40 +930,40 @@ func (r *Repository) CommandBoardCohortMatrix(ctx context.Context, q domain.Comm
 	if q.DriveBatchID != nil {
 		driveBatchID = strings.TrimSpace(*q.DriveBatchID)
 	}
-	cacheKey := strings.Join([]string{"command_board_cohort_matrix", strings.TrimSpace(q.TenantID), vaccinationCacheExactTime(asOf), parkID, driveBatchID}, "|")
-	if cached, ok := r.getVaccinationReadCache(cacheKey); ok {
-		if cachedPage, ok := cached.(domain.CommandBoardCohortMatrixPage); ok {
-			return cachedPage, nil
-		}
-	}
-	var (
-		rows       []commandBoardCohortRow
-		headCounts = map[commandBoardHeadKey]int{}
-	)
+	cacheKey := strings.Join([]string{"command_board_cohort_matrix", strings.TrimSpace(q.TenantID), vaccinationCacheAsOfKey(asOf), parkID, driveBatchID}, "|")
+	return vaccinationCached(ctx, r, q.TenantID, cacheKey, func(ctx context.Context) (domain.CommandBoardCohortMatrixPage, error) {
+		var (
+			rows       []commandBoardCohortRow
+			headCounts = map[commandBoardHeadKey]int{}
+		)
 
-	group, gctx := errgroup.WithContext(ctx)
-	group.SetLimit(commandBoardSummaryConcurrency)
-	group.Go(r.commandBoardSection(gctx, func() error {
-		result, err := r.commandBoardCohortRows(gctx, q.TenantID, asOf, q.DriveBatchID, q.ParkID)
-		if err != nil {
+		// projection-review: membership=unchanged (the same two statements, now one batch);
+		// group_key=(park, stage, sex, dose_code) cells and (park, stage, sex) heads, unchanged;
+		// join_cardinality=folded in Go by commandBoardFoldCohortCells, unchanged; pagination=none,
+		// whole-scope grid; scope=tenant plus park/drive arguments, unchanged.
+		batch := &pgx.Batch{}
+		queueBound(batch, commandBoardCohortSQL, q.TenantID, asOf, q.DriveBatchID, q.ParkID)
+		queueBound(batch, commandBoardCohortHeadSQL, q.TenantID, q.ParkID)
+		err := r.commandBoardBatch(ctx, batch, func(br pgx.BatchResults) error {
+			cohortRows, err := br.Query()
+			if err != nil {
+				return fmt.Errorf("vaccination command board: cohort query: %w", err)
+			}
+			if rows, err = scanCommandBoardCohortRows(cohortRows); err != nil {
+				return err
+			}
+			headRows, err := br.Query()
+			if err != nil {
+				return fmt.Errorf("vaccination command board: cohort head count query: %w", err)
+			}
+			headCounts, err = scanCommandBoardCohortHeadCounts(headRows)
 			return err
-		}
-		rows = result
-		return nil
-	}))
-	group.Go(r.commandBoardSection(gctx, func() error {
-		result, err := r.commandBoardCohortHeadCounts(gctx, q.TenantID, q.ParkID)
+		})
 		if err != nil {
-			return err
+			return page, err
 		}
-		headCounts = result
-		return nil
-	}))
-	if err := group.Wait(); err != nil {
-		return page, err
-	}
 
-	page.Cells = commandBoardFoldCohortCells(rows, headCounts)
-	r.setVaccinationReadCache(cacheKey, page)
-	return page, nil
+		page.Cells = commandBoardFoldCohortCells(rows, headCounts)
+		return page, nil
+	})
 }

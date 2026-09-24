@@ -21,6 +21,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	platformoutbox "github.com/vgoats/goatos/backend/internal/platform/outbox"
+	"github.com/vgoats/goatos/backend/internal/platform/readcache"
 	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 	vaccinatdomain "github.com/vgoats/goatos/backend/internal/vaccination/domain"
 	"github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
@@ -88,7 +89,11 @@ type Repository struct {
 	commandBoardSlots *semaphore.Weighted
 	liveTrackerMu     sync.Mutex
 	liveTrackerCache  map[string]liveTrackerCacheEntry
-	readCache         map[string]vaccinationReadCacheEntry
+	// readCache is the shared readcache instance for the heavy vaccination reads (board, cohort,
+	// shed-dose, sheds, execution, operations, schedule). Keys carry vaccinationCacheAsOfKey, and
+	// committed vaccination writes evict the tenant through the readcache listener (migration
+	// 000411 triggers notify with caches=["vaccination"]). Bootstrap registers it via ReadCache().
+	readCache *readcache.Cache
 	// log is an INSTANCE logger. Package-level slog.Warn/Error calls are banned in product code
 	// (tools/agent-hooks/check-boundaries.sh), so a degraded board section reports through this.
 	log *slog.Logger
@@ -104,53 +109,62 @@ func NewRepository(pool *pgxpool.Pool, queryTimeout time.Duration) *Repository {
 		driveOptionsLimit: defaultDriveOptionsLimit,
 		commandBoardSlots: semaphore.NewWeighted(commandBoardConcurrencyBudget),
 		liveTrackerCache:  make(map[string]liveTrackerCacheEntry),
-		readCache:         make(map[string]vaccinationReadCacheEntry),
+		readCache:         newVaccinationReadCache(),
 		log:               slog.Default(),
 	}
 }
 
 var _ ports.Repository = (*Repository)(nil)
 
-type vaccinationReadCacheEntry struct {
-	expiresAt time.Time
-	value     any
+// VaccinationReadCacheName is the readcache Options.Name the vaccination write triggers target.
+const VaccinationReadCacheName = "vaccination"
+
+// vaccinationReadCacheBucket is the as_of floor in every vaccination cache key.
+const vaccinationReadCacheBucket = 30 * time.Second
+
+// newVaccinationReadCache: entries live one 30 s bucket and are never served stale -- the key
+// already rolls every 30 s, and a refresh would re-run the load with the original request's as_of.
+func newVaccinationReadCache() *readcache.Cache {
+	return readcache.New(readcache.Options{
+		Name:        VaccinationReadCacheName,
+		MaxEntries:  256,
+		FreshTTL:    vaccinationReadCacheTTL,
+		StaleGrace:  0,
+		DegradedTTL: vaccinationReadCacheTTL,
+	})
 }
+
+// ReadCache is the vaccination read cache, for bootstrap to register with the eviction listener.
+func (r *Repository) ReadCache() *readcache.Cache { return r.readCache }
 
 func vaccinationCacheTimeBucket(t time.Time) string {
 	return t.Truncate(5 * time.Minute).UTC().Format(time.RFC3339)
 }
 
-func vaccinationCacheExactTime(t time.Time) string {
-	return t.UTC().Format(time.RFC3339Nano)
+// vaccinationCacheAsOfKey is the as_of component of a vaccination cache key: the IST business
+// date plus a 30 s floor. Never the raw instant -- the handler sets as_of = now() with nanosecond
+// precision, so an instant key never hits (banned pattern 5, docs/perf/2026-09-24-stg-latency).
+func vaccinationCacheAsOfKey(t time.Time) string {
+	return t.In(biztime.DefaultLocation()).Format("2006-01-02") + "@" + t.Truncate(vaccinationReadCacheBucket).UTC().Format("15:04:05")
 }
 
-func (r *Repository) getVaccinationReadCache(key string) (any, bool) {
-	now := time.Now()
-	r.liveTrackerMu.Lock()
-	defer r.liveTrackerMu.Unlock()
-	entry, ok := r.readCache[key]
-	if !ok || now.After(entry.expiresAt) {
-		if ok {
-			delete(r.readCache, key)
-		}
-		return nil, false
-	}
-	return entry.value, true
+// vaccinationCached runs load once per key across concurrent callers (single flight) and serves
+// the result for one bucket. The load runs detached from the caller's cancellation, so it
+// carries its own query timeout.
+func vaccinationCached[T any](ctx context.Context, r *Repository, tenantID, params string, load func(context.Context) (T, error)) (T, error) {
+	return readcache.Load(ctx, r.readCache, readcache.Key{Tenant: strings.TrimSpace(tenantID), Params: params}, func(ctx context.Context) (T, error) {
+		ctx, cancel := context.WithTimeout(ctx, r.timeout)
+		defer cancel()
+		return load(ctx)
+	})
 }
 
-func (r *Repository) setVaccinationReadCache(key string, value any) {
+// invalidateVaccinationReadCache drops this instance's entries for tenantID after a local
+// commit; sibling instances are evicted by the write triggers' NOTIFY.
+func (r *Repository) invalidateVaccinationReadCache(ctx context.Context, tenantID string) {
+	r.readCache.Evict(ctx, strings.TrimSpace(tenantID))
 	r.liveTrackerMu.Lock()
 	defer r.liveTrackerMu.Unlock()
-	if len(r.readCache) > 256 {
-		r.readCache = make(map[string]vaccinationReadCacheEntry)
-	}
-	r.readCache[key] = vaccinationReadCacheEntry{expiresAt: time.Now().Add(vaccinationReadCacheTTL), value: value}
-}
-
-func (r *Repository) invalidateVaccinationReadCache() {
-	r.liveTrackerMu.Lock()
-	defer r.liveTrackerMu.Unlock()
-	r.readCache = make(map[string]vaccinationReadCacheEntry)
 	r.liveTrackerCache = make(map[string]liveTrackerCacheEntry)
 }
 
@@ -204,32 +218,28 @@ func (r *Repository) ListVaccinationExecutionPage(ctx context.Context, q domain.
 	}
 	closedAfter := asOf.Add(-defaultClosedHistoryAge)
 	cacheKey := fmt.Sprintf("execution|%s|%s|%s|%s|%d|%s|%s|%t|%d|%d|%s|%s|%s|%s",
-		q.TenantID, parkID, shedID, vaccinationCacheExactTime(dueBefore), q.Limit, workState,
-		vaccinationCacheExactTime(asOf), q.OpenOnly, cursorRank, cursorDueMicros, cursorRowKey,
+		q.TenantID, parkID, shedID, vaccinationCacheAsOfKey(dueBefore), q.Limit, workState,
+		vaccinationCacheAsOfKey(asOf), q.OpenOnly, cursorRank, cursorDueMicros, cursorRowKey,
 		q.OperatorScopeActorID, partitionLabel, severity)
-	if cached, ok := r.getVaccinationReadCache(cacheKey); ok {
-		if page, ok := cached.(domain.ExecutionProjectionPage); ok {
-			return page, nil
+	return vaccinationCached(ctx, r, q.TenantID, cacheKey, func(ctx context.Context) (domain.ExecutionProjectionPage, error) {
+		// 5k-50k envelope (docs/decisions/operational-kernel-5k-50k-scale-envelope.md): serve the execution
+		// list directly from the canonical obligation/completion/SOP tables via the keyset-paginated
+		// vaccinationExecutionSQL instead of the vaccination_execution_projection_rows read model. A canonical
+		// read cannot be stale relative to the canonical write, so the serving-projection freshness gate (and
+		// its read-through-vs-503 failure mode) is removed. Freshness is nil (always current).
+		rows, err := r.pool.Query(ctx, vaccinationExecutionSQL, pgx.QueryExecModeExec,
+			q.TenantID, parkID, shedID, dueBefore, q.Limit, workState, asOf, closedAfter, severity,
+			q.OpenOnly, cursorPresent, cursorRank, cursorDueMicros, cursorRowKey, q.OperatorScopeActorID, partitionLabel)
+		if err != nil {
+			return domain.ExecutionProjectionPage{}, fmt.Errorf("vaccination execution: list vaccination execution: %w", err)
 		}
-	}
-	// 5k-50k envelope (docs/decisions/operational-kernel-5k-50k-scale-envelope.md): serve the execution
-	// list directly from the canonical obligation/completion/SOP tables via the keyset-paginated
-	// vaccinationExecutionSQL instead of the vaccination_execution_projection_rows read model. A canonical
-	// read cannot be stale relative to the canonical write, so the serving-projection freshness gate (and
-	// its read-through-vs-503 failure mode) is removed. Freshness is nil (always current).
-	rows, err := r.pool.Query(ctx, vaccinationExecutionSQL, pgx.QueryExecModeExec,
-		q.TenantID, parkID, shedID, dueBefore, q.Limit, workState, asOf, closedAfter, severity,
-		q.OpenOnly, cursorPresent, cursorRank, cursorDueMicros, cursorRowKey, q.OperatorScopeActorID, partitionLabel)
-	if err != nil {
-		return domain.ExecutionProjectionPage{}, fmt.Errorf("vaccination execution: list vaccination execution: %w", err)
-	}
-	defer rows.Close()
-	page, err := scanExecutionProjectionPage(rows, q.Limit)
-	if err != nil {
-		return domain.ExecutionProjectionPage{}, err
-	}
-	r.setVaccinationReadCache(cacheKey, page)
-	return page, nil
+		defer rows.Close()
+		page, err := scanExecutionProjectionPage(rows, q.Limit)
+		if err != nil {
+			return domain.ExecutionProjectionPage{}, err
+		}
+		return page, nil
+	})
 }
 
 func scanExecutionProjectionPage(rows executionRows, limit int) (domain.ExecutionProjectionPage, error) {
@@ -381,30 +391,26 @@ func (r *Repository) VaccinationOperations(ctx context.Context, q domain.Operati
 		cursorStage = q.Cursor.Stage
 	}
 	cacheKey := fmt.Sprintf("operations|%s|%s|%s|%s|%s|%s|%d|%s|%s|%s|%s|%s",
-		q.TenantID, vaccinationCacheExactTime(asOf), vaccinationCacheExactTime(dueBefore), parkID, shedID,
+		q.TenantID, vaccinationCacheAsOfKey(asOf), vaccinationCacheAsOfKey(dueBefore), parkID, shedID,
 		cursorParkID, fetchLimit, cursorParkName, cursorShedID, cursorShedName, cursorPartitionLabel, cursorStage)
-	if cached, ok := r.getVaccinationReadCache(cacheKey); ok {
-		if rows, ok := cached.([]domain.OperationsRow); ok {
-			return rows, nil
+	return vaccinationCached(ctx, r, q.TenantID, cacheKey, func(ctx context.Context) ([]domain.OperationsRow, error) {
+		// 5k-50k envelope (docs/decisions/operational-kernel-5k-50k-scale-envelope.md): serve operations
+		// directly from the canonical obligation/completion tables via the keyset-paginated
+		// vaccinationOperationsSQL instead of vaccination_operations_projection_rows. Canonical reads are never
+		// stale relative to the canonical write, so the serving-projection freshness gate is removed.
+		// Freshness is nil (always current).
+		rows, err := r.pool.Query(ctx, vaccinationOperationsSQL,
+			q.TenantID, asOf, dueBefore, parkID, shedID, cursorParkID, cursorShedID, cursorStage, fetchLimit, cursorParkName, cursorShedName, cursorPartitionLabel)
+		if err != nil {
+			return nil, fmt.Errorf("vaccination execution: list operations: %w", err)
 		}
-	}
-	// 5k-50k envelope (docs/decisions/operational-kernel-5k-50k-scale-envelope.md): serve operations
-	// directly from the canonical obligation/completion tables via the keyset-paginated
-	// vaccinationOperationsSQL instead of vaccination_operations_projection_rows. Canonical reads are never
-	// stale relative to the canonical write, so the serving-projection freshness gate is removed.
-	// Freshness is nil (always current).
-	rows, err := r.pool.Query(ctx, vaccinationOperationsSQL,
-		q.TenantID, asOf, dueBefore, parkID, shedID, cursorParkID, cursorShedID, cursorStage, fetchLimit, cursorParkName, cursorShedName, cursorPartitionLabel)
-	if err != nil {
-		return nil, fmt.Errorf("vaccination execution: list operations: %w", err)
-	}
-	defer rows.Close()
-	out, err := scanOperationsRows(rows, nil)
-	if err != nil {
-		return nil, err
-	}
-	r.setVaccinationReadCache(cacheKey, out)
-	return out, nil
+		defer rows.Close()
+		out, err := scanOperationsRows(rows, nil)
+		if err != nil {
+			return nil, err
+		}
+		return out, nil
+	})
 }
 
 func (r *Repository) VaccinationSchedule(ctx context.Context, q domain.ScheduleQuery) ([]domain.OperationsRow, error) {
@@ -432,17 +438,13 @@ func (r *Repository) VaccinationSchedule(ctx context.Context, q domain.ScheduleQ
 		q.TenantID, vaccinationCacheTimeBucket(asOf), monthStart.Format("2006-01-02"),
 		monthEnd.Format("2006-01-02"), limit, optStr(q.ParkID), cursorParkID, cursorParkName,
 		cursorShedID, cursorShedName, cursorPartitionLabel, cursorStage)
-	if cached, ok := r.getVaccinationReadCache(cacheKey); ok {
-		if rows, ok := cached.([]domain.OperationsRow); ok {
-			return rows, nil
+	return vaccinationCached(ctx, r, q.TenantID, cacheKey, func(ctx context.Context) ([]domain.OperationsRow, error) {
+		rows, err := r.vaccinationScheduleWindowRows(ctx, q, monthStart, monthEnd, asOf, limit+1)
+		if err != nil {
+			return nil, err
 		}
-	}
-	rows, err := r.vaccinationScheduleWindowRows(ctx, q, monthStart, monthEnd, asOf, limit+1)
-	if err != nil {
-		return nil, err
-	}
-	r.setVaccinationReadCache(cacheKey, rows)
-	return rows, nil
+		return rows, nil
+	})
 }
 
 func (r *Repository) vaccinationScheduleWindowRows(ctx context.Context, q domain.ScheduleQuery, monthStart, monthEnd, asOf time.Time, limit int) ([]domain.OperationsRow, error) {
@@ -3222,16 +3224,21 @@ func optStr(s *string) string {
 // shedSummaryOrderBy maps the whitelisted sort enum to a fixed ORDER BY fragment. The fragment is a
 // closed constant set (never interpolated from raw client input), so substituting it into the query is
 // injection-safe. Columns referenced are outer-SELECT aliases.
+// shedSummaryOrderTieBreak makes every shed sort TOTAL. A partitioned shed is one row per
+// partition under one shed name, so a sort that stops at shed_name leaves its partitions tied and
+// the LIMIT/OFFSET page boundary free to drop or repeat one of them between pages.
+const shedSummaryOrderTieBreak = ", shed_id ASC, partition_label ASC NULLS FIRST"
+
 func shedSummaryOrderBy(sort domain.ShedSummarySort) string {
 	switch sort {
 	case domain.ShedSortParkShed:
-		return "park_name ASC, shed_name ASC"
+		return "park_name ASC, shed_name ASC" + shedSummaryOrderTieBreak
 	case domain.ShedSortDueDesc:
-		return "due_animals DESC, park_name ASC, shed_name ASC"
+		return "due_animals DESC, park_name ASC, shed_name ASC" + shedSummaryOrderTieBreak
 	case domain.ShedSortAnimalDesc:
-		return "animals DESC, park_name ASC, shed_name ASC"
+		return "animals DESC, park_name ASC, shed_name ASC" + shedSummaryOrderTieBreak
 	case domain.ShedSortNextDue:
-		return "next_due ASC NULLS LAST, park_name ASC, shed_name ASC"
+		return "next_due ASC NULLS LAST, park_name ASC, shed_name ASC" + shedSummaryOrderTieBreak
 	default: // ShedSortStatus — merged-status priority (most urgent first), then park, then shed.
 		return "CASE shed_status " +
 			"WHEN 'overdue' THEN 0 " +
@@ -3239,7 +3246,7 @@ func shedSummaryOrderBy(sort domain.ShedSummarySort) string {
 			"WHEN 'split' THEN 2 " +
 			"WHEN 'due' THEN 3 " +
 			"WHEN 'scheduled' THEN 4 " +
-			"WHEN 'on_track' THEN 5 ELSE 6 END, park_name ASC, shed_name ASC"
+			"WHEN 'on_track' THEN 5 ELSE 6 END, park_name ASC, shed_name ASC" + shedSummaryOrderTieBreak
 	}
 }
 
@@ -3417,7 +3424,7 @@ ON CONFLICT (tenant_id, idempotency_key) WHERE event_type = 'vaccination.capacit
 	if err := tx.Commit(ctx); err != nil {
 		return domain.CapacityConfig{}, fmt.Errorf("vaccination execution: commit capacity config update tx: %w", err)
 	}
-	r.invalidateVaccinationReadCache()
+	r.invalidateVaccinationReadCache(ctx, tenantID)
 	return cfg, nil
 }
 
@@ -3512,49 +3519,45 @@ func (r *Repository) listShedCanonical(ctx context.Context, q domain.ShedSummary
 		capacity = string(*q.Capacity)
 	}
 	cacheKey := fmt.Sprintf("shed_summary|%s|%s|%s|%s|%s|%s|%s|%s|%d|%d|%s",
-		q.TenantID, asOf.UTC().Format(time.RFC3339Nano), dueBefore.UTC().Format(time.RFC3339Nano), optStr(q.ParkID),
+		q.TenantID, vaccinationCacheAsOfKey(asOf), vaccinationCacheAsOfKey(dueBefore), optStr(q.ParkID),
 		optStr(q.ShedID), optStr(q.Search), status, capacity, limit, q.Offset, shedSummaryOrderBy(q.Sort))
-	if cached, ok := r.getVaccinationReadCache(cacheKey); ok {
-		if rows, ok := cached.([]domain.ShedSummaryProjection); ok {
-			return rows, nil
+	return vaccinationCached(ctx, r, q.TenantID, cacheKey, func(ctx context.Context) ([]domain.ShedSummaryProjection, error) {
+		cfg, err := r.CapacityConfig(ctx, q.TenantID)
+		if err != nil {
+			return nil, fmt.Errorf("vaccination execution: shed summary capacity config: %w", err)
 		}
-	}
-	cfg, err := r.CapacityConfig(ctx, q.TenantID)
-	if err != nil {
-		return nil, fmt.Errorf("vaccination execution: shed summary capacity config: %w", err)
-	}
-	query := strings.Replace(shedSummaryCanonicalReadSQL, "__ORDER_BY__", shedSummaryOrderBy(q.Sort), 1)
-	bound := sqlbind.MustBind(query,
-		q.TenantID, asOf, dueBefore, cfg.MaxPerDay, cfg.MaxBufferDays,
-		optStr(q.ParkID), optStr(q.ShedID), optStr(q.Search), status, capacity, limit, q.Offset)
-	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
-	if err != nil {
-		return nil, fmt.Errorf("vaccination execution: shed summary canonical read: %w", err)
-	}
-	defer rows.Close()
-	out := []domain.ShedSummaryProjection{}
-	for rows.Next() {
-		var row domain.ShedSummaryProjection
-		var lastDone, nextDue pgtype.Timestamptz
-		var capacityStatus, shedStatus, driveOperatorNames string
-		if err := rows.Scan(&row.ParkID, &row.ParkName, &row.ShedID, &row.ShedName, &row.PartitionLabel, &row.Animals, &row.DueAnimals, &row.OpenCells, &row.Sessions, &capacityStatus, &shedStatus, &lastDone, &nextDue, &driveOperatorNames, &row.TotalCount); err != nil {
-			return nil, fmt.Errorf("vaccination execution: scan shed summary: %w", err)
+		query := strings.Replace(shedSummaryCanonicalReadSQL, "__ORDER_BY__", shedSummaryOrderBy(q.Sort), 1)
+		bound := sqlbind.MustBind(query,
+			q.TenantID, asOf, dueBefore, cfg.MaxPerDay, cfg.MaxBufferDays,
+			optStr(q.ParkID), optStr(q.ShedID), optStr(q.Search), status, capacity, limit, q.Offset)
+		rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
+		if err != nil {
+			return nil, fmt.Errorf("vaccination execution: shed summary canonical read: %w", err)
 		}
-		row.Capacity, row.Status = domain.CapacityStatus(capacityStatus), domain.ShedStatus(shedStatus)
-		row.LastDone, row.NextDue = timePtr(lastDone), timePtr(nextDue)
-		for _, name := range strings.Split(driveOperatorNames, ",") {
-			name = strings.TrimSpace(name)
-			if name != "" {
-				row.DriveOperatorNames = append(row.DriveOperatorNames, name)
+		defer rows.Close()
+		out := []domain.ShedSummaryProjection{}
+		for rows.Next() {
+			var row domain.ShedSummaryProjection
+			var lastDone, nextDue pgtype.Timestamptz
+			var capacityStatus, shedStatus, driveOperatorNames string
+			if err := rows.Scan(&row.ParkID, &row.ParkName, &row.ShedID, &row.ShedName, &row.PartitionLabel, &row.Animals, &row.DueAnimals, &row.OpenCells, &row.Sessions, &capacityStatus, &shedStatus, &lastDone, &nextDue, &driveOperatorNames, &row.TotalCount); err != nil {
+				return nil, fmt.Errorf("vaccination execution: scan shed summary: %w", err)
 			}
+			row.Capacity, row.Status = domain.CapacityStatus(capacityStatus), domain.ShedStatus(shedStatus)
+			row.LastDone, row.NextDue = timePtr(lastDone), timePtr(nextDue)
+			for _, name := range strings.Split(driveOperatorNames, ",") {
+				name = strings.TrimSpace(name)
+				if name != "" {
+					row.DriveOperatorNames = append(row.DriveOperatorNames, name)
+				}
+			}
+			out = append(out, row)
 		}
-		out = append(out, row)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	r.setVaccinationReadCache(cacheKey, out)
-	return out, nil
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+		return out, nil
+	})
 }
 
 // shedSummaryCanonicalReadSQL is the 5k-50k-envelope request-path read for GET /vaccination/sheds. It
@@ -3723,7 +3726,10 @@ effective AS (
     END AS eff_status
   FROM raw
 ),
-due_agg AS (
+-- MATERIALIZED (due_agg, drive_ops): computed once and joined, never re-aggregated per shed row.
+-- Inlined, a rows=1 misestimate on the shed list put each on the inner side of a nested loop and
+-- re-sorted ~5.8k obligation rows once per shed (loops=102, 489 ms -> 49 ms on the OCI clone).
+due_agg AS MATERIALIZED (
   -- projection-review: group_key=(shed_uuid, partition_label) so work metrics from different partitions
   -- do not merge; count is at animal grain (DISTINCT goat_id) so completion/rejection status is captured
   -- once per unique animal-metric pair; scope=tenant plus effective filtering applied earlier by effective CTE.
@@ -3793,7 +3799,7 @@ classified AS (
     END AS shed_status
   FROM scored
 ),
-drive_ops AS (
+drive_ops AS MATERIALIZED (
   -- projection-review: membership=vaccination_drive_assignments rows at persisted operator/date/physical-shed/partition grain plus accepted seed-history completions whose source packet resolves to the park default operator; group_key=(park_id,physical_shed); join_cardinality=workforce_members is tenant+operator keyed 1:1, completion->goat is 1:1 by goat_id, shed->park is 1:1 by location parent, and DISTINCT operator names prevents partition/history rows from duplicating visible operators; pagination=drive_ops is pre-aggregated before the classified shed OFFSET/LIMIT window so page boundaries cannot change operator membership; scope=tenant plus optional park/shed filters applied by the outer classified shed row.
   SELECT
     operator_sources.park_id,
@@ -4301,7 +4307,7 @@ ON CONFLICT (tenant_id, idempotency_key) WHERE event_type = '` + eventType + `' 
 	if err := tx.Commit(ctx); err != nil {
 		return domain.OperatorAssignmentConfig{}, fmt.Errorf("vaccination execution: commit config update tx: %w", err)
 	}
-	r.invalidateVaccinationReadCache()
+	r.invalidateVaccinationReadCache(ctx, tenantID)
 
 	return cfg, nil
 }
@@ -4435,7 +4441,7 @@ SELECT 'assignment' AS kind, count(*)::bigint FROM updated_assignments;
 	if err := tx.Commit(ctx); err != nil {
 		return 0, fmt.Errorf("vaccination execution: commit planned drive reassignment tx: %w", err)
 	}
-	r.invalidateVaccinationReadCache()
+	r.invalidateVaccinationReadCache(ctx, tenantID)
 	return changed, nil
 }
 
@@ -4624,56 +4630,52 @@ func (r *Repository) VaccinationExecutionCardSummaries(ctx context.Context, q do
 	}
 	closedAfter := q.AsOf.Add(-defaultClosedHistoryAge)
 	cacheKey := fmt.Sprintf("execution_card_summaries|%s|%s|%s|%s|%s|%s|%t|%s|%s|%s",
-		q.TenantID, parkID, shedID, vaccinationCacheExactTime(dueBefore), workState,
-		vaccinationCacheExactTime(q.AsOf), q.OpenOnly, q.OperatorScopeActorID, partitionLabel, severity)
-	if cached, ok := r.getVaccinationReadCache(cacheKey); ok {
-		if summaries, ok := cached.(map[string]*domain.ShedCardSummary); ok {
-			return summaries, nil
+		q.TenantID, parkID, shedID, vaccinationCacheAsOfKey(dueBefore), workState,
+		vaccinationCacheAsOfKey(q.AsOf), q.OpenOnly, q.OperatorScopeActorID, partitionLabel, severity)
+	return vaccinationCached(ctx, r, q.TenantID, cacheKey, func(ctx context.Context) (map[string]*domain.ShedCardSummary, error) {
+
+		// projection-review: membership=all execution rows matching card identity (shed_id, partition_label, task_id/batch_id/drive_id);
+		// group_key=(shed_uuid, partition_key, task_id, batch_id, drive_id) WITH aggregates over matching rows;
+		// join_cardinality=same as vaccinationExecutionSQL (obligation 1:1 to completion history and batch/task/goat, pre-aggregated);
+		// pagination=NONE — card summaries are full-filter aggregates computed independently of the paginated row window;
+		// scope=same filter predicates as vaccinationExecutionSQL (park/shed/work_state/severity resolved via canonical tables).
+
+		// cardSummariesSQL does not actually consume $11-$14 (they are page-cursor-only; see
+		// executionClassifiedCTE's $-parameter contract comment), but the bind values must still be
+		// supplied without dereferencing a nil q.Cursor -- same nil guard as ListVaccinationExecutionPage.
+		var cursorRank int
+		var cursorDueMicros int64
+		var cursorRowKey string
+		if q.Cursor != nil {
+			cursorRank = q.Cursor.SortRank
+			cursorDueMicros = q.Cursor.SortDueMicros
+			cursorRowKey = q.Cursor.SortRowKey
 		}
-	}
 
-	// projection-review: membership=all execution rows matching card identity (shed_id, partition_label, task_id/batch_id/drive_id);
-	// group_key=(shed_uuid, partition_key, task_id, batch_id, drive_id) WITH aggregates over matching rows;
-	// join_cardinality=same as vaccinationExecutionSQL (obligation 1:1 to completion history and batch/task/goat, pre-aggregated);
-	// pagination=NONE — card summaries are full-filter aggregates computed independently of the paginated row window;
-	// scope=same filter predicates as vaccinationExecutionSQL (park/shed/work_state/severity resolved via canonical tables).
-
-	// cardSummariesSQL does not actually consume $11-$14 (they are page-cursor-only; see
-	// executionClassifiedCTE's $-parameter contract comment), but the bind values must still be
-	// supplied without dereferencing a nil q.Cursor -- same nil guard as ListVaccinationExecutionPage.
-	var cursorRank int
-	var cursorDueMicros int64
-	var cursorRowKey string
-	if q.Cursor != nil {
-		cursorRank = q.Cursor.SortRank
-		cursorDueMicros = q.Cursor.SortDueMicros
-		cursorRowKey = q.Cursor.SortRowKey
-	}
-
-	// projection-review: summary counts now respect work_state, severity, and open-only filters (identical to page query predicate set) to prevent badge counts from misrepresenting the filtered page view.
-	rows, err := r.pool.Query(ctx, cardSummariesSQL, pgx.QueryExecModeExec,
-		q.TenantID, parkID, shedID, dueBefore, q.Limit, workState, q.AsOf, closedAfter, severity,
-		q.OpenOnly, q.Cursor != nil, cursorRank, cursorDueMicros, cursorRowKey, q.OperatorScopeActorID, partitionLabel)
-	if err != nil {
-		return nil, fmt.Errorf("vaccination execution: card summaries query: %w", err)
-	}
-	defer rows.Close()
-
-	summaries := make(map[string]*domain.ShedCardSummary)
-	for rows.Next() {
-		var record executionCardSummaryRecord
-		if err := rows.Scan(&record.ShedID, &record.PartitionLabel, &record.AssignmentID, &record.TaskID, &record.BatchID, &record.DriveID, &record.ObligationCount, &record.DoneCount, &record.OpenCount, &record.HasMissed, &record.HasDeferred, &record.HasOverdue, &record.HasReviewPending, &record.HasRejected, &record.VaccineLabels, &record.VaccineLabelCounts); err != nil {
-			return nil, fmt.Errorf("vaccination execution: card summaries scan: %w", err)
+		// projection-review: summary counts now respect work_state, severity, and open-only filters (identical to page query predicate set) to prevent badge counts from misrepresenting the filtered page view.
+		rows, err := r.pool.Query(ctx, cardSummariesSQL, pgx.QueryExecModeExec,
+			q.TenantID, parkID, shedID, dueBefore, q.Limit, workState, q.AsOf, closedAfter, severity,
+			q.OpenOnly, q.Cursor != nil, cursorRank, cursorDueMicros, cursorRowKey, q.OperatorScopeActorID, partitionLabel)
+		if err != nil {
+			return nil, fmt.Errorf("vaccination execution: card summaries query: %w", err)
 		}
-		addExecutionCardSummary(summaries, record)
-	}
+		defer rows.Close()
 
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("vaccination execution: card summaries rows: %w", err)
-	}
+		summaries := make(map[string]*domain.ShedCardSummary)
+		for rows.Next() {
+			var record executionCardSummaryRecord
+			if err := rows.Scan(&record.ShedID, &record.PartitionLabel, &record.AssignmentID, &record.TaskID, &record.BatchID, &record.DriveID, &record.ObligationCount, &record.DoneCount, &record.OpenCount, &record.HasMissed, &record.HasDeferred, &record.HasOverdue, &record.HasReviewPending, &record.HasRejected, &record.VaccineLabels, &record.VaccineLabelCounts); err != nil {
+				return nil, fmt.Errorf("vaccination execution: card summaries scan: %w", err)
+			}
+			addExecutionCardSummary(summaries, record)
+		}
 
-	r.setVaccinationReadCache(cacheKey, summaries)
-	return summaries, nil
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("vaccination execution: card summaries rows: %w", err)
+		}
+
+		return summaries, nil
+	})
 }
 
 // commandBoardDriveName renders the vaccine set without dose-rule noise. Initial/catch-up and

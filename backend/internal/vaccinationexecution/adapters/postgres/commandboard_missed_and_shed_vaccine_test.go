@@ -439,10 +439,11 @@ func seedAwaitingAnimal(t *testing.T, ctx context.Context, pool *pgxpool.Pool, t
 }
 
 // seedClosedWithoutDoseAnimal is the residual bucket: the obligation reached a terminal status
-// with NO completion row against it at all.
+// with NO completion row against it at all. 'waived', not 'canceled': a canceled obligation is not a
+// target (maintainer decision 2026-09-24), so it can never reach the residual.
 func seedClosedWithoutDoseAnimal(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tenantID, protocolVersionID, ruleID, shedID, suffix string, dueAt time.Time) {
 	t.Helper()
-	seedBucketAnimal(t, ctx, pool, tenantID, protocolVersionID, ruleID, shedID, suffix, dueAt, "canceled", "")
+	seedBucketAnimal(t, ctx, pool, tenantID, protocolVersionID, ruleID, shedID, suffix, dueAt, "waived", "")
 }
 
 // seedBucketAnimal creates one goat with exactly ONE obligation in the given status, plus at

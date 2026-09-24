@@ -31,7 +31,7 @@ type evictPayload struct {
 	ParkIDs  []string `json:"park_ids,omitempty"`
 	// Caches, when set, names the caches (Options.Name) the write affects; every other cache
 	// keeps its entries. Empty means every cache, which is what NotifyTx sends. The vaccination
-	// write triggers (migration 000409) send ["vaccination"] so a dose record does not evict the
+	// write triggers (migration 000411) send ["vaccination"] so a dose record does not evict the
 	// weighing/growth analytics entries.
 	Caches []string `json:"caches,omitempty"`
 }
