@@ -115,14 +115,16 @@ sale_weight_sample AS (
      AND d.status = 'Deal Closed'
      AND d.total_weight_kg > 0
      AND d.sales_value > 0
+    -- projection-review: membership=tagged positive-weight allocations on closed sales with stamped animal lines; group_key=lines grouped by (tenant_id, deal_id), then allocated samples by load_id; join_cardinality=one deduplicated load member per goat, one tagged allocation per goat, at most one lateral rate per deal; pagination=sample computed before final load window; scope=tenant constrained allocations, deals and lines, park filter applied to served loads
     JOIN LATERAL (
         -- Allocations point at the deal, not a specific product/breed line. A mixed deal can still
         -- feed a truthful per-kg sample only when the live-animal lines share one recorded price.
+        -- Stamped kinds, not editable labels, identify animals.
         -- Non-live lines (for example manure) have no allocation target, so they do not make a
         -- live allocation ambiguous. If goat and sheep lines differ, the allocation has no line key
         -- to choose the right price, so the fallback stays absent instead of blending two markets.
         SELECT min(l.sales_value / l.total_weight_kg) FILTER (
-                   WHERE l.product_type IN ('Goat', 'Sheep')
+                   WHERE l.product_kind = 'animal'
                      AND l.total_weight_kg > 0
                      AND l.sales_value > 0
                )::float8 AS price_per_kg
@@ -131,26 +133,25 @@ sale_weight_sample AS (
           AND l.deal_id = d.id
         GROUP BY l.tenant_id, l.deal_id
         HAVING count(*) FILTER (
-               WHERE l.product_type IN ('Goat', 'Sheep')
+               WHERE l.product_kind = 'animal'
                  AND l.total_weight_kg > 0
                  AND l.sales_value > 0
            ) > 0
            AND min(l.sales_value / l.total_weight_kg) FILTER (
-                   WHERE l.product_type IN ('Goat', 'Sheep')
+                   WHERE l.product_kind = 'animal'
                      AND l.total_weight_kg > 0
                      AND l.sales_value > 0
                ) =
                max(l.sales_value / l.total_weight_kg) FILTER (
-                   WHERE l.product_type IN ('Goat', 'Sheep')
+                   WHERE l.product_kind = 'animal'
                      AND l.total_weight_kg > 0
                      AND l.sales_value > 0
                )
            AND (
                d.product_type = 'Mixed'
                OR (
-                   d.product_type IN ('Goat', 'Sheep')
-                   AND count(*) FILTER (WHERE l.product_type IN ('Goat', 'Sheep')) = 1
-                   AND min(l.product_type) FILTER (WHERE l.product_type IN ('Goat', 'Sheep')) = d.product_type
+                   count(*) FILTER (WHERE l.product_kind = 'animal') = 1
+                   AND min(l.product_type) FILTER (WHERE l.product_kind = 'animal') = d.product_type
                )
            )
     ) lp ON true

@@ -145,9 +145,9 @@ RETURNING id::text`, testTenant).Scan(&dealID); err != nil {
 		t.Fatalf("seed deal: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `
-INSERT INTO sales_deal_lines (tenant_id, deal_id, line_no, product_type, breed, animal_count, total_weight_kg, sales_value)
-VALUES ($1, $2::uuid, 1, 'Sheep', 'Nari Suvarna', 2, 40, 20000),
-       ($1, $2::uuid, 2, 'Goat', 'Malai', 1, 20, 10000)`, testTenant, dealID); err != nil {
+INSERT INTO sales_deal_lines (tenant_id, deal_id, line_no, product_type, product_code, product_kind, breed, animal_count, total_weight_kg, sales_value)
+VALUES ($1, $2::uuid, 1, 'Sheep', 'sheep', 'animal', 'Nari Suvarna', 2, 40, 20000),
+       ($1, $2::uuid, 2, 'Goat', 'goat', 'animal', 'Malai', 1, 20, 10000)`, testTenant, dealID); err != nil {
 		t.Fatalf("seed deal lines: %v", err)
 	}
 	tag := func(goatID, status, key string, weight float64) {
@@ -422,9 +422,9 @@ RETURNING load_id::text`, testTenant, fx.loadA).Scan(&soldOut); err != nil {
 			t.Fatalf("seed unequal-rate deal: %v", err)
 		}
 		if _, err := pool.Exec(ctx, `
-	INSERT INTO sales_deal_lines (tenant_id, deal_id, line_no, product_type, breed, animal_count, total_weight_kg, sales_value)
-	VALUES ($1, $2::uuid, 1, 'Sheep', 'Nari Suvarna', 2, 40, 20000),
-	       ($1, $2::uuid, 2, 'Goat', 'Malai', 1, 20, 16000);
+	INSERT INTO sales_deal_lines (tenant_id, deal_id, line_no, product_type, product_code, product_kind, breed, animal_count, total_weight_kg, sales_value)
+	VALUES ($1, $2::uuid, 1, 'Sheep', 'sheep', 'animal', 'Nari Suvarna', 2, 40, 20000),
+	       ($1, $2::uuid, 2, 'Goat', 'goat', 'animal', 'Malai', 1, 20, 16000);
 	INSERT INTO goat_sale_allocations (tenant_id, goat_id, sales_deal_id, status, idempotency_key, weight_kg)
 	VALUES ($1, $3::uuid, $2::uuid, 'tagged', 'lw-alloc-unequal-rates', 20)`,
 			testTenant, dealD, goatD); err != nil {
@@ -471,9 +471,9 @@ RETURNING load_id::text`, testTenant, fx.loadA).Scan(&soldOut); err != nil {
 			t.Fatalf("seed live-plus-manure deal: %v", err)
 		}
 		if _, err := pool.Exec(ctx, `
-	INSERT INTO sales_deal_lines (tenant_id, deal_id, line_no, product_type, breed, animal_count, total_weight_kg, sales_value)
-	VALUES ($1, $2::uuid, 1, 'Goat', 'Malai', 1, 20, 10000),
-	       ($1, $2::uuid, 2, 'Manure', 'Manure', NULL, 1000, 102000);
+	INSERT INTO sales_deal_lines (tenant_id, deal_id, line_no, product_type, product_code, product_kind, breed, animal_count, total_weight_kg, sales_value)
+	VALUES ($1, $2::uuid, 1, 'Goat', 'goat', 'animal', 'Malai', 1, 20, 10000),
+	       ($1, $2::uuid, 2, 'Manure', 'manure', 'other', 'Manure', NULL, 1000, 102000);
 	INSERT INTO goat_sale_allocations (tenant_id, goat_id, sales_deal_id, status, idempotency_key, weight_kg)
 	VALUES ($1, $3::uuid, $2::uuid, 'tagged', 'lw-alloc-live-plus-manure', 20)`,
 			testTenant, dealE, goatE); err != nil {

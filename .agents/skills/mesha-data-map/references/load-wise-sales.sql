@@ -5,8 +5,8 @@
 -- sale_price_per_kg = sold_weighed_value / sold_weight_kg from ONE sample (sale_price_basis says which):
 --   'legacy'  = procurement_loads.sold_* columns, whenever pl.sold_weight_kg IS NOT NULL (always wins);
 --   'tagged'  = else tagged allocations with weight_kg>0 on 'Deal Closed' deals (total_weight_kg>0, sales_value>0),
---               kg x the deal's live-animal line price (sales_deal_lines Goat/Sheep sales_value/total_weight_kg);
---               only when all Goat/Sheep lines share ONE price (no blended mixed prices; manure/non-live lines
+--               kg x the deal's live-animal line price (sales_deal_lines stamped animal sales_value/total_weight_kg);
+--               only when all animal lines share ONE price (no blended mixed prices; manure/non-live lines
 --               ignored) and deal product_type is 'Mixed' or matches its single live line;
 --   NULL      = neither. sold_weighed_animals / sold_weight_kg follow the same sample (avg_sale_kg).
 -- Stock valuation (not in this query): remaining x load avg sold price (sold_value/priced sold), else overall
@@ -51,14 +51,13 @@ sw AS (
   JOIN goat_sale_allocations a ON a.goat_id=m.goat_id AND a.status='tagged' AND a.weight_kg>0
   JOIN sales_deals d ON d.id=a.sales_deal_id AND d.status='Deal Closed' AND d.total_weight_kg>0 AND d.sales_value>0
   JOIN LATERAL (
-    SELECT min(l.sales_value/l.total_weight_kg) FILTER (WHERE l.product_type IN ('Goat','Sheep') AND l.total_weight_kg>0 AND l.sales_value>0) price_per_kg
+    SELECT min(l.sales_value/l.total_weight_kg) FILTER (WHERE l.product_kind='animal' AND l.total_weight_kg>0 AND l.sales_value>0) price_per_kg
     FROM sales_deal_lines l WHERE l.deal_id=d.id GROUP BY l.deal_id
-    HAVING count(*) FILTER (WHERE l.product_type IN ('Goat','Sheep') AND l.total_weight_kg>0 AND l.sales_value>0) > 0
-      AND min(l.sales_value/l.total_weight_kg) FILTER (WHERE l.product_type IN ('Goat','Sheep') AND l.total_weight_kg>0 AND l.sales_value>0)
-        = max(l.sales_value/l.total_weight_kg) FILTER (WHERE l.product_type IN ('Goat','Sheep') AND l.total_weight_kg>0 AND l.sales_value>0)
-      AND (d.product_type='Mixed' OR (d.product_type IN ('Goat','Sheep')
-        AND count(*) FILTER (WHERE l.product_type IN ('Goat','Sheep'))=1
-        AND min(l.product_type) FILTER (WHERE l.product_type IN ('Goat','Sheep'))=d.product_type))) lp ON true
+    HAVING count(*) FILTER (WHERE l.product_kind='animal' AND l.total_weight_kg>0 AND l.sales_value>0) > 0
+      AND min(l.sales_value/l.total_weight_kg) FILTER (WHERE l.product_kind='animal' AND l.total_weight_kg>0 AND l.sales_value>0)
+        = max(l.sales_value/l.total_weight_kg) FILTER (WHERE l.product_kind='animal' AND l.total_weight_kg>0 AND l.sales_value>0)
+      AND (d.product_type='Mixed' OR (count(*) FILTER (WHERE l.product_kind='animal')=1
+        AND min(l.product_type) FILTER (WHERE l.product_kind='animal')=d.product_type))) lp ON true
   GROUP BY m.load_id)
 SELECT pl.context->>'load_ref' load_no, pl.context->>'farm' farm, pl.purchase_date, pl.arrived_on,
   coalesce(nullif(pl.expected_count,0), coalesce(s.linked,0)+coalesce(p.prior_sold,0)+coalesce(p.prior_dead,0)) purchased,
