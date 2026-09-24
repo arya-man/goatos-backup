@@ -7472,6 +7472,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.clinical_placement": "Where the animal is, not what it eats",
 			// The sheet: download a type's rulebook, edit it in Excel, upload it back.
 			"action.download_sheet":    "Download rules",
+			"action.download_json":     "Download JSON",
 			"action.download_template": "Blank template",
 			"action.upload_sheet":      "Upload a sheet",
 			"action.sheet_imported":    "Sheet read. Saved as a draft \u2014 questions / illnesses",

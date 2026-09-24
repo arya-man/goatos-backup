@@ -10,7 +10,7 @@ export const IDEMPOTENCY_HEADER = "Idempotency-Key";
 export function registerSheetHref(
   animalClass: string,
   action: "template" | "export",
-  format: "csv" | "xlsx",
+  format: "csv" | "xlsx" | "json",
 ): string {
   return `${HEALTH_REGISTER_SHEETS}/${encodeURIComponent(animalClass)}/${action}?format=${format}`;
 }

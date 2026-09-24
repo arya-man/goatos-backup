@@ -383,18 +383,27 @@ class FakeOutboxStore : OutboxStore {
         if (candidate.opType == "COUNTS_SHIFTING" && opType == "COUNTS_SHIFTING") return false
         if (candidate.opType == "PROOF_UPLOAD" && opType == "PROOF_UPLOAD") return false
         if (candidate.opType == opType && candidate.opType in setOf("WEIGHING_ANIMAL_OBSERVATION", "WEIGHING_SHED_OBSERVATION")) return false
-        if (opType in setOf("PC_CARE_SLOT_REGISTER", "PC_CARE_TASK_PROOF_REGISTER") &&
-            candidate.opType in setOf("PC_CARE_SLOT_REGISTER", "PC_CARE_TASK_PROOF_REGISTER")
+        if (opType in proofRegisterOps &&
+            candidate.opType in proofRegisterOps
         ) {
             return false
         }
-        if (opType in setOf("PC_CARE_SLOT_REGISTER", "PC_CARE_TASK_PROOF_REGISTER") &&
-            candidate.opType == "PC_CARE_TASK_SUBMIT" &&
+        if (opType in proofRegisterOps &&
+            candidate.opType in proofSubmitOps &&
             rows.value.any { register ->
+                val registerIndex = rows.value.indexOf(register)
+                val olderIndex = rows.value.indexOf(this)
+                val candidateIndex = rows.value.indexOf(candidate)
                 register.groupKey == candidate.groupKey &&
-                    register.opType in setOf("PC_CARE_SLOT_REGISTER", "PC_CARE_TASK_PROOF_REGISTER") &&
-                    register.createdAt > createdAt &&
-                    register.createdAt <= candidate.createdAt &&
+                    register.opType in proofRegisterOps &&
+                    (
+                        register.createdAt > createdAt ||
+                            (register.createdAt == createdAt && olderIndex >= 0 && registerIndex > olderIndex)
+                        ) &&
+                    (
+                        register.createdAt < candidate.createdAt ||
+                            (register.createdAt == candidate.createdAt && candidateIndex >= 0 && registerIndex < candidateIndex)
+                        ) &&
                     register.status in setOf(OutboxStatus.QUEUED.name, OutboxStatus.IN_FLIGHT.name, OutboxStatus.SUCCEEDED.name)
             }
         ) {
@@ -402,6 +411,14 @@ class FakeOutboxStore : OutboxStore {
         }
         return true
     }
+
+    private val proofRegisterOps = setOf(
+        "PC_CARE_SLOT_REGISTER",
+        "PC_CARE_TASK_PROOF_REGISTER",
+        "HEALTH_STEP_PROOF_REGISTER",
+    )
+
+    private val proofSubmitOps = setOf("PC_CARE_TASK_SUBMIT", "HEALTH_TREATMENT_COMPLETE")
 
     private fun OutboxEntity.isActiveProofUpload(now: Long): Boolean =
         status in setOf(OutboxStatus.QUEUED.name, OutboxStatus.IN_FLIGHT.name) ||

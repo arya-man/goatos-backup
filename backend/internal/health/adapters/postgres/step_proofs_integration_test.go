@@ -291,6 +291,16 @@ func TestSubmittedSessionRefusesStepProofMutation(t *testing.T) {
 	if !errors.Is(err, domain.ErrStepProofClosed) {
 		t.Fatalf("late reshoot error = %v, want ErrStepProofClosed", err)
 	}
+	replayed, err := repo.RecordStepProof(ctx, domain.RecordStepProofInput{
+		TenantID: healthTenant, ActorID: healthActor, SessionID: opened.FirstSessionID,
+		StepID: step, ProofRef: "submitted-take", IdempotencyKey: "sp-submitted", RequestFingerprint: "",
+	})
+	if err != nil {
+		t.Fatalf("replay submitted proof: %v", err)
+	}
+	if replayed.ProofRef != "submitted-take" {
+		t.Fatalf("submitted replay returned %q, want submitted-take", replayed.ProofRef)
+	}
 	proofs, err := repo.StepProofs(ctx, healthTenant, opened.FirstSessionID)
 	if err != nil || len(proofs) != 1 || proofs[0].ProofRef != "submitted-take" {
 		t.Fatalf("stored proof after late reshoot = %+v, err=%v; want submitted-take unchanged", proofs, err)
