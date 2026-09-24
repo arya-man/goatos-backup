@@ -7,10 +7,19 @@ import path from "node:path";
 // lookups that merely say "check" or "compare" ("check how many goats we sold",
 // "compare sales by park") stay on the fast model. ['’] covers phone keyboards.
 export const DEEP_HINT =
-  /\b(verify|verif(y|ied|ication of)|double[- ]check|check (if|whether|that|this|these|those|why)|why|bug|wrong|incorrect|explain|investigate|mismatch|discrepanc\w*|reconcile|doesn['’]?t (match|add up|look right)|does ?not (match|add up)|not right|seems? off|is (this|that|it) (right|correct|accurate)|how (is|was|are|do we calculate) .* calculated)\b/i;
+  /\b(verify|verif(y|ied|ication of)|double[- ]check|check (if|whether|that|this|these|those|why)|bug|wrong|incorrect|explain|investigate|mismatch|discrepanc\w*|reconcile|doesn['’]?t (match|add up|look right)|does ?not (match|add up)|not right|seems? off|is (this|that|it) (right|correct|accurate)|how (is|was|are|do we calculate) .* calculated|dig deeper|check again|are you sure|look again)\b/i;
+// "why" is an investigation when it questions a number/state ("why is ADG down?"), but a plain
+// lookup when it asks for the reasons recorded on records ("who rejected approvals and why",
+// "pen visits why delayed"): those reasons are a column away, not a code trace. Seen live: such
+// lookups went to the deep model at high effort and took 42-48s instead of ~15s.
+const WHY_INVESTIGATE = /\bwhy (is|are|does|do|did|was|were|has|have|would|isn['’]?t|aren['’]?t|doesn['’]?t|didn['’]?t|hasn['’]?t|wasn['’]?t)\b/i;
+const RECORD_REASON = /\b(delay(ed|s)?|reject(ed|ions?)?|cancel+(ed|ations?)?|missed|skipped|late|overdue|pending|declined|refused|absent|leave)\b/i;
+const POINTS_AT_A_NUMBER = /\b(this|that|these|those|the (number|total|count|dashboard|screen|report)|showing|shows)\b/i;
 export function isDeepQuestion(question, attachments) {
   const q = String(question || "");
-  return /^deep:\s*/i.test(q) || (Array.isArray(attachments) && attachments.length > 0) || DEEP_HINT.test(q);
+  if (/^deep:\s*/i.test(q) || (Array.isArray(attachments) && attachments.length > 0) || DEEP_HINT.test(q)) return true;
+  if (/^\W*(and |but )?why\W*$/i.test(q)) return true; // bare "why?" follow-up pushes further
+  return WHY_INVESTIGATE.test(q) && (!RECORD_REASON.test(q) || POINTS_AT_A_NUMBER.test(q));
 }
 
 // ---- spend -------------------------------------------------------------------
@@ -76,11 +85,38 @@ export function describeTableSql(name) {
   }
   const [schema, table] = parts;
   const sql = `SELECT a.attname AS column, format_type(a.atttypid, a.atttypmod) AS type,
-  coalesce(col_description(c.oid, a.attnum), '') AS note
+  concat_ws('; ', nullif(col_description(c.oid, a.attnum), ''),
+    (SELECT 'joins ' || string_agg(fn.nspname || '.' || fc.relname || '.' || fa.attname, ', ')
+       FROM pg_constraint k JOIN pg_class fc ON fc.oid = k.confrelid JOIN pg_namespace fn ON fn.oid = fc.relnamespace
+       JOIN pg_attribute fa ON fa.attrelid = k.confrelid AND fa.attnum = k.confkey[1]
+      WHERE k.contype = 'f' AND k.conrelid = c.oid AND array_length(k.conkey, 1) = 1 AND k.conkey[1] = a.attnum)) AS note
 FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid JOIN pg_namespace n ON n.oid = c.relnamespace
 WHERE n.nspname = '${schema}' AND c.relname = '${table}' AND a.attnum > 0 AND NOT a.attisdropped
 ORDER BY a.attnum`;
   return { ok: true, sql, schema, table };
+}
+// describe_table takes one name or several (comma/space separated, max 6) so the agent can
+// learn every candidate table in ONE turn instead of one turn per table.
+export const DESCRIBE_MAX_TABLES = 6;
+export function describeTableNames(input) {
+  const list = Array.isArray(input) ? input : String(input || "").split(/[\s,]+/);
+  return [...new Set(list.map((t) => String(t || "").trim()).filter(Boolean))].slice(0, DESCRIBE_MAX_TABLES);
+}
+// Tables a failed query referenced (schema.table or bare names after FROM/JOIN), so a
+// "column does not exist" error can come back with the real column lists and the agent
+// fixes the query in the next turn instead of spending a turn on describe_table.
+export function sqlTableRefs(sql, max = 4) {
+  const text = String(sql || "");
+  const out = [];
+  for (const m of text.matchAll(/\b(?:from|join)\s+("?[a-z_][a-z0-9_]*"?(?:\s*\.\s*"?[a-z_][a-z0-9_]*"?)?)/gi)) {
+    const name = m[1].replace(/["\s]/g, "").toLowerCase();
+    const full = name.includes(".") ? name : `public.${name}`;
+    if (!out.includes(full)) out.push(full);
+  }
+  return out.slice(0, max);
+}
+export function isMissingColumnError(msg) {
+  return /column .* does not exist|relation .* does not exist|missing FROM-clause entry/i.test(String(msg || ""));
 }
 // Text columns whose name suggests a small set of values worth listing.
 export const KIND_COLUMN = /(^|_)(category|status|type|kind|action|state|stage|reason|outcome|result|source|mode|channel|role|task)$/;

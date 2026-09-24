@@ -16,7 +16,7 @@ import { createUploads } from "./uploads.mjs";
 import { createEvents } from "./events.mjs";
 import {
   isDeepQuestion, answerCapUsd, answerCostUsd, friendlyError, STOPPED_NOTE, validateReadSql, clipSqlOutput,
-  toolLabel, describeTableSql, kindValuesSql, relInfoSql, shouldSampleKinds, makeChartFilter, extractChart, historyPreamble, pathAllowed, ttlCache,
+  toolLabel, describeTableSql, describeTableNames, sqlTableRefs, isMissingColumnError, kindValuesSql, relInfoSql, shouldSampleKinds, makeChartFilter, extractChart, historyPreamble, pathAllowed, ttlCache,
 } from "./lib.mjs";
 
 const PORT = Number(process.env.PORT || 8787);
@@ -98,8 +98,14 @@ why does it show X" questions, cross-check public.audit_log (resource_type, reso
 actor_id, before_state, after_state, created_at) for the record's history. audit_log is large: always
 filter it by resource_type + resource_id, or actor_id, plus a created_at range (those are indexed);
 never scan it by JSON content alone. For big tables, filter by date first and aggregate. After any SQL error, fix it
-from describe_table output and retry; never give up after one failed query. Call describe_table BEFORE the
-first query on any table not spelled out in the data map; never guess column names.
+from the column list the error returns and retry; never give up after one failed query. Call describe_table BEFORE the
+first query on any table not spelled out in the data map; never guess column names (people/names: join the
+foreign keys describe_table shows, don't guess member_id/user_id).
+SPEED (CEOs wait on every turn, ~4s each): plan the whole lookup up front and batch it. Describe ALL candidate
+tables in ONE describe_table call (tables list), and put independent queries (the count, the breakdown, the
+reasons, the names) as several run_sql calls in the SAME turn: they run in parallel. Prefer one query with
+joins/CTEs over a chain of small ones. A quick lookup should take 2-3 turns; do not re-query what you already have.
+Text written before a tool call is thrown away, so do not narrate; write the answer only after the last query.
 When reporting who changed a record, name the person only; never repeat tool/AI/request details found in
 change-history metadata (e.g. "via Codex", "maintainer request", device ids).
 Follow-up questions: records are corrected all the time (e.g. a task cancelled then completed, a
@@ -114,21 +120,32 @@ this conversation you (or a tool) said some data wasn't readable, do not repeat 
 against the raw tables (e.g. feed prices are in public.feed_purchases).
 Answer style for quick lookups (how many / when / which): lead with the direct answer in 1-2
 sentences, then at most one compact table (<= 12 rows) and at most 3 short bullets. No preamble,
-no narration, no restating the question. Go straight to the one query the data map points to.
-Investigations (a screenshot, or verify / check / why / bug / wrong / explain): do the full job
+no narration, no restating the question. Start with the query the data map points to (if it covers it).
+Questions asking for recorded reasons ("who rejected X and why", "why delayed", "with reasons") are quick
+lookups: the reason is a column (reason/notes/remarks/comment) on the record, not a code investigation.
+Investigations (a screenshot, or verify / check / "why is this number…" / bug / wrong / explain): do the full job
 before answering. Find how the number is calculated in the code, pull the underlying rows, and
 recompute it. Then explain in plain words for a farm CEO with a worked example: the actual
 readings (dates, kg, head counts), the arithmetic step by step, the verdict (correct / misleading
 / bug) and why, and what should change. Never stop at "I couldn't check" if another query or file
 would answer it; if the read-only data truly lacks what's needed, say exactly what is missing.
+Data that looks inconsistent (received more than the deal value, a total that doesn't match its ledger/line
+items, cancelled-but-done, duplicate entries, impossible dates): never silently pick one number. Add one short
+"Worth checking:" line at the end: what's off with the actual figures, WHO entered it and WHEN (the record's
+recorded_by/created_by joined to the workforce/users record, or audit_log filtered by resource_type +
+resource_id), and what should be corrected. Do this unprompted, including on quick lookups.
 Never merge to main, deploy, or push to main. Code changes stay on this chat's branch.
 When a chart would help, add exactly one fenced block at the end of your answer:
 \`\`\`chart
 {"type":"bar"|"line","title":"...","x":["label1","label2",...],"series":[{"name":"...","data":[1,2,...]}]}
 \`\`\`
 Use real numbers from queries only. x needs at least 2 labels.
-Use the mesha-data-map skill / cheat-sheet below to go straight to the right view; only explore
-the schema when the map does not cover the question.`;
+Use the mesha-data-map skill / cheat-sheet and the table list below as STARTING POINTS, never as limits.
+You have the entire codebase (Grep/Read) and every table. When the map covers a question, start there; when
+it doesn't, or the mapped view can't fully answer it, or a follow-up pushes further ("why", "who", "check
+again", "dig deeper", "are you sure"), keep investigating like an engineer: grep the code for how the app
+writes and defines it, describe the tables, cross-check change history (audit_log), until you have an
+evidenced answer. The speed rules above cut wasted turns (batching, parallel queries); they never cut depth.`;
 
 // Repo instructions (CLAUDE.md + its @imports, i.e. AGENTS.md) go into the SYSTEM
 // prompt instead of Claude Code's per-session context message. The system prompt is
@@ -180,7 +197,7 @@ function tableIndexPrompt() {
 async function recordMetric(m) {
   await store.recordMetric(m).catch((e) => console.error("[metric] store failed:", e.message));
   console.log(
-    `[metric] total=${m.total_ms}ms first_progress=${m.first_progress_ms}ms first_tool=${m.first_tool_ms ?? "-"}ms ` +
+    `[metric] total=${m.total_ms}ms turns=${m.turns ?? "-"} cache_read=${m.cache_read_tokens ?? "-"} cache_write=${m.cache_creation_tokens ?? "-"} first_progress=${m.first_progress_ms}ms first_tool=${m.first_tool_ms ?? "-"}ms ` +
       `first_token=${m.first_token_ms ?? "-"}ms tools=${m.tool_calls} db=${m.db_queries} model=${m.model} ok=${m.ok}`,
   );
 }
@@ -236,6 +253,37 @@ function runSql(sql) {
     child.stdin.end(`BEGIN READ ONLY;\n${checked.sql};\nROLLBACK;\n`);
   });
 }
+// One table's columns (+ FK join targets) and common category/status values.
+async function describeOne(name) {
+  const d = describeTableSql(name);
+  if (!d.ok) return { ok: false, text: d.out };
+  const cols = await runSql(d.sql);
+  if (!cols.ok) return { ok: false, text: cols.out };
+  const rows = cols.out.split("\n").slice(1).filter(Boolean).map((l) => l.split("\t"));
+  if (!rows.length) return { ok: false, text: `No table or view named ${d.schema}.${d.table}. Pick one from the table list.` };
+  const textCols = rows.filter(([, t]) => !/^(uuid|jsonb?|bool|int|small|big|numeric|real|double|date|time|interval|bytea|tsvector|\w+\[\])/i.test(t)).map(([c]) => c);
+  const info = await runSql(relInfoSql(d.schema, d.table));
+  const [relkind, relRows] = (info.ok ? info.out.split("\n")[1] || "" : "").split("\t");
+  const kindSql = shouldSampleKinds(relkind, relRows) ? kindValuesSql(d.schema, d.table, textCols) : "";
+  const kinds = kindSql ? await runSql(kindSql) : null;
+  return { ok: true, text: `## ${d.schema}.${d.table}\n` + cols.out + (kinds?.ok && kinds.out.trim() ? `\nCommon values:\n${kinds.out}` : ""), rows, schema: d.schema, table: d.table };
+}
+// Compact "real columns" hint appended to a failed query's error (saves the describe turn).
+async function columnHint(sql) {
+  const refs = sqlTableRefs(sql);
+  if (!refs.length) return "";
+  const parts = await Promise.all(refs.map(async (t) => {
+    const d = describeTableSql(t);
+    if (!d.ok) return "";
+    const r = await runSql(d.sql);
+    const cols = r.ok ? r.out.split("\n").slice(1).filter(Boolean).map((l) => l.split("\t")[0]) : [];
+    return cols.length ? `${d.schema}.${d.table}: ${cols.join(", ")}` : "";
+  }));
+  const text = parts.filter(Boolean).join("\n");
+  return text ? `\n\nActual columns of the tables in this query (fix the query from these):\n${text}` : "";
+}
+// readOnlyHint lets the agent's CLI run several calls from one turn concurrently.
+const RO = { annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false } };
 function meshaToolsFor(user) {
   return createSdkMcpServer({
     name: "mesha",
@@ -243,32 +291,30 @@ function meshaToolsFor(user) {
     tools: [
       tool(
         "run_sql",
-        "Run read-only SQL against goatos-stg (any table/view in any schema) and return tab-separated rows (max 500).",
+        "Run read-only SQL against goatos-stg (any table/view in any schema) and return tab-separated rows (max 500). Independent queries: call this several times in the SAME turn (they run in parallel). A 'column does not exist' error comes back with the real column lists of the tables involved.",
         { sql: z.string().describe("A single SELECT/WITH query. No psql backslash commands.") },
         async ({ sql }) => {
           const r = await runSql(sql);
-          return { content: [{ type: "text", text: r.out || "(no rows)" }], isError: !r.ok };
+          const hint = !r.ok && isMissingColumnError(r.out) ? await columnHint(sql).catch(() => "") : "";
+          return { content: [{ type: "text", text: (r.out || "(no rows)") + hint }], isError: !r.ok };
         },
+        RO,
       ),
       tool(
         "describe_table",
-        "List the columns (name, type, note) of one table/view, plus the most common values of its category/status/type-like columns. Use this before writing SQL against a table you have not queried yet in this chat, and after any 'column does not exist' error.",
-        { table: z.string().describe("schema.table, e.g. public.pc_care_tasks or public.audit_log") },
-        async ({ table }) => {
-          const d = describeTableSql(table);
-          if (!d.ok) return { content: [{ type: "text", text: d.out }], isError: true };
-          const cols = await runSql(d.sql);
-          if (!cols.ok) return { content: [{ type: "text", text: cols.out }], isError: true };
-          const rows = cols.out.split("\n").slice(1).filter(Boolean).map((l) => l.split("\t"));
-          if (!rows.length) return { content: [{ type: "text", text: `No table or view named ${d.schema}.${d.table}. Pick one from the table list.` }], isError: true };
-          const textCols = rows.filter(([, t]) => !/^(uuid|jsonb?|bool|int|small|big|numeric|real|double|date|time|interval|bytea|tsvector|\w+\[\])/i.test(t)).map(([c]) => c);
-          const info = await runSql(relInfoSql(d.schema, d.table));
-          const [relkind, relRows] = (info.ok ? info.out.split("\n")[1] || "" : "").split("\t");
-          const kindSql = shouldSampleKinds(relkind, relRows) ? kindValuesSql(d.schema, d.table, textCols) : "";
-          const kinds = kindSql ? await runSql(kindSql) : null;
-          const text = cols.out + (kinds?.ok && kinds.out.trim() ? `\n\nCommon values:\n${kinds.out}` : "");
-          return { content: [{ type: "text", text }] };
+        "List the columns (name, type, note incl. foreign-key join targets) of up to 6 tables/views in ONE call, plus the most common values of their category/status/type-like columns. Pass every table you are about to query at once, before writing SQL against tables you have not queried yet in this chat.",
+        {
+          table: z.string().optional().describe("schema.table, or several separated by commas, e.g. public.shift_requests, public.workforce_members"),
+          tables: z.array(z.string()).optional().describe("Alternative: a list of schema.table names (max 6)"),
         },
+        async ({ table, tables }) => {
+          const names = describeTableNames([...(tables || []), ...describeTableNames(table)]);
+          if (!names.length) return { content: [{ type: "text", text: "Give at least one table as schema.table." }], isError: true };
+          const results = await Promise.all(names.map((n) => describeOne(n).catch((e) => ({ ok: false, text: String(e?.message || e) }))));
+          const text = results.map((r, i) => (r.ok ? r.text : `## ${names[i]}\n${r.text}`)).join("\n\n");
+          return { content: [{ type: "text", text }], isError: results.every((r) => !r.ok) };
+        },
+        RO,
       ),
     ],
   });
@@ -480,7 +526,11 @@ async function ask(req, res, user) {
   if (!chat) chat = await store.createChat(user.email, user.tenantId);
   // One run per chat: two concurrent resumes of the same session fork it and
   // race on session_id / message order. DB-backed lease in Postgres mode.
-  if (!(await store.tryLock(chat.id))) return json(res, 409, { error: "chat_busy", message: friendlyError("busy") });
+  if (!(await store.tryLock(chat.id))) {
+    // Visible in /metrics/recent: a CEO double-submitting or a stuck lease shows up here.
+    await events.emit("chat_busy", { ...evCtx, chat_id: chat.id }, { severity: "WARNING", error_class: "chat_busy", question_preview: String(question || "").slice(0, 80) });
+    return json(res, 409, { error: "chat_busy", message: friendlyError("busy") });
+  }
 
   res.writeHead(200, {
     "Content-Type": "text/event-stream; charset=utf-8",
@@ -533,7 +583,7 @@ async function ask(req, res, user) {
     ts: new Date(t0).toISOString(), request_id: requestId, chat_id: chat.id, email: user.email,
     resumed: Boolean(chat.session_id), model: deep ? DEEP_MODEL : MODEL, effort: deep ? "high" : EFFORT,
     question_chars: prompt.length, first_progress_ms: null, first_tool_ms: null, first_token_ms: null,
-    total_ms: null, tool_calls: 0, db_queries: 0, turns: 0, input_tokens: null, output_tokens: null,
+    total_ms: null, cache_read_tokens: null, cache_creation_tokens: null, tool_calls: 0, db_queries: 0, turns: 0, input_tokens: null, output_tokens: null,
     cost_usd: null, cost_estimated: false, session_cost_usd: null, cap_usd: capUsd, ok: false, error: null,
   };
   // SDK cost is cumulative per session; remember the resumed session's previous total.
@@ -678,6 +728,9 @@ async function ask(req, res, user) {
         }
         metric.input_tokens = msg.usage?.input_tokens ?? null;
         metric.output_tokens = msg.usage?.output_tokens ?? null;
+        // Prompt-cache health: a cold prefix (cache_read ~0, cache_creation large) costs ~10s + $0.5.
+        metric.cache_read_tokens = msg.usage?.cache_read_input_tokens ?? null;
+        metric.cache_creation_tokens = msg.usage?.cache_creation_input_tokens ?? null;
         if (msg.subtype !== "success") metric.error = msg.subtype;
       }
     }
