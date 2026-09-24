@@ -24,6 +24,8 @@ test("every regression pattern family is declared and emitted by the collector",
 test("covers the real chart class names and false-positive exclusions", () => {
   for (const cls of [".gcval", ".gclab", ".gcsub", ".mclab", ".mcv", ".wbl", ".wbl-text", ".wbv", ".hblab", ".hbval", "svg[role=img]", ".gcb:not(.gcempty)", ".celllink"]) assert.ok(source.includes(cls), cls);
   for (const guard of ["data-smoke-ignore", "aria-hidden", ".sr-only", "elementFromPoint", "rect\\(0"]) assert.ok(source.includes(guard), guard);
+  // A chart card drawn as a grid (visible table rows) is not an empty frame.
+  assert.match(source, /tableRows\.length === 0/);
 });
 
 test("evidence is a viewport screenshot with red outlines and a short error", () => {
