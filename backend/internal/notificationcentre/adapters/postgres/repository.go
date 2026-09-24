@@ -145,7 +145,7 @@ const unreadPredicate = `nr.read_at IS NULL AND nr.status <> 'read'`
 // NOTIFICATION, not per delivery row, via the newest-per-dedupe-key anti join below,
 // because QueueRoleNotifications writes one row per recipient DEVICE and a two-phone
 // reader must not see one transition twice; group_key=none on the page read -- the only
-// aggregate is unread_count, computed by sqlUnreadCount over the SAME tenant + member +
+// aggregate is unread_count, read from the stored counter (sqlUnreadCountStored, same grain as sqlUnreadCountLegacy) over the SAME tenant + member +
 // dedupe grain as the rows so the bell badge can never advertise a notification this feed
 // hides, and computed WHOLE-FEED never page-local so paging does not shrink the badge;
 // join_cardinality=the single workforce_members LEFT JOIN for actor_name is 1:1 on
@@ -277,7 +277,11 @@ const sqlListNotifications = sqlNotificationPagePrefix + `
     AND (nr.requested_at, nr.notification_request_id) < ($3::timestamptz, $4::uuid)
 ` + sqlNotificationPageDedupe + ` LIMIT $5` + sqlNotificationPageProjection
 
-// sqlUnreadCount is the caller's WHOLE-FEED unread total.
+// sqlUnreadCountLegacy is the caller's WHOLE-FEED unread total, recomputed from history.
+//
+// NO LONGER ON THE REQUEST PATH once the counter backfill is complete (see unread_counter.go and
+// migration 000403). It stays as the parity oracle and the reconciler, and as the fallback while
+// notification_unread_counter_state.backfill_complete_at is NULL.
 //
 // projection-review: membership=the SAME set as sqlListNotifications -- tenant_id = $1 AND
 // context->>'member_id' = the caller's own resolved ACTIVE workforce_member_id -- so the
@@ -299,8 +303,8 @@ const sqlListNotifications = sqlNotificationPagePrefix + `
 // a 27MB external merge on disk: 805ms warm, 4.1s cold, and >8s under the dashboard reload burst
 // that 500'd /app/notifications. SELECT DISTINCT lets the planner HASH just the key: 232ms warm on
 // the same rows, no temp files. Nothing marks these rows read today, so "unread" is the member's
-// whole history and this aggregate still grows with it -- see the follow-up in the commit.
-const sqlUnreadCount = sqlTargetMemberCTE + `
+// whole history and this aggregate grows with it -- which is why it was replaced by the stored counter.
+const sqlUnreadCountLegacy = sqlTargetMemberCTE + `
 SELECT count(*) FROM (
   SELECT DISTINCT ` + dedupeKeyExpr + `
   FROM notification_requests nr, target_member tm
@@ -333,7 +337,7 @@ SELECT count(*) FROM (
 // path uses, so nothing can be marked that could not be listed; grain=every delivery row of
 // each affected notification is stamped together, which is what keeps the notification's
 // read state homogeneous across a two-phone reader's rows and therefore keeps
-// the distinct-key count in sqlUnreadCount exact; group_key=none, the returned aggregate is
+// the distinct-key count (stored counter and sqlUnreadCountLegacy) exact; group_key=none, the returned aggregate is
 // COUNT(DISTINCT dedupeKeyExpr) over the rows that actually transitioned, at the same
 // NOTIFICATION grain the list renders, so read_count matches the number of cards the UI
 // dims; join_cardinality=the `requested` CTE is at most 200 ids and joins by dedupe key,
@@ -418,6 +422,11 @@ func (r *Repository) ListNotifications(ctx context.Context, p ports.ListParams) 
 	if limit <= 0 {
 		limit = domain.DefaultLimit
 	}
+	// Server-enforced cap (scale-anti-patterns P9): the service clamps via domain.ClampLimit, but
+	// the adapter must not trust every caller to have done so.
+	if limit > domain.MaxLimit {
+		limit = domain.MaxLimit
+	}
 
 	// limit+1 decides whether a next page exists; no count query, no OFFSET.
 	var rows pgx.Rows
@@ -475,9 +484,11 @@ func (r *Repository) ListNotifications(ctx context.Context, p ports.ListParams) 
 		page.NextCursor = encodeFeedCursor(feedCursor{RequestedAt: stamps[limit-1], RequestID: last.NotificationRequestID})
 	}
 
-	if err := r.pool.QueryRow(ctx, sqlUnreadCount, p.TenantID, p.MemberOrUserID).Scan(&page.UnreadCount); err != nil {
-		return domain.Page{}, fmt.Errorf("notificationcentre: unread count: %w", err)
+	unread, err := r.unreadCount(ctx, p.TenantID, p.MemberOrUserID)
+	if err != nil {
+		return domain.Page{}, err
 	}
+	page.UnreadCount = unread
 	return page, nil
 }
 
