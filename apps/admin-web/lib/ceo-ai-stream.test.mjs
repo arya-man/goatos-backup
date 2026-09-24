@@ -243,3 +243,33 @@ test("request body carries question, conversation_id and stream flag", async () 
     },
   );
 });
+
+test("a checker replace frame surfaces via onReplace, never as tokens", async () => {
+  const sse =
+    'data: {"type":"token","text":"Both weeks were low."}\n\n' +
+    'data: {"type":"progress","phase":"checking","label":"Checking the answer"}\n\n' +
+    'data: {"type":"replace","text":"Only Castro 1 was low on 10/08."}\n\n' +
+    'data: {"type":"final","answer":"Only Castro 1 was low on 10/08.","source":"s","mode":"agent","request_id":"r"}\n\n';
+  await withFetch(
+    async () => sseResponse(sse),
+    async () => {
+      const tokens = [];
+      const replaced = [];
+      const phases = [];
+      let final;
+      await readCeoAiStream(
+        { question: "q" },
+        {
+          onToken: (t) => tokens.push(t),
+          onReplace: (t) => replaced.push(t),
+          onProgress: (p) => phases.push(p.phase),
+          onFinal: (f) => (final = f),
+        },
+      );
+      assert.equal(tokens.join(""), "Both weeks were low.");
+      assert.deepEqual(replaced, ["Only Castro 1 was low on 10/08."]);
+      assert.deepEqual(phases, ["checking"]);
+      assert.equal(final.answer, "Only Castro 1 was low on 10/08.");
+    },
+  );
+});

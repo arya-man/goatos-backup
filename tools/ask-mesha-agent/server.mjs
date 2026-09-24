@@ -20,7 +20,7 @@ import {
   askClient, jsonAskCollector, NON_STREAM_NOTE, REFERENCE_FILES, referencePath, buildReferenceSql,
 } from "./lib.mjs";
 import { createWatchRegistry, WATCH_TAGS_DESCRIPTION, watchTagsHandler, watchTagsSchema } from "./watch.mjs";
-import { checkAnswer, makeEvidence } from "./checker.mjs";
+import { checkAnswer, makeEvidence, needsCheck } from "./checker.mjs";
 import { authMode, createProviderSwitch, envForProvider, probeVertex, shouldFallback } from "./provider.mjs";
 
 const PORT = Number(process.env.PORT || 8787);
@@ -36,6 +36,8 @@ const EFFORT = process.env.ASK_MESHA_EFFORT || "low";
 // query results before the final answer lands. ASK_MESHA_CHECKER=0 turns it off.
 const CHECKER_ON = process.env.ASK_MESHA_CHECKER !== "0";
 const CHECK_MODEL = process.env.ASK_MESHA_CHECK_MODEL || "claude-sonnet-5";
+// The check spends inside the answer's own cap: at most this, and never past what the run left.
+const CHECK_BUDGET_USD = Number(process.env.ASK_MESHA_CHECK_BUDGET_USD) || 0.25;
 // Read-only mode (default): the agent gets Read/Grep/Glob + a read-only SQL tool and
 // NO shell, edit, or write tools. Set ASK_MESHA_READONLY=0 only for local dev.
 const READONLY = process.env.ASK_MESHA_READONLY !== "0";
@@ -166,7 +168,7 @@ When a chart would help, add exactly one fenced block at the end of your answer:
 Use real numbers from queries only. x needs at least 2 labels. One series per pen / park / breed compared
 (three pens = three series), and the title must name exactly what is plotted.
 Claims around the numbers: every "why" / "because" must point at the rows that show it ("Castro 1, Coimbatore:
-31.75 kg on 10/08 then 31.27 kg on 11/08"); never write "all", "every", "both" or "the two weeks" unless you
+20.4 kg on 02/03 then 20.1 kg on 03/03"); never write "all", "every", "both" or "the two weeks" unless you
 checked each item; otherwise name exactly which ones. Show the figures the app screen uses; raw or superseded
 rows (an earlier weighing the screen ignores) only when the user asks for them, labelled as such.
 Use the mesha-data-map skill / cheat-sheet and the table list below as STARTING POINTS, never as limits.
@@ -541,7 +543,7 @@ const AGENT_ENV_ALLOW = ["PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "LC
   // deploy-stg.sh auth modes: vertex (runtime SA via metadata server) and oauth.
   "CLAUDE_CODE_USE_VERTEX", "ANTHROPIC_VERTEX_PROJECT_ID", "CLOUD_ML_REGION", "CLAUDE_CODE_OAUTH_TOKEN"];
 // One tool-less model call for the answer checker; stops on timeout or when the user stops.
-async function runCheck(prompt, signal, userSignal, provider) {
+async function runCheck(prompt, signal, userSignal, provider, budgetUsd) {
   const ac = new AbortController();
   const stop = () => ac.abort();
   signal.addEventListener("abort", stop, { once: true });
@@ -555,6 +557,7 @@ async function runCheck(prompt, signal, userSignal, provider) {
         cwd: os.tmpdir(),
         model: CHECK_MODEL,
         maxTurns: 1,
+        maxBudgetUsd: budgetUsd,
         tools: [],
         settingSources: [],
         systemPrompt: "You check answers against query results. Reply with JSON only.",
@@ -883,6 +886,7 @@ async function ask(req, res, user) {
             }
           } else if (msg.type === "assistant") {
           if (msg.error) attemptErr.error = msg.error;
+            evidence.noteToolUse(msg);
             for (const block of msg.message.content || []) {
               if (block.type === "tool_use") {
                 metric.tool_calls += 1;
@@ -985,25 +989,33 @@ async function ask(req, res, user) {
     }
     // Check the wording against the rows the agent actually got; a flagged draft is replaced
     // on screen by the corrected one before the final lands. Fail-open: errors keep the draft.
-    if (CHECKER_ON && !metric.error && clean && !evidence.empty() && !abort.signal.aborted) {
-      send({ type: "progress", phase: "synthesizing", label: "Checking the answer" });
+    // Budget left in this answer's cap (null cost = unknown spend: already charged the full cap, skip).
+    const checkBudget = metric.cost_usd == null ? 0 : Math.min(CHECK_BUDGET_USD, capUsd - metric.cost_usd);
+    if (CHECKER_ON && !metric.error && clean && !evidence.empty() && !abort.signal.aborted &&
+        checkBudget >= 0.02 && needsCheck(clean, chart)) {
+      send({ type: "progress", phase: "checking", label: "Checking the answer" });
       const checkT0 = Date.now();
       const draft = chart ? `${clean}\n\n\`\`\`chart\n${JSON.stringify(chart)}\n\`\`\`` : clean;
       const chk = await checkAnswer({
         question, answer: draft, evidence: evidence.text(),
-        run: (p, signal) => runCheck(p, signal, abort.signal, provider),
+        run: (p, signal) => runCheck(p, signal, abort.signal, provider, checkBudget),
       });
       metric.check_ms = Date.now() - checkT0;
-      metric.check = chk.skipped ? "skipped" : chk.error ? `error:${chk.error}` : chk.ok ? "ok" : "revised";
+      metric.check = chk.skipped ? "skipped" : chk.error ? `error:${chk.error}` : chk.rejected ? "rejected" : chk.ok ? "ok" : "revised";
       metric.check_issues = chk.issues || [];
-      if (metric.cost_usd != null) metric.cost_usd += chk.costUsd;
-      if (!chk.ok && !abort.signal.aborted) {
+      // No result (timeout/abort): the spend is unknown but real; count the check's budget (fail-closed).
+      metric.cost_usd += chk.costUsd ?? checkBudget;
+      // Stopped, tab closed or chat deleted while checking: never save or send the answer.
+      if (abort.signal.aborted) throw new Error("client_aborted");
+      if (!chk.ok) {
         const fixed = extractChart(chk.revised);
-        clean = stripLeadingNarration(fixed.clean);
-        chart = fixed.chart;
-        send({ type: "reset" });
-        emitVisible(clean);
-        track.setAnswer(clean, chart);
+        const fixedClean = stripLeadingNarration(fixed.clean);
+        if (fixedClean.trim()) {
+          clean = fixedClean;
+          chart = fixed.chart;
+          send({ type: "replace", text: clean });
+          track.setAnswer(clean, chart);
+        } else metric.check = "rejected";
       }
     }
     const assistantMsg = {

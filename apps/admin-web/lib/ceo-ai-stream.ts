@@ -190,6 +190,7 @@ export type CeoAiStreamEvent =
   | ({ type: "final" } & CeoAiFinal)
   | { type: "progress"; phase: string; label?: string; requestId?: string; conversationId?: string }
   | { type: "reset" }
+  | { type: "replace"; text: string }
   | { type: "watch"; frame: CeoAiWatchFrame }
   | { type: "error"; message: string; status?: number };
 
@@ -199,6 +200,8 @@ export type CeoAiStreamHandlers = {
   onProgress?: (progress: CeoAiProgress) => void;
   // Coding-agent backend: discard text streamed so far (it was narration before a tool call).
   onReset?: () => void;
+  // The answer checker corrected the streamed draft: show this text instead, at once.
+  onReplace?: (text: string) => void;
   // Live tag watch frames (watch_tags). Absent handler = frames are ignored.
   onWatch?: (frame: CeoAiWatchFrame) => void;
   onError?: (message: string, status?: number) => void;
@@ -242,6 +245,9 @@ function parseEvent(raw: string): CeoAiStreamEvent | null {
     const type = obj.type;
     if (type === "token" && typeof obj.text === "string") {
       return { type: "token", text: obj.text };
+    }
+    if (type === "replace" && typeof obj.text === "string") {
+      return { type: "replace", text: obj.text };
     }
     if (type === "reset") {
       return { type: "reset" };
@@ -430,6 +436,8 @@ async function readComposed(
       if (event) {
         if (event.type === "token") {
           handlers.onToken?.(event.text);
+        } else if (event.type === "replace") {
+          handlers.onReplace?.(event.text);
         } else if (event.type === "reset") {
           handlers.onReset?.();
         } else if (event.type === "watch") {

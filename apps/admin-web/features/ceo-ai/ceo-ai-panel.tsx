@@ -357,6 +357,15 @@ function createTypewriter(render: (shown: string) => void) {
       pending = "";
       settle();
     },
+    // replace swaps the whole answer in one render (checker correction): no wipe-and-retype.
+    replace(text: string) {
+      if (raf) cancelAnimationFrame(raf);
+      raf = 0;
+      shown = text;
+      pending = "";
+      render(shown);
+      settle();
+    },
     flush() {
       if (raf) cancelAnimationFrame(raf);
       raf = 0;
@@ -828,6 +837,10 @@ export function CeoAiPanel({
             {
               onToken: (text) => typer.push(text),
               onReset: () => typer.reset(),
+              onReplace: (text) => {
+                typer.replace(text);
+                patch({ checking: false });
+              },
               // Live tag watch frames: keep updating even while the panel is minimized.
               onWatch: (frame) =>
                 setMessages((prev) =>
@@ -858,6 +871,8 @@ export function CeoAiPanel({
                           progress: m.text
                             ? m.progress
                             : progressStatusLabel(progress),
+                          // Answer shown, now being checked against the query results.
+                          checking: progress.phase === "checking" ? true : m.checking,
                           steps:
                             progress.label &&
                             progress.label !== "Starting agent" &&
@@ -1497,6 +1512,19 @@ export function CeoAiPanel({
                       message.text !== CHROME.stoppedEmpty ? (
                         <div className="mzai-actions">
                           <CopyButton text={message.text} />
+                        </div>
+                      ) : null}
+                      {message.state === "streaming" &&
+                      message.text &&
+                      message.checking ? (
+                        <div className="mzai-progress">
+                          <span
+                            className="mzai-progress-label"
+                            role="status"
+                            aria-live="polite"
+                          >
+                            Checking the answer against the data…
+                          </span>
                         </div>
                       ) : null}
                       {message.state === "streaming" &&

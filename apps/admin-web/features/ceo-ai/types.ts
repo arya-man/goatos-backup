@@ -43,6 +43,8 @@ export type ChatMessage = {
   progress?: string;
   // Coding-agent activity: step labels as they happen, and how long the run took.
   steps?: string[];
+  // The finished answer is being checked against its query results (answer checker).
+  checking?: boolean;
   startedAt?: number;
   workedMs?: number;
   // Live BLE tag watch card (watch_tags tool), updated every poll.

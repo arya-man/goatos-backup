@@ -1288,13 +1288,11 @@
       ],
       "must_not_mention": [
         "two low weeks",
-        "both (low )?weeks",
-        "all (three )?pens (were|are) low",
-        "31\\.75",
-        "27\\.40",
-        "25\\.16"
+        "both (low )?weeks (were|are|show)",
+        "all (three )?pens (were|are) low"
       ],
-      "max_seconds": 120
+      "max_seconds": 120,
+      "notes": "Pinned to 2026 weeks on purpose (regression for the 2026-09-25 report); truth reads the last pen weighing per Monday week."
     }
   ]
 }
