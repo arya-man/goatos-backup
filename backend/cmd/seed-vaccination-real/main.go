@@ -1643,8 +1643,8 @@ func seedGenerationError(genRes vaccinationdomain.GenerateResult, err error, all
 	if allowPartialGeneration {
 		return nil
 	}
-	return fmt.Errorf("generate effective cohort partial failure: failed_goats=%d generated=%d deferred=%d reopened=%d skipped_no_due_date=%d suppressed_trusted=%d: %w",
-		genRes.FailedGoats, genRes.Generated, genRes.Deferred, genRes.Reopened, genRes.SkippedNoDueDate, genRes.SuppressedByTrustedHistory, err)
+	return fmt.Errorf("generate effective cohort partial failure: failed_goats=%d generated=%d deferred=%d reopened=%d skipped_no_due_date=%d suppressed_trusted=%d guard_rejected=%d: %w",
+		genRes.FailedGoats, genRes.Generated, genRes.Deferred, genRes.Reopened, genRes.SkippedNoDueDate, genRes.SuppressedByTrustedHistory, genRes.GuardRejected, err)
 }
 
 type seedReconciliation struct {
@@ -2062,14 +2062,14 @@ func printSeedSummary(st stats, genRes vaccinationdomain.GenerateResult) {
 		"  obligations=%d (completed=%d scheduled=%d) completions_history=%d pending_source=%d skipped_cells=%d\n"+
 		"  dated_source_facts reconciled=%d (later_administrations=%d unresolved=%d lifecycle_excluded=%d goat_not_placed=%d vaccine_unrecognized=%d)\n"+
 		"  purged_fixtures total=%d (obligations=%d batches=%d goats=%d sheds=%d other_child_rows=%d) retired_non_source_locations=%d\n"+
-		"  kernel_generation generated=%d deferred=%d reopened=%d failed_goats=%d skipped_no_due_date=%d suppressed_trusted=%d\n",
+		"  kernel_generation generated=%d deferred=%d reopened=%d failed_goats=%d skipped_no_due_date=%d suppressed_trusted=%d guard_rejected=%d\n",
 		st.ParksResolved, st.ShedsResolved, st.ShedsCreated, st.Protocols, st.Animals,
 		st.Obligations, st.Completed, st.Scheduled, st.CompletionsHistory, st.PendingSource, st.Skipped,
 		st.Completed+st.Scheduled, st.LaterAdministrationsReconciled, st.UnresolvedDatedFacts,
 		st.LifecycleExcludedDatedFacts, st.GoatNotPlacedDatedFacts, st.VaccineUnrecognizedDatedFacts,
 		st.Purged.total(), st.Purged.Obligations, st.Purged.Batches,
 		st.Purged.Goats, st.Purged.Sheds, st.Purged.OtherChildRows, st.RetiredSourceDrift,
-		genRes.Generated, genRes.Deferred, genRes.Reopened, genRes.FailedGoats, genRes.SkippedNoDueDate, genRes.SuppressedByTrustedHistory)
+		genRes.Generated, genRes.Deferred, genRes.Reopened, genRes.FailedGoats, genRes.SkippedNoDueDate, genRes.SuppressedByTrustedHistory, genRes.GuardRejected)
 }
 
 // purgeCounts breaks down what the fixture purge removed, for the run report.
