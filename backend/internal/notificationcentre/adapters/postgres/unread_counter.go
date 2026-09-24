@@ -18,6 +18,14 @@ import (
 // statement-level triggers on notification_requests keep equal to that COUNT in the same
 // transaction as every write (insert, MarkRead, escalation stamp, auto-resolve, delete).
 //
+// HOT ROWS: the trigger locks each affected member's counter row until COMMIT. Leadership members
+// (park head, director, CEO) receive a copy of most pushes, so their rows are the hottest: every
+// producer statement and every verification decision that touches one of them serialises on it.
+// Rules that keep this cheap and deadlock-free: (1) at most ONE counter-touching statement per
+// transaction (members are locked in sorted order within a statement, never across statements);
+// (2) make it the LAST write before commit and keep that transaction short -- no network calls or
+// slow reads after it. If the lock ever shows up in waits, shard the row by (member, bucket).
+//
 // Until the one-shot backfill has covered the rows that predate 000403, the counter tables only
 // know about keys touched since; notification_unread_counter_state.backfill_complete_at is the
 // gate, and while it is NULL the read falls back to the legacy query.
@@ -132,24 +140,37 @@ UPDATE notification_unread_counter_state
 SET backfill_complete_at = now()
 WHERE singleton AND backfill_complete_at IS NULL`
 
-// sqlStoredCountForMember is the reconcile read of one member's stored number.
-const sqlStoredCountForMember = `
-SELECT COALESCE((SELECT unread_count FROM notification_member_unread_counts
-                 WHERE tenant_id = $1::uuid AND member_id = $2), 0)`
-
-// sqlLegacyCountForMember is sqlUnreadCountLegacy keyed by the raw member id (the reconciler
-// visits members straight from notification_requests, active or not).
+// sqlReconcileMember reads one member's stored number AND the legacy history COUNT in ONE
+// statement, i.e. from one snapshot. The triggers keep the counter in the same transaction as
+// every row write, so within a single snapshot the two are exactly equal even while writes are in
+// flight: the reconciler never reports a transient mismatch.
 //
 // scale-guard:ignore: offline reconcile job, one member at a time; the history aggregate this
 // replaces on the request path is exactly what a reconciler has to recompute.
-const sqlLegacyCountForMember = `
-SELECT count(*) FROM (
-  SELECT DISTINCT ` + dedupeKeyExpr + `
-  FROM notification_requests nr
-  WHERE nr.tenant_id = $1::uuid
-    AND nr.context->>'member_id' = $2
-    AND ` + unreadPredicate + `
-) unread_keys`
+const sqlReconcileMember = `
+SELECT
+  COALESCE((SELECT unread_count FROM notification_member_unread_counts
+            WHERE tenant_id = $1::uuid AND member_id = $2), 0) AS stored,
+  (SELECT count(*) FROM (
+     SELECT DISTINCT ` + dedupeKeyExpr + `
+     FROM notification_requests nr
+     WHERE nr.tenant_id = $1::uuid
+       AND nr.context->>'member_id' = $2
+       AND ` + unreadPredicate + `
+   ) unread_keys) AS legacy`
+
+// sqlCounterGateOpen reports whether the backfill has completed.
+const sqlCounterGateOpen = `
+SELECT EXISTS (SELECT 1 FROM notification_unread_counter_state WHERE singleton AND backfill_complete_at IS NOT NULL)`
+
+// CounterGateOpen reports whether the stored counter is live on the read path.
+func (r *Repository) CounterGateOpen(ctx context.Context) (bool, error) {
+	var open bool
+	if err := r.pool.QueryRow(ctx, sqlCounterGateOpen).Scan(&open); err != nil {
+		return false, fmt.Errorf("notificationcentre: counter gate: %w", err)
+	}
+	return open, nil
+}
 
 // forEachNotificationMember visits every (tenant, member) that has notification rows.
 func (r *Repository) forEachNotificationMember(ctx context.Context, fn func(tenantID, memberID string) error) error {
@@ -243,14 +264,10 @@ func (r *Repository) ReconcileUnreadCounters(ctx context.Context) ([]UnreadMisma
 	var out []UnreadMismatch
 	err := r.forEachNotificationMember(ctx, func(tenantID, memberID string) error {
 		var stored, legacy int
-		// scale-guard:ignore: offline reconciler; one primary-key read per member.
-		if err := r.pool.QueryRow(ctx, sqlStoredCountForMember, tenantID, memberID).Scan(&stored); err != nil {
-			return fmt.Errorf("notificationcentre: reconcile stored: %w", err)
-		}
-		legacyMemberQuery := sqlbind.MustBind(sqlLegacyCountForMember, tenantID, memberID)
-		// scale-guard:ignore: offline reconciler; recomputing history per member is its job.
-		if err := r.pool.QueryRow(ctx, legacyMemberQuery.SQL(), legacyMemberQuery.Args()...).Scan(&legacy); err != nil {
-			return fmt.Errorf("notificationcentre: reconcile legacy: %w", err)
+		reconcileQuery := sqlbind.MustBind(sqlReconcileMember, tenantID, memberID)
+		// scale-guard:ignore: offline reconciler; one single-snapshot comparison per member.
+		if err := r.pool.QueryRow(ctx, reconcileQuery.SQL(), reconcileQuery.Args()...).Scan(&stored, &legacy); err != nil {
+			return fmt.Errorf("notificationcentre: reconcile: %w", err)
 		}
 		if stored != legacy {
 			out = append(out, UnreadMismatch{TenantID: tenantID, MemberID: memberID, Stored: stored, Legacy: legacy})

@@ -9,6 +9,8 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	platformoutbox "github.com/vgoats/goatos/backend/internal/platform/outbox"
+	platformpostgres "github.com/vgoats/goatos/backend/internal/platform/postgres"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 	"github.com/vgoats/goatos/backend/internal/verification/domain"
 	"github.com/vgoats/goatos/backend/internal/verification/ports"
 	"github.com/vgoats/goatos/backend/internal/verification/samplingsql"
@@ -174,7 +176,7 @@ func (r *Repository) ListSamplingDayStats(ctx context.Context, tenantID, busines
 		return nil, fmt.Errorf("verification: invalid sampling business date: %w", err)
 	}
 	dayEnd := dayStart.AddDate(0, 0, 1)
-	rows, err := r.pool.Query(ctx, `
+	dayStatsQuery := sqlbind.MustBind(`
 WITH policy AS (
   SELECT DISTINCT ON (p.category) p.category, p.sample_percent
   FROM verification_sampling_policies p
@@ -197,6 +199,7 @@ WHERE vi.tenant_id = $1::uuid
   AND vi.captured_at < $4::timestamptz
 GROUP BY vi.category`,
 		tenantID, businessDate, dayStart, dayEnd, domain.AutoResolutionNotSampled)
+	rows, err := r.pool.Query(ctx, dayStatsQuery.SQL(), dayStatsQuery.Args()...)
 	if err != nil {
 		return nil, err
 	}
@@ -231,7 +234,20 @@ GROUP BY vi.category`,
 // waivableCategories is the service's registry-derived list; a category whose approve must carry a
 // measurement is never in it (see domain.CategoryDefinition.SamplingWaivable) and its items are
 // left for a human, which is why an empty list settles nothing rather than everything.
+// SettleUnsampledItems retries the whole transaction when PostgreSQL picks it as a deadlock victim (40P01).
+// The transaction touches notification_requests (auto-resolve, unread-counter triggers); lock
+// ordering prevents the deadlock, this is the bounded backstop.
 func (r *Repository) SettleUnsampledItems(ctx context.Context, in ports.SettleUnsampledParams) (int, error) {
+	var out int
+	err := platformpostgres.RetryOnDeadlock(ctx, func(ctx context.Context) error {
+		var err error
+		out, err = r.settleUnsampledItemsOnce(ctx, in)
+		return err
+	})
+	return out, err
+}
+
+func (r *Repository) settleUnsampledItemsOnce(ctx context.Context, in ports.SettleUnsampledParams) (int, error) {
 	if len(in.WaivableCategories) == 0 || in.Limit <= 0 {
 		return 0, nil
 	}
@@ -245,7 +261,7 @@ func (r *Repository) SettleUnsampledItems(ctx context.Context, in ports.SettleUn
 
 	// One claim read for the whole tick: the items this worker will settle, locked so a second
 	// worker instance takes a different batch instead of racing this one.
-	claimRows, err := tx.Query(ctx, `
+	claimQuery := sqlbind.MustBind(`
 SELECT `+itemColumns+`
 FROM verification_items vi
 WHERE vi.tenant_id = $1::uuid
@@ -264,6 +280,7 @@ WHERE vi.tenant_id = $1::uuid
 ORDER BY vi.captured_at ASC, vi.item_id ASC
 LIMIT $4
 FOR UPDATE SKIP LOCKED`, in.TenantID, in.Before, in.WaivableCategories, in.Limit)
+	claimRows, err := tx.Query(ctx, claimQuery.SQL(), claimQuery.Args()...)
 	if err != nil {
 		return 0, err
 	}
@@ -288,6 +305,7 @@ FOR UPDATE SKIP LOCKED`, in.TenantID, in.Before, in.WaivableCategories, in.Limit
 	}
 
 	settled := 0
+	settledIDs := make([]string, 0)
 	for _, item := range claimed {
 		// Background closeout over a batch the claim read above already bounded to in.Limit rows
 		// (100/tick by default), not a per-request fan-out. Each item needs its OWN durable outbox
@@ -313,6 +331,7 @@ WHERE tenant_id = $2::uuid
 			continue
 		}
 		settled++
+		settledIDs = append(settledIDs, item.ItemID)
 		item.Status = domain.StatusApproved
 		item.RowVersion++
 		idempotencyKey := fmt.Sprintf("%s:%s:%d", EventVerdictApproved, item.ItemID, item.RowVersion)
@@ -323,6 +342,10 @@ WHERE tenant_id = $2::uuid
 		if err := insertVaccinationDriveReadyOutboxIfReady(ctx, tx, item); err != nil {
 			return 0, err
 		}
+	}
+	// One counter-touching statement for every settled item (notification_autoresolve.go).
+	if err := resolveDecisionNotifications(ctx, tx, in.TenantID, settledIDs, ""); err != nil {
+		return 0, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return 0, err

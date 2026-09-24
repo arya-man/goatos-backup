@@ -2,6 +2,8 @@ package postgres
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -143,6 +145,19 @@ func TestVerdictAutoResolvesPendingNotifications(t *testing.T) {
 		t.Fatalf("submission notice still unread after its last item was decided: %d", got)
 	}
 
+	// --- a notice keyed to its OWN item resolves when that item is decided, even while a sibling
+	// of its submission is still pending ---
+	sub2 := "44444444-4444-4444-8444-444444444402"
+	own := createWeighingItem(t, ctx, repo, tenantID, "33333333-3333-4333-8333-333333333306", "sub2-1", &sub2)
+	_ = createWeighingItem(t, ctx, repo, tenantID, "33333333-3333-4333-8333-333333333307", "sub2-2", &sub2)
+	seedPendingNotice(t, ctx, pool, tenantID, own.ItemID, verifier, "verification.item.pending:"+own.ItemID, "sent")
+	if _, err := repo.RecordVerdict(ctx, domain.Verdict{TenantID: tenantID, ItemID: own.ItemID, Decision: domain.DecisionApproved, VerifierID: tenantID, RowVersion: own.RowVersion}); err != nil {
+		t.Fatal(err)
+	}
+	if got := unreadNotices(t, ctx, pool, tenantID, own.ItemID); got != 0 {
+		t.Fatalf("per-item notice held back by an open sibling: unread=%d", got)
+	}
+
 	// --- withdrawal resolves too ---
 	w := createWeighingItem(t, ctx, repo, tenantID, "33333333-3333-4333-8333-333333333305", "withdraw", nil)
 	seedPendingNotice(t, ctx, pool, tenantID, w.ItemID, verifier, "verification.item.pending:"+w.ItemID, "sent")
@@ -154,5 +169,85 @@ func TestVerdictAutoResolvesPendingNotifications(t *testing.T) {
 	}
 	if got := storedMemberUnread(t, ctx, pool, tenantID, verifier); got != 0 {
 		t.Fatalf("verifier unread at the end = %d, want 0", got)
+	}
+}
+
+// TestMultiItemDecisionDoesNotDeadlockWithAMultiMemberProducer reproduces the judge's deadlock:
+// a decision transaction that resolved notices item-by-item touched the unread counter in
+// SEVERAL statements over different member sets, while the bridge's QueueRoleNotifications -- ONE
+// statement fanning out to many members -- locked the same members' counter rows in sorted
+// order. Decision (per-item statements: B, then A) vs producer (A then B, one statement) inverts
+// the order. The fix is one counter-touching statement per decision, so both lock sorted.
+//
+// The race is timing-dependent, so it is run many times concurrently; the assertion is on the
+// server's own deadlock counter, because the RetryOnDeadlock backstop would otherwise hide a
+// regression by re-running the victim.
+func TestMultiItemDecisionDoesNotDeadlockWithAMultiMemberProducer(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 10*time.Second)
+	tenantID := newTenant(t, ctx, pool)
+	members := []string{
+		"aaaaaaaa-0000-4000-8000-000000000001", "bbbbbbbb-0000-4000-8000-000000000002",
+		"cccccccc-0000-4000-8000-000000000003", "dddddddd-0000-4000-8000-000000000004",
+	}
+	deadlocks := func() int64 {
+		time.Sleep(1200 * time.Millisecond) // let backends flush their stats
+		var n int64
+		if err := pool.QueryRow(ctx, `SELECT pg_stat_clear_snapshot() IS NULL, deadlocks FROM pg_stat_database WHERE datname = current_database()`).Scan(new(bool), &n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	before := deadlocks()
+
+	const rounds = 25
+	for round := 0; round < rounds; round++ {
+		refs := make([]string, len(members))
+		for i := range members {
+			refs[i] = fmt.Sprintf("55555555-5555-4555-8555-%012d", round*10+i)
+			// Visit order is reversed relative to the members' sort order, so a per-item
+			// statement sequence locks the counters high -> low.
+			item := createWeighingItem(t, ctx, repo, tenantID, refs[i], fmt.Sprintf("dl-%d-%d", round, i), nil)
+			seedPendingNotice(t, ctx, pool, tenantID, item.ItemID, members[len(members)-1-i], "verification.item.pending:"+item.ItemID, "sent")
+		}
+		var wg sync.WaitGroup
+		start := make(chan struct{})
+		errs := make(chan error, 8)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			if _, err := repo.WithdrawItemsBySource(ctx, tenantID, "weighing", "weighing_animal_observation", refs); err != nil {
+				errs <- fmt.Errorf("withdraw: %w", err)
+			}
+		}()
+		for p := 0; p < 3; p++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				// The bridge's shape: ONE multi-member INSERT per transaction.
+				if _, err := pool.Exec(ctx, `
+INSERT INTO notification_requests (tenant_id, calendar_event_id, target_type, notification_type, channel,
+  title, body, status, idempotency_key, request_fingerprint, context)
+SELECT $1::uuid, 'producer', 'tenant', 'reminder', 'push_fcm', 'P', '', 'queued',
+  'producer:'||gen_random_uuid(), 'fp', jsonb_build_object('member_id', m)
+FROM unnest($2::text[]) m`, tenantID, members); err != nil {
+					errs <- fmt.Errorf("producer: %w", err)
+				}
+			}()
+		}
+		close(start)
+		wg.Wait()
+		close(errs)
+		for err := range errs {
+			t.Fatalf("round %d: %v", round, err)
+		}
+	}
+	if after := deadlocks(); after != before {
+		t.Fatalf("PostgreSQL detected %d deadlock(s) (a retry may have hidden them); a decision must touch the unread counter in ONE statement", after-before)
 	}
 }
