@@ -74,3 +74,14 @@ test("an explicit login never settles for a concurrent session_refresh of the sa
   await Promise.all([d.bridge("u", TOKEN_B, r.post), d.signIn("u", TOKEN_B, r.post)]);
   assert.deepEqual(r.events, ["auth.sign_in", "auth.session_refresh", "auth.sign_in"]);
 });
+
+test("the 50-minute timer's forced refresh and the onIdTokenChanged it fires post once", async () => {
+  const store = memorySessionSyncStore();
+  const r = recorder();
+  const d = new SessionSyncDeduper(store);
+  await d.signIn("u", TOKEN_A, r.post);
+  // Timer: getIdToken(true) mints TOKEN_B and Firebase fires onIdTokenChanged(TOKEN_B).
+  await Promise.all([d.bridge("u", TOKEN_B, r.post), d.bridge("u", TOKEN_B, r.post)]);
+  await d.bridge("u", TOKEN_B, r.post); // a late listener call after the timer's post landed
+  assert.deepEqual(r.events, ["auth.sign_in", "auth.session_refresh"]);
+});

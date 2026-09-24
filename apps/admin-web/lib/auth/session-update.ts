@@ -13,11 +13,11 @@
 
 import type { RefreshBindingDecision } from "./refresh-binding";
 
-export type AuthEventResult = { ok: true } | { ok: false; status: number; error: string };
+export type AuthEventResult = { ok: true } | { ok: false; status: number; error: string; retryAfter?: string };
 
 export type SessionUpdatePlan =
   | { outcome: "reject"; status: number; error: string; eventRecorded: false }
-  | { outcome: "audit_failed"; status: number; error: string; eventRecorded: false }
+  | { outcome: "audit_failed"; status: number; error: string; retryAfter?: string; eventRecorded: false }
   | { outcome: "commit"; binding: RefreshBindingDecision; eventRecorded: true };
 
 export async function planSessionUpdate(deps: {
@@ -34,9 +34,32 @@ export async function planSessionUpdate(deps: {
   // 2. Only a trustworthy pair records the successful authentication event.
   const audit = await deps.recordEvent();
   if (!audit.ok) {
-    return { outcome: "audit_failed", status: audit.status, error: audit.error, eventRecorded: false };
+    return {
+      outcome: "audit_failed",
+      status: audit.status,
+      error: audit.error,
+      ...(audit.retryAfter ? { retryAfter: audit.retryAfter } : {}),
+      eventRecorded: false,
+    };
   }
 
   // 3. Session commits (caller writes the id-token + refresh-token cookies).
   return { outcome: "commit", binding, eventRecorded: true };
+}
+
+/**
+ * Maps a failed backend /auth/session-events response onto the browser-facing result. 4xx
+ * passes through; 503 (the auth database is busy, retryable) passes through WITH its Retry-After
+ * so the browser can retry rather than treat it as a broken sign-in; any other 5xx is a 502.
+ */
+export function authEventFailure(
+  status: number,
+  code: string | null,
+  retryAfter: string | null,
+): Extract<AuthEventResult, { ok: false }> {
+  const error = code ?? "auth_audit_failed";
+  if (status === 503) {
+    return { ok: false, status: 503, error, ...(retryAfter ? { retryAfter } : {}) };
+  }
+  return { ok: false, status: status >= 400 && status < 500 ? status : 502, error };
 }
