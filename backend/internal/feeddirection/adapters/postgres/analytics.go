@@ -2654,8 +2654,16 @@ milk_rev AS (
       AND park_id IS NOT NULL
       AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR park_id = ANY ($2::uuid[]))
 )
-SELECT purchase_rev.rev || '|' || issue_rev.rev || '|' || external_rev.rev || '|' || milk_rev.rev
-FROM purchase_rev, issue_rev, external_rev, milk_rev`
+,
+sale_rev AS (
+    -- Tenant-wide: depletion may carry a NULL park but still match a scoped farm's stock.
+    SELECT concat_ws(':', COUNT(*)::text, COALESCE(MAX(created_at)::text, ''),
+                     COALESCE(SUM(quantity_kg)::text, '')) AS rev
+    FROM feed_sale_depletions
+    WHERE tenant_id = $1
+)
+SELECT purchase_rev.rev || '|' || issue_rev.rev || '|' || external_rev.rev || '|' || milk_rev.rev || '|' || sale_rev.rev
+FROM purchase_rev, issue_rev, external_rev, milk_rev, sale_rev`
 
 // StockAnalytics serves the stock cards and the expenditure series.
 func (r *Repository) StockAnalytics(ctx context.Context, tenantID string, q domain.DirectedAnalyticsQuery) (domain.StockAnalytics, error) {

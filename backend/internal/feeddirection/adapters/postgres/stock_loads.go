@@ -14,25 +14,14 @@ import (
 // Purchased vs consumed, per load (maintainer request 2026-09-19). See domain/stock_loads.go for
 // the rule; this file is the FIFO arithmetic in SQL.
 //
-// projection-review: membership=feed_purchases at its (tenant, farm_label, feed_item_key, batch_no)
-// natural key -- one row per load, every load, nothing joined at row grain; group_key=(farm_label,
-// feed_item_key) for every window and aggregate: the FIFO position (prior_net_kg) is a running SUM
-// over loads ordered within that pair, consumption cells are pre-collapsed to ONE row per (park,
-// feed_item_key, feed_day) before the running total, so the per-day cumulative sees each day once,
-// and the per-load day counts / first day / finish day aggregate those cells back to one row per
-// load; join_cardinality=loads LEFT JOIN cells 1:0..N then GROUP BY load id (many side aggregated),
-// loads LEFT JOIN family_total 1:1 (one row per pair), loads LEFT JOIN burn 1:0..1 (one row per
-// pair), and the page rows and total range over the same filtered load set
-// (the `page` CTE) so numerator and denominator share one key set. The DAYS-LEFT arithmetic adds a
-// second group_key, (farm_label, family_key), and both of its sides range over it identically: the
-// running kg left walks that family's loads in arrival order and the rate is that family's kg per
-// calendar day, regrouped to the family BEFORE averaging so a substituted day counts once -- byte
-// for byte the key set the stock cards use, which is what makes the two surfaces agree.
-// merge_map is unique on member_key and rate_override on (farm, feed), so neither LEFT JOIN can fan
-// a load out; pagination=LIMIT/OFFSET bounded
-// by domain.NormaliseStockLoadsPage (offset capped at 10000) with whole-filter counts computed
-// beside the page, never page-local; scope=tenant_id everywhere plus the caller's authorized park
-// set on both purchases and sheets.
+// projection-review: membership=feed_purchases at (tenant,farm_label,feed_item_key,batch_no), locked/external feeding at (park,item,day), sales at (tenant,line_id); group_key=(farm_label,feed_item_key) for FIFO, (farm_label,family_key) for runway and burn rate; join_cardinality=movements JOIN positioned loads N:M with each kg overlap allocated once then grouped to purchase id, loads LEFT JOIN burn 1:0..1, unique merge-map and rate-override rows; pagination=bounded LIMIT/OFFSET with totals over the identical filtered load set; scope=tenant everywhere plus authorized park purchases and feeding, sales matched to those purchases by farm and item
+// Sales share the date-ordered FIFO stream with feeding. Only feeding contributes
+// consumed kg/days and burn rate. Same-day feeding precedes sales deterministically.
+// Sales before the ledger starts are charged at its first date, matching the cards'
+// all-time sold deduction. The newest load retains any overrun on its movement day.
+// Family runway and burn rate use the same (farm_label,family_key) key set, with
+// consumption regrouped to family-day before averaging. Page counts use the same
+// filtered load set as rows, so pagination never changes the whole-filter count.
 //
 // Bounded by construction: a tenant's purchase ledger is a few hundred loads and the consumption
 // side is collapsed to one row per (park, item, day) before any window runs, so the whole query
@@ -130,10 +119,28 @@ family_cells AS (
      AND c.feed_item_key = f.feed_item_key
      AND c.feed_day >= f.ledger_from
 ),
-family_total AS (
-    SELECT farm_label, feed_item_key, COALESCE(SUM(kg), 0) AS directed_kg
+-- Sales join only the depletion stream. Feeding remains the sole source of burn rates.
+-- projection-review: membership=family_cells at (farm,item,day) and feed_sale_depletions
+-- at (tenant,line_id); group_key=(farm_label,feed_item_key,feed_day,movement_order);
+-- join_cardinality=sales JOIN family N:1 then aggregate, movements JOIN loads N:M,
+-- each overlap allocated once before grouping by purchase id; pagination=none; scope=tenant plus the
+-- authorized reached purchases in family. Both streams allocate over the same load keys.
+movements AS (
+    SELECT farm_label, feed_item_key, feed_day, kg, 0 AS movement_order
     FROM family_cells
-    GROUP BY farm_label, feed_item_key
+    UNION ALL
+    SELECT f.farm_label, f.feed_item_key, GREATEST(s.feed_day, f.ledger_from),
+           SUM(s.quantity_kg), 1
+    FROM feed_sale_depletions s
+    JOIN family f ON f.farm_label = s.farm_label AND f.feed_item_key = s.feed_item_key
+    WHERE s.tenant_id = $1
+    GROUP BY f.farm_label, f.feed_item_key, GREATEST(s.feed_day, f.ledger_from)
+),
+movement_cells AS (
+    SELECT m.*, SUM(kg) OVER (
+        PARTITION BY farm_label, feed_item_key ORDER BY feed_day, movement_order
+        ROWS UNBOUNDED PRECEDING) AS cum_kg
+    FROM movements m
 ),
 -- Burn rate, at the FAMILY grain and with the pinned overrides: byte for byte the divisor the
 -- stock card above this table quotes, so the two cannot disagree about the runway. Regrouping to
@@ -165,9 +172,9 @@ burn AS (
 -- and the total before the day is still inside L's range. Never before the load's own arrival.
 -- The load that is newest AS OF THAT DAY takes any overrun above its own kg, so a later-arriving
 -- load is not charged for feed that had already gone out before it reached the farm.
-load_days AS (
+load_allocations AS (
     SELECT p.feed_purchase_id,
-           SUM(
+           fc.feed_day, fc.movement_order, fc.cum_kg, p.prior_net_kg, p.net_kg,
                GREATEST(0,
                    LEAST(
                        fc.cum_kg,
@@ -184,13 +191,9 @@ load_days AS (
                        ELSE fc.cum_kg
                        END
                    ) - GREATEST(fc.cum_kg - fc.kg, p.prior_net_kg)
-               )
-           )                                                            AS consumed_kg,
-           COUNT(*)                                                     AS days_consumed,
-           MIN(fc.feed_day)                                             AS consumption_from,
-           MIN(fc.feed_day) FILTER (WHERE fc.cum_kg >= p.prior_net_kg + p.net_kg) AS finished_on
+               ) AS depleted_kg
     FROM positioned p
-    JOIN family_cells fc
+    JOIN movement_cells fc
       ON fc.farm_label = p.farm_label
      AND fc.feed_item_key = p.feed_item_key
      AND fc.feed_day >= p.depletes_from
@@ -207,17 +210,26 @@ load_days AS (
                    (p.depletes_from, p.purchase_date, p.batch_no)
          )
      )
-    GROUP BY p.feed_purchase_id
+),
+load_days AS (
+    SELECT feed_purchase_id,
+           SUM(depleted_kg) AS depleted_kg,
+           COALESCE(SUM(depleted_kg) FILTER (WHERE movement_order = 0), 0) AS consumed_kg,
+           COUNT(*) FILTER (WHERE movement_order = 0 AND depleted_kg > 0) AS days_consumed,
+           MIN(feed_day) FILTER (WHERE movement_order = 0 AND depleted_kg > 0) AS consumption_from,
+           MIN(feed_day) FILTER (WHERE cum_kg >= prior_net_kg + net_kg) AS finished_on
+    FROM load_allocations
+    GROUP BY feed_purchase_id
 ),
 scored AS (
     SELECT p.*,
            -- FIFO split from actual feed days. Any overrun belongs to the load that was newest when
            -- the feed went out, not to a future load that reached after those days.
            COALESCE(ld.consumed_kg, 0) AS consumed_kg,
+           COALESCE(ld.depleted_kg, 0) AS depleted_kg,
            ld.days_consumed, ld.consumption_from, ld.finished_on,
            b.avg_daily_kg
     FROM positioned p
-    LEFT JOIN family_total ft ON ft.farm_label = p.farm_label AND ft.feed_item_key = p.feed_item_key
     LEFT JOIN load_days ld ON ld.feed_purchase_id = p.feed_purchase_id
     LEFT JOIN burn b ON b.farm_label = p.farm_label AND b.family_key = p.family_key
 ),
@@ -228,7 +240,7 @@ scored AS (
 -- figure the stock card above quotes; the two cannot disagree.
 running AS (
     SELECT s.*,
-           SUM(s.net_kg - s.consumed_kg) OVER (
+           SUM(s.net_kg - s.depleted_kg) OVER (
                PARTITION BY s.farm_label, s.family_key
                ORDER BY s.depletes_from, s.purchase_date, s.batch_no
                ROWS UNBOUNDED PRECEDING) AS runway_kg
@@ -240,14 +252,14 @@ rows_all AS (
            CASE
              -- An overrun load -- more directed against it than it held -- is the one being fed
              -- from right now, so it reads as IN USE. Its negative kg left is the finding.
-             WHEN s.net_kg - s.consumed_kg < 0 THEN 'in_use'
-             WHEN s.consumed_kg >= s.net_kg THEN 'finished'
-             WHEN s.consumed_kg > 0 THEN 'in_use'
+             WHEN s.net_kg - s.depleted_kg < 0 THEN 'in_use'
+             WHEN s.depleted_kg >= s.net_kg THEN 'finished'
+             WHEN s.depleted_kg > 0 THEN 'in_use'
              ELSE 'not_started'
            END AS status,
            s.net_kg AS purchased_kg,
            s.consumed_kg,
-           s.net_kg - s.consumed_kg AS left_kg,
+           s.net_kg - s.depleted_kg AS left_kg,
            s.days_of_stock,
            COALESCE(s.days_consumed, 0) AS days_consumed,
            CASE
@@ -258,7 +270,7 @@ rows_all AS (
            -- cover, so it is compared against this load's own kg over the same rate.
            CASE
              WHEN s.avg_daily_kg IS NULL OR s.avg_daily_kg <= 0 THEN NULL
-             ELSE GREATEST(floor((s.net_kg - s.consumed_kg) / s.avg_daily_kg), 0)::bigint
+             ELSE GREATEST(floor((s.net_kg - s.depleted_kg) / s.avg_daily_kg), 0)::bigint
            END AS own_days_left,
            s.avg_daily_kg
     FROM running s

@@ -89,6 +89,21 @@ func (s *SalesService) CreateDeal(ctx context.Context, tenantID string, write do
 	if strings.TrimSpace(idempotencyKey) == "" {
 		return domain.Deal{}, ErrSalesIdempotencyKeyRequired
 	}
+	// A REPLAY IS ANSWERED BEFORE THE STORE IS ASKED. The first send commits and takes its
+	// kilograms off; if its response is lost, the phone re-sends the same key and the store is
+	// now short by exactly what THIS sale removed -- so asking the store first refused a sale that
+	// had already happened. The phone read that refusal as the short-stock question, minted a
+	// fresh key to answer it, and recorded the sale again: one sale, two deals, twice the
+	// depletion. Settling the replay here returns the deal that already exists.
+	// Do this before catalog lookup too: archiving or renaming a product after commit
+	// cannot turn a completed sale into a rejected outbox item. Completed keys return
+	// the original result without new effects, even if a retry carries changed fields.
+	key := strings.TrimSpace(idempotencyKey)
+	if existing, found, err := s.repo.CompletedDealForIdempotencyKey(ctx, tenantID, key); err != nil {
+		return domain.Deal{}, err
+	} else if found {
+		return existing, nil
+	}
 	catalog, err := s.productCatalog(ctx, tenantID)
 	if err != nil {
 		return domain.Deal{}, err
@@ -96,18 +111,6 @@ func (s *SalesService) CreateDeal(ctx context.Context, tenantID string, write do
 	normalized := write.Normalize(catalog)
 	if err := normalized.Validate(catalog); err != nil {
 		return domain.Deal{}, err
-	}
-	// A REPLAY IS ANSWERED BEFORE THE STORE IS ASKED. The first send commits and takes its
-	// kilograms off; if its response is lost, the phone re-sends the same key and the store is
-	// now short by exactly what THIS sale removed -- so asking the store first refused a sale that
-	// had already happened. The phone read that refusal as the short-stock question, minted a
-	// fresh key to answer it, and recorded the sale again: one sale, two deals, twice the
-	// depletion. Settling the replay here returns the deal that already exists.
-	key := strings.TrimSpace(idempotencyKey)
-	if existing, found, err := s.repo.CompletedDealForIdempotencyKey(ctx, tenantID, key); err != nil {
-		return domain.Deal{}, err
-	} else if found {
-		return existing, nil
 	}
 	if err := s.confirmFeedStock(ctx, tenantID, normalized); err != nil {
 		return domain.Deal{}, err

@@ -3,6 +3,10 @@ package postgres
 import (
 	"context"
 	"testing"
+	"time"
+
+	"github.com/vgoats/goatos/backend/internal/feeddirection/domain"
+	"github.com/vgoats/goatos/backend/internal/feeddirection/ports"
 )
 
 // SOLD FEED LEAVES THE STORE, AND IS NEVER EATEN (migration 000402).
@@ -43,6 +47,13 @@ VALUES ($1, $2, 'CBE', 'Maize', 701, DATE '2026-08-01', 5000, 20, 100000, 0,
 	}
 
 	beforeBalance, beforeRate, beforeDays := itemFor(t, "Maize")
+	beforeRevision, err := repo.feedStockRevision(ctx, fdiTenant, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.StockLoads(ctx, fdiTenant, nil, domain.StockLoadsQuery{}); err != nil {
+		t.Fatal(err)
+	}
 
 	// The farm sells two tonnes of it.
 	if _, err := pool.Exec(ctx, `
@@ -66,7 +77,72 @@ FROM sales_deal_lines l WHERE l.tenant_id = $1 AND l.product_kind = 'feed'`, fdi
 	}
 
 	afterBalance, afterRate, afterDays := itemFor(t, "Maize")
+	afterRevision, err := repo.feedStockRevision(ctx, fdiTenant, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if beforeRevision == afterRevision {
+		t.Fatal("sale did not invalidate stock cache")
+	}
+	page, err := repo.StockLoads(ctx, fdiTenant, nil, domain.StockLoadsQuery{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Rows) != 1 || page.Rows[0].LeftKg != "3000.0" || page.Rows[0].ConsumedKg != "0.0" || page.Rows[0].DaysConsumed != 0 {
+		t.Fatalf("sold feed is depleted but not eaten: %+v", page.Rows)
+	}
+	// Reopening removes depletion and restores the cached load balance immediately.
+	if _, err := pool.Exec(ctx, `DELETE FROM feed_sale_depletions WHERE tenant_id = $1`, fdiTenant); err != nil {
+		t.Fatal(err)
+	}
+	page, err = repo.StockLoads(ctx, fdiTenant, nil, domain.StockLoadsQuery{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Rows) != 1 || page.Rows[0].LeftKg != "5000.0" {
+		t.Fatalf("reopen: %+v", page.Rows)
+	}
 
+	// A later delivery must not absorb an earlier sale overrun. Subsequent feeding
+	// consumes the new load, while the old deficit stays visible in the family runway.
+	if _, err := pool.Exec(ctx, `INSERT INTO feed_purchases (tenant_id,park_id,farm_label,feed_item_label,batch_no,purchase_date,quantity_kg,per_kg_cost,total_cost,consumed_at_import_kg,depletes_from,vendor,payment_status,delivery_status,reached_on)
+        VALUES ($1,$2,'CBE','Maize',702,'2026-08-21',1000,20,20000,0,'2026-08-21','Navaladi','Paid','reached','2026-08-21')`, fdiTenant, park); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO feed_sale_depletions (tenant_id,deal_id,line_id,park_id,farm_label,feed_item_label,feed_day,quantity_kg)
+        SELECT $1,l.deal_id,l.line_id,$2,'CBE','Maize','2026-08-20',5500 FROM sales_deal_lines l WHERE l.tenant_id=$1 AND l.product_kind='feed'`, fdiTenant, park); err != nil {
+		t.Fatal(err)
+	}
+	at := time.Date(2026, 8, 22, 9, 0, 0, 0, time.UTC)
+	if _, err := repo.PersistIssue(ctx, ports.PersistIssueCommand{
+		TenantID: fdiTenant, ParkID: park, FeedDay: "2026-08-22", Workflow: domain.WorkflowNormal,
+		IssuedAt: at, Fingerprint: "sale-following-feed", IdempotencyKey: "sale-following-feed", GeneratedBy: "test",
+		Cells: []domain.StoredCell{{ParkID: park, ParkLabel: "CBE", ShedID: fdiShedA, ShedLabel: "Castro", PartitionLabel: "1", ShedTag: "Non-Pregnant", Breed: "Beetal", RationGroup: "Beetal/Sirohi", SessionNo: 1, SessionLabel: "Morning", HeadCount: 10, Workflow: domain.WorkflowNormal, FeedItemLabel: "Maize", FeedItemKey: "maize", QuantityKg: kg("100.000"), SessionTotalKg: "100.000"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.LockIssue(ctx, ports.LockIssueCommand{TenantID: fdiTenant, ParkID: park, FeedDay: "2026-08-22", Workflow: domain.WorkflowNormal, LockedAt: at}); err != nil {
+		t.Fatal(err)
+	}
+	page, err = repo.StockLoads(ctx, fdiTenant, nil, domain.StockLoadsQuery{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Rows) != 2 {
+		t.Fatalf("overrun and arrived load: %+v", page.Rows)
+	}
+	for _, row := range page.Rows {
+		if row.BatchNo == 701 && (row.LeftKg != "-500.0" || row.ConsumedKg != "0.0" || row.DaysConsumed != 0) {
+			t.Fatalf("old sale overrun: %+v", row)
+		}
+		if row.BatchNo == 702 && (row.LeftKg != "900.0" || row.ConsumedKg != "100.0" || row.DaysConsumed != 1 || row.DaysLeft == nil || *row.DaysLeft != 4) {
+			t.Fatalf("new load: %+v", row)
+		}
+	}
+	balance, rate, days := itemFor(t, "Maize")
+	if balance != "400.0" || rate != "100.0" || days == nil || *days != 4 {
+		t.Fatalf("card parity: %s/%s/%v", balance, rate, days)
+	}
 	if beforeBalance != "5000.0" {
 		t.Fatalf("balance before the sale = %q, want the whole load", beforeBalance)
 	}

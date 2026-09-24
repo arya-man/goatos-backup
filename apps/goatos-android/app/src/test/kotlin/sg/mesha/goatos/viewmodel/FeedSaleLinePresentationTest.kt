@@ -7,6 +7,8 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import sg.mesha.goatos.core.network.dto.SalesDealDto
+import sg.mesha.goatos.core.network.dto.SalesDealLineDto
 import sg.mesha.goatos.core.network.dto.SalesDealLineWriteDto
 import sg.mesha.goatos.core.network.dto.SalesDealWriteDto
 import sg.mesha.goatos.core.network.dto.SalesOptionsDto
@@ -22,6 +24,22 @@ import sg.mesha.goatos.core.network.dto.SalesProductOptionDto
  * person stood when they recorded it.
  */
 class FeedSaleLinePresentationTest {
+
+    @Test
+    fun `animal tagging follows recorded kinds including renamed and mixed sales`() {
+        fun deal(vararg lines: SalesDealLineDto) = SalesDealDto(dealId = "sale", productType = "Mixed", lines = lines.toList())
+        val feed = SalesDealLineDto(productType = "Feed", productKind = "feed")
+        val tags = SalesDealLineDto(productType = "Sheep tags", productKind = "other")
+        val animal = SalesDealLineDto(productType = "Breeding stock", productKind = "animal")
+        assertFalse(deal(feed, tags).hasAnimalsToTag())
+        assertFalse(deal(SalesDealLineDto(productType = "Goat", productKind = "other")).hasAnimalsToTag())
+        assertTrue(deal(animal).hasAnimalsToTag())
+        assertTrue(deal(feed, animal).hasAnimalsToTag())
+        assertTrue(deal(SalesDealLineDto(productType = "Goat")).hasAnimalsToTag())
+        assertFalse(deal(SalesDealLineDto(productType = "Unknown")).hasAnimalsToTag())
+        assertTrue(SalesDealDto(dealId = "old", productType = "Sheep").hasAnimalsToTag())
+        assertFalse(SalesDealDto(dealId = "old", productType = "Manure").hasAnimalsToTag())
+    }
 
     private val json = Json { ignoreUnknownKeys = true; explicitNulls = false; encodeDefaults = true }
 

@@ -614,7 +614,7 @@ const farmValuationSQL = `
 				-- valued on the FEMALE row (maintainer decision, same day: females are the larger
 				-- share, so it is the closer guess). The sex_missing count below counts those animals, so
 				-- the guess is visible on the page rather than silent in the total.
-				CASE WHEN coalesce(sc.stage, sm.stage) IS NULL THEN 'unmapped' ELSE coalesce(sc.stage, sm.stage) || '_' || s.sex_norm END AS bucket,
+				CASE WHEN coalesce(sc.stage, sm.stage) IS NULL THEN 'unmapped' ELSE coalesce(sc.stage, sm.stage) || '_' || CASE WHEN s.stage_norm = 'MOTHER' THEN 'female' ELSE s.sex_norm END END AS bucket,
 			gw.weight_kg,
 			g.management_stage,
 			g.milk_cohort,
