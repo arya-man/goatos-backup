@@ -3734,7 +3734,6 @@ aside.drawer.wt-feedband-drawer{width:94vw;max-width:960px}
 .ffspread{margin:10px 0 0;padding-top:8px;border-top:1px dashed var(--line)}
 @media(max-width:600px){
   body:has(.weights-page) .main{padding-bottom:92px}
-  body:has(.weights-page) .mzai-root{display:none}
   .ffboard{grid-template-columns:minmax(0,1fr);overflow-x:hidden}
   .ffhead{align-items:flex-start;flex-direction:column;gap:3px}
   /* On a phone the name WRAPS instead of truncating. A shed is "park · shed · pen" and the tail
