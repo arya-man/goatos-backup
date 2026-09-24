@@ -3,8 +3,8 @@
 -- Every row must say ok=t. Re-run after ANY pen-model migration (docs/agent-rules/ask-mesha.md "Pens (model-agnostic)").
 , alive AS (SELECT * FROM pa WHERE lifecycle_status = 'alive')
 , direct AS (   -- today's label-model truth: group row + catalog label, counted WITHOUT the resolver
-  SELECT CASE pk.name WHEN 'Coimbatore' THEN 'CBE' WHEN 'Channapatna' THEN 'CPT' ELSE upper(left(pk.name,3)) END
-         || ':' || lower(s.name) || ':' || sp.normalized_label pen_key, count(*) n
+  SELECT CASE pk.name WHEN 'Coimbatore' THEN 'CBE' WHEN 'Channapatna' THEN 'CPT' ELSE upper(left(pk.name,3)) END -- operational-location:ignore: owner=ravi issue=vgoats/goatos#388 scope=pen_key-is-a-match-key-not-a-display-label expiry=2027-03-31
+         || ':' || lower(s.name) || ':' || sp.normalized_label pen_key, count(*) n -- operational-location:ignore: owner=ravi issue=vgoats/goatos#388 scope=pen_key-is-a-match-key-not-a-display-label expiry=2027-03-31
   FROM goats g JOIN goat_shed_partitions gsp ON gsp.goat_id = g.goat_id JOIN locations s ON s.location_id = g.shed_id
   JOIN locations pk ON pk.location_id = s.parent_location_id
   JOIN shed_partitions sp ON sp.shed_id = g.shed_id AND sp.normalized_label = regexp_replace(lower(btrim(gsp.partition_label)),'^part[[:space:]]*','')
