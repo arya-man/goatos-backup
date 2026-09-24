@@ -177,11 +177,19 @@ resource "google_cloud_run_v2_service" "api" {
       # Postgres connection budget (maintainer decision 2026-09-24, db-g1-small
       # kept for cost): ~47 usable connections (50 max_connections minus
       # reserved superuser slots). Worst case with every service at max scale:
-      # api 4 x (6 main + 2 auth) + kernel-worker 2 x 4 + analytics-events 1 x 2
-      # + mqtt-bridge 1 x 3 = 45. Raising any of these needs the sum re-checked.
+      # api 4 x (5 main + 2 auth + 1 CEO read-only) = 32, kernel-worker 1 x 8,
+      # analytics-events 1 x 2, mqtt-bridge 1 x 3 -> 45. Raising any of these
+      # (or max_instance_count) needs the sum re-checked.
       env {
         name  = "GOATOS_PG_MAX_CONNS"
-        value = "6"
+        value = "5"
+      }
+
+      # The CEO assistant's read-only SQL pool (MESHA_MCP_DB_DSN below) is a
+      # third pool on the same database; its default is 4 per instance.
+      env {
+        name  = "MESHA_CEO_READONLY_MAX_CONNS"
+        value = "1"
       }
 
       # Dedicated pool for POST /auth/session-events so dashboard reads that

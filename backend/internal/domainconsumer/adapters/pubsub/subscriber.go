@@ -42,6 +42,7 @@ func (s *GCPSubscriber) Receive(ctx context.Context, subscriptionID string, hand
 		return fmt.Errorf("pubsub subscription id is required")
 	}
 	subscription := s.client.Subscription(subscriptionID)
+	subscription.ReceiveSettings = boundedReceiveSettings(subscription.ReceiveSettings)
 	return subscription.Receive(ctx, func(ctx context.Context, message *cloudpubsub.Message) {
 		err := dispatchMessage(ctx, message, handler)
 		if err != nil {
