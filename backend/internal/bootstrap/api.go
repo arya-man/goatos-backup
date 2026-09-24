@@ -952,7 +952,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 			WithMemberResolver(piboard.NewPoolMemberResolver(pool, cfg.Postgres.QueryTimeout)).
 			// The per-animal subtask drill is the source's own SQL and needs the pool.
 			WithPool(pool, cfg.Postgres.QueryTimeout),
-	)
+	).WithStatementBatch(workboardpg.NewStatementBatch(pool, cfg.Postgres.QueryTimeout))
 	workBoardHandler := workboardhttp.NewHandler(workBoardService, log).WithFlags(workboardapp.NewFlagService(workBoardService, leadershipTasksService, workboardpg.NewParkHeadResolver(pool, cfg.Postgres.QueryTimeout)))
 	// Alerts (maintainer decision 2026-09-16): the page below the Work Board. It stores only
 	// its rule config; every alert is derived per request from rows other modules froze --

@@ -7,11 +7,11 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 	"github.com/vgoats/goatos/backend/internal/workboard/domain"
 	"github.com/vgoats/goatos/backend/internal/workboard/ports"
 )
@@ -184,53 +184,78 @@ func businessDayBounds(businessDate string) (time.Time, time.Time, error) {
 
 // ListRows implements ports.Source.
 func (s *ApprovalsSource) ListRows(ctx context.Context, q ports.SourceQuery) ([]domain.Row, error) {
-	if err := ports.CheckUUIDSourceID(q.AfterSourceID); err != nil {
+	var out []domain.Row
+	st, err := s.ListStatement(q, &out)
+	if err != nil {
 		return nil, err
 	}
 	ctx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
-	start, end, err := businessDayBounds(q.BusinessDate)
-	if err != nil {
-		return nil, err
-	}
-	limit := q.Limit
-	if limit <= 0 {
-		limit = domain.DefaultLimit
-	}
-	rows, err := s.pool.Query(ctx, approvalListSQL,
-		q.TenantID, q.ParkID, start, end, nullUUID(q.OwnerUserID), nullUUID(q.AfterSourceID), statesArg(q.WorkStates), limit)
+	bound := sqlbind.MustBind(st.Query.SQL(), st.Query.Args()...)
+	rows, err := s.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return nil, fmt.Errorf("counts boardsource list: %w", err)
 	}
 	defer rows.Close()
-	out := make([]domain.Row, 0, limit)
-	for rows.Next() {
-		r, err := scanApprovalRow(rows, q.ParkID)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, r)
-	}
-	if err := rows.Err(); err != nil {
+	if err := st.Read(rows); err != nil {
 		return nil, fmt.Errorf("counts boardsource list rows: %w", err)
 	}
 	return out, nil
 }
 
+// ListStatement implements ports.BatchSource: the exact statement and decoding ListRows runs.
+func (s *ApprovalsSource) ListStatement(q ports.SourceQuery, out *[]domain.Row) (ports.Statement, error) {
+	if err := ports.CheckUUIDSourceID(q.AfterSourceID); err != nil {
+		return ports.Statement{}, err
+	}
+	start, end, err := businessDayBounds(q.BusinessDate)
+	if err != nil {
+		return ports.Statement{}, err
+	}
+	limit := q.Limit
+	if limit <= 0 {
+		limit = domain.DefaultLimit
+	}
+	sql, args := approvalListSQL, []any{q.TenantID, q.ParkID, start, end, nullUUID(q.OwnerUserID), nullUUID(q.AfterSourceID), statesArg(q.WorkStates), limit}
+	return ports.Statement{Query: sqlbind.MustBind(sql, args...), Read: func(rows ports.ResultRows) error {
+		got, err := ports.ReadRows(rows, limit, func(r ports.ResultRows) (domain.Row, error) { return scanApprovalRow(r, q.ParkID) })
+		*out = got
+		return err
+	}}, nil
+}
+
 // CountByState implements ports.Source.
 func (s *ApprovalsSource) CountByState(ctx context.Context, q ports.SourceQuery) (map[domain.WorkState]int, error) {
-	ctx, cancel := context.WithTimeout(ctx, s.timeout)
-	defer cancel()
-	start, end, err := businessDayBounds(q.BusinessDate)
+	var out map[domain.WorkState]int
+	st, err := s.CountStatement(q, &out)
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.pool.Query(ctx, approvalCountSQL, q.TenantID, q.ParkID, start, end, nullUUID(q.OwnerUserID), statesArg(q.WorkStates))
+	ctx, cancel := context.WithTimeout(ctx, s.timeout)
+	defer cancel()
+	bound := sqlbind.MustBind(st.Query.SQL(), st.Query.Args()...)
+	rows, err := s.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return nil, fmt.Errorf("counts boardsource count: %w", err)
 	}
 	defer rows.Close()
-	return scanCounts(rows, "counts boardsource count")
+	if err := st.Read(rows); err != nil {
+		return nil, fmt.Errorf("counts boardsource count scan: %w", err)
+	}
+	return out, nil
+}
+
+// CountStatement implements ports.BatchSource: the exact statement CountByState runs.
+func (s *ApprovalsSource) CountStatement(q ports.SourceQuery, out *map[domain.WorkState]int) (ports.Statement, error) {
+	start, end, err := businessDayBounds(q.BusinessDate)
+	if err != nil {
+		return ports.Statement{}, err
+	}
+	return ports.Statement{Query: sqlbind.MustBind(approvalCountSQL, q.TenantID, q.ParkID, start, end, nullUUID(q.OwnerUserID), statesArg(q.WorkStates)), Read: func(rows ports.ResultRows) error {
+		got, err := ports.ReadCounts(rows)
+		*out = got
+		return err
+	}}, nil
 }
 
 // approvalTypeLabel is the farm word for each request type. "Pen move", never "Shifting" or
@@ -247,7 +272,7 @@ func approvalTypeLabel(requestType string) string {
 	return "Request"
 }
 
-func scanApprovalRow(rows pgx.Rows, parkID string) (domain.Row, error) {
+func scanApprovalRow(rows ports.ResultRows, parkID string) (domain.Row, error) {
 	var (
 		requestID, requestType, status, boardState string
 		raisedAt                                   time.Time
