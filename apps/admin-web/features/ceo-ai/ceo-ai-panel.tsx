@@ -1173,7 +1173,8 @@ export function CeoAiPanel({
             right: PANEL_MARGIN,
             bottom: PANEL_MARGIN,
             width: `min(${PANEL_WIDTH}px, calc(100vw - ${PANEL_MARGIN * 2}px))`,
-            height: `min(640px, calc(100dvh - ${PANEL_MARGIN * 2}px))`,
+            // Leave room for the app's top bar so the panel's own close/min/max buttons are never covered.
+            height: `min(640px, calc(100dvh - ${PANEL_MARGIN * 2}px - 72px))`,
           }
     : bubblePos
       ? { left: bubblePos.x, top: bubblePos.y, right: "auto", bottom: "auto" }

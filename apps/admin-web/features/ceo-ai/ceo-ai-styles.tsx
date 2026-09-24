@@ -229,6 +229,7 @@ export function CeoAiStyles(): ReactElement {
 .mzai-starters{padding:4px 16px 12px}
 /* maximized panel sits above the app chrome so its header stays visible */
 .mzai-root.mzai-view-max{z-index:1000}
+.mzai-root.mzai-open{z-index:1000}
 .mzai-msg.user .mzai-bub{white-space:pre-wrap}
 .mzai-actions{display:flex;gap:2px;margin:-2px 0 0 2px}
 .mzai-panel{position:relative}
