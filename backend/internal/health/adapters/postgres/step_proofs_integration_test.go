@@ -75,7 +75,9 @@ func TestASessionIsSubmittedOnlyWhenEveryStepHasItsVideo(t *testing.T) {
 	if !errors.As(err, &missing) || len(missing.Missing) != 2 {
 		t.Fatalf("refusal named %+v, want the two unfilmed steps", missing.Missing)
 	}
-	if got := missing.StepLabels(); got[0] != "Tylosin 1 ml" || got[1] != "Meloxicam 1 ml" {
+	// The label is the medicine AND its dose, separated exactly as the operator's card renders it
+	// -- the verifier judges the clip against the dose the operator was told to give.
+	if got := missing.StepLabels(); got[0] != "Tylosin · 1 ml" || got[1] != "Meloxicam · 1 ml" {
 		t.Fatalf("refusal labels = %v, want the two medicines in working order", got)
 	}
 
@@ -115,7 +117,7 @@ func TestASessionIsSubmittedOnlyWhenEveryStepHasItsVideo(t *testing.T) {
 	if len(completed.StepMedia) != 3 {
 		t.Fatalf("step media = %+v, want one per step", completed.StepMedia)
 	}
-	wantLabels := []string{"Check temperature", "Tylosin 1 ml", "Meloxicam 1 ml"}
+	wantLabels := []string{"Check temperature", "Tylosin · 1 ml", "Meloxicam · 1 ml"}
 	for i, want := range wantLabels {
 		if completed.StepMedia[i].Label != want {
 			t.Fatalf("clip %d named %q, want %q", i, completed.StepMedia[i].Label, want)
