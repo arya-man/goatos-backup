@@ -2,9 +2,10 @@ package postgres
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"time"
+
+	"github.com/vgoats/goatos/backend/internal/platform/readcache"
 
 	"github.com/vgoats/goatos/backend/internal/growthdirector/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
@@ -132,34 +133,13 @@ func (r *Repository) GetGrowthDirectorWeights(ctx context.Context, tenantID stri
 	endExclusiveDate := periodEnd.In(loc).Format("2006-01-02")
 	sectionSet := growthDirectorSectionSet(sections)
 	cacheKey := growthDirectorReadKey("weights:"+growthDirectorSectionKey(sectionSet), tenantID, strings.Join(append([]string{}, parkIDs...), ","), startDate, endExclusiveDate, sex, origin, weighingCategory, settings.CacheKey())
-	if cached, ok := r.getCachedRead(cacheKey); ok {
-		if out, ok := cached.(domain.GrowthDirectorWeights); ok {
-			return out, nil
-		}
-	}
-	flight, owner := r.beginReadFlight(cacheKey)
-	if !owner {
-		select {
-		case <-ctx.Done():
-			return domain.GrowthDirectorWeights{}, ctx.Err()
-		case <-flight.done:
-			if flight.err != nil {
-				return domain.GrowthDirectorWeights{}, flight.err
-			}
-			if out, ok := flight.val.(domain.GrowthDirectorWeights); ok {
-				return out, nil
-			}
-			return domain.GrowthDirectorWeights{}, fmt.Errorf("growthdirector: cached weights had unexpected type")
-		}
-	}
-	var flightOut domain.GrowthDirectorWeights
-	var flightErr error
-	defer func() {
-		if flightErr == nil {
-			r.setCachedRead(cacheKey, flightOut)
-		}
-		r.finishReadFlight(cacheKey, flight, flightOut, flightErr)
-	}()
+	return readcache.Load(ctx, r.cache, gdReadKey(tenantID, parkIDs, cacheKey), func(ctx context.Context) (domain.GrowthDirectorWeights, error) {
+		return r.growthDirectorWeightsUncached(ctx, tenantID, parkIDs, periodStart, periodEnd, sex, origin, weighingCategory, sectionSet, settings, startDate, endExclusiveDate)
+	})
+}
+
+func (r *Repository) growthDirectorWeightsUncached(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string, sectionSet map[string]bool, settings domain.GrowthSettings, startDate, endExclusiveDate string) (domain.GrowthDirectorWeights, error) {
+	loc := biztime.DefaultLocation()
 	out := domain.GrowthDirectorWeights{
 		Period: domain.Period{
 			Start: startDate,
@@ -176,7 +156,6 @@ func (r *Repository) GetGrowthDirectorWeights(ctx context.Context, tenantID stri
 		FeedProblems: domain.FeedProblems{Items: []domain.FeedProblemItem{}},
 	}
 	if len(parkIDs) == 0 {
-		flightOut = out
 		return out, nil
 	}
 
@@ -190,7 +169,6 @@ func (r *Repository) GetGrowthDirectorWeights(ctx context.Context, tenantID stri
 	// them and show six widgets about six slightly different populations.
 	scope, scopeErr := weighingpg.ResolveSexScope(ctx, r.pool, tenantID, parkIDs, sex, periodStart, periodEnd)
 	if scopeErr != nil {
-		flightErr = scopeErr
 		return out, scopeErr
 	}
 	// Origin (farm born / purchased) is resolved by the SAME weighing-owned resolver the Weights
@@ -200,7 +178,6 @@ func (r *Repository) GetGrowthDirectorWeights(ctx context.Context, tenantID stri
 	// change when the second one was added.
 	originScope, originErr := weighingpg.ResolveOriginScope(ctx, r.pool, tenantID, parkIDs, origin, periodStart, periodEnd)
 	if originErr != nil {
-		flightErr = originErr
 		return out, originErr
 	}
 	sexApplied := strings.TrimSpace(sex) != ""
@@ -218,7 +195,6 @@ func (r *Repository) GetGrowthDirectorWeights(ctx context.Context, tenantID stri
 
 	parks, err := r.parks(ctx, tenantID, parkIDs)
 	if err != nil {
-		flightErr = err
 		return out, err
 	}
 	out.Parks = parks
@@ -227,45 +203,38 @@ func (r *Repository) GetGrowthDirectorWeights(ctx context.Context, tenantID stri
 		out.RoadToSale, err = r.roadToSale(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope, idMap, weighingCategory, settings)
 	}
 	if err != nil {
-		flightErr = err
 		return out, err
 	}
 	if sectionSet["fair_fight"] {
 		out.FairFight, err = r.fairFight(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope, idMap, weighingCategory, settings)
 	}
 	if err != nil {
-		flightErr = err
 		return out, err
 	}
 	if sectionSet["slow_growth"] {
 		out.SlowGrowth, err = r.slowGrowth(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope, idMap, weighingCategory, settings)
 	}
 	if err != nil {
-		flightErr = err
 		return out, err
 	}
 	if sectionSet["feed_vs_growth"] {
 		out.FeedVsGrowth, err = r.feedVsGrowth(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope, idMap, weighingCategory, settings)
 	}
 	if err != nil {
-		flightErr = err
 		return out, err
 	}
 	if sectionSet["feed_problems"] {
 		out.FeedProblems, err = r.feedProblems(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope)
 	}
 	if err != nil {
-		flightErr = err
 		return out, err
 	}
 	if sectionSet["trust"] {
 		out.Trust, err = r.trust(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope, idMap, weighingCategory)
 	}
 	if err != nil {
-		flightErr = err
 		return out, err
 	}
-	flightOut = out
 	return out, nil
 }
 

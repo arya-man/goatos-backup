@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/platform/readcache"
 	"github.com/vgoats/goatos/backend/internal/weighing/domain"
 )
 
@@ -100,53 +101,29 @@ SELECT max(d)::text FROM (
 // weigh belongs to the other sex is not a day this reader has data for, so the landing window must
 // not open on it -- and then runs the two date queries and nothing else.
 func (r *Repository) GetWeighingDates(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string) (domain.WeighingDates, error) {
-	ctx, cancel := r.timeout(ctx)
-	defer cancel()
 	cacheKey := weighingAnalyticsCacheKey("weighing_dates", tenantID, parkIDs, periodStart, periodEnd, sex, origin, weighingCategory)
-	if cached, ok := r.getReadCache(cacheKey); ok {
-		return cached.(domain.WeighingDates), nil
-	}
-	cacheEpoch := r.readCacheEpoch()
-	flight, ownsFlight, flightErr := r.beginReadFlight(ctx, cacheKey)
-	if flightErr != nil {
-		return domain.WeighingDates{}, flightErr
-	}
-	if !ownsFlight {
-		if flight.value == nil {
-			return domain.WeighingDates{}, flight.err
+	return readcache.Load(ctx, r.cache, analyticsReadKey(tenantID, parkIDs, cacheKey), func(ctx context.Context) (domain.WeighingDates, error) {
+		ctx, cancel := r.timeout(ctx)
+		defer cancel()
+		sexApplied := strings.TrimSpace(sex) != ""
+		originApplied := strings.TrimSpace(origin) != ""
+		var sexScope ReportScope
+		if sexApplied {
+			var err error
+			if sexScope, err = r.resolveSexScope(ctx, tenantID, parkIDs, sex, periodStart, periodEnd); err != nil {
+				return domain.WeighingDates{}, err
+			}
 		}
-		return flight.value.(domain.WeighingDates), nil
-	}
-
-	sexApplied := strings.TrimSpace(sex) != ""
-	originApplied := strings.TrimSpace(origin) != ""
-	var sexScope ReportScope
-	if sexApplied {
-		var err error
-		sexScope, err = r.resolveSexScope(ctx, tenantID, parkIDs, sex, periodStart, periodEnd)
-		if err != nil {
-			r.finishReadFlight(cacheKey, flight, nil, err)
-			return domain.WeighingDates{}, err
+		var originScope ReportScope
+		if originApplied {
+			var err error
+			if originScope, err = r.resolveOriginScope(ctx, tenantID, parkIDs, origin, periodStart, periodEnd); err != nil {
+				return domain.WeighingDates{}, err
+			}
 		}
-	}
-	var originScope ReportScope
-	if originApplied {
-		var err error
-		originScope, err = r.resolveOriginScope(ctx, tenantID, parkIDs, origin, periodStart, periodEnd)
-		if err != nil {
-			r.finishReadFlight(cacheKey, flight, nil, err)
-			return domain.WeighingDates{}, err
-		}
-	}
-	scope := IntersectScopes(sexScope, sexApplied, originScope, originApplied)
-	out, err := r.weighingDates(ctx, tenantID, parkIDs, periodStart, periodEnd, sexApplied || originApplied, scope, strings.TrimSpace(weighingCategory))
-	if err != nil {
-		r.finishReadFlight(cacheKey, flight, nil, err)
-		return domain.WeighingDates{}, err
-	}
-	r.setReadCacheIfEpoch(cacheKey, out, cacheEpoch)
-	r.finishReadFlight(cacheKey, flight, out, nil)
-	return out, nil
+		scope := IntersectScopes(sexScope, sexApplied, originScope, originApplied)
+		return r.weighingDates(ctx, tenantID, parkIDs, periodStart, periodEnd, sexApplied || originApplied, scope, strings.TrimSpace(weighingCategory))
+	})
 }
 
 func (r *Repository) weighingDates(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sexFiltered bool, scope SexScope, weighingCategory string) (domain.WeighingDates, error) {

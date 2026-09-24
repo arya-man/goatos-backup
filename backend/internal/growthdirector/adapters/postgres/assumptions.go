@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/platform/readcache"
+
 	"github.com/jackc/pgx/v5"
 
 	"github.com/vgoats/goatos/backend/internal/growthdirector/domain"
@@ -238,14 +240,19 @@ func readAssumptionValues(ctx context.Context, q querier, tenantID string) ([]do
 
 // GrowthSettings resolves the figures the Growth Director and FCR reads take from the
 // assumptions, defaulted per key when the tenant has no row. One tiny keyed read per request.
+//
+// Served through the shared read cache (tenant-wide key): PutAssumptions evicts the tenant on
+// commit on every instance, so a drawer change still shows on the next load.
 func (r *Repository) GrowthSettings(ctx context.Context, tenantID string) (domain.GrowthSettings, error) {
-	ctx, cancel := r.timeout(ctx)
-	defer cancel()
-	values, err := readAssumptionValues(ctx, r.pool, tenantID)
-	if err != nil {
-		return domain.GrowthSettings{}, err
-	}
-	return domain.SettingsFrom(values), nil
+	return readcache.Load(ctx, r.cache, gdReadKey(tenantID, nil, "growth_settings"), func(ctx context.Context) (domain.GrowthSettings, error) {
+		ctx, cancel := r.timeout(ctx)
+		defer cancel()
+		values, err := readAssumptionValues(ctx, r.pool, tenantID)
+		if err != nil {
+			return domain.GrowthSettings{}, err
+		}
+		return domain.SettingsFrom(values), nil
+	})
 }
 
 // PutAssumptions lands a validated update in one transaction. The caller has already run
@@ -421,9 +428,14 @@ func (r *Repository) PutAssumptions(ctx context.Context, tenantID, setBy string,
 		}
 	}
 
+	// Bands, lines and prices feed every cached Growth Director / FCR answer for the tenant.
+	if err := readcache.NotifyTx(ctx, tx, tenantID); err != nil {
+		return domain.Assumptions{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return domain.Assumptions{}, err
 	}
+	r.cache.Evict(ctx, tenantID)
 	return r.GetAssumptions(ctx, tenantID, asOf, true)
 }
 
