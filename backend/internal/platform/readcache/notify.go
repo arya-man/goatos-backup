@@ -17,6 +17,8 @@ import (
 // instance can never evict for -- or miss -- a write that did not happen.
 const NotifyChannel = "goatos_read_cache_evict"
 
+const notifySQL = `SELECT pg_notify($1, json_build_object('tenant_id', $2::text, 'park_ids', $3::text[])::text)`
+
 // Execer is the subset of pgx.Tx the notify needs.
 type Execer interface {
 	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
@@ -55,12 +57,24 @@ func NotifyTx(ctx context.Context, tx Execer, tenantID string, parkIDs ...string
 		return nil
 	}
 	parks := Key{Parks: parkIDs}.normalizedParks()
-	q := sqlbind.MustBind(`SELECT pg_notify($1, json_build_object('tenant_id', $2::text, 'park_ids', $3::text[])::text)`,
-		NotifyChannel, tenantID, parks)
+	q := sqlbind.MustBind(notifySQL, NotifyChannel, tenantID, parks)
 	if _, err := tx.Exec(ctx, q.SQL(), q.Args()...); err != nil {
 		return fmt.Errorf("readcache: notify eviction: %w", err)
 	}
 	return nil
+}
+
+// QueueNotify appends the eviction to a pgx.Batch whose statements run as ONE implicit
+// transaction (a CLI importer's bulk upsert), so it is delivered only if the batch commits. The
+// caller drains one extra result for it.
+func QueueNotify(b *pgx.Batch, tenantID string, parkIDs ...string) bool {
+	tenantID = strings.TrimSpace(tenantID)
+	if tenantID == "" {
+		return false
+	}
+	q := sqlbind.MustBind(notifySQL, NotifyChannel, tenantID, Key{Parks: parkIDs}.normalizedParks())
+	b.Queue(q.SQL(), q.Args()...)
+	return true
 }
 
 func parsePayload(payload string) (evictPayload, bool) {
@@ -70,4 +84,34 @@ func parsePayload(payload string) (evictPayload, bool) {
 	}
 	p.TenantID = strings.TrimSpace(p.TenantID)
 	return p, p.TenantID != ""
+}
+
+// Invalidator is the ONE port a writer takes to drop this process's cached reads after its
+// commit. *Cache implements it (nil-safe); a worker or CLI with no cache passes nil and still
+// publishes to every API instance through NotifyTx.
+type Invalidator interface {
+	Evict(ctx context.Context, tenantID string, parkIDs ...string) int
+}
+
+// Committer is the subset of pgx.Tx CommitAndEvict needs.
+type Committer interface {
+	Execer
+	Commit(ctx context.Context) error
+}
+
+// CommitAndEvict is the write-side contract in one call: publish the eviction INSIDE tx (so it is
+// delivered to every instance on commit and dropped on rollback), commit, then evict this
+// process's entries so its very next read sees the write. parkIDs empty = the whole tenant; pass
+// every park the write touched, including a park something moved OUT of.
+func CommitAndEvict(ctx context.Context, tx Committer, inv Invalidator, tenantID string, parkIDs ...string) error {
+	if err := NotifyTx(ctx, tx, tenantID, parkIDs...); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	if inv != nil && strings.TrimSpace(tenantID) != "" {
+		inv.Evict(ctx, tenantID, parkIDs...)
+	}
+	return nil
 }

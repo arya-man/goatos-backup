@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/platform/readcache"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
@@ -454,7 +456,7 @@ RETURNING feed_purchase_id::text, feed_item_key`,
 	if err := completeIdempotency(ctx, tx, tenantID, idemScopeFeedPurchaseCreate, idempotencyKey, "feed_purchase", purchaseID); err != nil {
 		return domain.FeedPurchase{}, fmt.Errorf("procurement: complete feed purchase idempotency: %w", err)
 	}
-	if err := tx.Commit(ctx); err != nil {
+	if err := readcache.CommitAndEvict(ctx, tx, r.readInvalidator, tenantID); err != nil {
 		return domain.FeedPurchase{}, fmt.Errorf("procurement: commit create feed purchase: %w", err)
 	}
 	return r.getFeedPurchase(ctx, tenantID, purchaseID)
@@ -762,7 +764,7 @@ WHERE tenant_id = $1 AND feed_purchase_id = $2`,
 			return domain.FeedPurchase{}, fmt.Errorf("procurement: audit feed purchase edit: %w", err)
 		}
 	}
-	if err := tx.Commit(ctx); err != nil {
+	if err := readcache.CommitAndEvict(ctx, tx, r.readInvalidator, tenantID); err != nil {
 		return domain.FeedPurchase{}, fmt.Errorf("procurement: commit feed purchase edit: %w", err)
 	}
 	return r.getFeedPurchase(ctx, tenantID, purchaseID)
@@ -897,7 +899,7 @@ func (r *Repository) RecordFeedPurchaseDelivery(ctx context.Context, tenantID, p
 			return domain.FeedPurchase{}, err
 		}
 	}
-	if err := tx.Commit(ctx); err != nil {
+	if err := readcache.CommitAndEvict(ctx, tx, r.readInvalidator, tenantID); err != nil {
 		return domain.FeedPurchase{}, fmt.Errorf("procurement: commit feed purchase delivery: %w", err)
 	}
 	return r.getFeedPurchase(ctx, tenantID, purchaseID)

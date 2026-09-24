@@ -20,6 +20,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
+
+	"github.com/vgoats/goatos/backend/internal/platform/readcache"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -35,6 +39,9 @@ type Repository struct {
 	cacheEpoch uint64
 	readCache  map[string]readCacheEntry
 	readFlight map[string]*readFlight
+	// readInvalidator is the shared analytics read cache (FCR reads the feed sheet); see
+	// read_cache_evict.go.
+	readInvalidator readcache.Invalidator
 }
 
 func NewRepository(pool *pgxpool.Pool, timeout time.Duration) *Repository {
@@ -74,7 +81,11 @@ func (r *Repository) commitAndInvalidateReadCache(ctx context.Context, tx pgx.Tx
 }
 
 func (r *Repository) execAndInvalidateReadCache(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
-	tag, err := r.pool.Exec(ctx, sql, args...)
+	bound, err := sqlbind.Bind(sql, args...)
+	if err != nil {
+		return pgconn.CommandTag{}, err
+	}
+	tag, err := r.pool.Exec(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return tag, err
 	}

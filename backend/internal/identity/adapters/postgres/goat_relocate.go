@@ -59,6 +59,11 @@ const goatLocationHistoryReasonShiftingApproved = "counts_shifting_approved"
 //     MovedGoatIDs against the requested set and aborts the whole approval if they differ, so an
 //     approval never half-applies.
 func (r *Repository) RelocateGoatsToShedInTx(ctx context.Context, tx pgx.Tx, cmd ports.RelocateGoatsCommand) (ports.RelocateGoatsResult, error) {
+	// The caller (shifting, procurement, tasks) commits; the read-cache eviction rides its
+	// transaction so every instance drops the tenant's analytics on that commit.
+	if err := notifyHerdWriteTx(ctx, tx, cmd.TenantID); err != nil {
+		return ports.RelocateGoatsResult{}, err
+	}
 	if len(cmd.GoatIDs) == 0 {
 		return ports.RelocateGoatsResult{}, fmt.Errorf("identity: relocate goats: no goat ids supplied")
 	}

@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
@@ -317,7 +319,7 @@ func (r *Repository) CreateAdminGoat(ctx context.Context, cmd ports.CreateAdminG
 	if err != nil {
 		return nil, err
 	}
-	if err := tx.Commit(ctx); err != nil {
+	if err := r.commitHerdWrite(ctx, tx, cmd.TenantID); err != nil {
 		return nil, err
 	}
 	committed = true
@@ -338,6 +340,10 @@ func (r *Repository) CreateAdminGoat(ctx context.Context, cmd ports.CreateAdminG
 // CreateAdminGoat is deliberately NOT applied here, because the caller's transaction sets the
 // budget for all the work in it.
 func (r *Repository) CreateAdminGoatInTx(ctx context.Context, tx pgx.Tx, cmd ports.CreateAdminGoatCommand) (*ports.AdminGoatMutationResult, error) {
+	// The caller commits; the read-cache eviction rides its transaction.
+	if err := notifyHerdWriteTx(ctx, tx, cmd.TenantID); err != nil {
+		return nil, err
+	}
 	return r.createAdminGoatInTx(ctx, tx, cmd)
 }
 
@@ -1288,9 +1294,10 @@ func uuidArg(value pgtype.UUID) any {
 // or one of the built-ins when the tenant has no lookup rows at all.
 func (r *Repository) lookupCodeAllowed(ctx context.Context, tenantID, table, codeCol, code string, builtins []string) (bool, error) {
 	var ok bool
-	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+	agcBind1295 := sqlbind.MustBind(fmt.Sprintf(`
 SELECT EXISTS (SELECT 1 FROM %[1]s WHERE tenant_id = $1 AND %[2]s = $2 AND status = 'active')
-    OR (NOT EXISTS (SELECT 1 FROM %[1]s WHERE tenant_id = $1) AND $2 = ANY($3::text[]))`, table, codeCol), tenantID, code, builtins).Scan(&ok)
+    OR (NOT EXISTS (SELECT 1 FROM %[1]s WHERE tenant_id = $1) AND $2 = ANY($3::text[]))`, table, codeCol), tenantID, code, builtins)
+	err := r.pool.QueryRow(ctx, agcBind1295.SQL(), agcBind1295.Args()...).Scan(&ok)
 	if err != nil {
 		return false, fmt.Errorf("identity: %s lookup: %w", table, err)
 	}

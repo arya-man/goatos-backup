@@ -13,6 +13,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/platform/readcache"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -66,6 +68,8 @@ type Repository struct {
 	pool         *pgxpool.Pool
 	queries      *obligationdb.Queries
 	queryTimeout time.Duration
+	// readInvalidator drops this process's cached analytics reads after a partition move.
+	readInvalidator readcache.Invalidator
 
 	reconcileNoopMu     sync.Mutex
 	reconcileNoopTenant string
@@ -8241,4 +8245,11 @@ func repeatTime(rc *domain.RepeatCycleSource, pick func(domain.RepeatCycleSource
 		return pgtype.Timestamptz{}
 	}
 	return pgconv.NullableTimestamptz(pick(*rc))
+}
+
+// WithReadCacheInvalidator wires the process-wide analytics read cache (partition moves change
+// the Weights / Growth cohort reads).
+func (r *Repository) WithReadCacheInvalidator(inv readcache.Invalidator) *Repository {
+	r.readInvalidator = inv
+	return r
 }

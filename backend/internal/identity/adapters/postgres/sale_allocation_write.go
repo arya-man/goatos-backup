@@ -153,7 +153,7 @@ func (r *Repository) RecordSaleAllocations(ctx context.Context, cmd ports.Record
 	}); err != nil {
 		return nil, fmt.Errorf("identity: record sale allocations: complete idempotency: %w", err)
 	}
-	if err := tx.Commit(ctx); err != nil {
+	if err := r.commitHerdWrite(ctx, tx, cmd.TenantID); err != nil {
 		return nil, fmt.Errorf("identity: record sale allocations: commit: %w", err)
 	}
 	return saleAllocationResult(cmd.SalesDealID, groups), nil

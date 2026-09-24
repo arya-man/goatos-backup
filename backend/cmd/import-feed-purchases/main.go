@@ -28,6 +28,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/platform/readcache"
+
 	"github.com/jackc/pgx/v5"
 )
 
@@ -158,7 +160,7 @@ func main() {
 
 	imported, updated, skippedCatalog, skippedBad := 0, 0, 0, 0
 	skippedFeeds := map[string]int{}
-	upsertSQL := `
+	const upsertSQL = `
 INSERT INTO feed_purchases
   (tenant_id, park_id, farm_label, feed_item_label, batch_no, purchase_date, quantity_kg,
    consumed_at_import_kg, depletes_from,
@@ -238,6 +240,9 @@ ON CONFLICT (tenant_id, farm_label, feed_item_key, batch_no) DO UPDATE SET
 		queued = append(queued, queuedPurchase{batchNo: batchNo, farm: farm, feed: feed})
 	}
 	if writeBatch.Len() > 0 {
+		// The loads re-price FCR: publish the tenant's read-cache eviction in the SAME implicit
+		// batch transaction, so every API instance drops its cached FCR only if the upsert commits.
+		readcache.QueueNotify(writeBatch, *tenantID)
 		results := conn.SendBatch(ctx, writeBatch)
 		defer results.Close()
 		for _, item := range queued {
@@ -250,6 +255,9 @@ ON CONFLICT (tenant_id, farm_label, feed_item_key, batch_no) DO UPDATE SET
 			} else {
 				updated++
 			}
+		}
+		if _, err := results.Exec(); err != nil {
+			log.Fatalf("publish read-cache eviction: %v", err)
 		}
 	}
 	log.Printf("feed purchases import: imported=%d updated=%d skipped_not_in_catalog=%d skipped_bad_rows=%d dry_run=%v", imported, updated, skippedCatalog, skippedBad, *dryRun)

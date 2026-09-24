@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/vgoats/goatos/backend/internal/platform/readcache"
+
 	"github.com/jackc/pgx/v5"
 	identityports "github.com/vgoats/goatos/backend/internal/identity/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
@@ -204,6 +206,11 @@ func (r *Repository) applyRecordedNewbornPen(
 	}
 	pen, err := r.resolveRecordedPen(ctx, tx, cmd.TenantID, strings.TrimSpace(cmd.AnswerValue))
 	if err != nil {
+		return err
+	}
+	// Placing a kid writes goats and shed_partitions, both read by the analytics cache: the
+	// eviction rides this action's transaction and reaches every instance on its commit.
+	if err := readcache.NotifyTx(ctx, tx, cmd.TenantID); err != nil {
 		return err
 	}
 

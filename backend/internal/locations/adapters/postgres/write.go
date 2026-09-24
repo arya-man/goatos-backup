@@ -7,6 +7,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
+
+	"github.com/vgoats/goatos/backend/internal/platform/readcache"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -69,7 +73,7 @@ func (r *Repository) CreateLocation(ctx context.Context, cmd ports.CreateLocatio
 	if err := completeIdempotency(ctx, tx, cmd.StoredIdempotencyKey, locationResultType, locationID); err != nil {
 		return nil, err
 	}
-	if err := tx.Commit(ctx); err != nil {
+	if err := readcache.CommitAndEvict(ctx, tx, r.readInvalidator, cmd.TenantID); err != nil {
 		return nil, err
 	}
 	committed = true
@@ -129,7 +133,7 @@ func (r *Repository) UpdateLocation(ctx context.Context, cmd ports.UpdateLocatio
 	if err := completeIdempotency(ctx, tx, cmd.StoredIdempotencyKey, locationResultType, cmd.LocationID); err != nil {
 		return nil, err
 	}
-	if err := tx.Commit(ctx); err != nil {
+	if err := readcache.CommitAndEvict(ctx, tx, r.readInvalidator, cmd.TenantID); err != nil {
 		return nil, err
 	}
 	committed = true
@@ -202,7 +206,7 @@ WHERE tenant_id = $1::uuid
 	if err := completeIdempotency(ctx, tx, cmd.StoredIdempotencyKey, locationResultType, cmd.LocationID); err != nil {
 		return nil, err
 	}
-	if err := tx.Commit(ctx); err != nil {
+	if err := readcache.CommitAndEvict(ctx, tx, r.readInvalidator, cmd.TenantID); err != nil {
 		return nil, err
 	}
 	committed = true
@@ -275,7 +279,7 @@ WHERE tenant_id = $1::uuid
 	if err := completeIdempotency(ctx, tx, cmd.StoredIdempotencyKey, locationDeleteResultType, cmd.LocationID); err != nil {
 		return nil, err
 	}
-	if err := tx.Commit(ctx); err != nil {
+	if err := readcache.CommitAndEvict(ctx, tx, r.readInvalidator, cmd.TenantID); err != nil {
 		return nil, err
 	}
 	committed = true
@@ -1115,10 +1119,11 @@ LIMIT 1`, cmd.TenantID, cmd.ReviewType, cmd.SourceContext, cmd.NormalizedSourceL
 }
 
 func (r *Repository) getLocationTx(ctx context.Context, tx pgx.Tx, tenantID, locationID string) (domain.LocationSummary, error) {
-	rows, err := tx.Query(ctx, locationSelectSQL(`
+	locwBind1120 := sqlbind.MustBind(locationSelectSQL(`
 WHERE l.tenant_id = $1::uuid
   AND l.location_id = $2::uuid
 LIMIT 1`), tenantID, locationID)
+	rows, err := tx.Query(ctx, locwBind1120.SQL(), locwBind1120.Args()...)
 	if err != nil {
 		return domain.LocationSummary{}, err
 	}
