@@ -533,7 +533,7 @@ class ShedsViewModel @Inject constructor(
                 .thenBy { it.name.lowercase() }
         )
         val totals = executionCounts(rowsForSelectedDay)
-        val totalsEffectiveDone = effectiveDoneCount(rowsForSelectedDay)
+        val totalsEffectiveDone = effectiveCardDoneCount(rowsForSelectedDay)
         val pageComplete = nextCursor.isNullOrBlank()
         // Backend-owned "vaccines to carry" for the selected day (full-day, page-independent).
         // The screen renders these numbers verbatim — no client-side summing of shed rows.
@@ -754,9 +754,9 @@ private fun effectiveCardDoneCount(rows: List<VaccinationExecutionRowDto>): Int 
  * from List.size (which undercounted a two-goat shed as one because it had one grouped row). */
 internal fun executionCounts(rows: List<VaccinationExecutionRowDto>): ExecutionCounts =
     ExecutionCounts(
-        target = rows.sumOf { it.targetCount.coerceAtLeast(0) },
-        open = rows.sumOf { it.openCount.coerceAtLeast(0) },
-        done = rows.sumOf { it.doneCount.coerceAtLeast(0) },
+        target = rows.assignmentAwareCardCounts(legacyMax = false) { it.targetCount },
+        open = rows.assignmentAwareCardCounts(legacyMax = false) { it.openCount },
+        done = rows.assignmentAwareCardCounts(legacyMax = false) { it.doneCount },
     )
 
 private fun executionCardCounts(rows: List<VaccinationExecutionRowDto>): ExecutionCounts =
@@ -770,17 +770,21 @@ private fun executionCardCounts(rows: List<VaccinationExecutionRowDto>): Executi
  * same operational card represent distinct animal memberships. Collapse the former, sum the
  * latter. Legacy rows without assignment identity retain the previous MAX behavior. */
 private inline fun List<VaccinationExecutionRowDto>.assignmentAwareCardCounts(
+    legacyMax: Boolean = true,
     count: (VaccinationExecutionRowDto) -> Int,
 ): Int {
     val assigned = filter { !it.assignmentId.isNullOrBlank() }
-    if (assigned.isEmpty()) return maxOfOrNull { count(it).coerceAtLeast(0) }.orZero()
+    if (assigned.isEmpty()) {
+        return if (legacyMax) maxOfOrNull { count(it).coerceAtLeast(0) }.orZero()
+        else sumOf { count(it).coerceAtLeast(0) }
+    }
     val assignedTotal = assigned.groupBy { it.assignmentId!! }
         .values
         .sumOf { assignmentRows -> assignmentRows.maxOf { count(it).coerceAtLeast(0) } }
-    val legacyMax = filter { it.assignmentId.isNullOrBlank() }
-        .maxOfOrNull { count(it).coerceAtLeast(0) }
-        .orZero()
-    return assignedTotal + legacyMax
+    val legacyRows = filter { it.assignmentId.isNullOrBlank() }
+    val legacyTotal = if (legacyMax) legacyRows.maxOfOrNull { count(it).coerceAtLeast(0) }.orZero()
+    else legacyRows.sumOf { count(it).coerceAtLeast(0) }
+    return assignedTotal + legacyTotal
 }
 
 private fun Int?.orZero(): Int = this ?: 0

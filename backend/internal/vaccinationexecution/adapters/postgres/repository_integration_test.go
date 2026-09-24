@@ -1990,6 +1990,19 @@ VALUES ($1, $2, '2026-07-15', $3, $4, $5, 'TestShed', 'whole', 1, ARRAY[$6::uuid
 	if pprRow.VaccineLabel != "PPR" {
 		t.Fatalf("expected PPR label, got %s", pprRow.VaccineLabel)
 	}
+	if etTTRow.TaskID != testTask || pprRow.TaskID != testTask {
+		t.Fatalf("taskless roster must retain each row's write identity, got ET+TT=%q PPR=%q", etTTRow.TaskID, pprRow.TaskID)
+	}
+
+	dayRoster, err := repo.ScanRoster(ctx, domain.ScanRosterQuery{
+		TenantID: testTenant, ShedID: testShed, PlannedDate: "2026-06-24", Limit: 20,
+	})
+	if err != nil {
+		t.Fatalf("ScanRoster planned date: %v", err)
+	}
+	if len(dayRoster.Rows) != 1 || dayRoster.Rows[0].ObligationID != etTTObl {
+		t.Fatalf("planned-date roster leaked another drive: %#v", dayRoster.Rows)
+	}
 }
 
 func TestListVaccinationExecutionPageBoundaryKeepsFullFilteredTotal(t *testing.T) {

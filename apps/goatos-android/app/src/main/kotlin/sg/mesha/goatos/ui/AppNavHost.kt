@@ -1121,6 +1121,7 @@ object Routes {
     const val EXECUTION_TASK_ROW_VERSION_ARG = "taskRowVersion"
     const val EXECUTION_SCAN_TITLE_ARG = "scanTitle"
     const val EXECUTION_PARTITION_ARG = "partitionLabel"
+    const val EXECUTION_PLANNED_DATE_ARG = "plannedDate"
     /**
      * Names WHICH weighing surface a destination renders, so the screen and its fetch never have
      * to ask who is looking. Set per route via a nav argument default value.
@@ -1161,7 +1162,8 @@ object Routes {
         taskRowVersion: Int? = null,
         scanTitle: String? = null,
         partitionLabel: String? = null,
-    ): String = executionRoute(SCAN, shedId, driveId, assignmentId, batchId, taskId, sopVersionId, taskRowVersion, scanTitle, partitionLabel)
+        plannedDate: String? = null,
+    ): String = executionRoute(SCAN, shedId, driveId, assignmentId, batchId, taskId, sopVersionId, taskRowVersion, scanTitle, partitionLabel, plannedDate)
 
     fun submitRoute(
         shedId: String?,
@@ -1173,7 +1175,8 @@ object Routes {
         taskRowVersion: Int? = null,
         scanTitle: String? = null,
         partitionLabel: String? = null,
-    ): String = executionRoute(SUBMIT, shedId, driveId, assignmentId, batchId, taskId, sopVersionId, taskRowVersion, scanTitle, partitionLabel)
+        plannedDate: String? = null,
+    ): String = executionRoute(SUBMIT, shedId, driveId, assignmentId, batchId, taskId, sopVersionId, taskRowVersion, scanTitle, partitionLabel, plannedDate)
 
     /** Opens ONE weighing task. Pushed from the task list, which already holds the task. */
     fun weighingTaskRoute(campaignId: String): String =
@@ -1252,6 +1255,7 @@ object Routes {
         taskRowVersion: Int?,
         scanTitle: String?,
         partitionLabel: String?,
+        plannedDate: String? = null,
     ): String {
         val args = buildList {
             shedId?.takeIf { it.isNotBlank() }?.let { add(SCAN_SHED_ARG to it) }
@@ -1263,6 +1267,7 @@ object Routes {
             taskRowVersion?.takeIf { it > 0 }?.let { add(EXECUTION_TASK_ROW_VERSION_ARG to it.toString()) }
             scanTitle?.takeIf { it.isNotBlank() }?.let { add(EXECUTION_SCAN_TITLE_ARG to it) }
             partitionLabel?.takeIf { it.isNotBlank() }?.let { add(EXECUTION_PARTITION_ARG to it) }
+            plannedDate?.takeIf { it.isNotBlank() }?.let { add(EXECUTION_PLANNED_DATE_ARG to it) }
         }
         if (args.isEmpty()) return base
         return "$base?" + args.joinToString("&") { (key, value) -> "$key=${Uri.encode(value)}" }
@@ -1419,6 +1424,7 @@ internal fun shedExecutionRoute(selected: ShedRow?, fallbackRoute: String): Stri
         taskRowVersion = selected.taskRowVersion,
         scanTitle = selected.scanDisplayTitle(),
         partitionLabel = selected.partitionLabel,
+        plannedDate = selected.scheduleDateKey,
     )
 }
 
@@ -5361,7 +5367,8 @@ private fun executionRoutePattern(base: String): String =
         "&${Routes.EXECUTION_SOP_VERSION_ARG}={${Routes.EXECUTION_SOP_VERSION_ARG}}" +
         "&${Routes.EXECUTION_TASK_ROW_VERSION_ARG}={${Routes.EXECUTION_TASK_ROW_VERSION_ARG}}" +
         "&${Routes.EXECUTION_SCAN_TITLE_ARG}={${Routes.EXECUTION_SCAN_TITLE_ARG}}" +
-        "&${Routes.EXECUTION_PARTITION_ARG}={${Routes.EXECUTION_PARTITION_ARG}}"
+        "&${Routes.EXECUTION_PARTITION_ARG}={${Routes.EXECUTION_PARTITION_ARG}}" +
+        "&${Routes.EXECUTION_PLANNED_DATE_ARG}={${Routes.EXECUTION_PLANNED_DATE_ARG}}"
 
 /**
  * One PC Care category worklist tab (module pc_care). The four L0 tab routes share this
@@ -5661,6 +5668,7 @@ private fun executionNavArguments() = listOf(
     navArgument(Routes.EXECUTION_TASK_ROW_VERSION_ARG) { type = NavType.IntType; defaultValue = 0 },
     navArgument(Routes.EXECUTION_SCAN_TITLE_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
     navArgument(Routes.EXECUTION_PARTITION_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
+    navArgument(Routes.EXECUTION_PLANNED_DATE_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
 )
 
 private fun String.isClosedWeighingAssignmentStatus(): Boolean =

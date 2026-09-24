@@ -185,6 +185,13 @@ interface ExecutionRepository {
         limit: Int? = null,
         partitionLabel: String? = null,
     ): Result<Unit>
+    suspend fun refreshScanRosterForDate(
+        shedId: String,
+        taskId: String? = null,
+        limit: Int? = null,
+        partitionLabel: String? = null,
+        plannedDate: String? = null,
+    ): Result<Unit> = refreshScanRoster(shedId, taskId, limit, partitionLabel)
     suspend fun refreshAssignmentScanRoster(
         shedId: String,
         taskId: String? = null,
@@ -192,6 +199,14 @@ interface ExecutionRepository {
         limit: Int? = null,
         partitionLabel: String? = null,
     ): Result<Unit> = refreshScanRoster(shedId, taskId, limit, partitionLabel)
+    suspend fun refreshAssignmentScanRosterForDate(
+        shedId: String,
+        taskId: String? = null,
+        assignmentId: String? = null,
+        limit: Int? = null,
+        partitionLabel: String? = null,
+        plannedDate: String? = null,
+    ): Result<Unit> = refreshAssignmentScanRoster(shedId, taskId, assignmentId, limit, partitionLabel)
 
     /** R50-007: Find a roster row by shed and normalized tag (searches the full roster, not just
      *  the loaded page). Returns null if the tag is not found in this shed. */
@@ -396,8 +411,9 @@ class DefaultExecutionRepository(
         limit: Int?,
         partitionLabel: String?,
         assignmentId: String?,
+        plannedDate: String?,
     ): ScanRosterResponseDto =
-        api.getScanRoster(shedId, taskId, cursor, limit, partitionLabel, assignmentId)
+        api.getScanRosterForDate(shedId, taskId, cursor, limit, partitionLabel, assignmentId, plannedDate)
 
     override fun observeScanRosterRows(
         shedId: String,
@@ -477,7 +493,15 @@ class DefaultExecutionRepository(
         taskId: String?,
         limit: Int?,
         partitionLabel: String?,
-    ): Result<Unit> = refreshScanRosterInternal(shedId, taskId, assignmentId = null, limit, partitionLabel)
+    ): Result<Unit> = refreshScanRosterInternal(shedId, taskId, assignmentId = null, limit, partitionLabel, plannedDate = null)
+
+    override suspend fun refreshScanRosterForDate(
+        shedId: String,
+        taskId: String?,
+        limit: Int?,
+        partitionLabel: String?,
+        plannedDate: String?,
+    ): Result<Unit> = refreshScanRosterInternal(shedId, taskId, assignmentId = null, limit, partitionLabel, plannedDate)
 
     override suspend fun refreshAssignmentScanRoster(
         shedId: String,
@@ -485,7 +509,16 @@ class DefaultExecutionRepository(
         assignmentId: String?,
         limit: Int?,
         partitionLabel: String?,
-    ): Result<Unit> = refreshScanRosterInternal(shedId, taskId, assignmentId, limit, partitionLabel)
+    ): Result<Unit> = refreshScanRosterInternal(shedId, taskId, assignmentId, limit, partitionLabel, plannedDate = null)
+
+    override suspend fun refreshAssignmentScanRosterForDate(
+        shedId: String,
+        taskId: String?,
+        assignmentId: String?,
+        limit: Int?,
+        partitionLabel: String?,
+        plannedDate: String?,
+    ): Result<Unit> = refreshScanRosterInternal(shedId, taskId, assignmentId, limit, partitionLabel, plannedDate)
 
     private suspend fun refreshScanRosterInternal(
         shedId: String,
@@ -493,6 +526,7 @@ class DefaultExecutionRepository(
         assignmentId: String?,
         limit: Int?,
         partitionLabel: String?,
+        plannedDate: String?,
     ): Result<Unit> = runCatching {
         scanAppendMutex.withLock {
             val rowScope = scanRosterRowScopeKey(shedId, taskId, partitionLabel, assignmentId)
@@ -512,14 +546,14 @@ class DefaultExecutionRepository(
             var authoritativeForTask = !taskId.isNullOrBlank()
             while (true) {
                 val page = try {
-                    scanRoster(shedId, fetchTaskId, cursor = cursor, limit = limit, partitionLabel = partitionLabel, assignmentId = assignmentId)
+                    scanRoster(shedId, fetchTaskId, cursor = cursor, limit = limit, partitionLabel = partitionLabel, assignmentId = assignmentId, plannedDate = plannedDate)
                 } catch (error: Throwable) {
                     // Assignment identity is authoritative. Falling back without it can replace a
                     // two-animal assignment roster with every animal in the shed.
                     if (cursor != null || !assignmentId.isNullOrBlank() || taskId.isNullOrBlank() || !error.isHttpNotFound()) throw error
                     fetchTaskId = null
                     authoritativeForTask = false
-                    scanRoster(shedId, taskId = null, cursor = null, limit = limit, partitionLabel = partitionLabel, assignmentId = null)
+                    scanRoster(shedId, taskId = null, cursor = null, limit = limit, partitionLabel = partitionLabel, assignmentId = null, plannedDate = plannedDate)
                 }
                 page.rows.forEach { staged += it.toRowEntity(rowScope, shedId, taskId, seq++, clock()) }
                 val next = page.nextCursor ?: break
@@ -664,7 +698,7 @@ private fun sg.mesha.goatos.core.network.dto.ScanRosterRowDto.toRowEntity(
     id = "$scopeKey#${obligationId.ifBlank { "$goatId#$primaryTag" }}",
     scopeKey = scopeKey,
     shedId = shedId,
-    taskId = taskId ?: "shed-wide",
+    taskId = this.taskId.takeIf { it.isNotBlank() } ?: taskId ?: "shed-wide",
     goatId = goatId,
     primaryTag = primaryTag,
     secondaryTag = secondaryTag,
