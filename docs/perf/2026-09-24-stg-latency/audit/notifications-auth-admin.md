@@ -4,7 +4,7 @@ Code: goatos-pr-burst (PR #389 head, read-only). DB: OCI clone <ip>:15432 (PG16)
 Method: real repository methods were run through a pgx tracer harness (`scratchpad/harness`, injected with `go test -overlay`). Every captured statement was re-run under `EXPLAIN (ANALYZE, BUFFERS)` with its real args.
 **Grades use server-side plan+exec time.** The tunnel adds about 40 ms RTT per statement; on stg, Cloud Run to Cloud SQL is about 1 ms.
 Grades: <=100 PASS, <=300 OK, <=500 MAX, >500 FAIL.
-Route inventory: 257 in-scope routes from `internal/permissions/routes.go` (`scratchpad/routes2.txt`), plus `POST /auth/session-events` and the two `/app/counts/shifting*` endpoints. Slices:
+Route inventory: 257 in-scope routes from `internal/permissions/routes.go` (`scratchpad/routes2.txt`), plus `POST /auth/session-events` and the two `/app/counts/shifting*` endpoints. Groups:
 - this file: notifications, auth, bootstrap, proofs, goats/search, leadership-tasks, shifting, devices
 - `part-admin.md`: every `/admin/*` and `/admin-web/*` route
 - `part-verif-ops.md`: verification, ceo-ai, operations, app/health|clock|leave|roster|pc-care|pen-visits|market|workflows, protocols, health-config, health/analytics, goats/{id}, identifiers
