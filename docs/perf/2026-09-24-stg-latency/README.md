@@ -128,7 +128,14 @@ Full `pg_dump`s over the internet are banned: they cost about ₹18/GB in Cloud 
 egress, with 13–16 GB days on 4 and 21 Sep. The tool and its runbook are tracked
 in `QUEUE.md` (Wave O).
 
-## Pending maintainer decisions
+## Maintainer decisions (2026-09-24)
+
+1. Claude runs `make land-main` for #389 once every judge is clean, then deploys that exact landed SHA to stg with the guarded launcher. **Do not land or deploy until the analytics-rollup judge findings are fixed and re-judged.**
+2. DB settings: `random_page_cost=1.1` and Query Insights **applied live on 2026-09-24**, now mirrored in `infra/envs/stg/cloud_sql.tf`. The Cloud SQL `jit` flag is unsupported; the API pool already runs with JIT off.
+3. Canceled vaccination obligations **do not count** in the command-board totals (queued in Wave 2 vaccination).
+4. Terraform for the analytics archive bucket/IAM: apply after the fixed rollup is green. Firebase to BigQuery export: optional.
+
+## Still pending
 
 - IAM: grant `roles/bigquery.dataViewer` on the `firebase_crashlytics`,
   `firebase_sessions` and `firebase_performance` datasets to
