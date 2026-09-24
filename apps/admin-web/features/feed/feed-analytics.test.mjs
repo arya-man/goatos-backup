@@ -40,7 +40,7 @@ test("execution variance table defaults to the latest packing day with measured 
 test("execution variance filters reset the variance table offset", () => {
   const varianceBlock = source.slice(
     source.indexOf("{/* Intended-vs-entered packing mismatches"),
-    source.indexOf("{/* The trend belongs UNDER this table", source.indexOf("{/* Intended-vs-entered packing mismatches")),
+    source.indexOf("{/* The packed-vs-given trend that sat here was removed", source.indexOf("{/* Intended-vs-entered packing mismatches")),
   );
   assert.match(varianceBlock, /pageParam="fav_offset"/);
   assert.match(varianceBlock, /feedHref\(PAGE_PATH, variance\.searchParams, "fav_offset"/);
@@ -277,4 +277,11 @@ test("follow-up pages its date-sorted lines by URL offset and the contract's pag
   assert.match(source, /tablePageSizes\(pageContract, "feed-follow-up"\)/);
   assert.match(source, /feedOffset\(searchParams, "ffu_offset"\)/);
   assert.match(source, /hasMore=\{followUpOffset \+ followUpLimit < followUpLineCount\(followUp\.data\)\}/);
+});
+
+test("the Execution tab no longer draws the packed-vs-given trend", () => {
+  // Removed on the maintainer's request (2026-09-24): it compared the whole sheet with only the
+  // bags a verifier weighed, so partly weighed days read as feed going missing.
+  assert.doesNotMatch(source, /consumption\.trend\.title/);
+  assert.doesNotMatch(source, /const consumptionSeries/);
 });
