@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/vgoats/goatos/backend/internal/weighing/domain"
 	"github.com/vgoats/goatos/backend/internal/weighing/ports"
 )
@@ -184,26 +186,23 @@ LIMIT $6`,
 		individualSheds = append(individualSheds, page.Items[i].CampaignShedID)
 	}
 
+	// The two evidence reads depend only on the page above, never on each other, so they ride ONE
+	// pgx.Batch: the whole gallery page is two round trips however many buckets it holds (P10).
+	batch := &pgx.Batch{}
 	if len(individualSheds) > 0 {
-		obsRows, err := r.pool.Query(ctx, `
-SELECT o.campaign_id::text, o.campaign_shed_id::text, o.observation_id::text,
-       o.scanned_identifier,
-       o.weight_kg::float8, o.proof_artifact_id::text, o.accepted_at,
-       o.sop_proofs::text, o.sop_answers::text,
-       `+animalProofKindsSQL+`
-FROM unnest($2::uuid[], $3::uuid[]) AS k(campaign_id, campaign_shed_id)
-CROSS JOIN LATERAL (
-  SELECT w.tenant_id, w.campaign_id, w.campaign_shed_id, w.observation_id, w.scanned_identifier,
-         w.weight_kg, w.proof_artifact_id, w.accepted_at, w.sop_proofs, w.sop_answers
-  FROM weighing_observations w
-  WHERE w.tenant_id=$1::uuid AND w.campaign_id=k.campaign_id AND w.campaign_shed_id=k.campaign_shed_id
-  ORDER BY w.accepted_at, w.observation_id
-  LIMIT $4
-) o`, tenantID, individualCampaigns, individualSheds, perShedLimit+1)
+		batch.Queue(leadershipIndividualEvidenceSQL, tenantID, individualCampaigns, individualSheds, perShedLimit+1)
+	}
+	if len(lumpSheds) > 0 {
+		batch.Queue(leadershipLumpEvidenceSQL, tenantID, lumpCampaigns, lumpSheds)
+	}
+	results := r.pool.SendBatch(ctx, batch)
+	defer func() { _ = results.Close() }()
+
+	if len(individualSheds) > 0 {
+		obsRows, err := results.Query()
 		if err != nil {
 			return domain.LeadershipShedPage{}, err
 		}
-		defer obsRows.Close()
 		for obsRows.Next() {
 			var observation domain.Observation
 			var proofsText, answersText, kindsText string
@@ -219,6 +218,7 @@ CROSS JOIN LATERAL (
 				page.Items[idx].Individual = append(page.Items[idx].Individual, observation)
 			}
 		}
+		obsRows.Close()
 		if err := obsRows.Err(); err != nil {
 			return domain.LeadershipShedPage{}, err
 		}
@@ -236,34 +236,10 @@ CROSS JOIN LATERAL (
 	}
 
 	if len(lumpSheds) > 0 {
-		lumpRows, err := r.pool.Query(ctx, `
-SELECT l.campaign_id::text, l.campaign_shed_id::text, l.shed_observation_id::text,
-       l.weight_kg::float8, l.average_weight_kg::float8, l.animal_count,
-       l.proof_artifact_id::text, l.proof_ids, l.accepted_at,
-       l.sop_answers::text, l.proof_slots, l.proof_kinds
-FROM unnest($2::uuid[], $3::uuid[]) AS k(campaign_id, campaign_shed_id)
-CROSS JOIN LATERAL (
-  SELECT wso.campaign_id, wso.campaign_shed_id, wso.shed_observation_id, wso.weight_kg,
-         wso.average_weight_kg, wso.animal_count, wso.proof_artifact_id, wso.accepted_at,
-         wso.sop_answers,
-         COALESCE(
-           (SELECT array_agg(p.proof_artifact_id::text ORDER BY p.proof_position)
-              FROM weighing_shed_observation_proofs p
-             WHERE p.tenant_id=wso.tenant_id AND p.shed_observation_id=wso.shed_observation_id),
-           ARRAY[wso.proof_artifact_id::text]
-         ) AS proof_ids,
-         `+shedProofSlotsSQL+` AS proof_slots,
-         `+shedProofKindsSQL+` AS proof_kinds
-  FROM weighing_shed_observations wso
-  WHERE wso.tenant_id=$1::uuid AND wso.campaign_id=k.campaign_id AND wso.campaign_shed_id=k.campaign_shed_id
-    AND wso.withdrawn_at IS NULL
-  ORDER BY wso.accepted_at DESC
-  LIMIT 1
-) l`, tenantID, lumpCampaigns, lumpSheds)
+		lumpRows, err := results.Query()
 		if err != nil {
 			return domain.LeadershipShedPage{}, err
 		}
-		defer lumpRows.Close()
 		for lumpRows.Next() {
 			var lump domain.Observation
 			var answersText, slotsText, kindsText string
@@ -280,13 +256,63 @@ CROSS JOIN LATERAL (
 				page.Items[idx].LumpSum = &row
 			}
 		}
+		lumpRows.Close()
 		if err := lumpRows.Err(); err != nil {
 			return domain.LeadershipShedPage{}, err
 		}
 	}
 
+	if err := results.Close(); err != nil {
+		return domain.LeadershipShedPage{}, err
+	}
 	return page, nil
 }
+
+// leadershipIndividualEvidenceSQL is the first page (+1 lookahead) of per-animal evidence for
+// every individual bucket on a gallery page, one LATERAL per bucket down
+// weighing_observations_shed_keyset_idx.
+const leadershipIndividualEvidenceSQL = `
+SELECT o.campaign_id::text, o.campaign_shed_id::text, o.observation_id::text,
+       o.scanned_identifier,
+       o.weight_kg::float8, o.proof_artifact_id::text, o.accepted_at,
+       o.sop_proofs::text, o.sop_answers::text,
+       ` + animalProofKindsSQL + `
+FROM unnest($2::uuid[], $3::uuid[]) AS k(campaign_id, campaign_shed_id)
+CROSS JOIN LATERAL (
+  SELECT w.tenant_id, w.campaign_id, w.campaign_shed_id, w.observation_id, w.scanned_identifier,
+         w.weight_kg, w.proof_artifact_id, w.accepted_at, w.sop_proofs, w.sop_answers
+  FROM weighing_observations w
+  WHERE w.tenant_id=$1::uuid AND w.campaign_id=k.campaign_id AND w.campaign_shed_id=k.campaign_shed_id
+  ORDER BY w.accepted_at, w.observation_id
+  LIMIT $4
+) o`
+
+// leadershipLumpEvidenceSQL is the current (latest, not withdrawn) whole-pen submission of every
+// per-shed-partition bucket on a gallery page.
+const leadershipLumpEvidenceSQL = `
+SELECT l.campaign_id::text, l.campaign_shed_id::text, l.shed_observation_id::text,
+       l.weight_kg::float8, l.average_weight_kg::float8, l.animal_count,
+       l.proof_artifact_id::text, l.proof_ids, l.accepted_at,
+       l.sop_answers::text, l.proof_slots, l.proof_kinds
+FROM unnest($2::uuid[], $3::uuid[]) AS k(campaign_id, campaign_shed_id)
+CROSS JOIN LATERAL (
+  SELECT wso.campaign_id, wso.campaign_shed_id, wso.shed_observation_id, wso.weight_kg,
+         wso.average_weight_kg, wso.animal_count, wso.proof_artifact_id, wso.accepted_at,
+         wso.sop_answers,
+         COALESCE(
+           (SELECT array_agg(p.proof_artifact_id::text ORDER BY p.proof_position)
+              FROM weighing_shed_observation_proofs p
+             WHERE p.tenant_id=wso.tenant_id AND p.shed_observation_id=wso.shed_observation_id),
+           ARRAY[wso.proof_artifact_id::text]
+         ) AS proof_ids,
+         ` + shedProofSlotsSQL + ` AS proof_slots,
+         ` + shedProofKindsSQL + ` AS proof_kinds
+  FROM weighing_shed_observations wso
+  WHERE wso.tenant_id=$1::uuid AND wso.campaign_id=k.campaign_id AND wso.campaign_shed_id=k.campaign_shed_id
+    AND wso.withdrawn_at IS NULL
+  ORDER BY wso.accepted_at DESC
+  LIMIT 1
+) l`
 
 // nullableStrings sends an EMPTY id set to Postgres as NULL rather than as `{}`.
 //
