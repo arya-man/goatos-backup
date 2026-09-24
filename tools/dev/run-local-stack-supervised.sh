@@ -75,6 +75,10 @@ log() {
   printf '%s %s\n' "$(timestamp)" "$*" | tee -a "$supervisor_log"
 }
 
+redact_database_url() {
+  printf '%s' "$1" | sed -E 's#(postgres(ql)?://[^:/@]+:)[^@]+@#\1REDACTED@#'
+}
+
 fetch_origin_main_with_gh() {
   local credential_helper
   # This is a literal Git credential-helper shell function.
@@ -509,7 +513,7 @@ mkdir -p "$log_dir"
 touch "$api_log" "$web_log" "$supervisor_log"
 
 log "Starting durable Goat OS local stack supervisor."
-log "Database URL target: $DATABASE_URL"
+log "Database URL target: $(redact_database_url "$DATABASE_URL")"
 
 if ! sync_exact_origin_main; then
   log "Shared origin/main synchronization failed; not starting FE, BE, or touching the database."
