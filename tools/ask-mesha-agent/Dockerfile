@@ -19,7 +19,11 @@ RUN apt-get update \
 ARG GIT_SHA=unknown
 # Read-only repo snapshot: owned by root, no write bits, agent can only read.
 COPY --chown=root:root . /repo
-RUN chmod -R a-w,a+rX /repo \
+# Second net after the .dockerignore list: delete anything whose name or content looks like a
+# credential (new secret kinds included), and symlinks that escape /repo. Every build route
+# (Cloud Build STG, deploy-stg.sh, a local docker build by Claude/Codex) runs this step.
+RUN node /repo/tools/ask-mesha-agent/deploy/scrub-snapshot.mjs /repo \
+ && chmod -R a-w,a+rX /repo \
  && rm -rf /repo/tools/ask-mesha-agent/node_modules
 WORKDIR /app
 COPY --from=deps --chown=root:root /app/node_modules ./node_modules
@@ -29,7 +33,7 @@ COPY --chown=root:root tools/ask-mesha-agent/deploy/entrypoint.sh /usr/local/bin
 # data-map-core.md is read from /repo (GOATOS_REPO). Drop tests, bench, dev tooling.
 RUN rm -rf /app/deploy /app/test /app/*.test.mjs /app/bench.mjs /app/schedule \
       /app/gen-data-map.mjs /app/refresh-data-map.sh /app/start-admin-web.sh /app/README.md \
- && for f in server.mjs lib.mjs events.mjs store.mjs uploads.mjs sql/001_init.sql sql/002_events.sql; do \
+ && for f in server.mjs lib.mjs events.mjs store.mjs uploads.mjs provider.mjs watch.mjs sql/001_init.sql sql/002_events.sql; do \
       test -f "/app/$f" || { echo "missing runtime file $f" >&2; exit 1; }; done \
  && test -f /repo/tools/ask-mesha-agent/data-map-core.md \
  && chmod 0755 /usr/local/bin/ask-mesha-entrypoint

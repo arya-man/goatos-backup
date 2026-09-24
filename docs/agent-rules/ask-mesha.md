@@ -132,6 +132,31 @@ Not the answer: per-tenant copies of tables/schemas (344× duplication and migra
 - Tests: `node --test tools/ask-mesha-agent/events.test.mjs`. `bench.mjs` accepts
   `ASK_MESHA_BENCH_ABORT_MS=N` to simulate Stop.
 
+## Live tag watch (watch_tags)
+
+"Watch Castro 1 tags for 10 minutes", "is A0002A moving? keep watching", "tell me when Yashoda goats stop
+moving" and one-shot "which goats are slower than their pen / own pace right now" go to the read-only MCP tool
+`watch_tags` (`tools/ask-mesha-agent/watch.mjs`, registered in `server.mjs` next to `run_sql`).
+
+- **Server polls, not the model.** Every `interval_s` (5-30, default 10) the agent server reads
+  `herd_signal_tag_latest` (+ the live table's tag -> goat -> pen join) through the same READ ONLY `runSql` path as
+  `run_sql` and streams SSE `{type:"watch", phase:start|tick|end|error, rows, changes}` frames. No model call per
+  tick; the model gets one compact summary at the end and writes a 2-4 sentence answer. Cost ~ one normal answer.
+- **Same semantics as the Herd Signals Live Monitor** (`backend/internal/herdsignals`): movement_state thresholds
+  (>=100 moving, 10-99 low, 1-9 quiet, 0 no movement), read-time stale/missing after 30 min without a packet, weak
+  signal <= -75 dBm, low battery < 2800 mV, status precedence missing > weak > low battery. `compare`:
+  `self` = `applyRiskSignals` own-baseline % (p75 of the tag's 24h 300s windows since `animal_monitoring_since`,
+  scaled to the 15-min window; <= -70% far below, >= +150% spike), `peers` = % vs the pen median motion_delta
+  (<= -70% lower than pen), `both`. `live_state` (moving_now / active_1m) is shown when the DB has the realtime
+  columns from origin/main (probed per watch).
+- **Stops**: time up (default 5 min), `stop_when` met, "Stop watching" (`/ceo-ai/events` kind `watch_stop`: ends the
+  watch only, the answer still arrives), Stop (aborts the answer), client disconnect (request close aborts polling
+  immediately), 30-min hard cap. No background continuation; one active watch per chat.
+- **Events**: `watch_started` / `watch_ended` (reason, duration_ms, polls, tags) per user; `/metrics/users` shows
+  `watches` per window.
+- **Panel**: `features/ceo-ai/ceo-ai-watch.tsx` live card (table, change feed, countdown, Stop watching); frames
+  parsed in `lib/ceo-ai-stream.ts` (`onWatch`); keeps updating while the panel is minimized.
+
 ## Cost controls
 
 - `ASK_MESHA_MONTHLY_BUDGET_USD` (default **100**): once this month's summed answer cost reaches it,
@@ -235,6 +260,14 @@ Never store the key in the repo, env files or logs; it lives only in Secret Mana
   `docs/prototypes/config-sop-studio/research`, any `artifacts/` folder, `fixtures/`, the Android
   screenshot gallery, `tools/dashboard-automation/commit-classification`, and binary/media files
   (docx, pdf, png, jpg, webp, gif, mp4, apk, aab, ipa). Snapshot ~35 MB (was ~77 MB); image ~450–550 MB.
+- **Automatic secret scrub (second net):** the Dockerfile runs `tools/ask-mesha-agent/deploy/scrub-snapshot.mjs /repo`
+  on every build, whichever route builds it (Cloud Build STG, `deploy-stg.sh`, a manual `docker build` by
+  Claude/Codex). It DELETES (never fails the build) files whose name looks like a credential file
+  (`.env*`, keys, service-account/google-services JSON, `*secret*/*credential*` data files, tfstate) or whose
+  content holds a real-looking secret (private keys, Anthropic/OpenAI/AWS/Google/GitHub/Slack tokens,
+  Postgres URLs with a real password), plus symlinks that escape `/repo`. Paths removed are logged, never
+  contents. To cover a new secret kind, add a pattern + a case in `test/scrub.test.mjs`; preview with
+  `node tools/ask-mesha-agent/deploy/scrub-snapshot.mjs . --dry-run`.
 - Checked 2026-09-24: every file the agent read in local testing was under `backend/internal/*` or
   `backend/migrations` — nothing in the excluded set. If you exclude more, re-check the same way
   (tally Read/Grep paths from the agent's session transcripts) so answers don't lose sources.

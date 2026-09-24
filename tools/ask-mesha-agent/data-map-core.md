@@ -84,6 +84,13 @@ Module tables (public.*; pen/park names: join public.locations l ON l.location_i
   not_moving). It is LIVE and changes minute to minute: one query, give count of all tags (e.g. "12 of 19"), last_seen_at in IST, and list them;
   goat via tag mapping (mapping_state='mapped'). Sustained concern = pattern_state IN ('inactive' (3h+ quiet while packets arrive),'quiet_watch',
   'missing_signal'); say how many (often 0), and note no_movement alone for one window is normal resting. Don't re-query to "confirm" counts.
+- Tag live data / "watch" / "keep watching" / "tell me when X stop(s)/start(s) moving" -> call the watch_tags tool (NOT repeated run_sql):
+  filter = pen/park names, tag ids (A0002A) or animal ids (G-003659), 'all' = every tagged animal; minutes default 5 (max 30); stop_when
+  any|all_stops_moving / any|all_starts_moving; compare self (vs own 24h p75 pace, Insights risk rule: <=-70% far below, >=+150% spike) | peers
+  (vs pen median right now, <=-70% lower than pen) | both. One-shot "which goats are slower than their pen/own pace now" -> watch_tags minutes=0
+  compare=both. Rows: herd_signal_tag_latest (motion_count, 15-min motion_delta, movement_state, last_seen_at, last_rssi_dbm, battery_mv) ->
+  goat_identifiers.normalized_value -> goats.shed_id/park_id -> locations.name; own baseline = herd_signal_activity_windows 300s tier, 24h.
+  The user sees the live table; answer from the returned summary in 2-4 sentences.
 Before saying "not recorded"/"none": search table names + information_schema.columns for the keyword (ILIKE '%deworm%'), then category/status values. Empty table (0 rows) = say plainly "not recorded in the app yet" in one line, no long search. Only say
 "not recorded" after that search finds nothing; say which park/pen/status you did find (e.g. "all Castro CBE tasks were cancelled").
 - Who changed/corrected a record: public.audit_log WHERE resource_id = <record id> (action e.g. pc_care.task.canceled / sales.deal.payment_record), actor_id -> workforce_members.user_id for the name; always name them in the first answer.

@@ -36,7 +36,8 @@ import {
   useRef,
   useState,
 } from "react";
-import { readCeoAiStream, sendCeoAiStopSignal } from "@/lib/ceo-ai-stream";
+import { readCeoAiStream, sendCeoAiStopSignal, sendCeoAiWatchStop } from "@/lib/ceo-ai-stream";
+import { CeoAiWatchCard, mergeWatch } from "./ceo-ai-watch";
 import {
   createConversation,
   deleteConversation,
@@ -770,6 +771,11 @@ export function CeoAiPanel({
           {
             onToken: (text) => typer.push(text),
             onReset: () => typer.reset(),
+            // Live tag watch frames: keep updating even while the panel is minimized.
+            onWatch: (frame) =>
+              setMessages((prev) =>
+                prev.map((m) => (m.id === assistantId ? { ...m, watch: mergeWatch(m.watch, frame) } : m)),
+              ),
             onProgress: (progress) => {
               if (progress.requestId && abortRef.current === controller) runRequestIdRef.current = progress.requestId;
               setMessages((prev) =>
@@ -908,6 +914,14 @@ export function CeoAiPanel({
           trackCeoAiError("ask_throw", message);
         }
       } finally {
+        // A watch cut off with the stream (Stop, network) must not keep counting down.
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantId && m.watch && !m.watch.ended
+              ? { ...m, watch: { ...m.watch, ended: true, reason: m.watch.reason ?? "stopped" } }
+              : m,
+          ),
+        );
         // An interrupted run must not clear the NEWER run's controller/pending.
         if (abortRef.current === controller) {
           abortRef.current = null;
@@ -1301,6 +1315,16 @@ export function CeoAiPanel({
                           live={message.state === "streaming"}
                           startedAt={message.startedAt}
                           workedMs={message.workedMs}
+                        />
+                      ) : null}
+                      {message.role === "assistant" && message.watch ? (
+                        <CeoAiWatchCard
+                          watch={message.watch}
+                          onStop={
+                            message.state === "streaming"
+                              ? () => sendCeoAiWatchStop(runRequestIdRef.current)
+                              : undefined
+                          }
                         />
                       ) : null}
                       {/* No empty assistant bubble while the agent works; the progress line shows instead. */}

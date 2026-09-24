@@ -77,7 +77,14 @@ export function summarizeUsers(events, now = new Date()) {
   const dayStart = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
   const windows = { today: dayStart, "7d": t - 7 * 864e5, "30d": t - 30 * 864e5 };
   const byUser = new Map();
+  const watchesBy = new Map(); // email -> watch_ended rows (live tag watches, watch.mjs)
   for (const e of events) {
+    if (e.event_name === "watch_ended") {
+      const k = e.email || "unknown";
+      if (!watchesBy.has(k)) watchesBy.set(k, []);
+      watchesBy.get(k).push({ ...e, _t: Date.parse(e.ts) });
+      continue;
+    }
     if (!TERMINAL.includes(e.event_name)) continue;
     const ts = Date.parse(e.ts);
     if (!(ts >= windows["30d"])) continue;
@@ -87,7 +94,10 @@ export function summarizeUsers(events, now = new Date()) {
   }
   const users = [...byUser.entries()].map(([email, rows]) => {
     const out = { email };
-    for (const [name, from] of Object.entries(windows)) out[name] = rollup(rows.filter((r) => r._t >= from));
+    for (const [name, from] of Object.entries(windows)) {
+      out[name] = rollup(rows.filter((r) => r._t >= from));
+      out[name].watches = (watchesBy.get(email) || []).filter((r) => r._t >= from).length;
+    }
     out.last_ask_at = new Date(Math.max(...rows.map((r) => r._t))).toISOString();
     return out;
   });
@@ -182,6 +192,8 @@ export async function createEvents({ stateDir, sink, log = (line) => console.log
       chat_id: ctx.chat_id ?? null,
       email: ctx.email ?? null,
       tenant_id: ctx.tenant_id ?? null,
+      // vertex | anthropic: which Claude backend served (or would serve) this request.
+      ...(ctx.provider ? { provider: ctx.provider } : {}),
       ...fields,
     };
     // question text stays out of Cloud Logging (chat privacy); it is kept in the events store only

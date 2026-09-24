@@ -8,6 +8,8 @@
 //                       "request_id", "conversation_id",
 //                       "message_id", "citations": [...] }
 //   { "type": "error",  "message": "..." }                    honest failure
+//   { "type": "watch",  "phase": "start"|"tick"|"end"|"error", live BLE tag watch
+//                       "watch_id", "rows", "changes", ... }   (watch_tags tool)
 //
 // The reader never renders step traces / chain-of-thought — the backend only
 // emits answer tokens + terminal metadata, and this reader forwards exactly
@@ -76,11 +78,83 @@ export function parseChart(raw: unknown): CeoAiChart | undefined {
 // Stop can be reported via sendCeoAiStopSignal.
 export type CeoAiProgress = { phase: string; label?: string; requestId?: string };
 
+// Live BLE ear-tag watch (Ask Mesha watch_tags tool). The agent server polls the
+// Herd Signals live table and streams one frame per poll: the full table and only
+// the NEW change lines (the panel accumulates them). Labels are the Live Monitor's.
+export type CeoAiWatchRow = {
+  tag: string;
+  animal: string | null;
+  pen: string | null;
+  park: string | null;
+  state: string;
+  state_label: string;
+  live_state?: string | null;
+  motion_count: number | null;
+  motion_delta_15m: number | null;
+  delta_since_start: number | null;
+  still_min: number;
+  last_seen_s: number | null;
+  rssi: number | null;
+  battery_mv: number | null;
+  status: string;
+  vs_own_pct?: number;
+  vs_pen_pct?: number;
+  flags: string[];
+};
+export type CeoAiWatchChange = { tag?: string; tone?: string; text: string; at_min?: number };
+export type CeoAiWatchFrame = {
+  watchId: string;
+  phase: "start" | "tick" | "end" | "error";
+  label?: string;
+  startedAt?: string;
+  endsAt?: string;
+  intervalS?: number;
+  compare?: string;
+  stopWhen?: string | null;
+  polls?: number;
+  reason?: string;
+  message?: string;
+  unmatched?: string[];
+  rows?: CeoAiWatchRow[];
+  changes?: CeoAiWatchChange[];
+};
+
+function parseWatch(obj: Record<string, unknown>): CeoAiWatchFrame | null {
+  const phase = obj.phase;
+  if (typeof obj.watch_id !== "string") return null;
+  if (phase !== "start" && phase !== "tick" && phase !== "end" && phase !== "error") return null;
+  const str = (v: unknown) => (typeof v === "string" ? v : undefined);
+  return {
+    watchId: obj.watch_id,
+    phase,
+    label: str(obj.label),
+    startedAt: str(obj.started_at),
+    endsAt: str(obj.ends_at),
+    intervalS: typeof obj.interval_s === "number" ? obj.interval_s : undefined,
+    compare: str(obj.compare),
+    stopWhen: typeof obj.stop_when === "string" ? obj.stop_when : null,
+    polls: typeof obj.polls === "number" ? obj.polls : undefined,
+    reason: str(obj.reason),
+    message: str(obj.message),
+    unmatched: Array.isArray(obj.unmatched) ? obj.unmatched.filter((u): u is string => typeof u === "string") : undefined,
+    rows: Array.isArray(obj.rows)
+      ? (obj.rows.filter((r) => !!r && typeof r === "object" && typeof (r as { tag?: unknown }).tag === "string") as CeoAiWatchRow[]).map((r) => ({
+          ...r,
+          flags: Array.isArray(r.flags) ? r.flags : [],
+        }))
+      : undefined,
+    changes: Array.isArray(obj.changes)
+      ? (obj.changes.filter((c) => !!c && typeof c === "object" && typeof (c as { text?: unknown }).text === "string") as CeoAiWatchChange[])
+      : undefined,
+  };
+}
+
 export type CeoAiStreamEvent =
   | { type: "token"; text: string }
   | ({ type: "final" } & CeoAiFinal)
   | { type: "progress"; phase: string; label?: string; requestId?: string }
   | { type: "reset" }
+  | { type: "watch"; frame: CeoAiWatchFrame }
   | { type: "error"; message: string; status?: number };
 
 export type CeoAiStreamHandlers = {
@@ -89,6 +163,8 @@ export type CeoAiStreamHandlers = {
   onProgress?: (progress: CeoAiProgress) => void;
   // Coding-agent backend: discard text streamed so far (it was narration before a tool call).
   onReset?: () => void;
+  // Live tag watch frames (watch_tags). Absent handler = frames are ignored.
+  onWatch?: (frame: CeoAiWatchFrame) => void;
   onError?: (message: string, status?: number) => void;
 };
 
@@ -142,6 +218,10 @@ function parseEvent(raw: string): CeoAiStreamEvent | null {
         requestId: typeof obj.request_id === "string" ? obj.request_id : undefined,
       };
     }
+    if (type === "watch") {
+      const frame = parseWatch(obj);
+      return frame ? { type: "watch", frame } : null;
+    }
     if (type === "error") {
       return { type: "error", message: typeof obj.message === "string" ? obj.message : "assistant_error" };
     }
@@ -163,6 +243,18 @@ export function sendCeoAiStopSignal(requestId: string | undefined): void {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ request_id: requestId, kind: "stop_pressed" }),
+    keepalive: true,
+  }).catch(() => {});
+}
+
+// sendCeoAiWatchStop ends only the running live tag watch ("Stop watching"): the
+// stream stays open and the assistant still writes its short summary answer.
+export function sendCeoAiWatchStop(requestId: string | undefined): void {
+  if (!requestId) return;
+  void fetch("/api/ceo-ai/events", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ request_id: requestId, kind: "watch_stop" }),
     keepalive: true,
   }).catch(() => {});
 }
@@ -298,6 +390,8 @@ async function readComposed(
           handlers.onToken?.(event.text);
         } else if (event.type === "reset") {
           handlers.onReset?.();
+        } else if (event.type === "watch") {
+          handlers.onWatch?.(event.frame);
         } else if (event.type === "progress") {
           handlers.onProgress?.({ phase: event.phase, label: event.label, requestId: event.requestId });
         } else if (event.type === "final") {

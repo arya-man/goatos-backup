@@ -1,6 +1,23 @@
-import type { CeoAiChart, CeoAiCitation, CeoAiFinal } from "@/lib/ceo-ai-stream";
+import type { CeoAiChart, CeoAiCitation, CeoAiFinal, CeoAiWatchChange, CeoAiWatchRow } from "@/lib/ceo-ai-stream";
 
 export type { CeoAiChart, CeoAiCitation, CeoAiFinal };
+
+// Accumulated live tag watch (watch_tags frames merged in order).
+export type WatchState = {
+  watchId: string;
+  label?: string;
+  startedAt?: string;
+  endsAt?: string;
+  intervalS?: number;
+  compare?: string;
+  polls: number;
+  rows: CeoAiWatchRow[];
+  changes: CeoAiWatchChange[];
+  unmatched?: string[];
+  ended: boolean;
+  reason?: string;
+  error?: string;
+};
 
 // One rendered chat turn. Assistant turns accumulate streamed tokens into
 // `text` and gain terminal metadata (source/mode/citations/message_id) on
@@ -28,6 +45,8 @@ export type ChatMessage = {
   steps?: string[];
   startedAt?: number;
   workedMs?: number;
+  // Live BLE tag watch card (watch_tags tool), updated every poll.
+  watch?: WatchState;
 };
 
 // A conversation thread summary in the sidebar (backend-owned list).
