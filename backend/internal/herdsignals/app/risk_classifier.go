@@ -29,6 +29,9 @@ func (s *Service) RecomputeRisk(ctx context.Context, tenantID string) (int, erro
 		groupStats[pen] = riskGroupStats{motionMedian: m.MotionMedian, tempMedian: m.TempMedian}
 	}
 	evaluatedAt := time.Now().UTC()
+	if err := s.repo.ReplacePenMedians(ctx, tenantID, medians, evaluatedAt); err != nil {
+		return 0, fmt.Errorf("persist pen medians: %w", err)
+	}
 	changed := 0
 	cursor := ""
 	for {

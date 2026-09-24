@@ -63,6 +63,13 @@ type Repository interface {
 	// the number of rows changed.
 	UpdateTagRisk(ctx context.Context, tenantID string, rows []TagRisk, evaluatedAt time.Time) (int, error)
 
+	// ReplacePenMedians persists the classifier's per-pen medians for a tenant (upsert by key,
+	// delete vanished pens by key).
+	ReplacePenMedians(ctx context.Context, tenantID string, medians map[string]PenMedians, computedAt time.Time) error
+
+	// LoadPenMedians reads the persisted per-pen medians; found=false before the first pass.
+	LoadPenMedians(ctx context.Context, tenantID string) (medians map[string]PenMedians, found bool, err error)
+
 	// ListRiskTenants returns the tenants that have any herd-signal tag.
 	ListRiskTenants(ctx context.Context) ([]string, error)
 
