@@ -45,10 +45,11 @@ import (
 //
 //	RATIO / CAP KEY SETS, shown identical:
 //	  summary.average_weight_kg = total_weight_kg / animals_weighed. Both range over the
-//	  SAME key set as the daily-gain headline denominator: individual tags with a
-//	  selected-window growth endpoint, plus whole-shed pens with first/latest weighed dates
-//	  in the selected window. It is a weighted mean over ANIMALS, never an average of
-//	  per-shed averages.
+//	  SAME key set: every individual animal weighed at least once in the selected window
+//	  (one row per same-animal key, at its latest weight), plus every whole-shed pen weighed
+//	  at least once in the window (its latest total and head count). Once is enough
+//	  (maintainer decision 2026-09-24); the daily-gain cards keep their own twice-weighed
+//	  denominator. It is a weighted mean over ANIMALS, never an average of per-shed averages.
 //	  at_or_above_30kg / 35kg range over the SAME key set as animals_weighed: each individual
 //	  tag at its latest selected-window weight, plus each whole-shed pen counted ALL-OR-NONE
 //	  at the pen's latest average (maintainer decision 2026-09-03, "include lump-sum also";
@@ -177,7 +178,7 @@ WITH scoped AS (
   WHERE cs.tenant_id = $1::uuid
     AND c.park_id = ANY($2::uuid[])
     AND cs.status <> 'canceled'
-    AND ($13::text = '' OR cs.weighing_category = $13::text)
+    AND ($12::text = '' OR cs.weighing_category = $12::text)
 ),
 ind AS MATERIALIZED (
   -- projection-review: membership=scoped buckets whose weighing_category is individual_animal, each joined to its own deduplicated scans; group_key=s.campaign_shed_id (weighing_campaign_sheds PK, so one row per bucket); join_cardinality=LATERAL latest is 1 row per DISTINCT scanned tag and the GROUP BY collapses it to exactly 1 row per bucket, no side multiplies; pagination=NONE, bounded by the outer LIMIT and the tenant+park+date window; scope=s.tenant_id carried into the correlated subquery
@@ -205,7 +206,7 @@ ind AS MATERIALIZED (
          count(*) FILTER (WHERE latest.weight_kg >= $6::numeric)::int AS ge_upper
   FROM scoped s
   JOIN LATERAL (
-    -- Same-animal key ($14/$15, identity_scope.go): an animal carrying two RFIDs scanned on a
+    -- Same-animal key ($13/$14, identity_scope.go): an animal carrying two RFIDs scanned on a
     -- different one each round appeared here as TWO animals with two latest weights, inflating the
     -- shed's animal count and dragging its average toward whichever weigh was older. An unmapped
     -- tag keeps its raw string, and a blank tag still falls back to the observation id.
@@ -214,7 +215,7 @@ ind AS MATERIALIZED (
            (o.accepted_at AT TIME ZONE 'Asia/Kolkata')::date AS weigh_date
     FROM weighing_observations o
     -- projection-review: membership=the same-animal map resolved by identity_scope.go; group_key=the normalized scanned tag; join_cardinality=0..1 map rows per observation because the map's tag column is unique by construction (DISTINCT ON over normalized identifier value), so this join adds NO rows and cannot fan an animal's weighs out under the aggregates below; pagination=NONE, the map arrives as two bounded bind arrays; scope=tenant + the same park scope and window the caller resolved the map with
-    LEFT JOIN unnest($14::text[], $15::text[]) AS akmap(tag, canonical_tag)
+    LEFT JOIN unnest($13::text[], $14::text[]) AS akmap(tag, canonical_tag)
       ON akmap.tag = lower(btrim(o.scanned_identifier))
     WHERE o.tenant_id = s.tenant_id
       AND o.campaign_id = s.campaign_id
@@ -232,7 +233,7 @@ ind AS MATERIALIZED (
              o.accepted_at DESC, o.observation_id DESC
   ) latest ON true
   WHERE s.weighing_category = 'individual_animal'
-    AND $13::text <> 'per_shed_partition'
+    AND $12::text <> 'per_shed_partition'
   GROUP BY s.campaign_shed_id
 ),
 lump AS MATERIALIZED (
@@ -285,7 +286,7 @@ shed_span AS MATERIALIZED (
     JOIN weighing_campaign_sheds cs2 ON cs2.campaign_shed_id = o.campaign_shed_id
 	    JOIN weighing_campaigns c2 ON c2.campaign_id = cs2.campaign_id
 	    WHERE o.tenant_id = $1::uuid AND c2.park_id = ANY($2::uuid[])
-	      AND ($13::text = '' OR cs2.weighing_category = $13::text)
+	      AND ($12::text = '' OR cs2.weighing_category = $12::text)
 	      AND o.withdrawn_at IS NULL AND o.verification_status <> 'rejected'
       AND o.accepted_at >= $3::timestamptz AND o.accepted_at < $4::timestamptz
       AND (NOT $8::bool OR EXISTS (
@@ -301,7 +302,7 @@ shed_span AS MATERIALIZED (
     JOIN weighing_campaign_sheds cs2 ON cs2.campaign_shed_id = o.campaign_shed_id
 	    JOIN weighing_campaigns c2 ON c2.campaign_id = cs2.campaign_id
 	    WHERE o.tenant_id = $1::uuid AND c2.park_id = ANY($2::uuid[])
-	      AND ($13::text = '' OR cs2.weighing_category = $13::text)
+	      AND ($12::text = '' OR cs2.weighing_category = $12::text)
 	      AND o.withdrawn_at IS NULL AND o.verification_status <> 'rejected'
       AND o.accepted_at >= $3::timestamptz AND o.accepted_at < $4::timestamptz
       AND (NOT $8::bool OR EXISTS (
@@ -342,48 +343,35 @@ latest_bucket AS (
            period_start_date DESC, created_at DESC, campaign_shed_id DESC
 ),
 summary_individual AS MATERIALIZED (
-  -- KPI GRAIN, shared with the daily-gain cards. A tag is counted here only when
-  -- it has a prior weigh and a selected-window endpoint, so every visible "kids
-  -- weighed" count on the page speaks about the same population.
+  -- KPI GRAIN (maintainer decision 2026-09-24): EVERY animal weighed in the selected period, at its
+  -- LATEST weight in the period -- once is enough. The strip answers "how many kids did we weigh and
+  -- what do they weigh now", which the Breed and Weight tabs already answer over the same animals.
+  -- It used to count only animals weighed TWICE (the daily-gain denominator), so the strip said
+  -- "weighed in the selected period" while leaving out every kid weighed once. The gain cards keep
+  -- their own twice-weighed denominator and say so.
   SELECT count(*)::int AS animals,
          sum(latest.weight_kg) AS total_kg,
          count(*) FILTER (WHERE latest.weight_kg >= $5::numeric)::int AS ge_lower,
          count(*) FILTER (WHERE latest.weight_kg >= $6::numeric)::int AS ge_upper
   FROM (
-    SELECT DISTINCT ON (animal_key) animal_key, weight_kg
-    FROM (
-      SELECT animal_key, weight_kg, accepted_at, observation_id
-      FROM (
-        SELECT o.observation_id, o.weight_kg::float8 AS weight_kg, o.accepted_at,
-               COALESCE(akmap.canonical_tag, lower(btrim(o.scanned_identifier))) AS animal_key,
-               LAG(o.weight_kg::float8) OVER w AS prev_weight,
-               LAG(o.accepted_at) OVER w AS prev_accepted_at
-        FROM scoped s
-        JOIN weighing_observations o
-          ON o.tenant_id = s.tenant_id
-         AND o.campaign_id = s.campaign_id
-         AND o.campaign_shed_id = s.campaign_shed_id
-        -- projection-review: membership=the same-animal map resolved by identity_scope.go; group_key=the normalized scanned tag; join_cardinality=0..1 map rows per observation because the map's tag column is unique by construction (DISTINCT ON over normalized identifier value), so this join adds NO rows and cannot fan an animal's weighs out under the aggregates below; pagination=NONE, the map arrives as two bounded bind arrays; scope=tenant + the same park scope and window the caller resolved the map with
-        LEFT JOIN unnest($14::text[], $15::text[]) AS akmap(tag, canonical_tag)
-          ON akmap.tag = lower(btrim(o.scanned_identifier))
-        WHERE s.weighing_category = 'individual_animal'
-          AND $13::text <> 'per_shed_partition'
-          AND o.accepted_at >= ($3::timestamptz - ($12::int * INTERVAL '1 day'))
-          AND o.accepted_at <  $4::timestamptz
-          AND o.verification_status <> 'rejected'
-          AND (NOT $8::bool OR lower(btrim(o.scanned_identifier)) = ANY($9::text[]))
-        -- PARTITION on the SAME key the SELECT projects. Partitioning on the raw tag while
-        -- projecting the canonical one would pair each tag against itself and then group two
-        -- unpaired halves under one key -- a merge that produces no pair, which is the original
-        -- defect wearing the fix's clothes.
-        WINDOW w AS (PARTITION BY COALESCE(akmap.canonical_tag, lower(btrim(o.scanned_identifier))) ORDER BY o.accepted_at, o.observation_id)
-      ) pairs
-      WHERE prev_weight IS NOT NULL
-        AND ((accepted_at AT TIME ZONE 'Asia/Kolkata')::date
-             - (prev_accepted_at AT TIME ZONE 'Asia/Kolkata')::date) > 0
-        AND accepted_at >= $3::timestamptz
-    ) qualifying
-    ORDER BY animal_key, accepted_at DESC, observation_id DESC
+    SELECT DISTINCT ON (COALESCE(akmap.canonical_tag, lower(btrim(o.scanned_identifier))))
+           o.weight_kg::float8 AS weight_kg
+    FROM scoped s
+    JOIN weighing_observations o
+      ON o.tenant_id = s.tenant_id
+     AND o.campaign_id = s.campaign_id
+     AND o.campaign_shed_id = s.campaign_shed_id
+    -- projection-review: membership=the same-animal map resolved by identity_scope.go; group_key=the normalized scanned tag; join_cardinality=0..1 map rows per observation because the map's tag column is unique by construction (DISTINCT ON over normalized identifier value), so this join adds NO rows and the DISTINCT ON below keeps exactly one row per animal; pagination=NONE, the map arrives as two bounded bind arrays; scope=tenant + the same park scope and window the caller resolved the map with
+    LEFT JOIN unnest($13::text[], $14::text[]) AS akmap(tag, canonical_tag)
+      ON akmap.tag = lower(btrim(o.scanned_identifier))
+    WHERE s.weighing_category = 'individual_animal'
+      AND $12::text <> 'per_shed_partition'
+      AND o.accepted_at >= $3::timestamptz
+      AND o.accepted_at <  $4::timestamptz
+      AND o.verification_status <> 'rejected'
+      AND btrim(o.scanned_identifier) <> ''
+      AND (NOT $8::bool OR lower(btrim(o.scanned_identifier)) = ANY($9::text[]))
+    ORDER BY COALESCE(akmap.canonical_tag, lower(btrim(o.scanned_identifier))), o.accepted_at DESC, o.observation_id DESC
   ) latest
 ),
 summary_lump_points AS (
@@ -410,15 +398,10 @@ summary_lump_latest AS (
   FROM summary_lump_points
   ORDER BY park_id, location_id, partition_label, accepted_at DESC, shed_observation_id DESC
 ),
-summary_lump_first AS (
-  SELECT DISTINCT ON (park_id, location_id, partition_label)
-         park_id, location_id, partition_label, d
-  FROM summary_lump_points
-  ORDER BY park_id, location_id, partition_label, accepted_at ASC, shed_observation_id ASC
-),
 summary_lump AS MATERIALIZED (
-  -- Same whole-shed denominator as growth.go: a pen contributes only when there
-  -- is a prior point and a latest point, and it contributes the latest head count.
+  -- Every pen weighed as one total in the period, at its LATEST weigh (maintainer decision
+  -- 2026-09-24, the same once-is-enough rule as the individual half above): its head count, its
+  -- total and its average. A pen weighed once is counted; the gain cards alone need two points.
   --
   -- THRESHOLDS COUNT THE PEN WHOLE OR NOT AT ALL (maintainer decision 2026-09-03). A pen
   -- whose latest average clears 30 kg puts every one of its animals over the line; a pen
@@ -430,11 +413,6 @@ summary_lump AS MATERIALIZED (
          COALESCE(sum(l.animal_count) FILTER (WHERE l.average_weight_kg >= $5::numeric), 0)::int AS ge_lower,
          COALESCE(sum(l.animal_count) FILTER (WHERE l.average_weight_kg >= $6::numeric), 0)::int AS ge_upper
   FROM summary_lump_latest l
-  JOIN summary_lump_first f
-    ON f.park_id = l.park_id
-   AND f.location_id = l.location_id
-   AND f.partition_label = l.partition_label
-  WHERE l.d > f.d
 ),
 summary_rollup AS MATERIALIZED (
   SELECT
@@ -479,12 +457,7 @@ LIMIT $7`
 		saleThresholdLowerKg, saleThresholdUpperKg,
 		domain.MaxShedWeightsRows,
 		sexFiltered, scope.Tags, scope.LocationIDs, scope.PartitionLabels,
-		// $12, the KPI pair lookback, is 0 since 2026-09-09: the "kids weighed" strip counts an
-		// animal only when BOTH its weighs fall inside the selected period -- the rule the lump-sum
-		// half always used, and the one growth.go now applies. It was growthLookbackDays, which let
-		// an animal weighed once in the period qualify on a weigh up to 400 days old, making the
-		// strip's own sub-label ("weighed twice in the selected period") untrue for most of it.
-		0, weighingCategory,
+		weighingCategory,
 		idMap.Tags, idMap.CanonicalTags)
 	if err != nil {
 		return domain.ShedWeights{}, err

@@ -344,7 +344,10 @@ test("shed lists and gain chart only show sheds weighed in the selected window",
   assert.match(source, /const weighedRows = rows\.filter\(\(row\) => row\.animals_weighed > 0\);/);
   assert.match(source, /modeFilter === "all" \? weighedRows : weighedRows\.filter/);
   assert.match(source, /const visibleRowKeys = new Set\(visibleRows\.map\(\(row\) => shedKey\(row\.location_id, row\.partition_label\)\)\);/);
-  assert.match(source, /shed\.adg_pair_count > 0 && visibleRowKeys\.has\(shedKey\(shed\.location_id, shed\.partition_label\)\)/);
+  assert.match(source, /shed\.adg_animals > 0 && visibleRowKeys\.has\(shedKey\(shed\.location_id, shed\.partition_label\)\)/);
+  // A scanned pen's gain is the MEAN of its kids' own gains (maintainer decision 2026-09-24), the
+  // headline's statistic -- never the leaderboard's median of per-leg rates.
+  assert.doesNotMatch(source, /shed\.median_adg_g_per_day/);
   // A shed with ONE weigh has no daily gain, so it is not plotted in the gain chart at all.
   // It used to be — with a zero-length bar labelled in KILOGRAMS beside real g/day bars, which
   // put "Castro 1 · 34.4 kg" in a daily-gain chart. Two measures on one axis is the defect;

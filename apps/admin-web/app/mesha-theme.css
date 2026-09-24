@@ -3228,6 +3228,11 @@ select:disabled { opacity: .45; }
    rows takes the same page space as one with four, and half-width cards keep
    their labels at a readable size instead of scaling down like an SVG would. */
 .wbars{list-style:none;margin:0;padding:0 8px 0 0;display:flex;flex-direction:column;gap:6px;overflow-y:auto}
+/* A row NEVER shrinks. The list is a fixed-height flex column that scrolls, and flex items shrink by
+   default: once a phone stacks each row onto two lines (name + tag, then the bar), the rows were
+   squeezed into the box instead of scrolling it, and every bar painted over the pen name below it
+   (FCR by pen at 390px, 2026-09-24). Rows keep their own height and the box scrolls. */
+.wbars > .wbar{flex-shrink:0}
 .wbars-tall{height:300px}
 .wbars-short{height:150px}
 /* A FIXED-ROW list sizes to its content. The six weight bands never change in number and the card
@@ -3259,6 +3264,9 @@ select:disabled { opacity: .45; }
    rather than as a short green bar. */
 .wbar .wbt i.neg{background:var(--danger)}
 .wbar .wbzero{position:absolute;top:0;bottom:0;width:1px;background:var(--muted);opacity:.65}
+/* A reference value (the FCR break-even) as a dashed rule over every track, drawn above the fill so
+   a bar that passes it still shows where the line is. */
+.wbar .wbref{position:absolute;top:0;bottom:0;width:0;border-left:2px dashed var(--ink);opacity:.85;z-index:1;pointer-events:none}
 .wbar .wbv.neg{color:var(--danger)}
 .wbar .wbv{text-align:right;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
 @media(max-width:900px){.wbar{grid-template-columns:minmax(0,112px) minmax(96px,1fr) 62px;gap:8px}.wbar .wbl-text{display:block;white-space:nowrap;text-overflow:ellipsis;overflow:hidden}}

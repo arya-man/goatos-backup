@@ -148,6 +148,15 @@ type GrowthShedLeaderboardRow struct {
 	// ADGPairCount is how many qualifying ADG pairs this shed's median is based on. Can be
 	// less than AnimalCount -- a shed can have animals weighed once (no pair yet).
 	ADGPairCount int `json:"adg_pair_count"`
+	// AverageADGGPerDay is the pen's daily gain on the SAME statistic as the page's headline
+	// (maintainer decision 2026-09-24): each animal's own gain -- its total grams over its total
+	// days across the pairs whose later weigh fell in this pen -- averaged over those animals. The
+	// median above is of per-LEG rates, which lets one 1-day re-weigh decide a pen; the headline
+	// retired that statistic on 2026-09-22. Nil when no animal here was weighed twice.
+	AverageADGGPerDay *float64 `json:"average_adg_g_per_day"`
+	// ADGAnimals is the denominator of AverageADGGPerDay: animals weighed twice with their later
+	// weigh in this pen.
+	ADGAnimals int `json:"adg_animals"`
 }
 
 // GrowthDistributionBucket is one bin of the ADG histogram. Bins are FIXED at

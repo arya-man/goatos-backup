@@ -2,6 +2,7 @@ import { CalendarRange, Scale, Sprout, Warehouse, Wheat } from "lucide-react";
 
 import { WorklistPager } from "@/components/worklist-pager";
 import { FCRPensTable } from "./fcr-pens-table";
+import { cohortWord } from "./fcr-labels";
 import { GroupedBars, type BarGroup, type GroupedBar } from "./grouped-bars";
 import { WeightBars } from "./weight-bars";
 import { copy, table, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -38,8 +39,20 @@ function KPI({ label, value, unit, sub, tone }: { label: string; value: string; 
   );
 }
 
-function groupLabel(pageContract: AdminUiPageContract, group: GrowthFCRGroup): string {
+/** "1 pen", "12 pens": the count and the right word, both from the page contract. */
+function penCount(pageContract: AdminUiPageContract, n: number): string {
+  return `${n.toLocaleString("en-IN")} ${copy(pageContract, n === 1 ? "value.fcr.pen" : "value.fcr.pens")}`;
+}
+
+function groupLabel(pageContract: AdminUiPageContract, group: GrowthFCRGroup, id: string): string {
+  // "Mixed" names a different fact on each card: several breeds, both sexes, or bought and born.
+  if (group.key === "mixed" && id === "breed") return copy(pageContract, "label.fcr.mixed_breed");
+  if (group.key === "mixed" && id === "sex") return copy(pageContract, "label.fcr.mixed_sex");
   switch (group.key) {
+    case "male":
+      return copy(pageContract, "view.sex.male");
+    case "female":
+      return copy(pageContract, "view.sex.female");
     case "mixed":
       return copy(pageContract, "label.fcr.mixed");
     case "unknown":
@@ -54,20 +67,19 @@ function groupLabel(pageContract: AdminUiPageContract, group: GrowthFCRGroup): s
 }
 
 /** One bar per group, on one FCR scale, with the pen count beside it. */
-function groupBars(pageContract: AdminUiPageContract, groups: GrowthFCRGroup[]): BarGroup[] {
-  const pens = copy(pageContract, "value.fcr.pens");
+function groupBars(pageContract: AdminUiPageContract, groups: GrowthFCRGroup[], id: string): BarGroup[] {
   return groups
     .filter((group) => group.fcr != null)
     .map((group) => ({
       key: group.key,
-      heading: groupLabel(pageContract, group),
+      heading: groupLabel(pageContract, group, id),
       bars: [
         {
           key: `${group.key}-fcr`,
           label: copy(pageContract, "series.fcr"),
           value: Number((group.fcr as number).toFixed(2)),
           seriesKey: "fcr",
-          noteLabel: `${group.pens.toLocaleString("en-IN")} ${pens}`,
+          noteLabel: penCount(pageContract, group.pens),
         } satisfies GroupedBar,
       ],
     }));
@@ -90,7 +102,7 @@ function GroupCard({
   const safeGroups = groups ?? [];
   // Two series on two scales: the ratio, and the money the group made over its feed. A group
   // whose gain is unpriced or whose feed is unpriced shows the ratio alone.
-  const bars = groupBars(pageContract, safeGroups).map((group) => {
+  const bars = groupBars(pageContract, safeGroups, id).map((group) => {
     const src = safeGroups.find((g) => g.key === group.key);
     if (!src || src.margin_inr == null) return group;
     return {
@@ -145,6 +157,28 @@ export function FCRTab({
   const money = (value: number | null | undefined) => (value == null ? none : `${rupee}${num(value, 0)}`);
   const visiblePens = fcr.pens.slice(pager.offset, pager.offset + pager.limit);
 
+  const tableLabels = {
+    ariaLabel: copy(pageContract, "table.fcr.title"),
+    noValue: none,
+    mixedBreed: copy(pageContract, "label.fcr.mixed_breed"),
+    mixedSex: copy(pageContract, "label.fcr.mixed_sex"),
+    unknown: copy(pageContract, "label.fcr.unknown"),
+    male: copy(pageContract, "view.sex.male"),
+    female: copy(pageContract, "view.sex.female"),
+    wholePen: copy(pageContract, "label.fcr.whole_pen"),
+    scanned: copy(pageContract, "label.fcr.scanned"),
+    status: {
+      ok: copy(pageContract, "table.fcr.status.ok"),
+      blocked: copy(pageContract, "table.fcr.status.blocked"),
+      weighed_once: copy(pageContract, "table.fcr.status.weighed_once"),
+      no_feed: copy(pageContract, "table.fcr.status.no_feed"),
+      no_gain: copy(pageContract, "table.fcr.status.no_gain"),
+    },
+    unpriced: copy(pageContract, "table.fcr.unpriced"),
+    rupee,
+    empty: <span className="muted small">{copy(pageContract, "empty.fcr.body")}</span>,
+  };
+
   // Pens with a ratio as horizontal bars on one FCR scale, in the contract's own order: park
   // clusters (CBE, then CPT) and pens A→Z inside each, the backend's order for every All-parks surface.
   const penBars = fcr.pens
@@ -154,9 +188,8 @@ export function FCRTab({
       label: pen.operational_location_display,
       value: Number(pen.fcr.toFixed(2)),
       valueLabel: num(pen.fcr, 2),
-      modeLabel: [pen.breed, pen.sex]
-        .map((value) => (value === "mixed" ? copy(pageContract, "label.fcr.mixed") : value === "unknown" ? copy(pageContract, "label.fcr.unknown") : value))
-        .join(" · "),
+      // The same words the table's cohort column uses, so a chip never shows a raw register key.
+      modeLabel: `${cohortWord(pen.breed, tableLabels, "breed")} · ${cohortWord(pen.sex, tableLabels, "sex")}`,
       modeTone: (pen.breed === "mixed" ? "info" : "mut") as "info" | "mut",
     }));
 
@@ -180,29 +213,11 @@ export function FCRTab({
       label: fmtDate(week.week_start),
       value: Number((week.fcr as number).toFixed(2)),
       valueLabel: num(week.fcr as number, 2),
-      modeLabel: `${week.pens.toLocaleString("en-IN")} ${copy(pageContract, "value.fcr.pens")}`,
+      modeLabel: penCount(pageContract, week.pens),
       modeTone: "mut" as const,
     }));
 
   const fcrTable = table(pageContract, "fcr-pens");
-  const tableLabels = {
-    ariaLabel: copy(pageContract, "table.fcr.title"),
-    noValue: none,
-    mixed: copy(pageContract, "label.fcr.mixed"),
-    unknown: copy(pageContract, "label.fcr.unknown"),
-    wholePen: copy(pageContract, "label.fcr.whole_pen"),
-    scanned: copy(pageContract, "label.fcr.scanned"),
-    status: {
-      ok: copy(pageContract, "table.fcr.status.ok"),
-      blocked: copy(pageContract, "table.fcr.status.blocked"),
-      weighed_once: copy(pageContract, "table.fcr.status.weighed_once"),
-      no_feed: copy(pageContract, "table.fcr.status.no_feed"),
-      no_gain: copy(pageContract, "table.fcr.status.no_gain"),
-    },
-    unpriced: copy(pageContract, "table.fcr.unpriced"),
-    rupee,
-    empty: <span className="muted small">{copy(pageContract, "empty.fcr.body")}</span>,
-  };
 
   return (
     <>
@@ -211,7 +226,7 @@ export function FCRTab({
           label={copy(pageContract, "kpi.fcr.farm.label")}
           value={s.fcr == null ? none : num(s.fcr, 2)}
           unit={copy(pageContract, "kpi.fcr.farm.unit")}
-          sub={`${s.pens_with_fcr.toLocaleString("en-IN")} ${copy(pageContract, "value.fcr.pens")} · ${s.animals.toLocaleString("en-IN")} ${copy(pageContract, "value.fcr.kids")}`}
+          sub={`${penCount(pageContract, s.pens_with_fcr)} · ${s.animals.toLocaleString("en-IN")} ${copy(pageContract, "value.fcr.kids")}`}
         />
         <KPI label={copy(pageContract, "kpi.fcr.gain_value.label")} value={money(s.gain_value_inr)} sub={`${num(s.gain_kg, 0)} kg · ${copy(pageContract, "kpi.fcr.gain_value.sub")}`} />
         <KPI label={copy(pageContract, "kpi.fcr.feed_cost.label")} value={money(s.feed_cost_inr)} sub={`${num(s.feed_kg, 0)} kg · ${money(s.feed_cost_per_kg_gain_inr)} ${copy(pageContract, "kpi.fcr.cost_gain.label").toLowerCase()}`} />
@@ -266,6 +281,9 @@ export function FCRTab({
           chartLabel={copy(pageContract, "section.fcr.pens.aria")}
           size="tall"
           wide
+          // The caption promises a dashed break-even line; it is drawn on every pen's track, so a pen
+          // past it reads as losing money without comparing two numbers.
+          reference={s.break_even_fcr != null ? { value: s.break_even_fcr, label: copy(pageContract, "label.fcr.break_even") } : undefined}
         />
         {s.break_even_fcr != null ? (
           <p className="muted small">

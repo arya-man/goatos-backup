@@ -136,7 +136,7 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'WINDOW-NEW-A', 29.0, $4::uuid, $5::uuid, 
 		t.Fatalf("row stays latest-shed snapshot: want latest bucket's 1 animal, got %d", snapshotAnimals)
 	}
 	if out.Summary.IndividualAnimalsWeighed != 3 || out.Summary.AnimalsWeighed != 3 {
-		t.Fatalf("summary must count the same individual denominator as ADG, got individual=%d total=%d",
+		t.Fatalf("summary must count every animal weighed in the window at its latest weight, got individual=%d total=%d",
 			out.Summary.IndividualAnimalsWeighed, out.Summary.AnimalsWeighed)
 	}
 	if got := fmt.Sprintf("%.1f", out.Summary.TotalWeightKg); got != "72.0" {
@@ -187,6 +187,9 @@ func TestShedWeightsSaleThresholdsCountWholeShedPensAtThePenAverage(t *testing.T
 	// One whole-shed pen weighed twice in the window, 20.0 -> 31.0 kg average over 4 animals.
 	seedLumpSumObservation(t, ctx, pool, repoShedScope, 4, 20.0, aug1)
 	seedLumpSumObservation(t, ctx, pool, lgPerShedBkt2, 4, 31.0, aug8)
+	// The seed writes raw SQL, not through the repository, so the analytics read cache would hand
+	// back the "before" result for the identical parameters. Drop it, as a real write would.
+	repo.invalidateReadCache()
 
 	after, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "", "", "", 0, 0, 0)
 	if err != nil {
@@ -216,6 +219,59 @@ func TestShedWeightsSaleThresholdsCountWholeShedPensAtThePenAverage(t *testing.T
 	if tolerant.Summary.AtOrAbove30Kg != after.Summary.AtOrAbove30Kg {
 		t.Fatalf("sale-ready tolerance must not change the 30kg summary: before %d, after %d",
 			after.Summary.AtOrAbove30Kg, tolerant.Summary.AtOrAbove30Kg)
+	}
+}
+
+// THE KPI STRIP COUNTS EVERY KID WEIGHED, ONCE IS ENOUGH (maintainer decision 2026-09-24).
+//
+// The strip is captioned "weighed in the selected period" and "of the kids actually weighed", but it
+// counted only kids weighed TWICE -- the daily-gain denominator -- so on 2026-09-24 the General tab
+// read 520 kids and 16,554 kg while 48 animals of a pen weighed once on 22/09 sat in the table below
+// and in nobody's total. One kid weighed twice (latest 32 kg), one kid weighed ONCE (31 kg) and one
+// pen weighed ONCE (5 animals at 20 kg) must all count, each at its latest weight.
+func TestShedWeightsKPICountsAnimalsWeighedOnceAtTheirLatestWeight(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	aug1 := time.Date(2026, 8, 1, 6, 0, 0, 0, time.UTC)
+	aug8 := time.Date(2026, 8, 8, 6, 0, 0, 0, time.UTC)
+	from := time.Date(2026, 7, 25, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2026, 8, 15, 0, 0, 0, 0, time.UTC)
+
+	before, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "", "", "", 0, 0, 0)
+	if err != nil {
+		t.Fatalf("GetShedWeights before seeding: %v", err)
+	}
+
+	seedShedWeightScan(t, ctx, pool, "ONCE-TWICE", 28.0, aug1)
+	seedShedWeightScan(t, ctx, pool, "ONCE-TWICE", 32.0, aug8)
+	seedShedWeightScan(t, ctx, pool, "ONCE-ONLY", 31.0, aug8)
+	seedLumpSumObservation(t, ctx, pool, repoShedScope, 5, 20.0, aug8)
+	repo.invalidateReadCache() // raw-SQL seeds bypass the repository, so its read cache must be dropped by hand
+
+	after, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "", "", "", 0, 0, 0)
+	if err != nil {
+		t.Fatalf("GetShedWeights after seeding: %v", err)
+	}
+	if got := after.Summary.IndividualAnimalsWeighed - before.Summary.IndividualAnimalsWeighed; got != 2 {
+		t.Fatalf("both scanned kids count, the one weighed once included: want +2, got %+d", got)
+	}
+	if got := after.Summary.LumpSumAnimalsWeighed - before.Summary.LumpSumAnimalsWeighed; got != 5 {
+		t.Fatalf("a pen weighed once counts with its 5 animals: want +5, got %+d", got)
+	}
+	if got := after.Summary.TotalWeightKg - before.Summary.TotalWeightKg; fmt.Sprintf("%.1f", got) != "163.0" {
+		t.Fatalf("total weight is each kid's LATEST weight plus the pen's total (32 + 31 + 100): want +163.0, got %+.1f", got)
+	}
+	if got := after.Summary.AtOrAbove30Kg - before.Summary.AtOrAbove30Kg; got != 2 {
+		t.Fatalf("both kids clear 30 kg at their latest weight, the 20 kg pen does not: want +2, got %+d", got)
+	}
+	if after.Summary.ThresholdBasisAnimals != after.Summary.AnimalsWeighed {
+		t.Fatalf("threshold basis must equal the kids counted: basis %d, animals weighed %d",
+			after.Summary.ThresholdBasisAnimals, after.Summary.AnimalsWeighed)
 	}
 }
 
@@ -962,4 +1018,103 @@ ON CONFLICT DO NOTHING`, repoTenant, oldGoat)
 	if _, err := repo.growthSaleReadiness(ctx, repoTenant, []string{repoPark}, false, SexScope{}, EmptyAnimalIdentityMap(), ""); err != nil {
 		t.Fatalf("an unfiltered sale-readiness read needs no sex scope: %v", err)
 	}
+}
+
+// ADVERSARIAL SHAPES FOR THE ONCE-IS-ENOUGH KPI AND THE PER-PEN ANIMAL MEAN (maintainer decision
+// 2026-09-24), one fixture, every shape a count can go wrong in:
+//
+//	OneToMany     a kid scanned three times (twice on one day) is ONE kid at its LATEST weight;
+//	PageBoundary  a kid weighed once in an OLDER bucket of a shed -- a bucket the row snapshot does
+//	              not show -- still counts, because the strip is a whole-filter aggregate;
+//	ParkScope     another park sees none of it;
+//	StatusMatrix  pending / verified / rework weighs all count, a CANCELED bucket's do not;
+//	pen mean      the leaderboard's per-pen gain is the mean of each kid's own total gain, not the
+//	              median of per-leg rates a 1-day re-weigh can decide.
+func TestShedWeightsKPIOneToManyPageBoundaryParkScopeStatusMatrixAndPenAnimalMean(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	from := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2026, 8, 16, 0, 0, 0, 0, time.UTC)
+	before, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "", "", "", 0, 0, 0)
+	if err != nil {
+		t.Fatalf("GetShedWeights before: %v", err)
+	}
+
+	at := func(day, hour int) time.Time { return time.Date(2026, 8, day, hour, 0, 0, 0, time.UTC) }
+	// OneToMany: OM-A three weighs, two on 1 Aug; OM-B has a 6-day leg then a 1-day leg.
+	seedShedWeightScan(t, ctx, pool, "OM-A", 20.0, at(1, 4))
+	seedShedWeightScan(t, ctx, pool, "OM-A", 21.0, at(1, 6))
+	seedShedWeightScan(t, ctx, pool, "OM-A", 25.0, at(8, 4))
+	seedShedWeightScan(t, ctx, pool, "OM-B", 20.0, at(1, 4))
+	seedShedWeightScan(t, ctx, pool, "OM-B", 20.5, at(7, 4))
+	seedShedWeightScan(t, ctx, pool, "OM-B", 22.5, at(8, 4))
+	// PageBoundary: OM-OLD weighed once in the older bucket; a LATER bucket of the same shed holds OM-NEW.
+	seedShedWeightScan(t, ctx, pool, "OM-OLD", 30.0, at(2, 4))
+	const laterCampaign, laterBucket = "00000000-0000-4000-8000-00000000c201", "00000000-0000-4000-8000-00000000c301"
+	seedShedWeightsCampaign(t, ctx, pool, laterCampaign, "2026-08-10")
+	seedLoadBucket(t, ctx, pool, laterBucket, laterCampaign, repoExpectedShed, "individual_animal")
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO weighing_observations (tenant_id, campaign_id, campaign_shed_id, scanned_identifier, weight_kg, proof_artifact_id, recorded_by, idempotency_key, accepted_at, submitted_at)
+VALUES ($1::uuid, $2::uuid, $3::uuid, 'OM-NEW', 33.0, $4::uuid, $5::uuid, 'omnew:1', $6::timestamptz, $6::timestamptz)`,
+		repoTenant, laterCampaign, laterBucket, repoAnimalProof, repoOperator, at(12, 4))
+	// StatusMatrix over the weighs: one of each live verification status still counts.
+	execWeighingTestSQL(t, ctx, pool, `UPDATE weighing_observations SET verification_status = 'verified' WHERE scanned_identifier = 'OM-OLD'`)
+	execWeighingTestSQL(t, ctx, pool, `UPDATE weighing_observations SET verification_status = 'rework' WHERE scanned_identifier = 'OM-B'`)
+	repo.invalidateReadCache()
+
+	after, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "", "", "", 0, 0, 0)
+	if err != nil {
+		t.Fatalf("GetShedWeights after: %v", err)
+	}
+	if got := after.Summary.IndividualAnimalsWeighed - before.Summary.IndividualAnimalsWeighed; got != 4 {
+		t.Fatalf("OM-A, OM-B, OM-OLD and OM-NEW are four kids, each once: want +4, got %+d", got)
+	}
+	if got := after.Summary.TotalWeightKg - before.Summary.TotalWeightKg; fmt.Sprintf("%.1f", got) != "110.5" {
+		t.Fatalf("each kid at its latest weight (25 + 22.5 + 30 + 33): want +110.5, got %+.1f", got)
+	}
+	for _, row := range after.Rows {
+		if row.LocationID == repoExpectedShed && row.AnimalsWeighed != 1 {
+			t.Fatalf("the row stays the latest bucket's snapshot (OM-NEW only), got %d", row.AnimalsWeighed)
+		}
+	}
+
+	other, err := repo.GetShedWeights(ctx, repoTenant, []string{"00000000-0000-4000-8000-0000000031ff"}, "", from, to, "", "", "", 0, 0, 0)
+	if err != nil {
+		t.Fatalf("GetShedWeights other park: %v", err)
+	}
+	if other.Summary.AnimalsWeighed != 0 {
+		t.Fatalf("another park sees none of these kids, got %d", other.Summary.AnimalsWeighed)
+	}
+
+	execWeighingTestSQL(t, ctx, pool, `UPDATE weighing_campaign_sheds SET status = 'canceled' WHERE campaign_shed_id = $1::uuid`, laterBucket)
+	repo.invalidateReadCache()
+	canceled, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "", "", "", 0, 0, 0)
+	if err != nil {
+		t.Fatalf("GetShedWeights canceled: %v", err)
+	}
+	if got := after.Summary.IndividualAnimalsWeighed - canceled.Summary.IndividualAnimalsWeighed; got != 1 {
+		t.Fatalf("a canceled bucket's kid (OM-NEW) leaves the count: want -1, got %d", -got)
+	}
+
+	growth, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, from, to, "", "", "", "shed_leaderboard", domain.TimeScope{})
+	if err != nil {
+		t.Fatalf("GetLeadershipGrowthADG: %v", err)
+	}
+	for _, row := range growth.ShedLeaderboard {
+		if row.LocationID != repoExpectedShed {
+			continue
+		}
+		// OM-A: 21 -> 25 over 7 days = 571.43 (the same-day 20 -> 21 leg has no day). OM-B: 2.5 kg
+		// over 7 days = 357.14. Mean 464.29. The per-leg median would be 571.43 (legs 571, 83, 2000).
+		if row.ADGAnimals != 2 || row.AverageADGGPerDay == nil || fmt.Sprintf("%.2f", *row.AverageADGGPerDay) != "464.29" {
+			t.Fatalf("pen gain must be the mean of each kid's own gain: animals %d, got %v", row.ADGAnimals, row.AverageADGGPerDay)
+		}
+		return
+	}
+	t.Fatalf("no leaderboard row for the pen")
 }

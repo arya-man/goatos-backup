@@ -278,6 +278,72 @@ window_feed AS (
   FROM pens p
   LEFT JOIN feed_days fd ON fd.pen_shed_id = p.pen_shed_id AND fd.pen_key = p.pen_key
   GROUP BY p.pen_shed_id, p.pen_key
+),
+-- THE PEN'S DAILY GAIN, ON THE GENERAL TAB'S STATISTIC (maintainer decision 2026-09-24: "make sure
+-- the FCR tab uses the same logic as General"). The segment ADG the ratio is built from weights each
+-- leg by the feed sheet's head-days, so the same pen read 173 g here and 169 g on General. The
+-- figure SHOWN is now General's, read from the raw weighings rather than from the one-round-per-
+-- campaign rounds the segments use:
+--   whole pen  (latest average - first average) over the days between them, inside the window,
+--              counted at its latest head count -- shed_weights.go's shed_span, byte for byte;
+--   scanned    each animal's total grams over its total days across the legs ending in this pen,
+--              averaged over those animals -- growth.go's per-pen animal mean.
+-- A pen weighed both ways reads its whole-pen figure, exactly as the General pens table does.
+-- projection-review: gen_lump is one row per (pen_shed_id, pen_key) by its two DISTINCT ON sides;
+-- gen_scan is pre-aggregated per (pen, animal) then per pen; both join the pens row 0..1.
+gen_lump_obs AS (
+  SELECT bp.pen_shed_id, bp.pen_key, so.shed_observation_id, so.accepted_at,
+         so.average_weight_kg::float8 AS avg_kg, so.animal_count,
+         (so.accepted_at AT TIME ZONE 'Asia/Kolkata')::date AS d
+  FROM bucket_pen bp
+  JOIN weighing_shed_observations so
+    ON so.tenant_id = $1::uuid AND so.campaign_shed_id = bp.campaign_shed_id
+  WHERE bp.weighing_category = 'per_shed_partition'
+    AND so.withdrawn_at IS NULL
+    AND so.verification_status <> 'rejected'
+    AND so.accepted_at >= $3::timestamptz AND so.accepted_at < $4::timestamptz
+),
+gen_lump AS (
+  SELECT l.pen_shed_id, l.pen_key,
+         (l.avg_kg - f.avg_kg) * 1000.0 / (l.d - f.d) AS g, l.animal_count AS animals
+  FROM (SELECT DISTINCT ON (pen_shed_id, pen_key) * FROM gen_lump_obs
+        ORDER BY pen_shed_id, pen_key, accepted_at DESC, shed_observation_id DESC) l
+  JOIN (SELECT DISTINCT ON (pen_shed_id, pen_key) * FROM gen_lump_obs
+        ORDER BY pen_shed_id, pen_key, accepted_at, shed_observation_id) f
+    ON f.pen_shed_id = l.pen_shed_id AND f.pen_key = l.pen_key
+  WHERE l.d > f.d
+),
+gen_scan_legs AS (
+  SELECT bp.pen_shed_id, bp.pen_key,
+         COALESCE(akmap.canonical_tag, lower(btrim(o.scanned_identifier))) AS animal_key,
+         o.weight_kg::float8 AS w,
+         (o.accepted_at AT TIME ZONE 'Asia/Kolkata')::date AS d,
+         LAG(o.weight_kg::float8) OVER x AS pw,
+         LAG((o.accepted_at AT TIME ZONE 'Asia/Kolkata')::date) OVER x AS pd
+  FROM bucket_pen bp
+  JOIN weighing_observations o
+    ON o.tenant_id = $1::uuid AND o.campaign_shed_id = bp.campaign_shed_id
+  LEFT JOIN unnest($6::text[], $7::text[]) AS akmap(tag, canonical_tag)
+    ON akmap.tag = lower(btrim(o.scanned_identifier))
+  WHERE bp.weighing_category = 'individual_animal'
+    AND o.verification_status <> 'rejected'
+    AND btrim(o.scanned_identifier) <> ''
+    AND o.accepted_at >= $3::timestamptz AND o.accepted_at < $4::timestamptz
+    -- The page's Sex / Origin filter at the KID, exactly as growth.go's pairs CTE applies it
+    -- ($10 false = no filter; an empty list under a filter correctly matches nobody).
+    AND (NOT $10::bool OR lower(btrim(o.scanned_identifier)) = ANY($11::text[]))
+  WINDOW x AS (PARTITION BY COALESCE(akmap.canonical_tag, lower(btrim(o.scanned_identifier))) ORDER BY o.accepted_at, o.observation_id)
+),
+gen_scan AS (
+  SELECT pen_shed_id, pen_key, avg(g) AS g, count(*)::int AS animals
+  FROM (
+    SELECT pen_shed_id, pen_key, animal_key,
+           sum((w - pw) * 1000.0) / NULLIF(sum(d - pd), 0) AS g
+    FROM gen_scan_legs
+    WHERE pw IS NOT NULL AND d > pd
+    GROUP BY pen_shed_id, pen_key, animal_key
+  ) per_animal
+  GROUP BY pen_shed_id, pen_key
 )
 SELECT p.pen_shed_id::text, p.pen_key,
        shed.name, COALESCE(pk.location_id::text, ''), COALESCE(pk.name, ''), COALESCE(NULLIF(pk.location_code, ''), pk.name, ''),
@@ -286,7 +352,8 @@ SELECT p.pen_shed_id::text, p.pen_key,
        p.rounds, p.first_d::text, p.last_d::text, p.first_avg, p.last_animals, p.modes,
        c.residents, c.breeds, COALESCE(c.breed, ''), c.sexes, COALESCE(c.sex, ''), c.species_n, COALESCE(c.species, ''), cm.mix, c.breed_members, c.bought,
        wc.animals, wc.breeds, COALESCE(wc.breed, ''), wc.sexes, COALESCE(wc.sex, ''), wc.species_n, COALESCE(wc.species, ''), wm.mix, wc.breed_members, wc.bought,
-       wf.feed_kg::float8, wf.blocked_cells
+       wf.feed_kg::float8, wf.blocked_cells,
+       COALESCE(gl.g, gs.g)::float8, (CASE WHEN gl.g IS NOT NULL THEN gl.animals ELSE gs.animals END)::int
 FROM pens p
 JOIN locations shed ON shed.location_id = p.pen_shed_id AND shed.tenant_id = $1::uuid
 LEFT JOIN locations pk ON pk.location_id = shed.parent_location_id AND pk.tenant_id = $1::uuid
@@ -295,6 +362,8 @@ LEFT JOIN weighed_cohort wc ON wc.pen_shed_id = p.pen_shed_id AND wc.pen_key = p
 LEFT JOIN cohort_mix cm ON cm.pen_shed_id = p.pen_shed_id AND cm.pen_key = p.pen_key
 LEFT JOIN weighed_mix wm ON wm.pen_shed_id = p.pen_shed_id AND wm.pen_key = p.pen_key
 LEFT JOIN window_feed wf ON wf.pen_shed_id = p.pen_shed_id AND wf.pen_key = p.pen_key
+LEFT JOIN gen_lump gl ON gl.pen_shed_id = p.pen_shed_id AND gl.pen_key = p.pen_key
+LEFT JOIN gen_scan gs ON gs.pen_shed_id = p.pen_shed_id AND gs.pen_key = p.pen_key
 ORDER BY COALESCE(NULLIF(pk.location_code, ''), pk.name), shed.name, p.pen_key`
 	fcrSegmentsSQL = ` -- scale-guard:ignore: bounded tenant + authorized-park reporting read; one round trip per FCR tab load over the rounds x pens of one selected window
 WITH ` + fcrScopeCTEs + `,
@@ -430,10 +499,11 @@ func (r *Repository) getFCRUncached(ctx context.Context, tenantID string, parkID
 	// only the identity map and a current rollup. Each read takes its own pool connection, so the
 	// request holds at most five connections briefly and the answer is identical to a serial run.
 	var (
-		idMap    weighingpg.AnimalIdentityMap
-		prices   domain.SalePrices
-		parks    []domain.Park
-		settings domain.GrowthSettings
+		idMap              weighingpg.AnimalIdentityMap
+		prices             domain.SalePrices
+		parks              []domain.Park
+		settings           domain.GrowthSettings
+		scope, originScope weighingpg.ReportScope
 	)
 	phase1, ctx1 := errgroup.WithContext(ctx)
 	// The same-animal map from weighing's ONE resolver, so a double-tagged kid pairs here exactly
@@ -461,6 +531,18 @@ func (r *Repository) getFCRUncached(ctx context.Context, tenantID string, parkID
 	// The feed side is summed from the feed-day rollup: bring the parks being read up to date
 	// first, so a feed or price write committed before this read is always in its answer.
 	phase1.Go(func() error { return r.refreshFCRRollupForRead(ctx1, tenantID, parkIDs) })
+	// The Weights page's sex/origin resolver, so the ADG a pen SHOWS counts the same scanned kids the
+	// General tab counts under that filter (maintainer decision 2026-09-24). The pen filter
+	// (agree-or-neither) still decides WHICH pens are listed; this decides which of a listed pen's
+	// kids its daily gain is taken over.
+	phase1.Go(func() (err error) {
+		scope, err = weighingpg.ResolveSexScope(ctx1, r.pool, tenantID, parkIDs, sex, periodStart, periodEnd)
+		return err
+	})
+	phase1.Go(func() (err error) {
+		originScope, err = weighingpg.ResolveOriginScope(ctx1, r.pool, tenantID, parkIDs, origin, periodStart, periodEnd)
+		return err
+	})
 	if err := phase1.Wait(); err != nil {
 		return domain.FCRReport{}, err
 	}
@@ -468,9 +550,11 @@ func (r *Repository) getFCRUncached(ctx context.Context, tenantID string, parkID
 		pens     []domain.FCRPenRow
 		segments []domain.FCRSegmentRow
 	)
+	sexApplied, originApplied := strings.TrimSpace(sex) != "", strings.TrimSpace(origin) != ""
+	scope = weighingpg.IntersectScopes(scope, sexApplied, originScope, originApplied)
 	phase2, ctx2 := errgroup.WithContext(ctx)
 	phase2.Go(func() (err error) {
-		pens, err = r.fcrPens(ctx2, tenantID, parkIDs, periodStart, periodEnd, startDate, endDate, weighingCategory, idMap)
+		pens, err = r.fcrPens(ctx2, tenantID, parkIDs, periodStart, periodEnd, startDate, endDate, weighingCategory, idMap, sexApplied || originApplied, scope.Tags)
 		return err
 	})
 	phase2.Go(func() (err error) {
@@ -506,12 +590,12 @@ func (r *Repository) getFCRUncached(ctx context.Context, tenantID string, parkID
 //	  window_feed  correlated on (pen_shed_id, pen_key), returns one row
 //
 //	Ratio key sets: none here -- every ratio is formed in the domain layer over the identical pen.
-func (r *Repository) fcrPens(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, startDate, endDate, weighingCategory string, idMap weighingpg.AnimalIdentityMap) ([]domain.FCRPenRow, error) {
+func (r *Repository) fcrPens(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, startDate, endDate, weighingCategory string, idMap weighingpg.AnimalIdentityMap, cohortFiltered bool, cohortTags []string) ([]domain.FCRPenRow, error) {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
-	// fcrPensSQL is assembled from the shared scope CTEs, so its final SQL and its nine binds are
+	// fcrPensSQL is assembled from the shared scope CTEs, so its final SQL and its eleven binds are
 	// checked as one contract before it runs (postgres bind-contract rule).
-	bound, err := sqlbind.Bind(fcrPensSQL, tenantID, parkIDs, periodStart, periodEnd, weighingCategory, idMap.Tags, idMap.CanonicalTags, startDate, endDate)
+	bound, err := sqlbind.Bind(fcrPensSQL, tenantID, parkIDs, periodStart, periodEnd, weighingCategory, idMap.Tags, idMap.CanonicalTags, startDate, endDate, cohortFiltered, cohortTags)
 	if err != nil {
 		return nil, fmt.Errorf("fcr pens bind: %w", err)
 	}
@@ -529,12 +613,12 @@ func (r *Repository) fcrPens(ctx context.Context, tenantID string, parkIDs []str
 		var residentMix, weighedMix, residentBreeds, weighedBreeds []byte
 		var wAnimals, wBreeds, wSexes, wSpeciesN, wBought *int
 		var firstAvg, windowFeed *float64
-		var blocked *int
+		var blocked, genAnimals *int
 		if err := rows.Scan(&row.LocationID, &row.PenKey, &shedName, &row.ParkID, &row.ParkName, &row.ParkCode, &bucketLabel, &feedLabel,
 			&row.Rounds, &row.FirstWeighDate, &row.LastWeighDate, &firstAvg, &row.LatestAnimals, &row.Modes,
 			&residents, &breeds, &row.Breed, &sexes, &row.Sex, &speciesN, &row.Species, &residentMix, &residentBreeds, &bought,
 			&wAnimals, &wBreeds, &row.WeighedBreed, &wSexes, &row.WeighedSex, &wSpeciesN, &row.WeighedSpecies, &weighedMix, &weighedBreeds, &wBought,
-			&windowFeed, &blocked); err != nil {
+			&windowFeed, &blocked, &row.GeneralADGGPerDay, &genAnimals); err != nil {
 			return nil, err
 		}
 		row.PenKey = row.LocationID + "|" + row.PenKey
@@ -548,7 +632,7 @@ func (r *Repository) fcrPens(ctx context.Context, tenantID string, parkIDs []str
 		}
 		// Composed through the ONE canonical helper (platform/oploc via operationalLabel), never by
 		// hand: park-prefixed because both parks field identically named sheds.
-		row.Display = operationalLabel(row.ParkName, shedName, row.PartitionLabel)
+		row.Display = operationalLabel(domain.ParkLabel(row.ParkCode, row.ParkName), shedName, row.PartitionLabel)
 		row.FirstAverageKg = firstAvg
 		if residents != nil {
 			row.Residents = *residents
@@ -585,6 +669,9 @@ func (r *Repository) fcrPens(ctx context.Context, tenantID string, parkIDs []str
 			}
 		}
 		row.WindowFeedKg = windowFeed
+		if genAnimals != nil {
+			row.GeneralADGAnimals = *genAnimals
+		}
 		if blocked != nil {
 			row.WindowBlockedCells = *blocked
 		}

@@ -1495,7 +1495,7 @@ func weighingWeightsCopy() map[string]string {
 		// the screen showed two nearly identical sentences over two different denominators
 		// with nothing to tell them apart. The maintainer read them side by side and asked why
 		// they disagreed, which is exactly the question a label like that produces.
-		"kpi.kids.split.total_sub":  "weighed twice in the selected period",
+		"kpi.kids.split.total_sub":  "weighed in the selected period",
 		"kpi.total.label":           "Total weight",
 		"kpi.total.sub":             "of the kids actually weighed",
 		"kpi.average.label":         "Average weight",
@@ -1542,7 +1542,7 @@ func weighingWeightsCopy() map[string]string {
 		// denominator, same sub-line — and cost a sixth of the headline row to say it twice. The
 		// gain row is now unconditional, so the figure is still on the page in every scope.
 		"kpi.gain.none":          "needs a second weigh",
-		"kpi.gain.blended":       "kids weighed",
+		"kpi.gain.blended":       "kids weighed twice",
 		"kpi.park_gain.suffix":   "— daily gain",
 		"kpi.park_gain.all":      "All parks",
 		"section.park_gain.aria": "Daily gain by park",
@@ -5999,8 +5999,11 @@ func pageSpecificCopy(id string) map[string]string {
 			"series.fcr":           "FCR",
 			"unit.fcr":             "kg/kg",
 			"value.fcr.pens":       "pens",
+			"value.fcr.pen":        "pen",
 			"value.fcr.kids":       "kids",
 			"label.fcr.mixed":      "Mixed",
+			"label.fcr.mixed_breed": "Mixed breeds",
+			"label.fcr.mixed_sex":   "Male and female",
 			"label.fcr.unknown":    "Not recorded",
 			"label.fcr.farm_born":  "Farm born",
 			"label.fcr.purchased":  "Purchased",

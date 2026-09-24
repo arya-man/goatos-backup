@@ -17515,6 +17515,10 @@ export interface components {
             median_adg_g_per_day: number;
             /** @description Can be less than `n` -- a shed can have animals weighed once (no pair yet). */
             adg_pair_count: number;
+            /** @description The pen's daily gain on the headline's statistic: each animal's own gain (total grams over total days across the legs ending in this pen), averaged over those animals. This is the figure the ADG Analytics and Weights pages show for a scanned pen; the median above is of per-leg rates and lets one 1-day re-weigh decide a pen. Null when no animal here was weighed twice in the window. */
+            average_adg_g_per_day: number | null;
+            /** @description Animals behind `average_adg_g_per_day`. */
+            adg_animals: number;
         };
         /** @description One bin of the ADG histogram. Bins are fixed at 25 g/day width, plus one explicit negative bucket. */
         WeighingGrowthDistributionBucket: {
