@@ -11,7 +11,7 @@ import {
 } from "@/lib/auth/session-cookie";
 import { exchangeRefreshTokenForIdToken } from "@/lib/auth/firebase-refresh";
 import { refreshCookieState, resolveBoundRefreshToken } from "@/lib/auth/refresh-binding";
-import { planSessionUpdate } from "@/lib/auth/session-update";
+import { authEventFailure, planSessionUpdate } from "@/lib/auth/session-update";
 
 export const dynamic = "force-dynamic";
 
@@ -66,7 +66,11 @@ export async function POST(request: NextRequest) {
       status: plan.status,
       firebaseUid,
     });
-    return NextResponse.json({ error: plan.error }, { status: plan.status });
+    const retryAfter = plan.outcome === "audit_failed" ? plan.retryAfter : undefined;
+    return NextResponse.json(
+      { error: plan.error },
+      { status: plan.status, ...(retryAfter ? { headers: { "Retry-After": retryAfter } } : {}) },
+    );
   }
   const binding = plan.binding;
 
@@ -135,7 +139,7 @@ async function recordBackendAuthEvent(
   request: NextRequest,
   idToken: string,
   eventType: AuthSessionEventType,
-): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+): Promise<{ ok: true } | { ok: false; status: number; error: string; retryAfter?: string }> {
   const baseUrl = (process.env.GOATOS_API_BASE_URL ?? "http://127.0.0.1:8080").replace(/\/+$/, "");
   const tenantId = process.env.GOATOS_TENANT_ID?.trim();
   if (!tenantId) {
@@ -178,11 +182,7 @@ async function recordBackendAuthEvent(
     code: backendError ?? "auth_audit_failed",
     firebaseUid: firebaseUidFromToken(idToken),
   });
-  return {
-    ok: false,
-    status: response.status >= 400 && response.status < 500 ? response.status : 502,
-    error: backendError ?? "auth_audit_failed",
-  };
+  return authEventFailure(response.status, backendError, response.headers.get("Retry-After"));
 }
 
 async function backendErrorCode(response: Response): Promise<string | null> {

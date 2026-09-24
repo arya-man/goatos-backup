@@ -7,7 +7,6 @@ import {
   getFirebaseAuth,
   isFirebaseSessionError,
   syncBridgeSession,
-  syncFirebaseSession,
 } from "@/lib/auth/firebase-client";
 
 const REFRESH_INTERVAL_MS = 50 * 60 * 1000;
@@ -32,7 +31,9 @@ export function FirebaseSessionBridge() {
         });
         interval = setInterval(() => {
           if (!auth.currentUser) return;
-          void syncFirebaseSession(auth.currentUser, true).catch((error: unknown) => {
+          // The forced refresh also fires onIdTokenChanged for the same new token; both calls go
+          // through the deduper, so the interval posts once.
+          void syncBridgeSession(auth.currentUser, true).catch((error: unknown) => {
             if (isFirebaseSessionError(error, "email_not_allowed")) {
               void clearFirebaseSession().catch(() => undefined);
             }

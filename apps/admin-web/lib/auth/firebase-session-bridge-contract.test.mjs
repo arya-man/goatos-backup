@@ -21,19 +21,38 @@ assert.match(
 );
 assert.match(
   client,
-  /export async function syncBridgeSession\(user: User\)[\s\S]*?user\.getIdToken\(\)[\s\S]*?sessionSyncDeduper\.bridge\(/,
-  "bridge sync must not force a token refresh and must go through the deduper",
+  /export async function syncBridgeSession\(user: User, forceRefresh = false\)[\s\S]*?sessionSyncDeduper\.bridge\(/,
+  "bridge sync goes through the deduper and forces no refresh by default",
 );
 assert.match(
   client,
   /async function syncSignedInUser[\s\S]*?user\.getIdToken\(\)[\s\S]*?sessionSyncDeduper\.signIn\(/,
   "explicit login records auth.sign_in through the deduper without forcing a second token mint",
 );
+// The 50-minute timer forces a refresh, which also fires onIdTokenChanged for the SAME new
+// token; both must go through the deduper so the interval posts once, not twice.
 assert.match(
   source,
-  /setInterval\(\(\) => \{[\s\S]*?syncFirebaseSession\(auth\.currentUser,\s*true\)(?!\s*,)/,
-  "periodic token refresh must stay a session refresh, not repeatedly claim sign-in grants",
+  /setInterval\(\(\) => \{[\s\S]*?syncBridgeSession\(auth\.currentUser,\s*true\)/,
+  "periodic token refresh must go through the deduper",
 );
+assert.doesNotMatch(source, /syncFirebaseSession\(/, "the bridge must not bypass the deduper");
+assert.match(
+  client,
+  /export async function syncBridgeSession\(user: User, forceRefresh = false\)[\s\S]*?user\.getIdToken\(forceRefresh\)/,
+  "bridge sync forces a refresh only when the timer asks for one",
+);
+// A busy auth database (503 auth_database_busy) is transient: tell the user to retry and keep
+// the Firebase sign-in so a retry does not need the credentials again.
+assert.match(client, /case "auth_database_busy":\s*return "[^"]*busy[^"]*retry[^"]*"/i);
+assert.match(
+  client,
+  /async function syncSignedInUser[\s\S]*?isFirebaseSessionError\(error, "auth_database_busy"\)[\s\S]*?signOut\(auth\)/,
+  "an explicit login that hits a busy auth database must not sign the user out of Firebase",
+);
+const route = readFileSync(join(here, "../../app/api/auth/session/route.ts"), "utf8");
+assert.match(route, /authEventFailure\(/, "the route maps backend failures through authEventFailure");
+assert.match(route, /"Retry-After"/, "the route passes Retry-After through to the browser");
 
 assert.match(
   client,

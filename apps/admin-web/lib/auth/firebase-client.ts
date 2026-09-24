@@ -107,7 +107,10 @@ async function syncSignedInUser(user: User): Promise<User> {
     await sessionSyncDeduper.signIn(user.uid, idToken, (eventType) => postFirebaseSession(user, idToken, eventType));
   } catch (error) {
     console.warn("admin_firebase_session_sync_failed", { email: user.email, firebaseUid: user.uid, code: firebaseErrorCode(error) });
-    await signOut(auth).catch(() => undefined);
+    // A busy auth database is transient: keep the Firebase sign-in so the user can simply retry.
+    if (!isFirebaseSessionError(error, "auth_database_busy")) {
+      await signOut(auth).catch(() => undefined);
+    }
     throw error;
   }
   return user;
@@ -140,8 +143,8 @@ export async function syncFirebaseSession(
  * only when this browser session has not recorded one (restored Firebase session), because the
  * backend claims pending email grants on sign_in.
  */
-export async function syncBridgeSession(user: User): Promise<boolean> {
-  const idToken = await user.getIdToken();
+export async function syncBridgeSession(user: User, forceRefresh = false): Promise<boolean> {
+  const idToken = await user.getIdToken(forceRefresh);
   return sessionSyncDeduper.bridge(user.uid, idToken, (eventType) => postFirebaseSession(user, idToken, eventType));
 }
 
@@ -225,6 +228,8 @@ function messageForSessionRouteError(code: string): string {
     case "tenant_not_allowed":
     case "tenant_config_missing":
       return "Mesha Admin sign-in is misconfigured for this environment.";
+    case "auth_database_busy":
+      return "Sign-in is busy right now. Please retry in a moment.";
     case "invalid_bearer_token":
     case "invalid_or_expired_id_token":
       return "Sign-in did not return a valid Mesha session. Try again.";
