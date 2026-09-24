@@ -93,6 +93,31 @@ deal_share AS (
     ) cnt ON cnt.tenant_id = a.tenant_id AND cnt.sales_deal_id = a.sales_deal_id
     WHERE a.tenant_id = $1 AND a.status = 'tagged'
 ),
+sale_weight_sample AS (
+    -- Newer GoatOS sales DO have per-animal sale weights on goat_sale_allocations. The legacy
+    -- procurement_loads.sold_* sample still wins when it exists; this fallback fills the same
+    -- sample shape for tagged, closed live-animal deals so a partially sold load can show what
+    -- its weighed sale kilograms actually fetched. Value is weight-proportional on the SAME
+    -- allocation rows as the kg, never the load's full sold value.
+    SELECT m.load_id,
+           sum(a.weight_kg)::float8 AS sold_weight_kg,
+           count(*)::int AS sold_weighed_animals,
+           sum(a.weight_kg * (d.sales_value / d.total_weight_kg))::float8 AS sold_weighed_value
+    FROM member m
+    JOIN public.goat_sale_allocations a
+      ON a.tenant_id = $1
+     AND a.goat_id = m.goat_id
+     AND a.status = 'tagged'
+     AND a.weight_kg > 0
+    JOIN public.sales_deals d
+      ON d.tenant_id = a.tenant_id
+     AND d.id = a.sales_deal_id
+     AND d.status = 'Deal Closed'
+     AND d.product_type IN ('Goat', 'Sheep')
+     AND d.total_weight_kg > 0
+     AND d.sales_value > 0
+    GROUP BY m.load_id
+),
 outcomes AS (
     -- One DISJOINT outcome bucket per member animal, so the five counts partition purchased by
     -- construction. Sold and dead are checked on lifecycle OR exit_reason (belt and braces for
@@ -209,6 +234,9 @@ SELECT pl.load_id::text AS load_id, COALESCE(pl.context->>'load_ref', '') AS loa
        pl.purchase_weight_kg::float8 AS purchase_weight_kg,
        pl.sold_weight_kg::float8 AS sold_weight_kg, pl.sold_weighed_animals,
        pl.sold_weighed_value::float8 AS sold_weighed_value,
+       sw.sold_weight_kg AS sample_sold_weight_kg,
+       sw.sold_weighed_animals AS sample_sold_weighed_animals,
+       sw.sold_weighed_value AS sample_sold_weighed_value,
        pl.arrived_on, pl.fattening_days,
        pl.row_version,
        pl.expected_count,
@@ -237,6 +265,7 @@ FROM public.procurement_loads pl
 LEFT JOIN public.parties p ON p.party_id = pl.source_party_id
 LEFT JOIN stats s ON s.load_id = pl.load_id
 LEFT JOIN remaining_mix rm ON rm.load_id = pl.load_id
+LEFT JOIN sale_weight_sample sw ON sw.load_id = pl.load_id
 LEFT JOIN prior pr ON pr.load_id = pl.load_id
 WHERE pl.tenant_id = $1
 ),
@@ -260,7 +289,9 @@ ranked AS (
 SELECT r.load_id, r.load_ref, r.vendor_name, r.purchase_date, r.status,
        r.animal_cost, r.transport_cost, r.other_cost,
        r.purchase_weight_kg,
-       r.sold_weight_kg, r.sold_weighed_animals, r.sold_weighed_value,
+       CASE WHEN r.sold_weight_kg IS NOT NULL THEN r.sold_weight_kg ELSE r.sample_sold_weight_kg END,
+       CASE WHEN r.sold_weight_kg IS NOT NULL THEN r.sold_weighed_animals ELSE r.sample_sold_weighed_animals END,
+       CASE WHEN r.sold_weight_kg IS NOT NULL THEN r.sold_weighed_value ELSE r.sample_sold_weighed_value END,
        r.arrived_on, r.fattening_days,
        r.row_version,
        r.expected_count,

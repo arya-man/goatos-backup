@@ -137,26 +137,26 @@ VALUES ($1, $2::uuid, $3::uuid, 'rejected', 'source_rejected', 'canceled')`,
 	// must not dilute the share.
 	var dealID string
 	if err := pool.QueryRow(ctx, `
-INSERT INTO sales_deals (tenant_id, sale_date, farm, buyer_name, product_type, breed, animal_count, sales_value)
-VALUES ($1, '2026-08-20', 'CPT', 'Loadwise Buyer', 'Sheep', 'Nari Suvarna', 3, 30000)
+INSERT INTO sales_deals (tenant_id, sale_date, farm, buyer_name, product_type, breed, animal_count, total_weight_kg, sales_value, status)
+VALUES ($1, '2026-08-20', 'CPT', 'Loadwise Buyer', 'Sheep', 'Nari Suvarna', 3, 60, 30000, 'Deal Closed')
 RETURNING id::text`, testTenant).Scan(&dealID); err != nil {
 		t.Fatalf("seed deal: %v", err)
 	}
-	tag := func(goatID, status, key string) {
+	tag := func(goatID, status, key string, weight float64) {
 		t.Helper()
 		if _, err := pool.Exec(ctx, `
-INSERT INTO goat_sale_allocations (tenant_id, goat_id, sales_deal_id, status, idempotency_key, released_at, release_reason)
-VALUES ($1, $2::uuid, $3::uuid, $4, $5,
+INSERT INTO goat_sale_allocations (tenant_id, goat_id, sales_deal_id, status, idempotency_key, weight_kg, released_at, release_reason)
+VALUES ($1, $2::uuid, $3::uuid, $4, $5, $6,
         CASE WHEN $4 = 'released' THEN now() END,
         CASE WHEN $4 = 'released' THEN 'test release' END)`,
-			testTenant, goatID, dealID, status, key); err != nil {
+			testTenant, goatID, dealID, status, key, weight); err != nil {
 			t.Fatalf("seed allocation: %v", err)
 		}
 	}
-	tag(soldA, "tagged", "lw-alloc-a")
-	tag(soldB, "tagged", "lw-alloc-b")
-	tag(farmBornSold, "tagged", "lw-alloc-farm-born")
-	tag(soldNoDealA, "released", "lw-alloc-released")
+	tag(soldA, "tagged", "lw-alloc-a", 20)
+	tag(soldB, "tagged", "lw-alloc-b", 30)
+	tag(farmBornSold, "tagged", "lw-alloc-farm-born", 10)
+	tag(soldNoDealA, "released", "lw-alloc-released", 40)
 
 	// Load B's PRE-GOATOS history: 3 already sold for 30000 and 2 already dead before its
 	// remaining animals were tracked here. The read must fold both into the reconciliation.
@@ -362,6 +362,18 @@ RETURNING load_id::text`, testTenant, fx.loadA).Scan(&soldOut); err != nil {
 		}
 		if loadA.RemainingValue == nil || math.Abs(*loadA.RemainingValue-10000) > 0.01 {
 			t.Fatalf("load A remaining value = %v, want 1 x 10000", loadA.RemainingValue)
+		}
+		if loadA.SoldWeightKg == nil || math.Abs(*loadA.SoldWeightKg-20) > 0.01 {
+			t.Fatalf("load A tagged sale kg = %v, want 20 from its allocation", loadA.SoldWeightKg)
+		}
+		if loadA.SoldWeighedAnimals == nil || *loadA.SoldWeighedAnimals != 1 {
+			t.Fatalf("load A tagged weighed animals = %v, want 1", loadA.SoldWeighedAnimals)
+		}
+		if loadA.SoldWeighedValue == nil || math.Abs(*loadA.SoldWeighedValue-10000) > 0.01 {
+			t.Fatalf("load A tagged weighed value = %v, want 20kg at the deal's 500/kg", loadA.SoldWeighedValue)
+		}
+		if loadA.SalePricePerKg == nil || math.Abs(*loadA.SalePricePerKg-500) > 0.01 {
+			t.Fatalf("load A sale price/kg = %v, want 500 from tagged sale weights", loadA.SalePricePerKg)
 		}
 		if loadA.PurchaseValue != nil {
 			t.Fatalf("load A purchase value = %v, want ABSENT while no cost is recorded", loadA.PurchaseValue)

@@ -45,13 +45,12 @@ function shortDate(date: string): string {
  * else the vendor and purchase date. The number prefix arrives from the contract copy.
  */
 /**
- * The "weighs now" figure for a load that has NOT sold: matched on the farm's load number, which
- * is the identity the weighing side's shed-to-load tags carry. A load that has sold (any sale
- * weight recorded) gets nothing here on purpose -- its animals have left, and the pens it sat in
- * may now hold another load.
+ * The "weighs now" figure for animals from a load that are still on farm: matched on the farm's
+ * load number, which is the identity the weighing side's shed-to-load tags carry. Fully sold loads
+ * get nothing here -- their animals have left, and the pens they sat in may now hold another load.
  */
 function currentWeightFor(load: LoadwiseLoad, weights: LoadCurrentWeights) {
-  if (load.avg_sale_weight_kg != null || !load.load_ref) return null;
+  if (load.remaining <= 0 || !load.load_ref) return null;
   return weights[load.load_ref] ?? null;
 }
 
@@ -125,9 +124,10 @@ export function LoadwiseSection({
   const weightSeries: GroupedSeries[] = [
     { key: "avg_purchase_weight_kg", label: copy(pageContract, "chart.series.avg_purchase_weight"), tone: "info" },
     { key: "avg_sale_weight_kg", label: copy(pageContract, "chart.series.avg_sale_weight"), tone: "ok" },
-    // Third bar (maintainer request 2026-09-03): a load that has sold nothing shows what its
-    // animals weigh NOW, so an unsold load is not a lone "bought at" bar with nothing to read it
-    // against. Drawn only when the contract enabled the weighing read for this principal.
+    // Third bar (maintainer request 2026-09-03): a load with animals still on farm shows what
+    // those animals weigh NOW, so an unsold or part-sold load has the live stock side beside its
+    // bought/sold averages. Drawn only when the contract enabled the weighing read for this
+    // principal.
     ...(currentWeights ? [{ key: "current_avg_weight_kg", label: copy(pageContract, "chart.series.current_avg_weight"), tone: "teal" as const }] : []),
   ];
   const perKgSeries: GroupedSeries[] = [
@@ -297,14 +297,15 @@ export function LoadwiseSection({
                   : `${num(load.avg_sale_weight_kg, 1)} ${copy(pageContract, "value.kg")}`,
                 ...(currentWeights
                   ? [
-                      load.avg_sale_weight_kg != null
-                        ? copy(pageContract, "value.sold_no_now")
-                        : (() => {
-                            const now = currentWeightFor(load, currentWeights);
-                            return now == null
-                              ? copy(pageContract, "value.not_weighed_yet")
-                              : `${num(now.averageKg, 1)} ${copy(pageContract, "value.kg")} · ${num(now.animals)} ${copy(pageContract, "value.weighed_now")}`;
-                          })(),
+                      (() => {
+                        const now = currentWeightFor(load, currentWeights);
+                        if (now != null) {
+                          return `${num(now.averageKg, 1)} ${copy(pageContract, "value.kg")} · ${num(now.animals)} ${copy(pageContract, "value.weighed_now")}`;
+                        }
+                        return load.remaining <= 0
+                          ? copy(pageContract, "value.sold_no_now")
+                          : copy(pageContract, "value.not_weighed_yet");
+                      })(),
                     ]
                   : []),
               ],
@@ -313,7 +314,6 @@ export function LoadwiseSection({
                 load.avg_sale_weight_kg == null ? null : numCompactWhole(load.avg_sale_weight_kg),
                 ...(currentWeights
                   ? [(() => {
-                      if (load.avg_sale_weight_kg != null) return null;
                       const now = currentWeightFor(load, currentWeights);
                       return now == null ? null : numCompactWhole(now.averageKg);
                     })()]

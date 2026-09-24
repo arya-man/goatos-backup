@@ -158,6 +158,13 @@ test("sales chart bar labels stay whole and suffix-free", () => {
   assert.match(loadwiseSource, /barLabels:\s*\[\s*load\.fattening_days == null \? null : numCompactWhole\(load\.fattening_days\)/s);
 });
 
+test("loadwise Weighs now stays visible for part-sold loads", () => {
+  const source = readFileSync(new URL("./loadwise-section.tsx", import.meta.url), "utf8");
+  assert.match(source, /if \(load\.remaining <= 0 \|\| !load\.load_ref\) return null;/);
+  assert.doesNotMatch(source, /if \(load\.avg_sale_weight_kg != null \|\| !load\.load_ref\) return null;/);
+  assert.doesNotMatch(source, /if \(load\.avg_sale_weight_kg != null\) return null;/);
+});
+
 test("the Over 35 kg card asks for six weeks, and the backend floors it", () => {
   // SIX WEEKS is the reader's window (maintainer, 2026-09-04). The BACKEND holds the floor -- the
   // first dense weighing day -- so the two never disagree about where the count starts, and the

@@ -4223,9 +4223,9 @@ func pageSpecificCopy(id string) map[string]string {
 			"chart.loadwise_weight.empty":      "No load has both a purchase weight and a sale weight yet.",
 			"chart.series.avg_purchase_weight": "Bought at",
 			"chart.series.avg_sale_weight":     "Sold at",
-			// A load that has sold nothing has no "sold at" bar, so its third bar is what its
-			// animals weigh NOW (maintainer request 2026-09-03): the latest weighing of the pens
-			// the load was placed into, weighted by head count. A sold load shows no third bar.
+			// A load that still has animals on farm shows what those animals weigh NOW
+			// (maintainer request 2026-09-03): the latest weighing of the pens the load was placed
+			// into, weighted by head count. A fully sold load shows no third bar.
 			"chart.series.current_avg_weight":   "Weighs now",
 			"value.not_weighed_yet":             "not weighed yet",
 			"value.sold_no_now":                 "sold",
