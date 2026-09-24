@@ -14445,7 +14445,25 @@ export interface components {
             /** @description True if all animals done and none pending redo */
             full: boolean;
         };
+        ExecutionRosterMembership: {
+            /** Format: uuid */
+            assignmentId?: string | null;
+            /** Format: uuid */
+            batchId?: string | null;
+            /** Format: uuid */
+            taskId?: string | null;
+            /** Format: date */
+            plannedDate: string;
+            /** @description All work for this membership has been finally submitted; opening it shows the record. */
+            recordOnly: boolean;
+            /** @description Whether this dated membership remains on today's operator card after its planned date. */
+            includeWhenOverdue: boolean;
+        };
         ShedCardSummary: {
+            /** @description Complete dated membership from the full filtered card, independent of execution-list pagination. */
+            rosterMemberships?: components["schemas"]["ExecutionRosterMembership"][];
+            /** Format: uuid */
+            assignmentId?: string | null;
             /** Format: uuid */
             shedId: string;
             /** @description Partition identifier if present (null for "whole" shed) */

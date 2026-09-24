@@ -2194,7 +2194,21 @@ SELECT
   STRING_TO_ARRAY(
     STRING_AGG(ARRAY_TO_STRING(classified.vaccine_label_keys, E'\x1e'), E'\x1e'),
     E'\x1e'
-  ) AS vaccine_label_counts
+  ) AS vaccine_label_counts,
+  -- projection-review: membership=visible classified rows in the existing full-filter card summary; group_key=exact assignment/batch/task plus business date; join_cardinality=no new join, DISTINCT collapses repeated vaccine rows; pagination=independent of the execution list cursor; scope=the same tenant park pen operator and date predicates below.
+  COALESCE(JSONB_AGG(DISTINCT JSONB_BUILD_OBJECT(
+    'assignmentId', classified.assignment_id,
+    'batchId', classified.batch_id,
+    'taskId', classified.sop_task_id,
+    'plannedDate', (classified.due_at AT TIME ZONE 'Asia/Kolkata')::date::text,
+    'recordOnly', classified.display_open_count = 0 AND (
+      COALESCE(classified.task_state, '') IN ('submitted', 'needs_review', 'accepted')
+      OR (classified.completion_accepted > 0 AND classified.completion_recorded = 0)),
+    'includeWhenOverdue', classified.display_open_count > 0
+      OR classified.work_state IN ('proof_pending', 'verification_pending')
+      OR (classified.display_done_count > 0 AND classified.work_state <> 'completed')
+  )) FILTER (WHERE classified.display_open_count > 0 OR classified.display_done_count > 0
+    OR classified.work_state IN ('proof_pending', 'verification_pending')), '[]'::jsonb) AS roster_memberships
 FROM classified
 WHERE ($6::text = '' OR classified.work_state = $6::text)
   AND ($9::text = '' OR classified.severity = $9::text)
@@ -4678,7 +4692,7 @@ func (r *Repository) VaccinationExecutionCardSummaries(ctx context.Context, q do
 	summaries := make(map[string]*domain.ShedCardSummary)
 	for rows.Next() {
 		var record executionCardSummaryRecord
-		if err := rows.Scan(&record.ShedID, &record.PartitionLabel, &record.AssignmentID, &record.TaskID, &record.BatchID, &record.DriveID, &record.ObligationCount, &record.DoneCount, &record.OpenCount, &record.HasMissed, &record.HasDeferred, &record.HasOverdue, &record.HasReviewPending, &record.HasRejected, &record.VaccineLabels, &record.VaccineLabelCounts); err != nil {
+		if err := rows.Scan(&record.ShedID, &record.PartitionLabel, &record.AssignmentID, &record.TaskID, &record.BatchID, &record.DriveID, &record.ObligationCount, &record.DoneCount, &record.OpenCount, &record.HasMissed, &record.HasDeferred, &record.HasOverdue, &record.HasReviewPending, &record.HasRejected, &record.VaccineLabels, &record.VaccineLabelCounts, &record.RosterMemberships); err != nil {
 			return nil, fmt.Errorf("vaccination execution: card summaries scan: %w", err)
 		}
 		addExecutionCardSummary(summaries, record)

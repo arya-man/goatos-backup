@@ -91,7 +91,19 @@ data class VaccineGroupSummaryDto(
 )
 
 @Serializable
+data class ExecutionRosterMembershipDto(
+    @SerialName("recordOnly") val recordOnly: Boolean = false,
+    @SerialName("assignmentId") val assignmentId: String? = null,
+    @SerialName("batchId") val batchId: String? = null,
+    @SerialName("taskId") val taskId: String? = null,
+    @SerialName("plannedDate") val plannedDate: String = "",
+    @SerialName("includeWhenOverdue") val includeWhenOverdue: Boolean = false,
+)
+
+@Serializable
 data class ShedCardSummaryDto(
+    // null means an older server/cache without authoritative membership; empty is authoritative.
+    @SerialName("rosterMemberships") val rosterMemberships: List<ExecutionRosterMembershipDto>? = null,
     @SerialName("shedId") val shedId: String = "",
     @SerialName("partitionLabel") val partitionLabel: String? = null,
     @SerialName("assignmentId") val assignmentId: String? = null,
