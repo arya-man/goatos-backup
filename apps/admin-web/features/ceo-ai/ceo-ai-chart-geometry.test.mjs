@@ -106,3 +106,9 @@ test("line ticks are thinned for many points and keep first and last", () => {
   assert.equal(layout.ticks[0], 0);
   assert.equal(layout.ticks.at(-1), 11);
 });
+
+test("long line labels get fewer ticks", () => {
+  const x = Array.from({ length: 12 }, (_, i) => `W${27 + i} (0${i % 9 + 1}/07)`);
+  const layout = chartLayout({ type: "line", title: "t", x, series: [{ name: "a", data: x.map((_, i) => i + 1) }] });
+  assert.deepEqual(layout.ticks, [0, 6, 11]);
+});

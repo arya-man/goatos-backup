@@ -112,6 +112,13 @@ export function lineTicks(n: number, max = MAX_LINE_TICKS): number[] {
   return [...out].sort((a, b) => a - b);
 }
 
+// tickBudget shows fewer x labels when they are long ("W27 (01/07)"), so a
+// phone-width chart keeps them readable instead of ellipsised or colliding.
+export function tickBudget(labels: string[]): number {
+  const longest = Math.max(0, ...labels.map((l) => String(l).length));
+  return longest > 10 ? 3 : longest > 6 ? 4 : MAX_LINE_TICKS;
+}
+
 export function chartLayout(chart: CeoAiChart): ChartLayout | null {
   if (!isRenderableChart(chart)) return null;
   const series = firstSeries(chart);
@@ -167,7 +174,7 @@ function lineLayout(labels: string[], data: number[], max: number): ChartLineLay
     points,
     color: CHART_PALETTE[0],
     baselineY,
-    ticks: lineTicks(points.length),
+    ticks: lineTicks(points.length, tickBudget(labels)),
   };
 }
 
