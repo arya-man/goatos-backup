@@ -31,7 +31,7 @@ explicitly say so.**
 |---|---|---|
 | Shared read cache (`backend/internal/platform/readcache`) | See the list below this table. | `wip/perf-read-cache` (c44936389 is not yet judged) |
 | Herd Signals live | See the list below this table. | `wip/perf-herd-live`. The worktree also had 19 uncommitted files mid-work; redo them if they're lost. |
-| Notifications stored unread counter (000403) | See the list below this table. | `wip/perf-notifications` |
+| ~~Notifications stored unread counter (000403)~~ **CLEAN after the deadlock fix c6f6048ad** | See the list below this table. | `wip/perf-notifications` |
 
 **Shared read cache.** Writers outside weighing never invalidate the cache. The full matrix is in `audit/cache-correctness.md` items 1–7:
 - identity goat relocate, lifecycle, create, census, stage
@@ -102,3 +102,14 @@ Also:
 - **Never `git stash`,** never force-push `main`, and never run `gh pr merge`.
 - **Write only to throwaway DBs.** Stg is read-only through `mesha_ceo_readonly` with `default_transaction_read_only=on`, and the OCI clone at `127.0.0.1:15432` is read-only too.
 - **Watch migration numbers.** Main ends at 000399. This branch uses 000400–000403; check before adding a new one.
+
+## Fast-track (started by maintainer request, 2026-09-24 evening)
+
+Wave 2 is running as 4 parallel builders on top of the 3 already going, 7 in total. Each has its own worktree and branch off the PR head:
+
+- `perf/w2-proofs`: the proof lookup (5.5 s, should be 8 ms), the broken identifiers resolve, workflows filter-first, goats search, the proof uploads index
+- `perf/w2-vaccination`: cache keys that actually hit (with eviction), dropping canceled obligations from totals, the command-board limiter, the sheds CTE, `obligation_instances` autovacuum
+- `perf/w2-workboard`: the work-board and alerts regression from the real-stg bench, the vaccination-today check (228 ms, should be 5 ms), batched counts, action-center, alerts low-stock, breakdown
+- `perf/w2-calendar`: calendar targets (7 s) and events (2.8 s), the daily feed rollup, the demographics index, the feed-direction aborted-transaction retry bug
+
+**Migration numbers will collide between these parallel branches.** Renumber at integration time; the duplicate-versions guard catches collisions.
