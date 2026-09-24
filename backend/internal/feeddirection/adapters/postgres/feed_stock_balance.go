@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/vgoats/goatos/backend/internal/feeddirection/domain"
 )
 
 // feedConfigNorm is the Go twin of the SQL feed_config_norm(): trim, casefold, collapse runs of
@@ -19,6 +21,18 @@ var feedConfigNormRuns = regexp.MustCompile(`[\s_-]+`)
 
 func feedConfigNorm(value string) string {
 	return strings.ToLower(feedConfigNormRuns.ReplaceAllString(strings.TrimSpace(value), "_"))
+}
+
+// FeedStockIdentity resolves a sold feed to the same family key the stock cards use.
+// The label lets a combined shortage name the shared store rather than one sibling.
+func (r *Repository) FeedStockIdentity(label string) (key, stockLabel string) {
+	key = feedConfigNorm(label)
+	for _, row := range domain.StockFamilyMerge {
+		if key == row.MemberKey || key == row.FamilyKey {
+			return row.FamilyKey, row.FamilyLabel
+		}
+	}
+	return key, strings.TrimSpace(label)
 }
 
 // FeedBalanceKg answers how many kilograms of one feed one farm holds, for the sales module's
@@ -40,7 +54,7 @@ func (r *Repository) FeedBalanceKg(ctx context.Context, tenantID, farmLabel, fee
 	}
 	// The card's family key, so a feed folded into a successor is answered at the balance the tab
 	// shows for it -- selling from a merged store draws on the family, not on one retired sack.
-	want := feedConfigNorm(feedItemLabel)
+	want, _ := r.FeedStockIdentity(feedItemLabel)
 	if want == "" {
 		return 0, false, nil
 	}

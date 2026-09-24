@@ -188,8 +188,23 @@ func (s *SalesService) weighAgainstTheStore(ctx context.Context, tenantID, farm 
 	if s.feedStock == nil || len(demand) == 0 {
 		return nil
 	}
-	short := []domain.FeedStockShortfall{}
+	// Aggregate at the store's identity, not the sold label: legacy concentrate
+	// siblings and their successor spend one shared balance. Comparing each line
+	// separately would approve two 60 kg lines against the same 100 kg store.
+	grouped := []domain.FeedDemand{}
+	positions := map[string]int{}
 	for _, d := range demand {
+		key, label := s.feedStock.FeedStockIdentity(d.FeedItem)
+		if i, ok := positions[key]; ok {
+			grouped[i].Kg += d.Kg
+			continue
+		}
+		positions[key] = len(grouped)
+		d.FeedItem = label
+		grouped = append(grouped, d)
+	}
+	short := []domain.FeedStockShortfall{}
+	for _, d := range grouped {
 		balance, known, err := s.feedStock.FeedBalanceKg(ctx, tenantID, farm, d.FeedItem)
 		if err != nil {
 			return err

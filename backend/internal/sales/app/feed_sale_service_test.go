@@ -10,8 +10,16 @@ import (
 
 // feedStore is a store holding a fixed balance of each feed it has heard of.
 type feedStore struct {
-	balances map[string]float64
-	asked    int
+	balances   map[string]float64
+	asked      int
+	identities map[string]string
+}
+
+func (f *feedStore) FeedStockIdentity(feed string) (string, string) {
+	if family, ok := f.identities[feed]; ok {
+		return family, family
+	}
+	return feed, feed
 }
 
 func (f *feedStore) FeedBalanceKg(_ context.Context, _, farm, feed string) (float64, bool, error) {
@@ -327,5 +335,19 @@ func TestUnknownFeedCannotBypassStockValidation(t *testing.T) {
 		if repo.createCalls != 0 || store.asked != 0 {
 			t.Fatal("invalid feed reached stock or write")
 		}
+	}
+}
+
+func TestFamilyFeedDemandSharesOneBalance(t *testing.T) {
+	store := &feedStore{balances: map[string]float64{"CPT/Concentrate": 100, "CPT/Goat concentrate": 100, "CPT/Sheep concentrate": 100}, identities: map[string]string{"Goat concentrate": "Concentrate", "Sheep concentrate": "Concentrate"}}
+	s := NewSalesService(&feedRepo{}).WithFeedStock(store)
+	err := s.weighAgainstTheStore(context.Background(), tenant, "CPT", []domain.FeedDemand{{LineNo: 1, FeedItem: "Goat concentrate", Kg: 60}, {LineNo: 2, FeedItem: "Sheep concentrate", Kg: 60}})
+	var short domain.ErrFeedStockShort
+	if !errors.As(err, &short) || len(short.Shortfalls) != 1 {
+		t.Fatalf("combined 120kg against 100kg must warn once: %v", err)
+	}
+	got := short.Shortfalls[0]
+	if got.RequestedKg != 120 || got.BalanceKg != 100 || got.FeedItem != "Concentrate" || store.asked != 1 {
+		t.Fatalf("wrong family shortage: %+v, queries=%d", got, store.asked)
 	}
 }

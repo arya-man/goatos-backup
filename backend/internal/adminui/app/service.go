@@ -4967,7 +4967,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"kpi.total_meat":          "Total meat",
 			"kpi.total_meat.detail":   "Live herd kg at the valuation stages' weights",
 			"kpi.animals":             "Animals sold",
-			"kpi.animals.detail":      "sheep and goats, closed deals",
+			"kpi.animals.detail":      "All animal products, closed deals",
 			"kpi.realized_price":      "Realized price per kg",
 			"kpi.realized_price.hint": "Closed live-animal revenue over live weight sold.",
 			"kpi.manure":              "Manure sold",
