@@ -12,7 +12,7 @@ import type {
   AppApiComponents,
   AppApiPaths,
 } from "@goatos/api-client";
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { cache } from "react";
 import { resolveFirebaseIdToken } from "@/lib/auth/server-session";
@@ -20,18 +20,26 @@ import { mintLocalDevBearerToken } from "./local-dev-token";
 import type { ParkScopeOption } from "./park-scope";
 import { AdminBootstrapCache } from "./admin-bootstrap-cache";
 import { ShortReadCache } from "./short-read-cache";
+import {
+  WRITE_MARKER_COOKIE,
+  WRITE_MARKER_WINDOW_MS,
+  readBypassesShortCache,
+  writeMarkerValue,
+} from "./write-marker";
 
 type ErrorEnvelope = AppApiComponents["schemas"]["ErrorEnvelope"];
 // Incident goatos-stg 2026-09-24: a burst of Weights page loads fanned out ~10 uncached
 // weighing / growth-director reads each and saturated the backend DB pool. Read-only weighing
 // analytics are served from a short per-caller cache (keyed on endpoint + backend + tenant +
 // bearer fingerprint + query, so nothing is shared across users or tenants) and concurrent
-// identical reads share one backend call. Failures are never cached, and any write this
-// process sends to the backend clears both read caches (timedBackendFetch), so a user's own
-// edit is never answered from a pre-edit read. Writes made elsewhere (phones, other
-// instances) are visible within the TTL -- the backend's own weighing analytics cache is
-// already 2 minutes.
-const SHORT_READ_CACHE_TTL_MS = 30_000;
+// identical reads share one backend call. Failures are never cached.
+// Read-your-writes: any write this process sends clears both caches (timedBackendFetch, also
+// when the write throws), and it sets a short-lived write-marker cookie (./write-marker) so the
+// writer's reads bypass the short cache on EVERY admin-web instance for the TTL window. Writes by
+// other people / phones are visible within this 30 s TTL on top of the backend's own analytics
+// read cache (readcache.DefaultOptions: 60 s fresh, up to 5 min stale-while-revalidate while the
+// eviction feed is coherent; 30 s and no stale serving when it is down) -- documented bound.
+const SHORT_READ_CACHE_TTL_MS = WRITE_MARKER_WINDOW_MS;
 const shortReadCache = new ShortReadCache(SHORT_READ_CACHE_TTL_MS);
 // Mutation-sensitive reads (the maintainer-edited assumptions and sale prices) are only
 // coalesced while in flight: another admin-web instance may have just written them.
@@ -785,10 +793,10 @@ async function timedBackendFetch(
     // A write may change anything a cached read answered; drop them before AND after it lands
     // so a read racing the write cannot repopulate the cache with the pre-write answer.
     clearBackendReadCaches();
+    await markCallerWrite();
   }
   try {
     const response = await fetch(input, fetchInit);
-    if (method.toUpperCase() !== "GET") clearBackendReadCaches();
     const durationMs = Math.round(performance.now() - startedAt);
     console.info(
       JSON.stringify({
@@ -830,6 +838,32 @@ async function timedBackendFetch(
     throw error;
   } finally {
     if (timeout) clearTimeout(timeout);
+    // After the write lands OR throws, so a read racing it cannot keep the pre-write answer.
+    if (method.toUpperCase() !== "GET") clearBackendReadCaches();
+  }
+}
+
+// Sets the cross-instance read-your-writes marker. Cookies are writable only from server actions
+// and route handlers -- exactly where admin-web writes originate; elsewhere this is a no-op.
+async function markCallerWrite(): Promise<void> {
+  try {
+    (await cookies()).set(WRITE_MARKER_COOKIE, writeMarkerValue(Date.now()), {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      path: "/",
+      maxAge: Math.ceil(WRITE_MARKER_WINDOW_MS / 1000),
+    });
+  } catch {
+    // Not in a mutable request scope (render or no request): the in-process clear still applies.
+  }
+}
+
+async function callerWroteRecently(): Promise<boolean> {
+  try {
+    return readBypassesShortCache((await cookies()).get(WRITE_MARKER_COOKIE)?.value, Date.now());
+  } catch {
+    return false;
   }
 }
 
@@ -6116,10 +6150,12 @@ export async function request<T>(fn: () => Promise<T>): Promise<ApiResult<T>> {
   }
 }
 
-function cachedShortRead<T>(
+async function cachedShortRead<T>(
   key: string,
   fn: () => Promise<ApiResult<T>>,
 ): Promise<ApiResult<T>> {
+  // The caller's own recent write (possibly on another instance) must never be answered stale.
+  if (await callerWroteRecently()) return coalescedRead(key, fn);
   return shortReadCache.read(key, fn) as Promise<ApiResult<T>>;
 }
 
