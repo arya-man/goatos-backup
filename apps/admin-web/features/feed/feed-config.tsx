@@ -493,7 +493,9 @@ export async function FeedConfigPage({
   const shedNameById = new Map(locations.sheds.map((shed) => [shed.id, shed.name]));
   // The park being read, by name. Live data from the locations master — never composed from a code
   // or an id, and blank only when the master returned no parks at all.
-  const parkName = locations.parks.find((park) => park.id === scope.parkId)?.name ?? "";
+  // Parks read by CODE (CBE, CPT) on this page, the spelling Feed Analytics uses (maintainer
+  // decision 2026-09-24); the full name only when a park has no code.
+  const parkName = parkCodeById.get(scope.parkId) ?? "";
   // The park the enroller offers in SINGLE-park mode: exactly the one being read, so its select has
   // one option and is preselected. Empty when the locations master returned no match, which leaves
   // the enroller with nothing to enrol into rather than guessing a park.
@@ -502,10 +504,10 @@ export async function FeedConfigPage({
   // the table on screen is not showing.
   const parkScopedParks = locations.parks
     .filter((park) => park.id === experimentParkId)
-    .map((park) => ({ id: park.id, name: park.name }));
+    .map((park) => ({ id: park.id, name: park.code || park.name }));
   // The experiment section's park name, from its OWN effective scope rather than the page's — the
   // two can differ now, and labelling a CBE table with the page's CPT would be worse than no label.
-  const experimentParkName = locations.parks.find((park) => park.id === experimentParkId)?.name ?? "";
+  const experimentParkName = parkCodeById.get(experimentParkId) ?? "";
   // Sheds offered by the section's Shed filter: the locations master, narrowed to the park the
   // section is actually reading. Keyed on shed_id, NEVER on the name — Castro, Gandhi and Yashoda
   // each exist in BOTH parks, so a name-keyed option would merge two different buildings into one
@@ -515,7 +517,7 @@ export async function FeedConfigPage({
   // are indistinguishable to the operator even though their values differ. This is a park + shed
   // pair, not a shed + partition operational location, so it composes here rather than through
   // oploc — that helper owns the shed/partition display and would be the wrong shape for this.
-  const parkNameById = new Map(locations.parks.map((park) => [park.id, park.name]));
+  const parkNameById = parkCodeById;
   // PENS, not physical sheds, because that is what this section's rows are: Castro holds three pens
   // with their own arms, head counts and quantities, so a shed-level option would name one thing and
   // return three.
@@ -621,7 +623,7 @@ export async function FeedConfigPage({
       value: scope.parkId,
       allowAll: false,
       disabledReason: scope.parkLockedByTopBar ? copy(pageContract, "filter.scope_readonly") : undefined,
-      options: parksByCode.map((park) => ({ value: park.id, label: park.name })),
+      options: parksByCode.map((park) => ({ value: park.id, label: park.code || park.name })),
     },
     // BREED is the ONLY cohort control here. The options are real breeds from the breed ->
     // ration-group map, so picking Sirohi finds the Beetal/Sirohi rows -- a question a group filter
@@ -679,7 +681,7 @@ export async function FeedConfigPage({
       label: copy(pageContract, "filter.park_label"),
       value: scope.parkLockedByTopBar ? scope.parkId : experimentParkFilter,
       disabledReason: scope.parkLockedByTopBar ? copy(pageContract, "filter.scope_readonly") : undefined,
-      options: parksByCode.map((park) => ({ value: park.id, label: park.name })),
+      options: parksByCode.map((park) => ({ value: park.id, label: park.code || park.name })),
       // A pen belongs to ONE park, so a pen chosen in the other one cannot match anything here.
       // Left in place it emptied the table while both controls still read as a valid pair, which is
       // unexplainable on screen — the reader sees a park that has 60 pens and a table showing none.
@@ -924,7 +926,7 @@ export async function FeedConfigPage({
             key={experimentEnrollerScopeKey(experimentAllParks ? parksByCode : parkScopedParks)}
             pageContract={pageContract}
             action={enrolExperimentPen}
-            parks={experimentAllParks ? parksByCode.map((park) => ({ id: park.id, name: park.name })) : parkScopedParks}
+            parks={experimentAllParks ? parksByCode.map((park) => ({ id: park.id, name: park.code || park.name })) : parkScopedParks}
             pens={candidatePens}
             feedItems={catalogItems}
           />
@@ -1013,7 +1015,7 @@ export async function FeedConfigPage({
                             name cannot disambiguate them -- Castro, Gandhi and Yashoda each exist in
                             both. Muted because in a single-park view it repeats the header chip; it
                             is the cross-park view that needs it. */}
-                        <td className="muted">{shed.parkName}</td>
+                        <td className="muted">{parkCodeById.get(shed.parkId) ?? shed.parkName}</td>
                         <td>
                           <b>{shedName}</b>
                         </td>
