@@ -6985,7 +6985,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"completion.title":              "Feed direction completion",
 			"completion.hint":               "Every pen the sheet directed for the chosen day, and whether the feeding was filmed and approved. Open a row to see each video's time and who uploaded it.",
 			"completion.empty":              "No feed sheet was issued for this day, so there was nothing to feed.",
-			"completion.empty_filtered":     "No pens match these filters on this day.",
+			"completion.empty_filtered":     "No pen feedings match these filters on this day.",
 			"completion.date.label":         "Feed day",
 			"completion.date.aria":          "Choose which day's feeding the table shows",
 			"completion.filter.shed":        "Pen",
@@ -7005,7 +7005,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"completion.kpi.await":          "Waiting for review",
 			"completion.kpi.rework":         "Sent back",
 			"completion.kpi.completed":      "Fed and approved",
-			"completion.kpi.sub":            "pens this day",
+			"completion.kpi.sub":            "pen feedings this day, morning and evening each count",
 			"completion.slot.weight":        "Weighed feed photo",
 			"completion.slot.feed":          "Feeding video",
 			"completion.slot.water":         "Water video",
@@ -7013,7 +7013,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"completion.slot.no_name":       "Uploader not recorded",
 			"completion.videos.count":       "{done} of 3",
 			"completion.action.details":     "View details",
-			"completion.pager.noun":         "pen",
+			"completion.pager.noun":         "pen feeding",
 
 			// The overview's "Feed by pen" charts (maintainer request 2026-09-14, replacing
 			// the feed-mix table): pick a shed and every pen in it -- Castro 1, 2, 3 --

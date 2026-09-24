@@ -439,15 +439,13 @@ function disambiguateByPark(
       byId.set(option.shed_id, { label: option.shed_label, park: option.park_label });
     }
   }
-  const labelCounts = new Map<string, number>();
-  for (const { label } of byId.values()) {
-    labelCounts.set(label, (labelCounts.get(label) ?? 0) + 1);
-  }
   return [...byId.entries()]
     .map(([value, { label, park }]) => ({
       value,
       park,
-      label: (labelCounts.get(label) ?? 0) > 1 ? `${label} · ${park}` : label,
+      // EVERY pen names its farm (maintainer request 2026-09-24): naming it only on the
+      // names both farms share left "Castro · CBE" beside a bare "Godel 1 - Part 1".
+      label: park ? `${label} · ${park}` : label,
     }))
     .sort(byParkThen(parkOrder, (option) => option.park, (a, b) => a.label.localeCompare(b.label, undefined, { numeric: true })))
     .map(({ value, label }) => ({ value, label }));
