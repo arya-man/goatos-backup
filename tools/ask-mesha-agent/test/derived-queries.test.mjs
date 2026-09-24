@@ -30,3 +30,19 @@ test('--check fails with re-derive instructions when a source file hash drifts',
   assert.match(r.stderr, /Re-derive/);
   assert.match(r.stderr, /--rehash-derived/);
 });
+
+test('pen resolver is drift-guarded: a new migration touching pen tables fails with the pens.sql re-validate text', () => {
+  const m = JSON.parse(readFileSync(manifest, 'utf8'));
+  const pens = m.queries.find((q) => q.query.endsWith('/pens.sql'));
+  assert.ok(pens, 'pens.sql in manifest');
+  const dir = pens.derived_from.find((s) => s.match);
+  assert.ok(dir && /goat_shed_partitions/.test(dir.match), 'migrations directory watched with a match regex');
+  for (const f of ['oploc.go', 'fcr.go', 'shed_partition_resolve.go']) assert.ok(pens.derived_from.some((s) => s.path.endsWith(f)), f);
+  dir.sha256 = '0'.repeat(64);
+  const p = join(mkdtempSync(join(tmpdir(), 'dq-')), 'derived-queries.json');
+  writeFileSync(p, JSON.stringify(m));
+  const r = spawnSync('node', [gen, '--check'], { encoding: 'utf8', env: env(p) });
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /new\/changed matching migration/);
+  assert.match(r.stderr, /re-validate pens\.sql for the new pen model \(see docs\/agent-rules\/ask-mesha\.md Pens\)/);
+});

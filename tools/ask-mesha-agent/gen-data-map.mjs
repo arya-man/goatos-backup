@@ -33,20 +33,31 @@ const DERIVED = process.env.GEN_DATA_MAP_DERIVED ? resolve(process.env.GEN_DATA_
 
 // --- derived-query drift ----------------------------------------------------
 const fileSha = (rel) => { const f = join(ROOT, rel); return existsSync(f) ? createHash('sha256').update(readFileSync(f)).digest('hex') : 'MISSING'; };
-function derivedDrift(manifest, sha = fileSha) {
+// A source with `match` is a DIRECTORY: hash the names + contents of every .sql file in it whose content matches the
+// regex, so a NEW migration touching those tables (e.g. a pen-model switch) drifts too, not just edits to known files.
+const dirSha = (rel, match) => {
+  const d = join(ROOT, rel); if (!existsSync(d)) return 'MISSING';
+  const re = new RegExp(match, 'i'); const h = createHash('sha256');
+  for (const f of readdirSync(d).filter((f) => f.endsWith('.sql')).sort()) {
+    const body = readFileSync(join(d, f)); if (re.test(body.toString('utf8'))) h.update(f + '\0').update(body);
+  }
+  return h.digest('hex');
+};
+const srcSha = (src) => (src.match ? dirSha(src.path, src.match) : fileSha(src.path));
+function derivedDrift(manifest, sha = srcSha) {
   const out = [];
   for (const q of manifest.queries) {
     if (!existsSync(join(ROOT, q.query))) out.push({ query: q.query, path: q.query, why: 'reference query file missing' });
     for (const src of q.derived_from) {
-      const now = sha(src.path);
-      if (now !== src.sha256) out.push({ query: q.query, path: src.path, why: now === 'MISSING' ? 'source file missing (moved/renamed?)' : 'source changed' });
+      const now = sha(src);
+      if (now !== src.sha256) out.push({ query: q.query, path: src.path, why: now === 'MISSING' ? 'source file missing (moved/renamed?)' : (src.match ? 'new/changed matching migration' : 'source changed'), on_drift: q.on_drift });
     }
   }
   return out;
 }
 if (process.argv.includes('--rehash-derived')) {
   const m = JSON.parse(readFileSync(DERIVED, 'utf8'));
-  for (const q of m.queries) for (const src of q.derived_from) src.sha256 = fileSha(src.path);
+  for (const q of m.queries) for (const src of q.derived_from) src.sha256 = srcSha(src);
   writeFileSync(DERIVED, JSON.stringify(m, null, 2) + '\n');
   process.stdout.write(`gen-data-map: rehashed ${DERIVED}\n`);
   process.exit(0);
@@ -56,6 +67,7 @@ if (check) {
   if (drift.length) {
     process.stderr.write('gen-data-map: app logic behind a hand-copied data-map query changed:\n' +
       drift.map((d) => `  - ${d.query}: ${d.path} (${d.why})\n`).join('') +
+      [...new Set(drift.map((d) => d.on_drift).filter(Boolean))].map((t) => `  >> ${t}\n`).join('') +
       'Re-derive each listed query from its source (diff the source since the manifest hash), re-verify its numbers against the app,\n' +
       'update the query + SKILL.md example numbers, then run: node tools/ask-mesha-agent/gen-data-map.mjs --rehash-derived\n');
     process.exitCode = 1;

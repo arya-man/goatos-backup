@@ -101,6 +101,56 @@ Not the answer: per-tenant copies of tables/schemas (344× duplication and migra
   Adding a copied query = add its entry to the manifest, then rehash.
 - Known gap: sex/origin cuts of ADG (need `sex_scope.go`) are not in the SQL. Feed `fed_kg` is always 0.
 
+### Pens (model-agnostic)
+
+Words: **pen** = what the farm works and paints on the building: `Godel 1 Part 3` (G1P3), `Castro 1` (C1).
+**Group** = `Godel 1` / `Castro` — a grouping only, never a physical shed; the chat never calls it a shed.
+
+Two data models, and the team has not decided which one wins:
+
+1. **Label model (today):** animals sit on the group row (`goats.shed_id` = "Godel 1") plus
+   `goat_shed_partitions.partition_label` ('Part 3' or '3'); `shed_partitions` is the catalog of parts and its
+   `alias_location_id` points at the legacy per-pen `locations` row ("Godel 1 - Part 3", "Castro 1"). Legacy pen rows
+   hold 0 animals but weighing buckets / verification items still point at them. Finishing this model = switching those
+   legacy rows off (inactive/retired).
+2. **Pen-row model:** every pen is its own `locations` row and animals move onto it; the group becomes grouping only
+   (name prefix or `parent_location_id`).
+
+The chat must answer correctly in both without edits, so every pen answer goes through ONE resolver,
+`.agents/skills/mesha-data-map/references/pens.sql`: any `(location_id, partition_label)` -> `(park, group_name,
+pen_label, pen_key, "Godel 1 Part 3 (G1P3)")`, via (in order) catalog group+label, catalog alias row, group-name prefix
+split of the row name (same rule as `fcr.go` / `shed_partition_resolve.go`), else the row itself (undivided shed or a
+pen row). Inactive/retired rows and parts still resolve (history), `pen_key` starts with the park code (same names in
+both parks), and a record on a group row with no part is flagged `grp_only` (answer "part not recorded").
+The resolver is one `LATERAL ... ORDER BY k.lbl = '', k.o LIMIT 1` join; the LIMIT is what stops a record matching both
+its group+label key and a blank key (a hand-written join without it double-counted Y3 in testing).
+`pen-weighing-latest.sql` builds on it (latest individual + whole-pen weigh per pen, one query).
+
+**Test queries** (`references/pens-selftest.sql`; every row must be `ok=t`):
+
+```bash
+cd .agents/skills/mesha-data-map/references
+{ sed -n '/^WITH pl AS/,/^  WHERE g.merged_into_goat_id IS NULL)$/p' pens.sql; cat pens-selftest.sql; } | psql -X -A
+```
+
+Checks: every alive animal resolves to a real pen; animals per pen equal the direct partition counts; every weighing
+bucket of the last 30 days resolves to exactly one pen (never a bare group); no duplicate `(location, label)` keys;
+every catalog pen row and its group+label give the same `pen_key` (model-2 readiness); verification items, pc care
+tasks and feed rows resolve; retired legacy pen rows with no catalog entry still split into group + part.
+24/09/2026: 1,562 alive animals in 100 occupied pens (117 listed incl. empty active pens), 173 weighing buckets, 0 failures;
+CBE G1P3 last weighing 22/09/2026, 4 animals individually, 23.13 kg.
+
+**When the team migrates** (either way), `make mesha-data-map-guard` fails ("re-validate pens.sql for the new pen
+model") because `derived-queries.json` hashes `oploc.go`, `fcr.go`, `shed_partition_resolve.go` and every migration
+that touches `goat_shed_partitions` / `shed_partitions` / `locations` (a directory entry with a `match` regex,
+so a brand-new migration trips it too). Then:
+1. run the self-test on STG after the migration; fix `pens.sql` only if a row fails;
+2. model 2: check pen rows under a group (`parent_location_id` or name prefix) and animals with a blank label resolve
+   to the same `pen_key` as before (compare the `pens.sql` demo output before/after);
+3. model 1: check retired legacy rows still resolve old weighing buckets (history);
+4. re-ask: pens per Godel 1 (both parks), G1P3 CBE last weighing, which pen has most animals, Castro 2 CBE headcount;
+5. `node tools/ask-mesha-agent/gen-data-map.mjs --rehash-derived`.
+
 - **Live table index:** at startup and hourly, `server.mjs` lists every readable table (with approximate row
   counts) from the database catalog into the system prompt. New tables show up without editing the map; the
   map only adds meanings and traps. The agent must search this list before saying "not recorded".
