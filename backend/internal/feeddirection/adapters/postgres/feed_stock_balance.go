@@ -35,41 +35,37 @@ func (r *Repository) FeedStockIdentity(label string) (key, stockLabel string) {
 	return key, strings.TrimSpace(label)
 }
 
-// FeedBalanceKg answers how many kilograms of one feed one farm holds, for the sales module's
-// short-sale confirmation (sales/ports.FeedStockReader, maintainer decision 2026-09-23).
-//
-// It REUSES the Stock tab's own read rather than asking the ledger a second way. The balance is
-// purchased less fed less already sold, with the transitional concentrate fold folded in, and a
-// second implementation of that here would be a number that disagrees with the card the desk is
-// looking at the moment either side changes. The cost is reading a farm's whole item list to
-// answer about one feed, which is a handful of rows and the same read the Stock tab makes.
-//
-// known is false when the store has no ledger for that (farm, feed) at all. That is a DIFFERENT
-// fact from a balance of zero and the caller must not render it as "none left": a feed nobody has
-// ever bought through the ledger has no opinion to offer about a sale.
-func (r *Repository) FeedBalanceKg(ctx context.Context, tenantID, farmLabel, feedItemLabel string) (float64, bool, error) {
+// FeedBalancesKg reads the stock once for a sale, with no cross-request cache.
+// Keeping this snapshot request-local preserves immediate close/reopen readback.
+func (r *Repository) FeedBalancesKg(ctx context.Context, tenantID, farmLabel string) (map[string]float64, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
 	items, err := r.stockItems(ctx, tenantID, nil)
 	if err != nil {
-		return 0, false, fmt.Errorf("feed balance for sale: %w", err)
+		return nil, fmt.Errorf("feed balances for sale: %w", err)
 	}
-	// The card's family key, so a feed folded into a successor is answered at the balance the tab
-	// shows for it -- selling from a merged store draws on the family, not on one retired sack.
-	want, _ := r.FeedStockIdentity(feedItemLabel)
-	if want == "" {
-		return 0, false, nil
-	}
+	balances := make(map[string]float64)
 	for _, it := range items {
 		if !strings.EqualFold(it.FarmLabel, farmLabel) {
 			continue
 		}
-		if feedConfigNorm(it.FeedItemLabel) != want && it.FeedItemKey != want {
-			continue
-		}
 		kg, err := strconv.ParseFloat(it.BalanceKg, 64)
 		if err != nil {
-			return 0, false, fmt.Errorf("feed balance %q for sale: %w", it.BalanceKg, err)
+			return nil, fmt.Errorf("feed balance %q for sale: %w", it.BalanceKg, err)
 		}
-		return kg, true, nil
+		key, _ := r.FeedStockIdentity(it.FeedItemLabel)
+		balances[key] = kg
 	}
-	return 0, false, nil
+	return balances, nil
+}
+
+// FeedBalanceKg is the single-feed adapter for callers that need just one balance.
+func (r *Repository) FeedBalanceKg(ctx context.Context, tenantID, farmLabel, feedItemLabel string) (float64, bool, error) {
+	balances, err := r.FeedBalancesKg(ctx, tenantID, farmLabel)
+	if err != nil {
+		return 0, false, err
+	}
+	key, _ := r.FeedStockIdentity(feedItemLabel)
+	kg, known := balances[key]
+	return kg, known, nil
 }

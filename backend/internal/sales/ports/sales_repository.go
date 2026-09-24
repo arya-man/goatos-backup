@@ -211,8 +211,7 @@ type FPOLeadPage struct {
 type FeedStockReader interface {
 	// FeedStockIdentity maps substitutable feeds to one stock key and its display label.
 	FeedStockIdentity(feedItemLabel string) (key, stockLabel string)
-	// FeedBalanceKg is the current balance for (farm, feed). known is false when the store has no
-	// ledger for that feed at that farm at all -- which is a different fact from a balance of
-	// zero, and must not be reported to the desk as "you have none left".
-	FeedBalanceKg(ctx context.Context, tenantID, farmLabel, feedItemLabel string) (kg float64, known bool, err error)
+	// FeedBalancesKg reads one request-local snapshot keyed by stock identity.
+	// An absent key means unknown; a present zero is a known empty store.
+	FeedBalancesKg(ctx context.Context, tenantID, farmLabel string) (map[string]float64, error)
 }

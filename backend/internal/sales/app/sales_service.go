@@ -203,12 +203,14 @@ func (s *SalesService) weighAgainstTheStore(ctx context.Context, tenantID, farm 
 		d.FeedItem = label
 		grouped = append(grouped, d)
 	}
+	balances, err := s.feedStock.FeedBalancesKg(ctx, tenantID, farm)
+	if err != nil {
+		return err
+	}
 	short := []domain.FeedStockShortfall{}
 	for _, d := range grouped {
-		balance, known, err := s.feedStock.FeedBalanceKg(ctx, tenantID, farm, d.FeedItem)
-		if err != nil {
-			return err
-		}
+		key, _ := s.feedStock.FeedStockIdentity(d.FeedItem)
+		balance, known := balances[key]
 		if !known || balance >= d.Kg {
 			continue
 		}
