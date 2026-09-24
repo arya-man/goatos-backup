@@ -161,25 +161,18 @@ pen_rounds AS (
   UNION ALL
   SELECT pen_shed_id, pen_key, campaign_id, period_start_date, d, avg_kg, animals, 'individual_animal' FROM scan_pen_rounds
 ),
--- Only the sheds the scoped buckets resolved to, and the key from the sheet's own GENERATED
--- partition_key ('part 3' / '3' / 'whole') rather than a regexp over every row's label: the same
--- scrub result at a fraction of the cost on a 50k-row sheet.
-feed_rows AS (
-  SELECT r.shed_id AS pen_shed_id,
-         CASE WHEN r.partition_key = 'whole' THEN ''
-              WHEN r.partition_key LIKE 'part %' THEN btrim(substr(r.partition_key, 6))
-              WHEN r.partition_key LIKE 'pt %' THEN btrim(substr(r.partition_key, 4))
-              ELSE r.partition_key END AS pen_key,
-         COALESCE(NULLIF(r.partition_label, 'whole'), '') AS partition_label,
-         i.feed_day, i.park_id, r.feed_item_key, r.quantity_kg, r.head_count, r.shed_tag_key, r.breed_key
-  FROM feed_direction_issue_rows r
-  JOIN feed_direction_issues i
-    ON i.tenant_id = r.tenant_id AND i.feed_direction_issue_id = r.feed_direction_issue_id
-  WHERE r.tenant_id = $1::uuid
-    AND i.park_id = ANY($2::uuid[])
-    AND i.feed_day >= $8::date AND i.feed_day < $9::date
-    AND i.state IN ('issued','amended','locked')
-    AND r.shed_id IN (SELECT pen_shed_id FROM pen_map)
+-- The feed side, from the feed-day rollup (migration 000404): one pre-priced row per
+-- (park, pen, business day) instead of every feed cell of the window. Only the sheds the scoped
+-- buckets resolved to. Every column is additive over days, so a window or a segment [d_prev, d)
+-- is the sum of its day rows -- see fcr_rollup.go for the grain and the refresh contract.
+feed_days AS (
+  SELECT fd.pen_shed_id, fd.pen_key, fd.feed_day, fd.feed_kg, fd.feed_cost, fd.unpriced_kg,
+         fd.blocked_cells, fd.head_days, fd.feed_label
+  FROM growth_fcr_pen_feed_days fd
+  WHERE fd.tenant_id = $1::uuid
+    AND fd.park_id = ANY($2::uuid[])
+    AND fd.feed_day >= $8::date AND fd.feed_day < $9::date
+    AND fd.pen_shed_id IN (SELECT pen_shed_id FROM pen_map)
 )`
 
 // The scrub applied to the bucket-derived label and to the feed sheet's label. Written twice as
@@ -273,11 +266,11 @@ weighed_mix AS (
 ),
 window_feed AS (
   SELECT p.pen_shed_id, p.pen_key,
-         sum(fr.quantity_kg) FILTER (WHERE fr.quantity_kg IS NOT NULL) AS feed_kg,
-         count(fr.feed_day) FILTER (WHERE fr.quantity_kg IS NULL)::int AS blocked_cells,
-         min(fr.partition_label) FILTER (WHERE fr.partition_label <> '') AS feed_label
+         sum(fd.feed_kg) AS feed_kg,
+         COALESCE(sum(fd.blocked_cells), 0)::int AS blocked_cells,
+         min(fd.feed_label) AS feed_label
   FROM pens p
-  LEFT JOIN feed_rows fr ON fr.pen_shed_id = p.pen_shed_id AND fr.pen_key = p.pen_key
+  LEFT JOIN feed_days fd ON fd.pen_shed_id = p.pen_shed_id AND fd.pen_key = p.pen_key
   GROUP BY p.pen_shed_id, p.pen_key
 )
 SELECT p.pen_shed_id::text, p.pen_key,
@@ -338,64 +331,35 @@ segments AS (
   UNION ALL
   SELECT pen_shed_id, pen_key, d_prev, d, animals, adg_g::float8, 'individual_animal', paired FROM scan_seg
 ),
--- Same-farm latest load on or before the feed day: the price rule Feed analytics expenditure
--- already applies, so Feed and Weighing can never disagree about what a day of feed cost.
-feed_price AS (
-  SELECT fr.park_id, fr.feed_item_key, fr.feed_day, price.per_kg
-  FROM (SELECT DISTINCT park_id, feed_item_key, feed_day FROM feed_rows) fr
-  LEFT JOIN LATERAL (
-    SELECT COALESCE(p.per_kg_cost, p.total_cost / NULLIF(p.quantity_kg, 0))::float8 AS per_kg
-    FROM feed_purchases p
-    WHERE p.tenant_id = $1::uuid AND p.park_id = fr.park_id
-      AND p.feed_item_key = fr.feed_item_key
-      AND p.purchase_date <= fr.feed_day
-    ORDER BY p.purchase_date DESC, p.batch_no DESC
-    LIMIT 1
-  ) price ON true
-),
--- THE PRICE IS ATTACHED TO THE FEED ROW BEFORE THE SEGMENT JOIN, not after it. feed_price is 1:1
--- on (park_id, feed_item_key, feed_day) -- it is built from the DISTINCT of exactly that key -- so
--- this LEFT JOIN neither multiplies nor drops a feed row, and seg_feed sees the same rows with the
--- same per_kg it saw when the price was joined downstream. The order is the fix: joined after
--- segments (a UNION ALL of window aggregates the planner estimates at ~2 rows), the price join
--- ran as a NESTED LOOP of every in-segment feed row against every price row -- 16,922 x 649 =
--- 11M join-filter comparisons, 1.7s of a 1.9s statement on the 2026-09-24 OCI clone, and the
--- /growth-director/fcr 15s timeouts under a dashboard reload burst. Here both inputs carry real
--- estimates (the feed sheet and its distinct keys), so the planner hashes them.
--- projection-review: membership=every feed_rows row, unchanged; group_key=none here (seg_feed
--- groups by the segment key as before); join_cardinality=feed_price is unique on (park_id,
--- feed_item_key, feed_day) -- the DISTINCT of that key with a LIMIT 1 lateral -- so the LEFT JOIN is
--- 1:0..1 per feed row; pagination=NONE, one bounded window read; scope=tenant + park ANY, the price
--- joins on the feed row's own park_id so a load never prices another park's feed.
-priced_feed_rows AS MATERIALIZED (
-  SELECT fr.pen_shed_id, fr.pen_key, fr.feed_day, fr.quantity_kg, fp.per_kg
-  FROM feed_rows fr
-  LEFT JOIN feed_price fp
-    ON fp.park_id = fr.park_id AND fp.feed_item_key = fr.feed_item_key AND fp.feed_day = fr.feed_day
-),
+-- Feed per segment from the rollup's day rows in [d_prev, d). The rows are already priced at the
+-- same-farm latest load on or before their day (the rule Feed analytics expenditure applies), so
+-- no price join happens here -- the 16,922 x 649 nested loop of the 2026-09-24 incident (P3) is
+-- gone rather than reordered.
+-- projection-review: membership=every rollup day row of the segment's pen inside [d_prev, d);
+-- group_key=(pen_shed_id, pen_key, d_prev, d) on both seg_feed and seg_heads and on the final
+-- join; join_cardinality=feed_days is 0..N day rows per segment, COLLAPSED by the aggregate, and
+-- segments is unique on its group key (one per round pair), so no side multiplies; pagination=
+-- NONE, one bounded window read; scope=tenant + park ANY + the window's business days.
 seg_feed AS (
   SELECT sg.pen_shed_id, sg.pen_key, sg.d_prev, sg.d,
-         -- NEVER COALESCE quantity_kg: NULL is a blocked cell and stays out of the sum.
-         sum(fr.quantity_kg) FILTER (WHERE fr.quantity_kg IS NOT NULL)::float8 AS feed_kg,
-         sum(fr.quantity_kg * fr.per_kg) FILTER (WHERE fr.quantity_kg IS NOT NULL AND fr.per_kg IS NOT NULL)::float8 AS feed_cost,
-         COALESCE(sum(fr.quantity_kg) FILTER (WHERE fr.quantity_kg IS NOT NULL AND fr.per_kg IS NULL), 0)::float8 AS unpriced_kg,
-         count(*) FILTER (WHERE fr.quantity_kg IS NULL AND fr.feed_day IS NOT NULL)::int AS blocked_cells
+         -- NULL feed_kg is a day whose every cell was blocked; it stays out of the sum.
+         sum(fd.feed_kg)::float8 AS feed_kg,
+         sum(fd.feed_cost)::float8 AS feed_cost,
+         COALESCE(sum(fd.unpriced_kg), 0)::float8 AS unpriced_kg,
+         COALESCE(sum(fd.blocked_cells), 0)::int AS blocked_cells
   FROM segments sg
-  LEFT JOIN priced_feed_rows fr
-    ON fr.pen_shed_id = sg.pen_shed_id AND fr.pen_key = sg.pen_key
-   AND fr.feed_day >= sg.d_prev AND fr.feed_day < sg.d
+  LEFT JOIN feed_days fd
+    ON fd.pen_shed_id = sg.pen_shed_id AND fd.pen_key = sg.pen_key
+   AND fd.feed_day >= sg.d_prev AND fd.feed_day < sg.d
   GROUP BY sg.pen_shed_id, sg.pen_key, sg.d_prev, sg.d
 ),
 seg_heads AS (
-  SELECT sg.pen_shed_id, sg.pen_key, sg.d_prev, sg.d, sum(g.heads)::float8 AS head_days
+  SELECT sg.pen_shed_id, sg.pen_key, sg.d_prev, sg.d, sum(fd.head_days)::float8 AS head_days
   FROM segments sg
-  JOIN (
-    SELECT pen_shed_id, pen_key, feed_day, shed_tag_key, breed_key, max(head_count) AS heads
-    FROM feed_rows
-    WHERE head_count IS NOT NULL
-    GROUP BY pen_shed_id, pen_key, feed_day, shed_tag_key, breed_key
-  ) g ON g.pen_shed_id = sg.pen_shed_id AND g.pen_key = sg.pen_key
-     AND g.feed_day >= sg.d_prev AND g.feed_day < sg.d
+  JOIN feed_days fd
+    ON fd.pen_shed_id = sg.pen_shed_id AND fd.pen_key = sg.pen_key
+   AND fd.feed_day >= sg.d_prev AND fd.feed_day < sg.d
+   AND fd.head_days IS NOT NULL
   GROUP BY sg.pen_shed_id, sg.pen_key, sg.d_prev, sg.d
 )
 SELECT sg.pen_shed_id::text, sg.pen_key, sg.d_prev::text, sg.d::text, sg.animals, sg.adg_g, sg.mode, sg.paired,
@@ -453,6 +417,11 @@ func (r *Repository) getFCRUncached(ctx context.Context, tenantID string, parkID
 	if err != nil {
 		return domain.FCRReport{}, err
 	}
+	// The feed side is summed from the feed-day rollup: bring the parks being read up to date
+	// first, so a feed or price write committed before this read is always in its answer.
+	if err := r.refreshFCRRollupForRead(ctx, tenantID, parkIDs); err != nil {
+		return domain.FCRReport{}, err
+	}
 	pens, err := r.fcrPens(ctx, tenantID, parkIDs, periodStart, periodEnd, startDate, endDate, weighingCategory, idMap)
 	if err != nil {
 		return domain.FCRReport{}, err
@@ -477,7 +446,8 @@ func (r *Repository) getFCRUncached(ctx context.Context, tenantID string, parkID
 // projection-review: membership=one row per (pen_shed_id, pen_key) with >=1 weighing round in the
 // window; group_key=(pen_shed_id, pen_key) on every side; join_cardinality=pen_rounds is collapsed
 // by the aggregate, cohort is a correlated aggregate over goats x goat_shed_partitions (0..1 per
-// goat, PK (tenant_id, goat_id)), window_feed is a correlated aggregate over feed_rows, locations
+// goat, PK (tenant_id, goat_id)), window_feed sums the pen's feed-day rollup rows (0..N per pen,
+// collapsed by the aggregate; rollup PK (tenant, park, pen, day)), locations
 // joins are on primary key -- no side multiplies a pen row; pagination=NONE, bounded by the pens
 // weighed in one window (~60 on the live estate); scope=tenant + park ANY + accepted_at window.
 //
@@ -582,12 +552,12 @@ func (r *Repository) fcrPens(ctx context.Context, tenantID string, parkIDs []str
 //
 // projection-review: membership=one row per (pen, earlier round, later round) where the later
 // round's date is after the earlier's; group_key=(pen_shed_id, pen_key, d_prev, d) on the segment
-// side, matched to feed_rows on (pen_shed_id, pen_key) with feed_day in [d_prev, d);
-// join_cardinality=feed_rows is 0..N per segment and is COLLAPSED by the aggregate, feed_price is
-// 0..1 per (park, item, day) by its DISTINCT, scan pairs join two round rows per animal (0..1 each,
-// by the DISTINCT ON) and are collapsed by avg(); head_days pre-collapses head_count with max() per
-// (pen, feed_day, shed_tag_key, breed_key) BEFORE summing because head_count repeats on every feed
-// item cell and every session of a day; pagination=NONE, bounded by rounds x pens in one window;
+// side, matched to the feed-day rollup on (pen_shed_id, pen_key) with feed_day in [d_prev, d);
+// join_cardinality=rollup day rows are 0..N per segment (PK tenant, park, pen, day) and are
+// COLLAPSED by the aggregate, prices are applied per cell inside the rollup refresh, scan pairs join two round rows per animal (0..1 each,
+// by the DISTINCT ON) and are collapsed by avg(); head_days is the rollup's per-day sum of
+// max(head_count) per (shed_tag_key, breed_key), pre-collapsed at refresh because head_count
+// repeats on every feed item cell and every session of a day; pagination=NONE, bounded by rounds x pens in one window;
 // scope=tenant + park ANY + accepted_at window + feed_day window.
 //
 //	PRODUCER UNIQUENESS vs CONSUMER MATCH KEYS, side by side:
