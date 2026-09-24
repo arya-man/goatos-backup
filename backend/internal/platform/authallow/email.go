@@ -53,12 +53,6 @@ type DynamicEmailSource interface {
 	EmailAllowed(ctx context.Context, tenantID, normalizedEmail string) bool
 }
 
-// AllowsWithDynamic is the union rule for the static env set plus a dynamic
-// source. Enforcement stays keyed on the STATIC set being non-empty — an empty
-// env allowlist means "allowlist disabled" (local dev), exactly as
-// EmailSet.Allows has always behaved, regardless of what the dynamic source
-// holds. When enforced, an email passes if EITHER set contains it; the
-// email-verified requirement applies to both.
 // DynamicEmailSourceErr is a DynamicEmailSource that can tell "not on the list"
 // apart from "the list could not be read".
 type DynamicEmailSourceErr interface {
@@ -88,6 +82,12 @@ func AllowsWithDynamicErr(ctx context.Context, set EmailSet, dynamic DynamicEmai
 	return dynamic.EmailAllowed(ctx, tenantID, normalized), nil
 }
 
+// AllowsWithDynamic is the union rule for the static env set plus a dynamic
+// source. Enforcement stays keyed on the STATIC set being non-empty — an empty
+// env allowlist means "allowlist disabled" (local dev), exactly as
+// EmailSet.Allows has always behaved, regardless of what the dynamic source
+// holds. When enforced, an email passes if EITHER set contains it; the
+// email-verified requirement applies to both.
 func AllowsWithDynamic(ctx context.Context, set EmailSet, dynamic DynamicEmailSource, tenantID, email string, verified *bool) bool {
 	if len(set) == 0 {
 		return true
