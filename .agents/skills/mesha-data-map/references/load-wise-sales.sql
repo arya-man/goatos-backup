@@ -1,0 +1,56 @@
+-- App: Sales > Load-wise (GET /procurement/loadwise; procurement/adapters/postgres/loadwise_repository.go
+-- + domain/loadwise.go). One row per purchase load. Edit only the load filter in the last WHERE (NULL = all).
+-- sold = tagged GoatOS sales (goats sold, via goat_sale_allocations) + pre-GoatOS prior outcomes (counts only);
+-- sold_value = deal value split evenly over each deal's tagged animals + prior sold value;
+-- sale_price_per_kg = legacy weighed columns ONLY (sold_weighed_value / sold_weight_kg), NULL when not weighed out.
+-- fattening/days on farm: fattening_days_final (legacy sold-out loads) else days_on_farm_so_far = today - arrived_on (NOT purchase_date).
+-- tagged_rate_per_kg = extra estimate (deal Rs/kg weighted by allocation weight) - NOT on the screen; label it.
+WITH member AS (
+  SELECT DISTINCT ON (plg.goat_id) plg.goat_id, plg.load_id
+  FROM procurement_load_goats plg WHERE plg.current_state = 'accepted_herd_intake'
+  ORDER BY plg.goat_id, plg.intake_accepted_at DESC NULLS LAST, plg.created_at DESC, plg.load_goat_id DESC),
+cnt AS (SELECT sales_deal_id, count(*)::numeric tagged FROM goat_sale_allocations WHERE status='tagged' GROUP BY 1),
+ds AS (
+  SELECT a.goat_id, a.weight_kg, CASE WHEN d.sales_value > 0 THEN d.sales_value / cnt.tagged END share,
+         d.sales_value / NULLIF(d.total_weight_kg,0) deal_rate
+  FROM goat_sale_allocations a JOIN sales_deals d ON d.id = a.sales_deal_id JOIN cnt USING (sales_deal_id)
+  WHERE a.status='tagged'),
+o AS (
+  SELECT m.load_id, ds.share, ds.weight_kg, ds.deal_rate, lower(g.species) species,
+    CASE WHEN g.lifecycle_status='sold' OR g.exit_reason='sold' THEN 'sold'
+         WHEN g.lifecycle_status='dead' OR g.exit_reason='died' THEN 'dead'
+         WHEN g.lifecycle_status IN ('culled','transferred','lost') OR g.exit_reason IN ('culled','transferred','lost') THEN 'other'
+         WHEN g.lifecycle_status IN ('alive','sick','under_treatment','quarantine','icu') THEN 'remaining'
+         ELSE 'unaccounted' END outcome
+  FROM member m JOIN goats g ON g.goat_id = m.goat_id LEFT JOIN ds ON ds.goat_id = m.goat_id),
+s AS (
+  SELECT load_id, count(*) linked,
+    count(*) FILTER (WHERE outcome='sold') sold, count(*) FILTER (WHERE outcome='dead') dead,
+    count(*) FILTER (WHERE outcome='other') other, count(*) FILTER (WHERE outcome='remaining') remaining,
+    count(*) FILTER (WHERE outcome='remaining' AND species='goat') remaining_goats,
+    count(*) FILTER (WHERE outcome='remaining' AND species='sheep') remaining_sheep,
+    coalesce(sum(share) FILTER (WHERE outcome='sold'),0) sold_value,
+    sum(weight_kg*deal_rate) FILTER (WHERE outcome='sold') / NULLIF(sum(weight_kg) FILTER (WHERE outcome='sold' AND deal_rate IS NOT NULL),0) tagged_rate
+  FROM o GROUP BY 1),
+p AS (
+  SELECT load_id, coalesce(sum(animal_count) FILTER (WHERE outcome='sold'),0) prior_sold,
+    coalesce(sum(sales_value) FILTER (WHERE outcome='sold'),0) prior_value,
+    coalesce(sum(animal_count) FILTER (WHERE outcome='died'),0) prior_dead
+  FROM procurement_load_prior_outcomes GROUP BY 1)
+SELECT pl.context->>'load_ref' load_no, pl.context->>'farm' farm, pl.purchase_date, pl.arrived_on,
+  coalesce(nullif(pl.expected_count,0), coalesce(s.linked,0)+coalesce(p.prior_sold,0)+coalesce(p.prior_dead,0)) purchased,
+  coalesce(s.linked,0) linked_in_app,
+  coalesce(s.sold,0)+coalesce(p.prior_sold,0) sold, coalesce(s.sold,0) sold_tagged, coalesce(p.prior_sold,0) sold_prior,
+  coalesce(s.dead,0)+coalesce(p.prior_dead,0) dead, coalesce(s.other,0) other_exits,
+  coalesce(s.remaining,0) remaining, s.remaining_goats, s.remaining_sheep,
+  round(coalesce(s.sold_value,0)+coalesce(p.prior_value,0)) sold_value_rs,
+  round(pl.sold_weighed_value/NULLIF(pl.sold_weight_kg,0),1) sale_price_per_kg,
+  round(s.tagged_rate,1) tagged_rate_per_kg_estimate,
+  round((pl.animal_cost+coalesce(pl.transport_cost,0)+coalesce(pl.other_cost,0))/NULLIF(pl.purchase_weight_kg,0),1) landed_cost_per_kg,
+  round(pl.purchase_weight_kg/NULLIF(nullif(pl.expected_count,0),0),1) avg_purchase_kg,
+  pl.fattening_days fattening_days_final,
+  CASE WHEN coalesce(s.remaining,0) > 0 THEN (now() AT TIME ZONE 'Asia/Kolkata')::date - pl.arrived_on END days_on_farm_so_far,
+  (now() AT TIME ZONE 'Asia/Kolkata')::date - pl.purchase_date days_since_purchase
+FROM procurement_loads pl LEFT JOIN s ON s.load_id=pl.load_id LEFT JOIN p ON p.load_id=pl.load_id
+WHERE (pl.context->>'load_ref') = coalesce(NULL, pl.context->>'load_ref')  -- e.g. replace NULL with '131'
+ORDER BY pl.purchase_date DESC;

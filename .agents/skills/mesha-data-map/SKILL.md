@@ -19,7 +19,7 @@ grains and an example per view: `references/views.generated.md` (regenerate with
 | Weighing verification pending/rework | `weighing_verification_status` | pending, rework, verified, oldest_pending_at | none (current) |
 | Headcount / herd breakdown now | `animal_current_scope` | park_label, shed_label, species, sex, breed, management_stage, lifecycle_status | none (current) |
 | Animals sold / exited / entered in a period | `animals_base` | exit_reason ('sold','died'), lifecycle_status | `exit_business_day`, `entry_date` |
-| Deaths / mortality rate | `mortality_base` | deaths, active population, kid/adult splits | `event_date` |
+| Deaths / mortality rate | `public.goats` (see Mortality rate; not `mortality_base`) | exit_reason 'died', lifecycle_status 'dead', species | IST `exited_at` |
 | Births, transfers, shifts | `counts_movement_daily` | per pen movement counts | `event_date` |
 | Feed directed vs fed | `feed_adherence` | directed_kg, fed_kg, variance_kg, blocked | `feed_day` |
 | Feed plan detail (session/item) | `feed_direction_current` | session, feed item, blocked reason | `feed_day` |
@@ -48,10 +48,11 @@ grains and an example per view: `references/views.generated.md` (regenerate with
 - **Never average an average.** `scan_weight_avg_kg`, `shed_weight_avg_kg`, medians, rates: weight by `scan_count`
   (`sum(avg*scan_count)/sum(scan_count)`) or report per row.
 - **ADG / daily gain:** run references/adg-by-park.sql as-is (see "Metric definitions"). Never invent a proxy and call it ADG.
-- **Sales:** no sales/deal view is exposed. "Animals sold" = `animals_base` `exit_reason='sold'` by
-  `exit_business_day`. No prices/revenue in ceo_ai.
+- **Sales:** no sales/deal view in ceo_ai; money is in `public.sales_deals` (see Two-source traps). "Animals sold" = `animals_base`
+  `exit_reason='sold'` by `exit_business_day` (= goats register = tagged allocations).
 - **Parks** in data are full names: `Coimbatore` (CBE), `Channapatna` (CPT). Filter on `park_label`.
-- **Pen vs shed:** columns say `shed_label`; say **pen** in the answer.
+- **Pen vs shed:** the PEN is the part (`shed_label` + `partition_label`, e.g. Godel 1 Part 3 = G1P3, Castro 1 = Castro part '1');
+  `shed_label` alone is the shed/group. "Which pen has most" ranks parts (with park); shed totals are context only.
 - **Dates in answers:** render `DD/MM/YYYY`.
 - **Base views (`*_base`, `animal_current_scope`)** are one row per entity: aggregate, don't dump rows.
 - **Weighing is isolated** from herd/vaccination: don't join weighing to vaccination to explain it.
@@ -128,17 +129,20 @@ Result 24/09/2026: 1562 (CBE 850, CPT 712). Caveat: the view does not drop merge
 
 **Animals sold (period):** `exit_reason='sold'` (or NULL reason with status 'sold'), IST exit date, inclusive.
 `SELECT count(*) FROM ceo_ai.animals_base WHERE exit_reason='sold' AND exit_business_day BETWEEN :from AND :to;`
-(155 for 03/08–22/09/2026). There is no price, revenue or deal data.
+(155 for 03/08–22/09/2026; Sep 2026 = 129). Deal money/counts: see Two-source traps.
 
-**Mortality rate** (`/counts/mortality`): deaths in the window / the LIVE head count NOW * 100, 1 decimal.
-The denominator is not an average or opening population (2026-09-18 decision).
+**Mortality rate** (`/counts/mortality`, `internal/counts/adapters/postgres/mortality.go`): deaths in the window / the LIVE head
+count NOW * 100, 1 decimal (2026-09-18 decision). Deaths come from `public.goats` with the app's predicate, not `mortality_base`
+(migration 000358 redefines that view with `exit_reason IN ('death','dead','mortality')`, which the goats CHECK never allows -> 0).
 ```sql
-SELECT m.park_label, sum(deaths) deaths, round(sum(deaths)*100.0/max(c.live),1) rate_pct
-FROM ceo_ai.mortality_base m JOIN (SELECT park_label, count(*) live FROM ceo_ai.animal_current_scope
-  WHERE lifecycle_status='alive' GROUP BY 1) c USING (park_label)
-WHERE event_date BETWEEN :from AND :to GROUP BY 1;
+WITH d AS (SELECT p.name park_label, g.species FROM goats g JOIN locations p ON p.location_id = g.park_id
+  WHERE (g.exit_reason='died' OR (g.exit_reason IS NULL AND g.lifecycle_status='dead')) AND g.merged_into_goat_id IS NULL
+    AND (g.exited_at AT TIME ZONE 'Asia/Kolkata')::date BETWEEN :from AND :to),
+live AS (SELECT park_label, count(*) live FROM ceo_ai.animal_current_scope WHERE lifecycle_status='alive' GROUP BY 1)
+SELECT park_label, count(d.*) deaths, count(*) FILTER (WHERE species='goat') goats, count(*) FILTER (WHERE species='sheep') sheep,
+  round(count(d.*)*100.0/max(live.live),1) rate_pct FROM live LEFT JOIN d USING (park_label) GROUP BY 1;
 ```
-Do NOT use `mortality_base.active_population` as the denominator: it counts a broader status set.
+Sep 2026: CBE 3 (1 goat, 2 sheep), CPT 0. Cause: `health_death_causes` / death `health_cases` are mostly empty: say cause not recorded.
 
 **Cost per kg gain** (Weighing > FCR tab "Feed cost per kg gain", `GET /growth-director/fcr`,
 `backend/internal/growthdirector/adapters/postgres/fcr.go` fcrSegmentsSQL + `domain/fcr.go`). Segment = two consecutive
@@ -179,7 +183,33 @@ UNION ALL  -- whole-pen weighs: weighing_shed_observations, withdrawn_at IS NULL
            -- average_weight_kg as weight_kg, animal_count, pen_sex ('male'/'female'/'mixed')
 ```
   animal_key must reuse identity_scope.go's tag->canonical map, and sex/pen_sex must reuse sex_scope.go.
-- `animal_current_scope` / `mortality_base` don't exclude merged goats. `feed_adherence.fed_kg` is always 0.
+- `animal_current_scope` doesn't exclude merged goats (0 merged on 24/09/2026). `feed_adherence.fed_kg` is always 0.
+
+## Two-source traps (verified 24/09/2026 against code + stg DB)
+
+| Question | Use | Not | Why / check |
+|---|---|---|---|
+| Deaths | goats predicate (Mortality rate SQL) | `mortality_base` | 000358 view filter -> 0; 6 dead all-time, 3 in Sep |
+| Animals sold | goats register / `animals_base` sold (= `goat_sale_allocations` tagged, 160) | `sales_deals.animal_count` (706, incl. pre-app deals) | give register, mention deal count when asked "in total" |
+| Revenue | `sales_deals` status 'Deal Closed', `sum(sales_value)` by `sale_date`; product split via `sales_deal_lines` (Manure is a product_type) | any "Advance Paid"/open status = pipeline, not revenue | Sep 2026: Rs 14,71,114 on 10 deals; no open deals on 24/09 |
+| Money received | `payment_received` (running total: advance seeded by 000227 + each `sales_deal_payments` row) | advance + ledger + payment_received added | balance = greatest(value - received, 0) (`sales/domain/sales.go` PaymentBalance). NULL = not tracked. If ledger re-enters the advance, received doubles: flag as double count |
+| Load-wise sold / price | `references/load-wise-sales.sql` | only allocations, or only legacy columns | screen price/kg = legacy weighed columns only; tagged rate = labelled estimate |
+| Load purchased / linked | `expected_count` else attributed; `linked_in_app` separately | linked count as purchased | loads 136/131 fully linked; 113/100/101 are pre-GoatOS (prior outcomes) |
+| Load cost | `procurement_loads.animal_cost/transport_cost/other_cost` (totals) | + `procurement_load_cost_lines` | lines are the breakdown (31 rows) |
+| Days on farm | today - `arrived_on` while animals remain | `purchase_date`, NULL `fattening_days` | fattening_days only on sold-out legacy loads |
+| Births | `counts_movement_daily.births` + `goat_births` (created_at IST) | `goats.dob`, `origin_type='birth'` counts, goats.created_at | placeholder DOBs (09/05/2026 x403, 21/07/2024 x77), bulk import 04/08 |
+| Vaccinations done | `vaccination_completions`, split `sop_submission_item_id` NOT NULL (in app) vs imported | total only | Aug 2026: 1,073 doses / 710 animals in app; 1,672 / 1,055 incl. imports |
+| Vaccinations due | `vaccination_obligations_base` status scheduled/deferred | canceled rows (76k), `vaccination_shed_status.due` sums | this week (21-27/09): 3, CPT Yashoda; overdue 0 |
+| Headcount | `lifecycle_status='alive'` | base views unfiltered | 1,562 (693 goats, 869 sheep) |
+| Animal's pen | `goats.shed_id` + `goat_shed_partitions.partition_label` | `current_location_id` (18 differ) | legacy 'Godel 1 - Part N' rows hold 0 animals |
+| Avg herd weight | `references/herd-avg-weight.sql` | averaging `weighing_capture_activity` rows | 28.2 kg over 723 of 1,562 alive |
+| Feed stock / days | `references/feed-stock-days-left.sql` | `inventory_stock_position` | CBE concentrates 15 days (adult 201, kids 454 kg/day) |
+| Feed owed | `payment_status='Pending'` bills: total_cost - greatest(payment_released, ledger) | 'Paid' rows (owed = 0, `procurement/domain/feed_purchase.go`) | NULL status = 40 sheet imports with no bill: unknown |
+| Preventive care done/open | `submitted_at` / status | `work_state` alone | work_state stays delayed/scheduled after verification; canceled rows keep status open |
+| Shifts done | `shifting_events` event_status 'applied' by applied_at IST | authorized/pending, counts_movement_daily | this week: 2 applied (CPT) |
+| Staff hours | `workforce_clock_entries` status closed + auto_closed flagged | summing auto_closed as real | auto_closed = forgotten clock-out closed by system |
+| Movement analytics | `goat_location_history` minus correction/repair/revert/swap reasons | all rows | |
+| Count projections | none | `count_projection_snapshots` | all 144 blocked |
 
 ## Business notes (edit me)
 
