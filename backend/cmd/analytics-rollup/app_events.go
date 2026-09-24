@@ -284,6 +284,34 @@ SELECT w.event_date IS NULL
 FROM (SELECT 1) one
 LEFT JOIN analytics.rollup_day_watermark w ON w.tenant_id=$1 AND w.event_date=$2`
 
+// rawWindowArchivedSQL: any archive ledger day (UTC received day) whose export
+// was verified (deletion may have started) overlapping the day's raw read
+// window [D-6, D+2).
+const rawWindowArchivedSQL = `
+SELECT min(archive_date)::text FROM analytics.app_events_archive
+WHERE verified_at IS NOT NULL
+AND (archive_date::timestamp AT TIME ZONE 'UTC') < $2
+AND ((archive_date + 1)::timestamp AT TIME ZONE 'UTC') > $1`
+
+func rawWindowIntact(ctx context.Context, pool *pgxpool.Pool, cfg config, now time.Time) error {
+	day := cfg.SourceDate
+	start, end := day.AddDate(0, 0, -6), day.AddDate(0, 0, 2)
+	if cfg.RetentionDays > 0 {
+		cutoff := now.UTC().Truncate(24*time.Hour).AddDate(0, 0, -cfg.RetentionDays)
+		if start.Before(cutoff) {
+			return fmt.Errorf("refusing to recompute %s: its raw window starts %s, before the %d-day retention cutoff %s", day.Format("2006-01-02"), start.Format("2006-01-02"), cfg.RetentionDays, cutoff.Format("2006-01-02"))
+		}
+	}
+	var archived *string
+	if err := pool.QueryRow(ctx, rawWindowArchivedSQL, start, end).Scan(&archived); err != nil {
+		return fmt.Errorf("check archived raw window %s: %w", day.Format("2006-01-02"), err)
+	}
+	if archived != nil {
+		return fmt.Errorf("refusing to recompute %s: raw events for %s were archived to cold storage; existing summaries are kept", day.Format("2006-01-02"), *archived)
+	}
+	return nil
+}
+
 func rollupDayStale(ctx context.Context, pool *pgxpool.Pool, cfg config) (bool, error) {
 	day := cfg.SourceDate
 	var stale bool
@@ -309,6 +337,12 @@ func runAppEventsAndFinish(ctx context.Context, pool *pgxpool.Pool, cfg config, 
 		one := cfg
 		one.SourceDate = cfg.SourceDate.AddDate(0, 0, -offset)
 		date := one.SourceDate.Format("2006-01-02")
+		// Never recompute a day from raw rows that were archived and deleted:
+		// that would overwrite good summaries with partial data (applies to
+		// -force-recompute and explicit old -source-date backfills too).
+		if err := rawWindowIntact(ctx, pool, one, time.Now()); err != nil {
+			return failRun(ctx, pool, runID, started, rows, bytes, err)
+		}
 		if !cfg.ForceRecompute {
 			stale, err := rollupDayStale(ctx, pool, one)
 			if err != nil {
