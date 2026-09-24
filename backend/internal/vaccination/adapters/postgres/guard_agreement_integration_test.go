@@ -161,7 +161,12 @@ WHERE oi.tenant_id=$1 AND oi.target_id=$2 AND pr.dose_code=$3 AND oi.status IN (
 	if n := countRowsVacc(t, ctx, pool, `SELECT count(*) FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2 AND schedule_basis='anchor_missing_catch_up'`, impTenant, adultNoDOB); n == 0 {
 		t.Fatal("adult without DOB has no anchor_missing_catch_up row")
 	}
-	if n := countRowsVacc(t, ctx, pool, `SELECT count(*) FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2 AND schedule_basis='anchor_missing_catch_up'`, impTenant, adultWithDOB); n != 0 {
-		t.Fatalf("adult with DOB has %d catch-up rows, want 0", n)
+	// A known DOB anchors every birth_age rule, so no birth_age row may use the catch-up basis.
+	// Its post_arrival rules still have no arrival anchor (no procurement row, no entry_date), so
+	// catch-up rows there are the approved B3 behaviour, not a leak.
+	if n := countRowsVacc(t, ctx, pool, `
+SELECT count(*) FROM obligation_instances oi JOIN protocol_rules pr ON pr.tenant_id=oi.tenant_id AND pr.rule_id=oi.rule_id
+WHERE oi.tenant_id=$1 AND oi.target_id=$2 AND oi.schedule_basis='anchor_missing_catch_up' AND pr.trigger_type='birth_age'`, impTenant, adultWithDOB); n != 0 {
+		t.Fatalf("adult with DOB has %d birth_age catch-up rows, want 0", n)
 	}
 }
