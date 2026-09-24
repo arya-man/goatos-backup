@@ -400,6 +400,7 @@ object AppModule {
         cache: BootstrapCache,
         deviceStore: DeviceStore,
         @ApplicationContext context: Context,
+        appScope: CoroutineScope,
     ): BootstrapRepository =
         DefaultBootstrapRepository(
             api = api,
@@ -411,6 +412,8 @@ object AppModule {
             // system settings long after this repository was constructed, and the heartbeat that
             // follows must carry the CURRENT answer.
             notificationsEnabled = { areNotificationsEnabled(context) },
+            // Heartbeat/register run beside the nav load, never in front of it.
+            deviceReconcileScope = appScope,
         )
 
     @Provides
