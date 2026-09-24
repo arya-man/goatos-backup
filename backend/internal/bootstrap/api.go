@@ -642,7 +642,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	processIntegrityService := processintegrityapp.NewService(processIntegrityRepo)
 	processIntegrityHandler := processintegrityhttp.NewHandler(processIntegrityService, log)
 	vaccExecOwnership := vaccexecroster.NewOwnershipAdapter(rosterService)
-	vaccExecService := vaccexecapp.NewService(vaccexecpg.NewRepository(pool, cfg.Postgres.QueryTimeout), vaccExecOwnership).
+	vaccExecRepo := vaccexecpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
+	vaccExecService := vaccexecapp.NewService(vaccExecRepo, vaccExecOwnership).
 		WithProofURLResolver(newWeighingExportProofURLResolver(proofService, cfg.HTTPAddr))
 	vaccExecHandler := vaccexechttp.NewHandler(vaccExecService, obligationRepo, log).
 		WithOperatorAssignmentConfigWriter(vaccExecService).
@@ -1605,7 +1606,9 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	go herdSignalsService.RunRiskClassifier(liveNotifyCtx, herdSignalsRiskClassifierInterval)
 	// Cross-instance eviction feed on its own connection (not a pool slot), then a background,
 	// serial warm-up of the landing read every Weights/ADG visit blocks on.
-	readcache.NewListener(pool, log, analyticsReadCache, alertsReadCache, countsReadCache).Start(liveNotifyCtx)
+	// The vaccination read cache rides the same feed: migration 000411's write triggers notify with
+	// caches=["vaccination"], so a dose/drive/obligation write evicts only that cache.
+	readcache.NewListener(pool, log, analyticsReadCache, alertsReadCache, countsReadCache, vaccExecRepo.ReadCache()).Start(liveNotifyCtx)
 	analyticsReadCache.StartWarmup(liveNotifyCtx, log, 2*time.Second, 20*time.Second, weighingRepo.WarmLandingReads)
 	return &API{
 		Server: server,

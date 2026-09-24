@@ -224,6 +224,7 @@ scoped AS (
   LEFT JOIN comp ON oi.obligation_id = comp.obligation_id
   LEFT JOIN rework ON rework.tenant_id = oi.tenant_id AND rework.obligation_id = oi.obligation_id
   WHERE oi.tenant_id = $1::uuid
+    AND oi.status <> 'canceled' -- canceled obligations are not board targets (maintainer decision 2026-09-24); matches obligation_instances_board_live_idx
     AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
     AND g.merged_into_goat_id IS NULL
     AND (COALESCE($3::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR oi.batch_id = $3::uuid)
@@ -464,6 +465,7 @@ narrowed AS (
   LEFT JOIN comp ON oi.obligation_id = comp.obligation_id
   LEFT JOIN rework ON rework.tenant_id = oi.tenant_id AND rework.obligation_id = oi.obligation_id
   WHERE oi.tenant_id = $1::uuid
+    AND oi.status <> 'canceled' -- canceled obligations are not board targets (maintainer decision 2026-09-24); matches obligation_instances_board_live_idx
     AND (COALESCE($3::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR oi.batch_id = $3::uuid)
     AND (COALESCE($4::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR EXISTS (
       SELECT 1 FROM locations pl WHERE pl.location_id = oi.scope_id AND pl.tenant_id = oi.tenant_id AND pl.parent_location_id = $4::uuid
@@ -689,6 +691,7 @@ shed_dose_obligations AS (
   LEFT JOIN locations loc ON oi.scope_id = loc.location_id AND oi.tenant_id = loc.tenant_id
   LEFT JOIN locations park ON park.location_id = loc.parent_location_id AND park.tenant_id = loc.tenant_id
   WHERE oi.tenant_id = $1::uuid
+    AND oi.status <> 'canceled' -- canceled obligations are not board targets (maintainer decision 2026-09-24); matches obligation_instances_board_live_idx
     AND oi.scope_type = 'shed'
     AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
     AND g.merged_into_goat_id IS NULL
@@ -913,6 +916,7 @@ per_animal AS (
   LEFT JOIN comp ON comp.obligation_id = oi.obligation_id
   LEFT JOIN rework ON rework.tenant_id = oi.tenant_id AND rework.obligation_id = oi.obligation_id
   WHERE oi.tenant_id = $1::uuid
+    AND oi.status <> 'canceled' -- canceled obligations are not board targets (maintainer decision 2026-09-24); matches obligation_instances_board_live_idx
     AND oi.scope_type = 'shed'
     AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
     AND g.merged_into_goat_id IS NULL
@@ -1106,7 +1110,7 @@ ORDER BY shed_name, partition_label, pr.dose_code
 // commandboard_query_plan_test.go and the endpoint by tools/perf/hot-paths.vaccination.json.
 // scale-guard:ignore: 5k-50k-envelope — see the paragraph directly above.
 const driveOptionsSQL = `
--- PAIRS FIRST (lean), PAGE, THEN THE FAT SCAN RESTRICTED TO THE PAGE.
+-- BATCHES IN ORDER, THEIR PAIRS (lean), PAGE, THEN THE FAT SCAN RESTRICTED TO THE PAGE.
 --
 -- The previous rewrite paged before DECORATING but still built one wide scoped CTE over every
 -- obligation in the tenant and re-scanned it three more times (pairs, counts, shed_locs): 70,843
@@ -1114,14 +1118,18 @@ const driveOptionsSQL = `
 -- the board's slowest section. The header used to claim its cost was "proportional to the ~20 rows
 -- a caller asked for"; that was false, and this is the shape that makes it true.
 --
---   pairs   reads obligation_instances ONCE and keeps only what the picker's ROW SET needs:
---           (batch_id, park_id, park_name). No rule columns, no target_id, no shed columns.
---   page    orders and keysets those pairs, and takes the caller's page.
+--   ordered walks obligation_batches (a few hundred rows) in page order and expands each batch to
+--           its (park_id, park_name) pairs through obligation_instances_batch_idx, keeping only
+--           what the picker's ROW SET needs. No rule columns, no target_id, no shed columns.
+--   page    keysets those pairs and takes the caller's page. Because the batches arrive already
+--           in the page's leading sort order, the LIMIT stops the per-batch expansion after the
+--           page (Incremental Sort + Limit): 31 batches read instead of the tenant's 86.6k
+--           obligations folded into pairs up front (OCI clone: page 54 -> 8 ms, statement 91 -> 44).
 --   scoped  is the wide row set, built ONLY for the batches on that page -- so counts and
 --           shed_locs read a page's obligations instead of the tenant's.
 --
--- protocol_rules stays an INNER join in BOTH pairs and scoped: an obligation whose rule is missing
--- was never offered, and dropping it from pairs alone would let the picker list a drive whose
+-- protocol_rules stays an INNER join in BOTH ordered and scoped: an obligation whose rule is missing
+-- was never offered, and dropping it from ordered alone would let the picker list a drive whose
 -- counts then came back empty.
 --
 -- KEYSET, NOT OFFSET, because OFFSET re-walks the skipped prefix on every page and is a banned
@@ -1140,50 +1148,60 @@ const driveOptionsSQL = `
 -- projection-review: membership=obligation_instances in scope reduced to their distinct
 -- (batch, park) pairs; group_key=(batch_id, park_id), the row grain the picker renders;
 -- join_cardinality=protocol_rules INNER on the rule PK and both locations joins 1:1 so neither
--- pairs nor scoped fans out, and every decorating CTE joins page on its own group key;
+-- ordered nor scoped fans out, and every decorating CTE joins page on its own group key;
 -- pagination=keyset, applied before the wide scan and before decoration; scope=tenant_id plus the
 -- caller's park scope.
 --
 -- scale-guard:ignore: 5k-50k-envelope -- this statement has ten CTEs and the count is the fix,
--- not the defect: pairs/ordered/page exist to bound the work that follows them. Bounded by
+-- not the defect: ordered/page exist to bound the work that follows them. Bounded by
 -- commandboard_query_plan_test.go, which gates the executed plan rather than the CTE count, and by
 -- the /vaccination/command entry in tools/perf/hot-paths.vaccination.json. The anchor-date boundary
 -- on serving this from a projection instead is recorded in
 -- docs/runbooks/vaccination-command-board-latency.md.
-WITH pairs AS (
-  -- The picker's ROW SET, from three columns. No counts, no arrays, no jsonb, no per-goat table.
-  SELECT DISTINCT
-    oi.batch_id,
-    park.location_id AS park_id,
-    park.name AS park_name
-  FROM obligation_instances oi
-  JOIN protocol_rules pr ON oi.rule_id = pr.rule_id AND oi.tenant_id = pr.tenant_id
-  LEFT JOIN locations loc ON oi.scope_id = loc.location_id AND oi.tenant_id = loc.tenant_id
-  LEFT JOIN locations park ON park.location_id = loc.parent_location_id AND park.tenant_id = loc.tenant_id
-  WHERE oi.tenant_id = $1::uuid
-    AND (COALESCE($2::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR loc.parent_location_id = $2::uuid)
-),
-ordered AS (
+WITH ordered AS (
+  -- Batches in page order FIRST (a few hundred rows), then each batch's (park) pairs from its own
+  -- obligations through obligation_instances_batch_idx. The LIMIT below stops the lateral after the
+  -- page's batches instead of folding the whole tenant's obligations into pairs up front.
   SELECT
-    p.batch_id,
+    pb.batch_id,
     p.park_id,
     p.park_name,
-    b.status,
-    b.planned_date,
-    b.window_start,
-    b.window_end,
-    CASE b.status
-      WHEN 'in_progress' THEN 0
-      WHEN 'completed' THEN 1
-      ELSE 2
-    END AS status_rank,
-    COALESCE(b.planned_date, '-infinity'::date) AS sort_planned,
-    COALESCE(b.window_start, '-infinity'::timestamptz) AS sort_window,
+    pb.status,
+    pb.planned_date,
+    pb.window_start,
+    pb.window_end,
+    pb.status_rank,
+    pb.sort_planned,
+    pb.sort_window,
     (p.park_name IS NULL) AS park_is_null,
     COALESCE(p.park_name, '') AS sort_park,
     COALESCE(p.park_id, '00000000-0000-0000-0000-000000000000'::uuid) AS sort_park_id
-  FROM pairs p
-  JOIN obligation_batches b ON b.batch_id = p.batch_id AND b.tenant_id = $1::uuid
+  FROM (
+    SELECT
+      b.batch_id, b.status, b.planned_date, b.window_start, b.window_end,
+      CASE b.status
+        WHEN 'in_progress' THEN 0
+        WHEN 'completed' THEN 1
+        ELSE 2
+      END AS status_rank,
+      COALESCE(b.planned_date, '-infinity'::date) AS sort_planned,
+      COALESCE(b.window_start, '-infinity'::timestamptz) AS sort_window
+    FROM obligation_batches b
+    WHERE b.tenant_id = $1::uuid
+    ORDER BY status_rank, sort_planned DESC, sort_window DESC, b.batch_id
+  ) pb
+  CROSS JOIN LATERAL (
+    SELECT DISTINCT
+      park.location_id AS park_id,
+      park.name AS park_name
+    FROM obligation_instances oi
+    JOIN protocol_rules pr ON oi.rule_id = pr.rule_id AND oi.tenant_id = pr.tenant_id
+    LEFT JOIN locations loc ON oi.scope_id = loc.location_id AND oi.tenant_id = loc.tenant_id
+    LEFT JOIN locations park ON park.location_id = loc.parent_location_id AND park.tenant_id = loc.tenant_id
+    WHERE oi.tenant_id = $1::uuid
+      AND oi.batch_id = pb.batch_id
+      AND (COALESCE($2::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR loc.parent_location_id = $2::uuid)
+  ) p
 ),
 page AS (
   SELECT *

@@ -590,8 +590,8 @@ func TestVaccinationCommandBoardClosedWithoutDoseAnimalsMatchTheTileAndCarryPart
 		return goatID
 	}
 
-	// The residual: closed with no completion. One of them stands in a partition.
-	partitionedGoat := seedAnimal(0, "canceled", false, true)
+	// The residual: closed (waived; canceled is not a target) with no completion. One stands in a partition.
+	partitionedGoat := seedAnimal(0, "waived", false, true)
 	// FAN-OUT TRAP: goat_identifiers is unique per (goat_id, identifier_type) only for the PRIMARY
 	// active row, so a goat may hold several active NON-primary rows of one type -- real data does.
 	// A plain join would emit this animal twice, so the drawer would repeat it and stop matching the
@@ -606,8 +606,8 @@ func TestVaccinationCommandBoardClosedWithoutDoseAnimalsMatchTheTileAndCarryPart
 		   scope_key, is_primary_for_goat, status, valid_from, normalizer_version)
 		 VALUES ($1, $2, 'animal_identifier_2', 'TAG-SECONDARY', 'tag-secondary', 'tenant', false, 'active', now(), 'v1')`,
 		tenantID, partitionedGoat)
-	seedAnimal(1, "canceled", false, false)
-	seedAnimal(2, "canceled", false, false)
+	seedAnimal(1, "waived", false, false)
+	seedAnimal(2, "waived", false, false)
 	// Must NOT appear: this animal's dose is accepted, so it belongs to the verified tile.
 	verifiedGoat := seedAnimal(3, "completed", true, false)
 
@@ -637,9 +637,9 @@ func TestVaccinationCommandBoardClosedWithoutDoseAnimalsMatchTheTileAndCarryPart
 			t.Errorf("animal %+v is missing identity/reason/vaccine -- the drawer exists to answer "+
 				"'which animals and why', so a blank row answers nothing", animal)
 		}
-		if animal.Reason != "Cancelled" {
+		if animal.Reason != "Waived" {
 			t.Errorf("reason = %q, want %q -- raw obligation status tokens must never reach a CEO screen",
-				animal.Reason, "Cancelled")
+				animal.Reason, "Waived")
 		}
 	}
 

@@ -90,7 +90,7 @@ const commandBoardPlanFixtureSheds = 8
 // closed_without_dose, so a herd of missed animals gives a residual bucket of ZERO -- and the
 // closed-without-dose statement then has no candidate rows, its LATERAL never executes, and the
 // mutation test proving the guard catches that LATERAL passes vacuously. Every fourth animal is
-// therefore 'canceled' with no completion, which is the real residual shape.
+// therefore 'waived' with no completion (canceled is not a target since 2026-09-24).
 const commandBoardPlanFixtureResidual = commandBoardPlanFixtureAnimals / 4
 
 // commandBoardPlanFixture seeds one park, two sheds and commandBoardPlanFixtureAnimals goats, each
@@ -155,7 +155,7 @@ func seedCommandBoardPlanFixture(t *testing.T, ctx context.Context, pool *pgxpoo
 		        -- Every fourth animal is CLOSED WITH NO DOSE (the residual bucket the tile counts
 		        -- and the drawer lists); the rest are 'missed', which is the behind shape the
 		        -- shed-vaccine cell reports. A single-status herd makes one of the two empty.
-		        CASE WHEN i % 4 = 1 THEN 'canceled' ELSE 'missed' END,
+		        CASE WHEN i % 4 = 1 THEN 'waived' ELSE 'missed' END,
 		        ('2026-08-01'::timestamptz + (d || ' days')::interval),
 		        'qp-' || i || '-' || d
 		 FROM generate_series(1, $5) i, generate_series(1, 4) d`,
@@ -769,7 +769,7 @@ func TestCommandBoardTileAndDrilldownRangeOverTheSameAnimals(t *testing.T) {
 		t.Fatalf("VaccinationCommandBoard() error = %v", err)
 	}
 
-	// Every fourth animal holds only 'canceled' obligations with no completion: not verified, not
+	// Every fourth animal holds only 'waived' obligations with no completion: not verified, not
 	// awaiting, not overdue, not scheduled and not missed. That is the residual bucket, and it being
 	// a PROPER SUBSET of the herd is what makes this a test of the predicate rather than a check
 	// that everything equals everything.

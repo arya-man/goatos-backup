@@ -247,7 +247,8 @@ func TestVaccinationCommandBoardShedVaccineScopeHierarchyParkScope(t *testing.T)
 //
 // Every obligation status an animal can hold, mapped to the cell state it must produce. The cell is
 // a boolean OR, so the risk is not double counting but a status silently falling on the wrong side:
-// a terminal 'canceled' dose must NOT make a shed red (nothing is owed), while an accepted
+// a terminal 'waived' dose must NOT make a shed red (nothing is owed), a 'canceled' one is not a
+// target at all (maintainer decision 2026-09-24: no cell), while an accepted
 // completion must clear an otherwise past-due dose.
 func TestVaccinationCommandBoardShedVaccineStatusMatrixEveryStatusStatusBuckets(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
@@ -276,7 +277,8 @@ func TestVaccinationCommandBoardShedVaccineStatusMatrixEveryStatusStatusBuckets(
 		{"past due in progress", "in_progress", "", "behind", "started is not given"},
 		{"past due accepted", "scheduled", "accepted", "ok", "an accepted completion clears the dose regardless of the due date"},
 		{"completed and accepted", "completed", "accepted", "ok", "done"},
-		{"canceled with no dose", "canceled", "", "ok", "terminal with nothing owed must not paint the shed red"},
+		{"waived with no dose", "waived", "", "ok", "terminal with nothing owed must not paint the shed red"},
+		{"canceled with no dose", "canceled", "", "", "a canceled obligation is not a target, so it paints no cell at all"},
 	}
 
 	for i, tc := range cases {

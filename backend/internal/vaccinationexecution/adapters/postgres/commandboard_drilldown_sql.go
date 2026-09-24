@@ -131,6 +131,7 @@ scoped AS (
   LEFT JOIN comp ON oi.obligation_id = comp.obligation_id
   LEFT JOIN rework ON rework.tenant_id = oi.tenant_id AND rework.obligation_id = oi.obligation_id
   WHERE oi.tenant_id = $1::uuid
+    AND oi.status <> 'canceled' -- canceled obligations are not board targets (maintainer decision 2026-09-24); matches obligation_instances_board_live_idx
     AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
     AND g.merged_into_goat_id IS NULL
     AND (COALESCE($3::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR oi.batch_id = $3::uuid)
@@ -347,6 +348,7 @@ cell AS (
    AND scope_sp.normalized_label = regexp_replace(lower(btrim(COALESCE(scope_gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
    AND scope_sp.status = 'active'
   WHERE oi.tenant_id = $1::uuid
+    AND oi.status <> 'canceled' -- canceled obligations are not board targets (maintainer decision 2026-09-24); matches obligation_instances_board_live_idx
     AND oi.scope_type = 'shed'
     -- THE CELL. Applied here, on an indexed column, before any decoration or sorting.
     AND oi.scope_id = $5::uuid
