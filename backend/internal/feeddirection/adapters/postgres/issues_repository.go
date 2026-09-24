@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
@@ -70,7 +72,7 @@ func (r *Repository) PersistIssue(ctx context.Context, cmd ports.PersistIssueCom
 			if err := insertIssueRows(ctx, tx, cmd.TenantID, inserted.IssueID, cmd.ParkID, cmd.Cells, false, nil); err != nil {
 				return ports.IssueResult{}, err
 			}
-			if err := r.commitAndInvalidateReadCache(ctx, tx); err != nil {
+			if err := r.commitIssueAndEvict(ctx, tx, cmd.TenantID, cmd.ParkID); err != nil {
 				return ports.IssueResult{}, err
 			}
 			return ports.IssueResult{Header: inserted, Outcome: ports.IssueOutcomeInserted}, nil
@@ -108,7 +110,7 @@ WHERE tenant_id = $1::uuid AND feed_direction_issue_id = $2::uuid`,
 	if err := insertIssueRows(ctx, tx, cmd.TenantID, header.IssueID, cmd.ParkID, cmd.Cells, false, nil); err != nil {
 		return ports.IssueResult{}, err
 	}
-	if err := r.commitAndInvalidateReadCache(ctx, tx); err != nil {
+	if err := r.commitIssueAndEvict(ctx, tx, cmd.TenantID, cmd.ParkID); err != nil {
 		return ports.IssueResult{}, err
 	}
 	header.GenerationInputFingerprint = cmd.Fingerprint
@@ -216,7 +218,7 @@ WHERE tenant_id = $1::uuid AND feed_direction_issue_id = $2::uuid`,
 		cmd.TenantID, header.IssueID, cmd.AmendedAt.UTC(), cmd.Fingerprint); err != nil {
 		return ports.AmendResult{}, fmt.Errorf("feeddirection: update issue for amend: %w", err)
 	}
-	if err := r.commitAndInvalidateReadCache(ctx, tx); err != nil {
+	if err := r.commitIssueAndEvict(ctx, tx, cmd.TenantID, cmd.ParkID); err != nil {
 		return ports.AmendResult{}, err
 	}
 	header.State = domain.IssueStateAmended
@@ -264,7 +266,7 @@ WHERE tenant_id = $1::uuid AND feed_direction_issue_id = $2::uuid`,
 		cmd.TenantID, header.IssueID, cmd.LockedAt.UTC()); err != nil {
 		return ports.LockResult{}, fmt.Errorf("feeddirection: lock issue: %w", err)
 	}
-	if err := r.commitAndInvalidateReadCache(ctx, tx); err != nil {
+	if err := r.commitIssueAndEvict(ctx, tx, cmd.TenantID, cmd.ParkID); err != nil {
 		return ports.LockResult{}, err
 	}
 	header.State = domain.IssueStateLocked
@@ -500,7 +502,7 @@ DO UPDATE SET
   amended = true, amended_at = EXCLUDED.amended_at, updated_at = now()`
 	}
 
-	_, err := tx.Exec(ctx, `
+	issueBind503 := sqlbind.MustBind(`
 INSERT INTO feed_direction_issue_rows (
   tenant_id, feed_direction_issue_id, park_id, park_label, shed_id, shed_label, shed_tag, breed,
   ration_group, experiment_arm, session_no, session_label, head_count, head_count_informational,
@@ -527,6 +529,7 @@ FROM unnest(
 		experimentArm, sessionNo, sessionLabel, headCount, hcInfo, workflow, feedItemLabel, quantity,
 		grams, factor, blockedCode, blockedDetail, sessionTotal, overdue, rowSeq, itemSeq, partitionLabel,
 		amended, amendedAtUTC)
+	_, err := tx.Exec(ctx, issueBind503.SQL(), issueBind503.Args()...)
 	if err != nil {
 		return fmt.Errorf("feeddirection: insert issue rows: %w", err)
 	}

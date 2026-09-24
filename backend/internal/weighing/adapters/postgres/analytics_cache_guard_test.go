@@ -1,11 +1,14 @@
 package postgres
 
 import (
+	"context"
 	"os"
 	"regexp"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/vgoats/goatos/backend/internal/platform/readcache"
 )
 
 func TestWeighingAnalyticsCacheOneToManyPageBoundaryParkScopeStatusMatrix(t *testing.T) {
@@ -19,9 +22,7 @@ func TestWeighingAnalyticsCacheOneToManyPageBoundaryParkScopeStatusMatrix(t *tes
 			"sex",
 			"origin",
 			"weighingCategory",
-			"getReadCache(",
-			"cacheEpoch := r.readCacheEpoch()",
-			"setReadCacheIfEpoch(",
+			"readcache.Load(ctx, r.cache, analyticsReadKey(tenantID,",
 		} {
 			if !strings.Contains(src, required) {
 				t.Fatalf("%s cache guard missing %q", file, required)
@@ -36,16 +37,24 @@ func TestWeighingAnalyticsCacheOneToManyPageBoundaryParkScopeStatusMatrix(t *tes
 	}
 }
 
-func TestWeighingAnalyticsCacheInvalidationUsesEpoch(t *testing.T) {
+func TestWeighingWritesPublishScopedEvictionInsideTheTransaction(t *testing.T) {
 	src := readSource(t, "growth.go")
-	for _, required := range []string{
-		"func (r *Repository) readCacheEpoch() uint64",
-		"func (r *Repository) setReadCacheIfEpoch(",
-		"if r.cacheEpoch != epoch",
-		"r.cacheEpoch++",
-	} {
-		if !strings.Contains(src, required) {
-			t.Fatalf("weighing cache epoch guard missing %q", required)
+	start := strings.Index(src, "func (r *Repository) commitAndEvict(")
+	if start < 0 {
+		t.Fatal("growth.go missing commitAndEvict")
+	}
+	body := src[start:]
+	notify := strings.Index(body, "readcache.NotifyTx(ctx, tx, tenantID, parks...)")
+	commit := strings.Index(body, "tx.Commit(ctx)")
+	evict := strings.Index(body, "r.cache.Evict(ctx, tenantID, parks...)")
+	if notify < 0 || commit < 0 || evict < 0 || !(notify < commit && commit < evict) {
+		t.Fatal("commitAndEvict must NOTIFY inside the transaction, commit, then evict locally (tenant+park scoped)")
+	}
+	// Every weighing write path that changes an analytics input publishes a scoped eviction; only
+	// the kernel cadence claims (worker-only, no analytics input) keep the local-only helper.
+	for _, file := range []string{"close.go", "repository.go", "verification_verdict.go", "weight_correction.go", "rework_digest.go"} {
+		if strings.Contains(readSource(t, file), "commitAndInvalidateReadCache") {
+			t.Fatalf("%s still uses the removed process-local invalidation", file)
 		}
 	}
 }
@@ -197,34 +206,28 @@ func TestGrowthLosingAnimalsPairsAcrossReportStartBoundary(t *testing.T) {
 }
 
 func TestWeighingAnalyticsCacheExpiryAndInvalidationRejectStaleResults(t *testing.T) {
-	repo := NewRepository(nil, time.Second)
-	epoch := repo.readCacheEpoch()
-	repo.setReadCacheIfEpoch("scope", "before", epoch)
-	if value, ok := repo.getReadCache("scope"); !ok || value != "before" {
+	clk := time.Date(2026, 9, 24, 10, 0, 0, 0, time.UTC)
+	opts := readcache.DefaultOptions("test")
+	opts.Now = func() time.Time { return clk }
+	repo := NewRepository(nil, time.Second).WithReadCache(readcache.New(opts))
+	load := func(v string) (string, error) {
+		return readcache.Load(context.Background(), repo.cache, analyticsReadKey("t1", []string{"p1"}, "scope"), func(context.Context) (string, error) { return v, nil })
+	}
+	if v, _ := load("before"); v != "before" {
+		t.Fatal("first read not served")
+	}
+	if v, _ := load("other"); v != "before" {
 		t.Fatal("fresh result was not reusable")
 	}
 	// Expiry must force a fresh read; the length of a browser sweep is not
 	// a freshness contract and must never determine the minimum cache TTL.
-	entry := repo.readCache["scope"]
-	entry.expiresAt = time.Now().Add(-time.Second)
-	repo.readCache["scope"] = entry
-	if _, ok := repo.getReadCache("scope"); ok {
+	clk = clk.Add(31 * time.Second)
+	if v, _ := load("after-expiry"); v != "after-expiry" {
 		t.Fatal("expired result was served")
 	}
-	repo.setReadCacheIfEpoch("scope", "before", epoch)
-	repo.invalidateReadCache()
-	if _, ok := repo.getReadCache("scope"); ok {
-		t.Fatal("invalidated result was served")
-	}
-	// A read started before a write must not repopulate the cache after
-	// invalidation, even when that read completes later.
-	repo.setReadCacheIfEpoch("scope", "stale completion", epoch)
-	if _, ok := repo.getReadCache("scope"); ok {
-		t.Fatal("an old in-flight result repopulated the cache")
-	}
-	repo.setReadCacheIfEpoch("scope", "after", repo.readCacheEpoch())
-	if value, ok := repo.getReadCache("scope"); !ok || value != "after" {
-		t.Fatal("fresh result after invalidation was not reusable")
+	repo.cache.Evict(context.Background(), "t1", "p1")
+	if v, _ := load("after-write"); v != "after-write" {
+		t.Fatal("evicted result was served")
 	}
 }
 
@@ -418,23 +421,21 @@ func readSource(t *testing.T, file string) string {
 	return string(b)
 }
 
-// A write on one API instance cannot evict a sibling instance's cache. Exercise
-// the real cache expiry rather than asserting the spelling of the TTL constant.
+// A write on one API instance reaches a sibling only through the NOTIFY feed. Without the feed
+// (listener down => cache not coherent) the sibling must still expire within 30 seconds.
 func TestAnalyticsSiblingInstanceExpiresWithinThirtySeconds(t *testing.T) {
-	writer := NewRepository(nil, time.Second)
-	reader := NewRepository(nil, time.Second)
-	const key = "same-tenant-same-report"
-	reader.setReadCacheIfEpoch(key, "before-correction", reader.readCacheEpoch())
-	writer.invalidateReadCache()
-	if _, ok := reader.getReadCache(key); !ok {
-		t.Fatal("fixture must model independent API instance caches")
+	clk := time.Date(2026, 9, 24, 10, 0, 0, 0, time.UTC)
+	opts := readcache.DefaultOptions("sibling")
+	opts.Now = func() time.Time { return clk }
+	reader := NewRepository(nil, time.Second).WithReadCache(readcache.New(opts))
+	key := analyticsReadKey("t1", nil, "same-tenant-same-report")
+	get := func(v string) string {
+		out, _ := readcache.Load(context.Background(), reader.cache, key, func(context.Context) (string, error) { return v, nil })
+		return out
 	}
-	reader.cacheMu.Lock()
-	entry := reader.readCache[key]
-	entry.expiresAt = entry.expiresAt.Add(-31 * time.Second)
-	reader.readCache[key] = entry
-	reader.cacheMu.Unlock()
-	if _, ok := reader.getReadCache(key); ok {
+	get("before-correction")
+	clk = clk.Add(31 * time.Second)
+	if get("after-correction") != "after-correction" {
 		t.Fatal("sibling API instance still serves pre-correction analytics after 31 seconds")
 	}
 }

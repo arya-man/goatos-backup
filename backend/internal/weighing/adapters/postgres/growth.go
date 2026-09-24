@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
+	"github.com/vgoats/goatos/backend/internal/platform/readcache"
 	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 	"github.com/vgoats/goatos/backend/internal/weighing/domain"
 )
@@ -21,12 +23,6 @@ import (
 // this screen for a one-week window. 400 days comfortably covers a goat's whole growth-tracked
 // life (kid to sale) while keeping the scan bounded.
 const growthLookbackDays = 400
-
-// Keep this as a short admin-navigation burst cache. Weighing writes invalidate the cache inside
-// the serving process, but Cloud Run instances do not share invalidation, so the TTL must stay low
-// enough for close/rework/correction writes to settle quickly while avoiding repeated heavy reads
-// during fast sidebar/tab switching.
-const weighingAnalyticsCacheTTL = 30 * time.Second
 
 // Keep a single analytics request from occupying the whole DB pool on a cold-cache page load.
 // The admin Weights page already calls several weighing reads in parallel; letting this one fan out
@@ -41,116 +37,50 @@ func weighingAnalyticsCacheKey(prefix string, tenantID string, parkIDs []string,
 		periodEnd.UTC().Format(time.RFC3339), strings.TrimSpace(sex), strings.TrimSpace(origin), strings.TrimSpace(weighingCategory))
 }
 
-func (r *Repository) getReadCache(key string) (any, bool) {
-	r.cacheMu.Lock()
-	defer r.cacheMu.Unlock()
-	entry, ok := r.readCache[key]
-	if !ok || time.Now().After(entry.expiresAt) {
-		if ok {
-			delete(r.readCache, key)
-		}
-		return nil, false
-	}
-	return entry.value, true
+// analyticsReadKey scopes a weighing analytics read in the shared read cache: the tenant and the
+// park set the read spans (what a write evicts by), plus the full normalized parameter string.
+func analyticsReadKey(tenantID string, parkIDs []string, params string) readcache.Key {
+	return readcache.Key{Tenant: tenantID, Parks: parkIDs, Params: "weighing:" + params}
 }
 
-func (r *Repository) readCacheEpoch() uint64 {
-	r.cacheMu.Lock()
-	defer r.cacheMu.Unlock()
-	return r.cacheEpoch
-}
-
-func (r *Repository) setReadCacheIfEpoch(key string, value any, epoch uint64) {
-	r.cacheMu.Lock()
-	defer r.cacheMu.Unlock()
-	if r.cacheEpoch != epoch {
-		return
-	}
-	if len(r.readCache) > 256 {
-		r.readCache = make(map[string]readCacheEntry, 64)
-	}
-	r.readCache[key] = readCacheEntry{expiresAt: time.Now().Add(weighingAnalyticsCacheTTL), value: value}
-}
-
-func (r *Repository) getOrLoadReadCacheIfEpoch(ctx context.Context, key string, epoch uint64, load func(context.Context) (any, error)) (any, error) {
-	if cached, ok := r.getReadCache(key); ok {
-		return cached, nil
-	}
-
-	r.cacheMu.Lock()
-	if flight, ok := r.readFlight[key]; ok {
-		r.cacheMu.Unlock()
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-flight.done:
-			if flight.err != nil {
-				return nil, flight.err
-			}
-			return flight.value, nil
+// commitAndEvict commits a weighing write and evicts the analytics reads it can change: the
+// tenant, narrowed to the campaign's park when the write belongs to one campaign. The eviction is
+// published INSIDE the transaction (pg_notify is delivered on commit only) so sibling API
+// instances drop the same keys, and applied locally after commit so this instance reads its own
+// write on the very next request.
+func (r *Repository) commitAndEvict(ctx context.Context, tx pgx.Tx, tenantID, campaignID string) error {
+	var parks []string
+	if tenantID != "" && campaignID != "" {
+		q := sqlbind.MustBind(`SELECT park_id::text FROM weighing_campaigns WHERE tenant_id = $1::uuid AND campaign_id = $2::uuid`, tenantID, campaignID)
+		var park string
+		if err := tx.QueryRow(ctx, q.SQL(), q.Args()...).Scan(&park); err == nil {
+			parks = []string{park}
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return err
 		}
 	}
-	flight := &readFlight{done: make(chan struct{})}
-	r.readFlight[key] = flight
-	r.cacheMu.Unlock()
-
-	value, err := load(ctx)
-	if err == nil {
-		r.setReadCacheIfEpoch(key, value, epoch)
+	if err := readcache.NotifyTx(ctx, tx, tenantID, parks...); err != nil {
+		return err
 	}
-
-	r.cacheMu.Lock()
-	flight.value = value
-	flight.err = err
-	close(flight.done)
-	if r.readFlight[key] == flight {
-		delete(r.readFlight, key)
+	if err := tx.Commit(ctx); err != nil {
+		return err
 	}
-	r.cacheMu.Unlock()
-	return value, err
+	if tenantID == "" {
+		r.cache.EvictAll(ctx)
+		return nil
+	}
+	r.cache.Evict(ctx, tenantID, parks...)
+	return nil
 }
 
-func (r *Repository) beginReadFlight(ctx context.Context, key string) (*readFlight, bool, error) {
-	r.cacheMu.Lock()
-	if flight, ok := r.readFlight[key]; ok {
-		r.cacheMu.Unlock()
-		select {
-		case <-ctx.Done():
-			return nil, false, ctx.Err()
-		case <-flight.done:
-			return flight, false, flight.err
-		}
-	}
-	flight := &readFlight{done: make(chan struct{})}
-	r.readFlight[key] = flight
-	r.cacheMu.Unlock()
-	return flight, true, nil
-}
-
-func (r *Repository) finishReadFlight(key string, flight *readFlight, value any, err error) {
-	r.cacheMu.Lock()
-	flight.value = value
-	flight.err = err
-	close(flight.done)
-	if r.readFlight[key] == flight {
-		delete(r.readFlight, key)
-	}
-	r.cacheMu.Unlock()
-}
-
-func (r *Repository) invalidateReadCache() {
-	r.cacheMu.Lock()
-	defer r.cacheMu.Unlock()
-	r.cacheEpoch++
-	r.readCache = make(map[string]readCacheEntry)
-	r.readFlight = make(map[string]*readFlight)
-}
-
+// commitAndInvalidateReadCache is kept for the kernel cadence claims (day-start, roll-forward,
+// delayed), which run in the kernel worker, not the API, and change no analytics input: it commits
+// and clears only this process's cache, publishing nothing.
 func (r *Repository) commitAndInvalidateReadCache(ctx context.Context, tx pgx.Tx) error {
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
-	r.invalidateReadCache()
+	r.cache.EvictAll(ctx)
 	return nil
 }
 
@@ -282,30 +212,17 @@ qualifying AS (
 //
 // periodStart/periodEnd are Asia/Kolkata business-day boundaries expressed as UTC instants by
 // the caller (the service layer), half-open [periodStart, periodEnd).
-func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory, sections string, timeScope domain.TimeScope) (out domain.GrowthADG, err error) {
+func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory, sections string, timeScope domain.TimeScope) (domain.GrowthADG, error) {
 	sectionSet := growthADGSectionSet(sections)
 	cacheKey := weighingAnalyticsCacheKey("growth_adg:"+growthADGSectionKey(sectionSet)+":"+timeScope.CacheKey(), tenantID, parkIDs, periodStart, periodEnd, sex, origin, weighingCategory)
-	if cached, ok := r.getReadCache(cacheKey); ok {
-		return cached.(domain.GrowthADG), nil
-	}
-	cacheEpoch := r.readCacheEpoch()
+	return readcache.Load(ctx, r.cache, analyticsReadKey(tenantID, parkIDs, cacheKey), func(ctx context.Context) (domain.GrowthADG, error) {
+		ctx, cancel := r.timeout(ctx)
+		defer cancel()
+		return r.getLeadershipGrowthADGUncached(ctx, tenantID, parkIDs, periodStart, periodEnd, sex, origin, weighingCategory, sectionSet, timeScope)
+	})
+}
 
-	ctx, cancel := r.timeout(ctx)
-	defer cancel()
-	flight, ownsFlight, flightErr := r.beginReadFlight(ctx, cacheKey)
-	if flightErr != nil {
-		return domain.GrowthADG{}, flightErr
-	}
-	if !ownsFlight {
-		return flight.value.(domain.GrowthADG), nil
-	}
-	defer func() {
-		if err == nil {
-			r.finishReadFlight(cacheKey, flight, out, nil)
-			return
-		}
-		r.finishReadFlight(cacheKey, flight, nil, err)
-	}()
+func (r *Repository) getLeadershipGrowthADGUncached(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin, weighingCategory string, sectionSet map[string]bool, timeScope domain.TimeScope) (out domain.GrowthADG, err error) {
 
 	// Resolved ONCE for the whole read: every widget below must talk about the same kids, and
 	// resolving per helper would let a slow herd write land between two of them and show a
@@ -563,7 +480,6 @@ func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string
 		SaleReadiness:   saleReadiness,
 		LumpSum:         lumpSum,
 	}
-	r.setReadCacheIfEpoch(cacheKey, out, cacheEpoch)
 	return out, nil
 }
 

@@ -5,8 +5,9 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
+
+	"github.com/vgoats/goatos/backend/internal/platform/readcache"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -16,31 +17,31 @@ import (
 type Repository struct {
 	pool         *pgxpool.Pool
 	queryTimeout time.Duration
-	cacheMu      sync.Mutex
-	readCache    map[string]readCacheEntry
-	readFlight   map[string]*readFlight
+	// cache is the shared platform read cache (readcache), the same instance the weighing
+	// repository uses in the API. NewRepository gives a private non-coherent one (30 s, no stale).
+	cache *readcache.Cache
 }
-
-type readCacheEntry struct {
-	expiresAt time.Time
-	value     any
-}
-
-type readFlight struct {
-	done chan struct{}
-	val  any
-	err  error
-}
-
-const growthDirectorReadCacheTTL = 30 * time.Second
 
 func NewRepository(pool *pgxpool.Pool, queryTimeout time.Duration) *Repository {
 	return &Repository{
 		pool:         pool,
 		queryTimeout: queryTimeout,
-		readCache:    map[string]readCacheEntry{},
-		readFlight:   map[string]*readFlight{},
+		cache:        readcache.New(readcache.DefaultOptions("growthdirector")),
 	}
+}
+
+// WithReadCache swaps in the process-wide coherent read cache.
+func (r *Repository) WithReadCache(cache *readcache.Cache) *Repository {
+	if cache != nil {
+		r.cache = cache
+	}
+	return r
+}
+
+// gdReadKey scopes a Growth Director read in the shared read cache by tenant + parks (what a
+// weighing, feed-issue or assumptions write evicts by) plus the normalized params.
+func gdReadKey(tenantID string, parkIDs []string, params string) readcache.Key {
+	return readcache.Key{Tenant: tenantID, Parks: parkIDs, Params: "growthdirector:" + params}
 }
 
 func (r *Repository) timeout(ctx context.Context) (context.Context, context.CancelFunc) {
@@ -48,51 +49,6 @@ func (r *Repository) timeout(ctx context.Context) (context.Context, context.Canc
 		return context.WithCancel(ctx)
 	}
 	return context.WithTimeout(ctx, r.queryTimeout)
-}
-
-func (r *Repository) getCachedRead(key string) (any, bool) {
-	r.cacheMu.Lock()
-	defer r.cacheMu.Unlock()
-	entry, ok := r.readCache[key]
-	if !ok {
-		return nil, false
-	}
-	if time.Now().After(entry.expiresAt) {
-		delete(r.readCache, key)
-		return nil, false
-	}
-	return entry.value, true
-}
-
-func (r *Repository) setCachedRead(key string, value any) {
-	r.cacheMu.Lock()
-	defer r.cacheMu.Unlock()
-	if len(r.readCache) > 64 {
-		r.readCache = map[string]readCacheEntry{}
-	}
-	r.readCache[key] = readCacheEntry{expiresAt: time.Now().Add(growthDirectorReadCacheTTL), value: value}
-}
-
-func (r *Repository) beginReadFlight(key string) (*readFlight, bool) {
-	r.cacheMu.Lock()
-	defer r.cacheMu.Unlock()
-	if flight, ok := r.readFlight[key]; ok {
-		return flight, false
-	}
-	flight := &readFlight{done: make(chan struct{})}
-	r.readFlight[key] = flight
-	return flight, true
-}
-
-func (r *Repository) finishReadFlight(key string, flight *readFlight, val any, err error) {
-	r.cacheMu.Lock()
-	if current := r.readFlight[key]; current == flight {
-		delete(r.readFlight, key)
-	}
-	flight.val = val
-	flight.err = err
-	close(flight.done)
-	r.cacheMu.Unlock()
 }
 
 func growthDirectorReadKey(parts ...string) string {

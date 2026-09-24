@@ -1779,7 +1779,7 @@ func TestLoadWeekGainRowsAreThePenRowsAttributedByLoadTag(t *testing.T) {
 	// is seeded behind the repository's back, so its read cache is dropped the way a real write
 	// through the repository drops it; otherwise the second read replays the one-load answer.
 	seedLoadTag(t, ctx, pool, weightDemoPartitionShed, "L-43", "Other Supplier")
-	repo.invalidateReadCache()
+	repo.cache.EvictAll(ctx)
 	twoLoads, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "", "", "", "weekly_gain", nil, domain.TimeScope{})
 	if err != nil {
 		t.Fatalf("GetWeightDemographics(two loads): %v", err)
@@ -1856,7 +1856,7 @@ func TestPenAndLoadWeekGainOneToManyPageBoundaryParkScopeStatusBuckets(t *testin
 	execWeighingTestSQL(t, ctx, pool, `
 UPDATE weighing_shed_observations SET withdrawn_at = now()
 WHERE tenant_id = $1::uuid AND campaign_shed_id = $2::uuid`, repoTenant, loadPartBNew)
-	repo.invalidateReadCache()
+	repo.cache.EvictAll(ctx)
 	withdrawn, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "", "", "", "weekly_gain", nil, domain.TimeScope{})
 	if err != nil {
 		t.Fatalf("GetWeightDemographics(withdrawn): %v", err)

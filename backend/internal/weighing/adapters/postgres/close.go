@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
+
 	"github.com/jackc/pgx/v5"
 
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
@@ -186,7 +188,7 @@ func (r *Repository) closeScope(ctx context.Context, cmd domain.CloseCommand, ab
 		if err != nil {
 			return domain.CloseResult{}, err
 		}
-		return result, r.commitAndInvalidateReadCache(ctx, tx)
+		return result, r.commitAndEvict(ctx, tx, cmd.TenantID, cmd.CampaignID)
 	}
 
 	// Lock the bucket first so the not-accepted snapshot and the status flip
@@ -267,7 +269,7 @@ RETURNING closed_at`, cmd.TenantID, cmd.CampaignID, cmd.CampaignShedID, cmd.Clos
 	if err := r.enqueueScopeClosed(ctx, tx, cmd, result, eventType); err != nil {
 		return domain.CloseResult{}, err
 	}
-	return result, r.commitAndInvalidateReadCache(ctx, tx)
+	return result, r.commitAndEvict(ctx, tx, cmd.TenantID, cmd.CampaignID)
 }
 
 // CloseCampaign closes a whole weighing campaign plus every bucket still open
@@ -292,7 +294,7 @@ func (r *Repository) CloseCampaign(ctx context.Context, cmd domain.CloseCommand)
 		if err != nil {
 			return domain.CloseResult{}, err
 		}
-		return result, r.commitAndInvalidateReadCache(ctx, tx)
+		return result, r.commitAndEvict(ctx, tx, cmd.TenantID, cmd.CampaignID)
 	}
 
 	var status string
@@ -356,7 +358,7 @@ FOR NO KEY UPDATE`, cmd.TenantID, cmd.CampaignID); err != nil {
 	// (via the gated per-bucket close or an explicit abandon), and 'canceled' work
 	// was canceled before submission and never needs a verdict.
 	var campaignPending int
-	if err := tx.QueryRow(ctx, `
+	closeBind359 := sqlbind.MustBind(`
 SELECT count(*)
 FROM weighing_campaign_sheds cs
 WHERE cs.tenant_id=$1::uuid
@@ -375,7 +377,8 @@ WHERE cs.tenant_id=$1::uuid
         AND so.verification_status <> 'rework'
     )
     OR `+shedReworkOutstandingPredicate("cs")+`
-  )`, cmd.TenantID, cmd.CampaignID).Scan(&campaignPending); err != nil {
+  )`, cmd.TenantID, cmd.CampaignID)
+	if err := tx.QueryRow(ctx, closeBind359.SQL(), closeBind359.Args()...).Scan(&campaignPending); err != nil {
 		return domain.CloseResult{}, err
 	}
 	if campaignPending > 0 {
@@ -442,7 +445,7 @@ RETURNING closed_at`, cmd.TenantID, cmd.CampaignID, cmd.ClosedBy, cmd.Reason, no
 	if err := r.enqueueCampaignClosed(ctx, tx, cmd, result, operators); err != nil {
 		return domain.CloseResult{}, err
 	}
-	return result, r.commitAndInvalidateReadCache(ctx, tx)
+	return result, r.commitAndEvict(ctx, tx, cmd.TenantID, cmd.CampaignID)
 }
 
 // closeByIdempotency is the exact-replay read. A stored record with a different

@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
+
 	"github.com/jackc/pgx/v5"
 
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
@@ -75,7 +77,7 @@ func (r *Repository) ApplyVerificationVerdict(ctx context.Context, verdict domai
 		if err != nil {
 			return domain.VerificationVerdictResult{}, err
 		}
-		return result, r.commitAndInvalidateReadCache(ctx, tx)
+		return result, r.commitAndEvict(ctx, tx, verdict.TenantID, "")
 	}
 
 	scope, err := r.lockObservationScope(ctx, tx, verdict)
@@ -146,7 +148,7 @@ func (r *Repository) ApplyVerificationVerdict(ctx context.Context, verdict domai
 	if err := r.enqueueVerdictApplied(ctx, tx, verdict, scope, result); err != nil {
 		return domain.VerificationVerdictResult{}, err
 	}
-	return result, r.commitAndInvalidateReadCache(ctx, tx)
+	return result, r.commitAndEvict(ctx, tx, verdict.TenantID, "")
 }
 
 func (r *Repository) verdictByIdempotency(
@@ -260,7 +262,8 @@ FOR UPDATE OF observation`
 	default:
 		return observationScope{}, ports.ErrInvalidArgument
 	}
-	if err := tx.QueryRow(ctx, query, verdict.TenantID, verdict.ObservationID).Scan(
+	verdictBind263 := sqlbind.MustBind(query, verdict.TenantID, verdict.ObservationID)
+	if err := tx.QueryRow(ctx, verdictBind263.SQL(), verdictBind263.Args()...).Scan(
 		&scope.CampaignID,
 		&scope.CampaignShedID,
 		&scope.ShedID,
@@ -327,7 +330,7 @@ func checkVerdictEvidenceCurrent(verdict domain.VerificationVerdict, scope obser
 func (r *Repository) markObservationVerified(ctx context.Context, tx pgx.Tx, verdict domain.VerificationVerdict) (time.Time, error) {
 	table, idColumn := verdictTable(verdict.RefType)
 	var decidedAt time.Time
-	err := tx.QueryRow(ctx, `
+	verdictBind330 := sqlbind.MustBind(`
 UPDATE `+table+`
 SET verification_status='verified',
   verified_by=$3::uuid,
@@ -335,7 +338,8 @@ SET verification_status='verified',
   rework_reason=NULL
 WHERE tenant_id=$1::uuid
   AND `+idColumn+`=$2::uuid
-RETURNING verified_at`, verdict.TenantID, verdict.ObservationID, nullUUID(verdict.VerifiedBy)).Scan(&decidedAt)
+RETURNING verified_at`, verdict.TenantID, verdict.ObservationID, nullUUID(verdict.VerifiedBy))
+	err := tx.QueryRow(ctx, verdictBind330.SQL(), verdictBind330.Args()...).Scan(&decidedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return time.Time{}, ports.ErrNotFound
 	}
@@ -366,7 +370,7 @@ func (r *Repository) markObservationRework(
 		reworkDigestReset = ",\n  rework_notified_at=NULL"
 	}
 	var decidedAt time.Time
-	if err := tx.QueryRow(ctx, `
+	verdictBind369 := sqlbind.MustBind(`
 UPDATE `+table+`
 SET verification_status='rework',
   verified_by=$3::uuid,
@@ -374,7 +378,8 @@ SET verification_status='rework',
   rework_reason=NULLIF($4, '')`+reworkDigestReset+`
 WHERE tenant_id=$1::uuid
   AND `+idColumn+`=$2::uuid
-RETURNING verified_at`, verdict.TenantID, verdict.ObservationID, nullUUID(verdict.VerifiedBy), verdict.Reason).Scan(&decidedAt); err != nil {
+RETURNING verified_at`, verdict.TenantID, verdict.ObservationID, nullUUID(verdict.VerifiedBy), verdict.Reason)
+	if err := tx.QueryRow(ctx, verdictBind369.SQL(), verdictBind369.Args()...).Scan(&decidedAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return time.Time{}, ports.ErrNotFound
 		}

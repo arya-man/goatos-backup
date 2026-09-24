@@ -113,7 +113,7 @@ func TestReopenScopeWithdrawsSubmissionAndClearsItsIdempotencyRecord(t *testing.
 // items and a verifier is left able to approve work the bucket no longer counts.
 func TestReopenScopeReportsSupersededObservationIDs(t *testing.T) {
 	body := reopenScopeBody(t)
-	if !strings.Contains(body, "return superseded, r.commitAndInvalidateReadCache(ctx, tx)") {
+	if !strings.Contains(body, "return superseded, r.commitAndEvict(ctx, tx, tenantID, campaignID)") {
 		t.Fatal("ReopenScope must return the withdrawn shed-observation ids so the verification items raised for them can be retired")
 	}
 	// Weighing must not reach into verification's table to do it.
