@@ -34,3 +34,9 @@ assert.match(
   /setInterval\(\(\) => \{[\s\S]*?syncFirebaseSession\(auth\.currentUser,\s*true\)(?!\s*,)/,
   "periodic token refresh must stay a session refresh, not repeatedly claim sign-in grants",
 );
+
+assert.match(
+  client,
+  /export async function clearFirebaseSession\(\)[\s\S]*?sessionSyncDeduper\.forget\(/,
+  "sign-out must forget the uid's sign-in marker so the next login records auth.sign_in",
+);
