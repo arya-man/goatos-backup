@@ -83,7 +83,13 @@ func run(ctx context.Context, args []string, log *slog.Logger) error {
 		allowChecksumDrift = true
 	}
 
-	return applyMigrations(ctx, pool, migrations, cfg.DryRun, allowChecksumDrift, log)
+	if err := applyMigrations(ctx, pool, migrations, cfg.DryRun, allowChecksumDrift, log); err != nil {
+		return err
+	}
+	if !cfg.DryRun {
+		runPostMigrationJobs(ctx, pool, log)
+	}
+	return nil
 }
 
 func validateMigrationTarget(databaseURL string) error {

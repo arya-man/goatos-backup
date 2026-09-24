@@ -63,7 +63,6 @@
   "internal/vaccinationexecution/adapters/postgres/commandboard.go|unverified-dynamic-bind": 10,
   "internal/vaccinationexecution/adapters/postgres/commandboard_drilldown.go|unverified-dynamic-bind": 4,
   "internal/verification/adapters/postgres/oversight_analytics.go|unverified-dynamic-bind": 2,
-  "internal/verification/adapters/postgres/sampling.go|unverified-dynamic-bind": 2,
   "internal/verification/adapters/postgres/video_log.go|unverified-dynamic-bind": 1,
   "internal/weighing/adapters/boardsource/source.go|unverified-dynamic-bind": 1,
   "internal/weighing/adapters/postgres/campaign_sheds_page.go|unverified-dynamic-bind": 2,

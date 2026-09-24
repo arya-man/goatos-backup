@@ -20,6 +20,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
+	platformpostgres "github.com/vgoats/goatos/backend/internal/platform/postgres"
 	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 )
 
@@ -1735,7 +1736,20 @@ func escalationReason(target escalationTarget, level int) string {
 // SAME triggering event is a guaranteed no-op per recipient (ON CONFLICT DO NOTHING), while a
 // different event for the same completion (e.g. a later resubmission's fresh verification_pending)
 // gets its own rows.
+// QueueRoleNotifications retries the whole transaction when PostgreSQL picks it as a deadlock victim (40P01).
+// The transaction touches notification_requests (auto-resolve, unread-counter triggers); lock
+// ordering prevents the deadlock, this is the bounded backstop.
 func (r *Repository) QueueRoleNotifications(ctx context.Context, in ports.QueueRoleNotifications) (int, error) {
+	var out int
+	err := platformpostgres.RetryOnDeadlock(ctx, func(ctx context.Context) error {
+		var err error
+		out, err = r.queueRoleNotificationsOnce(ctx, in)
+		return err
+	})
+	return out, err
+}
+
+func (r *Repository) queueRoleNotificationsOnce(ctx context.Context, in ports.QueueRoleNotifications) (int, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	deviceIDs := make([]string, len(in.Recipients))
