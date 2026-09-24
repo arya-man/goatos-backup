@@ -10,6 +10,7 @@ var (
 	analyticsRollupRunDuration    = newHistogram("kernel.analytics_rollup.run.duration", "s", "Duration of one analytics-rollup Cloud Run Job invocation (GA4/Crashlytics BigQuery aggregation + Postgres upsert).")
 	analyticsRollupRowsWritten    = newCounter("kernel.analytics_rollup.rows_written", "{row}", "Rows upserted into analytics.* Postgres tables by one analytics-rollup run.")
 	analyticsRollupExportFailures = newCounter("kernel.analytics_rollup.export_failures", "{failure}", "Optional Firebase/BigQuery export failures (Crashlytics, Performance) in an analytics-rollup run; isolated from the committed first-party rollup.")
+	analyticsArchiveLeftoverDays  = newCounter("kernel.analytics_rollup.archive_leftover_days", "{day}", "Archived app_events days that still hold rows outside their exported key (restore/backfill); kept and skipped so later days keep archiving.")
 	analyticsRollupBytesBilled    = newCounter("kernel.analytics_rollup.bytes_billed", "By", "BigQuery bytes billed across all queries in one analytics-rollup run - the cost signal for the GA4->BQ->Postgres rollup per OBSERVABILITY_DESIGN.md section 2.6.")
 )
 
@@ -47,4 +48,10 @@ func RecordAnalyticsRollupRun(ctx context.Context, outcome AnalyticsRollupOutcom
 // without failing the job and re-dispatching the Postgres rollup.
 func RecordAnalyticsExportFailure(ctx context.Context, provider string) {
 	addCounter(ctx, analyticsRollupExportFailures, 1, attribute.String("provider", provider))
+}
+
+// RecordAnalyticsArchiveLeftoverDay counts one archived day skipped because it
+// still holds rows outside its verified export key.
+func RecordAnalyticsArchiveLeftoverDay(ctx context.Context) {
+	addCounter(ctx, analyticsArchiveLeftoverDays, 1)
 }
