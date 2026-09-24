@@ -132,7 +132,7 @@
           ]
         },
         "graphMode": "area",
-        "textMode": "value"
+        "textMode": "value_and_name"
       },
       "targets": [
         {
@@ -195,7 +195,7 @@
           ]
         },
         "graphMode": "area",
-        "textMode": "value"
+        "textMode": "value_and_name"
       },
       "targets": [
         {
@@ -204,9 +204,8 @@
           "queryType": "timeSeriesQuery",
           "timeSeriesQuery": {
             "projectName": "goatos-stg",
-            "query": "{ err: fetch prometheus_target :: 'prometheus.googleapis.com/http_server_requests_total/counter' | filter metric.status_class == '5xx' | align rate(5m) | every 5m | group_by [], [value: sum(val())] ; total: fetch prometheus_target :: 'prometheus.googleapis.com/http_server_requests_total/counter' | align rate(5m) | every 5m | group_by [], [value: sum(val())] } | join | value [error_pct: 100 * val(0) / val(1)]"
-          },
-          "aliasBy": "5xx %"
+            "query": "{ err: fetch prometheus_target :: 'prometheus.googleapis.com/http_server_requests_total/counter' | filter metric.status_class == '5xx' | align rate(5m) | every 5m | group_by [], [value: sum(val())] ; total: fetch prometheus_target :: 'prometheus.googleapis.com/http_server_requests_total/counter' | align rate(5m) | every 5m | group_by [], [value: sum(val())] } | join | value 100 * val(0) / val(1)"
+          }
         }
       ]
     },
@@ -245,7 +244,7 @@
           ]
         },
         "graphMode": "none",
-        "textMode": "value"
+        "textMode": "value_and_name"
       },
       "targets": [
         {
@@ -306,7 +305,7 @@
           ]
         },
         "graphMode": "area",
-        "textMode": "value"
+        "textMode": "value_and_name"
       },
       "targets": [
         {
@@ -367,7 +366,7 @@
         {
           "refId": "A",
           "datasource": "Google Cloud Monitoring",
-          "aliasBy": "{{metric.label.route}}",
+          "aliasBy": "{{metric.label.method}} {{metric.label.route}}",
           "queryType": "timeSeriesList",
           "timeSeriesList": {
             "projectName": "goatos-stg",
@@ -440,9 +439,8 @@
           "queryType": "timeSeriesQuery",
           "timeSeriesQuery": {
             "projectName": "goatos-stg",
-            "query": "{ err: fetch prometheus_target :: 'prometheus.googleapis.com/http_server_requests_total/counter' | filter metric.status_class == '5xx' | align rate(5m) | every 5m | group_by [], [value: sum(val())] ; total: fetch prometheus_target :: 'prometheus.googleapis.com/http_server_requests_total/counter' | align rate(5m) | every 5m | group_by [], [value: sum(val())] } | join | value [error_pct: 100 * val(0) / val(1)]"
-          },
-          "aliasBy": "5xx %"
+            "query": "{ err: fetch prometheus_target :: 'prometheus.googleapis.com/http_server_requests_total/counter' | filter metric.status_class == '5xx' | align rate(5m) | every 5m | group_by [], [value: sum(val())] ; total: fetch prometheus_target :: 'prometheus.googleapis.com/http_server_requests_total/counter' | align rate(5m) | every 5m | group_by [], [value: sum(val())] } | join | value 100 * val(0) / val(1)"
+          }
         }
       ]
     },
