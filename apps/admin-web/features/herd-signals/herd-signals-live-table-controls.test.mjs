@@ -112,7 +112,8 @@ test("Realtime movement KPI cards use backend live-state filters", () => {
   const streamBridge = read("./herd-signals-stream-bridge.tsx");
   assert.match(streamBridge, /useSearchParams/, "Stream and export URLs must update after in-app search-param navigation");
   assert.match(streamBridge, /const searchKey = searchParams\.toString\(\)/, "Stream bridge must key stream/export query construction off current search params");
-  assert.match(streamBridge, /\[live, tabHidden, streamConsumesLiveSnapshot, liveKey, liveQuery\]/, "EventSource must reconnect when the live query changes");
+  assert.match(streamBridge, /const streamHref = useMemo\(/, "EventSource URL must be derived from the current live query");
+  assert.match(streamBridge, /\[live, tabHidden, streamConsumesLiveSnapshot, liveKey, streamHref\]/, "EventSource must reconnect when the live query changes");
   assert.match(streamBridge, /const DEFAULT_SORT = "smart_tag"/, "Stream snapshot keys must include the normalized default sort");
   assert.match(streamBridge, /const DEFAULT_SORT_DIR = "asc"/, "Stream snapshot keys must include the normalized default sort direction");
   assert.match(streamBridge, /const DEFAULT_LIMIT = "25"/, "Stream snapshot keys must include the normalized default page size");

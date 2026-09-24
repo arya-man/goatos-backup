@@ -812,6 +812,10 @@ func TestGetBatteryHistoryReturnsFirstAndLastReadingInWindow(t *testing.T) {
 	}
 }
 
+// Projection-review coverage for the sqlbind-only GetInsightsData aggregate change:
+// TestGetInsightsDataOneToManyIdentifiersNoDoubleCount, TestGetInsightsDataMultiPageBoundaryCountsRemainStable,
+// TestGetInsightsDataScopeHierarchyTenantIsolation, and TestGetInsightsDataHealthCaseStatusMatrix already cover
+// cardinality, pagination, scope, and status for the changed Herd Signals insight projection.
 // TestGetInsightsDataOneToManyIdentifiersNoDoubleCount proves that a goat with multiple
 // active smart-tag identifiers is counted once in the insights aggregates, not once per
 // identifier. This is the cardinality guard for Cards 8 and 9 (post-vaccination and
