@@ -21,16 +21,29 @@ Vaccination becomes a group in Configuration → Items and settings:
 
 | Config | Holds |
 |---|---|
-| Vaccines (`vaccines`) | name, live/killed, species, gap weeks, same-day yes/no, never-with, priority, late-by, ml, doses/vial, `item_id` |
+| Vaccines (`vaccines`) | name, live/killed, species, priority, late-by, ml, doses/vial, `item_id` |
 | Vaccine programs (`vaccine_programs`, `program_doses`) | filters: origin, species, gender, tags, breed, min age; doses: vaccine · counted from (birth / arrival at buying spot / arrival at farm / previous dose) · weeks · booster · repeat |
 | Procurement plans (`load_vaccine_plans`) | per load: doses at buying spot, stay, boosters at warm-up sheds, program joined after |
-| Farm vaccine rules (`farm_vaccine_rules`) | max vaccines/animal/day, live↔live and killed gaps, pregnancy skip, hold-off states, arrival rest, operator cap, batching wait |
+| Farm vaccine rules (`farm_vaccine_rules`) | max vaccines/animal/day, gap table (see below), pregnancy skip, hold-off states, arrival rest, operator cap, batching wait |
 | Stock | existing `inventory_*` (doses, vials, FEFO lots) |
 
 Species, breeds (each tied to a species), gender, tags and animal origins are
 plain config lists; anything added appears immediately as a checkbox wherever
 the list is used (vaccines, programs, procurement plans, stock). Program breed
 choices only show breeds of the ticked species.
+
+Gaps live in **one place only**: the Farm vaccine rules gap table. A vaccine
+only says live or killed; the table decides the gap and whether same-day is
+allowed. Specific pairs can be added as exception rows, which beat the type row.
+
+| Pair | Min gap | Same day allowed |
+|---|---|---|
+| Live + Live | 4 weeks | Yes |
+| Live + Killed | 2 weeks | Yes |
+| Killed + Killed | 2 weeks | Yes |
+
+Same day allowed = give together on one day, otherwise keep the full gap.
+Example: ET+TT, Z1+Z3 and PPR on one day is allowed (cap 3/animal/day).
 
 No versions: edits save directly with a preview of affected future doses and a
 `config_change_log` entry.

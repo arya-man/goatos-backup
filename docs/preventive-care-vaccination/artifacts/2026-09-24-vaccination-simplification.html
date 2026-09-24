@@ -282,13 +282,13 @@ const breedsFor=sp=>LS.breeds.items.filter(b=>b.on&&sp.includes(b.sp)).map(b=>b.
 const FROM=['Birth','Arrival at buying spot','Arrival at farm'];
 const REPEAT=['Never','26 weeks','9 months','1 year','3 years'];
 let V=[
- {n:'ET+TT',f:'Enterotoxaemia + Tetanus',t:'Killed',sp:['Goat','Sheep'],gap:2,same:true,never:['Z1+Z3'],pr:'High',late:1,ml:2,vial:50,stock:1200,due:640,on:true},
+ {n:'ET+TT',f:'Enterotoxaemia + Tetanus',t:'Killed',sp:['Goat','Sheep'],gap:2,same:true,never:[],pr:'High',late:1,ml:2,vial:50,stock:1200,due:640,on:true},
  {n:'PPR',f:'Peste des petits ruminants',t:'Live',sp:['Goat','Sheep'],gap:4,same:true,never:[],pr:'High',late:1,ml:1,vial:100,stock:300,due:340,on:true},
  {n:'FMD',f:'Foot and mouth disease',t:'Killed',sp:['Goat','Sheep'],gap:2,same:true,never:[],pr:'High',late:1,ml:2,vial:50,stock:900,due:120,on:true},
  {n:'HS',f:'Haemorrhagic septicaemia',t:'Killed',sp:['Goat','Sheep'],gap:2,same:true,never:[],pr:'Normal',late:1,ml:2,vial:50,stock:600,due:120,on:true},
  {n:'Goat Pox',f:'Goat pox',t:'Live',sp:['Goat'],gap:4,same:true,never:[],pr:'Normal',late:1,ml:1,vial:100,stock:400,due:180,on:true},
  {n:'Sheep Pox',f:'Sheep pox',t:'Live',sp:['Sheep'],gap:4,same:true,never:[],pr:'Normal',late:1,ml:1,vial:100,stock:100,due:24,on:true},
- {n:'Z1+Z3',f:'Enterotoxaemia (Z1) + Z3',t:'Killed',sp:['Goat','Sheep'],gap:2,same:true,never:['ET+TT'],pr:'Normal',late:1,ml:2,vial:50,stock:500,due:210,on:true},
+ {n:'Z1+Z3',f:'Enterotoxaemia (Z1) + Z3',t:'Killed',sp:['Goat','Sheep'],gap:2,same:true,never:[],pr:'Normal',late:1,ml:2,vial:50,stock:500,due:210,on:true},
  {n:'Blue Tongue',f:'Bluetongue',t:'Killed',sp:['Sheep'],gap:2,same:true,never:[],pr:'Normal',late:1,ml:2,vial:50,stock:150,due:24,on:true},
  {n:'Anthrax',f:'Anthrax spore',t:'Live',sp:['Goat','Sheep'],gap:4,same:false,never:[],pr:'Low',late:1,ml:1,vial:100,stock:0,due:0,on:false}];
 const d=(v,from,after,boost,rep)=>({v,from,after,boost,rep});
@@ -304,7 +304,11 @@ let P=[
 let L=[
  {id:'PL-2026-0917',park:'Hosur holding',head:'180 goats · 24 sheep',purpose:'Fattening',spot:['ET+TT','PPR'],day:3,stay:2,boost:['ET+TT'],bw:3,prog:'Bought · fattening',st:'At buying spot · day 5'},
  {id:'PL-2026-0921',park:'Kolar holding',head:'140 goats',purpose:'Breeding',spot:['ET+TT','Z1+Z3','PPR'],day:3,stay:2,boost:['ET+TT','Z1+Z3'],bw:3,prog:'Bought · breeding',st:'Planned'}];
-let R={cap:3,live:4,killed:2,pregFrom:4,pregTo:5,catchup:2,hold:['Sick','Under treatment','Recovering','ICU','Quarantine'],rest:1,op:200,wait:1};
+let PAIRS=[{a:'Live',b:'Live',gap:4,same:true},{a:'Live',b:'Killed',gap:2,same:true},{a:'Killed',b:'Killed',gap:2,same:true}];
+let EXC=[];
+const pair=(t1,t2)=>PAIRS.find(x=>(x.a==t1&&x.b==t2)||(x.a==t2&&x.b==t1));
+const gapTxt=t=>`${pair(t,'Live').gap}w from live · ${pair(t,'Killed').gap}w from killed`;
+let R={cap:3,pregFrom:4,pregTo:5,catchup:2,hold:['Sick','Under treatment','Recovering','ICU','Quarantine'],rest:1,op:200,wait:1};
 const HOLD=['Sick','Under treatment','Recovering','ICU','Quarantine','Lactating','Recently bred'];
 
 /* ---------- lists ---------- */
@@ -340,8 +344,8 @@ function render(){
  if(cur==='vax'){
   const rows=V.map((v,i)=>[v,i]).filter(([v])=>pass(v,v.n));
   p.innerHTML=head('Vaccines',V.length,'Each vaccine once. When it is given lives in programs.','<button class="btn p" id="add">＋ Add vaccine</button>')+tools('Search vaccines')+
-  `<div class="tw"><table><thead><tr><th>Name</th><th>Type</th><th>Species</th><th>Gap to others</th><th>Same day</th><th>Priority</th><th>Dose</th><th>Status</th><th></th></tr></thead><tbody>`+
-  rows.map(([v,i])=>`<tr><td class="n">${v.n}<div class="muted" style="font-weight:400;font-size:12px">${v.f}</div></td><td>${v.t}</td><td>${chips(v.sp)}</td><td>${wk(v.gap)}</td><td>${v.same?'Yes':'<span class="muted">No</span>'}${v.never.length?` <span class="muted">· not with ${v.never.join(', ')}</span>`:''}</td><td>${v.pr}</td><td>${v.ml} ml · ${v.vial}/vial</td><td><span class="st ${v.on?'':'off'}">${v.on?'Active':'Inactive'}</span></td><td><div class="act"><button data-e="${i}">Edit</button></div></td></tr>`).join('')+`</tbody></table></div>`;
+  `<div class="tw"><table><thead><tr><th>Name</th><th>Type</th><th>Species</th><th>Gaps (from farm rules)</th><th>Priority</th><th>Dose</th><th>Status</th><th></th></tr></thead><tbody>`+
+  rows.map(([v,i])=>`<tr><td class="n">${v.n}<div class="muted" style="font-weight:400;font-size:12px">${v.f}</div></td><td>${v.t}</td><td>${chips(v.sp)}</td><td class="muted">${gapTxt(v.t)}</td><td>${v.pr}</td><td>${v.ml} ml · ${v.vial}/vial</td><td><span class="st ${v.on?'':'off'}">${v.on?'Active':'Inactive'}</span></td><td><div class="act"><button data-e="${i}">Edit</button></div></td></tr>`).join('')+`</tbody></table></div>`;
   p.querySelectorAll('[data-e]').forEach(b=>b.onclick=()=>editVax(+b.dataset.e));
   $('#add').onclick=()=>editVax(-1);
  }
@@ -369,15 +373,24 @@ function render(){
   p.innerHTML=head('Farm vaccine rules','','Apply to every vaccine and every program.','<button class="btn p" id="sv">Save</button>')+
   `<div class="db" style="padding:20px">
    <div class="fl"><span class="lb">Per animal per day</span><div class="inl">At most <input class="in num" type="number" id="r-cap" value="${R.cap}"> vaccines</div></div>
-   <div class="row2"><div class="fl"><span class="lb">Live ↔ live</span><div class="inl"><input class="in num" type="number" id="r-live" value="${R.live}"> weeks apart</div></div>
-   <div class="fl"><span class="lb">Killed ↔ any</span><div class="inl"><input class="in num" type="number" id="r-killed" value="${R.killed}"> weeks apart</div><span class="hint">unless both are "same day: yes"</span></div></div>
+   <div class="fl"><span class="lb">Gaps between vaccines</span>
+    <div class="tw"><table><thead><tr><th>Pair</th><th>Minimum gap</th><th>Same day allowed</th></tr></thead><tbody>
+    ${PAIRS.map((x,i)=>`<tr><td class="n">${x.a} + ${x.b}</td><td><div class="inl"><input class="in num" type="number" data-pg="${i}" value="${x.gap}"> weeks</div></td><td>${tg('ps'+i,['Yes','No'],x.same?'Yes':'No')}</td></tr>`).join('')}
+    ${EXC.map((x,i)=>`<tr><td class="n">${x.a} + ${x.b} <span class="st w">exception</span></td><td><div class="inl"><input class="in num" type="number" data-eg="${i}" value="${x.gap}"> weeks</div></td><td>${tg('es'+i,['Yes','No'],x.same?'Yes':'No')}</td></tr>`).join('')}
+    </tbody></table></div>
+    <span class="hint">Same day allowed = give together on one day, otherwise keep the full gap. A vaccine only says live or killed; this table decides the rest.</span>
+    <div class="inl" style="margin-top:6px">Exception: ${sel('ex-a',V.map(v=>v.n),'Goat Pox')} + ${sel('ex-b',V.map(v=>v.n),'PPR')}<button class="btn" type="button" id="ex-add">＋ Add exception</button></div>
+   </div>
    <div class="fl"><span class="lb">Pregnancy</span><div class="inl">Skip months <input class="in num" type="number" id="r-pf" value="${R.pregFrom}"> to <input class="in num" type="number" id="r-pt" value="${R.pregTo}">, catch up within <input class="in num" type="number" id="r-cu" value="${R.catchup}"> weeks of delivery</div></div>
    <div class="fl"><span class="lb">Hold off while</span><div class="checks">${HOLD.map(h=>`<label><input type="checkbox" name="hold" value="${h}" ${R.hold.includes(h)?'checked':''}>${h}</label>`).join('')}</div></div>
    <div class="fl"><span class="lb">After arrival at farm</span><div class="inl">No vaccine for <input class="in num" type="number" id="r-rest" value="${R.rest}"> weeks</div></div>
    <div class="row2"><div class="fl"><span class="lb">Operator capacity</span><div class="inl"><input class="in num" type="number" id="r-op" value="${R.op}"> animals / day</div></div>
    <div class="fl"><span class="lb">Batching</span><div class="inl">Wait up to <input class="in num" type="number" id="r-wait" value="${R.wait}"> weeks to batch</div></div></div>
   </div>`;
-  $('#sv').onclick=()=>{R={cap:+$('#r-cap').value,live:+$('#r-live').value,killed:+$('#r-killed').value,pregFrom:+$('#r-pf').value,pregTo:+$('#r-pt').value,catchup:+$('#r-cu').value,
+  const tgOn=()=>p.querySelectorAll('.tg').forEach(g=>g.querySelectorAll('button').forEach(b=>b.onclick=()=>{g.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));g.dataset.v=b.dataset.v}));tgOn();
+  const readPairs=()=>{PAIRS.forEach((x,i)=>{x.gap=+p.querySelector(`[data-pg="${i}"]`).value;x.same=p.querySelector('#ps'+i).dataset.v==='Yes'});EXC.forEach((x,i)=>{x.gap=+p.querySelector(`[data-eg="${i}"]`).value;x.same=p.querySelector('#es'+i).dataset.v==='Yes'})};
+  $('#ex-add').onclick=()=>{readPairs();const a=p.querySelector('.ex-a').value,b=p.querySelector('.ex-b').value;if(a!==b&&!EXC.some(x=>(x.a==a&&x.b==b)||(x.a==b&&x.b==a)))EXC.push({a,b,gap:3,same:false});render()};
+  $('#sv').onclick=()=>{readPairs();R={cap:+$('#r-cap').value,pregFrom:+$('#r-pf').value,pregTo:+$('#r-pt').value,catchup:+$('#r-cu').value,
    hold:[...document.querySelectorAll('[name=hold]:checked')].map(x=>x.value),rest:+$('#r-rest').value,op:+$('#r-op').value,wait:+$('#r-wait').value};toast('Saved · future doses re-planned')};
  }
  const qi=$('#q'); if(qi){qi.oninput=()=>{q=qi.value;const pos=qi.selectionStart;render();const n=$('#q');n.focus();n.setSelectionRange(pos,pos);};}
@@ -394,7 +407,7 @@ function drawer(title,body,onSave){
  s.onclick=close;w.querySelector('#dx').onclick=close;w.querySelector('#dc').onclick=close;
  w.querySelector('#ds').onclick=()=>{if(onSave(w)!==false){close();render();}};
  w.querySelectorAll('.tg').forEach(g=>g.querySelectorAll('button').forEach(b=>b.onclick=()=>{g.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));g.dataset.v=b.dataset.v;
-  if(g.id==='f-t'){const gp=w.querySelector('#f-gap');if(gp)gp.value=b.dataset.v==='Live'?R.live:R.killed}}));
+  if(g.id==='f-t'){const gp=w.querySelector('#f-gaptxt');if(gp)gp.textContent=gapTxt(b.dataset.v)}}));
  return w;
 }
 const checks=(name,opts,sel)=>`<div class="checks">${opts.map(o=>`<label><input type="checkbox" name="${name}" value="${o}" ${sel.includes(o)?'checked':''}>${o}</label>`).join('')}</div>`;
@@ -403,23 +416,20 @@ const sel=(cls,opts,v)=>`<select class="in ${cls}">${opts.map(o=>`<option ${o==v
 const got=(w,n)=>[...w.querySelectorAll(`[name="${n}"]:checked`)].map(x=>x.value);
 
 function editVax(i){
- const v=i<0?{n:'',f:'',t:'Killed',sp:['Goat','Sheep'],gap:R.killed,same:true,never:[],pr:'Normal',late:1,ml:2,vial:50,stock:0,due:0,on:true}:V[i];
+ const v=i<0?{n:'',f:'',t:'Killed',sp:['Goat','Sheep'],never:[],pr:'Normal',late:1,ml:2,vial:50,stock:0,due:0,on:true}:V[i];
  const w=drawer(i<0?'Add vaccine':'Edit '+v.n,`
   <div class="row2"><div class="fl"><label for="f-n">Name</label><input class="in" id="f-n" value="${v.n}" placeholder="e.g. ET+TT"></div>
   <div class="fl"><label for="f-f">Full name</label><input class="in" id="f-f" value="${v.f}"></div></div>
   <div class="fl"><span class="lb">Type</span>${tg('f-t',['Live','Killed'],v.t)}</div>
   <div class="fl"><span class="lb">Species</span>${checks('sp',names('species'),v.sp)}</div>
-  <div class="fl"><span class="lb">Gap</span><div class="inl">Nothing else within <input class="in num" type="number" id="f-gap" value="${v.gap}"> weeks</div><span class="hint">Default from farm rules: live ${R.live}w, killed ${R.killed}w</span></div>
-  <div class="fl"><span class="lb">Same day as other vaccines</span>${tg('f-same',['Yes','No'],v.same?'Yes':'No')}</div>
-  <div class="fl"><span class="lb">Never on the same day as</span>${checks('nv',V.map(x=>x.n).filter(x=>x!==v.n),v.never)}</div>
+  <div class="fl"><span class="lb">Gaps</span><div class="muted" id="f-gaptxt">${gapTxt(v.t)}</div><span class="hint">Set by type in Farm vaccine rules → Gaps between vaccines. Not editable here.</span></div>
   <div class="row2"><div class="fl"><span class="lb">Priority</span>${tg('f-pr',['High','Normal','Low'],v.pr)}</div>
   <div class="fl"><span class="lb">Late by</span><div class="inl">Up to <input class="in num" type="number" id="f-late" value="${v.late}"> weeks</div></div></div>
   <div class="row2"><div class="fl"><label for="f-ml">Dose (ml)</label><input class="in" type="number" id="f-ml" value="${v.ml}"></div>
   <div class="fl"><label for="f-vial">Doses per vial</label><input class="in" type="number" id="f-vial" value="${v.vial}"></div></div>
   <div class="fl"><span class="lb">Status</span>${tg('f-on',['Active','Inactive'],v.on?'Active':'Inactive')}</div>`,
  w=>{const n=w.querySelector('#f-n').value.trim();if(!n){w.querySelector('#f-n').focus();return false}
-  const o={...v,n,f:w.querySelector('#f-f').value,t:w.querySelector('#f-t').dataset.v,sp:got(w,'sp'),gap:+w.querySelector('#f-gap').value,same:w.querySelector('#f-same').dataset.v==='Yes',
-   never:got(w,'nv'),pr:w.querySelector('#f-pr').dataset.v,late:+w.querySelector('#f-late').value,ml:+w.querySelector('#f-ml').value,vial:+w.querySelector('#f-vial').value,on:w.querySelector('#f-on').dataset.v==='Active'};
+  const o={...v,n,f:w.querySelector('#f-f').value,t:w.querySelector('#f-t').dataset.v,sp:got(w,'sp'),pr:w.querySelector('#f-pr').dataset.v,late:+w.querySelector('#f-late').value,ml:+w.querySelector('#f-ml').value,vial:+w.querySelector('#f-vial').value,on:w.querySelector('#f-on').dataset.v==='Active'};
   if(i<0)V.push(o);else V[i]=o;toast(i<0?'Vaccine added':'Saved · future doses re-planned')});
 }
 
