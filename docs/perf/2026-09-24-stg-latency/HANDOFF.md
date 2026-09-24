@@ -30,7 +30,7 @@ explicitly say so.**
 | Area | Open judge findings | Where the in-progress work is |
 |---|---|---|
 | Shared read cache (`backend/internal/platform/readcache`) | See the list below this table. | `wip/perf-read-cache` (c44936389 is not yet judged) |
-| Herd Signals live | See the list below this table. | `wip/perf-herd-live`. The worktree also had 19 uncommitted files mid-work; redo them if they're lost. |
+| Herd Signals live | N1–N7 + pen=partition **pushed as e96822461** (000402, 000404), re-judge in progress; open question: risk lag up to ~7.5 min for steadily reporting tags | `wip/perf-herd-live`. The worktree also had 19 uncommitted files mid-work; redo them if they're lost. |
 | ~~Notifications stored unread counter (000403)~~ **CLEAN after the deadlock fix c6f6048ad** | See the list below this table. | `wip/perf-notifications` |
 
 **Shared read cache.** Writers outside weighing never invalidate the cache. The full matrix is in `audit/cache-correctness.md` items 1–7:
