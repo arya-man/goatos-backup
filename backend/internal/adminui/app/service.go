@@ -6225,8 +6225,6 @@ func pageSpecificCopy(id string) map[string]string {
 			"action.next":     "Next",
 
 			"state.unavailable": "Mortality unavailable",
-			"empty.title":       "No deaths recorded",
-			"empty.body":        "No animal was recorded dead in this scope and window. Figures appear as soon as a death is recorded and approved.",
 			"error.title":       "Mortality is unavailable",
 			"error.body":        "The mortality read failed. The Counts screens themselves are unaffected; try again shortly.",
 		}

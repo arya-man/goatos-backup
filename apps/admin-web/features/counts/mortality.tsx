@@ -456,7 +456,6 @@ export async function MortalityPage({
   const causeEstablished = totals.cause_recorded + totals.cause_inferred;
   const rateWithAnimals = (rate: number | null | undefined, animals: number) =>
     rate == null ? noRate : `${pct(rate)} · ${nf(animals)} ${animalsWord}`;
-  const nothing = totals.deaths === 0;
   const showParks = data.park.length > 1;
   const showSpecies = data.species.length > 1;
 
@@ -480,13 +479,6 @@ export async function MortalityPage({
         />
         <span className="muted small ha-filter-hint">{mc(pageContract, "filter.scope_readonly")}</span>
       </div>
-
-      {nothing ? (
-        <section className="card">
-          <h2 className="h">{mc(pageContract, "empty.title")}</h2>
-          <p className="muted small">{mc(pageContract, "empty.body")}</p>
-        </section>
-      ) : null}
 
       <section className="grid g3 kpi-row" style={{ gap: 14 }} aria-label={mc(pageContract, "section.kpi.aria")}>
         <Kpi accent="var(--danger)" label={mc(pageContract, "kpi.deaths.label")} value={nf(totals.deaths)} sub={mc(pageContract, "kpi.deaths.sub")} />
