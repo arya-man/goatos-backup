@@ -413,6 +413,9 @@ class ShedsViewModel @Inject constructor(
         val shedRows = rowsForSelectedDay.groupBy { it.operatorDayCardId() }.map { (cardId, group) ->
             val first = group.first()
             val execution = group.firstOrNull { !it.sopTaskId.isNullOrBlank() } ?: first
+            val assignmentIds = group.mapNotNull { it.assignmentId?.takeIf(String::isNotBlank) }.distinct()
+            val taskIds = group.mapNotNull { it.sopTaskId?.takeIf(String::isNotBlank) }.distinct()
+            val hasMixedExecutionIdentity = assignmentIds.size > 1 || taskIds.size > 1
             val scheduleDate = group.mapNotNull { it.currentScheduleDate?.let(::parseExecutionDate) }.minOrNull()
 
             // Prefer backend-computed card summary (page-independent, covers all rows for the card).
@@ -512,13 +515,14 @@ class ShedsViewModel @Inject constructor(
                 ),
                 shedId = first.shedId,
                 driveId = execution.driveId,
-                assignmentId = group.mapNotNull { it.assignmentId?.takeIf(String::isNotBlank) }
-                    .distinct()
-                    .singleOrNull(),
-                batchId = execution.batchId,
-                taskId = execution.sopTaskId,
-                sopVersionId = execution.sopVersionId,
-                taskRowVersion = execution.sopTaskRowVersion,
+                // One visible operator card can combine rows created by separate assignment/task
+                // writes. Never route that card through an arbitrary representative identity:
+                // the shed+partition roster is the only scope that includes every animal.
+                assignmentId = assignmentIds.singleOrNull().takeUnless { hasMixedExecutionIdentity },
+                batchId = execution.batchId.takeUnless { hasMixedExecutionIdentity },
+                taskId = execution.sopTaskId.takeUnless { hasMixedExecutionIdentity },
+                sopVersionId = execution.sopVersionId.takeUnless { hasMixedExecutionIdentity },
+                taskRowVersion = execution.sopTaskRowVersion.takeUnless { hasMixedExecutionIdentity },
                 opensRecordOnly = group.opensSubmittedRecordOnly(),
                 canOpen = scheduleDate == null || !scheduleDate.isAfter(workWindow.today),
             )
@@ -744,7 +748,7 @@ internal fun effectiveDoneCount(rows: List<VaccinationExecutionRowDto>): Int =
     rows.sumOf { row -> row.doneCount.coerceAtLeast(0) }
 
 private fun effectiveCardDoneCount(rows: List<VaccinationExecutionRowDto>): Int =
-    rows.maxOfOrNull { row -> row.doneCount.coerceAtLeast(0) }.orZero()
+    rows.assignmentAwareCardCounts { it.doneCount }
 
 /** Execution API rows are aggregated groups. Counts must come from the backend fields, never
  * from List.size (which undercounted a two-goat shed as one because it had one grouped row). */
@@ -757,10 +761,27 @@ internal fun executionCounts(rows: List<VaccinationExecutionRowDto>): ExecutionC
 
 private fun executionCardCounts(rows: List<VaccinationExecutionRowDto>): ExecutionCounts =
     ExecutionCounts(
-        target = rows.maxOfOrNull { it.targetCount.coerceAtLeast(0) }.orZero(),
-        open = rows.maxOfOrNull { it.openCount.coerceAtLeast(0) }.orZero(),
-        done = rows.maxOfOrNull { it.doneCount.coerceAtLeast(0) }.orZero(),
+        target = rows.assignmentAwareCardCounts { it.targetCount },
+        open = rows.assignmentAwareCardCounts { it.openCount },
+        done = rows.assignmentAwareCardCounts { it.doneCount },
     )
+
+/** Vaccine rows inside one assignment repeat the animal count, while separate assignments in the
+ * same operational card represent distinct animal memberships. Collapse the former, sum the
+ * latter. Legacy rows without assignment identity retain the previous MAX behavior. */
+private inline fun List<VaccinationExecutionRowDto>.assignmentAwareCardCounts(
+    count: (VaccinationExecutionRowDto) -> Int,
+): Int {
+    val assigned = filter { !it.assignmentId.isNullOrBlank() }
+    if (assigned.isEmpty()) return maxOfOrNull { count(it).coerceAtLeast(0) }.orZero()
+    val assignedTotal = assigned.groupBy { it.assignmentId!! }
+        .values
+        .sumOf { assignmentRows -> assignmentRows.maxOf { count(it).coerceAtLeast(0) } }
+    val legacyMax = filter { it.assignmentId.isNullOrBlank() }
+        .maxOfOrNull { count(it).coerceAtLeast(0) }
+        .orZero()
+    return assignedTotal + legacyMax
+}
 
 private fun Int?.orZero(): Int = this ?: 0
 
@@ -825,7 +846,6 @@ internal fun VaccinationExecutionRowDto.operatorDayCardId(): String = buildStrin
     append(shedId)
     append("|partition:")
     append(executionPartitionKey(partitionLabel ?: partition))
-    assignmentId?.takeIf(String::isNotBlank)?.let { append("|assignment:").append(it) }
 }
 
 private fun VaccinationExecutionRowDto.backendExecutionCardId(): String =
