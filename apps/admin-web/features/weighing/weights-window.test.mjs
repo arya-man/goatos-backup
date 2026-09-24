@@ -75,10 +75,10 @@ test("admin weighing reads are short-cached per user and cleared on writes", () 
 	);
 	assert.match(
 		serverSource,
-		/\} finally \{[\s\S]{0,300}?if \(method\.toUpperCase\(\) !== "GET"\) clearBackendReadCaches\(\);/,
+		/\} finally \{[\s\S]{0,300}?if \(method\.toUpperCase\(\) !== "GET"\) await noteBackendWrite\(\);/,
 		"the post-write clear must run in finally so a write that throws still clears",
 	);
-	assert.match(serverSource, /clearBackendReadCaches\(\);\s*await markCallerWrite\(\);/);
+	assert.match(serverSource, /async function noteBackendWrite\(\): Promise<void> \{\s*clearBackendReadCaches\(\);\s*await markCallerWrite\(\);/);
 	assert.match(
 		serverSource,
 		/function cachedShortRead[\s\S]*?if \(await callerWroteRecently\(\)\) return coalescedRead\(key, fn\);/,

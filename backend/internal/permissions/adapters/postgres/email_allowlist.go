@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"sync"
 	"time"
@@ -40,6 +41,9 @@ type AllowedEmailSource struct {
 type tenantEmailCache struct {
 	emails   map[string]struct{}
 	loadedAt time.Time
+	// retryAfter: after a failed reload past allowlistMaxStaleAge, requests fail
+	// closed without touching the database until this time.
+	retryAfter time.Time
 }
 
 func NewAllowedEmailSource(pool *pgxpool.Pool, timeout time.Duration, log *slog.Logger) *AllowedEmailSource {
@@ -62,6 +66,13 @@ func NewAllowedEmailSource(pool *pgxpool.Pool, timeout time.Duration, log *slog.
 // allowlistMaxStaleAge caps how long a last-known-good allowlist may answer
 // while reloads keep failing.
 const allowlistMaxStaleAge = 10 * time.Minute
+
+// allowlistFailureBackoff: once the cached set is too old to serve, a failed
+// reload is not retried for this long, so an outage does not re-query the
+// saturated auth pool on every request. Requests still fail closed (503).
+const allowlistFailureBackoff = 5 * time.Second
+
+var errAllowlistReloadBackoff = errors.New("auth_allowed_emails: reload failing, backing off")
 
 var _ authallow.DynamicEmailSource = (*AllowedEmailSource)(nil)
 
@@ -98,13 +109,29 @@ func (s *AllowedEmailSource) activeSet(ctx context.Context, tenantID string) (ma
 	entry, hasLoaded := s.byTenant[tenantID]
 	fresh := hasLoaded && s.now().Sub(entry.loadedAt) < s.ttl
 	cached := entry.emails
-	if hasLoaded && s.now().Sub(entry.loadedAt) >= allowlistMaxStaleAge {
+	expired := hasLoaded && s.now().Sub(entry.loadedAt) >= allowlistMaxStaleAge
+	if expired {
 		// Too old to vouch for anyone if this reload fails.
 		cached = nil
 	}
+	backingOff := expired && s.now().Before(entry.retryAfter)
 	s.mu.Unlock()
 	if fresh {
 		return cached, nil
+	}
+	if backingOff {
+		return nil, errAllowlistReloadBackoff
+	}
+	fail := func(err error) (map[string]struct{}, error) {
+		if expired {
+			s.mu.Lock()
+			if e, ok := s.byTenant[tenantID]; ok {
+				e.retryAfter = s.now().Add(allowlistFailureBackoff)
+				s.byTenant[tenantID] = e
+			}
+			s.mu.Unlock()
+		}
+		return cached, err
 	}
 
 	// Bounded by BOTH the source's own timeout and the caller's remaining
@@ -117,7 +144,7 @@ FROM auth_allowed_emails
 WHERE tenant_id = $1::uuid AND status = 'active'`, tenantID)
 	if err != nil {
 		s.log.Warn("auth_allowed_emails_load_failed", slog.Any("error", err))
-		return cached, err
+		return fail(err)
 	}
 	loaded := map[string]struct{}{}
 	for rows.Next() {
@@ -125,14 +152,14 @@ WHERE tenant_id = $1::uuid AND status = 'active'`, tenantID)
 		if err := rows.Scan(&email); err != nil {
 			rows.Close()
 			s.log.Warn("auth_allowed_emails_scan_failed", slog.Any("error", err))
-			return cached, err
+			return fail(err)
 		}
 		loaded[email] = struct{}{}
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
 		s.log.Warn("auth_allowed_emails_load_failed", slog.Any("error", err))
-		return cached, err
+		return fail(err)
 	}
 
 	s.mu.Lock()
