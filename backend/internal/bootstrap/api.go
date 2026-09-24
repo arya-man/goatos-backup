@@ -498,7 +498,10 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// consulted in union with the GOATOS_AUTH_ALLOWED_EMAILS env list by both
 	// the auth middleware and the session-events handler.
 	allowedEmailSource := permissionspg.NewAllowedEmailSource(pool, cfg.Postgres.QueryTimeout, log)
-	authz, err := buildAuthMiddleware(cfg.Auth, verifier, appCheckVerifier, grantSource, allowedEmailSource, log)
+	// Grants and person access are coalesced per (tenant, user) for authAccessTTL: one statement
+	// per burst instead of per request (auth_read_cache.go).
+	authReadCache := newAuthReadCache()
+	authz, err := buildAuthMiddleware(cfg.Auth, verifier, appCheckVerifier, cachedGrantSource{inner: grantSource, cache: authReadCache}, allowedEmailSource, log)
 	if err != nil {
 		pool.Close()
 		return nil, err
@@ -1428,7 +1431,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// permissions come from the person's own stored module rows; the route rules are
 	// unchanged. A person with no rows yet still authorizes from their role, logged
 	// each time -- see the middleware for why that bridge exists and when it goes.
-	authz.SetPersonAccessSource(accessRepo)
+	authz.SetPersonAccessSource(cachedPersonAccess{inner: accessRepo, cache: authReadCache})
 
 	protectedMux := http.NewServeMux()
 	protectedMux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
