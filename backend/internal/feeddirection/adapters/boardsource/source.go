@@ -277,15 +277,6 @@ type cardReadKey struct {
 	tenant, park, date, owner string
 }
 
-// readCard serves one activity's card from the request's single batched read of all four.
-func (s *Source) readCard(ctx context.Context, a activity, q ports.SourceQuery) (cardMetrics, error) {
-	cards, err := s.readCards(ctx, q)
-	if err != nil {
-		return cardMetrics{}, err
-	}
-	return cards[a.rank], nil
-}
-
 // readCards reads the four activity cards as ONE pgx batch: one pool connection and one round
 // trip instead of four parallel statements on four connections (the Work Board page reads the
 // feed cards on every load, and four concurrent acquires per page pressed the pool). State and
@@ -380,6 +371,15 @@ func (s *Source) ListRows(ctx context.Context, q ports.SourceQuery) ([]domain.Ro
 	}
 	want := stateSet(q.WorkStates)
 	out := make([]domain.Row, 0, len(activities))
+	if afterRank >= len(activities)-1 {
+		return out, nil
+	}
+	// One batched read for every card of this call: without a request memo on ctx (FindRow's
+	// keyset walk, a direct lane read) a per-activity readCard would resend the whole batch.
+	cards, err := s.readCards(ctx, q)
+	if err != nil {
+		return nil, fmt.Errorf("feed boardsource list: %w", err)
+	}
 	for _, a := range activities {
 		if a.rank <= afterRank {
 			continue
@@ -387,10 +387,7 @@ func (s *Source) ListRows(ctx context.Context, q ports.SourceQuery) ([]domain.Ro
 		if len(out) >= limit {
 			break
 		}
-		m, err := s.readCard(ctx, a, q)
-		if err != nil {
-			return nil, fmt.Errorf("feed boardsource list %s: %w", a.key, err)
-		}
+		m := cards[a.rank]
 		if m.cardRank < 0 {
 			continue // no sheds today for this activity -> no card
 		}
