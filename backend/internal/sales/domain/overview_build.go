@@ -65,7 +65,7 @@ func BuildDealAggregates(closed []Deal) (Summary, []MonthlyRow, []PriceBand, []B
 			lineAnimals := l.Animals()
 			animals += lineAnimals
 
-			// The outer split is by KIND (migration 000393) -- what the product DOES -- and the
+			// The outer split is by KIND (migration 000402) -- what the product DOES -- and the
 			// inner one by the built-in CODE, so renaming 'Sheep' on screen moves the card's label
 			// and not its number. The four buckets are DISJOINT and together cover every line, so
 			// LiveRevenue + ManureRevenue + FeedRevenue + OtherRevenue equals Revenue.

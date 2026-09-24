@@ -179,7 +179,7 @@ type dealLinePayload struct {
 	LineNo int    `json:"line_no"`
 	// ProductType is the name the line was sold under; ProductKind is what it DOES (animal, feed,
 	// other), which is what a renderer needs to decide whether to show a head count or kilograms.
-	// Both are stamped from the registry at write time (migration 000393), so a product renamed
+	// Both are stamped from the registry at write time (migration 000402), so a product renamed
 	// since does not change what this sale says it was.
 	ProductType string `json:"product_type"`
 	ProductCode string `json:"product_code"`
