@@ -31,10 +31,13 @@
 - Anchored protocol second-wave pox timing to the latest actual ET+TT/PPR administration; no first-wave history means no second-wave assignment yet.
 - Added trusted procurement evidence to strict carry-over floors, canonicalized spaced vaccine names, and blocked medical carry-over across incompatible trigger/repeat semantics.
 - Made validation plus ordinary obligation insert one serializable transaction so concurrent anchor corrections cannot commit an invalid row between the floor read and write.
+- Required the complete authored first wave before a purpose-plan second wave can be scheduled; one ET+TT-only or PPR-only history no longer unlocks pox.
+- Made missing DOB, accepted-intake, and previous-completion anchors fail closed instead of silently permitting an unprovable vaccination date.
+- Quarantined legacy manual fattening second-wave rows during carry-over so they regenerate through the same guarded insert path.
 
 ## Pending
 
-- Rerun the full focused suite and final judges after the trusted-history/second-wave fix.
+- Run final judges against the pushed complete-first-wave and fail-closed-anchor checkpoint.
 - Keep the draft PR updated with each verified checkpoint.
 - Repair/read back STG after the durable guard is deployable; do not claim the DB repair durable before deployment.
 
@@ -46,8 +49,10 @@
 - OCI Postgres: `TestVaccinationBirthAgeFloorGuardsEveryWritePath` passed against the throwaway database in 165.15s, including nil-reschedule recovery reopen.
 - OCI Postgres: carry-over collision, repeat-cause collision, valid BT dose-2 rebind, under-age rejection, and fattening purpose/species tests passed against disposable databases.
 - OCI Postgres: strict trusted-history floor, incompatible trigger-transition rejection, and valid BT medical rebind all passed in 130.287s.
+- OCI Postgres: valid BT rebind, trusted previous-completion floor, incompatible trigger rejection, every write-path floor, under-age carry-over, and fattening purpose/species cases passed in 128.747s after the final anchor changes.
+- Final focused suite after the complete-first-wave and fail-closed-anchor changes: `go test ./internal/vaccination/... ./internal/obligation/... ./internal/protocol/... ./internal/vaccinationexecution/... ./cmd/seed-vaccination-real ./tests/e2e -count=1` passed.
 - E2E/readback: STG repair and deployed repeated-sweep readback pending; no deployment from this branch.
-- Judge status: second judge pass found trusted-history, trigger-transition, and second-wave-anchor gaps; all are fixed and awaiting final review.
+- Judge status: latest review found partial-first-wave, manual second-wave, trusted-name normalization, and missing-anchor gaps; all are fixed and awaiting final review of the pushed SHA.
 - Deployment state: not deployed
 
 ## Known failure and before metric
