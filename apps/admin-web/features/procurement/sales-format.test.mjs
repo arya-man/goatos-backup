@@ -8,6 +8,7 @@ import {
   inrCompact,
   marketLossPerKg,
   monthLabel,
+  monthlyAnimalRevenueTotal,
   monthlyAnimalsTotal,
   monthlyRevenueTotal,
   num,
@@ -240,4 +241,18 @@ test("farm value copy keys have rollout fallbacks", () => {
   ]) {
     assert.match(source, new RegExp(`"${key.replaceAll(".", "\\.")}"`));
   }
+});
+
+test("monthly charts include feed, counted goods and custom animals through backend totals", () => {
+ const month={month:"2026-09",sheep_revenue:0,goat_revenue:0,manure_revenue:0,sheep_count:0,goat_count:0,revenue:3000,live_revenue:1000,animals:2,feed_revenue:1000,other_revenue:1000};
+ assert.equal(monthlyRevenueTotal(month),3000);
+ assert.equal(monthlyAnimalsTotal(month),2);
+ assert.equal(monthlyAnimalRevenueTotal(month),1000);
+ assert.equal(trimEmptyMonthlyStart([month],monthlyRevenueTotal).length,1);
+ const zero={...month,revenue:0,live_revenue:0,animals:0,sheep_revenue:999,sheep_count:99};
+ assert.equal(monthlyRevenueTotal(zero),0);
+ assert.equal(monthlyAnimalsTotal(zero),0);
+ assert.equal(monthlyAnimalRevenueTotal(zero),0);
+ const {revenue,live_revenue,animals,...legacy}=month;
+ assert.equal(monthlyRevenueTotal(legacy),2000);
 });

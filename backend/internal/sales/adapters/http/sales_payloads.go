@@ -437,6 +437,13 @@ type summaryPayload struct {
 }
 
 type monthlyPayload struct {
+	Revenue       float64 `json:"revenue"`
+	LiveRevenue   float64 `json:"live_revenue"`
+	Animals       float64 `json:"animals"`
+	FeedRevenue   float64 `json:"feed_revenue"`
+	FeedKg        float64 `json:"feed_kg"`
+	OtherRevenue  float64 `json:"other_revenue"`
+	OtherKg       float64 `json:"other_kg"`
 	Month         string  `json:"month"`
 	SheepRevenue  float64 `json:"sheep_revenue"`
 	GoatRevenue   float64 `json:"goat_revenue"`
@@ -524,6 +531,7 @@ func toOverviewPayload(o domain.Overview) overviewPayload {
 	monthly := make([]monthlyPayload, 0, len(o.Monthly))
 	for _, m := range o.Monthly {
 		monthly = append(monthly, monthlyPayload{
+			Revenue: m.Revenue, LiveRevenue: m.LiveRevenue, Animals: m.Animals, FeedRevenue: m.FeedRevenue, FeedKg: m.FeedKg, OtherRevenue: m.OtherRevenue, OtherKg: m.OtherKg,
 			Month: m.Month, SheepRevenue: m.SheepRevenue, GoatRevenue: m.GoatRevenue,
 			ManureRevenue: m.ManureRevenue, SheepCount: m.SheepCount, GoatCount: m.GoatCount,
 			ManureKg: m.ManureKg,

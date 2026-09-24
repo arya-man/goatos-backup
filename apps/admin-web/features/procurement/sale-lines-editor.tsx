@@ -37,10 +37,10 @@ export function SaleLinesEditor({
   products: SalesProductOption[];
   variants: Record<string, string[]>;
 }) {
-  // What each product IS, for the footer: kilograms of feed and counted pieces are different
+  // What each product measures, for the footer: kilograms of feed and counted pieces are different
   // facts and must not be added together.
-  const kinds = Object.fromEntries(products.map((p) => [p.name, p.kind]));
-  const totals = saleLinesTotals(lines, kinds);
+  const productUnits = Object.fromEntries(products.map((p) => [p.name, { kind: p.kind, unit: p.unit }]));
+  const totals = saleLinesTotals(lines, productUnits);
   const canAdd = lines.length < MAX_SALE_LINES;
   const nextId = lines.reduce((max, line) => Math.max(max, line.id), 0) + 1;
 
@@ -260,7 +260,7 @@ export function SaleLinesEditor({
           <strong>{inr(totals.value)}</strong>
           <span className="muted small">
             {num(totals.animals)} {copy(pageContract, "summary.lines.animals")}
-            {/* Live weight is dropped only when there is feed weight to show instead: an
+            {/* Non-feed weight is dropped only when there is feed weight or counted items to show: an
                 animal-only sale keeps the "0.0 kg" it has always shown, while a feed-only sale
                 stops claiming zero kilograms of animal beside the kilograms it actually sold. */}
             {totals.weightKg > 0 || (totals.feedKg === 0 && totals.pieces === 0) ? (

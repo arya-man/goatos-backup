@@ -23804,7 +23804,6 @@ components:
             of what the buyer was called at the time of sale.
         product_type:
           type: string
-          enum: [Sheep, Goat, Manure, Mixed]
           description: >-
             The ROLLUP of `lines` (maintainer decision 2026-09-12): the one product every line
             names, or `Mixed` when the lines disagree. `Mixed` is a summary word, never something
@@ -24223,9 +24222,9 @@ components:
         revenue: { type: number }
         live_revenue:
           type: number
-          description: Closed Sheep + Goat revenue. Manure is excluded here and carried separately.
+          description: Closed revenue from every animal product, including custom items. Non-animal products are excluded.
         deals: { type: integer }
-        animals: { type: number }
+        animals: { type: number, description: "Animals sold across every animal product, including custom items." }
         sheep: { type: number }
         goats: { type: number }
         live_weight_kg: { type: number }
@@ -24248,8 +24247,9 @@ components:
         other_kg:
           type: number
           description: >-
-            Quantity sold of everything the farm sells that is neither alive, feed, nor manure --
-            a count for a counted item, kilograms for one sold by weight.
+            Kilograms sold of products that are neither animals, feed, nor manure. Uses a
+            kilogram quantity when present, otherwise explicitly recorded weight; counted
+            quantities never contribute kilograms.
         other_revenue:
           type: number
           description: Closed revenue for those same items, disjoint from the three buckets above.
@@ -24320,8 +24320,15 @@ components:
     SalesOverviewMonthly:
       type: object
       description: One month with at least one closed deal. Months derive from sale_date.
-      required: [month, sheep_revenue, goat_revenue, manure_revenue, sheep_count, goat_count, manure_kg]
+      required: [month, sheep_revenue, goat_revenue, manure_revenue, sheep_count, goat_count, manure_kg, revenue, live_revenue, animals, feed_revenue, feed_kg, other_revenue, other_kg]
       properties:
+        revenue: { type: number, description: "Revenue from every closed sale in the month." }
+        live_revenue: { type: number, description: "Revenue from all animal products, including custom items." }
+        animals: { type: number, description: "Animals sold across all animal products." }
+        feed_revenue: { type: number }
+        feed_kg: { type: number }
+        other_revenue: { type: number }
+        other_kg: { type: number }
         month: { type: string, description: "YYYY-MM" }
         sheep_revenue: { type: number }
         goat_revenue: { type: number }
@@ -24336,7 +24343,7 @@ components:
         value recorded. Ordered by average price, highest first.
       required: [product_type, breed, deals, animals, weight_kg, revenue, avg_price_per_kg, min_price_per_kg, max_price_per_kg]
       properties:
-        product_type: { type: string, enum: [Sheep, Goat] }
+        product_type: { type: string }
         breed: { type: string }
         deals: { type: integer }
         animals: { type: number }

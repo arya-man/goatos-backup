@@ -268,6 +268,8 @@ type closeReplayStore struct {
 	calls   int
 }
 
+func (s *closeReplayStore) FeedStockIdentity(feed string) (string, string) { return feed, feed }
+
 func (s *closeReplayStore) FeedBalanceKg(context.Context, string, string, string) (float64, bool, error) {
 	s.calls++
 	return s.balance, true, nil

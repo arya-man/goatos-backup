@@ -143,6 +143,11 @@ export function humanDate(date: string): string {
 }
 
 type MonthlyLike = {
+  revenue?: number;
+  live_revenue?: number;
+  animals?: number;
+  feed_revenue?: number;
+  other_revenue?: number;
   sheep_revenue: number;
   goat_revenue: number;
   manure_revenue: number;
@@ -151,26 +156,28 @@ type MonthlyLike = {
 };
 
 /**
- * Total revenue for one month's column. The shared column chart draws ONE series, so the three
- * backend-served revenue components are shown as their sum (maintainer-approved simple chart) —
- * never as a hand-built stacked chart.
+ * Backend-owned total for one month, including every authored product. Legacy payloads
+ * without totals retain their component-based rendering during rollout.
  */
 export function monthlyRevenueTotal(month: MonthlyLike): number {
-  return month.sheep_revenue + month.goat_revenue + month.manure_revenue;
+  return month.revenue ?? (
+    monthlyAnimalRevenueTotal(month) + month.manure_revenue +
+    (month.feed_revenue ?? 0) + (month.other_revenue ?? 0)
+  );
 }
 
-/** Animals sold in one month's column: sheep plus goats. Manure is kg and never joins this axis. */
+/** All animals sold in one month, including custom products. */
 export function monthlyAnimalsTotal(month: MonthlyLike): number {
-  return month.sheep_count + month.goat_count;
+  return month.animals ?? (month.sheep_count + month.goat_count);
 }
 
 /**
- * Rupees earned from LIVE animals in one month: sheep plus goats, manure excluded. Shown as the
+ * Rupees earned from all live animal products in one month. Shown as the
  * animals column's second figure so a head count carries the money it earned; it never drives the
  * bar height, which stays the head count.
  */
 export function monthlyAnimalRevenueTotal(month: MonthlyLike): number {
-  return month.sheep_revenue + month.goat_revenue;
+  return month.live_revenue ?? (month.sheep_revenue + month.goat_revenue);
 }
 
 /** Drops leading zero-only months for a chart-specific metric while preserving the current tail. */

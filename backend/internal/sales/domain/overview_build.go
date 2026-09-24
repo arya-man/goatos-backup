@@ -56,6 +56,8 @@ func BuildDealAggregates(closed []Deal) (Summary, []MonthlyRow, []PriceBand, []B
 			monthly[d.Month()] = month
 		}
 
+		month.Revenue += d.SalesValue
+
 		// LINE grain from here down (migration 000296): a mixed sale's sheep, goats and manure each
 		// land in their own product bucket and their own (product, breed) price band, at the
 		// line's own weight and value. The deal-level product/weight/value are only a rollup.
@@ -72,6 +74,8 @@ func BuildDealAggregates(closed []Deal) (Summary, []MonthlyRow, []PriceBand, []B
 			switch {
 			case l.IsLive():
 				summary.LiveRevenue += l.SalesValue
+				month.LiveRevenue += l.SalesValue
+				month.Animals += lineAnimals
 				summary.Animals += lineAnimals
 				summary.LiveWeightKg += weight
 				// A live product the farm added itself counts in Animals and LiveRevenue and in
