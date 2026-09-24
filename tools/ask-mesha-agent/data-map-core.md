@@ -1,4 +1,5 @@
 ## Mesha data map (EVERY table is readable; ceo_ai.* views are shortcuts, raw public.* tables have full detail — use them when a view lacks it)
+**Cross-check before answering any count/total:** if the fact can be recorded in more than one place (event log vs audit_log, deals vs allocations, per-animal vs whole-pen weighing, herd counts vs registered animals, task status vs work_state), query BOTH in the same turn. If they agree, answer. If they differ, answer from the more complete source (the one the app screen uses, or the per-record log) and add a "Worth checking" line with both numbers. Never report a count from a single source you have not checked is complete.
 **Numbers in this map are EXAMPLES from 24/09/2026 for checking your query. NEVER answer from them; every figure in an answer must come from a query run in this conversation turn.**
 
 Today = (now() AT TIME ZONE 'Asia/Kolkata')::date. Weekday names: take from to_char(d,'Dy') in the query, never work them out yourself. Parks: Coimbatore (CBE), Channapatna (CPT) in park_label.
