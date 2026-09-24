@@ -83,10 +83,10 @@ func TestPurposeSecondWaveFloorRequiresCompleteFirstWave(t *testing.T) {
 	if _, ok := applyPurposeSecondWaveFloor(due, decision, nil); ok {
 		t.Fatal("second wave allowed with no first-wave history")
 	}
-	if _, ok := applyPurposeSecondWaveFloor(due, decision, []domain.RecentVaccineAdministration{{AdministeredAt: etAt, VaccineCode: "ET_TT"}}); ok {
+	if _, ok := applyPurposeSecondWaveFloor(due, decision, []domain.RecentVaccineAdministration{{AdministeredAt: etAt, VaccineCode: "ET_TT", Source: domain.AdministrationSourceCompletion}}); ok {
 		t.Fatal("second wave allowed with PPR missing")
 	}
-	complete := []domain.RecentVaccineAdministration{{AdministeredAt: etAt, VaccineCode: "ET_TT"}, {AdministeredAt: pprAt, VaccineCode: "PPR"}}
+	complete := []domain.RecentVaccineAdministration{{AdministeredAt: etAt, VaccineCode: "ET_TT", Source: domain.AdministrationSourceCompletion}, {AdministeredAt: pprAt, VaccineCode: "PPR", Source: domain.AdministrationSourceCompletion}}
 	got, ok := applyPurposeSecondWaveFloor(due, decision, complete)
 	want := businessDayStart(pprAt).AddDate(0, 0, 28)
 	if !ok || !got.Equal(want) {
@@ -179,8 +179,8 @@ func TestGenerateBirthAgeSecondWaveFollowsFirstWave(t *testing.T) {
 
 	pprAt := time.Date(2026, time.September, 20, 10, 0, 0, 0, time.UTC)
 	history := map[string][]domain.RecentVaccineAdministration{"kid-1": {
-		{AdministeredAt: time.Date(2026, time.September, 18, 10, 0, 0, 0, time.UTC), VaccineCode: "ET_TT"},
-		{AdministeredAt: pprAt, VaccineCode: "PPR"},
+		{AdministeredAt: time.Date(2026, time.September, 18, 10, 0, 0, 0, time.UTC), VaccineCode: "ET_TT", Source: domain.AdministrationSourceCompletion},
+		{AdministeredAt: pprAt, VaccineCode: "PPR", Source: domain.AdministrationSourceCompletion},
 	}}
 	obl = &generationObligationFake{seen: map[string]bool{}}
 	if _, err := NewGenerationService(newProto(), &generationGoatFake{list: []domain.EligibleGoat{goat}, vaccineHistory: history}, obl).GenerateForVersion(ctx, "tenant-1", "version-1", asOf); err != nil {
@@ -222,5 +222,37 @@ func TestGenerateMarksOnlyAnchorMissingCatchUpRow(t *testing.T) {
 	}
 	if basis["goat-dob"] != "" {
 		t.Fatalf("anchored basis=%q, want empty (anchored)", basis["goat-dob"])
+	}
+}
+
+// Scoped vaccination anchor events chain schedules but never prove an individual animal received
+// the first wave; only individual administration evidence unlocks a governed second wave.
+func TestPurposeSecondWaveIgnoresAnchorEvents(t *testing.T) {
+	goat := domain.EligibleGoat{Species: "goat", ProcurementPurpose: "fattening"}
+	decision := procurementPurposeDecision(goat, vaccineProfile{Name: "Goat Pox"}, purposeTestPolicy())
+	anchorAt := time.Date(2026, time.September, 1, 0, 0, 0, 0, time.UTC)
+	anchors := []domain.RecentVaccineAdministration{
+		{AdministeredAt: anchorAt, VaccineCode: "ET_TT", Source: domain.AdministrationSourceAnchor},
+		{AdministeredAt: anchorAt, VaccineCode: "PPR", Source: domain.AdministrationSourceAnchor},
+	}
+	if _, ok := applyPurposeSecondWaveFloor(anchorAt, decision, anchors); ok {
+		t.Fatal("anchor-only history unlocked the second wave")
+	}
+	unlabelled := []domain.RecentVaccineAdministration{{AdministeredAt: anchorAt, VaccineCode: "ET_TT"}, {AdministeredAt: anchorAt, VaccineCode: "PPR"}}
+	if _, ok := applyPurposeSecondWaveFloor(anchorAt, decision, unlabelled); ok {
+		t.Fatal("unlabelled history must fail closed")
+	}
+	pprAt := time.Date(2026, time.September, 22, 9, 0, 0, 0, time.UTC)
+	mixed := append([]domain.RecentVaccineAdministration{
+		{AdministeredAt: time.Date(2026, time.September, 20, 9, 0, 0, 0, time.UTC), VaccineCode: "ET+TT", Source: domain.AdministrationSourcePrearrival},
+		{AdministeredAt: pprAt, VaccineCode: "PPR", Source: domain.AdministrationSourceTrusted},
+	}, anchors...)
+	got, ok := applyPurposeSecondWaveFloor(anchorAt, decision, mixed)
+	if want := businessDayStart(pprAt).AddDate(0, 0, 28); !ok || !got.Equal(want) {
+		t.Fatalf("due=%s ok=%v, want real administrations to unlock at %s", got, ok, want)
+	}
+	onlyOneReal := append([]domain.RecentVaccineAdministration{{AdministeredAt: pprAt, VaccineCode: "PPR", Source: domain.AdministrationSourceCompletion}}, anchors...)
+	if _, ok := applyPurposeSecondWaveFloor(anchorAt, decision, onlyOneReal); ok {
+		t.Fatal("an anchor event must not stand in for the missing ET+TT administration")
 	}
 }

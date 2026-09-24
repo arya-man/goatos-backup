@@ -1412,6 +1412,7 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 					DoseCode:          doseCodeForPath,
 					Sequence:          int32(c.Sequence),
 					ProtocolVersionID: versionID,
+					Source:            vaccinationdomain.AdministrationSourceCompletion,
 				},
 			)
 			st.Completed++

@@ -976,6 +976,8 @@ func anchorDueOverrides(plans []goatGenerationPlan, asOf time.Time) map[string]t
 				continue
 			}
 			// Same purpose contract as genOneGoat: an excluded vaccine never receives an anchor date.
+			// Per-goat anchors do not shape other animals' dates, so genOneGoat's second-wave gate
+			// (which has the goat's history) is sufficient for incomplete first waves.
 			if !procurementPurposeDecision(plan.goat, ruleVaccine, plan.policies.Procurement).Applicable {
 				continue
 			}
@@ -1159,7 +1161,7 @@ func campaignDueOverrides(plans []goatGenerationPlan, asOf time.Time, vaccineHis
 				continue
 			}
 			// An animal whose purpose excludes this vaccine must not shape the park's drive date.
-			if !procurementPurposeDecision(plan.goat, ruleVaccine, plan.policies.Procurement).Applicable {
+			if !purposeAllowsGeneration(plan.goat, ruleVaccine, plan.policies.Procurement, history) {
 				continue
 			}
 			rowDeferStates := ruleEligibility.DeferStates
@@ -1342,13 +1344,18 @@ func procurementPurposePolicy(policy genProcurementPolicy) vaccinepurpose.Policy
 }
 
 // purposeSecondWaveFloor is the earliest date a governed second-wave vaccine may be due: every
-// authored first-wave vaccine must have an accepted administration, and the second wave waits the
+// authored first-wave vaccine must have individual administration evidence (accepted+verified
+// completion, trusted procurement evidence, or accepted pre-arrival history; never an anchor event), and the second wave waits the
 // plan delay after the LATEST of them. ok=false means the first wave is incomplete.
 func purposeSecondWaveFloor(plan vaccinepurpose.Plan, history []domain.RecentVaccineAdministration) (time.Time, bool) {
 	var firstWaveCompletedAt time.Time
 	for _, required := range plan.FirstWave {
 		var completedAt time.Time
 		for _, administration := range history {
+			// Anchor events chain schedules but do not prove this animal received the first wave.
+			if !administration.CountsAsAdministered() {
+				continue
+			}
 			if vaccinepurpose.Normalize(required) != vaccinepurpose.Normalize(administration.VaccineCode) || !administration.AdministeredAt.After(completedAt) {
 				continue
 			}
@@ -2113,6 +2120,10 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 		if skip {
 			continue
 		}
+		// Clamp to the age and purpose second-wave floors BEFORE the compatibility gaps, so the
+		// gap checks see the clamped date (they only move it later, never below either floor).
+		due = applyRuleDueFloor(due, rule, ruleVaccine, g, vaccineHistory)
+		due, _ = applyPurposeSecondWaveFloor(due, purposeDecision, vaccineHistory)
 		if s.crossHistory != nil || s.crossVaccineGap != nil {
 			due = applyCrossVaccineGapFloorFromHistory(due, vaccineHistory, ruleVaccine, policies.Compatibility)
 		}
@@ -2383,6 +2394,17 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 		}
 	}
 	return nil
+}
+
+// purposeAllowsGeneration mirrors genOneGoat's purpose gates (applicability plus a complete first
+// wave for a governed second wave) for the pre-pass override builders.
+func purposeAllowsGeneration(g domain.EligibleGoat, vaccine vaccineProfile, policy genProcurementPolicy, history []domain.RecentVaccineAdministration) bool {
+	decision := procurementPurposeDecision(g, vaccine, policy)
+	if !decision.Applicable {
+		return false
+	}
+	_, ok := applyPurposeSecondWaveFloor(time.Time{}, decision, history)
+	return ok
 }
 
 func scheduleBasisForGeneratedRow(anchorCatchUpKey string) string {
