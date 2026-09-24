@@ -40,6 +40,23 @@ a concrete reason.
 - [ ] Relevant `AGENTS.md`, skills, anti-patterns, runbooks, and phase docs synced
 - [ ] Operational work follows the shared event -> owned task -> clock -> hierarchy -> contact waterfall -> proof -> sign-off -> rollup chain; no private task/scheduler/escalation path was introduced, retained as canonical, or exempted
 
+## Performance budget
+
+Required whenever the PR touches a query, route, list endpoint, job, table,
+cache, admin-web fetch, or Android network call. Budget: API p95 50-100ms
+target, 200-300ms acceptable, 500ms hard max. Patterns:
+`.agents/skills/scale-anti-patterns/SKILL.md` (P1-P25). `N/A` only with a
+concrete reason (e.g. "docs-only, no runtime code").
+
+- Routes touched and p50/p95 before -> after (realistic params, stg-sized data):
+- Before/after `EXPLAIN (ANALYZE, BUFFERS)` per new/changed query:
+- Statements per request before -> after:
+- Lists paginated server-side? Cursor shape, default and max page size:
+- New tables: class (OLTP/append-only/analytics), retention + archive job, autovacuum:
+- Jobs: watermark, non-fatal external deps, backoff, conn cap:
+- `perf-budget:allow` entries added (reason, owner, expiry):
+- Perf fix: deploy of the exact main SHA to stg and post-deploy re-measure:
+
 ## Proof
 
 - Red command/result on base:

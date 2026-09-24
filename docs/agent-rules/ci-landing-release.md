@@ -80,3 +80,9 @@
   `make restore-stg-android-release-env`, then add the Android version/code and
   Firebase release URL to the tag before handoff. See
   `docs/runbooks/release-tags.md` and `docs/mobile/stg-signed-release.md`.
+
+- **Deploy-drift rule (perf budget, 2026-09-24; catalog `.agents/skills/scale-anti-patterns/SKILL.md` ("STG latency catalog", P1-P25) P24).** A perf fix
+  is not done when it lands; it is done when the exact main SHA is deployed to
+  stg (launcher or Slack deploy button) and re-measured there. Before reporting
+  anything "still slow on stg", check the deployed revision SHA equals
+  `origin/main`. Bad: stg ran `a67be34c0781` while main was 116 commits ahead.

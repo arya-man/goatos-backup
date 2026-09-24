@@ -103,6 +103,18 @@ These caused this incident. Reviewers and judges must BLOCK a change that adds o
    run.** Use a watermark, make outside failures non-fatal, and back off.
 8. **Full copies of the stg DB to other environments.** Use a delta-only sync that
    skips junk tables (see "OCI sync" below).
+9. **Unbounded lists returned by an API or fetched by admin-web/Android.**
+   Examples: the notifications history, `ListLive` walking 50k tags for
+   `limit=1`, the ±2y calendar window, the vaccination command reading all 86k
+   obligations. Paginate server-side with a keyset cursor (no OFFSET on large
+   tables), a server-enforced default (e.g. 50) and hard max (e.g. 200) page
+   size, a stable sort with a unique tiebreaker, and totals from a stored
+   counter or a separate cheap count. Clients load more on scroll or next page;
+   Android keeps its one-page fetch cap and Room paging. Export or "show all"
+   goes through an async export job.
+
+The full catalog (these 9 plus the audit-found patterns, with the evidence each
+needs) is `.agents/skills/scale-anti-patterns/SKILL.md` ("STG latency catalog").
 
 ## OCI sync (delta-only)
 
