@@ -125,3 +125,12 @@ Runbook: docs/runbooks/phone-qa-throwaway-rbac.md
   service cannot be kept running, state the blocker and the exact restore command.
 
 > The HARD RULES (no circular OCI/E2E retries, UI real-surface proof, ADB literal text, UI visual regression + E2E, admin-web must render on a phone, Weights Chrome verification) moved to core `AGENTS.md` because they apply to most UI/E2E work.
+
+## OCI Clone Sync Is Delta-Only (2026-09-24)
+
+Never refresh the OCI clone (or any environment) with a full `pg_dump` of stg:
+it cost 13-16GB/day of Cloud SQL egress. Use the delta-only sync: per-table
+watermark (`updated_at` or PK), junk tables excluded (`analytics.app_events`,
+`outbox_messages`, `audit_log`, delivered `notification_*`), compressed
+transfer. Details: `docs/perf/2026-09-24-stg-latency/README.md` "OCI sync"; catalog `.agents/skills/scale-anti-patterns/SKILL.md` ("STG latency catalog", P1-P25) P8. The clone at
+`127.0.0.1:15432` is read-only for audits; write only to a throwaway DB.

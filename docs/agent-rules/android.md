@@ -438,3 +438,14 @@ action.
   `LruCache` or a Room `JsonBlobCacheDao` with `readCachedJson` (TTL) +
   `enforceCacheBounds` (row/byte cap), or filter the DAO read to active rows
   (`WHERE status IN (...)`) / a `LIMIT` window.
+
+## Never Block Login or Navigation on Best-Effort Calls (2026-09-24)
+
+Canonical catalog: `.agents/skills/scale-anti-patterns/SKILL.md` ("STG latency catalog", P1-P25) (P9, P19).
+- Telemetry, session events, analytics and other best-effort calls run after
+  navigation, fire-and-forget with a bounded queue; their failure or latency
+  never delays login or a screen. Bad: login waited on `POST /auth/session-events`
+  (512ms p95 under stg load). Evidence: login timing with that call slow/failing.
+- Lists stay paginated (P9): keep the one-page fetch cap and Room keyset paging
+  (see "Room is the single source of truth, so pagination binds BOTH layers"
+  above); never request an unbounded list from the API.

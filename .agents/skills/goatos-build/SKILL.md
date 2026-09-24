@@ -372,6 +372,33 @@ Ordinary work and this documentation foundation use `make land-main`; the
 approved whole-ledger/task-kernel program uses
 `make land-integration-pr PR=<number>` after F0 implements and proves it.
 
+## Before you code: performance budget checklist
+
+Any query, route, list, job, table, cache, admin-web fetch or Android network
+call. Canonical patterns and evidence: [`scale-anti-patterns` P1-P25](../scale-anti-patterns/SKILL.md#stg-latency-catalog-p1-p25--canonical-2026-09-24-incident). Budget: p95 50-100ms target,
+200-300ms acceptable, 500ms hard max.
+
+- [ ] Know the table sizes on stg (not the fixture); classify each table
+      (OLTP / append-only / analytics). Analytics goes to BigQuery (P2).
+- [ ] Every filter/FK column has a matching index; no OR across tables (P14, P15).
+- [ ] One statement or one `pgx.Batch` per request; no N+1, no duplicate count,
+      static config cached with eviction (P10, P13, P17).
+- [ ] Every list is server-paginated: keyset cursor, default 50, hard max 200,
+      unique tiebreaker; export is an async job (P9). Every date window has a
+      lower bound and is as narrow as the contract allows (P16).
+- [ ] Counts over history come from a stored counter (P1); joins resolve 1:1 first (P3).
+- [ ] Caches key on business date, never request time; live views broadcast one
+      result (P4, P5). No long-held pool conns (P6).
+- [ ] Jobs: watermark, non-fatal external deps, backoff, conn cap (P7). New
+      event/log tables: retention + archive job and autovacuum tuning (P2, P18).
+- [ ] Clients: never block login/nav on best-effort calls; module-specific errors;
+      abort propagation; coalesce reads; no load-multiplying polling (P19-P23).
+
+Attach to the PR (the template's "Performance budget" section): before/after
+`EXPLAIN (ANALYZE, BUFFERS)` on stg-sized data, endpoint p50/p95 before/after,
+statements per request, new-table retention, page caps. After landing, confirm
+the exact main SHA is deployed to stg and re-measure (P24).
+
 ## Reference Guide
 
 | Reference | Load when |

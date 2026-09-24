@@ -166,6 +166,37 @@ Read `/version` from the measured API. Fixed-URL warm-cache timings alone do not
 prove serving cost. Operational task pages must reflect mutation results without
 an uninvalidateable cross-request response cache.
 
+## Performance budget lens (BLOCKING)
+
+Applies to any diff touching a query, route/handler, list endpoint, worker/job,
+migration/table, cache, admin-web data fetch, or Android network call. Canonical
+patterns: [`scale-anti-patterns` P1-P25](../scale-anti-patterns/SKILL.md#stg-latency-catalog-p1-p25--canonical-2026-09-24-incident). Budget: API p95 50-100ms target, 200-300ms acceptable, **500ms
+hard max**.
+
+Demand this evidence (missing evidence = REQUEST CHANGES, not a note):
+- before/after `EXPLAIN (ANALYZE, BUFFERS)` of every new/changed query on
+  stg-sized data (OCI clone read-only or a throwaway DB), not a 1k-row fixture;
+- endpoint p50/p95 before/after on realistic params, plus statements per request;
+- retention + prune/archive job for every new event/log/history table;
+- list routes: default and max page size, cursor shape, stable tiebreaker;
+- perf fixes: the deploy step and post-deploy stg re-measure (exact main SHA).
+
+Block if:
+- p95 > 300ms without justification, or any route > 500ms;
+- Seq Scan on a > 5k-row table on a request path, or a join multiplying rows
+  (> 10x its larger input) before filtering (P3, P14);
+- an endpoint returns or a client fetches an **unbounded list** (P9), or a date
+  window lacks a lower bound / spans ±years (P16);
+- unbounded history aggregate, or analytics/telemetry written to OLTP (P1, P2);
+- N+1 or serial statements that one query/`pgx.Batch` could do (P10), a duplicate
+  count query (P17), per-request static-config lookups (P13);
+- per-viewer recompute, request-time cache key, held pool conn (P4-P6);
+- a job without watermark / non-fatal external deps / backoff / conn cap (P7);
+- login/navigation blocked on telemetry, generic error copy, client timeout
+  without abort propagation, uncoalesced fan-out or polling (P19-P23);
+- a new high-churn table without autovacuum tuning (P18).
+Record the lens as `perf-budget` in the review ledger.
+
 ## Fix-quality / regression audit — the primary question for any "fix"
 
 When the change is a **fix** (a commit/PR/diff that claims to resolve a bug,
@@ -647,6 +678,9 @@ inapplicable row must be marked `N/A` with a concrete reason. This is the bind
 to operational invariants that turns "the build is green" into "this is safe to
 merge":
 
+- [ ] **Performance budget lens passed:** perf packet attached (EXPLAIN ANALYZE
+      BUFFERS before/after, p95 before/after, statements/request, retention for new
+      tables, list page caps) and no scale-anti-patterns P1-P25 item added
 - [ ] **Forward-progress pagination:** cursor is monotonic; next page cannot regress;
       page size never silently changes business completeness of a projection read
 - [ ] **Effective-state validation on partial updates:** a partial edit re-validates

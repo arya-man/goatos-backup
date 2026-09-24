@@ -108,3 +108,16 @@ keyed by tenant, authorized parks, date window, pagination, status/filter shape,
 and endpoint-specific selectors. Do not cache mutation-sensitive reads such as
 calendar action lists or feed stock read-after-write paths unless the same
 change also proves correct invalidation.
+
+## Analytics Storage and Telemetry Placement (perf budget, 2026-09-24)
+
+Canonical catalog: `.agents/skills/scale-anti-patterns/SKILL.md` ("STG latency catalog", P1-P25) (P2, P19).
+- Analytics belong in BigQuery/Firebase, not the operational Postgres. Bad:
+  `analytics.app_events` grew to 2.6GB / 1.58M rows unpruned and its rollup
+  rescan saturated stg disk IOPS every ~40 min. Any Postgres staging table for
+  events needs a retention job that archives to cold storage before pruning.
+- Telemetry is never on the OLTP request path or a user's critical path:
+  fire-and-forget, batched, bounded queue. Bad: Android login waited on
+  `POST /auth/session-events`.
+- Every job has a crash-loop alert (consecutive failures), so a failing rollup is
+  visible before it hurts the DB.

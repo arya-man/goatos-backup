@@ -190,3 +190,20 @@
   are NOT gated on the hot projection; (6) a prune of
   non-serving versions re-derives `serving_projection_version` inside the DELETE,
   never a version captured before the txn/advisory-lock released.
+
+## Performance budget (binding, 2026-09-24)
+
+- API p95 budget: **50-100ms target, 200-300ms acceptable, 500ms hard max** on
+  stg-sized data. The p90<=300 / p95<=500 policy above is the ceiling the gate
+  enforces; the target is 100ms. Anything > 100ms carries a one-line
+  justification in the PR.
+- The banned patterns from the STG latency incident (unbounded history
+  aggregates, analytics in OLTP, row-multiplying joins, per-viewer recompute,
+  request-time cache keys, held pool conns, crash-looping jobs, full DB copies,
+  unbounded lists, N+1, JIT, re-planning, config lookups, unindexed FKs, OR
+  across tables, ±2y windows, duplicate counts, queue bloat, blocking telemetry,
+  generic error copy, abort propagation, fan-out, polling, deploy drift) are
+  catalogued ONCE in `.agents/skills/scale-anti-patterns/SKILL.md` ("STG latency catalog", P1-P25). Read it before any query/route/job/table change.
+- Evidence for every query/route change: before/after `EXPLAIN (ANALYZE,
+  BUFFERS)` on stg-sized data (not the ~1k fixture), endpoint p50/p95
+  before/after, statements per request. Incident record: `docs/perf/2026-09-24-stg-latency/README.md`.

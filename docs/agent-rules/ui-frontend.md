@@ -402,3 +402,20 @@ Canonical prose: `docs/decisions/load-charts-name-their-pens.md`. Pinned by
   module selected in the sidebar; and opened detail views show only the scoped
   real records for the clicked row. If any of these cannot be visually confirmed,
   the change is not ready to land.
+
+## Data Fetching Under the Perf Budget (2026-09-24)
+
+Canonical catalog: `.agents/skills/scale-anti-patterns/SKILL.md` ("STG latency catalog", P1-P25) (P9, P20-P23).
+- **Paginate, never fetch unbounded lists (P9).** Load a server page (default
+  ~50, server max ~200) and load more on scroll / next page. "Show all" or
+  export goes through an async export job.
+- **Coalesce fan-out (P22).** Dedupe identical in-flight `no-store` reads; prefer
+  one page-grain endpoint over many parallel reads per viewer.
+- **Polling is a fallback only (P23):** when the stream is down, with backoff +
+  jitter, paused when the tab is hidden.
+- **Abort propagation (P21).** A client timeout passes `AbortSignal` through so
+  the server cancels its query; never set a client timeout shorter than the
+  server work and retry on top of it. Fix the server shape instead.
+- **Module-specific error copy (P20).** Bad: "could not be loaded" / "read
+  failed". Name the module and cause (e.g. "Herd Signals timed out") with a
+  per-module retry, so one slow read does not blank the page.

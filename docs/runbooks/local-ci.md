@@ -233,3 +233,41 @@ base, component-rule hash, and selected jobs. The pre-push hook recomputes the
 diff, verifies current remote main is an ancestor of the pushed candidate, and
 rejects stale/incomplete receipts. Explicit `JOB=...` runs record nothing and
 never authorize a push.
+
+## Performance-budget guards (STG latency program, 2026-09-24)
+
+Budget: API p95 50-100ms target, 200-300ms acceptable, 500ms hard max. Patterns
+the guards enforce are catalogued once in
+`.agents/skills/scale-anti-patterns/SKILL.md` ("STG latency catalog", P1-P25);
+design in `docs/perf/2026-09-24-stg-latency/audit/guardrails-design.md`.
+
+Current guards:
+
+```bash
+make scale-guard                      # static N+1 / OFFSET / god-CTE / non-SARGable shapes
+make validate-sqlc-plans              # named EXPLAIN index assertions (needs Docker or GOATOS_SQLC_PLAN_ADMIN_DSN)
+node tools/perf/api-latency-policy.test.mjs   # latency policy ceilings
+make admin-web-request-reads-guard admin-web-prefetch-guard admin-web-sectioned-aggregate-reads-guard
+make worker-stage-budgets-guard deployed-job-flags-guard
+```
+
+Planned in Wave G (`docs/perf/2026-09-24-stg-latency/QUEUE.md`; not yet wired,
+do not claim them as evidence until they are registered in
+`tools/ci/guardrail-manifest.json`): `query-plan-budget-guard` (every query
+EXPLAINed at stg-sized seed: seq scans > 5k rows, row blowup, temp spill,
+unbounded history, missing FK index), `api-latency-budget` + route inventory
+(every GET route budgeted; every list route declares page params and a max page
+size), `oltp-hygiene-guard` (retention required, no analytics writes in OLTP,
+pool `Acquire` allowlist), `job-safety-guard` (watermark, non-fatal external
+deps, backoff, conn cap), `stg-drift` (deployed SHA vs `origin/main`), and a PR
+perf-evidence check.
+
+DB-backed guards run against Docker or the OCI clone's throwaway DB and must
+fail closed in `make land-main` when no DB is reachable (never skip).
+
+Allowlist rule: an exemption is an allowlist JSON entry
+`{ "id", "reason", "owner", "expires": "YYYY-MM-DD", "evidence" }` or an inline
+`perf-budget:allow <rule> reason="..." owner=@x expires=YYYY-MM-DD` next to the
+line. The reason is specific (>= 20 chars), the evidence links EXPLAIN or latency
+output, expired entries fail, and baselines only ratchet down. Never disable a
+guard or raise a budget to get green.
