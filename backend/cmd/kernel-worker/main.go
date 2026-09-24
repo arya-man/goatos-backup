@@ -266,6 +266,9 @@ func run(ctx context.Context, args []string) error {
 			// through the same path as the manual backfill-goat-created CLI, so a
 			// lost event no longer waits for a human to notice.
 			kernelstages.NewGoatCreatedRecoveryStage(deps, tenantID),
+			// FCR feed-day rollup: drain parks whose feed sheet / loads changed, and a daily
+			// reconcile against a fresh recompute (drift is logged and repaired).
+			kernelstages.NewGrowthFCRRollupStage(deps, tenantID),
 		)
 	}
 
