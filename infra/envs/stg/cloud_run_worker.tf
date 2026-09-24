@@ -18,14 +18,13 @@ resource "google_cloud_run_v2_service" "kernel_worker" {
   template {
     service_account = google_service_account.runtime["kernel_worker"].email
 
-    # Exactly one worker. It is a cadence scheduler: stage advisory locks already
-    # make a second instance run nothing useful, and it would still hold its own
-    # pool against the db-g1-small connection budget (see the api service).
-    # A rolling deploy briefly overlaps old and new revisions; that transient
-    # extra 8 connections is the only headroom above 45 the budget spends.
+    # min 1 / max 2 is a vaccination integrity contract (2026-09-22/23 incident;
+    # TestVaccinationExecutionDeploymentContracts). Stage advisory locks make a second
+    # instance safe. For the db-g1-small connection budget each instance gets 4
+    # connections, so the worker's worst case stays 2 x 4 = 8 (see the api service).
     scaling {
       min_instance_count = 1
-      max_instance_count = 1
+      max_instance_count = 2
     }
 
     containers {
@@ -89,7 +88,7 @@ resource "google_cloud_run_v2_service" "kernel_worker" {
       # Postgres connection budget: see the api service (45 <= ~47 usable).
       env {
         name  = "GOATOS_PG_MAX_CONNS"
-        value = "8"
+        value = "4"
       }
 
       # Bound the domain-event consumer's in-flight messages so a Pub/Sub burst

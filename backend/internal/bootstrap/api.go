@@ -650,7 +650,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	processIntegrityService := processintegrityapp.NewService(processIntegrityRepo)
 	processIntegrityHandler := processintegrityhttp.NewHandler(processIntegrityService, log)
 	vaccExecOwnership := vaccexecroster.NewOwnershipAdapter(rosterService)
-	vaccExecService := vaccexecapp.NewService(vaccexecpg.NewRepository(pool, cfg.Postgres.QueryTimeout), vaccExecOwnership).
+	vaccExecRepo := vaccexecpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
+	vaccExecService := vaccexecapp.NewService(vaccExecRepo, vaccExecOwnership).
 		WithProofURLResolver(newWeighingExportProofURLResolver(proofService, cfg.HTTPAddr))
 	vaccExecHandler := vaccexechttp.NewHandler(vaccExecService, obligationRepo, log).
 		WithOperatorAssignmentConfigWriter(vaccExecService).
@@ -1611,7 +1612,9 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// serial warm-up of the landing read every Weights/ADG visit blocks on.
 	// Warm-up waits for the first successful LISTEN (so the connect-time evict-all cannot wipe what
 	// it loads), then starts after a per-instance jitter and runs its reads one at a time.
-	analyticsListener := readcache.NewListener(pool, log, analyticsReadCache, alertsReadCache, countsReadCache)
+	analyticsListener := // The vaccination read cache rides the same feed: migration 000411's write triggers notify with
+	// caches=["vaccination"], so a dose/drive/obligation write evicts only that cache.
+	readcache.NewListener(pool, log, analyticsReadCache, alertsReadCache, countsReadCache, vaccExecRepo.ReadCache())
 	analyticsListener.OnFirstConnect(func(ctx context.Context) {
 		analyticsReadCache.StartWarmup(ctx, log, readcache.Jitter(time.Second, 10*time.Second), 20*time.Second,
 			weighingRepo.WarmLandingReads,
