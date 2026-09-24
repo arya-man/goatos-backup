@@ -686,6 +686,13 @@ func (r *Repository) GetMortality(ctx context.Context, req domain.MortalityQuery
 	return out, nil
 }
 
+// procuredNoLoadLabel names every animal that was neither born here nor accepted onto a purchase
+// load. The farm has exactly three kinds of animal -- on a load, procured with no load record, and
+// farm born (maintainer, 2026-09-24) -- and each reads under its own name. This group once read
+// "Farm born" too (7eceb8285), which put two "Farm born" rows on the load table, the second one
+// holding no animal born here.
+const procuredNoLoadLabel = "Procured, no load"
+
 // loadBucketLabel names a load bucket. The two synthetic keys carry domain copy; a real
 // load carries its own reference, or its id's short form when the load has neither a
 // reference nor a purchase date -- never a blank bar.
@@ -694,7 +701,7 @@ func loadBucketLabel(key, label string) string {
 	case "farm_born":
 		return "Farm born"
 	case "no_load":
-		return "Farm born"
+		return procuredNoLoadLabel
 	}
 	if strings.TrimSpace(label) != "" {
 		// "Load 126", the same shape the Sales load-wise table prints a reference in.
@@ -714,7 +721,9 @@ func vendorBucketLabel(key, label string) string {
 	case "farm_born":
 		return "Farm born"
 	case "no_vendor":
-		return "No vendor recorded"
+		// The same animals as the load table's no_load group: a load always has a vendor, so an
+		// animal with no vendor is one on no load. Both tables use one name for it.
+		return procuredNoLoadLabel
 	}
 	if trimmed := strings.TrimSpace(label); trimmed != "" {
 		return trimmed

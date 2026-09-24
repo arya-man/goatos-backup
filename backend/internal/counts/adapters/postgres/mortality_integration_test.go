@@ -54,8 +54,17 @@ func TestMortalitySyntheticLoadLabelsUseBusinessBuckets(t *testing.T) {
 	if got := loadBucketLabel("farm_born", ""); got != "Farm born" {
 		t.Fatalf("farm_born label=%q, want Farm born", got)
 	}
-	if got := loadBucketLabel("no_load", ""); got != "Farm born" {
-		t.Fatalf("no_load label=%q, want Farm born; missing procurement_load_goats membership must not surface a scary third bucket", got)
+	// Three kinds of animal, three names: an animal on no load that was not born here is
+	// procured with no load record, never a second "Farm born" row (maintainer, 2026-09-24).
+	if got := loadBucketLabel("no_load", ""); got != "Procured, no load" {
+		t.Fatalf("no_load label=%q, want Procured, no load", got)
+	}
+	if loadBucketLabel("no_load", "") == loadBucketLabel("farm_born", "") {
+		t.Fatalf("the no_load and farm_born groups share the label %q, so the load table shows it twice", loadBucketLabel("farm_born", ""))
+	}
+	// The vendor table names the same animals the same way.
+	if got := vendorBucketLabel("no_vendor", ""); got != loadBucketLabel("no_load", "") {
+		t.Fatalf("no_vendor label=%q, want the load table's %q for the same animals", got, loadBucketLabel("no_load", ""))
 	}
 	if got := loadBucketLabel("11111111-1111-4111-8111-111111111111", "126"); got != "Load 126" {
 		t.Fatalf("real load label=%q, want Load 126", got)
@@ -786,11 +795,11 @@ INSERT INTO health_death_causes (tenant_id, goat_id, cause_key, cause_kind) VALU
 	}
 	// Sardar's TWO loads are ONE vendor row: 2 deaths against his 4 live animals.
 	want := map[string][3]float64{
-		"Sardar Traders":     {2, 4, 50.0},
-		"Kumar Livestock":    {1, 1, 100.0},
-		"Farm born":          {1, 1, 100.0},
-		"No vendor recorded": {1, 0, -1},
-		"Reddy Farms":        {0, 2, 0.0},
+		"Sardar Traders":    {2, 4, 50.0},
+		"Kumar Livestock":   {1, 1, 100.0},
+		"Farm born":         {1, 1, 100.0},
+		"Procured, no load": {1, 0, -1},
+		"Reddy Farms":       {0, 2, 0.0},
 	}
 	for label, w := range want {
 		got, ok := byLabel[label]
