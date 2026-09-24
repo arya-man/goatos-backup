@@ -107,6 +107,29 @@ func (r *Repository) getGoatFromSQLC(ctx context.Context, tenantID string, row s
 	}, nil
 }
 
+// searchQueryClause matches q against the display id or an active identifier as an id set, so
+// each half is one probe on a unique key -- goat_identifiers_lifetime_value_unique
+// (tenant_id, normalized_value) and goats (tenant_id, display_id) -- instead of the old
+// `display_id = q OR EXISTS (...)`, which neither index could serve and so walked the whole live
+// herd in display order for every search (and for every miss). ARRAY(...) makes the set one
+// InitPlan evaluated before the 10-way summary join, so goats is probed by key; a plain IN
+// (SELECT ...) semi-join sits above the join (join_collapse_limit) and still builds every row.
+// = ANY de-duplicates, so a goat whose display id is also an identifier is returned once.
+func searchQueryClause(qArg int, identifierTypeClause, scopeClause string) string {
+	return fmt.Sprintf(`g.goat_id = ANY(ARRAY(
+			SELECT gi.goat_id
+			FROM goat_identifiers gi
+			WHERE gi.tenant_id = $1::uuid
+			  AND gi.normalized_value = $%[1]d
+			  AND gi.status = 'active'%[2]s%[3]s
+			UNION ALL
+			SELECT g2.goat_id
+			FROM goats g2
+			WHERE g2.tenant_id = $1::uuid
+			  AND g2.display_id = $%[1]d
+		))`, qArg, identifierTypeClause, scopeClause)
+}
+
 func (r *Repository) SearchGoats(ctx context.Context, params ports.SearchGoatsParams) ([]domain.GoatSummary, *string, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
@@ -160,17 +183,7 @@ func (r *Repository) SearchGoats(ctx context.Context, params ports.SearchGoatsPa
 			args = append(args, *params.ScopeKey)
 			scopeClause = fmt.Sprintf(" AND gi.scope_key = $%d", len(args))
 		}
-		where = append(where, fmt.Sprintf(`(
-			g.display_id = $%d
-			OR EXISTS (
-				SELECT 1
-				FROM goat_identifiers gi
-				WHERE gi.tenant_id = g.tenant_id
-				  AND gi.goat_id = g.goat_id
-				  AND gi.status = 'active'
-				  AND gi.normalized_value = $%d%s%s
-			)
-		)`, qArg, qArg, identifierTypeClause, scopeClause))
+		where = append(where, searchQueryClause(qArg, identifierTypeClause, scopeClause))
 	}
 
 	query := goatSummarySelect() + " WHERE " + strings.Join(where, " AND ") + " ORDER BY g.display_id ASC LIMIT $2"
