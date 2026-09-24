@@ -137,7 +137,7 @@ export function SalesRecordDrawer({
   // ONE sale, MANY lines (maintainer decision 2026-09-12): the product/breed/animals/weight/value
   // live on the lines, one card each; the deal keeps date, farm, buyer, advance, status. Reset
   // during render when the selection changes, not in an effect.
-  // WHAT THE FARM SELLS IS ITS OWN REGISTRY (migration 000393), read from the backend rather than
+  // WHAT THE FARM SELLS IS ITS OWN REGISTRY (migration 000402), read from the backend rather than
   // compiled into this page's contract, because the phone's form reads the same answer.
   const products = salesOptions?.products ?? [];
   const variants = (salesOptions?.breeds ?? {}) as Record<string, string[]>;

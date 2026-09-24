@@ -91,7 +91,7 @@ export async function SalesConfigPage({
   const saleLocations = await listSaleLocations();
   // The record-sale drawer's two vocabularies: who may be sold TO (maintainer decision
   // 2026-08-27; ONE bounded read, never a paged walk of /procurement/vendors, which is the banned
-  // SSR full-walk shape) and WHAT may be sold (the farm's own registry, migration 000393). They
+  // SSR full-walk shape) and WHAT may be sold (the farm's own registry, migration 000402). They
   // are independent, so they are read TOGETHER rather than one after the other -- and each is
   // handled on its own below, so one failing does not take the other down.
   // serial-await: allow one bounded pair of drawer vocabulary reads after the sales/config core data.

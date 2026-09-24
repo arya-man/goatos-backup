@@ -529,7 +529,7 @@ const measuredSoldWeightsSQL = `
 // ICU under Adult and ICU-Kid under K2, and the farm can move them.
 //
 // WHICH STAGE AN ANIMAL IS VALUED IN IS AUTHORED (maintainer instruction 2026-09-24, migration
-// 000396, domain/valuation_stages.go). The CASE that used to decide it knew six stages while the
+// 000405, domain/valuation_stages.go). The CASE that used to decide it knew six stages while the
 // farm's register carries nineteen, so Warmup -- 58 live kids the day this changed -- could not be
 // valued without a deploy. The stage rows say which register entries they cover; the animal is
 // filed by its own management stage or, when the register lost that, its milk cohort.
@@ -566,7 +566,7 @@ const farmValuationSQL = `
 		JOIN latest_weight w ON w.tenant_id = i.tenant_id AND w.scanned_identifier = i.identifier
 		ORDER BY i.tenant_id, i.goat_id, w.accepted_at DESC
 	),
-	-- THE STAGES ARE AUTHORED (maintainer instruction 2026-09-24, migration 000396). A valuation
+	-- THE STAGES ARE AUTHORED (maintainer instruction 2026-09-24, migration 000405). A valuation
 	-- stage names the register entries it covers; an animal is filed by its own management stage
 	-- or, when the register lost that, its milk cohort. Both sides are normalized the one way
 	-- (upper, strip non-alphanumerics) that domain.NormalizeStageMatch normalizes the authored

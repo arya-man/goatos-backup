@@ -71,7 +71,7 @@ function readSaleForm(formData: FormData): SalesDealWrite {
       breed: requiredString(formData, `line_breed_${i}`),
       animal_count: parseOptionalNumber(`line_animal_count_${i}`),
       total_weight_kg: parseOptionalNumber(`line_total_weight_kg_${i}`),
-      // A line priced by the unit (feed, migration 000393) posts kilograms and a rate and NO
+      // A line priced by the unit (feed, migration 000402) posts kilograms and a rate and NO
       // value: the backend computes it, so a stale figure on the form can never be recorded as
       // the money. Its value field is a readout, not an input, and is deliberately absent here.
       quantity: parseOptionalNumber(`line_quantity_${i}`),

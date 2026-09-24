@@ -40,7 +40,7 @@ func (f *fakeRepo) GetOverview(_ context.Context, _ string, farm string) (domain
 	return domain.Overview{}, nil
 }
 
-// The three products every tenant starts with (migration 000393). The fake serves them so these
+// The three products every tenant starts with (migration 000402). The fake serves them so these
 // tests keep exercising exactly the sales they exercised before the registry existed.
 func (f *fakeRepo) ListSellableProducts(_ context.Context, _ string) ([]domain.Product, error) {
 	return []domain.Product{

@@ -5200,7 +5200,7 @@ func pageSpecificCopy(id string) map[string]string {
 			// each carrying its own count, weight and value. The deal total is the sum, computed
 			// by the backend; the drawer only previews it.
 			//
-			// WHAT the farm sells is its own registry (migration 000393), so the product and
+			// WHAT the farm sells is its own registry (migration 000402), so the product and
 			// variant vocabularies are NOT compiled here -- the drawer reads them from
 			// /sales/options, the same answer the phone's form reads, because a second copy in
 			// this contract is a vocabulary that can drift from the one the phone offers.
