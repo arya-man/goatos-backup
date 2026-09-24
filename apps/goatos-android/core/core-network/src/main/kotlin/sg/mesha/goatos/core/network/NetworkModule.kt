@@ -583,6 +583,7 @@ interface AppApiService {
         @Query("partition_label") partitionLabel: String?,
         @Query("assignment_id") assignmentId: String?,
         @Query("planned_date") plannedDate: String?,
+        @Query("batch_id") batchId: String? = null,
     ): ScanRosterResponseDto
 
     @POST("app/vaccination/obligations/{obligation_id}/reschedule")
@@ -2044,6 +2045,11 @@ class RetrofitAppApi(
         assignmentId: String?,
         plannedDate: String?,
     ): ScanRosterResponseDto = service.getScanRoster(shedId, taskId, cursor, limit, partitionLabel, assignmentId, plannedDate)
+
+    override suspend fun getScanRosterForSelection(
+        shedId: String, taskId: String?, cursor: String?, limit: Int?, partitionLabel: String?,
+        assignmentId: String?, plannedDate: String?, batchId: String?,
+    ): ScanRosterResponseDto = service.getScanRoster(shedId, taskId, cursor, limit, partitionLabel, assignmentId, plannedDate, batchId)
 
     override suspend fun rescheduleObligation(
         obligationId: String,

@@ -126,6 +126,8 @@ vaccination_generation_runs, GuardRejected alerting.
 - Final backend: `go test ./internal/vaccinationexecution/adapters/http ./internal/vaccinationexecution/adapters/postgres -count=1` passes; explicit real OCI throwaway run with `GOATOS_RUN_POSTGRES_TESTS=1` and `-run 'TestScanRoster|Test.*PlannedDate'` passes (Postgres 120.587s). No STG/maintained OCI data mutations.
 - After: legacy 1/2/3-vaccine groups remain two animals, recreated 21-animal combined roster restores all 21 scans/proofs including page-two task, recapture and retry retain per-row execution task, requested-date SQL returns the current assignment despite older matching assignments.
 - Ready to push for two independent exact-SHA judges. Phone E2E still pending; deployment/merge remain prohibited. Subsequent local judge/device receipts: `.local/pr391-continuation.md`.
+- Both judges blocked f0e4529e9: date was missing from Room keys, and mixed overdue/today cards passed only their minimum date. Fix now carries exact assignment/date or legacy batch/task/date selectors from the visible card; fetches their paginated union atomically; all Room observers, lookups and counts use a date+canonical-selection cache key. No broad overdue-date query or historical-work widening.
+- Judge regressions cover two dated rosters with a failed refresh, same-day different membership sets, mixed overdue/today and legacy selectors, exclusion of unselected older work, and atomic preservation on partial union failure. First test attempt hit missing Gradle jdkImage transform; rerunning without stale configuration cache.
 
 ## Pending
 

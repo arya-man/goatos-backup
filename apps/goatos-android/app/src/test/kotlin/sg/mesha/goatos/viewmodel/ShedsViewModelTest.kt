@@ -132,7 +132,7 @@ class ShedsViewModelTest {
         val repo = FakeShedsPinVmExecutionRepository(
             VaccinationExecutionResponseDto(
                 rows = listOf(
-                    common.copy(assignmentId = "assignment-a", batchId = "batch-a", sopTaskId = "task-a"),
+                    common.copy(assignmentId = "assignment-a", batchId = "batch-a", sopTaskId = "task-a", dueDate = LocalDate.now().minusDays(1).toString()),
                     common.copy(assignmentId = "assignment-b", batchId = "batch-b", sopTaskId = "task-b"),
                 ),
             ),
@@ -155,6 +155,10 @@ class ShedsViewModelTest {
         assertEquals(null, row.batchId)
         assertEquals("0 / 2 done", vm.state.value.daySummary)
         assertEquals(2, vm.state.value.dueCount)
+        assertEquals("mixed overdue and today card must open through today", today, row.scheduleDateKey)
+        val selectors = sg.mesha.goatos.core.data.decodeScanRosterSelectors(row.rosterSelectors)
+        assertEquals(setOf("assignment-a", "assignment-b"), selectors.map { it.assignmentId }.toSet())
+        assertEquals(setOf(today, LocalDate.now().minusDays(1).toString()), selectors.map { it.plannedDate }.toSet())
     }
 
     @Test
