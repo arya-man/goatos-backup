@@ -151,6 +151,14 @@ interface ScanRosterRowDao {
     @Query("SELECT DISTINCT taskId FROM scan_roster_row WHERE scopeKey = :scopeKey AND taskId != '' AND taskId != 'shed-wide' ORDER BY taskId LIMIT $SCAN_ROSTER_TASK_ID_LIMIT")
     fun observeTaskIds(scopeKey: String): Flow<List<String>>
 
+    /** Page-independent count of distinct writable task ids (never capped). */
+    @Query("SELECT COUNT(DISTINCT taskId) FROM scan_roster_row WHERE scopeKey = :scopeKey AND taskId != '' AND taskId != 'shed-wide'")
+    fun observeTaskIdCount(scopeKey: String): Flow<Int>
+
+    /** Keyset page of distinct task ids after [afterTaskId]; callers walk every page. */
+    @Query("SELECT DISTINCT taskId FROM scan_roster_row WHERE scopeKey = :scopeKey AND taskId != '' AND taskId != 'shed-wide' AND taskId > :afterTaskId ORDER BY taskId LIMIT :limit")
+    suspend fun taskIdsAfter(scopeKey: String, afterTaskId: String, limit: Int): List<String>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entity: ScanRosterRowEntity)
 
