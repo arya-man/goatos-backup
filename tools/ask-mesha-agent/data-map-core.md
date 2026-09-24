@@ -38,6 +38,9 @@ Module tables (public.*; pen/park names: join public.locations l ON l.location_i
   If planned work was cancelled with no submission, say it plainly, e.g. "Planned for 2 Sep, never submitted in the app,
   cancelled on 5 Sep. If it was done on the farm, it wasn't recorded." Records can be corrected later (canceled -> completed),
   so always re-query; never repeat an earlier answer from this chat.
+  completed with submitted_by NULL = office correction, not a field submission: say so in the FIRST answer (who changed it via audit/updated_at,
+  when, assigned operator) e.g. Castro CBE deworming: cancelled 05/09, set completed by Manohark 24/09 11:35 IST, no submitter/proof.
+- "goats" in a question usually means all animals: count all species and split (e.g. "3 deaths: 1 goat, 2 sheep").
 - pen visits -> pen_visit_tasks (reasons, work_state; delayed+submitted_at set = done late, awaiting verification). pen routines -> pen_routine_tasks (routine name: join pen_routine_definitions
   USING routine_id; work_state scheduled|delayed|completed|canceled, status open|pending_verification|completed|rework; planned_business_date,
   submitted_at=done, submitted_by/verified_by users; park_id/shed_id -> locations).
@@ -63,9 +66,25 @@ Module tables (public.*; pen/park names: join public.locations l ON l.location_i
 - WHO: every *_by / *_user_id / actor_ref is a user id -> public.workforce_members.user_id -> display_name (one join, no searching).
 - Pen names repeat across parks (e.g. Castro is in CBE and CPT): always name the park per row; no park given = answer each park separately.
 - Money: feed "paid" = feed_purchase_payments.amount_rupees (paid_on), NOT feed_purchases.total_cost (= bill); owed = bill - payments per
-  feed_purchase_id. Sales dues (status='Deal Closed'): due per deal = greatest(sales_value - payment_received, 0), summed per buyer over deals with
+  feed_purchase_id. "Paid this month" headline = sum(feed_purchase_payments.amount_rupees) by paid_on in the month; then a 2nd line "of which
+  against this month's bills" (payments joined to purchases dated in the month). Ledger starts 03/09/2026; feed_purchases.payment_released =
+  running released total (mirrors ledger), so vendor dues = payment_status='Pending' bills: total_cost - greatest(payment_released, ledger sum).
+  Sales dues (status='Deal Closed'): due per deal = greatest(sales_value - payment_received, 0), summed per buyer over deals with
   payment_received NOT NULL. Never net an overpaid deal against another (list received > value separately as a data issue). payment_received NULL on
   older deals = not tracked, not proof of non-payment: list those separately, never headline as owed;
   payment ledger = sales_deal_payments (deal_id -> sales_deals.id, received_on, amount_rupees; ~11 rows, not empty). Say these caveats.
+  ALWAYS cross-check (unprompted, same query) for the asked buyer/period: payment_received vs advance_amount + sum(sales_deal_payments.amount_rupees)
+  per deal. If advance_amount AND ledger rows together make payment_received > sales_value (ledger alone ~= value), it is a DOUBLE COUNT: add a
+  "Worth checking" line naming deal date, short id, value, received, the advance, each ledger row (amount, received_on, IST time) and WHO recorded
+  them (recorded_by -> workforce_members.display_name). E.g. Mahendran 02/09 deal d393cdf4: value 1,97,415, received 3,94,830 = advance 1,97,415 +
+  ledger 1,77,000+415+20,000 by Hemant 02/09 ~14:19 IST. Anomaly/"data entry mistakes"/"duplicates" questions: run this check for all deals, plus
+  same buyer+value+date duplicates, received > value, sales_value 0 with money received, and in other modules same row repeated (same goat/item,
+  amount, date, actor within minutes); report each with who entered it.
+- RFID "not moving" = public.herd_signal_tag_latest.movement_state='not_moving' (zero motion in the latest 15-min window; states: moving/low/quiet/
+  not_moving). It is LIVE and changes minute to minute: one query, give count of all tags (e.g. "12 of 19"), last_seen_at in IST, and list them;
+  goat via tag mapping (mapping_state='mapped'). Sustained concern = pattern_state IN ('inactive' (3h+ quiet while packets arrive),'quiet_watch',
+  'missing_signal'); say how many (often 0), and note no_movement alone for one window is normal resting. Don't re-query to "confirm" counts.
 Before saying "not recorded"/"none": search table names + information_schema.columns for the keyword (ILIKE '%deworm%'), then category/status values. Empty table (0 rows) = say plainly "not recorded in the app yet" in one line, no long search. Only say
 "not recorded" after that search finds nothing; say which park/pen/status you did find (e.g. "all Castro CBE tasks were cancelled").
+- Who changed/corrected a record: public.audit_log WHERE resource_id = <record id> (action e.g. pc_care.task.canceled / sales.deal.payment_record), actor_id -> workforce_members.user_id for the name; always name them in the first answer.
+- When advance_amount equals the ledger total and both are counted, state it as a double count (not "possible").

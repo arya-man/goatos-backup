@@ -91,7 +91,7 @@ Beware ambiguous `status` when joining locations: qualify it (`t.status`).
 | Feed payments | feed_purchase_payments | paid_on, amount_rupees, feed_purchase_id -> feed_purchases (bill = total_cost) |
 | Config change history | feed_config_write_log (actor_ref, write_kind, created_at), health_config_write_log, audit_log | |
 | Tag / identity decisions | identity_decisions | decision_type (retire_identifier, attach_identifier, exit_goat...), decision_state |
-| RFID sensors | herd_signal_tag_latest | battery_state, signal_state, movement_state, last_seen_at (19 tags) |
+| RFID sensors | herd_signal_tag_latest | battery_state, signal_state, movement_state (not_moving = zero motion latest 15 min, live), pattern_state (inactive/quiet_watch = sustained), last_seen_at (19 tags) |
 | Sale allocations / growth price | goat_sale_allocations (status tagged), growth_sale_price_assumptions (price_per_kg_inr) | |
 | Births | goat_births (individually registered kids, 2 rows) vs counts_movement_daily births (herd count, ~600) | give both numbers + one line why; herd count includes 458 bulk-entered on 05/08/2026 |
 
