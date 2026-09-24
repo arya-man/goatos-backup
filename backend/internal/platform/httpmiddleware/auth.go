@@ -417,7 +417,26 @@ func (a *AuthMiddleware) authenticate(w http.ResponseWriter, r *http.Request) (c
 			writeAuthError(w, r, http.StatusUnauthorized, "missing_tenant_context", "tenant context is required")
 			return r.Context(), "", "", false
 		}
-		if !authallow.AllowsWithDynamic(r.Context(), a.allowedEmails, a.dynamicEmails, tenantID, claims.Email, claims.EmailVerified) {
+		emailAllowed, allowErr := authallow.AllowsWithDynamicErr(r.Context(), a.allowedEmails, a.dynamicEmails, tenantID, claims.Email, claims.EmailVerified)
+		if allowErr != nil {
+			// The allowlist could not be read (cold cache + refused / saturated
+			// pool). That is not "not allowed": answer a retryable 503 so the
+			// phone does not show "access not provisioned". Any other error is
+			// still treated as a denial below (fail closed).
+			if DatabaseUnavailable(r.Context(), allowErr) {
+				a.logAuthFailure(r, http.StatusServiceUnavailable, "auth_database_busy",
+					slog.String("email", normalizedEmailForLog(claims.Email)),
+					slog.String("tenant_id", tenantID),
+					slog.String("actor_id", claims.Subject),
+					slog.String("error", allowErr.Error()),
+				)
+				w.Header().Set("Retry-After", AuthDatabaseBusyRetryAfter)
+				writeAuthError(w, r, http.StatusServiceUnavailable, "auth_database_busy", "sign-in is busy, please retry")
+				return r.Context(), "", "", false
+			}
+			emailAllowed = false
+		}
+		if !emailAllowed {
 			a.logAuthFailure(r, http.StatusForbidden, "email_not_allowed",
 				slog.String("email", normalizedEmailForLog(claims.Email)),
 				slog.String("firebase_uid", claims.ExternalSubject),
