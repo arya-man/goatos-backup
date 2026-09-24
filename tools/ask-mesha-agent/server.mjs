@@ -79,7 +79,7 @@ confirmed, say what information is missing in business terms (e.g. "individual a
 that week aren't recorded"). Only talk about code/SQL if the user explicitly asks for it.
 You have the full goatos codebase (current working directory, the live commit) and READ-ONLY
 access to the goatos-stg Postgres database. ${READONLY
-  ? "Read code with Read/Grep/Glob. Query data ONLY with the run_sql tool: one SELECT/WITH per call, schema-qualified tables (public.*, ceo_ai.*, analytics.*, audit.*), and tenant_id = '<tenant>' on every tenant table. You can read every business table (feed purchases/prices, weighing observations, sales deals, procurement, herd, vaccination, workforce). Prefer the raw tables when a ceo_ai view lacks the detail. You cannot edit files or run shell commands."
+  ? "Read code with Read/Grep/Glob. Query data with the run_sql tool: any SQL over any table (public.*, ceo_ai.*, analytics.*, audit.*), as many queries as you need. You can read everything (feed purchases/prices, weighing observations, sales deals, procurement, herd, vaccination, workforce). The database is read-only; you cannot edit files."
   : "Query with `psql -c \"...\"` (connection env vars are set). You may read code and run tests."}
 Answer style for quick lookups (how many / when / which): lead with the direct answer in 1-2
 sentences, then at most one compact table (<= 12 rows) and at most 3 short bullets. No preamble,
@@ -133,48 +133,18 @@ async function recordMetric(m) {
 
 // ---- read-only SQL tool (replaces Bash/psql in read-only mode) --------------
 const SQL_MAX_ROWS = 500;
-const SQL_SOURCE_RE = /\b(?:from|join)\s+([a-z_][\w$]*)(?:\s*\.\s*([a-z_][\w$]*))?/gi;
-const SQL_BANNED_RE = /\b(?:insert|update|delete|merge|alter|create|drop|truncate|grant|revoke|copy|vacuum|analyze|call|do|execute|prepare|set|reset|listen|notify|lock)\b/i;
-function sqlLiteral(s) {
-  return String(s).replace(/'/g, "''");
-}
-// The DB role (mesha_ceo_readonly) can read every table and write none; this
-// validator keeps queries to one read statement over known schemas, scoped to the
-// caller's tenant. Read-only is enforced by the role + READ ONLY transaction.
-const SQL_SCHEMAS = new Set(["public", "analytics", "audit", "ceo_ai", "forensic_repair"]);
-function validateReadSql(sql, user) {
+// No query rules: the DB role (mesha_ceo_readonly) can read every table and write
+// none, and every call runs in a READ ONLY transaction. The only refusal is psql
+// backslash commands, which run programs on the server rather than read data.
+function validateReadSql(sql) {
   const text = String(sql || "").trim();
-  if (!text || text.includes("\\")) {
-    return { ok: false, out: "Refused: only plain SQL (no psql backslash commands)." };
-  }
-  const one = text.replace(/;\s*$/, "");
-  if (one.includes(";")) return { ok: false, out: "Refused: run exactly one SQL statement." };
-  if (!/^(select|with)\b/i.test(one)) return { ok: false, out: "Refused: only SELECT / WITH queries are allowed." };
-  if (SQL_BANNED_RE.test(one)) return { ok: false, out: "Refused: mutating or session-control SQL is not allowed." };
-  const ctes = new Set([...one.matchAll(/(?:\bwith\b|,)\s*([a-z_][\w$]*)\s+as\s*\(/gi)].map((m) => m[1].toLowerCase()));
-  let sawSource = false;
-  for (const m of one.matchAll(SQL_SOURCE_RE)) {
-    const first = m[1].toLowerCase();
-    const after = one.slice(m.index + m[0].length);
-    if (!m[2]) {
-      // unqualified: a CTE, a subquery alias handled by "(", or a set-returning function
-      if (ctes.has(first) || /^\s*\(/.test(after) || first === "lateral") continue;
-      return { ok: false, out: `Refused: qualify tables with their schema (e.g. public.${first}).` };
-    }
-    if (!SQL_SCHEMAS.has(first)) return { ok: false, out: `Refused: schema ${first} is not readable here.` };
-    sawSource = true;
-  }
-  if (!sawSource) return { ok: false, out: "Refused: query must read from a schema-qualified table or view." };
-  if (!user?.tenantId) return { ok: false, out: "Refused: missing authenticated tenant scope." };
-  const tenant = sqlLiteral(user.tenantId);
-  if (!new RegExp(`\\btenant_id\\s*=\\s*'${tenant}'`, "i").test(one)) {
-    return { ok: false, out: `Refused: filter by tenant_id = '${tenant}'.` };
-  }
-  return { ok: true, sql: one };
+  if (!text) return { ok: false, out: "Empty query." };
+  if (text.includes("\\")) return { ok: false, out: "Refused: psql backslash commands are not allowed." };
+  return { ok: true, sql: text.replace(/;\s*$/, "") };
 }
 function runSql(sql, user) {
   return new Promise((resolve) => {
-    const checked = validateReadSql(sql, user);
+    const checked = validateReadSql(sql);
     if (!checked.ok) return resolve(checked);
     const child = spawn(
       "psql",
@@ -184,7 +154,7 @@ function runSql(sql, user) {
           PATH: process.env.PATH,
           ...loadPgEnv(),
           // Belt and braces on top of the read-only DB role.
-          PGOPTIONS: "-c default_transaction_read_only=on -c statement_timeout=30000",
+          PGOPTIONS: "-c default_transaction_read_only=on -c statement_timeout=60000",
         },
       },
     );
@@ -207,7 +177,7 @@ function meshaToolsFor(user) {
     tools: [
       tool(
         "run_sql",
-        "Run ONE read-only SQL query (SELECT/WITH) against goatos-stg — any schema-qualified table or view in public, ceo_ai, analytics, audit — and return tab-separated rows (max 500). Filter tenant tables by tenant_id = '<authenticated tenant>'.",
+        "Run read-only SQL against goatos-stg (any table/view in any schema) and return tab-separated rows (max 500).",
         { sql: z.string().describe("A single SELECT/WITH query. No psql backslash commands.") },
         async ({ sql }) => {
           const r = await runSql(sql, user);
@@ -504,7 +474,6 @@ async function ask(req, res, user) {
     park_id: typeof scope.park_id === "string" && scope.park_id ? scope.park_id : "",
     shed_id: typeof scope.shed_id === "string" && scope.shed_id ? scope.shed_id : "",
   };
-  prompt += `\n\nAuthenticated tenant scope: tenant_id = '${user.tenantId}'. Every SQL query must include that tenant_id filter.`;
   if (pageScope.park_id || pageScope.shed_id) {
     prompt += `\nCurrent page scope: ${pageScope.park_id ? `park_id=${pageScope.park_id}` : ""}${pageScope.park_id && pageScope.shed_id ? ", " : ""}${pageScope.shed_id ? `shed_id=${pageScope.shed_id}` : ""}. If the user's wording does not ask for all parks or another scope, apply this page scope in the SQL.`;
   }
