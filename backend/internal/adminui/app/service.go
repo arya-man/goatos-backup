@@ -1638,7 +1638,7 @@ func weighingWeightsCopy() map[string]string {
 		"chart.load.title":                       "Daily gain by load",
 		"chart.load.title_weight":                "Average weight by load",
 		"chart.load.aria":                        "Growth for each purchase load",
-		"chart.load.caption":                     "Kids are bought in loads from a supplier and put into pens. This is how each load's pens are moving, so a supplier's stock can be judged on how it grows.",
+		"chart.load.caption":                     "Kids are bought in loads from a supplier and put into pens. This is how each load's own animals are growing, wherever they are penned, so a supplier's stock can be judged on how it grows.",
 		"empty.load.body":                        "No load has a weighed pen yet. A load shows up here once the pens it went into have been weighed.",
 		"note.load.unmapped":                     "pens are not counted here — they have no load recorded, or they hold more than one load and a single pen average cannot be split between two suppliers.",
 		// The load chart says a supplier's stock is growing; this says WHERE. Without
