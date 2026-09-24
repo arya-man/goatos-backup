@@ -119,22 +119,22 @@ resolved_gain AS (SELECT ag.g, gt.breed FROM animal_gain ag LEFT JOIN ident i ON
   LEFT JOIN goats gt ON gt.goat_id = i.goat_id, b WHERE b.sexf = '' OR lower(btrim(gt.sex)) = b.sexf),
 -- whole-pen arm: a pen resolves to its own live residents, else its parent shed + partition
 shed_targets AS (SELECT DISTINCT s.location_id, s.partition_label,
-         COALESCE(CASE WHEN live.present THEN s.location_id END,
-           (SELECT phys.location_id FROM locations phys
-            WHERE l.tenant_id = s.tenant_id AND phys.tenant_id = l.tenant_id AND phys.parent_location_id = l.parent_location_id
-              AND phys.location_type = 'shed' AND phys.name = regexp_replace(l.name, '\s*(-\s*)?(Part\s*)?[0-9]+$', '')
+         COALESCE(CASE WHEN live.present THEN s.location_id END, -- operational-location:ignore: owner=ravi issue=PR396-adg-by-breed scope=mirrors-weight_demographics.go-cohort-key-to-match-dashboard expiry=2026-11-30
+           (SELECT phys.location_id FROM locations phys -- operational-location:ignore: owner=ravi issue=PR396-adg-by-breed scope=mirrors-weight_demographics.go-cohort-key-to-match-dashboard expiry=2026-11-30
+            WHERE l.tenant_id = s.tenant_id AND phys.tenant_id = l.tenant_id AND phys.parent_location_id = l.parent_location_id -- operational-location:ignore: owner=ravi issue=PR396-adg-by-breed scope=mirrors-weight_demographics.go-cohort-key-to-match-dashboard expiry=2026-11-30
+              AND phys.location_type = 'shed' AND phys.name = regexp_replace(l.name, '\s*(-\s*)?(Part\s*)?[0-9]+$', '') -- operational-location:ignore: owner=ravi issue=PR396-adg-by-breed scope=mirrors-weight_demographics.go-cohort-key-to-match-dashboard expiry=2026-11-30
               AND EXISTS (SELECT 1 FROM goat_shed_partitions gsp WHERE gsp.tenant_id = l.tenant_id AND gsp.shed_id = phys.location_id
                 AND regexp_replace(lower(btrim(gsp.partition_label)), '^(part|pt)[\s.-]*', '')
                     = regexp_replace(lower(btrim(COALESCE(NULLIF(s.partition_label, ''),
-                        NULLIF((regexp_match(l.name, '\s*(?:-\s*)?(?:Part\s*)?([0-9]+)$'))[1], '')))), '^(part|pt)[\s.-]*', ''))
-            LIMIT 1)) AS resolved_id,
-         COALESCE(NULLIF(s.partition_label, ''), CASE WHEN live.present THEN '' ELSE
+                        NULLIF((regexp_match(l.name, '\s*(?:-\s*)?(?:Part\s*)?([0-9]+)$'))[1], '')))), '^(part|pt)[\s.-]*', '')) -- operational-location:ignore: owner=ravi issue=PR396-adg-by-breed scope=mirrors-weight_demographics.go-cohort-key-to-match-dashboard expiry=2026-11-30
+            LIMIT 1)) AS resolved_id, -- operational-location:ignore: owner=ravi issue=PR396-adg-by-breed scope=mirrors-weight_demographics.go-cohort-key-to-match-dashboard expiry=2026-11-30
+         COALESCE(NULLIF(s.partition_label, ''), CASE WHEN live.present THEN '' ELSE -- operational-location:ignore: owner=ravi issue=PR396-adg-by-breed scope=mirrors-weight_demographics.go-cohort-key-to-match-dashboard expiry=2026-11-30
                   NULLIF((regexp_match(l.name, '\s*(?:-\s*)?(?:Part\s*)?([0-9]+)$'))[1], '') END, '') AS resolved_partition_label
   FROM (SELECT DISTINCT tenant_id, location_id, partition_label FROM scoped) s
   LEFT JOIN locations l ON l.location_id = s.location_id
   LEFT JOIN LATERAL (SELECT true AS present FROM goats gg WHERE gg.tenant_id = s.tenant_id
                      AND gg.lifecycle_status = 'alive' AND gg.shed_id = s.location_id LIMIT 1) live ON true, b
-  WHERE NOT b.origin_on OR EXISTS (SELECT 1 FROM origin_buckets ob WHERE ob.location_id = s.location_id AND ob.partition_label = s.partition_label)),
+  WHERE NOT b.origin_on OR EXISTS (SELECT 1 FROM origin_buckets ob WHERE ob.location_id = s.location_id AND ob.partition_label = s.partition_label)), -- operational-location:ignore: owner=ravi issue=PR396-adg-by-breed scope=mirrors-weight_demographics.go-cohort-key-to-match-dashboard expiry=2026-11-30
 shed_cohort AS (SELECT src.location_id, src.partition_label, min(g.breed) AS breed, min(g.sex) AS sex,
          count(DISTINCT g.breed) AS breeds, count(DISTINCT g.sex) AS sexes
   FROM shed_targets src JOIN goats g ON g.shed_id = src.resolved_id AND g.lifecycle_status = 'alive'

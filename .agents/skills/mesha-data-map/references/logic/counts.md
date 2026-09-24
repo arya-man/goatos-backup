@@ -99,7 +99,7 @@ WHERE t.load_id IS NOT NULL OR p.load_id IS NOT NULL ORDER BY pl.purchase_date D
 
 ## C7 Census corrections / stage reclassification ("who changed the stage", "census correction kab hua")
 - Writes, not reads: `POST /admin/goats/census-slice/preview|commit` (edits breed/sex/stage of one census row) and
-  `POST /admin/goats/shed-stage/preview|commit` (retag a pen's stage). Slice scope `censusSliceScopeSQL`
+  `POST /admin/goats/shed-stage/preview|commit` (retag a pen's stage). Census scope SQL at `census_correction.go:32`
   (`backend/internal/identity/adapters/postgres/census_correction.go:32`): same shed + normalized partition + stage + breed + sex, alive, not exited.
 - History = `audit_log.action` `'counts_census_slice_correction'` (`census_correction.go:335`) / `'counts_shed_reclassification'`;
   resource_type 'shed', actor_id -> workforce_members.user_id. Per-goat trail: `goat_identity_events` event_type `goat.stage_changed`.
