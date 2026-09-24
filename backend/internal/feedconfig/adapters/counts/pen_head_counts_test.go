@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/feedconfig/ports"
 	fddomain "github.com/vgoats/goatos/backend/internal/feeddirection/domain"
 	fdports "github.com/vgoats/goatos/backend/internal/feeddirection/ports"
-	"github.com/vgoats/goatos/backend/internal/feedconfig/ports"
 )
 
 type fakeGrains struct {

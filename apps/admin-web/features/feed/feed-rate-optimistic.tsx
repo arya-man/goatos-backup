@@ -1,5 +1,6 @@
 "use client";
 
+import { fmtGrams } from "./feed-config-format";
 import { useSyncExternalStore } from "react";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -148,7 +149,7 @@ export function RationRateValue({
           color: authoredZero ? "var(--muted)" : "var(--brand-d)",
         }}
       >
-        {value}
+        {fmtGrams(value)}
       </span>
       {authoredZero ? (
         <span className="tag t-info" title={copy(pageContract, "label.configured_zero_note")}>

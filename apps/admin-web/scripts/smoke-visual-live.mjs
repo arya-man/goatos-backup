@@ -49,7 +49,10 @@ const diffDir = join(screenshotDir, "diffs");
 let baselineCompared = 0;
 let baselineUpdated = 0;
 const wideTableScrollOwnerSelector =
-  ".tablewrap,.twrap,.cfgtablewrap,.feed-stock-tablewrap,.pa-gridwrap,.lt-tablewrap,.sales-market-wrap,.health-analytics-scroll,.cbm-future-table-wrap,.vplan .scroll";
+  // .feed-scroll is Feed Config's own scroll box (overflow-x:auto around each of its tables). Leaving
+  // it out made the phone lane report the experiment table as "cannot be horizontally scrolled"
+  // while it scrolled correctly inside that box (found 2026-09-24).
+  ".tablewrap,.twrap,.cfgtablewrap,.feed-stock-tablewrap,.feed-scroll,.pa-gridwrap,.lt-tablewrap,.sales-market-wrap,.health-analytics-scroll,.cbm-future-table-wrap,.vplan .scroll";
 const smokeWideWindowTo = new Date().toISOString().slice(0, 10);
 const smokeWideWindowFrom = new Date(Date.now() - 43 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 

@@ -465,7 +465,10 @@ export function ExperimentCellAdder({
       <input type="hidden" name="partition_label" value={partitionLabel} />
       <div className="fld" style={{ marginBottom: 0 }}>
         <label htmlFor={`${fieldId}-item`}>{copy(pageContract, "filter.feed_item_label")}</label>
-        <select id={`${fieldId}-item`} name="feed_item" defaultValue="">
+        {/* An explicit empty choice: without it the browser silently selects the first feed, and a
+            quick save adds an item the author never picked. The action refuses a blank item. */}
+        <select id={`${fieldId}-item`} name="feed_item" defaultValue="" required>
+          <option value="" disabled />
           {availableItems.map((item) => (
             <option key={item} value={item}>
               {item}
@@ -629,8 +632,13 @@ export function ExperimentPenEnroller({
     setParkId(next);
     setTicked([]);
   };
-  const penValue = (pen: { shedId: string; partitionLabel: string }) =>
-    JSON.stringify({ s: pen.shedId, p: pen.partitionLabel });
+  // The pen's name rides along ("d") only so a refused write can say WHICH pen failed.
+  const penValue = (pen: { shedId: string; partitionLabel: string; display: string }) =>
+    JSON.stringify({ s: pen.shedId, p: pen.partitionLabel, d: pen.display });
+  // Only ticks that are still candidates. After a partly successful submit the page re-renders and
+  // the pens that DID enrol leave the candidate list; their ticks must go with them, or they stay
+  // counted in the badge and posted again as hidden inputs the operator cannot see.
+  const liveTicked = ticked.filter((value) => parkPens.some((pen) => penValue(pen) === value));
 
   if (pens.length === 0) {
     return <div className="small muted">{copy(pageContract, "empty.experiment_candidates")}</div>;
@@ -675,22 +683,20 @@ export function ExperimentPenEnroller({
             the operator closed the list, which is the failure mode of the <details> this replaces.
             Each value carries shed id and RAW partition label as one JSON value: a partition label
             is free text, so any delimiter character could occur inside it. */}
-        {ticked.map((value) => (
+        {liveTicked.map((value) => (
           <input key={value} type="hidden" name="pen" value={value} />
         ))}
         <PenMultiSelect
           pageContract={pageContract}
           pens={parkPens}
-          ticked={ticked}
+          ticked={liveTicked}
           onToggle={(value) =>
             setTicked((current) =>
               current.includes(value) ? current.filter((held) => held !== value) : [...current, value],
             )
           }
           onToggleAll={() =>
-            setTicked((current) =>
-              current.length === parkPens.length ? [] : parkPens.map((pen) => penValue(pen)),
-            )
+            setTicked(() => (liveTicked.length === parkPens.length ? [] : parkPens.map((pen) => penValue(pen))))
           }
           penValue={penValue}
         />
@@ -765,7 +771,7 @@ function PenMultiSelect({
   ticked: string[];
   onToggle: (value: string) => void;
   onToggleAll: () => void;
-  penValue: (pen: { shedId: string; partitionLabel: string }) => string;
+  penValue: (pen: { shedId: string; partitionLabel: string; display: string }) => string;
 }) {
   const [open, setOpen] = useState(false);
   const wrapper = useRef<HTMLSpanElement | null>(null);

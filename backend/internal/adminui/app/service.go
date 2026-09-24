@@ -904,7 +904,7 @@ func pages() []domain.PageContract {
 				// declares no TableContract -- a contract for a chart would be one nothing
 				// can honour. Its copy is authored under `shedfeed.*` below.
 			}),
-		page("feed-config", "/feed/config", "/feed/config", "Feed Config — Ration Rules", "Feed-owned authority screen for the authored ration grid, per-feed factors, session template and feeding schedule.", "module-surface",
+		page("feed-config", "/feed/config", "/feed/config", "Feed Config — Ration Rules", "Feed-owned authority screen for the authored ration grid, experiment pens, session template and feeding schedule.", "module-surface",
 			[]domain.TableContract{
 				// Every table below EXCEPT feed-items is read through a /feed-config/* endpoint that
 				// requires park_id and filters on it, and they share ONE Park filter on the page — so
@@ -7623,12 +7623,12 @@ func pageSpecificCopy(id string) map[string]string {
 			"section.experiment.title":             "Experiment pens",
 			"section.experiment.aria":              "Hand-authored experiment pens",
 			"section.experiment.caption":           "Pens fed hand-entered quantities instead of the ration grid above",
-			"section.experiment.note":              "These pens are NOT computed from the ration grid. An operator hand-enters the grams each animal in the pen gets of each item, and the feed sheet multiplies that by the number of animals in the pen on the day. The count shown here is that live number, straight from the herd register — nobody types it. While a pen is listed here, the rates and feed factors above have no effect on it.",
+			"section.experiment.note":              "These pens are NOT computed from the ration grid. An operator hand-enters the grams each animal in the pen gets of each item, and the feed sheet multiplies that by the number of animals in the pen on the day. The count shown here is the number the sheet will use for tomorrow — nobody types it. While a pen is listed here, the ration grid above has no effect on it.",
 			"section.experiment.switch_note":       "A pen is on the experiment workflow because it is listed here, and for no other reason — there is no separate flag. Adding a pen switches it off the per-head grid; returning it switches it straight back, and only that pen: the other pens are untouched. Returning a pen keeps its authored quantities, so restoring it later does not mean re-entering them.",
 			"table.experiment.aria":                "Experiment pen rows",
 			"table.experiment.noun":                "experiment row",
 			"label.experiment_grams_per_head":      "Grams per animal (per day)",
-			"label.experiment_grams_per_head_note": "What ONE animal in this pen gets of this item each day. The feed sheet multiplies it by the number of animals in the pen that day, so the quantity follows animals in and out without anyone re-authoring it. Enter an explicit 0 to feed none of this item; a blank field is not zero. The feed factors above do not apply to an experiment pen.",
+			"label.experiment_grams_per_head_note": "What ONE animal in this pen gets of this item each day. The feed sheet multiplies it by the number of animals in the pen that day, so the quantity follows animals in and out without anyone re-authoring it. Enter an explicit 0 to feed none of this item; a blank field is not zero. The ration grid does not apply to an experiment pen.",
 			"label.experiment_absolute_kg":         "Absolute kg (whole pen)",
 			"label.experiment_absolute_kg_note":    "An older cell: a total for the WHOLE pen, already inclusive of every animal in it, and never multiplied by any head count. Cells are now authored as grams per animal — editing this one asks for grams and moves it over.",
 			"label.experiment_head_count":          "Animals in this pen",
@@ -7636,9 +7636,9 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.experiment_category":            "Experiment arm",
 			"label.experiment_category_note":       "Which arm of the trial this pen is on. It appears in the pen-tag column of the direction sheet, where it is the operator's cue that these numbers were hand-entered rather than computed.",
 			"label.experiment_active":              "On experiment (hand-entered)",
-			"label.experiment_active_note":         "This pen is fed the quantities authored here — grams per animal times the pen's head count, or the whole-pen total on an older cell. The ration grid and its feed factors do not affect it.",
+			"label.experiment_active_note":         "This pen is fed the quantities authored here — grams per animal times the pen's head count, or the whole-pen total on an older cell. The ration grid does not affect it.",
 			"label.experiment_retired":             "On the normal grid (per head)",
-			"label.experiment_retired_note":        "This pen has been returned to the ration grid and is fed projected head count × grams per head × feed factor again. Its authored experiment quantities are kept, so restoring it does not mean re-entering them.",
+			"label.experiment_retired_note":        "This pen has been returned to the ration grid and is fed from it again. Its authored experiment quantities are kept, so restoring it does not mean re-entering them.",
 			"label.experiment_basis_grams":         "grams per animal",
 			"label.experiment_basis_kg":            "kg for the whole pen",
 			"label.experiment_not_dated_note":      "Unlike the rates above, experiment quantities are not effective-dated: an edit corrects the figure in place. They are hand-entered numbers for a running trial, not a standing rule a past feed sheet has to be explained against. Who changed what is still recorded.",
@@ -7656,7 +7656,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"action.experiment_switched":           "Workflow switched. What this pen is fed has changed — check the next Feed Direction for this park.",
 			"reason.experiment_blank_is_not_zero":  "Leave the field blank only if you do not intend to author this item for this pen. To feed none of it, enter an explicit 0. A cleared field is not zero.",
 			"reason.experiment_switch_consequence": "Switching a pen changes what its animals eat; it is not a display setting. Only the pen named here changes; the other pens are untouched.",
-			"empty.experiment":                     "No experiment pens authored for this park. Every operational pen in it is fed from the ration grid above.",
+			"empty.experiment":                     "No experiment pens in this view. Every pen in it is fed from the ration grid above.",
 			"empty.experiment_filtered":            "No experiment pens match these filters.",
 			"empty.experiment_candidates":          "Every pen in this park already has authored experiment quantities.",
 			// Shown on a pen whose every catalog item already has an authored cell. Distinct from
@@ -7666,7 +7666,7 @@ func pageSpecificCopy(id string) map[string]string {
 			// construction -- a ration grid, a session split and a dispatch clock are all park-scoped
 			// -- so a company-wide top-bar scope cannot be honoured here and one park is shown instead.
 			// Without this the screen silently reads the alphabetically first park and says nothing.
-			"notice.park_scope_fallback": "Experiment pens below show BOTH parks. The ration grid, feed factors, session template and feeding schedule are authored per park and cannot be shown for all parks at once, so those four are reading the park named here — use the Park filter to change it.",
+			"notice.park_scope_fallback": "The ration grid, session template and feeding schedule are authored per park and cannot be shown for all parks at once, so those three are reading the park named here — use the Park filter to change it. Experiment pens below can show both parks.",
 			// The enroller. It authors a PEN and every feed item of it in ONE atomic write, so its copy
 			// has to say both things: which pen, and that a blank kg authors nothing rather than zero.
 			"filter.pen_label": "Pen",
@@ -7681,7 +7681,14 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.experiment_enrol_items_note": "Enter the grams ONE animal in this pen gets of each feed item. The sheet multiplies by the number of animals in the pen that day. Leave an item blank to author nothing for it — blank is not zero. All of them are saved together, or none is.",
 			// Shown instead of a park name when the top bar reads company-wide. The experiment table
 			// genuinely spans both parks in that mode, so naming one park above it would be a lie.
-			"label.all_parks":              "All parks",
+			"label.all_parks": "All parks",
+			// Experiment writes answer in their own words, never the ration grid's "Rate rejected".
+			// No park could be read (for instance, no access to the park list): said out loud rather than
+			// leaving every section on its "nothing authored" empty state, which reads as data loss.
+			"state.parks_unavailable":      "No park could be loaded, so there is nothing to show here. You may not have access to the park list — ask an admin.",
+			"action.experiment_rejected":   "Not saved. Check the pen and its quantities, then try again.",
+			"reason.experiment_enrol_pens": "Tick at least one pen to move to the experiment.",
+			"reason.experiment_enrol_arm":  "Name the experiment arm for the pens you are moving.",
 			"reason.experiment_enrol_park": "Choose the park first: a pen belongs to one park, and the pens offered below are that park's.",
 			"state.experiment_unavailable": "Experiment pens unavailable",
 			// ---- feed items (the catalog) -----------------------------------------------------
@@ -7690,12 +7697,12 @@ func pageSpecificCopy(id string) map[string]string {
 			// who adds "RGS Concentrate" and expects it on tomorrow's sheet has to be told here.
 			"section.feed_items.title":   "Feed items",
 			"section.feed_items.aria":    "Feed item catalog",
-			"section.feed_items.caption": "The feed vocabulary every rate, feed factor and experiment quantity is authored against",
+			"section.feed_items.caption": "The feed vocabulary every rate and experiment quantity is authored against",
 			"section.feed_items.note":    "Shared by every park. Adding an item does NOT feed it to anything: the new name becomes selectable on the ration grid above, and each ration group and pen tag using it stays unconfigured — and therefore blocked — until a rate is authored for it. Adding an item never creates a rate, not even a zero.",
 			"table.feed_items.aria":      "Feed item catalog rows",
 			"table.feed_items.noun":      "feed item",
 			"label.feed_item_name":       "Feed item name",
-			"label.feed_item_name_note":  "The name that appears on the ration grid, the feed factors, the experiment pens and the generated feed sheet. Case and surrounding spaces do not make a second item: a name the catalog already holds is refused rather than added twice.",
+			"label.feed_item_name_note":  "The name that appears on the ration grid, the experiment pens and the generated feed sheet. Case and surrounding spaces do not make a second item: a name the catalog already holds is refused rather than added twice.",
 			// Changing a feed item's status. Worded as ACTIVE / INACTIVE (maintainer decision
 			// 2026-08-13), replacing the earlier "In feeding" / "Not fed" chip and its
 			// "Remove" / "Restore" controls. The old wording read as a deletion, which this has
@@ -7716,10 +7723,14 @@ func pageSpecificCopy(id string) map[string]string {
 			"action.feed_item_status_changed": "Saved. What is fed has changed — check the next Feed Direction for every park.",
 			"reason.retire_feed_item":         "Takes this item off every future feed sheet, and hides its authored rates on the ration grid above. Nothing is deleted: the rates, feed factors and experiment quantities are kept exactly as they are, so reactivating the item restores them without re-entering anything.",
 			"reason.restore_feed_item":        "Puts this item back into feeding. Its authored rates return to the ration grid above exactly as they were.",
-			"label.feed_item_active":          "Active",
-			"label.feed_item_active_note":     "This item is part of the feed vocabulary. It appears on the ration grid above and is packed and served wherever a rate is authored for it.",
-			"label.feed_item_retired":         "Inactive",
-			"label.feed_item_retired_note":    "This item is not being fed. It is on no feed sheet and its authored rates are hidden from the ration grid above — but they are kept, so reactivating it restores them.",
+			// Row status chips on the experiment and session tables, in words rather than the raw
+			// wire value ("active").
+			"label.status_active":          "Active",
+			"label.status_retired":         "Retired",
+			"label.feed_item_active":       "Active",
+			"label.feed_item_active_note":  "This item is part of the feed vocabulary. It appears on the ration grid above and is packed and served wherever a rate is authored for it.",
+			"label.feed_item_retired":      "Inactive",
+			"label.feed_item_retired_note": "This item is not being fed. It is on no feed sheet and its authored rates are hidden from the ration grid above — but they are kept, so reactivating it restores them.",
 			// The status cell is edited IN PLACE: double-click swaps the chip for a picker and the
 			// choice applies immediately. The hint is contract copy because it is the only thing
 			// telling an operator the cell is editable at all — a chip that looks like every other

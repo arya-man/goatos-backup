@@ -463,7 +463,9 @@ export function WorklistFilters({
                 }
               : {
                   ...field,
-                  value: shownValue(
+                  // A DISABLED control shows the value the page enforces, never whatever the URL
+                  // asked for: a park the top bar locked must not read as another park.
+                  value: field.disabledReason ? field.value : shownValue(
                     field.param,
                     field.value,
                     // A date is always clearable; a select is clearable only when it offers All.

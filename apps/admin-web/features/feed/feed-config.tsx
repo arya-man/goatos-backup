@@ -1,4 +1,5 @@
 import { Fragment } from "react";
+import { fmtClock, fmtGrams, fmtSplit } from "./feed-config-format";
 import { redirect } from "next/navigation";
 import { AlertTriangle } from "lucide-react";
 
@@ -257,7 +258,10 @@ export async function FeedConfigPage({
   const sp = searchParams ?? {};
 
   const locations = await getCensusLocations();
-  const scope = resolveFeedScope(sp, "fc_park", "fc_date", locations.parks);
+  // Parks in CODE order, CBE then CPT (maintainer decision 2026-09-16): the locations master sorts
+  // by name, which puts Channapatna first -- and made it the park read when nobody chose one.
+  const parksByCode = [...locations.parks].sort((a, b) => (a.code || a.name).localeCompare(b.code || b.name));
+  const scope = resolveFeedScope(sp, "fc_park", "fc_date", parksByCode);
   // No ration-group filter. BREED is the one cohort control on this bar (maintainer decision
   // 2026-08-11): two controls over the same column read as a duplicate, and the group is already the
   // grid's own first column, so a reader can see what a row is without a second dropdown to say it.
@@ -316,7 +320,12 @@ export async function FeedConfigPage({
   // park -- so the honest answer to "show me all parks" is every authored pen in the tenant, not one
   // park's silently. The other three sections stay park-scoped because they are park-OWNED.
   // The park this section actually reads: its own filter when set, otherwise the page's rule.
-  const experimentParkId = experimentParkFilter || (scope.parkSource === "fallback" ? "" : scope.parkId);
+  // The TOP BAR wins when it has set a park (the Scope Chrome Rule): this section's own park control
+  // is then disabled, exactly like the grid's, rather than able to show and enrol another park's
+  // pens under a top bar that names a different one.
+  const experimentParkId = scope.parkLockedByTopBar
+    ? scope.parkId
+    : experimentParkFilter || (scope.parkSource === "fallback" ? "" : scope.parkId);
   const experimentAllParks = experimentParkId === "";
   // A cross-park page holds both parks' pens (175 rows today against one park's 90), so the default
   // page size steps up to the contract's largest option in that mode. Still bounded, still paged.
@@ -432,6 +441,7 @@ export async function FeedConfigPage({
   // — no second fetch, no accumulation across pages, and the shed's own rows are the only input.
   const experimentRows = experiment?.items ?? [];
   const experimentSheds = groupExperimentRowsByShed(experimentRows);
+  const parkCodeById = new Map(locations.parks.map((park) => [park.id, park.code || park.name]));
   const penItems = (pens?.items ?? []) as FeedConfigPenOption[];
   // PENS with no authored experiment cell — the candidates the enrol control offers.
   //
@@ -517,8 +527,12 @@ export async function FeedConfigPage({
       label: experimentParkId
         ? pen.operational_location_display
         : `${parkNameById.get(pen.park_id) ?? ""} · ${pen.operational_location_display}`.replace(/^ · /, ""),
+      park: parkCodeById.get(pen.park_id) ?? "",
+      pen: pen.operational_location_display,
     }))
-    .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
+    // Park by CODE first (CBE, then CPT), then pen with numbers compared as numbers.
+    .sort((a, b) => a.park.localeCompare(b.park) || a.pen.localeCompare(b.pen, undefined, { numeric: true }))
+    .map(({ value, label }) => ({ value, label }));
   // EVERY control on the bar, so an empty grid says which of the two things happened: nothing is
   // authored, or the filters excluded it. Breed and the grams comparison were missing from this
   // check, which sent a reader who had narrowed by breed alone to the "no rates authored" copy —
@@ -592,7 +606,7 @@ export async function FeedConfigPage({
       value: scope.parkId,
       allowAll: false,
       disabledReason: scope.parkLockedByTopBar ? copy(pageContract, "filter.scope_readonly") : undefined,
-      options: locations.parks.map((park) => ({ value: park.id, label: park.name })),
+      options: parksByCode.map((park) => ({ value: park.id, label: park.name })),
     },
     // BREED is the ONLY cohort control here. The options are real breeds from the breed ->
     // ration-group map, so picking Sirohi finds the Beetal/Sirohi rows -- a question a group filter
@@ -648,8 +662,9 @@ export async function FeedConfigPage({
       kind: "select",
       param: "fc_exp_park",
       label: copy(pageContract, "filter.park_label"),
-      value: experimentParkFilter,
-      options: locations.parks.map((park) => ({ value: park.id, label: park.name })),
+      value: scope.parkLockedByTopBar ? scope.parkId : experimentParkFilter,
+      disabledReason: scope.parkLockedByTopBar ? copy(pageContract, "filter.scope_readonly") : undefined,
+      options: parksByCode.map((park) => ({ value: park.id, label: park.name })),
       // A pen belongs to ONE park, so a pen chosen in the other one cannot match anything here.
       // Left in place it emptied the table while both controls still read as a valid pair, which is
       // unexplainable on screen — the reader sees a park that has 60 pens and a table showing none.
@@ -725,6 +740,13 @@ export async function FeedConfigPage({
       {scope.parkSource === "fallback" && parkName ? (
         <div className="note" style={{ marginBottom: 16 }}>
           {copy(pageContract, "notice.park_scope_fallback")} <b>{parkName}</b>
+        </div>
+      ) : null}
+
+      {locations.parks.length === 0 ? (
+        <div className="alert" style={{ marginBottom: 16 }}>
+          <AlertTriangle className="ic" aria-hidden="true" />
+          <div>{copy(pageContract, "state.parks_unavailable")}</div>
         </div>
       ) : null}
 
@@ -848,10 +870,10 @@ export async function FeedConfigPage({
               In company-wide mode it offers BOTH parks and makes the reader pick one, rather than
               silently enrolling into the fallback park the table is no longer scoped to. */}
           <ExperimentPenEnroller
-            key={experimentEnrollerScopeKey(experimentAllParks ? locations.parks : parkScopedParks)}
+            key={experimentEnrollerScopeKey(experimentAllParks ? parksByCode : parkScopedParks)}
             pageContract={pageContract}
             action={enrolExperimentPen}
-            parks={experimentAllParks ? locations.parks.map((park) => ({ id: park.id, name: park.name })) : parkScopedParks}
+            parks={experimentAllParks ? parksByCode.map((park) => ({ id: park.id, name: park.name })) : parkScopedParks}
             pens={candidatePens}
             feedItems={catalogItems}
           />
@@ -1067,7 +1089,7 @@ export async function FeedConfigPage({
                                     color: authoredZero ? "var(--muted)" : "var(--brand-d)",
                                   }}
                                 >
-                                  {quantity}
+                                  {perAnimal ? fmtGrams(quantity) : quantity}
                                 </span>
                                 <span className="small muted" style={{ whiteSpace: "nowrap" }}>
                                   {unit}
@@ -1075,7 +1097,9 @@ export async function FeedConfigPage({
                               </span>
                             </td>
                             <td>
-                              <span className={row.status === "active" ? "tag t-ok" : "tag t-mut"}>{row.status}</span>
+                              <span className={row.status === "active" ? "tag t-ok" : "tag t-mut"}>
+                                {copy(pageContract, row.status === "active" ? "label.status_active" : "label.status_retired")}
+                              </span>
                             </td>
                             <td>
                               <ExperimentCellEditor
@@ -1161,7 +1185,7 @@ export async function FeedConfigPage({
                       style={{ fontVariantNumeric: "tabular-nums", fontWeight: 700 }}
                       title={copy(pageContract, "label.session_split_note")}
                     >
-                      {row.split_fraction}
+                      {fmtSplit(row.split_fraction)}
                     </td>
                     {/* The recipe. Cells are rendered POSITIONALLY against the contract's column
                         list, so this sits between split_fraction and status exactly as the contract
@@ -1178,7 +1202,9 @@ export async function FeedConfigPage({
                       />
                     </td>
                     <td>
-                      <span className={row.status === "active" ? "tag t-ok" : "tag t-mut"}>{row.status}</span>
+                      <span className={row.status === "active" ? "tag t-ok" : "tag t-mut"}>
+                        {copy(pageContract, row.status === "active" ? "label.status_active" : "label.status_retired")}
+                      </span>
                     </td>
                   </tr>
                 ))
@@ -1246,13 +1272,13 @@ export async function FeedConfigPage({
                       style={{ fontVariantNumeric: "tabular-nums" }}
                       title={copy(pageContract, "label.direction_time_note")}
                     >
-                      {row.direction_time}
+                      {fmtClock(row.direction_time)}
                     </td>
                     <td
                       style={{ fontVariantNumeric: "tabular-nums" }}
                       title={copy(pageContract, "label.correction_time_note")}
                     >
-                      {row.correction_time}
+                      {fmtClock(row.correction_time)}
                     </td>
                     {/* An omitted transport time means the park declared NO cutoff — that is UNKNOWN,
                         and rendering it as a blank cell would read as "no deadline". The contract's
@@ -1262,7 +1288,7 @@ export async function FeedConfigPage({
                       style={{ fontVariantNumeric: "tabular-nums" }}
                       title={copy(pageContract, "label.transport_time_note")}
                     >
-                      {row.transport_time ?? copy(pageContract, "label.placeholder")}
+                      {row.transport_time ? fmtClock(row.transport_time) : copy(pageContract, "label.placeholder")}
                     </td>
                     <td>
                       <EffectiveWindow validFrom={row.valid_from} validTo={row.valid_to} pageContract={pageContract} />

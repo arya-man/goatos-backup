@@ -77,6 +77,8 @@ const EXPERIMENT_BLANK_IS_NOT_ZERO: FeedConfigActionResult = {
   messageKey: "reason.experiment_blank_is_not_zero",
 };
 const EXPERIMENT_SAVED = "action.experiment_saved";
+// Experiment writes are refused in their own words, never the ration grid's "Rate rejected".
+const EXPERIMENT_REJECTED = "action.experiment_rejected";
 const EXPERIMENT_SWITCHED = "action.experiment_switched";
 
 /**
@@ -408,25 +410,31 @@ export async function enrolExperimentPen(formData: FormData): Promise<FeedConfig
   // rather than a no-op success, because a form that reports "saved" having enrolled no pen is the
   // one failure an operator cannot see.
   const penValues = formData.getAll("pen").filter((value): value is string => typeof value === "string");
-  if (!parkId || penValues.length === 0 || !category) {
-    return { ok: false, messageKey: REJECTED };
-  }
+  // Each missing input says which one is missing, in the enroller's own words.
+  if (!parkId) return { ok: false, messageKey: "reason.experiment_enrol_park" };
+  if (penValues.length === 0) return { ok: false, messageKey: "reason.experiment_enrol_pens" };
+  if (!category) return { ok: false, messageKey: "reason.experiment_enrol_arm" };
 
   // Each pen carries shed id and raw partition label as one JSON value. A delimiter would be
   // unsafe: a partition label is free text ("Part 3"), so any separator could appear inside it.
-  const pens: { shedId: string; partitionLabel: string }[] = [];
+  const pens: { shedId: string; partitionLabel: string; display: string }[] = [];
   for (const penRaw of penValues) {
-    if (penRaw.trim() === "") return { ok: false, messageKey: REJECTED };
+    if (penRaw.trim() === "") return { ok: false, messageKey: EXPERIMENT_REJECTED };
     try {
       const parsed: unknown = JSON.parse(penRaw);
-      if (typeof parsed !== "object" || parsed === null) return { ok: false, messageKey: REJECTED };
-      const pen = parsed as { s?: unknown; p?: unknown };
-      if (typeof pen.s !== "string" || pen.s.trim() === "") return { ok: false, messageKey: REJECTED };
+      if (typeof parsed !== "object" || parsed === null) return { ok: false, messageKey: EXPERIMENT_REJECTED };
+      const pen = parsed as { s?: unknown; p?: unknown; d?: unknown };
+      if (typeof pen.s !== "string" || pen.s.trim() === "") return { ok: false, messageKey: EXPERIMENT_REJECTED };
       // Absent `p` is a real value — an undivided shed — and must stay distinguishable from a bad one.
-      if (pen.p !== undefined && typeof pen.p !== "string") return { ok: false, messageKey: REJECTED };
-      pens.push({ shedId: pen.s.trim(), partitionLabel: (pen.p ?? "").toString().trim() });
+      if (pen.p !== undefined && typeof pen.p !== "string") return { ok: false, messageKey: EXPERIMENT_REJECTED };
+      pens.push({
+        shedId: pen.s.trim(),
+        partitionLabel: (pen.p ?? "").toString().trim(),
+        // The pen's backend-composed name, carried only so a failure can say WHICH pen failed.
+        display: typeof pen.d === "string" ? pen.d : "",
+      });
     } catch {
-      return { ok: false, messageKey: REJECTED };
+      return { ok: false, messageKey: EXPERIMENT_REJECTED };
     }
   }
 
@@ -440,7 +448,7 @@ export async function enrolExperimentPen(formData: FormData): Promise<FeedConfig
     // deliberately".
     const grams = readAuthoredNumber(formData, `item_grams_${i}`);
     if (grams === null) continue;
-    if (Number.isNaN(grams) || trimmedLabel === "") return { ok: false, messageKey: REJECTED };
+    if (Number.isNaN(grams) || trimmedLabel === "") return { ok: false, messageKey: EXPERIMENT_REJECTED };
     items.push({ feed_item: trimmedLabel, grams_per_head: grams });
   }
   // Enrolling with no quantity would put the pen on the experiment workflow with nothing authored,
@@ -448,6 +456,10 @@ export async function enrolExperimentPen(formData: FormData): Promise<FeedConfig
   if (items.length === 0) return EXPERIMENT_BLANK_IS_NOT_ZERO;
 
 	const formKey = readIdempotencyKey(formData);
+	// The per-pen key carries WHAT is being written, not only which pen. A retry of the same form
+	// with changed quantities or arm is a different request; reusing the pen's first key for it was
+	// refused as an idempotency conflict instead of saving the corrected values.
+	const payloadTag = shortHash(JSON.stringify({ category, items }));
 	const failures: string[] = [];
 	let enrolled = 0;
 	for (const pen of pens) {
@@ -462,13 +474,14 @@ export async function enrolExperimentPen(formData: FormData): Promise<FeedConfig
       },
       // Per pen, so a retry of the whole form replays each pen's own write rather than making every
       // pen after the first a replay of the first.
-      formKey === undefined ? undefined : `${formKey}:${pen.shedId}:${pen.partitionLabel}`,
+      formKey === undefined ? undefined : `${formKey}:${pen.shedId}:${pen.partitionLabel}:${payloadTag}`,
     );
     if (result.ok) {
       enrolled += 1;
       continue;
     }
-    failures.push(result.error.message);
+    // Name the pen: with several ticked, a bare reason does not say which one to fix.
+    failures.push(pen.display ? `${pen.display}: ${result.error.message}` : result.error.message);
   }
 
   // Revalidate whenever ANY pen landed: the pens that did enrol are on the experiment now, and
@@ -480,7 +493,7 @@ export async function enrolExperimentPen(formData: FormData): Promise<FeedConfig
     revalidatePath("/feed/packing");
   }
   if (failures.length > 0) {
-    return { ok: false, messageKey: REJECTED, detail: failures.join(" · ") };
+    return { ok: false, messageKey: EXPERIMENT_REJECTED, detail: failures.join(" · ") };
   }
   return { ok: true, messageKey: EXPERIMENT_SAVED };
 }
@@ -491,7 +504,7 @@ export async function saveExperimentCell(formData: FormData): Promise<FeedConfig
   const feedItem = readRequiredText(formData, "feed_item");
   const category = readRequiredText(formData, "experiment_category");
   if (!parkId || !shedId || !feedItem || !category) {
-    return { ok: false, messageKey: REJECTED };
+    return { ok: false, messageKey: EXPERIMENT_REJECTED };
   }
   // NOT readRequiredText: an undivided shed authors a blank pen legitimately, so blank must reach
   // the backend as "the whole-shed row" rather than being rejected as a missing field.
@@ -501,7 +514,7 @@ export async function saveExperimentCell(formData: FormData): Promise<FeedConfig
   // Blank: the operator cleared the field. That is not "feed nothing" and not "leave it alone" — no
   // request is sent, and the contract's own explanation is returned.
   if (gramsPerHead === null) return EXPERIMENT_BLANK_IS_NOT_ZERO;
-  if (Number.isNaN(gramsPerHead)) return { ok: false, messageKey: REJECTED };
+  if (Number.isNaN(gramsPerHead)) return { ok: false, messageKey: EXPERIMENT_REJECTED };
 
   const result = await upsertFeedConfigExperiment(
     {
@@ -518,7 +531,7 @@ export async function saveExperimentCell(formData: FormData): Promise<FeedConfig
     readIdempotencyKey(formData),
   );
   if (!result.ok) {
-    return { ok: false, messageKey: REJECTED, detail: result.error.message };
+    return { ok: false, messageKey: EXPERIMENT_REJECTED, detail: result.error.message };
   }
 
   revalidatePath("/feed/config");
@@ -550,7 +563,7 @@ export async function setExperimentShedStatus(formData: FormData): Promise<FeedC
   const partitionRaw = formData.get("partition_label");
   const partitionLabel = typeof partitionRaw === "string" ? partitionRaw.trim() : "";
   if (!parkId || !shedId || (status !== "active" && status !== "retired")) {
-    return { ok: false, messageKey: REJECTED };
+    return { ok: false, messageKey: EXPERIMENT_REJECTED };
   }
 
   const result = await setFeedConfigExperimentShedStatus(
@@ -563,7 +576,7 @@ export async function setExperimentShedStatus(formData: FormData): Promise<FeedC
     readIdempotencyKey(formData),
   );
   if (!result.ok) {
-    return { ok: false, messageKey: REJECTED, detail: result.error.message };
+    return { ok: false, messageKey: EXPERIMENT_REJECTED, detail: result.error.message };
   }
 
   revalidatePath("/feed/config");
@@ -643,4 +656,14 @@ export async function saveSchedule(formData: FormData): Promise<FeedConfigAction
   revalidatePath("/feed/direction");
   revalidatePath("/feed/packing");
   return { ok: true, messageKey: SAVED };
+}
+
+// A short, stable fingerprint of a request body for an idempotency key suffix (FNV-1a, 32-bit).
+function shortHash(text: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(36);
 }

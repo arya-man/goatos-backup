@@ -16,5 +16,5 @@ test("experiment enroller gets a new React identity when park scope changes", ()
 
 test("feed config wires the current park scope into the enroller React key", () => {
   const source = readFileSync(new URL("./feed-config.tsx", import.meta.url), "utf8");
-  assert.match(source, /<ExperimentPenEnroller\s+key=\{experimentEnrollerScopeKey\(experimentAllParks \? locations\.parks : parkScopedParks\)\}/);
+  assert.match(source, /<ExperimentPenEnroller\s+key=\{experimentEnrollerScopeKey\(experimentAllParks \? parksByCode : parkScopedParks\)\}/);
 });

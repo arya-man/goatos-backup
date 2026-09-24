@@ -1009,7 +1009,7 @@ func keysOf(m map[string]domain.Pen) []string {
 // The experiment list (maintainer decisions 2026-09-24): a retired feed's cell is HIDDEN -- the
 // sheet loads only active catalog feeds, so a retired item left at 0 g feeds nothing and must not
 // read as fed -- and pens list in NATURAL order, Part 3, Part 4, Part 10, never Part 10 first.
-func TestExperimentListHidesRetiredFeedsAndOrdersPensNaturally(t *testing.T) {
+func TestExperimentListHidesRetiredFeedsAndOrdersPensNaturallyOneToManyMultiPageParkScopeEveryStatus(t *testing.T) {
 	ctx := context.Background()
 	pool := setupPennedDB(t, ctx)
 	repo := fcRepo(pool)
@@ -1051,5 +1051,50 @@ ON CONFLICT (tenant_id, feed_item_key) DO UPDATE SET status = EXCLUDED.status`, 
 	}
 	if got, want := strings.Join(pens, ","), "Part 3,Part 4,Part 10"; got != want {
 		t.Errorf("pen order = %s, want %s", got, want)
+	}
+
+	// MultiPage: one pen per page keeps the same order across page boundaries, and the hidden
+	// retired cell never counts toward a page.
+	var paged []string
+	for offset := int32(0); offset < 3; offset++ {
+		one, err := repo.ListExperimentConfig(ctx, domain.ExperimentConfigQuery{
+			TenantID: fcTenant, Status: domain.ExperimentStatusActive, Page: domain.Page{Limit: 1, Offset: offset},
+		})
+		if err != nil {
+			t.Fatalf("page %d: %v", offset, err)
+		}
+		if len(one.Items) != 1 {
+			t.Fatalf("page %d holds %d cells, want the pen's one active cell: %+v", offset, len(one.Items), one.Items)
+		}
+		paged = append(paged, one.Items[0].PartitionLabel)
+		if want := offset < 2; one.HasMore != want {
+			t.Errorf("page %d has_more = %v, want %v", offset, one.HasMore, want)
+		}
+	}
+	if got := strings.Join(paged, ","); got != "Part 3,Part 4,Part 10" {
+		t.Errorf("paged order = %s, want Part 3,Part 4,Part 10", got)
+	}
+
+	// ParkScope: another park sees none of these pens.
+	other, err := repo.ListExperimentConfig(ctx, domain.ExperimentConfigQuery{
+		TenantID: fcTenant, ParkID: "11111111-1111-4111-8111-111111111111", Status: domain.ExperimentStatusActive, Page: domain.Page{Limit: 50},
+	})
+	if err != nil {
+		t.Fatalf("other park: %v", err)
+	}
+	if len(other.Items) != 0 {
+		t.Errorf("another park's scope listed %d cells", len(other.Items))
+	}
+
+	// EveryStatus: nothing is withdrawn, so the retired status lists nothing -- the hidden retired
+	// FEED is a catalog fact, not a withdrawn pen.
+	retired, err := repo.ListExperimentConfig(ctx, domain.ExperimentConfigQuery{
+		TenantID: fcTenant, Status: domain.ExperimentStatusRetired, Page: domain.Page{Limit: 50},
+	})
+	if err != nil {
+		t.Fatalf("retired status: %v", err)
+	}
+	if len(retired.Items) != 0 {
+		t.Errorf("no pen is withdrawn, yet the retired status listed %+v", retired.Items)
 	}
 }

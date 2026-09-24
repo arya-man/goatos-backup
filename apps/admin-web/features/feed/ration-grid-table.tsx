@@ -99,7 +99,8 @@ export function RationGridTable({
         ),
         // Sorts on the AUTHORED number, not on the optimistic display: an unsaved local edit must
         // not silently reorder the grid under the author's cursor.
-        sortValue: (row) => row.grams_per_head ?? -1,
+        // Numerically: as strings "12.5" sorted before "12.25".
+        sortValue: (row) => (row.grams_per_head === undefined || row.grams_per_head === null ? -1 : Number(row.grams_per_head)),
       },
       valid_from: {
         cell: (row) => (
