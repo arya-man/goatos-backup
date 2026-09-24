@@ -16,7 +16,7 @@ import { createUploads } from "./uploads.mjs";
 import { createEvents } from "./events.mjs";
 import {
   isDeepQuestion, answerCapUsd, answerCostUsd, friendlyError, STOPPED_NOTE, validateReadSql, clipSqlOutput,
-  toolLabel, makeChartFilter, extractChart, historyPreamble, pathAllowed, ttlCache,
+  toolLabel, describeTableSql, kindValuesSql, relInfoSql, shouldSampleKinds, makeChartFilter, extractChart, historyPreamble, pathAllowed, ttlCache,
 } from "./lib.mjs";
 
 const PORT = Number(process.env.PORT || 8787);
@@ -90,6 +90,22 @@ You have the full goatos codebase (current working directory, the live commit) a
 access to the goatos-stg Postgres database. ${READONLY
   ? "Read code with Read/Grep/Glob. Query data with the run_sql tool: any SQL over any table (public.*, ceo_ai.*, analytics.*, audit.*), as many queries as you need. You can read everything (feed purchases/prices, weighing observations, sales deals, procurement, herd, vaccination, workforce). The database is read-only; you cannot edit files."
   : "Query with `psql -c \"...\"` (connection env vars are set). You may read code and run tests."}
+How to find data (work like an engineer, silently): if the data map names the view, query it. Otherwise
+(1) Grep the code for the feature word (e.g. "deworm", "ear tag", "reissue") to learn which table/columns
+the app writes and what the status/category values mean; (2) describe_table the candidate table (columns +
+common values) instead of guessing column names; (3) query it; (4) for "who / when / was it changed /
+why does it show X" questions, cross-check public.audit_log (resource_type, resource_id, action,
+actor_id, before_state, after_state, created_at) for the record's history. audit_log is large: always
+filter it by resource_type + resource_id, or actor_id, plus a created_at range (those are indexed);
+never scan it by JSON content alone. For big tables, filter by date first and aggregate. After any SQL error, fix it
+from describe_table output and retry; never give up after one failed query. Call describe_table BEFORE the
+first query on any table not spelled out in the data map; never guess column names.
+When reporting who changed a record, name the person only; never repeat tool/AI/request details found in
+change-history metadata (e.g. "via Codex", "maintainer request", device ids).
+Follow-up questions: records are corrected all the time (e.g. a task cancelled then completed, a
+weight re-entered). Every new question in this chat must re-run the queries for fresh data; never
+answer from numbers you fetched earlier in the conversation, and if the result changed, say so plainly
+("this has since been updated to completed").
 Never say something "isn't recorded" until you have searched table/column names and category or status
 values for the keyword (information_schema + ILIKE). Farm activities often live in module tables
 (e.g. deworming/ticks/trimming are in public.pc_care_tasks, category column), not in vaccination or medicines.
@@ -157,7 +173,7 @@ function tableIndexPrompt() {
   if (!tableIndex.text) return "";
   return "\n\n# Every readable table (schema.table ~approx rows; ~0 = empty or not analysed)\n" +
     "This list is complete. Before saying anything is not recorded, pick candidate tables from here by name, " +
-    "inspect their columns and distinct category/status values, and query them.\n" + tableIndex.text;
+    "run describe_table on them (columns + common category/status values), and query them.\n" + tableIndex.text;
 }
 
 // ---- benchmark events -----------------------------------------------------
@@ -232,6 +248,26 @@ function meshaToolsFor(user) {
         async ({ sql }) => {
           const r = await runSql(sql);
           return { content: [{ type: "text", text: r.out || "(no rows)" }], isError: !r.ok };
+        },
+      ),
+      tool(
+        "describe_table",
+        "List the columns (name, type, note) of one table/view, plus the most common values of its category/status/type-like columns. Use this before writing SQL against a table you have not queried yet in this chat, and after any 'column does not exist' error.",
+        { table: z.string().describe("schema.table, e.g. public.pc_care_tasks or public.audit_log") },
+        async ({ table }) => {
+          const d = describeTableSql(table);
+          if (!d.ok) return { content: [{ type: "text", text: d.out }], isError: true };
+          const cols = await runSql(d.sql);
+          if (!cols.ok) return { content: [{ type: "text", text: cols.out }], isError: true };
+          const rows = cols.out.split("\n").slice(1).filter(Boolean).map((l) => l.split("\t"));
+          if (!rows.length) return { content: [{ type: "text", text: `No table or view named ${d.schema}.${d.table}. Pick one from the table list.` }], isError: true };
+          const textCols = rows.filter(([, t]) => !/^(uuid|jsonb?|bool|int|small|big|numeric|real|double|date|time|interval|bytea|tsvector|\w+\[\])/i.test(t)).map(([c]) => c);
+          const info = await runSql(relInfoSql(d.schema, d.table));
+          const [relkind, relRows] = (info.ok ? info.out.split("\n")[1] || "" : "").split("\t");
+          const kindSql = shouldSampleKinds(relkind, relRows) ? kindValuesSql(d.schema, d.table, textCols) : "";
+          const kinds = kindSql ? await runSql(kindSql) : null;
+          const text = cols.out + (kinds?.ok && kinds.out.trim() ? `\n\nCommon values:\n${kinds.out}` : "");
+          return { content: [{ type: "text", text }] };
         },
       ),
     ],
@@ -430,12 +466,14 @@ async function ask(req, res, user) {
   const spent = await store.monthSpendUsd(monthStart()).catch(() => Infinity);
   const evCtx = { request_id: crypto.randomUUID(), chat_id: chat?.id ?? null, email: user.email, tenant_id: user.tenantId };
   events.budgetCheck(evCtx, spent, MONTHLY_BUDGET_USD);
-  if (spent >= MONTHLY_BUDGET_USD) {
+  // Answers still running may each spend up to their cap; count them against the month too.
+  const inFlight = [...activeRuns.values()].reduce((a, r) => a + (r.capUsd || 0), 0);
+  if (spent + inFlight >= MONTHLY_BUDGET_USD) {
     await events.budgetBlocked(evCtx, spent, MONTHLY_BUDGET_USD, question);
     res.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-store" });
     const answer = Number.isFinite(spent)
-      ? `This month's Ask Mesha budget ($${MONTHLY_BUDGET_USD}) has been used ($${spent.toFixed(2)}). It resets on the 1st; ask Ravi to raise the cap if needed.`
-      : "Ask Mesha can't check this month's spend right now, so it isn't answering to stay under the budget. Please try again shortly.";
+      ? "Ask Mesha is paused for this month. Please contact the Mesha team."
+      : "Ask Mesha is unavailable for a moment. Please try again shortly.";
     res.end(`data: ${JSON.stringify({ type: "final", answer, mode: "agent", source: "budget" })}\n\n`);
     return;
   }
@@ -468,7 +506,9 @@ async function ask(req, res, user) {
   // a larger per-answer budget; quick lookups stay fast and cheap.
   const deep = isDeepQuestion(question, body.attachments);
   // Per-answer cap, clipped to what is left this month so one run can't overshoot the hard cap.
-  const capUsd = answerCapUsd({ deep, perAnswer: PER_ANSWER_BUDGET_USD, deepAnswer: DEEP_ANSWER_BUDGET_USD, monthly: MONTHLY_BUDGET_USD, spent });
+  const capUsd = answerCapUsd({ deep, perAnswer: PER_ANSWER_BUDGET_USD, deepAnswer: DEEP_ANSWER_BUDGET_USD, monthly: MONTHLY_BUDGET_USD, spent, inFlight });
+  activeRuns.get(requestId).capUsd = capUsd;
+  let started = false; // query() created: from here on spend is real even if no result arrives
   let prompt = question.replace(/^deep:\s*/i, "");
   // Resumed chats can carry stale conclusions from when access was narrower
   // ("prices aren't readable"). A turn-level note beats the system prompt there.
@@ -568,7 +608,7 @@ async function ask(req, res, user) {
               // Only read tools + the read-only SQL tool exist for the agent.
               tools: ["Read", "Grep", "Glob", "Skill", "TodoWrite"],
               mcpServers: { mesha: meshaToolsFor(user) },
-              allowedTools: ["mcp__mesha__run_sql"],
+              allowedTools: ["mcp__mesha__run_sql", "mcp__mesha__describe_table"],
               disallowedTools: ["Bash", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Task", "Agent"],
             }
           : {}),
@@ -592,6 +632,7 @@ async function ask(req, res, user) {
         abortController: abort,
       },
     });
+    started = true;
     for await (const msg of stream) {
       track.onMessage(msg, toolLabel);
       if (msg.type === "system" && msg.subtype === "init" && msg.session_id) {
@@ -680,7 +721,7 @@ async function ask(req, res, user) {
     if (metric.total_ms === null) metric.total_ms = since();
     // No result message (client closed the tab, crash): the spend is unknown but real.
     // Count the answer's cap so the monthly hard cap stays fail-closed.
-    if (metric.cost_usd === null && (metric.first_token_ms !== null || metric.first_tool_ms !== null)) {
+    if (metric.cost_usd === null && started) {
       metric.cost_usd = capUsd;
       metric.cost_estimated = true;
       // The resumed session's next total will include this turn's real spend; pre-credit the
@@ -751,7 +792,8 @@ async function route(req, res) {
       res.writeHead(200, {
         "Content-Type": ref.type || "application/octet-stream",
         "Cache-Control": "private, max-age=86400",
-        "Content-Disposition": `inline; filename="${encodeURIComponent(ref.name)}"`,
+        "Content-Disposition": `inline; filename*=UTF-8''${encodeURIComponent(ref.name)}`,
+        "X-Content-Type-Options": "nosniff",
       });
       stream.on("error", (e) => { console.error("[uploads] read failed:", e.message); res.destroy(); });
       return stream.pipe(res);

@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
-  makeChartFilter, extractChart, toolLabel, validateReadSql, clipSqlOutput, isDeepQuestion,
+  makeChartFilter, extractChart, toolLabel, validateReadSql, describeTableSql, kindValuesSql, relInfoSql, shouldSampleKinds, clipSqlOutput, isDeepQuestion,
   answerCapUsd, answerCostUsd, friendlyError, STOPPED_NOTE, historyPreamble, pathAllowed, ttlCache,
 } from "../lib.mjs";
 
@@ -130,4 +130,60 @@ test("ttlCache prunes and bounds size", () => {
   for (const k of ["b", "c", "d", "e"]) c.set(k, k, 60_000);
   assert.ok(c.size <= 3);
   assert.equal(c.get("e"), "e");
+});
+
+test("describeTableSql accepts only plain schema.table identifiers", () => {
+  const d = describeTableSql("public.pc_care_tasks");
+  assert.equal(d.ok, true);
+  assert.match(d.sql, /nspname = 'public' AND c\.relname = 'pc_care_tasks'/);
+  assert.equal(describeTableSql("audit_log").schema, "public");
+  for (const bad of ["x'; drop table y; --", "a.b.c", "public.t\\x", "", "public.1abc", "pg_catalog.pg_class;select 1"]) {
+    assert.equal(describeTableSql(bad).ok, false, bad);
+  }
+});
+
+test("kindValuesSql only samples category/status-like identifier columns", () => {
+  assert.equal(kindValuesSql("public", "t", ["name", "notes"]), "");
+  const sql = kindValuesSql("public", "pc_care_tasks", ["category", "status", "notes", "bad;col_status"]);
+  assert.match(sql, /'category'/);
+  assert.match(sql, /'status'/);
+  assert.doesNotMatch(sql, /notes|bad;/);
+  assert.match(sql, /LIMIT 200000/);
+});
+
+test("describe_table has a plain-English step label", () => {
+  assert.equal(toolLabel("mcp__mesha__describe_table", { table: "public.pc_care_tasks" }), "Checking what the preventive care records hold");
+});
+
+test("validateReadSql refuses multi-statement and transaction/session control", () => {
+  assert.equal(validateReadSql("select 1;").ok, true);
+  assert.equal(validateReadSql("select 1;").sql, "select 1");
+  assert.equal(validateReadSql("with a as (select 1) select * from a").ok, true);
+  for (const bad of ["commit; set default_transaction_read_only=off; delete from x", "select 1; select 2",
+    "COMMIT", "rollback", "end", "abort", "SET default_transaction_read_only = off", "reset all", "begin", "start transaction"]) {
+    assert.equal(validateReadSql(bad).ok, false, bad);
+  }
+});
+
+test("answerCapUsd subtracts caps of answers already in flight", () => {
+  const base = { perAnswer: 1, deepAnswer: 5, monthly: 100 };
+  assert.equal(answerCapUsd({ ...base, deep: true, spent: 90, inFlight: 0 }), 5);
+  assert.equal(answerCapUsd({ ...base, deep: true, spent: 90, inFlight: 7 }), 3);
+  assert.equal(answerCapUsd({ ...base, deep: true, spent: 90, inFlight: 20 }), 0.01);
+});
+
+test("describe_table samples values only on base tables of sane size", () => {
+  assert.equal(shouldSampleKinds("r", "440634"), true);
+  assert.equal(shouldSampleKinds("v", "10"), false);
+  assert.equal(shouldSampleKinds("r", "5000000"), false);
+  assert.equal(relInfoSql("public", "x;y"), "");
+});
+
+test("server source: budget pause wording and file headers", () => {
+  const src = fs.readFileSync(new URL("../server.mjs", import.meta.url), "utf8");
+  assert.doesNotMatch(src, /ask Ravi|Ask Mesha budget/);
+  assert.match(src, /Ask Mesha is paused for this month\. Please contact the Mesha team\./);
+  assert.match(src, /filename\*=UTF-8''\$\{encodeURIComponent/);
+  assert.match(src, /"X-Content-Type-Options": "nosniff"/);
+  assert.match(src, /cost_usd === null && started/);
 });

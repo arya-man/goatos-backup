@@ -96,7 +96,7 @@ test("tracker emits one structured line per event and a single terminal event", 
   for (const l of lines) {
     for (const k of ["severity", "message", "event_name", "ts", "request_id", "chat_id", "email", "tenant_id"]) assert.ok(k in l, `${l.event_name} lacks ${k}`);
   }
-  assert.equal(lines[0].question_preview.length, 80);
+  assert.equal(lines[0].question_preview, undefined); // never in stdout (Cloud Logging)
   const tool = lines[2];
   assert.equal(tool.ok, false); assert.equal(tool.label, "Checking the records"); assert.equal(typeof tool.duration_ms, "number");
   const done = lines[3];

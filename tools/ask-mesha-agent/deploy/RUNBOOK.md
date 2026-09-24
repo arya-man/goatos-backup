@@ -174,7 +174,17 @@ role must NOT see any assistant chat history:
 REVOKE SELECT ON public.ceo_ai_conversations, public.ceo_ai_messages, public.ceo_ai_assistant_audit,
   public.ceo_ai_response_cache, public.ceo_ai_rate_limit FROM mesha_ceo_readonly;
 -- never GRANT the ask_mesha schema (chat store) to mesha_ceo_readonly
+-- verify: every row must be false
+SELECT t, has_table_privilege('mesha_ceo_readonly', t, 'SELECT')
+  FROM unnest(ARRAY['public.ceo_ai_conversations','public.ceo_ai_messages','public.ceo_ai_assistant_audit',
+                    'public.ceo_ai_response_cache','public.ceo_ai_rate_limit']) AS t;
 ```
+**Order matters:** re-running the §3e grant block (`GRANT SELECT ON ALL TABLES`) re-grants these
+tables, so always re-run this REVOKE + verify right after it. The `ALTER DEFAULT PRIVILEGES` in §3e
+also makes every *future* table readable, including any new assistant/chat/credential table: a
+migration that adds one must `REVOKE SELECT ... FROM mesha_ceo_readonly` in the same migration.
+`audit.db_changes` stores old/new rows of manual changes; never hand-edit chat tables under
+`audit.begin_change` or the rows become readable there.
 (Applied on goatos-stg 2026-09-24 via audit.begin_change.) Per-user isolation of the agent's own chats is
 enforced by the service (email + tenant ownership on every chat/file route).
 

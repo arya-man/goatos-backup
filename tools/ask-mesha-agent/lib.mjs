@@ -15,9 +15,10 @@ export function isDeepQuestion(question, attachments) {
 
 // ---- spend -------------------------------------------------------------------
 // Per-answer SDK cap, never more than what is left of the monthly budget.
-export function answerCapUsd({ deep, perAnswer, deepAnswer, monthly, spent }) {
+// inFlight = sum of the caps of answers already running, so parallel asks can't jointly overshoot.
+export function answerCapUsd({ deep, perAnswer, deepAnswer, monthly, spent, inFlight = 0 }) {
   const cap = deep ? deepAnswer : perAnswer;
-  const left = Math.max(0, monthly - (Number.isFinite(spent) ? spent : monthly));
+  const left = Math.max(0, monthly - (Number.isFinite(spent) ? spent : monthly) - (Number.isFinite(inFlight) ? inFlight : 0));
   return Math.max(0.01, Math.min(cap, left));
 }
 // SDK total_cost_usd is cumulative for a resumed session ("the first result already
@@ -53,8 +54,50 @@ export function validateReadSql(sql) {
   const text = String(sql || "").trim();
   if (!text) return { ok: false, out: "Empty query." };
   if (text.includes("\\")) return { ok: false, out: "Refused: psql backslash commands are not allowed." };
-  return { ok: true, sql: text.replace(/;\s*$/, "") };
+  const one = text.replace(/;\s*$/, "");
+  // One statement only, and never transaction/session control: the query runs inside
+  // BEGIN READ ONLY … ROLLBACK, so a COMMIT/SET could otherwise step outside it.
+  if (one.includes(";")) return { ok: false, out: "Refused: send one statement at a time (no ';' inside the query)." };
+  if (/^\s*(commit|rollback|end|abort|set|reset|begin|start)\b/i.test(one)) {
+    return { ok: false, out: "Refused: transaction or session commands are not allowed; send a single SELECT/WITH query." };
+  }
+  return { ok: true, sql: one };
 }
+// describe_table: columns (+ type, comment) of one table/view, and the distinct values of
+// its short text "kind" columns (category/status/type/…), so the agent can pick the right
+// filter without guessing column names. The name is validated to a strict identifier
+// pattern and passed only as a quoted literal; the query itself is a fixed catalog read.
+const IDENT = /^[a-z_][a-z0-9_]{0,62}$/;
+export function describeTableSql(name) {
+  const raw = String(name || "").trim().toLowerCase().replace(/"/g, "");
+  const parts = raw.includes(".") ? raw.split(".") : ["public", raw];
+  if (parts.length !== 2 || !parts.every((p) => IDENT.test(p))) {
+    return { ok: false, out: "Give one table as schema.table (letters, digits, underscore), e.g. public.pc_care_tasks." };
+  }
+  const [schema, table] = parts;
+  const sql = `SELECT a.attname AS column, format_type(a.atttypid, a.atttypmod) AS type,
+  coalesce(col_description(c.oid, a.attnum), '') AS note
+FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = '${schema}' AND c.relname = '${table}' AND a.attnum > 0 AND NOT a.attisdropped
+ORDER BY a.attnum`;
+  return { ok: true, sql, schema, table };
+}
+// Text columns whose name suggests a small set of values worth listing.
+export const KIND_COLUMN = /(^|_)(category|status|type|kind|action|state|stage|reason|outcome|result|source|mode|channel|role|task)$/;
+// Only base tables up to ~2M rows are sampled: grouping a big view can take a minute.
+export function relInfoSql(schema, table) {
+  if (!IDENT.test(schema) || !IDENT.test(table)) return "";
+  return `SELECT c.relkind, GREATEST(c.reltuples,0)::bigint FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='${schema}' AND c.relname='${table}'`;
+}
+export function shouldSampleKinds(relkind, rows) {
+  return (relkind === "r" || relkind === "p") && Number(rows) <= 2_000_000;
+}
+export function kindValuesSql(schema, table, columns) {
+  const cols = columns.filter((c) => KIND_COLUMN.test(c) && IDENT.test(c)).slice(0, 6);
+  if (!cols.length) return "";
+  return cols.map((c) => `(SELECT '${c}' AS column, string_agg(coalesce(v,'(blank)') || ' (' || n || ')', ' | ' ORDER BY n DESC) AS top_values FROM (SELECT ${c}::text AS v, count(*) n FROM (SELECT ${c} FROM ${schema}.${table} LIMIT 200000) t GROUP BY 1 ORDER BY 2 DESC LIMIT 25) s)`).join("\nUNION ALL\n");
+}
+
 export function clipSqlOutput(out, { maxRows = SQL_MAX_ROWS, maxChars = SQL_MAX_CHARS, capped = false } = {}) {
   let lines = out.replace(/\n$/, "").split("\n");
   const notes = [];
@@ -88,6 +131,10 @@ export function toolLabel(name, input = {}) {
     const tables = [...sql.matchAll(/\b(?:ceo_ai|public|analytics)\.(\w+)/g)].map((m) => m[1]);
     const topic = topicOf(tables.join(" ") || sql);
     return topic ? `Checking ${topic} records` : "Checking the records";
+  }
+  if (name === "mcp__mesha__describe_table") {
+    const topic = topicOf(String(input.table || ""));
+    return topic ? `Checking what the ${topic} records hold` : "Checking what the records hold";
   }
   if (name === "Read") {
     const f = String(input.file_path || "");
