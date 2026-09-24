@@ -32,7 +32,9 @@ Read this before touching the admin-web **Ask Mesha** panel, `apps/admin-web/app
 ## Read-only guarantees (keep all four layers)
 
 1. **Tools:** `ASK_MESHA_READONLY=1` (default) gives the agent only `Read/Grep/Glob/Skill/TodoWrite`
-   plus the MCP tools `run_sql`, `mcp__mesha__watch_tags` (live tag watch, below) and `mcp__mesha__describe_table` (fixed catalog read of up to 6 tables per
+   plus the MCP tools `run_sql`, `mcp__mesha__run_reference` (runs an allow-listed `.agents/skills/mesha-data-map/references/*.sql`
+   file by name as `SELECT * FROM (<file>) q [WHERE] [ORDER BY] [LIMIT]` through `run_sql`'s same read-only path; typed
+   `params` fill only `/*param:x*/…/*end*/` spans declared by `-- param: x date|uuid|int|number`, so the model never retypes ~5KB SQL), `mcp__mesha__watch_tags` (live tag watch, below) and `mcp__mesha__describe_table` (fixed catalog read of up to 6 tables per
    call — `table` comma list and/or `tables` array — returning columns, FK join targets and, for base tables
    <= ~2M rows, top values of up to 6 category/status-like text columns; every name must match strict
    `schema.table` identifiers before it is interpolated, and all reads go through `run_sql`'s same read-only
@@ -42,8 +44,9 @@ Read this before touching the admin-web **Ask Mesha** panel, `apps/admin-web/app
 2. **run_sql:** no query rules — any SQL over any table/schema, no tenant filter (single tenant). Runs in
    `BEGIN READ ONLY` with `default_transaction_read_only=on`, 60 s `statement_timeout` (psql process
    killed at 75 s), 500 rows / 100,000 characters of output. Refusals are only
-   about execution shape, not data access: psql backslash commands (they run programs on the host, e.g.
-   `\!`), more than one statement (`;` inside the query), and statements starting with
+   about execution shape, not data access: psql backslash commands outside plain `'...'` string literals (they run programs on the host, e.g.
+   `\!`; regex backslashes inside `'...'` are allowed, `E'...'`/`U&'...'` with any backslash are refused, and psql runs
+   with `standard_conforming_strings=on` so the literal scan matches psql's lexer), more than one statement (`;` inside the query), and statements starting with
    commit/rollback/end/abort/set/reset/begin/start (so the model can't step out of `BEGIN READ ONLY`).
    The READ ONLY transaction is still a guard rail, **not** a guarantee; only layer 4 (the role) is.
 3. **Chat privacy:** `mesha_ceo_readonly` has NO access to assistant chat tables (`ceo_ai_conversations`, `ceo_ai_messages`, `ceo_ai_assistant_audit`, `ceo_ai_response_cache`, `ceo_ai_rate_limit`, and never the `ask_mesha` schema); each CEO sees only their own chats (service-enforced ownership).

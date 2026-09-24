@@ -1,5 +1,5 @@
 -- App: Sales > Load-wise (GET /procurement/loadwise; procurement/adapters/postgres/loadwise_repository.go
--- + domain/loadwise.go). One row per purchase load. Edit only the load filter in the last WHERE (NULL = all).
+-- + domain/loadwise.go). One row per purchase load. One load: run_reference('load-wise-sales.sql', where="load_no='131'").
 -- sold = tagged GoatOS sales (goats sold, via goat_sale_allocations) + pre-GoatOS prior outcomes (counts only);
 -- sold_value = deal value split evenly over each deal's tagged animals + prior sold value;
 -- sale_price_per_kg = legacy weighed columns ONLY (sold_weighed_value / sold_weight_kg), NULL when not weighed out.
@@ -52,5 +52,4 @@ SELECT pl.context->>'load_ref' load_no, pl.context->>'farm' farm, pl.purchase_da
   CASE WHEN coalesce(s.remaining,0) > 0 THEN (now() AT TIME ZONE 'Asia/Kolkata')::date - pl.arrived_on END days_on_farm_so_far,
   (now() AT TIME ZONE 'Asia/Kolkata')::date - pl.purchase_date days_since_purchase
 FROM procurement_loads pl LEFT JOIN s ON s.load_id=pl.load_id LEFT JOIN p ON p.load_id=pl.load_id
-WHERE (pl.context->>'load_ref') = coalesce(NULL, pl.context->>'load_ref')  -- e.g. replace NULL with '131'
 ORDER BY pl.purchase_date DESC;

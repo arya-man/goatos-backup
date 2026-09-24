@@ -17,7 +17,7 @@ import { createEvents } from "./events.mjs";
 import {
   isDeepQuestion, answerCapUsd, answerCostUsd, friendlyError, STOPPED_NOTE, validateReadSql, clipSqlOutput,
   failedAttemptCostUsd, finalAnswerCost, runOwnedBy, toolLabel, describeTableSql, describeTableNames, sqlTableRefs, isMissingColumnError, kindValuesSql, relInfoSql, shouldSampleKinds, makeChartFilter, extractChart, historyPreamble, pathAllowed, ttlCache, inlineDisposition, makeTurnGate, stripLeadingNarration, istNowNote, attachmentPrompt,
-  askClient, jsonAskCollector, NON_STREAM_NOTE,
+  askClient, jsonAskCollector, NON_STREAM_NOTE, REFERENCE_FILES, referencePath, buildReferenceSql,
 } from "./lib.mjs";
 import { createWatchRegistry, WATCH_TAGS_DESCRIPTION, watchTagsHandler, watchTagsSchema } from "./watch.mjs";
 import { authMode, createProviderSwitch, envForProvider, probeVertex, shouldFallback } from "./provider.mjs";
@@ -248,7 +248,7 @@ function runSql(sql) {
             ...pgEnv,
             PGCONNECT_TIMEOUT: "10",
             // Belt and braces on top of the read-only DB role.
-            PGOPTIONS: "-c default_transaction_read_only=on -c statement_timeout=60000",
+            PGOPTIONS: "-c default_transaction_read_only=on -c statement_timeout=60000 -c standard_conforming_strings=on",
           },
         },
       );
@@ -323,6 +323,33 @@ function meshaToolsFor(user, watchCtx) {
           const r = await runSql(sql);
           const hint = !r.ok && isMissingColumnError(r.out) ? await columnHint(sql).catch(() => "") : "";
           return { content: [{ type: "text", text: (r.out || "(no rows)") + hint }], isError: !r.ok };
+        },
+        RO,
+      ),
+      tool(
+        "run_reference",
+        `Run one of the vetted Mesha reference queries BY NAME (read-only), instead of retyping it into run_sql. Wrapped as SELECT * FROM (<file>) q [WHERE where] [ORDER BY order_by] [LIMIT limit]. Files: ${REFERENCE_FILES.join(", ")}. Filter on the file's OUTPUT columns, e.g. pens.sql / pen-weighing-latest.sql where="pen_code='G1P3' AND park_code='CBE'" (or grp='Godel 1'); load-wise-sales.sql where="load_no='126'". Windows via params only: adg-by-park.sql {from_date, to_date} (YYYY-MM-DD), cost-per-kg-gain.sql {days}. Several calls in one turn run in parallel.`,
+        {
+          name: z.enum(REFERENCE_FILES).describe("Reference file name (no path)"),
+          where: z.string().optional().describe("Optional SQL boolean over the file's output columns"),
+          order_by: z.string().optional().describe("Optional ORDER BY list over output columns"),
+          limit: z.number().int().min(1).max(500).optional(),
+          // Explicit keys, not z.record: a record schema makes the SDK drop the whole tool from the model's list.
+          params: z.object({
+            from_date: z.string().optional().describe("YYYY-MM-DD (adg-by-park.sql)"),
+            to_date: z.string().optional().describe("YYYY-MM-DD, inclusive (adg-by-park.sql)"),
+            days: z.number().int().min(1).max(3650).optional().describe("window days back from today (cost-per-kg-gain.sql)"),
+          }).optional().describe("Only params the file declares ('-- param:' lines); others are refused"),
+        },
+        async ({ name, where, order_by, limit, params }) => {
+          const p = referencePath(REPO, name);
+          if (!p.ok) return { content: [{ type: "text", text: p.out }], isError: true };
+          let text;
+          try { text = fs.readFileSync(p.file, "utf8"); } catch (e) { return { content: [{ type: "text", text: `Reference ${name} is not available: ${e.message}` }], isError: true }; }
+          const built = buildReferenceSql(text, { name, where, order_by, limit, params });
+          if (!built.ok) return { content: [{ type: "text", text: built.out }], isError: true };
+          const r = await runSql(built.sql);
+          return { content: [{ type: "text", text: r.out || "(no rows)" }], isError: !r.ok };
         },
         RO,
       ),
@@ -745,7 +772,7 @@ async function ask(req, res, user) {
                   tools: ["Read", "Grep", "Glob", "Skill", "TodoWrite"],
                   // The attempt's signal: a provider fallback aborts attempt 0, which must end its watch too.
                   mcpServers: { mesha: meshaToolsFor(user, { send, signal: attemptAbort.signal, stopReason: () => stopReason, chatId: chat.id, tenantId: user.tenantId, allowAllTenants: user.email === "bench@local", evCtx: trackCtx, run, snapshotOnly: !streaming }) },
-                  allowedTools: ["mcp__mesha__run_sql", "mcp__mesha__describe_table", "mcp__mesha__watch_tags"],
+                  allowedTools: ["mcp__mesha__run_sql", "mcp__mesha__run_reference", "mcp__mesha__describe_table", "mcp__mesha__watch_tags"],
                   disallowedTools: ["Bash", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Task", "Agent"],
                 }
               : {}),
@@ -812,7 +839,7 @@ async function ask(req, res, user) {
                 metric.tool_calls += 1;
                 if (metric.first_tool_ms === null) metric.first_tool_ms = since();
                 if (
-                  block.name === "mcp__mesha__run_sql" ||
+                  block.name === "mcp__mesha__run_sql" || block.name === "mcp__mesha__run_reference" ||
                   (block.name === "Bash" && /\bpsql\b/.test(String(block.input?.command || "")))
                 )
                   metric.db_queries += 1;

@@ -1,4 +1,6 @@
 ## Mesha data map (EVERY table is readable; ceo_ai.* views are shortcuts, raw public.* tables have full detail — use them when a view lacks it)
+**Numbers in this map are EXAMPLES from 24/09/2026 for checking your query. NEVER answer from them; every figure in an answer must come from a query run in this conversation turn.**
+
 Today = (now() AT TIME ZONE 'Asia/Kolkata')::date. Weekday names: take from to_char(d,'Dy') in the query, never work them out yourself. Parks: Coimbatore (CBE), Channapatna (CPT) in park_label.
 HARD RULES: (a) Species: never call sheep "goats". If the question says goats/bakre/animals, answer "N animals (X goats, Y sheep)"; species column is 'goat'|'sheep'.
   "bakre"/"goats" with no explicit sheep-vs-goat contrast = ALL animals: "Total bakre, how many male?" -> "1,562 animals (693 goats, 869 sheep);
@@ -6,11 +8,13 @@ HARD RULES: (a) Species: never call sheep "goats". If the question says goats/ba
   ALWAYS state the split in the answer, even when one side is 0 (e.g. "80 animals, all sheep, no goats: 49 CBE, 31 CPT").
 (b) Arithmetic: every total, difference, %, ratio, per-day or per-animal figure is computed IN SQL (sum/-/ /round) and read back; never add or subtract by hand.
 (c) Simple lookups (headcount, one pen, one number) = ONE query, answer immediately; no exploration, no re-check.
+(d) REFERENCE FILES (references/*.sql below): use run_reference('<file>', where=...) instead of retyping - never copy them into run_sql.
+  where = SQL filter on the file's output columns; windows via params only (adg-by-park.sql {from_date,to_date}, cost-per-kg-gain.sql {days}).
 PENS (model-agnostic): pen = G1P3 "Godel 1 Part 3", C1 "Castro 1"; group = Godel 1 / Castro (a GROUP, never call it a shed). ALWAYS resolve
   pens via .agents/skills/mesha-data-map/references/pens.sql (copy its CTEs + ONE lateral join on (location_id, partition_label)); never assume
   animals/weighs sit on the group row or on the pen row ("Godel 1 - Part 3"): the data may use either. If a pen looks empty, check both placements
   (pens.sql does). Show "Godel 1 Part 3 (G1P3)" + park. Dates DD/MM/YYYY. Never average *_avg_* columns; weight by scan_count.
-  Pen LAST WEIGHING (any pen/group) = run references/pen-weighing-latest.sql once (edit its last WHERE): individual + whole-pen, no other query.
+  Pen LAST WEIGHING (any pen/group) = run_reference('pen-weighing-latest.sql', where="pen_code='G1P3' AND park_code='CBE'") once: individual + whole-pen, no other query.
 Comparisons ("compare CBE and CPT", "how are we doing"): <=8 short lines, one per topic, numbers from SQL; every comparative word
 (more/less/bigger) must match the numbers. Vague "how are we doing" = headcount, sales, deaths, weighing, feed, open issues, this month.
 No date column = current-state view: answer "as of now".
@@ -18,7 +22,7 @@ No date column = current-state view: answer "as of now".
 topic -> view -> key columns -> date column
 - weighing dates/progress -> weighing_capture_activity -> park_label, shed_label, work_state ('completed','closed'), animals_weighed, weighing_category -> planned_business_date
 - weights per round -> weighing_capture_activity -> sum(scan_weight_avg_kg*scan_count)/sum(scan_count) -> planned_business_date.
-  "Average herd weight"/current avg weight = run .agents/skills/mesha-data-map/references/herd-avg-weight.sql (latest weigh per ALIVE animal,
+  "Average herd weight"/current avg weight = run_reference('herd-avg-weight.sql') (latest weigh per ALIVE animal,
   pen average for pens weighed whole); say how many of the herd it covers (24/09: 28.2 kg, 723 of 1,562).
 - weighing verification -> weighing_verification_status -> pending, rework, verified, oldest_pending_at -> none. BY PERSON: raw
   public.verification_items (module='weighing'; status pending=awaiting verifier, rejected=sent back for rework, approved, withdrawn;
@@ -28,7 +32,8 @@ topic -> view -> key columns -> date column
   The view ALSO holds sold/dead/inactive rows: every count, %, ratio or split MUST filter lifecycle_status='alive' (CBE alive=850, not 995).
   ONE-QUERY headcount: SELECT park_label, species, count(*) FROM ceo_ai.animal_current_scope WHERE lifecycle_status='alive'
   GROUP BY ROLLUP(park_label, species). No park named = both parks, park named per row.
-  Per-PEN counts / "which pen has most": pens.sql demo SELECT (alive per pen, both placements) - never filter shed_label/partition_label by hand.
+  Per-PEN counts / "which pen has most": run_reference('pens.sql', where="pen_code='Y3'") (alive per pen, both parks, both placements;
+  columns park, pen, park_code, pen_code, grp, alive, goats, sheep) - never filter shed_label/partition_label by hand.
   Always name the park and species split per row.
 - sold / exits / entries -> animals_base -> exit_reason ('sold','died'), park_label -> exit_business_day / entry_date
 - deaths -> public.goats: (exit_reason='died' OR (exit_reason IS NULL AND lifecycle_status='dead')) AND merged_into_goat_id IS NULL,
@@ -47,8 +52,8 @@ topic -> view -> key columns -> date column
 - audit -> audit_activity_summary; notifications -> notification_delivery_health
 No sales/revenue view: use public.sales_deals (sales_value, payment_received, buyer_name, status='Deal Closed', sale_date, farm CBE/CPT).
 metrics -> how (exact defs + SQL: SKILL.md "Metric definitions"; never invent a proxy)
-- ADG/daily gain = app Weighing > Growth (ADG): run .agents/skills/mesha-data-map/references/adg-by-park.sql AS-IS (this month to date;
-  other window: edit only the 2 dates in its w CTE). Scanned kids (per-animal grams/days) + whole pens weighted by head count. It matches the
+- ADG/daily gain = app Weighing > Growth (ADG): run_reference('adg-by-park.sql') (this month to date;
+  other window: params {from_date:'YYYY-MM-DD', to_date:'YYYY-MM-DD'}). Scanned kids (per-animal grams/days) + whole pens weighted by head count. It matches the
   app exactly (01-24/09: CBE 152, CPT 148, all 150 g/day). NEVER write your own ADG SQL or pick a different weighting.
 - headcount: animal_current_scope lifecycle_status='alive'. sold: animals_base exit_reason='sold' by exit_business_day (see traps: deals).
 - cost per kg gain = the app's Weighing > FCR tab "Feed cost per kg gain": per pen, consecutive weighing rounds; cost = DIRECTED feed
@@ -107,8 +112,7 @@ Module tables (public.*; park name: locations via park_id; PEN = pens.sql latera
   feed_packing_completions (packed_total_kg) / feed_distribution_completions; goats in wrong pen -> pen_reconciliation_cards; shift/death/birth
   approvals -> counts_approval_requests (decision_reason); config changes -> feed_config_write_log (actor_ref); tag/identity -> identity_decisions;
   RFID sensors -> herd_signal_tag_latest; growth sale price -> growth_sale_price_assumptions; sale allocations -> goat_sale_allocations.
-- feed stock / days of cover / "kitna din chalega" = app Feed Analytics > Stock: run the ready SQL file
-  .agents/skills/mesha-data-map/references/feed-stock-days-left.sql as-is (purchase ledger minus locked sheet issues, 3-latest-day burn rate,
+- feed stock / days of cover / "kitna din chalega" = app Feed Analytics > Stock: run_reference('feed-stock-days-left.sql') (purchase ledger minus locked sheet issues, 3-latest-day burn rate,
   split concentrates merged). NOT inventory_stock, NOT your own 14-day average. 24/09: CBE UHT milk 5 days, concentrates ~14-15, bhusa 19-23.
   Answer: shortest days-left first, per park; items shown as not_started = stock but no use yet.
 - feed wastage %: feed_wastage_completions.wastage_kg (completed) / directed kg (feed_direction_issue_rows, issued/amended/locked) same days, in SQL.
@@ -184,8 +188,8 @@ Before saying "not recorded"/"none": search table names + information_schema.col
 - Who changed/corrected a record: public.audit_log WHERE resource_id = <record id> (action e.g. pc_care.task.canceled / sales.deal.payment_record), actor_id -> workforce_members.user_id for the name; always name them in the first answer.
 - When advance_amount equals the ledger total and both are counted, state it as a double count (not "possible").
 - Pen shorthand: users write pens as initials + numbers: C1 = Castro 1, G2P1 = Godel 2 Part 1, M1P3 = Mandela 1 Part 3, S2 = Sumathi 2, Y1 = Yashoda part 1 (CBE and CPT) and Old Yashoda part 1 (CPT only) - give each with its park, H1 = Ho Chi Minh 1, Q1 = Q1. Resolve any code with pens.sql pen_code (+ park_code); if a letter fits two pens (G = Godel or Gandhi), pick the one that exists in the asked park, say which you assumed. Castro/Godel/Mandela etc. exist in BOTH parks (CBE = Coimbatore, CPT = Channapatna): split by park unless named.
-- "Load wise" / per purchase load (Sales > Load-wise): run .agents/skills/mesha-data-map/references/load-wise-sales.sql (set the load no.
-  in the last WHERE). Load no. = procurement_loads.context->>'load_ref', farm = context->>'farm'. sold = GoatOS-tagged sales + pre-GoatOS
+- "Load wise" / per purchase load (Sales > Load-wise): run_reference('load-wise-sales.sql') (one load:
+  where="load_no='126'"). Load no. = procurement_loads.context->>'load_ref', farm = context->>'farm'. sold = GoatOS-tagged sales + pre-GoatOS
   prior outcomes; sold value = deal value split over its tagged animals + prior value; SCREEN price/kg = sold_weighed_value/sold_weight_kg
   (legacy loads 100/101/113 only; blank on others: say "not weighed at sale", then give tagged_rate_per_kg_estimate labelled as estimate,
   e.g. load 126: 12 sold, Rs 1,93,621, ~Rs 428/kg est.). Days on farm = today - arrived_on (not purchase_date) while animals remain
