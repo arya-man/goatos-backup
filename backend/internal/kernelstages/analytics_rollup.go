@@ -33,6 +33,24 @@ func NewAnalyticsRollupStage(deps Deps) *AnalyticsRollupStage {
 }
 func (s *AnalyticsRollupStage) Name() string { return "analytics-rollup-dispatch" }
 
+// rollupMaxAttemptsPerDay caps dispatches per business date. Each dispatch of the
+// full lookback rescan used to saturate the stg db-g1-small PD-SSD; a persistently
+// failing job must page via its audit/metric, not re-run all day.
+const rollupMaxAttemptsPerDay = 4
+
+// rollupClaimSQL claims the dispatch lease. lease_until doubles as the next
+// retry instant: attempt n+1 waits 40m*2^n (capped 6h) after attempt n.
+const rollupClaimSQL = `INSERT INTO analytics.rollup_dispatch (source_date,claimed_at,lease_until,attempts)
+ SELECT $1::date,now(),now()+interval '40 minutes',1
+ WHERE NOT EXISTS (SELECT 1 FROM analytics.rollup_run WHERE status='running' AND started_at > now()-interval '30 minutes')
+ ON CONFLICT(source_date) DO UPDATE SET
+  lease_until=now()+LEAST(interval '40 minutes'*power(2,analytics.rollup_dispatch.attempts),interval '6 hours'),
+  attempts=analytics.rollup_dispatch.attempts+1
+ WHERE analytics.rollup_dispatch.lease_until < now()
+ AND analytics.rollup_dispatch.attempts < $2
+ AND NOT EXISTS (SELECT 1 FROM analytics.rollup_run WHERE source_date=$1::date AND status IN ('succeeded','degraded') AND started_at >= analytics.rollup_dispatch.claimed_at)
+ RETURNING true`
+
 var rollupJobName = regexp.MustCompile(`^projects/[a-z][a-z0-9-]+/locations/[a-z0-9-]+/jobs/[a-z][a-z0-9-]+$`)
 
 func rollupDueDate(now time.Time) (string, bool) {
@@ -58,12 +76,12 @@ func (s *AnalyticsRollupStage) Run(ctx context.Context) error {
 	var claimed bool
 	// One atomic persisted lease across replicas/restarts. Failed API requests keep
 	// the lease: an ambiguous accepted request must not cause an immediate duplicate.
-	err := s.pool.QueryRow(ctx, `INSERT INTO analytics.rollup_dispatch (source_date,claimed_at,lease_until)
- SELECT $1::date,now(),now()+interval '40 minutes'
- ON CONFLICT(source_date) DO UPDATE SET lease_until=now()+interval '40 minutes'
- WHERE analytics.rollup_dispatch.lease_until < now()
- AND NOT EXISTS (SELECT 1 FROM analytics.rollup_run WHERE source_date=$1::date AND status='succeeded' AND started_at >= analytics.rollup_dispatch.claimed_at)
- RETURNING true`, date).Scan(&claimed)
+	// A failed/abandoned run is retried with exponential backoff (40m, 80m, 160m,
+	// capped at 6h) and at most rollupMaxAttemptsPerDay per source date, never on
+	// every cadence tick. A 'degraded' run (first-party summaries committed, an
+	// optional Firebase export failed) is complete for dispatch purposes, and a
+	// fresh 'running' audit row means a run is in progress: never stack another.
+	err := s.pool.QueryRow(ctx, rollupClaimSQL, date, rollupMaxAttemptsPerDay).Scan(&claimed)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil

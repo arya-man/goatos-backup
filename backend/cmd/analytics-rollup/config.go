@@ -3,7 +3,9 @@ package main
 import (
 	"errors"
 	"flag"
+	"fmt"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -18,6 +20,23 @@ import (
 // historical day) fails fast with a clear BigQuery "bytes billed exceeds
 // limit" error instead of silently running up cost.
 const defaultMaxBytesBilled = 2 * 1024 * 1024 * 1024 // 2 GiB
+
+// defaultChunkPause separates recomputed lookback days. defaultWorkMem keeps one
+// day's sort/hash in memory on a db-g1-small (1.7 GB RAM) with the job capped at
+// GOATOS_PG_MAX_CONNS=2, instead of the 4MB server default spilling to disk.
+const (
+	defaultChunkPause = 5 * time.Second
+	defaultWorkMem    = "32MB"
+)
+
+var workMemPattern = regexp.MustCompile(`^[1-9][0-9]{0,3}(kB|MB)$`)
+
+func (c config) workMem() string {
+	if c.WorkMem == "" {
+		return defaultWorkMem
+	}
+	return c.WorkMem
+}
 
 // defaultBQLocation matches the BigQuery dataset location pinned in
 // infra/envs/stg/analytics_rollup.tf - GA4/rollup data must stay in
@@ -64,6 +83,25 @@ type config struct {
 	CrashlyticsTable         string
 	CrashlyticsSessionsTable string
 	SourceAppID              string
+
+	// ForceRecompute ignores the durable per-day watermark (manual backfill).
+	ForceRecompute bool
+	// ChunkPause is slept between recomputed day chunks so a multi-day run
+	// never holds the shared Cloud SQL disk at saturation back to back.
+	ChunkPause time.Duration
+	// WorkMem is the transaction-local work_mem for one day's rollup.
+	WorkMem string
+
+	// RetentionDays prunes analytics.app_events older than this many days after
+	// the rollup (0 disables). PruneBatchSize/PruneMaxRows/PruneBatchPause bound
+	// the delete I/O of one run.
+	RetentionDays   int
+	ArchiveBucket   string
+	ArchiveMaxDays  int
+	PruneBatchSize  int
+	PruneMaxRows    int
+	PruneBatchPause time.Duration
+	archiveStore    objectStore // test seam; nil uses GCS
 
 	// FunnelSteps is the legacy GA4 funnel definition. The default first-party
 	// ordered flows are defined separately in appEventFlows using emitted events.
@@ -113,6 +151,15 @@ func parseConfig(args []string) (config, error) {
 	performanceTable := fs.String("performance-bq-table", getenv("GOATOS_PERFORMANCE_BQ_TABLE"), "optional Firebase Performance export project.dataset.table")
 	crashSessions := fs.String("crashlytics-sessions-table", getenv("GOATOS_CRASHLYTICS_SESSIONS_TABLE"), "optional Firebase sessions export project.dataset.table")
 	sourceAppID := fs.String("source-app-id", getenv("GOATOS_ANALYTICS_SOURCE_APP_ID"), "explicit Firebase app identity for app-wide crash statistics")
+	force := fs.Bool("force-recompute", false, "recompute every lookback day even when its watermark shows no new events")
+	chunkPause := fs.Duration("chunk-pause", durationEnv("GOATOS_ANALYTICS_CHUNK_PAUSE", defaultChunkPause), "pause between recomputed day chunks")
+	workMem := fs.String("work-mem", firstNonEmptyEnv("GOATOS_ANALYTICS_WORK_MEM"), "transaction-local Postgres work_mem for one day's rollup (e.g. 32MB)")
+	retention := fs.Int("retention-days", int(int64Env("GOATOS_ANALYTICS_APP_EVENTS_RETENTION_DAYS", defaultRetentionDays)), "keep N days of analytics.app_events hot; older days are archived to GCS, verified, then deleted; 0 disables")
+	archiveBucket := fs.String("archive-bucket", getenv("GOATOS_ANALYTICS_ARCHIVE_BUCKET"), "GCS bucket for archived app_events; empty disables archive AND deletion")
+	archiveMaxDays := fs.Int("archive-max-days", int(int64Env("GOATOS_ANALYTICS_ARCHIVE_MAX_DAYS", defaultArchiveMaxDays)), "max received days archived+deleted per run")
+	pruneBatch := fs.Int("prune-batch-size", int(int64Env("GOATOS_ANALYTICS_PRUNE_BATCH_SIZE", defaultPruneBatchSize)), "rows per app_events prune batch")
+	pruneMax := fs.Int("prune-max-rows", int(int64Env("GOATOS_ANALYTICS_PRUNE_MAX_ROWS", defaultPruneMaxRows)), "max app_events rows pruned per run")
+	prunePause := fs.Duration("prune-batch-pause", durationEnv("GOATOS_ANALYTICS_PRUNE_BATCH_PAUSE", defaultPruneBatchPause), "pause between prune batches")
 	if err := fs.Parse(args); err != nil {
 		return config{}, err
 	}
@@ -137,6 +184,25 @@ func parseConfig(args []string) (config, error) {
 	}
 	if *maxBytesBilled <= 0 {
 		return config{}, errors.New("max-bytes-billed must be positive")
+	}
+
+	if *retention < 0 || (*retention > 0 && *retention < *lookback+minRetentionBeyondLookback) {
+		return config{}, fmt.Errorf("retention-days must be 0 (disabled) or >= lookback-days+%d", minRetentionBeyondLookback)
+	}
+	if *archiveMaxDays < 1 || *archiveMaxDays > 31 {
+		return config{}, errors.New("archive-max-days must be 1..31")
+	}
+	if b := strings.TrimSpace(*archiveBucket); b != "" && !archiveBucketName.MatchString(b) {
+		return config{}, errors.New("archive-bucket must be a bare GCS bucket name")
+	}
+	if *pruneBatch < 1 || *pruneBatch > 50000 || *pruneMax < 1 || *prunePause < 0 {
+		return config{}, errors.New("prune-batch-size must be 1..50000, prune-max-rows positive, prune-batch-pause non-negative")
+	}
+	if *chunkPause < 0 {
+		return config{}, errors.New("chunk-pause must not be negative")
+	}
+	if *workMem != "" && !workMemPattern.MatchString(*workMem) {
+		return config{}, errors.New("work-mem must look like 32MB")
 	}
 
 	loc := strings.TrimSpace(*bqLocation)
@@ -169,6 +235,15 @@ func parseConfig(args []string) (config, error) {
 		SourceAppID:              strings.TrimSpace(*sourceAppID),
 		PerformanceTable:         strings.TrimSpace(*performanceTable),
 		FunnelSteps:              defaultFunnelSteps(),
+		ForceRecompute:           *force,
+		ChunkPause:               *chunkPause,
+		WorkMem:                  strings.TrimSpace(*workMem),
+		RetentionDays:            *retention,
+		ArchiveBucket:            strings.TrimSpace(*archiveBucket),
+		ArchiveMaxDays:           *archiveMaxDays,
+		PruneBatchSize:           *pruneBatch,
+		PruneMaxRows:             *pruneMax,
+		PruneBatchPause:          *prunePause,
 	}, nil
 }
 

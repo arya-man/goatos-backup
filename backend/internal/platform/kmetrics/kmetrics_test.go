@@ -293,6 +293,19 @@ func TestRecordAnalyticsRollupRunCountersOnlyWhenPositive(t *testing.T) {
 	}
 }
 
+func TestRecordAnalyticsExportFailureLabelsProvider(t *testing.T) {
+	ctx := context.Background()
+	RecordAnalyticsExportFailure(ctx, "crashlytics")
+	RecordAnalyticsRollupRun(ctx, AnalyticsRollupOutcomeDegraded, 1.0, 3, 0)
+	rm := collect(t)
+	if v, ok := sumDataPoint(t, rm, "kernel.analytics_rollup.export_failures", attribute.String("provider", "crashlytics")); !ok || v < 1 {
+		t.Fatalf("export_failures = %d, ok=%v, want >=1", v, ok)
+	}
+	if _, ok := histogramCount(t, rm, "kernel.analytics_rollup.run.duration", attribute.String("outcome", "degraded")); !ok {
+		t.Fatal("expected degraded run duration data point")
+	}
+}
+
 func TestAddCounterRecordHistogramRecordGaugeNilInstrumentsAreNoop(t *testing.T) {
 	// Guards the nil-instrument short-circuit every kmetrics wrapper relies
 	// on (newCounter/newHistogram/newGauge log-and-degrade to nil on a
