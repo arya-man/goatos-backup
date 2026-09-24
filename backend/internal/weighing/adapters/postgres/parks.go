@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/vgoats/goatos/backend/internal/platform/readcache"
+
 	"github.com/vgoats/goatos/backend/internal/weighing/domain"
 )
 
@@ -83,7 +85,18 @@ LIMIT $3`, tenantID, authorized, domain.MaxPlannerParks+1)
 }
 
 // ListParks returns all active parks for a tenant.
+//
+// Every tenant-wide monitor request resolves its park scope through this, so it rides the shared
+// read cache (tenant-wide key): a locations or configuration write evicts the tenant on commit on
+// every instance, and a warm page request no longer spends a round trip on the park list.
 func (r *Repository) ListParks(ctx context.Context, tenantID string) ([]domain.WeighingPark, error) {
+	parks, err := readcache.Load(ctx, r.cache, readcache.Key{Tenant: tenantID, Params: "weighing:parks"}, func(ctx context.Context) ([]domain.WeighingPark, error) {
+		return r.listParksUncached(ctx, tenantID)
+	})
+	return append([]domain.WeighingPark(nil), parks...), err
+}
+
+func (r *Repository) listParksUncached(ctx context.Context, tenantID string) ([]domain.WeighingPark, error) {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
 	rows, err := r.pool.Query(ctx, `

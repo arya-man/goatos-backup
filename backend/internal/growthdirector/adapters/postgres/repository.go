@@ -68,7 +68,20 @@ func (r *Repository) ListParks(ctx context.Context, tenantID string) ([]domain.P
 // parks builds the park vocabulary. A nil authorized slice means unrestricted
 // (tenant-wide); an empty one would match nothing, so the caller must pass nil
 // for the unrestricted arm.
+// parks is read on every Growth Director / FCR request; it rides the shared read cache keyed by
+// tenant + the authorized park set (locations/configuration writes evict the tenant).
 func (r *Repository) parks(ctx context.Context, tenantID string, authorized []string) ([]domain.Park, error) {
+	params := "parks:all"
+	if authorized != nil {
+		params = "parks:scoped"
+	}
+	parks, err := readcache.Load(ctx, r.cache, gdReadKey(tenantID, authorized, params), func(ctx context.Context) ([]domain.Park, error) {
+		return r.parksUncached(ctx, tenantID, authorized)
+	})
+	return append([]domain.Park(nil), parks...), err
+}
+
+func (r *Repository) parksUncached(ctx context.Context, tenantID string, authorized []string) ([]domain.Park, error) {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
 	rows, err := r.pool.Query(ctx, `
