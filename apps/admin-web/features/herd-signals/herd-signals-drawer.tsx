@@ -22,7 +22,7 @@ import {
   fmtTagTemp,
 } from "./format";
 import { ChartReadout, HistoryChart, historyChartLegend } from "./herd-signals-history-chart";
-import { useNowMs } from "./herd-signals-stream-bridge";
+import { useNowMs } from "./herd-signals-poller";
 
 type RangeKey = "1h" | "6h" | "24h";
 const RANGE_SECONDS: Record<RangeKey, number> = { "1h": 3600, "6h": 6 * 3600, "24h": 24 * 3600 };

@@ -2,15 +2,14 @@
 
 import { useCallback, useMemo, useEffect, useRef, useState, useSyncExternalStore, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import type { HerdSignalsLiveResponse } from "@/lib/api/herd-signals";
 import { fmtClockSeconds } from "./format";
-import { writeHerdSignalsLiveSnapshot } from "./herd-signals-live-store";
 
-// LIVE / PAUSED control and the SSE connection bridge. The initial table remains server-rendered;
-// stream ticks update connection/freshness state only. They must not call router.refresh(): that
-// would be polling disguised as SSE and causes the full-page flicker operators reported.
+// LIVE / PAUSED control and the SSE refresh bridge. The initial table remains server-rendered; once
+// mounted, lightweight EventSource ticks trigger a bounded router.refresh() so the same server data
+// path paints the page across Cloud Run instances. The stream deliberately carries no row snapshot.
 
 const STALE_AFTER_MS = 30_000;
+const STREAM_REFRESH_MIN_MS = 15_000;
 
 function liveStateFromKpi(kpi: string | null): "moving_now" | "active_1m" | null {
   return kpi === "moving_now" || kpi === "active_1m" ? kpi : null;
@@ -103,7 +102,7 @@ function useTabHidden(): boolean {
 // which calls getSnapshot again, disagrees again, and so on: "Maximum update depth exceeded" from
 // inside useSyncExternalStore's own re-render machinery. This crashed the drawer on its very first
 // tag click, before the timeline fetch or its from/to params ever mattered — every render tree
-// mounted under this hook (the stream bridge AND the tag drawer, both call it) failed the same way.
+// mounted under this hook (the poller AND the tag drawer, both call it) failed the same way.
 //
 // The fix is the standard one: cache the value in a module-level box that is written ONLY by the
 // subscribed side-effect (the timer tick, i.e. the actual external mutation), and have
@@ -137,7 +136,7 @@ export function useNowMs(everyMs = 1000): number {
   return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 }
 
-export function HerdSignalsStreamBridge({ generatedAt }: { generatedAt: string }) {
+export function HerdSignalsPoller({ generatedAt }: { generatedAt: string }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const searchKey = searchParams.toString();
@@ -159,6 +158,7 @@ export function HerdSignalsStreamBridge({ generatedAt }: { generatedAt: string }
   const tabHidden = useTabHidden();
   const nowMs = useNowMs();
   const pendingRef = useRef(false);
+  const lastStreamRefreshAtRef = useRef(0);
   const [streamState, setStreamState] = useState<"connecting" | "open" | "error">("connecting");
 
   useEffect(() => {
@@ -206,14 +206,6 @@ export function HerdSignalsStreamBridge({ generatedAt }: { generatedAt: string }
     let first = true;
     source.onopen = () => setStreamState("open");
     source.onerror = () => setStreamState("error");
-    source.addEventListener("snapshot", (event) => {
-      setStreamState("open");
-      try {
-        writeHerdSignalsLiveSnapshot(liveQuery.toString(), JSON.parse(event.data) as HerdSignalsLiveResponse);
-      } catch {
-        setStreamState("error");
-      }
-    });
     source.addEventListener("tick", () => {
       setStreamState("open");
       if (document.visibilityState !== "visible") return;
@@ -222,9 +214,13 @@ export function HerdSignalsStreamBridge({ generatedAt }: { generatedAt: string }
         first = false;
         return;
       }
+      const now = Date.now();
+      if (now - lastStreamRefreshAtRef.current < STREAM_REFRESH_MIN_MS) return;
+      lastStreamRefreshAtRef.current = now;
+      refresh();
     });
     return () => source.close();
-  }, [live, tabHidden, overlayOpen, liveQuery]);
+  }, [live, tabHidden, refresh, overlayOpen, liveQuery]);
 
   useEffect(() => {
     function onVisibility() {

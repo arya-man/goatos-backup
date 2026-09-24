@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -16,21 +15,14 @@ import (
 )
 
 type fakeService struct {
-	mu sync.Mutex
-
 	ingestResp domain.IngestResponse
 	ingestErr  error
 	ingestGot  domain.IngestRequest
 
 	liveResp  domain.LiveResponse
 	liveErr   error
-	liveCalls int
 	liveSort  domain.LiveSort
-	liveGot   struct {
-		parkID, shedID, movementState, liveState, mappingState, pattern, riskState, q *string
-		cursor                                                                        string
-		limit                                                                         int
-	}
+	liveCalls int
 
 	timelineResp domain.TimelineResponse
 	timelineErr  error
@@ -89,29 +81,14 @@ func (f *fakeService) RecordGatewayHeartbeat(_ context.Context, _ domain.Actor, 
 }
 
 func (f *fakeService) IngestPackets(_ context.Context, _ domain.Actor, req domain.IngestRequest) (domain.IngestResponse, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
 	f.ingestGot = req
 	return f.ingestResp, f.ingestErr
 }
 
-func (f *fakeService) ListLive(_ context.Context, _ domain.Actor, parkID, shedID, movementState, liveState, mappingState, pattern, riskState, q *string, cursor string, limit int, sort domain.LiveSort) (domain.LiveResponse, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
+func (f *fakeService) ListLive(_ context.Context, _ domain.Actor, _, _, _, _, _, _, _, _ *string, _ string, _ int, sort domain.LiveSort) (domain.LiveResponse, error) {
 	f.liveCalls++
-	f.liveGot.parkID, f.liveGot.shedID = parkID, shedID
-	f.liveGot.movementState, f.liveGot.liveState = movementState, liveState
-	f.liveGot.mappingState, f.liveGot.pattern = mappingState, pattern
-	f.liveGot.riskState, f.liveGot.q = riskState, q
-	f.liveGot.cursor, f.liveGot.limit = cursor, limit
 	f.liveSort = sort
 	return f.liveResp, f.liveErr
-}
-
-func (f *fakeService) liveCallCount() int {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.liveCalls
 }
 
 func (f *fakeService) GetTimeline(_ context.Context, _ domain.Actor, tagID, from, to string, bucketSeconds int) (domain.TimelineResponse, error) {
@@ -235,54 +212,8 @@ func TestListLiveRejectsUnauthenticated(t *testing.T) {
 	}
 }
 
-func TestStreamLiveWritesSnapshotEventFromLiveQuery(t *testing.T) {
-	svc := &fakeService{liveResp: domain.LiveResponse{Summary: domain.Summary{TagsSeen: 19}}}
-	h := NewHandler(svc)
-	req := authedRequest("GET", "/herd-signals/live/stream?park_id=park-1&live_state=moving_now&limit=19", nil)
-	ctx, cancel := context.WithCancel(req.Context())
-	defer cancel()
-	req = req.WithContext(ctx)
-	w := httptest.NewRecorder()
-
-	done := make(chan struct{})
-	go func() {
-		h.StreamLive(w, req)
-		close(done)
-	}()
-
-	deadline := time.After(2 * time.Second)
-	for !strings.Contains(w.Body.String(), "event: snapshot") {
-		select {
-		case <-deadline:
-			cancel()
-			<-done
-			t.Fatalf("stream body = %q, want snapshot event", w.Body.String())
-		default:
-			time.Sleep(10 * time.Millisecond)
-		}
-	}
-	cancel()
-	<-done
-
-	if ct := w.Header().Get("Content-Type"); ct != "text/event-stream" {
-		t.Fatalf("content-type = %q, want text/event-stream", ct)
-	}
-	if svc.liveGot.parkID == nil || *svc.liveGot.parkID != "park-1" {
-		t.Fatalf("park_id forwarded = %v, want park-1", svc.liveGot.parkID)
-	}
-	if svc.liveGot.liveState == nil || *svc.liveGot.liveState != "moving_now" {
-		t.Fatalf("live_state forwarded = %v, want moving_now", svc.liveGot.liveState)
-	}
-	if svc.liveGot.limit != 19 {
-		t.Fatalf("limit forwarded = %d, want 19", svc.liveGot.limit)
-	}
-}
-
-func TestStreamLiveSnapshotsAreIngestTriggeredNotIntervalPolled(t *testing.T) {
-	svc := &fakeService{
-		ingestResp: domain.IngestResponse{Accepted: 1, Stored: 1, LatestUpdated: 1},
-		liveResp:   domain.LiveResponse{Summary: domain.Summary{TagsSeen: 19}},
-	}
+func TestStreamLiveWritesHeartbeatTickWithoutListRead(t *testing.T) {
+	svc := &fakeService{}
 	h := NewHandler(svc)
 	req := authedRequest("GET", "/herd-signals/live/stream?limit=19", nil)
 	ctx, cancel := context.WithCancel(req.Context())
@@ -297,51 +228,28 @@ func TestStreamLiveSnapshotsAreIngestTriggeredNotIntervalPolled(t *testing.T) {
 	}()
 
 	deadline := time.After(2 * time.Second)
-	for svc.liveCallCount() < 1 {
+	for !strings.Contains(w.Body.String(), "event: tick") {
 		select {
 		case <-deadline:
 			cancel()
 			<-done
-			t.Fatalf("stream did not write initial snapshot")
+			t.Fatalf("stream body = %q, want tick event", w.Body.String())
 		default:
 			time.Sleep(10 * time.Millisecond)
 		}
 	}
-
-	time.Sleep(150 * time.Millisecond)
-	if calls := svc.liveCallCount(); calls != 1 {
-		cancel()
-		<-done
-		t.Fatalf("live snapshot calls before ingest = %d, want exactly initial snapshot", calls)
-	}
-
-	ingestReq := authedRequest("POST", "/herd-signals/packets", []byte(`{
-		"gateway_id":"gw1",
-		"gateway_seen_at":"2026-01-01T00:00:00Z",
-		"packets":[{"tag_id":"tag-1","tag_mac":"aa:bb:cc:dd:ee:ff","seen_at":"2026-01-01T00:00:00Z"}]
-	}`))
-	ingestW := httptest.NewRecorder()
-	h.IngestPackets(ingestW, ingestReq)
-	if ingestW.Code != http.StatusOK {
-		cancel()
-		<-done
-		t.Fatalf("ingest status = %d, want 200; body=%s", ingestW.Code, ingestW.Body.String())
-	}
-
-	deadline = time.After(2 * time.Second)
-	for svc.liveCallCount() < 2 {
-		select {
-		case <-deadline:
-			cancel()
-			<-done
-			t.Fatalf("stream did not write ingest-triggered snapshot; calls=%d body=%q", svc.liveCallCount(), w.Body.String())
-		default:
-			time.Sleep(10 * time.Millisecond)
-		}
-	}
-
 	cancel()
 	<-done
+
+	if ct := w.Header().Get("Content-Type"); ct != "text/event-stream" {
+		t.Fatalf("content-type = %q, want text/event-stream", ct)
+	}
+	if strings.Contains(w.Body.String(), "event: snapshot") {
+		t.Fatalf("stream body = %q, must not emit process-local snapshots", w.Body.String())
+	}
+	if svc.liveCalls != 0 {
+		t.Fatalf("ListLive calls = %d, want 0; stream ticks must not duplicate /live reads", svc.liveCalls)
+	}
 }
 
 func TestGetTimelineRequiresFromAndTo(t *testing.T) {

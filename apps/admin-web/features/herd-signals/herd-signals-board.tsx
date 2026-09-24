@@ -11,7 +11,7 @@ import {
   type HerdSignalsLiveResponse,
 } from "@/lib/api/herd-signals";
 import type { ApiResult } from "@/lib/api/server";
-import { HerdSignalsStreamBridge } from "./herd-signals-stream-bridge";
+import { HerdSignalsPoller } from "./herd-signals-poller";
 import { HerdSignalsNavProvider } from "./herd-signals-nav-context";
 import { HerdSignalsKpis } from "./herd-signals-kpis";
 import { HerdSignalsFilters, type ShedOption } from "./herd-signals-filters";
@@ -114,39 +114,6 @@ function fetchForTab(params: HerdSignalsParams): Promise<ApiResult<HerdSignalsLi
   });
 }
 
-function herdSignalsLiveStreamKey(params: HerdSignalsParams): string {
-  const out = new URLSearchParams();
-  if (params.parkId) out.set("park_id", params.parkId);
-  if (params.shedId) out.set("shed_id", params.shedId);
-  if (params.q) out.set("q", params.q);
-  if (params.cursor) out.set("cursor", params.cursor);
-  if (params.sort) out.set("sort", params.sort);
-  if (params.sortDir) out.set("dir", params.sortDir);
-  if (params.limit) out.set("limit", String(params.limit));
-  if (params.tab === "live") {
-    const liveState = kpiToLiveState(params.kpi);
-    if (liveState) {
-      out.set("live_state", liveState);
-    } else if (params.movementState) {
-      out.set("movement_state", params.movementState);
-    }
-    if (params.mappingState) out.set("mapping_state", params.mappingState);
-    if (params.pattern) out.set("pattern", params.pattern);
-    if (params.risk) out.set("risk_state", params.risk);
-  } else if (params.tab === "animals") {
-    out.set("mapping_state", "mapped");
-    if (params.movementState) out.set("movement_state", params.movementState);
-    if (params.pattern) out.set("pattern", params.pattern);
-    if (params.risk) out.set("risk_state", params.risk);
-  } else if (params.tab === "mapping") {
-    if (params.mappingState) out.set("mapping_state", params.mappingState);
-    if (params.risk) out.set("risk_state", params.risk);
-  } else if (params.tab === "alerts") {
-    out.set("risk_state", "attention");
-  }
-  return out.toString();
-}
-
 export function HerdSignalsSkeleton() {
   return (
     <div className="herd-signals-page" aria-busy="true">
@@ -234,7 +201,7 @@ export async function HerdSignalsBoard({
 
   return (
     <div className="herd-signals-page">
-      {/* One shared pending-transition flag for the stream bridge, the KPI cards, the filter bar and every
+      {/* One shared pending-transition flag for the poller, the KPI cards, the filter bar and every
           pagination control on this tab — see herd-signals-nav-context.tsx for why a plain <Link>
           per control was the "clicking a filter reloads the whole page" defect. */}
       <HerdSignalsNavProvider>
@@ -253,7 +220,7 @@ export async function HerdSignalsBoard({
             </div>
           </div>
           <div className="sp" style={{ flex: 1 }} />
-          {liveResult.ok ? <HerdSignalsStreamBridge generatedAt={new Date(nowMs).toISOString()} /> : null}
+          {liveResult.ok ? <HerdSignalsPoller generatedAt={new Date(nowMs).toISOString()} /> : null}
         </div>
 
         <div className="segs">
@@ -318,7 +285,6 @@ function LiveMonitorTab({
 }) {
   if (!result.ok) return <ReadFailed message={result.error.message} retryHref={herdSignalsHref(params, {})} />;
   const { summary, items, next_cursor } = result.data;
-  const liveKey = herdSignalsLiveStreamKey(params);
   const sheds: ShedOption[] = Array.from(
     new Map(items.filter((item) => item.shed_id && item.shed_name).map((item) => [item.shed_id as string, item.shed_name as string])).entries(),
   ).map(([id, label]) => ({ id, label }));
@@ -326,7 +292,7 @@ function LiveMonitorTab({
   return (
     <>
       <HerdSignalsFilters params={params} sheds={sheds} />
-      <HerdSignalsKpis summary={summary} params={params} liveKey={liveKey} />
+      <HerdSignalsKpis summary={summary} params={params} />
       <div className="small faint" style={{ margin: "-6px 0 14px" }}>
         Counts are whole-filter aggregates computed by the backend from the same tenant-scoped query
         as the table — never summed from the rows on the fetched page.
@@ -346,7 +312,7 @@ function LiveMonitorTab({
           <span className="small faint">Click a row for tag detail</span>
         </div>
         <div className="bd flush">
-          <HerdSignalsTable items={items} nextCursor={next_cursor} params={params} nowMs={nowMs} tagsSeen={summary.tags_seen} liveKey={liveKey} />
+          <HerdSignalsTable items={items} nextCursor={next_cursor} params={params} nowMs={nowMs} tagsSeen={summary.tags_seen} />
         </div>
       </div>
     </>
@@ -368,7 +334,6 @@ function FilteredTableTab({
 }) {
   if (!result.ok) return <ReadFailed message={result.error.message} retryHref={herdSignalsHref(params, {})} />;
   const { items, next_cursor, summary } = result.data;
-  const liveKey = herdSignalsLiveStreamKey(params);
   // "No mapped animals yet" is an honest, expected state (docs/modules/herd-signals.md "Unmapped
   // tags are the NORMAL state") -- on staging today NO tag is mapped, so this branch is the common
   // case, not an error and not the generic "no gateway packets" empty (that would be a false claim
@@ -412,7 +377,7 @@ function FilteredTableTab({
         <span className="small faint">{note}</span>
       </div>
       <div className="bd flush">
-        <HerdSignalsTable items={items} nextCursor={next_cursor} params={params} nowMs={nowMs} tagsSeen={summary.tags_seen} liveKey={liveKey} variant="animals" />
+        <HerdSignalsTable items={items} nextCursor={next_cursor} params={params} nowMs={nowMs} tagsSeen={summary.tags_seen} variant="animals" />
       </div>
     </div>
   );
