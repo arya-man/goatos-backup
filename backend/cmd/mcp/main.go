@@ -967,7 +967,6 @@ func tools() []map[string]any {
 
 func readOnlyToolAnnotations() map[string]any {
 	return map[string]any{
-		"title":           "Read-only Goat OS data",
 		"readOnlyHint":    true,
 		"destructiveHint": false,
 		"openWorldHint":   false,
