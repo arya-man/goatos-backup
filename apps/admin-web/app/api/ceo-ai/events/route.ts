@@ -10,7 +10,8 @@ export const runtime = "nodejs";
 // coding-agent service (CEO_AI_AGENT_URL) has this endpoint; the legacy backend
 // does not, so without the flag this answers 204 and forwards nothing.
 
-const KINDS = new Set(["stop_pressed"]);
+// watch_stop: "Stop watching" on a live tag watch card (ends the watch, not the answer).
+const KINDS = new Set(["stop_pressed", "watch_stop"]);
 
 export async function POST(request: NextRequest): Promise<Response> {
   let body: Record<string, unknown>;

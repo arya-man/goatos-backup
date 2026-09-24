@@ -64,9 +64,36 @@ CREATE SCHEMA IF NOT EXISTS ask_mesha AUTHORIZATION ask_mesha;
 REVOKE CONNECT ON DATABASE goatos FROM ask_mesha;
 ```
 
-## 3b. Claude access (pick ONE; deploy flag `ASK_MESHA_CLAUDE_AUTH`)
+## 3b. Claude access (deploy flag `ASK_MESHA_CLAUDE_AUTH`, Cloud Build `_ASK_MESHA_CLAUDE_AUTH`)
 
-**vertex (default, recommended):** no key; Claude is billed to the GCP project.
+**auto (default):** the service gets both the Vertex env (below) and `ANTHROPIC_API_KEY` from
+`goatos-stg-ask-mesha-anthropic-api-key` (§4; the runtime SA needs `secretAccessor` on it). It
+probes Vertex (one `rawPredict`, `max_tokens` 1, token from the metadata server) at startup and every
+15 min while on the key; once Vertex answers (quota approved) new questions use Vertex with no
+redeploy, and it re-checks hourly. A Vertex 429/403/404 during a question marks Vertex down and reruns
+that question once on the key (only if nothing was shown yet). Logs: `[provider] switched to vertex`;
+every metric/event row carries `provider` (`vertex` | `anthropic`); `/healthz` shows the current one:
+
+```bash
+curl -s -H "Authorization: Bearer $(gcloud auth print-identity-token)" "$URL/healthz"
+# {"ok":true,"provider":"anthropic","claude":{"mode":"auto","vertex_ok":false,"last_probe_reason":"quota_429",...}}
+```
+
+Force one provider (a config change -> new revision of the same image, not a build):
+
+```bash
+gcloud run services update goatos-ask-mesha-stg --project=$PROJECT --region=asia-south1 \
+  --update-env-vars=ASK_MESHA_CLAUDE_AUTH=vertex   # or api-key; back to auto the same way
+```
+
+After Vertex is live and `/healthz` has shown `"provider":"vertex"` for a day, retire the key:
+set `ASK_MESHA_CLAUDE_AUTH=vertex` as above, then disable the key
+(`gcloud secrets versions disable 1 --secret=goatos-stg-ask-mesha-anthropic-api-key --project=$PROJECT`)
+and revoke it in the Anthropic Console. Future builds then need `_ASK_MESHA_CLAUDE_AUTH=vertex`
+(deploy preflight refuses auto/api-key without an enabled key version). The $100 monthly cap (§3c) is
+one cap summed across both providers.
+
+**vertex:** no key; Claude is billed to the GCP project.
 
 ```bash
 # Enable Claude Sonnet 5 / Opus 5.5 once in Console → Vertex AI → Model Garden (accept terms), then:
@@ -116,7 +143,7 @@ gcloud billing budgets create --billing-account=$BILLING \
 (Billing account 01FEDE-96BCB3-76D992 is INR: a USD amount is rejected with INVALID_ARGUMENT, and
 `--filter-services` needs the billing service ID (`C7E2-9256-1C43` = Vertex AI), not the API name.
 That filter covers all Vertex AI use in the project; Ask Mesha is the only Claude user today.)
-With `api-key`, also set a $100 monthly limit in the Anthropic Console.
+With `auto` or `api-key`, also set a $100 monthly limit in the Anthropic Console.
 
 ## 3d. Harden the read-only DB role (required before enabling)
 

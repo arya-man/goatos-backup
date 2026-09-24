@@ -168,6 +168,7 @@ export function toolLabel(name, input = {}) {
     const topic = topicOf(tables.join(" ") || sql);
     return topic ? `Checking ${topic} records` : "Checking the records";
   }
+  if (name === "mcp__mesha__watch_tags") return Number(input.minutes) === 0 ? "Reading live ear-tag data" : "Watching live ear-tag data";
   if (name === "mcp__mesha__describe_table") {
     const topic = topicOf(String(input.table || ""));
     return topic ? `Checking what the ${topic} records hold` : "Checking what the records hold";

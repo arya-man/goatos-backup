@@ -18,6 +18,8 @@ import {
   isDeepQuestion, answerCapUsd, answerCostUsd, friendlyError, STOPPED_NOTE, validateReadSql, clipSqlOutput,
   toolLabel, describeTableSql, describeTableNames, sqlTableRefs, isMissingColumnError, kindValuesSql, relInfoSql, shouldSampleKinds, makeChartFilter, extractChart, historyPreamble, pathAllowed, ttlCache, inlineDisposition, makeTurnGate,
 } from "./lib.mjs";
+import { createWatchRegistry, WATCH_TAGS_DESCRIPTION, watchTagsHandler, watchTagsSchema } from "./watch.mjs";
+import { authMode, createProviderSwitch, envForProvider, probeVertex, shouldFallback } from "./provider.mjs";
 
 const PORT = Number(process.env.PORT || 8787);
 // 127.0.0.1 locally; the container sets HOST=0.0.0.0 (Cloud Run fronts it with IAM).
@@ -36,6 +38,16 @@ const READONLY = process.env.ASK_MESHA_READONLY !== "0";
 const MONTHLY_BUDGET_USD = Number(process.env.ASK_MESHA_MONTHLY_BUDGET_USD || 100);
 const PER_ANSWER_BUDGET_USD = Number(process.env.ASK_MESHA_PER_ANSWER_BUDGET_USD || 1);
 const DEEP_ANSWER_BUDGET_USD = Number(process.env.ASK_MESHA_DEEP_ANSWER_BUDGET_USD || 5);
+// Claude provider (provider.mjs). auto: Vertex once a probe succeeds, the API key until then;
+// the $100 monthly cap above covers both (spend is summed from metrics regardless of provider).
+const providerSwitch = createProviderSwitch({
+  mode: authMode(process.env),
+  probe: () => probeVertex({
+    project: process.env.ANTHROPIC_VERTEX_PROJECT_ID,
+    region: process.env.CLOUD_ML_REGION || "global",
+    model: process.env.ASK_MESHA_PROBE_MODEL || MODEL,
+  }),
+}).start();
 const monthStart = () => {
   const d = new Date();
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)).toISOString();
@@ -204,7 +216,7 @@ async function recordMetric(m) {
   await store.recordMetric(m).catch((e) => console.error("[metric] store failed:", e.message));
   console.log(
     `[metric] total=${m.total_ms}ms turns=${m.turns ?? "-"} cache_read=${m.cache_read_tokens ?? "-"} cache_write=${m.cache_creation_tokens ?? "-"} first_progress=${m.first_progress_ms}ms first_tool=${m.first_tool_ms ?? "-"}ms ` +
-      `first_token=${m.first_token_ms ?? "-"}ms tools=${m.tool_calls} db=${m.db_queries} model=${m.model} ok=${m.ok}`,
+      `first_token=${m.first_token_ms ?? "-"}ms tools=${m.tool_calls} db=${m.db_queries} model=${m.model} provider=${m.provider ?? "-"}${m.provider_fallback ? "(fallback)" : ""} ok=${m.ok}`,
   );
 }
 
@@ -290,7 +302,8 @@ async function columnHint(sql) {
 }
 // readOnlyHint lets the agent's CLI run several calls from one turn concurrently.
 const RO = { annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false } };
-function meshaToolsFor(user) {
+const watches = createWatchRegistry(); // one live tag watch per chat (watch.mjs)
+function meshaToolsFor(user, watchCtx) {
   return createSdkMcpServer({
     name: "mesha",
     version: "1.0.0",
@@ -322,6 +335,9 @@ function meshaToolsFor(user) {
         },
         RO,
       ),
+      // Live BLE tag watch: the server polls via runSql and streams `watch` SSE events (watch.mjs).
+      tool("watch_tags", WATCH_TAGS_DESCRIPTION, watchTagsSchema(z),
+        watchTagsHandler({ runSql, emit: (n, c, f) => events.emit(n, c, f), registry: watches, ctx: watchCtx, log: (m) => console.log(m) }), RO),
     ],
   });
 }
@@ -475,10 +491,10 @@ function canUseToolFor(chatId) {
 const AGENT_ENV_ALLOW = ["PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "LC_ALL", "TMPDIR", "TERM", "ANTHROPIC_API_KEY",
   // deploy-stg.sh auth modes: vertex (runtime SA via metadata server) and oauth.
   "CLAUDE_CODE_USE_VERTEX", "ANTHROPIC_VERTEX_PROJECT_ID", "CLOUD_ML_REGION", "CLAUDE_CODE_OAUTH_TOKEN"];
-function agentEnv() {
+function agentEnv(provider) {
   const env = {};
   for (const k of AGENT_ENV_ALLOW) if (process.env[k] !== undefined) env[k] = process.env[k];
-  return env;
+  return envForProvider(provider, env);
 }
 
 // ---- stop signals -----------------------------------------------------------
@@ -489,12 +505,13 @@ const STOP_SIGNAL_GRACE_MS = 1500;
 
 async function stopEvent(req, res, user) {
   const b = await readBody(req);
-  if (b.kind !== "stop_pressed" || typeof b.request_id !== "string") return json(res, 400, { error: "invalid_event" });
+  if ((b.kind !== "stop_pressed" && b.kind !== "watch_stop") || typeof b.request_id !== "string") return json(res, 400, { error: "invalid_event" });
   const run = activeRuns.get(b.request_id);
   if (!run) { res.writeHead(204); return res.end(); }
   const chat = await store.getChat(run.chatId);
   if (!chat || !sameOwner(chat, user)) return json(res, 404, { error: "not_found" });
-  run.stopPressed();
+  if (b.kind === "watch_stop") run.stopWatch?.("stopped"); // ends only the live watch; the answer still comes
+  else run.stopPressed();
   res.writeHead(204);
   res.end();
 }
@@ -516,7 +533,8 @@ async function ask(req, res, user) {
   // Hard monthly cap: answer with a plain message instead of calling Claude.
   // Fail closed: if spend can't be read, don't risk running past the cap.
   const spent = await store.monthSpendUsd(monthStart()).catch(() => Infinity);
-  const evCtx = { request_id: crypto.randomUUID(), chat_id: chat?.id ?? null, email: user.email, tenant_id: user.tenantId };
+  let provider = providerSwitch.current(); // vertex | anthropic; may flip once on a Vertex quota failure
+  const evCtx = { request_id: crypto.randomUUID(), chat_id: chat?.id ?? null, email: user.email, tenant_id: user.tenantId, provider };
   events.budgetCheck(evCtx, spent, MONTHLY_BUDGET_USD);
   // Answers still running may each spend up to their cap; count them against the month too.
   const inFlight = [...activeRuns.values()].reduce((a, r) => a + (r.capUsd || 0), 0);
@@ -602,11 +620,13 @@ async function ask(req, res, user) {
     question_chars: prompt.length, first_progress_ms: null, first_tool_ms: null, first_token_ms: null,
     total_ms: null, cache_read_tokens: null, cache_creation_tokens: null, tool_calls: 0, db_queries: 0, turns: 0, input_tokens: null, output_tokens: null,
     cost_usd: null, cost_estimated: false, session_cost_usd: null, cap_usd: capUsd, ok: false, error: null,
+    provider, provider_fallback: false,
   };
   // SDK cost is cumulative per session; remember the resumed session's previous total.
   let prevSessionCost = chat.session_id ? Number(chat.session_cost_usd) || 0 : 0;
   const since = () => Date.now() - t0;
-  const track = events.tracker({ request_id: requestId, chat_id: chat.id, email: user.email, tenant_id: user.tenantId },
+  const trackCtx = { request_id: requestId, chat_id: chat.id, email: user.email, tenant_id: user.tenantId, provider };
+  const track = events.tracker(trackCtx,
     { t0, question, deep, model: metric.model, effort: metric.effort, resumed: metric.resumed });
   let full = "";
   // Only the answer should stay on screen: text streamed before a tool call is
@@ -621,7 +641,7 @@ async function ask(req, res, user) {
   };
   let filter = makeChartFilter(emitVisible);
   // Narration before a tool call is held back, not streamed-then-cleared (no flicker).
-  const gate = makeTurnGate((t) => filter(t));
+  let gate = makeTurnGate((t) => filter(t));
   let lastTurnText = "";
 
   try {
@@ -658,103 +678,158 @@ async function ask(req, res, user) {
       prevSessionCost = 0;
       prompt = historyPreamble(history) + prompt;
     }
-    const stream = query({
-      prompt,
-      options: {
-        cwd,
-        model: metric.model,
-        maxBudgetUsd: capUsd,
-        effort: metric.effort,
-        resume,
-        ...(store.sessionStore ? { sessionStore: store.sessionStore } : {}),
-        systemPrompt: { type: "preset", preset: "claude_code", append: repoInstructions(cwd) + APPEND_PROMPT + dataMapCore(cwd) + tableIndexPrompt() },
-        settingSources: ["project", "local"],
-        includePartialMessages: true,
-        canUseTool: canUseToolFor(chat.id),
-        permissionMode: "default",
-        ...(READONLY
-          ? {
-              // Only read tools + the read-only SQL tool exist for the agent.
-              tools: ["Read", "Grep", "Glob", "Skill", "TodoWrite"],
-              mcpServers: { mesha: meshaToolsFor(user) },
-              allowedTools: ["mcp__mesha__run_sql", "mcp__mesha__describe_table"],
-              disallowedTools: ["Bash", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Task", "Agent"],
+    // Auto mode: at most two attempts. Attempt 0 uses the current provider; attempt 1 only
+    // happens when a Vertex run failed quota-ish before any token was shown (shouldFallback).
+    const origSessionId = chat.session_id || null;
+    const origPrevSessionCost = prevSessionCost;
+    for (let attempt = 0; ; attempt++) {
+      const attemptAbort = new AbortController();
+      const onAbort = () => attemptAbort.abort();
+      abort.signal.addEventListener("abort", onAbort, { once: true });
+      let fallbackReason = null;
+      const attemptErr = { error: "" };
+      try {
+        const stream = query({
+          prompt,
+          options: {
+            cwd,
+            model: metric.model,
+            maxBudgetUsd: capUsd,
+            effort: metric.effort,
+            resume,
+            ...(store.sessionStore ? { sessionStore: store.sessionStore } : {}),
+            systemPrompt: { type: "preset", preset: "claude_code", append: repoInstructions(cwd) + APPEND_PROMPT + dataMapCore(cwd) + tableIndexPrompt() },
+            settingSources: ["project", "local"],
+            includePartialMessages: true,
+            canUseTool: canUseToolFor(chat.id),
+            permissionMode: "default",
+            ...(READONLY
+              ? {
+                  // Only read tools + the read-only SQL tool exist for the agent.
+                  tools: ["Read", "Grep", "Glob", "Skill", "TodoWrite"],
+                  mcpServers: { mesha: meshaToolsFor(user, { send, signal: abort.signal, stopReason: () => stopReason, chatId: chat.id, tenantId: user.tenantId, evCtx: trackCtx, run }) },
+                  allowedTools: ["mcp__mesha__run_sql", "mcp__mesha__describe_table", "mcp__mesha__watch_tags"],
+                  disallowedTools: ["Bash", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Task", "Agent"],
+                }
+              : {}),
+            // GOATOS_AI_SETUP_GUARD=0: the repo's documented opt-out for its "install code-graph
+            // tooling" nag, which otherwise blocks every tool call in fresh chat worktrees.
+            env: {
+              ...agentEnv(provider),
+              // Read-only mode queries through run_sql (in this process); the agent's own process and
+              // any repo hooks it runs never need the DB password. Only the dev psql mode gets it.
+              ...(READONLY ? {} : loadPgEnv()),
+              // Drops the git-status snapshot (branch, uncommitted files, commits) from the system
+              // prompt: seen live, "how are we doing?" was answered with the branch's dirty files.
+              CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS: "1",
+              GOATOS_AI_SETUP_GUARD: "0",
+              // Same for the one-time "graph-first" speed bump: it fails the first Grep/Glob/Read of every
+              // chat (seen live: "PreToolUse:Grep hook error"), costing a turn on every investigation.
+              GOATOS_GRAPH_GUARD: "0",
+              CLAUDE_CODE_DISABLE_CLAUDE_MDS: "1", // loaded via repoInstructions() instead
+              MCP_TOOL_TIMEOUT: "2100000", // watch_tags may legitimately run up to its 30-min cap
+              ENABLE_PROMPT_CACHING_1H: "1", // CEOs ask sporadically; keep the prefix warm for an hour
+            },
+            abortController: attemptAbort,
+          },
+        });
+        started = true;
+        for await (const msg of stream) {
+          track.onMessage(msg, toolLabel);
+          if (msg.type === "system" && msg.subtype === "api_retry") {
+          // Vertex quota/permission errors are retried by the SDK with backoff; in auto mode
+          // cut that short and rerun on the API key while nothing has reached the screen.
+          if (shouldFallback({ mode: providerSwitch.mode, provider, status: msg.error_status, error: msg.error, streamed: metric.first_token_ms !== null, attempt })) {
+            fallbackReason = `api_retry ${msg.error_status ?? ""} ${msg.error || ""}`.trim();
+            attemptAbort.abort();
+            break;
+          }
+        } else if (msg.type === "system" && msg.subtype === "init" && msg.session_id) {
+            if (chat.session_id !== msg.session_id) {
+              if (resume !== msg.session_id) prevSessionCost = 0; // new session: its cost starts at 0
+              chat.session_id = msg.session_id;
+              await store.updateChat(chat.id, { session_id: msg.session_id });
             }
-          : {}),
-        // GOATOS_AI_SETUP_GUARD=0: the repo's documented opt-out for its "install code-graph
-        // tooling" nag, which otherwise blocks every tool call in fresh chat worktrees.
-        env: {
-          ...agentEnv(),
-          // Read-only mode queries through run_sql (in this process); the agent's own process and
-          // any repo hooks it runs never need the DB password. Only the dev psql mode gets it.
-          ...(READONLY ? {} : loadPgEnv()),
-          // Drops the git-status snapshot (branch, uncommitted files, commits) from the system
-          // prompt: seen live, "how are we doing?" was answered with the branch's dirty files.
-          CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS: "1",
-          GOATOS_AI_SETUP_GUARD: "0",
-          // Same for the one-time "graph-first" speed bump: it fails the first Grep/Glob/Read of every
-          // chat (seen live: "PreToolUse:Grep hook error"), costing a turn on every investigation.
-          GOATOS_GRAPH_GUARD: "0",
-          CLAUDE_CODE_DISABLE_CLAUDE_MDS: "1", // loaded via repoInstructions() instead
-          ENABLE_PROMPT_CACHING_1H: "1", // CEOs ask sporadically; keep the prefix warm for an hour
-        },
-        abortController: abort,
-      },
-    });
-    started = true;
-    for await (const msg of stream) {
-      track.onMessage(msg, toolLabel);
-      if (msg.type === "system" && msg.subtype === "init" && msg.session_id) {
-        if (chat.session_id !== msg.session_id) {
-          if (resume !== msg.session_id) prevSessionCost = 0; // new session: its cost starts at 0
-          chat.session_id = msg.session_id;
-          await store.updateChat(chat.id, { session_id: msg.session_id });
-        }
-      } else if (msg.type === "stream_event") {
-        const ev = msg.event;
-        if (ev.type === "message_start") {
-          if (lastTurnText) full += "\n\n";
-          lastTurnText = "";
-        } else if (ev.type === "content_block_start" && ev.content_block?.type === "tool_use") {
-          gate.toolStart();
-          // Only a long pre-tool preamble ever reached the screen; clear just that case.
-          if (turnVisible) send({ type: "reset" });
-          turnVisible = false;
-          filter = makeChartFilter(emitVisible);
-        } else if (ev.type === "content_block_delta" && ev.delta?.type === "text_delta") {
-          full += ev.delta.text;
-          lastTurnText += ev.delta.text;
-          gate.text(ev.delta.text);
-        } else if (ev.type === "message_delta" && ev.delta?.stop_reason && ev.delta.stop_reason !== "tool_use") {
-          gate.end();
-        }
-      } else if (msg.type === "assistant") {
-        for (const block of msg.message.content || []) {
-          if (block.type === "tool_use") {
-            metric.tool_calls += 1;
-            if (metric.first_tool_ms === null) metric.first_tool_ms = since();
-            if (
-              block.name === "mcp__mesha__run_sql" ||
-              (block.name === "Bash" && /\bpsql\b/.test(String(block.input?.command || "")))
-            )
-              metric.db_queries += 1;
-            send({ type: "progress", phase: "querying", label: toolLabel(block.name, block.input || {}) });
+          } else if (msg.type === "stream_event") {
+            const ev = msg.event;
+            if (ev.type === "message_start") {
+              if (lastTurnText) full += "\n\n";
+              lastTurnText = "";
+            } else if (ev.type === "content_block_start" && ev.content_block?.type === "tool_use") {
+              gate.toolStart();
+              // Only a long pre-tool preamble ever reached the screen; clear just that case.
+              if (turnVisible) send({ type: "reset" });
+              turnVisible = false;
+              filter = makeChartFilter(emitVisible);
+            } else if (ev.type === "content_block_delta" && ev.delta?.type === "text_delta") {
+              full += ev.delta.text;
+              lastTurnText += ev.delta.text;
+              gate.text(ev.delta.text);
+            } else if (ev.type === "message_delta" && ev.delta?.stop_reason && ev.delta.stop_reason !== "tool_use") {
+              gate.end();
+            }
+          } else if (msg.type === "assistant") {
+          if (msg.error) attemptErr.error = msg.error;
+            for (const block of msg.message.content || []) {
+              if (block.type === "tool_use") {
+                metric.tool_calls += 1;
+                if (metric.first_tool_ms === null) metric.first_tool_ms = since();
+                if (
+                  block.name === "mcp__mesha__run_sql" ||
+                  (block.name === "Bash" && /\bpsql\b/.test(String(block.input?.command || "")))
+                )
+                  metric.db_queries += 1;
+                send({ type: "progress", phase: "querying", label: toolLabel(block.name, block.input || {}) });
+              }
+            }
+          } else if (msg.type === "result") {
+            metric.turns = msg.num_turns ?? null;
+            metric.session_cost_usd = msg.total_cost_usd ?? null;
+            metric.cost_usd = answerCostUsd(msg.total_cost_usd, prevSessionCost);
+            if (metric.session_cost_usd != null) {
+              chat.session_cost_usd = metric.session_cost_usd;
+              await store.updateChat(chat.id, { session_cost_usd: metric.session_cost_usd }).catch(() => {});
+            }
+            metric.input_tokens = msg.usage?.input_tokens ?? null;
+            metric.output_tokens = msg.usage?.output_tokens ?? null;
+            // Prompt-cache health: a cold prefix (cache_read ~0, cache_creation large) costs ~10s + $0.5.
+            metric.cache_read_tokens = msg.usage?.cache_read_input_tokens ?? null;
+            metric.cache_creation_tokens = msg.usage?.cache_creation_input_tokens ?? null;
+            if (msg.subtype !== "success") metric.error = msg.subtype;
+            if (msg.subtype !== "success") attemptErr.error = [attemptErr.error, ...(msg.errors || [])].filter(Boolean).join(" ");
           }
         }
-      } else if (msg.type === "result") {
-        metric.turns = msg.num_turns ?? null;
-        metric.session_cost_usd = msg.total_cost_usd ?? null;
-        metric.cost_usd = answerCostUsd(msg.total_cost_usd, prevSessionCost);
-        if (metric.session_cost_usd != null) {
-          chat.session_cost_usd = metric.session_cost_usd;
-          await store.updateChat(chat.id, { session_cost_usd: metric.session_cost_usd }).catch(() => {});
-        }
-        metric.input_tokens = msg.usage?.input_tokens ?? null;
-        metric.output_tokens = msg.usage?.output_tokens ?? null;
-        // Prompt-cache health: a cold prefix (cache_read ~0, cache_creation large) costs ~10s + $0.5.
-        metric.cache_read_tokens = msg.usage?.cache_read_input_tokens ?? null;
-        metric.cache_creation_tokens = msg.usage?.cache_creation_input_tokens ?? null;
-        if (msg.subtype !== "success") metric.error = msg.subtype;
+      } catch (err) {
+        if (!fallbackReason && !abort.signal.aborted &&
+            shouldFallback({ mode: providerSwitch.mode, provider, error: `${attemptErr.error} ${err?.message || err}`, streamed: metric.first_token_ms !== null, attempt })) {
+          fallbackReason = String(err?.message || err).slice(0, 120);
+        } else if (!fallbackReason) throw err;
+      } finally {
+        abort.signal.removeEventListener("abort", onAbort);
+      }
+      if (!fallbackReason && metric.error && !abort.signal.aborted &&
+          shouldFallback({ mode: providerSwitch.mode, provider, error: attemptErr.error, streamed: metric.first_token_ms !== null, attempt })) {
+        fallbackReason = attemptErr.error.slice(0, 120);
+      }
+      if (!fallbackReason) break;
+      // Vertex can't serve right now: mark it down and rerun this request once on the API key.
+      providerSwitch.markVertexDown(fallbackReason);
+      console.warn(`[provider] ${requestId} vertex failed before first token (${fallbackReason}); retrying on anthropic`);
+      await events.emit("provider_fallback", evCtx, { severity: "WARNING", from: "vertex", to: "anthropic", reason: fallbackReason });
+      provider = "anthropic";
+      evCtx.provider = trackCtx.provider = metric.provider = provider;
+      metric.provider_fallback = true;
+      metric.error = null;
+      full = "";
+      lastTurnText = "";
+      turnVisible = false;
+      filter = makeChartFilter(emitVisible);
+      gate = makeTurnGate((t) => filter(t));
+      // Drop the failed attempt's session; retry resumes (or starts) exactly as attempt 0 did.
+      prevSessionCost = origPrevSessionCost;
+      if (chat.session_id !== origSessionId) {
+        chat.session_id = origSessionId;
+        await store.updateChat(chat.id, { session_id: origSessionId }).catch(() => {});
       }
     }
     gate.end();
@@ -834,7 +909,7 @@ async function route(req, res) {
     const url = new URL(req.url, "http://x");
     const p = url.pathname;
     console.log(new Date().toISOString(), req.method, p);
-    if (p === "/healthz") return json(res, 200, { ok: true });
+    if (p === "/healthz") return json(res, 200, { ok: true, provider: providerSwitch.current(), claude: providerSwitch.status() });
     // Benchmark: local-only (server binds 127.0.0.1).
     // Benchmark summary: open on a loopback bind; otherwise requires the bench token.
     if (p === "/metrics" || p === "/metrics/users" || p === "/metrics/recent") {

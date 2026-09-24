@@ -17,6 +17,8 @@ substitutions:
   # tools/ask-mesha-agent/deploy/RUNBOOK.md exists; the Slack bot never sets these,
   # so existing backend/web/mobile deploys are unchanged. Set "true" per build.
   _ASK_MESHA_DEPLOY: "false"
+  # Claude auth for the agent: auto (API key until Vertex quota works, then Vertex) | vertex | api-key.
+  _ASK_MESHA_CLAUDE_AUTH: "auto"
   # Additionally point goatos-admin-web-stg at the agent (CEO_AI_AGENT_URL/AUDIENCE).
   _ASK_MESHA_WIRE_ADMIN_WEB: "false"
 
@@ -257,6 +259,7 @@ steps:
       - DEPLOY_STG=${_DEPLOY_STG}
       - ASK_MESHA_DEPLOY=${_ASK_MESHA_DEPLOY}
       - ASK_MESHA_WIRE_ADMIN_WEB=${_ASK_MESHA_WIRE_ADMIN_WEB}
+      - ASK_MESHA_CLAUDE_AUTH=${_ASK_MESHA_CLAUDE_AUTH}
       - REQUESTED_COMMIT_SHA=${_COMMIT_SHA}
       - RESOLVED_COMMIT_SHA=$REVISION_ID
     args:

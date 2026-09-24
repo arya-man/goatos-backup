@@ -247,3 +247,96 @@ test("monthly cap: in-flight reservation is taken before any await after the bud
   assert.match(locked, /activeRuns\.delete\(requestId\)/);
   assert.equal((body.slice(reserve, body.indexOf("if (!locked)")).match(/activeRuns\.delete\(requestId\)/g) || []).length, 2);
 });
+
+// ---- Claude provider switch (provider.mjs) ----------------------------------
+import {
+  authMode, selectProvider, envForProvider, parseProbeResponse, isVertexUnavailable, shouldFallback, probeVertex, createProviderSwitch, vertexUrl,
+} from "../provider.mjs";
+
+test("provider: auth mode + per-request selection", () => {
+  assert.equal(authMode({ ASK_MESHA_CLAUDE_AUTH: "auto" }), "auto");
+  assert.equal(authMode({ CLAUDE_CODE_USE_VERTEX: "1" }), "vertex");
+  assert.equal(authMode({}), "api-key");
+  assert.equal(selectProvider("auto", { vertexOk: false }), "anthropic");
+  assert.equal(selectProvider("auto", { vertexOk: true }), "vertex");
+  assert.equal(selectProvider("vertex", { vertexOk: false }), "vertex");
+  assert.equal(selectProvider("api-key", { vertexOk: true }), "anthropic");
+  assert.equal(selectProvider("oauth", { vertexOk: true }), "anthropic");
+});
+
+test("provider: agent env carries only the chosen backend's credentials", () => {
+  const env = { PATH: "/bin", ANTHROPIC_API_KEY: "k", CLAUDE_CODE_USE_VERTEX: "1", ANTHROPIC_VERTEX_PROJECT_ID: "p", CLOUD_ML_REGION: "global" };
+  const a = envForProvider("anthropic", env);
+  assert.equal(a.ANTHROPIC_API_KEY, "k");
+  assert.equal(a.CLAUDE_CODE_USE_VERTEX, undefined);
+  assert.equal(a.ANTHROPIC_VERTEX_PROJECT_ID, undefined);
+  const v = envForProvider("vertex", env);
+  assert.equal(v.ANTHROPIC_API_KEY, undefined);
+  assert.equal(v.CLAUDE_CODE_USE_VERTEX, "1");
+  assert.equal(v.ANTHROPIC_VERTEX_PROJECT_ID, "p");
+  assert.equal(env.ANTHROPIC_API_KEY, "k", "input env not mutated");
+});
+
+test("provider: probe response parsing", () => {
+  assert.deepEqual(parseProbeResponse(200, JSON.stringify({ type: "message", content: [{ type: "text", text: "o" }] })), { ok: true, reason: "ok" });
+  assert.equal(parseProbeResponse(200, "<html>").ok, false);
+  assert.equal(parseProbeResponse(429, '{"error":{"code":429,"status":"RESOURCE_EXHAUSTED","message":"Quota exceeded"}}').reason, "quota_429");
+  assert.equal(parseProbeResponse(429, "slow down").reason, "rate_limited_429");
+  assert.equal(parseProbeResponse(403, "").reason, "forbidden_403");
+  assert.equal(parseProbeResponse(404, "").reason, "not_found_404");
+  assert.equal(parseProbeResponse(500, "").reason, "http_500");
+  assert.equal(vertexUrl({ project: "p", region: "global", model: "m" }), "https://aiplatform.googleapis.com/v1/projects/p/locations/global/publishers/anthropic/models/m:rawPredict");
+  assert.match(vertexUrl({ project: "p", region: "us-east5", model: "m" }), /^https:\/\/us-east5-aiplatform/);
+});
+
+test("provider: probeVertex sends max_tokens 1 and never throws", async () => {
+  let sent;
+  const ok = await probeVertex({ project: "p", region: "global", model: "m", tokenFn: async () => "t",
+    fetchImpl: async (url, init) => { sent = { url, init }; return { status: 200, text: async () => '{"type":"message","content":[]}' }; } });
+  assert.deepEqual(ok, { ok: true, reason: "ok" });
+  assert.equal(JSON.parse(sent.init.body).max_tokens, 1);
+  assert.equal(sent.init.headers.Authorization, "Bearer t");
+  assert.equal((await probeVertex({ project: "p", region: "global", model: "m", tokenFn: async () => null })).reason, "no_token");
+  assert.equal((await probeVertex({ project: "p", region: "global", model: "m", tokenFn: async () => "t", fetchImpl: async () => { throw new Error("x"); } })).reason, "network");
+});
+
+test("provider: mid-flight fallback decision", () => {
+  const base = { mode: "auto", provider: "vertex", attempt: 0, streamed: false };
+  assert.equal(shouldFallback({ ...base, status: 429 }), true);
+  assert.equal(shouldFallback({ ...base, status: 403 }), true);
+  assert.equal(shouldFallback({ ...base, status: 404 }), true);
+  assert.equal(shouldFallback({ ...base, error: "API Error: 429 RESOURCE_EXHAUSTED Quota exceeded" }), true);
+  assert.equal(shouldFallback({ ...base, error: "rate_limit" }), true);
+  assert.equal(shouldFallback({ ...base, status: 529, error: "overloaded" }), false, "overload isn't a provider problem");
+  assert.equal(shouldFallback({ ...base, status: 429, streamed: true }), false, "tokens already on screen");
+  assert.equal(shouldFallback({ ...base, status: 429, attempt: 1 }), false, "only one retry");
+  assert.equal(shouldFallback({ ...base, provider: "anthropic", status: 429 }), false);
+  assert.equal(shouldFallback({ ...base, mode: "vertex", status: 429 }), false, "forced vertex never falls back");
+  assert.equal(isVertexUnavailable({ error: "PERMISSION_DENIED on aiplatform.endpoints.predict" }), true);
+});
+
+test("provider: switch probes, flips to vertex, re-probes on schedule, and marks vertex down", async () => {
+  const logs = [];
+  const timers = [];
+  let probeResult = { ok: false, reason: "quota_429" };
+  const sw = createProviderSwitch({
+    mode: "auto", probe: async () => probeResult, log: (l) => logs.push(l),
+    setTimer: (fn, ms) => { timers.push(ms); return { fn }; }, clearTimer: () => {},
+  });
+  assert.equal(sw.current(), "anthropic");
+  await sw.probeNow();
+  assert.equal(sw.current(), "anthropic");
+  assert.equal(timers.at(-1), 15 * 60_000);
+  probeResult = { ok: true, reason: "ok" };
+  await sw.probeNow();
+  assert.equal(sw.current(), "vertex");
+  assert.equal(timers.at(-1), 60 * 60_000);
+  assert.ok(logs.includes("[provider] switched to vertex (probe ok)"));
+  sw.markVertexDown("api_retry 429 rate_limit");
+  assert.equal(sw.current(), "anthropic");
+  assert.equal(sw.status().vertex_ok, false);
+  assert.equal(timers.at(-1), 15 * 60_000);
+  const fixed = createProviderSwitch({ mode: "api-key", probe: async () => ({ ok: true }) });
+  await fixed.probeNow();
+  assert.equal(fixed.current(), "anthropic");
+});

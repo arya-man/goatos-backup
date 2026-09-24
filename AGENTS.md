@@ -19,6 +19,7 @@ them away: `docs/architecture/operational-read-model-contract.md`
 
 - Ask Mesha leadership chat (admin-web panel, `CEO_AI_AGENT_URL` flag, `tools/ask-mesha-agent/`, read-only code + read-only stg DB, data map, spend cap, Cloud Run deploy) -> `docs/agent-rules/ask-mesha.md`. Keep all three read-only layers; never modify the legacy backend ceo-ai to make the agent work.
 - Ask Mesha before onboarding a second tenant: session-bound tenant + DB row-level security per tenant read-only login -> `docs/agent-rules/ask-mesha.md` "Multi-tenant isolation".
+- Ask Mesha provider switch (Anthropic API key -> Vertex, no redeploy; auto mode, pin, retire key) -> `docs/agent-rules/ask-mesha.md` "Playbook: move Ask Mesha from the Anthropic key to Vertex".
 - Business data / "where is X in the DB" / any stg data question -> `.agents/skills/mesha-data-map/SKILL.md` (topic -> ceo_ai view -> columns -> date column; one query, skip \dt/\d exploration). Short form: `tools/ask-mesha-agent/data-map-core.md`.
 - Android/mobile/APK/Room/device QA -> `docs/agent-rules/android.md`: proof media, CLI bootstrap, APK traceability, who-did-what provenance, offline-first Room reads, refresh-on-open, Room upgrades, one-page fetch cap.
 - Vaccination -> `docs/agent-rules/vaccination.md`: anchor dates, catch-up joins normal drive, safe-window park batching, 200/operator-day packing, source dates.
