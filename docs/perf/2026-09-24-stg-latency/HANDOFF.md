@@ -161,3 +161,10 @@ All agents and the 10-minute loop are stopped. Every builder's work (committed, 
 - **read-cache** (`wip/perf-read-cache` 18d7c63f1): every writer now invalidates, the stale window is 0, and there's a read-your-writes E2E. Judge running.
 - **herd-live** (`wip/perf-herd-live` 596220895): R1–R4. Judge running.
 - **Follow-up (not blocking):** the newborn placement `ON CONFLICT` bug on main (`tasks/.../newborn_placement.go:258`), handled in a separate task.
+- **herd-live R1–R4:** **IN PR as dd2579a7e, judged CLEAN.**
+  - Lock-free scoring, the ingest fast path, and a single-SQL batch.
+  - 50k tags: ticks 0.45–1.5 s; the initial pass is 57.7 s.
+  - Follow-ups:
+    - a stored 24h baseline rollup;
+    - 000402 was edited in place, so any dev DB that already applied it must re-migrate;
+    - `page_limit25` p95 is about 415 ms at 5k tags, close to the 500 ms max.
