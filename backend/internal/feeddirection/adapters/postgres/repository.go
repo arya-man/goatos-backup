@@ -305,6 +305,8 @@ func (r *Repository) LoadConfigSnapshot(ctx context.Context, tenantID, parkID st
 	if err := r.loadExperiments(ctx, &snapshot, tenantID, parkID); err != nil {
 		return domain.ConfigSnapshot{}, err
 	}
+	// A feed that is not ACTIVE in the catalog is not on the sheet at all (2026-09-24).
+	domain.DropInactiveFeeds(&snapshot)
 	return snapshot, nil
 }
 

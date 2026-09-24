@@ -623,3 +623,46 @@ func TestSessionSlotsAreParkScoped(t *testing.T) {
 			snapshot.PlannedFeedItems())
 	}
 }
+
+// A feed that is not ACTIVE in the catalog is not on the sheet at all (maintainer decision
+// 2026-09-24). The live case: a session slot still declared active for a retired feed (Baking Soda)
+// and an experiment pen still carrying a retired feed at 0 g (Concentrate). Both used to ride onto
+// every sheet, packing card and phone as 0 kg lines. A pen whose only cells are retired keeps them,
+// so it can never silently drop from the experiment to the ration grid.
+func TestRetiredFeedsAreOffTheSheetButNeverEmptyAPen(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupFeedDirectionDB(t, ctx)
+	exec := func(sql string, args ...any) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, sql, args...); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+	}
+	// An ACTIVE slot declaring the retired feed -- what the live sessions carry.
+	exec(`INSERT INTO feed_session_template_items (tenant_id, park_id, session_no, slot_no, feed_item_label, status)
+VALUES ($1::uuid, $2::uuid, 2, 2, 'Retired Item', 'active')`, fdTenant, fdPark)
+	exec(`INSERT INTO feed_experiment_config (tenant_id, park_id, shed_id, feed_item_label, quantity_basis, grams_per_head, experiment_category, status)
+VALUES ($1::uuid, $2::uuid, $3::uuid, 'Hybrid',       'grams_per_head', 250.000, 'Trial A', 'active'),
+       ($1::uuid, $2::uuid, $3::uuid, 'Retired Item', 'grams_per_head',   0.000, 'Trial A', 'active'),
+       ($1::uuid, $2::uuid, $4::uuid, 'Retired Item', 'grams_per_head',   0.000, 'Trial B', 'active')`,
+		fdTenant, fdPark, fdShedA, fdShedB)
+
+	snapshot, err := repo.LoadConfigSnapshot(ctx, fdTenant, fdPark, businessDay(2026, 7, 19))
+	if err != nil {
+		t.Fatalf("LoadConfigSnapshot: %v", err)
+	}
+	for _, session := range snapshot.Sessions {
+		for _, item := range session.Items {
+			if session.SessionNo == 2 && item.Label == "Retired Item" {
+				t.Errorf("session 2 still carries the retired feed: %+v", session.Items)
+			}
+		}
+	}
+	penA := snapshot.ExperimentByLocation[domain.ExperimentLocationKey(fdShedA, "")]
+	if len(penA) != 1 || penA[0].FeedItemLabel != "Hybrid" {
+		t.Errorf("pen A cells = %+v, want only the active Hybrid", penA)
+	}
+	if penB := snapshot.ExperimentByLocation[domain.ExperimentLocationKey(fdShedB, "")]; len(penB) != 1 {
+		t.Errorf("pen B holds only a retired feed and must stay an experiment pen, not empty: %+v", penB)
+	}
+}
