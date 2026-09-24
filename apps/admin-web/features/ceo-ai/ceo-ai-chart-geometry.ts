@@ -190,7 +190,8 @@ function barLayout(labels: string[], series: CeoAiChartSeries[], legend: ChartLe
       pct: pctOf(value),
       // Colour means "which series", never "which row": one series = one colour, so weeks of
       // the same measure never look like different things.
-      color: CHART_PALETTE[0],
+      // Exception: a single-series loss (-18) must not look like a gain the same length.
+      color: !multi && value !== null && value < 0 ? "var(--danger)" : CHART_PALETTE[0],
     };
     if (multi) {
       bar.parts = series.map((s, k) => ({
