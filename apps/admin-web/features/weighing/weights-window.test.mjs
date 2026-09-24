@@ -149,10 +149,11 @@ test("weights analytics time-wise uses the same selected/default period as every
   assert.doesNotMatch(analyticsSource, /trendWindow/);
   assert.doesNotMatch(analyticsSource, /tab === "time" \?[^:]+: window/);
   assert.match(analyticsSource, /const readWindow = window;/);
-  // The ONE deliberate exception is the Load-wise tab (maintainer request 2026-09-03): a purchase
-  // load is bought whole, so that tab's shed read carries park-only scope over an all-time window
-  // and its caption says so. Every other tab still reads the page's own scope and window.
-  assert.match(analyticsSource, /const shedParams = \{\s*\n\s*\.\.\.\(wantsLoads \? \{ park_id: parkFilter \|\| undefined, from: LOAD_TAB_ALL_TIME_FROM, to: today \} : \{ \.\.\.scope, \.\.\.readWindow \}\),/);
+  // The Comparison (load) tab reads the SELECTED period too (maintainer request 2026-09-24); a load
+  // is bought whole, so only its sex/origin/mode scope is dropped -- and those filters are hidden.
+  assert.match(analyticsSource, /\.\.\.\(wantsLoads \? \{ park_id: parkFilter \|\| undefined, \.\.\.readWindow \} : \{ \.\.\.scope, \.\.\.readWindow \}\),/);
+  assert.doesNotMatch(analyticsSource, /LOAD_TAB_ALL_TIME_FROM/);
+  assert.match(analyticsSource, /field\.param === "park" \|\| field\.param === WINDOW_FROM_PARAM/);
   assert.match(analyticsSource, /include_loads: wantsLoads/);
   assert.match(analyticsSource, /include_dates: false/);
   assert.match(analyticsSource, /getShedWeights\(shedParams\)/);

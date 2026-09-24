@@ -14,14 +14,14 @@ import type { LoadwiseLoad, LoadwiseWeightLoad } from "@/lib/api/procurement";
  * Two backend-owned reads joined by the farm's own load number, never a third number of this
  * tab's invention: the purchase side is the procurement load ledger (`/procurement/loadwise-sales`,
  * purchase weight over animals bought), the weighing side is the SAME `/weighing/shed-weights`
- * by-load read the Weights page's load chart uses (weighted mean at each tagged shed's latest
- * weigh). The growth multiple is the one derived figure — latest ÷ purchase, per animal — and it
+ * by-load read the Weights page's load chart uses (the load's own animals, each at its latest
+ * weight in the period, wherever it was weighed). The growth multiple is the one derived figure — latest ÷ purchase, per animal — and it
  * renders as absent whenever either side is missing, because a load with no tagged shed or no
  * recorded purchase weight has no honest multiple.
  *
- * The parent page fetches both reads (the weighing side over an ALL-TIME window — "latest
- * weighing" means the newest weigh that exists, not the newest inside the page's selected
- * period) and passes them here; this component composes no data of its own.
+ * The parent page fetches both reads (the weighing side over the SELECTED period: "latest
+ * weighing" is each load animal's newest weigh inside it, followed through every pen move --
+ * maintainer decision 2026-09-24) and passes them here; this component composes no data of its own.
  */
 
 function kg(value: number): string {
@@ -69,7 +69,7 @@ export function LoadComparisonTab({
   pageContract: AdminUiPageContract;
   /** The UNPRICED purchase rows (loadwise-weights); null when that read failed. */
   loads: LoadwiseWeightLoad[] | null;
-  /** The by-load weighing read (all-time window); null when that read failed. */
+  /** The by-load weighing read (the selected period); null when that read failed. */
   weights: ShedWeightsResponse | null;
   /** The assumed live-weight sale prices (growth_sale_price_assumptions); null when unread. */
   salePrices: GrowthSalePrice[] | null;

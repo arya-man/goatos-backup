@@ -116,13 +116,6 @@ const DEFAULT_LIMIT = 25;
 
 const TABS = ["general", "breed", "birth", "shed", "weight", "time", "load", "fcr"] as const;
 
-/**
- * The Load-wise tab's weighing window floor — before any Mesha weighing capture, so "latest
- * weighing" means the newest weigh on record whatever period the page's own filter holds. A
- * purchase load is bought whole, so that tab deliberately ignores the period/sex/origin/mode
- * filters (its caption says so).
- */
-const LOAD_TAB_ALL_TIME_FROM = "2024-01-01";
 type Tab = (typeof TABS)[number];
 
 function weighingModeFilter(raw: string | undefined): string {
@@ -290,10 +283,9 @@ export async function WeighingWeightsAnalyticsPage({
               : "";
 
   // The Load-wise tab reads the purchase ledger beside the ONE shed-weights request every tab
-  // makes — but on that tab the shed read carries the tab's own basis instead of the page
-  // filters: park only, all-time window. A load is bought whole, so sex/origin/mode cannot
-  // slice it, and "latest weighing" means the newest weigh on record, not the newest inside
-  // the selected period. One request either way, never two overlapping shed reads.
+  // makes. On that tab the shed read carries park + the selected period only: a load is bought
+  // whole and followed through every pen move by its own animals, so sex/origin/mode cannot slice
+  // it (and are hidden there). One request either way, never two overlapping shed reads.
   const wantsLoads = tab === "load";
   // The Weight-wise tab's feed table reads the Growth Director's feed-by-weight-band endpoint
   // beside the demographics read, under every page filter: the backend resolves sex, origin and
@@ -301,7 +293,10 @@ export async function WeighingWeightsAnalyticsPage({
   // as the General tab does.
   const wantsFeedBand = tab === "weight";
   const shedParams = {
-    ...(wantsLoads ? { park_id: parkFilter || undefined, from: LOAD_TAB_ALL_TIME_FROM, to: today } : { ...scope, ...readWindow }),
+    // The Comparison tab reads the SELECTED period (maintainer request 2026-09-24): "latest weighing"
+    // is each load animal's newest weigh inside it. A load is bought whole and followed through
+    // every pen move, so only park narrows it -- the sex, origin and mode filters are hidden there.
+    ...(wantsLoads ? { park_id: parkFilter || undefined, ...readWindow } : { ...scope, ...readWindow }),
     ...(saleThresholdKg != null ? { sale_threshold_kg: saleThresholdKg } : {}),
     ...(saleLowerKg != null ? { sale_lower_kg: saleLowerKg } : {}),
     include_loads: wantsLoads,
@@ -480,13 +475,18 @@ export async function WeighingWeightsAnalyticsPage({
       ],
     },
   ];
+  // Filters the Comparison tab does not apply are HIDDEN there, not left showing a choice that
+  // changes nothing (maintainer request 2026-09-24). Park and Period stay.
+  const visibleFilterFields = wantsLoads
+    ? filterFields.filter((field) => field.param === "park" || field.param === WINDOW_FROM_PARAM)
+    : filterFields;
 
   return (
     <div className="weights-page">
       <WorklistFilters
         basePath={PAGE_PATH}
         pageParam="offset"
-        fields={filterFields}
+        fields={visibleFilterFields}
         pageContract={pageContract}
         trailing={
           <WeightsExportControl

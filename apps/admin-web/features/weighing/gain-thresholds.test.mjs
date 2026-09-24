@@ -257,6 +257,14 @@ test("Sex sits in the filter bar beside Weighing, defaults to Male, and carries 
   assert.match(source, /const sexChoice = sexFilter === "" \? "all" : sexFilter/);
 });
 
+test("a load animal is filtered by its own sex, weighed alone or with its pen", () => {
+  const loadFile = readFileSync(
+    new URL("../../../../backend/internal/weighing/adapters/postgres/load_animals.go", import.meta.url),
+    "utf8",
+  );
+  assert.match(loadFile, /\$5::text = '' OR lower\(btrim\(g\.sex\)\) = \$5::text/);
+});
+
 test("the backend narrows BOTH kinds of weigh, from one resolver", () => {
   const scopeFile = readFileSync(
     new URL("../../../../backend/internal/weighing/adapters/postgres/sex_scope.go", import.meta.url),
@@ -276,7 +284,9 @@ test("the backend narrows BOTH kinds of weigh, from one resolver", () => {
 
   // The other weighing reads apply the filter WITHOUT naming a herd table: they are handed an
   // opaque tag list and bucket list, which is what keeps the isolation lock intact.
-  for (const file of ["shed_weights.go", "growth.go", "load_weights.go"]) {
+  // load_animals.go is NOT in this list on purpose: a load is its animals (maintainer decision
+  // 2026-09-24), so that recorded exemption filters on each animal's OWN sex -- asserted below.
+  for (const file of ["shed_weights.go", "growth.go"]) {
     const read = readFileSync(
       new URL(`../../../../backend/internal/weighing/adapters/postgres/${file}`, import.meta.url),
       "utf8",

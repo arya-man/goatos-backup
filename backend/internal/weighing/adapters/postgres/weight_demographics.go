@@ -1383,32 +1383,10 @@ SELECT
        LEFT JOIN locations pk ON pk.location_id = pp.park_id
        GROUP BY p.location_id, p.partition_label, p.week_start, sh.name, pp.park_id, pk.location_code, pk.name
      ) gpw) ELSE '[]'::jsonb END,
-  CASE WHEN $24::bool THEN (SELECT COALESCE(jsonb_agg(jsonb_build_array(load_ref, owner_name, week_start, n, g)
-                             ORDER BY load_ref, week_start), '[]'::jsonb)
-     FROM (
-       SELECT t.load_ref, COALESCE(t.owner_name, '') AS owner_name, p.week_start,
-              sum(p.n)::bigint AS n, (sum(p.gsum) / NULLIF(sum(p.n), 0))::float8 AS g
-       FROM (
-         SELECT location_id, partition_label, week_start, n, gsum
-         FROM animal_gain_week_pen
-         UNION ALL
-         SELECT pw.location_id, pw.partition_label, pw.week_start, sum(pw.animals)::bigint, sum(pw.animals * pw.g_per_day)::float8
-         FROM pen_week pw
-         WHERE $5::text = '' OR EXISTS (
-           SELECT 1 FROM shed_cohort sc
-           WHERE sc.location_id = pw.location_id AND sc.partition_label = pw.partition_label
-             AND sc.sexes = 1 AND lower(btrim(sc.sex)) = $5::text)
-         GROUP BY pw.location_id, pw.partition_label, pw.week_start
-       ) p
-       JOIN (
-         SELECT location_id, min(load_ref) AS load_ref, min(owner_name) AS owner_name
-         FROM weighing_shed_load_tags
-         WHERE tenant_id = $1::uuid
-         GROUP BY location_id
-         HAVING count(*) = 1
-       ) t ON t.location_id = p.location_id
-       GROUP BY t.load_ref, COALESCE(t.owner_name, ''), p.week_start
-     ) glw) ELSE '[]'::jsonb END,
+  -- The per-load series is no longer read here: a load is its ANIMALS, followed wherever they were
+  -- weighed (load_animals.go, maintainer decision 2026-09-24), not the pens on a fixed tag list.
+  -- The slot stays so every later bind keeps its number; the Go side fills gain_by_load_week.
+  CASE WHEN $24::bool THEN '[]'::jsonb ELSE '[]'::jsonb END,
   -- How many animals of each breed fell into each daily-gain band. DISJOINT bands
   -- (maintainer, 2026-08-24): an animal at 260 g/day is counted by the >250 filter ONLY,
   -- and the four counts partition n exactly — every animal with a gain lands in one band.
@@ -1568,6 +1546,12 @@ SELECT
 	}
 	if out.GainByLoadWeek, err = decodeWeightGainLoadWeekBuckets(gainLoadWeekJSON); err != nil {
 		return domain.WeightDemographics{}, err
+	}
+	if sectionSet["weekly_gain"] {
+		// The same animals and the same legs as every other load chart, on this tab's buckets and pen.
+		if out.GainByLoadWeek, err = r.loadAnimalBuckets(ctx, tenantID, parkIDs, periodStart, periodEnd, sex, origin, weighingCategory, timeScope); err != nil {
+			return domain.WeightDemographics{}, err
+		}
 	}
 	if out.GainThresholdsByBreed, err = decodeWeightGainThresholdBuckets(gainThresholdBreedJSON); err != nil {
 		return domain.WeightDemographics{}, err

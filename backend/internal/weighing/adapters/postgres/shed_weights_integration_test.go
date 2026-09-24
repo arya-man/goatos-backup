@@ -189,7 +189,7 @@ func TestShedWeightsSaleThresholdsCountWholeShedPensAtThePenAverage(t *testing.T
 	seedLumpSumObservation(t, ctx, pool, lgPerShedBkt2, 4, 31.0, aug8)
 	// The seed writes raw SQL, not through the repository, so the analytics read cache would hand
 	// back the "before" result for the identical parameters. Drop it, as a real write would.
-	repo.invalidateReadCache()
+	repo.cache.EvictAll(ctx)
 
 	after, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "", "", "", 0, 0, 0)
 	if err != nil {
@@ -251,7 +251,7 @@ func TestShedWeightsKPICountsAnimalsWeighedOnceAtTheirLatestWeight(t *testing.T)
 	seedShedWeightScan(t, ctx, pool, "ONCE-TWICE", 32.0, aug8)
 	seedShedWeightScan(t, ctx, pool, "ONCE-ONLY", 31.0, aug8)
 	seedLumpSumObservation(t, ctx, pool, repoShedScope, 5, 20.0, aug8)
-	repo.invalidateReadCache() // raw-SQL seeds bypass the repository, so its read cache must be dropped by hand
+	repo.cache.EvictAll(ctx) // raw-SQL seeds bypass the repository, so its read cache must be dropped by hand
 
 	after, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "", "", "", 0, 0, 0)
 	if err != nil {
@@ -1065,7 +1065,7 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'OM-NEW', 33.0, $4::uuid, $5::uuid, 'omnew
 	// StatusMatrix over the weighs: one of each live verification status still counts.
 	execWeighingTestSQL(t, ctx, pool, `UPDATE weighing_observations SET verification_status = 'verified' WHERE scanned_identifier = 'OM-OLD'`)
 	execWeighingTestSQL(t, ctx, pool, `UPDATE weighing_observations SET verification_status = 'rework' WHERE scanned_identifier = 'OM-B'`)
-	repo.invalidateReadCache()
+	repo.cache.EvictAll(ctx)
 
 	after, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "", "", "", 0, 0, 0)
 	if err != nil {
@@ -1092,7 +1092,7 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'OM-NEW', 33.0, $4::uuid, $5::uuid, 'omnew
 	}
 
 	execWeighingTestSQL(t, ctx, pool, `UPDATE weighing_campaign_sheds SET status = 'canceled' WHERE campaign_shed_id = $1::uuid`, laterBucket)
-	repo.invalidateReadCache()
+	repo.cache.EvictAll(ctx)
 	canceled, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "", "", "", 0, 0, 0)
 	if err != nil {
 		t.Fatalf("GetShedWeights canceled: %v", err)

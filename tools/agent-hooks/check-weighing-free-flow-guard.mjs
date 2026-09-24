@@ -369,6 +369,21 @@ const HERD_JOIN_EXEMPT_FILES = new Map([
       tables: [...HERD_JOIN_BASE_TABLES, "procurement_load_goats"],
     },
   ],
+  [
+    "backend/internal/weighing/adapters/postgres/load_animals.go",
+    {
+      // A LOAD IS ITS ANIMALS. The load charts (Weights load bars, ADG Analytics Comparison and
+      // Time-wise load table, Sales > Loads) read a load from the animals bought on it, wherever
+      // those animals were weighed, instead of from the weighing_shed_load_tags pen list that was
+      // typed once and never followed a move. That needs which animal came off which load
+      // (procurement_load_goats + procurement_loads, parties for the supplier name) and where each
+      // animal was on a weigh day (goat_location_history, then the register). READ-ONLY and
+      // REPORTING-ONLY: no capture, submit, close or verdict path calls it, no scan is gated on it.
+      reason:
+        "maintainer decision 2026-09-24: load ADG and latest weight follow the load's own animals through every pen move, and a newly bought load appears without anyone tagging pens",
+      tables: [...HERD_JOIN_BASE_TABLES, "goat_location_history", "procurement_load_goats", "procurement_loads", "parties"],
+    },
+  ],
 ]);
 
 const WRITE_PATH_ALLOWED_TABLES = new Set([
