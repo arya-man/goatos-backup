@@ -19,7 +19,7 @@ export type SalesDealPaymentWrite = AppApiComponents["schemas"]["SalesDealPaymen
 export type SalesDealStatusWrite = AppApiComponents["schemas"]["SalesDealStatusWrite"];
 export type SalesDealPage = AppApiComponents["schemas"]["SalesDealPage"];
 /**
- * What the farm sells and what each of those may be sold as (migration 000402).
+ * What the farm sells and what each of those may be sold as (migration 000422).
  *
  * The record-sale drawer reads THIS rather than a vocabulary in the page contract, because the
  * phone's form reads it too and the two surfaces must not drift. It is a tenant read: a farm adds

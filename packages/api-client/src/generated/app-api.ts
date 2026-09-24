@@ -10587,7 +10587,7 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
         };
-        /** @description One product slice of a sale, with its own counts, weight and value. The product vocabulary is the tenant's own sellable-product registry (migration 000402), so it is deliberately NOT an enum here: a farm adds what it sells without a contract change. */
+        /** @description One product slice of a sale, with its own counts, weight and value. The product vocabulary is the tenant's own sellable-product registry (migration 000422), so it is deliberately NOT an enum here: a farm adds what it sells without a contract change. */
         SalesDealLine: {
             /** Format: uuid */
             line_id: string;
@@ -10759,7 +10759,7 @@ export interface components {
             /** @description The offset actually applied. Echoed so the client can render the page number. */
             offset: number;
         };
-        /** @description Record-sale body. ONE sale may carry several product/breed lines (maintainer decision 2026-09-12): send `lines`, one per product/breed, each with its own counts, weight and value; the deal's product_type/breed/counts/sales_value are then computed server-side as the rollup of the lines and any client-sent values for them are ignored. The legacy single-product fields (product_type, breed, animal_count..., sales_value at the top level) are still accepted WITHOUT `lines` and record exactly one line. The farm is a closed vocabulary and the product is the tenant's own sellable-product registry (migration 000402); both are validated server-side and rejected -- never silently defaulted -- when unrecognised. Blank status records `Deal Closed`. */
+        /** @description Record-sale body. ONE sale may carry several product/breed lines (maintainer decision 2026-09-12): send `lines`, one per product/breed, each with its own counts, weight and value; the deal's product_type/breed/counts/sales_value are then computed server-side as the rollup of the lines and any client-sent values for them are ignored. The legacy single-product fields (product_type, breed, animal_count..., sales_value at the top level) are still accepted WITHOUT `lines` and record exactly one line. The farm is a closed vocabulary and the product is the tenant's own sellable-product registry (migration 000422); both are validated server-side and rejected -- never silently defaulted -- when unrecognised. Blank status records `Deal Closed`. */
         SalesDealWrite: {
             /** Format: date */
             sale_date: string;

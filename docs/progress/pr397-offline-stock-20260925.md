@@ -14,7 +14,7 @@ First validation caught a duplicate Aliases field introduced during editing; cor
 
 ## Final validation
 - PASS: `cd backend && go test ./internal/sales/... ./internal/feeddirection/adapters/postgres ./internal/procurement/... ./internal/adminui/app` (default DB tests opt in).
-- PASS with `GOATOS_RUN_POSTGRES_TESTS=1` and a disposable local PostgreSQL 16 cluster: `TestQueuedSaleSurvivesRenamesWithoutReassigningNames`, `TestFeedCloseReplayUsesPersistedStatusAndDepletesOnlyOnce`, and `TestSuccessorFeedSaleUsesLegacyFamilyStock`. These ran without skips and applied migrations including 000406. No shared/STG data changed.
+- PASS with `GOATOS_RUN_POSTGRES_TESTS=1` and a disposable local PostgreSQL 16 cluster: `TestQueuedSaleSurvivesRenamesWithoutReassigningNames`, `TestFeedCloseReplayUsesPersistedStatusAndDepletesOnlyOnce`, and `TestSuccessorFeedSaleUsesLegacyFamilyStock`. These ran without skips and applied migrations including 000426. No shared/STG data changed.
 - Rename coverage: two renames before first delivery, stable code/current name on persisted sale, one depletion after replay, historical-name collisions refused, archived aliases refused.
 - PASS: new domain alias test and 20-feed service regression (known zero warns; unknown remains unknown). Before: 20 stock reads; after: 1.
 - Repeatable local SQL-shape comparison, 20 samples per shape on the same fixture (3 purchases, 3 sale lines, 2 feed days): old 20-read shape p90/p95/p99 7.831/7.857/8.030 ms; one-snapshot shape 0.852/0.886/1.638 ms. This is a small-fixture comparison, not production HTTP latency certification.

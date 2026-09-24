@@ -11,7 +11,7 @@ import { inr, MAX_SALE_LINES, num } from "./sales-format";
  * The "What was sold" block of the record-sale drawer (maintainer decision 2026-09-12): one card
  * per product line, each with its own figures, and a running total underneath.
  *
- * WHAT A LINE ASKS FOR IS DECIDED BY THE PRODUCT'S KIND (migration 000402), never by its name.
+ * WHAT A LINE ASKS FOR IS DECIDED BY THE PRODUCT'S KIND (migration 000422), never by its name.
  * An animal line asks for a breed, a head count, a weight and a value; a FEED line asks which
  * feed, how many kilograms and at what rate, and works the value out. So the farm adding "Hay"
  * to its registry as another `other` product, or a new feed to its catalogue, changes this screen

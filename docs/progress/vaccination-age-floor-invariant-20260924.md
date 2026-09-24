@@ -100,7 +100,7 @@ vaccination_generation_runs, GuardRejected alerting.
 
 - Added `internal/platform/vaccinepurpose`: one purpose-plan resolver used by generation, persistence, reconcile, reschedule, drive override, and both carry-overs. non_breeding and unconfigured purposes fail closed; breeding/unspecified without an authored plan keep the full schedule; authored plans for any purpose govern.
 - Second wave is generic: any governed second-wave vaccine, any trigger type, needs every first-wave vaccine plus the configured delay after the latest accepted/trusted first-wave administration. Scoped anchor events never count as first-wave doses.
-- Added `obligation_instances.schedule_basis` (migration 000402, `anchored` | `anchor_missing_catch_up`). Only generation's approved adult catch-up sets the exception; the repository allows a missing DOB/arrival anchor only for that basis, a truly missing anchor, and a blank vaccine family.
+- Added `obligation_instances.schedule_basis` (migration 000421, `anchored` | `anchor_missing_catch_up`). Only generation's approved adult catch-up sets the exception; the repository allows a missing DOB/arrival anchor only for that basis, a truly missing anchor, and a blank vaccine family.
 - One persistence validator (`vaccination_write_guard.go`) runs inside the serializable write transaction of every path, with bounded 40001/40P01 retry; reconcile validates after its row lock against the date it writes.
 - Carry-over selects and locks candidates, validates each against the new rule in Go, and rebinds valid rows in place (obligation id, batch, drive membership, completions, idempotency key preserved); invalid rows stay on the retired version. Hard-coded fattening SQL and blanket manual second-wave quarantine removed.
 - Generation skips only the guard-rejected vaccine (`GuardRejected`) instead of failing the goat, and reports it in CLI, stage log, HTTP, and seed summaries.
@@ -240,7 +240,7 @@ Remove the container when the PR is done: `sudo podman rm -f goatos-pr391-throwa
 - Scope: complete card membership independent of list pagination; recover scans/proofs for every card task; release the migration DDL lock before validation. User authorized fixes and push to this PR only.
 - Starting SHA: `1338f872af599d2466439a8785fa17b5c58d1451`; isolated branch `codex/pr391-review-fixes`.
 - Before: selectors contain only loaded assignments; 21 task identities return only 20 to capture observers; migration holds ACCESS EXCLUSIVE through validation.
-- Baseline proof: 136 focused Android tests and focused vaccination/obligation/protocol Go packages pass. Full-tree proof-media-egress and mobile/read-model/location/bind guards pass. Migration checks fail on existing main debt plus new 000402 Down DROP CONSTRAINT.
+- Baseline proof: 136 focused Android tests and focused vaccination/obligation/protocol Go packages pass. Full-tree proof-media-egress and mobile/read-model/location/bind guards pass. Migration checks fail on existing main debt plus new 000421 Down DROP CONSTRAINT.
 - Done: review and failure-path tracing.
 - Pending at review start: implementation, regression tests, real throwaway-Postgres membership/lock proof, final checks, commit and PR push.
 - Judge status: self-review pending; no independent agents requested.
@@ -256,8 +256,8 @@ Remove the container when the PR is done: `sudo podman rm -f goatos-pr391-throwa
 - PostgreSQL final proof: TestCardMembershipIncludesOffPageAssignments passes (95.21s), one-row page with both memberships returned by combined and separate summaries. Tests use pgtest-created databases inside the existing throwaway container, not maintained OCI or STG.
 - Lock proof on 500,000 rows: original DDL transaction blocks a concurrent read at the validation boundary (400ms timeout); revised independent DDL permits the same read. Validation measured 0.176s before / 0.127s after on this synthetic table (not a product latency claim). Reapplying the migration succeeds; invalid schedule_basis is still rejected. Scratch database removed.
 - Guards: mobile, operational-read-model contract, operational-location, PostgreSQL bind, full-tree media egress and diff whitespace pass. The identity-only DAO has a documented scoped exception to the generic unbounded-payload guard; no proof payload limits were relaxed.
-- Migration guard: 000402 complaint removed; pre-existing main migration debt remains. AI doctor initially lacked fresh worktree graph/index artifacts; rebuilding them before push.
+- Migration guard: 000421 complaint removed; pre-existing main migration debt remains. AI doctor initially lacked fresh worktree graph/index artifacts; rebuilding them before push.
 - Self-review: fixed page-dependent roster and record-only routing, task-identity recovery truncation, freshness eviction at 64, and migration lock lifetime. Full local landing CI and phone/browser E2E not run; this is a PR checkpoint, not release certification.
 
-- Final migration correction: the first guard rerun still rejected the redundant Down DROP CONSTRAINT; removing that statement leaves DROP COLUMN to remove its dependent check. The final guard has no 000402 findings; migrate tests pass after this edit.
+- Final migration correction: the first guard rerun still rejected the redundant Down DROP CONSTRAINT; removing that statement leaves DROP COLUMN to remove its dependent check. The final guard has no 000421 findings; migrate tests pass after this edit.
 - Final PR checkpoint: implementation, red/green regression proof, PostgreSQL membership/lock proof, and scoped guards complete. Source SHA is the commit containing this progress update (starting parent above); pending commit/push readback only. No merge or deployment authorized or performed.

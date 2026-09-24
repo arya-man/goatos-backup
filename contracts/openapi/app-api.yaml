@@ -23857,7 +23857,7 @@ components:
       type: object
       description: >-
         One product slice of a sale, with its own counts, weight and value. The product vocabulary
-        is the tenant's own sellable-product registry (migration 000402), so it is deliberately NOT
+        is the tenant's own sellable-product registry (migration 000422), so it is deliberately NOT
         an enum here: a farm adds what it sells without a contract change.
       required: [line_id, line_no, product_type, product_code, product_kind, breed, sales_value]
       properties:
@@ -24146,7 +24146,7 @@ components:
         single-product fields (product_type, breed, animal_count..., sales_value at the top level)
         are still accepted WITHOUT `lines` and record exactly one line. The farm is a closed
         vocabulary and the product is the tenant's own sellable-product registry (migration
-        000402); both are validated server-side and rejected -- never silently defaulted -- when
+        000422); both are validated server-side and rejected -- never silently defaulted -- when
         unrecognised. Blank status records `Deal Closed`.
       required: [sale_date, farm, buyer_name, buyer_vendor_id]
       properties:

@@ -111,7 +111,7 @@ func (h *SalesHandler) GetOverview(w http.ResponseWriter, r *http.Request) {
 
 // GetOptions serves GET /sales/options: the vocabularies a record-sale form renders.
 //
-// It is a TENANT READ now (migration 000402). What the farm sells is its own registry, and each
+// It is a TENANT READ now (migration 000422). What the farm sells is its own registry, and each
 // product's variants are the farm's own live breeds and feed catalogue, so this can no longer be
 // composed from constants at build time -- which was the whole point of retiring them.
 func (h *SalesHandler) GetOptions(w http.ResponseWriter, r *http.Request) {

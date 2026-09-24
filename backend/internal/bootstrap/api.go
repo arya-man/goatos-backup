@@ -981,7 +981,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// The sales module: its own bounded ledger (sales_*) with a thin service -- a commercial
 	// record with no state machine to orchestrate.
 	// The feed store is wired in so a sale taking more feed than it holds asks the desk to confirm
-	// it once (migration 000402). Without this the confirmation silently never fires, so the
+	// it once (migration 000422). Without this the confirmation silently never fires, so the
 	// wiring is asserted by a test rather than left to this line being noticed.
 	salesService := salesapp.NewSalesService(salespg.NewRepository(pool, cfg.Postgres.QueryTimeout)).
 		WithFeedStock(feedDirectionRepo)

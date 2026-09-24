@@ -1,9 +1,9 @@
 -- +goose Up
 --
 -- WHAT THE FARM SELLS IS AUTHORED ON SALES CONFIG (maintainer instruction 2026-09-23, the second
--- half of 000402).
+-- half of 000422).
 --
--- 000402 made the product vocabulary DATA; this makes it EDITABLE, where the maintainer asked for
+-- 000422 made the product vocabulary DATA; this makes it EDITABLE, where the maintainer asked for
 -- it: "in future i will sell tags of sheep also so it should be configurable in sales config --
 -- i will add item and how i will sell, whether in kg's or item numbers". So adding sheep tags is
 -- a row somebody types on /sales/config, and it is in the record-sale dropdown the same minute.

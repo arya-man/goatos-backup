@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// WHAT THE FARM SELLS IS DATA (maintainer instruction 2026-09-23, migration 000402).
+// WHAT THE FARM SELLS IS DATA (maintainer instruction 2026-09-23, migration 000422).
 //
 // 'Sheep', 'Goat' and 'Manure' used to be constants in this package, a CHECK in the schema and an
 // option list in the page contract -- three statements of one fact, so a fourth thing to sell was
@@ -148,12 +148,12 @@ func (c ProductCatalog) Names() []string {
 func (c ProductCatalog) IsEmpty() bool { return len(c.ordered) == 0 }
 
 // BuiltinKind is the kind of the three products every tenant starts with, for the ONE case where
-// no registry row is at hand: a line written before migration 000402 stamped a kind, or a deal
+// no registry row is at hand: a line written before migration 000422 stamped a kind, or a deal
 // read without its lines, whose synthetic line is built from the deal's own columns.
 //
 // It is a FALLBACK and never a source. Every write stamps the kind from the registry, so this
 // answers only for rows recorded before the registry existed -- all of which are one of these
-// three by construction, because until 000402 nothing else could be stored.
+// three by construction, because until 000422 nothing else could be stored.
 func BuiltinKind(productType string) string {
 	switch productType {
 	case ProductSheep, ProductGoat:

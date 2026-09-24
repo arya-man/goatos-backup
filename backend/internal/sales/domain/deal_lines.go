@@ -24,7 +24,7 @@ type DealLine struct {
 
 	ProductType string
 	// ProductCode and ProductKind are the registry row this line was sold under, stamped at write
-	// time (migration 000402). The kind is what every read below asks -- never the name, which the
+	// time (migration 000422). The kind is what every read below asks -- never the name, which the
 	// farm may since have renamed.
 	ProductCode string
 	ProductKind string
@@ -62,8 +62,8 @@ type DealLine struct {
 }
 
 // Kind is what this line's product does, from the line itself. A line recorded before migration
-// 000402 stamped one -- or a synthetic line built from a deal read without its lines -- falls back
-// to the built-in vocabulary, which is the only thing those rows can be: until 000402 nothing else
+// 000422 stamped one -- or a synthetic line built from a deal read without its lines -- falls back
+// to the built-in vocabulary, which is the only thing those rows can be: until 000422 nothing else
 // could be stored.
 func (l DealLine) Kind() string {
 	if l.ProductKind != "" {
@@ -75,7 +75,7 @@ func (l DealLine) Kind() string {
 // IsLive reports whether this line sold live animals.
 func (l DealLine) IsLive() bool { return l.Kind() == KindAnimal }
 
-// Code is the registry row this line was sold under. A line recorded before migration 000402, or
+// Code is the registry row this line was sold under. A line recorded before migration 000422, or
 // a synthetic line from a deal read without lines, falls back to the built-in whose name it
 // carries -- and to nothing at all for a rollup of 'Mixed', which names no single product.
 func (l DealLine) Code() string {

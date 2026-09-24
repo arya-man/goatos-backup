@@ -40,7 +40,7 @@ type ValuationAssumptions struct {
 }
 
 // SeededValuationStages is what the six hard-coded stages MEANT, written out as authored rows --
-// the translation migration 000405 applies to every farm, and what a farm with no row reads. Each
+// the translation migration 000425 applies to every farm, and what a farm with no row reads. Each
 // row's matches are the register entries the retired SQL CASE filed into that bucket:
 //
 //	fattening  F2, F2-Male, F2-Female  -- the three spellings the register carries for fattening

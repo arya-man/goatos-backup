@@ -827,7 +827,7 @@ if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) main
 // 000009-000015 plus the seed-roster-real department-module-grants write were reviewed against the vaccination
 // HRMS seed source. They are orthogonal to it (counts/feed tables, not the vaccination roster source), so no
 // fixture/source-data change is required. See fixtures/vaccination-hrms-source-full/manifest.json -> seed_contract_coupling_reviews.
-// Coupling review 2026-09-24: migration 000402 adds obligation_instances.schedule_basis (NOT NULL,
+// Coupling review 2026-09-24: migration 000421 adds obligation_instances.schedule_basis (NOT NULL,
 // default 'anchored'); only generation's approved adult catch-up for a blank vaccine family with no
 // DOB/entry anchor sets 'anchor_missing_catch_up'. No source column, source date, or validation input
 // changes; HRMS seed/source imports never set it and seeded rows rely on the default.
