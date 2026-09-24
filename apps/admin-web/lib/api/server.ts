@@ -27,14 +27,20 @@ type ErrorEnvelope = AppApiComponents["schemas"]["ErrorEnvelope"];
 // analytics are served from a short per-caller cache (keyed on endpoint + backend + tenant +
 // bearer fingerprint + query, so nothing is shared across users or tenants) and concurrent
 // identical reads share one backend call. Failures are never cached, and any write this
-// process sends to the backend clears the cache (timedBackendFetch), so a user's own edit is
-// never answered from a pre-edit read. Writes made elsewhere (phones, other instances) are
-// visible within the TTL -- the backend's own weighing analytics cache is already 2 minutes.
+// process sends to the backend clears both read caches (timedBackendFetch), so a user's own
+// edit is never answered from a pre-edit read. Writes made elsewhere (phones, other
+// instances) are visible within the TTL -- the backend's own weighing analytics cache is
+// already 2 minutes.
 const SHORT_READ_CACHE_TTL_MS = 30_000;
 const shortReadCache = new ShortReadCache(SHORT_READ_CACHE_TTL_MS);
 // Mutation-sensitive reads (the maintainer-edited assumptions and sale prices) are only
 // coalesced while in flight: another admin-web instance may have just written them.
 const inFlightReadCache = new ShortReadCache(0);
+
+function clearBackendReadCaches(): void {
+  shortReadCache.clear();
+  inFlightReadCache.clear();
+}
 
 export type AdminWebBootstrapResponse =
   AppApiComponents["schemas"]["AdminWebBootstrapResponse"];
@@ -778,11 +784,11 @@ async function timedBackendFetch(
   if (method.toUpperCase() !== "GET") {
     // A write may change anything a cached read answered; drop them before AND after it lands
     // so a read racing the write cannot repopulate the cache with the pre-write answer.
-    shortReadCache.clear();
+    clearBackendReadCaches();
   }
   try {
     const response = await fetch(input, fetchInit);
-    if (method.toUpperCase() !== "GET") shortReadCache.clear();
+    if (method.toUpperCase() !== "GET") clearBackendReadCaches();
     const durationMs = Math.round(performance.now() - startedAt);
     console.info(
       JSON.stringify({
