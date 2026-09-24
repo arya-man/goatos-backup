@@ -59,14 +59,15 @@ type Repository interface {
 	// live_state, cursor and limit never apply).
 	LiveSummary(ctx context.Context, tenantID string, parkID, shedID, mappingState, pattern, riskState, q *string) (domain.Summary, error)
 
-	// ClassifyRiskBatch claims up to limit tags needing classification -- in queue mode the
-	// change-driven work (never classified / queued, seen since last evaluation, or just gone
-	// stale); in aging mode the oldest evaluations older than an hour -- inside ONE short
-	// transaction holding pg_try_advisory_xact_lock for the tenant and FOR UPDATE SKIP LOCKED
-	// on the rows, calls classify, writes every result (risk_evaluated_at set on every row) in
-	// one UNNEST statement and NOTIFYs when any classification changed. locked=false when
-	// another instance holds the tenant's lock.
-	ClassifyRiskBatch(ctx context.Context, tenantID string, mode RiskBatchMode, limit int, classify func(ctx context.Context, tags []domain.TagLatest) ([]TagRisk, error)) (res RiskBatchResult, err error)
+	// ClassifyRiskBatch picks up to limit tags needing classification -- queue mode: never
+	// classified / queued, reporting after risk_due_at, or gone stale; aging mode: evaluations
+	// older than an hour -- and scores them in ONE set-based read (the SQL classifier) inside a
+	// short transaction holding only the tenant's pg_try_advisory_xact_lock (no row locks while
+	// scoring), then writes them with an optimistic guard (row unchanged since scoring, not
+	// locked by ingest) setting risk_evaluated_at and risk_due_at = now() + a per-tag offset in
+	// [floor/2, 3*floor/2). NOTIFYs when any classification changed. Locked=false when another
+	// instance holds the tenant's lock.
+	ClassifyRiskBatch(ctx context.Context, tenantID string, mode RiskBatchMode, limit int, floor time.Duration) (RiskBatchResult, error)
 
 	// ApplyPenMedians persists the medians of pens whose baseline moved (upsert by key), deletes
 	// vanished pens by key, and queues every tag in those pens for re-classification -- one
@@ -180,17 +181,6 @@ type Repository interface {
 	GetGatewayWindowStats(ctx context.Context, tenantID string) (map[string]GatewayWindowStats, error)
 }
 
-// TagRisk is one tag's persisted risk classification, with the deltas it was scored on.
-type TagRisk struct {
-	TagID           string
-	State           *string
-	Score           int
-	Reasons         []string
-	OwnMotionPct    *float64
-	GroupMotionPct  *float64
-	GroupTempDeltaC *float64
-}
-
 // RiskBatchMode selects a classifier batch's work source.
 type RiskBatchMode int
 
@@ -204,7 +194,8 @@ const (
 // RiskBatchResult reports one classifier batch.
 type RiskBatchResult struct {
 	Locked    bool // false: another instance holds this tenant's classifier lock
-	Processed int
+	Picked    int  // tags scored
+	Processed int  // tags written (a tag that reported or was locked meanwhile stays queued)
 	Changed   int
 }
 

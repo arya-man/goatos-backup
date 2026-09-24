@@ -23,6 +23,7 @@ ALTER TABLE public.herd_signal_tag_latest
   ADD COLUMN IF NOT EXISTS risk_own_motion_delta_pct double precision,
   ADD COLUMN IF NOT EXISTS risk_group_motion_delta_pct double precision,
   ADD COLUMN IF NOT EXISTS risk_group_temp_delta_c double precision,
+  ADD COLUMN IF NOT EXISTS risk_baseline_delta bigint,
   ADD COLUMN IF NOT EXISTS risk_evaluated_at timestamptz,
   ADD COLUMN IF NOT EXISTS risk_due_at timestamptz;
 
@@ -57,6 +58,8 @@ COMMENT ON COLUMN public.herd_signal_tag_latest.risk_group_motion_delta_pct IS
   'Motion vs pen median (percent) the classifier scored; NULL when not computable.';
 COMMENT ON COLUMN public.herd_signal_tag_latest.risk_group_temp_delta_c IS
   'Tag temperature minus pen median (C) the classifier scored; NULL when not computable.';
+COMMENT ON COLUMN public.herd_signal_tag_latest.risk_baseline_delta IS
+  '24h p75 300s-tier motion baseline the classifier scored against; lets ingest detect a far-below-baseline crossing and pull risk_due_at forward.';
 COMMENT ON COLUMN public.herd_signal_tag_latest.risk_evaluated_at IS
   'Set on EVERY classifier evaluation of this tag (changed or not); NULL = never classified or queued for re-classification.';
 
@@ -89,6 +92,7 @@ ALTER TABLE public.herd_signal_tag_latest
   DROP CONSTRAINT IF EXISTS herd_signal_tag_latest_risk_state_check,
   DROP COLUMN IF EXISTS risk_due_at,
   DROP COLUMN IF EXISTS risk_evaluated_at,
+  DROP COLUMN IF EXISTS risk_baseline_delta,
   DROP COLUMN IF EXISTS risk_group_temp_delta_c,
   DROP COLUMN IF EXISTS risk_group_motion_delta_pct,
   DROP COLUMN IF EXISTS risk_own_motion_delta_pct,

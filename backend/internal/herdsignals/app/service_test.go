@@ -57,7 +57,7 @@ type fakeRepo struct {
 	listLimits       []int
 	resolvedValueCnt int
 	summaryCalls     int
-	riskWrites       []ports.TagRisk
+	riskWrites       []tagRisk
 	penMedians       map[string]ports.PenMedians
 	penApplies       int
 	batchCalls       int
@@ -187,7 +187,7 @@ func (f *fakeRepo) ApplyPenMedians(_ context.Context, _ string, moved map[string
 }
 
 // ClassifyRiskBatch mirrors the Postgres queue/aging selection and write.
-func (f *fakeRepo) ClassifyRiskBatch(ctx context.Context, _ string, mode ports.RiskBatchMode, limit int, classify func(context.Context, []domain.TagLatest) ([]ports.TagRisk, error)) (ports.RiskBatchResult, error) {
+func (f *fakeRepo) ClassifyRiskBatch(ctx context.Context, tenantID string, mode ports.RiskBatchMode, limit int, _ time.Duration) (ports.RiskBatchResult, error) {
 	f.mu.Lock()
 	now := time.Now()
 	var picked []domain.TagLatest
@@ -207,13 +207,21 @@ func (f *fakeRepo) ClassifyRiskBatch(ctx context.Context, _ string, mode ports.R
 	if len(picked) == 0 {
 		return res, nil
 	}
-	rows, err := classify(ctx, picked)
-	if err != nil {
-		return res, err
+	res.Picked = len(picked)
+	// The Go reference classifier stands in for the SQL one (their equality is proved against
+	// Postgres by TestPersistedRiskMatchesInMemoryClassification).
+	stats := map[string]riskGroupStats{}
+	f.mu.Lock()
+	for k, m := range f.penMedians {
+		stats[k] = riskGroupStats{motionMedian: m.MotionMedian, tempMedian: m.TempMedian}
 	}
+	f.mu.Unlock()
+	items := NewService(f).enrichTagsBatch(ctx, tenantID, picked, nil, false)
+	applyRiskSignals(items, stats)
+	rows := riskRowsFromItems(items)
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	byTag := map[string]ports.TagRisk{}
+	byTag := map[string]tagRisk{}
 	for _, r := range rows {
 		byTag[r.TagID] = r
 		f.riskWrites = append(f.riskWrites, r)
@@ -728,4 +736,29 @@ func TestListLiveIncludesRolling24hMotionDelta(t *testing.T) {
 	if resp.Items[0].MotionDelta24h == nil || *resp.Items[0].MotionDelta24h != delta24h {
 		t.Fatalf("motion_delta_24h = %v, want %d", resp.Items[0].MotionDelta24h, delta24h)
 	}
+}
+
+// tagRisk is the fake's stored classification row.
+type tagRisk struct {
+	TagID           string
+	State           *string
+	Score           int
+	Reasons         []string
+	OwnMotionPct    *float64
+	GroupMotionPct  *float64
+	GroupTempDeltaC *float64
+}
+
+func riskRowsFromItems(items []domain.LiveItem) []tagRisk {
+	rows := make([]tagRisk, len(items))
+	for i, item := range items {
+		rows[i] = tagRisk{
+			TagID: item.TagID, State: item.RiskState, Score: item.RiskScore, Reasons: item.RiskReasons,
+			OwnMotionPct: item.OwnMotionDeltaPct, GroupMotionPct: item.GroupMotionDeltaPct, GroupTempDeltaC: item.GroupTempDeltaC,
+		}
+		if item.RiskState == nil {
+			rows[i].Reasons, rows[i].Score = nil, 0
+		}
+	}
+	return rows
 }
