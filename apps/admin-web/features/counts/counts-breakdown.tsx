@@ -21,6 +21,7 @@ import {
   type VaccinationPageSize,
 } from "@/features/preventive-care-vaccination";
 import { CountsBreakdownFilters, type BreakdownFilterField } from "./counts-breakdown-filters";
+import { LEGACY_FARM_PARAM, PARK_PARAM } from "./counts-breakdown-query";
 import { CountsBreakdownLoads } from "./counts-breakdown-loads";
 import { CountsBreakdownPensTable } from "./counts-breakdown-pens-table";
 import { buildShedFilterOptions } from "./counts-breakdown-sheds";
@@ -74,9 +75,18 @@ export async function CountsBreakdownPage({
 }) {
   const sp = searchParams ?? {};
 
-  // The top bar owns park scope; page-body filters own the rest.
+  // The park is ONE value, the shared `park` parameter every other page reads (maintainer
+  // decision 2026-08-18: a page that hides the top-bar park control owns the park "on the same
+  // `park` parameter"). The top-bar chip is hidden here, so the Farm dropdown below IS the park
+  // control, and it writes `park` — never a page-private key. A private key is what made a park
+  // picked on Herd Analytics render here as a greyed-out "All" over CPT-only numbers, and a farm
+  // picked here vanish on the next Counts page.
+  //
+  // `bd_farm` is still READ, only so a link saved before this change keeps opening on its park;
+  // the filter bar drops it on the next apply.
   const scope = parseScope(sp);
-  const { parkId } = backendScope(scope);
+  const legacyFarmParkId = one(sp, LEGACY_FARM_PARAM);
+  const parkId = backendScope(scope).parkId || legacyFarmParkId || undefined;
 
   // Stage, breed and shed are MULTI-VALUED (repeated URL params, OR within the dimension);
   // farm and gender stay single-valued (maintainer instruction, 2026-09-03).
@@ -84,7 +94,6 @@ export async function CountsBreakdownPage({
     const value = sp[key];
     return (Array.isArray(value) ? value : value ? [value] : []).filter(Boolean);
   };
-  const farmParkId = one(sp, "bd_farm");
   const shedParams = all("bd_shed");
   const stages = all("bd_stage");
   const breeds = all("bd_breed");
@@ -114,7 +123,7 @@ export async function CountsBreakdownPage({
   //
   const [breakdownResult, stageResult] = await Promise.all([
     getCountsBreakdown({
-      park_id: parkId || farmParkId,
+      park_id: parkId,
       pen: pens,
       management_stage: stages,
       breed: breeds,
@@ -133,7 +142,7 @@ export async function CountsBreakdownPage({
 
   const breakdown: CountsBreakdownResponse | null = breakdownResult.ok ? breakdownResult.data : null;
   const penRows = breakdown?.pens ?? [];
-  const hasFilter = Boolean(farmParkId || shedParams.length || stages.length || breeds.length || sex);
+  const hasFilter = Boolean(parkId || shedParams.length || stages.length || breeds.length || sex);
 
   const noParkLabel = copy(pageContract, "label.unassigned_farm");
   const noShedLabel = copy(pageContract, "label.unassigned_shed");
@@ -157,10 +166,9 @@ export async function CountsBreakdownPage({
   const stageLabels = new Map(stageFacets.filter((point) => point.key).map((point) => [point.key, point.label || point.key] as const));
   const stageUnrecorded = stageFacets.length > 0 && stageFacets.every((point) => point.key === "");
 
-  // The shed dropdown cascades to the currently selected park: the top-bar park scope wins,
-  // otherwise the in-body Farm filter. When a park is selected only that park's sheds show,
-  // mirroring the park facet (and the Android CountsViewModel, which narrows sheds by parkId).
-  const selectedParkId = parkId || farmParkId || "";
+  // The shed dropdown cascades to the selected park: only that park's sheds show, mirroring the
+  // park facet (and the Android CountsViewModel, which narrows sheds by parkId).
+  const selectedParkId = parkId || "";
 
   // park_id -> park code, from this response's own park facet.
   const parkLabelsById = new Map(
@@ -185,12 +193,10 @@ export async function CountsBreakdownPage({
   // that until someone asks for it.
   const filterFields: BreakdownFilterField[] = [
     {
-      param: "bd_farm",
+      // The shared park parameter, so the choice carries to every other page and back.
+      param: PARK_PARAM,
       label: copy(pageContract, "filter.farm_label"),
-      values: farmParkId ? [farmParkId] : [],
-      // Disabled (not hidden) when the top bar already scopes a park: the mock's rule is
-      // disable-with-reason, and hiding it would make the control appear to come and go.
-      disabledReason: parkId ? copy(pageContract, "filter.scope_readonly") : undefined,
+      values: parkId ? [parkId] : [],
       options: (breakdown?.facets.parks ?? [])
         .filter((point) => point.key !== "")
         .map((point) => ({ value: point.key, label: point.label })),

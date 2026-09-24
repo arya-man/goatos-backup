@@ -3,12 +3,15 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { breakdownFilterQuery } from "./counts-breakdown-query";
 
 // Server-side filtering for the Counts Breakdown census, STAGED behind an Apply button
 // (maintainer instruction, 2026-09-03): changing a control edits local staged state only, and
 // nothing navigates until Apply. Stage, Breed and Shed are MULTI-SELECT (checkbox dropdowns,
 // repeated URL params, OR within a dimension); Farm and Gender stay single-select. Apply rewrites
-// every filter param at once, preserving every other param (top-bar park scope, page size), and
+// every filter param at once, preserving every other param (date scope, page size). Farm writes the
+// SHARED `park` parameter (with its scope_mode), because the top-bar park chip is hidden on this
+// page and this control is the park control; a page-private key would strand the choice here. And
 // the filtering itself still happens server-side on the next render — never client-side row
 // hiding.
 //
@@ -35,7 +38,7 @@ export type BreakdownFilterOption = {
 };
 
 export type BreakdownFilterField = {
-  /** URL param name, e.g. "bd_farm". */
+  /** URL param name, e.g. "bd_stage", or PARK_PARAM for the Farm control. */
   param: string;
   label: string;
   /** The currently APPLIED selection (from the URL). Single-select fields carry 0 or 1 entry. */
@@ -241,17 +244,7 @@ export function CountsBreakdownFilters({
   }
 
   function navigateWith(values: Record<string, string[]>) {
-    const next = new URLSearchParams(current);
-    // A filter change must reset paging, or the operator lands on an offset that no longer
-    // exists in the newly-filtered result set and sees an empty page.
-    next.delete("bd_page");
-    for (const field of fields) {
-      next.delete(field.param);
-      for (const value of values[field.param] ?? []) {
-        if (value) next.append(field.param, value);
-      }
-    }
-    const qs = next.toString();
+    const qs = breakdownFilterQuery(current, fields.map((field) => field.param), values);
     startTransition(() => {
       router.replace(qs ? `/counts/breakdown?${qs}` : "/counts/breakdown", { scroll: false });
     });
