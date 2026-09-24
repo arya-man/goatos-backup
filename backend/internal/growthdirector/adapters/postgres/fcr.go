@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/vgoats/goatos/backend/internal/platform/readcache"
 
 	"github.com/vgoats/goatos/backend/internal/growthdirector/domain"
@@ -78,12 +80,17 @@ scoped AS (
     AND ($5::text = '' OR cs.weighing_category = $5::text)
 ),
 -- THE BRIDGE (see the file comment). One row per distinct (location, label) the buckets name.
+-- The distinct pairs are taken FIRST (46 on the live estate, vs 356 scoped buckets), so the
+-- parent-shed lateral runs once per pair; its inputs (name, parent) are functions of location_id.
 pen_map AS (
-  SELECT DISTINCT ON (s.location_id, s.bucket_partition)
-         s.location_id, s.bucket_partition,
+  SELECT s.location_id, s.bucket_partition,
          COALESCE(labeled.pen_shed_id, parent.parent_id, s.location_id) AS pen_shed_id,
          COALESCE(labeled.pen_partition_label, parent.pen_partition_label, '') AS pen_partition_label
-  FROM scoped s
+  FROM (
+    SELECT DISTINCT ON (location_id, bucket_partition) location_id, bucket_partition, loc_name, parent_location_id
+    FROM scoped
+    ORDER BY location_id, bucket_partition
+  ) s
   LEFT JOIN LATERAL (
     SELECT s.location_id AS pen_shed_id, s.bucket_partition AS pen_partition_label
     WHERE s.bucket_partition <> ''
@@ -102,7 +109,6 @@ pen_map AS (
     ORDER BY length(shed.name) DESC
     LIMIT 1
   ) parent ON labeled.pen_shed_id IS NULL
-  ORDER BY s.location_id, s.bucket_partition
 ),
 bucket_pen AS (
   SELECT s.*, pm.pen_shed_id, pm.pen_partition_label,
@@ -419,39 +425,59 @@ func (r *Repository) getFCRUncached(ctx context.Context, tenantID string, parkID
 	startDate := periodStart.In(loc).Format("2006-01-02")
 	endDate := periodEnd.In(loc).Format("2006-01-02")
 
+	// Two parallel phases (2026-09-24 latency pass: the six reads below ran back to back, ~200 ms
+	// on the OCI clone). Phase 1 reads are independent of each other; phase 2's two statements need
+	// only the identity map and a current rollup. Each read takes its own pool connection, so the
+	// request holds at most five connections briefly and the answer is identical to a serial run.
+	var (
+		idMap    weighingpg.AnimalIdentityMap
+		prices   domain.SalePrices
+		parks    []domain.Park
+		settings domain.GrowthSettings
+	)
+	phase1, ctx1 := errgroup.WithContext(ctx)
 	// The same-animal map from weighing's ONE resolver, so a double-tagged kid pairs here exactly
 	// as it does on the Weights page.
-	idMap, err := weighingpg.ResolveAnimalIdentityMap(ctx, r.pool, tenantID, parkIDs, periodStart, periodEnd)
-	if err != nil {
-		return domain.FCRReport{}, err
-	}
+	phase1.Go(func() (err error) {
+		idMap, err = weighingpg.ResolveAnimalIdentityMap(ctx1, r.pool, tenantID, parkIDs, periodStart, periodEnd)
+		return err
+	})
 	// Priced at TODAY's rate, not the period's (maintainer instruction 2026-09-19: a price changed
 	// from the Assumptions drawer must "reflect real time"). The default window ends yesterday,
 	// so pricing at the period end left a price set this morning invisible until tomorrow. The
 	// table stays effective-dated for the audit trail; the tab prints which row applied.
-	prices, err := r.GetSalePrices(ctx, tenantID, biztime.BusinessDayStart(time.Now().In(loc)))
-	if err != nil {
-		return domain.FCRReport{}, err
-	}
-	parks, err := r.parks(ctx, tenantID, parkIDs)
-	if err != nil {
-		return domain.FCRReport{}, err
-	}
+	phase1.Go(func() (err error) {
+		prices, err = r.GetSalePrices(ctx1, tenantID, biztime.BusinessDayStart(time.Now().In(loc)))
+		return err
+	})
+	phase1.Go(func() (err error) {
+		parks, err = r.parks(ctx1, tenantID, parkIDs)
+		return err
+	})
+	phase1.Go(func() (err error) {
+		settings, err = r.GrowthSettings(ctx1, tenantID)
+		return err
+	})
 	// The feed side is summed from the feed-day rollup: bring the parks being read up to date
 	// first, so a feed or price write committed before this read is always in its answer.
-	if err := r.refreshFCRRollupForRead(ctx, tenantID, parkIDs); err != nil {
+	phase1.Go(func() error { return r.refreshFCRRollupForRead(ctx1, tenantID, parkIDs) })
+	if err := phase1.Wait(); err != nil {
 		return domain.FCRReport{}, err
 	}
-	pens, err := r.fcrPens(ctx, tenantID, parkIDs, periodStart, periodEnd, startDate, endDate, weighingCategory, idMap)
-	if err != nil {
-		return domain.FCRReport{}, err
-	}
-	segments, err := r.fcrSegments(ctx, tenantID, parkIDs, periodStart, periodEnd, startDate, endDate, weighingCategory, idMap)
-	if err != nil {
-		return domain.FCRReport{}, err
-	}
-	settings, err := r.GrowthSettings(ctx, tenantID)
-	if err != nil {
+	var (
+		pens     []domain.FCRPenRow
+		segments []domain.FCRSegmentRow
+	)
+	phase2, ctx2 := errgroup.WithContext(ctx)
+	phase2.Go(func() (err error) {
+		pens, err = r.fcrPens(ctx2, tenantID, parkIDs, periodStart, periodEnd, startDate, endDate, weighingCategory, idMap)
+		return err
+	})
+	phase2.Go(func() (err error) {
+		segments, err = r.fcrSegments(ctx2, tenantID, parkIDs, periodStart, periodEnd, startDate, endDate, weighingCategory, idMap)
+		return err
+	})
+	if err := phase2.Wait(); err != nil {
 		return domain.FCRReport{}, err
 	}
 	out := domain.BuildFCRReport(pens, segments, prices, domain.FCRFilters{Sex: sex, Origin: origin, BandEdgesKg: settings.BandEdgesKg})
