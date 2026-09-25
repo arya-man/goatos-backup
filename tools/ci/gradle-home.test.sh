@@ -5,19 +5,24 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 fails=0
+mkdir -p "$T/home"
 ok() { echo "ok   $1"; }
 bad() { echo "FAIL $1"; fails=$((fails+1)); }
 
 # ── gradle home guard ──
-home_after() { env HOME="$T/home" GRADLE_USER_HOME="$1" GOATOS_ALLOW_PRIVATE_GRADLE_HOME="${2:-0}" bash -c '. tools/ci/gradle-home.sh; gradle_home_normalize 2>/dev/null; echo "${GRADLE_USER_HOME:-}"'; }
+home_after() { env -u GOATOS_ALLOW_PRIVATE_GRADLE_HOME HOME="$T/home" GRADLE_USER_HOME="$1" GOATOS_ALLOW_PRIVATE_GRADLE_HOME="${2:-0}" bash -c '. tools/ci/gradle-home.sh; gradle_home_normalize 2>/dev/null; echo "${GRADLE_USER_HOME:-}"'; }
 [ "$(home_after /private/tmp/claude-501/x/scratchpad/gradle-home)" = "$T/home/.gradle" ] && ok "/private/tmp home reset to ~/.gradle" || bad "/private/tmp home not reset"
 [ "$(home_after /var/folders/f5/abc/T/gh)" = "$T/home/.gradle" ] && ok "/var/folders home reset" || bad "/var/folders home not reset"
 [ "$(home_after /tmp/gh)" = "$T/home/.gradle" ] && ok "/tmp home reset" || bad "/tmp home not reset"
 [ "$(home_after /private/tmp/gh 1)" = "/private/tmp/gh" ] && ok "GOATOS_ALLOW_PRIVATE_GRADLE_HOME=1 keeps it" || bad "opt-out ignored"
 [ "$(home_after /Volumes/fast/gradle)" = "/Volumes/fast/gradle" ] && ok "non-temp explicit home is kept" || bad "non-temp home changed"
 [ "$(home_after "")" = "" ] && ok "unset home stays unset (Gradle default ~/.gradle)" || bad "unset home was set"
-msg="$(env HOME="$T/home" GRADLE_USER_HOME=/private/tmp/gh bash -c '. tools/ci/gradle-home.sh; gradle_home_normalize' 2>&1)"
+msg="$(env -u GOATOS_ALLOW_PRIVATE_GRADLE_HOME HOME="$T/home" GRADLE_USER_HOME=/private/tmp/gh bash -c '. tools/ci/gradle-home.sh; gradle_home_normalize' 2>&1)"
 case "$msg" in *WARNING*temp*) ok "reset prints a warning";; *) bad "no warning: $msg";; esac
+mkdir -p "$T/rohome/.gradle"; chmod 555 "$T/rohome/.gradle"
+ro="$(env -u GOATOS_ALLOW_PRIVATE_GRADLE_HOME HOME="$T/rohome" GRADLE_USER_HOME=/private/tmp/gh GOATOS_GRADLE_MACHINE_SETUP=0 bash -c '. tools/ci/gradle-home.sh; gradle_home_normalize 2>/dev/null; echo "$GRADLE_USER_HOME"')"
+chmod 755 "$T/rohome/.gradle"
+[ "$ro" = /private/tmp/gh ] && ok "unwritable ~/.gradle (sandbox): private home kept" || bad "reset to an unwritable ~/.gradle: $ro"
 grep -q 'gradle_home_normalize' tools/ci/run-local-ci.sh && ok "run-local-ci normalizes the Gradle home" || bad "run-local-ci does not normalize"
 
 # ── machine-wide lock around developer Gradle calls ──

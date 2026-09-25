@@ -9,8 +9,9 @@
 #
 # gradle_home_normalize: if GRADLE_USER_HOME points into a temp dir (/tmp,
 # /private/tmp, /var/folders, /private/var/folders), warn and reset it to
-# $HOME/.gradle. GOATOS_ALLOW_PRIVATE_GRADLE_HOME=1 keeps it (for a deliberate
-# throwaway run). Any other explicit home is left alone. Then installs the
+# $HOME/.gradle, but only when $HOME/.gradle is writable (a sandbox that cannot
+# write it keeps its private home, with a warning).
+# GOATOS_ALLOW_PRIVATE_GRADLE_HOME=1 keeps it (for a deliberate throwaway run). Any other explicit home is left alone. Then installs the
 # machine Gradle queue + managed gradle.properties (gradle-machine-setup.sh)
 # into the home in use. Never fails.
 
@@ -40,6 +41,13 @@ _gradle_home_normalize_only() {
   case "${GOATOS_ALLOW_PRIVATE_GRADLE_HOME:-0}" in
     1|true|TRUE|yes) echo "gradle-home: keeping private GRADLE_USER_HOME=$home (GOATOS_ALLOW_PRIVATE_GRADLE_HOME=1)" >&2; return 0 ;;
   esac
+  # A sandbox may not be allowed to write ~/.gradle; resetting there would
+  # break the build, so keep the private home and just warn.
+  local shared="$HOME/.gradle"
+  if ! { [ -d "$shared" ] && [ -w "$shared" ]; } && ! { [ ! -e "$shared" ] && [ -w "$HOME" ]; }; then
+    echo "gradle-home: WARNING: GRADLE_USER_HOME=$home is a temp dir, but $shared is not writable here; keeping the private home (cold cache, extra daemon, outside the machine Gradle lock)." >&2
+    return 0
+  fi
   echo "gradle-home: WARNING: GRADLE_USER_HOME=$home is a temp dir (cold cache, extra daemon, bypasses the machine Gradle lock). Using $HOME/.gradle instead. Set GOATOS_ALLOW_PRIVATE_GRADLE_HOME=1 to keep it." >&2
   export GRADLE_USER_HOME="$HOME/.gradle"
   return 0

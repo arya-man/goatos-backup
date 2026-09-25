@@ -10,6 +10,9 @@
 # 2. A managed block in gradle.properties:
 #      org.gradle.daemon.idletimeout=600000   (idle daemons exit after 10 min)
 #      org.gradle.java.home=<verified JDK 21>  (only if a JDK 21 is found)
+#    The java.home pin is in the USER-level gradle.properties, so it applies to
+#    every Gradle project on this Mac, not only goatos. That is INTENTIONAL: the
+#    maintainer runs Java 21 only, machine-wide (decision 2026-09-25).
 #    Lines outside the block are left alone. The block is written last, so its
 #    values win over an older value of the same key above it.
 #
@@ -51,6 +54,7 @@ gradle_machine_install() {
 
   jh="$(_gms_java_home)"
   block="$GOATOS_GRADLE_BLOCK_BEGIN
+# Intentional: pins JDK 21 for EVERY Gradle project on this machine (maintainer: Java 21 only).
 org.gradle.daemon.idletimeout=600000"
   [ -n "$jh" ] && block="$block
 org.gradle.java.home=$jh"
