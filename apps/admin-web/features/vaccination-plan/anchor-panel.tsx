@@ -3,9 +3,9 @@
 import { Fragment, useMemo, useState } from "react";
 import { Pencil, Plus } from "lucide-react";
 
-import { todayIso } from "@/lib/format";
+import { fmtDate, todayIso } from "@/lib/format";
 import type { AnchorConfig } from "./editor-model";
-import type { ScheduleRule, VaccineGroup } from "./plan-model";
+import { humanDays, type ScheduleRule, type VaccineGroup } from "./plan-model";
 
 type AnchorState = AnchorConfig;
 
@@ -76,10 +76,11 @@ export function VaccinationAnchorPanel({ catalog = [], rows: providedRows, ancho
                   <td>
                     <b>{row.vaccine.name}</b>
                   </td>
-                  <td>{row.rule.dose_code}</td>
+                  {/* The dose's farm name, never its rule code ("et_tt_kid_4w"). */}
+                  <td>{doseLabel(row.rule)}</td>
                   <td>{ruleTiming(row.rule)}</td>
                   <td>{repeatLabel(row.rule)}</td>
-                  <td>{anchorDate || "No anchor"}</td>
+                  <td>{anchorDate ? fmtDate(anchorDate) : "No anchor"}</td>
                   <td>
                     <button
                       className="btn ghost sm icon"
@@ -194,8 +195,24 @@ function rowKey(row: RuleRow): string {
   return `${row.vaccine.code}:${row.rule.dose_code ?? ""}`;
 }
 
+function doseLabel(rule: ScheduleRule): string {
+  if (rule.repeat && rule.repeat !== "none") return "Repeat";
+  return rule.sequence ? `Dose ${rule.sequence}` : "Dose";
+}
+
+/** When the dose falls, in the words a person would say it: never the trigger's snake_case key. */
 function ruleTiming(rule: ScheduleRule): string {
-  return rule.trigger_type?.replaceAll("_", " ") || "scheduled";
+  const after = rule.offset_days ? humanDays(rule.offset_days) : "";
+  switch (rule.trigger_type) {
+    case "birth_age":
+      return after ? `${after} from date of birth` : "From date of birth";
+    case "manual_campaign":
+      return "On a drive";
+    case "after_previous_completion":
+      return after ? `${after} after the previous dose` : "After the previous dose";
+    default:
+      return after ? `After ${after}` : "Scheduled";
+  }
 }
 
 function repeatLabel(rule: ScheduleRule): string {

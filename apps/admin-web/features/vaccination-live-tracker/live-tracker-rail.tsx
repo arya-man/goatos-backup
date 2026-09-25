@@ -1,6 +1,6 @@
 import { Activity, Video } from "lucide-react";
 import Link from "@/components/no-prefetch-link";
-import { copy, optionLabel, optionTone, optionTitle, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { copy, optionalOption, optionLabel, optionTone, optionTitle, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type {
   LiveTrackerActivity,
   LiveTrackerActivityItem,
@@ -141,7 +141,10 @@ function ActivityCard({
         ) : (
           animalRows.map((row) => {
             const label = animalActivityLabel(row, pageContract) || placeholder;
-            const meta = [row.shedLabel, row.vaccineLabel, row.scannedIdentifier, row.detailCode]
+            // The detail is a scan outcome CODE ("unknown_tag"); it reaches the screen only through
+            // the contract's farm label, and a code the contract does not name is left off.
+            const detail = row.detailCode ? optionalOption(pageContract, "live_activity_detail", row.detailCode)?.label ?? "" : "";
+            const meta = [row.shedLabel, row.vaccineLabel, row.scannedIdentifier, detail]
               .filter(Boolean)
               .join(" · ");
             return (
