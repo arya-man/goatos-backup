@@ -182,7 +182,7 @@ private fun RecordHeader(state: RecordUiState, onEvent: (RecordEvent) -> Unit) {
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = state.countLabel?.let { "${state.title} · $it" } ?: state.title,
+                text = listOfNotNull(state.title.takeIf { it.isNotBlank() }, state.countLabel?.takeIf { it.isNotBlank() }).joinToString(" · "),
                 color = RecordTokens.Ink,
                 fontSize = 16.sp,
                 fontWeight = FontWeight.W700,
