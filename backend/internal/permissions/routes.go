@@ -1053,6 +1053,7 @@ var protectedRoutes = []Route{
 	// up. Same authority as rewriting the grid, and for a stronger reason: this one can put a feed in
 	// front of every animal in the park, or take it away from all of them.
 	{OperationID: "setFeedConfigSessionTemplateItem", Method: "POST", Pattern: "/feed-config/session-template-items", Permissions: []string{FeedConfigWrite}},
+	{OperationID: "setFeedConfigSessionPlan", Method: "POST", Pattern: "/feed-config/session-templates", Permissions: []string{FeedConfigWrite}},
 	{OperationID: "upsertFeedConfigShedFactor", Method: "POST", Pattern: "/feed-config/shed-factors", Permissions: []string{FeedConfigWrite}},
 	// Atomic multi-item enrolment of ONE pen. Same permission as the single-cell write -- it is the
 	// same authored surface -- but its own route because it carries an all-or-nothing guarantee.

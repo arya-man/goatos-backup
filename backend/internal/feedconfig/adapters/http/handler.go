@@ -85,6 +85,7 @@ const (
 	createFeedItemCommand      = "feedconfig.feed_item.create"
 	setFeedItemStatusCommand   = "feedconfig.feed_item.set_status"
 	setSessionTemplateItemCmd  = "feedconfig.session_template_item.set"
+	setSessionPlanCmd          = "feedconfig.session_plan.set"
 	upsertShedFactorCommand    = "feedconfig.shed_factor.upsert"
 	upsertScheduleCommand      = "feedconfig.schedule_config.upsert"
 	upsertExperimentCommand    = "feedconfig.experiment_config.upsert"
@@ -111,6 +112,7 @@ type Service interface {
 	CreateFeedItem(ctx context.Context, in feedconfigapp.CreateFeedItemInput) (domain.WriteResult, error)
 	UpsertShedFactor(ctx context.Context, in feedconfigapp.UpsertShedFactorInput) (domain.WriteResult, error)
 	SetSessionTemplateItem(ctx context.Context, in feedconfigapp.SetSessionTemplateItemInput) (domain.WriteResult, error)
+	SetSessionPlan(ctx context.Context, in feedconfigapp.SetSessionPlanInput) (domain.WriteResult, error)
 	UpsertScheduleConfig(ctx context.Context, in feedconfigapp.UpsertScheduleConfigInput) (domain.WriteResult, error)
 	UpsertExperimentConfig(ctx context.Context, in feedconfigapp.UpsertExperimentConfigInput) (domain.WriteResult, error)
 	UpsertExperimentConfigBatch(ctx context.Context, in feedconfigapp.UpsertExperimentConfigBatchInput) (domain.WriteResult, error)
@@ -145,6 +147,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("POST "+feedItemsRoute, h.CreateFeedItem)
 	mux.HandleFunc("POST "+feedItemStatusRoute, h.SetFeedItemStatus)
 	mux.HandleFunc("POST "+sessionTemplateItemsRoute, h.SetSessionTemplateItem)
+	mux.HandleFunc("POST "+sessionTemplatesRoute, h.SetSessionPlan)
 	mux.HandleFunc("POST "+shedFactorsRoute, h.UpsertShedFactor)
 	mux.HandleFunc("POST "+scheduleRoute, h.UpsertScheduleConfig)
 	mux.HandleFunc("POST "+experimentRoute, h.UpsertExperimentConfig)
@@ -580,6 +583,58 @@ func (h *Handler) SetSessionTemplateItem(w http.ResponseWriter, r *http.Request)
 		SessionNo:          req.SessionNo,
 		FeedItemLabel:      req.FeedItem,
 		Declared:           req.Declared,
+		IdempotencyKey:     key,
+		RequestFingerprint: fingerprint,
+	})
+	if err != nil {
+		h.writeServiceError(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, result)
+}
+
+// setSessionPlanRequest sets a park's feeding sessions. split_fraction is a decimal STRING (the
+// share of the day, "0.6") so a value is never rounded through a float on the way in.
+type setSessionPlanRequest struct {
+	ParkID   string                    `json:"park_id"`
+	Sessions []setSessionPlanEntryBody `json:"sessions"`
+}
+
+type setSessionPlanEntryBody struct {
+	SessionNo     int32  `json:"session_no"`
+	SessionLabel  string `json:"session_label"`
+	SplitFraction string `json:"split_fraction"`
+}
+
+// SetSessionPlan serves POST /feed-config/session-templates.
+func (h *Handler) SetSessionPlan(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := h.tenant(w, r)
+	if !ok {
+		return
+	}
+	key, ok := h.idempotencyKey(w, r)
+	if !ok {
+		return
+	}
+	var req setSessionPlanRequest
+	if !h.decode(w, r, &req, "SetFeedConfigSessionPlanRequest") {
+		return
+	}
+	req.ParkID = strings.TrimSpace(req.ParkID)
+	fingerprint, err := requestFingerprint(tenantID, setSessionPlanCmd, sessionTemplatesRoute, req)
+	if err != nil {
+		h.writeError(w, r, http.StatusBadRequest, "invalid_json", "request body must be valid JSON", err)
+		return
+	}
+	sessions := make([]domain.SessionPlanEntry, 0, len(req.Sessions))
+	for _, e := range req.Sessions {
+		sessions = append(sessions, domain.SessionPlanEntry{SessionNo: e.SessionNo, Label: e.SessionLabel, SplitFraction: e.SplitFraction})
+	}
+	result, err := h.service.SetSessionPlan(r.Context(), feedconfigapp.SetSessionPlanInput{
+		TenantID:           tenantID,
+		ActorRef:           h.actor(r),
+		ParkID:             req.ParkID,
+		Sessions:           sessions,
 		IdempotencyKey:     key,
 		RequestFingerprint: fingerprint,
 	})
@@ -1028,6 +1083,9 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, err 
 		// rates first" is only actionable if the author knows how many and for which feed.
 		h.writeError(w, r, http.StatusConflict, "slot_rates_incomplete",
 			"this feed has no ration rate for every pen in this park yet; serving it would leave those pens unfed", err)
+	case errors.Is(err, ports.ErrSessionHasFeeds):
+		h.writeError(w, r, http.StatusConflict, "session_has_feeds",
+			"this session still serves feeds; remove its feeds before removing the session", err)
 	case errors.Is(err, ports.ErrSlotNotDeclared):
 		h.writeError(w, r, http.StatusNotFound, "slot_not_declared",
 			"this session does not serve that feed", nil)

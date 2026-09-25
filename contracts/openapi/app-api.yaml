@@ -12556,6 +12556,48 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/ServerError"
+    post:
+      tags:
+        - Feed Config
+      operationId: setFeedConfigSessionPlan
+      summary: Set a park's feeding sessions and each one's share of the day.
+      description: >-
+        Replaces the park's ACTIVE feeding sessions with exactly the listed ones: a listed session is
+        added or edited in place (name and share of the day), and an active session that is not listed
+        is retired. The shares must add up to exactly 1 (the whole day), because generation splits
+        each pen's daily quantity across these sessions -- a plan short of 1 under-feeds every pen by
+        the gap. Retiring a session that still serves a feed is refused with 409 `session_has_feeds`,
+        because generation walks only active sessions and those feeds would silently stop reaching
+        any animal. This is how a park added on Configuration > Items & settings gets its sessions;
+        before it only a seed command could create them. Idempotent on the same terms as every other
+        feed-config write.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetFeedConfigSessionPlanRequest"
+      responses:
+        "200":
+          description: The authored edit's outcome.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedConfigWriteResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /feed-config/schedule:
     get:
       tags:
@@ -24803,6 +24845,40 @@ components:
             already know.
         feed_item:
           type: string
+    SetFeedConfigSessionPlanRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - park_id
+        - sessions
+      properties:
+        park_id:
+          type: string
+          format: uuid
+        sessions:
+          type: array
+          minItems: 1
+          maxItems: 8
+          items:
+            type: object
+            additionalProperties: false
+            required:
+              - session_no
+              - session_label
+              - split_fraction
+            properties:
+              session_no:
+                type: integer
+                minimum: 1
+              session_label:
+                type: string
+                minLength: 1
+                maxLength: 60
+              split_fraction:
+                type: string
+                description: >-
+                  This session's share of the day's quantity as a decimal string with at most four
+                  places ("0.6"). The shares of all listed sessions must add up to exactly 1.
     SetFeedConfigSessionTemplateItemRequest:
       type: object
       additionalProperties: false

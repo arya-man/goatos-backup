@@ -23,6 +23,7 @@ type fakeService struct {
 	scheduleInput    feedconfigapp.UpsertScheduleConfigInput
 	factorInput      feedconfigapp.UpsertShedFactorInput
 	sessionSlotInput feedconfigapp.SetSessionTemplateItemInput
+	sessionPlanInput feedconfigapp.SetSessionPlanInput
 
 	feedItemInput feedconfigapp.CreateFeedItemInput
 
@@ -115,6 +116,12 @@ func (f *fakeService) UpsertShedFactor(_ context.Context, in feedconfigapp.Upser
 func (f *fakeService) SetSessionTemplateItem(_ context.Context, in feedconfigapp.SetSessionTemplateItemInput) (domain.WriteResult, error) {
 	f.calls++
 	f.sessionSlotInput = in
+	return f.result, f.err
+}
+
+func (f *fakeService) SetSessionPlan(_ context.Context, in feedconfigapp.SetSessionPlanInput) (domain.WriteResult, error) {
+	f.calls++
+	f.sessionPlanInput = in
 	return f.result, f.err
 }
 

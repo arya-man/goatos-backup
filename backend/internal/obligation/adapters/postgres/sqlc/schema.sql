@@ -5737,7 +5737,7 @@ CREATE TABLE public.feed_config_write_log (
     CONSTRAINT feed_config_write_log_actor_check CHECK ((btrim(actor_ref) <> ''::text)),
     CONSTRAINT feed_config_write_log_idem_check CHECK (((btrim(idempotency_key) <> ''::text) AND (btrim(request_fingerprint) <> ''::text))),
     CONSTRAINT feed_config_write_log_insert_shape_check CHECK (((outcome <> ALL (ARRAY['inserted'::text, 'corrected'::text])) OR (result_row_id IS NOT NULL))),
-    CONSTRAINT feed_config_write_log_kind_check CHECK ((write_kind = ANY (ARRAY['ration_rate'::text, 'shed_factor'::text, 'schedule_config'::text, 'experiment_config'::text, 'feed_item'::text, 'session_template_item'::text]))),
+    CONSTRAINT feed_config_write_log_kind_check CHECK ((write_kind = ANY (ARRAY['ration_rate'::text, 'shed_factor'::text, 'schedule_config'::text, 'experiment_config'::text, 'feed_item'::text, 'session_template_item'::text, 'session_template'::text]))),
     CONSTRAINT feed_config_write_log_outcome_check CHECK ((outcome = ANY (ARRAY['inserted'::text, 'superseded'::text, 'corrected'::text, 'unchanged'::text]))),
     CONSTRAINT feed_config_write_log_supersede_shape_check CHECK (((outcome <> 'superseded'::text) OR ((result_row_id IS NOT NULL) AND (superseded_row_id IS NOT NULL))))
 );

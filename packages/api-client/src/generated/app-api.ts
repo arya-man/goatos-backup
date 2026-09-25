@@ -4862,7 +4862,11 @@ export interface paths {
          */
         get: operations["listFeedConfigSessionTemplates"];
         put?: never;
-        post?: never;
+        /**
+         * Set a park's feeding sessions and each one's share of the day.
+         * @description Replaces the park's ACTIVE feeding sessions with exactly the listed ones: a listed session is added or edited in place (name and share of the day), and an active session that is not listed is retired. The shares must add up to exactly 1 (the whole day), because generation splits each pen's daily quantity across these sessions -- a plan short of 1 under-feeds every pen by the gap. Retiring a session that still serves a feed is refused with 409 `session_has_feeds`, because generation walks only active sessions and those feeds would silently stop reaching any animal. This is how a park added on Configuration > Items & settings gets its sessions; before it only a seed command could create them. Idempotent on the same terms as every other feed-config write.
+         */
+        post: operations["setFeedConfigSessionPlan"];
         delete?: never;
         options?: never;
         head?: never;
@@ -11087,6 +11091,16 @@ export interface components {
             /** @description Packing order within the session. Derived by the backend on declare (appended to the end) rather than chosen by the author, so declaring a feed never renumbers slots packers already know. */
             slot_no: number;
             feed_item: string;
+        };
+        SetFeedConfigSessionPlanRequest: {
+            /** Format: uuid */
+            park_id: string;
+            sessions: {
+                session_no: number;
+                session_label: string;
+                /** @description This session's share of the day's quantity as a decimal string with at most four places ("0.6"). The shares of all listed sessions must add up to exactly 1. */
+                split_fraction: string;
+            }[];
         };
         SetFeedConfigSessionTemplateItemRequest: {
             /** Format: uuid */
@@ -30115,6 +30129,38 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    setFeedConfigSessionPlan: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetFeedConfigSessionPlanRequest"];
+            };
+        };
+        responses: {
+            /** @description The authored edit's outcome. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedConfigWriteResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
             500: components["responses"]["ServerError"];
         };
     };

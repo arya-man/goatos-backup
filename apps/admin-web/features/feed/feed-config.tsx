@@ -35,6 +35,7 @@ import {
   saveRationRate,
   saveSchedule,
   saveSessionFeed,
+  saveSessionPlan,
   setExperimentShedStatus,
 } from "./feed-config-actions";
 import {
@@ -45,6 +46,7 @@ import {
   RationRateEditor,
   ScheduleEditor,
   SessionFeedsCell,
+  SessionPlanEditor,
 } from "./feed-config-editor";
 import { experimentEnrollerScopeKey } from "./experiment-enroller-scope";
 import { groupMissingRates, groupRetiredFeedGaps, type MissingRate, type RetiredFeedGaps } from "./missing-rates";
@@ -1230,12 +1232,20 @@ export async function FeedConfigPage({
         </FeedFilters>
       </section>
 
-      {/* -------------------------------------------------- session template (read-only: no writer) */}
+      {/* ------------------------------------------------------------- session template (editable) */}
       <SectionError result={sessionsResult} titleKey="state.session_template_unavailable" pageContract={pageContract} />
       <section className="card" style={{ marginBottom: 16 }}>
         <div className="hd">
           <h3>{copy(pageContract, "section.session_template.title")}</h3>
           <span className="small muted">{copy(pageContract, "section.session_template.caption")}</span>
+          {scope.parkId && sessions ? (
+            <SessionPlanEditor
+              pageContract={pageContract}
+              action={saveSessionPlan}
+              parkId={scope.parkId}
+              sessions={activeSessions.map((row) => ({ session_no: row.session_no, session_label: row.session_label, split_fraction: String(row.split_fraction) }))}
+            />
+          ) : null}
         </div>
         <div
           className="bd feed-scroll"

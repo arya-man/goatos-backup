@@ -1624,6 +1624,8 @@ export type SetFeedConfigFeedItemStatusRequest =
   AppApiComponents["schemas"]["SetFeedConfigFeedItemStatusRequest"];
 export type SetFeedConfigSessionTemplateItemRequest =
   AppApiComponents["schemas"]["SetFeedConfigSessionTemplateItemRequest"];
+export type SetFeedConfigSessionPlanRequest =
+  AppApiComponents["schemas"]["SetFeedConfigSessionPlanRequest"];
 export type FeedConfigSessionTemplateItem =
   AppApiComponents["schemas"]["FeedConfigSessionTemplateItem"];
 export type UpsertFeedConfigShedFactorRequest =
@@ -2702,6 +2704,28 @@ export async function setFeedConfigFeedItemStatus(
  * park, because a declared slot is priced for EVERY shed and a missing rate blocks that shed's whole
  * sheet. Withdrawing closes the row rather than deleting it, so issued sheets stay explainable.
  */
+/**
+ * Sets a park's feeding sessions (name + share of the day). The shares must add up to exactly 1;
+ * an active session left out is retired, refused (409 `session_has_feeds`) while it serves a feed.
+ * This is how a park added on Configuration > Items & settings gets its sessions.
+ */
+export async function setFeedConfigSessionPlan(
+  body: SetFeedConfigSessionPlanRequest,
+  idempotencyKey = `feed-session-plan-${randomUUID()}`,
+): Promise<ApiResult<FeedConfigWriteResult>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<FeedConfigWriteResult>("/feed-config/session-templates", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
 export async function setFeedConfigSessionTemplateItem(
   body: SetFeedConfigSessionTemplateItemRequest,
   idempotencyKey = `feed-session-slot-${randomUUID()}`,
