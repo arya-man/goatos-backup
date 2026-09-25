@@ -6641,12 +6641,23 @@ export async function listAdminWebApprovals(
  * whatever its status or page: a link to an older request (a Work Board row, a bookmark) still
  * opens its drawer. The server applies the list's authority; outside it the read is not found.
  */
+// The route template is checked against the generated contract at compile time (`satisfies`),
+// and the response type is read from the contract's own schema, so a contract change that drops
+// or reshapes this endpoint fails the typecheck here. The client takes a literal path with no
+// parameter substitution, so the concrete URL is built from that checked template.
+const ADMIN_WEB_APPROVAL_ROUTE = "/admin-web/counts/approvals/{request_id}" satisfies keyof AppApiPaths;
+type AdminWebApprovalReadResponse =
+  AppApiPaths[typeof ADMIN_WEB_APPROVAL_ROUTE]["get"]["responses"][200]["content"]["application/json"];
+
 export async function getAdminWebApproval(requestId: string): Promise<ApiResult<AdminWebApprovalItem>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
-  const path = `/admin-web/counts/approvals/${encodeURIComponent(requestId)}` as keyof AppApiPaths & string;
-  return request(() => client.request<AdminWebApprovalItem>(path, { cache: "no-store" }));
+  const path = ADMIN_WEB_APPROVAL_ROUTE.replace("{request_id}", encodeURIComponent(requestId)) as typeof ADMIN_WEB_APPROVAL_ROUTE;
+  const item: ApiResult<AdminWebApprovalReadResponse> = await request(() =>
+    client.request<AdminWebApprovalReadResponse>(path, { cache: "no-store" }),
+  );
+  return item;
 }
 
 /**

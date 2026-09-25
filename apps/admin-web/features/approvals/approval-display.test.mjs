@@ -157,3 +157,13 @@ test("a link to a request that is not on this page still opens its drawer (read 
   assert.match(page, /items=\{drawerItems\}/);
   assert.match(page, /justDecided/, "a just-decided row must not be re-read into a reopened drawer");
 });
+
+test("the single-request read is anchored to the generated contract, not a hand-cast path", () => {
+  // PR #430 review: the endpoint must be in OpenAPI / the generated client, and the web must not
+  // reach it through an unchecked string cast.
+  const server = readFileSync(new URL("../../lib/api/server.ts", import.meta.url), "utf8");
+  assert.match(server, /"\/admin-web\/counts\/approvals\/\{request_id\}" satisfies keyof AppApiPaths/);
+  assert.doesNotMatch(server, /`\/admin-web\/counts\/approvals\/\$\{encodeURIComponent\(requestId\)\}` as keyof AppApiPaths/);
+  const client = readFileSync(new URL("../../../../packages/api-client/src/generated/app-api.ts", import.meta.url), "utf8");
+  assert.match(client, /"\/admin-web\/counts\/approvals\/\{request_id\}": \{/);
+});

@@ -6799,6 +6799,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin-web/counts/approvals/{request_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read ONE approval request the caller may decide, whatever its status or page.
+         * @description The admin-web Approvals page lists 20 requests at a time; a link straight to one request (a Work Board row, a bookmark) must open its drawer even when that request sits on a later page, under another status tab or another filter (maintainer decision 2026-09-25). Returns the request in exactly the list's item shape. AUTHORITY IS THE LIST'S: a request type the caller may not decide, or a farm outside the caller's park scope, reads as 404 -- the request's existence is not disclosed -- and a malformed id is 400. Read-only.
+         */
+        get: operations["getAdminWebCountsApproval"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/app/counts/approvals/{request_id}/approve": {
         parameters: {
             query?: never;
@@ -33499,6 +33519,33 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getAdminWebCountsApproval: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The request, in the approvals list's item shape. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CountsApprovalListItem"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
             500: components["responses"]["ServerError"];
         };
     };

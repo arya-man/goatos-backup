@@ -17547,6 +17547,43 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/ServerError"
+  /admin-web/counts/approvals/{request_id}:
+    get:
+      tags:
+        - Counts
+      operationId: getAdminWebCountsApproval
+      summary: Read ONE approval request the caller may decide, whatever its status or page.
+      description: >-
+        The admin-web Approvals page lists 20 requests at a time; a link straight to one request
+        (a Work Board row, a bookmark) must open its drawer even when that request sits on a later
+        page, under another status tab or another filter (maintainer decision 2026-09-25). Returns
+        the request in exactly the list's item shape. AUTHORITY IS THE LIST'S: a request type the
+        caller may not decide, or a farm outside the caller's park scope, reads as 404 -- the
+        request's existence is not disclosed -- and a malformed id is 400. Read-only.
+      parameters:
+        - name: request_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: The request, in the approvals list's item shape.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CountsApprovalListItem"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /app/counts/approvals/{request_id}/approve:
     post:
       tags:
