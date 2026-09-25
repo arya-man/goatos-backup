@@ -106,7 +106,7 @@ function BreakdownCard({
           </>
         ) : null}
       </div>
-      <div className="twrap" tabIndex={0} role="region" aria-label={title}>
+      <div className="twrap farm-born-breakdown" tabIndex={0} role="region" aria-label={title}>
         <table className="tbl">
           <thead>
             <tr>

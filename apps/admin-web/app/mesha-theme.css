@@ -3735,6 +3735,13 @@ aside.drawer.wt-feedband-drawer{width:94vw;max-width:960px}
    drawer's do. */
 .feed-loads-table table.tbl th,.feed-loads-table table.tbl td{padding-left:7px;padding-right:7px;font-size:12.5px}
 .feed-loads-table table.tbl th{white-space:normal;line-height:1.2}
+/* Sales -> Farm born breakdowns: six columns in a half-width card. Headers WRAP (the long
+   "Tagged, sale not closed" label is Load wise's own wording and stays whole) and cells sit a
+   little tighter, so the whole table fits at laptop width; a phone still pans inside .twrap. */
+.farm-born-breakdown table.tbl th,.farm-born-breakdown table.tbl td{padding-left:8px;padding-right:8px}
+.farm-born-breakdown table.tbl th{white-space:normal;line-height:1.2;vertical-align:bottom}
+.farm-born-breakdown table.tbl th.num{max-width:12ch}
+.farm-born-breakdown table.tbl td.num{white-space:nowrap}
 @media(max-width:600px){
   .wt-feedband-stats{grid-template-columns:repeat(2,minmax(0,1fr))}
   .wt-feedband-segments{padding:0 12px 4px}
