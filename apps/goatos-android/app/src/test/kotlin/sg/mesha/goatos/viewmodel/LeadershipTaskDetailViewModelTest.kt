@@ -245,4 +245,23 @@ class LeadershipTaskDetailViewModelTest {
 
         job.cancel()
     }
+
+    @Test
+    fun `with no cached task and a refresh that never lands the spinner stops and offers Try again`() = runTest(dispatcher) {
+        val repository = FakeLeadershipTasksRepository(initialDetail = null)
+        val vm = viewModel(repository)
+        val job = backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertFalse("no endless spinner", vm.state.value.loading)
+        assertTrue(vm.state.value.unavailable)
+
+        // Try again re-reads, and a task that lands replaces the error.
+        repository.emitDetail(leadershipTask(isSeen = true))
+        vm.onEvent(LeadershipTaskDetailEvent.Refresh)
+        advanceUntilIdle()
+        assertFalse(vm.state.value.unavailable)
+        assertEquals("#12", vm.state.value.numberLabel)
+        job.cancel()
+    }
 }

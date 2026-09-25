@@ -126,4 +126,6 @@
     <string name="proof_video_pen_routine_header">Pen routine</string>
     <string name="pen_routines_msg_capture_not_saved">That didn\'t save. Take it again.</string>
     <string name="pen_routines_msg_not_sent">Saved, but couldn\'t be sent. Tap refresh and try again.</string>
+    <string name="pen_visits_msg_unavailable">This visit hasn\'t loaded yet. Check the connection and try again.</string>
+    <string name="leadership_tasks_msg_task_unavailable">This task couldn\'t be loaded. Check the connection and try again.</string>
 </resources>

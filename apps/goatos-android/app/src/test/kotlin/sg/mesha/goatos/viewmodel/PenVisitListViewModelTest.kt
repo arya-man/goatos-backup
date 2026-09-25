@@ -140,4 +140,16 @@ class PenVisitListViewModelTest {
         assertTrue(vm.state.value.lastSyncedAt != null)
         stateJob.cancel()
     }
+
+    @Test
+    fun `a first open with nothing cached and the server down shows the error state, not a blank screen`() = runTest(dispatcher) {
+        val vm = PenVisitListViewModel(FakePenVisitsRepository(), RecordingPenVisitSyncRepository(), RecordingAnalytics(), NoopCrashReporter())
+        val stateJob = backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        vm.onEvent(PenVisitListEvent.Refresh)
+        vm.onRowsLoadFailed(IllegalStateException("offline"))
+        assertTrue("no page facts ever landed, yet the error state renders", vm.state.value.isErrorEmpty)
+        stateJob.cancel()
+    }
 }

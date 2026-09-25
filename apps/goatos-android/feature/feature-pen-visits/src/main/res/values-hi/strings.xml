@@ -9,4 +9,7 @@
     <string name="pen_visits_state_in_review">सत्यापनकर्ता के पास</string>
     <string name="pen_visits_state_sent_back">सत्यापनकर्ता ने वापस भेजा</string>
     <string name="pen_visits_refresh_failed">ताज़ा नहीं हो सका · सहेजी गई विज़िट दिख रही हैं</string>
+    <string name="pen_visits_detail_unavailable">यह विज़िट लोड नहीं हो सकी। कनेक्शन देखें और फिर कोशिश करें।</string>
+    <string name="pen_visits_list_unavailable">आपकी पेन विज़िट लोड नहीं हो सकीं। कनेक्शन देखें और फिर कोशिश करें।</string>
+    <string name="pen_visits_action_try_again">फिर कोशिश करें</string>
 </resources>

@@ -117,4 +117,6 @@
     <string name="proof_video_pen_routine_header">ಪೆನ್ ದಿನಚರಿ</string>
     <string name="pen_routines_msg_capture_not_saved">ಅದು ಉಳಿಯಲಿಲ್ಲ. ಮತ್ತೆ ತೆಗೆಯಿರಿ.</string>
     <string name="pen_routines_msg_not_sent">ಉಳಿಸಲಾಗಿದೆ, ಆದರೆ ಕಳುಹಿಸಲಾಗಲಿಲ್ಲ. ರಿಫ್ರೆಶ್ ಮಾಡಿ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.</string>
+    <string name="pen_visits_msg_unavailable">ಈ ಭೇಟಿ ಇನ್ನೂ ಲೋಡ್ ಆಗಿಲ್ಲ. ಸಂಪರ್ಕ ಪರಿಶೀಲಿಸಿ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.</string>
+    <string name="leadership_tasks_msg_task_unavailable">ಈ ಕೆಲಸ ಲೋಡ್ ಆಗಲಿಲ್ಲ. ಸಂಪರ್ಕ ಪರಿಶೀಲಿಸಿ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.</string>
 </resources>

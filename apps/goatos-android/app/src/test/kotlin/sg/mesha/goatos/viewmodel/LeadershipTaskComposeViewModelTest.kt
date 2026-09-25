@@ -284,4 +284,17 @@ class LeadershipTaskComposeViewModelTest {
         assertFalse("a sent attachment's local copy is dropped", sent.exists())
         job.cancel()
     }
+
+    @Test
+    fun `editing a task that cannot be loaded stops waiting and says so`() = runTest(dispatcher) {
+        val repository = FakeLeadershipTasksRepository(initialDetail = null)
+        val vm = viewModel(repository, savedStateHandle = SavedStateHandle(mapOf("task_id" to LEADERSHIP_TEST_TASK_ID)))
+        val job = backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertFalse("the form does not wait forever", vm.state.value.assigneesLoading)
+        assertTrue(vm.state.value.message?.isNotBlank() == true)
+        assertFalse(vm.state.value.canSend)
+        job.cancel()
+    }
 }

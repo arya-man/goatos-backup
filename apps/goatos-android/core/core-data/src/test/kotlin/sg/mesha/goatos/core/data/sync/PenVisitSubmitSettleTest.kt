@@ -49,8 +49,9 @@ class PenVisitSubmitSettleTest {
         override val pageMeta: StateFlow<PenVisitPageMeta> = MutableStateFlow(PenVisitPageMeta())
         override suspend fun invalidateVisits(filter: String) = Unit
         override fun observeVisit(taskId: String): Flow<PenVisitDto?> = flowOf(null)
-        override suspend fun refreshVisit(taskId: String) {
+        override suspend fun refreshVisit(taskId: String): Boolean {
             refreshed += taskId
+            return true
         }
         override suspend fun persistServerDetail(detail: PenVisitDetailDto) {
             persisted += detail

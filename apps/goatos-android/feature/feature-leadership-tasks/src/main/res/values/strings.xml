@@ -51,4 +51,7 @@
     <string name="leadership_tasks_deadline_cancel">Cancel</string>
     <string name="leadership_tasks_deadline_prefix">Deadline</string>
     <string name="leadership_tasks_refresh_failed">Couldn\'t refresh · showing saved tasks</string>
+    <string name="leadership_tasks_detail_unavailable">Couldn\'t load this task. Check the connection and try again.</string>
+    <string name="leadership_tasks_list_unavailable">Couldn\'t load your tasks. Check the connection and try again.</string>
+    <string name="leadership_tasks_action_try_again">Try again</string>
 </resources>

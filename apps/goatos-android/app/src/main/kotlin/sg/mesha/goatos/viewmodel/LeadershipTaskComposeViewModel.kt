@@ -112,6 +112,8 @@ class LeadershipTaskComposeViewModel @Inject constructor(
         val rowVersion: Int = 0,
         /** True once an edit's existing task landed in the draft (always true for a new task). */
         val seeded: Boolean,
+        /** An edit whose task could not be loaded (nothing cached, server unreachable). */
+        val seedUnavailable: Boolean = false,
     )
 
     private val draft = MutableStateFlow(Draft(seeded = !isEdit))
@@ -200,13 +202,23 @@ class LeadershipTaskComposeViewModel @Inject constructor(
         }
     }
 
-    /** Edit: the existing task (from Room, refreshed behind it) seeds the draft exactly once. */
+    /**
+     * Edit: the existing task (from Room — the detail cache, or its cached list row — refreshed
+     * behind it) seeds the draft exactly once. With nothing cached and the server unreachable the
+     * form stops "loading" and says so (Send stays shut: nothing to edit against yet); a task that
+     * lands later still seeds it.
+     */
     private fun seedFromExisting() {
         viewModelScope.launch {
-            repository.refreshTaskDetail(editingTaskId)
+            val reached = repository.refreshTaskDetail(editingTaskId)
+            if (!reached && repository.observeTaskDetail(editingTaskId).first() == null) {
+                draft.update {
+                    it.copy(seedUnavailable = true, message = appContext.getString(R.string.leadership_tasks_msg_task_unavailable))
+                }
+            }
             val task = repository.observeTaskDetail(editingTaskId).first { it != null } ?: return@launch
             draft.update { current ->
-                if (current.seeded) current else current.copy(seeded = true).seededWith(task)
+                if (current.seeded) current else current.copy(seeded = true, seedUnavailable = false, message = null).seededWith(task)
             }
         }
     }
@@ -468,7 +480,7 @@ class LeadershipTaskComposeViewModel @Inject constructor(
     private fun Draft.toUiState(): LeadershipTaskComposeUiState = LeadershipTaskComposeUiState(
         isEdit = isEdit,
         assignees = assignees,
-        assigneesLoading = assigneesLoading || (isEdit && !seeded),
+        assigneesLoading = assigneesLoading || (isEdit && !seeded && !seedUnavailable),
         selectedAssigneeId = assigneeId,
         title = title,
         body = body,

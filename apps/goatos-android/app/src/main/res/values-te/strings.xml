@@ -117,4 +117,6 @@
     <string name="proof_video_pen_routine_header">పెన్ దినచర్య</string>
     <string name="pen_routines_msg_capture_not_saved">అది సేవ్ కాలేదు. మళ్లీ తీయండి.</string>
     <string name="pen_routines_msg_not_sent">సేవ్ అయింది, కానీ పంపలేకపోయాం. రిఫ్రెష్ చేసి మళ్లీ ప్రయత్నించండి.</string>
+    <string name="pen_visits_msg_unavailable">ఈ సందర్శన ఇంకా లోడ్ కాలేదు. కనెక్షన్ చూసి మళ్లీ ప్రయత్నించండి.</string>
+    <string name="leadership_tasks_msg_task_unavailable">ఈ పని లోడ్ కాలేదు. కనెక్షన్ చూసి మళ్లీ ప్రయత్నించండి.</string>
 </resources>

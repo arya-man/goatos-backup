@@ -96,6 +96,9 @@ class PenVisitListViewModel @Inject constructor(
             isRefreshing = refreshing,
             lastSyncedAt = lastSyncedAt,
             refreshFailed = refreshFailed && !refreshing,
+            // With nothing cached this is what the screen shows instead of a blank page — it needs
+            // no page facts (title/chips), which only a successful refresh brings.
+            isErrorEmpty = refreshFailed && !refreshing,
             emptyMessage = selectedChip?.emptyMessage?.takeIf { it.isNotBlank() }
                 ?: meta.filters.firstOrNull()?.emptyMessage?.takeIf { it.isNotBlank() },
             filters = meta.filters.map { chip ->

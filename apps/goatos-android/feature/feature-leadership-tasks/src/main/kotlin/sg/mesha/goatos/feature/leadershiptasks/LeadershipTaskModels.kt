@@ -171,6 +171,8 @@ data class LeadershipTaskNoteUi(
 data class LeadershipTaskDetailUiState(
     /** True until the first cached/fetched detail lands. */
     val loading: Boolean = true,
+    /** Nothing cached and the server unreachable: show the error with Try again, not a spinner. */
+    val unavailable: Boolean = false,
     val numberLabel: String = "",
     val statusChip: String = "",
     val status: String = "",

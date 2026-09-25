@@ -42,4 +42,7 @@
     <string name="leadership_tasks_deadline_cancel">ರದ್ದುಮಾಡಿ</string>
     <string name="leadership_tasks_deadline_prefix">ಗಡುವು</string>
     <string name="leadership_tasks_refresh_failed">ರಿಫ್ರೆಶ್ ಆಗಲಿಲ್ಲ · ಉಳಿಸಿದ ಕೆಲಸಗಳನ್ನು ತೋರಿಸಲಾಗುತ್ತಿದೆ</string>
+    <string name="leadership_tasks_detail_unavailable">ಈ ಕೆಲಸ ಲೋಡ್ ಆಗಲಿಲ್ಲ. ಸಂಪರ್ಕ ಪರಿಶೀಲಿಸಿ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.</string>
+    <string name="leadership_tasks_list_unavailable">ನಿಮ್ಮ ಕೆಲಸಗಳು ಲೋಡ್ ಆಗಲಿಲ್ಲ. ಸಂಪರ್ಕ ಪರಿಶೀಲಿಸಿ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.</string>
+    <string name="leadership_tasks_action_try_again">ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ</string>
 </resources>

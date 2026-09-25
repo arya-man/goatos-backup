@@ -82,8 +82,10 @@ class FakeLeadershipTasksRepository(
     override fun observeTaskDetail(taskId: String): Flow<LeadershipTaskDto?> =
         detail.map { current -> current?.takeIf { it.taskId == taskId } }
 
-    override suspend fun refreshTaskDetail(taskId: String) {
+    /** A refresh "reaches the server" only when there is a task to land (the offline case is null). */
+    override suspend fun refreshTaskDetail(taskId: String): Boolean {
         refreshDetailCalls++
+        return detail.value != null
     }
 
     override suspend fun assignees(): AppResult<List<LeadershipAssigneeDto>> = AppResult.Ok(assigneeList)

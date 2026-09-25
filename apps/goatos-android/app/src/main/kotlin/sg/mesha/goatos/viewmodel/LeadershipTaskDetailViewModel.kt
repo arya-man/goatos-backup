@@ -70,6 +70,8 @@ class LeadershipTaskDetailViewModel @Inject constructor(
 
     private data class Local(
         val isRefreshing: Boolean = false,
+        /** The last refresh never reached the server. Only matters while nothing is cached. */
+        val lastRefreshFailed: Boolean = false,
         val actionInFlight: Boolean = false,
         val showCancelConfirm: Boolean = false,
         val message: String? = null,
@@ -152,10 +154,11 @@ class LeadershipTaskDetailViewModel @Inject constructor(
         if (taskId.isBlank()) return
         viewModelScope.launch {
             local.update { it.copy(isRefreshing = true) }
+            var reached = false
             try {
-                repository.refreshTaskDetail(taskId)
+                reached = repository.refreshTaskDetail(taskId)
             } finally {
-                local.update { it.copy(isRefreshing = false) }
+                local.update { it.copy(isRefreshing = false, lastRefreshFailed = !reached) }
             }
         }
     }
@@ -305,7 +308,15 @@ class LeadershipTaskDetailViewModel @Inject constructor(
 
     private fun toUiState(detail: LeadershipTaskDto?, own: Local): LeadershipTaskDetailUiState {
         if (detail == null) {
-            return LeadershipTaskDetailUiState(loading = true, isRefreshing = own.isRefreshing, message = own.message)
+            // Nothing cached (not even the list row) and the server did not answer: stop the
+            // spinner and offer Try again, instead of loading forever.
+            val unavailable = own.lastRefreshFailed && !own.isRefreshing
+            return LeadershipTaskDetailUiState(
+                loading = !unavailable,
+                unavailable = unavailable,
+                isRefreshing = own.isRefreshing,
+                message = own.message,
+            )
         }
         return LeadershipTaskDetailUiState(
             loading = false,

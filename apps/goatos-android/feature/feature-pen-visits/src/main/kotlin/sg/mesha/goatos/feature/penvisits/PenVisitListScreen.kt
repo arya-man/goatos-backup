@@ -81,18 +81,34 @@ fun PenVisitListScreen(
         if (state.filters.isNotEmpty()) {
             PenVisitFilterRow(filters = state.filters, onEvent = onEvent)
         }
+        // A first open with nothing cached and the server down: the error with Try again, never a
+        // blank page (it needs no page facts from the server).
+        val emptyTitle = if (state.isErrorEmpty) stringResource(R.string.pen_visits_list_unavailable) else state.emptyMessage
+        val tryAgainLabel = stringResource(R.string.pen_visits_action_try_again)
+        val retryAction: (@Composable () -> Unit)? = if (state.isErrorEmpty) {
+            {
+                PenVisitGhostButton(
+                    label = tryAgainLabel,
+                    enabled = !state.isRefreshing,
+                    onClick = { onEvent(PenVisitListEvent.Refresh) },
+                )
+            }
+        } else {
+            null
+        }
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(top = 4.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            if (rows.itemCount == 0 && state.emptyMessage != null) {
+            if (rows.itemCount == 0 && emptyTitle != null) {
                 item(key = "empty") {
                     EmptyState(
-                        title = state.emptyMessage,
+                        title = emptyTitle,
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                         icon = if (state.isErrorEmpty) MeshaIcons.Warn else MeshaIcons.PenVisit,
                         tone = if (state.isErrorEmpty) EmptyTone.Warn else EmptyTone.Neutral,
+                        action = retryAction,
                     )
                 }
             }

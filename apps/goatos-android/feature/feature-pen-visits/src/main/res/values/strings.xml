@@ -18,4 +18,7 @@
     <string name="pen_visits_state_in_review">With the verifier</string>
     <string name="pen_visits_state_sent_back">Sent back by the verifier</string>
     <string name="pen_visits_refresh_failed">Couldn\'t refresh · showing saved visits</string>
+    <string name="pen_visits_detail_unavailable">Couldn\'t load this visit. Check the connection and try again.</string>
+    <string name="pen_visits_list_unavailable">Couldn\'t load your pen visits. Check the connection and try again.</string>
+    <string name="pen_visits_action_try_again">Try again</string>
 </resources>
