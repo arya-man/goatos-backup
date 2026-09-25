@@ -1117,6 +1117,16 @@
       "ciStep": "overlay-motion-guard"
     },
     {
+      "id": "node22-toolchain",
+      "script": "tools/ci/node22.sh",
+      "makeTarget": "node22-self-test",
+      "realCheck": "node22_export_or_die in tools/ci/run-local-ci.sh, land-main.sh, land-check.sh",
+      "selfTest": "bash tools/ci/node22.test.sh",
+      "owningDoc": "docs/runbooks/local-ci.md",
+      "requiredInCI": true,
+      "ciStep": "node22-self-test"
+    },
+    {
       "id": "ci-fast-retry",
       "script": "tools/ci/step-input-digest.mjs",
       "makeTarget": "ci-fast-retry-guard",

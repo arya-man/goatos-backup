@@ -92,11 +92,23 @@ GOATOS_CI_ONLY_STEP='<step>' tools/ci/run-local-ci.sh <job>
 That runs just that step (other steps report SKIP), writes no receipt (it is refused
 on auto/all), and on a clean committed tree caches the PASS for the next landing.
 `GOATOS_CI_FAIL_FAST=0` restores run-everything semantics (e.g. to see every failure
-of a MODE=all sweep).
+of a MODE=all sweep). Whenever a run ends RED, the summary lists EVERY failing step,
+each with its own `GOATOS_CI_ONLY_STEP=... tools/ci/run-local-ci.sh <job>` line.
+
+**Node >= 22 is enforced.** `run-local-ci.sh`, `land-main.sh` and `land-check.sh` source
+`tools/ci/node22.sh` and, before any step, put the first Node >= 22 first on PATH:
+`$HOME/.nvm/versions/node/v24*/bin`, then Homebrew (`/opt/homebrew/bin/node`,
+`/usr/local/bin/node`), then PATH. If none is >= 22 they exit immediately with a clear
+message. A Node-20 shell otherwise fails `agent: refresh-binding` and
+`api-latency-policy` (`--experimental-strip-types`) as a setup error. Test:
+`make node22-self-test`.
 
 **`make land-check`.** Runs the exact ci-local land-main would (temp worktree, rebased
 on fresh origin/main, same `ci-local` / `ci-local-screenshots` pick) without pushing,
-and leaves your worktree untouched. Loop: `make land-check` -> fix -> commit ->
+and leaves your worktree untouched. It defaults to `GOATOS_CI_FAIL_FAST=0`: every job
+runs to completion and the end lists ALL failing steps with their single-step re-run
+lines, so one land-check finds everything. `GOATOS_CI_FAIL_FAST=1 make land-check`
+stops at the first failure. `make land-main` stays fail-fast. Loop: `make land-check` -> fix -> commit ->
 single-step re-run -> `make land-check` -> `make land-main` (reuses all unchanged
 passes).
 

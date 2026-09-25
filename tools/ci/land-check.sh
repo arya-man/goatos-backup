@@ -11,7 +11,15 @@
 # only steps whose inputs moved (a fix commit, or main moving meanwhile) re-run.
 # It never pushes, never touches your worktree, and writes no receipt that can
 # authorize main (the receipt stays in the temp worktree and is deleted with it).
+#
+# Unlike land-main, land-check defaults to GOATOS_CI_FAIL_FAST=0: it runs every job
+# to completion so ONE pass shows ALL failing steps, each with its single-step
+# re-run line. Export GOATOS_CI_FAIL_FAST=1 to stop at the first failure instead.
 set -euo pipefail
+export GOATOS_CI_FAIL_FAST="${GOATOS_CI_FAIL_FAST:-0}"
+# shellcheck source=tools/ci/node22.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/node22.sh"
+node22_export_or_die
 
 src="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 [ -n "$src" ] || { echo "land-check: run inside a Git worktree" >&2; exit 2; }
@@ -46,11 +54,11 @@ if ( changed_since_base() { git diff --name-only "$base...HEAD"; }
      . tools/ci/android-ui-diff.sh; android_ui_diff_detected ) >/dev/null 2>&1; then
   ci_target="ci-local-screenshots"
 fi
-echo "land-check: $(git rev-parse --short HEAD) (= $(git rev-parse --short "$head") rebased on origin/main $(git rev-parse --short "$base")) -> make ${ci_target}"
+echo "land-check: $(git rev-parse --short HEAD) (= $(git rev-parse --short "$head") rebased on origin/main $(git rev-parse --short "$base")) -> make ${ci_target} (fail-fast=${GOATOS_CI_FAIL_FAST}, node $(node --version))"
 t0=$SECONDS
 if make "$ci_target"; then
   echo "land-check: GREEN in $((SECONDS - t0))s. Passes are cached by input; now run: make land-main"
 else
-  echo "land-check: RED in $((SECONDS - t0))s. Fix, commit, re-run the printed single step, then make land-check / make land-main." >&2
+  echo "land-check: RED in $((SECONDS - t0))s. ALL failing steps and their single-step re-run lines are listed above. Fix, commit, re-run those steps, then make land-check / make land-main." >&2
   exit 1
 fi

@@ -27,12 +27,21 @@ set -uo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$repo"
+# Node >= 22 first on PATH before ANY step (like JDK 21 for Gradle). A Node-20
+# shell otherwise fails strip-types steps as a setup error. See tools/ci/node22.sh.
+# shellcheck source=tools/ci/node22.sh
+. tools/ci/node22.sh
+node22_export_or_die
 # Per-run plumbing is owned by THIS process. A nested run (a self-test that
 # drives run-local-ci.sh inside a parent ci-local) must never inherit the
 # parent's fail-fast sentinel, step ledger or input digests: a nested failure
 # would otherwise stop the parent's jobs, and a nested digest would key the
 # wrong tree.
 unset GOATOS_CI_FAILFAST_FILE GOATOS_CI_STEP_LEDGER GOATOS_CI_DIGEST_whole GOATOS_CI_DIGEST_backend GOATOS_CI_DIGEST_adminweb GOATOS_CI_DIGEST_android
+# Every failing step() appends "job<TAB>step" here (crosses dispatch subshells),
+# so the RED summary prints one single-step re-run line per failure.
+GOATOS_CI_RERUN_FILE="$(mktemp "${TMPDIR:-/tmp}/goatos-ci-reruns.XXXXXX")" || GOATOS_CI_RERUN_FILE=""
+export GOATOS_CI_RERUN_FILE
 
 sha="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
 only="${1:-${MODE:-auto}}"
@@ -243,6 +252,7 @@ step() { # name, command...
       record_failure "${name}"
     echo "!! ci-local step FAILED: ${name}"
     echo "!! re-run just this step: GOATOS_CI_ONLY_STEP='${name}' tools/ci/run-local-ci.sh ${current_job}"
+    [ -z "${GOATOS_CI_RERUN_FILE:-}" ] || printf '%s\t%s\n' "$current_job" "$name" >>"$GOATOS_CI_RERUN_FILE" 2>/dev/null || true
     fail_fast_signal "$name"
   fi
 }
@@ -584,6 +594,7 @@ run_common() {
     step "large-file guard self-test" node tools/ci/check-large-files.mjs --self-test
     step "push-hook-freshness self-test" bash tools/ci/check-push-hook-freshness.test.sh
     step "java 21 resolver self-test" bash tools/ci/java21.test.sh
+    step "node 22 resolver + land-check fail-fast default self-test" make node22-self-test
     step "gradle home + machine queue self-test" bash tools/ci/gradle-home.test.sh
     step "gradle machine setup self-test" bash tools/ci/gradle-machine-setup.test.sh
     step "parallel-dispatch cleanup self-test" bash tools/ci/check-parallel-dispatch-cleanup.test.sh
@@ -1203,7 +1214,14 @@ else
   else
     for f in "${FAILURES[@]}"; do echo "  FAIL  ${f}"; done
     echo ""
-    echo "  Re-run just the first failure, e.g.:  grep -n '${FAILURES[0]}' tools/ci/run-local-ci.sh"
+    if [ -n "${GOATOS_CI_RERUN_FILE:-}" ] && [ -s "$GOATOS_CI_RERUN_FILE" ]; then
+      echo "  Re-run each failing step alone (writes no receipt; caches the PASS):"
+      while IFS=$'\t' read -r rj rs; do
+        [ -n "$rs" ] && echo "    GOATOS_CI_ONLY_STEP='${rs}' tools/ci/run-local-ci.sh ${rj}"
+      done < <(awk '!seen[$0]++' "$GOATOS_CI_RERUN_FILE")
+    else
+      echo "  Re-run just the first failure, e.g.:  grep -n '${FAILURES[0]}' tools/ci/run-local-ci.sh"
+    fi
   fi
   echo "ci-local: RED @ ${sha} (${#FAILURES[@]} failing step(s) named above)"
     if [ "${#FAILED_JOBS[@]}" -gt 0 ]; then

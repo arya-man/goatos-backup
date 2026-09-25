@@ -9,6 +9,11 @@ set -euo pipefail
 repo="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 [ -n "$repo" ] || { echo "land-main: run inside a Git worktree" >&2; exit 2; }
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Node >= 22 first on PATH (ci-scope/receipt node calls + every ci-local step).
+# shellcheck source=tools/ci/node22.sh
+. "$script_dir/node22.sh"
+node22_export_or_die
+# land-main stays fail-fast (dispatcher default); only land-check defaults to 0.
 cd "$repo"
 
 die() {
