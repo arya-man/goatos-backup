@@ -100,6 +100,10 @@ func (f *fakeRepo) ListDeals(_ context.Context, _ string, farm string, limit, of
 	return ports.DealPage{Total: 63}, nil
 }
 
+func (f *fakeRepo) GetDeal(_ context.Context, _ string, dealID string) (domain.Deal, error) {
+	return domain.Deal{DealID: dealID}, nil
+}
+
 func (f *fakeRepo) CreateDeal(_ context.Context, _ string, write domain.DealWrite, _ string, key string) (domain.Deal, error) {
 	f.createCalls++
 	f.createdWrite = write

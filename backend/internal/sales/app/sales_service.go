@@ -4,6 +4,7 @@ package app
 import (
 	"context"
 	"errors"
+	"github.com/google/uuid"
 	"strings"
 	"time"
 
@@ -85,6 +86,17 @@ func (s *SalesService) ListDeals(ctx context.Context, tenantID string, q DealLis
 		return ports.DealPage{}, ErrSalesOffsetOutOfRange
 	}
 	return s.repo.ListDeals(ctx, tenantID, farm, domain.ClampDealPageSize(q.Limit), q.Offset)
+}
+
+// GetDeal reads one sale, tenant-scoped, in the same shape as a ledger row. An id that is not even
+// a uuid is answered as not-found here rather than reaching Postgres, where it would be a type
+// error and a 500.
+func (s *SalesService) GetDeal(ctx context.Context, tenantID, dealID string) (domain.Deal, error) {
+	id := strings.TrimSpace(dealID)
+	if _, err := uuid.Parse(id); err != nil {
+		return domain.Deal{}, ports.ErrDealNotFound
+	}
+	return s.repo.GetDeal(ctx, tenantID, id)
 }
 
 // CreateDeal validates and records a sale.

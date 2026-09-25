@@ -11689,8 +11689,8 @@ paths:
       description: >-
         Adding leaves `code` empty: it is derived from the name once and never changes, so renaming
         the item later cannot orphan the sales already recorded under it. Editing sends the code
-        back. The three built-in products may be renamed and reordered but never archived and never
-        changed in kind.
+        back; an edit naming a code the registry does not carry is refused 404 rather than creating
+        an item under a code the client chose.
       requestBody:
         required: true
         content:
@@ -11707,6 +11707,7 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundOrNotAllowed" }
         "409": { $ref: "#/components/responses/WriteConflict" }
   /sales/products/{product_code}:
     delete:
@@ -11841,6 +11842,37 @@ paths:
           $ref: "#/components/responses/WriteConflict"
         "500":
           $ref: "#/components/responses/ServerError"
+  /sales/deals/{deal_id}:
+    get:
+      tags:
+        - Sales
+      operationId: getSalesDeal
+      summary: Read one sale.
+      description: >-
+        One sale in exactly the shape of one row of `GET /sales/deals` -- its lines and its
+        receipts included -- for a screen that re-reads a sale after a write. Same read authority
+        as the ledger and tenant-scoped like it: a sale of another tenant, or an id that is not a
+        sale, is 404.
+      parameters:
+        - name: deal_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: The sale.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SalesDeal"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /sales/deals/{deal_id}/payments:
     post:
       tags:
@@ -11854,7 +11886,9 @@ paths:
         from it. Deal STATUS is deliberately not derived from money -- the lifecycle stays a human
         decision. The `Idempotency-Key` header is REQUIRED: an exact replay records nothing new,
         and the same key with different fields is rejected 409. `received_on` may not be in the
-        future (IST business day).
+        future (IST business day). A receipt that would take `payment_received` past the sale
+        value is refused 409 `payment_exceeds_sale_value` -- the advance taken when the sale was
+        recorded is already the deal's first receipt, so re-entering it is the usual cause.
       parameters:
         - name: deal_id
           in: path
@@ -11899,6 +11933,8 @@ paths:
         Replaces the receipt's business date, amount and note, then adjusts the deal's
         `payment_received` by the old/new amount delta inside the same transaction. The
         `Idempotency-Key` header is REQUIRED so a retry of the edit cannot apply the delta twice.
+        An edit that RAISES `payment_received` past the sale value is refused 409
+        `payment_exceeds_sale_value`; an edit that lowers it is always accepted.
       parameters:
         - name: deal_id
           in: path
@@ -24326,8 +24362,9 @@ components:
         is_builtin:
           type: boolean
           description: >-
-            May be renamed and reordered, never archived and never changed in kind: the Sold page's
-            cards key on these codes, and the kind decides whether a line carries animals.
+            One of the rows every tenant starts with. Editable like any other row (maintainer
+            instruction 2026-09-23): a recorded sale line is stamped with the code, name and kind
+            it was sold under, so an edit changes only what the NEXT sale asks for.
         priced_per_unit:
           type: boolean
           description: >-
@@ -24509,7 +24546,14 @@ components:
           description: >-
             Legacy single-line body only: required there and must be more than zero. With `lines`
             the deal value is the sum of the lines and this field is ignored.
-        advance_amount: { type: number, minimum: 0, nullable: true }
+        advance_amount:
+          type: number
+          minimum: 0
+          nullable: true
+          description: >-
+            Money the buyer has already handed over for this sale. Recorded as the sale's FIRST
+            receipt (dated today, or the sale date when that is earlier), so it is listed, editable
+            and removable like any receipt. More than the sale value is refused.
         status:
           type: string
           enum: [Deal Closed, Deal Failed, In Discussion, Advance Paid]

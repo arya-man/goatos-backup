@@ -26,6 +26,7 @@ type SalesService interface {
 	ListStageRegister(ctx context.Context, tenantID string) ([]domain.StageRegisterEntry, error)
 	PutValuationAssumptions(ctx context.Context, tenantID string, write domain.ValuationAssumptions, actorID string) (domain.ValuationAssumptions, error)
 	ListDeals(ctx context.Context, tenantID string, q app.DealListQuery) (ports.DealPage, error)
+	GetDeal(ctx context.Context, tenantID, dealID string) (domain.Deal, error)
 	CreateDeal(ctx context.Context, tenantID string, write domain.DealWrite, actorID, idempotencyKey string) (domain.Deal, error)
 	SellableProducts(ctx context.Context, tenantID string) ([]domain.Product, map[string][]string, error)
 	ListSellableProducts(ctx context.Context, tenantID string) ([]domain.ProductRow, error)
@@ -79,6 +80,7 @@ func Register(mux *http.ServeMux, h *SalesHandler) {
 	mux.HandleFunc("PUT /sales/valuation-assumptions", h.PutValuationAssumptions)
 	mux.HandleFunc("GET /sales/deals", h.ListDeals)
 	mux.HandleFunc("POST /sales/deals", h.CreateDeal)
+	mux.HandleFunc("GET /sales/deals/{deal_id}", h.GetDeal)
 	mux.HandleFunc("POST /sales/deals/{deal_id}/payments", h.RecordDealPayment)
 	mux.HandleFunc("PUT /sales/deals/{deal_id}/payments/{payment_id}", h.UpdateDealPayment)
 	mux.HandleFunc("DELETE /sales/deals/{deal_id}/payments/{payment_id}", h.DeleteDealPayment)
@@ -270,6 +272,18 @@ func (h *SalesHandler) ListDeals(w http.ResponseWriter, r *http.Request) {
 		Limit:  domain.ClampDealPageSize(limit),
 		Offset: offset,
 	})
+}
+
+// GetDeal serves GET /sales/deals/{deal_id}: one sale, in exactly the shape of one row of the
+// ledger (the same toDealPayload), so a screen that re-reads a sale after a write shows what the
+// list shows. Tenant-scoped like the list; a deal of another tenant is simply not found.
+func (h *SalesHandler) GetDeal(w http.ResponseWriter, r *http.Request) {
+	deal, err := h.service.GetDeal(r.Context(), tenantID(r), r.PathValue("deal_id"))
+	if err != nil {
+		h.writeErr(w, r, app.SalesHTTPError(err))
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, toDealPayload(deal))
 }
 
 // CreateDeal serves POST /sales/deals.

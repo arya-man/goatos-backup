@@ -254,3 +254,49 @@ func advanceBackfillUp(t *testing.T) string {
 	}
 	return strings.Replace(s[:down], "-- +goose Up", "", 1)
 }
+
+// GET /sales/deals/{deal_id} reads one sale through the same read every write returns its deal
+// through, so it equals that deal's row in the ledger page: lines and receipts included. It is
+// tenant-scoped, and a malformed id is not-found rather than a database type error.
+func TestGetDealRoundTripMatchesTheLedgerRow(t *testing.T) {
+	ctx := context.Background()
+	repo := feedSaleRepo(t, ctx)
+	service := salesapp.NewSalesService(repo)
+
+	created, err := service.CreateDeal(ctx, salesTestTenant, advanceDeal(197415, 20000, "2026-09-02"), "", "get-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	one, err := service.GetDeal(ctx, salesTestTenant, created.DealID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := repo.ListDeals(ctx, salesTestTenant, "", 25, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var row *domain.Deal
+	for i := range page.Deals {
+		if page.Deals[i].DealID == created.DealID {
+			row = &page.Deals[i]
+		}
+	}
+	if row == nil {
+		t.Fatal("created deal missing from the ledger page")
+	}
+	if one.DealID != row.DealID || len(one.Lines) != len(row.Lines) || len(one.Payments) != len(row.Payments) ||
+		one.SalesValue != row.SalesValue || *one.PaymentReceived != *row.PaymentReceived || one.Status != row.Status {
+		t.Fatalf("one-deal read disagrees with its ledger row:\n one %+v\n row %+v", one, *row)
+	}
+	if len(one.Payments) != 1 || len(one.Lines) != 1 {
+		t.Fatalf("one-deal read lost its lines or receipts: %+v", one)
+	}
+	for _, id := range []string{"not-a-uuid", "00000000-0000-4000-8000-00000000dead"} {
+		if _, err := service.GetDeal(ctx, salesTestTenant, id); !errors.Is(err, ports.ErrDealNotFound) {
+			t.Fatalf("GetDeal(%q) = %v, want ErrDealNotFound", id, err)
+		}
+	}
+	if _, err := service.GetDeal(ctx, "00000000-0000-4000-8000-000000000002", created.DealID); !errors.Is(err, ports.ErrDealNotFound) {
+		t.Fatalf("another tenant read the deal: %v", err)
+	}
+}

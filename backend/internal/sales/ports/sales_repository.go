@@ -81,6 +81,10 @@ type SalesRepository interface {
 	// whole-filter total.
 	ListDeals(ctx context.Context, tenantID, farm string, limit, offset int) (DealPage, error)
 
+	// GetDeal returns ONE deal in exactly the shape a ledger row has -- lines and receipts
+	// attached -- or ErrDealNotFound when the id does not resolve inside the tenant.
+	GetDeal(ctx context.Context, tenantID, dealID string) (domain.Deal, error)
+
 	// ListSellableProducts is the tenant's ACTIVE registry of what the farm sells (migration
 	// 000422), in farm order. It is read for validation before the write and RE-READ inside the
 	// writing transaction: a product archived between the form opening and the save landing must

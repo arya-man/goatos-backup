@@ -179,6 +179,15 @@ func (r *Repository) ListDeals(ctx context.Context, tenantID, farm string, limit
 }
 
 // getDeal reads one deal inside the caller's tenant. Used by the create replay path.
+// GetDeal implements ports.SalesRepository: the one-deal read behind GET /sales/deals/{deal_id}.
+// It is the SAME read every write returns its deal through, so a re-read after a write and the
+// write's own response can never disagree.
+func (r *Repository) GetDeal(ctx context.Context, tenantID, dealID string) (domain.Deal, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	return r.getDeal(ctx, tenantID, dealID)
+}
+
 func (r *Repository) getDeal(ctx context.Context, tenantID, dealID string) (domain.Deal, error) {
 	query := fmt.Sprintf(`SELECT %s FROM public.sales_deals d WHERE d.tenant_id = $1 AND d.id = $2`, dealColumns)
 	boundDeal := sqlbind.MustBind(query, tenantID, dealID)

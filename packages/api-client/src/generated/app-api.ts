@@ -4488,7 +4488,7 @@ export interface paths {
         put?: never;
         /**
          * Add an item the farm sells, or edit one
-         * @description Adding leaves `code` empty: it is derived from the name once and never changes, so renaming the item later cannot orphan the sales already recorded under it. Editing sends the code back. The three built-in products may be renamed and reordered but never archived and never changed in kind.
+         * @description Adding leaves `code` empty: it is derived from the name once and never changes, so renaming the item later cannot orphan the sales already recorded under it. Editing sends the code back; an edit naming a code the registry does not carry is refused 404 rather than creating an item under a code the client chose.
          */
         post: operations["saveSellableProduct"];
         delete?: never;
@@ -4561,6 +4561,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sales/deals/{deal_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read one sale.
+         * @description One sale in exactly the shape of one row of `GET /sales/deals` -- its lines and its receipts included -- for a screen that re-reads a sale after a write. Same read authority as the ledger and tenant-scoped like it: a sale of another tenant, or an id that is not a sale, is 404.
+         */
+        get: operations["getSalesDeal"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sales/deals/{deal_id}/payments": {
         parameters: {
             query?: never;
@@ -4572,7 +4592,7 @@ export interface paths {
         put?: never;
         /**
          * Record one amount received from the buyer against a deal.
-         * @description A buyer does not pay a deal in one go: an advance when the deal is struck, more on pickup, the balance later -- each is recorded here as its own row with its own date. In the same transaction the deal's running `payment_received` total advances; `payment_balance` derives from it. Deal STATUS is deliberately not derived from money -- the lifecycle stays a human decision. The `Idempotency-Key` header is REQUIRED: an exact replay records nothing new, and the same key with different fields is rejected 409. `received_on` may not be in the future (IST business day).
+         * @description A buyer does not pay a deal in one go: an advance when the deal is struck, more on pickup, the balance later -- each is recorded here as its own row with its own date. In the same transaction the deal's running `payment_received` total advances; `payment_balance` derives from it. Deal STATUS is deliberately not derived from money -- the lifecycle stays a human decision. The `Idempotency-Key` header is REQUIRED: an exact replay records nothing new, and the same key with different fields is rejected 409. `received_on` may not be in the future (IST business day). A receipt that would take `payment_received` past the sale value is refused 409 `payment_exceeds_sale_value` -- the advance taken when the sale was recorded is already the deal's first receipt, so re-entering it is the usual cause.
          */
         post: operations["recordSalesDealPayment"];
         delete?: never;
@@ -4591,7 +4611,7 @@ export interface paths {
         get?: never;
         /**
          * Edit one payment receipt on a sales deal.
-         * @description Replaces the receipt's business date, amount and note, then adjusts the deal's `payment_received` by the old/new amount delta inside the same transaction. The `Idempotency-Key` header is REQUIRED so a retry of the edit cannot apply the delta twice.
+         * @description Replaces the receipt's business date, amount and note, then adjusts the deal's `payment_received` by the old/new amount delta inside the same transaction. The `Idempotency-Key` header is REQUIRED so a retry of the edit cannot apply the delta twice. An edit that RAISES `payment_received` past the sale value is refused 409 `payment_exceeds_sale_value`; an edit that lowers it is always accepted.
          */
         put: operations["updateSalesDealPayment"];
         post?: never;
@@ -10769,7 +10789,7 @@ export interface components {
             sort_order: number;
             /** @enum {string} */
             status: "active" | "archived";
-            /** @description May be renamed and reordered, never archived and never changed in kind: the Sold page's cards key on these codes, and the kind decides whether a line carries animals. */
+            /** @description One of the rows every tenant starts with. Editable like any other row (maintainer instruction 2026-09-23): a recorded sale line is stamped with the code, name and kind it was sold under, so an edit changes only what the NEXT sale asks for. */
             is_builtin: boolean;
             /** @description Whether SELLING this asks for a quantity at a rate. False for animals, which are sold as a lot at a negotiated price. Composed by the backend so both surfaces agree. */
             priced_per_unit: boolean;
@@ -10876,6 +10896,7 @@ export interface components {
             total_weight_kg?: number | null;
             /** @description Legacy single-line body only: required there and must be more than zero. With `lines` the deal value is the sum of the lines and this field is ignored. */
             sales_value?: number;
+            /** @description Money the buyer has already handed over for this sale. Recorded as the sale's FIRST receipt (dated today, or the sale date when that is earlier), so it is listed, editable and removable like any receipt. More than the sale value is refused. */
             advance_amount?: number | null;
             /**
              * @description Optional; blank records the default, Deal Closed. Name one to record an EXPECTED sale -- an advance received today for animals leaving on a future date is an Advance Paid deal, and only Deal Closed counts toward revenue.
@@ -29672,6 +29693,7 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
             409: components["responses"]["WriteConflict"];
         };
     };
@@ -29783,6 +29805,32 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getSalesDeal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The sale. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesDeal"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
             500: components["responses"]["ServerError"];
         };
     };

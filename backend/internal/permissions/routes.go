@@ -550,6 +550,8 @@ var protectedRoutes = []Route{
 	{OperationID: "deleteSellableProduct", Method: "DELETE", Pattern: "/sales/products/{product_code}", Permissions: []string{SalesWrite}},
 	{OperationID: "listSalesDeals", Method: "GET", Pattern: "/sales/deals", Permissions: []string{SalesRead}},
 	{OperationID: "createSalesDeal", Method: "POST", Pattern: "/sales/deals", Permissions: []string{SalesWrite}},
+	// One sale, for a screen that re-reads it after a write. Same read authority as the ledger.
+	{OperationID: "getSalesDeal", Method: "GET", Pattern: "/sales/deals/{deal_id}", Permissions: []string{SalesRead}},
 	// A buyer receipt is a money write on the same ledger, so it carries the same write permission
 	// as recording the deal itself.
 	{OperationID: "recordSalesDealPayment", Method: "POST", Pattern: "/sales/deals/{deal_id}/payments", Permissions: []string{SalesWrite}},
