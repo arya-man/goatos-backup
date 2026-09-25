@@ -199,6 +199,13 @@ type Counts struct {
 	Done           int `json:"done"`
 	Pending        int `json:"pending"`
 	NeedsAttention int `json:"needs_attention"`
+	// InReview and NotStarted split Pending for a source that knows them (the feed cards,
+	// maintainer instruction 2026-09-25: "I need to see how everything is going"): units handed
+	// in and waiting for a verdict, and units nobody has started. The rest of Pending, less the
+	// units needing attention, is work started and not handed in. A source that does not know
+	// them leaves both zero and the card reads as before.
+	InReview   int `json:"in_review,omitempty"`
+	NotStarted int `json:"not_started,omitempty"`
 }
 
 // Row is THE contract. Every source emits exactly this.

@@ -47,6 +47,7 @@ WITH item AS (
     AND v.captured_at < $3::timestamptz
     AND v.park_id = $4::uuid
     AND v.item_id = $5::uuid
+    AND ` + notOnBoardSQL + `
     AND v.status <> 'withdrawn'
 ),
 units AS (

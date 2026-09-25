@@ -2785,6 +2785,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"card.done":                           "done",
 			"card.in_review":                      "in review",
 			"card.started":                        "started",
+			"card.not_started":                    "not started",
 			"card.attention":                      "needs attention",
 			"card.past_clock":                     "past clock",
 			"drawer.title":                        "Work item",

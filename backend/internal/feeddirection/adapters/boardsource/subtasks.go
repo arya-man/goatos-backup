@@ -7,13 +7,16 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 	"github.com/vgoats/goatos/backend/internal/workboard/domain"
 	"github.com/vgoats/goatos/backend/internal/workboard/ports"
 )
 
-// Subtasks of a feed activity card are its PENS, one line each, worst first: the shed's own
-// roll-up state (rollupRankExpr across that pen's bags/sessions) carried as a subtask so a
-// reader opens "Feed packing" and sees which pens are done, in review, sent back or owed.
+// Subtasks of a feed activity card are its PENS, one line each, worst first: the pen's own
+// roll-up state (rollupRankExpr across that pen's bags) carried as a subtask so a reader opens
+// "Feed packing" and sees which pens are approved, in review, sent back, started or not filmed --
+// the same five words, from the same pen CTE, as the card's own counts. A direction card is ONE
+// session, so its drawer lists that session's pens only.
 //
 // READ-ONLY and REPORTING-ONLY: nothing here submits, verifies or reworks feed work.
 //
@@ -37,16 +40,17 @@ const shedSubtaskRankExpr = `CASE
 // ranking so a pen with several sessions is one line; join_cardinality=locations on its primary
 // key (1:1), no fan-out; pagination=keyset on (rank, pen_key) ASC after ($5,$6) with LIMIT $7,
 // total by count(*) OVER () computed before the cut; scope=tenant_id($1), business_date($2),
-// park_id($3), owner NULL($4).
-func subtasksSQL(units string) string {
+// park_id($3), owner NULL($4), the card's session ($8; 0 for a one-card activity).
+func subtasksSQL(a activity) string {
 	return `
-WITH units AS (` + units + `),
+WITH ` + cardUnitsCTE(a) + `,
 ` + penCTE + `,
 ranked AS (
   SELECT s.shed_id, COALESCE(s.partition_label, '') AS partition_label, s.partition_key, s.lane_rank, s.any_rej, ` + shedSubtaskRankExpr + ` AS rank,
          s.shed_id::text || '|' || s.partition_key AS pen_key,
          count(*) OVER () AS total
   FROM pen s
+  WHERE s.card_no = $8::int
 )
 SELECT r.shed_id::text, r.partition_label, r.lane_rank, r.any_rej, r.rank, r.pen_key, r.total, COALESCE(loc.name, '')
 FROM ranked r
@@ -59,7 +63,8 @@ LIMIT $7`
 // ListSubtasks implements ports.SubtaskSource. The row is named by its source id (the activity
 // key); an unknown key or a day/park with no rows returns an empty page with Total 0.
 func (s *Source) ListSubtasks(ctx context.Context, q ports.SubtaskQuery) (domain.SubtaskPage, error) {
-	a, ok := activityFromSourceID(q.SourceID)
+	card, ok := parseSourceID(q.SourceID)
+	a := card.activity
 	if !ok {
 		return domain.SubtaskPage{Subtasks: []domain.Subtask{}}, nil
 	}
@@ -73,8 +78,9 @@ func (s *Source) ListSubtasks(ctx context.Context, q ports.SubtaskQuery) (domain
 	limit := domain.BoundSubtaskLimit(q.Limit)
 	ctx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
-	rows, err := s.pool.Query(ctx, subtasksSQL(a.units),
-		q.TenantID, q.BusinessDate, q.ParkID, nullUUID(q.OwnerUserID), afterRank, afterID, limit+1)
+	bound := sqlbind.MustBind(subtasksSQL(a),
+		q.TenantID, q.BusinessDate, q.ParkID, nullUUID(q.OwnerUserID), afterRank, afterID, limit+1, card.cardNo)
+	rows, err := s.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return domain.SubtaskPage{}, fmt.Errorf("feed boardsource subtasks %s: %w", a.key, err)
 	}

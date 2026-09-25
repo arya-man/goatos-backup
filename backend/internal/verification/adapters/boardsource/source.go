@@ -65,6 +65,9 @@ func (s *Source) SourceType() string    { return SourceType }
 //
 // Sampling is deliberately invisible here: an unsampled item is still pending until the
 // closeout approves it, and the board reports the status the row actually holds.
+// notOnBoardSQL names the proofs whose producer shows their review on its own board cards.
+const notOnBoardSQL = `v.source_module <> 'feed'`
+
 const workStateSQL = `CASE
   WHEN v.status = 'approved' THEN 'completed'
   WHEN v.status = 'rejected' THEN 'rejected'
@@ -87,8 +90,15 @@ END`
 // captured_at range seek; park_id and the status filter are residual over one day's rows.
 // (verification_items_pending_scope_idx is partial to status='pending' and carries no
 // date; verification_items_created_pen_idx is keyed on created_at, not captured_at.)
+//
+// FEED VIDEOS ARE NOT VERIFICATION CARDS (maintainer instruction 2026-09-25: "four cards only").
+// Every feed video's review state is already on the feed activity cards and their pens
+// (feeddirection/adapters/boardsource); listing each bag again here counted one piece of feed
+// work twice at two grains -- 27 pens in review on the packing card beside 54 packing videos in
+// the same column. notOnBoardSQL leaves them out of every read: rows, counts and drill alike.
 const baseWhere = `
   v.tenant_id = $1::uuid
+  AND ` + notOnBoardSQL + `
   AND v.captured_at >= $2::timestamptz
   AND v.captured_at < $3::timestamptz
   AND v.park_id = $4::uuid

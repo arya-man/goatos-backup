@@ -22116,6 +22116,12 @@ components:
         done: { type: integer }
         pending: { type: integer }
         needs_attention: { type: integer }
+        in_review:
+          type: integer
+          description: Of pending, the units handed in and waiting for a verdict. Sent only by a source that knows it (the feed cards); absent means unknown, and the card reads pending as before.
+        not_started:
+          type: integer
+          description: Of pending, the units nobody has started (feed pens not filmed). Sent only by a source that knows it. Pending less in_review, not_started and needs_attention is work started and not handed in.
     WorkBoardRow:
       type: object
       required: [module, source_type, source_id, row_key, park_id, pen, business_date, work_state, lane, severity, owner, owner_state, title, counts]

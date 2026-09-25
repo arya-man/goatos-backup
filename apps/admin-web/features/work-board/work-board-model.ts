@@ -112,6 +112,12 @@ export function barSegments(row: WorkBoardRow): { ok: number; rev: number; run: 
   if (total <= 0) return { ok: 0, rev: 0, run: 0, brk: 0 };
   const pct = (n: number) => Math.max(0, Math.min(100, (100 * n) / total));
   const brk = Math.min(row.counts.pending, row.counts.needs_attention);
+  const split = pendingSplit(row);
+  if (split) {
+    // The source said where every unit is: the bar shows exactly that, and the units nobody has
+    // started stay the empty track.
+    return { ok: pct(row.counts.done), rev: pct(split.inReview), run: pct(split.started), brk: pct(brk) };
+  }
   const rest = row.counts.pending - brk;
   return {
     ok: pct(row.counts.done),
@@ -119,6 +125,20 @@ export function barSegments(row: WorkBoardRow): { ok: number; rev: number; run: 
     run: row.lane === "in_progress" ? pct(rest) : 0,
     brk: pct(brk),
   };
+}
+
+// pendingSplit is the card's pending work broken down, when the source sent the breakdown (the
+// feed cards do): handed in and waiting, started and not handed in, and not started. Without it a
+// card can only say "N started" for everything unfinished, which called 11 unfilmed feed pens
+// "started" (maintainer report 2026-09-25). Null means the source did not say.
+export function pendingSplit(row: WorkBoardRow): { inReview: number; started: number; notStarted: number } | null {
+  const inReview = row.counts.in_review;
+  const notStarted = row.counts.not_started;
+  if (inReview === undefined && notStarted === undefined) return null;
+  const review = inReview ?? 0;
+  const idle = notStarted ?? 0;
+  const brk = Math.min(row.counts.pending, row.counts.needs_attention);
+  return { inReview: review, started: Math.max(0, row.counts.pending - review - idle - brk), notStarted: idle };
 }
 
 // The names on a card's owner stack: the owner, plus "+N" when the backend appended partners.

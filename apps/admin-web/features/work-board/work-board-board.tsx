@@ -23,6 +23,7 @@ import {
   ownerStack,
   parkLabel,
   parkOptions,
+  pendingSplit,
   PARAM_CURSOR,
   PARAM_MODULE,
   PARAM_MODULE_NONE,
@@ -150,6 +151,7 @@ function WorkCard({ pageContract, row, href }: { pageContract: AdminUiPageContra
   const hot = needsAttention(row);
   const total = row.counts.done + row.counts.pending;
   const seg = barSegments(row);
+  const split = pendingSplit(row);
   const stack = ownerStack(row);
   const ownerLabel = stack.names[0] || (row.owner_state === "pool" ? copy(pageContract, "owner.pool") : copy(pageContract, "owner.missing"));
   return (
@@ -171,8 +173,18 @@ function WorkCard({ pageContract, row, href }: { pageContract: AdminUiPageContra
             <b>{row.counts.done}</b>/{total} {copy(pageContract, "card.done")}
           </span>
         ) : null}
-        {row.lane === "in_review" && row.counts.pending > 0 ? <span className="i">{row.counts.pending} {copy(pageContract, "card.in_review")}</span> : null}
-        {row.lane === "in_progress" && row.counts.pending > 0 ? <span>{row.counts.pending} {copy(pageContract, "card.started")}</span> : null}
+        {split ? (
+          <>
+            {split.inReview > 0 ? <span className="i">{split.inReview} {copy(pageContract, "card.in_review")}</span> : null}
+            {split.started > 0 ? <span>{split.started} {copy(pageContract, "card.started")}</span> : null}
+            {split.notStarted > 0 ? <span>{split.notStarted} {copy(pageContract, "card.not_started")}</span> : null}
+          </>
+        ) : (
+          <>
+            {row.lane === "in_review" && row.counts.pending > 0 ? <span className="i">{row.counts.pending} {copy(pageContract, "card.in_review")}</span> : null}
+            {row.lane === "in_progress" && row.counts.pending > 0 ? <span>{row.counts.pending} {copy(pageContract, "card.started")}</span> : null}
+          </>
+        )}
         {row.counts.needs_attention > 0 ? <span className="w">{row.counts.needs_attention} {copy(pageContract, "card.attention")}</span> : null}
       </div>
       <div className="row">

@@ -40,6 +40,10 @@ data class WorkBoardCountsDto(
     @SerialName("done") val done: Int = 0,
     @SerialName("pending") val pending: Int = 0,
     @SerialName("needs_attention") val needsAttention: Int = 0,
+    /** Of pending, units handed in and waiting for a verdict; 0 when the source does not say. */
+    @SerialName("in_review") val inReview: Int = 0,
+    /** Of pending, units nobody has started (feed pens not filmed); 0 when the source does not say. */
+    @SerialName("not_started") val notStarted: Int = 0,
 )
 
 /** ONE board row. Every string is backend-composed and rendered verbatim. */

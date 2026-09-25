@@ -9326,6 +9326,10 @@ export interface components {
             done: number;
             pending: number;
             needs_attention: number;
+            /** @description Of pending, the units handed in and waiting for a verdict. Sent only by a source that knows it (the feed cards); absent means unknown, and the card reads pending as before. */
+            in_review?: number;
+            /** @description Of pending, the units nobody has started (feed pens not filmed). Sent only by a source that knows it. Pending less in_review, not_started and needs_attention is work started and not handed in. */
+            not_started?: number;
         };
         WorkBoardRow: {
             module: components["schemas"]["WorkBoardModule"];

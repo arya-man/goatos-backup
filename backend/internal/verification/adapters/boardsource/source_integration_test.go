@@ -24,7 +24,7 @@ const (
 	bsMember   = "00000000-0000-4000-8000-000000000401"
 	bsDate     = "2026-09-10"
 
-	itemPending   = "00000000-0000-4000-8000-000000009101" // feed transport, pen display title
+	itemPending   = "00000000-0000-4000-8000-000000009101" // deworming, pen display title
 	itemApproved  = "00000000-0000-4000-8000-000000009102" // weighing, subject label title
 	itemRejected  = "00000000-0000-4000-8000-000000009103" // health adults, module-prefixed label
 	itemSampled   = "00000000-0000-4000-8000-000000009104" // approved by the closeout, no verifier
@@ -37,6 +37,7 @@ const (
 	itemEcho      = "00000000-0000-4000-8000-000000009111" // subject restates its own category
 	itemReshot    = "00000000-0000-4000-8000-000000009112" // rejected, then re-shot: history
 	itemReshoot   = "00000000-0000-4000-8000-000000009113" // the re-shoot on the same source ref
+	itemFeed      = "00000000-0000-4000-8000-000000009114" // a feed video: on the feed cards, never here
 	reshotRef     = "00000000-0000-4000-8000-000000009901"
 )
 
@@ -71,19 +72,20 @@ ON CONFLICT (workforce_member_id) DO NOTHING`, bsMember, bsTenant, bsOperator, b
 		id, vertical, module, category, park, shed, partition, subject, status, reason, operator, verifier, auto, captured string
 	}
 	items := []item{
-		{itemPending, "feed", "feed", "feed_transport", bsPark, bsShed, "Part 3", "", "pending", "", bsOperator, "", "", "2026-09-10 09:15:00+05:30"},
+		{itemPending, "pc_care", "pc_care", "pc_deworming", bsPark, bsShed, "Part 3", "", "pending", "", bsOperator, "", "", "2026-09-10 09:15:00+05:30"},
 		{itemApproved, "weighing", "weighing", "weighing_proof", bsPark, bsShedB, "2", "Castro 2 · 41.5 kg", "approved", "", bsOperator, bsVerifier, "", "2026-09-10 10:00:00+05:30"},
 		{itemRejected, "health", "health", "health_adults", bsPark, bsShed, "", "", "rejected", "Wrong animal in frame", bsOperator, bsVerifier, "", "2026-09-10 11:00:00+05:30"},
-		{itemSampled, "feed", "feed", "feed_packing", bsPark, bsShedB, "1", "", "approved", "", bsOtherOp, "", "not_sampled", "2026-09-10 12:00:00+05:30"},
+		{itemSampled, "pc_care", "pc_care", "pc_hoof_trimming", bsPark, bsShedB, "1", "", "approved", "", bsOtherOp, "", "not_sampled", "2026-09-10 12:00:00+05:30"},
 		{itemNoOwner, "counts", "counts", "shifting_move", bsPark, bsShed, "", "", "pending", "", "", "", "", "2026-09-10 13:00:00+05:30"},
-		{itemLateNight, "feed", "feed", "feed_transport", bsPark, bsShedB, "", "", "pending", "", bsOtherOp, "", "", "2026-09-10 23:30:00+05:30"},
-		{itemNextDay, "feed", "feed", "feed_transport", bsPark, bsShedB, "", "", "pending", "", bsOtherOp, "", "", "2026-09-11 00:10:00+05:30"},
-		{itemOtherPark, "feed", "feed", "feed_transport", bsOtherPk, "", "", "", "pending", "", bsOtherOp, "", "", "2026-09-10 09:00:00+05:30"},
-		{itemWithdrawn, "feed", "feed", "feed_packing", bsPark, bsShedB, "1", "Session 1", "withdrawn", "", bsOperator, "", "", "2026-09-10 14:00:00+05:30"},
-		{itemSession, "feed", "feed", "feed_distribution", bsPark, bsShedB, "1", "Session 1", "pending", "", bsOperator, "", "", "2026-09-10 15:00:00+05:30"},
+		{itemLateNight, "pc_care", "pc_care", "pc_deworming", bsPark, bsShedB, "", "", "pending", "", bsOtherOp, "", "", "2026-09-10 23:30:00+05:30"},
+		{itemNextDay, "pc_care", "pc_care", "pc_deworming", bsPark, bsShedB, "", "", "pending", "", bsOtherOp, "", "", "2026-09-11 00:10:00+05:30"},
+		{itemOtherPark, "pc_care", "pc_care", "pc_deworming", bsOtherPk, "", "", "", "pending", "", bsOtherOp, "", "", "2026-09-10 09:00:00+05:30"},
+		{itemWithdrawn, "pc_care", "pc_care", "pc_hoof_trimming", bsPark, bsShedB, "1", "Session 1", "withdrawn", "", bsOperator, "", "", "2026-09-10 14:00:00+05:30"},
+		{itemSession, "milk_feeding", "milk_feeding", "milk_feeding", bsPark, bsShedB, "1", "Session 1", "pending", "", bsOperator, "", "", "2026-09-10 15:00:00+05:30"},
 		{itemEcho, "health", "health", "health_adults", bsPark, bsShed, "Part 3", "Adults · Godel 1 - Part 3", "pending", "", bsOperator, "", "", "2026-09-10 16:00:00+05:30"},
 		{itemReshot, "weighing", "weighing", "weighing_proof", bsPark, bsShedB, "2", "Castro 2 · 40.0 kg", "rejected", "Scale not visible", bsOperator, bsVerifier, "", "2026-09-10 17:00:00+05:30"},
 		{itemReshoot, "weighing", "weighing", "weighing_proof", bsPark, bsShedB, "2", "Castro 2 · 40.5 kg", "pending", "", bsOperator, "", "", "2026-09-10 17:30:00+05:30"},
+		{itemFeed, "feed", "feed", "feed_packing", bsPark, bsShedB, "1", "Session 1", "pending", "", bsOperator, "", "", "2026-09-10 18:00:00+05:30"},
 	}
 	for _, x := range items {
 		exec(t, ctx, pool, `
@@ -143,10 +145,13 @@ func TestVerificationBoardRowsOnADatabaseRoundTrip(t *testing.T) {
 	if _, ok := byID(rows)[itemReshoot]; !ok {
 		t.Fatal("the re-shoot carries the work and must be on the board")
 	}
+	if _, leaked := byID(rows)[itemFeed]; leaked {
+		t.Fatal("a feed video is on the feed cards; it must not be a verification card too (maintainer instruction 2026-09-25)")
+	}
 	if _, leaked := byID(rows)[itemWithdrawn]; leaked {
 		t.Fatal("a withdrawn item is not work and must not sit in In review")
 	}
-	if title := byID(rows)[itemSession].Title; title != "Feed Distribution · Session 1 · Castro 1" {
+	if title := byID(rows)[itemSession].Title; title != "Milk Feeding · Session 1 · Castro 1" {
 		t.Errorf("a subject naming no pen must carry the pen, got %q", title)
 	}
 	if title := byID(rows)[itemEcho].Title; title != "Health Adults · Godel 1 - Part 3" {
@@ -192,7 +197,7 @@ func TestVerificationBoardRowsOnADatabaseRoundTrip(t *testing.T) {
 	}
 	// No subject label: the title falls back to the pen composed through oploc.
 	pending := got[itemPending]
-	if pending.Pen.Display != "Godel 1 - Part 3" || pending.Title != "Feed Transport · Godel 1 - Part 3" {
+	if pending.Pen.Display != "Godel 1 - Part 3" || pending.Title != "Preventive Care Deworming · Godel 1 - Part 3" {
 		t.Errorf("pending pen %q title %q", pending.Pen.Display, pending.Title)
 	}
 	if pending.Owner.Name != "Dinakar" || pending.Owner.WorkforceMemberID != bsMember || pending.Owner.UserID != bsOperator || pending.OwnerState != domain.OwnerStateAssigned {
