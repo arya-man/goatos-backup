@@ -122,7 +122,11 @@ SELECT COALESCE(g.management_stage, '') AS stage,
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("identity: preview reclassify shed stage: %w", err)
 	}
-	if preview.TotalLive == 0 {
+	// An EMPTY pen may be previewed when the caller says it is configuring one (the same
+	// ConfigureEmpty the write honours): the preview then reports 0 animals and the tag the pen will
+	// carry. Refusing it here made the write's ConfigureEmpty unreachable from any screen that
+	// previews first, so a new pen -- a new park's newborn pen -- could never be tagged.
+	if preview.TotalLive == 0 && !cmd.ConfigureEmpty {
 		return nil, ports.ErrReclassifyEmptyScope
 	}
 	if preview.TotalLive > ports.MaxReclassifyGoatsPerCommand {

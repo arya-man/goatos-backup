@@ -716,6 +716,21 @@ func TestReclassifyShedStageConfigureEmptyRecordsTheTagWithoutAnimals(t *testing
 	f := seedShedStageFixture(t, ctx, pool)
 	seedStageVocabulary(t, ctx, pool)
 
+	// The PREVIEW follows the same two intents. The Counts Breakdown editor previews before it
+	// writes, so a preview that refused an empty pen made the ConfigureEmpty write unreachable.
+	if _, err := repo.PreviewReclassifyShedStage(ctx, reclassifyCmd(f.castroShed, "1", "Mother", "")); !errors.Is(err, ports.ErrReclassifyEmptyScope) {
+		t.Fatalf("preview err = %v, want ErrReclassifyEmptyScope without ConfigureEmpty", err)
+	}
+	previewCmd := reclassifyCmd(f.castroShed, "1", "Mother", "")
+	previewCmd.ConfigureEmpty = true
+	preview, err := repo.PreviewReclassifyShedStage(ctx, previewCmd)
+	if err != nil {
+		t.Fatalf("preview of an empty pen being configured: %v", err)
+	}
+	if preview.TotalLive != 0 || preview.ManagementStage != "Mother" {
+		t.Fatalf("preview total=%d stage=%q, want 0 animals and the tag the pen will carry", preview.TotalLive, preview.ManagementStage)
+	}
+
 	refused := reclassifyCmd(f.castroShed, "1", "Mother", "key-empty-refused")
 	if _, err := repo.ReclassifyShedStage(ctx, refused); !errors.Is(err, ports.ErrReclassifyEmptyScope) {
 		t.Fatalf("err = %v, want ErrReclassifyEmptyScope -- the drawer's intent must still fail closed", err)

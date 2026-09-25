@@ -73,7 +73,9 @@ export function ShedTagEditor({
       disabledReason={disabledReason}
       renderCurrent={(value) => <span className="tag">{currentTagLabel || value}</span>}
       onPreview={async (value) => {
-        const result = await previewShedStageAction({ ...slice, management_stage: value });
+        // configure_empty, exactly as the write below sends it: an empty pen is a legitimate thing to
+        // configure here, and a preview that refused it made the write unreachable.
+        const result = await previewShedStageAction({ ...slice, management_stage: value, configure_empty: true });
         if (!result.ok) return { error: result.error.message || copy(pageContract, "action.retag.failed") };
         const preview = result.data;
         // The band is stated only when it actually MOVES the animals: repeating the band they
