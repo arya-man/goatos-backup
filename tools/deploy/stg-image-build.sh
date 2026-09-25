@@ -33,10 +33,15 @@ cached_build() {
   builder="goatos-$(printf '%s' "${repo_ref##*/}" | tr -c 'a-zA-Z0-9-' '-')-$$"
   # Creating the docker-container builder pulls moby/buildkit; a pull failure
   # or rate limit must fall back to the plain build, never fail the deploy.
-  docker buildx create --name "$builder" --driver docker-container --use >/dev/null 2>&1 || return 3
+  # No --use, and every buildx call names its builder: Cloud Build steps share HOME, so --use switched
+  # the CURRENT builder for every parallel image step, a build ran on whichever builder was current,
+  # and the first step to finish removed the builder others were still building on ("graceful_stop"
+  # EOF, three failed STG deploys on 25/09, a different image each time).
+  docker buildx create --name "$builder" --driver docker-container >/dev/null 2>&1 || return 3
   docker buildx inspect --bootstrap "$builder" >/dev/null 2>&1 || { docker buildx rm "$builder" >/dev/null 2>&1 || true; return 3; }
   rc=0
   docker buildx build \
+    --builder "$builder" \
     --platform linux/amd64 \
     --cache-from "type=registry,ref=${cache_ref}" \
     --cache-to "type=registry,ref=${cache_ref},mode=max,ignore-error=true" \
