@@ -82,3 +82,4 @@ HOOK
 chmod 0755 "$hook"
 
 echo "Installed GoatOS push guards (direct-stg block + exact-SHA main-CI evidence): $hook"
+bash "$(dirname "$0")/../ci/crg-worktree-hook.sh"
