@@ -180,10 +180,11 @@ export function SopLibrary({ sops, error, authRequired, pageContract, basePath, 
       ) : error ? (
         <div className="alert warn" style={{ marginBottom: 14 }}>
           <X className="ic" />
-          <div>
-            {error.code ? <b>{error.code}&nbsp;</b> : null}
-            {error.message}
-          </div>
+          {/* Farm words only (2026-09-25): this used to print the raw code in bold and the
+              transport's own sentence ("backend_down Backend service is not reachable from the
+              Mesha admin server."). A failed read of the library is never the reader's to fix
+              field by field; the code stays in the logs. */}
+          <div>{copy(pageContract, "error.load")}</div>
         </div>
       ) : null}
 

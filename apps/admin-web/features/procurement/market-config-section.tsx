@@ -72,9 +72,14 @@ export function MarketConfigSection({
       <div className="bd market-config-body">
       {!configResult.ok ? (
         <div className="alert" style={{ marginBottom: 14 }}>
-          {salesErrorText(configResult.error, copy(pageContract, "error.load"))}
+          {salesErrorText(configResult.error, copy(pageContract, "market.error.load"))}
         </div>
       ) : null}
+      {/* A failed read shows the error and nothing else: the empty set-up it would otherwise draw
+          ("No cities yet. Add the first market to phone.", a blank call time with a Save button)
+          invites the desk to re-enter a set-up that exists. */}
+      {!configResult.ok ? null : (
+      <>
 
       {!canConfigure ? <div className="note">{copy(pageContract, "disabled.market_config")}</div> : null}
 
@@ -178,6 +183,8 @@ export function MarketConfigSection({
       <p className="muted small market-config-footnote">
         {copy(pageContract, "market.retired_note")}
       </p>
+      </>
+      )}
       </div>
     </section>
   );

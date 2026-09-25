@@ -3,6 +3,7 @@ import { Users } from "lucide-react";
 import Link from "@/components/no-prefetch-link";
 import { Tag } from "@/components/ui-primitives";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { salesErrorText } from "./sales-error";
 import type { ApiResult } from "@/lib/api/server";
 import type { MarketReporter } from "@/lib/api/market-server";
 import { setMarketReporterAction } from "./market-actions";
@@ -42,7 +43,7 @@ export function MarketReportersSection({
       </div>
       <p className="muted small sales-config-card-copy">{copy(pageContract, "market.reporters.sub")}</p>
       <div className="bd market-config-body">
-        {!result.ok ? <div className="alert">{result.error.message || copy(pageContract, "error.load")}</div> : null}
+        {!result.ok ? <div className="alert">{salesErrorText(result.error, copy(pageContract, "error.load"))}</div> : null}
         {!canConfigure ? <div className="note">{copy(pageContract, "disabled.market_config")}</div> : null}
         <h4 className="market-config-h4">
           {copy(pageContract, "market.reporters.current")}

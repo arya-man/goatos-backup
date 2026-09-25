@@ -36,3 +36,19 @@ test("a load that has sold nothing shows no sold value, never ₹0", () => {
   assert.match(section, /load\.sold === 0 \? copy\(pageContract, "value\.not_sold_yet"\) : inrCompact\(load\.sold_value\)/);
   assert.match(section, /load\.sold === 0 \? \(\s*<span className="muted">\{copy\(pageContract, "value\.not_sold_yet"\)\}<\/span>/);
 });
+
+test("a failed Sales read shows farm words and no empty state beneath it (API down, 2026-09-25)", () => {
+  const read = (rel) => readFileSync(new URL(rel, import.meta.url), "utf8");
+  const sop = read("../sops/sop-library.tsx");
+  assert.doesNotMatch(sop, /\{error\.code\}/, "the SOP library printed the raw error code");
+  assert.doesNotMatch(sop, /\{error\.message\}/, "the SOP library printed the transport sentence");
+  for (const file of ["./valuation-section.tsx", "./market-reporters-section.tsx"]) {
+    const src = read(file);
+    assert.match(src, /salesErrorText\(result\.error, copy\(pageContract, "error\.load"\)\)/, file);
+    assert.doesNotMatch(src, /result\.error\.message \|\|/, file);
+  }
+  const config = read("./sales-config.tsx");
+  assert.match(config, /\{!dealsResult\.ok \? null : deals\.length === 0 \?/);
+  assert.match(config, /\{!loadwiseResult\.ok \? null : loads\.length === 0 \?/);
+  assert.match(read("./market-config-section.tsx"), /\{!configResult\.ok \? null : \(/);
+});

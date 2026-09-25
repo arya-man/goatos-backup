@@ -4440,7 +4440,8 @@ func pageSpecificCopy(id string) map[string]string {
 			out[key] = value
 		}
 		for key, value := range map[string]string{
-			"error.load": "Could not load the sales records. Refresh to try again.",
+			"error.load":        "Could not load the sales records. Refresh to try again.",
+			"market.error.load": "Could not load the market survey set-up. Refresh to try again.",
 
 			// The page's own headings: one card per entry surface, each saying what it is for so
 			// the person picks the right form without opening three.
@@ -8856,6 +8857,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"empty.no_match":                          "No SOPs match.",
 			"empty.no_published_fields":               "No published version yet — this SOP has no form_dsl fields to show. Open the builder to author a draft version.",
 			"auth.sign_in":                            "Sign in with Google to load the SOP Library — the admin SOP engine is tenant-scoped.",
+			"error.load":                              "Could not load the SOPs. Refresh to try again.",
 			"status.published":                        "published",
 			"status.draft":                            "draft",
 			"status.retired":                          "retired",

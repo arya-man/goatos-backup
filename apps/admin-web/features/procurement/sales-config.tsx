@@ -224,7 +224,9 @@ export async function SalesConfigPage({
           </div>
         ) : null}
 
-        {deals.length === 0 ? (
+        {/* A failed read is not an empty ledger: under the error box, "No sales recorded yet.
+            Record the first sale" told the desk the opposite of what happened. */}
+        {!dealsResult.ok ? null : deals.length === 0 ? (
           <div className="empty">{copy(pageContract, "empty.deals.unset")}</div>
         ) : (
           <div className="twrap" tabIndex={0} role="region" aria-label={copy(pageContract, "section.sales_entry.title")}>
@@ -305,7 +307,7 @@ export async function SalesConfigPage({
 
         {!canRecordCost ? <div className="note">{copy(pageContract, "disabled.load_cost")}</div> : null}
 
-        {loads.length === 0 ? (
+        {!loadwiseResult.ok ? null : loads.length === 0 ? (
           <div className="empty">{copy(pageContract, "empty.loads")}</div>
         ) : (
           <div className="twrap" tabIndex={0} role="region" aria-label={copy(pageContract, "section.load_entry.title")}>

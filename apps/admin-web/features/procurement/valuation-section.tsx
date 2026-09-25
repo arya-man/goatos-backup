@@ -16,6 +16,7 @@ import { Calculator, Plus, X } from "lucide-react";
 import { useActionState, useMemo, useState } from "react";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { salesErrorText } from "./sales-error";
 import { fmtDateTime } from "@/lib/format";
 import type { ApiResult } from "@/lib/api/server";
 import type { StageRegisterEntry, ValuationAssumptions, ValuationBucket, ValuationStage } from "@/lib/api/sales-valuation-server";
@@ -94,7 +95,7 @@ export function ValuationSection({
           <h3>{copy(pageContract, "section.valuation.title")}</h3>
         </div>
         <div className="bd">
-          <div className="alert">{(!result.ok && result.error.message) || copy(pageContract, "error.load")}</div>
+          <div className="alert">{result.ok ? copy(pageContract, "error.load") : salesErrorText(result.error, copy(pageContract, "error.load"))}</div>
         </div>
       </section>
     );
