@@ -3129,7 +3129,10 @@ select:disabled { opacity: .45; }
 .carrow { color: var(--faint); font-weight: 800; align-self: center; }
 .badge-def { font-size: 9px; background: var(--brand); color: #08130B; border-radius: 999px; padding: 1px 6px; font-weight: 800; letter-spacing: .4px; margin-left: 4px; }
 .op { display: inline-flex; align-items: center; gap: 7px; font-weight: 700; }
-.op .dot { width: 8px; height: 8px; border-radius: 50%; }
+/* position: static like .vplan .dot: the global .dot is the absolutely positioned notification
+   badge (right: -5px), and inherited here it floated each operator's dot 5px past the page edge, so
+   the Vaccination operators screen scrolled sideways at every width. */
+.op .dot { position: static; display: inline-block; vertical-align: middle; width: 8px; height: 8px; min-width: 0; padding: 0; border: 0; border-radius: 50%; }
 .banner { border: 1px solid var(--line); border-left: 3px solid var(--info); background: var(--infox); border-radius: 10px; padding: 10px 13px; font-size: 12px; margin-top: 12px; }
 .banner.warn { border-left-color: var(--warn); background: var(--warnx); }
 .banner b { color: var(--info); }
