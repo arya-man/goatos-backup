@@ -215,6 +215,7 @@ func buildPublisher(ctx context.Context, kind string, pool *pgxpool.Pool, pgCfg 
 		obligationapp.NewOperatorConfigReplanHandler(obligationRepo).Register(bus)
 		vaccinationapp.NewGoatCreatedHandler(generation).Register(bus)
 		vaccinationapp.NewGoatRecheckHandler(generation).Register(bus)
+		vaccinationapp.NewGoatReinstatedHandler(generation).Register(bus)
 		vaccinationapp.NewProtocolPublishedHandler(generation).Register(bus)
 		vaccinationapp.NewVerificationHandler(vaccinationCompletion).WithClosureProjector(sopService).Register(bus)
 		vaccinationapp.NewVaccinationCompletedHandler(vaccinationService, obligationRepo, vaccinationBooster).Register(bus)
@@ -261,6 +262,7 @@ func buildPublisher(ctx context.Context, kind string, pool *pgxpool.Pool, pgCfg 
 		eventwiring.RegisterWorkflowConsumers(bus, relayWorkflowService, logger)
 		captureEnqueuer, captureReviews := eventwiring.NewCountsCaptureStores(pool, pgCfg.QueryTimeout)
 		eventwiring.RegisterCountsCaptureConsumers(bus, captureEnqueuer, captureReviews, relayWorkflowService)
+		eventwiring.RegisterSaleReleaseConsumers(bus, pool, pgCfg.QueryTimeout)
 		healthapp.NewDeathLifecycleHandler(healthRepo).Register(bus)
 		// Toxin task creation (maintainer decision 2026-08-25): in local eventbus mode this
 		// in-process bus IS the delivery, so without this a recorded feed purchase never gets its

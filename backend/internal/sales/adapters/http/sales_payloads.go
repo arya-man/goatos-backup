@@ -64,9 +64,12 @@ type dealPayload struct {
 	PaymentBalance  float64              `json:"payment_balance"`
 	Payments        []dealPaymentPayload `json:"payments"`
 
-	Status   string  `json:"status"`
-	Feedback *string `json:"feedback"`
-	Comments *string `json:"comments"`
+	Status string `json:"status"`
+	// StatusOptions is what the status editor may offer for THIS deal: every status for a live
+	// deal, none for a failed one (Deal Failed is final, maintainer decision 2026-09-25).
+	StatusOptions []string `json:"status_options"`
+	Feedback      *string  `json:"feedback"`
+	Comments      *string  `json:"comments"`
 
 	// Lines are what was sold, in entry order (migration 000296). product_type / breed / the
 	// counts / total_weight_kg / sales_value above are their ROLLUP ("Mixed" when the lines
@@ -340,6 +343,7 @@ func toDealPayload(d domain.Deal) dealPayload {
 		PaymentReceived: d.PaymentReceived, PaymentBalance: d.PaymentBalance(), Payments: payments,
 		Status: d.Status, Feedback: d.Feedback, Comments: d.Comments,
 		CreatedAt: d.CreatedAt, UpdatedAt: d.UpdatedAt,
+		StatusOptions: domain.NextStatuses(d.Status),
 	}
 }
 

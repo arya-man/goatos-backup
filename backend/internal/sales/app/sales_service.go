@@ -316,6 +316,10 @@ func (s *SalesService) SetDealStatus(ctx context.Context, tenantID, dealID, stat
 		if err != nil {
 			return domain.Deal{}, err
 		}
+		// A failed sale is final: refuse before asking the store any question about it.
+		if !domain.StatusChangeAllowed(currentStatus, canonical) {
+			return domain.Deal{}, domain.ErrDealFailedIsFinal
+		}
 		// A completed close has already depleted stock. A lost response must replay
 		// through the repository's no-op status update, not weigh that sale twice.
 		if currentStatus != domain.StatusDealClosed {

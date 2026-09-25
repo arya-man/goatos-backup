@@ -128,6 +128,11 @@ export function SalesRecordDrawer({
   const canDeletePayment = controlEnabled(pageContract, "delete_sales_deal_payment", false);
   const canEditStatus = controlEnabled(pageContract, "update_sales_deal_status", false);
   const dealStatusOptions = optionGroup(pageContract, "sales_deal_statuses");
+  // What THIS deal may be set to is the backend's call (status_options): nothing for a failed
+  // deal, which is final (2026-09-25). An older payload without the field offers every status.
+  const editStatusOptions = deal?.status_options
+    ? dealStatusOptions.filter((option) => deal.status_options?.includes(option.key as SalesDeal["status"]))
+    : dealStatusOptions;
   // Where the payment action returns to: the SAME deal, so the drawer reopens showing the new
   // receipt rather than closing over the operator's work.
   const dealHref = deal
@@ -651,14 +656,14 @@ export function SalesRecordDrawer({
               />
             ) : null}
 
-            {canEditStatus ? (
+            {canEditStatus && editStatusOptions.length > 0 ? (
               <form action={setSalesDealStatusAction} className="fld">
                 <input type="hidden" name="return_to" value={dealHref} />
                 <input type="hidden" name="deal_id" value={deal.deal_id} />
                 <label htmlFor="sds-status">{field("status")}</label>
                 <div style={{ display: "flex", gap: 9, alignItems: "center" }}>
                   <select id="sds-status" name="status" required defaultValue={deal.status}>
-                    {dealStatusOptions.map((option) => (
+                    {editStatusOptions.map((option) => (
                       <option key={option.key} value={option.key}>
                         {option.label}
                       </option>

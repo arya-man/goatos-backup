@@ -50,6 +50,11 @@ data class SalesDealDto(
      */
     @SerialName("lines") val lines: List<SalesDealLineDto> = emptyList(),
     @SerialName("status") val status: String = "",
+    /**
+     * What this deal may be set to, decided by the backend: every status for a live deal, none for a
+     * failed one (Deal Failed is final, 2026-09-25). Null on an older server: offer every status.
+     */
+    @SerialName("status_options") val statusOptions: List<String>? = null,
     @SerialName("feedback") val feedback: String? = null,
     @SerialName("comments") val comments: String? = null,
     @SerialName("created_at") val createdAt: String = "",

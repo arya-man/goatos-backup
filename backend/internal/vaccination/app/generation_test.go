@@ -5384,3 +5384,51 @@ func TestGenerationCarriesOverBeforeItSupersedes(t *testing.T) {
 		t.Fatalf("supersede kept %#v but carry-over targeted %#v: the two sweeps disagree", got, want)
 	}
 }
+
+// TestReturnedToHerdRunReOwesTheWorkItsExitCancelled (maintainer decision 2026-09-25): a failed sale
+// returns its animals to the herd and emits goat.reinstated. Only THAT run mints a successor for a
+// row the exit cancelled (`ineligible_after_exit`); an ordinary recheck of the same animal still
+// treats the exit cancellation as terminal.
+func TestReturnedToHerdRunReOwesTheWorkItsExitCancelled(t *testing.T) {
+	ctx := context.Background()
+	dob := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	asOf := time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC)
+	proto := &generationProtoFake{
+		rules: []protodomain.Rule{{
+			RuleID: "rule-fmd", DoseCode: "fmd-dose-1", Sequence: 1, TriggerType: "birth_age", OffsetDays: 28,
+		}},
+		ruleDSL: []byte(`{"vaccine":{"code":"FMD","type":"killed","pathogen_class":"viral"},"eligibility":{"animal_stage":"K1","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","defer_states":[]}}`),
+	}
+	goats := &generationGoatFake{
+		list: []domain.EligibleGoat{{
+			GoatID: "returned-goat", DOB: &dob, LifecycleStatus: "alive", Species: "goat", Stage: "K1",
+			ParkID: "park-1", ShedID: "shed-1",
+		}},
+	}
+	obl := &generationObligationFake{}
+	gen := NewGenerationService(proto, goats, obl)
+	if _, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", asOf); err != nil {
+		t.Fatalf("first generate: %v", err)
+	}
+	baseKey := obl.inserted[0].IdempotencyKey
+	obl.inserted[0].Status = "canceled"
+	obl.cancelReasonsByKey = map[string]string{baseKey: "ineligible_after_exit"}
+
+	if _, err := gen.generateForVersion(ctx, "tenant-1", "version-1", asOf.AddDate(0, 0, 1), generationOptions{healthRecoveryAlign: true}); err != nil {
+		t.Fatalf("ordinary recheck: %v", err)
+	}
+	if len(obl.inserted) != 1 {
+		t.Fatalf("an ordinary recheck must keep the exit cancellation terminal, inserted=%d", len(obl.inserted))
+	}
+	res, err := gen.generateForVersion(ctx, "tenant-1", "version-1", asOf.AddDate(0, 0, 1), generationOptions{returnedToHerd: true})
+	if err != nil {
+		t.Fatalf("returned-to-herd run: %v", err)
+	}
+	if res.Generated != 1 || len(obl.inserted) != 2 || obl.inserted[1].Status != "scheduled" ||
+		!strings.HasPrefix(obl.inserted[1].IdempotencyKey, baseKey+":successor:") {
+		t.Fatalf("returned-to-herd run must re-owe the cancelled dose as a successor, result=%#v inserted=%#v", res, obl.inserted)
+	}
+	if obl.inserted[0].Status != "canceled" {
+		t.Fatalf("the cancelled row is history and stays cancelled, got %s", obl.inserted[0].Status)
+	}
+}

@@ -10712,6 +10712,8 @@ export interface components {
             payments: components["schemas"]["SalesDealPayment"][];
             /** @enum {string} */
             status: "Deal Closed" | "Deal Failed" | "In Discussion" | "Advance Paid";
+            /** @description The statuses this deal may be set to, BACKEND-decided (maintainer decision 2026-09-25). Every status for a live deal; EMPTY for a Deal Failed deal, which is final -- its animals are back in the herd and its steps are closed, so selling again is a new sale. A status editor offers exactly this list and hides itself when it is empty. */
+            status_options?: ("Deal Closed" | "Deal Failed" | "In Discussion" | "Advance Paid")[];
             feedback?: string | null;
             comments?: string | null;
             /** Format: date-time */

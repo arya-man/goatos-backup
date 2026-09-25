@@ -202,7 +202,7 @@ stayed open and overdue forever.
 - The seeded document puts `"when": "sale_has_animals"` on **tag_animals, loading_video and
   dispatch_note** (the gate pass). The tag step stays a REQUIRED engine step: a conditional tag
   step is still present, so the document publishes (`engine_step_removed` still fires if it is
-  deleted). Migration `000428` adds the condition IN PLACE to each tenant's published version
+  deleted). Migration `000432` adds the condition IN PLACE to each tenant's published version
   (`000369` is untouched; checksummed on STG).
 - **Who decides:** the producer. `sales.deal.recorded` carries `has_live_animals`, computed from the
   deal's LINES inside the recording transaction (`sales/domain.DealWrite.HasLiveAnimals`): an
@@ -213,7 +213,7 @@ stayed open and overdue forever.
   rather than left waiting forever; a branch off a dropped question is dropped with it.
 - On `/sales/sops` the step editor offers the condition as **"Only when the sale has animals"**
   (option group `sop_step_conditions_sales`, backend copy).
-- Migration `000429` repairs workflows already open: the unfinished tag / loading / gate-pass steps
+- Migration `000433` repairs workflows already open: the unfinished tag / loading / gate-pass steps
   of a sale with no live animals are skipped and the card recomputed.
 
 **Not done: a sale EDITED after it opened.** There is no edit path for a deal's lines today (a sale
@@ -223,32 +223,66 @@ skip the three steps (animals lost) or append them (animals gained) -- the engin
 append-steps-from-SOP call yet (only the birth capture re-shoot appends), so that half is its own
 piece of work.
 
-## A failed sale (maintainer decision 2026-09-25)
+## A failed sale (maintainer decisions 2026-09-25)
 
-"Deal Failed" only wrote an audit row; the sale's workflow stayed open.
+"Deal Failed" only wrote an audit row; the sale's workflow stayed open and its tagged animals stayed
+sold. Three decisions, the same day:
 
-- `sales.Repository.SetDealStatus` now emits **`sales.deal.status_changed`** inside its transaction,
-  only when the status actually changes. `tasks/app.SaleStatusChangedWorkflowHandler` cancels the
-  deal's open workflow on Deal Failed: every unfinished step cancelled, finished steps kept, card
-  closed; idempotent. A write to a cancelled step is refused (`409 action_canceled`).
-- **The maintainer asked that animals already tagged to a failed sale go back to the herd in their
-  pen. That release is NOT built**, because there is no reversal of a sale exit anywhere: the
-  tagging confirm exits each animal as `sold` through the canonical exit, whose `goat.exited` event
-  cancels its open vaccination work, moves counts and the feed projection, and has already sent the
-  Feed Director the sale notice. Undoing it needs a new herd transition (sold -> alive in the same
-  pen, allocation `released`, audit) and a new event every one of those consumers understands
-  (vaccination regeneration, counts, feed). Until that exists, marking a sale failed is **refused
-  while animals are tagged to it** (`409 sale_has_tagged_animals`, "N animals are already tagged to
-  this sale and marked sold..."), counted through `sales/adapters/identitybridge` under the deal
-  row lock. The tagging confirm locks the same row and refuses a failed deal (`409
-  sale_deal_failed`), so the two can never both win.
-- Migration `000429` cancels the workflows of deals already marked Deal Failed.
-- Reopening a failed deal does not revive its cancelled workflow (follow-up if wanted).
+1. **A failed sale gives its animals back.** Every animal tagged to the deal goes back to alive in
+   the pen it was in.
+2. (No staging audit was needed.)
+3. **Deal Failed is final.** A failed deal cannot be moved to any other status; to sell those
+   animals the desk records a NEW sale.
+
+How it runs:
+
+- `sales.Repository.SetDealStatus` refuses a move out of Deal Failed under the row lock (`409
+  sale_deal_failed_is_final`, farm copy "This sale is marked failed, and a failed sale stays failed.
+  To sell these animals, record a new sale."). The service refuses before asking the feed store
+  anything. The deal payload carries backend-decided `status_options` -- every status for a live
+  deal, `[]` for a failed one -- and the web drawer and the phone sale detail offer exactly that
+  list, hiding the status editor when it is empty.
+- On an actual change it emits **`sales.deal.status_changed`** (with `actor_id`) in the same
+  transaction. Two consumers, both registered in every bus process:
+  - **tasks** (`SaleStatusChangedWorkflowHandler`): cancels the open sale workflow -- unfinished
+    steps cancelled, finished steps kept, card closed; a write to a cancelled step is `409
+    action_canceled`.
+  - **identity** (`SaleFailedReleaseHandler` -> `Repository.ReleaseSaleAllocations`, registered by
+    `eventwiring.RegisterSaleReleaseConsumers`): in ONE transaction, under the same per-sale lock the
+    tagging confirm takes, every `goat_sale_allocations` row still `tagged` becomes `released`
+    (released_at / released_by = who failed it, else who tagged / release_reason; never deleted),
+    and each animal still `sold` goes back to `alive` with `exit_reason` and `exited_at` cleared.
+    That is ALL the tagging changed: the canonical exit never moved the animal, so it is in the pen
+    and partition it was sold from. Each animal gets its own identity decision (`identity_goat` /
+    `goat_reinstated`), identity event, audit row and **`goat.reinstated`** outbox event.
+    Idempotent: a replay finds nothing tagged.
+- The event is durable and the release idempotent, so there is no window in which a deal is
+  failed and its animals are sold without a delivery that will release them.
+- The tagging confirm locks the same deal row and refuses a failed deal (`409 sale_deal_failed`).
+
+What each module does when the animals come back:
+
+- **Counts, herd register, feed projection:** read live `goats` (the herd register through its own
+  trigger), so the animals are back in their pen's head count the moment the release commits.
+- **Sold-animal reads** (Sold page counts and weight bands, Load wise, Farm born, the sale's own
+  tagged list, the Feed Director's 07:00 reduce reminder): all read `status = 'tagged'` only, so the
+  released animals drop out.
+- **Vaccination:** `GoatReinstatedHandler` runs the ordinary per-goat generation with
+  `returnedToHerd`. ONLY in that run does an obligation the exit cancelled (`ineligible_after_exit`)
+  mint a successor, so the kernel re-owes the work the sale's exit cancelled; every other run keeps
+  the exit cancellation terminal.
+- **Feed Director:** the sale notice already sent is not retracted. A "sale failed, animals back"
+  push would need new copy and an audience-catalog row -- recorded as a follow-up, not built.
+
+Not done: a sale failed BEFORE this change keeps its animals sold (the release runs on the status
+event). If any exist, re-emitting the event for those deals is a one-off repair.
 
 Pinned by `tasks/domain.TestSaleWithoutAnimalsOpensOnlyThePaymentSteps` and siblings,
 `tasks/app.TestSaleRecordedCarriesWhetherTheSaleHasAnimals`, `TestDealFailedCancelsTheSaleWorkflow`,
 `sales/domain.TestHasLiveAnimalsReadsTheAnimalLinesHeadCount`, and on real Postgres
-`TestSaleWithoutAnimalsOpensWithoutAnUnfinishableTagStep` (runs 000428's own SQL),
-`TestDealFailedCancelsItsSaleWorkflow`, `TestRepair000429UnsticksExistingSaleWorkflows`,
-`identity/adapters/postgres.TestASaleWithTaggedAnimalsCannotBeMarkedFailed` and
-`TestAFailedSaleEmitsItsEventAndTakesNoAnimals` -- each mutation-tested when written.
+`TestSaleWithoutAnimalsOpensWithoutAnUnfinishableTagStep` (runs 000432's own SQL),
+`TestDealFailedCancelsItsSaleWorkflow`, `TestRepair000433UnsticksExistingSaleWorkflows`,
+`identity/adapters/postgres.TestAFailedSaleReleasesItsTaggedAnimalsBackIntoTheirPens` and
+`TestADealFailedIsFinalAndTakesNoAnimals`, `vaccination/app.TestReturnedToHerdRunReOwesTheWorkItsExitCancelled`,
+`sales/app.TestDealFailedIsFinal`, `identity/app.TestOnlyAFailedDealReleasesItsAnimals` -- each
+mutation-tested when written.

@@ -33,20 +33,3 @@ func TestAPIWiresTheFeedStoreIntoSales(t *testing.T) {
 			"would record with no confirmation and nobody would notice")
 	}
 }
-
-// TestAPIWiresTheTaggedAnimalsReaderIntoSales keeps the failed-sale refusal connected (maintainer
-// decision 2026-09-25). A sales repository built without the reader marks a deal failed with its
-// tagged animals already gone from the herd, silently -- the same optional-by-construction trap.
-func TestAPIWiresTheTaggedAnimalsReaderIntoSales(t *testing.T) {
-	src, err := os.ReadFile("api.go")
-	if err != nil {
-		t.Fatalf("read api.go: %v", err)
-	}
-	for _, line := range strings.Split(string(src), "\n") {
-		code := strings.TrimSpace(line)
-		if !strings.HasPrefix(code, "//") && strings.Contains(code, "WithTaggedAnimals(salesidentitybridge.New(") {
-			return
-		}
-	}
-	t.Fatal("api.go never wires WithTaggedAnimals, so a sale could be marked failed while animals are tagged to it")
-}

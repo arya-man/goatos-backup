@@ -382,21 +382,14 @@ FOR UPDATE`, tenantID, dealID).Scan(&previous, &farm)
 		return domain.Deal{}, fmt.Errorf("sales: lock deal status: %w", err)
 	}
 
+	// DEAL FAILED IS FINAL (maintainer decision 2026-09-25): once a sale has fallen through it
+	// cannot be moved to any other status -- its workflow is cancelled and its animals are back in
+	// the herd; selling again is a NEW sale. Checked under the row lock, so a concurrent change
+	// cannot slip past it.
+	if !domain.StatusChangeAllowed(previous, status) {
+		return domain.Deal{}, domain.ErrDealFailedIsFinal
+	}
 	if previous != status {
-		// A FAILED SALE WITH TAGGED ANIMALS (maintainer decision 2026-09-25). The tagging confirm
-		// exited those animals from the herd as sold; nothing can put them back yet, so the sale
-		// is refused rather than failed with its animals gone. Asked UNDER this row lock: a
-		// confirm locks the same deal row before it writes, so a confirm that committed first is
-		// counted here, and one that waits behind this lock finds the deal failed and refuses.
-		if status == domain.StatusDealFailed && r.tagged != nil {
-			n, err := r.tagged.TaggedAnimalCount(ctx, tenantID, dealID)
-			if err != nil {
-				return domain.Deal{}, err
-			}
-			if n > 0 {
-				return domain.Deal{}, ports.ErrDealHasTaggedAnimals{Count: n}
-			}
-		}
 		var changedAt time.Time
 		if err := tx.QueryRow(ctx, `
 UPDATE public.sales_deals
@@ -405,8 +398,9 @@ WHERE tenant_id = $1 AND id = $2
 RETURNING updated_at`, tenantID, dealID, status).Scan(&changedAt); err != nil {
 			return domain.Deal{}, fmt.Errorf("sales: update deal status: %w", err)
 		}
-		// The sale's workflow follows its status: a failed deal's work is cancelled by the
-		// tasks consumer of this event, in the same transaction's outbox.
+		// The sale follows its status through this event, written in the same transaction: on
+		// Deal Failed the tasks consumer cancels the sale's workflow and the identity consumer
+		// RELEASES every animal tagged to it back into the herd, in the pen it was sold from.
 		if err := emitDealStatusChanged(ctx, tx, tenantID, actorID, dealID, farm, previous, status, changedAt); err != nil {
 			return domain.Deal{}, err
 		}

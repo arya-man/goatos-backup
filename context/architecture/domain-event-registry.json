@@ -64,6 +64,7 @@
     "goat.sale_allocated",
     "sales.deal.recorded",
     "sales.deal.status_changed",
+    "goat.reinstated",
     "procurement.animal_purchase.decided",
     "procurement.animal_purchase.load_recorded",
     "procurement.animal_purchase.candidate_recorded"
@@ -1919,13 +1920,41 @@
       ]
     },
     {
+      "eventType": "goat.reinstated",
+      "producer": "FAILED SALE (maintainer decision 2026-09-25): identity Repository.ReleaseSaleAllocations (driven by sales.deal.status_changed -> Deal Failed) emits ONE goat.reinstated per animal it returns from 'sold' to 'alive', through finishGoatLifecycleMutation in the release transaction (identity decision type identity_goat / result goat_reinstated, goat_identity_events row, audit row, outbox row on topic identity.events). Payload: goat_id, previous_lifecycle ('sold'), lifecycle_status ('alive'), reason, sales_deal_id, row_version_from, current_location_id, current_park_id, current_shed_id, partition_label, scope_type, scope_id, decision_id. Counts, the herd register (its own goats trigger) and the feed projection read live goats, so they follow the commit without consuming the event.",
+      "producerFiles": [
+        "backend/internal/identity/adapters/postgres/sale_allocation_release.go"
+      ],
+      "consumers": [
+        {
+          "module": "vaccination",
+          "file": "backend/internal/vaccination/app/generation_handler.go",
+          "notes": "GoatReinstatedHandler runs the per-goat generation (event Key = goat_id) with returnedToHerd: ONLY in this run does an obligation the exit cancelled (reason ineligible_after_exit) mint a successor, so the kernel re-owes the work the sale's exit cancelled -- never a hand insert. Every other run keeps the exit cancellation terminal. The payload keys are for audit readers; the handler reads the goat row itself. Registered beside GoatRecheckHandler in every bus process (bootstrap/api.go, kernelstages, domainconsumer/wiring, cmd/outbox-relay, cmd/domain-event-consumer)."
+        }
+      ],
+      "owningDoc": "docs/decisions/sales-sop.md",
+      "e2eProof": [
+        "backend/internal/identity/adapters/postgres/sale_deal_failed_integration_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
       "eventType": "sales.deal.status_changed",
-      "producer": "FAILED SALE (maintainer decision 2026-09-25, docs/decisions/sales-sop.md -> 'A failed sale'): sales.Repository.SetDealStatus emits ONE event per ACTUAL status change, INSIDE the transaction that locks the deal row, updates sales_deals.status, syncs the feed depletions and writes the audit row; a retried no-op change (same status) emits nothing. Moving to Deal Failed is REFUSED (409 sale_has_tagged_animals) while goat_sale_allocations still holds 'tagged' rows for the deal (read through sales/adapters/identitybridge under the row lock), so a failed deal never has animals tagged to it; identity's tagging confirm locks the same deal row and refuses a failed deal (sale_deal_failed). Payload: tenant_id, sales_deal_id, previous_status, status. Aggregate/subject is the sales_deal the outbox validator already knows (000275). Event id and idempotency key are derived from the deal and the row's updated_at from the same UPDATE, so each change is distinct and a replayed outbox row is the same message.",
+      "producer": "FAILED SALE (maintainer decisions 2026-09-25, docs/decisions/sales-sop.md -> 'A failed sale'): sales.Repository.SetDealStatus emits ONE event per ACTUAL status change, INSIDE the transaction that locks the deal row, updates sales_deals.status, syncs the feed depletions and writes the audit row; a retried no-op change (same status) emits nothing. Deal Failed is FINAL: moving a failed deal to any other status is refused under the row lock (409 sale_deal_failed_is_final), so a deal emits Deal Failed at most once. Payload: tenant_id, sales_deal_id, previous_status, status, actor_id (who changed it; blank for a system caller). Aggregate/subject is the sales_deal the outbox validator already knows (000275). Event id and idempotency key are derived from the deal and the row's updated_at from the same UPDATE.",
       "producerFiles": [
         "backend/internal/sales/adapters/postgres/deal_outbox.go",
         "backend/internal/sales/adapters/postgres/deal_repository.go"
       ],
       "consumers": [
+        {
+          "module": "identity",
+          "file": "backend/internal/identity/app/sale_release.go",
+          "notes": "SaleFailedReleaseHandler reads sales_deal_id, status and actor_id; on Deal Failed it runs identity Repository.ReleaseSaleAllocations in ONE transaction under the same per-sale advisory lock the tagging confirm takes: every goat_sale_allocations row still 'tagged' for the deal becomes 'released' (released_at / released_by = actor, else the tagger / release_reason; never deleted), and each animal still 'sold' goes back to 'alive' with exit_reason and exited_at cleared -- the exit never moved it, so it is in the pen it was sold from. Each animal gets its own identity decision, goat_identity_events row, audit row and goat.reinstated outbox event through finishGoatLifecycleMutation. Idempotent (a replay finds nothing tagged; per-animal idempotency key sale_release:<deal>:<goat>). Registered by eventwiring.RegisterSaleReleaseConsumers in every bus process. previous_status is carried for audit readers and is not parsed."
+        },
         {
           "module": "tasks",
           "file": "backend/internal/tasks/app/sales_workflow.go",
@@ -1934,7 +1963,8 @@
       ],
       "owningDoc": "docs/decisions/sales-sop.md",
       "e2eProof": [
-        "backend/internal/tasks/adapters/postgres/sales_workflow_conditions_integration_test.go"
+        "backend/internal/tasks/adapters/postgres/sales_workflow_conditions_integration_test.go",
+        "backend/internal/identity/adapters/postgres/sale_deal_failed_integration_test.go"
       ],
       "surfaces": [
         "backend",
@@ -2167,6 +2197,11 @@
       "path": "backend/internal/identity/adapters/postgres/goat_lifecycle.go",
       "owner": "identity",
       "reason": "canonical goat lifecycle/location/stage/health/reproductive/identity producer"
+    },
+    {
+      "path": "backend/internal/identity/adapters/postgres/sale_allocation_release.go",
+      "owner": "identity",
+      "reason": "canonical FAILED-SALE release producer (maintainer decision 2026-09-25): returns each animal tagged to a failed deal from sold to alive (clearing exit_reason / exited_at only; the exit never moved it) and marks its goat_sale_allocations row released, emitting per-animal goat.reinstated into goat_identity_events and outbox_messages in the same transaction through finishGoatLifecycleMutation, consumed by vaccination generation"
     },
     {
       "path": "backend/internal/identity/adapters/postgres/goat_relocate.go",

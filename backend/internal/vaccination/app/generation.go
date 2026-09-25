@@ -270,6 +270,13 @@ func cancelReasonMintsSuccessor(reason string) bool {
 	}
 }
 
+// returnMintsSuccessor is the ONE extra successor case: a run triggered by the animal returning to
+// the herd (goat.reinstated, a failed sale) re-owes the work its exit cancelled. The exit reason is
+// the goat.exited consumer's own (obligation/app/cancel.go); nothing else writes it.
+func returnMintsSuccessor(reason string, opts generationOptions) bool {
+	return opts.returnedToHerd && strings.TrimSpace(reason) == "ineligible_after_exit"
+}
+
 // applyCrossVaccineGapFloorFromPending floors a vaccine's due date against incompatible
 // pending vaccines already generated in this pass. Cross-vaccine spacing is a positive medical
 // assertion between two IDENTIFIED, DIFFERENT vaccine products, so it applies ONLY when both the
@@ -960,6 +967,12 @@ type generationOptions struct {
 	// healthRecoveryAlign enables sick/ICU/quarantine recovery replanning: align to a nearby planned
 	// drive within recovery_policy.max_nearby_drive_align_days (default 7), else micro-drive now.
 	healthRecoveryAlign bool
+	// returnedToHerd marks a run triggered by `goat.reinstated`: the animal was exited (sold) and
+	// is now back in the herd because its sale failed (maintainer decision 2026-09-25). ONLY in
+	// this run does an `ineligible_after_exit` cancellation mint a successor -- that exit is the
+	// one being undone, so the work it cancelled is owed again. Every other run keeps the exit
+	// cancellation terminal (TestGenerateForVersionExitCanceledGoatGetsNoSuccessor).
+	returnedToHerd bool
 	// heartbeat, when set, is invoked once per cohort page so a long run keeps its generation-run row
 	// fresh and is not reclaimed mid-flight. Best-effort: errors are intentionally swallowed by the
 	// caller closure so a transient heartbeat failure never aborts a multi-minute generation pass.
@@ -2381,7 +2394,7 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			if actionableObligationForSpacing(finalRef) {
 				pending = append(pending, pendingVaccine{code: ruleVaccine.Code, class: ruleVaccine.Class, due: finalRef.DueAt})
 			} else if strings.EqualFold(strings.TrimSpace(finalRef.Status), "canceled") &&
-				cancelReasonMintsSuccessor(finalRef.Reason) {
+				(cancelReasonMintsSuccessor(finalRef.Reason) || returnMintsSuccessor(finalRef.Reason, opts)) {
 				// Returning-goat successor: the goat requalified for this version after its prior
 				// row was canceled by a shift-away. Minted with the goat's CURRENT clinical status
 				// (deferred=true → deferred successor, LIFE-001), preserving the canceled predecessor.

@@ -178,7 +178,6 @@ import (
 	protocolpg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
 	protocolapp "github.com/vgoats/goatos/backend/internal/protocol/app"
 	saleshttp "github.com/vgoats/goatos/backend/internal/sales/adapters/http"
-	salesidentitybridge "github.com/vgoats/goatos/backend/internal/sales/adapters/identitybridge"
 	salespg "github.com/vgoats/goatos/backend/internal/sales/adapters/postgres"
 	salesapp "github.com/vgoats/goatos/backend/internal/sales/app"
 	sophttp "github.com/vgoats/goatos/backend/internal/sop/adapters/http"
@@ -1008,10 +1007,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// The feed store is wired in so a sale taking more feed than it holds asks the desk to confirm
 	// it once (migration 000422). Without this the confirmation silently never fires, so the
 	// wiring is asserted by a test rather than left to this line being noticed.
-	// A sale is refused "Deal Failed" while animals are tagged to it (2026-09-25): the herd-side
-	// count comes through the bridge, keeping the sales repository off the herd schema.
-	salesService := salesapp.NewSalesService(salespg.NewRepository(pool, cfg.Postgres.QueryTimeout).
-		WithTaggedAnimals(salesidentitybridge.New(pool))).
+	salesService := salesapp.NewSalesService(salespg.NewRepository(pool, cfg.Postgres.QueryTimeout)).
 		WithFeedStock(feedDirectionRepo)
 	salesHandler := saleshttp.NewSalesHandler(
 		salesService, log)
@@ -1355,6 +1351,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	rosterService.WithBus(bus)
 	vaccinationapp.NewGoatCreatedHandler(vaccinationGeneration).Register(bus)
 	vaccinationapp.NewGoatRecheckHandler(vaccinationGeneration).Register(bus)
+	vaccinationapp.NewGoatReinstatedHandler(vaccinationGeneration).Register(bus)
 	vaccinationapp.NewProtocolPublishedHandler(vaccinationGeneration).Register(bus)
 	vaccinationapp.NewVerificationHandler(vaccinationCompletion).WithClosureProjector(sopService).Register(bus)
 	vaccinationapp.NewVaccinationCompletedHandler(vaccinationService, obligationRepo, vaccinationBooster).Register(bus)
@@ -1373,6 +1370,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	eventwiring.RegisterWorkflowConsumers(bus, tasksWorkflowService, log)
 	// SOP capture card: the birth report's own proofs -> verifier, verdict -> approval row.
 	eventwiring.RegisterCountsCaptureConsumers(bus, countsbridge.NewBirthCaptureVerificationEnqueuer(verificationService), countsApprovalRepo, tasksWorkflowService)
+	// A failed sale releases its tagged animals back into the herd (2026-09-25).
+	eventwiring.RegisterSaleReleaseConsumers(bus, pool, cfg.Postgres.QueryTimeout)
 	healthapp.NewDeathLifecycleHandler(healthRepo).Register(bus)
 	// Notification PUSH LAYER ONLY (docs/decisions/vaccination-notification-rules.md §4c): read-only
 	// consumers of vaccination.verification.awaiting_review and vaccination.verify.rejected/accepted

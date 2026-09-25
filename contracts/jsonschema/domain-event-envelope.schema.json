@@ -43,6 +43,7 @@
         "goat.identity.merge_approved",
         "goat.identity.merge_rejected",
         "goat.exited",
+        "goat.reinstated",
         "goat.sale_allocated",
         "sales.deal.recorded",
         "sales.deal.status_changed",

@@ -48,6 +48,12 @@ const EventGoatReproductiveChanged = "goat.reproductive.changed"
 // note; do not wire a synthetic producer here.
 const EventGoatIdentityChanged = "goat.identity.changed"
 
+// EventGoatReinstated re-evaluates an animal that came BACK into the herd: a sale that failed
+// returns every animal tagged to it to alive in the pen it was sold from (maintainer decision
+// 2026-09-25). The exit cancelled its open work (`ineligible_after_exit`); this run re-owes it
+// through the kernel -- successors minted by generation, never a hand insert.
+const EventGoatReinstated = "goat.reinstated"
+
 // EventProtocolVersionPublished is the durable protocol publish event. Vaccination consumes this
 // event to generate existing-cohort obligations after a source-backed version is published.
 const EventProtocolVersionPublished = "protocol.version.published"
@@ -118,6 +124,35 @@ func (h *GoatRecheckHandler) HandleEvent(ctx context.Context, e eventbus.Event) 
 		asOf = time.Now()
 	}
 	_, err := h.gen.generateForGoat(ctx, e.TenantID, e.Key, asOf, generationOptions{healthRecoveryAlign: true})
+	return err
+}
+
+// GoatReinstatedHandler runs the per-goat generation for an animal returned to the herd, with the
+// one option that lets the work its exit cancelled be owed again.
+type GoatReinstatedHandler struct {
+	gen *GenerationService
+}
+
+// NewGoatReinstatedHandler constructs the handler.
+func NewGoatReinstatedHandler(gen *GenerationService) *GoatReinstatedHandler {
+	return &GoatReinstatedHandler{gen: gen}
+}
+
+var _ eventbus.Handler = (*GoatReinstatedHandler)(nil)
+
+// Register subscribes goat.reinstated.
+func (h *GoatReinstatedHandler) Register(bus eventbus.Bus) {
+	bus.Subscribe(EventGoatReinstated, h)
+}
+
+// HandleEvent re-evaluates the returned animal (event Key = goat_id). Idempotent: a replay finds
+// the successors already minted.
+func (h *GoatReinstatedHandler) HandleEvent(ctx context.Context, e eventbus.Event) error {
+	asOf := e.OccurredAt
+	if asOf.IsZero() {
+		asOf = time.Now()
+	}
+	_, err := h.gen.generateForGoat(ctx, e.TenantID, e.Key, asOf, generationOptions{healthRecoveryAlign: true, returnedToHerd: true})
 	return err
 }
 

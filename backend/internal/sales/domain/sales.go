@@ -8,6 +8,7 @@
 package domain
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -316,6 +317,27 @@ type DealWrite struct {
 	// record an EXPECTED sale -- an advance received today for animals leaving on a future date is
 	// an Advance Paid deal, not a closed one, and only Deal Closed counts toward revenue.
 	Status string
+}
+
+// ErrDealFailedIsFinal refuses moving a Deal Failed sale to any other status (maintainer decision
+// 2026-09-25). A failed sale's workflow is cancelled and its tagged animals are released back into
+// the herd; selling again is a NEW sale, never a revived one.
+var ErrDealFailedIsFinal = errors.New("sales: a failed deal is final")
+
+// StatusChangeAllowed reports whether a deal in status `from` may be set to `to`. Deal Failed is
+// final: it may only be "set" to itself (a no-op). Every other status may move anywhere.
+func StatusChangeAllowed(from, to string) bool {
+	return from != StatusDealFailed || to == StatusDealFailed
+}
+
+// NextStatuses is the status picker a deal in status `current` offers: every status for a live
+// deal, NOTHING for a failed one -- the web and phone status editors hide themselves on an empty
+// list rather than offer a change the server refuses.
+func NextStatuses(current string) []string {
+	if current == StatusDealFailed {
+		return []string{}
+	}
+	return append([]string(nil), Statuses...)
 }
 
 // ErrDealValidation reports a rejected write with a field-specific, operator-readable reason.

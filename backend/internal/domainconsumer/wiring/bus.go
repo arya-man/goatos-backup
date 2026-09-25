@@ -115,6 +115,7 @@ func buildDomainBusOn(bus eventbus.Bus, pool *pgxpool.Pool, queryTimeout time.Du
 	obligationapp.NewOperatorConfigReplanHandler(obligationRepo).Register(bus)
 	vaccinationapp.NewGoatCreatedHandler(vaccinationGeneration).Register(bus)
 	vaccinationapp.NewGoatRecheckHandler(vaccinationGeneration).Register(bus)
+	vaccinationapp.NewGoatReinstatedHandler(vaccinationGeneration).Register(bus)
 	vaccinationapp.NewProtocolPublishedHandler(vaccinationGeneration).Register(bus)
 	vaccinationapp.NewVerificationHandler(vaccinationCompletion).WithClosureProjector(sopService).Register(bus)
 	vaccinationapp.NewVaccinationCompletedHandler(vaccinationService, obligationRepo, vaccinationBooster).Register(bus)
@@ -194,6 +195,7 @@ func buildDomainBusOn(bus eventbus.Bus, pool *pgxpool.Pool, queryTimeout time.Du
 	eventwiring.RegisterWorkflowConsumers(bus, consumerWorkflowService, logger)
 	captureEnqueuer, captureReviews := eventwiring.NewCountsCaptureStores(pool, queryTimeout)
 	eventwiring.RegisterCountsCaptureConsumers(bus, captureEnqueuer, captureReviews, consumerWorkflowService)
+	eventwiring.RegisterSaleReleaseConsumers(bus, pool, queryTimeout)
 	healthapp.NewDeathLifecycleHandler(healthRepo).Register(bus)
 
 	if logger != nil {

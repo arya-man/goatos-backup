@@ -346,3 +346,24 @@ type SaleAllocationBatch struct {
 type SaleAllocationBatchReader interface {
 	ListRecentSaleAllocationBatches(ctx context.Context, tenantID string, since time.Time) ([]SaleAllocationBatch, error)
 }
+
+// ReleaseSaleAllocationsCommand releases every animal still tagged to a sale that FELL THROUGH
+// (maintainer decision 2026-09-25): each goes back to alive in the pen it was sold from, and each
+// allocation row is kept as history, marked released with who / when / why.
+type ReleaseSaleAllocationsCommand struct {
+	TenantID    string
+	SalesDealID string
+	// ActorID is who marked the sale failed. Blank (a system caller) falls back to the person who
+	// tagged each animal, so every reinstatement names a real person.
+	ActorID    string
+	Reason     string
+	TraceID    string
+	OccurredAt time.Time
+}
+
+// SaleAllocationReleaser is the write the failed-sale consumer drives.
+type SaleAllocationReleaser interface {
+	// ReleaseSaleAllocations returns how many animals it released. Idempotent: a replay finds no
+	// animal still tagged to the deal and releases nothing.
+	ReleaseSaleAllocations(ctx context.Context, cmd ReleaseSaleAllocationsCommand) (int, error)
+}

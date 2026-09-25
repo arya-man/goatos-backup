@@ -155,10 +155,12 @@ INSERT INTO outbox_messages (
 
 // sales.deal.status_changed (maintainer decision 2026-09-25, docs/decisions/sales-sop.md -> "A
 // failed sale"): a deal's lifecycle status moved. Emitted INSIDE SetDealStatus's transaction, only
-// when the status actually changes, so a retried no-op change emits nothing. The consumer is
-// tasks/app.SaleStatusChangedWorkflowHandler, which CANCELS the sale's workflow when the deal is
-// marked Deal Failed -- the work a failed sale was owed (tag, load, gate pass, collect the balance)
-// will never be done. Registered in context/architecture/domain-event-registry.json.
+// when the status actually changes, so a retried no-op change emits nothing. Two consumers:
+// tasks/app.SaleStatusChangedWorkflowHandler CANCELS the sale's workflow when the deal is marked
+// Deal Failed -- the work a failed sale owed (tag, load, gate pass, collect the balance) will never
+// be done -- and identity/app.SaleFailedReleaseHandler RELEASES every animal tagged to the failed
+// deal back into the herd, in the pen it was sold from. Deal Failed is final, so a deal emits it at
+// most once. Registered in context/architecture/domain-event-registry.json.
 const saleStatusChangedEventType = "sales.deal.status_changed"
 
 // emitDealStatusChanged writes the status-change envelope. changedAt is the row's own updated_at
@@ -182,6 +184,9 @@ func emitDealStatusChanged(ctx context.Context, tx pgx.Tx, tenantID, actorID, de
 			"sales_deal_id":   dealID,
 			"previous_status": previous,
 			"status":          status,
+			// Who changed it: the identity consumer records the animals' release against this
+			// person (blank for a system caller; the release then names the person who tagged).
+			"actor_id": strings.TrimSpace(actorID),
 		},
 		at: changedAt.UTC(),
 	})

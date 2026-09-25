@@ -318,7 +318,10 @@ class SaleDetailViewModel @Inject constructor(
                 // The BACKEND's balance, formatted. Sheet-imported deals carry paise dust, so
                 // under a rupee reads as paid -- the same rule the ledger card uses.
                 balanceLine = if (deal.paymentBalance >= 1.0) "${rupees(deal.paymentBalance)} still due" else "Fully paid",
-                statuses = options?.statuses.orEmpty().map { VendorsOptionUi(it.key, it.label) },
+                // The backend decides what THIS deal may move to; an empty list hides the editor.
+                statuses = options?.statuses.orEmpty()
+                    .filter { option -> deal.statusOptions?.contains(option.key) ?: true }
+                    .map { VendorsOptionUi(it.key, it.label) },
                 paymentEditor = l.paymentEditor,
                 today = LocalDate.now().toString(),
                 editInFlight = l.editInFlight,
