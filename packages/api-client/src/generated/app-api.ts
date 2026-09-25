@@ -2008,6 +2008,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/vaccination/operator-shifts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List every authored vaccination operator shift of one park.
+         * @description Returned whether or not the park has a drive-operator assignment yet: a newly added park has none, and its operators' shifts must be set before one can be saved.
+         */
+        get: operations["listVaccinationOperatorShifts"];
+        /**
+         * Set (create or replace) one operator's vaccination shift for a park.
+         * @description Validate-or-reject: a missing or bad shift label, start/end time ("HH:MM", 24-hour, end after start on the same day) or week-off returns 400 naming the field; nothing is defaulted. The operator must be an ACTIVE workforce member whose home park is this park. The shift write and a vaccination.roster.changed event commit in one transaction. Idempotent on Idempotency-Key: an exact replay returns the original result; the same key with a different body is 409.
+         */
+        put: operations["putVaccinationOperatorShift"];
+        post?: never;
+        /**
+         * Clear one operator's vaccination shift for a park.
+         * @description Refused with 409 operator_shift_in_use while the park's drive-operator assignment names the operator as its default or a selected operator (the planner would otherwise fail closed). 404 when the operator has no shift for the park. Idempotent on Idempotency-Key.
+         */
+        delete: operations["deleteVaccinationOperatorShift"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/feed-direction/generation-preview": {
         parameters: {
             query?: never;
@@ -15825,6 +15853,11 @@ export interface components {
             operatorId: string;
             /** @description Backend-owned operator display name (workforce_members.display_name). */
             displayName: string;
+            /**
+             * Format: uuid
+             * @description The park this shift is for.
+             */
+            parkId?: string;
             /** @enum {string} */
             shiftLabel: "am" | "pm" | "rover";
             shiftStartMinute: number;
@@ -15834,6 +15867,48 @@ export interface components {
              * @enum {string}
              */
             weekOffWeekday?: "monday" | "tuesday" | "wednesday" | "thursday" | "friday" | "saturday" | "sunday";
+        };
+        VaccinationOperatorShiftList: {
+            /** Format: uuid */
+            parkId: string;
+            shifts: components["schemas"]["VaccinationOperatorShift"][];
+        };
+        PutVaccinationOperatorShiftRequest: {
+            /** Format: uuid */
+            park_id: string;
+            /**
+             * Format: uuid
+             * @description The operator's workforce member id.
+             */
+            operator_id: string;
+            /** @enum {string} */
+            shift_label: "am" | "pm" | "rover";
+            /** @description 24-hour start time, "HH:MM". */
+            shift_start: string;
+            /** @description 24-hour end time, "HH:MM"; must be later the same day than shift_start. */
+            shift_end: string;
+            /** @description Lowercase weekday name, or null / empty for no week-off. */
+            week_off_weekday?: string | null;
+        };
+        VaccinationOperatorShiftWriteResult: {
+            shift: components["schemas"]["VaccinationOperatorShift"];
+            idempotentReplay: boolean;
+        };
+        VaccinationOperatorShiftClearResult: {
+            /** Format: uuid */
+            parkId: string;
+            /** Format: uuid */
+            operatorId: string;
+            cleared: boolean;
+            idempotentReplay: boolean;
+        };
+        VaccinationOperatorShiftFieldError: {
+            code: string;
+            /** @description Farm-worded reason, rendered verbatim beside the named field. */
+            message: string;
+            /** @description The request field the refusal is about, when it is about one. */
+            field?: string;
+            trace_id: string;
         };
         /** @description One selectable park in the backend-owned park-scope vocabulary. Ids and labels are canonical Postgres `locations` rows compiled by the backend; clients render them and send parkId back. */
         VaccinationParkScopeOption: {
@@ -25011,6 +25086,122 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             /** @description The supplied rowVersion no longer matches the stored config (concurrent edit). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listVaccinationOperatorShifts: {
+        parameters: {
+            query: {
+                park_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The park's operator shifts. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VaccinationOperatorShiftList"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    putVaccinationOperatorShift: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PutVaccinationOperatorShiftRequest"];
+            };
+        };
+        responses: {
+            /** @description The shift as stored. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VaccinationOperatorShiftWriteResult"];
+                };
+            };
+            /** @description A field was refused; `field` names it. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VaccinationOperatorShiftFieldError"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description The Idempotency-Key was already used with a different request body. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            500: components["responses"]["ServerError"];
+        };
+    };
+    deleteVaccinationOperatorShift: {
+        parameters: {
+            query: {
+                park_id: string;
+                operator_id: string;
+            };
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The shift was cleared. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VaccinationOperatorShiftClearResult"];
+                };
+            };
+            /** @description A field was refused; `field` names it. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VaccinationOperatorShiftFieldError"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            /** @description operator_shift_in_use (the park's drive assignment still names this operator) or idempotency_conflict. */
             409: {
                 headers: {
                     [name: string]: unknown;

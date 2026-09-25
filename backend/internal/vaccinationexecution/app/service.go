@@ -1438,6 +1438,58 @@ func (s *Service) UpdateOperatorAssignmentConfig(ctx context.Context, tenantID s
 	return updated, "", "", nil
 }
 
+// Operator-shift write sentinels, re-exported so the HTTP adapter imports only the app package.
+var (
+	ErrOperatorNotActiveInPark          = ports.ErrOperatorNotActiveInPark
+	ErrOperatorShiftInUse               = ports.ErrOperatorShiftInUse
+	ErrOperatorShiftNotFound            = ports.ErrOperatorShiftNotFound
+	ErrOperatorShiftIdempotencyConflict = ports.ErrOperatorShiftIdempotencyConflict
+)
+
+// OperatorShiftRequest identifies who is writing and the Idempotency-Key that makes the write safe
+// to retry.
+type OperatorShiftRequest struct {
+	TenantID       string
+	ActorID        string
+	IdempotencyKey string
+	TraceID        string
+}
+
+// SetOperatorShift validates the admin's typed shift (validate-or-reject, never defaulted) and then
+// creates or replaces that operator's shift for the park. A refused field returns a non-nil
+// OperatorShiftFieldError and no write. The shift row and its vaccination.roster.changed cascade
+// commit together in the repository.
+func (s *Service) SetOperatorShift(ctx context.Context, req OperatorShiftRequest, in domain.OperatorShiftInput) (domain.OperatorShift, bool, *domain.OperatorShiftFieldError, error) {
+	shift, ferr := domain.ValidateOperatorShiftInput(in)
+	if ferr != nil {
+		return domain.OperatorShift{}, false, ferr, nil
+	}
+	written, replay, err := s.repo.SetOperatorShift(ctx, ports.OperatorShiftWrite{
+		TenantID:       req.TenantID,
+		ActorID:        req.ActorID,
+		IdempotencyKey: req.IdempotencyKey,
+		TraceID:        req.TraceID,
+		Shift:          shift,
+	})
+	if err != nil {
+		return domain.OperatorShift{}, false, nil, err
+	}
+	return written, replay, nil, nil
+}
+
+// ClearOperatorShift removes one operator's shift for a park. It is refused while the park's drive
+// operator assignment still names that operator (ErrOperatorShiftInUse).
+func (s *Service) ClearOperatorShift(ctx context.Context, req OperatorShiftRequest, parkID, operatorID string) (bool, error) {
+	return s.repo.ClearOperatorShift(ctx, ports.OperatorShiftClear{
+		TenantID:       req.TenantID,
+		ActorID:        req.ActorID,
+		IdempotencyKey: req.IdempotencyKey,
+		TraceID:        req.TraceID,
+		ParkID:         parkID,
+		OperatorID:     operatorID,
+	})
+}
+
 // UpdateCapacityConfig validates then idempotently writes the tenant's daily operator animal cap +
 // per-animal shot-cap override (validate-or-reject: an invalid maxPerDay or an out-of-range
 // maxShotsPerAnimalPerDrive returns a 400-shaped (code, message) pair, never silently clamped or

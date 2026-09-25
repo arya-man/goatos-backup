@@ -637,6 +637,9 @@ var protectedRoutes = []Route{
 	// Not yet consumed by the drive scheduler (Phase 5). Same config-authority permission as capacity.
 	{OperationID: "getVaccinationOperatorAssignmentConfig", Method: "GET", Pattern: "/vaccination/operator-assignment/config", Permissions: []string{ProtocolRead}},
 	{OperationID: "putVaccinationOperatorAssignmentConfig", Method: "PUT", Pattern: "/vaccination/operator-assignment/config", Permissions: []string{VaccinationCampaign}},
+	{OperationID: "listVaccinationOperatorShifts", Method: "GET", Pattern: "/vaccination/operator-shifts", Permissions: []string{ProtocolRead}},
+	{OperationID: "putVaccinationOperatorShift", Method: "PUT", Pattern: "/vaccination/operator-shifts", Permissions: []string{VaccinationCampaign}},
+	{OperationID: "deleteVaccinationOperatorShift", Method: "DELETE", Pattern: "/vaccination/operator-shifts", Permissions: []string{VaccinationCampaign}},
 	{OperationID: "listWeighingCampaigns", Method: "GET", Pattern: "/weighing/campaigns", Permissions: []string{WeighingMonitor}},
 	{OperationID: "createWeighingCampaign", Method: "POST", Pattern: "/weighing/campaigns", Permissions: []string{WeighingPlan}},
 	{OperationID: "updateWeighingCampaign", Method: "PUT", Pattern: "/weighing/campaigns/{campaign_id}", Permissions: []string{WeighingPlan}},

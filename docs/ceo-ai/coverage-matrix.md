@@ -918,6 +918,18 @@ untouched. Explicit documented exclusion — no coverage-matrix mapping required
 
 | vaccination_operator_assignment_config | func:ReassignPlannedDrives | Explicit exclusion: admin-only operator assignment config write/reassignment; existing vaccination execution/schedule reads remain the covered user-visible source. |
 
+2026-09-25 follow-up: `table:vaccination_operator_shift_config` gained its first
+production write path, `GET/PUT/DELETE /vaccination/operator-shifts`, so a park
+added on Configuration > Items & settings can have its vaccination operators'
+shifts set on the People / Vaccination operators screen (before this only the
+roster seed wrote the table, and the assignment config refuses an operator with
+no shift). Admin-only authoring config with the same shape as the assignment
+config above: the write enqueues `vaccination.roster.changed` so the existing
+replan consumer re-plans future drives. It adds NO leadership KPI, Cube metric,
+`ceo_ai.*` view, or MCP Toolbox tool. Explicit documented exclusion.
+
+| GET/PUT/DELETE /vaccination/operator-shifts (func:ListOperatorShifts, func:PutOperatorShift, func:DeleteOperatorShift, func:SetOperatorShift, func:ClearOperatorShift, func:WithOperatorShiftWriter, func:RegisterOperatorShiftRoutes, func:ValidateOperatorShiftInput, func:ParseShiftClock, func:FormatShiftClock) | EXCLUDED | Admin config read/write of one park's vaccination operator shifts (People / Vaccination operators screen). Leadership sees the RESULT through the vaccination schedule/operator status surfaces, never this authoring endpoint. |
+
 ## Goat passport operational location (2026-08-06)
 
 `func:NewLocationReader` / `func:GoatLocation` / `func:NewService` (passport) resolve a

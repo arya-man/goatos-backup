@@ -24,6 +24,42 @@ var ErrCapacityConfigConflict = errors.New("vaccination execution: capacity conf
 // 500 makes a paging bug look like an outage.
 var ErrInvalidArgument = errors.New("vaccination execution: invalid argument")
 
+// ErrOperatorNotActiveInPark marks an operator who is not an ACTIVE workforce member whose home
+// park (primary_location_id) is the park being configured, or a park that is not an active park.
+// Vaccination never falls back to another park's operator, so this is a refusal, never a default.
+var ErrOperatorNotActiveInPark = errors.New("vaccination execution: operator is not an active operator of this park")
+
+// ErrOperatorShiftInUse refuses clearing the shift of an operator the park's drive-operator
+// assignment still names (the default operator, or one of the selected operators). Without that
+// shift the planner cannot resolve the operator and the park's drive planning fails closed.
+var ErrOperatorShiftInUse = errors.New("vaccination execution: operator shift is still used by the park's drive operator assignment")
+
+// ErrOperatorShiftNotFound is returned when clearing a shift the operator does not have for the park.
+var ErrOperatorShiftNotFound = errors.New("vaccination execution: operator shift not found")
+
+// ErrOperatorShiftIdempotencyConflict is a same Idempotency-Key replay carrying a different request.
+var ErrOperatorShiftIdempotencyConflict = errors.New("vaccination execution: operator shift: idempotency key reused with a different request")
+
+// OperatorShiftWrite carries one authored shift write plus the request identity that makes it
+// idempotent (the Idempotency-Key header) and attributable (the acting person).
+type OperatorShiftWrite struct {
+	TenantID       string
+	ActorID        string
+	IdempotencyKey string
+	TraceID        string
+	Shift          domain.OperatorShift
+}
+
+// OperatorShiftClear carries one "clear this operator's shift for this park" request.
+type OperatorShiftClear struct {
+	TenantID       string
+	ActorID        string
+	IdempotencyKey string
+	TraceID        string
+	ParkID         string
+	OperatorID     string
+}
+
 type Repository interface {
 	// ListAlerts returns one keyset page of the CALLER'S OWN vaccination alerts,
 	// read from the shared notification_requests plumbing and discriminated by
@@ -77,6 +113,16 @@ type Repository interface {
 	// 0 the row must not already exist (first write); otherwise rowVersion must match the current stored
 	// value or ErrOperatorAssignmentConfigConflict is returned.
 	UpsertOperatorAssignmentConfig(ctx context.Context, tenantID string, cfg domain.OperatorAssignmentConfig) (domain.OperatorAssignmentConfig, error)
+	// SetOperatorShift creates or replaces one operator's shift for a park, keyed by the
+	// Idempotency-Key: the shift write and a vaccination.roster.changed outbox event commit in ONE
+	// transaction. An exact replay returns the original result (replay=true) with no second write or
+	// event; a same key with a different request returns ErrOperatorShiftIdempotencyConflict. An
+	// operator who is not active in that park returns ErrOperatorNotActiveInPark.
+	SetOperatorShift(ctx context.Context, w OperatorShiftWrite) (shift domain.OperatorShift, replay bool, err error)
+	// ClearOperatorShift deletes one operator's shift for a park under the same idempotency and
+	// outbox rules. It returns ErrOperatorShiftInUse while the park's assignment config still names
+	// that operator, and ErrOperatorShiftNotFound when there is no shift to clear.
+	ClearOperatorShift(ctx context.Context, c OperatorShiftClear) (replay bool, err error)
 	// UpsertCapacityConfig idempotently writes the tenant's daily operator animal cap + per-animal
 	// shot-cap override with optimistic concurrency and durably enqueues vaccination.capacity.changed to
 	// outbox_messages in the same transaction (see OperatorConfigReplanHandler, which recomputes future

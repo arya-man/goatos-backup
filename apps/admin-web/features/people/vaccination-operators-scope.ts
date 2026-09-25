@@ -44,6 +44,9 @@ export interface VaccinationOperatorsScreenApi {
   listStaffPositions(params: Record<string, unknown>): Promise<{ data?: { items?: unknown[] } }>;
   getVaccinationCapacityConfig(): Promise<{ data?: { maxPerDay?: number; maxShotsPerAnimalPerDrive?: number | null; rowVersion?: number } }>;
   listStaffLeave(params?: Record<string, unknown>): Promise<{ data?: { items?: unknown[] } }>;
+  // The park's authored shifts, read on their own so a park with NO drive-operator assignment yet
+  // (every newly added park) still shows -- and can set -- its operators' shifts.
+  listVaccinationOperatorShifts(parkId: string): Promise<{ data?: { shifts?: unknown[] } }>;
 }
 
 export type VaccinationOperatorsScreenData =
@@ -61,6 +64,9 @@ export type VaccinationOperatorsScreenData =
       // (which would silently overwrite the real cap or hit an optimistic-lock conflict).
       capConfigError: string | null;
       leaveItems: unknown[];
+      // Every operator shift authored for the park, independent of whether an assignment config
+      // exists. The screen renders the Shift column and its Set / Clear shift form from this.
+      shifts: unknown[];
     };
 
 export async function loadVaccinationOperatorsScreen(
@@ -90,7 +96,7 @@ export async function loadVaccinationOperatorsScreen(
     throw new Error('Park scope unavailable for this account. The roster cannot be shown without a single resolved park.');
   }
 
-  const [posRes, capResult, leaveRes] = await Promise.all([
+  const [posRes, capResult, leaveRes, shiftRes] = await Promise.all([
     api.listStaffPositions({ status: 'active', scope_type: 'center', scope_id: resolvedParkId, limit: 500 }),
     // Do NOT swallow a capacity-config load failure into a fabricated 200/rowVersion-0 default:
     // that would let the CEO edit and save against a fake row-version. Capture the failure so the
@@ -100,6 +106,7 @@ export async function loadVaccinationOperatorsScreen(
       .then((res) => ({ ok: true as const, data: res.data }))
       .catch((err: unknown) => ({ ok: false as const, error: err instanceof Error ? err.message : 'Failed to load vaccination capacity config' })),
     api.listStaffLeave({ limit: 500 }).catch(() => ({ data: { items: [] } })),
+    api.listVaccinationOperatorShifts(resolvedParkId),
   ]);
 
   const capConfigError = capResult.ok ? null : capResult.error;
@@ -116,5 +123,6 @@ export async function loadVaccinationOperatorsScreen(
     capRowVersion: capData?.rowVersion ?? 0,
     capConfigError,
     leaveItems: leaveRes.data?.items ?? [],
+    shifts: shiftRes.data?.shifts ?? [],
   };
 }

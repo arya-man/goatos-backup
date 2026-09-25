@@ -4540,7 +4540,7 @@ SELECT EXISTS (
 		return fmt.Errorf("vaccination execution: validate operator park: %w", err)
 	}
 	if !ok {
-		return fmt.Errorf("vaccination execution: operator %s is not an active operator for park %s", operatorID, parkID)
+		return fmt.Errorf("%w: operator %s is not an active operator for park %s", ports.ErrOperatorNotActiveInPark, operatorID, parkID)
 	}
 	return nil
 }

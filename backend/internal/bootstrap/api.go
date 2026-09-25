@@ -657,6 +657,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		WithProofURLResolver(newWeighingExportProofURLResolver(proofService, cfg.HTTPAddr))
 	vaccExecHandler := vaccexechttp.NewHandler(vaccExecService, obligationRepo, log).
 		WithOperatorAssignmentConfigWriter(vaccExecService).
+		WithOperatorShiftWriter(vaccExecService).
 		WithCapacityConfigWriter(vaccExecService)
 	weighingRepo := weighingpg.NewRepository(pool, cfg.Postgres.QueryTimeout).
 		WithProofURLResolver(newWeighingExportProofURLResolver(proofService, cfg.HTTPAddr)).

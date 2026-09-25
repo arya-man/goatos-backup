@@ -362,6 +362,14 @@ export type UpdateVaccinationOperatorAssignmentConfigRequest =
   AppApiComponents["schemas"]["UpdateVaccinationOperatorAssignmentConfigRequest"];
 export type UpdateVaccinationCapacityConfigRequest =
   AppApiComponents["schemas"]["UpdateVaccinationCapacityConfigRequest"];
+export type VaccinationOperatorShiftList =
+  AppApiComponents["schemas"]["VaccinationOperatorShiftList"];
+export type PutVaccinationOperatorShiftRequest =
+  AppApiComponents["schemas"]["PutVaccinationOperatorShiftRequest"];
+export type VaccinationOperatorShiftWriteResult =
+  AppApiComponents["schemas"]["VaccinationOperatorShiftWriteResult"];
+export type VaccinationOperatorShiftClearResult =
+  AppApiComponents["schemas"]["VaccinationOperatorShiftClearResult"];
 export type VaccinationDriveAssignmentRow =
   AppApiComponents["schemas"]["VaccinationDriveAssignmentRow"];
 export type VaccinationDriveAssignmentResponse =
@@ -4522,6 +4530,62 @@ export async function getVaccinationLiveTracker(
         },
       ),
     ),
+  );
+}
+
+// A park's authored vaccination operator shifts, listed whether or not the park has a drive-operator
+// assignment yet (a newly added park has none and must set shifts first).
+export async function listVaccinationOperatorShifts(
+  parkId: string,
+): Promise<ApiResult<VaccinationOperatorShiftList>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<VaccinationOperatorShiftList>("/vaccination/operator-shifts", {
+      method: "GET",
+      query: { park_id: parkId },
+      cache: "no-store",
+    }),
+  );
+}
+
+// Set (create or replace) one operator's shift for a park. Validate-or-reject on the backend;
+// idempotent on the Idempotency-Key header.
+export async function putVaccinationOperatorShift(
+  body: PutVaccinationOperatorShiftRequest,
+  idempotencyKey: string,
+): Promise<ApiResult<VaccinationOperatorShiftWriteResult>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<VaccinationOperatorShiftWriteResult>("/vaccination/operator-shifts", {
+      method: "PUT",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
+// Clear one operator's shift for a park. Refused (409) while the park's drive-operator assignment
+// still names that operator.
+export async function deleteVaccinationOperatorShift(
+  parkId: string,
+  operatorId: string,
+  idempotencyKey: string,
+): Promise<ApiResult<VaccinationOperatorShiftClearResult>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<VaccinationOperatorShiftClearResult>("/vaccination/operator-shifts", {
+      method: "DELETE",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      query: { park_id: parkId, operator_id: operatorId },
+    }),
   );
 }
 
