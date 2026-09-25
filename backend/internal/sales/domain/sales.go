@@ -451,6 +451,12 @@ func (w DealWrite) Validate(cat ProductCatalog, farms []string) error {
 			return ErrDealValidation{Field: field, Reason: "must not be negative"}
 		}
 	}
+	// The advance is money the buyer has ALREADY handed over for THIS sale, and it becomes the
+	// sale's first receipt. More than the sale is worth is money the ledger cannot explain -- in
+	// practice a typo or a second sale's money -- so it is refused rather than recorded.
+	if w.AdvanceAmount != nil && *w.AdvanceAmount > w.SalesValue+0.005 {
+		return ErrDealValidation{Field: "advance_amount", Reason: "cannot be more than the sale value"}
+	}
 	return nil
 }
 

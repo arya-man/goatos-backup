@@ -261,7 +261,8 @@ ON CONFLICT (tenant_id, product_code) DO UPDATE SET
 	updated_at   = now()
 RETURNING product_code, name, kind, unit, COALESCE(species_code, ''), sort_order`
 
-// readSellableProductSQL reads one row of the registry, whatever its status.
+// readSellableProductSQL reads one row of the registry, whatever its status. An edit reads it
+// (FOR UPDATE) to prove the row it names exists before the upsert runs.
 const readSellableProductSQL = `
 SELECT product_code, name, kind, unit, COALESCE(species_code, ''), sort_order, status, is_builtin
 FROM public.sellable_product_catalog
@@ -299,6 +300,21 @@ SELECT EXISTS (SELECT 1 FROM public.sellable_product_catalog WHERE tenant_id = $
 		}
 		if exists {
 			return domain.Product{}, ports.ErrProductNameTaken
+		}
+	} else {
+		// AN EDIT MUST LAND ON AN EXISTING ROW -- the mirror of the rule above. The upsert below
+		// would otherwise INSERT a new item under whatever code the client sent, and codes are the
+		// server's to derive (once, from the name), never the client's to choose. The row is locked
+		// so a concurrent delete cannot slip between this read and the write.
+		var current domain.ProductRow
+		err := tx.QueryRow(ctx, readSellableProductSQL+" FOR UPDATE", tenantID, write.Code).Scan(
+			&current.Code, &current.Name, &current.Kind, &current.Unit, &current.SpeciesCode,
+			&current.SortOrder, &current.Status, &current.IsBuiltin)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.Product{}, ports.ErrProductNotFound
+		}
+		if err != nil {
+			return domain.Product{}, fmt.Errorf("sales: read sellable product for edit: %w", err)
 		}
 	}
 

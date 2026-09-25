@@ -28,8 +28,16 @@ var (
 	// answer there: gone from every dropdown, history still readable.
 	ErrProductHasSales = errors.New("sales: this item has recorded sales and can be switched off but not deleted")
 
-	// ErrProductNotFound is returned when a delete names an item the registry does not carry.
+	// ErrProductNotFound is returned when a delete or an EDIT names an item the registry does not
+	// carry. An edit of an unknown code is not an edit of anything: it must not become an insert
+	// under a code the client chose, because codes are derived by the server, once, from the name.
 	ErrProductNotFound = errors.New("sales: product not found")
+
+	// ErrPaymentExceedsSaleValue is returned when a receipt would take a deal's money received
+	// past its sale value. That is the shape of a receipt entered twice -- the advance taken at the
+	// sale is already the first receipt -- and the ledger cannot explain money beyond the sale.
+	// A correction that LOWERS the total is never refused, so a deal already over cannot get stuck.
+	ErrPaymentExceedsSaleValue = errors.New("sales: receipts would exceed the sale value")
 
 	// ErrProductNameTaken is returned when two products would share one name. A sale stores the
 	// NAME it was sold under, so two products cannot answer to one word.

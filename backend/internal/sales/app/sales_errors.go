@@ -86,7 +86,11 @@ func SalesHTTPError(err error) *Error {
 			"This item has sales recorded against it, so it cannot be deleted. Untick 'In use' instead: it disappears from every dropdown and its sales stay readable.")
 
 	case errors.Is(err, ports.ErrProductNotFound):
-		return NotFound("Item not found.")
+		return NotFound("That item is no longer in the list. Reload the page to see the current list.")
+
+	case errors.Is(err, ports.ErrPaymentExceedsSaleValue):
+		return Conflict("payment_exceeds_sale_value",
+			"This takes the money received past the sale value. Check the receipts already listed -- the advance taken at the sale is already one of them.")
 
 	case errors.Is(err, ports.ErrProductNameTaken):
 		return Conflict("product_name_taken",

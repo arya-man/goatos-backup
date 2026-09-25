@@ -444,8 +444,10 @@ func TestSalesDealPaymentPostgresPaths(t *testing.T) {
 		if got := after.PaymentBalance(); got != 30000 {
 			t.Fatalf("balance = %v want 30000", got)
 		}
-		if len(after.Payments) != 1 || after.Payments[0].AmountRupees != 50000 || after.Payments[0].ReceivedOn != "2026-08-25" {
-			t.Fatalf("payments = %#v want the one receipt", after.Payments)
+		// The advance taken at the sale is the first receipt (000440); this one is the second.
+		if len(after.Payments) != 2 || after.Payments[0].Note != AdvanceReceiptNote || after.Payments[0].AmountRupees != 20000 ||
+			after.Payments[1].AmountRupees != 50000 || after.Payments[1].ReceivedOn != "2026-08-25" {
+			t.Fatalf("payments = %#v want the advance then the one receipt", after.Payments)
 		}
 		// Status stays a human decision: money must not flip the deal lifecycle.
 		if after.Status != domain.StatusDealClosed {
@@ -459,7 +461,7 @@ func TestSalesDealPaymentPostgresPaths(t *testing.T) {
 		if err != nil {
 			t.Fatalf("replay: %v", err)
 		}
-		if after.PaymentReceived == nil || *after.PaymentReceived != 70000 || len(after.Payments) != 1 {
+		if after.PaymentReceived == nil || *after.PaymentReceived != 70000 || len(after.Payments) != 2 {
 			t.Fatalf("replay changed the ledger: received=%v payments=%d", after.PaymentReceived, len(after.Payments))
 		}
 	})
@@ -482,8 +484,8 @@ func TestSalesDealPaymentPostgresPaths(t *testing.T) {
 		if err := pool.QueryRow(ctx, `SELECT count(*) FROM sales_deal_payments WHERE tenant_id = $1`, salesTestTenant).Scan(&rows); err != nil {
 			t.Fatalf("count receipts: %v", err)
 		}
-		if rows != 1 {
-			t.Fatalf("receipt rows = %d want 1 (the refused write must leave nothing behind)", rows)
+		if rows != 2 {
+			t.Fatalf("receipt rows = %d want 2, the advance and one receipt (the refused write must leave nothing behind)", rows)
 		}
 	})
 
@@ -496,8 +498,8 @@ func TestSalesDealPaymentPostgresPaths(t *testing.T) {
 		for _, d := range page.Deals {
 			if d.DealID == deal.DealID {
 				found = true
-				if len(d.Payments) != 1 || d.Payments[0].AmountRupees != 50000 {
-					t.Fatalf("listed payments = %#v want the one receipt", d.Payments)
+				if len(d.Payments) != 2 || d.Payments[1].AmountRupees != 50000 {
+					t.Fatalf("listed payments = %#v want the advance and the one receipt", d.Payments)
 				}
 			}
 		}
@@ -526,10 +528,10 @@ func TestSalesDealPaymentEditAndDeletePostgresPaths(t *testing.T) {
 	if err != nil {
 		t.Fatalf("record receipt: %v", err)
 	}
-	if len(withReceipt.Payments) != 1 {
-		t.Fatalf("payments = %#v want one receipt", withReceipt.Payments)
+	if len(withReceipt.Payments) != 2 {
+		t.Fatalf("payments = %#v want the advance and one receipt", withReceipt.Payments)
 	}
-	paymentID := withReceipt.Payments[0].PaymentID
+	paymentID := withReceipt.Payments[1].PaymentID
 
 	edited, err := repo.UpdateDealPayment(ctx, salesTestTenant, deal.DealID, paymentID,
 		domain.DealPaymentWrite{ReceivedOn: "2026-08-26", AmountRupees: 500, Note: "corrected transfer"}, "", "edit-rcpt-2")
@@ -542,7 +544,7 @@ func TestSalesDealPaymentEditAndDeletePostgresPaths(t *testing.T) {
 	if got := edited.PaymentBalance(); got != 176915 {
 		t.Fatalf("balance after edit = %v want 176915", got)
 	}
-	if len(edited.Payments) != 1 || edited.Payments[0].AmountRupees != 500 || edited.Payments[0].ReceivedOn != "2026-08-26" || edited.Payments[0].Note != "corrected transfer" {
+	if len(edited.Payments) != 2 || edited.Payments[1].AmountRupees != 500 || edited.Payments[1].ReceivedOn != "2026-08-26" || edited.Payments[1].Note != "corrected transfer" {
 		t.Fatalf("edited payments = %#v want corrected row", edited.Payments)
 	}
 
@@ -551,7 +553,7 @@ func TestSalesDealPaymentEditAndDeletePostgresPaths(t *testing.T) {
 	if err != nil {
 		t.Fatalf("edit replay: %v", err)
 	}
-	if replayed.PaymentReceived == nil || *replayed.PaymentReceived != 20500 || len(replayed.Payments) != 1 {
+	if replayed.PaymentReceived == nil || *replayed.PaymentReceived != 20500 || len(replayed.Payments) != 2 {
 		t.Fatalf("edit replay changed ledger: received=%v payments=%d", replayed.PaymentReceived, len(replayed.Payments))
 	}
 
@@ -562,15 +564,15 @@ func TestSalesDealPaymentEditAndDeletePostgresPaths(t *testing.T) {
 	if deleted.PaymentReceived == nil || *deleted.PaymentReceived != 20000 {
 		t.Fatalf("payment_received after delete = %v want back to advance 20000", deleted.PaymentReceived)
 	}
-	if len(deleted.Payments) != 0 {
-		t.Fatalf("deleted receipt still listed: %#v", deleted.Payments)
+	if len(deleted.Payments) != 1 || deleted.Payments[0].Note != AdvanceReceiptNote {
+		t.Fatalf("after delete want only the advance listed: %#v", deleted.Payments)
 	}
 
 	deletedReplay, err := repo.DeleteDealPayment(ctx, salesTestTenant, deal.DealID, paymentID, "", "delete-rcpt-1")
 	if err != nil {
 		t.Fatalf("delete replay: %v", err)
 	}
-	if deletedReplay.PaymentReceived == nil || *deletedReplay.PaymentReceived != 20000 || len(deletedReplay.Payments) != 0 {
+	if deletedReplay.PaymentReceived == nil || *deletedReplay.PaymentReceived != 20000 || len(deletedReplay.Payments) != 1 {
 		t.Fatalf("delete replay changed ledger: received=%v payments=%d", deletedReplay.PaymentReceived, len(deletedReplay.Payments))
 	}
 }

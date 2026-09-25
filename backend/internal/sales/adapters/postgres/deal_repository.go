@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 	"github.com/vgoats/goatos/backend/internal/sales/domain"
 	"github.com/vgoats/goatos/backend/internal/sales/ports"
@@ -446,17 +447,25 @@ func (r *Repository) RecordDealPayment(ctx context.Context, tenantID, dealID str
 		return r.getDeal(ctx, tenantID, dealID)
 	}
 
-	var received *float64
+	var received, saleValue *float64
 	err = tx.QueryRow(ctx, `
-SELECT payment_received
+SELECT payment_received, sales_value
 FROM public.sales_deals
 WHERE tenant_id = $1 AND id = $2
-FOR UPDATE`, tenantID, dealID).Scan(&received)
+FOR UPDATE`, tenantID, dealID).Scan(&received, &saleValue)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Deal{}, ports.ErrDealNotFound
 	}
 	if err != nil {
 		return domain.Deal{}, fmt.Errorf("sales: lock deal payment: %w", err)
+	}
+
+	previous := 0.0
+	if received != nil {
+		previous = *received
+	}
+	if err := refuseReceiptsPastSaleValue(previous, previous+write.AmountRupees, saleValue); err != nil {
+		return domain.Deal{}, err
 	}
 
 	var paymentID string
@@ -512,6 +521,20 @@ WHERE tenant_id = $1 AND id = $2`, tenantID, dealID, total); err != nil {
 	return r.getDeal(ctx, tenantID, dealID)
 }
 
+// refuseReceiptsPastSaleValue stops a receipt write that would RAISE the money received above the
+// sale value. Raising is the test, not the level: a deal already over (history, or a sale whose
+// value was later lowered) can always be corrected downwards, and a write that leaves the total
+// where it was is never refused. A deal with no recorded value (sheet history) is not judged.
+func refuseReceiptsPastSaleValue(previous, next float64, saleValue *float64) error {
+	if saleValue == nil || *saleValue <= 0 {
+		return nil
+	}
+	if next > *saleValue+0.005 && next > previous+0.005 {
+		return ports.ErrPaymentExceedsSaleValue
+	}
+	return nil
+}
+
 // UpdateDealPayment edits one receipt and applies only the old/new amount delta to the deal's
 // running total.
 func (r *Repository) UpdateDealPayment(ctx context.Context, tenantID, dealID, paymentID string, write domain.DealPaymentWrite, actorID, idempotencyKey string) (domain.Deal, error) {
@@ -536,22 +559,29 @@ func (r *Repository) UpdateDealPayment(ctx context.Context, tenantID, dealID, pa
 		return r.getDeal(ctx, tenantID, dealID)
 	}
 
-	var received *float64
+	var received, saleValue *float64
 	var oldAmount float64
 	var oldReceivedOn time.Time
 	var oldNote string
 	err = tx.QueryRow(ctx, `
-SELECT d.payment_received, p.amount_rupees, p.received_on, p.note
+SELECT d.payment_received, d.sales_value, p.amount_rupees, p.received_on, p.note
 FROM public.sales_deals d
 JOIN public.sales_deal_payments p
   ON p.tenant_id = d.tenant_id AND p.deal_id = d.id
 WHERE d.tenant_id = $1::uuid AND d.id = $2::uuid AND p.payment_id = $3::uuid
-FOR UPDATE OF d, p`, tenantID, dealID, paymentID).Scan(&received, &oldAmount, &oldReceivedOn, &oldNote)
+FOR UPDATE OF d, p`, tenantID, dealID, paymentID).Scan(&received, &saleValue, &oldAmount, &oldReceivedOn, &oldNote)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Deal{}, ports.ErrDealPaymentNotFound
 	}
 	if err != nil {
 		return domain.Deal{}, fmt.Errorf("sales: lock deal payment update: %w", err)
+	}
+	previous := 0.0
+	if received != nil {
+		previous = *received
+	}
+	if err := refuseReceiptsPastSaleValue(previous, previous+write.AmountRupees-oldAmount, saleValue); err != nil {
+		return domain.Deal{}, err
 	}
 
 	if _, err := tx.Exec(ctx, `
@@ -784,6 +814,15 @@ func (r *Repository) CreateDeal(ctx context.Context, tenantID string, write doma
 		return domain.Deal{}, err
 	}
 
+	// THE ADVANCE IS THE SALE'S FIRST RECEIPT (migration 000440). payment_received above is seeded
+	// with it; this row is what makes that figure a sum of LISTED receipts, so the desk sees the
+	// advance in the receipts list and corrects or removes it like any other -- instead of
+	// re-entering it and doubling the money received. Same transaction and same idempotency
+	// reservation as the deal, so a replay never adds a second one.
+	if err := insertAdvanceReceipt(ctx, tx, tenantID, dealID, write, actorID); err != nil {
+		return domain.Deal{}, err
+	}
+
 	// Feed sold off the store leaves it here, in this transaction -- if the sale is closed.
 	if err := syncFeedSaleDepletions(ctx, tx, tenantID, dealID); err != nil {
 		return domain.Deal{}, err
@@ -824,6 +863,32 @@ func (r *Repository) CreateDeal(ctx context.Context, tenantID string, write doma
 		return domain.Deal{}, fmt.Errorf("sales: commit create deal: %w", err)
 	}
 	return r.getDeal(ctx, tenantID, dealID)
+}
+
+// AdvanceReceiptNote is the note the advance's receipt row carries, both when a sale is recorded
+// and when migration 000440 gives an older advance its row. Farm words: the desk reads it in the
+// receipts list.
+const AdvanceReceiptNote = "Advance at sale"
+
+// insertAdvanceReceipt writes the advance as a receipt row. The money is in hand when the sale is
+// recorded, so it is dated TODAY (IST business date) -- or the sale date, when the sale is being
+// recorded after the fact. An expected sale dated in the future still took its advance today, and
+// a receipt dated in the future is refused everywhere else in this ledger.
+func insertAdvanceReceipt(ctx context.Context, tx pgx.Tx, tenantID, dealID string, write domain.DealWrite, actorID string) error {
+	if write.AdvanceAmount == nil || *write.AdvanceAmount <= 0 {
+		return nil
+	}
+	receivedOn := write.SaleDate
+	if today := biztime.BusinessDate(time.Now()); today < receivedOn {
+		receivedOn = today
+	}
+	if _, err := tx.Exec(ctx, `
+INSERT INTO public.sales_deal_payments (tenant_id, deal_id, received_on, amount_rupees, note, recorded_by)
+VALUES ($1::uuid, $2::uuid, $3::date, $4, $5, nullif($6, '')::uuid)`,
+		tenantID, dealID, receivedOn, *write.AdvanceAmount, AdvanceReceiptNote, actorID); err != nil {
+		return fmt.Errorf("sales: insert advance receipt: %w", err)
+	}
+	return nil
 }
 
 // fpFloat renders an optional number as a stable, nil-safe fingerprint part (empty when absent, so
