@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import sg.mesha.goatos.boot.NavStateRefreshSignal
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
@@ -64,6 +65,12 @@ class ApprovalViewModel @Inject constructor(
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
     private val savedStateHandle: SavedStateHandle,
+    /**
+     * Re-reads the drawer/bar badges once a decision lands: the Approvals badge counts pending
+     * requests, so it must drop the moment one is decided (live phone run 2026-09-25: it stayed
+     * at 22 while the server said 21 until some other screen happened to refresh navigation).
+     */
+    private val navRefresh: NavStateRefreshSignal = NavStateRefreshSignal(),
 ) : ViewModel() {
 
     /** One status observer per request whose decision is on its way (each is its own outbox lane). */
@@ -229,6 +236,7 @@ class ApprovalViewModel @Inject constructor(
                     item.status == SyncItemStatus.SUCCEEDED -> {
                         approvalRepository.forgetDecided(requestId)
                         forgetPendingDecision(requestId)
+                        navRefresh.request()
                         _state.update {
                             it.copy(
                                 decidingRequestIds = it.decidingRequestIds - requestId,

@@ -13,23 +13,31 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusEvent
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.paging.LoadState
 import androidx.paging.compose.LazyPagingItems
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
@@ -173,7 +181,9 @@ fun ApprovalScreen(
             subtitle = stringResource(R.string.counts_approval_subtitle),
         )
         LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+            // imePadding: the list ends at the keyboard, so a card being edited can scroll clear
+            // of it (live phone run 2026-09-25: the keyboard covered Confirm reject).
+            modifier = Modifier.fillMaxSize().imePadding().padding(horizontal = 16.dp),
             contentPadding = PaddingValues(top = 8.dp, bottom = 28.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
@@ -294,7 +304,22 @@ private fun ApprovalCard(
 
         if (rejecting) {
             // A rejection is not actionable without a reason, so the reason is composed inline
-            // and Confirm stays disabled until one is entered.
+            // and Confirm stays disabled until one is entered. The reason AND its two buttons are
+            // brought into view together when the field takes focus, so the keyboard never hides
+            // Confirm reject.
+            val rejectBlock = remember { BringIntoViewRequester() }
+            val scope = rememberCoroutineScope()
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier
+                    .bringIntoViewRequester(rejectBlock)
+                    .onFocusEvent { focus ->
+                        if (focus.hasFocus) scope.launch {
+                            delay(350)
+                            rejectBlock.bringIntoView()
+                        }
+                    },
+            ) {
             CountsTextField(
                 value = rejectReason,
                 onValueChange = { onEvent(ApprovalEvent.EditRejectReason(it)) },
@@ -319,6 +344,7 @@ private fun ApprovalCard(
                         onClick = { onEvent(ApprovalEvent.ConfirmReject) },
                     )
                 }
+            }
             }
         } else {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

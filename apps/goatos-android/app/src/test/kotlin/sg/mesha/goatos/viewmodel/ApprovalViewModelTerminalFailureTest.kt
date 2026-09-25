@@ -8,8 +8,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -20,6 +20,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import sg.mesha.goatos.boot.NavStateRefreshSignal
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.AppResult
@@ -69,6 +70,31 @@ class ApprovalViewModelTerminalFailureTest {
         assertNull(repository.forgottenRequestId)
         assertTrue(viewModel.state.value.decidingRequestIds.isEmpty())
         assertTrue(viewModel.state.value.cardMessages.getValue(REQUEST_ID).isError)
+    }
+
+    @Test
+    fun `a decided request re-reads the badges so the Approvals count drops at once`() = runTest(dispatcher) {
+        // Live phone run 2026-09-25: after an approve the Approvals badge stayed at 22 while the
+        // server said 21, until another screen happened to refresh navigation.
+        val syncRepository = ApprovalSyncRepository()
+        val navRefresh = NavStateRefreshSignal()
+        val requests = mutableListOf<Unit>()
+        val collector = launch { navRefresh.requests.collect { requests += it } }
+        val viewModel = ApprovalViewModel(
+            approvalRepository = RecordingApprovalRepository(),
+            syncRepository = syncRepository,
+            analytics = NoopApprovalAnalytics(),
+            crashReporter = NoopApprovalCrashReporter(),
+            savedStateHandle = SavedStateHandle(),
+            navRefresh = navRefresh,
+        )
+        viewModel.onEvent(ApprovalEvent.Approve(REQUEST_ID))
+        advanceUntilIdle()
+        assertTrue("queuing alone must not claim the count changed", requests.isEmpty())
+        syncRepository.emitSucceeded(REQUEST_ID)
+        advanceUntilIdle()
+        assertEquals("a landed decision must ask for the badges once", 1, requests.size)
+        collector.cancel()
     }
 
     // ---- Approvals defects, live E2E 2026-09-25 ----------------------------------------------
