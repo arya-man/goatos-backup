@@ -159,7 +159,7 @@ func StartPostgres(t *testing.T, ctx context.Context) *pgxpool.Pool {
 
 	clone := pkg.cloneName("")
 	pkg.cloneMu.Lock()
-	_, err := pkg.admin.Exec(ctx, fmt.Sprintf(`CREATE DATABASE %s TEMPLATE %s`, quoteIdent(clone), quoteIdent(pkg.template)))
+	err := pgtemplate.ExecDDL(ctx, pkg.admin, fmt.Sprintf(`CREATE DATABASE %s TEMPLATE %s`, quoteIdent(clone), quoteIdent(pkg.template)))
 	pkg.cloneMu.Unlock()
 	if err != nil {
 		t.Fatalf("pgtest: clone database from template: %v", err)
@@ -265,7 +265,7 @@ func (h *pkgHarness) start(ctx context.Context) error {
 // through a single psql process (the migration's only connection phase), then locks the template
 // against further connections so it can always be used as a CREATE DATABASE source.
 func (h *pkgHarness) buildTemplate(ctx context.Context) error {
-	if _, err := h.admin.Exec(ctx, fmt.Sprintf(`CREATE DATABASE %s`, quoteIdent(h.template))); err != nil {
+	if err := pgtemplate.ExecDDL(ctx, h.admin, fmt.Sprintf(`CREATE DATABASE %s`, quoteIdent(h.template))); err != nil {
 		return fmt.Errorf("create template database: %w", err)
 	}
 	if err := h.applyMigrations(h.template); err != nil {
@@ -273,7 +273,7 @@ func (h *pkgHarness) buildTemplate(ctx context.Context) error {
 	}
 	// psql has exited, so the template has no live sessions. Forbid future connections so a stray
 	// pool can never hold the template open and block clone copying (a hard invariant of the design).
-	if _, err := h.admin.Exec(ctx, fmt.Sprintf(`ALTER DATABASE %s WITH ALLOW_CONNECTIONS false`, quoteIdent(h.template))); err != nil {
+	if err := pgtemplate.ExecDDL(ctx, h.admin, fmt.Sprintf(`ALTER DATABASE %s WITH ALLOW_CONNECTIONS false`, quoteIdent(h.template))); err != nil {
 		return fmt.Errorf("lock template database: %w", err)
 	}
 	return nil
@@ -386,7 +386,7 @@ func dropClonedDatabaseAsync(admin, pool *pgxpool.Pool, db string) (error, <-cha
 	dropped := false
 	for i := 0; i < 10; i++ {
 		// scale-guard:ignore: bounded 10-attempt test-DB drop retry in the test harness (transient-lock backoff on teardown), not a request/worker path
-		if _, dropErr = admin.Exec(ctx, fmt.Sprintf(`DROP DATABASE IF EXISTS %s`, quoteIdent(db))); dropErr == nil {
+		if dropErr = pgtemplate.ExecDDL(ctx, admin, fmt.Sprintf(`DROP DATABASE IF EXISTS %s`, quoteIdent(db))); dropErr == nil {
 			dropped = true
 			break
 		}

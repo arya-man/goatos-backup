@@ -35,7 +35,6 @@
   "internal/penvisits/adapters/boardsource/subtasks.go|unverified-dynamic-bind": 1,
   "internal/penvisits/adapters/postgres/repository.go|unverified-dynamic-bind": 4,
   "internal/platform/audit/recorder.go|unverified-dynamic-bind": 1,
-  "internal/platform/pgtest/pgtest.go|unverified-dynamic-bind": 6,
   "internal/procurement/adapters/postgres/vendor_form_source.go|unverified-dynamic-bind": 1,
   "internal/procurement/adapters/postgres/vendor_repository.go|unverified-dynamic-bind": 7,
   "internal/proof/adapters/postgres/repository.go|unverified-dynamic-bind": 4,

@@ -41,6 +41,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 )
 
 // HarnessSchemaVersion is folded into the hash. Bump it whenever the way the template is BUILT
@@ -233,7 +235,7 @@ func Ensure(ctx context.Context, admin *pgxpool.Pool, baseDSN string, migrations
 	now := time.Now()
 	build := buildName(hash, now)
 	fmt.Fprintf(log, "pgtemplate: building %s (%d migrations) -> %s\n", build, len(migrations), name)
-	if _, err := admin.Exec(ctx, `CREATE DATABASE `+QuoteIdent(build)); err != nil {
+	if err := ExecDDL(ctx, admin, `CREATE DATABASE `+QuoteIdent(build)); err != nil {
 		return "", fmt.Errorf("create build database: %w", err)
 	}
 	if _, err := exec.LookPath("psql"); err != nil {
@@ -242,16 +244,17 @@ func Ensure(ctx context.Context, admin *pgxpool.Pool, baseDSN string, migrations
 	cmd := exec.CommandContext(ctx, "psql", "-q", "-v", "ON_ERROR_STOP=1", DSNFor(baseDSN, build))
 	cmd.Stdin = strings.NewReader(MigrationScript(migrations))
 	if out, err := cmd.CombinedOutput(); err != nil {
-		_, _ = admin.Exec(context.Background(), `DROP DATABASE IF EXISTS `+QuoteIdent(build)+` WITH (FORCE)`)
+		_ = ExecDDL(context.Background(), admin, `DROP DATABASE IF EXISTS `+QuoteIdent(build)+` WITH (FORCE)`)
 		return "", fmt.Errorf("psql migrate %s failed: %v\n%s", build, err, tail(out, 4000))
 	}
 	for _, stmt := range []string{
 		`ALTER DATABASE ` + QuoteIdent(build) + ` WITH ALLOW_CONNECTIONS false`,
-		`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '` + build + `'`,
+		`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '` + build + `'`, // build matches buildRE: [0-9a-z_] only
 		`ALTER DATABASE ` + QuoteIdent(build) + ` RENAME TO ` + QuoteIdent(name),
 		`COMMENT ON DATABASE ` + QuoteIdent(name) + ` IS '` + marker(hash, now) + `'`,
 	} {
-		if _, err := admin.Exec(ctx, stmt); err != nil {
+		// scale-guard:ignore: fixed 4-statement DDL finalize sequence on the test-harness admin connection, not a request/worker path
+		if err := ExecDDL(ctx, admin, stmt); err != nil {
 			return "", fmt.Errorf("finalize template (%s): %w", stmt, err)
 		}
 	}
@@ -357,9 +360,11 @@ func Cleanup(ctx context.Context, admin *pgxpool.Pool, currentHash string, log i
 	rows.Close()
 	for _, db := range SelectStale(dbs, currentHash, time.Now()) {
 		if templateRE.MatchString(db) {
-			_, _ = admin.Exec(ctx, `ALTER DATABASE `+QuoteIdent(db)+` WITH ALLOW_CONNECTIONS true`)
+			// scale-guard:ignore: DDL per stale test database (a handful), test-harness admin connection only
+			_ = ExecDDL(ctx, admin, `ALTER DATABASE `+QuoteIdent(db)+` WITH ALLOW_CONNECTIONS true`)
 		}
-		if _, err := admin.Exec(ctx, `DROP DATABASE IF EXISTS `+QuoteIdent(db)+` WITH (FORCE)`); err == nil {
+		// scale-guard:ignore: DROP DATABASE cannot be batched; a handful of stale test databases per run
+		if err := ExecDDL(ctx, admin, `DROP DATABASE IF EXISTS `+QuoteIdent(db)+` WITH (FORCE)`); err == nil {
 			fmt.Fprintf(log, "pgtemplate: dropped stale %s\n", db)
 		}
 	}
@@ -384,8 +389,10 @@ func dropMatching(ctx context.Context, admin *pgxpool.Pool, match func(string) b
 		if !IsPgtestDatabase(n) || !match(n) {
 			continue
 		}
-		_, _ = admin.Exec(ctx, `ALTER DATABASE `+QuoteIdent(n)+` WITH ALLOW_CONNECTIONS true`)
-		if _, err := admin.Exec(ctx, `DROP DATABASE IF EXISTS `+QuoteIdent(n)+` WITH (FORCE)`); err != nil {
+		// scale-guard:ignore: DDL per crashed build database of one hash (normally zero or one)
+		_ = ExecDDL(ctx, admin, `ALTER DATABASE `+QuoteIdent(n)+` WITH ALLOW_CONNECTIONS true`)
+		// scale-guard:ignore: DROP DATABASE cannot be batched; normally zero or one leftover
+		if err := ExecDDL(ctx, admin, `DROP DATABASE IF EXISTS `+QuoteIdent(n)+` WITH (FORCE)`); err != nil {
 			return fmt.Errorf("drop leftover %s: %w", n, err)
 		}
 	}
@@ -411,4 +418,16 @@ func tail(b []byte, n int) []byte {
 		return b[len(b)-n:]
 	}
 	return b
+}
+
+// ExecDDL runs a statement that carries no bind parameters -- DDL whose only dynamic parts are
+// internally generated, QuoteIdent-ed database names, which Postgres cannot bind. sqlbind proves the
+// statement has no placeholders left unbound.
+func ExecDDL(ctx context.Context, admin *pgxpool.Pool, stmt string) error {
+	q, err := sqlbind.Bind(stmt)
+	if err != nil {
+		return err
+	}
+	_, err = admin.Exec(ctx, q.SQL(), q.Args()...)
+	return err
 }

@@ -91,6 +91,7 @@
         "backend/internal/platform/localization/",
         "backend/internal/platform/oploc/",
         "backend/internal/platform/outbox/",
+        "backend/internal/platform/pgtemplate/",
         "backend/internal/platform/pgtest/",
         "backend/internal/platform/readcache/",
         "backend/internal/platform/sqlbind/",
