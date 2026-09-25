@@ -1390,7 +1390,9 @@
   .cbm-sv-heat{table-layout:fixed;width:max-content;min-width:100%}
   .cbm-sv-heat th:first-child,.cbm-sv-heat td.cbm-sv-shed{width:150px;min-width:150px}
   .cbm-sv-heat th:not(:first-child),.cbm-sv-heat td.cbm-sv-cell{width:104px;min-width:104px}
-  .cbm-sv-heat td.cbm-sv-shed{text-align:left;font-size:12.5px;color:var(--ink);padding:6px 8px;white-space:nowrap}
+  /* The pen name and (for an ambiguous name) its park stack inside the fixed 150px column; on one
+     nowrap line "Godel 1 - Part 1 Channapatna" painted over the first vaccine column. */
+  .cbm-sv-heat td.cbm-sv-shed{text-align:left;font-size:12.5px;color:var(--ink);padding:6px 8px;white-space:normal;overflow-wrap:anywhere;line-height:1.3}
   .cbm-sv-cell{text-align:center;padding:8px 4px;border-radius:6px}
   /* Clean and unplanned cells are DELIBERATELY quiet. A bright dot on every clean cell turned an
      11x6 grid into a wall of green that competed with the red for attention -- the reader had to
@@ -1429,7 +1431,7 @@
   td.cbm-sv-behind[role="button"]:hover,td.cbm-sv-behind[role="button"]:focus-visible{outline:1px solid var(--danger);outline-offset:-1px}
   td.cbm-sv-verifying[role="button"]:hover,td.cbm-sv-verifying[role="button"]:focus-visible{outline:1px solid var(--warn);outline-offset:-1px}
   td.cbm-sv-rework[role="button"]:hover,td.cbm-sv-rework[role="button"]:focus-visible{outline:1px solid #9b5bb0;outline-offset:-1px}
-  .cbm-sv-shed-park{color:var(--muted);font-size:11px;margin-left:6px}
+  .cbm-sv-shed-park{display:block;color:var(--muted);font-size:11px;margin-left:0}
   /* The behind cell shows its NUMBER; green and grey stay dots. "How many are missing, each
      vaccine, shed wise" is half the ask, and a bare colour forces a second question before the row
      is actionable -- but a count on a clean cell is the "other information" the ask ruled out. */
@@ -2686,7 +2688,10 @@
   .inspection-page-head strong{font-size:15px}
   .inspection-page-head>svg:last-child{margin-left:auto;color:var(--muted)}
   .sop-inspection .qcard .qtext,.sop-inspection .qcard .qhelp{width:100%}
-  .sop-inspection .inspection-page>.bd>.qcfg input,.sop-inspection .inspection-page>.bd>.qcfg select{width:100%;border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:8px 10px;font:inherit;font-size:12.5px;color:var(--ink);outline:0}
+  /* Text-like inputs only: a checkbox given a text box's width and a panel background read the same
+     ticked or not (the Compulsory / applies-to ticks, 2026-09-26). */
+  .sop-inspection .inspection-page>.bd>.qcfg input:not([type=checkbox]):not([type=radio]),.sop-inspection .inspection-page>.bd>.qcfg select{width:100%;border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:8px 10px;font:inherit;font-size:12.5px;color:var(--ink);outline:0}
+  .sop-inspection .inspection-page>.bd>.qcfg input[type=checkbox],.sop-inspection .inspection-page>.bd>.qcfg input[type=radio]{width:16px;height:16px;min-width:16px;min-height:16px;padding:0;margin:0;flex:none;accent-color:var(--brand)}
   .sop-inspection .inspection-page>.bd>.qcfg input:focus{border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-soft)}
   .sop-inspection .inspection-page>.bd>.qcfg .rowf{display:flex;gap:8px;flex-wrap:wrap}
   .sop-inspection .inspection-page>.bd>.qcfg .rowf>*{flex:1;min-width:0}
@@ -4074,7 +4079,9 @@ aside.drawer.wt-feedband-drawer{width:94vw;max-width:960px}
 .lt-page .cc-pensel-empty{padding:8px}
 .lt-page .cc-pensel-foot{display:flex;align-items:center;gap:6px;border-top:1px solid var(--line2);padding-top:8px}
 .lt-page .lt-chips .achip.clr{font:inherit;font-size:11.5px}
-.lt-page .lt-fnote{color:var(--faint);font-size:11px;margin-left:auto;white-space:nowrap}
+/* Wraps when it has to: a long note (the live tracker's "Park, vaccine, operator ... both") ran past
+   the card's right edge at 1440 as one unbroken line. */
+.lt-page .lt-fnote{color:var(--faint);font-size:11px;margin-left:auto;white-space:normal;min-width:0;flex:0 1 auto;text-align:right}
 /* The live tracker's own filter bar. It holds nothing but its own controls, so the shared
    `.wfbusy{opacity:.55;pointer-events:none}` dimming is right for it and stays -- this rule only
    adds the ring on top. Do NOT fold the sheet-hosting rule below into this selector: doing so
@@ -5829,7 +5836,9 @@ aside.sales-tagdrawer table.sales-tagtable{min-width:0}
 .vplan .scope .vv { margin-top: 5px; font-weight: 600; }
 
 .vplan .panes { display: grid; grid-template-columns: 288px 1fr; gap: 16px; align-items: start; }
-@media (max-width: 900px) { .vplan .panes { grid-template-columns: 1fr; } }
+/* minmax(0,1fr), not 1fr: a bare 1fr track's minimum is its content, so the 762px-wide editor
+   card set the column wider than a 390px phone and clipped the dose controls (2026-09-26). */
+@media (max-width: 900px) { .vplan .panes { grid-template-columns: minmax(0, 1fr); } .vplan .panes > * { min-width: 0; } }
 .vplan .leftcol { position: sticky; top: 16px; display: flex; flex-direction: column; gap: 14px; }
 @media (max-width: 900px) { .vplan .leftcol { position: static; } }
 .vplan .rail { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); overflow: hidden; }

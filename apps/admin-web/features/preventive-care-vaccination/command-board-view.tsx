@@ -1,5 +1,6 @@
 "use client";
-import { useEffect, useMemo, useState, useTransition, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useEffect, useMemo, useState, useTransition, type KeyboardEvent as ReactKeyboardEvent, useCallback } from "react";
+import { useBackCloses } from "@/components/use-back-closes";
 
 import type { CommandBoardCohortMatrixPage } from "@/lib/api/server";
 import {
@@ -723,6 +724,15 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
     setSelectedCell(null);
     setClosedDrawerOpen(true);
   };
+
+  // Back closes whichever drawer is open (the house drawer rule); these drawers are state, not URL.
+  const anyDrawerOpen = Boolean(selectedCell || closedDrawerOpen || selectedShedVaccine);
+  const closeAllDrawers = useCallback(() => {
+    setSelectedCell(null);
+    setClosedDrawerOpen(false);
+    setSelectedShedVaccine(null);
+  }, []);
+  useBackCloses(anyDrawerOpen, closeAllDrawers);
 
   // Escape closes whichever drawer is open, from ANYWHERE on the page. An onKeyDown handler on the
   // drawer element only fires once focus is already inside it, so pressing Escape after opening a

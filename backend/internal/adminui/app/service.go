@@ -10962,6 +10962,18 @@ func liveTrackerOptionGroups() []domain.OptionGroup {
 			},
 		},
 		{
+			// Why a scan attempt did not count, as the feed names it. The keys are the scan
+			// outcome / reason codes sop_task_scan_attempts stores; the web shows only these labels.
+			ID: "live_activity_detail",
+			Options: []domain.Option{
+				option("unknown_tag", "tag not on this drive", "", "warn"),
+				option("unknown", "tag not recognised", "", "warn"),
+				option("goat_already_scanned", "already scanned", "", "warn"),
+				option("duplicate", "already scanned", "", "warn"),
+				option("not_due", "not due today", "", "warn"),
+			},
+		},
+		{
 			ID: "live_attention_kind",
 			Options: []domain.Option{
 				option("extra_attempts", "extra attempts", "same animals re-scanned; duplicates ignored, flagged for verifier note", "warn"),
