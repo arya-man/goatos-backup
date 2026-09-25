@@ -64,11 +64,13 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
-      - name: Preflight from main (gh login, ai-setup, Java 21)
+      - name: Preflight from main (gh login, Java 21)
         run: |
           set -euo pipefail
           gh auth status >/dev/null 2>&1 || { echo "runner user has no gh login; cannot push"; exit 1; }
-          make ai-setup >/dev/null
+          # No `make ai-setup`: it installs agent tooling (code-review-graph via the runner's
+          # old system pip) that a landing does not need and it failed the first real run.
+          # land-main installs its own push guards.
           java -version 2>&1 | grep -q '"21' || { echo "runner java is not 21"; exit 1; }
       - name: Validate PRs
         run: |
