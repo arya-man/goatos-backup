@@ -3155,6 +3155,27 @@ WHERE g.tenant_id = $1::uuid
   AND ($2 = '' OR g.lifecycle_status = $2)
 GROUP BY COALESCE(g.park_id::text, ''), park.location_code, park.name
 UNION ALL
+-- A park with NO live animal -- one just added on Configuration > Items & settings -- was offered
+-- nowhere, so the Farm filter could not reach its (empty) pens even though the pen lines list them.
+-- One zero-count option per such park, in the live view only, exactly like the empty-shed branch.
+-- projection-review: membership=active park locations with no live animal (NOT EXISTS over goats with the shared lifecycle predicate); group_key=(location_id), the locations primary key, one option per park; join_cardinality=no joins, the NOT EXISTS is a semi-join that cannot multiply a row, and it cannot duplicate the goats-derived park option above because that option exists only for a park WITH a live animal; pagination=whole-result rollup, never paged; scope=tenant_id, emitted only in the live bucket
+SELECT 'park', park.location_id::text,
+       COALESCE(NULLIF(park.location_code, ''), park.name, ''),
+       0, ''::text, ''::text
+FROM locations park
+WHERE park.tenant_id = $1::uuid
+  AND $2 = 'alive'
+  AND park.location_type = 'park'
+  AND park.status = 'active'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM goats g7
+    WHERE g7.tenant_id = park.tenant_id
+      AND g7.park_id = park.location_id
+      AND g7.merged_into_goat_id IS NULL
+      AND g7.lifecycle_status = $2
+  )
+UNION ALL
 -- Parent-shed aggregate option ("Castro"): every animal in the physical shed regardless of
 -- partition. shed_id is the parent physical shed on every goats row -- never the inactive alias
 -- location -- so this branch already excludes inactive alias rows by construction (it never joins

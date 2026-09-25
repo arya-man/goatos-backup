@@ -289,3 +289,39 @@ func TestCountsBreakdownEmptyPensParkScopeFollowsTheFarmFilter(t *testing.T) {
 		}
 	}
 }
+
+// A park with no live animal -- one just added on Configuration > Items & settings -- is still a
+// Farm filter option (count 0), so its empty pens are reachable; it is not offered under a
+// dead/sold view, where "no animals of that status" is not an empty farm.
+func TestCountsBreakdownEmptyParkIsAFarmFilterOption(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newBreakdownRepo(t, ctx)
+	seedEmptyPensFixture(t, ctx, repo)
+	seedSameNamedShedsInTwoParks(t, ctx, pool) // countsParkTwo holds no animal
+
+	got, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, GroupByPen: true, Limit: 50})
+	if err != nil {
+		t.Fatalf("breakdown: %v", err)
+	}
+	seen := 0
+	for _, p := range got.Facets.Parks {
+		if p.Key == countsParkTwo {
+			seen++
+			if p.Count != 0 {
+				t.Errorf("empty park offered with count %d, want 0", p.Count)
+			}
+		}
+	}
+	if seen != 1 {
+		t.Fatalf("empty park must be offered exactly once as a Farm option, got %d in %+v", seen, got.Facets.Parks)
+	}
+	dead, err := repo.GetCountsBreakdown(ctx, domain.CountsBreakdownQuery{TenantID: countsTenant, GroupByPen: true, LifecycleStatus: strPtr("dead"), Limit: 50})
+	if err != nil {
+		t.Fatalf("breakdown dead: %v", err)
+	}
+	for _, p := range dead.Facets.Parks {
+		if p.Key == countsParkTwo {
+			t.Fatalf("an empty park must not be offered under the dead view: %+v", dead.Facets.Parks)
+		}
+	}
+}
