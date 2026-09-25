@@ -57,6 +57,18 @@ type Question struct {
 	ConversationID string    // optional; empty => new thread
 	Text           string    // raw user text (untrusted; data only)
 	AsOf           time.Time // resolved IST business instant ("today"/"now")
+	// Parks is the tenant's ACTIVE parks, attached server-side before planning (never parsed from
+	// the user's text). Planners match "Channapatna" / "CPT" / a park added yesterday against THIS
+	// list, so a park added on Configuration > Items & settings is understood at once rather than
+	// only the two parks a constant used to name.
+	Parks []ParkRef
+}
+
+// ParkRef is one active park as the assistant knows it: short code, name, location id.
+type ParkRef struct {
+	Code string
+	Name string
+	ID   string
 }
 
 // SubQuestion is one decomposed unit of a broad question, tagged with the tier

@@ -47,7 +47,7 @@ func TestAPITierFailureFallsThroughToCube(t *testing.T) {
 	prov := &fakeProvider{byModel: true, plan: domain.Plan{SubQuestions: []domain.SubQuestion{
 		{ID: "0", ToolName: "counts_breakdown", Route: domain.RouteAPI},
 	}}}
-	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: reg, Metrics: metrics})
+	a := NewAssistant(Config{}, Deps{Parks: testParks{}, Provider: prov, Registry: reg, Metrics: metrics})
 
 	ans, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "count by breed"})
 	if err != nil {
@@ -122,7 +122,7 @@ func TestCubeVaccinationFailureFallsThroughToAPIAndCharts(t *testing.T) {
 	prov := &fakeProvider{byModel: true, plan: domain.Plan{SubQuestions: []domain.SubQuestion{
 		{ID: "0", ToolName: "vaccination_overdue", Route: domain.RouteCube, Params: map[string]any{"group_by": "shed_label"}},
 	}}}
-	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: reg, Metrics: metrics})
+	a := NewAssistant(Config{}, Deps{Parks: testParks{}, Provider: prov, Registry: reg, Metrics: metrics})
 
 	ans, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "show vaccination overdue by shed as graph"})
 	if err != nil {
@@ -156,7 +156,7 @@ func TestAPITierFailureFallsThroughToToolbox(t *testing.T) {
 	prov := &fakeProvider{byModel: true, plan: domain.Plan{SubQuestions: []domain.SubQuestion{
 		{ID: "0", ToolName: "feed_direction_today", Route: domain.RouteAPI},
 	}}}
-	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: reg})
+	a := NewAssistant(Config{}, Deps{Parks: testParks{}, Provider: prov, Registry: reg})
 
 	ans, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "which feed directions are blocked"})
 	if err != nil {
@@ -189,7 +189,7 @@ func TestIncompleteVerdictTriggersRetryBeforeDowngrade(t *testing.T) {
 	prov := &fakeProvider{byModel: true, plan: domain.Plan{SubQuestions: []domain.SubQuestion{
 		{ID: "0", ToolName: "counts_breakdown", Route: domain.RouteAPI},
 	}}}
-	a := NewAssistant(Config{ReviewEnabled: true}, Deps{Provider: prov, Registry: reg, Metrics: metrics})
+	a := NewAssistant(Config{ReviewEnabled: true}, Deps{Parks: testParks{}, Provider: prov, Registry: reg, Metrics: metrics})
 
 	ans, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "count by breed"})
 	if err != nil {

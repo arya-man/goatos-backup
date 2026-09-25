@@ -719,6 +719,21 @@ coverage-matrix mapping required.
 
 | feed_follow_up_day_window | func:ResolveFeedFollowUpDay, func:AddBusinessDays | Explicit exclusion: internal feed follow-up day-window helpers only; the existing feed direction reads remain the leadership assistant coverage source. |
 
+## Explicit exclusion: parks from Configuration everywhere (2026-09-25)
+
+Sales, feed purchases, animal purchase loads, buyer analytics and births used to validate a farm
+against a constant CBE/CPT pair; they now read the tenant's ACTIVE parks from the one park catalog
+(`platform/parkcatalog`, authored on Configuration > Items & settings > Parks). The functions below
+are those validators, the catalog read itself, and the Feed Config session-plan write that gives a
+new park its feeding sessions. None is a new leadership fact: sales, feed purchase, load and herd
+aggregates keep their existing coverage, and the assistant itself now matches park names against
+the same live list (`ports.ParkDirectory`) instead of a constant.
+
+| func:ListActive, func:Codes, func:Has, func:Resolve (platform/parkcatalog) | EXCLUDED:config | The park vocabulary read (active parks with a code) that every farm-keyed module validates against. Configuration, not a KPI; the parks themselves are already visible through every covered park-scoped read. |
+| func:ListFarms, func:IsFarm, func:NormalizeFarmFilter (sales), func:ListFeedFarms, func:IsFeedFarm, func:NormalizeFeedFarmFilter, func:NormalizeBuyerFarmFilter, func:ListParkCodes (procurement, animal purchase) | EXCLUDED:config | Farm-filter and farm-choice validators now reading the park catalog instead of a CBE/CPT constant. Sales, feed purchase, buyer and load leadership coverage is unchanged; these only widen which park a record may name. |
+| func:Validate, func:WithFarms, func:Farms (sales / feed purchase / animal purchase load writes) | EXCLUDED:write | Write-path validation of a deal, feed purchase or purchase load's farm against the live parks, and the load form's farm choices filled from them. Mutation helpers, not a read. |
+| func:SetSessionPlan, func:ValidateSessionPlan (feedconfig) | EXCLUDED:write | POST /feed-config/session-templates: sets a park's feeding sessions and their share of the day (must sum to 100%). An authoring write; feed direction/packing reporting coverage is unchanged. |
+
 ## Explicit exclusion: vaccination drive date protection and merged-batch progress (2026-09-23)
 
 Three changes to vaccination scheduling and execution, none of which adds a

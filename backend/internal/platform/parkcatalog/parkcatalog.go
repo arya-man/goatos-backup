@@ -25,7 +25,7 @@ import (
 //
 // Parameters: $1 tenant_id.
 const ActiveParksSQL = `
-SELECT btrim(location_code), COALESCE(NULLIF(btrim(name), ''), btrim(location_code))
+SELECT btrim(location_code), COALESCE(NULLIF(btrim(name), ''), btrim(location_code)), location_id::text
 FROM locations
 WHERE tenant_id = $1::uuid
   AND location_type = 'park'
@@ -34,10 +34,11 @@ WHERE tenant_id = $1::uuid
 ORDER BY display_order, btrim(location_code), location_id
 LIMIT 500`
 
-// Park is one active park: its stored code and its display name.
+// Park is one active park: its stored code, its display name and its location id.
 type Park struct {
 	Code string
 	Name string
+	ID   string
 }
 
 // Querier is the subset of a pgx pool or transaction ListActive needs.
@@ -55,7 +56,7 @@ func ListActive(ctx context.Context, q Querier, tenantID string) ([]Park, error)
 	out := []Park{}
 	for rows.Next() {
 		var p Park
-		if err := rows.Scan(&p.Code, &p.Name); err != nil {
+		if err := rows.Scan(&p.Code, &p.Name, &p.ID); err != nil {
 			return nil, fmt.Errorf("parkcatalog: scan park: %w", err)
 		}
 		out = append(out, p)

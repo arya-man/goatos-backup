@@ -23,7 +23,7 @@ func actorFor(tenant, user string) domain.Actor {
 // namespace collision or byte-identical question can ever cross tenants, and a
 // different tenant with the same conversation id, day and text hashes apart.
 func TestCacheKeyTenantFirst(t *testing.T) {
-	a := NewAssistant(Config{}, Deps{Registry: NewRegistry(nil, nil, nil)})
+	a := NewAssistant(Config{}, Deps{Parks: testParks{}, Registry: NewRegistry(nil, nil, nil)})
 	asOf := time.Date(2026, 9, 19, 9, 0, 0, 0, time.UTC)
 	qA := domain.Question{Actor: actorFor("tenant-A", "u1"), ConversationID: "conv-1", Text: "How many  goats?", AsOf: asOf}
 	qB := domain.Question{Actor: actorFor("tenant-B", "u1"), ConversationID: "conv-1", Text: "How many  goats?", AsOf: asOf}
@@ -62,7 +62,7 @@ func TestCacheCrossTenantMiss(t *testing.T) {
 	prov := &fakeProvider{byModel: true, plan: domain.Plan{SubQuestions: []domain.SubQuestion{
 		{ID: "0", ToolName: "active_animals", Route: domain.RouteCube},
 	}}}
-	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: reg, Metrics: metrics, Cache: cache})
+	a := NewAssistant(Config{}, Deps{Parks: testParks{}, Provider: prov, Registry: reg, Metrics: metrics, Cache: cache})
 	asOf := time.Now()
 
 	ansA, err := a.Ask(context.Background(), domain.Question{Actor: actorFor("tenant-A", "ceo-A"), Text: "total animals", AsOf: asOf})
@@ -144,11 +144,11 @@ func TestMemoryRecallTenantScoped(t *testing.T) {
 	// so a follow-up from tenant B carrying A's conversation id plans with no
 	// remembered scope.
 	prov := &fakeProvider{}
-	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: NewRegistry(nil, nil, nil), Memory: mem})
+	a := NewAssistant(Config{}, Deps{Parks: testParks{}, Provider: prov, Registry: NewRegistry(nil, nil, nil), Memory: mem})
 	_, _ = a.Ask(ctx, domain.Question{Actor: actorFor("tenant-B", "ceo-B"), ConversationID: "conv-only-A"})
 	_ = mem.Remember(ctx, actorFor("tenant-A", "ceo-A"), "conv-only-A", domain.ResolvedEntities{ParkLabel: "Coimbatore"})
 	recalled := &recallSpyProvider{}
-	a = NewAssistant(Config{}, Deps{Provider: recalled, Registry: NewRegistry(nil, nil, nil), Memory: mem})
+	a = NewAssistant(Config{}, Deps{Parks: testParks{}, Provider: recalled, Registry: NewRegistry(nil, nil, nil), Memory: mem})
 	_, _ = a.Ask(ctx, domain.Question{Actor: actorFor("tenant-B", "ceo-B"), ConversationID: "conv-only-A", Text: "and yesterday?"})
 	if len(recalled.mem) != 0 {
 		t.Fatalf("tenant B's plan received tenant A's remembered scope: %+v", recalled.mem)
@@ -181,7 +181,7 @@ func TestCacheSameTenantCrossUserMiss(t *testing.T) {
 	prov := &fakeProvider{byModel: true, plan: domain.Plan{SubQuestions: []domain.SubQuestion{
 		{ID: "0", ToolName: "active_animals", Route: domain.RouteCube},
 	}}}
-	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: reg, Metrics: metrics, Cache: cache})
+	a := NewAssistant(Config{}, Deps{Parks: testParks{}, Provider: prov, Registry: reg, Metrics: metrics, Cache: cache})
 	asOf := time.Now()
 
 	ansA, err := a.Ask(context.Background(), domain.Question{Actor: actorFor("tenant-A", "ceo-A"), ConversationID: "conv-A", Text: "and yesterday?", AsOf: asOf})

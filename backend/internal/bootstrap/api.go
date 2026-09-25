@@ -1301,6 +1301,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		Convo:     ceoai.NewConversationStore(pool, cfg.Postgres.QueryTimeout),
 		Audit:     ceoobs.NewAuditTraceSink(ceoTraceStore),
 		Telemetry: ceoobs.NewMetrics(),
+		Parks:     ceoai.NewParkDirectory(pool, cfg.Postgres.QueryTimeout),
 		Traces:    ceoTraceStore,
 		// Thread surface backing GET/POST /ceo-ai/conversations* and the leadership
 		// starters probe GET /ceo-ai/starters (the launcher visibility gate).

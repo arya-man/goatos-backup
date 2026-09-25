@@ -141,7 +141,7 @@ func TestRepairLoopOnceThenPartial(t *testing.T) {
 		tel := &fakeSQLTelemetry{}
 		budget := &fakeBudget{}
 		audit := &fakeAudit{}
-		a := NewAssistant(Config{}, Deps{Provider: prov, Registry: NewRegistry(nil, nil, sqlFB), Telemetry: tel, Budget: budget, Audit: audit})
+		a := NewAssistant(Config{}, Deps{Parks: testParks{}, Provider: prov, Registry: NewRegistry(nil, nil, sqlFB), Telemetry: tel, Budget: budget, Audit: audit})
 
 		ans, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "how many widgets", AsOf: repairNow})
 		if err != nil {
@@ -190,7 +190,7 @@ func TestRepairLoopOnceThenPartial(t *testing.T) {
 		sqlFB := &sequencedSQLFallback{errs: []error{pgErr}, result: deathsFacts()}
 		prov := &repairProvider{fakeProvider: fakeProvider{plan: sqlPlan(goodSQL), byModel: true}, repairSQL: goodSQL}
 		tel := &fakeSQLTelemetry{}
-		a := NewAssistant(Config{}, Deps{Provider: prov, Registry: NewRegistry(nil, nil, sqlFB), Telemetry: tel})
+		a := NewAssistant(Config{}, Deps{Parks: testParks{}, Provider: prov, Registry: NewRegistry(nil, nil, sqlFB), Telemetry: tel})
 		ans, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "how many widgets", AsOf: repairNow})
 		if err != nil {
 			t.Fatal(err)
@@ -214,7 +214,7 @@ func TestRepairLoopOnceThenPartial(t *testing.T) {
 		// The "repair" is just as bad: still OFFSET, still rejected by the guard.
 		prov := &repairProvider{fakeProvider: fakeProvider{plan: sqlPlan(badSQL), byModel: true}, repairSQL: badSQL}
 		tel := &fakeSQLTelemetry{}
-		a := NewAssistant(Config{}, Deps{Provider: prov, Registry: NewRegistry(nil, nil, sqlFB), Telemetry: tel})
+		a := NewAssistant(Config{}, Deps{Parks: testParks{}, Provider: prov, Registry: NewRegistry(nil, nil, sqlFB), Telemetry: tel})
 		ans, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "how many widgets", AsOf: repairNow})
 		if err != nil {
 			t.Fatal(err)
@@ -239,7 +239,7 @@ func TestRepairLoopOnceThenPartial(t *testing.T) {
 	t.Run("provider without repair capability is untouched", func(t *testing.T) {
 		sqlFB := &sequencedSQLFallback{result: deathsFacts()}
 		prov := &fakeProvider{plan: sqlPlan(badSQL), byModel: true}
-		a := NewAssistant(Config{}, Deps{Provider: prov, Registry: NewRegistry(nil, nil, sqlFB)})
+		a := NewAssistant(Config{}, Deps{Parks: testParks{}, Provider: prov, Registry: NewRegistry(nil, nil, sqlFB)})
 		if _, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "how many widgets", AsOf: repairNow}); err != nil {
 			t.Fatal(err)
 		}
@@ -258,7 +258,7 @@ func TestWindowThreadedIntoSQLAndEnforced(t *testing.T) {
 	// Draft ignores the period; the repair binds it.
 	prov := &repairProvider{fakeProvider: fakeProvider{plan: sqlPlan(goodSQL), byModel: true}, repairSQL: juneSQL}
 	tel := &fakeSQLTelemetry{}
-	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: NewRegistry(nil, nil, sqlFB), Telemetry: tel})
+	a := NewAssistant(Config{}, Deps{Parks: testParks{}, Provider: prov, Registry: NewRegistry(nil, nil, sqlFB), Telemetry: tel})
 	ans, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "how many widgets last month", AsOf: repairNow})
 	if err != nil {
 		t.Fatal(err)
@@ -290,7 +290,7 @@ func TestWindowOnCurrentStateViewAnswersAsOfNow(t *testing.T) {
 	sqlFB := &sequencedSQLFallback{result: domain.ToolResult{Facts: []domain.Fact{{TenantID: "t1", Label: "Active animals", Value: "972"}}}}
 	prov := &repairProvider{fakeProvider: fakeProvider{plan: sqlPlan(scopeSQL), byModel: true}}
 	tel := &fakeSQLTelemetry{}
-	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: NewRegistry(nil, nil, sqlFB), Telemetry: tel})
+	a := NewAssistant(Config{}, Deps{Parks: testParks{}, Provider: prov, Registry: NewRegistry(nil, nil, sqlFB), Telemetry: tel})
 	ans, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "how many widgets did we have last month", AsOf: repairNow})
 	if err != nil {
 		t.Fatal(err)
@@ -415,7 +415,7 @@ func TestModelSuppliedWindowIgnored(t *testing.T) {
 	}}}
 	prov := &repairProvider{fakeProvider: fakeProvider{plan: plan, byModel: true}, repairSQL: juneSQL}
 	tel := &fakeSQLTelemetry{}
-	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: NewRegistry(nil, nil, sqlFB), Telemetry: tel})
+	a := NewAssistant(Config{}, Deps{Parks: testParks{}, Provider: prov, Registry: NewRegistry(nil, nil, sqlFB), Telemetry: tel})
 	ans, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "how many widgets last month", AsOf: repairNow})
 	if err != nil {
 		t.Fatal(err)
@@ -485,7 +485,7 @@ func TestCompareWindowsThreadedAndValidated(t *testing.T) {
 	}}
 	prov := &repairProvider{fakeProvider: fakeProvider{plan: plan, byModel: true}, repairSQL: q2SQL}
 	tel := &fakeSQLTelemetry{}
-	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: NewRegistry(nil, nil, sqlFB), Telemetry: tel})
+	a := NewAssistant(Config{}, Deps{Parks: testParks{}, Provider: prov, Registry: NewRegistry(nil, nil, sqlFB), Telemetry: tel})
 	ans, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "how many widgets this quarter vs last quarter", AsOf: repairNow})
 	if err != nil {
 		t.Fatal(err)
@@ -507,7 +507,7 @@ func TestCompareWindowsThreadedAndValidated(t *testing.T) {
 	sqlFB = &sequencedSQLFallback{result: deathsFacts()}
 	plan.SubQuestions[1].Params = map[string]any{"sql": juneSQL}
 	prov = &repairProvider{fakeProvider: fakeProvider{plan: plan, byModel: true}, repairSQL: q2SQL}
-	a = NewAssistant(Config{}, Deps{Provider: prov, Registry: NewRegistry(nil, nil, sqlFB), Telemetry: &fakeSQLTelemetry{}})
+	a = NewAssistant(Config{}, Deps{Parks: testParks{}, Provider: prov, Registry: NewRegistry(nil, nil, sqlFB), Telemetry: &fakeSQLTelemetry{}})
 	if _, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "how many widgets this quarter vs last quarter", AsOf: repairNow}); err != nil {
 		t.Fatal(err)
 	}
@@ -574,7 +574,7 @@ func TestWindowLineReflectsExecutedArms(t *testing.T) {
 		}
 		sqlFB := &sequencedSQLFallback{result: deathsFacts()}
 		prov := &repairProvider{fakeProvider: fakeProvider{plan: plan, byModel: true}, repairSQL: augSQL}
-		a := NewAssistant(Config{}, Deps{Provider: prov, Registry: NewRegistry(nil, nil, sqlFB), Telemetry: &fakeSQLTelemetry{}})
+		a := NewAssistant(Config{}, Deps{Parks: testParks{}, Provider: prov, Registry: NewRegistry(nil, nil, sqlFB), Telemetry: &fakeSQLTelemetry{}})
 		ans, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: question, AsOf: armsNow})
 		if err != nil {
 			t.Fatal(err)
