@@ -13,6 +13,8 @@ type StaffLeave = AdminApiComponents['schemas']['StaffLeaveListResponse']['items
 interface VaccinationOperatorsScreenProps {
   initialParkId?: string;
   pageContract?: AdminUiPageContract;
+  /** The tenant's parks, from the backend bootstrap, so the screen can name the park it shows. */
+  parks?: ParkScopeOption[];
 }
 
 type VaccinationOperatorAssignmentConfig = import('@goatos/api-client').AppApiComponents['schemas']['VaccinationOperatorAssignmentConfig'];
@@ -117,7 +119,7 @@ function ownDates(opId: string, allLeaves: Record<string, { from: string; to: st
   return s;
 }
 
-export function VaccinationOperatorsScreen({ initialParkId }: VaccinationOperatorsScreenProps) {
+export function VaccinationOperatorsScreen({ initialParkId, parks = [] }: VaccinationOperatorsScreenProps) {
   const [positions, setPositions] = useState<Position[]>([]);
   const [commonCap, setCommonCap] = useState(200);
   const [operatorCount, setOperatorCount] = useState(1);
@@ -752,13 +754,19 @@ export function VaccinationOperatorsScreen({ initialParkId }: VaccinationOperato
   const drawerUpcoming = drawerLeaves.filter((r) => r.to >= today).sort((a, b) => (a.from < b.from ? -1 : 1));
   const drawerPast = drawerLeaves.filter((r) => r.to < today).sort((a, b) => (a.from < b.from ? 1 : -1));
 
+  // The park this screen is scoped to, named from the backend park list -- never a literal. Every
+  // park added on Configuration > Items & settings is named here the same way.
+  const scopedPark = parkId ? parks.find((p) => p.parkId === parkId) : undefined;
+  const scopedParkName = scopedPark?.name ?? '';
+  const scopedParkLabel = scopedPark ? [scopedPark.code, scopedPark.name].filter((part, i, all) => part && all.indexOf(part) === i).join(' · ') : '';
+
   return (
     <section className="screen on" data-screen="vaccination-operators">
       <div className="phead">
         <div>
           <div className="crumb">Team / <b>Vaccination operators</b></div>
           <h1>Vaccination operators</h1>
-          <div className="sub">CPT · Channapatna. Roster, weekly availability, and drive-operator assignment on one screen. Operator caps drive vaccination scheduling; week-off and leave remove an operator from that day.</div>
+          <div className="sub">{scopedParkLabel ? `${scopedParkLabel}. ` : ''}Roster, weekly availability, and drive-operator assignment on one screen. Operator caps drive vaccination scheduling; week-off and leave remove an operator from that day.</div>
         </div>
       </div>
 
@@ -887,7 +895,7 @@ export function VaccinationOperatorsScreen({ initialParkId }: VaccinationOperato
                         </div>
                       </div>
                     </td>
-                    <td>Channapatna</td>
+                    <td>{scopedParkName || '—'}</td>
                     <td>
                       {(() => {
                         const shift = getShiftForOperator(op.workforce_member_id ?? '');
