@@ -2434,6 +2434,7 @@ CREATE TABLE public.breeds (
     review_notes text,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    tenant_id uuid NOT NULL,
     CONSTRAINT breeds_status_check CHECK ((status = ANY (ARRAY['active'::text, 'review'::text, 'inactive'::text])))
 );
 
@@ -5166,7 +5167,8 @@ CREATE TABLE public.breed_aliases (
     alias text NOT NULL,
     normalized_alias text NOT NULL,
     source_system text,
-    created_at timestamp with time zone DEFAULT now() NOT NULL
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    tenant_id uuid NOT NULL
 );
 
 
@@ -8592,7 +8594,7 @@ ALTER TABLE ONLY public.breed_aliases
 --
 
 ALTER TABLE ONLY public.breed_aliases
-    ADD CONSTRAINT breed_aliases_unique_alias UNIQUE (normalized_alias, source_system);
+    ADD CONSTRAINT breed_aliases_unique_alias UNIQUE (tenant_id, normalized_alias, source_system);
 
 
 --
@@ -8608,7 +8610,7 @@ ALTER TABLE ONLY public.breeds
 --
 
 ALTER TABLE ONLY public.breeds
-    ADD CONSTRAINT breeds_unique_name UNIQUE (species, canonical_name);
+    ADD CONSTRAINT breeds_unique_name UNIQUE (tenant_id, species, canonical_name);
 
 
 --
@@ -14331,7 +14333,7 @@ CREATE TRIGGER admin_ui_animal_stages_revision_trg AFTER INSERT OR DELETE OR UPD
 -- Name: breeds admin_ui_breeds_revision_trg; Type: TRIGGER; Schema: public; Owner: -
 --
 
-CREATE TRIGGER admin_ui_breeds_revision_trg AFTER INSERT OR DELETE OR UPDATE ON public.breeds FOR EACH ROW EXECUTE FUNCTION public.admin_ui_bump_global_family_trg('breeds');
+CREATE TRIGGER admin_ui_breeds_revision_trg AFTER INSERT OR DELETE OR UPDATE ON public.breeds FOR EACH ROW EXECUTE FUNCTION public.admin_ui_bump_row_family_trg('breeds');
 
 
 --
