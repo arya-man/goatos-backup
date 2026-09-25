@@ -22,6 +22,14 @@ export const APPROVALS_COPY = {
     approved: "Approved",
     rejected: "Rejected",
   } as Record<string, string>,
+  // The status chip's words; the lowercase wire enum never reaches the screen.
+  statusLabel: {
+    pending: "Pending",
+    approved: "Approved",
+    rejected: "Rejected",
+    cancelled: "Cancelled",
+    unknown: "Unknown",
+  },
   typeTab: {
     all: "All types",
     birth: "Birth",
@@ -97,12 +105,28 @@ export const APPROVALS_COPY = {
   feedback: {
     approved: "Request approved.",
     rejected: "Request rejected.",
-    failed: "Decision failed",
+    failed: "Decision not saved",
+    // Farm-language sentences for a refused decision, keyed by the server's error code. The code
+    // itself is a machine key and is never printed.
+    errors: {
+      death_evidence_incomplete: "All the death report steps must be recorded before it can be approved.",
+      approval_already_decided: "This request was already decided or changed. Refresh to see its current state.",
+      idempotency_conflict: "This request was already decided or changed. Refresh to see its current state.",
+      version_conflict: "This request was already decided or changed. Refresh to see its current state.",
+      stale_row_version: "This request was already decided or changed. Refresh to see its current state.",
+      approval_request_not_found: "This request was already decided or changed. Refresh to see its current state.",
+      death_already_applied: "This animal's death was already approved on another report. Reject this one as a duplicate.",
+      permission_denied: "You can't decide this request.",
+      park_scope_forbidden: "You can't decide this request.",
+      missing_reason: "Write a reason before rejecting the request.",
+      reason_too_long: "The reason is too long. Shorten it and try again.",
+      default: "Could not save the decision. Try again.",
+    },
   },
   error: {
     queueUnavailable: "Approvals queue is unavailable",
     queueUnavailableBody:
-      "The approval workflow could not be reached on this environment's running API. This is a real backend/environment gap, not empty data — see the error below.",
+      "The requests could not be loaded right now. This is not an empty list — try again in a moment.",
     empty: "No approval requests match the current filters.",
   },
 } as const;

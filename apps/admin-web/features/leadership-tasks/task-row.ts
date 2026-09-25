@@ -29,7 +29,13 @@ export type TaskRow = {
   statusLabel: string;
   statusOptions: Array<{ key: string; label: string }>;
   assignee: string;
+  /**
+   * A role line under the assignee's name. Empty on live rows: "Assigned to me" is composed by the
+   * renderer from `isAssignee` with the page contract's copy, never a literal baked in here.
+   */
   assigneeRole: string;
+  /** The reader is this task's assignee (the backend's `is_assignee`). */
+  isAssignee?: boolean;
   raisedBy: string;
   raisedByUserID: string;
   assigneeUserID: string;
@@ -79,7 +85,8 @@ export function rowFromTask(task: LeadershipTaskPage["rows"][number]): TaskRow {
   {
     const attachmentKinds =
       task.attachments?.map((attachment) => attachment.kind).filter(Boolean) ?? [];
-    const evidence = attachmentKinds.join(", ");
+    // Human words for the kinds, one each: "Voice note, Photo", never the wire's "audio, photo".
+    const evidence = [...new Set(attachmentKinds.map(attachmentKindLabel))].join(", ");
     return {
       id: task.task_id,
       number: task.number_label,
@@ -93,14 +100,15 @@ export function rowFromTask(task: LeadershipTaskPage["rows"][number]): TaskRow {
       statusLabel: task.status_chip,
       statusOptions: task.status_options ?? [],
       assignee: task.assignee_name,
-      assigneeRole: task.is_assignee ? "Assigned to me" : "Assignee",
+      assigneeRole: "",
+      isAssignee: Boolean(task.is_assignee),
       raisedBy: task.raised_by_name,
       raisedByUserID: task.raised_by_user_id,
       assigneeUserID: task.assignee_user_id,
       age: task.raised_on_label,
       attachments: task.attachment_count,
       evidence:
-        evidence || (task.attachment_count > 0 ? "attached files" : "no attachments"),
+        evidence || (task.attachment_count > 0 ? ATTACHMENTS_FALLBACK : NO_ATTACHMENTS),
       attachmentKinds,
       attachmentRows: task.attachments ?? [],
       notes: task.notes ?? [],
@@ -115,6 +123,27 @@ export function rowFromTask(task: LeadershipTaskPage["rows"][number]): TaskRow {
       deadlineAt: task.deadline_at ?? "",
     };
   }
+}
+
+/**
+ * Words for an attachment kind (the backend's closed vocabulary: audio / video / photo / file).
+ *
+ * LOCAL on purpose and recorded as such: the Tasks page contract carries no per-kind copy (it has
+ * `picker.voice` / `picker.media` / `picker.file` for the pickers, where "Photo or video" is one
+ * picker, not a kind), and this runs outside any component that holds the contract. An unknown
+ * kind reads "File" rather than printing the wire value.
+ */
+const ATTACHMENT_KIND_LABELS: Record<string, string> = {
+  audio: "Voice note",
+  video: "Video",
+  photo: "Photo",
+  file: "File",
+};
+const ATTACHMENTS_FALLBACK = "Attached files";
+const NO_ATTACHMENTS = "No attachments";
+
+export function attachmentKindLabel(kind: string): string {
+  return ATTACHMENT_KIND_LABELS[kind] ?? ATTACHMENT_KIND_LABELS.file;
 }
 
 /** The people pickers are fed by /app/leadership-tasks/assignees, not by the list response. */

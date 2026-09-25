@@ -27,29 +27,39 @@ export default async function Page({
   const sp = (await searchParams) ?? {};
   const pageContract = await requireAdminWebPageContract("leadership-tasks");
   const params = parseTasksParams(sp, tablePageSizes(pageContract, "leadership-task-progress"));
-  const [page, assignees, detail] = await Promise.all([
-    listLeadershipTasks({
-      scope: params.scope,
-      filter: params.filter,
-      limit: params.limit,
-      cursor: params.cursor,
-      // Every one of these is already normalized by parseTasksParams: a malformed uuid, an
-      // unknown sort, an over-long `q` and a HALF date range are dropped rather than sent, because
-      // the list endpoint answers 400 for each of them and a stale bookmark should degrade to the
-      // unfiltered list instead of an error page.
-      q: params.q,
-      assigneeUserId: params.assigneeUserID,
-      raisedBy: params.raisedBy,
-      deadlineFrom: params.deadline.incomplete ? undefined : params.deadline.from,
-      deadlineTo: params.deadline.incomplete ? undefined : params.deadline.to,
-      raisedFrom: params.raised.incomplete ? undefined : params.raised.from,
-      raisedTo: params.raised.incomplete ? undefined : params.raised.to,
-      sort: params.sort,
-    }),
+  const listQuery = {
+    scope: params.scope,
+    // Every one of these is already normalized by parseTasksParams: a malformed uuid, an unknown
+    // sort, an over-long `q` and a HALF date range are dropped rather than sent, because the list
+    // endpoint answers 400 for each of them and a stale bookmark should degrade to the unfiltered
+    // list instead of an error page.
+    q: params.q,
+    assigneeUserId: params.assigneeUserID,
+    raisedBy: params.raisedBy,
+    deadlineFrom: params.deadline.incomplete ? undefined : params.deadline.from,
+    deadlineTo: params.deadline.incomplete ? undefined : params.deadline.to,
+    raisedFrom: params.raised.incomplete ? undefined : params.raised.from,
+    raisedTo: params.raised.incomplete ? undefined : params.raised.to,
+    sort: params.sort,
+  } as const;
+  // CANCELLED TASKS ARE LISTED (maintainer decision 2026-09-25). The unfiltered list does not
+  // carry them (team progress excludes cancelled rows), so the board's Cancelled column is filled
+  // by the list endpoint's own `cancelled` filter: the first page of it, beside the first page of
+  // the board, in parallel. A backend without that filter refuses it and the column stays empty
+  // with no count -- never a number invented on this side.
+  // Read on either view: Board / List is client-local presentation (no route render on switch), so
+  // a list-first load that flips to the board must already hold the column's rows.
+  const wantCancelledColumn = params.filter === "all" && params.page === 1;
+  const [page, assignees, detail, cancelled] = await Promise.all([
+    listLeadershipTasks({ ...listQuery, filter: params.filter, limit: params.limit, cursor: params.cursor }),
     listLeadershipTaskAssignees(),
     // The drawer's full record (notes + activity) rides its own read, in parallel, so the list
     // payload stays a list. Absent `task=` this is a resolved null, not a request.
     params.selectedTaskID ? getLeadershipTask(params.selectedTaskID) : Promise.resolve(null),
+    wantCancelledColumn
+      ? // request-plan:ignore owner=admin-web issue=tasks-cancelled-column expires=2027-03-31 reason=DISJOINT not overlapping: filter=cancelled returns only rows the unfiltered read excludes; one extra bounded page (same limit), first page only; remove if the list read ever returns the cancelled column itself
+        listLeadershipTasks({ ...listQuery, filter: "cancelled", limit: params.limit })
+      : Promise.resolve(null),
   ]);
   return (
     <LeadershipTasksPage
@@ -58,6 +68,7 @@ export default async function Page({
       searchParams={sp}
       assignees={assignees.ok ? assignees.data.assignees : []}
       selectedTask={detail && detail.ok ? detail.data.task : null}
+      cancelledRows={cancelled && cancelled.ok ? cancelled.data.rows : []}
     />
   );
 }

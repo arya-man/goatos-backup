@@ -4237,7 +4237,8 @@ export type LeadershipTaskSort =
 export async function listLeadershipTasks(
   params: {
     scope?: "assigned_to_me" | "assigned_by_me" | "team_progress";
-    filter?: "all" | "open" | "in_progress" | "done" | "overdue";
+    /** `cancelled` lists cancelled tasks (maintainer decision 2026-09-25). */
+    filter?: "all" | "open" | "in_progress" | "done" | "cancelled" | "overdue";
     limit?: number;
     cursor?: string;
     /** Free text over title, brief and (for a bare integer) the task number. Max 120 chars. */

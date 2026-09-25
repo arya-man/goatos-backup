@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   currentHistoryEntryIsLocalOverlay,
@@ -8,7 +8,7 @@ import {
   pushLocalOverlayUrl,
   replaceLocalOverlayUrl,
 } from "@/components/local-overlay-link";
-import type { AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { LeadershipTaskAssignee } from "@/lib/api/server";
 
 import { loadLeadershipTaskAction } from "./actions";
@@ -17,6 +17,7 @@ import { TaskDetailDrawer } from "./task-detail-drawer";
 import { TaskDetailPanel } from "./task-detail-panel";
 import { rowFromTask, type TaskRow } from "./task-row";
 import { publishTaskRow, useTaskRowsVersion, taskRowPatch } from "./task-row-store";
+import { pickDrawerRow, withPatch } from "./task-detail-pick";
 
 /**
  * The task drawer as CLIENT-LOCAL state -- the repo's rule for a same-page overlay.
@@ -69,13 +70,21 @@ export function TaskDrawerHost({
   const [details, setDetails] = useState<Record<string, TaskRow>>(() =>
     initialDetail ? { [initialDetail.id]: initialDetail } : {},
   );
-  const [, startTransition] = useTransition();
+  // Bumped on every open (and on Retry): the detail is RE-READ each time the drawer opens, so a
+  // task changed elsewhere since the last read never reopens on its old feed and old moves.
+  const [readNonce, setReadNonce] = useState(0);
+  // The task whose detail read failed, for the inline error + Retry (never a spinner forever).
+  const [readFailed, setReadFailed] = useState<string | null>(null);
+  // A deep link's first render already carries a fresh detail row; the first open skips the read.
+  const skipReadRef = useRef<string | null>(initialDetail?.id ?? null);
   const pushedRef = useRef(false);
   useTaskRowsVersion();
 
   // ---------------------------------------------------------------- open / close
   const open = useCallback((taskID: string, href: string) => {
     setOpenID(taskID);
+    setReadFailed(null);
+    setReadNonce((n) => n + 1);
     pushedRef.current = pushLocalOverlayUrl(href);
     notifyLocalOverlayUrlChange();
   }, []);
@@ -119,7 +128,10 @@ export function TaskDrawerHost({
     // Derived-state form: adjusted during render, not in an effect.
     setSeenServerSelected(serverSelected);
     setOpenID(serverSelected);
-    if (initialDetail) setDetails((current) => ({ ...current, [initialDetail.id]: initialDetail }));
+    if (initialDetail) {
+      skipReadRef.current = initialDetail.id;
+      setDetails((current) => ({ ...current, [initialDetail.id]: initialDetail }));
+    }
   }
 
   // Back / forward: the URL is the truth for which task (if any) is open.
@@ -127,6 +139,8 @@ export function TaskDrawerHost({
     const onPop = () => {
       const taskID = new URL(window.location.href).searchParams.get(TASK_PARAM.task);
       setOpenID(taskID);
+      setReadFailed(null);
+      setReadNonce((n) => n + 1);
       pushedRef.current = false;
     };
     window.addEventListener("popstate", onPop);
@@ -135,34 +149,51 @@ export function TaskDrawerHost({
 
   // ---------------------------------------------------------------- the detail read
   useEffect(() => {
-    if (!openID || details[openID] || preview) return;
+    if (!openID || preview) return;
+    if (skipReadRef.current === openID) {
+      skipReadRef.current = null;
+      return;
+    }
     let cancelled = false;
-    startTransition(async () => {
-      const result = await loadLeadershipTaskAction(openID);
-      if (cancelled) return;
-      if (result.ok) {
+    // A plain promise with its own catch, NOT a transition: a rejected server action inside
+    // startTransition reaches the route's error boundary and takes the page down (2026-09-25).
+    loadLeadershipTaskAction(openID)
+      .then((result) => {
+        if (cancelled) return;
+        if (!result.ok) {
+          setReadFailed(openID);
+          return;
+        }
         const row = rowFromTask(result.task);
         setDetails((current) => ({ ...current, [openID]: row }));
-        publishTaskRow(openID, { rowVersion: row.rowVersion });
-      }
-    });
+        // The WHOLE fresh row, not just its version: a version-only patch kept an older optimistic
+        // status on top of the newer row.
+        publishTaskRow(openID, row);
+      })
+      .catch(() => {
+        if (!cancelled) setReadFailed(openID);
+      });
     return () => {
       cancelled = true;
     };
-  }, [openID, details, preview]);
+  }, [openID, readNonce, preview]);
+
+  const retryRead = useCallback(() => {
+    setReadFailed(null);
+    setReadNonce((n) => n + 1);
+  }, []);
 
   if (!openID) return null;
 
   const summary = rows.find((row) => row.id === openID) ?? null;
-  const base = details[openID] ?? summary;
-  if (!base) return null;
-  // The published patch (a status changed here, a version bumped by a comment) on top.
-  const patch = taskRowPatch(openID);
-  const detail =
-    patch && !(typeof patch.rowVersion === "number" && patch.rowVersion < base.rowVersion)
-      ? { ...base, ...patch }
-      : base;
-  const detailLoaded = Boolean(details[openID]);
+  // The newer of the cached detail and the list row wins (see `pickDrawerRow`), then the
+  // published patch (a status changed here, a version bumped by a comment) on top.
+  const picked = pickDrawerRow(details[openID], summary);
+  if (!picked.row) return null;
+  const detail = withPatch(picked.row, taskRowPatch(openID));
+  // Preview fixture rows are complete and never read live, so they are never "loading".
+  const detailLoaded = picked.detailLoaded || preview;
+  const failed = readFailed === openID;
 
   return (
     <TaskDetailDrawer taskId={openID} onClose={close} ariaLabel={ariaLabel} closeLabel={closeLabel}>
@@ -174,8 +205,14 @@ export function TaskDrawerHost({
         assignees={assignees}
         canRaise={canRaise}
         onClose={close}
-        loadingDetail={!detailLoaded}
+        loadingDetail={!detailLoaded && !failed}
         detailLoaded={detailLoaded}
+        detailError={
+          failed && !detailLoaded
+            ? copy(pageContract, "activity.load_failed", "Activity could not be loaded.")
+            : undefined
+        }
+        onRetryDetail={failed ? retryRead : undefined}
       />
     </TaskDetailDrawer>
   );

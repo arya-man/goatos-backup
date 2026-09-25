@@ -4,7 +4,6 @@ import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { RouteSearchParams } from "@/lib/search-params";
 import type { LeadershipTaskPage } from "@/lib/api/server";
 
-import { changeLeadershipTaskStatusAction } from "./actions";
 import { TASK_PARAM, tasksHref } from "./params";
 import { TaskBoardColumns, type BoardColumnMeta } from "./task-board-dnd";
 import type { TaskRow } from "./task-row";
@@ -123,7 +122,8 @@ export function LeadershipTasksBoard({
   }
 
   /**
-   * Where a drop's redirect lands: THIS board, same scope, same page of the list, and NOT
+   * The `return_to` a drop still carries (the in-place write ignores it; kept on the FormData so
+   * the command shape matches the no-JS status form): THIS board, same scope, same page of the list, and NOT
    * selecting the dragged task — a drag is not a selection. `safeTaskReturnTo` in `actions.ts`
    * refuses anything that is not `/tasks` exactly, so the preview host round-trips to the real
    * desk rather than to its own fixture rows.
@@ -145,7 +145,6 @@ export function LeadershipTasksBoard({
         selectedTaskID={selectedTaskID}
         activeFilter={activeFilter}
         placeholder={placeholder}
-        action={changeLeadershipTaskStatusAction}
         returnTo={returnTo}
       />
 

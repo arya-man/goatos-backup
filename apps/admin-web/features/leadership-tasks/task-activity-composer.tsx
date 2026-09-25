@@ -2,7 +2,7 @@
 
 import { MessageSquareText } from "lucide-react";
 import { useOptimistic, useRef, useState, useTransition } from "react";
-import { publishTaskRow } from "./task-row-store";
+import { publishTaskRow, runTaskWrite } from "./task-row-store";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { LeadershipTaskActivity } from "@/lib/api/server";
@@ -200,7 +200,9 @@ export function TaskActivityComposer({
       // A request that never reaches the action (offline, the tab losing its network mid-send)
       // THROWS rather than returning; it is the same failure to the writer, so it lands on the
       // same path -- text back in the field, sentence under it -- instead of an error boundary.
-      const result: CommentPostResult = await action(formData).catch(() => ({
+      // Registered as a write to this task, so the status menu and the edit form hold until it
+      // lands and then send the version it published (see `runTaskWrite`).
+      const result: CommentPostResult = await runTaskWrite(task.id, () => action(formData)).catch(() => ({
         ok: false as const,
         code: "network",
       }));

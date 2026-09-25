@@ -7,8 +7,8 @@ import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { rfc3339ToFarmDeadlineLocal } from "./deadline";
 import { TaskDeadlineFields } from "./task-write-forms";
 import { useDialogShell } from "./use-dialog-shell";
-import type { TaskRow } from "./task-row";
-import { useTaskRowVersion } from "./task-row-store";
+import { attachmentKindLabel, type TaskRow } from "./task-row";
+import { useTaskRowVersion, useTaskWriteInFlight } from "./task-row-store";
 
 /**
  * The EDIT modal — the piece the web desk never had.
@@ -42,6 +42,9 @@ export function EditTaskModal({
   returnTo: string;
 }) {
   const rowVersion = useTaskRowVersion(task.id, task.rowVersion);
+  // Save waits for a comment or status change to this task still on the wire: the fence below is
+  // the version ON SCREEN, and the in-flight write is about to move it.
+  const writing = useTaskWriteInFlight(task.id);
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState(task.title);
   const [body, setBody] = useState(task.body);
@@ -193,7 +196,7 @@ export function EditTaskModal({
                           }
                         />
                         <Paperclip className="ic" aria-hidden="true" />
-                        <span>{attachment.file_name || attachment.kind}</span>
+                        <span>{attachment.file_name || attachmentKindLabel(attachment.kind)}</span>
                         {/* Re-posted as a ref only while it is ticked: the list the server receives
                             IS the new list, so an unticked file is removed by being absent. */}
                         {kept[attachment.proof_id] ? (
@@ -246,7 +249,8 @@ export function EditTaskModal({
               <button
                 type="submit"
                 className="btn p lt-send"
-                disabled={overLimit}
+                disabled={overLimit || writing}
+                aria-busy={writing || undefined}
                 // Re-minted on the submit gesture itself, so a modal left open across a
                 // back/forward navigation cannot post the key its opening minted.
                 onClick={mintKey}

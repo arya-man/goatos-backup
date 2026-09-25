@@ -17,6 +17,7 @@ import { fmtDateTime } from "@/lib/format";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import { APPROVALS_COPY as COPY } from "./copy";
 import { ApprovalsDrawer } from "./approvals-drawer";
+import { approvalParkId, approvalStatusLabel, approvalSubject, approvalSuccessSentence } from "./approval-display";
 
 const PATHNAME = "/approvals";
 const STATUS_TABS: AdminWebApprovalStatus[] = ["pending", "approved", "rejected"];
@@ -49,11 +50,14 @@ export async function ApprovalsPage({ searchParams }: { searchParams?: RouteSear
   const items = allItems.filter(
     (item) =>
       (typeFilter === "all" || item.request_type === typeFilter) &&
-      (farmFilter === "" || itemParkId(item) === farmFilter),
+      (farmFilter === "" || approvalParkId(item) === farmFilter),
   );
 
   const selectedId = one(sp, "ap_row");
   const feedback = { status: one(sp, "ap_status"), code: one(sp, "ap_code") };
+  // A decided row leaves the Pending list on the redirect, so the drawer (which renders only a row
+  // still in the list) can never carry the confirmation. It lives at page level instead.
+  const successSentence = approvalSuccessSentence(feedback.status, feedback.code);
 
   return (
     <div className="screen on">
@@ -68,14 +72,17 @@ export async function ApprovalsPage({ searchParams }: { searchParams?: RouteSear
         <div className="sp" style={{ flex: 1 }} />
       </div>
 
+      {successSentence ? (
+        <div className="alert ok" role="status" style={{ marginBottom: 14 }}>
+          <b>{successSentence}</b>
+        </div>
+      ) : null}
+
       {queue.ok ? null : (
         <div className="alert" style={{ marginBottom: 14 }}>
           <b>{COPY.error.queueUnavailable}</b>
           <div className="small" style={{ marginTop: 4 }}>
             {COPY.error.queueUnavailableBody}
-          </div>
-          <div className="small muted" style={{ marginTop: 4 }}>
-            {queue.error.code ?? queue.error.kind} · {queue.error.message}
           </div>
         </div>
       )}
@@ -190,7 +197,7 @@ function ApprovalRow({
   locationNames: Record<string, string>;
 }) {
   const href = hrefWith(searchParams, { ap_row: item.approval_request_id, ap_status: null, ap_code: null });
-  const subject = readableSubject(item, locationNames);
+  const subject = approvalSubject(item, locationNames);
   return (
     <tr>
       <td>
@@ -201,7 +208,7 @@ function ApprovalRow({
         {fmtDateTime(item.raised_at)}
       </td>
       <td>
-        <Tag tone={statusTone(item.status)}>{item.status}</Tag>
+        <Tag tone={statusTone(item.status)}>{approvalStatusLabel(item.status)}</Tag>
       </td>
       <td>
         <LocalOverlayLink href={href} className="btn sm" scroll={false}>
@@ -224,45 +231,6 @@ function KPI({ label, value, tone }: { label: string; value: string; tone: Tone 
 
 function titleCaseType(v: string): string {
   return v ? v.charAt(0).toUpperCase() + v.slice(1) : v;
-}
-
-function summaryObject(item: AdminWebApprovalItem): Record<string, unknown> {
-  return item.summary && typeof item.summary === "object" && !Array.isArray(item.summary)
-    ? (item.summary as Record<string, unknown>)
-    : {};
-}
-
-// The top-level park ("farm") an approval belongs to: shifting source park, else a birth placement
-// park, else the destination park. Empty when the request carries no park (e.g. some deaths).
-function itemParkId(item: AdminWebApprovalItem): string {
-  const s = summaryObject(item);
-  const str = (k: string): string => (typeof s[k] === "string" ? (s[k] as string) : "");
-  return str("source_park_id") || str("park_id") || str("destination_park_id");
-}
-
-// Readable list subject: "<Farm>: <srcShed> → <dstShed>" for a shed move (all names resolved from
-// backend location data), the animal's BACKEND-OWNED operational location for a death (this page
-// has no shed/park id to resolve locally for death — see subject_animal_location on
-// AdminWebApprovalItem), otherwise the title-cased request type prefixed with its farm when known.
-// Never a raw UUID.
-function readableSubject(item: AdminWebApprovalItem, locationNames: Record<string, string>): string {
-  const s = summaryObject(item);
-  const str = (k: string): string => (typeof s[k] === "string" ? (s[k] as string) : typeof s[k] === "number" ? String(s[k]) : "");
-  const nm = (id: string): string => (id && locationNames[id] ? locationNames[id] : "");
-  const farm = nm(itemParkId(item));
-  if (item.request_type === "death" && item.subject_animal_location) {
-    return item.subject_animal_location;
-  }
-  if (item.request_type === "shifting") {
-    const from = nm(str("source_shed_id"));
-    const to = nm(str("destination_shed_id"));
-    if (from || to) {
-      const move = `${from || "?"} → ${to || "?"}`;
-      return farm ? `${farm}: ${move}` : move;
-    }
-  }
-  const label = titleCaseType(item.request_type);
-  return farm ? `${farm}: ${label}` : label;
 }
 
 function statusTone(status: AdminWebApprovalStatus): Tone {

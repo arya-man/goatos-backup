@@ -6929,3 +6929,9 @@ aside.drawer.ltd-drawer{width:min(720px,94vw);overflow-y:auto;overscroll-behavio
 .sellable-product-row input,.sellable-product-row select{max-width:100%;min-width:0;box-sizing:border-box}
 /* The feeds a Feed item covers, listed under its row so the config-driven list is visible. */
 .sellable-product-row .sellable-product-covers{flex:1 1 100%;margin:0}
+/* Approvals drawer: the Reject action is the LAST control in the body, directly above the footer.
+   Keep a clear gap under it when the body is scrolled to the end, keep a focused/tabbed-to control
+   out from under the footer edge, and never let the footer shrink into the body. */
+aside.drawer.approvals-drawer .dc{padding-bottom:32px;scroll-padding-bottom:24px}
+aside.drawer.approvals-drawer .dh,aside.drawer.approvals-drawer .df{flex-shrink:0}
+aside.drawer.approvals-drawer .df{flex-wrap:wrap}

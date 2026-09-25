@@ -12,6 +12,8 @@ import { worklistFilterShownValue } from "@/lib/worklist-filter-value";
 import { TASK_PAGING_PARAMS, TASK_PARAM } from "./params";
 import type { TaskRow } from "./task-row";
 import { taskRowPatch, useTaskRowsVersion } from "./task-row-store";
+import { patchApplies } from "./task-detail-pick";
+import { dateSpanLabel, personFilterLabel } from "./filter-labels";
 import { TASK_SORTS, type TaskSort } from "./task-url";
 import { useDialogShell } from "./use-dialog-shell";
 
@@ -188,7 +190,8 @@ export function LeadershipTasksFilters({
     let delta = 0;
     for (const row of rows) {
       const patch = taskRowPatch(row.id);
-      const after = patch?.status ?? row.status;
+      // An older patch than the server row is stale and moved nothing (the board's fence).
+      const after = patchApplies(row.rowVersion, patch) ? (patch?.status ?? row.status) : row.status;
       if (after === row.status) continue;
       const late = row.daysLeft !== null && row.daysLeft < 0;
       const working = (status: string) => status === "open" || status === "in_progress";
@@ -326,19 +329,18 @@ export function LeadershipTasksFilters({
 
   /**
    * A span as the disclosure's own label: the reader should not have to open it to learn whether
-   * it is narrowing the list. An EN DASH is glue between two ISO dates, not copy.
+   * it is narrowing the list. Rendered DD/MM/YYYY (`dateSpanLabel`); the URL keeps ISO dates.
    */
-  const spanLabel = (from: string, to: string) => (from && to ? `${from} – ${to}` : from || to);
-  const deadlineSpan = spanLabel(deadlineFrom, deadlineTo);
-  const raisedSpan = spanLabel(raisedFrom, raisedTo);
+  const deadlineSpan = dateSpanLabel(deadlineFrom, deadlineTo);
+  const raisedSpan = dateSpanLabel(raisedFrom, raisedTo);
 
   const shownAssignee = fieldValue(TASK_PARAM.assignee, assignee);
   const shownRaiser = fieldValue(TASK_PARAM.raiser, raiser);
-  // One name, or "Dinakar, Manju" for a multi-tick; an unknown id falls back to the id itself.
+  // One name, or "Dinakar, Manju" for a multi-tick; an unknown id reads as a neutral label, never
+  // the raw id.
+  const unknownPerson = copy(pageContract, "filter.unknown_person", "Unknown person");
   const labelFor = (options: TaskPersonOption[], value: string) =>
-    splitIDs(value)
-      .map((id) => options.find((option) => option.value === id)?.label ?? id)
-      .join(", ");
+    personFilterLabel(options, splitIDs(value), unknownPerson);
   /**
    * WHAT IS NARROWING THE LIST, as chips that each remove exactly themselves. Status lives in the
    * segmented control and sort is not a narrowing, so neither is repeated here; everything that
