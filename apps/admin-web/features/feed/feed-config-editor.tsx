@@ -179,7 +179,17 @@ function FeedConfigFormShell({
         <button type="submit" className="btn sm p" disabled={pending}>
           {pending ? copy(pageContract, "state.loading") : copy(pageContract, "action.apply")}
         </button>
-        <button type="button" className="btn sm" onClick={() => setIdem(CLOSED_STATE)} disabled={pending}>
+        {/* Cancel drops a refusal with the form: the message was about values the operator just
+            abandoned, and left under the closed button it reads as if something still failed. */}
+        <button
+          type="button"
+          className="btn sm"
+          onClick={() => {
+            setIdem(CLOSED_STATE);
+            setResult(null);
+          }}
+          disabled={pending}
+        >
           {copy(pageContract, "action.cancel")}
         </button>
       </div>

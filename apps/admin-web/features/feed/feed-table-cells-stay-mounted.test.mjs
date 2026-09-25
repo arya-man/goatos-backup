@@ -35,4 +35,6 @@ test("feed-config-editor.tsx: the form's saving state ends when the action answe
   assert.match(source, /const \[pending, setPending\] = useState\(false\);/);
   assert.match(source, /\} finally \{\s*inFlight\.current = false;\s*setPending\(false\);/);
   assert.match(source, /outcome = \{ ok: false, messageKey: "action\.save_unreachable" \};/);
+  // Cancel clears a refusal too, or "Rate rejected" lingers under the closed button.
+  assert.match(source, /setIdem\(CLOSED_STATE\);\s*setResult\(null\);/);
 });
