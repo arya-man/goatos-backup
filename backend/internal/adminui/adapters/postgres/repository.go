@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/vgoats/goatos/backend/internal/adminui/app"
+	"github.com/vgoats/goatos/backend/internal/platform/animalvocab"
 )
 
 const defaultQueryTimeout = 3 * time.Second
@@ -75,6 +76,12 @@ func (r *Repository) LoadContractFamilies(ctx context.Context, tenantID string) 
 		return out, err
 	}
 	if out.AllBreeds, out.RevisionInputs["all-breeds"], err = r.listAllBreeds(ctx); err != nil {
+		return out, err
+	}
+	if out.Species, out.RevisionInputs["species"], err = r.listAnimalVocabulary(ctx, animalvocab.ListSpecies, tenantID); err != nil {
+		return out, err
+	}
+	if out.Sexes, out.RevisionInputs["sexes"], err = r.listAnimalVocabulary(ctx, animalvocab.ListSexes, tenantID); err != nil {
 		return out, err
 	}
 	if out.UIConfig, out.RevisionInputs["admin-ui-config-values"], err = r.listUIConfigEntries(ctx, tenantID); err != nil {
@@ -256,6 +263,27 @@ func (r *Repository) listAllBreeds(ctx context.Context) ([]app.ReferenceOption, 
 	}
 	if err := rows.Err(); err != nil {
 		return nil, "", err
+	}
+	return out, rev.String(), nil
+}
+
+// listAnimalVocabulary reads one of Configuration's animal lists (species or gender) through the
+// shared reader every write path validates against, so a picker never offers a code a write
+// refuses. Key = code, Label = the farm's name for it.
+func (r *Repository) listAnimalVocabulary(
+	ctx context.Context,
+	read func(context.Context, animalvocab.Querier, string) ([]animalvocab.Entry, error),
+	tenantID string,
+) ([]app.ReferenceOption, string, error) {
+	entries, err := read(ctx, r.pool, tenantID)
+	if err != nil {
+		return nil, "", fmt.Errorf("adminui: %w", err)
+	}
+	out := make([]app.ReferenceOption, 0, len(entries))
+	var rev strings.Builder
+	for _, e := range entries {
+		out = append(out, app.ReferenceOption{Key: e.Code, Label: e.Name})
+		rev.WriteString(e.Code + "|" + e.Name + "\n")
 	}
 	return out, rev.String(), nil
 }

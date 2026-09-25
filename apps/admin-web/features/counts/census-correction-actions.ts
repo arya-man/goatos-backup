@@ -21,6 +21,7 @@ import {
 
 const BREAKDOWN_PATH = "/counts/breakdown";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const GENDER_CODE_RE = /^[a-z][a-z0-9_]{0,39}$/;
 
 function trimmed(value: unknown, key: string, maxLength: number, required: boolean): string {
   if (value == null) {
@@ -47,11 +48,13 @@ function validate(body: unknown): CorrectCensusSliceRequest {
   const partitionLabel = trimmed(candidate.partition_label, "partition_label", 80, false);
   const field = trimmed(candidate.field, "field", 16, true).toLowerCase();
   if (field !== "breed" && field !== "sex") throw new Error("field must be breed or sex");
-  const sex = trimmed(candidate.sex, "sex", 16, true);
-  if (sex !== "female" && sex !== "male") throw new Error("sex must be female or male");
+  // Genders are the tenant's Configuration list (OPEN UP TO NEW SPECIES, 2026-09-25): only the code's
+  // SHAPE is checked here; which genders exist is the backend's answer.
+  const sex = trimmed(candidate.sex, "sex", 40, true);
+  if (!GENDER_CODE_RE.test(sex)) throw new Error("sex must be one of the farm's genders");
   const value = trimmed(candidate.value, "value", 120, true);
-  if (field === "sex" && value !== "female" && value !== "male") {
-    throw new Error("sex must be female or male");
+  if (field === "sex" && !GENDER_CODE_RE.test(value)) {
+    throw new Error("sex must be one of the farm's genders");
   }
   const reason = trimmed(candidate.reason, "reason", 500, false);
 

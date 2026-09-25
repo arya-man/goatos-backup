@@ -92,14 +92,16 @@ type ReferenceFamilies struct {
 	// AllBreeds is every species' breeds from the breed register (Breeds above is goat-only by
 	// design for the feed / vaccination rule pickers). The herd filter's breed choices are compiled
 	// from it, never a seven-breed literal.
-	//
-	// Species and sex pickers are deliberately NOT compiled from Configuration's species / sex
-	// lists yet: goats_species_check and goats_sex_check still admit only goat/sheep and
-	// female/male, so offering a species added there would let a person pick a value every animal
-	// write refuses. Opening the platform to another species is a product decision (vaccination
-	// and feed rules are per species), recorded as an open question, not a dropdown change.
 	AllBreeds []ReferenceOption
-	UIConfig  []ConfigEntry
+	// Species and Sexes are the tenant's ACTIVE rows of Configuration's species / gender lists
+	// (species_lookup / sex_lookup, migration 000346): Key = code, Label = name, in the lists' own
+	// order. OPEN UP TO NEW SPECIES (maintainer decision 2026-09-25): every species / sex picker on
+	// the web is compiled from them, and every write path checks a code against the same rows
+	// (platform/animalvocab), so a species added on Configuration is offered and accepted at once.
+	// A new species has no vaccination schedule or sale price until one is authored for it.
+	Species  []ReferenceOption
+	Sexes    []ReferenceOption
+	UIConfig []ConfigEntry
 	// WeighingWeightsPages is the tenant's weighing_calendar_config row, compiled
 	// into both page contracts. SQL edits bump the admin-ui family revision.
 	// Nil (new tenant without an authored row) uses the documented initial defaults.
@@ -2146,6 +2148,18 @@ var animalVocabularyGroups = []struct {
 	withAll bool
 }{
 	{"herd_filter_breeds", func(f ReferenceFamilies) []ReferenceOption { return f.AllBreeds }, false},
+	{"herd_species", func(f ReferenceFamilies) []ReferenceOption { return f.Species }, false},
+	{"herd_sex", func(f ReferenceFamilies) []ReferenceOption { return f.Sexes }, false},
+	{"herd_filter_sexes", func(f ReferenceFamilies) []ReferenceOption { return f.Sexes }, false},
+	{"proc_species", func(f ReferenceFamilies) []ReferenceOption { return f.Species }, false},
+	{"proc_sex", func(f ReferenceFamilies) []ReferenceOption { return f.Sexes }, false},
+	{"farm_born_species", func(f ReferenceFamilies) []ReferenceOption { return f.Species }, false},
+	{"farm_born_sexes", func(f ReferenceFamilies) []ReferenceOption { return f.Sexes }, false},
+	{"counts_gender", func(f ReferenceFamilies) []ReferenceOption { return f.Sexes }, false},
+	{"assumption_species", func(f ReferenceFamilies) []ReferenceOption { return f.Species }, false},
+	{"assumption_sexes", func(f ReferenceFamilies) []ReferenceOption { return f.Sexes }, false},
+	{"rule_species", func(f ReferenceFamilies) []ReferenceOption { return f.Species }, true},
+	{"rule_sexes", func(f ReferenceFamilies) []ReferenceOption { return f.Sexes }, true},
 }
 
 // compileAnimalVocabularyGroups replaces every declared animal-vocabulary picker with the live

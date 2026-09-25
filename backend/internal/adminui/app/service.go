@@ -9624,7 +9624,8 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 			},
 		})
 	case "sales-farm-born":
-		// Sex and species are fixed register vocabularies; the other filters' choices (parks,
+		// Sex and species are Configuration's lists, compiled over these fallback options by
+		// compileAnimalVocabularyGroups; the other filters' choices (parks,
 		// pens, breeds, stages) are LIVE herd facts and ride on the data read itself, never
 		// here. There is no origin group, and since 2026-09-22 there could not be one: origin IS the
 		// page's membership, so every animal on it carries the same value and a filter on it would
@@ -10057,7 +10058,10 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 		// capture-kind vocabularies -- one meaning of "photo / video / either" on every card.
 		return withGenericOptionGroups(append(sopOptionGroupsFor(id), weighingSOPOptionGroups()...))
 	case "weighing-sops":
-		return withGenericOptionGroups(append(sopOptionGroupsFor(id), weighingSOPOptionGroups()...))
+		// The Assumptions drawer's sale-price grid is one row per species and one column per
+		// gender: Configuration's lists, compiled over these fallback options
+		// (compileAnimalVocabularyGroups; OPEN UP TO NEW SPECIES, 2026-09-25).
+		return withGenericOptionGroups(append(append(sopOptionGroupsFor(id), weighingSOPOptionGroups()...), assumptionVocabularyOptionGroups()...))
 	case "pc-care-sops":
 		// PC CARE SOP (2026-09-22): the care cards editor reuses the weighing card's question and
 		// capture-kind vocabularies -- one meaning of "photo / video / either" on every card --
@@ -10831,8 +10835,9 @@ func liveTrackerOptionGroups() []domain.OptionGroup {
 	}
 }
 
-// countsBreakdownOptionGroups holds only the option group whose vocabulary is a fixed schema
-// constraint: sex is CHECK (female|male) on goats, so it can be declared here.
+// countsBreakdownOptionGroups declares the gender group. Its female/male options are only the
+// fallback: the compiler replaces them with Configuration's gender list (compileAnimalVocabularyGroups,
+// OPEN UP TO NEW SPECIES 2026-09-25), so a gender added there is a breakdown column at once.
 //
 // Farm, shed, breed and stage are deliberately NOT declared here. Their values are live tenant
 // data, so hardcoding them would be exactly the "CBE/CPT-style constants in backend contract
@@ -10997,6 +11002,28 @@ func feedOptionGroups() []domain.OptionGroup {
 				option("ready", "Ready", "The counts projection this day is built from carries no blockers", "ok"),
 				option("blocked", "Blocked", "Unresolved projection blockers — a partial feed sheet is not published", "dng"),
 				option("pending", "Pending", "The counts projection for this day is still being built", "warn"),
+			},
+		},
+	}
+}
+
+// assumptionVocabularyOptionGroups are the sale-price grid's species rows and gender columns. The
+// options here are only the fallback for a family that did not load; the compiler replaces them with
+// Configuration's species and gender lists.
+func assumptionVocabularyOptionGroups() []domain.OptionGroup {
+	return []domain.OptionGroup{
+		{
+			ID: "assumption_species",
+			Options: []domain.Option{
+				option("goat", "Goat", "", ""),
+				option("sheep", "Sheep", "", ""),
+			},
+		},
+		{
+			ID: "assumption_sexes",
+			Options: []domain.Option{
+				option("male", "Male", "", ""),
+				option("female", "Female", "", ""),
 			},
 		},
 	}
