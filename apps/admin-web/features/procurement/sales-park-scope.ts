@@ -105,3 +105,18 @@ export function resolveSalesParkScope(
 
   return { parkId: "", farm: SALES_ALL_FARMS, redirectTo: null };
 }
+
+/**
+ * A same-page href built from the URL AS IT IS NOW (the browser's `location.search`), with `patch`
+ * on top -- what the farm chips use so a parameter the page moved in place (Farm value's applied
+ * Over 35 kg margin, `sale_ready_tolerance_g`) is carried across a farm switch (defect 2026-09-25).
+ */
+export function liveQueryHref(pagePath: string, currentSearch: string, patch: Record<string, string | null>): string {
+  const query = new URLSearchParams(currentSearch);
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === null || value === "") query.delete(key);
+    else query.set(key, value);
+  }
+  const qs = query.toString();
+  return qs ? `${pagePath}?${qs}` : pagePath;
+}

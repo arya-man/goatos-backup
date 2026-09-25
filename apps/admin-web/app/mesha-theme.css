@@ -4549,8 +4549,10 @@ aside.drawer.wt-feedband-drawer{width:94vw;max-width:960px}
 /* Sold-like but not realised (tagged to an open sale, or stock at an assumed price): the sold green,
    striped, so it reads as a relative of Sold and never as a fifth solid colour. */
 .gcbar.ok-hatch{background:repeating-linear-gradient(135deg,var(--chart-2) 0 3px,transparent 3px 6px);box-shadow:inset 0 0 0 1px var(--chart-2)}
-/* A 10px swatch needs finer stripes or it reads as solid green. */
-.gleg .sw.ok-hatch,.gtip-r .sw.ok-hatch{background:repeating-linear-gradient(135deg,var(--chart-2) 0 1.5px,transparent 1.5px 3.5px);box-shadow:inset 0 0 0 1px var(--chart-2)}
+/* The legend / tooltip swatch is striped too, drawn larger and against the panel colour rather
+   than transparent: at 10px a fine green-on-transparent stripe read as solid green (2026-09-25),
+   so the key no longer told the striped series apart from Sold. */
+.gleg .sw.ok-hatch,.gtip-r .sw.ok-hatch{width:14px;height:12px;vertical-align:-2px;background:repeating-linear-gradient(135deg,var(--chart-2) 0 2px,var(--panel) 2px 4px);box-shadow:inset 0 0 0 1px var(--chart-2)}
 /* A stacked column: segments bottom-up, each sized by flex share of the column height. */
 .gcstack{display:flex;flex-direction:column;flex:0 0 auto;width:16px;border-radius:3px 3px 0 0;overflow:hidden}
 .gcstack .gcbar{width:100%;border-radius:0;min-height:2px}

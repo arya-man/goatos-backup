@@ -115,7 +115,7 @@ export function GroupedColumns({
       <div className="gleg" aria-hidden="true">
         {series.map((s) => (
           <span key={s.key}>
-            <span className={`sw ${s.tone}`} />
+            <span className={`sw ${toneClass(s.tone)}`} />
             {s.label}
           </span>
         ))}

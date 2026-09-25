@@ -1,5 +1,5 @@
-import Link from "@/components/no-prefetch-link";
 import { LinkPending } from "@/components/link-pending";
+import { LiveQueryLink } from "./live-query-link";
 import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { redirect } from "next/navigation";
 import { getAdminWebBootstrap } from "@/lib/api/server";
@@ -103,16 +103,19 @@ export function SalesFarmToggle({
         {copy(pageContract, "filter.farm")}
       </span>
       {choices.map(({ option, id }) => (
-        <Link
+        // The chip's query follows the LIVE URL, so a parameter the page moved in place (Farm
+        // value's applied Over 35 kg margin) survives a farm switch (defect 2026-09-25).
+        <LiveQueryLink
           key={option.key}
-          href={salesPageHref(pagePath, searchParams, { ...cleared, ...salesParkPatch(id) })}
-          scroll={false}
+          pagePath={pagePath}
+          patch={{ ...cleared, ...salesParkPatch(id) }}
+          fallbackHref={salesPageHref(pagePath, searchParams, { ...cleared, ...salesParkPatch(id) })}
           className={id === parkId ? "btn sm p" : "btn sm"}
-          aria-current={id === parkId ? "true" : undefined}
+          current={id === parkId}
         >
           {option.label}
           <LinkPending />
-        </Link>
+        </LiveQueryLink>
       ))}
     </div>
   );
