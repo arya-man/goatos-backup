@@ -164,3 +164,17 @@ Machine RAM snapshot that motivated steps 2-4: 32 GB total, 20.2 of 21.5 GB swap
 - The only conflict was `docs/runbooks/stg-deploy.md`. Both sections were kept (parallel build shape and Grafana out of deploy).
 - **Before the first deploy from this PR, rebuild the deploy runner image** with `tools/deploy/stg-clouddeploy-runner-build.sh`, then refresh `deploy/clouddeploy/stg/runner-receipt.json`. The runner Dockerfile changed, so the old image does not match.
 - Checks: `bash -n` on tools/deploy/*.sh, YAML parse, `node --test tools/deploy/*.test.mjs`, `make stg-deploy-scripts-test`, `make guardrail-registration-guard`. All green.
+
+### Step 2: Gradle always runs on JDK 21
+- **Root cause (measured).** The land-main that started a Java 17 daemon had no `JAVA_HOME` at all. The only JVM registered with macOS `/usr/libexec/java_home` is `~/Library/Java/JavaVirtualMachines/jbr-17.0.11` (an old IntelliJ download). Homebrew `openjdk@21` is not registered. So anything that finds Java through the system (the `/usr/bin/java` stub, `java_home`, Gradle's own detection) got 17. `run-local-ci.sh` used `${JAVA_HOME:-openjdk@21}` and never checked the version.
+- **Fix.** New shared resolver `tools/ci/java21.sh`:
+  - An inherited `JAVA_HOME` is kept only if it is major 21.
+  - Otherwise it tries Homebrew openjdk@21 first, then Linux JDK 21 paths, and `java_home` last. Every candidate is version-checked, so a registered jbr-17 is skipped.
+  - If no JDK 21 exists, it fails before Gradle starts.
+- **Where it is used:**
+  - `run-local-ci.sh` (android job, so land-main too).
+  - `tools/dev/android-env.sh`, which covers android-dev-run, android-e2e-run, android-doctor and emulator-ensure.
+  - `tools/deploy/stg-mobile-distribution.sh`.
+  - `tools/local/e2e-devices.sh` and `tools/local/multi-role-emulators.sh`.
+- **Daemon JVM pin.** `apps/goatos-android/gradle/gradle-daemon-jvm.properties` sets `toolchainVersion=21`. It lists no download URLs, so Gradle never downloads a JDK. It uses the detected JDK 21, or fails with a clear error instead of picking jbr-17. Not yet proven by a real Gradle run in this session (Gradle builds were out of scope). If Android Studio sync cannot find a JDK 21, register the Homebrew JDK with the system (`sudo ln -sfn /opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk /Library/Java/JavaVirtualMachines/openjdk-21.jdk`) or set Studio's Gradle JDK to it.
+- **Tests.** `tools/ci/java21.test.sh`, wired into run-local-ci's `tools/ci` self-tests and `make java21-self-test`. It uses fake JDKs and covers: `JAVA_HOME` unset, `JAVA_HOME` pointing at 17, a registered jbr-17 candidate, only 17 present (fails), and the enforcement at every entrypoint. `check-screenshot-remediation.test.sh` passes with its fake JDK now reporting 21.

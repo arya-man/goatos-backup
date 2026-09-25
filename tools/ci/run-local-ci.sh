@@ -291,6 +291,10 @@ changed_since_base() {
 # judged. See the contract at the top of that file.
 # shellcheck source=tools/ci/gradle-worktree-lock.sh
 . "$(dirname "${BASH_SOURCE[0]}")/gradle-worktree-lock.sh"
+# JDK 21 resolver: an inherited non-21 JAVA_HOME (Android Studio jbr-17) is not
+# trusted. See tools/ci/java21.sh.
+# shellcheck source=tools/ci/java21.sh
+. "$(dirname "${BASH_SOURCE[0]}")/java21.sh"
 
 # ci_tooling_changed: true when this run should pay for the tools/ci/** self-tests.
 # FAIL-OPEN BY DESIGN: if the diff cannot be determined (no base ref, git failure,
@@ -464,6 +468,7 @@ run_common() {
     step "ci base-provenance self-test" bash tools/ci/check-ci-base-provenance.test.sh
     step "large-file guard self-test" node tools/ci/check-large-files.mjs --self-test
     step "push-hook-freshness self-test" bash tools/ci/check-push-hook-freshness.test.sh
+    step "java 21 resolver self-test" bash tools/ci/java21.test.sh
     step "parallel-dispatch cleanup self-test" bash tools/ci/check-parallel-dispatch-cleanup.test.sh
   else
     RESULTS+=("SKIP  ci-tooling self-tests (no tools/ci/** diff)")
@@ -758,10 +763,18 @@ run_android() {
     RESULTS+=("SKIP  android Gradle checks (static guards failed)")
     return
   fi
-  local jdk="${JAVA_HOME:-/opt/homebrew/opt/openjdk@21}"
+  # Gradle must run on JDK 21. An inherited JAVA_HOME on another major is
+  # replaced by a JDK 21 if one exists; if none exists the job fails loudly.
+  local jdk
+  jdk="$(java21_resolve "${JAVA_HOME:-}")" || jdk=""
   local sdk="${ANDROID_HOME:-$HOME/Library/Android/sdk}"
   # A trace run must reach the screenshot branch even on a machine with no
   # Android toolchain — it executes nothing.
+  if ! ci_trace_only && [ -z "$jdk" ]; then
+    RESULTS+=("FAIL  android toolchain (no JDK 21; inherited JAVA_HOME=${JAVA_HOME:-unset})")
+    record_failure "android toolchain (no JDK 21; inherited JAVA_HOME=${JAVA_HOME:-unset})"
+    return
+  fi
   if ! ci_trace_only && { [ ! -x "$jdk/bin/java" ] || [ ! -d "$sdk" ]; }; then
     RESULTS+=("FAIL  android toolchain (no JDK/SDK: jdk=$jdk sdk=$sdk)")
     record_failure "android toolchain (no JDK/SDK: jdk=$jdk sdk=$sdk)"

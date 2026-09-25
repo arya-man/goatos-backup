@@ -3,6 +3,9 @@
 # It deliberately does not depend on a developer's shell rc files, so CI agents,
 # Codex, Claude, IDE terminals, and plain `bash` all resolve the same toolchain.
 
+# shellcheck source=tools/ci/java21.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../ci" && pwd)/java21.sh"
+
 android_env_die() {
   printf '[android-env] ERROR: %s\n' "$*" >&2
   return 1
@@ -12,24 +15,13 @@ android_resolve_env() {
   local candidate=""
   local java_major=""
 
-  if [ -n "${JAVA_HOME:-}" ] && [ -x "$JAVA_HOME/bin/java" ]; then
-    java_major="$("$JAVA_HOME/bin/java" -version 2>&1 | sed -n '1s/.*version "\([0-9][0-9]*\).*/\1/p')"
-  fi
-  if [ "$java_major" != "21" ]; then
-    for candidate in \
-      "$(/usr/libexec/java_home -v 21 2>/dev/null || true)" \
-      /opt/homebrew/opt/openjdk@21 \
-      /usr/local/opt/openjdk@21 \
-      /opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home; do
-      if [ -n "$candidate" ] && [ -x "$candidate/bin/java" ]; then
-        export JAVA_HOME="$candidate"
-        java_major="$("$JAVA_HOME/bin/java" -version 2>&1 | sed -n '1s/.*version "\([0-9][0-9]*\).*/\1/p')"
-        [ "$java_major" = "21" ] && break
-      fi
-    done
-  fi
-  [ -n "${JAVA_HOME:-}" ] && [ -x "$JAVA_HOME/bin/java" ] && [ "$java_major" = "21" ] || \
-    android_env_die "JDK 21 not found. macOS: brew install openjdk@21"
+  # JDK 21 via the shared resolver (tools/ci/java21.sh). Always exports an
+  # explicit, verified JDK 21, whatever JAVA_HOME was inherited: on Ravi's Mac
+  # the only JVM registered with /usr/libexec/java_home is an old jbr-17, so
+  # anything that falls back to the system Java gets 17.
+  local jdk21
+  jdk21="$(java21_resolve "${JAVA_HOME:-}")" || { android_env_die "JDK 21 not found. macOS: brew install openjdk@21"; return 1; }
+  export JAVA_HOME="$jdk21"
 
   if [ -z "${ANDROID_HOME:-}" ]; then
     for candidate in "$HOME/Library/Android/sdk" "$HOME/Android/Sdk"; do

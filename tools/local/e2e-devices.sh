@@ -27,6 +27,9 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# shellcheck source=tools/ci/java21.sh
+. "$REPO_ROOT/tools/ci/java21.sh"
+java21_export_or_die
 ANDROID_DIR="$REPO_ROOT/apps/goatos-android"
 API_PORT="${GOATOS_E2E_API_PORT:-8090}"
 DEVICE_PORT=8080

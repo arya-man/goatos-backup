@@ -58,7 +58,7 @@ build_sandbox() {
   SANDBOX="$(mktemp -d)"
   mkdir -p "$SANDBOX/tools" "$SANDBOX/fakejdk/bin" "$SANDBOX/fakesdk"
   cp -R tools/ci "$SANDBOX/tools/ci"
-  : >"$SANDBOX/fakejdk/bin/java"; chmod +x "$SANDBOX/fakejdk/bin/java"
+  printf '#!/bin/sh\necho "openjdk version \\"21.0.4\\"" >&2\n' >"$SANDBOX/fakejdk/bin/java"; chmod +x "$SANDBOX/fakejdk/bin/java"
 
   # Stub the two choke points every gate flows through. Inserted immediately
   # before the dispatch `case` so it overrides the real definitions without

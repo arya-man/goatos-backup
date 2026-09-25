@@ -24,6 +24,9 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# shellcheck source=tools/ci/java21.sh
+. "$REPO_ROOT/tools/ci/java21.sh"
+java21_export_or_die
 EMU="${ANDROID_EMULATOR:-$HOME/Library/Android/sdk/emulator/emulator}"
 AVD="${GOATOS_QA_AVD:-Medium_Phone_API_36.1}"
 SHOTS="${GOATOS_QA_SHOTS:-$REPO_ROOT/.codex-goatos-render/multi-role}"

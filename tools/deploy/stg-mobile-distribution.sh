@@ -43,6 +43,12 @@ force_update_push_sent=false
 #           Remote Config force-update floor exactly as before.
 MOBILE_PHASE="${GOATOS_MOBILE_PHASE:-all}"
 case "$MOBILE_PHASE" in all|build|publish) ;; *) echo "GOATOS_MOBILE_PHASE must be all|build|publish, got $MOBILE_PHASE" >&2; exit 1 ;; esac
+# Gradle runs on a verified JDK 21 (tools/ci/java21.sh), never a JDK found by
+# accident on PATH.
+# shellcheck source=tools/ci/java21.sh
+. "$repo_root/tools/ci/java21.sh"
+java21_export_or_die
+
 mobile_build_marker="$repo_root/.local/android-mobile-build/status"
 mobile_build_state="$repo_root/.local/android-mobile-build/state.env"
 # Deploy build only (never the local landing receipt path): 4 workers and a
