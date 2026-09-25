@@ -16,6 +16,12 @@ const (
 	EventProjectionExceptionClosed  = "counts.projection_exception.closed"
 	EventDeathReported              = "counts.death.reported"
 	EventDeathRejected              = "counts.death.rejected"
+	// EventBirthRejected is written in the SAME transaction that rejects a birth approval request
+	// (maintainer decision 2026-09-25): it carries the litter (approval request = birth_event_id),
+	// its child goat ids and the mother, so the tasks module cancels the birth follow-up workflows
+	// and each producer withdraws its still-pending verifier items. The kids themselves are retired
+	// in that same transaction through identity's terminal exit.
+	EventBirthRejected = "counts.birth.rejected"
 	// EventBirthReported is written in the SAME transaction as the birth approval request and
 	// its canonical children; it carries the Add birth form's capture snapshot so the report's
 	// own proof reaches the verifier (birth_evidence, ref_type birth_capture).

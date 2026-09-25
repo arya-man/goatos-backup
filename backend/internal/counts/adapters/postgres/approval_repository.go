@@ -42,6 +42,9 @@ type IdentityTxWriter interface {
 	// shed_partitions/shed_profiles itself; the adoption goes through this seam inside the same
 	// apply transaction as the relocation.
 	ConfigureAdoptedShedCohortInTx(ctx context.Context, tx pgx.Tx, cmd identityports.ConfigureAdoptedShedCohortCommand) error
+	// RetireGoatRecordedInErrorInTx retires a kid a REJECTED birth created, through identity's
+	// terminal exit (maintainer decision 2026-09-25). False with no write when it already left.
+	RetireGoatRecordedInErrorInTx(ctx context.Context, tx pgx.Tx, cmd identityports.RetireRecordedInErrorCommand) (bool, error)
 }
 
 // DeathEvidenceTxGate is implemented by the tasks Postgres repository. The consuming adapter owns
@@ -930,6 +933,9 @@ WHERE tenant_id = $1::uuid AND birth_event_id = $2::uuid AND count_status = 'pen
 			current.TenantID, current.ApprovalRequestID); err != nil {
 			return domain.ApprovalRequest{}, false, fmt.Errorf("counts: reject birth count eligibility: %w", err)
 		}
+		if err := r.retireRejectedBirthInTx(ctx, tx, current, in); err != nil {
+			return domain.ApprovalRequest{}, false, err
+		}
 	} else if current.RequestType == domain.ApprovalRequestTypeShifting {
 		if err := rejectShiftingEventInTx(ctx, tx, current); err != nil {
 			return domain.ApprovalRequest{}, false, err
@@ -1169,6 +1175,130 @@ WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid AND authorization_st
 	}
 	return nil
 }
+
+// sqlRejectedBirthLitter reads the litter a birth approval request created (goat_births is keyed
+// per child; birth_event_id = the approval request id, at most three rows).
+const sqlRejectedBirthLitter = `
+SELECT child_goat_id::text, mother_goat_id::text
+FROM goat_births
+WHERE tenant_id = $1::uuid AND birth_event_id = $2::uuid
+ORDER BY child_ordinal`
+
+// retireRejectedBirthInTx applies the 2026-09-25 maintainer decision (superseding "existing
+// children remain canonical but count-ineligible; work remains available"), inside the reject
+// transaction:
+//
+//   - each kid the report created leaves the live register through identity's canonical terminal
+//     exit (lifecycle 'inactive', exit reason 'recorded_in_error', identifiers retired; goat.exited
+//     emitted), so obligations, pen counts, the herd register, sale eligibility and search clean up
+//     exactly as for any exit -- counts never writes goats itself;
+//   - counts.birth.rejected is announced, so the tasks module cancels the birth follow-up
+//     workflows and every producer withdraws its still-pending verifier items (event spine, no
+//     cross-module write).
+//
+// Atomic with the status flip: any failure rolls the whole rejection back. The request row's
+// `status = 'pending'` fence makes the rejection itself run once; a replayed decision returns the
+// stored row before reaching here.
+func (r *Repository) retireRejectedBirthInTx(ctx context.Context, tx pgx.Tx, req domain.ApprovalRequest, in domain.ApprovalDecision) error {
+	if r.identityTx == nil {
+		return fmt.Errorf("counts: reject birth request %s: identity write seam is not wired", req.ApprovalRequestID)
+	}
+	rows, err := tx.Query(ctx, sqlRejectedBirthLitter, req.TenantID, req.ApprovalRequestID)
+	if err != nil {
+		return fmt.Errorf("counts: read rejected litter: %w", err)
+	}
+	var childIDs []string
+	motherID := ""
+	for rows.Next() {
+		var child, mother string
+		if err := rows.Scan(&child, &mother); err != nil {
+			rows.Close()
+			return fmt.Errorf("counts: scan rejected litter: %w", err)
+		}
+		childIDs = append(childIDs, child)
+		motherID = mother
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("counts: read rejected litter: %w", err)
+	}
+	actor := in.DecidedByUserID
+	for _, child := range childIDs { // scale-guard:ignore: a litter is at most three kids (goat_births_litter_size_check), each retired through identity's own guarded exit
+		if _, err := r.identityTx.RetireGoatRecordedInErrorInTx(ctx, tx, identityports.RetireRecordedInErrorCommand{
+			TenantID:   req.TenantID,
+			ActorID:    actor,
+			GoatID:     child,
+			SourceRef:  req.ApprovalRequestID,
+			Reason:     "Birth report rejected: " + strings.TrimSpace(in.Reason),
+			OccurredAt: in.DecidedAt.UTC(),
+			TraceID:    "counts.birth.rejected:" + req.ApprovalRequestID,
+		}); err != nil {
+			return fmt.Errorf("counts: retire kid %s of rejected birth: %w", child, err)
+		}
+	}
+	return insertBirthRejectedOutbox(ctx, tx, req, childIDs, motherID, actor, in.Reason)
+}
+
+// insertBirthRejectedOutbox writes counts.birth.rejected. Deterministic id + key per request.
+func insertBirthRejectedOutbox(ctx context.Context, tx pgx.Tx, req domain.ApprovalRequest, childIDs []string, motherID, actorID, reason string) error {
+	if childIDs == nil {
+		childIDs = []string{}
+	}
+	idempotencyKey := domain.EventBirthRejected + ":" + req.ApprovalRequestID
+	eventID := platformoutbox.DeterministicUUID(idempotencyKey)
+	now := time.Now().UTC()
+	payload, err := json.Marshal(map[string]any{
+		"event_id":         eventID,
+		"event_type":       domain.EventBirthRejected,
+		"schema_version":   countsEventSchemaVersion,
+		"schema_ref":       countsEventSchemaRef,
+		"aggregate_type":   "counts_approval_request",
+		"aggregate_id":     req.ApprovalRequestID,
+		"occurred_at":      now.Format(time.RFC3339Nano),
+		"recorded_at":      now.Format(time.RFC3339Nano),
+		"producer":         map[string]any{"service": "goatos-api", "module": "counts", "version": nil},
+		"idempotency_key":  idempotencyKey,
+		"actor":            map[string]any{"actor_type": "human", "actor_id": nilIfBlank(actorID), "actor_ref": nil},
+		"subject_type":     "counts_approval_request",
+		"subject_id":       req.ApprovalRequestID,
+		"visibility_scope": map[string]any{"tenant_id": req.TenantID},
+		"evidence_refs":    []map[string]string{{"evidence_type": "decision", "evidence_id": req.ApprovalRequestID}},
+		"payload": map[string]any{
+			"approval_request_id": req.ApprovalRequestID,
+			"birth_event_id":      req.ApprovalRequestID,
+			"child_goat_ids":      childIDs,
+			"mother_goat_id":      motherID,
+			"reason":              strings.TrimSpace(reason),
+		},
+		"trace_id": idempotencyKey,
+	})
+	if err != nil {
+		return fmt.Errorf("counts: marshal %s envelope: %w", domain.EventBirthRejected, err)
+	}
+	headers, err := json.Marshal(map[string]any{
+		"producer": "counts.ApprovalService", "schema_version": countsEventSchemaVersion,
+		"idempotency_key": idempotencyKey, "event_type": domain.EventBirthRejected,
+	})
+	if err != nil {
+		return fmt.Errorf("counts: marshal %s headers: %w", domain.EventBirthRejected, err)
+	}
+	if _, err := tx.Exec(ctx, sqlInsertCountsApprovalOutbox, req.TenantID, eventID, domain.EventBirthRejected,
+		countsEventSchemaVersion, req.ApprovalRequestID, countsEventTopic, payload, headers, idempotencyKey); err != nil {
+		return fmt.Errorf("counts: insert %s outbox: %w", domain.EventBirthRejected, err)
+	}
+	return nil
+}
+
+// sqlInsertCountsApprovalOutbox writes one counts approval-request event; a replay is a no-op.
+const sqlInsertCountsApprovalOutbox = `
+INSERT INTO outbox_messages (
+  tenant_id, event_id, event_type, schema_version, aggregate_type, aggregate_id,
+  topic, payload, headers, idempotency_key, trace_id, status, next_attempt_at
+) VALUES (
+  $1::uuid, $2::uuid, $3, $4, 'counts_approval_request', $5::uuid,
+  $6, $7::jsonb, $8::jsonb, $9, $9, 'pending', now()
+)
+ON CONFLICT DO NOTHING`
 
 // rejectShiftingEventInTx retires the movement a rejected pen-move request governs, inside the
 // decision transaction (2026-09-25 finding).

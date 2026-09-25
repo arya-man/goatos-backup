@@ -20,6 +20,7 @@ const (
 	EventGoatIdentifierAdded = "goat.identifier.added"
 	EventCountsDeathReported = "counts.death.reported"
 	EventCountsDeathRejected = "counts.death.rejected"
+	EventCountsBirthRejected = "counts.birth.rejected"
 
 	EventVerificationVerdictApproved = "verification.verdict.approved"
 	EventVerificationVerdictRework   = "verification.verdict.rework"
@@ -80,6 +81,42 @@ func (h *CountsDeathRejectedHandler) HandleEvent(ctx context.Context, e eventbus
 		return err
 	}
 	return h.svc.CancelRejectedDeathWorkflow(ctx, e.TenantID, goatID, e.OccurredAt)
+}
+
+// countsBirthRejectedPayload is the counts.birth.rejected payload the tasks consumer reads.
+type countsBirthRejectedPayload struct {
+	BirthEventID string   `json:"birth_event_id"`
+	ChildGoatIDs []string `json:"child_goat_ids"`
+	MotherGoatID string   `json:"mother_goat_id"`
+}
+
+// CountsBirthRejectedHandler cancels a rejected birth's follow-up workflows (kid tracks + the
+// shared mother track) and withdraws their pending verifier items (maintainer decision 2026-09-25).
+type CountsBirthRejectedHandler struct{ svc *Service }
+
+func NewCountsBirthRejectedHandler(svc *Service) *CountsBirthRejectedHandler {
+	return &CountsBirthRejectedHandler{svc: svc}
+}
+
+func (h *CountsBirthRejectedHandler) Register(bus eventbus.Bus) {
+	bus.Subscribe(EventCountsBirthRejected, h)
+}
+
+func (h *CountsBirthRejectedHandler) HandleEvent(ctx context.Context, e eventbus.Event) error {
+	var p countsBirthRejectedPayload
+	if len(e.Payload) > 0 {
+		if err := json.Unmarshal(e.Payload, &p); err != nil {
+			return eventbus.PermanentError(err)
+		}
+	}
+	birthEventID := strings.TrimSpace(p.BirthEventID)
+	if birthEventID == "" {
+		birthEventID = strings.TrimSpace(e.Key)
+	}
+	if birthEventID == "" || strings.TrimSpace(e.TenantID) == "" {
+		return nil
+	}
+	return h.svc.CancelRejectedBirthWorkflows(ctx, e.TenantID, birthEventID, strings.TrimSpace(p.MotherGoatID), p.ChildGoatIDs)
 }
 
 // goatCreatedPayload is the subset of the identity goat.created payload the workflow opener reads.

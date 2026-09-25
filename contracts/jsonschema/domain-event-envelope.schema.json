@@ -87,6 +87,7 @@
         "counts.projection_exception.opened",
         "counts.death.reported",
         "counts.death.rejected",
+        "counts.birth.rejected",
         "counts.birth.reported",
         "verification.item.pending",
         "verification.verdict.rework",

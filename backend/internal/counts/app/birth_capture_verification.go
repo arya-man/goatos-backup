@@ -334,3 +334,62 @@ func (s *BirthCaptureReshootService) OnBirthCaptureReshot(ctx context.Context, t
 	}
 	return s.enqueuer.EnqueueBirthCaptureVerification(ctx, reqs[0])
 }
+
+// BirthCaptureVerificationWithdrawer retires the still-PENDING birth_capture items of one litter
+// (ref_type birth_capture, ref_id birth_event_id). countsbridge implements it over verification's
+// own WithdrawItemsBySource seam; counts never writes verification's tables.
+type BirthCaptureVerificationWithdrawer interface {
+	WithdrawBirthCaptureVerification(ctx context.Context, tenantID, birthEventID string) error
+}
+
+// BirthRejectedCaptureWithdrawHandler is counts' own consumer of counts.birth.rejected (maintainer
+// decision 2026-09-25): the report's form proofs still waiting for the verifier are withdrawn, a
+// verdict already cast stays history. The producer of those items withdraws them, exactly as
+// weighing withdraws its own. A redelivery withdraws nothing more.
+type BirthRejectedCaptureWithdrawHandler struct {
+	withdrawer BirthCaptureVerificationWithdrawer
+}
+
+// NewBirthRejectedCaptureWithdrawHandler constructs the consumer.
+func NewBirthRejectedCaptureWithdrawHandler(withdrawer BirthCaptureVerificationWithdrawer) *BirthRejectedCaptureWithdrawHandler {
+	return &BirthRejectedCaptureWithdrawHandler{withdrawer: withdrawer}
+}
+
+var _ eventbus.Handler = (*BirthRejectedCaptureWithdrawHandler)(nil)
+
+// Register subscribes the consumer.
+func (h *BirthRejectedCaptureWithdrawHandler) Register(bus eventbus.Bus) {
+	bus.Subscribe(domain.EventBirthRejected, h)
+}
+
+// HandleEvent withdraws the rejected litter's pending capture items.
+func (h *BirthRejectedCaptureWithdrawHandler) HandleEvent(ctx context.Context, e eventbus.Event) error {
+	if e.Type != domain.EventBirthRejected {
+		return nil
+	}
+	var p struct {
+		ApprovalRequestID string `json:"approval_request_id"`
+		BirthEventID      string `json:"birth_event_id"`
+	}
+	if len(e.Payload) > 0 {
+		if err := json.Unmarshal(e.Payload, &p); err != nil {
+			return eventbus.PermanentError(err)
+		}
+	}
+	birthEventID := strings.TrimSpace(p.BirthEventID)
+	if birthEventID == "" {
+		birthEventID = strings.TrimSpace(p.ApprovalRequestID)
+	}
+	if birthEventID == "" {
+		birthEventID = strings.TrimSpace(e.Key)
+	}
+	if birthEventID == "" || strings.TrimSpace(e.TenantID) == "" {
+		return nil
+	}
+	if h.withdrawer == nil {
+		// Loud, retried and dead-lettered rather than a silent drop: a pending item for a rejected
+		// birth would otherwise sit in the verifier's queue for ever.
+		return errors.New("counts: birth capture withdraw seam is not wired")
+	}
+	return h.withdrawer.WithdrawBirthCaptureVerification(ctx, e.TenantID, birthEventID)
+}

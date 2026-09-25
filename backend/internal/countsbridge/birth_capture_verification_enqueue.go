@@ -2,6 +2,7 @@ package countsbridge
 
 import (
 	"context"
+	"errors"
 
 	countsapp "github.com/vgoats/goatos/backend/internal/counts/app"
 	countsdomain "github.com/vgoats/goatos/backend/internal/counts/domain"
@@ -23,6 +24,24 @@ func NewBirthCaptureVerificationEnqueuer(v verificationCreator) *BirthCaptureVer
 }
 
 var _ countsapp.BirthCaptureVerificationEnqueuer = (*BirthCaptureVerificationEnqueuer)(nil)
+var _ countsapp.BirthCaptureVerificationWithdrawer = (*BirthCaptureVerificationEnqueuer)(nil)
+
+// sourceWithdrawer is verification's producer retire seam (pending items only). Both the
+// verification app service and its Postgres repository implement it.
+type sourceWithdrawer interface {
+	WithdrawItemsBySource(ctx context.Context, tenantID, sourceModule, sourceRefType string, sourceRefIDs []string) (int, error)
+}
+
+// WithdrawBirthCaptureVerification withdraws the still-pending birth_capture items of one litter
+// when its birth is rejected (maintainer decision 2026-09-25). A verdict already cast is untouched.
+func (e *BirthCaptureVerificationEnqueuer) WithdrawBirthCaptureVerification(ctx context.Context, tenantID, birthEventID string) error {
+	w, ok := e.verification.(sourceWithdrawer)
+	if !ok {
+		return errors.New("countsbridge: verification withdraw seam is not wired")
+	}
+	_, err := w.WithdrawItemsBySource(ctx, tenantID, tasksdomain.VerificationModuleCounts, countsdomain.VerificationRefTypeBirthCapture, []string{birthEventID})
+	return err
+}
 
 // EnqueueBirthCaptureVerification is idempotent on the refs-keyed idempotency key.
 func (e *BirthCaptureVerificationEnqueuer) EnqueueBirthCaptureVerification(ctx context.Context, in countsapp.BirthCaptureVerificationEnqueueRequest) error {

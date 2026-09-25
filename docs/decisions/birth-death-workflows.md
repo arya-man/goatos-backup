@@ -79,7 +79,7 @@ Maintainer decisions captured 2026-07-27 (Q&A):
 | --- | --- | --- | --- |
 | Birth submitted | 1–3 canonical goats are created immediately with distinct `CBE-#####`/`CPT-#####` provisional IDs; all are excluded from herd counts | One kid workflow per child plus the shared mother track opens from `goat.created` | Nothing enqueued |
 | Web approval accepts | Existing children become herd-count eligible atomically at the litter grain; no goat is created here | Work continues unchanged | Nothing enqueued |
-| Web approval rejects | Existing children remain canonical but count-ineligible for audit/reconciliation | Work remains available; rejection is not media review | Nothing enqueued |
+| Web approval rejects (maintainer decision 2026-09-25, superseding "children remain canonical but count-ineligible; work remains available") | Litter becomes `count_status=rejected`, and IN THE SAME TRANSACTION every child leaves the live register through identity's canonical terminal exit: `lifecycle_status=inactive`, `exit_reason=recorded_in_error` (migration `000429`), `goat.exited` emitted so obligations, pen counts, the herd register, sale eligibility and search clean up as for any exit; every identifier the kid holds (the provisional tag and any permanent RFID already assigned) is `retired`. The goat row is KEPT for audit; the mother is untouched | `counts.birth.rejected` (same transaction) → every kid workflow and the shared mother track become `canceled`; every open step (`pending`/`in_review`/`rework`) is canceled with its staged proof cleared; completed steps stay as history | Every still-PENDING item for those steps (`workflow_birth_action`) and for the report's own form proofs (`birth_capture`) is `withdrawn` by the module that raised it; a verdict already cast stays history |
 | Operator records ONE step with proof (any kid step, any colostrum feed, Tag the kid, any mother step) | Tag the kid: the child keeps the same goat UUID; its permanent RFID becomes active and the provisional identifier is retired. Every other step: nothing | That step moves to `in_review` (locked until its verdict) and counts as the operator's work done; the NEXT step opens at once — a clip under review never holds the one after it | ONE `birth_evidence` item for exactly that recording (`ref_type=workflow_birth_action`, `ref_id=action_id`, that step's proofs only), enqueued the moment the step is written |
 | Operator records the last step of a track | as above | Nothing left to record: the card reads `awaiting_verification` while verdicts are outstanding; state stays `open` | Its own item, as above |
 | Verifier accepts one item | No count or identity change | Only that step becomes `completed`; the track completes when its LAST clip is approved | That item is accepted; every other clip is unchanged |
@@ -87,6 +87,19 @@ Maintainer decisions captured 2026-07-27 (Q&A):
 
 Count approval and birth evidence verification are independent. Approval never
 creates a child, and verifier verdicts never add or remove a child from counts.
+
+**A rejected birth report owes no work and leaves no animal behind (maintainer decision
+2026-09-25).** Before this, rejecting a birth only flipped `goat_births.count_status`: both
+workflows stayed open with pending steps on the operator's phone, the verifier queue kept the
+report's clips, and the kid stayed `alive` in the herd (live repro on the throwaway clone,
+temp tag `CBE-42777`). Now the reject transaction retires each kid through identity
+(`RetireGoatRecordedInErrorInTx` → the same `exitGoatInTx` every death and sale uses) and writes
+`counts.birth.rejected`; the tasks consumer cancels the litter's workflows and withdraws their
+pending step items, and counts withdraws its own pending capture items. A redelivery changes
+nothing. Re-raising the birth creates FRESH kids (a new approval request and new provisional
+tags); a retired identifier value stays reserved by `goat_identifiers_lifetime_value_unique`, so a
+permanent RFID already assigned to a rejected kid is retired with it and cannot be re-used on
+another animal. Approval is unchanged. Proof: `backend/tests/e2e/story_birth_rejected_retires_kid_test.go`.
 
 ## Locked death state machine
 
@@ -242,6 +255,12 @@ sites alongside the existing appliers):
 - `counts.death.rejected` (topic `counts.events`) → cancel the staged death
   workflow; it is written atomically with the rejection, whose transaction
   applies no identity/count effect.
+- `counts.birth.rejected` (topic `counts.events`, maintainer decision 2026-09-25)
+  → the tasks consumer cancels the litter's `birth_kid` workflows and its
+  `birth_mother` track and withdraws their pending `workflow_birth_action` items;
+  counts' own consumer withdraws the report's pending `birth_capture` items. It is
+  written atomically with the rejection, whose transaction also retires each kid
+  through identity's terminal exit (`goat.exited`, `exit_reason=recorded_in_error`).
 - `goat.exited` (topic `identity.events`), filtered `exit_reason == "died"` →
   load the approval-released proof pair and idempotently enqueue Verify.
 - `goat.identifier.added` (topic `identity.events`) → if the goat has an open
@@ -361,7 +380,8 @@ atomically restores the workflow card counters for those reopened rows.
 - `POST /admin-web/counts/approvals/{request_id}/reject` keeps the existing
   admin-web contract and requires its existing rejection reason. For death it
   leaves canonical lifecycle/count truth unchanged and durably cancels the
-  staged workflow.
+  staged workflow. For a birth (2026-09-25) it retires the litter's kids and
+  cancels the birth workflows as described in the birth state machine above.
 
 ## Birth submit deltas
 

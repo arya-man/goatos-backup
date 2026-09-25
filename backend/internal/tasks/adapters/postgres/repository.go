@@ -1633,6 +1633,106 @@ WHERE tenant_id = $1::uuid AND workflow_id = $2::uuid AND state <> 'canceled'`, 
 	return tx.Commit(ctx)
 }
 
+// Rejected-birth cancellation statements (CancelBirthWorkflowsForRejectedBirth). Every read and
+// write is bounded by one litter: its kid workflows (<= 3, on (tenant, template_key,
+// subject_goat_id)) and its one mother track, the prefix of workflow_instances_birth_event_uq.
+const (
+	sqlLockRejectedBirthWorkflows = `
+SELECT workflow_id::text
+FROM workflow_instances
+WHERE tenant_id = $1::uuid
+  AND ((template_key = 'birth_kid' AND subject_goat_id = ANY($3::uuid[])
+        AND (birth_event_id = $2::uuid OR birth_event_id IS NULL))
+    OR (template_key = 'birth_mother' AND subject_goat_id = nullif($4::text, '')::uuid AND birth_event_id = $2::uuid))
+ORDER BY workflow_id
+FOR UPDATE`
+	sqlRejectedBirthActionIDs = `
+SELECT action_id::text FROM workflow_actions
+WHERE tenant_id = $1::uuid AND workflow_id = ANY($2::uuid[])
+ORDER BY action_id`
+	sqlCancelRejectedBirthActions = `
+UPDATE workflow_actions
+SET status = 'canceled', proof_ref = NULL, proof_refs = '[]'::jsonb,
+    row_version = row_version + 1, updated_at = now()
+WHERE tenant_id = $1::uuid AND workflow_id = ANY($2::uuid[])
+  AND status IN ('pending', 'in_review', 'rework')`
+	sqlCancelRejectedBirthWorkflows = `
+UPDATE workflow_instances
+SET state = 'canceled', next_action_key = NULL, next_action_title = NULL, next_due_at = NULL,
+    awaiting_verification = false, row_version = row_version + 1, updated_at = now()
+WHERE tenant_id = $1::uuid AND workflow_id = ANY($2::uuid[]) AND state <> 'canceled'`
+)
+
+// CancelBirthWorkflowsForRejectedBirth closes the operator work of a REJECTED birth (maintainer
+// decision 2026-09-25, superseding "work remains available" in birth-death-workflows.md): the
+// litter's kid workflows and its shared mother track become 'canceled', every step still open
+// (pending / in_review / rework) is canceled with its staged proof cleared, and steps already
+// completed are kept as history. It mirrors CancelDeathWorkflowForGoat.
+//
+// It returns EVERY action id of those workflows -- on a redelivery too -- so the caller can
+// (re)try withdrawing their pending verifier items; the withdraw seam itself touches only items
+// still pending, so a verdict already cast stays history.
+func (r *Repository) CancelBirthWorkflowsForRejectedBirth(ctx context.Context, tenantID, birthEventID, motherGoatID string, childGoatIDs []string) ([]string, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	if childGoatIDs == nil {
+		childGoatIDs = []string{}
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	rows, err := tx.Query(ctx, sqlLockRejectedBirthWorkflows, tenantID, birthEventID, childGoatIDs, motherGoatID)
+	if err != nil {
+		return nil, fmt.Errorf("tasks: lock rejected birth workflows: %w", err)
+	}
+	var workflowIDs []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		workflowIDs = append(workflowIDs, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(workflowIDs) == 0 {
+		return nil, tx.Commit(ctx)
+	}
+	actionRows, err := tx.Query(ctx, sqlRejectedBirthActionIDs, tenantID, workflowIDs)
+	if err != nil {
+		return nil, fmt.Errorf("tasks: read rejected birth steps: %w", err)
+	}
+	var actionIDs []string
+	for actionRows.Next() {
+		var id string
+		if err := actionRows.Scan(&id); err != nil {
+			actionRows.Close()
+			return nil, err
+		}
+		actionIDs = append(actionIDs, id)
+	}
+	actionRows.Close()
+	if err := actionRows.Err(); err != nil {
+		return nil, err
+	}
+	if _, err := tx.Exec(ctx, sqlCancelRejectedBirthActions, tenantID, workflowIDs); err != nil {
+		return nil, fmt.Errorf("tasks: cancel rejected birth steps: %w", err)
+	}
+	if _, err := tx.Exec(ctx, sqlCancelRejectedBirthWorkflows, tenantID, workflowIDs); err != nil {
+		return nil, fmt.Errorf("tasks: cancel rejected birth workflows: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return actionIDs, nil
+}
+
 // ApplyDeathSignoffApproved closes the workflow verification gate after approval. Idempotent under
 // redelivery.
 func (r *Repository) ApplyDeathSignoffApproved(ctx context.Context, cmd ports.DeathVerdictCommand) error {

@@ -231,6 +231,27 @@ type ExitGoatCommand struct {
 	GuardrailApproved bool
 }
 
+// Recorded-in-error retirement (maintainer decision 2026-09-25): a birth the approver REJECTED
+// created kids that never existed as the report claimed. Each leaves the live register through the
+// canonical terminal exit (goat.exited), with this lifecycle status and exit reason, and its
+// identifiers are retired so the tag can never be scanned again. The row is kept for audit.
+const (
+	LifecycleStatusInactive   = "inactive"
+	ExitReasonRecordedInError = "recorded_in_error"
+)
+
+// RetireRecordedInErrorCommand retires one animal whose creating record was rejected.
+// SourceRef names that record (the rejected birth's approval request) and keys the idempotency.
+type RetireRecordedInErrorCommand struct {
+	TenantID   string
+	ActorID    string
+	GoatID     string
+	SourceRef  string
+	Reason     string
+	OccurredAt time.Time
+	TraceID    string
+}
+
 type StageGoatCommand struct {
 	TenantID             string
 	ActorID              string

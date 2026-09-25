@@ -627,6 +627,33 @@ func (s *Service) CancelRejectedDeathWorkflow(ctx context.Context, tenantID, goa
 	return s.repo.CancelDeathWorkflowForGoat(ctx, tenantID, goatID, at)
 }
 
+// BirthStepVerificationWithdrawer is the optional withdraw half of the verification bridge: it
+// retires the still-PENDING workflow_birth_action items raised for the given steps (a verdict
+// already cast stays history). tasks/adapters/verificationbridge implements it over
+// verification's own WithdrawItemsBySource seam; tasks never writes verification's tables.
+type BirthStepVerificationWithdrawer interface {
+	WithdrawBirthStepVerification(ctx context.Context, tenantID string, actionIDs []string) error
+}
+
+// CancelRejectedBirthWorkflows is the counts.birth.rejected consumer's work (maintainer decision
+// 2026-09-25): the litter's kid workflows and its mother track are canceled, then the verifier
+// items still pending for their steps are withdrawn. A redelivery re-runs both halves and changes
+// nothing; a withdraw that failed is retried by the redelivery (the cancel returns the same ids).
+func (s *Service) CancelRejectedBirthWorkflows(ctx context.Context, tenantID, birthEventID, motherGoatID string, childGoatIDs []string) error {
+	actionIDs, err := s.repo.CancelBirthWorkflowsForRejectedBirth(ctx, tenantID, birthEventID, motherGoatID, childGoatIDs)
+	if err != nil {
+		return err
+	}
+	if len(actionIDs) == 0 {
+		return nil
+	}
+	withdrawer, ok := s.enqueuer.(BirthStepVerificationWithdrawer)
+	if !ok || withdrawer == nil {
+		return domain.ErrVerificationEnqueuerNotWired
+	}
+	return withdrawer.WithdrawBirthStepVerification(ctx, tenantID, actionIDs)
+}
+
 // CompleteTagAction records the permanent-RFID prerequisite when the identifier event lands.
 // It never completes or enqueues the task; the mandatory tagging-video command does that.
 func (s *Service) CompleteTagAction(ctx context.Context, tenantID, goatID string, at time.Time) error {

@@ -61,6 +61,10 @@ type fakeIdentityTx struct {
 	failAdopt  error
 	lastAdopt  identityports.ConfigureAdoptedShedCohortCommand
 
+	// Recorded-in-error retirement seam (a rejected birth's kids, 2026-09-25).
+	retireCalls int
+	lastRetire  identityports.RetireRecordedInErrorCommand
+
 	newGoatID string
 }
 
@@ -138,6 +142,14 @@ WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`, cmd.TenantID, goatID, cmd.To
 		}
 	}
 	return identityports.RelocateGoatsResult{MovedGoatIDs: moved}, nil
+}
+
+// RetireGoatRecordedInErrorInTx records the retirement a rejected birth asks for (the real one
+// runs identity's terminal exit; see identity's own integration test and the kernel E2E story).
+func (f *fakeIdentityTx) RetireGoatRecordedInErrorInTx(_ context.Context, _ pgx.Tx, cmd identityports.RetireRecordedInErrorCommand) (bool, error) {
+	f.retireCalls++
+	f.lastRetire = cmd
+	return true, nil
 }
 
 func (f *fakeIdentityTx) ConfigureAdoptedShedCohortInTx(_ context.Context, _ pgx.Tx, cmd identityports.ConfigureAdoptedShedCohortCommand) error {
