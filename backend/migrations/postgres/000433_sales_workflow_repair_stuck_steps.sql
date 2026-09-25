@@ -3,7 +3,7 @@
 -- seed contract, source fixture or read-model shape change.
 --
 -- REPAIR THE SALE WORKFLOWS ALREADY STUCK (maintainer decision 2026-09-25, docs/decisions/
--- sales-sop.md -> "A sale without animals" / "A failed sale"). 000428 and the code stop NEW sales
+-- sales-sop.md -> "A sale without animals" / "A failed sale"). 000432 and the code stop NEW sales
 -- from opening an unfinishable tag step, but every sale recorded since 000369 already carries one.
 -- Two repairs, each idempotent (a second run finds nothing to change) and each confined to OPEN
 -- sales_deal workflows:

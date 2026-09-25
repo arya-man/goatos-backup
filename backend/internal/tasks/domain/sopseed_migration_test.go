@@ -122,7 +122,7 @@ func TestMigrationEmbedsTheSalesSeed(t *testing.T) {
 	}
 	// 000369 is applied on STG and checksummed, so it keeps the v1 document byte for byte: pinned
 	// to the frozen copy in testdata. The LIVE seed (sales_deal.json) is v1 plus the
-	// `sale_has_animals` condition 000428 adds in place (maintainer decision 2026-09-25).
+	// `sale_has_animals` condition 000432 adds in place (maintainer decision 2026-09-25).
 	v1, err := os.ReadFile(filepath.Join("testdata", "sales_deal_000369.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -145,20 +145,20 @@ func TestMigrationEmbedsTheSalesSeed(t *testing.T) {
 	if conditioned != string(v1) {
 		t.Fatal("sales_deal.json must be exactly the 000369 document plus the sale_has_animals condition")
 	}
-	patch, err := os.ReadFile(filepath.Join("..", "..", "..", "migrations", "postgres", "000428_sales_sop_sale_has_animals.sql"))
+	patch, err := os.ReadFile(filepath.Join("..", "..", "..", "migrations", "postgres", "000432_sales_sop_sale_has_animals.sql"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(patch), "$seed$"+strings.TrimSpace(string(live))+"$seed$") {
-		t.Fatal("migration 000428 does not embed the live sales_deal.json verbatim")
+		t.Fatal("migration 000432 does not embed the live sales_deal.json verbatim")
 	}
 	if !strings.Contains(string(patch), `'tag_animals', 'loading_video', 'dispatch_note'`) ||
 		!strings.Contains(string(patch), `{"when": "sale_has_animals"}`) {
-		t.Fatal("migration 000428 must condition exactly tag_animals, loading_video and dispatch_note on sale_has_animals")
+		t.Fatal("migration 000432 must condition exactly tag_animals, loading_video and dispatch_note on sale_has_animals")
 	}
 	for _, s := range loadSeeded(t, sopseed.SOPCodeSalesDeal).Tracks[0].Steps {
 		if s.When == StepWhenSaleHasAnimals && !strings.Contains(string(patch), "'"+s.Key+"'") {
-			t.Fatalf("seeded step %q is conditioned but 000428 does not patch it on live tenants", s.Key)
+			t.Fatalf("seeded step %q is conditioned but 000432 does not patch it on live tenants", s.Key)
 		}
 	}
 	dsl := loadSeeded(t, sopseed.SOPCodeSalesDeal)
