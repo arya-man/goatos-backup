@@ -1,6 +1,8 @@
 package sg.mesha.goatos.viewmodel
 
 import androidx.lifecycle.SavedStateHandle
+import sg.mesha.goatos.BuildConfig
+import sg.mesha.goatos.core.analytics.ProofPreviewActionTrace
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.paging.PagingData
@@ -369,12 +371,29 @@ class HealthDetailViewModel @Inject constructor(
             if (known.state != StepProofState.SENDING && !known.recorded) {
                 stepProofs.update {
                     it.with(
-                        TreatmentStepProof(
+                        known.copy(
                             stepId = serverProof.stepId,
                             state = StepProofState.RECORDED,
+                            // A clip the server holds is playable from the server. This is the
+                            // ONLY path for a step a COLLEAGUE filmed -- their bytes never
+                            // touched this phone -- and it is what lets the operator see the
+                            // work already covered instead of a bare "Video recorded" line.
+                            previewPath = known.previewPath.ifBlank {
+                                healthProofDownloadUrl(serverProof.proofRef)
+                            },
+                            previewIdentity = serverProof.proofRef,
+                            // Only a clip this phone cannot play locally is someone else's. The
+                            // local file arriving later corrects this; claiming a teammate over
+                            // the operator's own capture would misattribute their work.
+                            capturedByTeammate = known.previewPath.isBlank(),
                         ),
                     )
                 }
+            } else if (known.recorded && known.previewIdentity.isBlank()) {
+                // Recorded on THIS phone: keep the local file (already set below) and only fill
+                // the identity the shared preview caches on, so the player is keyed on the proof
+                // rather than on a rotating signed URL.
+                stepProofs.update { it.with(known.copy(previewIdentity = serverProof.proofRef)) }
             }
         }
         if (detail == null) HealthDetailUiState(
@@ -546,9 +565,12 @@ class HealthDetailViewModel @Inject constructor(
      * re-uploaded to repair the link.
      */
     private fun registerStepProof(stepId: String, proofOutboxItemId: String) {
+        // COPY, never rebuild: the preview fields are set by whoever saw the capture row and must
+        // survive every later state change, or the clip stops being playable the moment its
+        // upload is queued.
         stepProofs.update {
             it.with(
-                TreatmentStepProof(
+                it.of(stepId).copy(
                     stepId = stepId,
                     state = StepProofState.SENDING,
                     uploadOutboxItemId = proofOutboxItemId,
@@ -570,7 +592,7 @@ class HealthDetailViewModel @Inject constructor(
                 is AppResult.Ok -> observeStepRegister(stepId, proofOutboxItemId, queued.value)
                 is AppResult.Err -> stepProofs.update {
                     it.with(
-                        TreatmentStepProof(
+                        it.of(stepId).copy(
                             stepId = stepId,
                             state = StepProofState.FAILED,
                             uploadOutboxItemId = proofOutboxItemId,
@@ -603,8 +625,13 @@ class HealthDetailViewModel @Inject constructor(
                     if (known.uploadOutboxItemId.isNotBlank() && known.uploadOutboxItemId != uploadItemId) {
                         current
                     } else {
+                        // COPY, never rebuild. This observer fires on every outbox emission for
+                        // the row, so constructing a fresh proof here dropped the fields it does
+                        // not own -- the local file the clip plays from and its identity -- and
+                        // the preview vanished the instant the upload started. Caught on the
+                        // phone: the row went "Video saving…" with no player on it at all.
                         current.with(
-                            TreatmentStepProof(
+                            known.copy(
                                 stepId = stepId,
                                 state = state,
                                 uploadOutboxItemId = uploadItemId,
@@ -711,6 +738,24 @@ class HealthDetailViewModel @Inject constructor(
                             drafts.putProof(CaptureFlow.HEALTH_TREATMENT, sessionId, stepId, outboxId)
                             draft = drafts.find(CaptureFlow.HEALTH_TREATMENT, sessionId)
                         }
+                        // THE CLIP IS WATCHABLE THE MOMENT IT EXISTS, from the phone's own file
+                        // -- before the upload, before the register, and offline. An operator
+                        // checking what they just filmed must not have to wait for a round trip,
+                        // and the local file is the same bytes the server will hold.
+                        //
+                        // The identity is the SERVER proof id once there is one, else the upload
+                        // row: stable either way, and never the rotating download URL.
+                        stepProofs.update { held ->
+                            val current = held.of(stepId)
+                            held.with(
+                                current.copy(
+                                    stepId = stepId,
+                                    previewPath = stepRow.processedUri ?: stepRow.localUri,
+                                    previewIdentity = stepRow.serverProofId ?: outboxId,
+                                    capturedByTeammate = false,
+                                ),
+                            )
+                        }
                         registerStepProof(stepId, outboxId)
                     }
             }
@@ -767,6 +812,30 @@ class HealthDetailViewModel @Inject constructor(
             }
         }
         ops.update { it.copy(submitting = false) }
+    }
+
+    /**
+     * The operator played, expanded, shared or retried ONE step's clip.
+     *
+     * Carries the STEP and the proof identity, not just "a video was opened": a treatment session
+     * holds a dozen clips and a download nobody can attribute to a step is a paid fetch nobody can
+     * account for. Same shape the weighing and vaccination previews report.
+     */
+    fun trackStepPreviewAction(stepId: String, action: String) {
+        val trace = ProofPreviewActionTrace.from(action)
+        val proof = stepProofs.value.of(stepId)
+        analytics.track(
+            AnalyticsEvents.HEALTH_TREATMENT_PROOF_PREVIEW_ACTION,
+            mapOf(
+                AnalyticsEvents.Params.ACTION to trace.action,
+                AnalyticsEvents.Params.OUTCOME to trace.outcome,
+                AnalyticsEvents.Params.SOURCE to "proof_preview",
+                AnalyticsEvents.Params.FIELD to FIELD_HEALTH_TREATMENT_VIDEO,
+                AnalyticsEvents.Params.KIND to if (proof.capturedByTeammate) "teammate" else "own",
+            ) + buildMap {
+                trace.reason?.let { put(AnalyticsEvents.Params.REASON, it) }
+            },
+        )
     }
 
     /** Clinical case closure (health.diagnose): recovered / referred / canceled. */
@@ -961,4 +1030,20 @@ internal fun refusedCompletionNotice(item: SyncQueueItem): String? {
     if (item.isActive || item.status != SyncItemStatus.FAILED) return null
     return item.lastError?.takeIf { it.isNotBlank() }
         ?: "This session could not be completed. Please try again."
+}
+
+/**
+ * Where the server serves ONE step's clip from.
+ *
+ * The same authenticated `/app/proofs/{ref}/download` route every other proof surface plays
+ * through, so a Health clip is fetched, attributed and billed exactly like a PC Care or weighing
+ * one -- and, like theirs, only when the operator actually asks to play or share it.
+ *
+ * It is a route on the PROOF ID, not a signed object URL, which is what lets the shared preview
+ * cache on a stable identity instead of re-fetching the same video whenever a URL rotates.
+ */
+internal fun healthProofDownloadUrl(proofRef: String): String {
+    val ref = proofRef.trim()
+    if (ref.isEmpty()) return ""
+    return BuildConfig.API_BASE_URL.trimEnd('/') + "/app/proofs/" + ref + "/download"
 }

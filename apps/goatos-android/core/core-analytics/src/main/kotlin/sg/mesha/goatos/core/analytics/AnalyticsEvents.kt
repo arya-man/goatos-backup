@@ -240,6 +240,16 @@ object AnalyticsEvents {
     /** The mandatory treatment video was captured and its upload queued (2026-08-29). */
     const val HEALTH_TREATMENT_VIDEO_CAPTURED = "health_treatment_video_captured"
 
+    /**
+     * The operator played, expanded, shared or retried ONE treatment step's video.
+     *
+     * Health clips are the evidence a treatment happened, and they are fetched from the backend
+     * on the same paid path as every other proof. Without this event nobody can trace which step
+     * a download belonged to, or tell a verifier's review from an operator checking their own
+     * work -- the attribution the proof-media rule requires of every preview surface.
+     */
+    const val HEALTH_TREATMENT_PROOF_PREVIEW_ACTION = "health_treatment_proof_preview_action"
+
     /** A treatment-session completion was queued durably, video reference attached. */
     const val HEALTH_TREATMENT_SUBMITTED = "health_treatment_submitted"
 
