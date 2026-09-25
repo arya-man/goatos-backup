@@ -45,7 +45,7 @@ func (r *Repository) LoadContractFamilies(ctx context.Context, tenantID string) 
 	if out.RuleCategories, out.RevisionInputs["protocol-categories"], err = r.listProtocolCategories(ctx, tenantID); err != nil {
 		return out, err
 	}
-	if out.Breeds, out.RevisionInputs["breeds"], err = r.listBreeds(ctx); err != nil {
+	if out.Breeds, out.RevisionInputs["breeds"], err = r.listBreeds(ctx, tenantID); err != nil {
 		return out, err
 	}
 	if out.HealthStatuses, out.RevisionInputs["health-statuses"], err = r.listStatuses(ctx, "health", ""); err != nil {
@@ -75,7 +75,7 @@ func (r *Repository) LoadContractFamilies(ctx context.Context, tenantID string) 
 	if out.PenTypes, out.RevisionInputs["pen-types"], err = r.listPenTypes(ctx, tenantID); err != nil {
 		return out, err
 	}
-	if out.AllBreeds, out.RevisionInputs["all-breeds"], err = r.listAllBreeds(ctx); err != nil {
+	if out.AllBreeds, out.RevisionInputs["all-breeds"], err = r.listAllBreeds(ctx, tenantID); err != nil {
 		return out, err
 	}
 	if out.Species, out.RevisionInputs["species"], err = r.listAnimalVocabulary(ctx, animalvocab.ListSpecies, tenantID); err != nil {
@@ -227,17 +227,18 @@ LIMIT 500`, tenantID)
 	return out, rev.String(), nil
 }
 
-// allBreedsSQL is every species' breeds from the product-wide breed register.
+// allBreedsSQL is every species' breeds from the farm's own breed list (breeds.tenant_id, 000432).
 const allBreedsSQL = `
 SELECT canonical_name, status, updated_at::text
 FROM breeds
-WHERE status IN ('active', 'review')
+WHERE tenant_id = $1::uuid
+  AND status IN ('active', 'review')
 ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END, canonical_name
 LIMIT 500`
 
 // listAllBreeds is every species' breeds (the herd filter covers sheep as well as goats).
-func (r *Repository) listAllBreeds(ctx context.Context) ([]app.ReferenceOption, string, error) {
-	rows, err := r.pool.Query(ctx, allBreedsSQL)
+func (r *Repository) listAllBreeds(ctx context.Context, tenantID string) ([]app.ReferenceOption, string, error) {
+	rows, err := r.pool.Query(ctx, allBreedsSQL, tenantID)
 	if err != nil {
 		return nil, "", fmt.Errorf("adminui: list all breeds: %w", err)
 	}
@@ -288,14 +289,15 @@ func (r *Repository) listAnimalVocabulary(
 	return out, rev.String(), nil
 }
 
-func (r *Repository) listBreeds(ctx context.Context) ([]app.ReferenceOption, string, error) {
+func (r *Repository) listBreeds(ctx context.Context, tenantID string) ([]app.ReferenceOption, string, error) {
 	rows, err := r.pool.Query(ctx, `
 SELECT canonical_name, status, updated_at::text
 FROM breeds
-WHERE species = 'goat'
+WHERE tenant_id = $1::uuid
+  AND species = 'goat'
   AND status IN ('active', 'review')
 ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END, canonical_name
-LIMIT 200`)
+LIMIT 200`, tenantID)
 	if err != nil {
 		return nil, "", fmt.Errorf("adminui: list breeds: %w", err)
 	}

@@ -752,7 +752,7 @@ func (r *Repository) resolveProjectionAliases(ctx context.Context, req domain.Pr
 	if err != nil {
 		return err
 	}
-	breedAliases, err := r.activeBreedAliases(ctx)
+	breedAliases, err := r.activeBreedAliases(ctx, req.TenantID)
 	if err != nil {
 		return err
 	}
@@ -823,13 +823,14 @@ WHERE tenant_id = $1::uuid
 	return out, rows.Err()
 }
 
-func (r *Repository) activeBreedAliases(ctx context.Context) (map[string]breedAliasMapping, error) {
+func (r *Repository) activeBreedAliases(ctx context.Context, tenantID string) (map[string]breedAliasMapping, error) {
 	rows, err := r.pool.Query(ctx, `
 SELECT ba.normalized_alias, b.breed_id::text, b.canonical_name
 FROM breed_aliases ba
-JOIN breeds b ON b.breed_id = ba.breed_id
-WHERE b.status = 'active'
-ORDER BY ba.source_system NULLS LAST, ba.alias_id`)
+JOIN breeds b ON b.breed_id = ba.breed_id AND b.tenant_id = ba.tenant_id
+WHERE ba.tenant_id = $1::uuid
+  AND b.status = 'active'
+ORDER BY ba.source_system NULLS LAST, ba.alias_id`, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("counts: query breed aliases: %w", err)
 	}

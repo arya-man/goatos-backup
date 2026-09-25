@@ -170,10 +170,10 @@ func (r *Repository) applyCensusSliceCorrection(ctx context.Context, tx pgx.Tx, 
 		statement = `
 UPDATE goats
 SET breed = (SELECT btrim(b.canonical_name) FROM breeds b
-             WHERE b.status = 'active' AND btrim(lower(b.canonical_name)) = btrim(lower($7::text))
+             WHERE b.tenant_id = $1::uuid AND b.status = 'active' AND btrim(lower(b.canonical_name)) = btrim(lower($7::text))
              ORDER BY b.breed_id LIMIT 1),
     breed_id = (SELECT b.breed_id FROM breeds b
-                WHERE b.status = 'active' AND btrim(lower(b.canonical_name)) = btrim(lower($7::text))
+                WHERE b.tenant_id = $1::uuid AND b.status = 'active' AND btrim(lower(b.canonical_name)) = btrim(lower($7::text))
                 ORDER BY b.breed_id LIMIT 1),
     updated_at = now()
 WHERE goat_id IN (SELECT g.goat_id ` + censusSliceScopeSQL + `)`
@@ -221,8 +221,8 @@ func (r *Repository) assertCensusSliceValue(ctx context.Context, tx pgx.Tx, cmd 
 	if err := tx.QueryRow(ctx, `
 SELECT EXISTS (
   SELECT 1 FROM breeds b
-  WHERE b.status = 'active' AND btrim(lower(b.canonical_name)) = btrim(lower($1::text)))`,
-		cmd.Value).Scan(&known); err != nil {
+  WHERE b.tenant_id = $2::uuid AND b.status = 'active' AND btrim(lower(b.canonical_name)) = btrim(lower($1::text)))`,
+		cmd.Value, cmd.TenantID).Scan(&known); err != nil {
 		return fmt.Errorf("identity: correct census slice: validate breed: %w", err)
 	}
 	if !known {
