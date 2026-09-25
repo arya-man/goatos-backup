@@ -617,13 +617,21 @@ test("post-API services roll out in parallel lanes only after the API traffic sw
   const drain = indexOfOrThrow('rollout_phase=pre_migration_drain');
   const migrate = indexOfOrThrowAfter('run gcloud run jobs execute "$MIGRATE_JOB"', drain);
   const apiReady = indexOfOrThrowAfter('wait_service_ready "$API_SERVICE" "post-migration restore"', migrate);
-  const lanesDir = indexOfOrThrowAfter('parallel_rollout_dir="$(mktemp -d)"', apiReady);
+  const lanesDir = indexOfOrThrowAfter('PARALLEL_ROLLOUT_DIR="$(mktemp -d)"', apiReady);
   for (const lane of ["analytics-events", "kernel-worker", "mcp", "mqtt-bridge"]) {
-    const launched = indexOfOrThrowAfter(`parallel_rollout_pids+=("$!:${lane}")`, lanesDir);
+    const launched = indexOfOrThrowAfter(`PARALLEL_ROLLOUT_PIDS+=("$!:${lane}")`, lanesDir);
     assert.ok(launched > apiReady, `${lane} lane must start only after the API serves the new revision`);
   }
   const join = indexOfOrThrowAfter('die "parallel post-API rollout failed for: ${parallel_failed[*]}"', lanesDir);
   const settle = indexOfOrThrowAfter('[[ "$(service_image "$API_SERVICE")" == "$BACKEND_IMAGE" ]]', join);
   assert.ok(settle > join, "image settle checks and smokes must run only after every lane has been joined");
   assert.match(script.slice(lanesDir, join), /if wait "\$parallel_pid"; then/, "each lane's exit status must be checked");
+});
+
+test("deploy EXIT trap joins still-running parallel lanes and prints their logs", () => {
+  const trapFn = indexOfOrThrow("join_parallel_rollout_on_exit() {");
+  const onExit = indexOfOrThrow("write_failed_on_exit() {");
+  assert.ok(onExit > trapFn);
+  assert.match(script.slice(onExit, onExit + 200), /join_parallel_rollout_on_exit/);
+  assert.match(script.slice(trapFn, onExit), /wait "\$pid"/);
 });

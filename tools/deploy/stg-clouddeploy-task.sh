@@ -111,8 +111,31 @@ PY
   gcloud storage cp results.json "$output_path/results.json" >/dev/null
 }
 
+# Post-API parallel rollout lanes (see deploy()). Global so the EXIT trap can
+# join them if the foreground dies while they still run.
+PARALLEL_ROLLOUT_DIR=""
+PARALLEL_ROLLOUT_PIDS=()
+
+join_parallel_rollout_on_exit() {
+  [[ "${#PARALLEL_ROLLOUT_PIDS[@]}" -gt 0 ]] || return 0
+  local entry pid name
+  echo "deploy exiting with parallel rollout lanes still running; waiting for them before reporting" >&2
+  for entry in "${PARALLEL_ROLLOUT_PIDS[@]}"; do
+    pid="${entry%%:*}"
+    name="${entry#*:}"
+    if wait "$pid"; then
+      echo "parallel rollout lane ${name}: ok" >&2
+    else
+      echo "parallel rollout lane ${name}: FAILED" >&2
+    fi
+    sed "s/^/[${name}] /" "$PARALLEL_ROLLOUT_DIR/${name}.log" >&2 || true
+  done
+  PARALLEL_ROLLOUT_PIDS=()
+}
+
 write_failed_on_exit() {
   local rc=$?
+  join_parallel_rollout_on_exit || true
   if [[ "$rc" -ne 0 ]]; then
     write_results "FAILED" || true
   fi
@@ -777,9 +800,10 @@ deploy() {
   # the deploy if ANY of them fails. The strict order kernel-worker drain ->
   # migration -> API above is unchanged. Each lane logs to its own file, which
   # is printed after `wait` so the Cloud Deploy log stays readable.
-  local parallel_rollout_dir parallel_entry parallel_pid parallel_name
-  local parallel_rollout_pids=() parallel_failed=()
-  parallel_rollout_dir="$(mktemp -d)"
+  local parallel_entry parallel_pid parallel_name
+  local parallel_failed=()
+  PARALLEL_ROLLOUT_DIR="$(mktemp -d)"
+  PARALLEL_ROLLOUT_PIDS=()
   (
     set -euo pipefail
     run gcloud run deploy "$ANALYTICS_EVENTS_SERVICE" \
@@ -804,8 +828,8 @@ deploy() {
       --quiet
     wait_service_ready "$ANALYTICS_EVENTS_SERVICE" "post-migration restore"
     run_analytics_events_routing
-  ) >"$parallel_rollout_dir/analytics-events.log" 2>&1 &
-  parallel_rollout_pids+=("$!:analytics-events")
+  ) >"$PARALLEL_ROLLOUT_DIR/analytics-events.log" 2>&1 &
+  PARALLEL_ROLLOUT_PIDS+=("$!:analytics-events")
 
   (
     set -euo pipefail
@@ -822,8 +846,8 @@ deploy() {
       --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy" \
       --quiet
     wait_service_ready "$KERNEL_WORKER_SERVICE" "post-migration restore"
-  ) >"$parallel_rollout_dir/kernel-worker.log" 2>&1 &
-  parallel_rollout_pids+=("$!:kernel-worker")
+  ) >"$PARALLEL_ROLLOUT_DIR/kernel-worker.log" 2>&1 &
+  PARALLEL_ROLLOUT_PIDS+=("$!:kernel-worker")
 
   (
     set -euo pipefail
@@ -842,8 +866,8 @@ deploy() {
       --to-latest \
       --quiet
     wait_service_ready "$MCP_SERVICE" "post-migration restore"
-  ) >"$parallel_rollout_dir/mcp.log" 2>&1 &
-  parallel_rollout_pids+=("$!:mcp")
+  ) >"$PARALLEL_ROLLOUT_DIR/mcp.log" 2>&1 &
+  PARALLEL_ROLLOUT_PIDS+=("$!:mcp")
 
   (
     set -euo pipefail
@@ -865,8 +889,8 @@ deploy() {
       --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy" \
       --quiet
     wait_service_ready "$HERD_SIGNALS_MQTT_BRIDGE_SERVICE" "post-migration restore"
-  ) >"$parallel_rollout_dir/mqtt-bridge.log" 2>&1 &
-  parallel_rollout_pids+=("$!:mqtt-bridge")
+  ) >"$PARALLEL_ROLLOUT_DIR/mqtt-bridge.log" 2>&1 &
+  PARALLEL_ROLLOUT_PIDS+=("$!:mqtt-bridge")
 
   while IFS= read -r job; do
     [[ -n "$job" ]] || continue
@@ -921,7 +945,7 @@ deploy() {
     "--to-revisions=${admin_web_revision}=100" \
     --quiet
 
-  for parallel_entry in "${parallel_rollout_pids[@]}"; do
+  for parallel_entry in "${PARALLEL_ROLLOUT_PIDS[@]}"; do
     parallel_pid="${parallel_entry%%:*}"
     parallel_name="${parallel_entry#*:}"
     if wait "$parallel_pid"; then
@@ -929,8 +953,9 @@ deploy() {
     else
       parallel_failed+=("$parallel_name")
     fi
-    sed "s/^/[${parallel_name}] /" "$parallel_rollout_dir/${parallel_name}.log" || true
+    sed "s/^/[${parallel_name}] /" "$PARALLEL_ROLLOUT_DIR/${parallel_name}.log" || true
   done
+  PARALLEL_ROLLOUT_PIDS=()
   [[ "${#parallel_failed[@]}" -eq 0 ]] || die "parallel post-API rollout failed for: ${parallel_failed[*]}"
 
   [[ "$(service_image "$API_SERVICE")" == "$BACKEND_IMAGE" ]] || die "$API_SERVICE image did not settle on $BACKEND_IMAGE"
