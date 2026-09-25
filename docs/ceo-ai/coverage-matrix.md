@@ -928,7 +928,7 @@ config above: the write enqueues `vaccination.roster.changed` so the existing
 replan consumer re-plans future drives. It adds NO leadership KPI, Cube metric,
 `ceo_ai.*` view, or MCP Toolbox tool. Explicit documented exclusion.
 
-| GET/PUT/DELETE /vaccination/operator-shifts (func:ListOperatorShifts, func:PutOperatorShift, func:DeleteOperatorShift, func:SetOperatorShift, func:ClearOperatorShift, func:WithOperatorShiftWriter, func:RegisterOperatorShiftRoutes, func:ValidateOperatorShiftInput, func:ParseShiftClock, func:FormatShiftClock) | EXCLUDED | Admin config read/write of one park's vaccination operator shifts (People / Vaccination operators screen). Leadership sees the RESULT through the vaccination schedule/operator status surfaces, never this authoring endpoint. |
+| GET/PUT/DELETE /vaccination/operator-shifts (func:ListOperatorShifts, func:PutOperatorShift, func:DeleteOperatorShift, func:SetOperatorShift, func:ClearOperatorShift, func:WithOperatorShiftWriter, func:RegisterOperatorShiftRoutes, func:ValidateOperatorShiftInput, func:ParseShiftClock, func:FormatShiftClock) | EXCLUDED:config | Admin config read/write of one park's vaccination operator shifts (People / Vaccination operators screen). Leadership sees the RESULT through the vaccination schedule/operator status surfaces, never this authoring endpoint. |
 
 ## Goat passport operational location (2026-08-06)
 
