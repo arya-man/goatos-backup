@@ -45,6 +45,9 @@
     <string name="work_board_tile_pending">ಬಾಕಿ</string>
     <string name="work_board_tile_attention">ಗಮನ ಬೇಕು</string>
     <string name="work_board_counts_fmt">%2$d ರಲ್ಲಿ %1$d ಮುಗಿದಿದೆ</string>
+    <string name="work_board_split_in_review_fmt">%1$d ಪರಿಶೀಲನೆಯಲ್ಲಿ</string>
+    <string name="work_board_split_started_fmt">%1$d ಆರಂಭವಾಗಿದೆ</string>
+    <string name="work_board_split_not_started_fmt">%1$d ಆರಂಭವಾಗಿಲ್ಲ</string>
 
     <string name="work_board_detail_pen">ಪೆನ್</string>
     <string name="work_board_detail_park">ಫಾರ್ಮ್</string>

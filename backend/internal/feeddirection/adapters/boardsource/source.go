@@ -15,9 +15,9 @@
 //
 // EVERY CARD SAYS WHERE EACH PEN IS. A pen is one of: approved; in review (handed in, waiting for
 // the verifier); sent back; started (some of its bags filmed, not all); not filmed. The card's
-// counts carry all five (done / in_review / needs_attention / not_started, the rest started) and
-// its subtitle spells them out, and the drawer lists the pens with the same five words, so the
-// card and its drawer can never disagree. The old card said "0/59 done · 59 started" while its
+// counts carry all five (done / in_review / needs_attention / not_started, the rest started),
+// every surface renders them as the card's count line, and the drawer lists the pens from the
+// same pen roll-up, so the card and its drawer can never disagree. The old card said "0/59 done · 59 started" while its
 // drawer showed 11 pens not filmed, because it called every unapproved pen started.
 //
 // READ-ONLY and REPORTING-ONLY. Nothing here materializes, submits, verifies or reworks feed
@@ -501,21 +501,12 @@ func cardTitle(m cardMetrics) string {
 	return m.id.activity.title + " · " + label
 }
 
-// cardSubtitle spells out where every pen is: "59 pens · 13 approved · 35 in review · 11 not
-// filmed". Buckets that are empty are left out; the pen count always leads.
+// cardSubtitle names the card's size: "59 pens". Where each pen is (approved / in review / sent
+// back / started / not filmed) rides the counts, which every surface renders as the card's count
+// line and the drawer's tiles -- saying it again in the subtitle wrote the same split twice on a
+// narrow card and cut it off mid-word (browser proof 2026-09-25).
 func cardSubtitle(m cardMetrics) string {
-	parts := []string{fmt.Sprintf("%d %s", m.pens, pluralPens(m.pens))}
-	add := func(n int, words string) {
-		if n > 0 {
-			parts = append(parts, fmt.Sprintf("%d %s", n, words))
-		}
-	}
-	add(m.approved, "approved")
-	add(m.inReview, "in review")
-	add(m.sentBack, "sent back")
-	add(m.started, "started")
-	add(m.notFilmed, "not filmed")
-	return strings.Join(parts, " · ")
+	return fmt.Sprintf("%d %s", m.pens, pluralPens(m.pens))
 }
 
 func (s *Source) buildRow(q ports.SourceQuery, m cardMetrics) domain.Row {
@@ -524,8 +515,10 @@ func (s *Source) buildRow(q ports.SourceQuery, m cardMetrics) domain.Row {
 		ParkID: q.ParkID, ParkName: m.parkName,
 		BusinessDate: q.BusinessDate, ClockLabel: m.id.activity.clock,
 		WorkState: cardState(m), Severity: domain.SeverityOK,
-		Title:    cardTitle(m),
-		Subtitle: cardSubtitle(m),
+		// Feed work is the park crew's, not one person's: a claim pool, never "no one assigned".
+		OwnerState: domain.OwnerStatePool,
+		Title:      cardTitle(m),
+		Subtitle:   cardSubtitle(m),
 		Counts: domain.Counts{
 			Done: m.approved, Pending: m.pens - m.approved, NeedsAttention: m.sentBack,
 			InReview: m.inReview, NotStarted: m.notFilmed,

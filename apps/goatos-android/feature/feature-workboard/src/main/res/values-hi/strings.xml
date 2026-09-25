@@ -45,6 +45,9 @@
     <string name="work_board_tile_pending">बाकी</string>
     <string name="work_board_tile_attention">ध्यान दें</string>
     <string name="work_board_counts_fmt">%2$d में से %1$d पूरे</string>
+    <string name="work_board_split_in_review_fmt">%1$d समीक्षा में</string>
+    <string name="work_board_split_started_fmt">%1$d शुरू</string>
+    <string name="work_board_split_not_started_fmt">%1$d शुरू नहीं</string>
 
     <string name="work_board_detail_pen">बाड़ा</string>
     <string name="work_board_detail_park">फ़ार्म</string>

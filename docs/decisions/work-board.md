@@ -229,3 +229,36 @@ source resolution and page bounds), `workboard/adapters/http` (operator, park he
 tenant-wide and director lenses; the subtask read's row gate and codes), and one database
 round-trip test per source for rows and one for subtasks (output strings, step states,
 owner, worst-first order, keyset and total).
+
+## Feed is four activities, direction one card per session, counted once (maintainer instruction 2026-09-25)
+
+"No need per pen or per shed; direction, wastage, packing, transport, four cards only; for feed
+direction, morning and evening separately." What changed, and why each part is there:
+
+- **Feed direction is one card per session of the day's sheet**, titled by the sheet's own
+  session label ("Feed direction · Morning", "Feed direction · Evening"; "Session N" only if a
+  sheet carries no label). Each session's bag is filmed and verified on its own, so folding the
+  sessions into one pen made a pen "done" only when BOTH were approved: at 11:44 on 25/09 the
+  card read "0/59 done" while 13 morning bags were already approved. Packing, transport and
+  wastage stay one card each. The source id is `<park>:direction:<session_no>`; the old
+  `<park>:direction` is refused as a cursor.
+- **Feed videos are not Verification cards.** `verification/adapters/boardsource` leaves
+  `source_module = 'feed'` out of rows, counts and drills. Each feed video used to appear twice:
+  inside the feed card at pen grain AND as its own Verification card at bag grain (141 of 142
+  Verification cards at Coimbatore on 25/09), so the packing card said "27 pens in review" beside
+  54 packing videos in the same column. A verifier still reviews them on /verify; the board shows
+  their state on the feed cards only.
+- **Every feed card says where each pen is.** `WorkBoardCounts` gained two optional fields,
+  `in_review` and `not_started`, which split `pending`; the rest of pending less
+  `needs_attention` is "started". The card's count line ("36/59 done · 17 in review · 6 not
+  started"), the drawer's Pending tile and the phone card all render that split, and the drawer
+  lists the pens from the same pen roll-up, so card and drawer cannot disagree (the old card said
+  "59 started" over a drawer showing 11 pens not filmed). The subtitle is just the pen count, so a
+  narrow card never cuts the split off mid-word. A source that does not send the split renders
+  exactly as before.
+- **Feed cards are a crew pool**, not "no one assigned": they carry `owner_state = pool`.
+
+Pinned by `TestFeedCardAndItsDrawerTellTheSameStory` (every card's pen buckets equal its drawer's,
+and the evening drawer never shows the morning's rework), the session split in
+`TestFeedActivityCardsOnADatabaseRoundTrip`, and the feed item that must never reach
+`TestVerificationBoardRowsOnADatabaseRoundTrip`.

@@ -318,5 +318,7 @@ internal fun WorkBoardRowDto.toRowUi(): WorkBoardRowUi = WorkBoardRowUi(
     done = counts.done,
     pending = counts.pending,
     needsAttention = counts.needsAttention,
+    inReview = counts.inReview,
+    notStarted = counts.notStarted,
     href = href,
 )

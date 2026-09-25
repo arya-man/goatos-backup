@@ -251,3 +251,11 @@ internal fun moduleIcon(module: String): ImageVector = when (module) {
     "tasks" -> MeshaIcons.Module
     else -> MeshaIcons.Module
 }
+
+/** "17 in review · 6 not started": the row's pending work broken down, empty buckets left out. */
+@Composable
+internal fun pendingSplitLine(row: WorkBoardRowUi): String = listOfNotNull(
+    if (row.inReview > 0) stringResource(R.string.work_board_split_in_review_fmt, row.inReview) else null,
+    if (row.started > 0) stringResource(R.string.work_board_split_started_fmt, row.started) else null,
+    if (row.notStarted > 0) stringResource(R.string.work_board_split_not_started_fmt, row.notStarted) else null,
+).joinToString(" · ")

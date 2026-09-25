@@ -196,12 +196,12 @@ func TestFeedActivityCardsOnADatabaseRoundTrip(t *testing.T) {
 		// Every card is a MIX of started and unstarted pens, so every card is In progress; a card
 		// with a pen sent back reads Rejected in that same lane.
 		// Every pen is in exactly one of approved / in review / sent back / started / not filmed,
-		// and the card's counts and subtitle say which -- never "N started" for pens nobody filmed.
-		feedActivityID("packing"):   {"Feed packing", domain.WorkStateInProgress, domain.LaneInProgress, domain.Counts{Done: 1, Pending: 2, InReview: 1, NotStarted: 1}, "3 pens · 1 approved · 1 in review · 1 not filmed"},
-		directionID("1"):            {"Feed direction · Morning", domain.WorkStateRejected, domain.LaneInProgress, domain.Counts{Pending: 2, NeedsAttention: 1, NotStarted: 1}, "2 pens · 1 sent back · 1 not filmed"},
-		directionID("2"):            {"Feed direction · Evening", domain.WorkStateInProgress, domain.LaneInProgress, domain.Counts{Pending: 2, InReview: 1, NotStarted: 1}, "2 pens · 1 in review · 1 not filmed"},
-		feedActivityID("transport"): {"Feed transport", domain.WorkStateRejected, domain.LaneInProgress, domain.Counts{Done: 1, Pending: 3, NeedsAttention: 1, InReview: 1, NotStarted: 1}, "4 pens · 1 approved · 1 in review · 1 sent back · 1 not filmed"},
-		feedActivityID("wastage"):   {"Feed wastage", domain.WorkStateInProgress, domain.LaneInProgress, domain.Counts{Done: 1, Pending: 1, NotStarted: 1}, "2 pens · 1 approved · 1 not filmed"},
+		// and the card's counts say which -- never "N started" for pens nobody filmed.
+		feedActivityID("packing"):   {"Feed packing", domain.WorkStateInProgress, domain.LaneInProgress, domain.Counts{Done: 1, Pending: 2, InReview: 1, NotStarted: 1}, "3 pens"},
+		directionID("1"):            {"Feed direction · Morning", domain.WorkStateRejected, domain.LaneInProgress, domain.Counts{Pending: 2, NeedsAttention: 1, NotStarted: 1}, "2 pens"},
+		directionID("2"):            {"Feed direction · Evening", domain.WorkStateInProgress, domain.LaneInProgress, domain.Counts{Pending: 2, InReview: 1, NotStarted: 1}, "2 pens"},
+		feedActivityID("transport"): {"Feed transport", domain.WorkStateRejected, domain.LaneInProgress, domain.Counts{Done: 1, Pending: 3, NeedsAttention: 1, InReview: 1, NotStarted: 1}, "4 pens"},
+		feedActivityID("wastage"):   {"Feed wastage", domain.WorkStateInProgress, domain.LaneInProgress, domain.Counts{Done: 1, Pending: 1, NotStarted: 1}, "2 pens"},
 	}
 	for id, w := range cases {
 		r, ok := got[id]
@@ -213,6 +213,9 @@ func TestFeedActivityCardsOnADatabaseRoundTrip(t *testing.T) {
 		}
 		if r.Module != domain.ModuleFeed || r.SourceType != SourceType || r.RowKey != "feed|feed_activity|"+id {
 			t.Errorf("%s: identity %s/%s/%s", id, r.Module, r.SourceType, r.RowKey)
+		}
+		if r.OwnerState != domain.OwnerStatePool {
+			t.Errorf("%s: owner state %s, want pool (the crew's work, not unassigned)", id, r.OwnerState)
 		}
 		if r.ParkID != bsPark || r.ParkName != "Coimbatore" || r.BusinessDate != bsDate || r.Href != "/feed/analytics" {
 			t.Errorf("%s: scope %s %s %s href %q", id, r.ParkID, r.ParkName, r.BusinessDate, r.Href)
@@ -280,7 +283,7 @@ func TestFeedActivityScopeKeysetOwnerLens(t *testing.T) {
 	// pool shed A stays; done falls to 0 and the shed count to 3.
 	mine := byID(mustRows(t, ctx, src, query(bsOperator)))
 	tr := mine[feedActivityID("transport")]
-	if tr.Counts.Done != 0 || tr.Subtitle != "3 pens · 1 in review · 1 sent back · 1 not filmed" {
+	if tr.Counts.Done != 0 || tr.Subtitle != "3 pens" {
 		t.Errorf("owner-lens transport counts %+v subtitle %q", tr.Counts, tr.Subtitle)
 	}
 
@@ -444,7 +447,7 @@ ON CONFLICT (completion_id) DO NOTHING`, id, bsTenant, bsPark, bsShedA, partitio
 		t.Fatal("packing card expected")
 	}
 	// TWO pens of one shed: Part 4 in review is the leftmost lane, Part 3 done.
-	if packing.Counts != (domain.Counts{Done: 1, Pending: 1, InReview: 1}) || packing.Subtitle != "2 pens · 1 approved · 1 in review" {
+	if packing.Counts != (domain.Counts{Done: 1, Pending: 1, InReview: 1}) || packing.Subtitle != "2 pens" {
 		t.Fatalf("two pens of one shed: counts=%+v subtitle=%q", packing.Counts, packing.Subtitle)
 	}
 	page, err := src.ListSubtasks(ctx, ports.SubtaskQuery{TenantID: bsTenant, ParkID: bsPark, BusinessDate: d3, SourceID: feedActivityID("packing"), Limit: 50})
@@ -539,7 +542,7 @@ ON CONFLICT (completion_id) DO NOTHING`, bsTenant, bsPark, bsShedA, serve4, bsOp
 	if packing == nil {
 		t.Fatal("packing card expected")
 	}
-	if packing.Counts != (domain.Counts{Pending: 1, InReview: 1}) || packing.Subtitle != "1 pen · 1 in review" {
+	if packing.Counts != (domain.Counts{Pending: 1, InReview: 1}) || packing.Subtitle != "1 pen" {
 		t.Fatalf("cosmetic label variants must be one pen: counts=%+v subtitle=%q", packing.Counts, packing.Subtitle)
 	}
 	page, err := src.ListSubtasks(ctx, ports.SubtaskQuery{TenantID: bsTenant, ParkID: bsPark, BusinessDate: d4, SourceID: feedActivityID("packing"), Limit: 50})

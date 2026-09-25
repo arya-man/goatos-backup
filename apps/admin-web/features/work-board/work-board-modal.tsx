@@ -8,7 +8,7 @@ import { control, controlEnabled, copy, type AdminUiPageContract } from "@/lib/a
 import type { WorkBoardRow } from "@/lib/api/work-board-server";
 import { flagParkHeadAction } from "./actions";
 import { WorkBoardSubtasks } from "./work-board-subtasks";
-import { barSegments, clockClass, dayLabel, findOption, initials, lanes, moduleClass, moduleOptions, needsAttention, ownerStack, PARAM_ROW, parkLabel, parkOptions, stateOptions } from "./work-board-model";
+import { barSegments, clockClass, dayLabel, findOption, initials, lanes, moduleClass, moduleOptions, needsAttention, ownerStack, PARAM_ROW, parkLabel, parkOptions, pendingSplit, stateOptions } from "./work-board-model";
 
 // The card's detail in the mock's Jira issue-view shape: a centred dialog over a scrim, the
 // module and key as breadcrumb, the title, a description with the progress bar and the three
@@ -89,6 +89,7 @@ export function WorkBoardModal({ pageContract, rows, initialSelectedRowKey, clos
   const stateOpt = findOption(stateOptions(pageContract), row.work_state);
   const laneOpt = lanes(pageContract).find((lane) => lane.key === row.lane);
   const total = row.counts.done + row.counts.pending;
+  const split = pendingSplit(row);
   const hot = needsAttention(row);
   const stack = ownerStack(row);
   const ownerLabel = stack.names[0] || (row.owner_state === "pool" ? copy(pageContract, "owner.pool") : copy(pageContract, "owner.missing"));
@@ -138,6 +139,19 @@ export function WorkBoardModal({ pageContract, rows, initialSelectedRowKey, clos
                         {row.counts.pending}
                         {total > 0 ? <small>/ {total}</small> : null}
                       </div>
+                      {split ? (
+                        // Where the pending work is, when the source said (the feed cards): the
+                        // same split the card shows, so the drawer never reads differently.
+                        <div className="muted small" style={{ marginTop: 4 }}>
+                          {[
+                            split.inReview > 0 ? `${split.inReview} ${copy(pageContract, "card.in_review")}` : "",
+                            split.started > 0 ? `${split.started} ${copy(pageContract, "card.started")}` : "",
+                            split.notStarted > 0 ? `${split.notStarted} ${copy(pageContract, "card.not_started")}` : "",
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </div>
+                      ) : null}
                     </div>
                     <div className={`ct${row.counts.needs_attention > 0 ? " hot" : ""}`}>
                       <div className="l">{copy(pageContract, "tile.attention")}</div>

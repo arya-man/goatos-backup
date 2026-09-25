@@ -256,6 +256,17 @@ internal fun WorkBoardRowCard(row: WorkBoardRowUi, onOpen: () -> Unit) {
                     overflow = TextOverflow.Ellipsis,
                 )
             }
+            // Where the pending work is, when the source said (the feed cards): the same split the
+            // web card and drawer show, so no surface calls an unfilmed pen "started".
+            if (row.hasPendingSplit) {
+                Text(
+                    text = pendingSplitLine(row),
+                    color = MeshaColors.Muted,
+                    style = MeshaType.caption,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             // The pen display, verbatim — never composed here.
             if (row.penLabel.isNotBlank()) {
                 Text(

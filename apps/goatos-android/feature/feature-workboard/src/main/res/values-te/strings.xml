@@ -45,6 +45,9 @@
     <string name="work_board_tile_pending">మిగిలినవి</string>
     <string name="work_board_tile_attention">శ్రద్ధ అవసరం</string>
     <string name="work_board_counts_fmt">%2$d లో %1$d పూర్తయ్యాయి</string>
+    <string name="work_board_split_in_review_fmt">%1$d సమీక్షలో</string>
+    <string name="work_board_split_started_fmt">%1$d ప్రారంభమైంది</string>
+    <string name="work_board_split_not_started_fmt">%1$d ప్రారంభం కాలేదు</string>
 
     <string name="work_board_detail_pen">పెన్</string>
     <string name="work_board_detail_park">ఫారం</string>

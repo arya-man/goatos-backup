@@ -86,10 +86,20 @@ data class WorkBoardRowUi(
     val done: Int = 0,
     val pending: Int = 0,
     val needsAttention: Int = 0,
+    /** Of [pending], units handed in and waiting for a verdict; 0 when the source does not say. */
+    val inReview: Int = 0,
+    /** Of [pending], units nobody has started (feed pens not filmed); 0 when the source does not say. */
+    val notStarted: Int = 0,
     /** Where the module's own screen opens this row; blank when it has none yet. */
     val href: String = "",
 ) {
     val total: Int get() = done + pending
+
+    /** True when the source said where its pending work is (the feed cards). */
+    val hasPendingSplit: Boolean get() = inReview > 0 || notStarted > 0
+
+    /** Pending work started and not handed in: what is left after review, not started and attention. */
+    val started: Int get() = (pending - inReview - notStarted - minOf(pending, needsAttention)).coerceAtLeast(0)
 }
 
 /** One filter chip over a BOUNDED vocabulary (the four lanes, or the caller's visible modules). */

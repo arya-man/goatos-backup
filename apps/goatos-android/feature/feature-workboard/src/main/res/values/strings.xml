@@ -55,6 +55,9 @@
     <string name="work_board_tile_pending">Pending</string>
     <string name="work_board_tile_attention">Needs attention</string>
     <string name="work_board_counts_fmt">%1$d of %2$d done</string>
+    <string name="work_board_split_in_review_fmt">%1$d in review</string>
+    <string name="work_board_split_started_fmt">%1$d started</string>
+    <string name="work_board_split_not_started_fmt">%1$d not started</string>
 
     <string name="work_board_detail_pen">Pen</string>
     <string name="work_board_detail_park">Farm</string>
