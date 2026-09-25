@@ -36,6 +36,8 @@ dependencies {
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.foundation)
+    // BackHandler: system Back on a later wizard step goes to the step before, never out.
+    implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.compose.ui.tooling.preview)
     // Paging's Compose bindings: the task list renders LazyPagingItems so it is bounded at both

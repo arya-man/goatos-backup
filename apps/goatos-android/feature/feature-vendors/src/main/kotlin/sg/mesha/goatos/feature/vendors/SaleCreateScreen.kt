@@ -3,6 +3,7 @@ package sg.mesha.goatos.feature.vendors
 // telemetry:exempt pure stateless renderer; SaleCreateViewModel (in :app) owns the vendors_*
 // AnalyticsEventsVendors + CrashReporter wiring for the queued write.
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -51,6 +52,9 @@ fun SaleCreateScreen(
     modifier: Modifier = Modifier,
 ) {
     val locked = state.writeStatus == VendorsWriteStatus.QUEUED || state.writeStatus == VendorsWriteStatus.SYNCED
+    // System Back on a later step goes to the step before, like the Back button beside Next: one
+    // stray press on step 3 used to drop the whole typed record with no way back.
+    BackHandler(enabled = state.step > 0 && !locked) { onEvent(SaleCreateEvent.Previous) }
     LaunchedEffect(state.closeAfterSave) {
         if (state.closeAfterSave) {
             delay(CLOSE_AFTER_SAVE_MS)
