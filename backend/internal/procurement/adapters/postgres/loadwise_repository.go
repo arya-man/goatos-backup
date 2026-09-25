@@ -402,13 +402,47 @@ func (r *Repository) attachCostLines(ctx context.Context, tenantID string, loads
 	return nil
 }
 
-// clearLoadCostLinesSQL and insertLoadCostLinesSQL are the write half of the cost itemisation. A
-// hand edit through the cost drawer states BUCKET TOTALS, so it replaces this load's lines with one
-// line per bucket it names -- the breakdown a reader opens can then never claim a split that does
-// not add up to the figure beside it.
-const clearLoadCostLinesSQL = `
+// loadCostBucketSQL maps a line's kind onto the bucket column it rolls into, in SQL. It MIRRORS
+// domain.CostBucketForKind (animal, transport, everything else -> other); the two must agree or a
+// bucket edit would compare against, and delete, a different set of lines than the list rolls up.
+const loadCostBucketSQL = `CASE WHEN kind IN ('animal', 'transport') THEN kind ELSE 'other' END`
+
+// loadCostBucketSumsSQL is the current sum of each bucket's lines, for the lines of one load.
+const loadCostBucketSumsSQL = `
+SELECT ` + loadCostBucketSQL + ` AS bucket, sum(amount)::float8
+FROM public.procurement_load_cost_lines
+WHERE tenant_id = $1 AND load_id = $2
+GROUP BY 1`
+
+// clearLoadCostBucketsSQL removes the lines of the buckets whose total the edit CHANGED, and only
+// those -- the write half of the itemisation, with insertLoadCostLinesSQL below.
+const clearLoadCostBucketsSQL = `
 DELETE FROM public.procurement_load_cost_lines
-WHERE tenant_id = $1 AND load_id = $2`
+WHERE tenant_id = $1 AND load_id = $2 AND ` + loadCostBucketSQL + ` = ANY($3::text[])`
+
+// loadCostBucketSums reads the current per-bucket line totals of one load under the edit's
+// transaction. A bucket with no lines is absent from the map (nil), which is how "not recorded" is
+// told apart from zero.
+func loadCostBucketSums(ctx context.Context, tx pgx.Tx, tenantID, loadID string) (map[string]*float64, error) {
+	rows, err := tx.Query(ctx, loadCostBucketSumsSQL, tenantID, loadID)
+	if err != nil {
+		return nil, fmt.Errorf("procurement: read load cost buckets: %w", err)
+	}
+	defer rows.Close()
+	out := map[string]*float64{}
+	for rows.Next() {
+		var bucket string
+		var sum float64
+		if err := rows.Scan(&bucket, &sum); err != nil {
+			return nil, fmt.Errorf("procurement: scan load cost bucket: %w", err)
+		}
+		out[bucket] = &sum
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("procurement: load cost bucket rows: %w", err)
+	}
+	return out, nil
+}
 
 // One set-based insert over the named buckets, never an Exec per bucket.
 const insertLoadCostLinesSQL = `
@@ -631,18 +665,22 @@ WHERE tenant_id = $1 AND load_id = $2`,
 		return fmt.Errorf("procurement: update load cost: %w", err)
 	}
 
-	// THE ITEMISATION FOLLOWS THE FIGURE. A hand edit through the cost drawer replaces the edited
-	// buckets' lines with ONE line of that bucket's own kind, so the breakdown a reader opens can
-	// never claim a split that does not add up to the number beside it. This is the price of
-	// keeping both -- and it is the right way round: the person typing the total is stating the
-	// total, and a stale "transport 43,000 / labour 8,000" under a new total of 20,000 would be a
-	// lie the screen tells confidently.
+	// THE ITEMISATION FOLLOWS THE FIGURE, BUCKET BY BUCKET (maintainer decision 2026-09-25: keep
+	// the items unless 'other' changed). The drawer states three bucket totals. A bucket whose
+	// submitted total equals the sum of its current lines is left exactly as it is -- so correcting
+	// the transport of a sheet-imported load keeps its booking / labour / transit / feed lines. A
+	// bucket whose total CHANGED has its lines replaced by one line of that bucket's own kind, so
+	// the breakdown a reader opens never claims a split that does not add up to the figure beside
+	// it: the person typing the total is stating the total, and a stale itemisation under a new
+	// total would be a lie the screen tells confidently. For 'other' that means the itemised lines
+	// collapse into one only when the other total itself was changed.
 	//
-	// Only the buckets actually written are collapsed. Clearing the cost (nil animal cost) removes
-	// every line, matching the columns going NULL.
-	if _, err := tx.Exec(ctx, clearLoadCostLinesSQL, tenantID, loadID); err != nil {
-		return fmt.Errorf("procurement: clear load cost lines: %w", err)
+	// Clearing the cost (nil animal cost) removes every line, matching the columns going NULL.
+	current, err := loadCostBucketSums(ctx, tx, tenantID, loadID)
+	if err != nil {
+		return err
 	}
+	rewrite := make([]string, 0, 3)
 	kinds := make([]string, 0, 3)
 	amounts := make([]float64, 0, 3)
 	for _, part := range []struct {
@@ -653,15 +691,26 @@ WHERE tenant_id = $1 AND load_id = $2`,
 		{domain.CostKindTransport, edit.TransportCost},
 		{domain.CostKindOther, edit.OtherCost},
 	} {
-		if part.amount == nil {
+		amount := part.amount
+		if edit.AnimalCost == nil {
+			amount = nil
+		}
+		if eqMoney(current[part.kind], amount) {
 			continue
 		}
-		kinds = append(kinds, part.kind)
-		amounts = append(amounts, *part.amount)
+		rewrite = append(rewrite, part.kind)
+		if amount != nil {
+			kinds = append(kinds, part.kind)
+			amounts = append(amounts, *amount)
+		}
 	}
-	// ONE set-based insert over the collected buckets, never an Exec per bucket. Three round trips
-	// would be harmless at this size, but the rule has no size exception -- the shape is what gets
-	// copied into the next loop, which is over rows rather than three fixed fields.
+	// ONE set-based delete and ONE set-based insert over the changed buckets, never an Exec per
+	// bucket -- the shape is what gets copied into the next loop.
+	if len(rewrite) > 0 {
+		if _, err := tx.Exec(ctx, clearLoadCostBucketsSQL, tenantID, loadID, rewrite); err != nil {
+			return fmt.Errorf("procurement: clear changed load cost lines: %w", err)
+		}
+	}
 	if len(kinds) > 0 {
 		if _, err := tx.Exec(ctx, insertLoadCostLinesSQL,
 			tenantID, loadID, kinds, amounts, actorID); err != nil {
