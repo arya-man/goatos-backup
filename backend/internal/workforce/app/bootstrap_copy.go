@@ -848,7 +848,8 @@ func candidateModuleKeysFrom(grants []domain.GrantSummary, grantedModules []stri
 // decision 2026-09-25: "no mobile view for CXOs and directors"). The phone board reads ONE park
 // (the person's home park) and has no park picker, so a tenant-wide desk either had no park and
 // saw "Couldn't load your work" (every CEO/CXO on STG) or was stuck on one park. They read the
-// Work Board on admin-web, which picks the park. A park head keeps it.
+// Work Board on admin-web, which picks the park. A park head keeps it -- including a director who
+// is also a park head (see withoutPhoneWorkBoard).
 var phoneWorkBoardExcludedRoles = map[string]bool{
 	permissions.RoleCEOInternal:         true,
 	permissions.RolePCDirector:          true,
@@ -861,12 +862,18 @@ var phoneWorkBoardExcludedRoles = map[string]bool{
 
 // withoutPhoneWorkBoard drops the phone's Work module for a CEO/CXO or director, whichever way
 // it was offered -- the leadership curation, a department grant or their own ticks.
+//
+// INCLUSIVE, NOT EXCLUSIVE (maintainer correction, same day): access adds up. A director reads the
+// board on the web; a park head works it on the phone; a person who is BOTH (Dinakar, Chandrakant)
+// has it in both places. So only a CEO/CXO or director who is NOT also a park head loses it here.
 func withoutPhoneWorkBoard(grants []domain.GrantSummary, keys []string) []string {
 	excluded := false
 	for _, g := range grants {
+		if g.Role == permissions.RoleParkHead {
+			return keys
+		}
 		if phoneWorkBoardExcludedRoles[g.Role] {
 			excluded = true
-			break
 		}
 	}
 	if !excluded {
@@ -1089,9 +1096,9 @@ func leadershipModuleKeys(grants []domain.GrantSummary) []string {
 		keys = appendMissing(keys, "toxin")
 	}
 	// Work Board (maintainer decision 2026-09-10): a park head is offered My Work on
-	// work_board.read. A CEO/CXO or a director is NOT (maintainer decision 2026-09-25: "no
-	// mobile view for CXOs and directors") -- they read the board on admin-web, which lets
-	// them pick a park; see withoutPhoneWorkBoard. Field principals get it through their
+	// work_board.read. A CEO/CXO or a director who is not also a park head is NOT (maintainer
+	// decision 2026-09-25: "no mobile view for CXOs and directors") -- they read the board on
+	// admin-web, which lets them pick a park; see withoutPhoneWorkBoard. Field principals get it through their
 	// department grant instead (see the registry entry).
 	if grantsHavePermission(grants, permissions.WorkBoardRead) {
 		keys = appendMissing(keys, "work_board")
