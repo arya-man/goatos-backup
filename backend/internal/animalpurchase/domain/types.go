@@ -12,6 +12,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/vgoats/goatos/backend/internal/platform/animalvocab"
 )
 
 const (
@@ -49,8 +51,11 @@ type Option struct {
 	Label string `json:"label"`
 }
 
-// Species, Sexes, Conditions and Farms are the closed vocabularies the write path validates
-// against and the phone form renders. Labels are farm language; the values never reach a screen.
+// Species and Sexes are the BUILT-IN species and genders: the labels a stored goat/sheep,
+// female/male reads under, and the choices when a tenant's Configuration lists could not be read.
+// The live choices -- the write path validates against them and the phone form renders them -- are
+// the tenant's Configuration lists (AnimalOptions, OPEN UP TO NEW SPECIES 2026-09-25). Labels are
+// farm language; the values never reach a screen.
 func Species() []Option {
 	return []Option{{SpeciesGoat, "Goat"}, {SpeciesSheep, "Sheep"}}
 }
@@ -58,6 +63,17 @@ func Species() []Option {
 func Sexes() []Option {
 	return []Option{{SexFemale, "Female"}, {SexMale, "Male"}}
 }
+
+// AnimalOptions turns a Configuration list (code + name) into form choices, in the list's order.
+func AnimalOptions(entries []animalvocab.Entry) []Option {
+	out := make([]Option, 0, len(entries))
+	for _, e := range entries {
+		out = append(out, Option{Value: e.Code, Label: e.Name})
+	}
+	return out
+}
+
+// Conditions, Farms are the other closed vocabularies of the form.
 
 func Conditions() []Option {
 	return []Option{

@@ -128,9 +128,13 @@ type lockedQuestion struct {
 }
 
 var lockedQuestions = map[string]lockedQuestion{
-	"species":       {Kind: KindChoice, Options: Species()},
+	// Species and sex CHOICES are not fixed here and not read from the document: they are the
+	// tenant's active Configuration lists, filled in at read time by Catalog.WithAnimalVocabulary
+	// (OPEN UP TO NEW SPECIES, maintainer decision 2026-09-25), so a species added there is offered
+	// on every published version at once. The document's own options are a placeholder.
+	"species":       {Kind: KindChoice},
 	"goat_id":       {Kind: KindText},
-	"sex":           {Kind: KindChoice, Options: Sexes()},
+	"sex":           {Kind: KindChoice},
 	"weight_kg":     {Kind: KindNumber},
 	"height_cm":     {Kind: KindNumber},
 	"rectal_temp_c": {Kind: KindNumber},
@@ -167,6 +171,24 @@ func (c Catalog) WithFarms(codes []string) Catalog {
 	for i := range out.LoadQuestions {
 		if out.LoadQuestions[i].ID == "farm" {
 			out.LoadQuestions[i].Options = Farms(codes)
+		}
+	}
+	return out
+}
+
+// WithAnimalVocabulary returns a copy of the catalog whose inspection "species" and "sex" questions
+// offer exactly the given choices -- the tenant's active species and genders. Which species and
+// genders exist is Configuration's answer, never the form author's. An empty list leaves the
+// document's own choices, so a vocabulary that failed to load never empties a compulsory question.
+func (c Catalog) WithAnimalVocabulary(species, sexes []Option) Catalog {
+	out := c
+	out.Questions = append([]Question(nil), c.Questions...)
+	for i := range out.Questions {
+		switch {
+		case out.Questions[i].ID == "species" && len(species) > 0:
+			out.Questions[i].Options = append([]Option(nil), species...)
+		case out.Questions[i].ID == "sex" && len(sexes) > 0:
+			out.Questions[i].Options = append([]Option(nil), sexes...)
 		}
 	}
 	return out
