@@ -873,8 +873,11 @@ private inline fun List<VaccinationExecutionRowDto>.assignmentAwareCardCounts(
         val membership = row.batchId?.takeIf(String::isNotBlank)
             ?: row.sopTaskId?.takeIf(String::isNotBlank)
             ?: row.driveId?.takeIf(String::isNotBlank)
-        if (membership == null) listOf("unknown", if (legacyMax) "card" else index.toString())
-        else listOf(row.parkId, row.shedId, executionPartitionKey(row.partitionLabel ?: row.partition), row.currentScheduleDate, membership)
+        // Identity-less rows may only collapse within one operational card (park/shed/pen/date);
+        // collapsing them across sheds made two completed sheds (2 + 3) report done=3.
+        val location = listOf(row.parkId, row.shedId, executionPartitionKey(row.partitionLabel ?: row.partition), row.currentScheduleDate)
+        if (membership == null) location + listOf("unknown", if (legacyMax) "card" else index.toString())
+        else location + membership
     }.values.sumOf { group -> group.maxOf { count(it.value).coerceAtLeast(0) } }
     return assignedTotal + legacyTotal
 }
