@@ -136,22 +136,7 @@ class WorkBoardViewModel @Inject constructor(
                     add(WorkBoardChipUi(key = lane, count = summary?.laneCount(lane) ?: 0, selected = selection.lane == lane))
                 }
             },
-            modules = if (envelope.modules.isEmpty()) {
-                emptyList()
-            } else {
-                buildList {
-                    add(WorkBoardChipUi(key = "", count = total, selected = selection.module.isBlank()))
-                    envelope.modules.forEach { module ->
-                        add(
-                            WorkBoardChipUi(
-                                key = module,
-                                count = summary?.byModule?.get(module) ?: 0,
-                                selected = selection.module == module,
-                            ),
-                        )
-                    }
-                }
-            },
+            modules = moduleChips(envelope.modules, summary?.byModule.orEmpty(), total, selection.module),
             doneCount = tiles.done,
             pendingCount = tiles.pending,
             needsAttentionCount = tiles.needsAttention,
@@ -354,3 +339,27 @@ internal fun WorkBoardRowDto.toRowUi(): WorkBoardRowUi = WorkBoardRowUi(
     notStarted = counts.notStarted,
     href = href,
 )
+
+/**
+ * The module chips: "All" and one per module that has work on this day (maintainer, 2026-09-25:
+ * a chip reading "Health 0" or "Vaccination 0" should not be there). A module with nothing behind
+ * it is left out, unless it is the one selected, so the reader can always see and clear the chip
+ * they chose. No modules at all (the summary has not arrived) means no chip row.
+ */
+internal fun moduleChips(
+    modules: List<String>,
+    byModule: Map<String, Int>,
+    total: Int,
+    selected: String,
+): List<WorkBoardChipUi> {
+    if (modules.isEmpty()) return emptyList()
+    return buildList {
+        add(WorkBoardChipUi(key = "", count = total, selected = selected.isBlank()))
+        modules.forEach { module ->
+            val count = byModule[module] ?: 0
+            if (count > 0 || module == selected) {
+                add(WorkBoardChipUi(key = module, count = count, selected = module == selected))
+            }
+        }
+    }
+}
