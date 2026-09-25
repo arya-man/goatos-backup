@@ -30,6 +30,7 @@ VALUES ($1, $2, 'CBE', 'Maize', 701, DATE '2026-08-01', 5000, 20, 100000, 0,
         DATE '2026-08-01', 'Navaladi', 'Paid', 'reached')`, fdiTenant, park); err != nil {
 		t.Fatalf("insert purchase: %v", err)
 	}
+	activatePurchasedFeeds(t, ctx, pool) // only ACTIVE catalog feeds have stock cards (2026-09-24)
 
 	itemFor := func(t *testing.T, label string) (balance, rate string, daysLeft *int64) {
 		t.Helper()
@@ -175,6 +176,7 @@ VALUES ($1, $2, 'CBE', 'Groundnut Cake', 702, DATE '2026-08-01', 800, 30, 24000,
         DATE '2026-08-01', 'Navaladi', 'Paid', 'reached')`, fdiTenant, park); err != nil {
 		t.Fatalf("insert purchase: %v", err)
 	}
+	activatePurchasedFeeds(t, ctx, pool) // only ACTIVE catalog feeds have stock cards (2026-09-24)
 	items, err := repo.stockItems(ctx, fdiTenant, nil)
 	if err != nil {
 		t.Fatalf("stock items: %v", err)
@@ -296,6 +298,7 @@ SELECT $1, l.deal_id, l.line_id, $3, 'CBE', 'Maize', DATE '2026-08-20', 50 FROM 
 			t.Fatalf("insert sale %d: %v", i, err)
 		}
 	}
+	activatePurchasedFeeds(t, ctx, pool) // only ACTIVE catalog feeds have stock cards (2026-09-24)
 
 	items, err := repo.stockItems(ctx, fdiTenant, nil)
 	if err != nil {

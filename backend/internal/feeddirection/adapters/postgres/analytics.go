@@ -1873,9 +1873,13 @@ LEFT JOIN rate_override ov
 -- used to be shown (fail open); it is not a feed the farm buys today, so it has no card. The
 -- check reads the FAMILY key, so a retired MEMBER still contributes its leftover stock to its
 -- active successor's card.
+-- $9 = false is the SALE check's read (FeedBalancesKg): it keeps the pre-2026-09-24 rule -- only a
+-- RETIRED feed drops out -- so a sale of a feed the catalog never named is still weighed against
+-- the store instead of reading as "balance unknown" and skipping the shortfall check.
 LEFT JOIN feed_item_catalog c
   ON c.tenant_id = $1 AND c.feed_item_key = fs.family_key
-WHERE c.status = 'active'
+WHERE CASE WHEN $9::boolean THEN c.status = 'active'
+           ELSE COALESCE(c.status, 'active') <> 'retired' END
 ORDER BY days_left NULLS LAST, fs.family_label, fs.farm_label`
 
 // Next-7-days requirement and cost (maintainer decision 2026-08-23), at
@@ -2809,10 +2813,20 @@ func (r *Repository) feedStockRevision(ctx context.Context, tenantID string, par
 }
 
 func (r *Repository) stockItems(ctx context.Context, tenantID string, parkIDs []uuid.UUID) ([]domain.StockItem, error) {
+	return r.readStockItems(ctx, tenantID, parkIDs, true)
+}
+
+// stockBalances is the sale check's read: every feed the store holds except a RETIRED one, so a
+// feed with no catalog row is still weighed against its stock (see stockItemsSQL, $9).
+func (r *Repository) stockBalances(ctx context.Context, tenantID string, parkIDs []uuid.UUID) ([]domain.StockItem, error) {
+	return r.readStockItems(ctx, tenantID, parkIDs, false)
+}
+
+func (r *Repository) readStockItems(ctx context.Context, tenantID string, parkIDs []uuid.UUID, activeOnly bool) ([]domain.StockItem, error) {
 	mergeMembers, mergeFamilies, mergeLabels := domain.StockFamilyMergeArrays()
 	rateFarms, rateFeeds, rateKg := domain.StockRateOverrideArrays()
 	rows, err := r.pool.Query(ctx, stockItemsSQL, tenantID, parkIDs,
-		mergeMembers, mergeFamilies, mergeLabels, rateFarms, rateFeeds, rateKg)
+		mergeMembers, mergeFamilies, mergeLabels, rateFarms, rateFeeds, rateKg, activeOnly)
 	if err != nil {
 		return nil, fmt.Errorf("feed analytics stock items: %w", err)
 	}

@@ -40,7 +40,7 @@ func (r *Repository) FeedStockIdentity(label string) (key, stockLabel string) {
 func (r *Repository) FeedBalancesKg(ctx context.Context, tenantID, farmLabel string) (map[string]float64, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	items, err := r.stockItems(ctx, tenantID, nil)
+	items, err := r.stockBalances(ctx, tenantID, nil)
 	if err != nil {
 		return nil, fmt.Errorf("feed balances for sale: %w", err)
 	}

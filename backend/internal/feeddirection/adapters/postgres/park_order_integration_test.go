@@ -34,14 +34,16 @@ WHERE i.tenant_id = $1::uuid AND i.park_id = $2::uuid AND r.tenant_id = i.tenant
 		}
 	}
 
+	// The completion table labels a farm by its CODE (maintainer decision 2026-09-24, "use cbe/cpt"),
+	// so it reads CBE even though the park's name is now Coimbatore -- and still opens on it.
 	got := completionRead(t, ctx, repo, target, nil)
-	if n := len(got.CompletionFilterOptions); n < 2 || got.CompletionFilterOptions[0].ParkLabel != "Coimbatore" {
-		t.Fatalf("completion filter options must open on CBE (Coimbatore): got %+v", got.CompletionFilterOptions)
+	if n := len(got.CompletionFilterOptions); n < 2 || got.CompletionFilterOptions[0].ParkLabel != "CBE" {
+		t.Fatalf("completion filter options must open on CBE: got %+v", got.CompletionFilterOptions)
 	}
-	if n := len(got.DistributionCompletions); n == 0 || got.DistributionCompletions[0].ParkLabel != "Coimbatore" {
-		t.Fatalf("completion rows must open on CBE (Coimbatore): got first row %+v", firstOrNil(got.DistributionCompletions))
+	if n := len(got.DistributionCompletions); n == 0 || got.DistributionCompletions[0].ParkLabel != "CBE" {
+		t.Fatalf("completion rows must open on CBE: got first row %+v", firstOrNil(got.DistributionCompletions))
 	}
-	assertClustered(t, "completion rows", parkLabels(got.DistributionCompletions, func(r domain.DistributionCompletionRow) string { return r.ParkLabel }))
+	assertClustered(t, "completion rows", parkLabels(got.DistributionCompletions, func(r domain.DistributionCompletionRow) string { return r.ParkLabel }), "CBE", "CPT")
 	t.Run("OneToMany", func(t *testing.T) {
 		// Six feed cells include two items for one pen-session. The new park
 		// join/grouping must still yield five sessions and two shed options.
@@ -115,7 +117,7 @@ WHERE i.tenant_id = $1::uuid AND i.park_id = $2::uuid AND r.tenant_id = i.tenant
 	if len(shedFeed.Rows) == 0 || shedFeed.Rows[0].ParkLabel != "Coimbatore" {
 		t.Fatalf("feed-by-pen rows must open on CBE (Coimbatore): got first row %+v", firstOrNil(shedFeed.Rows))
 	}
-	assertClustered(t, "feed-by-pen rows", parkLabels(shedFeed.Rows, func(r domain.ShedFeedPenRow) string { return r.ParkLabel }))
+	assertClustered(t, "feed-by-pen rows", parkLabels(shedFeed.Rows, func(r domain.ShedFeedPenRow) string { return r.ParkLabel }), "Coimbatore", "Channapatna")
 }
 
 func parkLabels[T any](rows []T, label func(T) string) []string {
@@ -135,7 +137,7 @@ func firstOrNil[T any](rows []T) any {
 
 // assertClustered fails when a park reappears after another park has started: two clusters,
 // never interleaved.
-func assertClustered(t *testing.T, what string, labels []string) {
+func assertClustered(t *testing.T, what string, labels []string, first, second string) {
 	t.Helper()
 	seen := map[string]bool{}
 	last := ""
@@ -146,7 +148,7 @@ func assertClustered(t *testing.T, what string, labels []string) {
 		seen[label] = true
 		last = label
 	}
-	if !seen["Coimbatore"] || !seen["Channapatna"] {
+	if !seen[first] || !seen[second] {
 		t.Fatalf("%s must list both parks: %v", what, labels)
 	}
 }

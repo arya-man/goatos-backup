@@ -14,7 +14,7 @@ import (
 // Purchased vs consumed, per load (maintainer request 2026-09-19). See domain/stock_loads.go for
 // the rule; this file is the FIFO arithmetic in SQL.
 //
-// projection-review: membership=feed_purchases at (tenant,farm_label,feed_item_key,batch_no), locked/external feeding at (park,item,day), sales at (tenant,line_id); group_key=(farm_label,feed_item_key) for FIFO, (farm_label,family_key) for runway and burn rate; join_cardinality=movements JOIN positioned loads N:M with each kg overlap allocated once then grouped to purchase id, loads LEFT JOIN burn 1:0..1, unique merge-map and rate-override rows; pagination=bounded LIMIT/OFFSET with totals over the identical filtered load set; scope=tenant everywhere plus authorized park purchases and feeding, sales matched to those purchases by farm and stock family
+// projection-review: membership=feed_purchases at (tenant,farm_label,feed_item_key,batch_no), locked/external feeding at (park,item,day), sales at (tenant,line_id); group_key=(farm_label,family_key) for the FIFO queue, runway and burn rate, each item still counted from its own ledger start; join_cardinality=movements JOIN positioned loads N:M with each kg overlap allocated once then grouped to purchase id, loads LEFT JOIN burn 1:0..1, unique merge-map and rate-override rows; pagination=bounded LIMIT/OFFSET with totals over the identical filtered load set; scope=tenant everywhere plus authorized park purchases and feeding, sales matched to those purchases by farm and stock family
 // Sales share the date-ordered FIFO stream with feeding. Only feeding contributes
 // consumed kg/days and burn rate. Same-day feeding precedes sales deterministically.
 // Sales before the ledger starts are charged at its first date, matching the cards'
@@ -64,17 +64,20 @@ loads AS (
     WHERE p.tenant_id = $1
       AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR p.park_id = ANY ($2::uuid[]))
 ),
--- FIFO position within (farm, feed): the kg of every REACHED load that arrived before this one.
+-- FIFO position within (farm, stock FAMILY): the kg of every REACHED load of the family that arrived
+-- before this one. The queue is the family's, not the item's (maintainer decision 2026-09-24: the
+-- stock card is the figure), so a retired split feed fed beyond what was bought draws on the
+-- successor's load instead of leaving the overrun on a hidden retired row.
 -- Ordered by arrival day, then purchase day, then batch, so two loads reaching on one day keep
 -- the order they were bought in.
 positioned AS (
     SELECT l.*,
            COALESCE(SUM(net_kg) OVER (
-               PARTITION BY farm_label, feed_item_key
+               PARTITION BY farm_label, family_key
                ORDER BY depletes_from, purchase_date, batch_no
                ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING), 0) AS prior_net_kg,
            ROW_NUMBER() OVER (
-               PARTITION BY farm_label, feed_item_key
+               PARTITION BY farm_label, family_key
                ORDER BY depletes_from DESC, purchase_date DESC, batch_no DESC) AS recency
     FROM loads l
     WHERE l.delivery_status = 'reached'
@@ -109,11 +112,10 @@ cells AS (
     ) both_sources
     GROUP BY park_id, feed_item_key, feed_day
 ),
--- Running total of everything directed against the family since its ledger start. cum_before is
--- the total BEFORE the day, so a day that straddles two loads is counted for both.
+-- Everything directed against each item since ITS OWN ledger start (the cards' rule), tagged with
+-- the family whose queue it draws on.
 family_cells AS (
-    SELECT f.farm_label, f.feed_item_key, c.feed_day, c.kg,
-           SUM(c.kg) OVER (PARTITION BY f.farm_label, f.feed_item_key ORDER BY c.feed_day) AS cum_kg
+    SELECT f.farm_label, f.feed_item_key, f.family_key, c.feed_day, c.kg
     FROM family f
     JOIN cells c
       ON f.park_id_text IS NOT NULL
@@ -123,15 +125,16 @@ family_cells AS (
 ),
 -- Sales join only the depletion stream. Feeding remains the sole source of burn rates.
 -- projection-review: membership=family_cells at (farm,item,day) and feed_sale_depletions
--- at (tenant,line_id); group_key=(farm_label,feed_item_key,feed_day,movement_order);
+-- at (tenant,line_id); group_key=(farm_label,family_key,feed_day,movement_order);
 -- join_cardinality=sales LATERAL family LIMIT 1 then aggregate, movements JOIN loads N:M,
 -- each overlap allocated once before grouping by purchase id; pagination=none; scope=tenant plus the
 -- authorized reached purchases in family. Both streams allocate over the same load keys.
 movements AS (
-    SELECT farm_label, feed_item_key, feed_day, kg, 0 AS movement_order
+    SELECT farm_label, family_key, feed_day, SUM(kg) AS kg, 0 AS movement_order
     FROM family_cells
+    GROUP BY farm_label, family_key, feed_day
     UNION ALL
-    SELECT f.farm_label, f.feed_item_key, GREATEST(s.feed_day, f.ledger_from),
+    SELECT f.farm_label, f.family_key, GREATEST(s.feed_day, f.ledger_from),
            SUM(s.quantity_kg), 1
     FROM feed_sale_depletions s
     LEFT JOIN merge_map sm ON sm.member_key = s.feed_item_key
@@ -148,11 +151,11 @@ movements AS (
         LIMIT 1
     ) f ON true
     WHERE s.tenant_id = $1
-    GROUP BY f.farm_label, f.feed_item_key, GREATEST(s.feed_day, f.ledger_from)
+    GROUP BY f.farm_label, f.family_key, GREATEST(s.feed_day, f.ledger_from)
 ),
 movement_cells AS (
     SELECT m.*, SUM(kg) OVER (
-        PARTITION BY farm_label, feed_item_key ORDER BY feed_day, movement_order
+        PARTITION BY farm_label, family_key ORDER BY feed_day, movement_order
         ROWS UNBOUNDED PRECEDING) AS cum_kg
     FROM movements m
 ),
@@ -196,7 +199,7 @@ load_allocations AS (
                            SELECT 1
                            FROM positioned next_load
                            WHERE next_load.farm_label = p.farm_label
-                             AND next_load.feed_item_key = p.feed_item_key
+                             AND next_load.family_key = p.family_key
                              AND next_load.depletes_from <= fc.feed_day
                              AND (next_load.depletes_from, next_load.purchase_date, next_load.batch_no) >
                                  (p.depletes_from, p.purchase_date, p.batch_no)
@@ -209,7 +212,7 @@ load_allocations AS (
     FROM positioned p
     JOIN movement_cells fc
       ON fc.farm_label = p.farm_label
-     AND fc.feed_item_key = p.feed_item_key
+     AND fc.family_key = p.family_key
      AND fc.feed_day >= p.depletes_from
      AND fc.cum_kg > p.prior_net_kg
      AND (
@@ -218,7 +221,7 @@ load_allocations AS (
              SELECT 1
              FROM positioned next_load
              WHERE next_load.farm_label = p.farm_label
-               AND next_load.feed_item_key = p.feed_item_key
+               AND next_load.family_key = p.family_key
                AND next_load.depletes_from <= fc.feed_day
                AND (next_load.depletes_from, next_load.purchase_date, next_load.batch_no) >
                    (p.depletes_from, p.purchase_date, p.batch_no)
