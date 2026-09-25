@@ -31,4 +31,10 @@ class WorkBoardModuleChipsTest {
     fun noModulesYetMeansNoChipRow() {
         assertEquals(emptyList<Any>(), moduleChips(emptyList(), emptyMap(), total = 0, selected = ""))
     }
+
+    @Test
+    fun aModuleWhoseCountTimedOutKeepsItsChip() {
+        val chips = moduleChips(modules, byModule, total = 7, selected = "", degraded = setOf("vaccination"))
+        assertEquals(listOf("", "feed", "vaccination", "milk"), chips.map { it.key })
+    }
 }

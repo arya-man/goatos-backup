@@ -36,6 +36,7 @@ import {
   stateOptions,
   WORK_BOARD_PATH,
 } from "./work-board-model";
+import { withLoadedDegradedCards, modulesWithWork } from "./work-board-counts";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -182,9 +183,9 @@ export async function WorkBoardPage({ searchParams, pageContract }: { searchPara
     }
     pagePlans.push({ parkKey: park.key, openLanes, cursors });
   }
-  const pageResults = noneSelected
-    ? []
-    : await runBounded(pagePlans, 1, (plan) => getWorkBoardPage({ ...filterScope, park: plan.parkKey }, { limit, lanes: plan.openLanes, cursors: plan.cursors })); // request-plan:ignore owner=work-board issue=bounded-park-page-fanout expires=2027-03-31 reason=all-parks reads are serialized across parks; each backend page read serializes/short-circuits lane reads instead of SSR fanning out 10+ API calls
+  // "Clear all" still reads each park's summary (no lanes: page_lane=__none__), because the Module
+  // menu lists only the modules that have work and cannot know that from nothing.
+  const pageResults = await runBounded(pagePlans, 1, (plan) => getWorkBoardPage({ ...filterScope, park: plan.parkKey }, { limit, lanes: plan.openLanes, cursors: plan.cursors })); // request-plan:ignore owner=work-board issue=bounded-park-page-fanout expires=2027-03-31 reason=all-parks reads are serialized across parks; each backend page read serializes/short-circuits lane reads instead of SSR fanning out 10+ API calls
   const summaryResults = noneSelected ? [] : pageResults.map((result) => (result.ok ? { ok: true as const, data: result.data.summary } : result));
   const vocabularyResults = pageResults.flatMap((result) => (result.ok && (noneSelected || result.data.vocabulary_summary) ? [{ ok: true as const, data: result.data.vocabulary_summary ?? result.data.summary }] : []));
   const laneParkReads: LaneParkRead[] = [];
@@ -205,14 +206,29 @@ export async function WorkBoardPage({ searchParams, pageContract }: { searchPara
 
   const rows: WorkBoardRow[] = laneParkReads.flatMap((read) => (read.result.ok ? read.result.data.rows : []));
   const ownerOptions = ownerOptionsFromVocabulary(pageResults.flatMap((result) => (result.ok ? result.data.owner_vocabulary ?? [] : []))) || ownersOnPage(rows);
-  const summary = mergeSummaries(summaryResults.flatMap((result) => (result.ok ? [result.data] : [])));
+  // Which modules could not be COUNTED, per park: each page read carries its own deduped list.
+  const degradedByPark = new Map<string, Set<string>>();
+  pagePlans.forEach((plan, i) => {
+    const result = pageResults[i];
+    const deg = result && result.ok ? (result.data as { degraded?: string[] }).degraded : undefined;
+    if (Array.isArray(deg) && deg.length) degradedByPark.set(plan.parkKey, new Set(deg));
+  });
+  const loadedCards = laneParkReads.flatMap((read) => (read.result.ok ? read.result.data.rows.map((row) => ({ parkKey: read.parkKey, lane: read.lane, module: row.module })) : []));
+  const mergedSummary = mergeSummaries(summaryResults.flatMap((result) => (result.ok ? [result.data] : [])));
+  // A module whose count timed out still loads its cards; they are added to the headings so a
+  // column never reads fewer than the cards under it.
+  const summary = mergedSummary ? withLoadedDegradedCards(mergedSummary, loadedCards, degradedByPark) : null;
   const okVocabulary = vocabularyResults.flatMap((result) => (result.ok ? [result.data] : []));
   const okSummary = summaryResults.flatMap((result) => (result.ok ? [result.data] : []));
   // Own-rows-only is a per-caller fact; any park saying so makes the board an own-rows board.
   const ownRowsOnly = [...okVocabulary, ...okSummary].some((data) => data.own_rows_only);
   const vocabularySummary = mergeSummaries(okVocabulary) ?? summary;
   const vocabulary = vocabularySummary ? vocabularySummary.modules : null;
-  const visibleModules = vocabulary ? modulesVisible(allModules, vocabulary) : allModules;
+  const degradedAnywhere = new Set<string>([...degradedByPark.values()].flatMap((set) => [...set]));
+  // The menu offers only modules with work on the day (plus one that timed out or is selected).
+  const visibleModules = vocabulary && vocabularySummary
+    ? modulesWithWork(modulesVisible(allModules, vocabulary), vocabularySummary.by_module ?? {}, degradedAnywhere, selectedModules)
+    : allModules;
   // Per-column pagers: each column reads all active parks and pages them TOGETHER on a shared page
   // number, with each park keeping its own keyset cursor `c_<lane>_<parkKey>`.
   const columns: WorkBoardLaneColumn[] = laneKeys.map((lane) => {

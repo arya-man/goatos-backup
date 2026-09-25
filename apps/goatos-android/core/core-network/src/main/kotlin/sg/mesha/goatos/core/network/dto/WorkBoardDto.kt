@@ -111,6 +111,8 @@ data class WorkBoardSummaryDto(
     @SerialName("by_module_state") val byModuleState: Map<String, Map<String, Int>>? = null,
     @SerialName("needs_attention") val needsAttention: Int = 0,
     @SerialName("modules") val modules: List<String>? = null,
+    /** Modules whose count timed out on the server: their work is unknown, not absent. */
+    @SerialName("degraded") val degraded: List<String>? = null,
     @SerialName("lanes") val lanes: List<String>? = null,
     @SerialName("business_date") val businessDate: String = "",
     @SerialName("park_id") val parkId: String = "",
