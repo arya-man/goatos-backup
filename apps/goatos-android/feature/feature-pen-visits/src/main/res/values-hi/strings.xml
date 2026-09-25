@@ -8,4 +8,5 @@
     <string name="pen_visits_state_submitted">दौरा सत्यापित</string>
     <string name="pen_visits_state_in_review">सत्यापनकर्ता के पास</string>
     <string name="pen_visits_state_sent_back">सत्यापनकर्ता ने वापस भेजा</string>
+    <string name="pen_visits_refresh_failed">ताज़ा नहीं हो सका · सहेजी गई विज़िट दिख रही हैं</string>
 </resources>

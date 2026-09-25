@@ -61,15 +61,86 @@ class ApprovalViewModelTerminalFailureTest {
         advanceUntilIdle()
 
         assertNull("enqueue alone must not destructively delete the cached row", repository.forgottenRequestId)
-        assertEquals(REQUEST_ID, viewModel.state.value.decidingRequestId)
+        assertEquals(setOf(REQUEST_ID), viewModel.state.value.decidingRequestIds)
 
-        syncRepository.emitTerminalFailure("Server rejected this decision.")
+        syncRepository.emitTerminalFailure(REQUEST_ID, "Server rejected this decision.")
         advanceUntilIdle()
 
         assertNull(repository.forgottenRequestId)
-        assertNull(viewModel.state.value.decidingRequestId)
-        assertTrue(viewModel.state.value.isError)
+        assertTrue(viewModel.state.value.decidingRequestIds.isEmpty())
+        assertTrue(viewModel.state.value.cardMessages.getValue(REQUEST_ID).isError)
     }
+
+    // ---- Approvals defects, live E2E 2026-09-25 ----------------------------------------------
+
+    @Test
+    fun `a refusal is shown on the card that was decided, in farm words keyed on the server code`() = runTest(dispatcher) {
+        val syncRepository = ApprovalSyncRepository()
+        val viewModel = newViewModel(syncRepository)
+
+        viewModel.onEvent(ApprovalEvent.Approve(REQUEST_ID))
+        advanceUntilIdle()
+        syncRepository.emitTerminalFailure(
+            REQUEST_ID,
+            message = "every step of the death report (its videos, photos and answers) must be recorded before approval",
+            code = "death_evidence_incomplete",
+        )
+        advanceUntilIdle()
+
+        val onCard = viewModel.state.value.cardMessages[REQUEST_ID]
+        assertEquals("All the death report steps must be recorded before it can be approved.", onCard?.message)
+        assertTrue(onCard!!.isError)
+        assertNull("a card's refusal is not a list-level banner", viewModel.state.value.message)
+    }
+
+    @Test
+    fun `known refusal codes map to farm copy and anything else to a plain retry line`() {
+        assertEquals("This request was already decided or changed.", approvalRefusalMessage("approval_already_decided"))
+        assertEquals("This request was already decided or changed.", approvalRefusalMessage("idempotency_conflict"))
+        assertEquals("You can't decide this request.", approvalRefusalMessage("permission_denied"))
+        assertEquals("You can't decide this request.", approvalRefusalMessage("park_scope_forbidden"))
+        assertEquals("Couldn't save the decision. Try again.", approvalRefusalMessage(null))
+        assertEquals("Couldn't save the decision. Try again.", approvalRefusalMessage("something_new"))
+    }
+
+    @Test
+    fun `offline, deciding one card never swallows a tap on another card`() = runTest(dispatcher) {
+        val syncRepository = ApprovalSyncRepository()
+        val viewModel = newViewModel(syncRepository)
+
+        viewModel.onEvent(ApprovalEvent.Approve(REQUEST_ID))
+        advanceUntilIdle()
+        // The first decision is still queued (no network): a tap on a different card must queue too.
+        viewModel.onEvent(ApprovalEvent.Approve(OTHER_REQUEST_ID))
+        advanceUntilIdle()
+
+        assertEquals(listOf(REQUEST_ID, OTHER_REQUEST_ID), syncRepository.enqueuedRequestIds)
+        assertEquals(setOf(REQUEST_ID, OTHER_REQUEST_ID), viewModel.state.value.decidingRequestIds)
+
+        // A second tap on the SAME card while its decision is on its way is still held.
+        viewModel.onEvent(ApprovalEvent.Approve(REQUEST_ID))
+        advanceUntilIdle()
+        assertEquals(2, syncRepository.enqueuedRequestIds.size)
+
+        // Each decision settles on its own.
+        syncRepository.emitSucceeded(OTHER_REQUEST_ID)
+        advanceUntilIdle()
+        assertEquals(setOf(REQUEST_ID), viewModel.state.value.decidingRequestIds)
+    }
+
+    @Test
+    fun `raised-at renders DD-MM-YYYY HH-MM in IST and an unparseable value verbatim`() {
+        assertEquals("25/09/2026 13:39", formatRaisedAt("2026-09-25T08:09:00Z"))
+        assertEquals("not-a-time", formatRaisedAt("not-a-time"))
+    }
+
+    private fun newViewModel(syncRepository: ApprovalSyncRepository) = ApprovalViewModel(
+        approvalRepository = RecordingApprovalRepository(),
+        syncRepository = syncRepository,
+        analytics = NoopApprovalAnalytics(),
+        crashReporter = NoopApprovalCrashReporter(),
+        savedStateHandle = SavedStateHandle(),
+    )
 
     // ---- ApprovalCapturedRowsTest (SHIFTING SOP, 2026-09-16) ---------------------------------
     // A shifting raise capture rides the SAME renderer as a birth/death report capture: tapping it
@@ -95,6 +166,7 @@ class ApprovalViewModelTerminalFailureTest {
 
     private companion object {
         const val REQUEST_ID = "approval-1"
+        const val OTHER_REQUEST_ID = "approval-2"
     }
 }
 
@@ -117,17 +189,23 @@ private class RecordingApprovalRepository : CountsApprovalRepository {
 
 private class ApprovalSyncRepository : SyncRepository {
     private val status = MutableStateFlow(SyncStatus.empty(online = true))
-    private val item = MutableStateFlow<SyncQueueItem?>(null)
+    private val items = mutableMapOf<String, MutableStateFlow<SyncQueueItem?>>()
+    val enqueuedRequestIds = mutableListOf<String>()
+
+    private fun flowFor(itemId: String) = items.getOrPut(itemId) { MutableStateFlow(null) }
 
     override fun observeStatus(): StateFlow<SyncStatus> = status
-    override fun observeItem(itemId: String): Flow<SyncQueueItem?> = item
+    override fun observeItem(itemId: String): Flow<SyncQueueItem?> = flowFor(itemId)
 
     override suspend fun enqueueCountsApprovalDecision(
         requestId: String,
         approve: Boolean,
         reason: String?,
         idempotencyKey: String,
-    ): AppResult<String> = AppResult.Ok(OUTBOX_ID)
+    ): AppResult<String> {
+        enqueuedRequestIds += requestId
+        return AppResult.Ok(outboxId(requestId))
+    }
 
     override suspend fun enqueueShedSubmit(taskId: String, groupKey: String, idempotencyKey: String, request: SubmitTaskRequestDto): AppResult<String> = error("unused")
     override suspend fun enqueueReschedule(obligationId: String, groupKey: String, idempotencyKey: String, request: RescheduleObligationRequestDto): AppResult<String> = error("unused")
@@ -139,25 +217,29 @@ private class ApprovalSyncRepository : SyncRepository {
     override suspend fun deleteOutboxItem(itemId: String): AppResult<Unit> = AppResult.Ok(Unit)
     override suspend fun triggerDrain() = Unit
 
-    fun emitTerminalFailure(message: String) {
-        item.value = SyncQueueItem(
-            id = OUTBOX_ID,
-            opType = "COUNTS_APPROVAL_APPROVE",
-            idempotencyKey = "approval-key",
-            groupKey = "approval-1",
-            status = SyncItemStatus.FAILED,
-            attemptCount = 1,
-            maxAttempts = 3,
-            conflict = true,
-            createdAt = 1L,
-            updatedAt = 2L,
-            lastError = message,
-        )
+    fun emitTerminalFailure(requestId: String, message: String, code: String? = null) {
+        flowFor(outboxId(requestId)).value = item(requestId, SyncItemStatus.FAILED).copy(lastError = message, lastErrorCode = code)
     }
 
-    private companion object {
-        const val OUTBOX_ID = "approval-outbox-1"
+    fun emitSucceeded(requestId: String) {
+        flowFor(outboxId(requestId)).value = item(requestId, SyncItemStatus.SUCCEEDED)
     }
+
+    private fun item(requestId: String, status: SyncItemStatus) = SyncQueueItem(
+        id = outboxId(requestId),
+        opType = "COUNTS_APPROVAL_APPROVE",
+        idempotencyKey = "counts-approval-approve:$requestId",
+        groupKey = requestId,
+        status = status,
+        attemptCount = 1,
+        maxAttempts = 3,
+        conflict = status == SyncItemStatus.FAILED,
+        createdAt = 1L,
+        updatedAt = 2L,
+        lastError = null,
+    )
+
+    private fun outboxId(requestId: String) = "outbox-$requestId"
 }
 
 private class NoopApprovalAnalytics : AnalyticsPort {

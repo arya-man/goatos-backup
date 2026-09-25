@@ -9,6 +9,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import java.time.OffsetDateTime
 import java.time.format.DateTimeFormatter
 import java.util.UUID
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -42,6 +43,7 @@ import sg.mesha.goatos.feature.leadershiptasks.formatBytes
 import sg.mesha.goatos.feature.leadershiptasks.formatClock
 import sg.mesha.goatos.leadershiptasks.AttachmentImporter
 import sg.mesha.goatos.leadershiptasks.ImportResult
+import sg.mesha.goatos.leadershiptasks.LeadershipDraftFiles
 import sg.mesha.goatos.leadershiptasks.VoiceNoteRecorder
 import javax.inject.Inject
 
@@ -123,8 +125,16 @@ class LeadershipTaskComposeViewModel @Inject constructor(
         .map { it.toUiState() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Draft(seeded = !isEdit).toUiState())
 
+    /** Where this phone keeps a draft's copied bytes until the task is sent. */
+    private val draftDir = LeadershipDraftFiles.draftDir(appContext.filesDir)
+
     init {
         if (isEdit) seedFromExisting() else loadAssignees()
+        // Bounded sweep of draft files a crash or process death left behind (older than a week).
+        viewModelScope.launch(Dispatchers.IO) {
+            // exception:exempt housekeeping of orphaned private files; a failed sweep just retries next open
+            runCatching { LeadershipDraftFiles.pruneStale(draftDir, System.currentTimeMillis()) }
+        }
     }
 
     fun onEvent(event: LeadershipTaskComposeEvent) {
@@ -149,7 +159,18 @@ class LeadershipTaskComposeViewModel @Inject constructor(
     override fun onCleared() {
         recordingTicker?.cancel()
         recorder.discard()
+        // The form was left: a draft that was not sent is gone, and so are its copied bytes (a
+        // sent draft already dropped them).
+        deleteLocalFiles(draft.value.attachments)
         super.onCleared()
+    }
+
+    /** Deletes the copied bytes of [attachments] from the draft folder. Never throws. */
+    private fun deleteLocalFiles(attachments: List<DraftAttachment>) {
+        attachments.forEach { attachment ->
+            // exception:exempt deleting a private draft copy; a leftover is swept at the next open
+            runCatching { LeadershipDraftFiles.delete(attachment.localPath, draftDir) }
+        }
     }
 
     private fun loadAssignees() {
@@ -334,7 +355,9 @@ class LeadershipTaskComposeViewModel @Inject constructor(
 
     private fun removeAttachment(key: String) {
         if (draft.value.sending) return
+        val removed = draft.value.attachments.filter { it.key == key }
         draft.update { current -> current.copy(attachments = current.attachments.filterNot { it.key == key }) }
+        deleteLocalFiles(removed)
     }
 
     /**
@@ -417,6 +440,8 @@ class LeadershipTaskComposeViewModel @Inject constructor(
                             if (isEdit) AnalyticsEventsLeadershipTasks.TASK_EDITED else AnalyticsEventsLeadershipTasks.TASK_RAISED,
                             mapOf(AnalyticsEvents.Params.COUNT to refs.size.toString()),
                         )
+                        // Every attachment is on the server now: its local copy has done its job.
+                        deleteLocalFiles(ready.attachments)
                         draft.update { it.copy(sentTaskId = result.value.taskId) }
                     }
                     is AppResult.Err -> {

@@ -72,6 +72,7 @@ fun LeadershipTaskListScreen(
                     isRefreshing = state.isRefreshing,
                     lastSyncedAt = state.lastSyncedAt,
                     hasData = rows.itemCount > 0,
+                    refreshFailedLabel = if (state.refreshFailed) stringResource(R.string.leadership_tasks_refresh_failed) else null,
                 )
             },
             actions = {

@@ -41,4 +41,5 @@
     <string name="leadership_tasks_deadline_ok">ಸರಿ</string>
     <string name="leadership_tasks_deadline_cancel">ರದ್ದುಮಾಡಿ</string>
     <string name="leadership_tasks_deadline_prefix">ಗಡುವು</string>
+    <string name="leadership_tasks_refresh_failed">ರಿಫ್ರೆಶ್ ಆಗಲಿಲ್ಲ · ಉಳಿಸಿದ ಕೆಲಸಗಳನ್ನು ತೋರಿಸಲಾಗುತ್ತಿದೆ</string>
 </resources>

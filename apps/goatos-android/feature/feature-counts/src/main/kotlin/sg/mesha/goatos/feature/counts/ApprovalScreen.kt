@@ -106,6 +106,9 @@ data class ApprovalRowUi(
 )
 
 @Immutable
+data class ApprovalCardMessage(val message: String, val isError: Boolean)
+
+@Immutable
 data class ApprovalCaptureRowUi(val label: String, val value: String, val group: String = "")
 
 @Immutable
@@ -116,8 +119,19 @@ data class ApprovalUiState(
     /** The row whose reject sheet is open; null when no rejection is being composed. */
     val rejectingRequestId: String? = null,
     val rejectReason: String = "",
-    /** Set while a decision is being queued, so a double-tap cannot enqueue twice. */
-    val decidingRequestId: String? = null,
+    /**
+     * Requests whose decision is on its way. PER REQUEST: each card is its own outbox lane, so an
+     * approver offline can decide card after card; only the same card is held against a double-tap.
+     */
+    val decidingRequestIds: Set<String> = emptySet(),
+    /**
+     * What happened to a decision, shown ON THE CARD that was decided (keyed by request id): the
+     * "saved on this phone" note while it sends, or the refusal in farm words when the server said
+     * no. A refusal used to appear only as a banner at the top of the list — off-screen from a card
+     * the approver had scrolled down to.
+     */
+    val cardMessages: Map<String, ApprovalCardMessage> = emptyMap(),
+    /** LIST-level banner only (never a single card's outcome). */
     val message: String? = null,
     val isError: Boolean = false,
     /** Signed URLs of capture proofs the approver opened (proof id -> URL), for this screen only. */
@@ -199,7 +213,8 @@ fun ApprovalScreen(
                 val row = rows[index] ?: return@items
                 ApprovalCard(
                     row = row,
-                    busy = state.decidingRequestId == row.requestId,
+                    busy = row.requestId in state.decidingRequestIds,
+                    cardMessage = state.cardMessages[row.requestId],
                     rejecting = state.rejectingRequestId == row.requestId,
                     rejectReason = state.rejectReason,
                     state = state,
@@ -234,6 +249,7 @@ fun ApprovalScreen(
 private fun ApprovalCard(
     row: ApprovalRowUi,
     busy: Boolean,
+    cardMessage: ApprovalCardMessage?,
     rejecting: Boolean,
     rejectReason: String,
     state: ApprovalUiState,
@@ -272,6 +288,9 @@ private fun ApprovalCard(
             Text(text = row.summaryLine, color = MeshaColors.Ink, style = MeshaType.cardSubtitle)
         }
         ApprovalCaptureSection(row = row, state = state, onEvent = onEvent)
+
+        // This card's own outcome, right above the buttons the approver just pressed.
+        cardMessage?.let { ApprovalBanner(message = it.message, isError = it.isError) }
 
         if (rejecting) {
             // A rejection is not actionable without a reason, so the reason is composed inline
@@ -366,7 +385,7 @@ private fun ApprovalBanner(message: String, isError: Boolean) {
             tint = fg,
             modifier = Modifier.size(16.dp),
         )
-        // Verbatim: a backend rejection/conflict reason is the server's own copy.
+        // Farm copy composed by the ViewModel from the server's error CODE, or a list-level note.
         Text(text = message, color = fg, style = MeshaType.cardSubtitle)
     }
 }

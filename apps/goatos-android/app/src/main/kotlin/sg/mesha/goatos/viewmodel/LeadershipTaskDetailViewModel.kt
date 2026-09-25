@@ -24,6 +24,7 @@ import sg.mesha.goatos.core.analytics.AnalyticsEventsLeadershipTasks
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.AppResult
+import sg.mesha.goatos.core.common.datetime.GoatOsDates
 import sg.mesha.goatos.core.data.LeadershipTasksRepository
 import sg.mesha.goatos.core.network.dto.LeadershipTaskDto
 import sg.mesha.goatos.core.network.dto.LeadershipTaskStatusRequestDto
@@ -51,8 +52,9 @@ data class LeadershipOpenFileRequest(val localPath: String, val mimeType: String
  *
  * Two write rules, both provable in the unit test:
  *  - `seen` fires ONCE per open, and only when the payload says the caller has not seen it.
- *  - a status change mints its idempotency key ONCE per (task, target) and reuses it verbatim on
- *    a retry, so a tap repeated after a timeout can never move the task twice.
+ *  - a status change mints its idempotency key ONCE per (target, row version sent) and reuses it
+ *    verbatim on a retry, so a tap repeated after a timeout can never move the task twice — and a
+ *    retry after the task moved to a new version is a new write, never a stuck conflict.
  */
 @HiltViewModel
 class LeadershipTaskDetailViewModel @Inject constructor(
@@ -75,7 +77,12 @@ class LeadershipTaskDetailViewModel @Inject constructor(
         val fetched: Map<String, String> = emptyMap(),
         /** Attachment listKeys whose bytes are being fetched. */
         val fetching: Set<String> = emptySet(),
-        /** Idempotency keys minted for status writes, keyed by target status; kept until success. */
+        /**
+         * Idempotency keys minted for status writes, keyed by (target status, row version SENT).
+         * The server fingerprints the row version, so a key minted for version 3 must never be
+         * re-sent with version 4 — that is an idempotency conflict forever, and the status change
+         * could never go through again. A retry of the SAME move on the SAME version replays.
+         */
         val statusKeys: Map<String, String> = emptyMap(),
         /** The comment being typed; null means "show the server's". */
         val commentDraft: String? = null,
@@ -179,10 +186,16 @@ class LeadershipTaskDetailViewModel @Inject constructor(
     private fun changeStatus(statusKey: String) {
         val task = latest ?: return
         if (local.value.actionInFlight) return
-        // ONE key per (task, target status) for the life of this screen: a retry after a timeout
-        // sends the same key and the server answers with the original result instead of a second move.
-        val key = local.value.statusKeys[statusKey] ?: UUID.randomUUID().toString().also { minted ->
-            local.update { it.copy(statusKeys = it.statusKeys + (statusKey to minted)) }
+        // ONE key per (target status, row version sent): a retry after a timeout on the same
+        // version sends the same key and the server answers with the original result instead of a
+        // second move; once the task has moved to a new version, the move is a new write.
+        val slot = statusKeySlot(statusKey, task.rowVersion)
+        val key = local.value.statusKeys[slot] ?: UUID.randomUUID().toString().also { minted ->
+            local.update { own ->
+                // Keys minted for an OLDER version of the task can never be sent again; drop them.
+                val current = own.statusKeys.filterKeys { it.substringAfterLast(STATUS_KEY_SEPARATOR) == task.rowVersion.toString() }
+                own.copy(statusKeys = current + (slot to minted))
+            }
         }
         viewModelScope.launch {
             local.update { it.copy(actionInFlight = true, message = null) }
@@ -195,7 +208,7 @@ class LeadershipTaskDetailViewModel @Inject constructor(
                     )
                 ) {
                     is AppResult.Ok -> {
-                        local.update { it.copy(statusKeys = it.statusKeys - statusKey) }
+                        local.update { it.copy(statusKeys = it.statusKeys - slot) }
                         analytics.track(
                             AnalyticsEventsLeadershipTasks.STATUS_CHANGED,
                             mapOf(AnalyticsEvents.Params.STATUS to statusKey),
@@ -323,6 +336,8 @@ class LeadershipTaskDetailViewModel @Inject constructor(
                     listKey = note.noteId.ifBlank { "${note.authorUserId}:${note.createdAt}" },
                     authorName = note.authorName,
                     body = note.body,
+                    // DD/MM/YYYY HH:MM in IST through the one phone date helper; blank when absent.
+                    whenLabel = GoatOsDates.fromWireInstant(note.createdAt),
                 )
             },
             statusOptions = detail.statusOptions
@@ -343,7 +358,10 @@ class LeadershipTaskDetailViewModel @Inject constructor(
         )
     }
 
+    private fun statusKeySlot(statusKey: String, rowVersion: Int): String = "$statusKey$STATUS_KEY_SEPARATOR$rowVersion"
+
     private companion object {
+        const val STATUS_KEY_SEPARATOR = "@"
         const val ARG_TASK_ID = "task_id"
         const val STATUS_CANCELLED = "cancelled"
         const val MAX_REASON_CHARS = 120

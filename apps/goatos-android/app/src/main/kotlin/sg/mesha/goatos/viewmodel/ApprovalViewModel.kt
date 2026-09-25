@@ -22,18 +22,17 @@ import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.AppResult
+import sg.mesha.goatos.core.common.datetime.GoatOsDates
 import sg.mesha.goatos.core.data.CountsApprovalRepository
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.network.dto.CountsApprovalListItemDto
+import sg.mesha.goatos.feature.counts.ApprovalCardMessage
 import sg.mesha.goatos.feature.counts.ApprovalCaptureMediaUi
 import sg.mesha.goatos.feature.counts.ApprovalCaptureRowUi
 import sg.mesha.goatos.feature.counts.ApprovalEvent
 import sg.mesha.goatos.feature.counts.ApprovalRowUi
 import sg.mesha.goatos.feature.counts.ApprovalUiState
-import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 import javax.inject.Inject
 
 /**
@@ -67,8 +66,8 @@ class ApprovalViewModel @Inject constructor(
     private val savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
-    private val decisionOutboxItemId = DraftOutboxItemId(savedStateHandle, KEY_OUTBOX_ITEM_ID)
-    private var decisionStatusJob: Job? = null
+    /** One status observer per request whose decision is on its way (each is its own outbox lane). */
+    private val decisionStatusJobs = mutableMapOf<String, Job>()
 
     private val _state = MutableStateFlow(ApprovalUiState())
     val state: StateFlow<ApprovalUiState> = _state.asStateFlow()
@@ -85,12 +84,10 @@ class ApprovalViewModel @Inject constructor(
 
     init {
         analytics.track(AnalyticsEvents.COUNTS_APPROVAL_QUEUE_VIEWED)
-        val pendingRequestId = savedStateHandle.get<String>(KEY_PENDING_REQUEST_ID)
-        decisionOutboxItemId.value?.let { itemId ->
-            if (pendingRequestId != null) {
-                _state.update { it.copy(decidingRequestId = pendingRequestId) }
-                observeDecision(itemId, pendingRequestId)
-            }
+        // Re-attach to every decision still on its way after a recreation / process death.
+        pendingDecisions().forEach { (requestId, itemId) ->
+            _state.update { it.copy(decidingRequestIds = it.decidingRequestIds + requestId) }
+            observeDecision(itemId, requestId)
         }
     }
 
@@ -98,7 +95,13 @@ class ApprovalViewModel @Inject constructor(
         when (event) {
             is ApprovalEvent.Approve -> decide(event.requestId, approve = true, reason = null)
             is ApprovalEvent.OpenReject ->
-                _state.update { it.copy(rejectingRequestId = event.requestId, rejectReason = "", message = null) }
+                _state.update {
+                    it.copy(
+                        rejectingRequestId = event.requestId,
+                        rejectReason = "",
+                        cardMessages = it.cardMessages - event.requestId,
+                    )
+                }
             is ApprovalEvent.EditRejectReason -> _state.update { it.copy(rejectReason = event.value) }
             ApprovalEvent.CancelReject ->
                 _state.update { it.copy(rejectingRequestId = null, rejectReason = "") }
@@ -109,7 +112,7 @@ class ApprovalViewModel @Inject constructor(
                 // approver is told immediately instead of the decision sitting in the outbox until
                 // it fails terminally.
                 if (current.rejectReason.isBlank()) {
-                    _state.update { it.copy(message = REASON_REQUIRED_MESSAGE, isError = true) }
+                    showOnCard(requestId, REASON_REQUIRED_TEXT, isError = true)
                     return
                 }
                 decide(requestId, approve = false, reason = current.rejectReason)
@@ -161,9 +164,20 @@ class ApprovalViewModel @Inject constructor(
         )
     }
 
+    /**
+     * Queues ONE request's decision. Decisions are independent: each request is its own outbox
+     * lane (`groupKey = requestId`), so an approver working offline can decide card after card —
+     * a tap on one card is never swallowed because another card's decision has not sent yet. Only
+     * a second tap on the SAME card is ignored while its decision is on its way.
+     */
     private fun decide(requestId: String, approve: Boolean, reason: String?) {
-        if (_state.value.decidingRequestId != null) return // one decision in flight at a time
-        _state.update { it.copy(decidingRequestId = requestId, message = null, isError = false) }
+        if (requestId in _state.value.decidingRequestIds) return
+        _state.update {
+            it.copy(
+                decidingRequestIds = it.decidingRequestIds + requestId,
+                cardMessages = it.cardMessages - requestId,
+            )
+        }
         viewModelScope.launch {
             val result = syncRepository.enqueueCountsApprovalDecision(
                 requestId = requestId,
@@ -173,8 +187,7 @@ class ApprovalViewModel @Inject constructor(
             )
             when (result) {
                 is AppResult.Ok -> {
-                    decisionOutboxItemId.value = result.value
-                    savedStateHandle[KEY_PENDING_REQUEST_ID] = requestId
+                    rememberPendingDecision(requestId, result.value)
                     observeDecision(result.value, requestId)
                     analytics.track(
                         AnalyticsEvents.COUNTS_APPROVAL_DECIDED,
@@ -184,10 +197,9 @@ class ApprovalViewModel @Inject constructor(
                     )
                     _state.update {
                         it.copy(
-                            rejectingRequestId = null,
-                            rejectReason = "",
-                            message = QUEUED_MESSAGE,
-                            isError = false,
+                            rejectingRequestId = if (it.rejectingRequestId == requestId) null else it.rejectingRequestId,
+                            rejectReason = if (it.rejectingRequestId == requestId) "" else it.rejectReason,
+                            cardMessages = it.cardMessages + (requestId to ApprovalCardMessage(QUEUED_MESSAGE, isError = false)),
                         )
                     }
                 }
@@ -200,43 +212,76 @@ class ApprovalViewModel @Inject constructor(
                             AnalyticsEvents.Params.REASON to result.message,
                         ),
                     )
-                    _state.update {
-                        it.copy(decidingRequestId = null, message = result.message, isError = true)
-                    }
+                    _state.update { it.copy(decidingRequestIds = it.decidingRequestIds - requestId) }
+                    // The enqueue error is the phone's own technical sentence; the approver is
+                    // told the farm version, on the card they tapped.
+                    showOnCard(requestId, DECISION_FAILED_TEXT, isError = true)
                 }
             }
         }
     }
 
     private fun observeDecision(itemId: String, requestId: String) {
-        decisionStatusJob?.cancel()
-        decisionStatusJob = viewModelScope.launch {
+        decisionStatusJobs.remove(requestId)?.cancel()
+        decisionStatusJobs[requestId] = viewModelScope.launch {
             syncRepository.observeItem(itemId).filterNotNull().collect { item ->
                 when {
                     item.status == SyncItemStatus.SUCCEEDED -> {
                         approvalRepository.forgetDecided(requestId)
-                        clearDecisionTracking()
-                        _state.update { it.copy(decidingRequestId = null) }
-                    }
-                    item.isTerminalFailure -> {
-                        clearDecisionTracking()
+                        forgetPendingDecision(requestId)
                         _state.update {
                             it.copy(
-                                decidingRequestId = null,
-                                message = item.lastError ?: DECISION_FAILED_MESSAGE,
-                                isError = true,
+                                decidingRequestIds = it.decidingRequestIds - requestId,
+                                cardMessages = it.cardMessages - requestId,
                             )
                         }
+                        decisionStatusJobs.remove(requestId)?.cancel()
+                    }
+                    item.isTerminalFailure -> {
+                        forgetPendingDecision(requestId)
+                        analytics.track(
+                            AnalyticsEvents.COUNTS_APPROVAL_FAILURE,
+                            mapOf(AnalyticsEvents.Params.REASON to (item.lastErrorCode ?: "unknown")),
+                        )
+                        _state.update { it.copy(decidingRequestIds = it.decidingRequestIds - requestId) }
+                        // ON THE CARD that was decided, in farm words keyed on the server's CODE —
+                        // never the server's raw sentence, and never only at the top of a list the
+                        // approver has scrolled away from.
+                        showOnCard(requestId, approvalRefusalMessage(item.lastErrorCode), isError = true)
+                        decisionStatusJobs.remove(requestId)?.cancel()
                     }
                 }
             }
         }
     }
 
-    private fun clearDecisionTracking() {
-        decisionOutboxItemId.value = null
-        savedStateHandle[KEY_PENDING_REQUEST_ID] = null
+    private fun showOnCard(requestId: String, message: String, isError: Boolean) {
+        _state.update { it.copy(cardMessages = it.cardMessages + (requestId to ApprovalCardMessage(message, isError))) }
     }
+
+    /** requestId -> outbox row id of every decision on its way, persisted across process death. */
+    private fun pendingDecisions(): Map<String, String> {
+        val stored = savedStateHandle.get<ArrayList<String>>(KEY_PENDING_DECISIONS).orEmpty()
+            .mapNotNull { entry -> entry.split(PENDING_SEPARATOR, limit = 2).takeIf { it.size == 2 }?.let { it[0] to it[1] } }
+            .toMap(LinkedHashMap())
+        // A decision queued by the previous build (one decision at a time) is still re-attached.
+        val legacyItem = savedStateHandle.get<String>(KEY_OUTBOX_ITEM_ID)
+        val legacyRequest = savedStateHandle.get<String>(KEY_PENDING_REQUEST_ID)
+        if (legacyItem != null && legacyRequest != null && legacyRequest !in stored) stored[legacyRequest] = legacyItem
+        return stored
+    }
+
+    private fun writePendingDecisions(next: Map<String, String>) {
+        savedStateHandle[KEY_PENDING_DECISIONS] = ArrayList(next.map { (request, item) -> "$request$PENDING_SEPARATOR$item" })
+        savedStateHandle.remove<String>(KEY_OUTBOX_ITEM_ID)
+        savedStateHandle.remove<String>(KEY_PENDING_REQUEST_ID)
+    }
+
+    private fun rememberPendingDecision(requestId: String, itemId: String) =
+        writePendingDecisions(pendingDecisions() + (requestId to itemId))
+
+    private fun forgetPendingDecision(requestId: String) =
+        writePendingDecisions(pendingDecisions() - requestId)
 
     /**
      * The stable idempotency key for deciding ONE request ONE way.
@@ -247,6 +292,11 @@ class ApprovalViewModel @Inject constructor(
      * applied a second time. Deliberately NOT the `"$id-verdict-${System.currentTimeMillis()}"`
      * shape used by the older verify/rework writes: a timestamped key makes every retry a NEW
      * logical write, which for an approval means applying its effect again.
+     *
+     * A second tap after a TERMINAL refusal re-uses this key safely: the outbox re-opens the dead
+     * row in place with the latest payload (a corrected reject reason included) and re-sends it,
+     * and the server records a decision key only on a decision it actually applied
+     * (CountsApprovalDecisionRetryTest).
      */
     private fun decisionKey(requestId: String, approve: Boolean): String {
         val direction = if (approve) "approve" else "reject"
@@ -261,20 +311,15 @@ class ApprovalViewModel @Inject constructor(
         const val KEY_IDEMPOTENCY = "countsApproval.idempotencyKey"
         const val KEY_OUTBOX_ITEM_ID = "countsApproval.outboxItemId"
         const val KEY_PENDING_REQUEST_ID = "countsApproval.pendingRequestId"
+        const val KEY_PENDING_DECISIONS = "countsApproval.pendingDecisions"
+        const val PENDING_SEPARATOR = "|"
         const val QUEUED_MESSAGE = "Decision saved on this phone. It will apply automatically."
-        const val DECISION_FAILED_MESSAGE = "This decision did not go through. Review it and try again."
-        const val REASON_REQUIRED_MESSAGE =
-            "Add a reason — the operator who raised this needs to know what to fix."
     }
 }
 
 // ---------------------------------------------------------------------------
 // Wire -> row mapping
 // ---------------------------------------------------------------------------
-
-/** IST, per AGENTS.md: every business meaning derived from an instant is India-business-calendar. */
-private val RAISED_AT_FORMAT: DateTimeFormatter =
-    DateTimeFormatter.ofPattern("dd/MM/yyyy, h:mm a").withZone(ZoneId.of("Asia/Kolkata"))
 
 /**
  * Wire row -> screen row.
@@ -323,16 +368,26 @@ private fun requestTypeLabel(requestType: String): String = when (requestType) {
 }
 
 /**
- * Raised-at display formatting, with the raw backend value as the fallback.
- *
- * Same philosophy as [requestTypeLabel] above: an unrecognised value renders VERBATIM rather than
- * being dropped or blanked, so an approver can still see and act on the row. A timestamp this cannot
- * parse is a backend format change, not a per-row data fault — it would fail for every row at once,
- * it is plainly visible on screen as an unformatted timestamp, and the approver is not blocked by it.
+ * Raised-at display formatting: `DD/MM/YYYY HH:MM` in IST through the ONE phone date helper
+ * (AGENTS.md "Every Visible Date Is DD/MM/YYYY"). An unparseable value renders VERBATIM rather
+ * than being dropped, so an approver can still see and act on the row — a timestamp this cannot
+ * parse is a backend format change, plainly visible on screen.
  */
-// exception:exempt pure display formatter; the parse failure is fully surfaced to the user as the
-// raw value, and this is a top-level mapper with no CrashReporter in scope — threading one through
-// it to report a systematic, self-evident formatting fallback would add coupling for no new signal.
-private fun formatRaisedAt(raisedAt: String): String = runCatching {
-    RAISED_AT_FORMAT.format(Instant.parse(raisedAt))
-}.getOrDefault(raisedAt)
+internal fun formatRaisedAt(raisedAt: String): String = GoatOsDates.fromWireInstant(raisedAt)
+
+/**
+ * The farm sentence for a refused decision, keyed on the server's stable error CODE (kept on the
+ * outbox row as `lastErrorCode`), never on the server's own lowercase sentence.
+ */
+internal fun approvalRefusalMessage(code: String?): String = when (code) {
+    "death_evidence_incomplete" -> "All the death report steps must be recorded before it can be approved."
+    "death_already_applied" -> "This animal's death was already approved on another report. Reject this one as a duplicate."
+    "approval_already_decided", "idempotency_conflict", "approval_request_not_found", "approval_payload_not_applicable" ->
+        "This request was already decided or changed."
+    "permission_denied", "park_scope_forbidden" -> "You can't decide this request."
+    "missing_reason" -> REASON_REQUIRED_TEXT
+    else -> DECISION_FAILED_TEXT
+}
+
+private const val DECISION_FAILED_TEXT = "Couldn't save the decision. Try again."
+private const val REASON_REQUIRED_TEXT = "Add a reason — the operator who raised this needs to know what to fix."

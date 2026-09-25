@@ -11,6 +11,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -127,6 +128,53 @@ class LeadershipTaskDetailViewModelTest {
         assertTrue(analytics.events.any { it.name == AnalyticsEventsLeadershipTasks.STATUS_CHANGED })
         assertEquals("the retry carried the same target", "in_progress", repository.statusCalls[1].request.status)
 
+        job.cancel()
+    }
+
+    @Test
+    fun `a retry after the task moved to a new version is a new write, never a stuck conflict`() = runTest(dispatcher) {
+        // Live defect: the key was kept per target status only, the server fingerprints the row
+        // version, so a timed-out move retried after a refresh (new version) was refused as an
+        // idempotency conflict forever.
+        val repository = FakeLeadershipTasksRepository(initialDetail = leadershipTask(isSeen = true, rowVersion = 7))
+        repository.failNextStatus = true
+        val vm = viewModel(repository)
+        val job = backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        vm.onEvent(LeadershipTaskDetailEvent.ChangeStatus("in_progress"))
+        advanceUntilIdle()
+        // Somebody else touched the task meanwhile: the refresh brings version 8.
+        repository.emitDetail(leadershipTask(isSeen = true, rowVersion = 8))
+        advanceUntilIdle()
+        vm.onEvent(LeadershipTaskDetailEvent.ChangeStatus("in_progress"))
+        advanceUntilIdle()
+
+        assertEquals(listOf(7, 8), repository.statusCalls.map { it.request.rowVersion })
+        assertNotEquals(
+            "a key minted for version 7 must never be re-sent with version 8",
+            repository.statusCalls[0].idempotencyKey,
+            repository.statusCalls[1].idempotencyKey,
+        )
+        job.cancel()
+    }
+
+    @Test
+    fun `each note carries when it was written as DD-MM-YYYY HH-MM in IST`() = runTest(dispatcher) {
+        val repository = FakeLeadershipTasksRepository(
+            initialDetail = leadershipTask(
+                isSeen = true,
+                notes = listOf(
+                    LeadershipTaskNoteDto(noteId = "note-1", authorName = "Ravi", body = "Checked", createdAt = "2026-09-08T08:00:00Z"),
+                    LeadershipTaskNoteDto(noteId = "note-2", authorName = "Satish", body = "No time", createdAt = ""),
+                ),
+            ),
+        )
+        val vm = viewModel(repository)
+        val job = backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertEquals(listOf("08/09/2026 13:30", ""), vm.state.value.notes.map { it.whenLabel })
         job.cancel()
     }
 

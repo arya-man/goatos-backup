@@ -204,8 +204,9 @@ fun LeadershipTaskDetailScreen(
                         modifier = leadershipCardModifier(),
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
+                        val author = note.authorName.ifBlank { stringResource(R.string.leadership_tasks_note_author_fallback) }
                         Text(
-                            text = note.authorName.ifBlank { stringResource(R.string.leadership_tasks_note_author_fallback) },
+                            text = if (note.whenLabel.isBlank()) author else "$author · ${note.whenLabel}",
                             color = MeshaColors.Faint,
                             style = MeshaType.sectionLabel,
                         )

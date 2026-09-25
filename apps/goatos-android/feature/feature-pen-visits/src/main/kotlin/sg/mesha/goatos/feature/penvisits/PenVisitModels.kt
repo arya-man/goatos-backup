@@ -145,6 +145,8 @@ data class PenVisitListUiState(
     val title: String = "",
     val isRefreshing: Boolean = false,
     val lastSyncedAt: Long? = null,
+    /** True when the last refresh did not reach the server: the rows on screen are the saved copy. */
+    val refreshFailed: Boolean = false,
     val emptyMessage: String? = null,
     val isErrorEmpty: Boolean = false,
     val filters: List<PenVisitFilterUi> = emptyList(),

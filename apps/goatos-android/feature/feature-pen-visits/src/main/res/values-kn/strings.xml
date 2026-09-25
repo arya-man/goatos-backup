@@ -8,4 +8,5 @@
     <string name="pen_visits_state_submitted">ಭೇಟಿ ಪರಿಶೀಲಿಸಲಾಗಿದೆ</string>
     <string name="pen_visits_state_in_review">ಪರಿಶೀಲಕರ ಬಳಿ</string>
     <string name="pen_visits_state_sent_back">ಪರಿಶೀಲಕರು ಹಿಂತಿರುಗಿಸಿದ್ದಾರೆ</string>
+    <string name="pen_visits_refresh_failed">ರಿಫ್ರೆಶ್ ಆಗಲಿಲ್ಲ · ಉಳಿಸಿದ ಭೇಟಿಗಳನ್ನು ತೋರಿಸಲಾಗುತ್ತಿದೆ</string>
 </resources>

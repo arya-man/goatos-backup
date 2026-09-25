@@ -165,4 +165,31 @@ class LeadershipTaskListViewModelTest {
 
         rowsJob.cancel()
     }
+
+    @Test
+    fun `the refresh spinner turns until the pager settles and a failed refresh never reads up to date`() = runTest(dispatcher) {
+        val repository = FakeLeadershipTasksRepository()
+        val vm = LeadershipTaskListViewModel(repository, RecordingAnalytics(), NoopCrashReporter(), NavStateRefreshSignal())
+        val stateJob = backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        vm.onEvent(LeadershipTaskListEvent.Refresh)
+        advanceUntilIdle()
+        assertTrue("the spinner turns while the refresh is in flight", vm.state.value.isRefreshing)
+
+        vm.onRowsLoadFailed(IllegalStateException("offline"))
+        assertFalse(vm.state.value.isRefreshing)
+        assertTrue("a failed refresh says the saved copy is showing", vm.state.value.refreshFailed)
+        assertEquals("never 'Updated' after a failed refresh", null, vm.state.value.lastSyncedAt)
+
+        vm.onEvent(LeadershipTaskListEvent.Refresh)
+        vm.onRowsLoading()
+        assertTrue(vm.state.value.isRefreshing)
+        assertFalse("a refresh in flight is not a failure", vm.state.value.refreshFailed)
+        vm.onRowsLoaded()
+        assertFalse(vm.state.value.isRefreshing)
+        assertFalse(vm.state.value.refreshFailed)
+        assertTrue("a settled refresh stamps its time", vm.state.value.lastSyncedAt != null)
+        stateJob.cancel()
+    }
 }

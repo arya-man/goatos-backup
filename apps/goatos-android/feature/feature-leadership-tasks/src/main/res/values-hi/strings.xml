@@ -41,4 +41,5 @@
     <string name="leadership_tasks_deadline_ok">ठीक है</string>
     <string name="leadership_tasks_deadline_cancel">रद्द करें</string>
     <string name="leadership_tasks_deadline_prefix">समय सीमा</string>
+    <string name="leadership_tasks_refresh_failed">ताज़ा नहीं हो सका · सहेजे गए काम दिख रहे हैं</string>
 </resources>

@@ -117,4 +117,27 @@ class PenVisitListViewModelTest {
         assertTrue(analytics.events.any { it.name == AnalyticsEventsPenVisits.LIST_VIEWED })
         stateJob.cancel()
     }
+
+    @Test
+    fun `the refresh spinner turns until the pager settles and a failed refresh never reads up to date`() = runTest(dispatcher) {
+        val vm = PenVisitListViewModel(FakePenVisitsRepository(), RecordingPenVisitSyncRepository(), RecordingAnalytics(), NoopCrashReporter())
+        val stateJob = backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        vm.onEvent(PenVisitListEvent.Refresh)
+        advanceUntilIdle()
+        assertTrue("the spinner turns while the refresh is in flight", vm.state.value.isRefreshing)
+
+        vm.onRowsLoadFailed(IllegalStateException("offline"))
+        assertFalse(vm.state.value.isRefreshing)
+        assertTrue(vm.state.value.refreshFailed)
+        assertEquals(null, vm.state.value.lastSyncedAt)
+
+        vm.onRowsLoading()
+        vm.onRowsLoaded()
+        assertFalse(vm.state.value.isRefreshing)
+        assertFalse(vm.state.value.refreshFailed)
+        assertTrue(vm.state.value.lastSyncedAt != null)
+        stateJob.cancel()
+    }
 }

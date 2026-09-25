@@ -8,4 +8,5 @@
     <string name="pen_visits_state_submitted">సందర్శన ధృవీకరించబడింది</string>
     <string name="pen_visits_state_in_review">వెరిఫయర్ వద్ద ఉంది</string>
     <string name="pen_visits_state_sent_back">వెరిఫయర్ వెనక్కి పంపారు</string>
+    <string name="pen_visits_refresh_failed">రిఫ్రెష్ కాలేదు · సేవ్ చేసిన సందర్శనలు చూపిస్తున్నాం</string>
 </resources>

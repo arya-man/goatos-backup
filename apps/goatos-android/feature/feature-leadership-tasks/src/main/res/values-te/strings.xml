@@ -41,4 +41,5 @@
     <string name="leadership_tasks_deadline_ok">సరే</string>
     <string name="leadership_tasks_deadline_cancel">రద్దు చేయి</string>
     <string name="leadership_tasks_deadline_prefix">గడువు</string>
+    <string name="leadership_tasks_refresh_failed">రిఫ్రెష్ కాలేదు · సేవ్ చేసిన పనులు చూపిస్తున్నాం</string>
 </resources>
