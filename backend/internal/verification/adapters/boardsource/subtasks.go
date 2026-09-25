@@ -3,6 +3,7 @@ package boardsource
 import (
 	"context"
 	"fmt"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 	"strconv"
 	"strings"
 
@@ -88,7 +89,8 @@ func (s *Source) ListSubtasks(ctx context.Context, q ports.SubtaskQuery) (domain
 	limit := domain.BoundSubtaskLimit(q.Limit)
 	ctx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
-	rows, err := s.pool.Query(ctx, verificationSubtasksSQL, q.TenantID, start, end, q.ParkID, q.SourceID, afterRank, afterID, limit+1)
+	bound := sqlbind.MustBind(verificationSubtasksSQL, q.TenantID, start, end, q.ParkID, q.SourceID, afterRank, afterID, limit+1)
+	rows, err := s.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return domain.SubtaskPage{}, fmt.Errorf("verification boardsource subtasks: %w", err)
 	}
