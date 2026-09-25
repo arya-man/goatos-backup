@@ -76,6 +76,31 @@ Only one `make land-main` runs at a time per clone. The lock is a directory at `
 - **Lock held by a live process:** land-main prints the holder's pid, worktree, SHA and start time, then exits 1. It never waits and never kills anything. Rerun after that landing finishes.
 - **Lock left by a process that has exited:** the lock is stale and is reclaimed automatically.
 
+Many parallel sessions should not run `make land-main` themselves. Land a PR with
+`gh workflow run land -R vgoats/goatos -f pr=<n>`: the single self-hosted runner on the
+laptop runs one landing at a time, so GitHub queues them FIFO, and each job runs the
+normal `make land-main`. To land several PRs together, combine them into one PR and
+land that PR once.
+
+### Machine Gradle queue
+
+Every goatos Android Gradle build on the laptop runs one at a time:
+
+- `~/.gradle/init.d/goatos-machine-lock.init.gradle` (installed by
+  `tools/ci/gradle-machine-setup.sh` via `make ai-setup` and every repo Gradle
+  entrypoint) takes an OS file lock on `~/.gradle/goatos-build.lock` per build. It
+  covers plain `./gradlew`, Android Studio and every agent session. The OS drops it
+  if the process dies, and it prints the holder while waiting.
+- Repo scripts also take the ci-local machine lock (`tools/ci/gradle-run.sh`,
+  `tools/ci/gradle-worktree-lock.sh`) and reset a temp `GRADLE_USER_HOME` to
+  `~/.gradle`.
+- Gradle must run on JDK 21 (`tools/ci/java21.sh`). A managed block in
+  `~/.gradle/gradle.properties` pins `org.gradle.java.home` to JDK 21 and makes idle
+  daemons exit after 10 minutes.
+- Opt outs: `GOATOS_GRADLE_MACHINE_LOCK=0` (one build), `GOATOS_GRADLE_MACHINE_SETUP=0`
+  (skip install), `GOATOS_ALLOW_PRIVATE_GRADLE_HOME=1`.
+- Tests: `make java21-self-test gradle-home-self-test`.
+
 ## Local-only enforcement when hosted Actions is unavailable
 
 When GitHub creates only a zero-job `startup_failure`/`BuildFailed` run:

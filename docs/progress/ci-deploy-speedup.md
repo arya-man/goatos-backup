@@ -178,3 +178,23 @@ Machine RAM snapshot that motivated steps 2-4: 32 GB total, 20.2 of 21.5 GB swap
   - `tools/local/e2e-devices.sh` and `tools/local/multi-role-emulators.sh`.
 - **Daemon JVM pin.** `apps/goatos-android/gradle/gradle-daemon-jvm.properties` sets `toolchainVersion=21`. It lists no download URLs, so Gradle never downloads a JDK. It uses the detected JDK 21, or fails with a clear error instead of picking jbr-17. Not yet proven by a real Gradle run in this session (Gradle builds were out of scope). If Android Studio sync cannot find a JDK 21, register the Homebrew JDK with the system (`sudo ln -sfn /opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk /Library/Java/JavaVirtualMachines/openjdk-21.jdk`) or set Studio's Gradle JDK to it.
 - **Tests.** `tools/ci/java21.test.sh`, wired into run-local-ci's `tools/ci` self-tests and `make java21-self-test`. It uses fake JDKs and covers: `JAVA_HOME` unset, `JAVA_HOME` pointing at 17, a registered jbr-17 candidate, only 17 present (fails), and the enforcement at every entrypoint. `check-screenshot-remediation.test.sh` passes with its fake JDK now reporting 21.
+
+### Step 3: RAM — shared Gradle home, idle daemons, one Gradle build at a time
+- `org.gradle.daemon.idletimeout=600000` is set in the repo `gradle.properties` and in the user-level managed block. Idle daemons now exit after 10 minutes instead of 3 hours. The Gradle heap stays capped at `-Xmx4g` per daemon.
+- `tools/ci/gradle-home.sh`: a temp `GRADLE_USER_HOME` (`/tmp`, `/private/tmp`, `/var/folders`) is reset to `~/.gradle`, with a warning. `GOATOS_ALLOW_PRIVATE_GRADLE_HOME=1` keeps it. Why: a scratchpad Gradle home meant a cold cache, its own daemon, and a different lock key.
+- **Machine queue, two layers:**
+  1. `~/.gradle/init.d/goatos-machine-lock.init.gradle` (source in `tools/ci/gradle-init/`, installed by `tools/ci/gradle-machine-setup.sh` from `make ai-setup` and every repo Gradle entrypoint).
+     - One lock per build (an OS `FileChannel` lock on `~/.gradle/goatos-build.lock`), never held by an idle daemon.
+     - Released automatically if the process dies. Prints the holder while waiting.
+     - Scoped to `/apps/goatos-android`, skipped for nested builds. On errors it continues without the lock.
+     - This layer catches plain `./gradlew` from any Claude or Codex session and Android Studio.
+  2. Repo scripts (`run-local-ci.sh`, `tools/dev/android-dev-run.sh`, `android-e2e-run.sh`, `tools/local/*.sh` via `tools/ci/gradle-run.sh`) also take the existing ci-local mkdir lock. Its lock dir now defaults to `/tmp`, not a per-session `$TMPDIR`.
+  - The order is always the mkdir lock, then the file lock, so the two cannot deadlock.
+- The user-level managed block in `~/.gradle/gradle.properties` also pins `org.gradle.java.home` to a verified JDK 21. It is written after any older line, so it wins over it.
+- Known limit: on a configuration-cache hit the file lock is taken at the first task completion, so the first task can run before the lock is held.
+- **Not proven with a real Gradle build in this session** (Gradle builds were out of scope). What was checked: the init script compiles against the local Gradle 9.6.1 API (Groovy compiler). The OS lock semantics were tested with a Java probe: exclusive across processes, and freed by `kill -9`. Nothing has been installed into the real `~/.gradle` by this work yet. The first ci-local, dev script or `make ai-setup` run installs it.
+- AGENTS.md now has the rule: all goatos Gradle goes through the machine queue, no private Gradle home, JDK 21 only, never kill another session's build.
+- Tests: `tools/ci/gradle-home.test.sh`, `tools/ci/gradle-machine-setup.test.sh` (`make gradle-home-self-test`, and the run-local-ci `tools/ci` self-tests).
+
+### Step 4: land-main-batch dropped
+Dropped at the maintainer's request, so nothing custom was built. Landings queue on the free self-hosted runner instead: `.github/workflows/land.yml`, run with `gh workflow run land -R vgoats/goatos -f pr=<n>`. The single runner runs one job at a time, so GitHub queues landings FIFO, and each job runs the normal `make land-main`. To land several PRs together, combine them into one PR and land it once.

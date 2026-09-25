@@ -1,0 +1,148 @@
+// goatos-machine-lock.init.gradle — ONE Goat OS Android Gradle build at a time
+// on this machine, whoever starts it (ci-local, a dev script, Android Studio, a
+// Claude or Codex session typing ./gradlew).
+//
+// Shipped from vgoats/goatos tools/ci/gradle-init/ and installed into the
+// shared ~/.gradle/init.d/ by tools/ci/gradle-machine-setup.sh (run by
+// `make ai-setup` and on every Gradle entrypoint). Do not edit the installed
+// copy; it is overwritten.
+//
+// How it works:
+// - Only the goatos Android build is affected: the root settings dir must end
+//   in /apps/goatos-android. Every other project on this machine is untouched.
+// - A shared build service takes an exclusive OS file lock
+//   (FileChannel.lock on <gradle home>/goatos-build.lock) right after settings
+//   are evaluated, and releases it when the build ends. It is also registered
+//   as a task-completion listener, so a configuration-cache hit (which skips
+//   settings evaluation) still takes the lock, at the first task completion.
+// - The lock is per BUILD, not per daemon: the service is closed at the end of
+//   every build, so an idle daemon never holds it.
+// - The OS drops the lock if the process dies (kill -9 included), so there are
+//   no stale locks and nothing to clean up.
+// - While waiting it logs the holder (pid, directory, start time) from
+//   <gradle home>/goatos-build.lock.holder. It never kills anything.
+// - Opt out for one build: GOATOS_GRADLE_MACHINE_LOCK=0.
+// - Any error inside the lock logic is logged and the build continues without
+//   the lock. The queue must never fail a build.
+
+import java.nio.channels.FileChannel
+import java.nio.channels.FileLock
+import java.nio.channels.OverlappingFileLockException
+import java.nio.charset.StandardCharsets
+import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.file.Paths
+import java.nio.file.StandardOpenOption
+import javax.inject.Inject
+import org.gradle.api.Plugin
+import org.gradle.api.invocation.Gradle
+import org.gradle.api.logging.Logger
+import org.gradle.api.logging.Logging
+import org.gradle.api.provider.Property
+import org.gradle.api.services.BuildService
+import org.gradle.api.services.BuildServiceParameters
+import org.gradle.build.event.BuildEventsListenerRegistry
+import org.gradle.tooling.events.FinishEvent
+import org.gradle.tooling.events.OperationCompletionListener
+
+abstract class GoatosMachineLockService implements BuildService<GoatosMachineLockService.Params>, OperationCompletionListener, AutoCloseable {
+    interface Params extends BuildServiceParameters {
+        Property<String> getLockPath()
+        Property<String> getBuildDir()
+    }
+
+    private static final Logger LOG = Logging.getLogger(GoatosMachineLockService)
+    private FileChannel channel
+    private FileLock lock
+
+    GoatosMachineLockService() {
+        try {
+            acquire()
+        } catch (Throwable t) {
+            LOG.warn("goatos machine lock: ${t} -- building WITHOUT the machine queue")
+            closeQuietly()
+        }
+    }
+
+    private void acquire() {
+        Path lockPath = Paths.get(getParameters().getLockPath().get())
+        Path holderPath = Paths.get(lockPath.toString() + ".holder")
+        Files.createDirectories(lockPath.getParent())
+        channel = FileChannel.open(lockPath, StandardOpenOption.CREATE, StandardOpenOption.WRITE)
+        long t0 = System.currentTimeMillis()
+        long lastNote = 0
+        while (lock == null) {
+            try {
+                lock = channel.tryLock()
+            } catch (OverlappingFileLockException ignored) {
+                lock = null
+            }
+            if (lock != null) break
+            long now = System.currentTimeMillis()
+            if (now - lastNote >= 10000) {
+                lastNote = now
+                String holder = "unknown"
+                try {
+                    holder = new String(Files.readAllBytes(holderPath), StandardCharsets.UTF_8).trim()
+                } catch (Throwable ignored) { }
+                LOG.lifecycle("goatos: waiting for Gradle build by ${holder} (waited ${(now - t0) / 1000}s; one goatos Android build runs at a time on this machine; never kill another session's build)")
+            }
+            Thread.sleep(1000)
+        }
+        String info = "pid ${ProcessHandle.current().pid()} in ${getParameters().getBuildDir().get()} started ${new Date()}\n"
+        try {
+            Files.write(holderPath, info.getBytes(StandardCharsets.UTF_8))
+        } catch (Throwable ignored) { }
+        if (System.currentTimeMillis() - t0 > 2000) {
+            LOG.lifecycle("goatos: got the machine Gradle lock after ${(System.currentTimeMillis() - t0) / 1000}s")
+        }
+    }
+
+    @Override
+    void onFinish(FinishEvent event) { }
+
+    @Override
+    void close() {
+        closeQuietly()
+    }
+
+    private void closeQuietly() {
+        try { if (lock != null) lock.release() } catch (Throwable ignored) { }
+        try { if (channel != null) channel.close() } catch (Throwable ignored) { }
+        lock = null
+        channel = null
+    }
+}
+
+abstract class GoatosMachineLockPlugin implements Plugin<Gradle> {
+    @Inject
+    abstract BuildEventsListenerRegistry getRegistry()
+
+    void apply(Gradle gradle) {
+        if (gradle.parent != null) return
+        if (System.getenv("GOATOS_GRADLE_MACHINE_LOCK") == "0") return
+        def registry = getRegistry()
+        gradle.settingsEvaluated { settings ->
+            try {
+                String dir = settings.settingsDir.canonicalPath.replace('\\', '/')
+                if (!dir.endsWith("/apps/goatos-android")) return
+                String lockPath = new File(gradle.gradleUserHomeDir, "goatos-build.lock").absolutePath
+                def service = gradle.sharedServices.registerIfAbsent("goatosMachineLock", GoatosMachineLockService) { spec ->
+                    spec.parameters.lockPath.set(lockPath)
+                    spec.parameters.buildDir.set(dir)
+                }
+                registry.onTaskCompletion(service)
+                // Take the lock now, before configuration, on a normal build.
+                // On a configuration-cache hit this closure does not run; the
+                // listener registration above creates the service instead, at
+                // the first task-completion event (so on a cache hit the very
+                // first task can run before the lock is held).
+                service.get()
+            } catch (Throwable t) {
+                Logging.getLogger(GoatosMachineLockPlugin).warn("goatos machine lock: not installed for this build: ${t}")
+            }
+        }
+    }
+}
+
+apply plugin: GoatosMachineLockPlugin

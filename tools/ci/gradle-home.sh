@@ -10,7 +10,13 @@
 # gradle_home_normalize: if GRADLE_USER_HOME points into a temp dir (/tmp,
 # /private/tmp, /var/folders, /private/var/folders), warn and reset it to
 # $HOME/.gradle. GOATOS_ALLOW_PRIVATE_GRADLE_HOME=1 keeps it (for a deliberate
-# throwaway run). Any other explicit home is left alone. Never fails.
+# throwaway run). Any other explicit home is left alone. Then installs the
+# machine Gradle queue + managed gradle.properties (gradle-machine-setup.sh)
+# into the home in use. Never fails.
+
+_GOATOS_GH_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=tools/ci/gradle-machine-setup.sh
+. "$_GOATOS_GH_DIR/gradle-machine-setup.sh"
 
 gradle_home_is_temp() {
   case "${1:-}" in
@@ -20,6 +26,14 @@ gradle_home_is_temp() {
 }
 
 gradle_home_normalize() {
+  _gradle_home_normalize_only
+  # Keep the machine queue + user gradle.properties installed in the home
+  # this run will use (idempotent, never fails).
+  gradle_machine_install
+  return 0
+}
+
+_gradle_home_normalize_only() {
   local home="${GRADLE_USER_HOME:-}"
   [ -n "$home" ] || return 0
   gradle_home_is_temp "$home" || return 0

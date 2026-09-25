@@ -23,6 +23,7 @@ setup-crg: ai-setup
 
 ai-setup:
 	@echo "Installing/upgrading local AI token-saving tools for this checkout..."
+	bash tools/ci/gradle-machine-setup.sh
 	@if command -v uv >/dev/null 2>&1; then \
 		uv tool install --upgrade code-review-graph; \
 	elif command -v pipx >/dev/null 2>&1; then \
@@ -931,6 +932,7 @@ java21-self-test:
 
 gradle-home-self-test:
 	bash tools/ci/gradle-home.test.sh
+	bash tools/ci/gradle-machine-setup.test.sh
 
 land-main-self-test:
 	bash tools/ci/land-main.test.sh

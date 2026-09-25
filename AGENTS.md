@@ -120,21 +120,49 @@ and connect with a non-`goatos-` application name (`PGAPPNAME=claude`,
 `audit.db_changes`. After the write, show the maintainer the resulting
 `audit.db_changes` rows as proof. Details: `docs/runbooks/manual-db-change-audit.md`.
 
-## Never Kill Another Agent's Build — and Never Wait For One (Claude AND Codex)
+## One Goat OS Gradle Build At A Time, Through The Machine Queue (Claude AND Codex, 2026-09-25)
 
-Gradle is NOT a lock. Separate worktrees run separate daemons and build concurrently.
+Many Claude and Codex sessions share Ravi's 32 GB Mac. On 2026-09-25 it sat 20 GB
+into swap with 4 idle Gradle daemons (~6.4 GB, one on Java 17) and a session running
+a private scratchpad Gradle home. So every goatos Android Gradle build now goes
+through ONE machine-wide queue:
+
+- **The queue is machine-level, not a repo wrapper.** `tools/ci/gradle-machine-setup.sh`
+  installs `~/.gradle/init.d/goatos-machine-lock.init.gradle` (shipped from
+  `tools/ci/gradle-init/`). It runs `make ai-setup` and every repo Gradle entrypoint
+  re-installs it. It catches a plain `./gradlew` too. Each goatos Android build takes
+  an OS file lock (`~/.gradle/goatos-build.lock`) and releases it when the build ends.
+  The OS drops the lock if the process dies, so a stale lock is impossible. While
+  waiting it prints the holder. Repo scripts additionally take the ci-local
+  machine lock (`tools/ci/gradle-run.sh`). Other projects are not affected.
+- **Waiting in this queue is expected and safe.** It is not the banned wait-loop in
+  rule 3 below, because a lock cannot outlive its holder.
+- **Never set a private `GRADLE_USER_HOME`** (scratchpad, `/tmp`, `/var/folders`).
+  It means a cold cache and an extra daemon, and it skips the queue. Repo scripts
+  reset it to `~/.gradle` unless `GOATOS_ALLOW_PRIVATE_GRADLE_HOME=1`.
+- **Gradle runs on JDK 21 only** (`tools/ci/java21.sh`). The only JVM registered with
+  macOS `java_home` on this Mac is an old jbr-17, so never rely on system Java. The
+  managed block in `~/.gradle/gradle.properties` pins `org.gradle.java.home` to
+  Homebrew openjdk@21 and sets `org.gradle.daemon.idletimeout=600000`.
+- **Landing on main:** run `gh workflow run land -R vgoats/goatos -f pr=<n>`. The single
+  self-hosted runner queues landings FIFO. To land several PRs together, combine them
+  into one PR and land it once.
+
+## Never Kill Another Agent's Build (Claude AND Codex)
+
 The 2026-08-03 deadlock that cost 90 minutes was agents **killing each other's
 workers** and each restarting — not contention over a shared resource.
 
 Rules:
 
-1. **Build when you need to.** Do not serialize, do not ask permission, do not wait
-   for someone else's build to finish. Use `--max-workers=1` so a parallel build does
-   not eat the machine.
+1. **Build when you need to, through the queue above.** Do not ask permission. If
+   another session's build holds the queue, your build waits its turn; do other
+   work meanwhile. Use `--max-workers=1` for ad-hoc builds.
 2. **NEVER kill another process's Gradle workers or daemons.** `pkill -f
    GradleWorkerMain` is banned unless you started that build yourself and it is dead.
    Reap only YOUR OWN orphans, after your own killed build.
-3. **NEVER wait-loop on a resource.** A wait loop that outlives its condition is worse
+3. **NEVER write your own wait-loop on a resource** (the Gradle queue above is the one
+   allowed wait, because its lock dies with its holder). A wait loop that outlives its condition is worse
    than a failure: on 2026-08-03 two agents sat waiting on ORPHANED workers from a
    build that had already died, so the wait could never end. If something you need is
    busy, do the work that does not need it and report the blockage.

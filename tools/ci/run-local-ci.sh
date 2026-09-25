@@ -472,6 +472,7 @@ run_common() {
     step "push-hook-freshness self-test" bash tools/ci/check-push-hook-freshness.test.sh
     step "java 21 resolver self-test" bash tools/ci/java21.test.sh
     step "gradle home + machine queue self-test" bash tools/ci/gradle-home.test.sh
+    step "gradle machine setup self-test" bash tools/ci/gradle-machine-setup.test.sh
     step "parallel-dispatch cleanup self-test" bash tools/ci/check-parallel-dispatch-cleanup.test.sh
   else
     RESULTS+=("SKIP  ci-tooling self-tests (no tools/ci/** diff)")
