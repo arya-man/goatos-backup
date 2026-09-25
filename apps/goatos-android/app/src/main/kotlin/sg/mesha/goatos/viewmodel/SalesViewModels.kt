@@ -7,6 +7,9 @@ import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import androidx.paging.map
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.time.LocalDate
+import java.util.UUID
+import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
@@ -21,6 +24,18 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
+import kotlinx.serialization.json.putJsonObject
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsEventsVendors
 import sg.mesha.goatos.core.analytics.AnalyticsPort
@@ -48,13 +63,13 @@ import sg.mesha.goatos.feature.vendors.SaleCreateEvent
 import sg.mesha.goatos.feature.vendors.SaleCreateUiState
 import sg.mesha.goatos.feature.vendors.SaleDetailEvent
 import sg.mesha.goatos.feature.vendors.SaleDetailUiState
-import sg.mesha.goatos.feature.vendors.SalePendingUi
 import sg.mesha.goatos.feature.vendors.SaleField
 import sg.mesha.goatos.feature.vendors.SaleLineDraftUi
 import sg.mesha.goatos.feature.vendors.SaleLineField
 import sg.mesha.goatos.feature.vendors.SalePaymentEditorUi
 import sg.mesha.goatos.feature.vendors.SalePaymentField
 import sg.mesha.goatos.feature.vendors.SalePaymentUi
+import sg.mesha.goatos.feature.vendors.SalePendingUi
 import sg.mesha.goatos.feature.vendors.SaleReviewAnimalUi
 import sg.mesha.goatos.feature.vendors.SaleShedGroupUi
 import sg.mesha.goatos.feature.vendors.SaleTagAnimalsEvent
@@ -69,9 +84,6 @@ import sg.mesha.goatos.feature.vendors.VendorsOptionUi
 import sg.mesha.goatos.feature.vendors.VendorsTone
 import sg.mesha.goatos.feature.vendors.VendorsWriteStatus
 import sg.mesha.goatos.ui.Routes
-import java.time.LocalDate
-import java.util.UUID
-import javax.inject.Inject
 
 /** The recorded line kind survives catalog renames and kind changes; old cached rows lack it. */
 internal fun SalesDealDto.hasAnimalsToTag(): Boolean {
@@ -880,12 +892,64 @@ class SaleCreateViewModel @Inject constructor(
         val stockConfirmMessage: String = "",
     )
 
-    private val local = MutableStateFlow(Local())
+    // The typed sale survives the process being killed in the background: Android may reclaim the
+    // app while the person is in another one, and relaunching used to reopen Record sale EMPTY on
+    // step 1 (phone E2E 2026-09-26). The draft rides the SavedStateHandle beside the client id,
+    // so it is also sent on the same idempotency key once restored.
+    private val local = MutableStateFlow(savedStateHandle.get<String>(KEY_DRAFT)?.let(::restoreDraft) ?: Local())
 
     private val clientId: String
         get() = savedStateHandle.get<String>(KEY_CLIENT_ID) ?: UUID.randomUUID().toString().also { savedStateHandle[KEY_CLIENT_ID] = it }
 
+    /** What was TYPED, never what the server said: errors and write state start fresh on restore. */
+    private fun encodeDraft(l: Local): String = buildJsonObject {
+        put("step", l.step)
+        put("buyer_search", l.buyerSearch)
+        putJsonObject("values") { l.values.forEach { (k, v) -> put(k.name, v) } }
+        putJsonArray("lines") {
+            l.lines.forEach { line ->
+                add(
+                    buildJsonObject {
+                        put("id", line.id)
+                        put("product", line.product)
+                        put("breed", line.breed)
+                        put("animals", line.animals)
+                        put("weight_kg", line.weightKg)
+                        put("value", line.value)
+                        put("quantity", line.quantity)
+                        put("rate", line.rate)
+                    },
+                )
+            }
+        }
+    }.toString()
+
+    private fun restoreDraft(raw: String): Local? = runCatching { // exception:exempt an unreadable saved draft falls back to a blank form; nothing to report
+        val o = Json.parseToJsonElement(raw).jsonObject
+        fun JsonObject.str(k: String) = this[k]?.jsonPrimitive?.contentOrNull.orEmpty()
+        val values = o["values"]?.jsonObject.orEmpty().mapNotNull { (k, v) ->
+            SaleField.entries.firstOrNull { it.name == k }?.let { it to v.jsonPrimitive.content }
+        }.toMap()
+        val lines = o["lines"]?.jsonArray.orEmpty().map { e ->
+            val l = e.jsonObject
+            LineDraft(
+                id = l["id"]?.jsonPrimitive?.intOrNull ?: 1,
+                product = l.str("product"), breed = l.str("breed"), animals = l.str("animals"),
+                weightKg = l.str("weight_kg"), value = l.str("value"), quantity = l.str("quantity"), rate = l.str("rate"),
+            )
+        }
+        Local(
+            step = o["step"]?.jsonPrimitive?.intOrNull ?: 0,
+            values = values.ifEmpty { mapOf(SaleField.SALE_DATE to todayIst()) },
+            lines = lines.ifEmpty { listOf(LineDraft(id = 1)) },
+            buyerSearch = o.str("buyer_search"),
+        )
+    }.getOrNull()
+
     init {
+        viewModelScope.launch {
+            local.map(::encodeDraft).distinctUntilChanged().collect { savedStateHandle[KEY_DRAFT] = it }
+        }
         analytics.track(AnalyticsEventsVendors.VENDORS_ADD_OPENED)
         viewModelScope.launch {
             repository.refreshOptions()
@@ -1286,6 +1350,7 @@ class SaleCreateViewModel @Inject constructor(
 
     private companion object {
         const val KEY_CLIENT_ID = "sale_create_client_id"
+        const val KEY_DRAFT = "sale_create_draft"
         const val STEP_COUNT = 3
         /** Which wizard step holds each deal-level box. */
         val SALE_FIELD_STEP = mapOf(

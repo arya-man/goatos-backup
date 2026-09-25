@@ -124,6 +124,31 @@ class SalesWriteSafetyTest {
         assertEquals(sync.creates[0].first, sync.creates[1].first)
     }
 
+    @Test
+    fun `a typed sale survives the process being killed and keeps its key`() = runTest(dispatcher) {
+        // Seen on the phone (2026-09-26): the app killed in the background reopened Record sale
+        // EMPTY on step 1, the farm, breed, animals and weight all gone.
+        val handle = SavedStateHandle()
+        val first = SaleCreateViewModel(handle, FakeSales(), SalesSync(), NoAnalytics, NoCrash)
+        backgroundScope.launch { first.state.collect {} }
+        first.fillFeedSale(rate = "5")
+        first.onEvent(SaleCreateEvent.Next)
+        val stepBefore = first.state.value.step
+
+        // A fresh process: the ViewModel is rebuilt from what the handle saved.
+        val restoredHandle = SavedStateHandle(handle.keys().associateWith { handle.get<Any>(it) })
+        val sync = SalesSync()
+        val second = SaleCreateViewModel(restoredHandle, FakeSales(), sync, NoAnalytics, NoCrash)
+        backgroundScope.launch { second.state.collect {} }
+        val line = second.state.value.lines.first()
+        assertEquals("CPT", second.state.value.values[SaleField.FARM])
+        assertEquals("Feed", line.product)
+        assertEquals("Maize", line.breed)
+        assertEquals("20", line.quantity)
+        assertEquals("5", line.rate)
+        assertEquals(stepBefore, second.state.value.step)
+    }
+
     // ---------------------------------------------------------------- payments on a sale
 
     private fun detailVm(sync: SalesSync) = SaleDetailViewModel(
