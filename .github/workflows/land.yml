@@ -23,7 +23,7 @@ name: land
 # concurrency group and cancels older pending ones, which would drop landings.
 # The single runner already serialises them.
 
-run-name: land PR ${{ inputs.prs || inputs.pr }}
+run-name: land PR ${{ inputs.prs || inputs.pr }}${{ inputs.sha && format(' @ {0}', inputs.sha) || '' }}
 
 on:
   workflow_dispatch:
@@ -34,6 +34,10 @@ on:
         type: string
       prs:
         description: "Several PR numbers to land together, space or comma separated, in order"
+        required: false
+        type: string
+      sha:
+        description: "Expected head SHA of `pr` (single PR only); the run refuses if the PR head moved"
         required: false
         type: string
 
@@ -53,6 +57,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       PR_INPUT: ${{ inputs.prs || inputs.pr }}
+      SHA_INPUT: ${{ inputs.sha }}
     steps:
       - name: Check out main (trusted base tools)
         uses: actions/checkout@v4
@@ -78,6 +83,9 @@ jobs:
             IFS=$'\t' read -r state base head oid cross owner <<<"$info"
             [ "$state" = OPEN ] && [ "$base" = main ] || { echo "PR $pr is not an open PR against main ($state $base)"; exit 1; }
             [ "$cross" = false ] && [ "$owner" = vgoats ] || { echo "PR $pr comes from a fork ($owner); refusing"; exit 1; }
+            if [ -n "${SHA_INPUT:-}" ] && [ "$oid" != "$SHA_INPUT" ]; then
+              echo "PR $pr head is $oid, not the expected $SHA_INPUT (pushed after dispatch?); refusing"; exit 1
+            fi
             printf '%s\t%s\t%s\n' "$pr" "$head" "$oid" >> "$RUNNER_TEMP/prs.tsv"
           done
           cat "$RUNNER_TEMP/prs.tsv"

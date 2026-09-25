@@ -81,14 +81,14 @@ land_queue_handoff() {
 
   started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   echo "land-main: handing PR #$pr to the land queue (land.yml on the self-hosted runner, FIFO)"
-  gh workflow run land.yml -R "$repo_slug" -f pr="$pr" || { echo "land-main: gh workflow run land.yml failed" >&2; return 1; }
+  gh workflow run land.yml -R "$repo_slug" -f pr="$pr" -f sha="$head" || { echo "land-main: gh workflow run land.yml failed" >&2; return 1; }
 
   run_id=""; tries=0
   while [ -z "$run_id" ] && [ "$tries" -lt 30 ]; do
     sleep 2
     run_id="$(gh run list -R "$repo_slug" --workflow land.yml --event workflow_dispatch -L 20 \
       --json databaseId,createdAt,displayTitle \
-      --jq "[.[] | select(.createdAt >= \"$started\") | select(.displayTitle == \"land PR $pr\")] | sort_by(.createdAt) | last | .databaseId // empty")"
+      --jq "[.[] | select(.createdAt >= \"$started\") | select(.displayTitle == \"land PR $pr @ $head\")] | sort_by(.createdAt) | last | .databaseId // empty")"
     tries=$((tries + 1))
   done
   [ -n "$run_id" ] || { echo "land-main: dispatched, but could not find the run; watch: gh run list -R $repo_slug --workflow land.yml" >&2; return 1; }
