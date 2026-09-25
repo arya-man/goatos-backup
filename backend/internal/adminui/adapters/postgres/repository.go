@@ -229,14 +229,15 @@ LIMIT 500`, tenantID)
 
 // allBreedsSQL is every species' breeds from the farm's own breed list (breeds.tenant_id, 000432).
 const allBreedsSQL = `
-SELECT canonical_name, status, updated_at::text
+SELECT canonical_name, species, status, updated_at::text
 FROM breeds
 WHERE tenant_id = $1::uuid
   AND status IN ('active', 'review')
 ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END, canonical_name
 LIMIT 500`
 
-// listAllBreeds is every species' breeds (the herd filter covers sheep as well as goats).
+// listAllBreeds is every species' breeds (the herd filter covers sheep as well as goats), each
+// carrying its species so Register animal can offer only the chosen species' breeds.
 func (r *Repository) listAllBreeds(ctx context.Context, tenantID string) ([]app.ReferenceOption, string, error) {
 	rows, err := r.pool.Query(ctx, allBreedsSQL, tenantID)
 	if err != nil {
@@ -247,11 +248,11 @@ func (r *Repository) listAllBreeds(ctx context.Context, tenantID string) ([]app.
 	var rev strings.Builder
 	seen := map[string]bool{}
 	for rows.Next() {
-		var name, status, updated string
-		if err := rows.Scan(&name, &status, &updated); err != nil {
+		var name, species, status, updated string
+		if err := rows.Scan(&name, &species, &status, &updated); err != nil {
 			return nil, "", err
 		}
-		rev.WriteString(name + "|" + status + "|" + updated + "\n")
+		rev.WriteString(name + "|" + species + "|" + status + "|" + updated + "\n")
 		if seen[name] {
 			continue
 		}
@@ -260,7 +261,7 @@ func (r *Repository) listAllBreeds(ctx context.Context, tenantID string) ([]app.
 		if status == "review" {
 			tone = "warn"
 		}
-		out = append(out, app.ReferenceOption{Key: name, Label: name, Tone: tone})
+		out = append(out, app.ReferenceOption{Key: name, Label: name, Tone: tone, Group: species})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, "", err

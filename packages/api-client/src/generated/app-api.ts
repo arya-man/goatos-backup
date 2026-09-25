@@ -13663,6 +13663,8 @@ export interface components {
             enabled: boolean;
             disabled_reason: string;
             tone: string;
+            /** @description The option this one belongs under, so a picker can narrow by an earlier choice (a breed's species code on Register animal). Absent when the option has no group. */
+            group?: string;
         };
         AdminWebDisplayRule: {
             id: string;

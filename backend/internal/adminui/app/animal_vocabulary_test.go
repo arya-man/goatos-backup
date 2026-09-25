@@ -89,3 +89,33 @@ func TestAnimalPickersFallBackWhenAFamilyIsUnavailable(t *testing.T) {
 		}
 	}
 }
+
+type breedGroupFamilies struct{ fakeFamilies }
+
+func (breedGroupFamilies) LoadContractFamilies(ctx context.Context, tenantID string) (ReferenceFamilies, error) {
+	f, err := fakeFamilies{}.LoadContractFamilies(ctx, tenantID)
+	f.AllBreeds = []ReferenceOption{{Key: "Beetal", Label: "Beetal", Group: "goat"}, {Key: "Huacaya", Label: "Huacaya", Group: "alpaca"}, {Key: "Kenguri", Label: "Kenguri", Group: "goat", Tone: "warn"}}
+	return f, err
+}
+
+// BREEDS ARE PER FARM (2026-09-25): Register animal offers the farm's own breeds, and each carries
+// its species so the form offers only the chosen species' breeds -- a goat is never registered as
+// a Huacaya because the list mixed species. An archived breed (Kenguri) is not offered.
+func TestRegisterAnimalBreedsCarryTheirSpecies(t *testing.T) {
+	resp := NewService(breedGroupFamilies{}).Bootstrap(context.Background(), BootstrapInput{
+		TenantID: "00000000-0000-4000-8000-000000000001",
+		ActorID:  "00000000-0000-4000-8000-000000000099",
+	})
+	for _, page := range resp.Pages {
+		for _, g := range page.OptionGroups {
+			if g.ID != "herd_breeds" {
+				continue
+			}
+			if len(g.Options) != 2 || g.Options[0].Group != "goat" || g.Options[1].Key != "Huacaya" || g.Options[1].Group != "alpaca" {
+				t.Fatalf("herd_breeds = %+v, want the farm's breeds each with its species", g.Options)
+			}
+			return
+		}
+	}
+	t.Fatal("no page declares herd_breeds")
+}

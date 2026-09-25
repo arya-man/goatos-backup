@@ -117,6 +117,8 @@ type ReferenceOption struct {
 	// Code is a park's short code (CBE, CPT, ...) where the family is Parks; empty elsewhere.
 	// Modules that store a park BY CODE (sales farms, feed purchase farms) are keyed on it.
 	Code string
+	// Group is a breed's species code where the family is AllBreeds; empty elsewhere.
+	Group string
 }
 
 type ConfigEntry struct {
@@ -2148,6 +2150,9 @@ var animalVocabularyGroups = []struct {
 	withAll bool
 }{
 	{"herd_filter_breeds", func(f ReferenceFamilies) []ReferenceOption { return f.AllBreeds }, false},
+	// Register animal names a breed a new animal is registered under, so an archived breed (a
+	// review row, tone warn) is not offered; the herd FILTER above keeps it to find old animals.
+	{"herd_breeds", func(f ReferenceFamilies) []ReferenceOption { return activeReferences(f.AllBreeds) }, false},
 	{"herd_species", func(f ReferenceFamilies) []ReferenceOption { return f.Species }, false},
 	{"herd_sex", func(f ReferenceFamilies) []ReferenceOption { return f.Sexes }, false},
 	{"herd_filter_sexes", func(f ReferenceFamilies) []ReferenceOption { return f.Sexes }, false},
@@ -2178,6 +2183,17 @@ func compileAnimalVocabularyGroups(groups []domain.OptionGroup, families Referen
 			options = prependOption("all", "all", "", "", options)
 		}
 		out = replaceOptionGroup(out, g.id, options)
+	}
+	return out
+}
+
+// activeReferences drops the archived rows of a register family (listed with tone "warn").
+func activeReferences(refs []ReferenceOption) []ReferenceOption {
+	out := make([]ReferenceOption, 0, len(refs))
+	for _, r := range refs {
+		if r.Tone != "warn" {
+			out = append(out, r)
+		}
 	}
 	return out
 }
@@ -2273,7 +2289,9 @@ func optionsFromReferences(options []ReferenceOption, defaultTone string) []doma
 		if tone == "" {
 			tone = defaultTone
 		}
-		out = append(out, option(ref.Key, ref.Label, ref.Title, tone))
+		opt := option(ref.Key, ref.Label, ref.Title, tone)
+		opt.Group = ref.Group
+		out = append(out, opt)
 	}
 	return out
 }

@@ -8047,6 +8047,9 @@ func pageSpecificCopy(id string) map[string]string {
 			"option.no_vaccination_sheds":              "No vaccination-usable pens",
 			"option.optional":                          "— optional —",
 			"option.select_species":                    "Select species",
+			"option.select_breed":                      "Select breed",
+			"option.select_species_first":              "Choose the species first",
+			"note.no_breeds_for_species":               "No breeds for this species yet. Add one in Configuration › Items & settings › Breeds.",
 			"option.select_sex":                        "Select sex",
 			"option.select_origin":                     "Select origin",
 			"note.identifier_required":                 "Tag 1 is required now; Tag 2 is optional until double tagging is live. Tag values are never reused, even after death, sale, transfer, tag loss, or tag breakage.",
@@ -11064,6 +11067,12 @@ func herdRegisterOptionGroups() []domain.OptionGroup {
 				option("Anantapur", "Anantapur", "", ""),
 				option("Kenguri", "Kenguri", "", ""),
 			},
+		},
+		{
+			// Register animal's breed picker: the farm's own breeds (Configuration > Breeds), each
+			// carrying its species in Group so the form offers only the chosen species' breeds.
+			ID:      "herd_breeds",
+			Options: []domain.Option{},
 		},
 		{
 			ID: "herd_filter_sexes",
