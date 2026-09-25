@@ -858,9 +858,19 @@ async function timedBackendFetch(
     // pre-write answer, then stamp the cross-instance marker from the completed write. A 4xx
     // refusal wrote nothing, so it is not stamped (see responseStatus); a 5xx or a network error
     // still is, because the write may have landed before the failure.
-    if (method.toUpperCase() !== "GET" && writeMayHaveLanded(responseStatus)) await noteBackendWrite();
+    if (method.toUpperCase() !== "GET" && !isReadOnlyPost(url.pathname) && writeMayHaveLanded(responseStatus)) await noteBackendWrite();
     else if (method.toUpperCase() !== "GET") clearBackendReadCaches();
   }
+}
+
+/**
+ * A POST that only READS: a `/preview` route computes what a write WOULD do and changes nothing.
+ * Stamping the write marker for one set a cookie, which made Next refresh the whole page mid-edit --
+ * the Counts Breakdown tag editor sat on "Applying…" behind that refresh before the operator had
+ * applied anything.
+ */
+export function isReadOnlyPost(pathname: string): boolean {
+  return /\/preview$/.test(pathname);
 }
 
 /** A write may have changed something unless the backend answered with a 4xx refusal. */

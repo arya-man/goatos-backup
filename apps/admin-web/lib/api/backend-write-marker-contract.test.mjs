@@ -125,3 +125,11 @@ test("a refused write does not stamp the read-your-writes marker", () => {
   assert.match(src, /writeMayHaveLanded\(responseStatus\)\) await noteBackendWrite\(\)/);
   assert.match(src, /return !\(status >= 400 && status < 500\);/);
 });
+
+// A /preview POST computes what a write WOULD do and changes nothing; stamping the marker for it
+// refreshed the whole page mid-edit (Counts Breakdown tag editor stuck on "Applying…").
+test("a preview POST is a read and does not stamp the read-your-writes marker", () => {
+  const src = readFileSync(join(root, "lib/api/server.ts"), "utf8");
+  assert.match(src, /!isReadOnlyPost\(url\.pathname\) && writeMayHaveLanded\(responseStatus\)/);
+  assert.match(src, /return \/\\\/preview\$\/\.test\(pathname\);/);
+});
