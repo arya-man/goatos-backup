@@ -18,7 +18,7 @@ type formRepo struct {
 
 func (r *formRepo) FeedPurchaseOptions(context.Context, string) (ports.FeedPurchaseOptions, error) {
 	return ports.FeedPurchaseOptions{
-		Farms:           domain.FeedFarms,
+		Farms:           []string{"CBE", "CPT"},
 		FeedItems:       []ports.FeedItemOption{{Key: "maize", Label: "Maize"}},
 		PaymentStatuses: domain.FeedPaymentStatuses,
 	}, nil

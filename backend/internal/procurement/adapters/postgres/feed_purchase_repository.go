@@ -15,6 +15,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	"github.com/vgoats/goatos/backend/internal/platform/parkcatalog"
 	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 	"github.com/vgoats/goatos/backend/internal/procurement/domain"
 	"github.com/vgoats/goatos/backend/internal/procurement/ports"
@@ -159,6 +160,18 @@ FROM public.feed_purchases p WHERE %s`, where)
 	return page, nil
 }
 
+// ListFeedFarms returns the codes of the tenant's active parks (Configuration > Items & settings >
+// Parks), so a park added there can buy feed at once.
+func (r *Repository) ListFeedFarms(ctx context.Context, tenantID string) ([]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	parks, err := parkcatalog.ListActive(ctx, r.pool, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	return parkcatalog.Codes(parks), nil
+}
+
 // FeedPurchaseOptions returns the entry form's backend-owned vocabularies.
 //
 // The feed list is the ACTIVE catalog, which is exactly the set the write path accepts -- the form
@@ -167,8 +180,12 @@ func (r *Repository) FeedPurchaseOptions(ctx context.Context, tenantID string) (
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
+	parks, err := parkcatalog.ListActive(ctx, r.pool, tenantID)
+	if err != nil {
+		return ports.FeedPurchaseOptions{}, fmt.Errorf("feed purchase options farms: %w", err)
+	}
 	opts := ports.FeedPurchaseOptions{
-		Farms:           append([]string(nil), domain.FeedFarms...),
+		Farms:           parkcatalog.Codes(parks),
 		PaymentStatuses: append([]string(nil), domain.FeedPaymentStatuses...),
 	}
 	for _, status := range domain.FeedDeliveryStatuses {

@@ -78,6 +78,9 @@ type FeedPurchaseRepository interface {
 	// ListFeedPurchases returns one page (newest purchase date first) plus whole-filter totals.
 	// farm and delivery are already-normalized filters; "" means unfiltered on that dimension.
 	ListFeedPurchases(ctx context.Context, tenantID, farm, delivery string, limit, offset int) (FeedPurchasePage, error)
+	// ListFeedFarms returns the codes of the tenant's active parks: the farms a load may be bought
+	// for and the ledger's farm filter choices.
+	ListFeedFarms(ctx context.Context, tenantID string) ([]string, error)
 	// FeedPurchaseOptions returns the entry form's backend-owned vocabularies.
 	FeedPurchaseOptions(ctx context.Context, tenantID string) (FeedPurchaseOptions, error)
 	// CreateFeedPurchase records one load: idempotency reservation, catalog check, batch-number
