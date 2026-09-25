@@ -71,3 +71,13 @@ chapters below for the live detail; do not review from the summary.
   a sync failure rolls the whole transition back.
 - **India business date:** business meaning of a timestamp resolves in
   `Asia/Kolkata` first — UTC never defines a business day.
+
+## Proven performance patterns (from main + #415)
+
+Fix catalog PP-1..PP-21 (bad/good snippet, source commit, enforcing guard or
+"review-only"): [`docs/decisions/scale-anti-patterns.md` → "Proven performance
+patterns (from main + #415)"](../../../docs/decisions/scale-anti-patterns.md).
+Machine gates added 2026-09-25: `make scale-guard` rules `count-distinct-sort`,
+`cte-self-join`, `hand-rolled-read-cache`, `non-sargable-cast` (now `::text IN`),
+and `make admin-web-heavy-client-imports-guard`. Baselines only shrink.
+Apply the review-only rows (PP-7..PP-21) by hand when reviewing a hot read.
