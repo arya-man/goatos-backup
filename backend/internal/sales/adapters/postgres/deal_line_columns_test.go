@@ -46,3 +46,40 @@ func TestEveryDealLineReadMatchesTheSharedScanner(t *testing.T) {
 		}
 	}
 }
+
+// A closed deal with several lines keeps every line: the overview totals sum lines, so a DISTINCT,
+// GROUP BY or per-deal LIMIT here would silently drop animals from a multi-line deal.
+func TestClosedDealLinesOneToManyKeepsEveryLine(t *testing.T) {
+	q := strings.ToUpper(dealLinesForClosedDealsSQL)
+	for _, banned := range []string{"DISTINCT", "GROUP BY", "LATERAL"} {
+		if strings.Contains(q, banned) {
+			t.Fatalf("closed-deal line read must keep one row per line, found %s", banned)
+		}
+	}
+	if !strings.Contains(q, "ORDER BY L.DEAL_ID, L.LINE_NO") {
+		t.Fatalf("lines must come back grouped per deal in line order for the attach step")
+	}
+}
+
+// Only "Deal Closed" deals count as sold, for every other status in the register.
+func TestClosedDealLinesStatusMatrix(t *testing.T) {
+	q := dealLinesForClosedDealsSQL
+	if !strings.Contains(q, "d.status = 'Deal Closed'") {
+		t.Fatalf("closed-deal line read must filter d.status = 'Deal Closed'")
+	}
+	for _, other := range []string{"'Negotiation'", "'Cancelled'", "'Lost'", "'Open'"} {
+		if strings.Contains(q, other) {
+			t.Fatalf("closed-deal line read must not admit status %s", other)
+		}
+	}
+}
+
+// The overview sums ALL closed deals: no LIMIT/OFFSET, so no deal past a page boundary is lost.
+func TestClosedDealLinesPageBoundaryReadsEveryClosedDeal(t *testing.T) {
+	q := strings.ToUpper(dealLinesForClosedDealsSQL)
+	for _, banned := range []string{"LIMIT", "OFFSET"} {
+		if strings.Contains(q, banned) {
+			t.Fatalf("closed-deal line read must not page (%s): the overview totals every closed deal", banned)
+		}
+	}
+}
