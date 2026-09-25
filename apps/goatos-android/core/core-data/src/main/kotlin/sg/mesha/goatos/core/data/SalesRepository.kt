@@ -12,8 +12,7 @@ import androidx.room.withTransaction
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.encodeToString
@@ -41,8 +40,13 @@ import sg.mesha.goatos.core.network.dto.SalesOptionsDto
 import sg.mesha.goatos.core.network.dto.VendorOptionsDto
 import sg.mesha.goatos.core.network.serverErrorText
 
-/** Whole-filter totals of the deals ledger, refreshed with every page-one fetch. */
-data class SalesDealTotals(val total: Int = 0)
+/**
+ * One farm scope's whole-filter count and when that scope last synced, persisted beside that
+ * scope's cached rows. It belongs to exactly one scope: the "All" count is never shown on a farm
+ * filter, and a farm never loaded has no count at all rather than another scope's.
+ */
+@kotlinx.serialization.Serializable
+data class SalesDealScopeMeta(val total: Int = 0, val syncedAt: Long = 0L)
 
 /** Which lead board a scope belongs to. The wire value is only ever part of a cache key. */
 enum class SalesLeadSide(val wireValue: String) { BUYER("buyer"), FARMER_GROUP("fpo") }
@@ -81,7 +85,8 @@ internal fun salesLeadMetaCacheKey(side: SalesLeadSide, search: String, status: 
  */
 interface SalesRepository {
     fun deals(farm: String): Flow<PagingData<SalesDealDto>>
-    val dealTotals: StateFlow<SalesDealTotals>
+    /** The whole-filter count of ONE farm scope ("" = all farms), null until that scope has loaded. */
+    fun observeDealScope(farm: String): Flow<SalesDealScopeMeta?>
     suspend fun invalidateDeals(farm: String)
 
     fun observeDeal(dealId: String): Flow<SalesDealDto?>
@@ -126,9 +131,6 @@ class DefaultSalesRepository(
     private val clock: () -> Long = { System.currentTimeMillis() },
 ) : SalesRepository {
 
-    private val _dealTotals = MutableStateFlow(SalesDealTotals())
-    override val dealTotals: StateFlow<SalesDealTotals> = _dealTotals
-
     @OptIn(ExperimentalPagingApi::class)
     override fun deals(farm: String): Flow<PagingData<SalesDealDto>> {
         val key = dealScopeKey(farm)
@@ -140,18 +142,38 @@ class DefaultSalesRepository(
                 enablePlaceholders = false,
                 maxSize = VENDORS_PAGE_SIZE * 3,
             ),
-            remoteMediator = SalesDealRemoteMediator(farm, key, api, database, json, clock) { totals -> _dealTotals.value = totals },
+            remoteMediator = SalesDealRemoteMediator(farm, key, api, database, json, clock),
             pagingSourceFactory = { database.salesDealItemDao().pagingSource(key) },
         ).flow
             .map { page -> page.map { entity -> json.decodeFromString<SalesDealDto>(entity.dtoJson) } }
             .flowOn(Dispatchers.Default)
     }
 
+    /** The ledger's mediator for one farm scope; the Pager's, exposed for the cache tests. */
+    @OptIn(ExperimentalPagingApi::class)
+    internal fun dealMediator(farm: String): RemoteMediator<Int, SalesDealItemEntity> =
+        SalesDealRemoteMediator(farm, dealScopeKey(farm), api, database, json, clock)
+
+    @OptIn(ExperimentalPagingApi::class)
+    internal fun leadMediator(side: SalesLeadSide, search: String, status: String): RemoteMediator<Int, SalesLeadItemEntity> =
+        SalesLeadRemoteMediator(side, search, status, salesLeadScopeKey(side, search, status), api, database, json, clock)
+
+    override fun observeDealScope(farm: String): Flow<SalesDealScopeMeta?> = observeBlob(dealScopeMetaKey(dealScopeKey(farm)))
+
     override suspend fun invalidateDeals(farm: String) {
         database.salesDealRemoteKeyDao().delete(dealScopeKey(farm))
     }
 
-    override fun observeDeal(dealId: String): Flow<SalesDealDto?> = observeBlob(DEAL_KEY_PREFIX + dealId)
+    /**
+     * The detail reads the LEDGER's own row -- the copy the list page and every reconciled write
+     * keep current -- and falls back to the detail blob only for a deal no cached scope holds (a
+     * sale recorded here before any ledger page loaded). The blob alone was evictable: after ~10
+     * ledger pages the shared blob cache dropped it and a card opened onto an empty screen.
+     */
+    override fun observeDeal(dealId: String): Flow<SalesDealDto?> =
+        combine(database.salesDealItemDao().observeLatestForDeal(dealId), observeBlob<SalesDealDto>(DEAL_KEY_PREFIX + dealId)) { row, blob ->
+            row?.let { runCatching { json.decodeFromString<SalesDealDto>(it.dtoJson) }.getOrNull() } ?: blob
+        }.flowOn(Dispatchers.Default)
 
     override fun observeOptions(): Flow<SalesOptionsDto?> = observeBlob(OPTIONS_KEY)
 
@@ -234,9 +256,10 @@ class DefaultSalesRepository(
         persistServerLead(lead.leadId, json.encodeToString(lead))
 
     /**
-     * Writes the server's own row over every cached copy of that lead. The scopes' freshness
-     * markers are dropped too: an edited name or status can move the row into or out of a search,
-     * and only a refetch knows which.
+     * Writes the server's own row over every cached copy of that lead. The scopes' paging cursors
+     * are KEPT: dropping them made the next page read as the end of the board, and let the next
+     * page write prune every other cached scope. A lead whose edit moves it into or out of a search
+     * is picked up by the board's own refresh once the write lands (SalesLeadBoardViewModel).
      */
     private suspend fun persistServerLead(leadId: String, rowJson: String) {
         if (leadId.isBlank()) return
@@ -244,7 +267,6 @@ class DefaultSalesRepository(
         val itemDao = database.salesLeadItemDao()
         database.withTransaction {
             itemDao.upsertAll(itemDao.rowsForLead(leadId).map { it.copy(dtoJson = rowJson, updatedAt = now) })
-            database.salesLeadRemoteKeyDao().deleteAll()
         }
     }
 
@@ -255,10 +277,20 @@ class DefaultSalesRepository(
         val itemDao = database.salesDealItemDao()
         database.withTransaction {
             database.vendorsBlobCacheDao().upsert(VendorsBlobCacheEntity(DEAL_KEY_PREFIX + deal.dealId, rowJson, now))
-            itemDao.upsertAll(itemDao.rowsForDeal(deal.dealId).map { it.copy(dtoJson = rowJson, updatedAt = now) })
-            // A new deal must reach the ledger: drop every scope's freshness marker so the next
-            // open refetches page one rather than TTL-skipping past it.
-            database.salesDealRemoteKeyDao().deleteAll()
+            val existing = itemDao.rowsForDeal(deal.dealId)
+            itemDao.upsertAll(existing.map { it.copy(dtoJson = rowJson, updatedAt = now) })
+            // A sale recorded on this phone joins the loaded scopes it belongs to -- all farms and
+            // its own farm -- at the top, where a just-recorded sale is looked for. The paging
+            // cursors are NOT dropped: that made the next page read as the end of the ledger and
+            // let the next page write prune every other farm's cached rows. The next refresh of a
+            // scope puts the row where the server orders it.
+            val held = existing.map { it.queryKey }.toSet()
+            listOf(dealScopeKey(""), dealScopeKey(deal.farm)).distinct()
+                .filter { key -> key !in held && database.salesDealRemoteKeyDao().get(key) != null }
+                .forEach { key ->
+                    val top = (itemDao.minSortIndex(key) ?: 0) - 1
+                    itemDao.upsertAll(listOf(SalesDealItemEntity(queryKey = key, grainKey = deal.dealId, sortIndex = top, dtoJson = rowJson, updatedAt = now)))
+                }
         }
         database.vendorsBlobCacheDao().enforceCacheBounds()
     }
@@ -314,6 +346,7 @@ class DefaultSalesRepository(
         const val SALES_CACHE_SHAPE = "sales-v1"
         const val SALES_CACHED_QUERIES = 4
         const val DEAL_KEY_PREFIX = "sale:"
+        fun dealScopeMetaKey(scopeKey: String) = "sales-deal-scope:" + scopeKey
         const val OPTIONS_KEY = "sales-options"
         const val VENDOR_OPTIONS_KEY = "sales-vendor-options"
     }
@@ -406,7 +439,6 @@ class DefaultSalesRepository(
         private val database: GoatDatabase,
         private val json: Json,
         private val clock: () -> Long,
-        private val onTotals: (SalesDealTotals) -> Unit,
     ) : RemoteMediator<Int, SalesDealItemEntity>() {
         override suspend fun initialize(): InitializeAction = InitializeAction.LAUNCH_INITIAL_REFRESH
 
@@ -423,7 +455,6 @@ class DefaultSalesRepository(
             }
             return try {
                 val response = api.getSalesDeals(farm = farm.ifBlank { null }, limit = VENDORS_PAGE_SIZE, offset = offset)
-                onTotals(SalesDealTotals(response.total))
                 val now = clock()
                 val nextOffset = offset + response.deals.size
                 val endReached = response.deals.isEmpty() || nextOffset >= response.total
@@ -436,10 +467,11 @@ class DefaultSalesRepository(
                             SalesDealItemEntity(queryKey = queryKey, grainKey = deal.dealId, sortIndex = base + index, dtoJson = json.encodeToString(deal), updatedAt = now)
                         },
                     )
-                    // Every row also lands in the detail blob so the deal screen opens from cache.
-                    response.deals.forEach { deal ->
-                        database.vendorsBlobCacheDao().upsert(VendorsBlobCacheEntity(DEAL_KEY_PREFIX + deal.dealId, json.encodeToString(deal), now))
-                    }
+                    // This scope's whole-filter count, beside its rows -- never a count shared
+                    // across farm filters. The detail reads the rows above, not a per-deal blob.
+                    database.vendorsBlobCacheDao().upsert(
+                        VendorsBlobCacheEntity(dealScopeMetaKey(queryKey), json.encodeToString(SalesDealScopeMeta(response.total, now)), now),
+                    )
                     database.salesDealRemoteKeyDao().upsert(SalesDealRemoteKeyEntity(queryKey, nextOffset.toString(), endReached, now))
                     database.salesDealRemoteKeyDao().deleteOutsideNewestQueries(SALES_CACHED_QUERIES)
                     itemDao.deleteRowsOutsideNewestQueries(SALES_CACHED_QUERIES)

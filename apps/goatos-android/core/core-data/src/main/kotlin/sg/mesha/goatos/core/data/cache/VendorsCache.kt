@@ -248,6 +248,14 @@ interface SalesDealItemDao {
     @Query("SELECT * FROM sales_deal_items WHERE grainKey = :dealId")
     suspend fun rowsForDeal(dealId: String): List<SalesDealItemEntity>
 
+    /** The freshest cached copy of one deal, whichever farm scope holds it -- the detail's source. */
+    @Query("SELECT * FROM sales_deal_items WHERE grainKey = :dealId ORDER BY updatedAt DESC LIMIT 1")
+    fun observeLatestForDeal(dealId: String): Flow<SalesDealItemEntity?>
+
+    /** The first row's position in one scope; a sale recorded on this phone goes above it. */
+    @Query("SELECT MIN(sortIndex) FROM sales_deal_items WHERE queryKey = :queryKey")
+    suspend fun minSortIndex(queryKey: String): Int?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(items: List<SalesDealItemEntity>)
 

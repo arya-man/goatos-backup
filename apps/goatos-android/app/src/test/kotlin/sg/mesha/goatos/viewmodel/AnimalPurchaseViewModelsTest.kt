@@ -44,7 +44,7 @@ import sg.mesha.goatos.core.data.AnimalPurchaseAnswers
 import sg.mesha.goatos.core.data.AnimalPurchaseRepository
 import sg.mesha.goatos.core.data.BootstrapRepository
 import sg.mesha.goatos.core.data.QueuedAnimalPurchaseAnimal
-import sg.mesha.goatos.core.data.SalesDealTotals
+import sg.mesha.goatos.core.data.SalesDealScopeMeta
 import sg.mesha.goatos.core.data.SalesLeadSide
 import sg.mesha.goatos.core.data.SalesRepository
 import sg.mesha.goatos.core.data.WorkflowVideoDraft
@@ -949,7 +949,7 @@ private class TenantOnlyBootstrapRepository : BootstrapRepository {
 /** The vendor picklist and nothing else of the Sales module. */
 private class StubSalesRepository : SalesRepository {
     override fun deals(farm: String): Flow<PagingData<SalesDealDto>> = flowOf(PagingData.from(emptyList()))
-    override val dealTotals: StateFlow<SalesDealTotals> = MutableStateFlow(SalesDealTotals())
+    override fun observeDealScope(farm: String): Flow<SalesDealScopeMeta?> = flowOf(null)
     override suspend fun invalidateDeals(farm: String) = Unit
     override fun observeDeal(dealId: String): Flow<SalesDealDto?> = flowOf(null)
     override fun observeOptions(): Flow<SalesOptionsDto?> = flowOf(null)
