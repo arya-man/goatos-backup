@@ -13677,6 +13677,7 @@ components:
         list_key: { type: string, description: Set on a dynamic reference-list register (`ref:<key>`), the reference_lists row it renders. }
         importable: { type: boolean, description: Takes a bulk sheet upload. Every writable register does; Animals does through the herd pipeline. }
         import_create_only: { type: boolean, description: A sheet adds rows only; the id column is not offered. }
+        unversioned: { type: boolean, description: "The register keeps no row version (Partitions); its sheet carries 0 and an update from it is applied without a version fence." }
         display_column: { type: string, description: The column a row's display is taken from when it is not name/label. }
         filters:
           type: array

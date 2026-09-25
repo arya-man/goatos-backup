@@ -627,6 +627,43 @@ func requirePenType(ctx context.Context, tx pgx.Tx, tenantID, code, current stri
 
 // ---------------------------------------------------------------------------------------------
 // Pen types (pen_types, migration 000428): the kinds of pen a partition is given, authored by the
-// farm. The same keyed shape as the SOP vocabularies; a type still given to a partition cannot be
-// removed -- archive it instead -- and the usage count says how many pens carry it.
-var penTypeStore = keyedStore{table: "pen_types", keyCol: "pen_type_key", checks: []usageCheck{{"partitions", `SELECT count(*) FROM shed_partitions WHERE tenant_id = $1 AND shed_type = $2`}}}
+// farm. Writes are the keyed shape the SOP vocabularies use; a type still given to a partition
+// cannot be removed -- archive it instead. The READ is its own, because the list answers the
+// question the farm opens it with -- which kinds of pen do we have, and how many pens carry each
+// (maintainer instruction 2026-09-25) -- so each row carries its partition count.
+
+var penTypeStore = penTypeRegister{keyedStore{table: "pen_types", keyCol: "pen_type_key", checks: []usageCheck{{"partitions", `SELECT count(*) FROM shed_partitions WHERE tenant_id = $1 AND shed_type = $2`}}}}
+
+type penTypeRegister struct{ keyedStore }
+
+// projection-review: membership=every pen_types row of the tenant; group_key=(tenant_id,
+// pen_type_key), pen_types' primary key; join_cardinality=none -- the partition count is a scalar
+// subquery per pen type, answered by shed_partitions_shed_type_idx (tenant_id, shed_type), so it
+// cannot multiply a row; pagination=the list wrapper's keyset over sort_key, after this projection;
+// scope=tenant_id on the row and inside the count.
+var penTypeProjection = projection{sql: `
+SELECT r.pen_type_key AS id,
+       r.name AS display,
+       r.status,
+       r.row_version,
+       false AS is_builtin,
+       jsonb_build_object('name', r.name, 'code', r.pen_type_key, 'description', NULLIF(r.description, ''), 'sort_order', r.sort_order) AS fields,
+       '{}'::jsonb AS labels,
+       jsonb_build_object('pens', (SELECT count(*) FROM shed_partitions sp
+                                   WHERE sp.tenant_id = r.tenant_id AND sp.shed_type = r.pen_type_key AND sp.status = 'active')) AS counts,
+       lpad(r.sort_order::text, 6, '0') || ' ' || lower(r.name) AS sort_key
+FROM pen_types r
+WHERE r.tenant_id = $1`}
+
+func (penTypeRegister) count(ctx context.Context, q querier, t string) (int, error) {
+	return penTypeProjection.count(ctx, q, t)
+}
+func (penTypeRegister) list(ctx context.Context, q querier, t string, p ports.ListParams) (ports.Page, error) {
+	return penTypeProjection.list(ctx, q, t, p)
+}
+func (penTypeRegister) get(ctx context.Context, q querier, t, id string) (domain.Row, error) {
+	return penTypeProjection.get(ctx, q, t, id)
+}
+func (penTypeRegister) options(ctx context.Context, q querier, t string) ([]ports.RefOption, error) {
+	return penTypeProjection.options(ctx, q, t)
+}

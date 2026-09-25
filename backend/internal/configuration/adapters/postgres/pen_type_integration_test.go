@@ -1,12 +1,14 @@
 package postgres
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/configuration/app"
 	"github.com/vgoats/goatos/backend/internal/configuration/domain"
 	"github.com/vgoats/goatos/backend/internal/configuration/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
@@ -174,4 +176,121 @@ func TestPartitionsTakeTheirPenTypeFromThePenTypesRegister(t *testing.T) {
 	if column.Required {
 		t.Fatal("pen type must stay optional: not knowing yet is a real answer, and it is reported as unclassified")
 	}
+}
+
+// A FARM MAPS ITS PENS TO PEN TYPES IN BULK the way it maps everything else: download Partitions,
+// fill the Pen type column by NAME, upload. Two things used to stop that. shed_partitions keeps no
+// row version, so the sheet carries 0 -- and the upload refused 0 for every register, so a
+// downloaded Partitions sheet could never go back up. And the column was a closed list; it is now
+// a reference to the Pen types register, resolved by name or code, with an unknown name refused on
+// its row rather than stored.
+func TestPartitionsSheetMapsPensToPenTypesByName(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+	defer cancel()
+	pool := pgtest.StartPostgres(t, ctx)
+	seedConfigurationFixture(t, ctx, pool)
+
+	repo := NewRepository(pool, 15*time.Second)
+	svc := app.NewService(repo)
+	importer := app.NewImporter(svc, repo, nil, "test-worker", nil)
+	w := ports.WriteParams{TenantID: cfgTenant, ActorID: cfgActor, TraceID: "trace-pen-sheet"}
+	write := func(key string) ports.WriteParams {
+		return ports.WriteParams{TenantID: cfgTenant, ActorID: cfgActor, IdempotencyKey: key, TraceID: "trace-" + key}
+	}
+	for _, pt := range []map[string]any{{"name": "Elevated", "code": "elevated"}, {"name": "Slatted floor"}} {
+		if _, err := repo.Create(ctx, write("sheet-type-"+pt["name"].(string)), domain.RegPenTypes, pt); err != nil {
+			t.Fatalf("author pen type: %v", err)
+		}
+	}
+	created, err := repo.Create(ctx, write("sheet-pen"), domain.RegPartitions, map[string]any{"park_id": cfgParkCBE, "pen_id": cfgShed, "label": "Part 8"})
+	if err != nil {
+		t.Fatalf("create pen: %v", err)
+	}
+
+	var buf bytes.Buffer
+	if err := svc.Export(ctx, cfgTenant, domain.RegPartitions, "all", domain.FormatCSV, &buf); err != nil {
+		t.Fatalf("export: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	if !strings.Contains(lines[0], ",shed_type,") {
+		t.Fatalf("partitions sheet header = %q, want a shed_type column", lines[0])
+	}
+	var mine string
+	for _, line := range lines[1:] {
+		if strings.HasPrefix(line, created.ID+",") {
+			mine = line
+		}
+	}
+	if mine == "" || !strings.HasPrefix(mine, created.ID+",0,") {
+		t.Fatalf("downloaded row = %q, want %s with row version 0", mine, created.ID)
+	}
+	cols := strings.Split(mine, ",")
+	header := strings.Split(lines[0], ",")
+	bogus := make([]string, len(cols))
+	copy(bogus, cols)
+	for i, h := range header {
+		if h == "shed_type" {
+			cols[i] = "Slatted floor" // by NAME, as the farm types it
+			bogus[i] = "Raised"
+		}
+	}
+	body := lines[0] + "\n" + strings.Join(cols, ",") + "\n"
+
+	job, err := importer.Stage(ctx, w, domain.RegPartitions, "partitions.csv", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("stage: %v", err)
+	}
+	job = waitForImport(t, ctx, repo, job.ID, domain.ImportPreviewed, domain.ImportFailed)
+	if job.Status != domain.ImportPreviewed || job.ValidRows != 1 || job.InvalidRows != 0 {
+		t.Fatalf("a downloaded Partitions row with a pen type by name must validate: %+v", job)
+	}
+	if _, ok, err := repo.RequestImportApply(ctx, cfgTenant, job.ID, cfgActor); err != nil || !ok {
+		t.Fatalf("request apply: %v %v", err, ok)
+	}
+	if err := importer.Process(ctx, cfgTenant, job.ID); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if job = waitForImport(t, ctx, repo, job.ID, domain.ImportApplied, domain.ImportFailed); job.Status != domain.ImportApplied || job.AppliedRows != 1 {
+		t.Fatalf("applied = %+v", job)
+	}
+	var stored *string
+	if err := pool.QueryRow(ctx, `SELECT shed_type FROM shed_partitions WHERE tenant_id = $1::uuid AND shed_id = split_part($2, ':', 1)::uuid AND normalized_label = split_part($2, ':', 2)`, cfgTenant, created.ID).Scan(&stored); err != nil {
+		t.Fatalf("read stored pen type: %v", err)
+	}
+	if stored == nil || *stored != "slatted_floor" {
+		t.Fatalf("stored pen type = %v, want slatted_floor", stored)
+	}
+
+	// An unknown name is refused on its row, never stored.
+	bad, err := importer.Stage(ctx, w, domain.RegPartitions, "partitions-bad.csv", strings.NewReader(lines[0]+"\n"+strings.Join(bogus, ",")+"\n"))
+	if err != nil {
+		t.Fatalf("stage bad: %v", err)
+	}
+	if bad = waitForImport(t, ctx, repo, bad.ID, domain.ImportPreviewed, domain.ImportFailed); bad.InvalidRows != 1 {
+		t.Fatalf("an unknown pen type must be refused on its row: %+v", bad)
+	}
+	rows, err := repo.ImportRows(ctx, cfgTenant, bad.ID, ports.ImportRowsParams{State: domain.ImportRowInvalid, Limit: 5})
+	if err != nil || len(rows) != 1 || len(rows[0].Errors) == 0 || rows[0].Errors[0].Field != "shed_type" {
+		t.Fatalf("invalid rows = %+v (%v), want the error on shed_type", rows, err)
+	}
+}
+
+func waitForImport(t *testing.T, ctx context.Context, repo *Repository, jobID string, statuses ...string) domain.ImportJob {
+	t.Helper()
+	deadline := time.Now().Add(60 * time.Second)
+	for time.Now().Before(deadline) {
+		job, err := repo.GetImportJob(ctx, cfgTenant, jobID)
+		if err != nil {
+			t.Fatalf("get job: %v", err)
+		}
+		for _, s := range statuses {
+			if job.Status == s {
+				return job
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatalf("job %s never reached %v", jobID, statuses)
+	return domain.ImportJob{}
 }

@@ -5569,6 +5569,8 @@ export interface components {
             importable?: boolean;
             /** @description A sheet adds rows only; the id column is not offered. */
             import_create_only?: boolean;
+            /** @description The register keeps no row version (Partitions); its sheet carries 0 and an update from it is applied without a version fence. */
+            unversioned?: boolean;
             /** @description The column a row's display is taken from when it is not name/label. */
             display_column?: string;
             filters?: string[];

@@ -116,6 +116,7 @@ func TestHealthAnalyticsEndToEndOnTheProductionPath(t *testing.T) {
 	seedHealthScope(t, ctx, pool)
 	seedAnalyticsAnimals(t, ctx, pool)
 	publishCard(t, ctx, pool, feverCard())
+	routeAdultAnimals(t, ctx, pool)
 
 	repo := NewRepository(pool, 30*time.Second)
 
@@ -380,6 +381,7 @@ func TestHealthAnalyticsParkScopeNarrowsEveryFigure(t *testing.T) {
 	seedHealthScope(t, ctx, pool)
 	seedAnalyticsAnimals(t, ctx, pool)
 	publishCard(t, ctx, pool, feverCard())
+	routeAdultAnimals(t, ctx, pool)
 
 	repo := NewRepository(pool, 30*time.Second)
 	diagnoseFever(t, ctx, pool, healthGoat, "obs-scope")

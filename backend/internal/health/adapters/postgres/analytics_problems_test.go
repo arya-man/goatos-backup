@@ -160,7 +160,8 @@ func TestAFarmAddedPenTypeIsItsOwnBarInRegisterOrder(t *testing.T) {
 }
 
 // An ARCHIVED type is kept off the chart while no case sits in its pens, and shown -- under its
-// own name -- while some do, so the total never loses a case to a housekeeping click. A key the
+// own name -- while some do. Configuration refuses to archive a type any pen holds, so this is
+// the defensive path: the total must never lose a case whatever the register says. A key the
 // register does not name at all still counts toward the total.
 func TestArchivedAndUnknownPenTypesNeverLoseACase(t *testing.T) {
 	types := []domain.HealthPenType{

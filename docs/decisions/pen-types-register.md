@@ -17,9 +17,15 @@ Maintainer instruction, 2026-09-25:
   keeps its name and its codes and is now a FOREIGN KEY into `pen_types`, replacing the
   `elevated | non_elevated` CHECK. Every existing pen kept its value; each tenant was seeded with the
   two kinds the CHECK allowed.
+- The list shows how many pens HOLD each type, so the mapping is visible at a glance.
 - The Partitions **Pen type** field is a reference to the register. A code nobody authored, or one
-  the farm archived, is refused on that field; a pen already carrying an archived type keeps it until
-  someone changes it. A type still given to a pen cannot be removed -- archive it instead.
+  the farm archived, is refused on that field. A type still given to any pen can be neither removed
+  nor archived (the rule every register follows): move those pens first. So an archived type is
+  never on a pen; the charts' archived-type handling below is defensive only.
+- **Bulk mapping**: download Partitions, fill the Pen type column by name or code, upload. The
+  Partitions sheet carries row version 0 (shed_partitions keeps none), which the upload used to
+  refuse for every register -- so a downloaded Partitions sheet could never go back up. Partitions
+  is now marked `unversioned`; every other register still refuses 0.
 
 ## Where pen types are read, and how each takes its names
 
@@ -32,6 +38,9 @@ Maintainer instruction, 2026-09-25:
 **Weighing never reads `pen_types`.** It is not one of weighing's four allowed org tables, and adding
 it is a maintainer decision. Weighing returns the code only; the page contract carries the names.
 This is the same injection path feed items and parks use.
+
+**A rename reaches the charts within about two minutes** (the page contract is cached 60 s in the
+API and 60 s in admin-web), the same as feed items and parks. Configuration itself shows it at once.
 
 No surface names a pen type. Guarded by `TestHealthNamesNoPenTypeOfItsOwn`,
 `TestWeighingNamesNoPenTypeOfItsOwn`, `features/weighing/pen-type-series.test.mjs`, and

@@ -104,6 +104,9 @@ type Register struct {
 	// DisplayColumn names the column a row's display is taken from when it is not name/label
 	// (an animal's primary tag).
 	DisplayColumn string `json:"display_column,omitempty"`
+	// Unversioned registers keep no row version (shed_partitions has none): their sheet carries 0,
+	// and an update from it is applied without a version fence. Every other register refuses 0.
+	Unversioned bool `json:"unversioned,omitempty"`
 	// ImportCreateOnly registers take new rows from a sheet but never updates (Animals: the herd
 	// pipeline creates; an animal is corrected on its own screens).
 	ImportCreateOnly bool `json:"import_create_only,omitempty"`
@@ -304,8 +307,12 @@ var Registers = []Register{
 		// value on the building cannot say. Migration 000391 moved the column down from
 		// shed_profiles and carried every already-classified pen with it.
 		Key: RegPartitions, Label: "Partitions", One: "Partition", Group: GroupFarmPlaces,
-		Hint:    "A partition is one section of a pen, such as Part 3 or 2. Its label is what is painted on the pen.",
-		Filters: []string{"park_id", "pen_id", "shed_type"},
+		// shed_partitions has no row_version, so its sheet carries 0; without this a downloaded
+		// Partitions sheet could never be uploaded again -- which is how a farm maps a hundred pens
+		// to their pen types at once.
+		Unversioned: true,
+		Hint:        "A partition is one section of a pen, such as Part 3 or 2. Its label is what is painted on the pen.",
+		Filters:     []string{"park_id", "pen_id", "shed_type"},
 		Columns: []Column{
 			{Key: "park_id", Label: "Park", Type: TypeRef, Ref: RegParks, Required: true},
 			{Key: "pen_id", Label: "Pen", Type: TypeRef, Ref: RegPens, Required: true},
