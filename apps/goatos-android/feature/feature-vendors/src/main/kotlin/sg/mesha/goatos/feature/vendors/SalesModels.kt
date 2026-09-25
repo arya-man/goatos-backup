@@ -122,6 +122,8 @@ data class SaleDetailUiState(
     val isLoading: Boolean = true,
     /** Loaded, and this phone holds no copy of the sale (not synced yet, or not in a loaded page). */
     val notFound: Boolean = false,
+    /** The server says this sale does not exist (it was removed). */
+    val gone: Boolean = false,
     val message: String? = null,
 )
 

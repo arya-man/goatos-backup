@@ -254,6 +254,7 @@ private class FakeSales : SalesRepository by unused<SalesRepository>() {
     override suspend fun refreshVendorOptions() = Unit
     override fun observeDeal(dealId: String): Flow<SalesDealDto?> = flowOf(SalesDealDto(dealId = dealId, buyerName = "Ramesh Traders"))
     override suspend fun invalidateDeals(farm: String) = Unit
+    override suspend fun refreshDeal(dealId: String) = sg.mesha.goatos.core.data.SaleRefreshResult.UNREACHABLE
     override suspend fun saleAllocation(dealId: String): AppResult<SaleAllocationDto> = AppResult.Err("offline")
     override fun observeLeadMeta(side: sg.mesha.goatos.core.data.SalesLeadSide, search: String, status: String) = flowOf(null)
     override suspend fun refreshLeadMeta(side: sg.mesha.goatos.core.data.SalesLeadSide) = Unit

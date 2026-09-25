@@ -1245,6 +1245,9 @@ interface AppApiService {
         @Header("Idempotency-Key") idempotencyKey: String,
     ): SalesDealDto
 
+    @GET("sales/deals/{deal_id}")
+    suspend fun getSalesDeal(@Path("deal_id") dealId: String): SalesDealDto
+
     @POST("sales/deals/{deal_id}/status")
     suspend fun setSalesDealStatus(
         @Path("deal_id") dealId: String,
@@ -2611,6 +2614,8 @@ class RetrofitAppApi(
 
     override suspend fun deleteSalesDealPayment(dealId: String, paymentId: String, idempotencyKey: String): SalesDealDto =
         service.deleteSalesDealPayment(dealId, paymentId, idempotencyKey)
+
+    override suspend fun getSalesDeal(dealId: String): SalesDealDto = service.getSalesDeal(dealId)
 
     override suspend fun setSalesDealStatus(dealId: String, idempotencyKey: String, request: SalesDealStatusWriteDto): SalesDealDto =
         service.setSalesDealStatus(dealId, idempotencyKey, request)

@@ -14,6 +14,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
@@ -52,6 +53,15 @@ class SalesLedgerCacheTest {
             return SalesDealPageDto(
                 deals = (start until start + count).map { deal(if (farm == null) "all-$it" else "$farm-$it", farm ?: "CPT") },
                 total = total, limit = limit ?: 20, offset = start,
+            )
+        }
+
+        var single: SalesDealDto? = null
+        var singleCalls = 0
+        override suspend fun getSalesDeal(dealId: String): SalesDealDto {
+            singleCalls++
+            return single ?: throw retrofit2.HttpException(
+                retrofit2.Response.error<Unit>(404, "{\"error\":\"not_found\"}".toResponseBody(null)),
             )
         }
 
@@ -144,6 +154,28 @@ class SalesLedgerCacheTest {
             // A farm the sale is NOT at is untouched.
             repo.persistServerDeal(deal("new-2", "CPT"))
             assertEquals(1, db.salesDealItemDao().rowsForDeal("new-2").size)
+        }
+    }
+
+    @Test
+    fun `opening a sale re-reads that one sale and updates the row the detail shows`() = runTest {
+        withRepo { repo, _, backend ->
+            repo.dealMediator("").load(LoadType.REFRESH, state())
+            backend.single = deal("all-4", "CPT").copy(status = "Deal Failed")
+            assertEquals(SaleRefreshResult.FRESH, repo.refreshDeal("all-4"))
+            assertEquals(1, backend.singleCalls)
+            assertEquals("Deal Failed", repo.observeDeal("all-4").first()?.status)
+        }
+    }
+
+    @Test
+    fun `a sale the server no longer has is reported gone and dropped from the phone`() = runTest {
+        withRepo { repo, db, backend ->
+            repo.dealMediator("").load(LoadType.REFRESH, state())
+            backend.single = null
+            assertEquals(SaleRefreshResult.GONE, repo.refreshDeal("all-5"))
+            assertNull(repo.observeDeal("all-5").first())
+            assertTrue(db.salesDealItemDao().rowsForDeal("all-5").isEmpty())
         }
     }
 

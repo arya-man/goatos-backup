@@ -26,6 +26,7 @@ import sg.mesha.goatos.core.analytics.AnalyticsEventsVendors
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.AppResult
+import sg.mesha.goatos.core.data.SaleRefreshResult
 import sg.mesha.goatos.core.data.SalesRepository
 import sg.mesha.goatos.core.data.WorkflowsRepository
 import sg.mesha.goatos.core.data.sync.SalesPaymentOp
@@ -329,6 +330,8 @@ class SaleDetailViewModel @Inject constructor(
         // observed from the Room detail cache under its workflow id like every other workflow.
         val stepsWorkflowId: String = "",
         val stepsUnavailable: Boolean = false,
+        /** The server answered 404: the sale no longer exists. */
+        val gone: Boolean = false,
         val taggedLine: String = "",
         val taggedGroups: List<SaleShedGroupUi> = emptyList(),
         val allocationRead: Boolean = false,
@@ -368,7 +371,7 @@ class SaleDetailViewModel @Inject constructor(
             // Loaded and still nothing: say so, with a way to try again, rather than an empty
             // screen with a blank title and chip. There is no per-sale read on the server yet, so
             // the phone knows a sale only through the ledger pages it has loaded.
-            SaleDetailUiState(isRefreshing = l.refreshing, isLoading = !l.loaded, notFound = l.loaded, message = l.message)
+            SaleDetailUiState(isRefreshing = l.refreshing, isLoading = !l.loaded && !l.gone, notFound = l.loaded && !l.gone, gone = l.gone, message = l.message)
         } else {
             val declared = deal.animalCount?.toInt() ?: 0
             val complete = declared > 0 && l.allocated >= declared
@@ -647,9 +650,13 @@ class SaleDetailViewModel @Inject constructor(
         viewModelScope.launch {
             local.update { it.copy(refreshing = true) }
             try {
-                // The ledger row is cached from the list page (there is no per-deal read on the
-                // backend); refreshing means refreshing the ledger it came from.
-                repository.invalidateDeals("")
+                // Re-read THIS sale (GET /sales/deals/{id}) into the ledger row the screen reads.
+                // Dropping the All-scope paging cursor here instead used to stop the list paging.
+                when (repository.refreshDeal(dealId)) {
+                    SaleRefreshResult.GONE -> local.update { it.copy(gone = true) }
+                    SaleRefreshResult.FRESH -> local.update { it.copy(gone = false) }
+                    SaleRefreshResult.UNREACHABLE -> Unit
+                }
                 // The sale's SOP steps, keyed on the deal. Blank = not opened yet (the recorded
                 // event still in flight); failure = offline, the cached detail stays visible.
                 workflows.refreshDetailBySubject(SALE_WORKFLOW_TEMPLATE_KEY, dealId)

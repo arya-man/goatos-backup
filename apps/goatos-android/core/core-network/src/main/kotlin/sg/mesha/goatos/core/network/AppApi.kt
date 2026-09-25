@@ -1813,6 +1813,9 @@ interface AppApi {
         idempotencyKey: String,
     ): SalesDealDto
 
+    /** GET /sales/deals/{deal_id} — one sale in the ledger-row shape; 404 when it no longer exists. */
+    suspend fun getSalesDeal(dealId: String): SalesDealDto
+
     /** POST /sales/deals/{deal_id}/status — moves the deal's status word. */
     suspend fun setSalesDealStatus(
         dealId: String,
@@ -3584,6 +3587,8 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
 
     override suspend fun deleteSalesDealPayment(dealId: String, paymentId: String, idempotencyKey: String): SalesDealDto =
         fakeSalesDeal().copy(dealId = dealId, payments = emptyList(), paymentReceived = 0.0, paymentBalance = 150000.0)
+
+    override suspend fun getSalesDeal(dealId: String): SalesDealDto = fakeSalesDeal().copy(dealId = dealId)
 
     override suspend fun setSalesDealStatus(dealId: String, idempotencyKey: String, request: SalesDealStatusWriteDto): SalesDealDto =
         fakeSalesDeal().copy(dealId = dealId, status = request.status)

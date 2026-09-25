@@ -6,6 +6,9 @@ import sg.mesha.goatos.ui.pushTargetRoute
 /** `type`/`screen` values that mean "open the read-only/verify record" for the push's shed. */
 private val RECORD_TYPES = setOf("record", "verification_closed", "rework")
 
+/** The Feed Director's sale notices (notificationbridge.SaleFeedReduceNotifier). */
+private val FEED_SALE_NOTICE_TYPES = setOf("feed_sale_reduce", "feed_sale_reduce_reminder", "feed_sale_failed_return")
+
 /**
  * Maps an FCM data payload ([PushExtras]) to an app route, or null when the payload names no
  * destination this build can open.
@@ -57,6 +60,11 @@ fun resolvePushRoute(payload: Map<String, String>): String? {
             type == "weighing_campaign_closed" || type == "weighing_shed_reopened" ->
             Routes.WEIGHING
         screen == "feed_overview" -> Routes.FEED_DIRECTION
+        // The Feed Director's sale notices -- animals leaving on a sale (`feed_sale_reduce`), the
+        // 07:00 check (`feed_sale_reduce_reminder`), and a failed sale's animals coming back
+        // (`feed_sale_failed_return`). Their href is the web's /feed/analytics, which this app does
+        // not host, so each is mapped here by name: they open Feed, never a generic landing.
+        screen == "feed_stock" || type in FEED_SALE_NOTICE_TYPES -> Routes.FEED_DIRECTION
         // Animal purchases (maintainer decision 2026-09-13): the decided push normally names the
         // load itself (handled by pushTargetRoute above); a push carrying only the screen lands
         // the recorder on the tab.

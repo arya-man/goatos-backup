@@ -252,6 +252,9 @@ interface SalesDealItemDao {
     @Query("SELECT * FROM sales_deal_items WHERE grainKey = :dealId ORDER BY updatedAt DESC LIMIT 1")
     fun observeLatestForDeal(dealId: String): Flow<SalesDealItemEntity?>
 
+    @Query("DELETE FROM sales_deal_items WHERE grainKey = :dealId")
+    suspend fun deleteDeal(dealId: String)
+
     /** The first row's position in one scope; a sale recorded on this phone goes above it. */
     @Query("SELECT MIN(sortIndex) FROM sales_deal_items WHERE queryKey = :queryKey")
     suspend fun minSortIndex(queryKey: String): Int?

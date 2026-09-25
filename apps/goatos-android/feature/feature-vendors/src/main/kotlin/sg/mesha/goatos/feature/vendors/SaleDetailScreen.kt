@@ -54,6 +54,15 @@ fun SaleDetailScreen(
             LoadingSkeletonList(modifier = Modifier.padding(MeshaDimens.gutter))
             return@Column
         }
+        if (state.gone) {
+            EmptyState(
+                title = SALE_GONE,
+                modifier = Modifier.fillMaxWidth().padding(MeshaDimens.gutter),
+                icon = MeshaIcons.Warn,
+                tone = EmptyTone.Warn,
+            )
+            return@Column
+        }
         if (state.notFound) {
             EmptyState(
                 title = SALE_NOT_FOUND,
@@ -340,3 +349,4 @@ private const val STOCK_CONFIRM_CANCEL = "Leave it"
 
 private const val SALE_NOT_FOUND = "This sale is not on this phone yet"
 private const val SALE_NOT_FOUND_HINT = "Open the sales list while online so it can load, then try again."
+private const val SALE_GONE = "This sale no longer exists"

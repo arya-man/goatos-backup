@@ -38,6 +38,7 @@ import sg.mesha.goatos.core.network.dto.SalesFpoLeadDto
 import sg.mesha.goatos.core.network.dto.SalesLeadBoardMetaDto
 import sg.mesha.goatos.core.network.dto.SalesOptionsDto
 import sg.mesha.goatos.core.network.dto.VendorOptionsDto
+import sg.mesha.goatos.core.network.appApiStatusCode
 import sg.mesha.goatos.core.network.serverErrorText
 
 /**
@@ -47,6 +48,16 @@ import sg.mesha.goatos.core.network.serverErrorText
  */
 @kotlinx.serialization.Serializable
 data class SalesDealScopeMeta(val total: Int = 0, val syncedAt: Long = 0L)
+
+/** What re-reading one sale found. */
+enum class SaleRefreshResult {
+    /** The server's copy is now the one on the phone. */
+    FRESH,
+    /** The server has no such sale (404): it was removed, and the phone's copy is dropped. */
+    GONE,
+    /** The server could not be reached; the cached copy stays. */
+    UNREACHABLE,
+}
 
 /** Which lead board a scope belongs to. The wire value is only ever part of a cache key. */
 enum class SalesLeadSide(val wireValue: String) { BUYER("buyer"), FARMER_GROUP("fpo") }
@@ -97,6 +108,9 @@ interface SalesRepository {
 
     /** The server's returned row after a queued create, receipt or status change landed. */
     suspend fun persistServerDeal(deal: SalesDealDto)
+
+    /** Re-reads ONE sale (`GET /sales/deals/{deal_id}`) into the rows the detail reads. */
+    suspend fun refreshDeal(dealId: String): SaleRefreshResult = SaleRefreshResult.UNREACHABLE
 
     // --- lead boards (maintainer instruction 2026-09-04; searched and paged 2026-09-05) ---
     //
@@ -270,7 +284,37 @@ class DefaultSalesRepository(
         }
     }
 
-    override suspend fun persistServerDeal(deal: SalesDealDto) {
+    override suspend fun refreshDeal(dealId: String): SaleRefreshResult {
+        if (dealId.isBlank()) return SaleRefreshResult.GONE
+        val deal = try {
+            api.getSalesDeal(dealId)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            if (e.appApiStatusCode() != 404) {
+                // exception:exempt offline/timeout/5xx: the cached copy keeps serving.
+                android.util.Log.w(LOG_TAG, "sales_deal_refresh_failed", e)
+                return SaleRefreshResult.UNREACHABLE
+            }
+            // The server says there is no such sale: the phone's copies are dropped so the detail
+            // and the ledger stop showing a sale that does not exist.
+            database.withTransaction {
+                database.salesDealItemDao().deleteDeal(dealId)
+                database.vendorsBlobCacheDao().delete(DEAL_KEY_PREFIX + dealId)
+            }
+            return SaleRefreshResult.GONE
+        }
+        upsertDeal(deal, joinScopes = false)
+        return SaleRefreshResult.FRESH
+    }
+
+    override suspend fun persistServerDeal(deal: SalesDealDto) = upsertDeal(deal, joinScopes = true)
+
+    /**
+     * The server's row over every cached copy of the deal. [joinScopes] adds a sale recorded on
+     * this phone to the loaded scopes it belongs to; a plain re-read never moves an existing sale.
+     */
+    private suspend fun upsertDeal(deal: SalesDealDto, joinScopes: Boolean) {
         if (deal.dealId.isBlank()) return
         val now = clock()
         val rowJson = json.encodeToString(deal)
@@ -285,7 +329,7 @@ class DefaultSalesRepository(
             // let the next page write prune every other farm's cached rows. The next refresh of a
             // scope puts the row where the server orders it.
             val held = existing.map { it.queryKey }.toSet()
-            listOf(dealScopeKey(""), dealScopeKey(deal.farm)).distinct()
+            if (joinScopes) listOf(dealScopeKey(""), dealScopeKey(deal.farm)).distinct()
                 .filter { key -> key !in held && database.salesDealRemoteKeyDao().get(key) != null }
                 .forEach { key ->
                     val top = (itemDao.minSortIndex(key) ?: 0) - 1

@@ -20,6 +20,7 @@ import org.junit.Test
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.AppResult
+import sg.mesha.goatos.core.data.SaleRefreshResult
 import sg.mesha.goatos.core.data.SalesDealScopeMeta
 import sg.mesha.goatos.core.data.SalesRepository
 import sg.mesha.goatos.core.data.WorkflowsRepository
@@ -64,6 +65,18 @@ class SalesLedgerStatesTest {
     }
 
     @Test
+    fun `opening a sale re-reads it, and a sale the server no longer has says so`() = runTest(dispatcher) {
+        val repo = LedgerRepo(refresh = SaleRefreshResult.GONE)
+        val vm = SaleDetailViewModel(SavedStateHandle(mapOf(Routes.SALE_ID_ARG to "gone")), repo, RecordingToxinSyncRepository(), NoWorkflowsRepo, Quiet, Silent)
+        backgroundScope.launch { vm.state.collect {} }
+        assertEquals(listOf("gone"), repo.refreshed)
+        assertTrue(vm.state.value.gone)
+        assertFalse("gone is its own state, not the not-synced one", vm.state.value.notFound)
+        vm.onEvent(sg.mesha.goatos.feature.vendors.SaleDetailEvent.Refresh)
+        assertEquals("pull to refresh re-reads it too", listOf("gone", "gone"), repo.refreshed)
+    }
+
+    @Test
     fun `a sale the phone holds is not reported missing`() = runTest(dispatcher) {
         val repo = LedgerRepo(deal = SalesDealDto(dealId = "d-1", buyerName = "Ramesh Traders"))
         val vm = SaleDetailViewModel(SavedStateHandle(mapOf(Routes.SALE_ID_ARG to "d-1")), repo, RecordingToxinSyncRepository(), NoWorkflowsRepo, Quiet, Silent)
@@ -97,7 +110,14 @@ private object NoWorkflowsRepo : WorkflowsRepository by stub<WorkflowsRepository
 private class LedgerRepo(
     scopes: Map<String, SalesDealScopeMeta> = emptyMap(),
     private val deal: SalesDealDto? = null,
+    private val refresh: SaleRefreshResult = SaleRefreshResult.UNREACHABLE,
 ) : SalesRepository by stub<SalesRepository>() {
+    val refreshed = mutableListOf<String>()
+    override suspend fun refreshDeal(dealId: String): SaleRefreshResult {
+        refreshed += dealId
+        return refresh
+    }
+
     private val metas = mutableMapOf<String, MutableStateFlow<SalesDealScopeMeta?>>().apply {
         scopes.forEach { (farm, meta) -> put(farm, MutableStateFlow(meta)) }
     }
