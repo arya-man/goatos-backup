@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -131,7 +132,13 @@ fun SalesLeadBoardScreen(
             // The form REPLACES the board while it is open rather than riding as its first row: on
             // a board of 200 leads a row-shaped form is scrolled away the moment a finger moves,
             // and its Save button sits below a screenful of other people's records.
+            // A refusal's reason is the banner at the TOP of the form, and Save is at the bottom:
+            // bring the reason into view the moment it arrives, or the press looks like nothing.
+            val listState = rememberLazyListState()
+            val refused = state.writeStatus == VendorsWriteStatus.FAILED && state.writeMessage.isNotBlank()
+            LaunchedEffect(refused, state.writeMessage) { if (refused) listState.animateScrollToItem(0) }
             LazyColumn(
+                state = listState,
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(start = MeshaDimens.gutter, end = MeshaDimens.gutter, top = 8.dp, bottom = 96.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),

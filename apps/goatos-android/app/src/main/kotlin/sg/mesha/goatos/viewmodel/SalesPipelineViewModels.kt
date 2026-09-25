@@ -448,10 +448,18 @@ class SalesLeadBoardViewModel @Inject constructor(
                     }
                     // The server's own sentence, verbatim; the typed form comes back editable.
                     is QueuedWriteOutcome.Rejected -> local.update {
+                        val reason = outcome.reason?.trim()?.takeIf { r -> r.isNotEmpty() } ?: MESSAGE_FAILED
+                        // The sentence also lands on the box it is about, so a person looking at
+                        // the form (not the banner above it) sees which entry to change.
+                        val box = refusedLeadField(buyerBoard, salesRefusedField(outcome.field, outcome.code))
                         it.copy(
-                            form = if (it.ownsForm()) it.form?.copy(inFlight = false) else it.form,
+                            form = if (it.ownsForm()) {
+                                it.form?.let { f -> f.copy(inFlight = false, fieldErrors = if (box == null) f.fieldErrors else f.fieldErrors + (box to reason)) }
+                            } else {
+                                it.form
+                            },
                             writeStatus = VendorsWriteStatus.FAILED,
-                            writeMessage = outcome.reason?.trim()?.takeIf { r -> r.isNotEmpty() } ?: MESSAGE_FAILED,
+                            writeMessage = reason,
                         )
                     }
                 }
@@ -803,4 +811,15 @@ private fun leadStatusTone(status: String): VendorsTone = when {
     status.contains("not", ignoreCase = true) -> VendorsTone.DANGER
     status.contains("interest", ignoreCase = true) -> VendorsTone.OK
     else -> VendorsTone.INFO
+}
+
+/**
+ * The lead-form box a server refusal names (`buyer_place` from `sales_invalid_buyer_place`), as
+ * the form keys it; null when the name is not a box on this board's form.
+ */
+internal fun refusedLeadField(buyerBoard: Boolean, backendField: String?): String? {
+    val name = backendField?.trim()?.uppercase().orEmpty()
+    if (name.isEmpty()) return null
+    val boxes = if (buyerBoard) SalesBuyerLeadField.entries.map { it.name } else SalesFpoLeadField.entries.map { it.name }
+    return name.takeIf { it in boxes }
 }
