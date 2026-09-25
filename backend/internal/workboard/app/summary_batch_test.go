@@ -164,3 +164,20 @@ func TestSummaryBatchFallbackGivesEachSourceItsOwnBudget(t *testing.T) {
 		}
 	}
 }
+
+// GET /work-board/summary carries no request memo, so a priming source is not primed while
+// two batch sources still batch their counts. The count goroutine and Summary must not both
+// close the phase-one channel (STG: "panic: close of closed channel" took the API down).
+func TestSummaryWithoutRequestMemoClosesPhaseOneOnce(t *testing.T) {
+	a := &batchCountSource{fakeSource: mk(domain.ModuleHealth, "a", 0, domain.WorkStateDue, ""), counts: map[domain.WorkState]int{domain.WorkStateDue: 2}}
+	b := &batchCountSource{fakeSource: mk(domain.ModulePCCare, "b", 0, domain.WorkStateDue, ""), counts: map[domain.WorkState]int{domain.WorkStateInProgress: 1}}
+	p := &primingSource{fakeSource: mk(domain.ModuleVaccination, "v", 0, domain.WorkStateDue, "")}
+	svc := NewService(a, b, p).WithStatementBatch(&recordingBatch{})
+	sum, err := svc.Summary(context.Background(), baseQuery())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sum.ByModule[domain.ModuleHealth] != 2 || sum.ByModule[domain.ModuleVaccination] != 1 || len(sum.Degraded) != 0 {
+		t.Fatalf("summary = %+v", sum)
+	}
+}

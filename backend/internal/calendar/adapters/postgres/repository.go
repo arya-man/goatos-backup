@@ -403,7 +403,10 @@ func (r *Repository) GetEventDetail(ctx context.Context, q domain.EventQuery) (d
 		return domain.CalendarEventDetail{}, fmt.Errorf("calendar: get detail: %w", err)
 	}
 	blocks := decodeDetailBlocks(detailRaw)
-	recent, err := r.History(ctx, domain.HistoryQuery{TenantID: q.TenantID, EventID: q.EventID, Limit: 10, Scope: q.Scope})
+	// The detail row above already resolved this event_id under the caller's scope, so the
+	// recent-actions read skips History's existence probe -- that probe re-runs the whole
+	// canonical source_events reconstruction (~1 s cold on STG) only to learn what we know.
+	recent, err := r.historyItems(ctx, domain.HistoryQuery{TenantID: q.TenantID, EventID: q.EventID, Limit: 10, Scope: q.Scope})
 	if err != nil {
 		return domain.CalendarEventDetail{}, err
 	}
@@ -433,6 +436,12 @@ func (r *Repository) History(ctx context.Context, q domain.HistoryQuery) (domain
 	if err := r.eventExists(ctx, q.TenantID, q.EventID, q.Scope); err != nil {
 		return domain.CalendarHistoryResponse{}, err
 	}
+	return r.historyItems(ctx, q)
+}
+
+// historyItems pages the event's history WITHOUT the scope/existence probe; callers must
+// have already resolved q.EventID under q.Scope.
+func (r *Repository) historyItems(ctx context.Context, q domain.HistoryQuery) (domain.CalendarHistoryResponse, error) {
 	limit := q.Limit
 	if limit <= 0 {
 		limit = 50

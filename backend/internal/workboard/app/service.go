@@ -257,6 +257,10 @@ func (s *Service) Summary(ctx context.Context, q domain.Query) (domain.Summary, 
 	// gate reads -- has been answered or has failed; a priming source reads after it, so it finds
 	// its primed reads in the request memo instead of sending them itself.
 	phaseOne := make(chan struct{})
+	// batchedCounts owns phaseOne once it runs (it closes it after the first batch); only
+	// close it here when no batch goroutine was started, or the channel is closed twice
+	// (GET /work-board/summary has no request memo, so primers is empty while idx >= 2).
+	batchOwnsPhaseOne := false
 	if s.batch != nil {
 		idx, primers := []int{}, []int{}
 		memo := ports.HasRequestReadMemo(ctx)
@@ -275,6 +279,7 @@ func (s *Service) Summary(ctx context.Context, q domain.Query) (domain.Summary, 
 			for _, i := range primers {
 				primed[i] = true
 			}
+			batchOwnsPhaseOne = true
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
@@ -284,7 +289,7 @@ func (s *Service) Summary(ctx context.Context, q domain.Query) (domain.Summary, 
 			}()
 		}
 	}
-	if len(primed) == 0 {
+	if !batchOwnsPhaseOne {
 		close(phaseOne)
 	}
 	sem := make(chan struct{}, maxSummarySourceConcurrency)
