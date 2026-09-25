@@ -501,7 +501,7 @@ export function WorklistFilters({
           title={effectiveField.kind === "select" ? effectiveField.note : undefined}
         >
           {/* The calendar button prints its own field name inside it, so the word beside it would
-              say "Packing day [Packing day 24/09/2026]". Only the plain inputs need it. */}
+              repeat the field name twice. Only the plain inputs need it. */}
           {effectiveField.kind === "date" && effectiveField.labels && effectiveField.today && !effectiveField.disabledReason ? null : (
             <span className="muted">{effectiveField.label}</span>
           )}
