@@ -19,6 +19,7 @@ import { useEffect, useRef, useState } from "react";
 import { faro, getWebInstrumentations, initializeFaro } from "@grafana/faro-web-sdk";
 import { TracingInstrumentation } from "@grafana/faro-web-tracing";
 import { usePathname } from "next/navigation";
+import { preloadFirebasePerformance } from "@/lib/firebase-performance";
 
 const FARO_APP_NAME = "mesha-admin-web";
 
@@ -40,8 +41,20 @@ function traceHeaderCorsUrls(): RegExp[] {
   return [new RegExp(`^${escaped}(?:[:/]|$)`)];
 }
 
+/**
+ * True only after initializeFaro() has registered a real Faro instance.
+ *
+ * Do NOT test `faro.api`: @grafana/faro-core exports `faro = { api: getNoopAPI() }` before
+ * initialization, so `faro.api` is always truthy. Guarding on it made initFaro() return before
+ * ever calling initializeFaro(), and admin-web shipped zero RUM to Alloy. `faro.config` is only
+ * set by registerFaro(), so it is the reliable "already initialized" signal.
+ */
+export function isFaroInitialized(): boolean {
+  return Boolean((faro as { config?: unknown }).config);
+}
+
 function initFaro(): void {
-  if (typeof window === "undefined" || faro.api) {
+  if (typeof window === "undefined" || isFaroInitialized()) {
     // SSR (no window) or already initialized (React re-render / Strict Mode double-invoke).
     return;
   }
@@ -89,6 +102,12 @@ export function FaroProvider(): null {
   // concurrent rendering (renders can be started, discarded, or replayed without side effects).
   useEffect(() => {
     initFaro();
+    // Firebase Performance Monitoring auto-collects page load (FCP/LCP/CLS/INP/TTFB via the
+    // page_load trace) and every fetch/XHR as a network request — but only once the SDK is
+    // initialized. Initialize it here (root layout, every route incl. /login) instead of only
+    // inside the authenticated shell, so the first page load is captured. No-op unless
+    // NEXT_PUBLIC_FIREBASE_PERFORMANCE_ENABLED is set.
+    preloadFirebasePerformance();
   }, []);
 
   const previousPathname = useRef<string | undefined>(undefined);
@@ -131,7 +150,7 @@ export function FaroProvider(): null {
   }, []);
 
   useEffect(() => {
-    if (!faro.api) {
+    if (!isFaroInitialized()) {
       return;
     }
     const viewName = pathname;
