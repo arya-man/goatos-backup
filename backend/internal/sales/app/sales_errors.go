@@ -265,6 +265,14 @@ func salesFieldLabel(field string) string {
 		return "Book weight"
 	case "video_weight_kg":
 		return "Video weight"
+	// A receipt's fields. They reach the sales desk verbatim in the payment form (2026-09-25), so
+	// the raw key must never be the sentence's subject.
+	case "received_on":
+		return "Received on"
+	case "amount_rupees":
+		return "Amount"
+	case "note":
+		return "Note"
 	default:
 		return field
 	}
