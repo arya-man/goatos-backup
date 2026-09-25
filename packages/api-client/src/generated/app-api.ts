@@ -9746,11 +9746,11 @@ export interface components {
             seq_no: number;
             /** @description Backend-owned row title ("Animal 7 · Female goat"). */
             title: string;
-            /** @enum {string} */
-            species: "goat" | "sheep";
+            /** @description A species code from the tenant's Configuration list (goat, sheep, or one the farm added). */
+            species: string;
             species_label: string;
-            /** @enum {string} */
-            sex: "male" | "female";
+            /** @description A gender code from the tenant's Configuration list (female, male, or one the farm added). */
+            sex: string;
             sex_label: string;
             breed: string;
             age_months?: number;
@@ -13790,8 +13790,8 @@ export interface components {
             animal_identifier_1: string;
             animal_identifier_2?: string | null;
             breed: string | null;
-            /** @enum {string} */
-            sex: "female" | "male";
+            /** @description A gender code from the tenant's Configuration list (female, male, or one the farm added). */
+            sex: string;
             age_band: string | null;
             lifecycle_status: string;
             reproductive_status: string | null;
@@ -13822,8 +13822,8 @@ export interface components {
             /** Format: uuid */
             goat_id: string;
             display_id: string;
-            /** @enum {string} */
-            species: "goat" | "sheep";
+            /** @description A species code from the tenant's Configuration list (goat, sheep, or one the farm added). */
+            species: string;
             summary: components["schemas"]["GoatSummary"];
             identifiers: components["schemas"]["GoatIdentifier"][];
             evidence_refs: components["schemas"]["EvidenceRef"][];
@@ -14810,8 +14810,8 @@ export interface components {
             parkName: string;
             /** @description Management stage from goat classification (e.g., Buck, Non-Pregnant Female). */
             managementStage: string;
-            /** @enum {string} */
-            sex: "male" | "female";
+            /** @description A gender code from the tenant's Configuration list (female, male, or one the farm added). */
+            sex: string;
             animalCount: number;
         };
         /** @description One farm × cohort × dose-qualified-vaccine cell, at OBLIGATION grain (COUNT(DISTINCT obligation_id)). pendingCount, submittedCount and verifiedCount are a DISJOINT partition of the cell's obligations along "who owes the next move": the operator, the verifier, nobody. pendingCount previously fused the first two, because obligation status advances only on VERIFICATION and never on submission — a park whose every animal had been vaccinated and submitted rendered byte-identically to a park nobody had touched, and the page showed "40 awaiting verification" in the KPI row above "40 pending" in this matrix with no column reconciling them. submittedCount is that reconciling column. GRAIN NOTE: these counts are obligation grain while VaccinationCommandBoardKPI is animal grain; the two agree exactly at one-obligation-per-animal-per-vaccine, the grain every live drive uses, and the matrix stays obligation grain by design so a multi-vaccine animal is visible once per vaccine. */
@@ -16551,12 +16551,12 @@ export interface components {
         };
         /** @description One assumed live-weight sale price in force. management_stage and sex are both "" on the SPECIES DEFAULT; an override names both (maintainer decision 2026-09-24). An animal is valued at its own (species, stage, sex) override when one is in force, else its species default. */
         GrowthSalePrice: {
-            /** @enum {string} */
-            species: "goat" | "sheep";
+            /** @description A species code from the tenant's Configuration list (goat, sheep, or one the farm added). */
+            species: string;
             /** @description A stage_code from the tenant stage vocabulary; "" on the species default. */
             management_stage: string;
-            /** @enum {string} */
-            sex: "" | "female" | "male";
+            /** @description '' on the species default; otherwise A gender code from the tenant's Configuration list (female, male, or one the farm added). */
+            sex: string;
             /** Format: double */
             price_per_kg_inr: number;
             /** Format: date */
@@ -16595,12 +16595,12 @@ export interface components {
         /** @description The whole set the caller wants to hold. A row absent from the request is left untouched. */
         GrowthAssumptionsUpdate: {
             sale_prices?: {
-                /** @enum {string} */
-                species: "goat" | "sheep";
+                /** @description A species code from the tenant's Configuration list (goat, sheep, or one the farm added). */
+                species: string;
                 /** @description Stage code of an override; "" (or absent) for the species default. Named together with sex. */
                 management_stage?: string;
-                /** @enum {string} */
-                sex?: "" | "female" | "male";
+                /** @description '' on the species default; otherwise A gender code from the tenant's Configuration list (female, male, or one the farm added). */
+                sex?: string;
                 /**
                  * Format: double
                  * @description The price to hold. Null clears a stage x sex override (that combination falls back to the species default from today); a species default can never be null.
@@ -18054,8 +18054,8 @@ export interface components {
             tag1?: string | null;
             tag2?: string | null;
             breed?: string | null;
-            /** @enum {string} */
-            sex: "female" | "male";
+            /** @description A gender code from the tenant's Configuration list (female, male, or one the farm added). */
+            sex: string;
             age?: string | null;
             lifecycleStatus: string;
             healthStatus?: string | null;
@@ -20326,8 +20326,8 @@ export interface components {
             temporary_identifier?: string | null;
             /** @description Optional until double RFID tagging is live; that rollout must make this mandatory in both app validation and DB constraints. */
             animal_identifier_2?: string | null;
-            /** @enum {string} */
-            species: "goat" | "sheep";
+            /** @description A species code from the tenant's Configuration list (goat, sheep, or one the farm added). */
+            species: string;
             /** Format: uuid */
             farm_id?: string;
             farm_code?: string;
@@ -20344,8 +20344,8 @@ export interface components {
             /** @description The pen within shed_id the newborn is placed into ('1', 'Part 3'), matching a row in shed_partitions for that shed. OPTIONAL and additive: omitting it keeps the previous behaviour exactly (the animal is placed at shed level with no goat_shed_partitions row), so clients that predate this field continue to work unchanged. When present it is validated against the shed's real partitions and a mismatch is rejected rather than stored, and it is persisted in the SAME transaction as the goat insert. Never the literal string "whole" - that is a matching sentinel, not a pen. */
             partition_label?: string | null;
             breed: string;
-            /** @enum {string} */
-            sex: "female" | "male";
+            /** @description A gender code from the tenant's Configuration list (female, male, or one the farm added). */
+            sex: string;
             /**
              * Format: date
              * @description Date of birth. Required, and must not be after entry_date.
@@ -29319,7 +29319,7 @@ export interface operations {
                 park_id?: string;
                 /** @description A pen key from `options.pens` — `<shed_id>` for an undivided pen, `<shed_id>|<partition>` for a partition. */
                 pen?: string;
-                species?: "goat" | "sheep";
+                species?: string;
                 /** @description A breed key from `options.breeds` (matched case-insensitively). */
                 breed?: string;
                 sex?: "male" | "female";

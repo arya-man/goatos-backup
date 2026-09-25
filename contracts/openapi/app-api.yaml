@@ -11366,7 +11366,7 @@ paths:
         - name: species
           in: query
           required: false
-          schema: { type: string, enum: [goat, sheep] }
+          schema: { type: string, description: "A species code from the tenant's Configuration list (goat, sheep, or one the farm added)." }
         - name: breed
           in: query
           required: false
@@ -22771,9 +22771,9 @@ components:
         load_ref: { type: string }
         seq_no: { type: integer }
         title: { type: string, description: Backend-owned row title ("Animal 7 · Female goat"). }
-        species: { type: string, enum: [goat, sheep] }
+        species: { type: string, description: "A species code from the tenant's Configuration list (goat, sheep, or one the farm added)." }
         species_label: { type: string }
-        sex: { type: string, enum: [male, female] }
+        sex: { type: string, description: "A gender code from the tenant's Configuration list (female, male, or one the farm added)." }
         sex_label: { type: string }
         breed: { type: string }
         age_months: { type: integer }
@@ -31058,9 +31058,7 @@ components:
           maxLength: 120
         sex:
           type: string
-          enum:
-            - female
-            - male
+          description: A gender code from the tenant's Configuration list (female, male, or one the farm added).
         age_band:
           type:
             - string
@@ -31174,9 +31172,7 @@ components:
           pattern: ^G-[0-9]{6,}$
         species:
           type: string
-          enum:
-            - goat
-            - sheep
+          description: A species code from the tenant's Configuration list (goat, sheep, or one the farm added).
         summary:
           $ref: "#/components/schemas/GoatSummary"
         identifiers:
@@ -34042,9 +34038,7 @@ components:
           description: Management stage from goat classification (e.g., Buck, Non-Pregnant Female).
         sex:
           type: string
-          enum:
-            - male
-            - female
+          description: A gender code from the tenant's Configuration list (female, male, or one the farm added).
         animalCount:
           type: integer
     VaccinationCommandBoardCohortCell:
@@ -38199,9 +38193,9 @@ components:
         at its own (species, stage, sex) override when one is in force, else its species default.
       required: [species, management_stage, sex, price_per_kg_inr, effective_from, set_by]
       properties:
-        species: {type: string, enum: [goat, sheep]}
+        species: {type: string, description: "A species code from the tenant's Configuration list (goat, sheep, or one the farm added)."}
         management_stage: {type: string, description: 'A stage_code from the tenant stage vocabulary; "" on the species default.'}
-        sex: {type: string, enum: ["", female, male]}
+        sex: {type: string, description: "'' on the species default; otherwise A gender code from the tenant's Configuration list (female, male, or one the farm added)."}
         price_per_kg_inr: {type: number, format: double}
         effective_from: {type: string, format: date}
         set_by: {type: string}
@@ -38271,9 +38265,9 @@ components:
             additionalProperties: false
             required: [species]
             properties:
-              species: {type: string, enum: [goat, sheep]}
+              species: {type: string, description: "A species code from the tenant's Configuration list (goat, sheep, or one the farm added)."}
               management_stage: {type: string, description: 'Stage code of an override; "" (or absent) for the species default. Named together with sex.'}
-              sex: {type: string, enum: ["", female, male]}
+              sex: {type: string, description: "'' on the species default; otherwise A gender code from the tenant's Configuration list (female, male, or one the farm added)."}
               price_per_kg_inr:
                 type: number
                 format: double
@@ -41397,9 +41391,7 @@ components:
             - "null"
         sex:
           type: string
-          enum:
-            - female
-            - male
+          description: A gender code from the tenant's Configuration list (female, male, or one the farm added).
         age:
           type:
             - string
@@ -46501,9 +46493,7 @@ components:
           maxLength: 200
         species:
           type: string
-          enum:
-            - goat
-            - sheep
+          description: A species code from the tenant's Configuration list (goat, sheep, or one the farm added).
         farm_id:
           type: string
           format: uuid
@@ -46556,9 +46546,7 @@ components:
           maxLength: 120
         sex:
           type: string
-          enum:
-            - female
-            - male
+          description: A gender code from the tenant's Configuration list (female, male, or one the farm added).
         dob:
           description: Date of birth. Required, and must not be after entry_date.
           type: string

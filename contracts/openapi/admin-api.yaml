@@ -7442,9 +7442,7 @@ components:
           maxLength: 120
         sex:
           type: string
-          enum:
-            - female
-            - male
+          description: A gender code from the tenant's Configuration list (female, male, or one the farm added).
         age_band:
           type:
             - string
@@ -7612,9 +7610,7 @@ components:
           maxLength: 200
         species:
           type: string
-          enum:
-            - goat
-            - sheep
+          description: A species code from the tenant's Configuration list (goat, sheep, or one the farm added).
         farm_id:
           type: string
           format: uuid
@@ -7652,9 +7648,7 @@ components:
           maxLength: 120
         sex:
           type: string
-          enum:
-            - female
-            - male
+          description: A gender code from the tenant's Configuration list (female, male, or one the farm added).
         dob:
           type: string
           format: date
@@ -7876,8 +7870,7 @@ components:
             correcting exactly those animals is the commonest reason to use this.
         sex:
           type: string
-          enum: [female, male]
-          description: The row's sex. Part of the predicate, not something this call changes unless field=sex.
+          description: The row's gender code, as stored. Part of the predicate, not something this call changes unless field=sex.
         field:
           type: string
           enum: [breed, sex]
@@ -7887,7 +7880,7 @@ components:
           maxLength: 120
           description: >-
             The corrected value. Validated against the tenant's active breed catalog for
-            `breed`, and against female/male for `sex`. A value equal to what the row already
+            `breed`, and against the tenant's active Configuration genders for `sex`. A value equal to what the row already
             carries is rejected rather than written.
         reason:
           type: string
@@ -9999,14 +9992,10 @@ components:
           maxLength: 160
         species:
           type: string
-          enum:
-            - goat
-            - sheep
+          description: A species code from the tenant's Configuration list (goat, sheep, or one the farm added).
         sex:
           type: string
-          enum:
-            - female
-            - male
+          description: A gender code from the tenant's Configuration list (female, male, or one the farm added).
         selection_state:
           $ref: "#/components/schemas/ProcurementSelectionState"
         selection_reason:
