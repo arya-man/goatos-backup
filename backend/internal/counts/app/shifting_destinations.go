@@ -7,6 +7,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/counts/domain"
 	"github.com/vgoats/goatos/backend/internal/counts/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/animalvocab"
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 )
 
@@ -35,6 +36,21 @@ func (s *Service) ActiveBreeds(ctx context.Context, tenantID string) ([]domain.C
 		return nil, ErrMissingRequiredField
 	}
 	return s.repo.ActiveBreeds(ctx, tenantID)
+}
+
+// AnimalVocabulary returns the tenant's active species and genders (Configuration > Items &
+// settings) for the operator birth form's species and sex pickers (OPEN UP TO NEW SPECIES,
+// maintainer decision 2026-09-25). The birth write validates against the same lists in identity, so
+// the phone offers exactly what the write accepts. A repository that cannot answer reads as the
+// built-ins.
+func (s *Service) AnimalVocabulary(ctx context.Context, tenantID string) (animalvocab.Vocabulary, error) {
+	if strings.TrimSpace(tenantID) == "" {
+		return animalvocab.Vocabulary{}, ErrMissingRequiredField
+	}
+	if src, ok := s.repo.(ports.AnimalVocabularySource); ok {
+		return src.AnimalVocabulary(ctx, tenantID)
+	}
+	return animalvocab.Builtins(), nil
 }
 
 // ShiftingGoatFacts reads the named animals' narrow canonical facts (stage, sex, placement) for
