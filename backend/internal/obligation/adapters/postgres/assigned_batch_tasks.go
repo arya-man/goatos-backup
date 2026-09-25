@@ -13,7 +13,7 @@ import (
 
 // listAssignedBatchesMissingSOPTaskSQL is the ListAssignedBatchesMissingSOPTask projection.
 const listAssignedBatchesMissingSOPTaskSQL = `
--- projection-review: membership=open (planned/in_progress) obligation_batches of one protocol_version with no sop_task_id whose open obligations sit on a live drive-assignment member row; group_key=batch_id (one row per batch); join_cardinality=obligation_instances 1:N collapsed by GROUP BY batch_id, assignment membership checked with an EXISTS semijoin so member rows cannot fan out; pagination=keyset over (created_at,batch_id) with caller-carried cursor and LIMIT; scope=tenant plus protocol version, batch scope_type/scope_id as stored
+-- projection-review: membership=open (planned/in_progress) obligation_batches with no sop_task_id, of ANY batch protocol_version (manual and retired-version batches included), whose open obligations of one protocol_version sit on a live drive-assignment member row; group_key=batch_id (one row per batch); join_cardinality=obligation_instances 1:N collapsed by GROUP BY batch_id, assignment membership checked with an EXISTS semijoin so member rows cannot fan out; pagination=keyset over (created_at,batch_id) with caller-carried cursor and LIMIT; scope=tenant plus member-obligation protocol version, batch scope_type/scope_id as stored
 SELECT ob.batch_id::text,
        COALESCE(MIN(oi.rule_id::text), '')::text AS rule_id,
        ob.scope_type,
@@ -26,9 +26,9 @@ FROM obligation_batches ob
 JOIN obligation_instances oi
   ON oi.tenant_id = ob.tenant_id
  AND oi.batch_id = ob.batch_id
+ AND oi.protocol_version_id = $2
  AND oi.status IN ('scheduled', 'due', 'in_progress')
 WHERE ob.tenant_id = $1
-  AND ob.protocol_version_id = $2
   AND ob.status IN ('planned', 'in_progress')
   AND ob.sop_task_id IS NULL
   AND (
@@ -43,6 +43,7 @@ WHERE ob.tenant_id = $1
       ON moi.tenant_id = m.tenant_id
      AND moi.obligation_id = m.obligation_id
      AND moi.batch_id = ob.batch_id
+     AND moi.protocol_version_id = $2
      AND moi.status IN ('scheduled', 'due', 'in_progress')
     WHERE m.tenant_id = ob.tenant_id
       AND m.canceled_at IS NULL
@@ -51,9 +52,11 @@ GROUP BY ob.tenant_id, ob.batch_id, ob.scope_type, ob.scope_id, ob.planned_date,
 ORDER BY ob.created_at ASC, ob.batch_id ASC
 LIMIT $5`
 
-// ListAssignedBatchesMissingSOPTask returns open batches of one protocol version that have NO SOP
-// task although at least one of their open obligations is on an operator's active drive
-// assignment. The ordinary finalization query only sees status='planned' batches produced by the
+// ListAssignedBatchesMissingSOPTask returns open batches that have NO SOP task although at least
+// one of their open obligations of the given protocol version is on an operator's active drive
+// assignment. The version filter is on the member obligations, NOT on the batch: a maintainer
+// manual batch can carry a retired protocol version while its obligations sit on the published
+// one, and such a batch must still be tasked (with the published version's SOP config). The ordinary finalization query only sees status='planned' batches produced by the
 // sweep; a batch that reached a roster another way (a manual/runbook drive restore, a batch that
 // already moved to in_progress) was never tasked, so the phone had no task to write its RFID scans
 // and proof against. The sweeper creates the missing task through the same idempotent batch-task
