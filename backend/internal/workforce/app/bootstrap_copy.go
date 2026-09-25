@@ -687,7 +687,7 @@ func visibleNavigationForScope(scope navScope, grantedModules []string, localeTa
 	// bar must never disagree: a module unticked out of the drawer while the bar still lands
 	// on it is the same "you can see what you cannot use" defect, one screen over.
 	if !fromTicks && isLeadershipPrincipal(grants) {
-		keys := narrowOfferToTicks(leadershipModuleKeys(grants), ticked)
+		keys := narrowOfferToTicks(withoutPhoneWorkBoard(grants, leadershipModuleKeys(grants)), ticked)
 		if len(keys) == 0 {
 			return []domain.BootstrapNavigationItem{}
 		}
@@ -841,6 +841,47 @@ func candidateModuleKeys(grants []domain.GrantSummary, grantedModules []string) 
 //
 // A standalone verifier stays exempt: her modules are the features her verify DUTIES name.
 func candidateModuleKeysFrom(grants []domain.GrantSummary, grantedModules []string, fromTicks bool) []string {
+	return withoutPhoneWorkBoard(grants, candidateModuleKeysUnfiltered(grants, grantedModules, fromTicks))
+}
+
+// phoneWorkBoardExcludedRoles are the desks that never get My Work on the phone (maintainer
+// decision 2026-09-25: "no mobile view for CXOs and directors"). The phone board reads ONE park
+// (the person's home park) and has no park picker, so a tenant-wide desk either had no park and
+// saw "Couldn't load your work" (every CEO/CXO on STG) or was stuck on one park. They read the
+// Work Board on admin-web, which picks the park. A park head keeps it.
+var phoneWorkBoardExcludedRoles = map[string]bool{
+	permissions.RoleCEOInternal:         true,
+	permissions.RolePCDirector:          true,
+	permissions.RoleGrowthDirector:      true,
+	permissions.RoleFeedDirector:        true,
+	permissions.RoleHealthDirector:      true,
+	permissions.RoleProcurementDirector: true,
+	permissions.RoleBreedingDirector:    true,
+}
+
+// withoutPhoneWorkBoard drops the phone's Work module for a CEO/CXO or director, whichever way
+// it was offered -- the leadership curation, a department grant or their own ticks.
+func withoutPhoneWorkBoard(grants []domain.GrantSummary, keys []string) []string {
+	excluded := false
+	for _, g := range grants {
+		if phoneWorkBoardExcludedRoles[g.Role] {
+			excluded = true
+			break
+		}
+	}
+	if !excluded {
+		return keys
+	}
+	out := make([]string, 0, len(keys))
+	for _, k := range keys {
+		if k != "work_board" {
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
+func candidateModuleKeysUnfiltered(grants []domain.GrantSummary, grantedModules []string, fromTicks bool) []string {
 	if isStandaloneVerifierPrincipal(grants) {
 		// Every standalone verifier is scoped to the feature(s) their verify duties name,
 		// or -- for a coarse department-level "verification" grant / no duties at all --
@@ -1047,10 +1088,11 @@ func leadershipModuleKeys(grants []domain.GrantSummary) []string {
 	if grantsHavePermission(grants, permissions.ToxinRead) {
 		keys = appendMissing(keys, "toxin")
 	}
-	// Work Board (maintainer decision 2026-09-10): a leadership principal -- CEO, director,
-	// park head -- is offered My Work on work_board.read, which every one of those jobs
-	// carries. Field principals get it through their department grant instead (see the
-	// registry entry), so this is deliberately inside the leadership branch.
+	// Work Board (maintainer decision 2026-09-10): a park head is offered My Work on
+	// work_board.read. A CEO/CXO or a director is NOT (maintainer decision 2026-09-25: "no
+	// mobile view for CXOs and directors") -- they read the board on admin-web, which lets
+	// them pick a park; see withoutPhoneWorkBoard. Field principals get it through their
+	// department grant instead (see the registry entry).
 	if grantsHavePermission(grants, permissions.WorkBoardRead) {
 		keys = appendMissing(keys, "work_board")
 	}
