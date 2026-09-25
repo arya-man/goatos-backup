@@ -710,8 +710,13 @@ WHERE tenant_id = $1::uuid
         WHEN 'death' THEN (SELECT g.park_id::text FROM goats g
                             WHERE g.tenant_id = counts_approval_requests.tenant_id AND g.goat_id = counts_approval_requests.subject_goat_id)
       END = $8::text)
+  -- The client's optional CALENDAR filter ($9 / $10, 2026-09-25): a half-open instant range over
+  -- India business days, resolved by the service. A plain raised_at range, so the existing
+  -- (tenant, status, request_type, raised_at) index still drives the page.
+  AND ($9::timestamptz IS NULL OR raised_at >= $9::timestamptz)
+  AND ($10::timestamptz IS NULL OR raised_at < $10::timestamptz)
 ORDER BY raised_at DESC, approval_request_id DESC
-LIMIT $6`, q.TenantID, q.Status, q.RequestTypes, cursorRaisedAt, cursorID, pageSize+1, q.CallerParkIDs, nilIfBlank(q.FilterParkID))
+LIMIT $6`, q.TenantID, q.Status, q.RequestTypes, cursorRaisedAt, cursorID, pageSize+1, q.CallerParkIDs, nilIfBlank(q.FilterParkID), q.RaisedFrom, q.RaisedBefore)
 	if err != nil {
 		return domain.ApprovalRequestPage{}, fmt.Errorf("counts: list approval requests: %w", err)
 	}

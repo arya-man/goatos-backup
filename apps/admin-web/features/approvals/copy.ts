@@ -39,6 +39,20 @@ export const APPROVALS_COPY = {
   farmTab: {
     all: "All farms",
   },
+  dateFilter: {
+    field: "Raised",
+    any: "Any date",
+    clear: "Clear dates",
+    today: "Today",
+    single: "One day",
+    range: "Date range",
+    aria: "Filter by the day a request was raised",
+    previousMonth: "Previous month",
+    nextMonth: "Next month",
+    rangeStartHint: "Pick the first day",
+    rangeEndHint: "Pick the last day",
+    rangeSeparator: "–",
+  },
   pager: {
     next: "Older requests",
     first: "Back to newest",

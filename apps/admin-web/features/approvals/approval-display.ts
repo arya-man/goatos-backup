@@ -122,3 +122,23 @@ export const APPROVAL_REASON_MAX_BYTES = 2000;
 export function approvalReasonTooLong(reason: string): boolean {
   return new TextEncoder().encode(reason).length > APPROVAL_REASON_MAX_BYTES;
 }
+
+
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * The calendar filter as the page will send it: both ends YYYY-MM-DD, a lone end filling the
+ * other, and an inverted or malformed pair dropped to "any date" (the server would 400 it, and a
+ * bookmark with a typo should still open the page).
+ */
+export function approvalDateRange(rawFrom?: string, rawTo?: string): { from: string; to: string } {
+  const from = rawFrom?.trim() ?? "";
+  const to = rawTo?.trim() ?? "";
+  const okFrom = DAY_RE.test(from) && !Number.isNaN(Date.parse(from));
+  const okTo = DAY_RE.test(to) && !Number.isNaN(Date.parse(to));
+  if (!okFrom && !okTo) return { from: "", to: "" };
+  const a = okFrom ? from : to;
+  const b = okTo ? to : from;
+  if (a > b) return { from: "", to: "" };
+  return { from: a, to: b };
+}

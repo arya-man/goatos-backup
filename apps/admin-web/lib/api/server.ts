@@ -6605,6 +6605,9 @@ export type AdminWebApprovalListParams = {
   request_type?: AdminWebApprovalRequestType;
   /** Server-side farm narrowing; a death matches through its animal's park. */
   park_id?: string;
+  /** Calendar filter: first / last India business day raised (YYYY-MM-DD, inclusive). */
+  raised_from?: string;
+  raised_to?: string;
 };
 
 /** One keyset page of approval requests the caller may decide (GET /admin-web/counts/approvals). */
@@ -6624,6 +6627,8 @@ export async function listAdminWebApprovals(
         page_size: params.page_size,
         request_type: params.request_type,
         park_id: params.park_id,
+        raised_from: params.raised_from,
+        raised_to: params.raised_to,
       }),
     }),
   );

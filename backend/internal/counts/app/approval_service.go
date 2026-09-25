@@ -12,6 +12,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/counts/domain"
 	"github.com/vgoats/goatos/backend/internal/counts/ports"
 	identityapp "github.com/vgoats/goatos/backend/internal/identity/app"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	identityports "github.com/vgoats/goatos/backend/internal/identity/ports"
 )
 
@@ -28,6 +29,9 @@ var (
 	// value; a filter is never silently widened to "everything" (2026-09-25).
 	ErrInvalidApprovalTypeFilter = errors.New("counts: request_type filter must be birth, death or shifting")
 	ErrInvalidApprovalParkFilter = errors.New("counts: park_id filter must be a park id")
+	// ErrInvalidApprovalDateRange refuses a calendar filter that is not a YYYY-MM-DD date, or whose
+	// start is after its end; it is never read as "no filter".
+	ErrInvalidApprovalDateRange = errors.New("counts: raised_from / raised_to must be dates (YYYY-MM-DD), from on or before to")
 	// ErrApprovalCursorFilterMismatch refuses a cursor minted under a different filter.
 	ErrApprovalCursorFilterMismatch = errors.New("counts: cursor does not belong to this filter")
 	// ErrApprovalInvalidStoredPayload is returned when a stored request payload can no longer be
@@ -161,6 +165,12 @@ func (s *ApprovalService) ListFiltered(
 	if filter.ParkID != "" && !uuidutil.IsUUIDString(filter.ParkID) {
 		return domain.ApprovalRequestPage{}, ErrInvalidApprovalParkFilter
 	}
+	filter.RaisedFrom = strings.TrimSpace(filter.RaisedFrom)
+	filter.RaisedTo = strings.TrimSpace(filter.RaisedTo)
+	raisedFrom, raisedBefore, err := approvalRaisedRange(filter.RaisedFrom, filter.RaisedTo)
+	if err != nil {
+		return domain.ApprovalRequestPage{}, err
+	}
 	decoded, err := domain.DecodeApprovalRequestCursor(cursor)
 	if err != nil {
 		return domain.ApprovalRequestPage{}, ErrInvalidExceptionFilter
@@ -184,10 +194,46 @@ func (s *ApprovalService) ListFiltered(
 		RequestTypes:  types,
 		CallerParkIDs: callerParkIDs,
 		FilterParkID:  filter.ParkID,
+		RaisedFrom:    raisedFrom,
+		RaisedBefore:  raisedBefore,
 		FilterKey:     filter.Key(),
 		PageSize:      pageSize,
 		Cursor:        decoded,
 	})
+}
+
+// approvalRaisedRange turns the calendar filter's inclusive YYYY-MM-DD dates into a half-open
+// instant range over INDIA business days: from the start of the first day to the start of the
+// day after the last. UTC never defines the day (a 02:00 IST request is on its own date).
+func approvalRaisedRange(from, to string) (*time.Time, *time.Time, error) {
+	loc := biztime.DefaultLocation()
+	parse := func(raw string) (*time.Time, error) {
+		if raw == "" {
+			return nil, nil
+		}
+		day, err := time.ParseInLocation("2006-01-02", raw, loc)
+		if err != nil {
+			return nil, ErrInvalidApprovalDateRange
+		}
+		return &day, nil
+	}
+	start, err := parse(from)
+	if err != nil {
+		return nil, nil, err
+	}
+	end, err := parse(to)
+	if err != nil {
+		return nil, nil, err
+	}
+	if start != nil && end != nil && start.After(*end) {
+		return nil, nil, ErrInvalidApprovalDateRange
+	}
+	var before *time.Time
+	if end != nil {
+		next := end.AddDate(0, 0, 1)
+		before = &next
+	}
+	return start, before, nil
 }
 
 // CountPending is the number of PENDING requests this caller may decide -- the same decidable

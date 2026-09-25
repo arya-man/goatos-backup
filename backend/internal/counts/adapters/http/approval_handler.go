@@ -182,6 +182,8 @@ func (h *AppWriteHandler) ListApprovals(w http.ResponseWriter, r *http.Request) 
 	filter := domain.ApprovalListFilter{
 		RequestType: strings.TrimSpace(r.URL.Query().Get("request_type")),
 		ParkID:      strings.TrimSpace(r.URL.Query().Get("park_id")),
+		RaisedFrom:  strings.TrimSpace(r.URL.Query().Get("raised_from")),
+		RaisedTo:    strings.TrimSpace(r.URL.Query().Get("raised_to")),
 	}
 	cursor := strings.TrimSpace(r.URL.Query().Get("cursor"))
 	var (
@@ -539,6 +541,9 @@ func (h *AppWriteHandler) writeApprovalError(w http.ResponseWriter, r *http.Requ
 			"request_type must be birth, death or shifting", err)
 	case errors.Is(err, countsapp.ErrInvalidApprovalParkFilter):
 		h.writeError(w, r, http.StatusBadRequest, "invalid_park_id", "park_id must be a farm id", err)
+	case errors.Is(err, countsapp.ErrInvalidApprovalDateRange):
+		h.writeError(w, r, http.StatusBadRequest, "invalid_date_range",
+			"raised_from and raised_to must be dates, and the start must not be after the end", err)
 	case errors.Is(err, countsapp.ErrApprovalCursorFilterMismatch):
 		h.writeError(w, r, http.StatusBadRequest, "invalid_cursor",
 			"that page belongs to a different filter; reload the list", err)

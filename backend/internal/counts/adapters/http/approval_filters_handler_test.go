@@ -4,7 +4,9 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	countsapp "github.com/vgoats/goatos/backend/internal/counts/app"
 	"github.com/vgoats/goatos/backend/internal/counts/domain"
@@ -119,5 +121,45 @@ func TestApprovalsBadgeUsesTheCallersDecidableTypesAndScope(t *testing.T) {
 	counts, err = badges.ModuleBadgeCounts(operator, testTenantID, testActorID, []string{ApprovalsModuleKey})
 	if err != nil || counts[ApprovalsModuleKey] != 0 || repo.last != nil {
 		t.Fatalf("non-approver badge = %v err %v (count asked: %v), want 0 and no count", counts, err, repo.last != nil)
+	}
+}
+
+// The Approvals calendar filter (maintainer request 2026-09-25): raised_from / raised_to are whole
+// INDIA business days, applied in SQL, so a request raised at 02:00 IST on the 16th is on the 16th
+// (not the 15th, as a UTC day would file it). A bad date or an inverted range is refused, never
+// read as "no filter".
+func TestApprovalListRaisedDateRangeIsIndiaDaysAndRefusesBadDates(t *testing.T) {
+	for _, route := range []string{appApprovalsRoute, adminWebApprovalsRoute} {
+		repo := &recordingApprovalRepo{}
+		approvals := &realApprovalWorkflow{fakeApprovalWorkflow: newFakeApprovalWorkflow(), svc: countsapp.NewApprovalService(repo, nil, nil)}
+		mux := newTestServer(t, countsapp.NewService(newFakeShiftingRepo()), approvals, newFakeGoatValidator())
+		RegisterAdminWebApprovals(mux, handlersByMux[mux])
+		get := func(query string) *httptest.ResponseRecorder {
+			req := httptest.NewRequest(http.MethodGet, route+query, nil)
+			ctx := httpmiddleware.WithActorID(httpmiddleware.WithTenantID(req.Context(), testTenantID), testActorID)
+			ctx = httpmiddleware.WithAuthGrants(ctx, []permissions.ActiveGrant{{Role: permissions.RoleCountsApprover, ScopeType: "tenant"}})
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req.WithContext(ctx))
+			return rec
+		}
+		repo.last = nil
+		if rec := get("?raised_from=2026-09-16&raised_to=2026-09-17"); rec.Code != http.StatusOK {
+			t.Fatalf("%s date range: status=%d body=%s", route, rec.Code, rec.Body.String())
+		}
+		ist := time.FixedZone("IST", 5*3600+1800)
+		wantFrom := time.Date(2026, 9, 16, 0, 0, 0, 0, ist)
+		wantBefore := time.Date(2026, 9, 18, 0, 0, 0, 0, ist)
+		if repo.last == nil || repo.last.RaisedFrom == nil || repo.last.RaisedBefore == nil ||
+			!repo.last.RaisedFrom.Equal(wantFrom) || !repo.last.RaisedBefore.Equal(wantBefore) {
+			t.Fatalf("%s: the date range did not reach the query as India days: %+v", route, repo.last)
+		}
+		if repo.last.FilterKey == "" {
+			t.Fatalf("%s: a dated page must bind its cursor to the dates", route)
+		}
+		for _, bad := range []string{"?raised_from=16-09-2026", "?raised_to=2026-13-01", "?raised_from=2026-09-18&raised_to=2026-09-16"} {
+			if rec := get(bad); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "invalid_date_range") {
+				t.Fatalf("%s%s: status=%d body=%s, want 400 invalid_date_range", route, bad, rec.Code, rec.Body.String())
+			}
+		}
 	}
 }

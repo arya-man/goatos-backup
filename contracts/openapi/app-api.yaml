@@ -17513,6 +17513,25 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: raised_from
+          in: query
+          required: false
+          description: >-
+            Optional calendar filter: the first India business day (YYYY-MM-DD, inclusive) a
+            request was raised on. A bad date, or a start after raised_to, is 400
+            invalid_date_range. Bound into the page cursor like the other filters.
+          schema:
+            type: string
+            format: date
+        - name: raised_to
+          in: query
+          required: false
+          description: >-
+            Optional calendar filter: the last India business day (YYYY-MM-DD, inclusive) a
+            request was raised on.
+          schema:
+            type: string
+            format: date
       responses:
         "200":
           description: One page of approval requests.

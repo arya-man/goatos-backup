@@ -133,3 +133,20 @@ test("A5: the reject reason is capped at the server's limit, in bytes too", () =
   assert.match(read("./approvals-drawer.tsx"), /maxLength=\{APPROVAL_REASON_MAX_BYTES\}/);
   assert.match(read("./actions.ts"), /approvalReasonTooLong\(reason\)/);
 });
+
+test("calendar filter: a well-formed pair passes, a lone end fills the other, bad input is 'any date'", async () => {
+  const { approvalDateRange } = await import("./approval-display.ts");
+  assert.deepEqual(approvalDateRange("2026-09-16", "2026-09-20"), { from: "2026-09-16", to: "2026-09-20" });
+  assert.deepEqual(approvalDateRange("2026-09-16", ""), { from: "2026-09-16", to: "2026-09-16" });
+  assert.deepEqual(approvalDateRange("", "2026-09-20"), { from: "2026-09-20", to: "2026-09-20" });
+  assert.deepEqual(approvalDateRange("2026-09-20", "2026-09-16"), { from: "", to: "" }, "inverted range");
+  assert.deepEqual(approvalDateRange("16-09-2026", undefined), { from: "", to: "" }, "not ISO");
+  assert.deepEqual(approvalDateRange(undefined, undefined), { from: "", to: "" });
+});
+
+test("calendar filter: the page sends the dates to the server and the filter clears the cursor", () => {
+  const page = readFileSync(new URL("./approvals-page.tsx", import.meta.url), "utf8");
+  assert.match(page, /raised_from: dateRange\.from/);
+  const filter = readFileSync(new URL("./approvals-date-filter.tsx", import.meta.url), "utf8");
+  assert.match(filter, /"ap_cursor"/, "a new date range must drop the page cursor (the server binds it to the filter)");
+});

@@ -232,6 +232,11 @@ type ApprovalRequestQuery struct {
 	// FilterKey is ApprovalListFilter.Key() for the page; it is stamped on the next cursor so a
 	// cursor minted under one filter cannot walk the keyset of another.
 	FilterKey string
+	// RaisedFrom / RaisedBefore are the CLIENT's optional calendar filter (2026-09-25): the start
+	// of the first India business day and the start of the day AFTER the last, so the range is
+	// half-open and a request raised at 02:00 IST sits on its own day. Nil means no bound.
+	RaisedFrom   *time.Time
+	RaisedBefore *time.Time
 
 	PageSize int
 	Cursor   *ApprovalRequestCursor
@@ -244,16 +249,27 @@ type ApprovalRequestQuery struct {
 type ApprovalListFilter struct {
 	RequestType string
 	ParkID      string
+	// RaisedFrom / RaisedTo are the calendar filter as the client sent it: YYYY-MM-DD India
+	// business dates, both inclusive (maintainer request 2026-09-25).
+	RaisedFrom string
+	RaisedTo   string
 }
 
 // Key is the stable identity of the filter, bound into the keyset cursor. Blank for no filter,
 // so a cursor minted before filters existed still pages the unfiltered list.
 func (f ApprovalListFilter) Key() string {
 	t, p := strings.TrimSpace(f.RequestType), strings.ToLower(strings.TrimSpace(f.ParkID))
-	if t == "" && p == "" {
+	from, to := strings.TrimSpace(f.RaisedFrom), strings.TrimSpace(f.RaisedTo)
+	if t == "" && p == "" && from == "" && to == "" {
 		return ""
 	}
-	return "t=" + t + ";p=" + p
+	key := "t=" + t + ";p=" + p
+	// The dates join the key only when set, so a type/farm cursor minted before the calendar
+	// filter existed keeps paging.
+	if from != "" || to != "" {
+		key += ";f=" + from + ";to=" + to
+	}
+	return key
 }
 
 // ApprovalRequestCursor is the keyset position: (raised_at, approval_request_id) descending.

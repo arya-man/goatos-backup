@@ -33476,6 +33476,10 @@ export interface operations {
                 request_type?: "birth" | "death" | "shifting";
                 /** @description Optional server-side farm filter, applied on top of the caller's park scope (a farm the caller does not hold returns an empty page). A shifting request matches on its destination farm, a birth on its farm, a death on the subject animal's farm. A malformed id is 400 invalid_park_id. */
                 park_id?: string;
+                /** @description Optional calendar filter: the first India business day (YYYY-MM-DD, inclusive) a request was raised on. A bad date, or a start after raised_to, is 400 invalid_date_range. Bound into the page cursor like the other filters. */
+                raised_from?: string;
+                /** @description Optional calendar filter: the last India business day (YYYY-MM-DD, inclusive) a request was raised on. */
+                raised_to?: string;
             };
             header?: never;
             path?: never;

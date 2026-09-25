@@ -13,11 +13,12 @@ import {
 } from "@/lib/api/server";
 import { getCensusLocations } from "@/lib/api/herd-locations";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
-import { fmtDateTime } from "@/lib/format";
+import { fmtDateTime, todayIso } from "@/lib/format";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import { APPROVALS_COPY as COPY } from "./copy";
 import { ApprovalsDrawer } from "./approvals-drawer";
-import { approvalStatusLabel, approvalSubject, approvalSuccessSentence } from "./approval-display";
+import { ApprovalsDateFilter } from "./approvals-date-filter";
+import { approvalDateRange, approvalStatusLabel, approvalSubject, approvalSuccessSentence } from "./approval-display";
 
 const PATHNAME = "/approvals";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -33,6 +34,9 @@ export async function ApprovalsPage({ searchParams }: { searchParams?: RouteSear
   const rawFarm = one(sp, "farm")?.trim() ?? "";
   const farmFilter = UUID_RE.test(rawFarm) ? rawFarm : "";
   const cursor = one(sp, "ap_cursor");
+  // The calendar filter reaches the server only as a well-formed, ordered pair of YYYY-MM-DD days;
+  // a hand-edited URL degrades to "any date" rather than a 400 page.
+  const dateRange = approvalDateRange(one(sp, "raised_from"), one(sp, "raised_to"));
 
   const [queue, locations] = await Promise.all([
     listAdminWebApprovals({
@@ -41,6 +45,8 @@ export async function ApprovalsPage({ searchParams }: { searchParams?: RouteSear
       cursor,
       request_type: typeFilter === "all" ? undefined : typeFilter,
       park_id: farmFilter || undefined,
+      raised_from: dateRange.from || undefined,
+      raised_to: dateRange.to || undefined,
     }),
     // Park/shed NAMES so the list + drawer render human-readable farm/shed text instead of UUIDs.
     // These are backend-owned canonical location names, resolved id -> name in the renderer.
@@ -154,6 +160,29 @@ export async function ApprovalsPage({ searchParams }: { searchParams?: RouteSear
             {farm.name}
           </Link>
         ))}
+      </div>
+
+      <div style={{ marginBottom: 14 }}>
+        <ApprovalsDateFilter
+          labels={{
+            field: COPY.dateFilter.field,
+            today: COPY.dateFilter.today,
+            single: COPY.dateFilter.single,
+            range: COPY.dateFilter.range,
+            aria: COPY.dateFilter.aria,
+            previousMonth: COPY.dateFilter.previousMonth,
+            nextMonth: COPY.dateFilter.nextMonth,
+            rangeStartHint: COPY.dateFilter.rangeStartHint,
+            rangeEndHint: COPY.dateFilter.rangeEndHint,
+            rangeSeparator: COPY.dateFilter.rangeSeparator,
+          }}
+          from={dateRange.from}
+          to={dateRange.to}
+          today={todayIso()}
+          anyLabel={COPY.dateFilter.any}
+          clearLabel={COPY.dateFilter.clear}
+          basePath={PATHNAME}
+        />
       </div>
 
       <section className="card" style={{ minWidth: 0 }}>
