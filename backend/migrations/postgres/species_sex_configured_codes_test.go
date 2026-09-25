@@ -9,7 +9,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 )
 
-// TestConfiguredThirdSpeciesAndSexAreStorableEverywhere pins migration 000431 (OPEN UP TO NEW
+// TestConfiguredThirdSpeciesAndSexAreStorableEverywhere pins migration 000432 (OPEN UP TO NEW
 // SPECIES, maintainer decision 2026-09-25): once a farm adds a third species and a third gender on
 // Configuration > Items & settings, an animal of that species/gender can be stored in the register,
 // on a purchase candidate, on a sale-price row and as a vaccination rule selector -- none of those

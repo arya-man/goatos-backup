@@ -18,7 +18,7 @@ import (
 // over alive, non-merged goats), so the value an operator picks is exactly the value that screen
 // shows and the birth write stores. The register is matched by name, case-insensitively; a register
 // breed nobody carries reads 0. Blank breed is excluded. The register is the farm's own breed list
-// (breeds.tenant_id, 000432), the same list the web breed pickers read (adminui allBreedsSQL).
+// (breeds.tenant_id, 000433), the same list the web breed pickers read (adminui allBreedsSQL).
 //
 // projection-review: membership=tenant live non-merged goats with a nonblank breed UNION active breed-register rows; group_key=lower(breed name); join_cardinality=herd side is pre-aggregated to one row per lower(breed) and the register side to one row per lower(canonical_name) before the FULL JOIN, so it is 1:1; pagination=whole bounded vocabulary independent of page size; scope=tenant_id plus alive and non-merged predicates on the herd side
 //   - producer unique key: herd `lower(g.breed)` (GROUP BY), register `lower(canonical_name)` (DISTINCT ON).

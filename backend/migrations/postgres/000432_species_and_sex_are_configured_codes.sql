@@ -76,7 +76,7 @@ SELECT public.admin_ui_bump_config_family(
   tenant_id,
   'species',
   NULL,
-  'migration:000431_species_and_sex_are_configured_codes',
+  'migration:000432_species_and_sex_are_configured_codes',
   '{"reason":"species and sex pickers compiled from Configuration"}'::jsonb
 )
 FROM (SELECT DISTINCT tenant_id FROM public.species_lookup) AS tenants;

@@ -59,7 +59,7 @@ func (s codeLookupStore) options(ctx context.Context, q querier, t string) ([]po
 func (s codeLookupStore) usage(ctx context.Context, q querier, t, id string) (domain.Usage, error) {
 	checks := []usageCheck{{"animals", fmt.Sprintf(`SELECT count(*) FROM goats WHERE tenant_id = $1 AND %s = $2 AND lifecycle_status = 'alive'`, s.goatCol)}}
 	if s.breedCol != "" {
-		// A farm's breeds name their species by its code (breeds are per farm since 000432).
+		// A farm's breeds name their species by its code (breeds are per farm since 000433).
 		checks = append(checks, usageCheck{"breeds", fmt.Sprintf(`SELECT count(*) FROM breeds WHERE tenant_id = $1 AND %s = $2 AND status = 'active'`, s.breedCol)})
 	}
 	return usageOf(ctx, q, t, id, checks...)
@@ -352,7 +352,7 @@ func (roleStore) del(ctx context.Context, tx pgx.Tx, t, id string, rv int) error
 }
 
 // ---------------------------------------------------------------------------------------------
-// Breeds: each farm's own list (breeds.tenant_id, migration 000432), edited here like any other
+// Breeds: each farm's own list (breeds.tenant_id, migration 000433), edited here like any other
 // register. A breed is keyed by (tenant, species, canonical_name); goats name it by breed_id and by
 // the text column, so usage counts both.
 

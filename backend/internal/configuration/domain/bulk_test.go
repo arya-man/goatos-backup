@@ -26,7 +26,7 @@ func TestSheetColumnsCarryIdFirstAndStatusLast(t *testing.T) {
 }
 
 func TestProductWideRegistersStayReadOnly(t *testing.T) {
-	// Breeds left this list on 2026-09-25: they are per farm (000432) and edited here.
+	// Breeds left this list on 2026-09-25: they are per farm (000433) and edited here.
 	for _, key := range []string{RegRoles, RegStatusDefinitions} {
 		reg := mustRegister(t, key)
 		if !reg.ReadOnly || reg.Importable {

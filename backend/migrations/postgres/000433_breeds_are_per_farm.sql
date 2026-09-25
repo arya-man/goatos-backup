@@ -109,7 +109,7 @@ CREATE TRIGGER admin_ui_breeds_revision_trg
 DO $$
 BEGIN
   IF (SELECT count(DISTINCT tenant_id) FROM public.breeds) > 1 THEN
-    RAISE EXCEPTION 'breeds belong to more than one tenant; 000432 cannot be rolled back';
+    RAISE EXCEPTION 'breeds belong to more than one tenant; 000433 cannot be rolled back';
   END IF;
 END $$;
 

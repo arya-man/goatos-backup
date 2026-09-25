@@ -227,7 +227,7 @@ LIMIT 500`, tenantID)
 	return out, rev.String(), nil
 }
 
-// allBreedsSQL is every species' breeds from the farm's own breed list (breeds.tenant_id, 000432).
+// allBreedsSQL is every species' breeds from the farm's own breed list (breeds.tenant_id, 000433).
 const allBreedsSQL = `
 SELECT canonical_name, species, status, updated_at::text
 FROM breeds

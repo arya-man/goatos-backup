@@ -5,7 +5,7 @@ Breeds read-only "until breeds are tenant-scoped".
 
 ## What changed
 
-- `breeds` and `breed_aliases` carry `tenant_id` (migration `000432_breeds_are_per_farm`).
+- `breeds` and `breed_aliases` carry `tenant_id` (migration `000433_breeds_are_per_farm`).
   Uniqueness is `(tenant_id, species, canonical_name)`.
 - Configuration > Items & settings > Breeds is editable like parks, pens and species: add,
   rename, archive, delete, and a tab in the bulk workbook right after Species.

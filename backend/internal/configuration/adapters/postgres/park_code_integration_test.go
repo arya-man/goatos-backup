@@ -39,7 +39,7 @@ func TestParkCodeIsTagSafeAndFixedOnceInUse(t *testing.T) {
 		t.Fatalf("a code nothing uses yet may change: %v", err)
 	}
 
-	// A sale recorded at the new park -- which the relaxed sales_deals_farm_check (000428) allows.
+	// A sale recorded at the new park -- which the relaxed sales_deals_farm_check (000429) allows.
 	if _, err := pool.Exec(ctx, `
 INSERT INTO sales_deals (tenant_id, sale_date, farm, buyer_name, product_type, breed)
 VALUES ($1::uuid, DATE '2026-09-20', 'HSR2', 'Irshad', 'Goat', 'Sojat')`, cfgTenant); err != nil {

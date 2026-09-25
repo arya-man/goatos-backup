@@ -334,7 +334,7 @@ var Registers = []Register{
 	},
 	{
 		// Breeds (maintainer instruction 2026-09-18; editable per farm since the 2026-09-25
-		// decision, migration 000432): the breeds the herd register, the birth form, purchases and
+		// decision, migration 000433): the breeds the herd register, the birth form, purchases and
 		// sales offer, one row per (farm, species, breed).
 		Key: RegBreeds, Label: "Breeds", One: "Breed", Group: GroupAnimalTypes,
 		Hint:    "Each breed belongs to a species. Every breed picker on web and phone offers the farm's breeds of the chosen species.",

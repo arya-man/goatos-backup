@@ -10,7 +10,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 )
 
-// BREEDS ARE PER FARM (maintainer decision 2026-09-25, migration 000432). A breed is added on
+// BREEDS ARE PER FARM (maintainer decision 2026-09-25, migration 000433). A breed is added on
 // Configuration > Items & settings like a park or a species, and it is that farm's alone: another
 // farm neither sees it nor is blocked from a breed of the same name. A breed must name one of the
 // farm's species, and a rename carries along the animals that name the breed only as text -- which
