@@ -119,7 +119,8 @@ func (s *MilkPreparationSource) ListRows(ctx context.Context, q ports.SourceQuer
 	}
 	ctx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
-	rows, err := s.pool.Query(ctx, st.Query.SQL(), st.Query.Args()...)
+	bound := sqlbind.MustBind(st.Query.SQL(), st.Query.Args()...)
+	rows, err := s.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return nil, fmt.Errorf("milk preparation boardsource list: %w", err)
 	}
@@ -159,7 +160,8 @@ func (s *MilkPreparationSource) CountByState(ctx context.Context, q ports.Source
 	}
 	ctx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
-	rows, err := s.pool.Query(ctx, st.Query.SQL(), st.Query.Args()...)
+	bound := sqlbind.MustBind(st.Query.SQL(), st.Query.Args()...)
+	rows, err := s.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return nil, fmt.Errorf("milk preparation boardsource count: %w", err)
 	}

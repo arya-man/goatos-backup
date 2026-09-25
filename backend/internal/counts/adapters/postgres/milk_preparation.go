@@ -9,6 +9,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/counts/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 )
 
 // milkPreparationGroupedCTE is the single definition of the page's canonical membership and row
@@ -300,7 +301,8 @@ func (r *Repository) GetMilkPreparation(ctx context.Context, req domain.MilkPrep
 	parkID := ptrValue(req.ParkID)
 	preparationDay := biztime.BusinessDayStart(asOf)
 
-	rows, err := r.pool.Query(ctx, milkPreparationPageSQL, req.TenantID, parkID, preparationDay.Format("2006-01-02"), limit+1, offset)
+	bound := sqlbind.MustBind(milkPreparationPageSQL, req.TenantID, parkID, preparationDay.Format("2006-01-02"), limit+1, offset)
+	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return domain.MilkPreparationPage{}, fmt.Errorf("milk preparation: query rows: %w", err)
 	}

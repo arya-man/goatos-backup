@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	"github.com/vgoats/goatos/backend/internal/platform/sqlbind"
 	"github.com/vgoats/goatos/backend/internal/workboard/domain"
 	"github.com/vgoats/goatos/backend/internal/workboard/ports"
 )
@@ -76,7 +77,8 @@ func (s *ApprovalsSource) ListSubtasks(ctx context.Context, q ports.SubtaskQuery
 	limit := domain.BoundSubtaskLimit(q.Limit)
 	ctx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
-	rows, err := s.pool.Query(ctx, approvalSubtasksSQL, q.TenantID, q.ParkID, start, end, q.SourceID, afterRank, afterID, limit+1)
+	bound := sqlbind.MustBind(approvalSubtasksSQL, q.TenantID, q.ParkID, start, end, q.SourceID, afterRank, afterID, limit+1)
+	rows, err := s.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return domain.SubtaskPage{}, fmt.Errorf("counts boardsource subtasks: %w", err)
 	}
