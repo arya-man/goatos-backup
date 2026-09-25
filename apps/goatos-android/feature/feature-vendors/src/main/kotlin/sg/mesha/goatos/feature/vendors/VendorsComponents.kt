@@ -259,41 +259,54 @@ internal fun VendorsSegmented(
     onSelect: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Row(
+    Column(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(MeshaDimens.radiusSeg))
             .background(MeshaColors.Surf2)
             .padding(4.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        options.forEach { option ->
-            val selected = option.value == selectedValue
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .heightIn(min = 40.dp)
-                    .clip(RoundedCornerShape(MeshaDimens.radiusSmall))
-                    .background(if (selected) MeshaColors.Brand else Color.Transparent)
-                    .selectable(selected = selected, role = Role.RadioButton, onClick = { onSelect(option.value) }),
-                contentAlignment = Alignment.Center,
-            ) {
-                // Four options on one phone-width row (the vendor statuses) need the smaller
-                // pill face and a tighter inset, or the last word ellipsises ("Negoti…").
-                val crowded = options.size > 3
-                Text(
-                    text = option.label,
-                    color = if (selected) MeshaColors.OnBrand else MeshaColors.Ink,
-                    style = if (crowded) MeshaType.pill else MeshaType.pillStrong,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(horizontal = if (crowded) 2.dp else 8.dp),
-                )
+        val rows = segmentedRows(options)
+        val perRow = rows.maxOfOrNull { it.size } ?: 0
+        rows.forEach { row ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                row.forEach { option ->
+                    val selected = option.value == selectedValue
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 40.dp)
+                            .clip(RoundedCornerShape(MeshaDimens.radiusSmall))
+                            .background(if (selected) MeshaColors.Brand else Color.Transparent)
+                            .selectable(selected = selected, role = Role.RadioButton, onClick = { onSelect(option.value) }),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = option.label,
+                            color = if (selected) MeshaColors.OnBrand else MeshaColors.Ink,
+                            style = MeshaType.pillStrong,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(horizontal = 8.dp),
+                        )
+                    }
+                }
+                // A short last row keeps its cells the same width as the rows above it.
+                repeat(perRow - row.size) { Spacer(Modifier.weight(1f)) }
             }
         }
     }
 }
+
+/**
+ * How a segmented choice is laid out: up to three options on one row; more wrap into rows of two.
+ * Four sale statuses on one phone-width row clipped to "In Discussi…" / "Advance P…" even on the
+ * smaller face, so a crowded choice takes a second row instead of losing its words.
+ */
+internal fun <T> segmentedRows(options: List<T>): List<List<T>> =
+    if (options.size <= 3) listOf(options).filter { it.isNotEmpty() } else options.chunked(2)
 
 /**
  * A date field: read-only text over the Material date picker, values as ISO `YYYY-MM-DD`,

@@ -15,4 +15,17 @@ class VendorsComponentsTest {
         assertEquals("", displayDate(""))
         assertEquals("today", displayDate("today"))
     }
+
+    /** Four sale statuses on one phone row clipped to "In Discussi…" / "Advance P…" (2026-09-26). */
+    @Test
+    fun `a crowded choice wraps into rows of two instead of clipping`() {
+        assertEquals(listOf(listOf("CBE", "CPT")), segmentedRows(listOf("CBE", "CPT")))
+        assertEquals(listOf(listOf("a", "b", "c")), segmentedRows(listOf("a", "b", "c")))
+        assertEquals(
+            listOf(listOf("Deal Closed", "Deal Failed"), listOf("In Discussion", "Advance Paid")),
+            segmentedRows(listOf("Deal Closed", "Deal Failed", "In Discussion", "Advance Paid")),
+        )
+        assertEquals(listOf(listOf("a", "b"), listOf("c", "d"), listOf("e")), segmentedRows(listOf("a", "b", "c", "d", "e")))
+        assertEquals(emptyList<List<String>>(), segmentedRows(emptyList<String>()))
+    }
 }
