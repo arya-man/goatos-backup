@@ -434,7 +434,10 @@ class SaleDetailViewModel @Inject constructor(
                 statusLabel = deal.status,
                 statusTone = saleStatusTone(deal.status, options),
                 sections = deal.sections(),
-                taggedLine = l.taggedLine,
+                // The tags are a server read with no copy on the phone: when that read failed
+                // (offline), say so -- never "No animals tagged yet" over a sale whose animals
+                // are tagged.
+                taggedLine = if (l.loaded && !l.allocationRead && hasAnimals && deal.status != "Deal Failed") TAGGED_UNREAD else l.taggedLine,
                 taggedGroups = l.taggedGroups,
                 payments = deal.payments.map { it.toUi() },
                 // The BACKEND's balance, formatted. Sheet-imported deals carry paise dust, so
@@ -764,6 +767,7 @@ class SaleDetailViewModel @Inject constructor(
         const val SALE_WORKFLOW_TEMPLATE_KEY = "sales_deal"
         const val TAG_NON_ANIMAL = "This sale has no animals to tag."
         const val TAG_FAILED = "A failed deal has no animals to tag."
+        const val TAGGED_UNREAD = "Tagged animals show when the phone is online."
         /** The feed store's own refusal, which the screen offers to answer. */
         const val CODE_STOCK_CONFIRM = "feed_stock_confirmation_required"
         const val KIND_FEED = "feed"

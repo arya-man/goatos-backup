@@ -204,6 +204,16 @@ class SalesWriteSafetyTest {
         assertEquals(listOf("Deal Failed"), sync.statuses.take(1))
     }
 
+    @Test
+    fun `an unread tag list never claims the sale has no animals tagged`() = runTest(dispatcher) {
+        // Seen offline on the phone (2026-09-26): a sale with two tagged goats read "No animals
+        // tagged yet" because the tag read failed and the blank line fell back to that sentence.
+        val animalSale = FakeSales { SalesDealDto(dealId = it, buyerName = "Mahendran", productType = "Goat", breed = "Beetal", animalCount = 2.0, status = "Deal Closed") }
+        val vm = SaleDetailViewModel(SavedStateHandle(mapOf(Routes.SALE_ID_ARG to "deal-1")), animalSale, SalesSync(), NoWorkflows, NoAnalytics, NoCrash)
+        backgroundScope.launch { vm.state.collect {} }
+        assertEquals("Tagged animals show when the phone is online.", vm.state.value.taggedLine)
+    }
+
     // ---------------------------------------------------------------- lead boards
 
     private fun leadVm(sync: SalesSync) = SalesLeadBoardViewModel(
@@ -272,7 +282,9 @@ private object NoWorkflows : WorkflowsRepository by unused<WorkflowsRepository>(
     override fun observeDetail(workflowId: String, lens: String, date: String) = flowOf(null)
 }
 
-private class FakeSales : SalesRepository by unused<SalesRepository>() {
+private class FakeSales(
+    private val deal: (String) -> SalesDealDto = { SalesDealDto(dealId = it, buyerName = "Ramesh Traders") },
+) : SalesRepository by unused<SalesRepository>() {
     private val options = SalesOptionsDto(
         farms = listOf("CPT"),
         productTypes = listOf("Goat", "Feed"),
@@ -289,7 +301,7 @@ private class FakeSales : SalesRepository by unused<SalesRepository>() {
     override fun observeVendorOptions(): Flow<VendorOptionsDto?> =
         flowOf(VendorOptionsDto(vendors = listOf(VendorOptionDto(vendorId = "v-1", businessName = "Ramesh Traders", city = "Ramanagara"))))
     override suspend fun refreshVendorOptions() = Unit
-    override fun observeDeal(dealId: String): Flow<SalesDealDto?> = flowOf(SalesDealDto(dealId = dealId, buyerName = "Ramesh Traders"))
+    override fun observeDeal(dealId: String): Flow<SalesDealDto?> = flowOf(deal(dealId))
     override suspend fun invalidateDeals(farm: String) = Unit
     override suspend fun refreshDeal(dealId: String) = sg.mesha.goatos.core.data.SaleRefreshResult.UNREACHABLE
     override suspend fun saleAllocation(dealId: String): AppResult<SaleAllocationDto> = AppResult.Err("offline")
