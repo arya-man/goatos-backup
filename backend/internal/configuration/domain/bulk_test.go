@@ -17,13 +17,17 @@ func TestSheetColumnsCarryIdFirstAndStatusLast(t *testing.T) {
 	if !mustRegister(t, RegAnimals).Importable || mustRegister(t, RegFeedItems).Importable || mustRegister(t, RegRoles).Importable || !mustRegister(t, RegPens).Importable {
 		t.Fatalf("importable: animals yes, feed items no, roles no, pens yes")
 	}
+	if b := mustRegister(t, RegBreeds); b.ReadOnly || !b.Importable {
+		t.Fatalf("breeds are each farm's own list: editable and importable, got read_only/importable = %v/%v", b.ReadOnly, b.Importable)
+	}
 	if !ReferenceRegister(ReferenceList{Key: "x", Name: "X"}).Importable {
 		t.Fatalf("a reference list takes a sheet")
 	}
 }
 
 func TestProductWideRegistersStayReadOnly(t *testing.T) {
-	for _, key := range []string{RegRoles, RegBreeds, RegStatusDefinitions} {
+	// Breeds left this list on 2026-09-25: they are per farm (000432) and edited here.
+	for _, key := range []string{RegRoles, RegStatusDefinitions} {
 		reg := mustRegister(t, key)
 		if !reg.ReadOnly || reg.Importable {
 			t.Fatalf("%s read_only/importable = %v/%v, want read-only and not importable", key, reg.ReadOnly, reg.Importable)

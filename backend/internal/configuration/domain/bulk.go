@@ -287,11 +287,11 @@ func (b ImportBundle) Totals() (total, valid, invalid, applied, failed int) {
 // WorkbookOrder is the order tabs are validated and applied in: every register before the
 // registers that point at it. It is asserted against the ref columns by a test, so a register
 // added with a new ref cannot be listed ahead of its target by accident. Registers not named
-// here take no tab: the read-only ones (Roles, Breeds, Feed items, Status definitions --
-// authored elsewhere) and the hidden register OF reference lists; a tenant's own reference lists (`ref:*`) follow the
+// here take no tab: the read-only ones (Roles, Feed items, Status definitions -- authored
+// elsewhere) and the hidden register OF reference lists; a tenant's own reference lists (`ref:*`) follow the
 // static registers, each independent of the others.
 var WorkbookOrder = []string{
-	RegSpecies, RegSexes, RegStages, // a pen names the stage it is kept for
+	RegSpecies, RegBreeds, RegSexes, RegStages, // a breed names its species; a pen the stage it is kept for
 	RegParks, RegPenTypes, RegPens, RegPartitions,
 	RegCategories, RegItems,
 	RegSOPCategories, RegTaskTypes,
