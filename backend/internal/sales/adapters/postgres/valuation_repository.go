@@ -19,7 +19,7 @@ import (
 
 const valuationReadSQL = `
 SELECT a.buckets, a.stages, a.unsold_stock_price_rupees::float8, a.row_version,
-       to_char(a.updated_at AT TIME ZONE 'Asia/Kolkata', 'DD-MM-YYYY HH24:MI'),
+       to_char(a.updated_at AT TIME ZONE 'Asia/Kolkata', 'DD/MM/YYYY HH24:MI'),
        COALESCE(m.display_name, '')
 FROM public.sales_valuation_assumptions a
 LEFT JOIN public.workforce_members m ON m.tenant_id = a.tenant_id AND m.user_id = a.updated_by AND m.status = 'active'
