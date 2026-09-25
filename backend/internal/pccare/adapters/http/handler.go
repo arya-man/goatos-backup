@@ -45,7 +45,7 @@ type Service interface {
 	ReopenTask(ctx context.Context, actor domain.Actor, taskID, traceID string) error
 	CloseRound(ctx context.Context, actor domain.Actor, roundID, reason, traceID string) error
 	ListTasks(ctx context.Context, actor domain.Actor, parkID, category, dueBusinessDate, cursor string, limit int, currentOrCarry bool) (ports.TaskPage, error)
-	PenCareCoverage(ctx context.Context, actor domain.Actor, parkID, pen, cursor string, limit int) (ports.PenCareCoveragePage, error)
+	PenCareCoverage(ctx context.Context, actor domain.Actor, parkID string, pens []string, cursor string, limit int) (ports.PenCareCoveragePage, error)
 	Worklist(ctx context.Context, actor domain.Actor, category, dueBusinessDate, cursor string, limit int) (ports.TaskPage, error)
 	GetTask(ctx context.Context, actor domain.Actor, taskID string) (ports.TaskRow, error)
 	ListTaskAnimals(ctx context.Context, actor domain.Actor, taskID, cursor string, limit int) ([]ports.AnimalRow, string, error)
@@ -712,7 +712,8 @@ func (h *Handler) GetPenCareCoverage(w http.ResponseWriter, r *http.Request) {
 	page, err := h.service.PenCareCoverage(
 		r.Context(), a,
 		strings.TrimSpace(r.URL.Query().Get("park_id")),
-		strings.TrimSpace(r.URL.Query().Get("pen")),
+		// pen repeats once per ticked pen (?pen=a&pen=b).
+		r.URL.Query()["pen"],
 		strings.TrimSpace(r.URL.Query().Get("cursor")),
 		intQuery(r, "limit", 50),
 	)

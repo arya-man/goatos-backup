@@ -577,7 +577,7 @@ func pages() []domain.PageContract {
 			}),
 		// Care Coverage (maintainer request 2026-09-25). The vaccination status matrix's layout for
 		// the five hands-on-the-animal PC Care jobs: one row per pen, one column per job, a tick
-		// where the job's evidence was approved. Columns and their labels come from the read.
+		// where the job was submitted (approved or waiting for the verifier). Columns come from the read.
 		page("vaccination-care-coverage", "/vaccination/care-coverage", "/vaccination/care-coverage", "Care Coverage",
 			"Every pen against deworming, anti protozoan, ticks removal, hoof trimming and hair trimming — a tick where it is done.",
 			"module-surface", []domain.TableContract{
@@ -3354,10 +3354,10 @@ func pageSpecificCopy(id string) map[string]string {
 		return map[string]string{
 			"crumb":                           "Preventive Care (PC) · Vaccination",
 			"page.title":                      "Care Coverage",
-			"page.subtitle":                   "Every pen against the five care jobs. A tick means the job was done there and its video was approved.",
+			"page.subtitle":                   "Every pen against the five care jobs. A tick means the job was done and submitted there.",
 			"section.matrix.title":            "Pen care status",
 			"section.matrix.aria":             "Pens against care jobs",
-			"section.matrix.note":             "The date under a tick is the day the job was last done in that pen. A job whose video is still waiting for review shows no tick yet.",
+			"section.matrix.note":             "The date under a tick is the day the job was last submitted in that pen, whether or not the verifier has checked the video yet. A job sent back for rework shows no tick.",
 			"section.matrix.empty":            "No pens in this view",
 			"section.matrix.empty_body":       "There are no active pens in the selected park.",
 			"section.matrix.unavailable":      "Care status is unavailable",
@@ -3376,9 +3376,14 @@ func pageSpecificCopy(id string) map[string]string {
 			"filter.all_pens":                 "All pens",
 			"filter.remove_one":               "Remove filter",
 			"filter.clear_all":                "Clear filters",
-			"filter.unlisted_selection":       "Pen not in this park",
+			"filter.unlisted_selection":       "Not in this park",
 			"filter.truncated_note":           "Some pens are not listed in the filter.",
-			"filter.apply_note":               "Park and pen narrow the table.",
+			"filter.apply_note":               "Park and pen narrow the table. Tick several pens, then Apply.",
+			"filter.search_pens":              "Search pens",
+			"filter.no_pen_match":             "No pen matches",
+			"filter.selected":                 "selected",
+			"filter.clear":                    "Clear",
+			"filter.apply":                    "Apply",
 		}
 	case "vaccination-live-tracker":
 		// Every visible string on /vaccination/live-tracker originates here. The page renders no

@@ -2609,7 +2609,7 @@ export interface paths {
         };
         /**
          * Care Coverage board — every pen against the five PC Care jobs.
-         * @description One keyset page of the caller's pens (shed_partitions catalog grain; an undivided shed is one row), each carrying one cell per hands-on-the-animal category in the `categories` order. A cell is done when a task of that category in that pen had its evidence approved by the verifier; last_done_business_date is the Asia/Kolkata business date it was last done. `total` counts every pen in scope, independent of the page.
+         * @description One keyset page of the caller's pens (shed_partitions catalog grain; an undivided shed is one row), each carrying one cell per hands-on-the-animal category in the `categories` order. A cell is done when a task of that category in that pen was submitted — approved by the verifier or still waiting for the verdict; sent-back rework is not done. last_done_business_date is the Asia/Kolkata business date it was last done. `total` counts every pen in scope, independent of the page.
          */
         get: operations["appGetPCCarePenCoverage"];
         put?: never;
@@ -26274,8 +26274,8 @@ export interface operations {
             query?: {
                 /** @description Narrow to one park inside the caller's scope. */
                 park_id?: string;
-                /** @description Narrow to one pen. The value is a pen_options[].value from a previous response, "<shed_id>|<partition_key>". */
-                pen?: string;
+                /** @description Narrow to the ticked pens — repeat once per pen (?pen=a&pen=b), each a pen_options[].value from a previous response ("<shed_id>|<partition_key>"). At most 500. */
+                pen?: string[];
                 cursor?: string;
                 limit?: number;
             };

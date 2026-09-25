@@ -527,13 +527,18 @@ type PenCareCoverageQuery struct {
 	TenantWide        bool
 	// ParkID optionally narrows to one park (must be inside the authorized set).
 	ParkID string
-	// ShedID + PartitionKey optionally narrow to ONE pen (the page's Pen filter). PartitionKey
-	// is the pc_care_tasks.partition_key matching key ('whole' for an undivided shed); a ShedID
-	// with no PartitionKey keeps every pen of that shed.
+	// Pens optionally narrows to the ticked pens (the page's Pen multi-select); empty means every
+	// pen.
+	Pens   []PenCareCoveragePen
+	Limit  int
+	Cursor string
+}
+
+// PenCareCoveragePen names one pen: the shed plus its pc_care_tasks.partition_key matching key
+// ('whole' for an undivided shed).
+type PenCareCoveragePen struct {
 	ShedID       string
 	PartitionKey string
-	Limit        int
-	Cursor       string
 }
 
 // PenCareCoverageOption is one choice in the board's Park or Pen filter. Value is the matching
@@ -544,8 +549,8 @@ type PenCareCoverageOption struct {
 }
 
 // PenCareCoverageCell is one category's answer for one pen. LastDoneBusinessDate is the IST
-// business date of the most recent task in that category whose evidence a verifier APPROVED
-// (status 'completed'); blank means the pen has no done work in that category.
+// business date of the most recent task in that category whose work is SUBMITTED — approved
+// ('completed') or waiting for the verifier ('pending_verification'); blank means none.
 type PenCareCoverageCell struct {
 	Category             string
 	LastDoneBusinessDate string

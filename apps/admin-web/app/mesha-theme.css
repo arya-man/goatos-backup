@@ -3942,6 +3942,18 @@ aside.drawer.wt-feedband-drawer{width:94vw;max-width:960px}
 .lt-page .lt-fsel select{border:0;background:transparent;outline:0;font:inherit;font-weight:650;color:var(--ink);cursor:pointer;min-width:0;max-width:140px;text-overflow:ellipsis}
 .lt-page .lt-fsel select option{background:var(--panel);color:var(--ink)}
 .lt-page .lt-chips{display:inline-flex;gap:6px;flex-wrap:wrap;align-items:center}
+.lt-page .cc-pensel{position:relative;align-self:stretch;min-width:150px;padding:0}
+.lt-page .cc-pensel-btn{display:flex;flex:1 1 auto;align-items:center;justify-content:space-between;gap:8px;align-self:stretch;border:0;background:transparent;font:inherit;font-weight:650;color:var(--ink);cursor:pointer;min-width:0;max-width:220px;padding:6px 9px}
+.lt-page .cc-pensel-summary{flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left}
+.lt-page .cc-pensel-caret{width:14px;height:14px;flex:0 0 auto;color:var(--ink)}
+.lt-page .cc-pensel-pop{position:absolute;top:calc(100% + 6px);left:0;z-index:40;width:300px;max-width:calc(100vw - 32px);background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:0 12px 28px rgba(0,0,0,.35);padding:8px;display:flex;flex-direction:column;gap:6px}
+.lt-page .cc-pensel-search{width:100%;box-sizing:border-box;background:var(--bg);border:1px solid var(--line);border-radius:7px;padding:6px 9px;font:inherit;font-size:12.5px;color:var(--ink)}
+.lt-page .cc-pensel-list{max-height:280px;overflow-y:auto}
+.lt-page .cc-pensel-opt{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:7px;font-size:12.5px;color:var(--ink);cursor:pointer}
+.lt-page .cc-pensel-opt:hover{background:var(--bg)}
+.lt-page .cc-pensel-opt span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lt-page .cc-pensel-empty{padding:8px}
+.lt-page .cc-pensel-foot{display:flex;align-items:center;gap:6px;border-top:1px solid var(--line2);padding-top:8px}
 .lt-page .lt-chips .achip.clr{font:inherit;font-size:11.5px}
 .lt-page .lt-fnote{color:var(--faint);font-size:11px;margin-left:auto;white-space:nowrap}
 /* The live tracker's own filter bar. It holds nothing but its own controls, so the shared
@@ -5093,6 +5105,14 @@ aside.drawer.wt-feedband-drawer{width:94vw;max-width:960px}
   .lt-page .lt-fsel{width:100%;justify-content:space-between}
   .lt-page .lt-fsel select{width:100%;max-width:100%;min-width:0;text-overflow:ellipsis}
   .lt-page .lt-fnote{margin-left:0;white-space:normal}
+  /* The shared bar turns position:static here, which drops it UNDER the positioned table card;
+     the Pen dropdown hangs below the bar, so without this the card paints over it and eats taps. */
+  .lt-page .lt-fbar.cc-fbar{position:relative;z-index:20}
+  .lt-page .cc-pensel-btn{max-width:100%;min-height:52px}
+  .lt-page .cc-pensel-pop{left:0;right:0;width:auto;max-width:none}
+  .lt-page .cc-pensel-opt{padding:9px 8px;font-size:13.5px}
+  .lt-page .cc-pensel-opt input{width:18px;height:18px}
+  .lt-page .cc-pensel-list{max-height:min(50vh,320px)}
   .herd-signals-page .fsel{min-width:0;max-width:100%;width:100%;justify-content:space-between}
   .herd-signals-page .fsel select{width:100%;min-width:0;max-width:100%;text-overflow:ellipsis}
   .herd-signals-page .fsel.search{flex:1 1 100%;min-width:0;width:100%}

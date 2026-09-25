@@ -206,9 +206,9 @@ VALUES ($2::uuid, $1::uuid, 'shed', 'S-X', 'Castro', 'active', $3::uuid, 1) ON C
 	}
 }
 
-// STATUS MATRIX: only a task whose evidence the verifier APPROVED ticks. Open, submitted and
-// awaiting a verdict, sent back for rework, and canceled work each leave the cell empty.
-func TestPenCoverageStatusMatrixOnlyApprovedWorkTicks(t *testing.T) {
+// STATUS MATRIX: submitted work ticks — approved, or still waiting for the verifier (maintainer
+// decision 2026-09-26). Open, sent back for rework, and canceled work each leave the cell empty.
+func TestPenCoverageStatusMatrixSubmittedWorkTicks(t *testing.T) {
 	ctx := context.Background()
 	repo, _ := setupPCCareDB(t, ctx)
 
@@ -217,7 +217,7 @@ func TestPenCoverageStatusMatrixOnlyApprovedWorkTicks(t *testing.T) {
 		wantTick                    bool
 	}{
 		{domain.CategoryDeworming, "scheduled", "open", false},
-		{domain.CategoryAntiProtozoan, "scheduled", "pending_verification", false},
+		{domain.CategoryAntiProtozoan, "scheduled", "pending_verification", true},
 		{domain.CategoryTicksRemoval, "delayed", "rework", false},
 		{domain.CategoryHairTrimming, "canceled", "completed", false},
 		{domain.CategoryHoofTrimming, "completed", "completed", true},
@@ -278,7 +278,7 @@ VALUES ($2::uuid, $1::uuid, 'shed', 'S-X', 'Castro', 'active', $3::uuid, 1) ON C
 		t.Fatalf("same-named pens across parks = %v, want \"Castro · CPT\" and \"Castro · CBE\"", castroLabels)
 	}
 
-	pen := coverage(t, ctx, repo, ports.PenCareCoverageQuery{TenantWide: true, ParkID: pcPark, ShedID: covShedGodel, PartitionKey: "part 2", Limit: 50})
+	pen := coverage(t, ctx, repo, ports.PenCareCoverageQuery{TenantWide: true, ParkID: pcPark, Pens: []ports.PenCareCoveragePen{{ShedID: covShedGodel, PartitionKey: "part 2"}}, Limit: 50})
 	if pen.Total != 1 || len(pen.Rows) != 1 || pen.Rows[0].PartitionLabel != "Part 2" {
 		t.Fatalf("pen filter rows = %+v total %d, want only Godel 1 Part 2", pen.Rows, pen.Total)
 	}
@@ -300,8 +300,73 @@ VALUES ($2::uuid, $1::uuid, 'shed', 'S-X', 'Castro', 'active', $3::uuid, 1) ON C
 		}
 	}
 
-	scoped := coverage(t, ctx, repo, ports.PenCareCoverageQuery{AuthorizedParkIDs: []string{pcPark}, ShedID: covShedOther, PartitionKey: "whole", Limit: 50})
+	// MULTI-SELECT: two ticked pens in two parks (OR within the filter), in board order.
+	two := coverage(t, ctx, repo, ports.PenCareCoverageQuery{TenantWide: true, Limit: 50, Pens: []ports.PenCareCoveragePen{
+		{ShedID: covShedGodel, PartitionKey: "Part 1"}, {ShedID: covShedOther, PartitionKey: "whole"},
+	}})
+	if two.Total != 2 || len(two.Rows) != 2 || two.Rows[0].ShedID != covShedOther || two.Rows[1].PartitionLabel != "Part 1" {
+		t.Fatalf("two ticked pens = %+v total %d, want CBE Castro then CPT Godel 1 Part 1", two.Rows, two.Total)
+	}
+
+	scoped := coverage(t, ctx, repo, ports.PenCareCoverageQuery{AuthorizedParkIDs: []string{pcPark}, Pens: []ports.PenCareCoveragePen{{ShedID: covShedOther, PartitionKey: "whole"}}, Limit: 50})
 	if scoped.Total != 0 || len(scoped.ParkOptions) != 1 {
 		t.Fatalf("pen filter aimed outside the caller's parks = total %d, park options %d; want 0 rows and only CPT offered", scoped.Total, len(scoped.ParkOptions))
+	}
+}
+
+// PEN ORDER: pens read in the farm's order, numbers compared as numbers — Part 2 before Part 10,
+// Yashoda 9 before Yashoda 10 — on the board, across keyset page boundaries (Pagination), and in
+// the Pen filter's list. Plain text order put every "10" before "2".
+func TestPenCoveragePaginationOrdersPenNumbersNaturally(t *testing.T) {
+	ctx := context.Background()
+	repo, _ := setupPCCareDB(t, ctx)
+	yashoda9, yashoda10 := "9c000000-0000-4000-8000-000000004309", "9c000000-0000-4000-8000-000000004310"
+	if _, err := repo.pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status, parent_location_id, display_order)
+VALUES ($2::uuid, $1::uuid, 'shed', 'S-M', 'Mandela 1', 'active', $5::uuid, 3),
+       ($3::uuid, $1::uuid, 'shed', 'S-Y10', 'Yashoda 10', 'active', $5::uuid, 4),
+       ($4::uuid, $1::uuid, 'shed', 'S-Y9', 'Yashoda 9', 'active', $5::uuid, 5)
+ON CONFLICT (location_id) DO NOTHING`, pcTenant, covShedGodel, yashoda10, yashoda9, pcPark); err != nil {
+		t.Fatalf("seed sheds: %v", err)
+	}
+	if _, err := repo.pool.Exec(ctx, `
+INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source)
+VALUES ($1::uuid, $2::uuid, 'Part 10', '10', 'active', 'manual'), ($1::uuid, $2::uuid, 'Part 2', '2', 'active', 'manual'),
+       ($1::uuid, $2::uuid, 'Part 1', '1', 'active', 'manual')
+ON CONFLICT DO NOTHING`, pcTenant, covShedGodel); err != nil {
+		t.Fatalf("seed partitions: %v", err)
+	}
+	want := []string{"Castro", "Mandela 1|Part 1", "Mandela 1|Part 2", "Mandela 1|Part 10", "Yashoda 9", "Yashoda 10"}
+	label := func(row ports.PenCareCoverageRow) string {
+		if row.PartitionLabel == "" {
+			return row.ShedName
+		}
+		return row.ShedName + "|" + row.PartitionLabel
+	}
+
+	var walked []string
+	cursor := ""
+	for i := 0; i < 10; i++ {
+		page := coverage(t, ctx, repo, ports.PenCareCoverageQuery{TenantWide: true, Limit: 2, Cursor: cursor})
+		for _, row := range page.Rows {
+			walked = append(walked, label(row))
+		}
+		if page.NextCursor == "" {
+			break
+		}
+		cursor = page.NextCursor
+	}
+	if fmt.Sprint(walked) != fmt.Sprint(want) {
+		t.Fatalf("board order across pages = %v, want %v", walked, want)
+	}
+
+	page := coverage(t, ctx, repo, ports.PenCareCoverageQuery{TenantWide: true, ParkID: pcPark, Limit: 50})
+	var options []string
+	for _, o := range page.PenOptions {
+		options = append(options, o.Label)
+	}
+	wantOptions := []string{"Castro", "Mandela 1 - Part 1", "Mandela 1 - Part 2", "Mandela 1 - Part 10", "Yashoda 9", "Yashoda 10"}
+	if fmt.Sprint(options) != fmt.Sprint(wantOptions) {
+		t.Fatalf("pen filter order = %v, want %v", options, wantOptions)
 	}
 }

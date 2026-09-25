@@ -37,11 +37,31 @@ func decodePenCoverageCursor(cursor string) (parkKey, shedName, shedID, partitio
 // parks, $4 optional park): shed x active catalog partition, an undivided shed contributing one
 // 'whole' row, legacy partition-alias shed rows suppressed. Shared by the board page and the
 // filter vocabulary so the two can never disagree about which pens exist.
+// naturalSortKeySQL returns a SQL expression that sorts expr the way the farm reads pen names:
+// every run of digits is zero-padded, so "Part 2" sorts before "Part 10" and "Yashoda 9" before
+// "Yashoda 10". Letters are lower-cased. A NULL or blank input yields ”. Compare the result
+// under COLLATE "C" so a locale collation cannot reorder the padded digits or the separator.
+func naturalSortKeySQL(expr string) string {
+	// substring(... from '^[0-9]+$') is NULL for a non-digit run, so COALESCE falls through to
+	// the lower-cased text: a digit run is padded, anything else is kept as it reads.
+	return `COALESCE((SELECT string_agg(COALESCE(lpad(substring(nk.m[1] from '^[0-9]+$'), 12, '0'), lower(nk.m[1])), '' ORDER BY nk.o)
+    FROM regexp_matches(COALESCE(BTRIM(` + expr + `), ''), '([0-9]+|[^0-9]+)', 'g') WITH ORDINALITY AS nk(m, o)), '')`
+}
+
+// pen_sort is an ORDER key, never display: the shed's natural key, a chr(1) separator (lower
+// than every printable byte under COLLATE "C", so "Castro" sorts before "Castro"'s pens), then
+// the partition's natural key. The pen's display name still comes only from oploc.Display.
+var (
+	penShedSortSQL      = naturalSortKeySQL("shed.name")
+	penPartitionSortSQL = naturalSortKeySQL("sp.partition_label")
+)
+
 var penCoverageScopedPensSQL = `  SELECT park.location_id AS park_id, park.name AS park_name,
          COALESCE(NULLIF(BTRIM(park.location_code), ''), park.name) AS park_key,
          shed.location_id AS shed_id, shed.name AS shed_name,
          COALESCE(NULLIF(BTRIM(sp.partition_label), ''), '') AS partition_label,
-         COALESCE(NULLIF(LOWER(BTRIM(sp.partition_label)), ''), 'whole') AS partition_key
+         COALESCE(NULLIF(LOWER(BTRIM(sp.partition_label)), ''), 'whole') AS partition_key,
+         (` + penShedSortSQL + ` || chr(1) || ` + penPartitionSortSQL + `) COLLATE "C" AS pen_sort
   FROM locations park
   JOIN locations shed
     ON shed.tenant_id = park.tenant_id
@@ -61,10 +81,21 @@ var penCoverageScopedPensSQL = `  SELECT park.location_id AS park_id, park.name 
     AND ` + oploc.PartitionAliasExclusionSQL("shed") + `
 `
 
+// penKeys normalises the Pen filter values to the "<shed_id>|<partition_key>" form the SQL
+// compares against (partition keys are lower-case matching keys); never nil.
+func penKeys(pens []ports.PenCareCoveragePen) []string {
+	out := make([]string, 0, len(pens))
+	for _, pen := range pens {
+		out = append(out, strings.ToLower(strings.TrimSpace(pen.ShedID))+"|"+strings.ToLower(strings.TrimSpace(pen.PartitionKey)))
+	}
+	return out
+}
+
 // PenCareCoverage pages the Care Coverage board: the caller's pens (shed x active catalog
 // partition; an undivided shed is one 'whole' row) and, per pen, the latest DONE business date of
-// each hands-on-the-animal category. Done means the verifier approved the task's evidence
-// (status 'completed') — a submitted task still awaiting its verdict is not done.
+// each hands-on-the-animal category. Done means the operator's work is submitted: the verifier
+// approved it (status 'completed') or it is waiting for the verdict ('pending_verification') —
+// maintainer decision 2026-09-26. Work sent back for rework, open or canceled work is not done.
 func (r *Repository) PenCareCoverage(ctx context.Context, q ports.PenCareCoverageQuery) (ports.PenCareCoveragePage, error) {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
@@ -93,25 +124,24 @@ func (r *Repository) PenCareCoverage(ctx context.Context, q ports.PenCareCoverag
 	// pre-aggregated to at most one row per category per pen (GROUP BY category), so a pen never
 	// fans out, and total counts the whole scoped pen set independent of the page;
 	// pagination=keyset on the ORDER BY tuple; scope=tenant_id + authorized parks + optional park +
-	// optional pen (shed_id, partition_key).
+	// optional pen set (shed_id, partition_key).
 	// scale-guard:ignore: one keyset page (<=100) of the caller's pen catalog (physical infrastructure, never herd-sized); each pen's lateral aggregate hits pc_care_tasks_natural_uq (tenant, category, park, shed, partition_key, ...).
 	bound := sqlbind.MustBind(`
 WITH scoped AS (
 `+penCoverageScopedPensSQL+`),
 pens AS (
   SELECT s.* FROM scoped s
-  WHERE ($11::text = '' OR s.shed_id = nullif($11::text, '')::uuid)
-    AND ($12::text = '' OR s.partition_key = $12)
+  WHERE (cardinality($11::text[]) = 0 OR (s.shed_id::text || '|' || s.partition_key) = ANY($11::text[]))
 ),
 page AS (
   SELECT p.*
   FROM pens p
-  WHERE ($5::text = '' OR (p.park_key, p.shed_name, p.shed_id::text, p.partition_key) > ($5, $6, $7, $8))
-  ORDER BY p.park_key, p.shed_name, p.shed_id::text, p.partition_key
+  WHERE ($5::text = '' OR (p.park_key, p.pen_sort, p.shed_id::text, p.partition_key) > ($5, $6, $7, $8))
+  ORDER BY p.park_key, p.pen_sort, p.shed_id::text, p.partition_key
   LIMIT $9
 )
 SELECT pg.park_id::text, pg.park_name, pg.park_key, pg.shed_id::text, pg.shed_name,
-       pg.partition_label, pg.partition_key,
+       pg.partition_label, pg.partition_key, pg.pen_sort,
        COALESCE(done.categories, ARRAY[]::text[]),
        COALESCE(done.done_dates, ARRAY[]::text[]),
        (SELECT count(*) FROM pens)::int
@@ -129,22 +159,24 @@ LEFT JOIN LATERAL (
       AND t.shed_id = pg.shed_id
       AND t.partition_key = pg.partition_key
       AND t.work_state <> 'canceled'
-      AND t.status = 'completed'
+      -- Done = the operator's work is SUBMITTED: approved, or still waiting for the verifier
+      -- (maintainer decision 2026-09-26: both read as a tick). Rework was sent back and is not done.
+      AND t.status IN ('completed', 'pending_verification')
     GROUP BY t.category
   ) d
 ) done ON true
-ORDER BY pg.park_key, pg.shed_name, pg.shed_id::text, pg.partition_key`,
+ORDER BY pg.park_key, pg.pen_sort, pg.shed_id::text, pg.partition_key`,
 		q.TenantID, q.TenantWide, parkIDs, strings.TrimSpace(q.ParkID),
 		afterPark, afterShedName, afterShed, afterPartition, limit+1,
 		domain.PlannerCategories,
-		strings.TrimSpace(q.ShedID), strings.ToLower(strings.TrimSpace(q.PartitionKey)))
+		penKeys(q.Pens))
 	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {
 		return ports.PenCareCoveragePage{}, fmt.Errorf("pccare: pen care coverage: %w", err)
 	}
 	defer rows.Close()
 
-	type cursorParts struct{ park, shedName, shedID, partitionKey string }
+	type cursorParts struct{ park, penSort, shedID, partitionKey string }
 	out := ports.PenCareCoveragePage{Rows: []ports.PenCareCoverageRow{}}
 	keys := []cursorParts{}
 	for rows.Next() {
@@ -152,11 +184,12 @@ ORDER BY pg.park_key, pg.shed_name, pg.shed_id::text, pg.partition_key`,
 			row        ports.PenCareCoverageRow
 			parkKey    string
 			partKey    string
+			penSort    string
 			categories []string
 			doneDates  []string
 		)
 		if err := rows.Scan(&row.ParkID, &row.ParkName, &parkKey, &row.ShedID, &row.ShedName,
-			&row.PartitionLabel, &partKey, &categories, &doneDates, &out.Total); err != nil {
+			&row.PartitionLabel, &partKey, &penSort, &categories, &doneDates, &out.Total); err != nil {
 			return ports.PenCareCoveragePage{}, err
 		}
 		done := make(map[string]string, len(categories))
@@ -172,7 +205,7 @@ ORDER BY pg.park_key, pg.shed_name, pg.shed_id::text, pg.partition_key`,
 			row.Cells = append(row.Cells, ports.PenCareCoverageCell{Category: category, LastDoneBusinessDate: done[category]})
 		}
 		out.Rows = append(out.Rows, row)
-		keys = append(keys, cursorParts{parkKey, row.ShedName, row.ShedID, partKey})
+		keys = append(keys, cursorParts{parkKey, penSort, row.ShedID, partKey})
 	}
 	if err := rows.Err(); err != nil {
 		return ports.PenCareCoveragePage{}, err
@@ -180,7 +213,7 @@ ORDER BY pg.park_key, pg.shed_name, pg.shed_id::text, pg.partition_key`,
 	if len(out.Rows) > limit {
 		out.Rows = out.Rows[:limit]
 		last := keys[limit-1]
-		out.NextCursor = encodePenCoverageCursor(last.park, last.shedName, last.shedID, last.partitionKey)
+		out.NextCursor = encodePenCoverageCursor(last.park, last.penSort, last.shedID, last.partitionKey)
 	}
 	if err := r.penCoverageOptions(ctx, q, parkIDs, &out); err != nil {
 		return ports.PenCareCoveragePage{}, err
@@ -203,7 +236,7 @@ WITH scoped AS (
 `+penCoverageScopedPensSQL+`)
 SELECT park_id::text, park_name, shed_id::text, shed_name, partition_label, partition_key
 FROM scoped
-ORDER BY park_key, shed_name, shed_id::text, partition_key
+ORDER BY park_key, pen_sort, shed_id::text, partition_key
 LIMIT $5`, q.TenantID, q.TenantWide, parkIDs, "", penCoverageOptionsCap)
 	rows, err := r.pool.Query(ctx, bound.SQL(), bound.Args()...)
 	if err != nil {

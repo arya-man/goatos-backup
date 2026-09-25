@@ -7235,8 +7235,8 @@ paths:
       description: >-
         One keyset page of the caller's pens (shed_partitions catalog grain; an undivided shed is
         one row), each carrying one cell per hands-on-the-animal category in the `categories`
-        order. A cell is done when a task of that category in that pen had its evidence approved
-        by the verifier; last_done_business_date is the Asia/Kolkata business date it was last
+        order. A cell is done when a task of that category in that pen was submitted — approved by
+        the verifier or still waiting for the verdict; sent-back rework is not done. last_done_business_date is the Asia/Kolkata business date it was last
         done. `total` counts every pen in scope, independent of the page.
       parameters:
         - name: park_id
@@ -7248,9 +7248,11 @@ paths:
           in: query
           required: false
           description: >-
-            Narrow to one pen. The value is a pen_options[].value from a previous response,
-            "<shed_id>|<partition_key>".
-          schema: { type: string }
+            Narrow to the ticked pens — repeat once per pen (?pen=a&pen=b), each a
+            pen_options[].value from a previous response ("<shed_id>|<partition_key>"). At most 500.
+          style: form
+          explode: true
+          schema: { type: array, maxItems: 500, items: { type: string } }
         - name: cursor
           in: query
           required: false

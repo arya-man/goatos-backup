@@ -650,11 +650,15 @@ func (s *Service) plannableTaskForLifecycle(ctx context.Context, actor domain.Ac
 // monitorReadCapabilities admit the flat task list.
 var monitorReadCapabilities = []string{permissions.PCCarePlan, permissions.PCCarePlanTrimming, permissions.PCCareMonitor, permissions.PCCareOverseeOperators}
 
+// maxPenCoverageFilterPens caps how many pens one Care Coverage request may tick. The farm has a
+// few hundred pens; a bigger list is a malformed request, refused rather than silently cut.
+const maxPenCoverageFilterPens = 500
+
 // PenCareCoverage is the Care Coverage board: every pen in the caller's parks against the five
 // hands-on-the-animal categories, with the latest verified-done date per cell. Same read
 // authority and park clamp as the monitor task list.
-// pen is the Pen filter's value, "<shed_id>|<partition_key>"; blank means every pen.
-func (s *Service) PenCareCoverage(ctx context.Context, actor domain.Actor, parkID, pen, cursor string, limit int) (ports.PenCareCoveragePage, error) {
+// pens are the Pen filter's ticked values, each "<shed_id>|<partition_key>"; none means every pen.
+func (s *Service) PenCareCoverage(ctx context.Context, actor domain.Actor, parkID string, pens []string, cursor string, limit int) (ports.PenCareCoveragePage, error) {
 	if !actorHoldsAny(actor, monitorReadCapabilities) {
 		return ports.PenCareCoveragePage{}, ports.ErrForbidden
 	}
@@ -670,14 +674,20 @@ func (s *Service) PenCareCoverage(ctx context.Context, actor domain.Actor, parkI
 			return ports.PenCareCoveragePage{}, err
 		}
 	}
-	shedID, partitionKey := "", ""
-	if pen = strings.TrimSpace(pen); pen != "" {
-		var ok bool
-		shedID, partitionKey, ok = strings.Cut(pen, "|")
+	if len(pens) > maxPenCoverageFilterPens {
+		return ports.PenCareCoveragePage{}, ports.ErrInvalidArgument
+	}
+	penFilter := make([]ports.PenCareCoveragePen, 0, len(pens))
+	for _, pen := range pens {
+		if pen = strings.TrimSpace(pen); pen == "" {
+			continue
+		}
+		shedID, partitionKey, ok := strings.Cut(pen, "|")
 		shedID, partitionKey = strings.TrimSpace(shedID), strings.TrimSpace(partitionKey)
 		if !ok || !uuidutil.IsUUIDString(shedID) || partitionKey == "" {
 			return ports.PenCareCoveragePage{}, ports.ErrInvalidArgument
 		}
+		penFilter = append(penFilter, ports.PenCareCoveragePen{ShedID: shedID, PartitionKey: partitionKey})
 	}
 	if limit <= 0 {
 		limit = 50
@@ -686,8 +696,7 @@ func (s *Service) PenCareCoverage(ctx context.Context, actor domain.Actor, parkI
 		limit = 100
 	}
 	return s.coverage.PenCareCoverage(ctx, ports.PenCareCoverageQuery{
-		ShedID:            shedID,
-		PartitionKey:      partitionKey,
+		Pens:              penFilter,
 		TenantID:          actor.TenantID,
 		AuthorizedParkIDs: authorizedParkSlice(parks),
 		TenantWide:        tenantWide,
