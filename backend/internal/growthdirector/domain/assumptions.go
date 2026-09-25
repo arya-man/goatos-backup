@@ -5,6 +5,8 @@ import (
 	"math"
 	"strings"
 	"time"
+
+	"github.com/vgoats/goatos/backend/internal/platform/animalvocab"
 )
 
 // Assumptions is everything the Weighing area reads that is a FIGURE SOMEONE DECIDED rather
@@ -223,11 +225,10 @@ const (
 	SalePriceMaxINR = 5000
 )
 
-// SalePriceSpecies is the vocabulary the price table accepts (CHECK constraint in 000363).
-var SalePriceSpecies = []string{"goat", "sheep"}
-
-// SalePriceSexes is the sex vocabulary an override may name -- the register's own (goats_sex_check).
-var SalePriceSexes = []string{"female", "male"}
+// The species a price may name and the sexes an override may name are the tenant's ACTIVE
+// Configuration lists (platform/animalvocab; OPEN UP TO NEW SPECIES, maintainer decision
+// 2026-09-25), passed to ValidateAssumptionsUpdate by the service. A species with no price of its
+// own simply values no animal until one is set -- PriceFor answers false -- never a guessed figure.
 
 // MaxSalePriceUpdates bounds one save: two species x a stage vocabulary x two sexes, plus the two
 // defaults, with room to spare. A request past it is a client bug, not a decision.
@@ -273,9 +274,10 @@ type ValueUpdate struct {
 }
 
 // ValidateAssumptionsUpdate rejects an update whose figures are outside the business bands,
-// name an unknown key or species, or repeat a key. It returns a farm-worded message for the
-// first problem; the transport maps it to 400 invalid_assumption.
-func ValidateAssumptionsUpdate(update AssumptionsUpdate) error {
+// name an unknown key, a species or sex the farm does not keep (vocab: the tenant's active
+// Configuration lists), or repeat a key. It returns a farm-worded message for the first problem;
+// the transport maps it to 400 invalid_assumption.
+func ValidateAssumptionsUpdate(update AssumptionsUpdate, vocab animalvocab.Vocabulary) error {
 	if len(update.SalePrices) == 0 && len(update.Values) == 0 {
 		return fmt.Errorf("nothing to change")
 	}
@@ -285,13 +287,13 @@ func ValidateAssumptionsUpdate(update AssumptionsUpdate) error {
 	seenPrices := map[string]bool{}
 	for _, p := range update.SalePrices {
 		species, stage, sex := p.Normalized()
-		if !contains(SalePriceSpecies, species) {
+		if !animalvocab.Has(vocab.Species, species) {
 			return fmt.Errorf("unknown species %q", p.Species)
 		}
 		if (stage == "") != (sex == "") {
 			return fmt.Errorf("a %s sale price names both a stage and a sex, or neither", species)
 		}
-		if sex != "" && !contains(SalePriceSexes, sex) {
+		if sex != "" && !animalvocab.Has(vocab.Sexes, sex) {
 			return fmt.Errorf("unknown sex %q", p.Sex)
 		}
 		label := species
@@ -389,15 +391,6 @@ func AssumptionValueOr(values []AssumptionValue, key string, fallback float64) f
 		}
 	}
 	return fallback
-}
-
-func contains(list []string, want string) bool {
-	for _, item := range list {
-		if item == want {
-			return true
-		}
-	}
-	return false
 }
 
 func trimFloat(v float64) string {
