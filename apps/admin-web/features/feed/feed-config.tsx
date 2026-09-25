@@ -47,7 +47,7 @@ import {
   SessionFeedsCell,
 } from "./feed-config-editor";
 import { experimentEnrollerScopeKey } from "./experiment-enroller-scope";
-import { groupMissingRates, groupRetiredFeedPens, type MissingRate, type RetiredFeedPen } from "./missing-rates";
+import { groupMissingRates, groupRetiredFeedGaps, type MissingRate, type RetiredFeedGaps } from "./missing-rates";
 
 // Feed -> Feed Config. The authored input the daily generation reads: the ration grid, the per-shed
 // factors, the park's session split, and the dispatch clock.
@@ -429,7 +429,7 @@ export async function FeedConfigPage({
   // will block. One read for the park; its rows are paged only when the whole-park summary says
   // something IS blocked (bounded: a park's sheet is a few hundred rows). A reader without the
   // feed-direction read simply gets no list.
-  const { missingRates, retiredFeedPens } = await sheetGapsPromise;
+  const { missingRates, retiredFeeds } = await sheetGapsPromise;
 
   const authError = firstAuthRequiredError(
     ratesResult,
@@ -777,7 +777,7 @@ export async function FeedConfigPage({
           <h3>{copy(pageContract, "section.ration_grid.title")}</h3>
           <span className="small muted">{copy(pageContract, "section.ration_grid.caption")}</span>
         </div>
-        {retiredFeedPens.length > 0 ? (
+        {retiredFeeds.sessions.length + retiredFeeds.experimentPens.length > 0 ? (
           <div className="alert" style={{ margin: "0 14px 12px" }} role="group" aria-label={copy(pageContract, "section.retired_feeds.title")}>
             <AlertTriangle className="ic" aria-hidden="true" />
             <div style={{ minWidth: 0, flex: 1 }}>
@@ -785,13 +785,15 @@ export async function FeedConfigPage({
                 <b>{copy(pageContract, "section.retired_feeds.title")}</b> · {copy(pageContract, "section.retired_feeds.caption")}
               </div>
               <ul style={{ margin: "8px 0 0", paddingLeft: 18 }}>
-                {retiredFeedPens.map((entry) => (
-                  <li key={entry.pen}>
-                    <b>{entry.pen}</b>
-                    {" · "}
-                    {entry.experiment
-                      ? copy(pageContract, "label.retired_experiment_pen")
-                      : `${copy(pageContract, "label.retired_sessions")} ${entry.sessions.join(", ")}`}
+                {retiredFeeds.sessions.map((entry) => (
+                  <li key={`session:${entry.session}`}>
+                    <b>{entry.session}</b> · {copy(pageContract, "label.retired_session")} {entry.pens}{" "}
+                    {copy(pageContract, entry.pens === 1 ? "label.retired_pen_one" : "label.retired_pen_many")}
+                  </li>
+                ))}
+                {retiredFeeds.experimentPens.map((pen) => (
+                  <li key={`pen:${pen}`}>
+                    <b>{pen}</b> · {copy(pageContract, "label.retired_experiment_pen")}
                   </li>
                 ))}
               </ul>
@@ -1391,27 +1393,43 @@ export async function FeedConfigPage({
   );
 }
 
-type SheetGaps = { missingRates: MissingRate[]; retiredFeedPens: RetiredFeedPen[] };
-const NO_SHEET_GAPS: SheetGaps = { missingRates: [], retiredFeedPens: [] };
+type SheetGaps = { missingRates: MissingRate[]; retiredFeeds: RetiredFeedGaps };
+const NO_SHEET_GAPS: SheetGaps = { missingRates: [], retiredFeeds: { sessions: [], experimentPens: [] } };
 
 // What tomorrow's sheet will BLOCK, read once from its preview: the combinations missing a rate
 // (with the pens each one blocks), and the pens whose every feed is retired (2026-09-25).
 async function readSheetGaps(parkId: string): Promise<SheetGaps> {
   const targetDate = istDayPlus(todayIso(), 1);
+  // BOTH sheets: experiment pens are on their own sheet, and an experiment pen whose every feed is
+  // retired is exactly one of the gaps this lists. The two reads are independent, so they overlap.
+  const [normal, experiment] = await Promise.all([
+    readSheetRows(parkId, targetDate, "normal"),
+    readSheetRows(parkId, targetDate, "experiment"),
+  ]);
+  const rows = [...normal, ...experiment];
+  const penName = (row: (typeof rows)[number]) =>
+    operationalLocationLabel({ shedName: row.shed_label, partitionLabel: row.partition_label });
+  return { missingRates: groupMissingRates(rows, penName), retiredFeeds: groupRetiredFeedGaps(rows, penName) };
+}
+
+// One workflow's preview rows for one park and day, or none when it blocks nothing.
+async function readSheetRows(
+  parkId: string,
+  targetDate: string,
+  workflow: "normal" | "experiment",
+): Promise<NonNullable<FeedDirectionPreviewPage["items"]>> {
   const rows: NonNullable<FeedDirectionPreviewPage["items"]> = [];
   // scale-guard:ignore: bounded drain of ONE park's preview (a few hundred rows; the endpoint's page
   // cap is 100, so <=20 pages), continued only when the whole-park summary reports a blocked cell.
   for (let page = 0, offset = 0; page < 20; page += 1) {
     // serial-await: each page's offset follows the previous page's has_more.
-    const result = await getFeedDirectionPreview({ park_id: parkId, target_date: targetDate, limit: 100, offset });
-    if (!result.ok) return NO_SHEET_GAPS;
+    const result = await getFeedDirectionPreview({ park_id: parkId, target_date: targetDate, workflow, limit: 100, offset });
+    if (!result.ok) return [];
     const data = result.data;
-    if (page === 0 && (data.summary?.blocked_count ?? 0) === 0) return NO_SHEET_GAPS;
+    if (page === 0 && (data.summary?.blocked_count ?? 0) === 0) return [];
     rows.push(...(data.items ?? []));
     if (!data.has_more) break;
     offset += data.items?.length ?? 0;
   }
-  const penName = (row: (typeof rows)[number]) =>
-    operationalLocationLabel({ shedName: row.shed_label, partitionLabel: row.partition_label });
-  return { missingRates: groupMissingRates(rows, penName), retiredFeedPens: groupRetiredFeedPens(rows, penName) };
+  return rows;
 }

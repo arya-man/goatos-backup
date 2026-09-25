@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { groupMissingRates, groupRetiredFeedPens } from "./missing-rates.ts";
+import { groupMissingRates, groupRetiredFeedGaps } from "./missing-rates.ts";
 
 const pen = (row) => (row.partition_label ? `${row.shed_label} - ${row.partition_label}` : row.shed_label);
 
@@ -28,7 +28,7 @@ test("a cell blocked for another reason is not a missing rate", () => {
   assert.deepEqual(groupMissingRates(rows, pen), []);
 });
 
-test("a pen blocked because every feed is retired is listed once, with the sessions or its experiment", () => {
+test("a retired-only session is listed once with its pen count; an experiment pen by name", () => {
   const retired = { feed_item: "Hay", status: "blocked", blocked_reason: { code: "all_feeds_retired" } };
   const rows = [
     { ration_group: "Beetal", shed_tag: "K5", shed_label: "Castro", partition_label: "2", workflow: "normal", session_label: "Evening", items: [retired] },
@@ -40,9 +40,9 @@ test("a pen blocked because every feed is retired is listed once, with the sessi
     { ration_group: "Beetal", shed_tag: "K4", shed_label: "Castro", partition_label: "1", workflow: "normal", session_label: "Morning",
       items: [{ feed_item: "Hay", status: "blocked", blocked_reason: { code: "no_ration_rate" } }] },
   ];
-  assert.deepEqual(groupRetiredFeedPens(rows, pen), [
-    { pen: "Castro - 2", experiment: false, sessions: ["Evening"] },
-    { pen: "Godel 1 - Part 3", experiment: true, sessions: [] },
-  ]);
+  assert.deepEqual(groupRetiredFeedGaps(rows, pen), {
+    sessions: [{ session: "Evening", pens: 1 }],
+    experimentPens: ["Godel 1 - Part 3"],
+  });
   assert.deepEqual(groupMissingRates(rows, pen).map((gap) => gap.pens), [["Castro - 1"]]);
 });

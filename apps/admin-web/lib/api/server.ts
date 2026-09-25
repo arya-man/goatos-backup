@@ -1737,6 +1737,8 @@ export type FeedDirectionPreviewParams = {
   target_date: string;
   shed_id?: string;
   session?: number;
+  /** Omitted: the normal sheet. Experiment pens are on their own sheet with its own clock. */
+  workflow?: "normal" | "experiment";
   limit?: number;
   offset?: number;
 };

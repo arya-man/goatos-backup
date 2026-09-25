@@ -41,23 +41,29 @@ export function groupMissingRates<T extends PreviewRow>(rows: readonly T[], penN
 }
 
 /**
- * A pen tomorrow's sheet blocks because every feed its session or experiment pen declares is retired
- * (maintainer decision 2026-09-25). Adding a rate does not fix it: an active feed must be added to
- * the session, or to the experiment pen.
+ * What tomorrow's sheet blocks because every feed declared is retired (maintainer decision
+ * 2026-09-25). A SESSION is one thing to fix however many pens it blocks, so it is listed once with
+ * its pen count; an EXPERIMENT PEN is its own thing to fix, so it is listed by name. Adding a rate
+ * fixes neither: an active feed must be added to the session, or to the experiment pen.
  */
-export type RetiredFeedPen = { pen: string; experiment: boolean; sessions: string[] };
+export type RetiredFeedGaps = { sessions: { session: string; pens: number }[]; experimentPens: string[] };
 
-export function groupRetiredFeedPens<T extends PreviewRow>(rows: readonly T[], penName: (row: T) => string): RetiredFeedPen[] {
-  const byPen = new Map<string, { experiment: boolean; sessions: Set<string> }>();
+export function groupRetiredFeedGaps<T extends PreviewRow>(rows: readonly T[], penName: (row: T) => string): RetiredFeedGaps {
+  const sessions = new Map<string, Set<string>>();
+  const experimentPens = new Set<string>();
   for (const row of rows) {
     if (!(row.items ?? []).some((item) => item.status === "blocked" && item.blocked_reason?.code === "all_feeds_retired")) continue;
-    const pen = penName(row);
-    const entry = byPen.get(pen) ?? { experiment: false, sessions: new Set<string>() };
-    if (row.workflow === "experiment") entry.experiment = true;
-    else if (row.session_label) entry.sessions.add(row.session_label);
-    byPen.set(pen, entry);
+    if (row.workflow === "experiment") {
+      experimentPens.add(penName(row));
+      continue;
+    }
+    const session = row.session_label ?? "";
+    const pens = sessions.get(session) ?? new Set<string>();
+    pens.add(penName(row));
+    sessions.set(session, pens);
   }
-  return [...byPen.entries()]
-    .map(([pen, { experiment, sessions }]) => ({ pen, experiment, sessions: [...sessions] }))
-    .sort((a, b) => a.pen.localeCompare(b.pen, undefined, { numeric: true }));
+  return {
+    sessions: [...sessions.entries()].map(([session, pens]) => ({ session, pens: pens.size })),
+    experimentPens: [...experimentPens].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })),
+  };
 }
