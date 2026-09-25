@@ -1,6 +1,7 @@
 import type { Tone } from "@/components/ui-primitives";
 import type { AdminUiOption, AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { optionGroup } from "@/lib/admin-ui-contract";
+import { fmtDate } from "@/lib/format";
 import type { WorkBoardLane, WorkBoardModule, WorkBoardRow, WorkBoardWorkState } from "@/lib/api/work-board-server";
 
 export const WORK_BOARD_PATH = "/work-board";
@@ -154,16 +155,13 @@ export function ownerDisplayName(row: WorkBoardRow): string {
   return ownerStack(row).names[0] ?? "";
 }
 
-// The board's day label in the mock's shape ("Mon, 8 Sep"): weekday, day, short month, on the
-// India business calendar. A date is a format, not copy; the parts come from Intl so nothing here
-// is a hand-written month name. Unparseable input renders as given.
-const DAY_PARTS = new Intl.DateTimeFormat("en-US", { weekday: "short", day: "numeric", month: "short", timeZone: "Asia/Kolkata" });
+// The board's day label: DD/MM/YYYY like every other date on every surface (maintainer lock
+// 2026-09-10, docs/decisions/date-display-format.md), through the console's one date helper. A
+// bare business date is anchored to IST midnight so it can never slip a day. Unparseable input
+// renders as given.
 export function dayLabel(iso?: string): string {
   if (!iso) return "—";
-  const d = new Date(iso.length === 10 ? `${iso}T00:00:00+05:30` : iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  const parts = Object.fromEntries(DAY_PARTS.formatToParts(d).filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
-  return `${parts.weekday}, ${parts.day} ${parts.month}`;
+  return fmtDate(iso.length === 10 ? `${iso}T00:00:00+05:30` : iso);
 }
 
 // The park's short code from the contract's park options (what the park pick shows), so a card
