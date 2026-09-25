@@ -26,6 +26,11 @@ data class SalesDealPaymentDto(
 data class SalesDealDto(
     @SerialName("deal_id") val dealId: String,
     @SerialName("sale_date") val saleDate: String = "",
+    /**
+     * The day an OPEN sale was recorded for, kept when it closed and [saleDate] became the close
+     * date (2026-09-25). Null for a sale recorded already closed, and on an older server.
+     */
+    @SerialName("planned_sale_date") val plannedSaleDate: String? = null,
     @SerialName("farm") val farm: String = "",
     @SerialName("buyer_name") val buyerName: String = "",
     @SerialName("buyer_place") val buyerPlace: String? = null,

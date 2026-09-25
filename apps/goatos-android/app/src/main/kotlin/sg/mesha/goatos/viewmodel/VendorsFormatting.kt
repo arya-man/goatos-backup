@@ -1,6 +1,7 @@
 package sg.mesha.goatos.viewmodel
 
 import sg.mesha.goatos.BuildConfig
+import sg.mesha.goatos.core.common.datetime.GoatOsDates
 import sg.mesha.goatos.core.network.dto.FeedPurchaseDto
 import sg.mesha.goatos.core.network.dto.VendorDto
 import sg.mesha.goatos.feature.vendors.VendorsTone
@@ -10,7 +11,7 @@ import java.util.Locale
 
 /**
  * Presentation helpers shared by the Vendors ViewModels (module vendors, maintainer decision
- * 2026-09-03). These format NUMBERS and DATES the farm's way (Indian digit grouping, DD-MM-YYYY);
+ * 2026-09-03). These format NUMBERS and DATES the farm's way (Indian digit grouping, DD/MM/YYYY);
  * every SENTENCE still comes from the backend and is passed through verbatim.
  */
 
@@ -18,11 +19,11 @@ internal val VENDORS_IST: ZoneId = ZoneId.of("Asia/Kolkata")
 
 internal fun todayIst(): String = LocalDate.now(VENDORS_IST).toString()
 
-/** "2026-09-01" -> "01-09-2026"; anything else passes through. */
-internal fun farmDate(iso: String?): String {
-    val parts = iso.orEmpty().split("-")
-    return if (parts.size == 3 && parts[0].length == 4) "${parts[2]}-${parts[1]}-${parts[0]}" else iso.orEmpty()
-}
+/**
+ * "2026-09-01" -> "01/09/2026" (every visible date is DD/MM/YYYY, docs/decisions/date-display-format.md);
+ * anything else passes through. One helper per surface: this delegates to [GoatOsDates].
+ */
+internal fun farmDate(iso: String?): String = GoatOsDates.fromWireDate(iso)
 
 /** Indian digit grouping: 785714.5 -> "7,85,714.5"; whole numbers carry no fraction. */
 internal fun indianNumber(value: Double, maxFraction: Int = 1): String {

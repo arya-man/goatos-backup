@@ -268,6 +268,13 @@ internal fun SalesDealDto.soldSummary(): String {
     return dotJoin(products, "${lines.size} lines")
 }
 
+/**
+ * The planned day of a sale that closed on a DIFFERENT day, else null: a sale recorded already
+ * closed has none, and one closed on its planned day would only repeat "Sold on".
+ */
+internal fun SalesDealDto.plannedSaleDateIfDifferent(): String? =
+    plannedSaleDate?.trim()?.takeIf { it.isNotEmpty() && it != saleDate }
+
 internal fun SalesDealDto.sections(): List<VendorsDetailSectionUi> {
     fun rows(vararg pairs: Pair<String, String?>) = pairs.mapNotNull { (label, value) -> value?.takeIf { it.isNotBlank() }?.let { VendorsDetailRowUi(label, it) } }
     // A mixed sale's product/breed read "Mixed" on the deal: the lines below say what was sold,
@@ -275,6 +282,7 @@ internal fun SalesDealDto.sections(): List<VendorsDetailSectionUi> {
     val single = lines.size <= 1
     val sale = rows(
         "Sold on" to farmDate(saleDate),
+        "Planned for" to plannedSaleDateIfDifferent()?.let(::farmDate),
         "Farm" to farm,
         "Product" to productType.takeIf { single },
         "Breed" to breed.takeIf { single },

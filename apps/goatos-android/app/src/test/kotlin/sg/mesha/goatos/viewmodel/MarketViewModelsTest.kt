@@ -126,7 +126,7 @@ class MarketViewModelsTest {
         )
         val collector = vm.state.launchIn(TestScope(dispatcher))
         assertEquals("Chennai", vm.state.value.cityName)
-        assertEquals("14-09-2026", vm.state.value.dateLine)
+        assertEquals("14/09/2026", vm.state.value.dateLine)
 
         vm.onEvent(MarketCityEntryEvent.PriceChanged("q-sheep", "560"))
         vm.onEvent(MarketCityEntryEvent.Save)

@@ -93,13 +93,13 @@ class VendorsPresentationTest {
 
         assertEquals("CBE · Load 328", card.loadLine)
         assertEquals("7,85,714.5 kg · ₹23,000", card.quantityLine)
-        assertEquals("Bought 01-09-2026 · QA Vendor", card.metaLine)
+        assertEquals("Bought 01/09/2026 · QA Vendor", card.metaLine)
         assertEquals("In transit", card.deliveryLabel)
         assertEquals(VendorsTone.WARN, card.deliveryTone)
         assertEquals(VendorsTone.WARN, card.paymentTone)
 
         val reached = FeedPurchaseDto(feedPurchaseId = "p-2", deliveryStatus = "reached", reachedOn = "2026-09-03", paymentStatus = "Paid").toCardUi()
-        assertEquals("Delivered 03-09-2026", reached.deliveryLabel)
+        assertEquals("Delivered 03/09/2026", reached.deliveryLabel)
         assertEquals(VendorsTone.OK, reached.deliveryTone)
         assertEquals(VendorsTone.OK, reached.paymentTone)
     }
@@ -112,7 +112,7 @@ class VendorsPresentationTest {
         assertEquals("2.5", indianNumber(2.5, 1))
         assertEquals("₹23,000", rupees(23000.0))
         assertEquals("", rupees(null))
-        assertEquals("01-09-2026", farmDate("2026-09-01"))
+        assertEquals("01/09/2026", farmDate("2026-09-01"))
         assertEquals("0:42", formatLength(42_000L))
     }
 
