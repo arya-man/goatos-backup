@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -214,9 +215,10 @@ func (s *Service) ShedDrilldown(ctx context.Context, q domain.ExecutionQuery) (d
 		return domain.ShedDrilldown{}, false, err
 	}
 	if len(rows) == 0 {
-		return domain.ShedDrilldown{}, false, nil
+		return s.emptyShedDrilldown(ctx, q)
 	}
 	head := rows[0]
+	headShedName, headPartition, headDisplay := drilldownRowsLocation(rows)
 	stagesSeen := map[string]bool{}
 	drives := make([]domain.DriveSummary, 0, len(rows))
 	driveSeen := map[string]bool{}
@@ -268,15 +270,116 @@ func (s *Service) ShedDrilldown(ctx context.Context, q domain.ExecutionQuery) (d
 		ParkID:                     head.ParkID,
 		ParkName:                   head.ParkName,
 		ShedID:                     head.ShedID,
-		ShedName:                   head.ShedName,
-		PartitionLabel:             head.PartitionLabel,
-		OperationalLocationDisplay: head.OperationalLocationDisplay,
+		ShedName:                   headShedName,
+		PartitionLabel:             headPartition,
+		OperationalLocationDisplay: headDisplay,
 		AnimalStages:               stages,
 		Drives:                     drives,
 		Rows:                       rows,
 		Summary:                    summary,
 	}, true, nil
 }
+
+// drilldownRowsLocation names the pen a shed drilldown is about, AGREE-OR-GO-BARE: the partition
+// is shown only when every row in scope sits in the SAME partition. A drilldown opened without a
+// partition on a divided building (Gandhi 1/2/3) covers several pens, so its header is the bare
+// building name -- never whichever pen happened to sort first, which titled a page "Gandhi 1"
+// while it listed Gandhi 1, 2 and 3.
+func drilldownRowsLocation(rows []domain.ExecutionRow) (shedName string, partitionLabel *string, display string) {
+	head := rows[0]
+	shedName = strings.TrimSpace(head.PhysicalShed)
+	if shedName == "" {
+		shedName = head.ShedName
+	}
+	labels := make([]string, 0, len(rows))
+	for _, row := range rows {
+		labels = append(labels, stringPtrValue(row.PartitionLabel))
+	}
+	return agreedLocation(shedName, labels)
+}
+
+// agreedLocation composes the canonical display for a set of partition labels under one physical
+// shed: the partition when all of them are the same real partition, the bare shed otherwise.
+func agreedLocation(shedName string, labels []string) (string, *string, string) {
+	agreed := ""
+	for i, label := range labels {
+		if i == 0 {
+			agreed = label
+			continue
+		}
+		if !oploc.SamePartition(agreed, label) {
+			agreed = ""
+			break
+		}
+	}
+	var partitionLabel *string
+	if oploc.IsPartitioned(agreed) {
+		value := agreed
+		partitionLabel = &value
+	} else {
+		agreed = ""
+	}
+	return shedName, partitionLabel, oploc.OperationalLocation{ShedName: shedName, PartitionLabel: agreed}.Display()
+}
+
+// emptyShedDrilldown answers a drilldown for a pen that is on the pen board but has no drive work
+// inside the execution window (no drive yet, or every drive is older than the window). The pen board
+// lists every pen holding animals, from ShedSummary; the drilldown read lists drive work only. The two
+// sets differ, so a 404 here turned real pens (Castro 1/2/3) into dead-end rows. The pen's identity is
+// taken from the SAME read the board rendered, so every row the board links resolves here, and a pen
+// genuinely absent (or outside the caller's parks) still reads not-found.
+func (s *Service) emptyShedDrilldown(ctx context.Context, q domain.ExecutionQuery) (domain.ShedDrilldown, bool, error) {
+	if q.ShedID == nil || strings.TrimSpace(*q.ShedID) == "" {
+		return domain.ShedDrilldown{}, false, nil
+	}
+	projections, err := s.repo.ShedSummary(ctx, domain.ShedSummaryQuery{
+		TenantID:       q.TenantID,
+		ParkID:         q.ParkID,
+		ShedID:         q.ShedID,
+		AsOf:           q.AsOf,
+		DueBefore:      q.DueBefore,
+		HistoricalAsOf: q.HistoricalAsOf,
+		Limit:          maxShedDrilldownPens,
+	})
+	if err != nil {
+		return domain.ShedDrilldown{}, false, err
+	}
+	matched := make([]domain.ShedSummaryProjection, 0, len(projections))
+	for _, p := range projections {
+		if p.ShedID != *q.ShedID {
+			continue
+		}
+		if len(q.AuthorizedParkIDs) > 0 && !slices.Contains(q.AuthorizedParkIDs, p.ParkID) {
+			continue
+		}
+		if q.PartitionLabel != nil && !oploc.SamePartition(stringPtrValue(p.PartitionLabel), *q.PartitionLabel) {
+			continue
+		}
+		matched = append(matched, p)
+	}
+	if len(matched) == 0 {
+		return domain.ShedDrilldown{}, false, nil
+	}
+	labels := make([]string, 0, len(matched))
+	for _, p := range matched {
+		labels = append(labels, stringPtrValue(p.PartitionLabel))
+	}
+	shedName, partitionLabel, display := agreedLocation(matched[0].ShedName, labels)
+	return domain.ShedDrilldown{
+		ParkID:                     matched[0].ParkID,
+		ParkName:                   matched[0].ParkName,
+		ShedID:                     matched[0].ShedID,
+		ShedName:                   shedName,
+		PartitionLabel:             partitionLabel,
+		OperationalLocationDisplay: display,
+		AnimalStages:               []string{},
+		Drives:                     []domain.DriveSummary{},
+		Rows:                       []domain.ExecutionRow{},
+	}, true, nil
+}
+
+// maxShedDrilldownPens bounds the identity read: one physical shed carries at most a few dozen pens.
+const maxShedDrilldownPens = 100
 
 // VaccinationOperations rolls the flat cohort × protocol rows into the matrix + per-cohort detail shape:
 // a deduped protocol list, and one cohort per (park · shed · stage) carrying its cells, headcount, age
