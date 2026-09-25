@@ -89,6 +89,12 @@ const (
 	// safely defaults to 1.0 (declining to scale is safe); a present-but-corrupt factor must block
 	// rather than silently apply an unauthored 1.0 multiplier (P2-FACTOR).
 	BlockReasonInvalidShedFactor = "invalid_shed_factor"
+	// BlockReasonAllFeedsRetired means every feed a session or an experiment pen declares is
+	// retired in Configuration > Items and categories (maintainer decision 2026-09-25). A retired
+	// feed never reaches a sheet, and a pen left with nothing to feed is blocked with this reason
+	// until an active feed is added on Feed Config -- never fed the retired feed, and never fed
+	// from a ration grid nobody authored for it.
+	BlockReasonAllFeedsRetired = "all_feeds_retired"
 )
 
 // MultiValueSeparator joins the distinct values of a descriptive column when a shed genuinely holds

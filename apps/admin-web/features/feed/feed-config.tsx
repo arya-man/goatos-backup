@@ -47,7 +47,7 @@ import {
   SessionFeedsCell,
 } from "./feed-config-editor";
 import { experimentEnrollerScopeKey } from "./experiment-enroller-scope";
-import { groupMissingRates, type MissingRate } from "./missing-rates";
+import { groupMissingRates, groupRetiredFeedPens, type MissingRate, type RetiredFeedPen } from "./missing-rates";
 
 // Feed -> Feed Config. The authored input the daily generation reads: the ration grid, the per-shed
 // factors, the park's session split, and the dispatch clock.
@@ -341,7 +341,7 @@ export async function FeedConfigPage({
   const experimentOffset = feedOffset(sp, "fc_exp_offset");
 
   // Started here so it runs beside the reads below rather than after them (see readMissingRates).
-  const missingRatesPromise: Promise<MissingRate[]> = scope.parkId ? readMissingRates(scope.parkId) : Promise.resolve([]);
+  const sheetGapsPromise: Promise<SheetGaps> = scope.parkId ? readSheetGaps(scope.parkId) : Promise.resolve(NO_SHEET_GAPS);
 
   // Six independent authored surfaces, fetched concurrently — no serial await, and no draining of
   // any of them: each is one bounded page.
@@ -429,7 +429,7 @@ export async function FeedConfigPage({
   // will block. One read for the park; its rows are paged only when the whole-park summary says
   // something IS blocked (bounded: a park's sheet is a few hundred rows). A reader without the
   // feed-direction read simply gets no list.
-  const missingRates = await missingRatesPromise;
+  const { missingRates, retiredFeedPens } = await sheetGapsPromise;
 
   const authError = firstAuthRequiredError(
     ratesResult,
@@ -777,6 +777,27 @@ export async function FeedConfigPage({
           <h3>{copy(pageContract, "section.ration_grid.title")}</h3>
           <span className="small muted">{copy(pageContract, "section.ration_grid.caption")}</span>
         </div>
+        {retiredFeedPens.length > 0 ? (
+          <div className="alert" style={{ margin: "0 14px 12px" }} role="group" aria-label={copy(pageContract, "section.retired_feeds.title")}>
+            <AlertTriangle className="ic" aria-hidden="true" />
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div>
+                <b>{copy(pageContract, "section.retired_feeds.title")}</b> · {copy(pageContract, "section.retired_feeds.caption")}
+              </div>
+              <ul style={{ margin: "8px 0 0", paddingLeft: 18 }}>
+                {retiredFeedPens.map((entry) => (
+                  <li key={entry.pen}>
+                    <b>{entry.pen}</b>
+                    {" · "}
+                    {entry.experiment
+                      ? copy(pageContract, "label.retired_experiment_pen")
+                      : `${copy(pageContract, "label.retired_sessions")} ${entry.sessions.join(", ")}`}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        ) : null}
         {missingRates.length > 0 ? (
           <div className="alert" style={{ margin: "0 14px 12px" }} role="group" aria-label={copy(pageContract, "kpi.gaps.label")}>
             <AlertTriangle className="ic" aria-hidden="true" />
@@ -1370,8 +1391,12 @@ export async function FeedConfigPage({
   );
 }
 
-// The combinations tomorrow's sheet will BLOCK for want of a rate, with the pens each one blocks.
-async function readMissingRates(parkId: string): Promise<MissingRate[]> {
+type SheetGaps = { missingRates: MissingRate[]; retiredFeedPens: RetiredFeedPen[] };
+const NO_SHEET_GAPS: SheetGaps = { missingRates: [], retiredFeedPens: [] };
+
+// What tomorrow's sheet will BLOCK, read once from its preview: the combinations missing a rate
+// (with the pens each one blocks), and the pens whose every feed is retired (2026-09-25).
+async function readSheetGaps(parkId: string): Promise<SheetGaps> {
   const targetDate = istDayPlus(todayIso(), 1);
   const rows: NonNullable<FeedDirectionPreviewPage["items"]> = [];
   // scale-guard:ignore: bounded drain of ONE park's preview (a few hundred rows; the endpoint's page
@@ -1379,14 +1404,14 @@ async function readMissingRates(parkId: string): Promise<MissingRate[]> {
   for (let page = 0, offset = 0; page < 20; page += 1) {
     // serial-await: each page's offset follows the previous page's has_more.
     const result = await getFeedDirectionPreview({ park_id: parkId, target_date: targetDate, limit: 100, offset });
-    if (!result.ok) return [];
+    if (!result.ok) return NO_SHEET_GAPS;
     const data = result.data;
-    if (page === 0 && (data.summary?.blocked_count ?? 0) === 0) return [];
+    if (page === 0 && (data.summary?.blocked_count ?? 0) === 0) return NO_SHEET_GAPS;
     rows.push(...(data.items ?? []));
     if (!data.has_more) break;
     offset += data.items?.length ?? 0;
   }
-  return groupMissingRates(rows, (row) =>
-    operationalLocationLabel({ shedName: row.shed_label, partitionLabel: row.partition_label }),
-  );
+  const penName = (row: (typeof rows)[number]) =>
+    operationalLocationLabel({ shedName: row.shed_label, partitionLabel: row.partition_label });
+  return { missingRates: groupMissingRates(rows, penName), retiredFeedPens: groupRetiredFeedPens(rows, penName) };
 }

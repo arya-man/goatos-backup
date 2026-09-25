@@ -225,6 +225,14 @@ func blockedSessionItemsRow(in GenerateInput, shed ShedInput, daily DailyRow, se
 			"park %s session %d (%s) declares no feed items; there is no authored list of what this session consists of",
 			in.Config.ParkLabel, session.SessionNo, session.Label),
 	}
+	if session.AllFeedsRetired {
+		reason = BlockedReason{
+			Code: BlockReasonAllFeedsRetired,
+			Detail: fmt.Sprintf(
+				"every feed in park %s session %d (%s) is retired in Items and categories; add an active feed to this session on Feed Config",
+				in.Config.ParkLabel, session.SessionNo, session.Label),
+		}
+	}
 	columns := in.Config.blockedColumnItems()
 	row := DirectionRow{
 		ParkID:                 in.Config.ParkID,

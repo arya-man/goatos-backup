@@ -11117,10 +11117,10 @@ export interface components {
         };
         FeedDirectionBlockedReason: {
             /**
-             * @description Machine-stable reason code, so a UI can group and count authored gaps.
+             * @description Machine-stable reason code, so a UI can group and count authored gaps. all_feeds_retired: every feed the session or experiment pen declares is retired in Items and categories, so the pen has nothing to feed until an active feed is added.
              * @enum {string}
              */
-            code: "no_ration_rate" | "unknown_shed_tag" | "unknown_ration_group" | "no_session_template";
+            code: "no_ration_rate" | "unknown_shed_tag" | "unknown_ration_group" | "no_session_template" | "all_feeds_retired";
             /** @description The exact missing coordinate in human-readable form. A gap an operator cannot locate is a gap they cannot close. */
             detail: string;
         };

@@ -10,6 +10,8 @@ type PreviewRow = {
   shed_tag: string;
   shed_label: string;
   partition_label?: string | null;
+  workflow?: string | null;
+  session_label?: string | null;
   items?: { feed_item: string; status: string; blocked_reason?: { code?: string } | null }[] | null;
 };
 
@@ -36,4 +38,26 @@ export function groupMissingRates<T extends PreviewRow>(rows: readonly T[], penN
         a.shedTag.localeCompare(b.shedTag) ||
         a.feedItem.localeCompare(b.feedItem),
     );
+}
+
+/**
+ * A pen tomorrow's sheet blocks because every feed its session or experiment pen declares is retired
+ * (maintainer decision 2026-09-25). Adding a rate does not fix it: an active feed must be added to
+ * the session, or to the experiment pen.
+ */
+export type RetiredFeedPen = { pen: string; experiment: boolean; sessions: string[] };
+
+export function groupRetiredFeedPens<T extends PreviewRow>(rows: readonly T[], penName: (row: T) => string): RetiredFeedPen[] {
+  const byPen = new Map<string, { experiment: boolean; sessions: Set<string> }>();
+  for (const row of rows) {
+    if (!(row.items ?? []).some((item) => item.status === "blocked" && item.blocked_reason?.code === "all_feeds_retired")) continue;
+    const pen = penName(row);
+    const entry = byPen.get(pen) ?? { experiment: false, sessions: new Set<string>() };
+    if (row.workflow === "experiment") entry.experiment = true;
+    else if (row.session_label) entry.sessions.add(row.session_label);
+    byPen.set(pen, entry);
+  }
+  return [...byPen.entries()]
+    .map(([pen, { experiment, sessions }]) => ({ pen, experiment, sessions: [...sessions] }))
+    .sort((a, b) => a.pen.localeCompare(b.pen, undefined, { numeric: true }));
 }

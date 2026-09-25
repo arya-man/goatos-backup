@@ -24880,7 +24880,11 @@ components:
             - unknown_shed_tag
             - unknown_ration_group
             - no_session_template
-          description: Machine-stable reason code, so a UI can group and count authored gaps.
+            - all_feeds_retired
+          description: >-
+            Machine-stable reason code, so a UI can group and count authored gaps.
+            all_feeds_retired: every feed the session or experiment pen declares is retired in
+            Items and categories, so the pen has nothing to feed until an active feed is added.
         detail:
           type: string
           description: >-

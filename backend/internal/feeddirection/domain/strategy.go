@@ -5,6 +5,8 @@ import (
 	"math/big"
 	"sort"
 	"strings"
+
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 )
 
 // ---------------------------------------------------------------------------
@@ -364,7 +366,10 @@ func (ExperimentPlanner) Workflow() string { return WorkflowExperiment }
 // Applies matches a shed that has hand-authored experiment rows. Their presence IS the selection
 // rule -- there is no separate "is experiment" flag to fall out of sync with the data.
 func (ExperimentPlanner) Applies(shed ShedInput, cfg ConfigSnapshot) bool {
-	return len(cfg.ExperimentByLocation[ExperimentLocationKey(shed.ShedID, shed.PartitionLabel)]) > 0
+	key := ExperimentLocationKey(shed.ShedID, shed.PartitionLabel)
+	// A pen whose every feed is retired is still an experiment pen: it blocks here rather than
+	// falling through to the ration grid (see DropInactiveFeeds).
+	return len(cfg.ExperimentByLocation[key]) > 0 || cfg.ExperimentAllRetired[key]
 }
 
 // SessionFeedItems returns nil: an experiment shed's items are NOT the park's session slots.
@@ -459,8 +464,12 @@ func describeGrains(grains []ShedGrain, cfg ConfigSnapshot, facet func(ShedGrain
 // experiment uses, so absence here means "not part of this experiment", unlike absence from the
 // ration grid which means "nobody said what to feed these animals".
 func (ExperimentPlanner) PlanDaily(shed ShedInput, cfg ConfigSnapshot) []DailyRow {
-	cells := cfg.ExperimentByLocation[ExperimentLocationKey(shed.ShedID, shed.PartitionLabel)]
+	key := ExperimentLocationKey(shed.ShedID, shed.PartitionLabel)
+	cells := cfg.ExperimentByLocation[key]
 	if len(cells) == 0 {
+		if cfg.ExperimentAllRetired[key] {
+			return []DailyRow{allFeedsRetiredExperimentRow(shed, cfg)}
+		}
 		return nil
 	}
 
@@ -580,4 +589,38 @@ func experimentItem(shed ShedInput, cell ExperimentCell, headCount int64) DailyI
 		}
 		return item
 	}
+}
+
+// allFeedsRetiredExperimentRow is the one row of an experiment pen whose every authored feed is
+// retired (maintainer decision 2026-09-25): the pen's live animals, every column BLOCKED with the
+// reason, and no number anywhere -- so the sheet says why this pen has nothing to pack instead of
+// printing a retired feed or a ration-grid quantity nobody authored for an experiment pen.
+func allFeedsRetiredExperimentRow(shed ShedInput, cfg ConfigSnapshot) DailyRow {
+	var headCount int64
+	overduePending := false
+	for _, grain := range shed.Grains {
+		headCount += grain.HeadCount
+		overduePending = overduePending || grain.OverduePending
+	}
+	reason := BlockedReason{
+		Code: BlockReasonAllFeedsRetired,
+		Detail: fmt.Sprintf(
+			"every feed on experiment pen %s is retired in Items and categories; add an active feed to this pen on Feed Config",
+			oploc.OperationalLocation{ShedName: shed.ShedLabel, PartitionLabel: shed.PartitionLabel}.Display()),
+	}
+	columns := cfg.blockedColumnItems()
+	row := DailyRow{
+		ShedTag:                describeGrains(shed.Grains, cfg, grainStage),
+		Breed:                  describeGrains(shed.Grains, cfg, grainBreed),
+		HeadCount:              headCount,
+		HeadCountInformational: true,
+		OverduePending:         overduePending,
+		Workflow:               WorkflowExperiment,
+		Items:                  make([]DailyItem, 0, len(columns)),
+	}
+	for _, item := range columns {
+		blocked := reason
+		row.Items = append(row.Items, DailyItem{FeedItemLabel: item.Label, FeedItemKey: item.Key, Blocked: &blocked})
+	}
+	return row
 }

@@ -627,9 +627,10 @@ func TestSessionSlotsAreParkScoped(t *testing.T) {
 // A feed that is not ACTIVE in the catalog is not on the sheet at all (maintainer decision
 // 2026-09-24). The live case: a session slot still declared active for a retired feed (Baking Soda)
 // and an experiment pen still carrying a retired feed at 0 g (Concentrate). Both used to ride onto
-// every sheet, packing card and phone as 0 kg lines. A pen whose only cells are retired keeps them,
-// so it can never silently drop from the experiment to the ration grid.
-func TestRetiredFeedsAreOffTheSheetButNeverEmptyAPen(t *testing.T) {
+// every sheet, packing card and phone as 0 kg lines. A pen whose only cells are retired loses them
+// too and BLOCKS as an experiment pen with the retired reason (maintainer decision 2026-09-25) --
+// never served the retired feed, and never dropped to the ration grid.
+func TestRetiredFeedsAreOffTheSheetAndARetiredOnlyPenBlocks(t *testing.T) {
 	ctx := context.Background()
 	repo, pool := setupFeedDirectionDB(t, ctx)
 	exec := func(sql string, args ...any) {
@@ -662,7 +663,31 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'Hybrid',       'grams_per_head', 250.000,
 	if len(penA) != 1 || penA[0].FeedItemLabel != "Hybrid" {
 		t.Errorf("pen A cells = %+v, want only the active Hybrid", penA)
 	}
-	if penB := snapshot.ExperimentByLocation[domain.ExperimentLocationKey(fdShedB, "")]; len(penB) != 1 {
-		t.Errorf("pen B holds only a retired feed and must stay an experiment pen, not empty: %+v", penB)
+	keyB := domain.ExperimentLocationKey(fdShedB, "")
+	if penB, ok := snapshot.ExperimentByLocation[keyB]; ok || !snapshot.ExperimentAllRetired[keyB] {
+		t.Fatalf("pen B holds only a retired feed: cells %+v, all-retired %v; want no cells and the pen marked all-retired",
+			penB, snapshot.ExperimentAllRetired[keyB])
+	}
+	rows := domain.GenerateDirection(domain.GenerateInput{
+		Config: snapshot,
+		Sheds: []domain.ShedInput{{ShedID: fdShedB, ShedLabel: "Shed B", Grains: []domain.ShedGrain{
+			{ManagementStage: "Non-Pregnant", Breed: "Beetal", HeadCount: 5},
+		}}},
+		Rounding: domain.StandardRoundingPolicy(),
+		Planners: domain.NewPlannerSet(),
+	})
+	if len(rows) == 0 {
+		t.Fatal("pen B produced no rows; a blocked pen must still say why it has nothing to pack")
+	}
+	for _, row := range rows {
+		if row.Workflow != domain.WorkflowExperiment || !row.Blocked {
+			t.Errorf("pen B session %d: workflow %q blocked %v, want a blocked experiment row", row.SessionNo, row.Workflow, row.Blocked)
+		}
+		for _, item := range row.Items {
+			if item.FeedItem == "Retired Item" || item.QuantityKg != nil ||
+				item.BlockedReason == nil || item.BlockedReason.Code != domain.BlockReasonAllFeedsRetired {
+				t.Errorf("pen B session %d item %+v, want blocked with the retired reason and no number", row.SessionNo, item)
+			}
+		}
 	}
 }

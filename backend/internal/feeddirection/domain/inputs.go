@@ -56,6 +56,10 @@ type SessionTemplate struct {
 	// materializeRow. That asymmetry is deliberate and mirrors the rate rule: absence never widens
 	// what gets fed.
 	Items []FeedItem
+	// AllFeedsRetired is set by DropInactiveFeeds when every feed this session declared is retired
+	// in the catalog, so the session is empty because of that and not because nobody authored it.
+	// It changes only the REASON the session's pens are blocked, never whether they are.
+	AllFeedsRetired bool
 }
 
 // ExperimentCell is one hand-authored quantity for an experiment pen.
@@ -128,6 +132,11 @@ type ConfigSnapshot struct {
 	// an experiment?" had no correct answer. A non-partitioned shed keys on 'whole' and behaves
 	// exactly as before.
 	ExperimentByLocation map[string][]ExperimentCell
+	// ExperimentAllRetired names the experiment pens (same key as ExperimentByLocation) whose every
+	// authored feed is retired in the catalog. DropInactiveFeeds takes those cells off, and the pen
+	// must still be an EXPERIMENT pen -- blocked with that reason -- rather than dropping out of the
+	// experiment and being fed from the ration grid, which nobody authored for it.
+	ExperimentAllRetired map[string]bool
 }
 
 // ExperimentLocationKey is the lookup key for ExperimentByLocation: one operational location.
