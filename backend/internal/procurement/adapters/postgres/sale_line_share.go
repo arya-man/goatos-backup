@@ -107,3 +107,22 @@ animal_share AS (
     LEFT JOIN unclaimed u ON u.deal_id = ab.sales_deal_id
     LEFT JOIN unmatched_count uc ON uc.sales_deal_id = ab.sales_deal_id
 )`
+
+// taggedSaleOutcomeWhens is the SOLD / TAGGED-NOT-CLOSED half of an animal's outcome CASE, shared
+// by Load wise (loadwiseSalesSQL) and Farm born (farmBornPopulationSQL) so the two pages can never
+// disagree about when an exited animal is a sale (maintainer decisions 2026-09-25). It expects the
+// animal as `g` (public.goats) and its live tagged allocation as `ds`, a LEFT JOIN over
+// animal_share (NULL goat_id when the animal carries no tagged allocation):
+//
+//   - 'sold': the register says sold AND the sale is real -- no tagged allocation (a pre-tagging
+//     or register-only exit), or one on a CLOSED deal;
+//   - 'tagged_open': the register says sold because the animal was TAGGED, but its deal is not
+//     closed yet. Tagging takes the animal out of the herd at once; it is not a sale until the deal
+//     closes, and a failed deal releases it back to the herd.
+//
+// Two WHEN branches, spliced after CASE; each page keeps its own remaining branches and ELSE.
+const taggedSaleOutcomeWhens = `
+               WHEN (g.lifecycle_status = 'sold' OR g.exit_reason = 'sold')
+                    AND (ds.goat_id IS NULL OR ds.closed) THEN 'sold'
+               WHEN (g.lifecycle_status = 'sold' OR g.exit_reason = 'sold')
+                    AND ds.goat_id IS NOT NULL AND NOT ds.closed THEN 'tagged_open'`

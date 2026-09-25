@@ -112,6 +112,9 @@ function BreakdownCard({
             <tr>
               <th />
               <th className="num">{copy(pageContract, "column.on_farm")}</th>
+              <th className="num" title={copy(pageContract, "value.tagged_not_closed.hint")}>
+                {copy(pageContract, "column.tagged_not_closed")}
+              </th>
               <th className="num">{copy(pageContract, "column.sold")}</th>
               <th className="num">{copy(pageContract, "column.share_pct")}</th>
               <th className="num">{copy(pageContract, "column.revenue")}</th>
@@ -120,7 +123,7 @@ function BreakdownCard({
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={5}>
+                <td colSpan={6}>
                   <div className="empty">{copy(pageContract, "empty.breakdown")}</div>
                 </td>
               </tr>
@@ -132,6 +135,7 @@ function BreakdownCard({
                     {row.detail ? <div className="muted small">{row.detail}</div> : null}
                   </td>
                   <td className="num">{num(row.on_farm)}</td>
+                  <td className="num">{num(row.tagged_not_closed)}</td>
                   <td className="num">
                     <b>{num(row.sold)}</b>
                   </td>
@@ -209,6 +213,12 @@ function FarmBornSections({
           <div className="val">{num(s.sold)}</div>
           <div className="dl">
             {humanDate(s.from)} {copy(pageContract, "filter.period.range_separator")} {humanDate(s.to)}
+            {s.tagged_not_closed > 0 ? (
+              <span title={copy(pageContract, "value.tagged_not_closed.hint")}>
+                {" · "}
+                {num(s.tagged_not_closed)} {copy(pageContract, "kpi.tagged_not_closed")}
+              </span>
+            ) : null}
           </div>
         </div>
         <div className="kpi">

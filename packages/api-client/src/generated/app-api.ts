@@ -9113,6 +9113,8 @@ export interface components {
             /** @description Set on a pen row. */
             park_id?: string;
             on_farm: number;
+            /** @description Today's animals tagged to a sale whose deal has not closed -- neither on farm nor sold (the Load wise bucket). They join `sold` when the deal closes. */
+            tagged_not_closed: number;
             sold: number;
             /** @description How many of `sold` carry a deal share. */
             sold_priced: number;
@@ -9121,6 +9123,8 @@ export interface components {
         FarmBornSummary: {
             /** @description Alive today */
             on_farm: number;
+            /** @description Tagged to a sale whose deal has not closed, today, whatever the window. Not in `sold` and not in the sold ledger until the deal closes. */
+            tagged_not_closed: number;
             /** @description Animals whose sale date falls in the window. */
             sold: number;
             /** @description Of `sold` */

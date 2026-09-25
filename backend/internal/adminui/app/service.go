@@ -4828,15 +4828,21 @@ func pageSpecificCopy(id string) map[string]string {
 			"kpi.on_farm.detail":    "alive today, born on this farm",
 			"kpi.sold":              "Sold in the period",
 			"kpi.sold.detail":       "animals with a sale date in the period",
-			"kpi.revenue":           "Earned",
-			"kpi.revenue.detail":    "from sales with a recorded deal",
-			"kpi.revenue.unpriced":  "{count} sold without a deal value",
-			"kpi.avg_price":         "Average per animal",
-			"kpi.avg_price.detail":  "earned over priced sales",
+			// TAGGED, SALE NOT CLOSED -- the Load wise bucket, in Load wise's own words (maintainer
+			// decision 2026-09-25): an animal tagged to a deal that has not closed is out of the herd
+			// but not a sale, so it is neither on farm nor sold; it joins Sold when the deal closes.
+			"kpi.tagged_not_closed":        "tagged, sale not closed",
+			"column.tagged_not_closed":     "Tagged, sale not closed",
+			"value.tagged_not_closed.hint": "Tagged to a sale that has not closed yet. Counted as sold once the deal closes; back on farm if the deal fails.",
+			"kpi.revenue":                  "Earned",
+			"kpi.revenue.detail":           "from sales with a recorded deal",
+			"kpi.revenue.unpriced":         "{count} sold without a deal value",
+			"kpi.avg_price":                "Average per animal",
+			"kpi.avg_price.detail":         "earned over priced sales",
 
 			// The four breakdowns: on farm now beside sold in the period, per dimension.
 			"section.breakdowns.title":    "What sold, and what is still here",
-			"section.breakdowns.subtitle": "Each table splits the same animals one way. On farm is today's count; Sold and Earned are the period's.",
+			"section.breakdowns.subtitle": "Each table splits the same animals one way. On farm and Tagged, sale not closed are today's counts; Sold and Earned are the period's.",
 			"section.by_breed.title":      "By breed",
 			"section.by_sex.title":        "By sex",
 			"section.by_stage.title":      "By stage",

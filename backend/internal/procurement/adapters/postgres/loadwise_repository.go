@@ -169,18 +169,11 @@ outcomes AS (
            COALESCE(g.management_stage, '') AS stage,
            COALESCE(lower(g.sex), '') AS sex,
            CASE
-               -- Sold only when the sale is real: no tagged allocation (a pre-tagging or
-               -- register-only exit), or one on a CLOSED deal. An animal exited against a deal
-               -- still open is 'tagged_open' below -- the register says sold, the ledger says not
-               -- yet, and that is shown as its own bucket rather than counted as a sale.
-               WHEN (g.lifecycle_status = 'sold' OR g.exit_reason = 'sold')
-                    AND (ds.goat_id IS NULL OR ds.closed) THEN 'sold'
-               -- Tagged to a sale whose deal is NOT closed yet (maintainer decision 2026-09-25):
-               -- the animal left the herd when it was tagged, but it is not a sale until the deal
-               -- closes. Its own bucket, so the load balances instead of reading Unaccounted; it
-               -- moves to 'sold' when the deal closes, and a failed deal releases it to the herd.
-               WHEN (g.lifecycle_status = 'sold' OR g.exit_reason = 'sold')
-                    AND ds.goat_id IS NOT NULL AND NOT ds.closed THEN 'tagged_open'
+               -- Sold only when the sale is real (a CLOSED deal, or no tagged allocation);
+               -- tagged to a deal still open is 'tagged_open', its own bucket, so the load
+               -- balances instead of reading Unaccounted. taggedSaleOutcomeWhens is the ONE
+               -- statement of that rule, shared with Farm born (maintainer decision 2026-09-25).
+` + taggedSaleOutcomeWhens + `
                WHEN g.lifecycle_status = 'dead' OR g.exit_reason = 'died' THEN 'mortality'
                WHEN g.lifecycle_status IN ('culled', 'transferred', 'lost')
                     OR g.exit_reason IN ('culled', 'transferred', 'lost') THEN 'other'

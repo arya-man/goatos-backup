@@ -58,6 +58,10 @@ type FarmBornFilter struct {
 const (
 	FarmBornOnFarm = "on_farm"
 	FarmBornSold   = "sold"
+	// FarmBornTaggedOpen is an animal TAGGED to a sale whose deal is not closed yet (maintainer
+	// decision 2026-09-25, the Load wise rule): out of the herd, but not a sale until the deal
+	// closes. Neither on farm nor sold; like on farm it is today's state, whatever the window.
+	FarmBornTaggedOpen = "tagged_open"
 )
 
 // FarmBornAnimalFact is one animal after the repository has resolved its pen, its outcome and --
@@ -136,6 +140,8 @@ type FarmBornBucket struct {
 	ParkID string
 	OnFarm int
 	Sold   int
+	// TaggedNotClosed is today's animals tagged to a sale that has not closed.
+	TaggedNotClosed int
 	// SoldPriced is how many of Sold carry a deal share; Revenue sums those shares.
 	SoldPriced int
 	Revenue    float64
@@ -145,6 +151,9 @@ type FarmBornBucket struct {
 type FarmBornSummary struct {
 	// OnFarm is the live count today, whatever the window.
 	OnFarm int
+	// TaggedNotClosed is today's animals tagged to a sale whose deal has not closed, whatever the
+	// window. They join Sold, on their deal's sale date, when it closes.
+	TaggedNotClosed int
 	// Sold, SoldPriced and Revenue are the window's sales.
 	Sold       int
 	SoldPriced int
@@ -377,6 +386,8 @@ func BuildFarmBornSalesSorted(facts []FarmBornAnimalFact, filter FarmBornFilter,
 		switch f.Bucket {
 		case FarmBornOnFarm:
 			b.OnFarm++
+		case FarmBornTaggedOpen:
+			b.TaggedNotClosed++
 		case FarmBornSold:
 			b.Sold++
 			if f.SaleValue != nil {
@@ -416,6 +427,9 @@ func BuildFarmBornSalesSorted(facts []FarmBornAnimalFact, filter FarmBornFilter,
 		switch f.Bucket {
 		case FarmBornOnFarm:
 			summary.OnFarm++
+		case FarmBornTaggedOpen:
+			// Counted, never listed: the sold ledger lists an animal once its sale closes.
+			summary.TaggedNotClosed++
 		case FarmBornSold:
 			summary.Sold++
 			if f.SaleValue != nil {

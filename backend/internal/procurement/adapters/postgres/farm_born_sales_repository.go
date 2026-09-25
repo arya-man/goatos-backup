@@ -51,20 +51,20 @@ WITH ident AS (
 ` + saleLineShareCTEs + `,
 deal_share AS (
     -- Each animal is priced from ITS OWN SALE LINE by the shared saleLineShareCTEs, the same CTE
-    -- Load wise reads, and only a CLOSED deal is a sale (maintainer decisions 2026-09-25). An
-    -- allocation on an open deal is left out here exactly as before, so its animal reads its
-    -- exit date and no buyer.
-    -- projection-review: membership=animal_share narrowed to closed deals, one row per live tagged animal; group_key=goat_id, priced per (deal, species, bucket) inside saleLineShareCTEs; join_cardinality=1:{0,1} per animal through the tagged partial unique index; pagination=none, whole-filter read; scope=tenant_id
-    SELECT goat_id, sales_deal_id, park_id, shed_id, partition_label, sale_date, buyer_name, share
+    -- Load wise reads, and only a CLOSED deal is a sale (maintainer decisions 2026-09-25). Every
+    -- live tagged allocation is kept, closed or not, because an animal tagged to a deal still OPEN
+    -- is its own bucket ('tagged_open', taggedSaleOutcomeWhens -- the SAME rule Load wise reads):
+    -- neither sold nor on farm. Its deal lends it the pen it was tagged from and nothing else --
+    -- no sale date, buyer, deal or value until the deal closes.
+    -- projection-review: membership=animal_share, one row per live tagged animal, closed or open; group_key=goat_id, priced per (deal, species, bucket) inside saleLineShareCTEs; join_cardinality=1:{0,1} per animal through the tagged partial unique index; pagination=none, whole-filter read; scope=tenant_id
+    SELECT goat_id, sales_deal_id, park_id, shed_id, partition_label, sale_date, buyer_name, share, closed
     FROM animal_share
-    WHERE closed
 ),
 pop AS (
     SELECT g.goat_id, g.display_id, COALESCE(i.identifier_value, '') AS tag,
            lower(g.species) AS species, COALESCE(g.breed, '') AS breed, lower(g.sex) AS sex,
            COALESCE(g.management_stage, '') AS stage,
-           CASE
-               WHEN g.lifecycle_status = 'sold' OR g.exit_reason = 'sold' THEN 'sold'
+           CASE` + taggedSaleOutcomeWhens + `
                WHEN g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu') THEN 'on_farm'
                ELSE 'other'
            END AS bucket,
@@ -73,8 +73,11 @@ pop AS (
            COALESCE(ds.partition_label, gsp.partition_label, '') AS partition_label,
            -- A business DATE, never shifted: the deal's own sale date, else the exit stamped
            -- when the animal was marked sold, read as its IST calendar day.
-           COALESCE(ds.sale_date, (g.exited_at AT TIME ZONE 'Asia/Kolkata')::date) AS sale_date,
-           ds.share, COALESCE(ds.buyer_name, '') AS buyer_name, ds.sales_deal_id
+           -- An open deal contributes none of the sale facts: they are its once it closes.
+           COALESCE(CASE WHEN ds.closed THEN ds.sale_date END, (g.exited_at AT TIME ZONE 'Asia/Kolkata')::date) AS sale_date,
+           CASE WHEN ds.closed THEN ds.share END AS share,
+           COALESCE(CASE WHEN ds.closed THEN ds.buyer_name END, '') AS buyer_name,
+           CASE WHEN ds.closed THEN ds.sales_deal_id END AS sales_deal_id
     FROM public.goats g
     LEFT JOIN ident i ON i.goat_id = g.goat_id
     LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = $1 AND gsp.goat_id = g.goat_id
@@ -119,7 +122,8 @@ SELECT l.goat_id::text, l.display_id, l.tag, l.species, l.breed, l.sex, l.stage,
        l.bucket, COALESCE(l.sale_date::text, ''), l.share, l.buyer_name,
        COALESCE(l.sales_deal_id::text, '')
 FROM located l
-WHERE (l.bucket = 'on_farm' OR (l.bucket = 'sold' AND l.sale_date BETWEEN $2::date AND $3::date))
+-- On farm and tagged-not-closed are TODAY's states, whatever the window; only a sale is dated.
+WHERE (l.bucket IN ('on_farm', 'tagged_open') OR (l.bucket = 'sold' AND l.sale_date BETWEEN $2::date AND $3::date))
   AND ($4::text = '' OR l.park_id::text = $4)
   AND ($5::text = '' OR (l.shed_id::text = $5 AND l.partition_key = $6))
   AND ($7::text = '' OR l.species = $7)
@@ -167,7 +171,7 @@ CROSS JOIN LATERAL (
 ) folded
 LEFT JOIN animal_stage_lookup sl
        ON sl.tenant_id = $1::uuid AND sl.stage_code = folded.code
-WHERE l.bucket IN ('on_farm', 'sold')`
+WHERE l.bucket IN ('on_farm', 'sold', 'tagged_open')`
 
 // FarmBornAnimals implements ports.FarmBornSalesRepository.
 func (r *Repository) FarmBornAnimals(ctx context.Context, tenantID string, f domain.FarmBornFilter) ([]domain.FarmBornAnimalFact, error) {
@@ -209,7 +213,8 @@ func (r *Repository) FarmBornAnimals(ctx context.Context, tenantID string, f dom
 		if fact.Bucket == domain.FarmBornSold {
 			fact.SaleValue = share
 		} else {
-			// An on-farm animal carries no sale, whatever a stale allocation says.
+			// An on-farm animal carries no sale, whatever a stale allocation says; an animal tagged
+			// to an open deal carries none YET.
 			fact.SaleDate, fact.BuyerName, fact.DealID = "", "", ""
 		}
 		facts = append(facts, fact)

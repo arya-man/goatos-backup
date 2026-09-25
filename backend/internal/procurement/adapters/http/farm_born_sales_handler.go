@@ -48,16 +48,19 @@ type farmBornBucketPayload struct {
 	Sold       int     `json:"sold"`
 	SoldPriced int     `json:"sold_priced"`
 	Revenue    float64 `json:"revenue"`
+	// TaggedNotClosed is the Load wise field name for the same bucket, so both pages say it alike.
+	TaggedNotClosed int `json:"tagged_not_closed"`
 }
 
 type farmBornSummaryPayload struct {
-	OnFarm     int     `json:"on_farm"`
-	Sold       int     `json:"sold"`
-	SoldPriced int     `json:"sold_priced"`
-	Revenue    float64 `json:"revenue"`
-	AvgPrice   float64 `json:"avg_price"`
-	From       string  `json:"from"`
-	To         string  `json:"to"`
+	OnFarm          int     `json:"on_farm"`
+	TaggedNotClosed int     `json:"tagged_not_closed"`
+	Sold            int     `json:"sold"`
+	SoldPriced      int     `json:"sold_priced"`
+	Revenue         float64 `json:"revenue"`
+	AvgPrice        float64 `json:"avg_price"`
+	From            string  `json:"from"`
+	To              string  `json:"to"`
 }
 
 type farmBornSoldRowPayload struct {
@@ -167,7 +170,7 @@ func farmBornPayload(out domain.FarmBornSales) farmBornSalesPayload {
 	}
 	return farmBornSalesPayload{
 		Summary: farmBornSummaryPayload{
-			OnFarm: s.OnFarm, Sold: s.Sold, SoldPriced: s.SoldPriced, Revenue: s.Revenue,
+			OnFarm: s.OnFarm, TaggedNotClosed: s.TaggedNotClosed, Sold: s.Sold, SoldPriced: s.SoldPriced, Revenue: s.Revenue,
 			AvgPrice: s.AvgPrice, From: s.From, To: s.To,
 		},
 		ByBreed:   bucketsPayload(out.ByBreed),
@@ -194,7 +197,7 @@ func bucketsPayload(in []domain.FarmBornBucket) []farmBornBucketPayload {
 	for _, b := range in {
 		out = append(out, farmBornBucketPayload{
 			Key: b.Key, Label: b.Label, Detail: b.Detail, ParkID: b.ParkID,
-			OnFarm: b.OnFarm, Sold: b.Sold, SoldPriced: b.SoldPriced, Revenue: b.Revenue,
+			OnFarm: b.OnFarm, TaggedNotClosed: b.TaggedNotClosed, Sold: b.Sold, SoldPriced: b.SoldPriced, Revenue: b.Revenue,
 		})
 	}
 	return out

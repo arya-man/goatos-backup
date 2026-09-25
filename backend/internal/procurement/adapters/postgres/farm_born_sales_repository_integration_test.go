@@ -84,8 +84,10 @@ VALUES ($1::uuid, $2::uuid, 'animal_identifier_1', $3, lower($3), $3, true, 'act
 	goat("sold-nodeal", "birth", "goat", "Osmanabadi", "female", "F2-Female", "sold", "sold", fx.cbePark, fx.cbeShed, "Part 5", "2026-09-16T19:30:00Z")
 	// Sold farm born OUTSIDE the window (July).
 	goat("sold-old", "birth", "goat", "Malai", "male", "F2-Male", "sold", "sold", fx.cbePark, fx.cbeShed, "Part 3", "2026-07-01T04:00:00Z")
-	// Sold outside the window but tagged to a non-closed deal inside it: the deal must not pull
-	// the animal into farm-born revenue or the period ledger.
+	// Exited by TAGGING to a deal still open (Advance Paid): not a sale until the deal closes, so
+	// it is the "tagged, sale not closed" bucket in every window -- never sold, never on farm, and
+	// never in farm-born revenue or the period ledger (maintainer decision 2026-09-25, the Load
+	// wise rule).
 	advanceTagged := goat("sold-advance-open", "birth", "goat", "Malai", "female", "F2-Female", "sold", "sold", fx.cbePark, fx.cbeShed, "Part 3", "2026-07-02T04:00:00Z")
 	// Dead farm born: neither on farm nor sold.
 	goat("dead", "birth", "goat", "Malai", "male", "F2-Male", "dead", "died", fx.cbePark, fx.cbeShed, "Part 3", "2026-09-02T04:00:00Z")
@@ -204,6 +206,7 @@ ON CONFLICT (tenant_id, stage_code) DO NOTHING`, testTenant); err != nil {
 		"alive-cpt": domain.FarmBornOnFarm, "load-rejected": domain.FarmBornOnFarm,
 		"alive-cbe-whole": domain.FarmBornOnFarm, "on-load": domain.FarmBornOnFarm,
 		"sold-deal-a": domain.FarmBornSold, "sold-deal-b": domain.FarmBornSold, "sold-nodeal": domain.FarmBornSold,
+		"sold-advance-open": domain.FarmBornTaggedOpen,
 	}
 	if len(facts) != len(want) {
 		names := []string{}
@@ -251,11 +254,11 @@ ON CONFLICT (tenant_id, stage_code) DO NOTHING`, testTenant); err != nil {
 	// The domain's headline over these facts: the breakdowns sum to it and the breed fold is
 	// case-insensitive ("Malai" and "malai" are one breed).
 	page := domain.BuildFarmBornSales(facts, domain.FarmBornFilter{From: "2026-08-18", To: "2026-09-18"}, 25, 0)
-	if page.Summary.OnFarm != 7 || page.Summary.Sold != 3 || page.Summary.SoldPriced != 2 || page.Summary.Revenue != 20000 || page.Summary.AvgPrice != 10000 {
+	if page.Summary.OnFarm != 7 || page.Summary.TaggedNotClosed != 1 || page.Summary.Sold != 3 || page.Summary.SoldPriced != 2 || page.Summary.Revenue != 20000 || page.Summary.AvgPrice != 10000 {
 		t.Fatalf("summary = %+v", page.Summary)
 	}
 	malai := page.ByBreed[0]
-	if malai.Label != "Malai" || malai.OnFarm != 4 || malai.Sold != 2 || malai.Revenue != 20000 {
+	if malai.Label != "Malai" || malai.OnFarm != 4 || malai.TaggedNotClosed != 1 || malai.Sold != 2 || malai.Revenue != 20000 {
 		t.Fatalf("by breed[0] = %+v", malai)
 	}
 	// Three lookup rows, ONE stage option: a label join that fanned out would offer the cohort
@@ -320,26 +323,28 @@ func TestFarmBornAnimalsStatusMatrixAndOriginDecidesMembership(t *testing.T) {
 	}
 
 	birth := read("2026-08-18", "2026-09-18")
-	for _, absent := range []string{"dead", "merged", "sold-old", "sold-advance-open", "procured-noload", "origin-null"} {
+	for _, absent := range []string{"dead", "merged", "sold-old", "procured-noload", "origin-null"} {
 		if _, ok := birth[absent]; ok {
 			t.Fatalf("%s must be absent from the farm-born read", absent)
 		}
 	}
-	// Widen the window back to July: the old sale appears, nothing else moves.
+	// Tagged to a deal still open: its own bucket, carrying none of the deal's sale facts.
+	if open := birth["sold-advance-open"]; open.Bucket != domain.FarmBornTaggedOpen || open.SaleValue != nil || open.SaleDate != "" || open.BuyerName != "" || open.DealID != "" {
+		t.Fatalf("tagged to an open deal = %+v, want tagged_open with no sale facts", open)
+	}
+	// Widen the window back to July: the old sale appears, nothing else moves -- the open-deal
+	// animal is today's state and was already there.
 	wide := read("2026-06-01", "2026-09-18")
-	if wide["sold-old"].Bucket != domain.FarmBornSold || len(wide) != len(birth)+2 {
+	if wide["sold-old"].Bucket != domain.FarmBornSold || len(wide) != len(birth)+1 || wide["sold-advance-open"].Bucket != domain.FarmBornTaggedOpen {
 		t.Fatalf("widened window: sold-old = %+v, %d facts vs %d", wide["sold-old"], len(wide), len(birth))
 	}
-	if wide["sold-advance-open"].SaleValue != nil || wide["sold-advance-open"].SaleDate != "2026-07-02" || wide["sold-advance-open"].BuyerName != "" {
-		t.Fatalf("non-closed deal must not contribute revenue/date/buyer: %+v", wide["sold-advance-open"])
-	}
-	// A window with no sales still lists every on-farm animal.
+	// A window with no sales still lists every on-farm animal, and the tagged-not-closed one.
 	empty := read("2026-01-01", "2026-01-31")
-	if len(empty) != 7 {
-		t.Fatalf("empty window facts = %d, want the 7 on-farm animals", len(empty))
+	if len(empty) != 8 {
+		t.Fatalf("empty window facts = %d, want the 7 on-farm animals and the tagged one", len(empty))
 	}
 	for _, f := range empty {
-		if f.Bucket != domain.FarmBornOnFarm {
+		if f.Bucket != domain.FarmBornOnFarm && f.Bucket != domain.FarmBornTaggedOpen {
 			t.Fatalf("empty window must carry no sold fact: %+v", f)
 		}
 	}
@@ -504,26 +509,26 @@ func TestFarmBornAnimalsParkScopeAndPenPredicates(t *testing.T) {
 	}
 	assertExactly("park CPT", read(domain.FarmBornFilter{ParkID: fx.cptPark}), "alive-cpt")
 	assertExactly("pen Part 3 via normalized key", read(domain.FarmBornFilter{ShedID: fx.cbeShed, Partition: "3"}),
-		"alive-cbe-p3-a", "alive-cbe-p3-b", "load-rejected", "on-load", "sold-deal-a", "sold-deal-b")
+		"alive-cbe-p3-a", "alive-cbe-p3-b", "load-rejected", "on-load", "sold-deal-a", "sold-deal-b", "sold-advance-open")
 	assertExactly("pen Part 5", read(domain.FarmBornFilter{ShedID: fx.cbeShed, Partition: "Part 5"}), "alive-cbe-p5", "sold-nodeal")
 	assertExactly("undivided pen", read(domain.FarmBornFilter{ShedID: fx.cptShed}), "alive-cpt")
 	assertExactly("undivided pen beside partitions", read(domain.FarmBornFilter{ShedID: fx.cbeShed}), "alive-cbe-whole")
 	assertExactly("species sheep", read(domain.FarmBornFilter{Species: "sheep"}), "alive-cbe-p5")
-	assertExactly("breed MALAI", read(domain.FarmBornFilter{Breed: "MALAI"}), "alive-cbe-p3-a", "alive-cbe-p3-b", "load-rejected", "on-load", "sold-deal-a", "sold-deal-b")
-	assertExactly("sex female", read(domain.FarmBornFilter{Sex: "female"}), "alive-cbe-p3-a", "alive-cbe-p5", "alive-cbe-whole", "sold-deal-b", "sold-nodeal")
+	assertExactly("breed MALAI", read(domain.FarmBornFilter{Breed: "MALAI"}), "alive-cbe-p3-a", "alive-cbe-p3-b", "load-rejected", "on-load", "sold-deal-a", "sold-deal-b", "sold-advance-open")
+	assertExactly("sex female", read(domain.FarmBornFilter{Sex: "female"}), "alive-cbe-p3-a", "alive-cbe-p5", "alive-cbe-whole", "sold-deal-b", "sold-nodeal", "sold-advance-open")
 	assertExactly("stage f2-male", read(domain.FarmBornFilter{Stage: "f2-male"}), "alive-cbe-p3-b", "alive-cpt", "load-rejected", "on-load", "sold-deal-a")
 	// The FOLDED option reaches the whole cohort, and still composes with park scope rather than
 	// widening past it: CPT holds one fattening animal, CBE the rest. It reaches only animals the
 	// register marks born here -- the fold widens the STAGE, never the membership.
 	assertExactly("stage F2", read(domain.FarmBornFilter{Stage: herdstage.FatteningKey}),
 		"alive-cbe-p3-a", "alive-cbe-p3-b", "alive-cpt", "load-rejected", "on-load",
-		"sold-deal-a", "sold-deal-b", "sold-nodeal")
+		"sold-deal-a", "sold-deal-b", "sold-nodeal", "sold-advance-open")
 	assertExactly("ParkScope CPT + folded stage", read(domain.FarmBornFilter{ParkID: fx.cptPark, Stage: herdstage.FatteningKey}), "alive-cpt")
 	assertExactly("park CBE + sex male", read(domain.FarmBornFilter{ParkID: fx.cbePark, Sex: "male"}), "alive-cbe-p3-b", "load-rejected", "on-load", "sold-deal-a")
 	// The origin field narrows every predicate, not only the unfiltered read: the CBE females and
 	// the CPT Non-Pregnant animals each include one the register does not mark born here
 	// (procured-noload, origin-null), and neither appears.
-	assertExactly("ParkScope CBE + female", read(domain.FarmBornFilter{ParkID: fx.cbePark, Sex: "female"}), "alive-cbe-p3-a", "alive-cbe-p5", "alive-cbe-whole", "sold-deal-b", "sold-nodeal")
+	assertExactly("ParkScope CBE + female", read(domain.FarmBornFilter{ParkID: fx.cbePark, Sex: "female"}), "alive-cbe-p3-a", "alive-cbe-p5", "alive-cbe-whole", "sold-deal-b", "sold-nodeal", "sold-advance-open")
 	assertExactly("ParkScope CPT + stage", read(domain.FarmBornFilter{ParkID: fx.cptPark, Stage: "non-pregnant"}))
 }
 

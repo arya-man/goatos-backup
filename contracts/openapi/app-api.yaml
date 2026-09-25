@@ -22064,7 +22064,7 @@ components:
     FarmBornBucket:
       type: object
       description: One row of a Farm born breakdown (a breed, a sex, a stage or a pen). `on_farm` is today's count; `sold`, `sold_priced` and `revenue` are the window's.
-      required: [key, label, on_farm, sold, sold_priced, revenue]
+      required: [key, label, on_farm, tagged_not_closed, sold, sold_priced, revenue]
       properties:
         key: { type: string }
         label: { type: string }
@@ -22073,14 +22073,16 @@ components:
           description: The species for a breed row, the park for a pen row; so same-named pens in two parks stay apart.
         park_id: { type: string, description: Set on a pen row. }
         on_farm: { type: integer }
+        tagged_not_closed: { type: integer, description: "Today's animals tagged to a sale whose deal has not closed -- neither on farm nor sold (the Load wise bucket). They join `sold` when the deal closes." }
         sold: { type: integer }
         sold_priced: { type: integer, description: How many of `sold` carry a deal share. }
         revenue: { type: number }
     FarmBornSummary:
       type: object
-      required: [on_farm, sold, sold_priced, revenue, avg_price, from, to]
+      required: [on_farm, tagged_not_closed, sold, sold_priced, revenue, avg_price, from, to]
       properties:
         on_farm: { type: integer, description: Alive today, whatever the window. }
+        tagged_not_closed: { type: integer, description: "Tagged to a sale whose deal has not closed, today, whatever the window. Not in `sold` and not in the sold ledger until the deal closes." }
         sold: { type: integer, description: Animals whose sale date falls in the window. }
         sold_priced: { type: integer, description: Of `sold`, those with a deal share; the denominator of `avg_price`. }
         revenue: { type: number }

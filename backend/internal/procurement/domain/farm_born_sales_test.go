@@ -148,3 +148,32 @@ func TestDefaultFarmBornWindowIsTheLastMonth(t *testing.T) {
 		t.Fatalf("window = %s..%s", from, to)
 	}
 }
+
+// An animal tagged to a deal that has not closed is its own bucket (maintainer decision
+// 2026-09-25, the Load wise rule): counted in TaggedNotClosed on the headline and on every
+// breakdown, never in OnFarm or Sold, and never listed in the sold ledger.
+func TestFarmBornTaggedToAnOpenDealIsCountedNotSold(t *testing.T) {
+	facts := []FarmBornAnimalFact{
+		{GoatID: "a", Breed: "Malai", Sex: "male", Stage: "F2-Male", ShedID: "s1", Bucket: FarmBornOnFarm},
+		{GoatID: "b", Breed: "Malai", Sex: "male", Stage: "F2-Male", ShedID: "s1", Bucket: FarmBornTaggedOpen},
+		{GoatID: "c", Breed: "Malai", Sex: "female", Stage: "F2-Female", ShedID: "s1", Bucket: FarmBornSold, SaleDate: "2026-09-06"},
+	}
+	page := BuildFarmBornSales(facts, FarmBornFilter{From: "2026-09-01", To: "2026-09-30"}, 25, 0)
+	if page.Summary.OnFarm != 1 || page.Summary.TaggedNotClosed != 1 || page.Summary.Sold != 1 || page.TotalSold != 1 {
+		t.Fatalf("summary = %+v, total sold %d", page.Summary, page.TotalSold)
+	}
+	for _, row := range page.Sold {
+		if row.GoatID == "b" {
+			t.Fatal("an animal on an open deal is not in the sold ledger")
+		}
+	}
+	for name, rows := range map[string][]FarmBornBucket{"breed": page.ByBreed, "sex": page.BySex, "stage": page.ByStage, "pen": page.ByPen} {
+		tagged := 0
+		for _, b := range rows {
+			tagged += b.TaggedNotClosed
+		}
+		if tagged != 1 {
+			t.Fatalf("by %s tagged-not-closed = %d, want 1", name, tagged)
+		}
+	}
+}
