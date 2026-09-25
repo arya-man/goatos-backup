@@ -311,6 +311,18 @@ func scanFile(repo, path string) []finding {
 		}
 	}
 
+	// Proven-performance-pattern rules (perfpatterns.go).
+	if isPostgresAdapter(rel) {
+		for _, st := range sqlConstText(file) {
+			if name := detectCTESelfJoin(st.text); name != "" {
+				add("cte-self-join", st.pos, st.name+": CTE "+name+" is joined directly to itself; under a generic plan this is a nested loop of two CTE scans (ca7b21a82). Pair rows with a window (LAG/LEAD/MIN() OVER) instead")
+			}
+		}
+	}
+	for _, pos := range detectHandRolledReadCache(rel, file) {
+		add("hand-rolled-read-cache", pos, "hand-rolled map+mutex read cache; use backend/internal/platform/readcache (single flight, SWR, scoped cross-instance eviction, bounded LRU; 95b1054c1, a056df98a)")
+	}
+
 	// AST pass: loop-scoped rules.
 	ast.Inspect(file, func(n ast.Node) bool {
 		var body *ast.BlockStmt
@@ -425,6 +437,14 @@ func scanFile(repo, path string) []finding {
 		if nonSargableCastRe.MatchString(v) {
 			add("non-sargable-cast", lit.Pos(),
 				"casting an indexed column to text in an ANY predicate can disable its index; cast the bind array instead (column = ANY($1::uuid[]))")
+		}
+		if detectCastIn(v) {
+			add("non-sargable-cast", lit.Pos(),
+				"casting a column to text in an IN (...) predicate defeats its index (ebe349c37: 53 s -> 42 ms); compare the typed column to = ANY($1::uuid[]) / array_append(uuid[], col)")
+		}
+		if detectCountDistinct(v) {
+			add("count-distinct-sort", lit.Pos(),
+				"COUNT(DISTINCT ...) sorts every input row; collapse to one row per key (GROUP BY / SELECT DISTINCT, both hashable) and count those rows (cb0c2d0dc, ba2984573)")
 		}
 		if c := len(cteRe.FindAllString(v, -1)); c > godCTELimit {
 			add("god-cte", lit.Pos(),

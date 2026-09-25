@@ -221,3 +221,47 @@ cte-limit-outside backend/internal/counts/adapters/postgres/alerts.go 1 # owner=
 cte-limit-outside backend/internal/feeddirection/adapters/postgres/alerts.go 1 # owner=platform issue=SCALE-CTE-006 expires=2026-12-31 reason=feed alert feed dedupes one member's 30-day notification_requests before outer keyset LIMIT; pre-existing vertical-alert debt, separate from notificationcentre PR #376
 cte-limit-outside backend/internal/procurement/adapters/postgres/repository.go 1 # owner=platform issue=SCALE-CTE-007 expires=2026-12-31 reason=procurement work page builds goat/load work_rows before outer filters and LIMIT; pre-existing procurement debt revealed by CTE dependency walk, not authored by PR #376
 cte-limit-outside backend/internal/vaccinationexecution/adapters/postgres/repository.go 1 # owner=platform issue=SCALE-CTE-008 expires=2026-12-31 reason=drive assignments regroup assignment_vaccines then page by effective date; projection comment already notes LIMIT applies after regroup, separate vaccination page fix needed
+
+# --- count-distinct-sort: COUNT(DISTINCT) sorts every input row (2026-09-25 ratchet; burn down) ---
+# Frozen at today's main. Collapse per key then count (cb0c2d0dc). Never grow these counts.
+count-distinct-sort backend/cmd/analytics-rollup/app_events.go 2 # owner=perf issue=PERF-PATTERNS expires=2026-12-31 reason=pre-existing COUNT(DISTINCT) frozen when the rule landed
+count-distinct-sort backend/cmd/analytics-rollup/crash_sessions.go 1 # owner=perf issue=PERF-PATTERNS expires=2026-12-31 reason=pre-existing COUNT(DISTINCT) frozen when the rule landed
+count-distinct-sort backend/cmd/analytics-rollup/funnel.go 1 # owner=perf issue=PERF-PATTERNS expires=2026-12-31 reason=pre-existing COUNT(DISTINCT) frozen when the rule landed
+count-distinct-sort backend/cmd/backfill-verification-subject-labels/main.go 1 # owner=perf issue=PERF-PATTERNS expires=2026-12-31 reason=pre-existing COUNT(DISTINCT) frozen when the rule landed
+count-distinct-sort backend/cmd/seed-shed-profiles/main.go 1 # owner=perf issue=PERF-PATTERNS expires=2026-12-31 reason=pre-existing COUNT(DISTINCT) frozen when the rule landed
+count-distinct-sort backend/internal/calendar/adapters/postgres/canonical_read.go 1 # owner=perf issue=PERF-PATTERNS expires=2026-12-31 reason=pre-existing COUNT(DISTINCT) frozen when the rule landed
+count-distinct-sort backend/internal/counts/adapters/postgres/repository.go 1 # owner=perf issue=PERF-PATTERNS expires=2026-12-31 reason=pre-existing COUNT(DISTINCT) frozen when the rule landed
+count-distinct-sort backend/internal/feeddirection/adapters/postgres/analytics.go 2 # owner=perf issue=PERF-PATTERNS expires=2026-12-31 reason=pre-existing COUNT(DISTINCT) frozen when the rule landed
+count-distinct-sort backend/internal/growthdirector/adapters/postgres/fcr.go 1 # owner=perf issue=PERF-PATTERNS expires=2026-12-31 reason=pre-existing COUNT(DISTINCT) frozen when the rule landed
+count-distinct-sort backend/internal/growthdirector/adapters/postgres/feed.go 1 # owner=perf issue=PERF-PATTERNS expires=2026-12-31 reason=pre-existing COUNT(DISTINCT) frozen when the rule landed
+count-distinct-sort backend/internal/growthdirector/adapters/postgres/growth_director.go 1 # owner=perf issue=PERF-PATTERNS expires=2026-12-31 reason=pre-existing COUNT(DISTINCT) frozen when the rule landed
+count-distinct-sort backend/internal/health/adapters/postgres/analytics.go 1 # owner=perf issue=PERF-PATTERNS expires=2026-12-31 reason=pre-existing COUNT(DISTINCT) frozen when the rule landed
+count-distinct-sort backend/internal/herdsignals/adapters/postgres/repository.go 7 # owner=perf issue=PERF-PATTERNS expires=2026-12-31 reason=pre-existing COUNT(DISTINCT) frozen when the rule landed
+count-distinct-sort backend/internal/notificationcentre/adapters/postgres/repository.go 1 # owner=perf issue=PERF-PATTERNS expires=2026-12-31 reason=pre-existing COUNT(DISTINCT) frozen when the rule landed
+count-distinct-sort backend/internal/obligation/adapters/postgres/drive_date_override_replan.go 2 # owner=perf issue=PERF-PATTERNS expires=2026-12-31 reason=pre-existing COUNT(DISTINCT) frozen when the rule landed
+count-distinct-sort backend/internal/obligation/adapters/postgres/partition_move.go 1 # owner=perf issue=PERF-PATTERNS expires=2026-12-31 reason=pre-existing COUNT(DISTINCT) frozen when the rule landed
+count-distinct-sort backend/internal/obligation/adapters/postgres/repository.go 3 # owner=perf issue=PERF-PATTERNS expires=2026-12-31 reason=pre-existing COUNT(DISTINCT) frozen when the rule landed
+count-distinct-sort backend/internal/obligation/adapters/postgres/visit_shot_lock.go 3 # owner=perf issue=PERF-PATTERNS expires=2026-12-31 reason=pre-existing COUNT(DISTINCT) frozen when the rule landed
+count-distinct-sort backend/internal/pccare/adapters/postgres/rounds.go 2 # owner=perf issue=PERF-PATTERNS expires=2026-12-31 reason=pre-existing COUNT(DISTINCT) frozen when the rule landed
+count-distinct-sort backend/internal/pccare/adapters/postgres/tasks.go 1 # owner=perf issue=PERF-PATTERNS expires=2026-12-31 reason=pre-existing COUNT(DISTINCT) frozen when the rule landed
+count-distinct-sort backend/internal/sales/adapters/postgres/overview_repository.go 1 # owner=perf issue=PERF-PATTERNS expires=2026-12-31 reason=pre-existing COUNT(DISTINCT) frozen when the rule landed
+count-distinct-sort backend/internal/sop/adapters/postgres/repository.go 1 # owner=perf issue=PERF-PATTERNS expires=2026-12-31 reason=pre-existing COUNT(DISTINCT) frozen when the rule landed
+count-distinct-sort backend/internal/tasks/adapters/postgres/colostrum.go 1 # owner=perf issue=PERF-PATTERNS expires=2026-12-31 reason=pre-existing COUNT(DISTINCT) frozen when the rule landed
+count-distinct-sort backend/internal/vaccination/adapters/postgres/repository.go 1 # owner=perf issue=PERF-PATTERNS expires=2026-12-31 reason=pre-existing COUNT(DISTINCT) frozen when the rule landed
+count-distinct-sort backend/internal/vaccination/adapters/postgres/sqlc/query.sql.go 2 # owner=perf issue=PERF-PATTERNS expires=2026-12-31 reason=pre-existing COUNT(DISTINCT) frozen when the rule landed
+count-distinct-sort backend/internal/vaccinationexecution/adapters/postgres/commandboard_drilldown_sql.go 1 # owner=perf issue=PERF-PATTERNS expires=2026-12-31 reason=pre-existing COUNT(DISTINCT) frozen when the rule landed
+count-distinct-sort backend/internal/vaccinationexecution/adapters/postgres/commandboard_sql.go 5 # owner=perf issue=PERF-PATTERNS expires=2026-12-31 reason=pre-existing COUNT(DISTINCT) frozen when the rule landed
+count-distinct-sort backend/internal/vaccinationexecution/adapters/postgres/live_tracker_repository.go 1 # owner=perf issue=PERF-PATTERNS expires=2026-12-31 reason=pre-existing COUNT(DISTINCT) frozen when the rule landed
+count-distinct-sort backend/internal/vaccinationexecution/adapters/postgres/repository.go 3 # owner=perf issue=PERF-PATTERNS expires=2026-12-31 reason=pre-existing COUNT(DISTINCT) frozen when the rule landed
+count-distinct-sort backend/internal/verification/adapters/postgres/oversight_analytics.go 1 # owner=perf issue=PERF-PATTERNS expires=2026-12-31 reason=pre-existing COUNT(DISTINCT) frozen when the rule landed
+count-distinct-sort backend/internal/verification/adapters/postgres/repository.go 1 # owner=perf issue=PERF-PATTERNS expires=2026-12-31 reason=pre-existing COUNT(DISTINCT) frozen when the rule landed
+count-distinct-sort backend/internal/verification/adapters/postgres/video_log.go 1 # owner=perf issue=PERF-PATTERNS expires=2026-12-31 reason=pre-existing COUNT(DISTINCT) frozen when the rule landed
+count-distinct-sort backend/internal/weighing/adapters/postgres/growth.go 1 # owner=perf issue=PERF-PATTERNS expires=2026-12-31 reason=pre-existing COUNT(DISTINCT) frozen when the rule landed
+count-distinct-sort backend/internal/weighing/adapters/postgres/repository.go 5 # owner=perf issue=PERF-PATTERNS expires=2026-12-31 reason=pre-existing COUNT(DISTINCT) frozen when the rule landed
+count-distinct-sort backend/internal/weighing/adapters/postgres/sex_scope.go 1 # owner=perf issue=PERF-PATTERNS expires=2026-12-31 reason=pre-existing COUNT(DISTINCT) frozen when the rule landed
+count-distinct-sort backend/internal/weighing/adapters/postgres/weight_demographics.go 1 # owner=perf issue=PERF-PATTERNS expires=2026-12-31 reason=pre-existing COUNT(DISTINCT) frozen when the rule landed
+
+# --- hand-rolled-read-cache: use backend/internal/platform/readcache (2026-09-25 ratchet) ---
+hand-rolled-read-cache backend/internal/ceoai/adapters/memcache/cache.go 1 # owner=perf issue=PERF-PATTERNS expires=2026-12-31 reason=pre-existing cache predates platform/readcache
+hand-rolled-read-cache backend/internal/ceoai/persistence/cache.go 1 # owner=perf issue=PERF-PATTERNS expires=2026-12-31 reason=pre-existing cache predates platform/readcache
+hand-rolled-read-cache backend/internal/herdsignals/app/live_cohort_cache.go 1 # owner=perf issue=PERF-PATTERNS expires=2026-12-31 reason=pre-existing cache predates platform/readcache

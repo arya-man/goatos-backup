@@ -28,9 +28,12 @@ Exit 1 on any NEW violation. Green when every offender is baselined or ignored.
 | `offset-pagination` | `OFFSET <bind>` in a SQL literal |
 | `full-mv-refresh` | whole-tenant projection delete with no `projection_version` guard |
 | `non-sargable-like` | `lower(col) LIKE '%..%'` |
-| `non-sargable-cast` | indexed column cast to text in an `ANY` predicate (`id::text = ANY(...)`); cast the typed bind array instead |
+| `non-sargable-cast` | indexed column cast to text in an `ANY` or `IN (...)` predicate (`id::text = ANY(...)`, `id::text IN (...)`, ebe349c37); cast the typed bind array instead |
 | `god-cte` | > 8 `x AS (` CTEs in one request-path SQL literal |
 | `cte-limit-outside` | a paginated statement (top-level `ORDER BY` + `LIMIT`) whose scanning CTE has no `LIMIT` of its own — every request materialises the whole underlying set and then keeps a page. Work proportional to the table, not the page. Unlike the other SQL rules this one reads the **fully assembled** statement (package-level consts resolved through their `+` chains), because the CTE and the LIMIT routinely sit in different fragments |
+| `count-distinct-sort` | `COUNT(DISTINCT x)` in SQL: Postgres sorts every input row for a DISTINCT aggregate. Collapse to one row per key (GROUP BY / SELECT DISTINCT, hashable) and count those (cb0c2d0dc 725→276 ms, ba2984573 805→232 ms). Pre-existing uses are ratcheted in `baseline.txt` |
+| `cte-self-join` | a CTE joined directly to itself (`FROM c a JOIN c b`) in an assembled adapter statement; a generic plan turns it into a nested loop of two CTE scans (ca7b21a82, 800→100 ms). Pair with a window (LAG/LEAD/MIN() OVER). Adjacent shape only; see blind spots in `perfpatterns.go` |
+| `hand-rolled-read-cache` | a struct named `*cache*` holding a map + `sync.Mutex`/`RWMutex` outside `backend/internal/platform/readcache` — use the shared SWR cache with scoped eviction (95b1054c1, a056df98a) |
 | `read-rollup-truth` | request-path/service rollup that bumps a raw list limit or clears `NextCursor` after in-memory aggregation |
 
 One-time tooling (`backend/cmd/seed-*`, `migrate`) is out of scope.
