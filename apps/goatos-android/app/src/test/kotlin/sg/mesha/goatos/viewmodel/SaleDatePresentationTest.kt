@@ -63,3 +63,15 @@ class SaleDatePresentationTest {
         assertEquals("500 kg at ₹2/kg · ₹1,000", sold["Manure"])
     }
 }
+
+class SaleStepsProgressTest {
+    @Test
+    fun `a stopped workflow never reads as finished`() {
+        val stopped = sg.mesha.goatos.core.network.dto.WorkflowDetailResponseDto(state = "canceled", actionsDone = 1, actionsTotal = 1)
+        org.junit.Assert.assertEquals("Stopped · 1 done", saleStepsProgressLine(stopped))
+        val running = sg.mesha.goatos.core.network.dto.WorkflowDetailResponseDto(state = "open", actionsDone = 1, actionsTotal = 5)
+        org.junit.Assert.assertEquals("1 of 5 done", saleStepsProgressLine(running))
+        org.junit.Assert.assertTrue(isStoppedWorkflow("cancelled"))
+        org.junit.Assert.assertFalse(isStoppedWorkflow("completed"))
+    }
+}

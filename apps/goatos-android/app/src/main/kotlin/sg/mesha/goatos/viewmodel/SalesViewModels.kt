@@ -298,6 +298,18 @@ internal fun quantityAtRate(quantity: Double?, unit: String, rate: Double?): Str
     return if (rate == null) amount else "$amount at ${rupees(rate)}${unit.takeIf { it.isNotBlank() }?.let { "/$it" }.orEmpty()}"
 }
 
+/** A workflow that will not run any further (the sale failed and its steps were stopped). */
+internal fun isStoppedWorkflow(state: String): Boolean = state.trim().lowercase() in setOf("canceled", "cancelled")
+
+/**
+ * The steps card's counter, from the backend's own counters. A STOPPED workflow does not read as
+ * finished: on the phone (2026-09-26) a failed sale's workflow, cancelled after its tag step,
+ * said "1 of 1 done" -- the cancelled steps drop out of the total, so the card claimed the work
+ * was complete.
+ */
+internal fun saleStepsProgressLine(steps: WorkflowDetailResponseDto): String =
+    if (isStoppedWorkflow(steps.state)) "Stopped · ${steps.actionsDone} done" else "${steps.actionsDone} of ${steps.actionsTotal} done"
+
 internal fun SalesDealDto.plannedSaleDateIfDifferent(): String? =
     plannedSaleDate?.trim()?.takeIf { it.isNotEmpty() && it != saleDate }
 
@@ -441,8 +453,8 @@ class SaleDetailViewModel @Inject constructor(
                 },
                 stepsWorkflowId = l.stepsWorkflowId,
                 // The backend card's counters and next step, verbatim; the phone never recounts.
-                stepsProgressLine = steps?.let { "${it.actionsDone} of ${it.actionsTotal} done" }.orEmpty(),
-                stepsNextLine = steps?.nextAction?.title?.takeIf { it.isNotBlank() }?.let { "Next: $it" }.orEmpty(),
+                stepsProgressLine = steps?.let(::saleStepsProgressLine).orEmpty(),
+                stepsNextLine = steps?.takeUnless { isStoppedWorkflow(it.state) }?.nextAction?.title?.takeIf { it.isNotBlank() }?.let { "Next: $it" }.orEmpty(),
                 stepsUnavailable = l.stepsUnavailable,
                 isRefreshing = l.refreshing,
                 isLoading = false,
@@ -1166,7 +1178,7 @@ class SaleCreateViewModel @Inject constructor(
 
     /** "Sheep · Anantapur" for one line, "3 lines" for several. */
     private fun linesSummary(lines: List<SaleLineDraftUi>): String = when {
-        lines.size == 1 -> dotJoin(lines[0].product, lines[0].breed)
+        lines.size == 1 -> productAndBreed(lines[0].product, lines[0].breed)
         else -> "${lines.size} lines"
     }
 
