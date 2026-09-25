@@ -489,6 +489,7 @@ run_common() {
   step "push-hook-freshness-guard" bash tools/ci/check-push-hook-freshness.sh
   step "parallel-dispatch cleanup guard" bash tools/ci/check-parallel-dispatch-cleanup.sh
   step "stg-deploy-scripts-test" make stg-deploy-scripts-test
+  step "grafana-provisioning-guard" make grafana-provisioning-guard
   # gradle-worktree-lock guard: ~47s, all of it sandboxed sleeps. The guard runs
   # no Gradle ITSELF, but case (g) does drive `run-local-ci.sh android` under
   # trace — which is why this file is in its trigger set alongside the library.

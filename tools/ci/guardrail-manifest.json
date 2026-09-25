@@ -704,6 +704,17 @@
       "ciStep": "git-identity-guard"
     },
     {
+      "id": "grafana-provisioning",
+      "script": "tools/ci/check-grafana-provisioning.mjs",
+      "makeTarget": "grafana-provisioning-guard",
+      "realCheck": "node tools/ci/check-grafana-provisioning.mjs",
+      "selfTest": "node tools/ci/check-grafana-provisioning.mjs --self-test",
+      "owningDoc": "docs/decisions/grafana-owned-by-mesha-ops.md",
+      "requiredInCI": true,
+      "ciStep": "grafana-provisioning-guard",
+      "notes": "infra/grafana dashboards/provisioning still feed infra/envs/stg/observability.tf. Dashboards must parse with uid+title, Terraform must keep the provisioning + dashboards fileset wired, and STG deploy scripts must not read infra/grafana (Grafana deploy is owned by vgoats/mesha-ops)."
+    },
+    {
       "id": "goat-shed-integrity-db-proof",
       "script": "tools/dev/check-goat-shed-integrity.sh",
       "makeTarget": "goat-shed-integrity-db-proof",
