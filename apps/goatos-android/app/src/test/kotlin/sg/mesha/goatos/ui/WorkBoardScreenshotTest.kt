@@ -18,6 +18,8 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.feature.workboard.WorkBoardChipUi
 import sg.mesha.goatos.feature.workboard.WorkBoardDetailScreen
 import sg.mesha.goatos.feature.workboard.WorkBoardDetailUiState
+import sg.mesha.goatos.feature.workboard.WorkBoardStepUi
+import sg.mesha.goatos.feature.workboard.WorkBoardSubtaskUi
 import sg.mesha.goatos.feature.workboard.WorkBoardEmptyMessage
 import sg.mesha.goatos.feature.workboard.WorkBoardOwnerState
 import sg.mesha.goatos.feature.workboard.WorkBoardRowUi
@@ -81,7 +83,32 @@ class WorkBoardScreenshotTest {
                 ProvideAppLocale {
                     Box(Modifier.fillMaxSize().background(MeshaColors.Bg)) {
                         WorkBoardDetailScreen(
-                            state = WorkBoardDetailUiState(loading = false, row = sampleRows()[1], canOpen = true),
+                            state = WorkBoardDetailUiState(
+                                loading = false,
+                                row = sampleRows()[1],
+                                canOpen = true,
+                                // The pens behind the row, worst first, as the drill serves them.
+                                subtasks = listOf(
+                                    WorkBoardSubtaskUi(
+                                        key = "0:a", name = "Castro 2", subtitle = "24 animals", workState = "rejected",
+                                        lane = "in_progress", ownerName = "Darshan Talwar", needsAttention = true,
+                                        steps = listOf(
+                                            WorkBoardStepUi(name = "Scan", state = "done"),
+                                            WorkBoardStepUi(name = "Verify", state = "rework", detail = "Tag not visible"),
+                                        ),
+                                    ),
+                                    WorkBoardSubtaskUi(
+                                        key = "1:b", name = "Castro 3", subtitle = "24 animals", workState = "due",
+                                        lane = "todo", ownerName = "Darshan Talwar",
+                                        steps = listOf(
+                                            WorkBoardStepUi(name = "Scan", state = "todo"),
+                                            WorkBoardStepUi(name = "Verify", state = "locked"),
+                                        ),
+                                    ),
+                                ),
+                                subtaskTotal = 2,
+                                subtasksLoading = false,
+                            ),
                         )
                     }
                 }

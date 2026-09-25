@@ -287,6 +287,9 @@ func (s *Service) Summary(ctx context.Context, q domain.Query) (domain.Summary, 
 				defer wg.Done()
 				s.batchedCounts(ctx, q, idx, primers, scoped, sourceIndexes, phaseOne, func(i int, counts map[domain.WorkState]int, degraded bool) {
 					results[i] = result{module: scoped[i].Module(), counts: counts, degraded: degraded}
+					if !degraded {
+						s.seedSourceCounts(ctx, sourceIndexes[i], q, counts)
+					}
 				})
 			}()
 		}
@@ -330,6 +333,7 @@ func (s *Service) Summary(ctx context.Context, q domain.Query) (domain.Summary, 
 				return
 			}
 			results[i] = result{module: src.Module(), counts: counts}
+			s.seedSourceCounts(ctx, sourceIndexes[i], q, counts)
 			s.prefetchSourceLanes(sourceCtx, sourceIndexes[i], src, q, counts)
 		}(i, src)
 	}

@@ -287,3 +287,51 @@ func TestPagePrefetchFilteredModuleKeepsRegistryIndex(t *testing.T) {
 		t.Fatalf("filtered source index drift: %+v %v first=%d selected=%d", page, err, first.lists.Load(), selected.lists.Load())
 	}
 }
+
+// A source the summary of THIS request counted empty for a lane is not read for that lane: an
+// engine-workflow source beside populated approvals under the same module used to cost one
+// round trip per empty source on every page (TestWorkBoardPageRoundTripsIncludingAuth). A
+// populated sibling is still read, a later page still reads, and a lane asking for a state
+// the summary never counted still reads.
+func TestLaneReadSkipsASourceTheSummaryCountedEmpty(t *testing.T) {
+	populated := &prefetchSource{fakeSource: mk(domain.ModuleCounts, "approval", 2, domain.WorkStateDue, "")}
+	empty := &prefetchSource{fakeSource: mk(domain.ModuleCounts, "workflow", 0, domain.WorkStateDue, ""), empty: true}
+	svc := NewService(populated, empty)
+	q, intents := prefetchIntent()
+	ctx := ports.WithRequestReadMemo(context.Background())
+	if _, err := svc.Summary(WithPageLanePrefetch(ctx, intents), q); err != nil {
+		t.Fatal(err)
+	}
+	page, err := svc.List(ctx, intents[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Rows) != 2 || populated.lists.Load() != 1 {
+		t.Fatalf("the populated source must still serve its rows once: %d rows, %d reads", len(page.Rows), populated.lists.Load())
+	}
+	if empty.lists.Load() != 0 {
+		t.Fatalf("a source counted empty was read %d times", empty.lists.Load())
+	}
+
+	// Outside a request that counted it, the source is read as before.
+	if _, err := svc.List(context.Background(), intents[0]); err != nil {
+		t.Fatal(err)
+	}
+	if empty.lists.Load() != 1 {
+		t.Fatalf("without the summary's counts the source must be read: %d", empty.lists.Load())
+	}
+
+	// A summary narrowed to other states says nothing about this lane: read it.
+	narrowed := q
+	narrowed.WorkStates = []domain.WorkState{domain.WorkStateCompleted}
+	ctx2 := ports.WithRequestReadMemo(context.Background())
+	if _, err := svc.Summary(ctx2, narrowed); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.List(ctx2, intents[0]); err != nil {
+		t.Fatal(err)
+	}
+	if empty.lists.Load() != 2 {
+		t.Fatalf("a lane state the summary never counted must be read: %d", empty.lists.Load())
+	}
+}

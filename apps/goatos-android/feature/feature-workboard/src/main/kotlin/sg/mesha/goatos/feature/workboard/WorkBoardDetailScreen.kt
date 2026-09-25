@@ -213,12 +213,20 @@ private fun WorkBoardSubtaskCard(subtask: WorkBoardSubtaskUi) {
             Text(text = subtask.subtitle, color = MeshaColors.Muted, style = MeshaType.caption)
         }
         if (subtask.steps.isNotEmpty()) {
-            val stepLines = subtask.steps.map { step -> step.name + ": " + stepStateLabel(step.state) }
+            // Each step's backend detail rides beside it (a weight, a submit time), as the web
+            // drawer shows it; a sent-back step's detail is the verifier's reason, on its own line.
+            val stepLines = subtask.steps.map { step ->
+                val base = step.name + ": " + stepStateLabel(step.state)
+                if (step.detail.isNotBlank() && step.state != "rework") "$base (${step.detail})" else base
+            }
             Text(
                 text = stepLines.joinToString(" · "),
                 color = MeshaColors.Muted,
                 style = MeshaType.caption,
             )
+            subtask.steps.filter { it.state == "rework" && it.detail.isNotBlank() }.forEach { step ->
+                Text(text = step.detail, color = MeshaColors.Danger, style = MeshaType.caption)
+            }
         }
         if (subtask.ownerName.isNotBlank()) {
             Text(text = subtask.ownerName, color = MeshaColors.Muted, style = MeshaType.caption)
