@@ -37,6 +37,7 @@ WHERE r.tenant_id = $1::uuid
     WHERE t.tenant_id = r.tenant_id AND t.type_key = r.animal_class AND t.status = 'retired'
   )`
 
+	// projection-review: membership=health_protocol_versions rows of this tenant, every status (a retired disease must keep its name on history); group_key=disease_key alone, the disease's stable identity -- one output row per disease across both age bands and every version; join_cardinality=no joins, so nothing can fan out, and the aggregates (array_agg ordered pick, bool_or) are over that one disease's own version rows; pagination=none, a tenant authors a few dozen diseases and the whole list is the death form's vocabulary; scope=tenant_id only, and "active" (bool_or published) is computed per disease, never across diseases
 	// One row per disease ever authored on the treatment tab. ACTIVE means a version is
 	// published today in either age band; the name is the published version's where there is
 	// one, else the newest -- so a retired disease still reads under the name it last had.
