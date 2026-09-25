@@ -134,3 +134,8 @@ Pending:
 - A real Cloud Build STG run. The first run warms the cache, so the second run gives the real number.
 - Confirming buildx is present in `gcr.io/cloud-builders/docker`. If it is not, the plain docker fallback runs.
 - Confirming that `appDistributionUploadProdRelease` in the publish step reuses the built outputs (the same `/workspace` and Gradle home) and does not rebuild.
+
+## Cost (Cloud Build, goatos-stg)
+- Measured 2026-08-25 to 2026-09-24: 170 builds, 4,102 build-minutes, all on the default machine. At ~$0.006/min minus the default-machine free tier: roughly $10/month.
+- With `E2_HIGHCPU_32`: builds finish ~2-3x faster, ~1,500-2,000 build-minutes/month at ~$0.064/min (no free tier): roughly $100-130/month (~₹8.5-11k).
+- Delta ~₹8-10k/month against an August GCP bill of ~₹34k. Per-minute prices are list prices from memory; verify in the billing report. Decision: keep `E2_HIGHCPU_32` (speed is the goal).
