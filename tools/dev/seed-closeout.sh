@@ -155,6 +155,25 @@ SELECT count(*) FROM upserted;
 SQL
 }
 
+# Pen types (migration 000428): the farm's classification of each pen (elevated, non-elevated, ...)
+# is authored on Configuration, and a reseed creates pens AFTER migrations have run, so without
+# this every reseeded pen would come back unclassified. fixtures/pen-types/pen-type-map.sql is the
+# last known copy of that answer (read from goatos-stg). It fills only pens with NO type, so it
+# never overwrites a choice the farm made on screen, and it is safe to re-run.
+apply_pen_type_map() {
+  local map="$repo/fixtures/pen-types/pen-type-map.sql"
+  echo "==> seed-closeout: apply pen type map"
+  if [ "$dry_run" -eq 1 ]; then
+    printf '    psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f fixtures/pen-types/pen-type-map.sql\n'
+    return
+  fi
+  if [ -z "${DATABASE_URL:-}" ]; then
+    echo "seed-closeout: DATABASE_URL is required to apply the pen type map" >&2
+    exit 2
+  fi
+  psql "$DATABASE_URL" -qAt -v ON_ERROR_STOP=1 -f "$map" >/dev/null
+}
+
 run_goat_shed_integrity_proof() {
   echo "==> seed-closeout: goat-shed-integrity proof"
   if [ "$dry_run" -eq 1 ]; then
@@ -503,6 +522,7 @@ fi
 # (identity.resolveDestinationTag). Derive it from canonical goats/locations BEFORE the shifting and
 # vaccination proofs, so a shed a movement targets already has an active configured profile.
 run_go_cmd seed-shed-profiles -tenant-id "$tenant_id"
+apply_pen_type_map
 run_goat_shed_integrity_proof
 run_required_projectors
 run_herd_signals_projections

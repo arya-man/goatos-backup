@@ -27,6 +27,22 @@ Maintainer instruction, 2026-09-25:
   refuse for every register -- so a downloaded Partitions sheet could never go back up. Partitions
   is now marked `unversioned`; every other register still refuses 0.
 
+## Deploy and reseed keep the mapping
+
+- **Deploying onto an existing database** (STG, the OCI clone): migration `000428` seeds the two
+  pen types for every tenant and turns the column into a foreign key; no pen's value changes.
+  Proven on a clone of the farm: 117 active pens kept 100 Elevated / 17 Non-elevated.
+- **A fresh database or a reseed** creates pens after migrations run, so no migration can classify
+  them. `fixtures/pen-types/pen-type-map.sql` -- the mapping read from goatos-stg on 26/09/2026,
+  130 rows keyed by park code + pen name + partition label -- is applied by `tools/dev/seed-closeout.sh`
+  right after the pens are seeded. It creates the two base pen types if missing and fills ONLY pens
+  with no type, so it never overwrites a choice made on screen and is safe to re-run. Proven on the
+  clone: wipe every type, apply, and the result is row-for-row identical to STG; a second run
+  changes nothing. Pinned by `TestSeedCloseoutAppliesThePenTypeMap` and
+  `TestPenTypeMapNamesOnlySeededPenTypes`.
+- A pen type the farm adds later is not in that file. Refresh the file from STG when the farm's
+  mapping changes materially, the same way the other `fixtures/` snapshots are refreshed.
+
 ## Where pen types are read, and how each takes its names
 
 | Surface | Grouping key | Names and order |
