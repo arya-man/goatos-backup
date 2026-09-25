@@ -89,7 +89,17 @@ type ReferenceFamilies struct {
 	// code (pen_types is not on weighing's table allowlist), so the Pen-wise chart takes names and
 	// order from this family -- never from a constant list.
 	PenTypes []ReferenceOption
-	UIConfig []ConfigEntry
+	// AllBreeds is every species' breeds from the breed register (Breeds above is goat-only by
+	// design for the feed / vaccination rule pickers). The herd filter's breed choices are compiled
+	// from it, never a seven-breed literal.
+	//
+	// Species and sex pickers are deliberately NOT compiled from Configuration's species / sex
+	// lists yet: goats_species_check and goats_sex_check still admit only goat/sheep and
+	// female/male, so offering a species added there would let a person pick a value every animal
+	// write refuses. Opening the platform to another species is a product decision (vaccination
+	// and feed rules are per species), recorded as an open question, not a dropdown change.
+	AllBreeds []ReferenceOption
+	UIConfig  []ConfigEntry
 	// WeighingWeightsPages is the tenant's weighing_calendar_config row, compiled
 	// into both page contracts. SQL edits bump the admin-ui family revision.
 	// Nil (new tenant without an authored row) uses the documented initial defaults.
@@ -936,6 +946,7 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 				out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, groupID, farmOptionsFromParks(families.Parks, "All farms"))
 			}
 		}
+		out[i].OptionGroups = compileAnimalVocabularyGroups(out[i].OptionGroups, families)
 		switch out[i].RouteID {
 		case "action-center", "vaccination", "shed-execution":
 			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "park_display_chips", optionsFromReferences(families.Parks, "info"))
@@ -2125,6 +2136,36 @@ func defaultedDeferableStates(options []ReferenceOption) []ReferenceOption {
 		merged = append(merged, option)
 	}
 	return merged
+}
+
+// animalVocabularyGroups maps each animal-vocabulary picker the contract declares to the
+// Configuration list it must be compiled from, and whether it leads with an "all" choice.
+var animalVocabularyGroups = []struct {
+	id      string
+	family  func(ReferenceFamilies) []ReferenceOption
+	withAll bool
+}{
+	{"herd_filter_breeds", func(f ReferenceFamilies) []ReferenceOption { return f.AllBreeds }, false},
+}
+
+// compileAnimalVocabularyGroups replaces every declared animal-vocabulary picker with the live
+// register. The literal list in contract code stays only as the fallback for a
+// family that did not load (an empty family is "unavailable", never "the farm has no species"), so
+// a failed read degrades to the old choices instead of an empty dropdown.
+func compileAnimalVocabularyGroups(groups []domain.OptionGroup, families ReferenceFamilies) []domain.OptionGroup {
+	out := groups
+	for _, g := range animalVocabularyGroups {
+		refs := g.family(families)
+		if len(refs) == 0 || !hasOptionGroup(out, g.id) {
+			continue
+		}
+		options := optionsFromReferences(refs, "")
+		if g.withAll {
+			options = prependOption("all", "all", "", "", options)
+		}
+		out = replaceOptionGroup(out, g.id, options)
+	}
+	return out
 }
 
 func hasOptionGroup(groups []domain.OptionGroup, id string) bool {

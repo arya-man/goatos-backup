@@ -74,6 +74,9 @@ func (r *Repository) LoadContractFamilies(ctx context.Context, tenantID string) 
 	if out.PenTypes, out.RevisionInputs["pen-types"], err = r.listPenTypes(ctx, tenantID); err != nil {
 		return out, err
 	}
+	if out.AllBreeds, out.RevisionInputs["all-breeds"], err = r.listAllBreeds(ctx); err != nil {
+		return out, err
+	}
 	if out.UIConfig, out.RevisionInputs["admin-ui-config-values"], err = r.listUIConfigEntries(ctx, tenantID); err != nil {
 		return out, err
 	}
@@ -210,6 +213,46 @@ LIMIT 500`, tenantID)
 		}
 		out = append(out, app.ReferenceOption{Key: id, Label: label, Title: name})
 		rev.WriteString(id + "|" + label + "|" + name + "|" + code + "|" + updated + "\n")
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", err
+	}
+	return out, rev.String(), nil
+}
+
+// allBreedsSQL is every species' breeds from the product-wide breed register.
+const allBreedsSQL = `
+SELECT canonical_name, status, updated_at::text
+FROM breeds
+WHERE status IN ('active', 'review')
+ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END, canonical_name
+LIMIT 500`
+
+// listAllBreeds is every species' breeds (the herd filter covers sheep as well as goats).
+func (r *Repository) listAllBreeds(ctx context.Context) ([]app.ReferenceOption, string, error) {
+	rows, err := r.pool.Query(ctx, allBreedsSQL)
+	if err != nil {
+		return nil, "", fmt.Errorf("adminui: list all breeds: %w", err)
+	}
+	defer rows.Close()
+	var out []app.ReferenceOption
+	var rev strings.Builder
+	seen := map[string]bool{}
+	for rows.Next() {
+		var name, status, updated string
+		if err := rows.Scan(&name, &status, &updated); err != nil {
+			return nil, "", err
+		}
+		rev.WriteString(name + "|" + status + "|" + updated + "\n")
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		tone := ""
+		if status == "review" {
+			tone = "warn"
+		}
+		out = append(out, app.ReferenceOption{Key: name, Label: name, Tone: tone})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, "", err
