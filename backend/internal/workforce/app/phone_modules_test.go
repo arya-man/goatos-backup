@@ -272,3 +272,36 @@ func departmentBarFor(roles []string) []string {
 	}
 	return nil
 }
+
+// TestSalesWriteFlagFollowsTheSalesLevel: Sales ticked "Do" offers the phone's write controls,
+// "View" does not (the server refuses those writes 403 either way), and no Sales module offers
+// nothing.
+func TestSalesWriteFlagFollowsTheSalesLevel(t *testing.T) {
+	cases := []struct {
+		name string
+		caps []string
+		want bool
+	}{
+		{"do", []string{permissions.LevelView, permissions.LevelDo}, true},
+		{"view only", []string{permissions.LevelView}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &fakeRepo{
+				profile: profile("active"),
+				grants:  operatorGrants(),
+				personAssignments: []permissions.ModuleAssignment{
+					{Module: "sales", Surface: permissions.SurfaceMobile, Capabilities: tc.caps},
+					{Module: "sales", Surface: permissions.SurfaceWeb, Capabilities: tc.caps},
+				},
+			}
+			resp, err := NewService(repo).Bootstrap(context.Background(), testTenant, testActor, "", "", "trace-1")
+			if err != nil {
+				t.Fatalf("bootstrap: %v", err)
+			}
+			if got := resp.FeatureFlags["sales_write"]; got != tc.want {
+				t.Fatalf("sales_write = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

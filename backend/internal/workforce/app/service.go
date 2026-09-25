@@ -670,6 +670,7 @@ func (s *Service) Bootstrap(ctx context.Context, tenantID, actorID, deviceID, lo
 			"pc_care_execute":             canExecutePCCareScoped(scope, moduleKeysForBootstrap, fromTicks),
 			"pc_care_plan":                canPlanPCCareScoped(scope, moduleKeysForBootstrap, fromTicks),
 			"pc_care_stock_approve":       canApproveVaccineStockScoped(scope),
+			"sales_write":                 canWriteSalesScoped(scope, moduleKeysForBootstrap, fromTicks),
 			"verification_video_controls": canUseVerificationVideoControls(grants),
 		},
 		VisibleNavigation:       visibleNav,

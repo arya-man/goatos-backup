@@ -1332,6 +1332,15 @@ func canPlanPCCareScoped(scope navScope, grantedModules []string, fromTicks bool
 		canUseModuleFrom(scope.grants, grantedModules, "pc_trimming", fromTicks)
 }
 
+// canWriteSalesScoped says whether the phone may OFFER Sales' write controls -- Record sale, a
+// receipt, a status change, a lead -- to this person: they hold sales.write AND the Sales module.
+// Every one of those routes is gated on sales.write server-side; this flag only stops the phone
+// offering a button whose write the server will refuse. A person ticked Sales "View" saw
+// Record sale and could fill a whole sale that was then refused 403 (phone E2E 2026-09-26).
+func canWriteSalesScoped(scope navScope, grantedModules []string, fromTicks bool) bool {
+	return scope.hasAny([]string{permissions.SalesWrite}) && canUseModuleFrom(scope.grants, grantedModules, "sales", fromTicks)
+}
+
 func canUseModule(grants []domain.GrantSummary, grantedModules []string, module string) bool {
 	return canUseModuleFrom(grants, grantedModules, module, false)
 }
