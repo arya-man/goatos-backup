@@ -1,5 +1,5 @@
 import { FirebaseSessionBridge } from "@/components/auth/firebase-session-bridge";
-import { MeshaShell } from "@/components/mesha-shell";
+import { MeshaShell, type ShellContract } from "@/components/mesha-shell";
 import { getAdminWebBootstrap, type AdminWebBootstrapResponse } from "@/lib/api/server";
 import type { Park } from "@/lib/scope";
 
@@ -9,6 +9,12 @@ function parksFromContract(contract: AdminWebBootstrapResponse): Park[] {
     code: option.label,
     name: option.title || option.label,
   }));
+}
+
+// The client shell only reads each page's href; the full page contracts (~1.2 MB) stay on the
+// server so they are not serialized into every page's RSC/HTML payload.
+function toShellContract(contract: AdminWebBootstrapResponse): ShellContract {
+  return { ...contract, pages: contract.pages.map((page) => ({ href: page.href })) };
 }
 
 // Server component: business UI renders only after the backend-owned bootstrap contract succeeds.
@@ -44,7 +50,7 @@ export async function AdminShell({ children }: { children: React.ReactNode }) {
   return (
     <>
       <FirebaseSessionBridge />
-      <MeshaShell parks={parksFromContract(contract.data)} contract={contract.data}>{children}</MeshaShell>
+      <MeshaShell parks={parksFromContract(contract.data)} contract={toShellContract(contract.data)}>{children}</MeshaShell>
     </>
   );
 }

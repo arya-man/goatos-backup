@@ -1,6 +1,7 @@
 "use client";
 
-import { CeoAiMarkdown, CopyButton } from "./ceo-ai-markdown";
+import { CopyButton } from "./ceo-ai-copy-button";
+import { CeoAiMarkdown, preloadCeoAiMarkdown } from "./ceo-ai-markdown-lazy";
 import {
   Lightbox,
   type PreviewFile,
@@ -503,6 +504,11 @@ export function CeoAiPanel({
   // Window state: "normal" floating panel, "max" fills the viewport, "min" docks
   // to a header-only bar. Conversation state survives every transition.
   const [view, setView] = useState<"normal" | "max" | "min">("normal");
+  // Answers render through the lazily loaded markdown chunk; fetch it as soon as the
+  // panel opens (restored-open state included) so the first answer is formatted.
+  useEffect(() => {
+    if (open) preloadCeoAiMarkdown();
+  }, [open]);
   // Draggable launcher (chat-head style): free position, snaps to the nearest side,
   // remembered per device. A tap (< 6px of movement) still opens the chat.
   const [bubblePos, setBubblePos] = useState<{ x: number; y: number } | null>(

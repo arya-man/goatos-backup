@@ -114,7 +114,7 @@ function navIconForToken(token: string): ElementType {
   return iconByToken[token] ?? TowerControl;
 }
 
-function shellCopy(contract: AdminWebBootstrapResponse, key: string): string {
+function shellCopy(contract: ShellContract, key: string): string {
   const value = contract.copy[key];
   if (typeof value !== "string") {
     throw new Error(`Admin-web bootstrap contract missing copy key ${key}`);
@@ -122,7 +122,7 @@ function shellCopy(contract: AdminWebBootstrapResponse, key: string): string {
   return value;
 }
 
-function parkScopeLabel(parks: Park[], parkId: string | undefined, contract: AdminWebBootstrapResponse): string {
+function parkScopeLabel(parks: Park[], parkId: string | undefined, contract: ShellContract): string {
   if (!parkId) return shellCopy(contract, "scope.all_parks");
   return parkLabel(parks, parkId) || shellCopy(contract, "scope.selected_park");
 }
@@ -140,14 +140,21 @@ export function routeOwnsOrIgnoresTopBarPark(
   );
 }
 
-function enabledNavHrefs(contract: AdminWebBootstrapResponse): string[] {
+function enabledNavHrefs(contract: ShellContract): string[] {
   return [
     ...contract.navigation.primary.filter((item) => item.enabled),
     ...contract.navigation.groups.flatMap((group) => group.leaves.filter((item) => item.enabled)),
   ].map((item) => item.href);
 }
 
-function contractRoutePaths(contract: AdminWebBootstrapResponse): Set<string> {
+// The shell only needs each page's href (to know which nav leaves are routed). The full page
+// contracts are ~1.2 MB of JSON; passing them to this client component serialized all of it into
+// every page's RSC/HTML payload. AdminShell hands over this trimmed shape instead.
+export type ShellContract = Omit<AdminWebBootstrapResponse, "pages"> & {
+  pages: Array<Pick<AdminWebBootstrapResponse["pages"][number], "href">>;
+};
+
+function contractRoutePaths(contract: ShellContract): Set<string> {
   return new Set(contract.pages.map((page) => hrefPathname(page.href)));
 }
 
@@ -167,7 +174,7 @@ function contractRoutedNavItems(items: NavItem[], routePaths: Set<string>): NavI
  * cannot regress an existing leaf that carries `extra` purely as a landing default (e.g. Config's
  * `?category=vaccination`, which must still highlight on a bare `/config`).
  */
-function sharedNavKeys(contract: AdminWebBootstrapResponse): Map<string, string[]> {
+function sharedNavKeys(contract: ShellContract): Map<string, string[]> {
   const byHref = new Map<string, { count: number; keys: Set<string> }>();
   for (const item of [
     ...contract.navigation.primary.filter((entry) => entry.enabled),
@@ -186,7 +193,7 @@ function sharedNavKeys(contract: AdminWebBootstrapResponse): Map<string, string[
 }
 
 // A route can prefix-match several nav hrefs; only the longest (most specific) match highlights.
-function activeHref(pathname: string, contract: AdminWebBootstrapResponse): string {
+function activeHref(pathname: string, contract: ShellContract): string {
   let best = "";
   for (const href of enabledNavHrefs(contract)) {
     const match = href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(`${href}/`);
@@ -206,7 +213,7 @@ function routeRuleMatches(rule: RouteLabelRule, pathname: string): boolean {
   return patternToRegex(rule.pattern).test(pathname);
 }
 
-function labelForPath(pathname: string, contract: AdminWebBootstrapResponse): string {
+function labelForPath(pathname: string, contract: ShellContract): string {
   return contract.route_labels.find((rule) => routeRuleMatches(rule, pathname))?.label ?? shellCopy(contract, "route.unavailable");
 }
 
@@ -250,7 +257,7 @@ export function MeshaShell({
 }: {
   children: React.ReactNode;
   parks?: Park[];
-  contract: AdminWebBootstrapResponse;
+  contract: ShellContract;
 }) {
   const router = useRouter();
   const pathname = usePathname() ?? "/";

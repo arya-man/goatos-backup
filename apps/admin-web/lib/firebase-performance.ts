@@ -1,8 +1,11 @@
 "use client";
 
-import { getApp, getApps, initializeApp, type FirebaseOptions } from "firebase/app";
+import type { FirebaseOptions } from "firebase/app";
 import type { FirebasePerformance, PerformanceTrace } from "firebase/performance";
-import { getFirebaseClientRuntimeConfig } from "@/lib/auth/firebase-client";
+
+// firebase/app, firebase/auth (via the runtime-config helper) and firebase/performance are all
+// imported on demand: this module is reached from the shell on every page, and a static import
+// put the Firebase SDK into every page's first-load JS.
 
 type TraceAttributes = Record<string, string | number | boolean | null | undefined>;
 
@@ -64,11 +67,11 @@ async function initializeFirebasePerformance(): Promise<FirebasePerformance | nu
   const enabled = process.env.NEXT_PUBLIC_FIREBASE_PERFORMANCE_ENABLED;
   if (enabled !== "1" && enabled !== "true") return null;
   const [{ config }, { getPerformance, initializePerformance }] = await Promise.all([
-    getFirebaseClientRuntimeConfig(),
+    import("@/lib/auth/firebase-client").then((m) => m.getFirebaseClientRuntimeConfig()),
     import("firebase/performance"),
   ]);
   try {
-    const app = getOrCreateDefaultFirebaseApp(config);
+    const app = await getOrCreateDefaultFirebaseApp(config);
     try {
       return initializePerformance(app, {
         dataCollectionEnabled: true,
@@ -82,7 +85,8 @@ async function initializeFirebasePerformance(): Promise<FirebasePerformance | nu
   }
 }
 
-function getOrCreateDefaultFirebaseApp(config: FirebaseOptions) {
+async function getOrCreateDefaultFirebaseApp(config: FirebaseOptions) {
+  const { getApp, getApps, initializeApp } = await import("firebase/app");
   return getApps().some((candidate) => candidate.name === "[DEFAULT]")
     ? getApp()
     : initializeApp(config);

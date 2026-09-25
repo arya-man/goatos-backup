@@ -17,7 +17,6 @@
 // the backend's otelhttp span chain onto one trace end to end.
 import { useEffect, useRef, useState } from "react";
 import { faro, getWebInstrumentations, initializeFaro } from "@grafana/faro-web-sdk";
-import { TracingInstrumentation } from "@grafana/faro-web-tracing";
 import { usePathname } from "next/navigation";
 
 const FARO_APP_NAME = "mesha-admin-web";
@@ -40,17 +39,31 @@ function traceHeaderCorsUrls(): RegExp[] {
   return [new RegExp(`^${escaped}(?:[:/]|$)`)];
 }
 
-function initFaro(): void {
-  if (typeof window === "undefined" || faro.api) {
-    // SSR (no window) or already initialized (React re-render / Strict Mode double-invoke).
-    return;
-  }
+let faroInit: Promise<boolean> | undefined;
+
+function initFaro(): Promise<boolean> {
+  if (typeof window === "undefined") return Promise.resolve(false);
+  if (faro.api) return Promise.resolve(true);
   const collectorUrl = process.env.NEXT_PUBLIC_FARO_COLLECTOR_URL;
   if (!collectorUrl) {
     // No Grafana Alloy faro.receiver endpoint configured for this environment — no-op so local
     // dev without a collector keeps working exactly as before.
-    return;
+    return Promise.resolve(false);
   }
+  // The OpenTelemetry-based tracing instrumentation is ~70 KB gzip; load it as its own chunk
+  // (only when a collector is configured) instead of in every page's first-load JS. The
+  // promise is memoised so React re-renders / Strict Mode double-invoke initialise once.
+  faroInit ??= import("@grafana/faro-web-tracing")
+    .then(({ TracingInstrumentation }) => startFaro(collectorUrl, TracingInstrumentation))
+    .catch(() => false);
+  return faroInit;
+}
+
+function startFaro(
+  collectorUrl: string,
+  TracingInstrumentation: typeof import("@grafana/faro-web-tracing").TracingInstrumentation,
+): boolean {
+  if (faro.api) return true;
   try {
     initializeFaro({
       url: collectorUrl,
@@ -72,7 +85,9 @@ function initFaro(): void {
     });
   } catch {
     // Faro must never break page rendering.
+    return false;
   }
+  return true;
 }
 
 /**
@@ -83,12 +98,19 @@ function initFaro(): void {
 export function FaroProvider(): null {
   const pathname = usePathname() ?? "/";
   const [routeKey, setRouteKey] = useState(pathname);
+  const [faroReady, setFaroReady] = useState(false);
   // Mirrors the Faro-recommended Next.js App Router pattern: guarded by `typeof window` and
   // `faro.api` above, so this is a no-op during SSR and idempotent across client re-renders.
   // Runs in an effect (commit phase), not the render body, so it stays safe under React
   // concurrent rendering (renders can be started, discarded, or replayed without side effects).
   useEffect(() => {
-    initFaro();
+    let cancelled = false;
+    void initFaro().then((ready) => {
+      if (!cancelled && ready) setFaroReady(true);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const previousPathname = useRef<string | undefined>(undefined);
@@ -142,7 +164,7 @@ export function FaroProvider(): null {
     faro.api?.setView({ name: viewName });
     faro.api?.pushEvent("admin_route_view", { route });
     previousPathname.current = route;
-  }, [pathname, routeKey]);
+  }, [pathname, routeKey, faroReady]);
 
   return null;
 }
