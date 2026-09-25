@@ -4546,6 +4546,14 @@ aside.drawer.wt-feedband-drawer{width:94vw;max-width:960px}
 .gcbar.warn,.gleg .sw.warn{background:var(--chart-4)}
 .gcbar.danger,.gleg .sw.danger{background:var(--chart-3)}
 .gcbar.teal,.gleg .sw.teal{background:var(--chart-4)}
+/* Sold-like but not realised (tagged to an open sale, or stock at an assumed price): the sold green,
+   striped, so it reads as a relative of Sold and never as a fifth solid colour. */
+.gcbar.ok-hatch{background:repeating-linear-gradient(135deg,var(--chart-2) 0 3px,transparent 3px 6px);box-shadow:inset 0 0 0 1px var(--chart-2)}
+/* A 10px swatch needs finer stripes or it reads as solid green. */
+.gleg .sw.ok-hatch,.gtip-r .sw.ok-hatch{background:repeating-linear-gradient(135deg,var(--chart-2) 0 1.5px,transparent 1.5px 3.5px);box-shadow:inset 0 0 0 1px var(--chart-2)}
+/* A stacked column: segments bottom-up, each sized by flex share of the column height. */
+.gcstack{display:flex;flex-direction:column;flex:0 0 auto;width:16px;border-radius:3px 3px 0 0;overflow:hidden}
+.gcstack .gcbar{width:100%;border-radius:0;min-height:2px}
 /* The axis label carries the load number AND its pen bracket ("131 (CPT Castro 1, CPT Castro 2)",
    maintainer request 2026-09-22), so it is clamped to TWO lines rather than held on one: a single
    nowrap line pushed the bracket out of the column entirely at eight loads across, which is the
@@ -4565,6 +4573,8 @@ aside.drawer.wt-feedband-drawer{width:94vw;max-width:960px}
   .gclab,.gcsub{max-width:86px;overflow:hidden;text-overflow:ellipsis}
 }
 .sales-loads-page .gcols{scrollbar-width:thin}
+/* The fattening chart's "66 sold · 3 still on farm" must be read whole, not ellipsised: two lines. */
+.sales-loads-page .gcsub{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;text-align:center}
 @media(max-width:680px){
   .sales-loads-head{display:block;padding-bottom:0}
   .sales-loads-tabs{position:static;transform:none;justify-content:flex-start;margin-top:10px;overflow-x:auto;flex-wrap:nowrap;padding-bottom:2px}
@@ -4598,6 +4608,8 @@ aside.drawer.wt-feedband-drawer{width:94vw;max-width:960px}
 .gtip-l{flex:1}
 .gtip-v{font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums}
 .gtip-s{font-size:10.5px;color:var(--muted);padding-top:4px;border-top:1px solid var(--line);white-space:nowrap}
+/* A hover-only sentence (the assumed-value basis) wraps rather than widening the card past a phone. */
+.gtip-s.gtip-wrap{white-space:normal;max-width:260px}
 /* Near the edges the card would overflow the card; nudge the first and last columns inward. */
 .gcol:first-child .gtip{left:0;transform:translateX(0) translateY(4px)}
 .gcol:first-child:hover .gtip,.gcol:first-child:focus-within .gtip{transform:translateX(0) translateY(0)}

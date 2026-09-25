@@ -118,6 +118,9 @@ export function LoadwiseSection({
     { key: "sold", label: copy(pageContract, "chart.series.sold_count"), tone: "ok" },
     { key: "mortality", label: copy(pageContract, "chart.series.mortality"), tone: "danger" },
     { key: "remaining", label: copy(pageContract, "chart.series.remaining"), tone: "teal" },
+    // Tagged to a sale whose deal has not closed: out of the herd, not yet sold. Striped sold
+    // green, so it reads as "about to be sold" and never as one of the solid series.
+    { key: "tagged_not_closed", label: copy(pageContract, "chart.series.tagged_not_closed"), tone: "okHatch" },
   ];
   // The growth read: how heavy an animal came in against how heavy it went out, and what a
   // kilogram cost against what it fetched. Same load order as the two charts above, so a reader
@@ -142,9 +145,18 @@ export function LoadwiseSection({
     { key: "fattening_days", label: copy(pageContract, "chart.series.fattening_days"), tone: "teal" },
     { key: "days_on_farm_so_far", label: copy(pageContract, "chart.series.days_on_farm_so_far"), tone: "info" },
   ];
+  // Money per load: what it cost, against what it returned -- the SOLD value (realised) with the
+  // ASSUMED value of the animals still on farm stacked on top of it (maintainer request
+  // 2026-09-25), so a reader sees how much of the right-hand column is money nobody has paid yet.
   const valueSeries: GroupedSeries[] = [
     { key: "purchase_value", label: copy(pageContract, "chart.series.purchase_value"), tone: "info" },
     { key: "sold_value", label: copy(pageContract, "chart.series.sold_value"), tone: "ok" },
+    {
+      key: "assumed_value",
+      label: copy(pageContract, "chart.series.assumed_value"),
+      tone: "okHatch",
+      stackOn: "sold_value",
+    },
     { key: "profit_loss", label: copy(pageContract, "chart.series.profit_loss"), tone: "teal" },
   ];
 
@@ -190,6 +202,12 @@ export function LoadwiseSection({
                   {num(summary.sold)} {copy(pageContract, "loadwise.kpi.sold").toLowerCase()} ·{" "}
                   {num(summary.mortality)} {copy(pageContract, "loadwise.kpi.mortality").toLowerCase()} ·{" "}
                   {num(summary.remaining)} {copy(pageContract, "loadwise.kpi.remaining").toLowerCase()}
+                  {summary.tagged_not_closed > 0 ? (
+                    <>
+                      {" · "}
+                      {num(summary.tagged_not_closed)} {copy(pageContract, "loadwise.kpi.tagged_not_closed")}
+                    </>
+                  ) : null}
                 </div>
               </div>
               <div className="kpi">
@@ -210,15 +228,19 @@ export function LoadwiseSection({
                 <div className="val" style={{ color: summary.profit_loss < 0 ? "var(--danger)" : "var(--ok)" }}>
                   {summary.costed_loads > 0 ? signedInrCompact(summary.profit_loss) : none}
                 </div>
-                <div className="dl">
-                  {copy(pageContract, "loadwise.kpi.profit.hint")}
-                  {summary.remaining_value > 0 ? (
-                    <>
-                      {" · "}
-                      {copy(pageContract, "value.profit_incl_stock")} {inrCompact(summary.remaining_value)}
-                    </>
-                  ) : null}
-                </div>
+                <div className="dl">{copy(pageContract, "loadwise.kpi.profit.hint")}</div>
+                {/* How much of that figure happened and how much is assumed, and how it was
+                    assumed -- the backend's own sentence, verbatim. */}
+                {summary.costed_loads > 0 ? (
+                  <div className="dl">
+                    {copy(pageContract, "loadwise.realised.label")} {signedInrCompact(summary.realised_profit_loss)} ·{" "}
+                    {copy(pageContract, "loadwise.assumed.label")}{" "}
+                    {summary.assumed_value > 0 ? inrCompact(summary.assumed_value) : copy(pageContract, "loadwise.assumed.none")}
+                  </div>
+                ) : null}
+                {summary.assumed_value > 0 && summary.assumed_value_basis ? (
+                  <div className="dl muted">{summary.assumed_value_basis}</div>
+                ) : null}
               </div>
             </div>
           ) : null}
@@ -235,8 +257,14 @@ export function LoadwiseSection({
               key: load.load_id,
               axisLabel: axisName(load),
               label: tipName(load),
-              values: [load.purchased, load.sold, load.mortality, load.remaining],
-              displays: [num(load.purchased), num(load.sold), num(load.mortality), num(load.remaining)],
+              values: [load.purchased, load.sold, load.mortality, load.remaining, load.tagged_not_closed],
+              displays: [
+                num(load.purchased),
+                num(load.sold),
+                num(load.mortality),
+                num(load.remaining),
+                num(load.tagged_not_closed),
+              ],
               subLabel: load.vendor_name,
             }))}
           />
@@ -255,6 +283,7 @@ export function LoadwiseSection({
               values: [
                 load.purchase_value ?? null,
                 load.sold_value > 0 ? load.sold_value : null,
+                load.assumed_value != null && load.assumed_value > 0 ? load.assumed_value : null,
                 // A LOSS has no bar height — a negative cannot be drawn upward, and drawing its
                 // magnitude would show a loss as a tall green column. The signed figure is in the
                 // tooltip, and the table's coloured cell is where a loss is read.
@@ -265,10 +294,27 @@ export function LoadwiseSection({
                 // A load that has sold NOTHING has no sold value -- absence, never ₹0 -- the same
                 // "not sold yet" the weight chart shows for it. Keyed on the backend's sold COUNT.
                 load.sold === 0 ? copy(pageContract, "value.not_sold_yet") : inrCompact(load.sold_value),
+                load.assumed_value == null ? copy(pageContract, "loadwise.assumed.none") : inrCompact(load.assumed_value),
                 load.profit_loss == null
                   ? copy(pageContract, "value.cost_missing")
-                  : signedInrCompact(load.profit_loss),
+                  : load.realised_profit_loss != null && load.assumed_value != null
+                    ? `${signedInrCompact(load.profit_loss)} · ${copy(pageContract, "loadwise.realised.label")} ${signedInrCompact(load.realised_profit_loss)}`
+                    : signedInrCompact(load.profit_loss),
               ],
+              // The column the assumption sits on prints the TOTAL it reaches -- realised plus
+              // assumed -- so the figure above a stacked bar is its height.
+              barLabels: [
+                load.purchase_value == null ? null : inrCompact(load.purchase_value),
+                (load.sold_value > 0 ? load.sold_value : 0) + (load.assumed_value ?? 0) > 0
+                  ? inrCompact((load.sold_value > 0 ? load.sold_value : 0) + (load.assumed_value ?? 0))
+                  : load.sold === 0
+                    ? null
+                    : inrCompact(load.sold_value),
+                null,
+                load.profit_loss == null || load.profit_loss <= 0 ? null : signedInrCompact(load.profit_loss),
+              ],
+              // HOW the assumed part was assumed, in the backend's own sentence.
+              tipLines: load.assumed_value_basis ? [load.assumed_value_basis] : undefined,
               subLabel: `${num(load.sold)} / ${num(load.purchased)} ${copy(pageContract, "loadwise.kpi.sold").toLowerCase()}`,
             }))}
           />
@@ -389,17 +435,21 @@ export function LoadwiseSection({
                 load.fattening_days == null ? null : numCompactWhole(load.fattening_days),
                 load.days_on_farm_so_far == null ? null : numCompactWhole(load.days_on_farm_so_far),
               ],
-              // A part-sold load carries both bars, so its label states the split ("66 sold ·
-              // 3 still on farm") — the finished span is the sold animals' story and the running
-              // bar the stragglers', and the label is what keeps them from reading as one.
-              // Otherwise the clock starts on ARRIVAL, not purchase — stated on the bar so nobody
-              // reads it against the purchase date in the row above.
-              subLabel:
-                load.sold > 0 && load.remaining > 0
-                  ? `${num(load.sold)} ${copy(pageContract, "value.sold_count")} · ${num(load.remaining)} ${copy(pageContract, "value.still_on_farm")}`
-                  : load.arrived_on
-                    ? `${copy(pageContract, "value.arrived_on")} ${shortDate(load.arrived_on)}`
-                    : load.vendor_name,
+              // "Sold, alive in any case at the bottom" (maintainer, 2026-09-25): under EVERY bar
+              // the load's split -- sold, still on farm, or both -- so the finished span reads as
+              // the sold animals' story and the running bar as the animals still here.
+              subLabel: [
+                load.sold > 0 ? `${num(load.sold)} ${copy(pageContract, "value.sold_count")}` : null,
+                load.remaining > 0 ? `${num(load.remaining)} ${copy(pageContract, "value.still_on_farm")}` : null,
+              ]
+                .filter(Boolean)
+                .join(" · ") || load.vendor_name,
+              // On hover: the day the animals REACHED THE FARM -- where this clock starts -- and the
+              // purchase date beside it, which is not where it starts.
+              tipLines: [
+                load.arrived_on ? `${copy(pageContract, "value.arrived_on")} ${humanDate(load.arrived_on)}` : null,
+                load.purchase_date ? `${copy(pageContract, "value.bought_on")} ${humanDate(load.purchase_date)}` : null,
+              ].filter((line): line is string => line != null),
             }))}
           />
 
@@ -451,6 +501,16 @@ export function LoadwiseSection({
                         "num",
                       )}
                       {cell(num(load.remaining), "num")}
+                      {cell(
+                        load.tagged_not_closed === 0 ? (
+                          num(0)
+                        ) : (
+                          <span title={copy(pageContract, "value.tagged_not_closed.hint")}>
+                            {num(load.tagged_not_closed)}
+                          </span>
+                        ),
+                        "num",
+                      )}
                       {cell(
                         load.unaccounted === 0 ? (
                           <Tag tone="mut">0</Tag>
@@ -510,23 +570,20 @@ export function LoadwiseSection({
                           </span>
                         ) : (
                           <span
-                            title={
-                              load.remaining > 0
-                                ? `${copy(pageContract, "value.profit_unrealised")} — ${copy(
-                                    pageContract,
-                                    `value.price_basis.${load.price_basis}`,
-                                  )}`
-                                : undefined
-                            }
+                            title={load.assumed_value_basis ? load.assumed_value_basis : undefined}
                           >
                             <b style={{ color: load.profit_loss < 0 ? "var(--danger)" : "var(--ok)" }}>
                               {signedInr(Math.round(load.profit_loss))}
                             </b>
-                            {/* How much of that profit is stock nobody has sold yet. */}
-                            {load.remaining > 0 && load.remaining_value != null ? (
-                              <span className="muted" style={{ display: "block", fontSize: 11 }}>
-                                {copy(pageContract, "value.profit_incl_stock")}{" "}
-                                {inr(Math.round(load.remaining_value))}
+                            {/* How much of that profit is ASSUMED -- the animals still on farm at
+                                a price nobody has paid -- with the backend's basis on hover. */}
+                            {load.assumed_value != null ? (
+                              <span
+                                className="muted"
+                                style={{ display: "block", fontSize: 11 }}
+                                title={load.assumed_value_basis || undefined}
+                              >
+                                {copy(pageContract, "loadwise.assumed.label")} {inr(Math.round(load.assumed_value))}
                               </span>
                             ) : null}
                           </span>
