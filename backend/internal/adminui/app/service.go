@@ -4247,6 +4247,8 @@ func pageSpecificCopy(id string) map[string]string {
 		// 2026-08-31). Farm language only, like every other page's copy.
 		return map[string]string{
 			"crumb": "Sales",
+			// The farm chips, shared with every Sales read page (one park filter, 2026-09-25).
+			"filter.farm": "Farm",
 
 			// The page's own copy. Two tabs, Purchased (loads) and Farm born (a shell until that
 			// view is built). All backend-owned; the client renders it verbatim.
@@ -4774,6 +4776,9 @@ func pageSpecificCopy(id string) map[string]string {
 		// language only; PEN, never shed, on screen.
 		return map[string]string{
 			"crumb": "Sales",
+			// The farm chips, shared with every Sales read page (one park filter, 2026-09-25). They
+			// replace the filter bar's own park select, which wrote the same `park` a second way.
+			"filter.farm": "Farm",
 
 			// The filter bar. Period is the SOLD window (maintainer decision 2026-09-18: the
 			// on-farm count is today's whatever the period); the rest narrow the whole page.
@@ -4788,7 +4793,6 @@ func pageSpecificCopy(id string) map[string]string {
 			"filter.period.range_start_hint": "Pick the first day of the period.",
 			"filter.period.range_end_hint":   "Now pick the last day of the period.",
 			"filter.period.range_separator":  "to",
-			"filter.park.label":              "Park",
 			"filter.pen.label":               "Pen",
 			"filter.species.label":           "Species",
 			"filter.breed.label":             "Breed",
@@ -9385,6 +9389,21 @@ func pageSpecificCopy(id string) map[string]string {
 // Breeds are grouped per product type as three groups because the option shape carries no
 // grouping metadata: the record-sale form switches which breed group it offers when the product
 // selection changes.
+// salesFarmsOptionGroup is the farm chips every Sales read page carries -- Summary, Farm value,
+// Buyer analytics, Load wise and Farm born (one park filter across Sales, 2026-09-25). The chips
+// write the shell's `park` parameter; the page maps each code here to the caller's park by the
+// bootstrap park selector, and a farm the caller has no park for is not offered. The farms are
+// the tenant's parks (a sale's farm is any park, 000438), compiled in by compilePages from the
+// park catalog; only the "All farms" choice is declared here.
+func salesFarmsOptionGroup() domain.OptionGroup {
+	return domain.OptionGroup{
+		ID: "sales_farms",
+		Options: []domain.Option{
+			option("all", "All farms", "", ""),
+		},
+	}
+}
+
 func salesOptionGroups() []domain.OptionGroup {
 	return []domain.OptionGroup{
 		{
@@ -9399,14 +9418,7 @@ func salesOptionGroups() []domain.OptionGroup {
 				option("Advance Paid", "Advance Paid", "", "warn"),
 			},
 		},
-		{
-			// The farms are the tenant's parks, compiled in by compilePages from the park
-			// catalog; only the "All farms" choice is declared here.
-			ID: "sales_farms",
-			Options: []domain.Option{
-				option("all", "All farms", "", ""),
-			},
-		},
+		salesFarmsOptionGroup(),
 		{
 			ID: "sales_product_types",
 			Options: []domain.Option{
@@ -9687,6 +9699,7 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 		// page's membership, so every animal on it carries the same value and a filter on it would
 		// offer one choice that changes nothing.
 		return withGenericOptionGroups([]domain.OptionGroup{
+			salesFarmsOptionGroup(),
 			{
 				ID: "farm_born_sexes",
 				Options: []domain.Option{
@@ -9710,6 +9723,7 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 		return withGenericOptionGroups(salesOptionGroups())
 	case "sales-loads":
 		return withGenericOptionGroups([]domain.OptionGroup{
+			salesFarmsOptionGroup(),
 			{
 				// The page's view tabs, in the order shown: Purchased first, and it is the tab the
 				// page selects when the URL names none. The Farm born tab is HIDDEN for now

@@ -10,6 +10,7 @@ import { istDayPlus, todayIso } from "@/lib/format";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import { pensFromPlacements } from "@/lib/load-pens";
 import { LoadwiseSection, type LoadCurrentWeights, type LoadPensByRef } from "./loadwise-section";
+import { SalesFarmToggle, readSalesParkScope } from "./sales-chrome";
 
 const PAGE_PATH = "/sales/loads";
 /** The tab the page opens on when the URL names none — the first option the contract serves. */
@@ -55,11 +56,11 @@ export async function SalesLoadsPage({
   const rawView = one(sp, "view") ?? DEFAULT_VIEW;
   const view = views.some((option) => option.key === rawView) ? rawView : DEFAULT_VIEW;
 
-  // The top-bar park selector's value. It was silently ignored here (maintainer report
-  // 2026-09-03: switching All Parks / CBE / CPT changed none of the graphs), so the whole
-  // load-wise read — rows, charts, tiles and total — now narrows to the selected park
-  // server-side. An empty value is All Parks.
-  const parkId = one(sp, "park") ?? "";
+  // The page's park: the SHELL's `park` (one filter across every Sales page, 2026-09-25), chosen on
+  // the same farm chips Summary, Farm value, Buyer analytics and Farm born carry, and validated
+  // against the caller's parks. The whole load-wise read — rows, charts, tiles and total — narrows
+  // to it server-side (maintainer report 2026-09-03). An empty value is every farm.
+  const { parkId, parks } = await readSalesParkScope(sp, pageContract, PAGE_PATH);
 
   // Fetch = render: the Farm born tab reads nothing yet, so it asks for nothing.
   // The "weighs now" series reads weighing only when the contract enabled it for this principal
@@ -148,6 +149,15 @@ export async function SalesLoadsPage({
           </div>
         ) : null}
       </div>
+
+      <SalesFarmToggle
+        pageContract={pageContract}
+        pagePath={PAGE_PATH}
+        searchParams={sp}
+        parkId={parkId}
+        parks={parks}
+        clears={["cost_load"]}
+      />
 
       <LoadwiseSection
         pageContract={pageContract}

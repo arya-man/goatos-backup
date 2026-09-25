@@ -10,7 +10,7 @@ import type { FarmBornBucket, FarmBornSales } from "@/lib/api/procurement";
 import { todayIso } from "@/lib/format";
 import { boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
 import { humanDate, inr, num } from "./sales-format";
-import { SalesPageHeader } from "./sales-chrome";
+import { SalesFarmToggle, SalesPageHeader, readSalesParkScope } from "./sales-chrome";
 import { FarmBornSoldTable } from "./farm-born-sold-table";
 
 const PAGE_PATH = "/sales/farm-born";
@@ -339,7 +339,10 @@ export async function SalesFarmBornPage({
   const speciesOptions = optionGroup(pageContract, "farm_born_species");
   const rawSpecies = one(sp, "species") ?? "";
   const species = speciesOptions.some((option) => option.key === rawSpecies) ? rawSpecies : "";
-  const park = one(sp, "park") ?? "";
+  // Park scope: the SHELL's `park` (one filter across every Sales page), chosen on the farm chips
+  // above the filter bar rather than a park select inside it. Validated against the caller's
+  // parks, so a hand-edited uuid reads as every farm rather than as a farm nobody chose.
+  const { parkId: park, parks } = await readSalesParkScope(sp, pageContract, PAGE_PATH);
   const pen = one(sp, "pen") ?? "";
   const breed = one(sp, "breed") ?? "";
   const stage = one(sp, "stage") ?? "";
@@ -406,15 +409,6 @@ export async function SalesFarmBornPage({
     },
     {
       kind: "select",
-      param: "park",
-      label: copy(pageContract, "filter.park.label"),
-      value: park,
-      allowAll: true,
-      clears: ["pen", PEN_OFFSET_PARAM],
-      options: (options?.parks ?? []).map((option) => ({ value: option.key, label: option.label })),
-    },
-    {
-      kind: "select",
       param: "pen",
       label: copy(pageContract, "filter.pen.label"),
       value: pen,
@@ -470,6 +464,16 @@ export async function SalesFarmBornPage({
   return (
     <div className="screen on sales-farm-born-page">
       <SalesPageHeader pageContract={pageContract} />
+
+      {/* A park change drops the pen (a pen belongs to one park) and every page offset. */}
+      <SalesFarmToggle
+        pageContract={pageContract}
+        pagePath={PAGE_PATH}
+        searchParams={sp}
+        parkId={park}
+        parks={parks}
+        clears={["pen", "offset", PEN_OFFSET_PARAM]}
+      />
 
       <WorklistFilters basePath={PAGE_PATH} pageParam="offset" fields={filterFields} pageContract={pageContract}>
         {!result.ok ? (

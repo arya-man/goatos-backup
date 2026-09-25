@@ -8,8 +8,8 @@
 // already broken once or nearly so, which is why they are machine-checked:
 //
 // RULE 1 — A PAGE THAT OWNS ITS PARK CHOICE HIDES THE SHELL'S. Every admin-web page that
-// renders `<SalesFarmToggle` carries the park choice in its own farm chips on the `farm`
-// parameter, so its PAGE_PATH must be in `PAGES_OWNING_PARK_SCOPE` in mesha-shell.tsx, or
+// renders `<SalesFarmToggle` carries the park choice in its own farm chips (which write the
+// shell's `park` parameter since 2026-09-25), so its PAGE_PATH must be in `PAGES_OWNING_PARK_SCOPE` in mesha-shell.tsx, or
 // the top bar shows a second selector the page never reads (the P2 in the PR 238 review:
 // the lock named the retired "/sales" and neither new page). The retired path itself must
 // NOT be listed -- nothing renders there.

@@ -73,7 +73,7 @@ func TestSalesFarmBornPageContract(t *testing.T) {
 		"filter.period.label", "filter.period.field", "filter.period.today", "filter.period.single", "filter.period.range",
 		"filter.period.aria", "filter.period.previous_month", "filter.period.next_month",
 		"filter.period.range_start_hint", "filter.period.range_end_hint", "filter.period.range_separator",
-		"filter.park.label", "filter.pen.label", "filter.species.label", "filter.breed.label",
+		"filter.farm", "filter.pen.label", "filter.species.label", "filter.breed.label",
 		"filter.sex.label", "filter.stage.label", "filter.all_option",
 		"filter.bar_aria", "filter.apply", "filter.clear_all",
 		"section.headline.aria", "kpi.on_farm", "kpi.on_farm.detail", "kpi.sold", "kpi.sold.detail",

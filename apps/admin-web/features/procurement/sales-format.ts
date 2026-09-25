@@ -1,8 +1,7 @@
 import { fmtDate } from "../../lib/format.ts";
 // Pure presentation helpers for the sales board. No copy lives here — every visible LABEL comes
-// from the backend page contract; these only format backend NUMBERS and build ?farm= links.
-
-const SALES_PATH = "/sales";
+// from the backend page contract; these only format backend NUMBERS. The park filter's links live
+// in sales-park-scope.ts.
 
 /** Indian-grouped rupee figure: 1234567 -> "₹12,34,567". Whole rupees by default. */
 export function inr(value: number, fractionDigits = 0): string {
@@ -30,27 +29,6 @@ export function resolveFarm(raw: string | undefined, optionKeys: readonly string
   return defaultKey;
 }
 
-/**
- * Server-rendered link for the sales board. The farm toggle and the deals pager share this one
- * builder so a farm switch always resets the ledger offset (the patch simply omits it) while a
- * pager click always preserves the selected farm.
- */
-export function salesHref(
-  params: { farm?: string; offset?: number; limit?: number; saleReadyToleranceG?: number },
-  defaults: { farm: string; limit: number },
-  /** The page the link stays on: the board by default, or Sold / Farm value, which share the farm toggle. */
-  path: string = SALES_PATH,
-): string {
-  const query = new URLSearchParams();
-  if (params.farm && params.farm !== defaults.farm) query.set("farm", params.farm);
-  if (params.limit && params.limit !== defaults.limit) query.set("limit", String(params.limit));
-  if (params.offset && params.offset > 0) query.set("offset", String(params.offset));
-  if (params.saleReadyToleranceG && params.saleReadyToleranceG > 0) {
-    query.set("sale_ready_tolerance_g", String(params.saleReadyToleranceG));
-  }
-  const qs = query.toString();
-  return qs ? `${path}?${qs}` : path;
-}
 
 /**
  * Status tone for the ledger chip. The LABEL is the backend's recorded status rendered verbatim —

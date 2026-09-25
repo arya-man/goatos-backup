@@ -15,7 +15,6 @@ import {
   numCompact,
   numCompactWhole,
   resolveFarm,
-  salesHref,
   trimEmptyMonthlyStart,
 } from "./sales-format.ts";
 
@@ -75,33 +74,6 @@ test("resolveFarm accepts only served option keys and falls back to the default"
   assert.equal(resolveFarm("cbe", keys, "all"), "all");
   assert.equal(resolveFarm("DROP TABLE", keys, "all"), "all");
   assert.equal(resolveFarm(undefined, keys, "all"), "all");
-});
-
-test("salesHref: a farm switch resets the ledger offset, a pager click keeps the farm", () => {
-  const defaults = { farm: "all", limit: 25 };
-  // The default view is the bare path — shared links stay canonical.
-  assert.equal(salesHref({}, defaults), "/sales");
-  assert.equal(salesHref({ farm: "all" }, defaults), "/sales");
-  // Farm toggle: no offset carried, so a narrowed ledger starts at page one.
-  assert.equal(salesHref({ farm: "CBE" }, defaults), "/sales?farm=CBE");
-  // Pager: farm survives the click.
-  assert.equal(
-    salesHref({ farm: "CBE", offset: 50, limit: 25 }, defaults),
-    "/sales?farm=CBE&offset=50",
-  );
-  // The default page size is omitted; a chosen one is kept.
-  assert.equal(salesHref({ limit: 50 }, defaults), "/sales?limit=50");
-  assert.equal(
-    salesHref({ farm: "CBE", offset: 50, limit: 25, saleReadyToleranceG: 100 }, defaults),
-    "/sales?farm=CBE&offset=50&sale_ready_tolerance_g=100",
-  );
-});
-
-test("salesHref: Sold and Farm value share the toggle and stay on their own page", () => {
-  const defaults = { farm: "all", limit: 25 };
-  assert.equal(salesHref({ farm: "CPT" }, defaults, "/sales/sold"), "/sales/sold?farm=CPT");
-  assert.equal(salesHref({ saleReadyToleranceG: 200 }, defaults, "/sales/farm-value"), "/sales/farm-value?sale_ready_tolerance_g=200");
-  assert.equal(salesHref({}, defaults, "/sales/farm-value"), "/sales/farm-value");
 });
 
 test("monthly chart totals are plain sums of the backend components", () => {
@@ -213,16 +185,21 @@ test("Sold ends with the deals ledger and Farm value carries no sold block", () 
   assert.ok(!existsSync(new URL("./sales.tsx", import.meta.url)), "the retired board component must not come back");
 });
 
-// Both read pages render their own farm chips on the `farm` parameter, so the shell must hide
-// its top-bar park selector on both (PR 238 review): the retired /sales path alone no longer
-// matches any page that renders.
-test("the shell hides its park selector on Sold and Farm value", () => {
+// Every Sales read page renders the farm chips (which write the shell's `park`), so the shell must
+// hide its top-bar park selector on each (PR 238 review; one park filter across Sales, 2026-09-25):
+// the retired /sales path alone no longer matches any page that renders.
+test("the shell hides its park selector on every Sales page that carries the farm chips", () => {
   const shell = readFileSync(new URL("../../components/mesha-shell.tsx", import.meta.url), "utf8");
+  const owning = shell.match(/const PAGES_OWNING_PARK_SCOPE = \[([\s\S]*?)\];/);
+  assert.ok(owning, "PAGES_OWNING_PARK_SCOPE must still exist");
+  for (const path of ["/sales/sold", "/sales/farm-value", "/sales/buyer-analytics", "/sales/loads", "/sales/farm-born"]) {
+    assert.match(owning[1], new RegExp(`"${path.replaceAll("/", "\\/")}"`), `${path} must hide the top-bar park`);
+  }
+  assert.doesNotMatch(owning[1], /"\/sales"[,\s]/, "the retired board path is not a page that renders");
+  // The list the shell actually hides the top bar on SPREADS that one, so the two cannot drift.
   const lock = shell.match(/const PAGES_WITH_LOCAL_OR_NO_PARK_SCOPE = \[([\s\S]*?)\];/);
   assert.ok(lock, "PAGES_WITH_LOCAL_OR_NO_PARK_SCOPE must still exist");
-  assert.match(lock[1], /"\/sales\/sold"/);
-  assert.match(lock[1], /"\/sales\/farm-value"/);
-  assert.doesNotMatch(lock[1], /"\/sales"[,\s]/, "the retired board path is not a page that renders");
+  assert.match(lock[1], /\.\.\.PAGES_OWNING_PARK_SCOPE/);
 });
 
 test("farm value copy keys have rollout fallbacks", () => {

@@ -11,7 +11,6 @@ import { Tag } from "@/components/ui-primitives";
 import {
   controlEnabled,
   copy,
-  optionGroup,
   table,
   tableLabels,
   tablePageSizes,
@@ -34,12 +33,10 @@ import {
   monthlyRevenueTotal,
   num,
   numCompactWhole,
-  resolveFarm,
-  salesHref,
   trimEmptyMonthlyStart,
 } from "./sales-format";
 import { SalesRecordDrawer } from "./sales-record-drawer";
-import { SALES_DEFAULT_FARM, SalesFarmToggle, SalesPageHeader, hrefWithQuery } from "./sales-chrome";
+import { SALES_DEFAULT_FARM, SalesFarmToggle, SalesPageHeader, hrefWithQuery, readSalesParkScope } from "./sales-chrome";
 
 const PAGE_PATH = "/sales/sold";
 const DEFAULT_LIMIT = 25;
@@ -339,14 +336,9 @@ export async function SalesSoldPage({
 }) {
   const sp = searchParams;
 
-  // Farm scope: validated against the SERVED option keys, never trusted raw. Every block on the
-  // page reads the one selected scope.
-  const farmOptions = optionGroup(pageContract, "sales_farms");
-  const farm = resolveFarm(
-    one(sp, "farm"),
-    farmOptions.map((option) => option.key),
-    SALES_DEFAULT_FARM,
-  );
+  // Park scope: the SHELL's `park` (one filter across every Sales page), resolved to the deal farm
+  // code the sales reads filter by. Every block on the page reads the one selected scope.
+  const { parkId, farm, parks } = await readSalesParkScope(sp, pageContract, PAGE_PATH);
   // Buyer board page. A hand-edited value is clamped here and again against the served row count,
   // so an out-of-range page can never take the section down.
   const buyersPage = boundedInt(one(sp, "buyers_page"), 1, 1, 1000);
@@ -406,9 +398,10 @@ export async function SalesSoldPage({
       <SalesFarmToggle
         pageContract={pageContract}
         pagePath={PAGE_PATH}
-        farm={farm}
-        limit={limit}
-        defaultLimit={pageSizes[0]}
+        searchParams={sp}
+        parkId={parkId}
+        parks={parks}
+        clears={["offset", "buyers_page", "deal_id"]}
       />
 
       {overview ? (
@@ -492,11 +485,10 @@ export async function SalesSoldPage({
             </span>
             {pageNumber > 1 ? (
               <Link
-                href={salesHref(
-                  { farm, limit, offset: Math.max(0, offset - limit) },
-                  { farm: SALES_DEFAULT_FARM, limit: pageSizes[0] },
-                  PAGE_PATH,
-                )}
+                href={hrefWithQuery(PAGE_PATH, sp, {
+                  offset: offset - limit > 0 ? String(offset - limit) : null,
+                  deal_id: null,
+                })}
                 scroll={false}
                 className="btn"
               >
@@ -509,11 +501,7 @@ export async function SalesSoldPage({
             )}
             {pageNumber < pageCount ? (
               <Link
-                href={salesHref(
-                  { farm, limit, offset: offset + limit },
-                  { farm: SALES_DEFAULT_FARM, limit: pageSizes[0] },
-                  PAGE_PATH,
-                )}
+                href={hrefWithQuery(PAGE_PATH, sp, { offset: String(offset + limit), deal_id: null })}
                 scroll={false}
                 className="btn"
               >

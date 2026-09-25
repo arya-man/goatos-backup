@@ -1,7 +1,15 @@
 import Link from "@/components/no-prefetch-link";
 import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { redirect } from "next/navigation";
+import { getAdminWebBootstrap } from "@/lib/api/server";
 import type { RouteSearchParams } from "@/lib/search-params";
-import { salesHref } from "./sales-format";
+import {
+  SALES_ALL_FARMS,
+  resolveSalesParkScope,
+  salesPageHref,
+  salesParkPatch,
+  type SalesPark,
+} from "./sales-park-scope";
 
 /**
  * Chrome the three read pages under Sales share (the board, Sold and Farm value, split
@@ -9,21 +17,11 @@ import { salesHref } from "./sales-format";
  * the page contract, and each page passes its own path so the toggle stays on the page it is on.
  */
 
-export const SALES_DEFAULT_FARM = "all";
+export const SALES_DEFAULT_FARM = SALES_ALL_FARMS;
 
 /** Rebuilds the current query with a patch, on the given page path. */
 export function hrefWithQuery(pagePath: string, sp: RouteSearchParams, patch: Record<string, string | null>): string {
-  const query = new URLSearchParams();
-  for (const [key, value] of Object.entries(sp)) {
-    const single = Array.isArray(value) ? value[0] : value;
-    if (single) query.set(key, single);
-  }
-  for (const [key, value] of Object.entries(patch)) {
-    if (value === null || value === "") query.delete(key);
-    else query.set(key, value);
-  }
-  const qs = query.toString();
-  return qs ? `${pagePath}?${qs}` : pagePath;
+  return salesPageHref(pagePath, sp, patch);
 }
 
 export function SalesPageHeader({ pageContract }: { pageContract: AdminUiPageContract }) {
@@ -46,44 +44,70 @@ export function SalesPageHeader({ pageContract }: { pageContract: AdminUiPageCon
 }
 
 /**
+ * The park the page is scoped to, read from the SHELL's `park` parameter (sales-park-scope.ts) and
+ * resolved against the parks the bootstrap contract serves this caller -- the same list the top bar
+ * offers, cached for the request. A legacy `?farm=CPT` URL is redirected onto `park` here, before
+ * the page reads anything, so the sidebar carries the choice from then on.
+ */
+export async function readSalesParkScope(
+  sp: RouteSearchParams,
+  pageContract: AdminUiPageContract,
+  pagePath: string,
+): Promise<{ parkId: string; farm: string; parks: SalesPark[] }> {
+  const bootstrap = await getAdminWebBootstrap();
+  const parks: SalesPark[] = bootstrap.ok
+    ? bootstrap.data.top_bar.park_selector.options.map((option) => ({ id: option.key, code: option.label }))
+    : [];
+  const farmKeys = optionGroup(pageContract, "sales_farms").map((option) => option.key);
+  const scope = resolveSalesParkScope(sp, parks, farmKeys, pagePath);
+  if (scope.redirectTo) redirect(scope.redirectTo);
+  return { parkId: scope.parkId, farm: scope.farm, parks };
+}
+
+/**
  * Farm scope toggle: server-rendered links, so the selection survives a reload and a shared URL.
- * A farm switch drops any ledger offset by construction (salesHref omits it), and keeps the
- * sale-ready error margin on Farm value, where it is the page's own filter.
+ *
+ * It writes the SHELL's `park` (a location uuid) and `scope_mode`, exactly as the top bar does, and
+ * keeps every other parameter on the page, so the sidebar carries the choice to the next Sales page
+ * and the page's own filters survive the switch. `clears` names what a park change invalidates
+ * (a ledger offset, a pen that belongs to the other park). The labels are the contract's
+ * `sales_farms` options; a farm the caller has no park for is not offered.
  */
 export function SalesFarmToggle({
   pageContract,
   pagePath,
-  farm,
-  limit,
-  defaultLimit,
-  saleReadyToleranceG,
+  searchParams,
+  parkId,
+  parks,
+  clears = [],
 }: {
   pageContract: AdminUiPageContract;
   pagePath: string;
-  farm: string;
-  /** The ledger page size to keep across the switch; pages without a ledger pass nothing. */
-  limit?: number;
-  defaultLimit?: number;
-  /** Farm value's applied error margin, carried across the switch. */
-  saleReadyToleranceG?: number;
+  searchParams: RouteSearchParams;
+  /** The selected park's uuid; "" is every farm. */
+  parkId: string;
+  parks: readonly SalesPark[];
+  /** Parameters a park switch drops, beyond the always-dropped legacy `farm`. */
+  clears?: readonly string[];
 }) {
-  const farmOptions = optionGroup(pageContract, "sales_farms");
+  const cleared = Object.fromEntries(clears.map((key) => [key, null]));
+  const choices = optionGroup(pageContract, "sales_farms").flatMap((option) => {
+    if (option.key === SALES_ALL_FARMS) return [{ option, id: "" }];
+    const park = parks.find((candidate) => candidate.code === option.key);
+    return park ? [{ option, id: park.id }] : [];
+  });
   return (
     <div className="chips" role="group" aria-label={copy(pageContract, "filter.farm")} style={{ marginBottom: 14 }}>
       <span className="muted small" style={{ marginRight: 6 }}>
         {copy(pageContract, "filter.farm")}
       </span>
-      {farmOptions.map((option) => (
+      {choices.map(({ option, id }) => (
         <Link
           key={option.key}
-          href={salesHref(
-            { farm: option.key, limit, saleReadyToleranceG },
-            { farm: SALES_DEFAULT_FARM, limit: defaultLimit ?? 0 },
-            pagePath,
-          )}
+          href={salesPageHref(pagePath, searchParams, { ...cleared, ...salesParkPatch(id) })}
           scroll={false}
-          className={option.key === farm ? "btn sm p" : "btn sm"}
-          aria-current={option.key === farm ? "true" : undefined}
+          className={id === parkId ? "btn sm p" : "btn sm"}
+          aria-current={id === parkId ? "true" : undefined}
         >
           {option.label}
         </Link>

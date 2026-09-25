@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { Tag } from "@/components/ui-primitives";
-import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { firstAuthRequiredError, getGrowthAssumptions, getShedWeights } from "@/lib/api/server";
 import { assumptionValue, DEFAULT_SALE_READY_THRESHOLD_KG, fillKg } from "@/features/weighing";
@@ -9,8 +9,8 @@ import { istDayPlus, todayIso } from "@/lib/format";
 import { getSalesOverview } from "@/lib/api/procurement-server";
 import type { SalesOverview } from "@/lib/api/procurement";
 import { boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
-import { inr, num, resolveFarm } from "./sales-format";
-import { SALES_DEFAULT_FARM, SalesFarmToggle, SalesPageHeader } from "./sales-chrome";
+import { inr, num } from "./sales-format";
+import { SalesFarmToggle, SalesPageHeader, readSalesParkScope } from "./sales-chrome";
 import { SalesReadyToleranceControl } from "./sales-ready-tolerance-control";
 
 const PAGE_PATH = "/sales/farm-value";
@@ -186,13 +186,9 @@ export async function SalesFarmValuePage({
 }) {
   const sp = searchParams;
 
-  // Farm scope: validated against the SERVED option keys, never trusted raw.
-  const farmOptions = optionGroup(pageContract, "sales_farms");
-  const farm = resolveFarm(
-    one(sp, "farm"),
-    farmOptions.map((option) => option.key),
-    SALES_DEFAULT_FARM,
-  );
+  // Park scope: the SHELL's `park` (one filter across every Sales page). The valuation is keyed by
+  // the deal farm code, the Over 35 kg count by the park itself.
+  const { parkId, farm, parks } = await readSalesParkScope(sp, pageContract, PAGE_PATH);
 
   // The Over 35 kg card reads weighing only when the contract enables it: fetch = render, and a
   // role the weighing endpoint would refuse is never asked to make that call.
@@ -220,29 +216,16 @@ export async function SalesFarmValuePage({
     sale_lower_kg: saleLowerKg,
   };
   // The page's data in ONE parallel read: the overview (whose farm_valuation is this page's
-  // block) and, when enabled, the weighing count. Unscoped first: the weighing response also
-  // carries the park vocabulary this page's farm code is matched against.
+  // block) and, when enabled, the weighing count -- read for the selected park directly, since the
+  // page's scope IS the park id the weighing read takes.
   const [overviewResult, weightsResult] = await Promise.all([
     getSalesOverview({ farm }),
-    over35Enabled && !assumptionsFailed ? getShedWeights(over35Params) : Promise.resolve(null),
+    over35Enabled && !assumptionsFailed
+      ? getShedWeights({ ...over35Params, ...(parkId ? { park_id: parkId } : {}) })
+      : Promise.resolve(null),
   ]);
   if (firstAuthRequiredError(overviewResult)) redirect(INTERNAL_LOGIN_PATH);
-
-  // Farm scope for the card. The weighing park vocabulary names parks by their code (CBE, CPT),
-  // the same code this page's farm filter carries, so the selected farm resolves to a park id
-  // and the count is re-read for that park alone. An unknown farm code keeps the all-parks
-  // figure rather than showing a zero for a park that was never asked about.
-  let over35Count: number | null = null;
-  if (weightsResult?.ok) {
-    over35Count = weightsResult.data.summary.at_or_above_35kg;
-    if (farm !== SALES_DEFAULT_FARM) {
-      const park = weightsResult.data.parks.find((item) => item.name === farm);
-      if (park) {
-        const scoped = await getShedWeights({ ...over35Params, park_id: park.park_id });
-        over35Count = scoped.ok ? scoped.data.summary.at_or_above_35kg : null;
-      }
-    }
-  }
+  const over35Count: number | null = weightsResult?.ok ? weightsResult.data.summary.at_or_above_35kg : null;
   const over35PreserveQuery = Object.entries(sp).flatMap(([key, value]) => {
     if (key === "sale_ready_tolerance_g") return [];
     const first = Array.isArray(value) ? value[0] : value;
@@ -283,8 +266,9 @@ export async function SalesFarmValuePage({
       <SalesFarmToggle
         pageContract={pageContract}
         pagePath={PAGE_PATH}
-        farm={farm}
-        saleReadyToleranceG={over35.toleranceG}
+        searchParams={sp}
+        parkId={parkId}
+        parks={parks}
       />
 
       {overview ? <FarmValueSections overview={overview} pageContract={pageContract} over35={over35} /> : null}

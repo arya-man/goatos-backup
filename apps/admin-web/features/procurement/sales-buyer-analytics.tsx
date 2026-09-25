@@ -4,7 +4,6 @@ import Link from "@/components/no-prefetch-link";
 import {
   controlEnabled,
   copy,
-  optionGroup,
   optionalCopy,
   table,
   tablePageSizes,
@@ -15,11 +14,13 @@ import { firstAuthRequiredError } from "@/lib/api/server";
 import { getBuyerAnalytics } from "@/lib/api/procurement-server";
 import type { BuyerAnalytics, BuyerAnalyticsRow } from "@/lib/api/procurement";
 import { boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
-import { inr, num, resolveFarm, salesHref } from "./sales-format";
+import { inr, num } from "./sales-format";
 import {
   SALES_DEFAULT_FARM,
   SalesFarmToggle,
   SalesPageHeader,
+  hrefWithQuery,
+  readSalesParkScope,
 } from "./sales-chrome";
 import { BuyerTable } from "./buyer-table";
 
@@ -237,13 +238,9 @@ export async function SalesBuyerAnalyticsPage({
 }) {
   const sp = searchParams;
 
-  // Farm scope: validated against the SERVED option keys, never trusted raw.
-  const farmOptions = optionGroup(pageContract, "sales_farms");
-  const farm = resolveFarm(
-    one(sp, "farm"),
-    farmOptions.map((option) => option.key),
-    SALES_DEFAULT_FARM,
-  );
+  // Park scope: the SHELL's `park` (one filter across every Sales page), resolved to the deal farm
+  // code the buyer read filters by.
+  const { parkId, farm, parks } = await readSalesParkScope(sp, pageContract, PAGE_PATH);
   // Page size is the contract's; the offset is bounded to the backend's own ceiling.
   const pageSizes = tablePageSizes(pageContract, "sales-buyer-analytics");
   const defaultLimit = pageSizes[0] ?? FALLBACK_LIMIT;
@@ -257,12 +254,9 @@ export async function SalesBuyerAnalyticsPage({
   });
   if (firstAuthRequiredError(result)) redirect(INTERNAL_LOGIN_PATH);
 
+  // The pager keeps the page's park and every other parameter; only the offset moves.
   const pageHref = (nextOffset: number) =>
-    salesHref(
-      { farm, limit, offset: nextOffset },
-      { farm: SALES_DEFAULT_FARM, limit: defaultLimit },
-      PAGE_PATH,
-    );
+    hrefWithQuery(PAGE_PATH, sp, { offset: nextOffset > 0 ? String(nextOffset) : null });
 
   return (
     <div className="screen on">
@@ -278,9 +272,10 @@ export async function SalesBuyerAnalyticsPage({
       <SalesFarmToggle
         pageContract={pageContract}
         pagePath={PAGE_PATH}
-        farm={farm}
-        limit={limit}
-        defaultLimit={defaultLimit}
+        searchParams={sp}
+        parkId={parkId}
+        parks={parks}
+        clears={["offset"]}
       />
 
       {result.ok ? (

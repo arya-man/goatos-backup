@@ -305,12 +305,13 @@ export function MeshaShell({
   // data and do not send `park_id` anywhere. Showing "CPT · all pens" on those routes implies a
   // filter the page does not apply.
   //
-  // Routes that genuinely consume top-bar `park` stay OUT of this list (for example /sales/loads).
+  // Routes that genuinely consume top-bar `park` stay OUT of this list.
   //
   // Weights analytics carries the same filter bar as Weights beside it, so it belongs here for the
   // same reason.
-  // Sales too (maintainer request 2026-09-03): its farm chips ARE its park choice, on the page's
-  // own `farm` parameter, so the top-bar chip was a second answer the page never read. The board
+  // Sales too (maintainer request 2026-09-03): its farm chips ARE its park choice, so the top-bar
+  // chip was a second answer to the same question (the chips once wrote a page-own `farm`; since
+  // 2026-09-25 they write the shell's `park`, see below). The board
   // was divided into Sold and Farm value on 2026-09-11 (/sales only redirects now), and both
   // carry the same farm chips, so both are listed -- an exact match on the retired path alone
   // brought the second selector back on the pages that actually render (PR 238 review).
@@ -320,10 +321,17 @@ export function MeshaShell({
   // Legacy guard hook for the Sales split: sales-pages-guard asserts every
   // SalesFarmToggle page is declared here. The broader list below also spreads
   // this list so the runtime shell behavior stays centralized.
+  //
+  // ONE park filter across Sales (2026-09-25): every Sales read page -- Summary, Farm value, Buyer
+  // analytics, Load wise, Farm born -- carries the same farm chips, and those chips write THIS
+  // shell's `park` / `scope_mode`, so the sidebar carries the choice between them and between
+  // Sales and every other screen. Only the control moved onto the page; the parameter is the top
+  // bar's own, which is why the top bar is hidden here rather than left as a second answer.
   const PAGES_OWNING_PARK_SCOPE = [
     "/sales/sold",
     "/sales/farm-value",
     "/sales/buyer-analytics",
+    "/sales/loads",
     "/sales/farm-born",
   ];
   const PAGES_WITH_LOCAL_OR_NO_PARK_SCOPE = [
@@ -352,10 +360,9 @@ export function MeshaShell({
     "/weighing/weights",
     "/weighing/analytics",
     "/weighing/sops",
-    "/sales/sold",
-    "/sales/farm-value",
-    "/sales/buyer-analytics",
-    "/sales/farm-born",
+    // The Sales read pages that carry the farm chips -- spread, not copied, so the list the
+    // sales-pages guard checks is the list the shell actually hides the top bar on.
+    ...PAGES_OWNING_PARK_SCOPE,
     "/sales/vendors",
     "/tasks",
     "/vaccination/plan",
