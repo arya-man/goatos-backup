@@ -32,7 +32,10 @@ function StatusChips({ row, pageContract }: { row: VaccinationExecutionRow; page
   );
 }
 
-function NotFoundOrError({ shedId, message, backHref, pageContract }: { shedId: string; message: string; backHref: string; pageContract: AdminUiPageContract }) {
+// The pen could not be opened. Everything on this screen is backend-owned farm copy from the page
+// contract: never the pen's raw id and never the API's error string (which is written for logs --
+// "shed vaccination execution was not found" -- and put both a uuid and the word "shed" on screen).
+function PenUnavailable({ backHref, pageContract }: { backHref: string; pageContract: AdminUiPageContract }) {
   return (
     <div className="screen on">
       <div className="phead">
@@ -42,17 +45,16 @@ function NotFoundOrError({ shedId, message, backHref, pageContract }: { shedId: 
               {copy(pageContract, "crumb")}
             </Link>
           </div>
-	          <h1>{copy(pageContract, "fallback.title")}</h1>
-          <div className="sub">{message}</div>
+          <h1>{copy(pageContract, "fallback.title")}</h1>
         </div>
       </div>
       <section className="card">
         <div className="bd">
           <p className="muted small" style={{ marginBottom: 12 }}>
-            {shedId}: {copy(pageContract, "fallback.body")}
+            {copy(pageContract, "fallback.body")}
           </p>
           <Link href={backHref} className="btn">
-	            <ArrowLeft className="ic" style={{ width: 14 }} aria-hidden="true" /> {copy(pageContract, "action.back")}
+            <ArrowLeft className="ic" style={{ width: 14 }} aria-hidden="true" /> {copy(pageContract, "action.back")}
           </Link>
         </div>
       </section>
@@ -76,7 +78,7 @@ export async function ShedExecutionDetailPage({
   const result = await getVaccinationExecutionShedDrilldown(shedId, { asOf, partitionLabel });
   const fallbackBackHref = scope ? `${scopeHref("/vaccination", scope)}#execution` : "/vaccination#execution";
   if (!result.ok) {
-    return <NotFoundOrError shedId={shedId} message={result.error.message} backHref={fallbackBackHref} pageContract={pageContract} />;
+    return <PenUnavailable backHref={fallbackBackHref} pageContract={pageContract} />;
   }
   const shed = result.data;
   if (scope && scope.mode !== "park" && shed.parkId) {
@@ -227,12 +229,13 @@ export async function ShedExecutionDetailPage({
 	          <h3>{copy(pageContract, "section.drive_rows.title")}</h3>
           <Tag tone="mut">{shed.rows.length}</Tag>
         </div>
-        <div className="pexec" role="group" aria-label={`${shed.shedName} ${copy(pageContract, "table.drive_rows.aria")}`}>
+        <div className="pexec" role="group" aria-label={`${shedDisplayLabel} ${copy(pageContract, "table.drive_rows.aria")}`}>
           <div className="pexh">
             {driveRowLabels.map((label) => (
               <div key={label}>{label}</div>
             ))}
           </div>
+          {shed.rows.length === 0 ? <p className="muted small" style={{ padding: "10px 14px" }}>{copy(pageContract, "empty.drive_rows")}</p> : null}
           {shed.rows.map((row, idx) => (
             <div className="pexr" key={`${row.driveId ?? copy(pageContract, "label.drive_fallback")}-${idx}`}>
               <div className="pexc">

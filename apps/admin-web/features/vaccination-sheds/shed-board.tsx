@@ -20,7 +20,7 @@ import { boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
 import { fmtDate } from "@/lib/format";
 import { VaccinationTablePager, type VaccinationPageSize } from "@/features/preventive-care-vaccination";
 import { ShedFilterBar } from "./shed-filter-bar";
-import { vaccinationCurrentViewScope } from "./shed-scope";
+import { penDetailParams, vaccinationCurrentViewScope } from "./shed-scope";
 
 // Merged CEO status headline order (highest priority first) — matches the backend headline priority and
 // the shed_status_chips contract group. Used to validate the ?sheds_status filter and render chips.
@@ -182,13 +182,14 @@ export async function VaccinationShedBoard({
   function pageSizeHref(size: VaccinationPageSize): string {
     return hrefWith({ sheds_page: "1", sheds_limit: String(size) });
   }
-  // Shed detail carries the current board href in ?ret so its Back button restores the exact list state.
+  // Pen detail carries the row's own partition (a row is one pen, not the building) and the current
+  // board href in ?ret so its Back button restores the exact list state.
   function detailHref(row: VaccinationShedSummaryRow): string {
     return scopeHref(
       `/vaccination/execution/sheds/${encodeURIComponent(row.shedId)}`,
       scope,
       { mode: "park", park: row.parkId },
-      { ret: hrefWith({}) },
+      penDetailParams(row, hrefWith({})),
     );
   }
 

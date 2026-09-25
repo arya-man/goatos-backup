@@ -4,3 +4,15 @@
 export function vaccinationCurrentViewScope(scope: { parkId?: string }): { parkId?: string } {
   return scope.parkId ? { parkId: scope.parkId } : {};
 }
+
+// A pen board row is ONE pen: (shed_id, partition_label). The drilldown route is keyed by the
+// physical shed id, so the partition must ride along or "Gandhi 2" opens the whole Gandhi building
+// (Gandhi 1 + 2 + 3). The label is the stored partition_label, sent verbatim -- never a display
+// string -- and an undivided pen sends none.
+export function penDetailParams(
+  row: { partitionLabel?: string | null },
+  ret: string,
+): Record<string, string | undefined> {
+  const partition = row.partitionLabel?.trim();
+  return { partition_label: partition || undefined, ret };
+}
